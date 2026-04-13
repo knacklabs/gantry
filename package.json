@@ -1,0 +1,70 @@
+{
+  "name": "myclaw",
+  "version": "1.2.52",
+  "description": "Personal AI assistant runtime. Lightweight, secure, customizable.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "myclaw": "dist/cli/index.js"
+  },
+  "files": [
+    "dist/",
+    "packages/agent-runner/dist/",
+    "packages/agent-runner/package.json"
+  ],
+  "workspaces": [
+    "packages/agent-runner"
+  ],
+  "scripts": {
+    "build": "tsc && npm run build --workspace myclaw-agent-runner",
+    "start": "node dist/index.js",
+    "start:container": "AGENT_RUNTIME=container node dist/index.js",
+    "start:host": "AGENT_RUNTIME=host node dist/index.js",
+    "dev": "tsx apps/core/src/index.ts",
+    "dev:container": "AGENT_RUNTIME=container tsx apps/core/src/index.ts",
+    "dev:host": "AGENT_RUNTIME=host tsx apps/core/src/index.ts",
+    "cli:dev": "tsx apps/core/src/cli/index.ts",
+    "typecheck": "tsc --noEmit && npm run build --workspace myclaw-agent-runner",
+    "format": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/agent-runner/src/**/*.ts\"",
+    "format:fix": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/agent-runner/src/**/*.ts\"",
+    "format:check": "prettier --check \"apps/core/**/*.{ts,md}\" \"packages/agent-runner/src/**/*.ts\"",
+    "prepare": "husky",
+    "setup": "tsx apps/core/setup/index.ts",
+    "lint": "eslint apps/core/src apps/core/setup packages/agent-runner/src",
+    "lint:fix": "eslint apps/core/src apps/core/setup packages/agent-runner/src --fix",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.2.97",
+    "@anthropic-ai/sdk": "^0.88.0",
+    "@clack/prompts": "^1.2.0",
+    "@grammyjs/auto-retry": "^2.0.2",
+    "@grammyjs/stream": "^1.0.1",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@onecli-sh/sdk": "^0.2.0",
+    "better-sqlite3": "11.10.0",
+    "cron-parser": "5.5.0",
+    "grammy": "^1.42.0",
+    "sqlite-vec": "^0.1.9",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^4.1.4",
+    "eslint": "^9.35.0",
+    "eslint-plugin-no-catch-all": "^1.1.0",
+    "globals": "^15.12.0",
+    "husky": "^9.1.7",
+    "prettier": "^3.8.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.35.0",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

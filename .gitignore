@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.npm-cache/
+# Build output
+dist/
+
+# Local data & auth
+store/
+data/
+logs/
+.claude/
+
+# Groups - only track base structure and specific CLAUDE.md files
+apps/core/groups/*
+!apps/core/groups/main/
+!apps/core/groups/global/
+apps/core/groups/main/*
+apps/core/groups/global/*
+!apps/core/groups/main/CLAUDE.md
+!apps/core/groups/global/CLAUDE.md
+
+# Secrets
+*.keys.json
+.env
+
+# Temp files
+.tmp-*
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+cov-tmp/
+tmp-coverage/
+.factory/
+*.tgz
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Skills system (local per-installation state)
+.myclaw/
+
+agents-sdk-docs
