@@ -4,6 +4,9 @@ import path from 'path';
 import { App } from '@slack/bolt';
 
 import {
+  MINI_APP_ENABLED,
+  MINI_APP_API_URL,
+  MINI_APP_FRONTEND_URL,
   PERMISSION_APPROVAL_TIMEOUT_MS,
   SLACK_PERMISSION_APPROVER_IDS,
 } from '../core/config.js';
@@ -16,6 +19,8 @@ import {
   PlanReviewPrompt,
   ProgressUpdateOptions,
   StreamingChunkOptions,
+  UserQuestionRequest,
+  UserQuestionResponse,
 } from '../core/types.js';
 import {
   formatOutboundForChannel,
@@ -27,6 +32,12 @@ import { ChannelOpts, registerChannel } from './registry.js';
 
 const SLACK_STREAM_UPDATE_INTERVAL_MS = 900;
 const SLACK_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+const SLACK_BUTTON_TEXT_MAX_LENGTH = 75;
+const SLACK_ACTION_VALUE_MAX_LENGTH = 2000;
+const MINI_APP_FRONTEND_URL_VALUE = MINI_APP_FRONTEND_URL.trim();
+const MINI_APP_API_URL_VALUE = MINI_APP_API_URL.trim();
+const SLACK_MINI_APP_ENABLED =
+  MINI_APP_ENABLED && MINI_APP_FRONTEND_URL_VALUE.length > 0;
 
 interface ActiveStreamState {
   channelId: string;
@@ -52,6 +63,22 @@ interface PendingPermissionPrompt {
   messageTs: string;
   timer: ReturnType<typeof setTimeout>;
   resolve: (decision: PermissionApprovalDecision) => void;
+  settled: boolean;
+}
+
+interface PendingUserQuestionState {
+  requestId: string;
+  questionIndex: number;
+  question: UserQuestionRequest['questions'][number];
+  promptText: string;
+  selectedOptionIndexes: Set<number>;
+  channelId: string;
+  messageTs: string;
+  timer?: ReturnType<typeof setTimeout>;
+  resolve: (selection: {
+    selected: string | string[];
+    answeredBy?: string;
+  }) => void;
   settled: boolean;
 }
 
@@ -93,6 +120,7 @@ export class SlackChannel implements Channel {
   private sealedStreamGenerationByJid = new Map<string, number>();
   private activeProgress = new Map<string, ActiveProgressState>();
   private pendingPermissionPrompts = new Map<string, PendingPermissionPrompt>();
+  private pendingUserQuestions = new Map<string, PendingUserQuestionState>();
 
   constructor(botToken: string, appToken: string, opts: ChannelOpts) {
     this.botToken = botToken;
@@ -106,6 +134,266 @@ export class SlackChannel implements Channel {
 
   private progressKey(jid: string, threadId?: string): string {
     return `progress:${this.streamKey(jid, threadId)}`;
+  }
+
+  private pendingUserQuestionKey(
+    requestId: string,
+    questionIndex: number,
+  ): string {
+    return `${requestId}:${questionIndex}`;
+  }
+
+  private truncateText(text: string, maxLen: number): string {
+    if (text.length <= maxLen) return text;
+    return `${text.slice(0, maxLen)}...`;
+  }
+
+  private truncateButtonText(text: string): string {
+    const trimmed = text.trim();
+    if (!trimmed) return 'Option';
+    return this.truncateText(trimmed, SLACK_BUTTON_TEXT_MAX_LENGTH);
+  }
+
+  private encodeActionValue(value: Record<string, unknown>): string {
+    const serialized = JSON.stringify(value);
+    if (serialized.length <= SLACK_ACTION_VALUE_MAX_LENGTH) {
+      return serialized;
+    }
+    return JSON.stringify({
+      requestId: value.requestId,
+      questionIndex: value.questionIndex,
+    });
+  }
+
+  private formatPermissionToolInputLines(
+    request: PermissionApprovalRequest,
+  ): string[] {
+    if (!request.toolInput || typeof request.toolInput !== 'object') return [];
+    const input = request.toolInput;
+    if (
+      request.toolName === 'Bash' &&
+      typeof input.command === 'string' &&
+      input.command.trim()
+    ) {
+      return [`Command: \`${this.truncateText(input.command.trim(), 300)}\``];
+    }
+    if (request.toolName === 'Edit' || request.toolName === 'Write') {
+      const lines: string[] = [];
+      if (typeof input.file_path === 'string' && input.file_path.trim()) {
+        lines.push(`File: ${this.truncateText(input.file_path.trim(), 250)}`);
+      }
+      if (typeof input.old_string === 'string' && input.old_string.trim()) {
+        lines.push(
+          `Replacing: ${this.truncateText(input.old_string.trim(), 150)}`,
+        );
+      }
+      if (typeof input.new_string === 'string' && input.new_string.trim()) {
+        lines.push(`With: ${this.truncateText(input.new_string.trim(), 150)}`);
+      }
+      if (lines.length > 0) return lines;
+    }
+    try {
+      return [`Input: ${this.truncateText(JSON.stringify(input), 300)}`];
+    } catch {
+      return ['Input: [unserializable]'];
+    }
+  }
+
+  private formatUserQuestionPromptText(
+    question: UserQuestionRequest['questions'][number],
+    timeoutMs: number,
+  ): string {
+    const timeoutMinutes = Math.max(1, Math.round(timeoutMs / 60000));
+    const lines = [`*${question.header}*`, question.question, ''];
+    question.options.forEach((option, optionIndex) => {
+      const description = option.description
+        ? ` — ${this.truncateText(option.description, 180)}`
+        : '';
+      lines.push(`${optionIndex + 1}. ${option.label}${description}`);
+      if (option.preview) {
+        lines.push(`Preview: ${this.truncateText(option.preview, 180)}`);
+      }
+    });
+    lines.push('');
+    if (question.multiSelect) {
+      lines.push('Select one or more options, then click Done.');
+    } else {
+      lines.push('Select one option.');
+    }
+    lines.push(`Reply timeout: ${timeoutMinutes} minute(s)`);
+    return lines.join('\n');
+  }
+
+  private buildUserQuestionBlocks(
+    pending: PendingUserQuestionState,
+  ): Array<Record<string, unknown>> {
+    const elements: Array<Record<string, unknown>> =
+      pending.question.options.map((option, optionIndex) => {
+        const isSelected = pending.selectedOptionIndexes.has(optionIndex);
+        const prefix = pending.question.multiSelect
+          ? isSelected
+            ? '[x] '
+            : '[ ] '
+          : '';
+        const label = this.truncateButtonText(
+          `${prefix}${optionIndex + 1}. ${option.label}`,
+        );
+        return {
+          type: 'button',
+          action_id: 'myclaw_userq_select',
+          text: {
+            type: 'plain_text',
+            text: label,
+          },
+          value: this.encodeActionValue({
+            requestId: pending.requestId,
+            questionIndex: pending.questionIndex,
+            optionIndex,
+          }),
+        };
+      });
+
+    if (pending.question.multiSelect) {
+      elements.push({
+        type: 'button',
+        action_id: 'myclaw_userq_done',
+        text: {
+          type: 'plain_text',
+          text: this.truncateButtonText(
+            pending.selectedOptionIndexes.size > 0
+              ? `Done (${pending.selectedOptionIndexes.size})`
+              : 'Done',
+          ),
+        },
+        style: 'primary',
+        value: this.encodeActionValue({
+          requestId: pending.requestId,
+          questionIndex: pending.questionIndex,
+          done: true,
+        }),
+      });
+    }
+
+    return [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: pending.promptText,
+        },
+      },
+      {
+        type: 'actions',
+        elements,
+      },
+    ];
+  }
+
+  private parseUserQuestionActionValue(
+    rawValue: string | undefined,
+  ): { requestId: string; questionIndex: number; optionIndex?: number } | null {
+    if (!rawValue) return null;
+    try {
+      const parsed = JSON.parse(rawValue) as {
+        requestId?: unknown;
+        questionIndex?: unknown;
+        optionIndex?: unknown;
+      };
+      if (
+        typeof parsed.requestId !== 'string' ||
+        !Number.isInteger(parsed.questionIndex)
+      ) {
+        return null;
+      }
+      if (
+        parsed.optionIndex !== undefined &&
+        !Number.isInteger(parsed.optionIndex)
+      ) {
+        return null;
+      }
+      return {
+        requestId: parsed.requestId,
+        questionIndex: parsed.questionIndex as number,
+        ...(typeof parsed.optionIndex === 'number'
+          ? { optionIndex: parsed.optionIndex as number }
+          : {}),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async refreshUserQuestionPrompt(
+    pending: PendingUserQuestionState,
+  ): Promise<void> {
+    if (!this.app) return;
+    try {
+      await this.app.client.chat.update({
+        channel: pending.channelId,
+        ts: pending.messageTs,
+        text: pending.promptText,
+        blocks: this.buildUserQuestionBlocks(pending) as any,
+      });
+    } catch (err) {
+      logger.debug(
+        {
+          requestId: pending.requestId,
+          questionIndex: pending.questionIndex,
+          err,
+        },
+        'Failed to refresh Slack user question prompt',
+      );
+    }
+  }
+
+  private async finalizeUserQuestionPrompt(
+    pending: PendingUserQuestionState,
+    selection: string | string[],
+    answeredBy?: string,
+    reason?: string,
+  ): Promise<void> {
+    if (pending.settled) return;
+    pending.settled = true;
+    const key = this.pendingUserQuestionKey(
+      pending.requestId,
+      pending.questionIndex,
+    );
+    this.pendingUserQuestions.delete(key);
+    if (pending.timer) clearTimeout(pending.timer);
+    pending.resolve({ selected: selection, answeredBy });
+
+    if (!this.app) return;
+    const selectionText = Array.isArray(selection)
+      ? selection.join(', ')
+      : selection;
+    const status = reason || 'answered';
+    const actor = answeredBy ? ` by ${answeredBy}` : '';
+    const text = `Question: ${pending.question.header}\nAnswer: ${selectionText || '[none]'}\nStatus: ${status}${actor}`;
+    try {
+      await this.app.client.chat.update({
+        channel: pending.channelId,
+        ts: pending.messageTs,
+        text,
+        blocks: [],
+      });
+    } catch (err) {
+      logger.debug(
+        {
+          requestId: pending.requestId,
+          questionIndex: pending.questionIndex,
+          err,
+        },
+        'Failed to finalize Slack user question prompt',
+      );
+    }
+  }
+
+  private buildSlackMiniAppUrl(planId: string): string | undefined {
+    if (!SLACK_MINI_APP_ENABLED) return undefined;
+    const base = MINI_APP_FRONTEND_URL_VALUE.replace(/\/+$/, '');
+    const url = `${base}/plans/${encodeURIComponent(planId)}`;
+    if (!MINI_APP_API_URL_VALUE) return url;
+    return `${url}?api=${encodeURIComponent(MINI_APP_API_URL_VALUE)}`;
   }
 
   private clearStreamingStateForJid(jid: string): void {
@@ -501,6 +789,7 @@ export class SlackChannel implements Channel {
     if (request.blockedPath) lines.push(`Path: ${request.blockedPath}`);
     if (request.decisionReason) lines.push(`Reason: ${request.decisionReason}`);
     if (request.description) lines.push(`Details: ${request.description}`);
+    lines.push(...this.formatPermissionToolInputLines(request));
     lines.push(`Reply timeout: ${timeoutMinutes} minute(s)`);
     return lines.join('\n');
   }
@@ -564,7 +853,7 @@ export class SlackChannel implements Channel {
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: 'Use `myclaw group add sl:<channel-id>` to bind additional Slack chats.',
+            text: 'Use `myclaw agent add sl:<channel-id>` to bind additional Slack chats.',
           },
         },
       ];
@@ -604,7 +893,7 @@ export class SlackChannel implements Channel {
                 type: 'section',
                 text: {
                   type: 'mrkdwn',
-                  text: 'Use `myclaw group add sl:<channel-id>` to bind new Slack chats.',
+                  text: 'Use `myclaw agent add sl:<channel-id>` to bind new Slack chats.',
                 },
               },
             ],
@@ -685,6 +974,110 @@ export class SlackChannel implements Channel {
         approved: payload.decision === 'approve',
         decidedBy,
       });
+    });
+
+    this.app.action('myclaw_userq_select', async (args: any) => {
+      await args.ack();
+      const action = args.action as { value?: string };
+      const body = args.body as {
+        channel?: { id?: string };
+        user?: { id?: string; name?: string; username?: string };
+      };
+      const parsed = this.parseUserQuestionActionValue(action.value);
+      if (!parsed || parsed.optionIndex === undefined) return;
+
+      const key = this.pendingUserQuestionKey(
+        parsed.requestId,
+        parsed.questionIndex,
+      );
+      const pending = this.pendingUserQuestions.get(key);
+      if (!pending || pending.settled) return;
+      const callbackChannelId = body.channel?.id || '';
+      if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
+      const userId = body.user?.id || '';
+      if (!userId) return;
+      if (!this.canDecidePermission(userId)) {
+        try {
+          await this.app?.client.chat.postEphemeral({
+            channel: pending.channelId,
+            user: userId,
+            text: 'You are not allowed to answer this prompt.',
+          });
+        } catch {
+          // ignore
+        }
+        return;
+      }
+      if (
+        parsed.optionIndex < 0 ||
+        parsed.optionIndex >= pending.question.options.length
+      ) {
+        return;
+      }
+
+      const answeredBy =
+        body.user?.name || body.user?.username || body.user?.id || 'unknown';
+      if (!pending.question.multiSelect) {
+        const label =
+          pending.question.options[parsed.optionIndex]?.label?.trim() || '';
+        await this.finalizeUserQuestionPrompt(pending, label, answeredBy);
+        return;
+      }
+
+      if (pending.selectedOptionIndexes.has(parsed.optionIndex)) {
+        pending.selectedOptionIndexes.delete(parsed.optionIndex);
+      } else {
+        pending.selectedOptionIndexes.add(parsed.optionIndex);
+      }
+      await this.refreshUserQuestionPrompt(pending);
+    });
+
+    this.app.action('myclaw_userq_done', async (args: any) => {
+      await args.ack();
+      const action = args.action as { value?: string };
+      const body = args.body as {
+        channel?: { id?: string };
+        user?: { id?: string; name?: string; username?: string };
+      };
+      const parsed = this.parseUserQuestionActionValue(action.value);
+      if (!parsed) return;
+
+      const key = this.pendingUserQuestionKey(
+        parsed.requestId,
+        parsed.questionIndex,
+      );
+      const pending = this.pendingUserQuestions.get(key);
+      if (!pending || pending.settled || !pending.question.multiSelect) return;
+      const callbackChannelId = body.channel?.id || '';
+      if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
+      const userId = body.user?.id || '';
+      if (!userId) return;
+      if (!this.canDecidePermission(userId)) {
+        try {
+          await this.app?.client.chat.postEphemeral({
+            channel: pending.channelId,
+            user: userId,
+            text: 'You are not allowed to answer this prompt.',
+          });
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
+      const selectedLabels = Array.from(pending.selectedOptionIndexes)
+        .sort((a, b) => a - b)
+        .map((index) => pending.question.options[index]?.label || '')
+        .map((label) => label.trim())
+        .filter((label) => label.length > 0)
+        .slice(0, pending.question.options.length);
+      const answeredBy =
+        body.user?.name || body.user?.username || body.user?.id || 'unknown';
+      await this.finalizeUserQuestionPrompt(
+        pending,
+        selectedLabels,
+        answeredBy,
+      );
     });
   }
 
@@ -1059,6 +1452,115 @@ export class SlackChannel implements Channel {
     }
   }
 
+  async requestUserAnswer(
+    jid: string,
+    request: UserQuestionRequest,
+  ): Promise<UserQuestionResponse> {
+    if (!this.app) {
+      return { requestId: request.requestId, answers: {} };
+    }
+
+    const parsed = this.parseJid(jid);
+    if (!parsed) {
+      return { requestId: request.requestId, answers: {} };
+    }
+
+    const timeoutMs = PERMISSION_APPROVAL_TIMEOUT_MS;
+    const answers: Record<string, string | string[]> = {};
+    let answeredBy: string | undefined;
+
+    for (let i = 0; i < request.questions.length; i += 1) {
+      const question = request.questions[i];
+      const pendingKey = this.pendingUserQuestionKey(request.requestId, i);
+      if (this.pendingUserQuestions.has(pendingKey)) {
+        logger.warn(
+          { requestId: request.requestId, questionIndex: i },
+          'Duplicate pending Slack user question request detected',
+        );
+        continue;
+      }
+
+      const promptText = this.formatUserQuestionPromptText(question, timeoutMs);
+
+      try {
+        const pendingState: PendingUserQuestionState = {
+          requestId: request.requestId,
+          questionIndex: i,
+          question,
+          promptText,
+          selectedOptionIndexes: new Set<number>(),
+          channelId: parsed.channelId,
+          messageTs: '',
+          resolve: () => undefined,
+          settled: false,
+        };
+
+        const sent = (await this.app.client.chat.postMessage({
+          channel: parsed.channelId,
+          text: promptText,
+          blocks: this.buildUserQuestionBlocks(pendingState) as any,
+        })) as { ts?: string };
+
+        const messageTs = sent.ts;
+        if (!messageTs) {
+          logger.warn(
+            { requestId: request.requestId, questionIndex: i },
+            'Slack did not return a message timestamp for user question prompt',
+          );
+          continue;
+        }
+
+        const selection = await new Promise<{
+          selected: string | string[];
+          answeredBy?: string;
+        }>((resolve) => {
+          const timer = setTimeout(() => {
+            const timedOut = this.pendingUserQuestions.get(pendingKey);
+            if (!timedOut) return;
+            // Fire-and-forget is intentional: timer callback should never block
+            // while we cleanup stale pending prompts.
+            void this.finalizeUserQuestionPrompt(
+              timedOut,
+              timedOut.question.multiSelect ? [] : '',
+              'system',
+              'timed out',
+            );
+          }, timeoutMs);
+
+          this.pendingUserQuestions.set(pendingKey, {
+            ...pendingState,
+            messageTs,
+            timer,
+            resolve,
+          });
+        });
+
+        const isEmptySelection = Array.isArray(selection.selected)
+          ? selection.selected.length === 0
+          : selection.selected.trim().length === 0;
+        if (isEmptySelection) {
+          // Timeout or explicit empty submission: omit this answer so the SDK
+          // receives an empty answer map and treats it as unanswered/declined.
+          continue;
+        }
+
+        if (selection.answeredBy) answeredBy = selection.answeredBy;
+        answers[question.question] = selection.selected;
+      } catch (err) {
+        logger.warn(
+          { requestId: request.requestId, questionIndex: i, err },
+          'Failed to run Slack user question prompt',
+        );
+      }
+    }
+
+    return {
+      requestId: request.requestId,
+      answers,
+      ...(answeredBy ? { answeredBy } : {}),
+    };
+  }
+
   async sendPlanReviewPrompt(
     jid: string,
     prompt: PlanReviewPrompt,
@@ -1067,7 +1569,7 @@ export class SlackChannel implements Channel {
     const parsed = this.parseJid(jid);
     if (!parsed) return;
 
-    const url = prompt.url?.trim() || undefined;
+    const url = prompt.url?.trim() || this.buildSlackMiniAppUrl(prompt.planId);
 
     const summary = `${prompt.sectionCount} sections ready for review.`;
 
@@ -1164,6 +1666,15 @@ export class SlackChannel implements Channel {
         reason: 'Slack channel disconnected',
       });
       this.pendingPermissionPrompts.delete(requestId);
+    }
+
+    for (const [key, pending] of this.pendingUserQuestions.entries()) {
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.resolve({
+        selected: pending.question.multiSelect ? [] : '',
+        answeredBy: 'system',
+      });
+      this.pendingUserQuestions.delete(key);
     }
 
     for (const state of this.activeStreams.values()) {

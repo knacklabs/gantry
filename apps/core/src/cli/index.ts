@@ -2,15 +2,9 @@
 
 import * as p from '@clack/prompts';
 
-import {
-  hasProcessableGroupForConfiguredChannel,
-  formatDoctorReport,
-  hasRegisteredAnyGroup,
-  hasRuntimeConfig,
-  runDoctorWithNetwork,
-} from './doctor.js';
+import { formatDoctorReport, runDoctorWithNetwork } from './doctor.js';
 import { runConfigCommand } from './config.js';
-import { runGroupCommand } from './group.js';
+import { runAgentCommand } from './group.js';
 import {
   clearOnboardingState,
   createInitialState,
@@ -19,10 +13,15 @@ import {
 } from './onboarding-state.js';
 import { resolveRuntimeHome } from './runtime-home.js';
 import {
+  getServiceStatus,
   installService,
   startService,
   stopService,
 } from './service-manager.js';
+import {
+  formatRuntimePreflightFailure,
+  validateRuntimePreflight,
+} from './runtime-preflight.js';
 import { runSlackConnectCommand } from './slack.js';
 import { runSetupFlow } from './setup-flow.js';
 import { collectRuntimeStatus, formatRuntimeStatus } from './status.js';
@@ -44,21 +43,23 @@ function usage(): string {
     '  myclaw doctor',
     '  myclaw status',
     '  myclaw start',
+    '  myclaw restart',
     '  myclaw config list',
     '  myclaw config get <KEY>',
     '  myclaw config set <KEY> <VALUE>',
     '  myclaw config unset <KEY>',
-    '  myclaw group list',
-    '  myclaw group info <jid|folder>',
-    '  myclaw group add <jid|chat-id>',
-    '  myclaw group remove <jid|folder>',
-    '  myclaw group trigger <jid|folder> <word>',
+    '  myclaw agent list',
+    '  myclaw agent info <jid|folder>',
+    '  myclaw agent add <jid|chat-id>',
+    '  myclaw agent remove <jid|folder>',
+    '  myclaw agent trigger <jid|folder> <word>',
     '  myclaw telegram connect',
     '  myclaw slack connect',
     '  myclaw tunnel quick',
     '  myclaw service install',
     '  myclaw service start',
     '  myclaw service stop',
+    '  myclaw service restart',
     '',
     'Options:',
     '  --runtime-home <path>   Override runtime home (default: ~/myclaw)',
@@ -111,28 +112,54 @@ async function runStatusCommand(
 }
 
 async function runStartCommand(runtimeHome: string): Promise<number> {
-  if (!hasRuntimeConfig(runtimeHome)) {
-    p.log.error(
-      'Setup is incomplete. Next action: run `myclaw setup` before starting.',
-    );
-    return 1;
-  }
-  if (!hasRegisteredAnyGroup(runtimeHome)) {
-    p.log.error(
-      'No channel group is connected. Next action: run `myclaw telegram connect` or `myclaw slack connect`.',
-    );
-    return 1;
-  }
-  if (!hasProcessableGroupForConfiguredChannel(runtimeHome)) {
-    p.log.error(
-      'Configured channels do not match connected groups. Next action: connect a group for a configured channel (run `myclaw telegram connect` or `myclaw slack connect`).',
-    );
+  const validation = validateRuntimePreflight(runtimeHome);
+  if (!validation.ok && validation.failure) {
+    p.log.error(formatRuntimePreflightFailure(validation.failure));
     return 1;
   }
 
   process.env.AGENT_ROOT = runtimeHome;
   const runtime = await import('../index.js');
   await runtime.startMyClawRuntime();
+  return 0;
+}
+
+function restartService(runtimeHome: string): ReturnType<typeof stopService> {
+  const serviceStatus = getServiceStatus(runtimeHome);
+  // launchd uses kickstart -k for in-place restart; bootout first can unload it.
+  if (serviceStatus.kind === 'launchd') {
+    return startService(runtimeHome);
+  }
+
+  const stopOutcome = stopService(runtimeHome);
+  if (!stopOutcome.ok) return stopOutcome;
+  const startOutcome = startService(runtimeHome);
+  if (!startOutcome.ok) {
+    return {
+      ok: false,
+      kind: startOutcome.kind,
+      message: `Restart failed after stop: ${startOutcome.message}`,
+    };
+  }
+  return {
+    ok: true,
+    kind: startOutcome.kind,
+    message: `${startOutcome.message} (restart completed).`,
+  };
+}
+
+async function runRestartCommand(runtimeHome: string): Promise<number> {
+  const validation = validateRuntimePreflight(runtimeHome);
+  if (!validation.ok && validation.failure) {
+    p.log.error(formatRuntimePreflightFailure(validation.failure));
+    return 1;
+  }
+  const outcome = restartService(runtimeHome);
+  if (!outcome.ok) {
+    p.log.error(`Service restart failed: ${outcome.message}`);
+    return 1;
+  }
+  p.log.success(outcome.message);
   return 0;
 }
 
@@ -152,6 +179,11 @@ async function runServiceCommand(
   }
 
   if (action === 'start') {
+    const validation = validateRuntimePreflight(runtimeHome);
+    if (!validation.ok && validation.failure) {
+      p.log.error(formatRuntimePreflightFailure(validation.failure));
+      return 1;
+    }
     const outcome = startService(runtimeHome);
     if (!outcome.ok) {
       p.log.error(`Service start failed: ${outcome.message}`);
@@ -171,7 +203,22 @@ async function runServiceCommand(
     return 0;
   }
 
-  p.log.error('Unknown service command. Use install, start, or stop.');
+  if (action === 'restart') {
+    const validation = validateRuntimePreflight(runtimeHome);
+    if (!validation.ok && validation.failure) {
+      p.log.error(formatRuntimePreflightFailure(validation.failure));
+      return 1;
+    }
+    const outcome = restartService(runtimeHome);
+    if (!outcome.ok) {
+      p.log.error(`Service restart failed: ${outcome.message}`);
+      return 1;
+    }
+    p.log.success(outcome.message);
+    return 0;
+  }
+
+  p.log.error('Unknown service command. Use install, start, stop, or restart.');
   return 1;
 }
 
@@ -250,17 +297,10 @@ async function runSetupCommand(
 
 async function runSmartEntrypoint(runtimeHome: string): Promise<number> {
   const state = readOnboardingState(runtimeHome);
-  const hasConfig = hasRuntimeConfig(runtimeHome);
-  const hasGroup = hasRegisteredAnyGroup(runtimeHome);
-  const hasProcessableGroup =
-    hasProcessableGroupForConfiguredChannel(runtimeHome);
+  const validation = validateRuntimePreflight(runtimeHome);
+  const isReady = validation.ok;
 
-  if (
-    !hasConfig ||
-    !hasGroup ||
-    !hasProcessableGroup ||
-    state?.status === 'in_progress'
-  ) {
+  if (!isReady || state?.status === 'in_progress') {
     return runSetupCommand(runtimeHome);
   }
 
@@ -306,8 +346,12 @@ async function main(): Promise<number> {
     return runStartCommand(runtimeHome);
   }
 
-  if (command === 'group') {
-    return runGroupCommand(runtimeHome, rest);
+  if (command === 'restart') {
+    return runRestartCommand(runtimeHome);
+  }
+
+  if (command === 'agent') {
+    return runAgentCommand(runtimeHome, rest);
   }
 
   if (command === 'config') {

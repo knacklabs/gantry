@@ -340,7 +340,7 @@ export function runDoctor(
       status: 'warn',
       message: 'No Telegram groups are registered.',
       nextAction:
-        'Run `myclaw telegram connect` (or `myclaw group add <chat-id>`) to connect a chat.',
+        'Run `myclaw telegram connect` (or `myclaw agent add <chat-id>`) to connect a chat.',
     });
   }
 
@@ -368,7 +368,7 @@ export function runDoctor(
       status: 'warn',
       message: 'No Slack groups are registered.',
       nextAction:
-        'Run `myclaw slack connect` (or `myclaw group add sl:<channel-id>`) to connect Slack.',
+        'Run `myclaw slack connect` (or `myclaw agent add sl:<channel-id>`) to connect Slack.',
     });
   }
 

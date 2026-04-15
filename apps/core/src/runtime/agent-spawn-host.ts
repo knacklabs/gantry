@@ -5,7 +5,7 @@ import { OneCLI } from '@onecli-sh/sdk';
 
 import {
   DATA_DIR,
-  GROUPS_DIR,
+  AGENTS_DIR,
   AGENT_ROOT,
   ONECLI_URL,
 } from '../core/config.js';
@@ -111,9 +111,9 @@ export function prepareHostRuntimeContext(
   const groupIpcDir = resolveGroupIpcPath(group.folder);
   ensureGroupIpcLayout(groupIpcDir);
 
-  const globalDirCandidate = path.join(GROUPS_DIR, 'global');
-  const globalDir = fs.existsSync(globalDirCandidate)
-    ? globalDirCandidate
+  const sharedDirCandidate = path.join(AGENTS_DIR, 'shared');
+  const globalDir = fs.existsSync(sharedDirCandidate)
+    ? sharedDirCandidate
     : undefined;
 
   return {

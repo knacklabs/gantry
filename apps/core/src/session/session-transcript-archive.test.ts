@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let tempRoot = '';
 let dataDir = '';
-let groupsDir = '';
+let agentsDir = '';
 let memoryRoot = '';
 
 function writeTranscript(options: {
@@ -43,7 +43,7 @@ async function loadArchiveModule() {
   vi.resetModules();
   vi.doMock('../core/config.js', () => ({
     DATA_DIR: dataDir,
-    GROUPS_DIR: groupsDir,
+    AGENTS_DIR: agentsDir,
     AGENT_MEMORY_ROOT: memoryRoot,
   }));
   return import('./session-transcript-archive.js');
@@ -52,10 +52,10 @@ async function loadArchiveModule() {
 beforeEach(() => {
   tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-session-archive-'));
   dataDir = path.join(tempRoot, 'data');
-  groupsDir = path.join(tempRoot, 'groups');
+  agentsDir = path.join(tempRoot, 'agents');
   memoryRoot = path.join(tempRoot, 'agent-memory');
   fs.mkdirSync(dataDir, { recursive: true });
-  fs.mkdirSync(groupsDir, { recursive: true });
+  fs.mkdirSync(agentsDir, { recursive: true });
   fs.mkdirSync(memoryRoot, { recursive: true });
 });
 
@@ -730,7 +730,7 @@ describe('archiveSessionTranscript', () => {
     vi.resetModules();
     vi.doMock('../core/config.js', () => ({
       DATA_DIR: dataDir,
-      GROUPS_DIR: groupsDir,
+      AGENTS_DIR: agentsDir,
       AGENT_MEMORY_ROOT: memoryRoot,
     }));
     vi.doMock('../memory/agent-memory-root.js', () => ({
@@ -768,7 +768,7 @@ describe('archiveSessionTranscript', () => {
     vi.resetModules();
     vi.doMock('../core/config.js', () => ({
       DATA_DIR: dataDir,
-      GROUPS_DIR: groupsDir,
+      AGENTS_DIR: agentsDir,
       AGENT_MEMORY_ROOT: memoryRoot,
     }));
     vi.doMock('../memory/agent-memory-root.js', () => ({

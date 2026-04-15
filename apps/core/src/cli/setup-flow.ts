@@ -275,7 +275,7 @@ async function runRuntimeHomeStep(
   p.note(
     [
       `Runtime home: ${resolved}`,
-      'MyClaw will keep .env, store/, groups/, data/, logs/, and onboarding state here.',
+      'MyClaw will keep .env, settings.yaml, store/, agents/, data/, logs/, and onboarding state here.',
     ].join('\n'),
     'Runtime Home',
   );

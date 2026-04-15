@@ -261,7 +261,7 @@ describe('file templating', () => {
 
 describe('CLAUDE.md template copy', () => {
   let tmpDir: string;
-  let groupsDir: string;
+  let agentsDir: string;
 
   // Replicates register.ts template copy + name update logic
   function simulateRegister(
@@ -269,25 +269,36 @@ describe('CLAUDE.md template copy', () => {
     isMain: boolean,
     assistantName = 'Andy',
   ): void {
-    const folderDir = path.join(groupsDir, folder);
+    const folderDir = path.join(agentsDir, folder);
     fs.mkdirSync(path.join(folderDir, 'logs'), { recursive: true });
 
     // Template copy — never overwrite existing (register.ts lines 119-135)
     const dest = path.join(folderDir, 'CLAUDE.md');
     if (!fs.existsSync(dest)) {
       const templatePath = isMain
-        ? path.join(groupsDir, 'main', 'CLAUDE.md')
-        : path.join(groupsDir, 'global', 'CLAUDE.md');
+        ? path.join(agentsDir, 'main', 'CLAUDE.md')
+        : path.join(agentsDir, 'global', 'CLAUDE.md');
       if (fs.existsSync(templatePath)) {
         fs.copyFileSync(templatePath, dest);
+      } else {
+        const lines = ['# Andy', '', 'You are Andy, a personal assistant.'];
+        if (isMain) {
+          lines.push(
+            '',
+            '## Admin Context',
+            '',
+            'This is the **main channel**.',
+          );
+        }
+        fs.writeFileSync(dest, `${lines.join('\n')}\n`);
       }
     }
 
     // Name update across all groups (register.ts lines 140-165)
     if (assistantName !== 'Andy') {
       const mdFiles = fs
-        .readdirSync(groupsDir)
-        .map((d) => path.join(groupsDir, d, 'CLAUDE.md'))
+        .readdirSync(agentsDir)
+        .map((d) => path.join(agentsDir, d, 'CLAUDE.md'))
         .filter((f) => fs.existsSync(f));
 
       for (const mdFile of mdFiles) {
@@ -300,20 +311,20 @@ describe('CLAUDE.md template copy', () => {
   }
 
   function readGroupMd(folder: string): string {
-    return fs.readFileSync(path.join(groupsDir, folder, 'CLAUDE.md'), 'utf-8');
+    return fs.readFileSync(path.join(agentsDir, folder, 'CLAUDE.md'), 'utf-8');
   }
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-register-test-'));
-    groupsDir = path.join(tmpDir, 'groups');
-    fs.mkdirSync(path.join(groupsDir, 'main'), { recursive: true });
-    fs.mkdirSync(path.join(groupsDir, 'global'), { recursive: true });
+    agentsDir = path.join(tmpDir, 'agents');
+    fs.mkdirSync(path.join(agentsDir, 'main'), { recursive: true });
+    fs.mkdirSync(path.join(agentsDir, 'global'), { recursive: true });
     fs.writeFileSync(
-      path.join(groupsDir, 'main', 'CLAUDE.md'),
+      path.join(agentsDir, 'main', 'CLAUDE.md'),
       '# Andy\n\nYou are Andy, a personal assistant.\n\n## Admin Context\n\nThis is the **main channel**.',
     );
     fs.writeFileSync(
-      path.join(groupsDir, 'global', 'CLAUDE.md'),
+      path.join(agentsDir, 'global', 'CLAUDE.md'),
       '# Andy\n\nYou are Andy, a personal assistant.',
     );
   });
@@ -398,7 +409,7 @@ describe('CLAUDE.md template copy', () => {
   it('never overwrites existing CLAUDE.md on re-registration', () => {
     simulateRegister('slack_main', true);
     // User customizes the file extensively (persona, workspace, rules)
-    const mdPath = path.join(groupsDir, 'slack_main', 'CLAUDE.md');
+    const mdPath = path.join(agentsDir, 'slack_main', 'CLAUDE.md');
     fs.writeFileSync(
       mdPath,
       '# Gambi\n\nCustom persona with workspace rules and family context.',
@@ -415,7 +426,7 @@ describe('CLAUDE.md template copy', () => {
     // User registers a family group as non-main
     simulateRegister('whatsapp_casa', false);
     // User extensively customizes it (PARA system, task management, etc.)
-    const mdPath = path.join(groupsDir, 'whatsapp_casa', 'CLAUDE.md');
+    const mdPath = path.join(agentsDir, 'whatsapp_casa', 'CLAUDE.md');
     fs.writeFileSync(
       mdPath,
       '# Casa\n\nFamily group with PARA system, task management, shopping lists.',
@@ -432,7 +443,7 @@ describe('CLAUDE.md template copy', () => {
     // Real-world scenario: WhatsApp main + customized Discord research channel
     simulateRegister('whatsapp_main', true);
     simulateRegister('discord_main', false);
-    const discordPath = path.join(groupsDir, 'discord_main', 'CLAUDE.md');
+    const discordPath = path.join(agentsDir, 'discord_main', 'CLAUDE.md');
     fs.writeFileSync(
       discordPath,
       '# Gambi HQ — Research Assistant\n\nResearch workflows for Laura and Ethan.',
@@ -445,14 +456,15 @@ describe('CLAUDE.md template copy', () => {
     expect(readGroupMd('whatsapp_main')).toContain('Admin Context');
   });
 
-  it('handles missing templates gracefully', () => {
-    fs.unlinkSync(path.join(groupsDir, 'global', 'CLAUDE.md'));
-    fs.unlinkSync(path.join(groupsDir, 'main', 'CLAUDE.md'));
+  it('uses built-in fallback when templates are missing', () => {
+    fs.unlinkSync(path.join(agentsDir, 'global', 'CLAUDE.md'));
+    fs.unlinkSync(path.join(agentsDir, 'main', 'CLAUDE.md'));
 
     simulateRegister('discord_general', false);
 
     expect(
-      fs.existsSync(path.join(groupsDir, 'discord_general', 'CLAUDE.md')),
-    ).toBe(false);
+      fs.existsSync(path.join(agentsDir, 'discord_general', 'CLAUDE.md')),
+    ).toBe(true);
+    expect(readGroupMd('discord_general')).toContain('You are Andy');
   });
 });

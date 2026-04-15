@@ -1,10 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-import {
-  ASSISTANT_NAME as DEFAULT_ASSISTANT_NAME,
-  GROUPS_DIR,
-} from '../core/config.js';
+import { ASSISTANT_NAME as DEFAULT_ASSISTANT_NAME } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import { RegisteredGroup, ThinkingOverride } from '../core/types.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
@@ -19,9 +16,27 @@ interface ChatRow {
 
 interface RegisterGroupOptions {
   assistantName?: string;
-  groupsDir?: string;
   persist: (jid: string, group: RegisteredGroup) => void;
   ensureOneCLIAgent: (jid: string, group: RegisteredGroup) => void;
+}
+
+function defaultAgentClaudeMarkdown(
+  assistantName: string,
+  isMain: boolean,
+): string {
+  const roleLabel = isMain ? 'main control chat' : 'chat';
+  return [
+    `# ${assistantName}`,
+    '',
+    `You are ${assistantName}, the assistant for this ${roleLabel}.`,
+    'Keep responses clear, concise, and directly actionable.',
+    '',
+    'Rules:',
+    '- Be explicit when an action fails and what to do next.',
+    '- Ask for clarification when intent is ambiguous.',
+    '- Never expose secrets unless explicitly requested.',
+    '',
+  ].join('\n');
 }
 
 export function registerGroup(
@@ -31,7 +46,6 @@ export function registerGroup(
   options: RegisterGroupOptions,
 ): void {
   const assistantName = options.assistantName ?? DEFAULT_ASSISTANT_NAME;
-  const groupsDir = options.groupsDir ?? GROUPS_DIR;
 
   let groupDir: string;
   try {
@@ -51,20 +65,14 @@ export function registerGroup(
 
   const groupMdFile = path.join(groupDir, 'CLAUDE.md');
   if (!fs.existsSync(groupMdFile)) {
-    const templateFile = path.join(
-      groupsDir,
-      group.isMain ? 'main' : 'global',
-      'CLAUDE.md',
+    fs.writeFileSync(
+      groupMdFile,
+      defaultAgentClaudeMarkdown(assistantName, group.isMain === true),
     );
-    if (fs.existsSync(templateFile)) {
-      let content = fs.readFileSync(templateFile, 'utf-8');
-      if (assistantName !== 'Andy') {
-        content = content.replace(/^# Andy$/m, `# ${assistantName}`);
-        content = content.replace(/You are Andy/g, `You are ${assistantName}`);
-      }
-      fs.writeFileSync(groupMdFile, content);
-      logger.info({ folder: group.folder }, 'Created CLAUDE.md from template');
-    }
+    logger.info(
+      { folder: group.folder },
+      'Created default CLAUDE.md for registered agent',
+    );
   }
 
   options.ensureOneCLIAgent(jid, group);

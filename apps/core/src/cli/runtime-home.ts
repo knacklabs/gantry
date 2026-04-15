@@ -2,6 +2,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+import { ensureRuntimeLayoutDirectories } from '../platform/runtime-layout.js';
+
 export const DEFAULT_RUNTIME_HOME = path.join(os.homedir(), 'myclaw');
 const GLOBAL_CONFIG_DIR = path.join(os.homedir(), '.config', 'myclaw');
 const RUNTIME_HOME_POINTER_PATH = path.join(
@@ -28,16 +30,7 @@ export function resolveRuntimeHome(raw?: string): string {
 }
 
 export function ensureRuntimeLayout(runtimeHome: string): void {
-  const dirs = [
-    runtimeHome,
-    path.join(runtimeHome, 'store'),
-    path.join(runtimeHome, 'groups'),
-    path.join(runtimeHome, 'data'),
-    path.join(runtimeHome, 'logs'),
-  ];
-  for (const dir of dirs) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  ensureRuntimeLayoutDirectories(runtimeHome);
 }
 
 export function ensureRuntimeWritable(runtimeHome: string): void {
@@ -47,6 +40,10 @@ export function ensureRuntimeWritable(runtimeHome: string): void {
 
 export function envFilePath(runtimeHome: string): string {
   return path.join(runtimeHome, '.env');
+}
+
+export function settingsFilePath(runtimeHome: string): string {
+  return path.join(runtimeHome, 'settings.yaml');
 }
 
 export function onboardingStatePath(runtimeHome: string): string {

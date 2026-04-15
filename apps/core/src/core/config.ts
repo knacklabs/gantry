@@ -85,16 +85,12 @@ const DEFAULT_AGENT_ROOT = path.join(HOME_DIR, 'myclaw');
 export const AGENT_ROOT = path.resolve(AGENT_ROOT_RAW || DEFAULT_AGENT_ROOT);
 const RUNTIME_ROOT = AGENT_ROOT;
 
-export const SENDER_ALLOWLIST_PATH = path.join(
-  AGENT_ROOT,
-  'sender-allowlist.json',
-);
 export const SCHEDULER_JOBS_JSON_PATH = path.join(
   AGENT_ROOT,
   'scheduler-jobs.json',
 );
 export const STORE_DIR = path.resolve(RUNTIME_ROOT, 'store');
-export const GROUPS_DIR = path.resolve(RUNTIME_ROOT, 'groups');
+export const AGENTS_DIR = path.resolve(RUNTIME_ROOT, 'agents');
 export const DATA_DIR = path.resolve(RUNTIME_ROOT, 'data');
 const MEMORY_SQLITE_PATH_RAW =
   process.env.MEMORY_SQLITE_PATH ||

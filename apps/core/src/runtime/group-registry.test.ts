@@ -14,7 +14,6 @@ vi.mock('fs', () => ({
 
 vi.mock('../core/config.js', () => ({
   ASSISTANT_NAME: 'Andy',
-  GROUPS_DIR: '/mock/groups',
 }));
 
 vi.mock('../core/logger.js', () => ({
@@ -68,6 +67,11 @@ describe('registerGroup', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFs.mkdirSync.mockReset();
+    mockFs.existsSync.mockReset();
+    mockFs.readFileSync.mockReset();
+    mockFs.writeFileSync.mockReset();
+    mockResolve.mockReset();
     groups = {};
     persist = vi.fn<PersistGroupFn>();
     ensureOneCLIAgent = vi.fn<PersistGroupFn>();
@@ -108,47 +112,25 @@ describe('registerGroup', () => {
     );
   });
 
-  it('creates CLAUDE.md from main template when isMain is true', () => {
-    const group = makeGroup({ isMain: true });
-    // First call: existsSync for groupMdFile => false, second: templateFile => true
-    mockFs.existsSync.mockReturnValueOnce(false).mockReturnValueOnce(true);
-    mockFs.readFileSync.mockReturnValue('# Andy\nYou are Andy.');
-
-    registerGroup(groups, 'g1@g.us', group, { persist, ensureOneCLIAgent });
-
-    // Template path should use 'main' subdirectory
-    expect(mockFs.existsSync).toHaveBeenCalledWith(
-      '/mock/groups/main/CLAUDE.md',
-    );
-    // Default assistant name is 'Andy', so no replacement occurs
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-      '/resolved/test-group/CLAUDE.md',
-      '# Andy\nYou are Andy.',
-    );
-  });
-
-  it('creates CLAUDE.md from global template when isMain is falsy', () => {
+  it('creates default CLAUDE.md when template file does not exist', () => {
     const group = makeGroup({ isMain: false });
-    mockFs.existsSync.mockReturnValueOnce(false).mockReturnValueOnce(true);
-    mockFs.readFileSync.mockReturnValue('# Andy\nYou are Andy.');
+    mockFs.existsSync.mockReturnValueOnce(false).mockReturnValueOnce(false);
 
     registerGroup(groups, 'g1@g.us', group, { persist, ensureOneCLIAgent });
 
-    expect(mockFs.existsSync).toHaveBeenCalledWith(
-      '/mock/groups/global/CLAUDE.md',
+    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+      '/resolved/test-group/CLAUDE.md',
+      expect.stringContaining('# Andy'),
     );
     expect(mockFs.writeFileSync).toHaveBeenCalledWith(
       '/resolved/test-group/CLAUDE.md',
-      '# Andy\nYou are Andy.',
+      expect.stringContaining('assistant for this chat'),
     );
   });
 
-  it('replaces assistant name when it differs from Andy', () => {
-    const group = makeGroup();
-    mockFs.existsSync.mockReturnValueOnce(false).mockReturnValueOnce(true);
-    mockFs.readFileSync.mockReturnValue(
-      '# Andy\nYou are Andy and You are Andy again.',
-    );
+  it('uses provided assistant name in default CLAUDE.md', () => {
+    const group = makeGroup({ isMain: true });
+    mockFs.existsSync.mockReturnValueOnce(false);
 
     registerGroup(groups, 'g1@g.us', group, {
       assistantName: 'Kai',
@@ -158,63 +140,23 @@ describe('registerGroup', () => {
 
     expect(mockFs.writeFileSync).toHaveBeenCalledWith(
       '/resolved/test-group/CLAUDE.md',
-      '# Kai\nYou are Kai and You are Kai again.',
+      expect.stringContaining('# Kai'),
     );
-  });
-
-  it('does not replace name when assistantName is Andy', () => {
-    const group = makeGroup();
-    mockFs.existsSync.mockReturnValueOnce(false).mockReturnValueOnce(true);
-    mockFs.readFileSync.mockReturnValue('# Andy\nYou are Andy.');
-
-    registerGroup(groups, 'g1@g.us', group, {
-      assistantName: 'Andy',
-      persist,
-      ensureOneCLIAgent,
-    });
-
     expect(mockFs.writeFileSync).toHaveBeenCalledWith(
       '/resolved/test-group/CLAUDE.md',
-      '# Andy\nYou are Andy.',
+      expect.stringContaining('main control chat'),
     );
   });
 
   it('skips template creation when CLAUDE.md already exists', () => {
     const group = makeGroup();
     // existsSync for groupMdFile => true (file already exists)
-    mockFs.existsSync.mockReturnValueOnce(true);
+    mockFs.existsSync.mockReturnValue(true);
 
     registerGroup(groups, 'g1@g.us', group, { persist, ensureOneCLIAgent });
 
     expect(mockFs.readFileSync).not.toHaveBeenCalled();
     expect(mockFs.writeFileSync).not.toHaveBeenCalled();
-  });
-
-  it('skips template creation when template file does not exist', () => {
-    const group = makeGroup();
-    // groupMdFile does not exist, template does not exist either
-    mockFs.existsSync.mockReturnValueOnce(false).mockReturnValueOnce(false);
-
-    registerGroup(groups, 'g1@g.us', group, { persist, ensureOneCLIAgent });
-
-    expect(mockFs.readFileSync).not.toHaveBeenCalled();
-    expect(mockFs.writeFileSync).not.toHaveBeenCalled();
-  });
-
-  it('uses custom groupsDir when provided', () => {
-    const group = makeGroup({ isMain: true });
-    mockFs.existsSync.mockReturnValueOnce(false).mockReturnValueOnce(true);
-    mockFs.readFileSync.mockReturnValue('# Andy');
-
-    registerGroup(groups, 'g1@g.us', group, {
-      groupsDir: '/custom/groups',
-      persist,
-      ensureOneCLIAgent,
-    });
-
-    expect(mockFs.existsSync).toHaveBeenCalledWith(
-      '/custom/groups/main/CLAUDE.md',
-    );
   });
 });
 

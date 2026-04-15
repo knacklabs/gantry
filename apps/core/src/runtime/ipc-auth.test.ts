@@ -62,11 +62,11 @@ beforeEach(() => {
   };
 });
 
-describe('register_group authorization', () => {
+describe('register_agent authorization', () => {
   it('main can register a group', async () => {
     await processTaskIpc(
       {
-        type: 'register_group',
+        type: 'register_agent',
         jid: 'new@g.us',
         name: 'New Group',
         folder: 'new-group',
@@ -85,7 +85,7 @@ describe('register_group authorization', () => {
   it('non-main cannot register a group', async () => {
     await processTaskIpc(
       {
-        type: 'register_group',
+        type: 'register_agent',
         jid: 'blocked@g.us',
         name: 'Blocked',
         folder: 'blocked-group',

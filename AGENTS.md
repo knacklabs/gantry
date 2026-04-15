@@ -33,7 +33,7 @@ Important constraints:
 
 - `/new` clears persisted session state but preserves the group model override
 - transcript archive during `/new` is best-effort and must not block reset success
-- per-group memory remains isolated in `apps/core/groups/<folder>/`
+- per-agent memory remains isolated in `~/myclaw/agents/<folder>/`
 
 ## Docs Rules
 

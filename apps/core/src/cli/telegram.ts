@@ -105,7 +105,7 @@ function buildGroupFolder(
 ): string {
   const used = new Set(Object.values(existing).map((group) => group.folder));
   const hasOnDiskFolder = (folder: string): boolean =>
-    fs.existsSync(path.join(runtimeHome, 'groups', folder));
+    fs.existsSync(path.join(runtimeHome, 'agents', folder));
 
   if (!used.has('telegram_main') && !hasOnDiskFolder('telegram_main')) {
     return 'telegram_main';
@@ -313,7 +313,7 @@ export async function verifyTelegramChatAccess(options: {
 
 function defaultGroupClaudeMarkdown(): string {
   return [
-    '# MyClaw Group Assistant',
+    '# MyClaw Agent',
     '',
     'You are the assistant for this Telegram chat.',
     'Keep responses clear, short, and useful.',
@@ -351,7 +351,7 @@ export async function registerTelegramMainGroup(options: {
       agentConfig: existingGroup?.agentConfig,
     });
 
-    const groupDir = path.join(options.runtimeHome, 'groups', folder);
+    const groupDir = path.join(options.runtimeHome, 'agents', folder);
     fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
     const claudePath = path.join(groupDir, 'CLAUDE.md');
     if (!fs.existsSync(claudePath)) {

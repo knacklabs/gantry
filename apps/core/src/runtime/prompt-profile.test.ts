@@ -53,11 +53,11 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
-    writeFile(path.join(configDir, 'sender-allowlist.json'), '{"ok":true}');
+    writeFile(path.join(configDir, 'settings.yaml'), 'version: 2\n');
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     service.ensureSeedFiles();
 
     expect(fs.existsSync(path.join(configDir, 'CLAUDE.md'))).toBe(true);
@@ -65,8 +65,8 @@ describe('PromptProfileService', () => {
     expect(fs.existsSync(path.join(configDir, 'TOOLS.md'))).toBe(false);
     expect(fs.existsSync(path.join(configDir, 'USER.md'))).toBe(false);
     expect(
-      fs.readFileSync(path.join(configDir, 'sender-allowlist.json'), 'utf-8'),
-    ).toBe('{"ok":true}');
+      fs.readFileSync(path.join(configDir, 'settings.yaml'), 'utf-8'),
+    ).toBe('version: 2\n');
   });
 
   it('compiles deterministic order: runtime rules, personal profile, global and group context', () => {
@@ -74,13 +74,13 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     writeFile(path.join(configDir, 'CLAUDE.md'), profileWithAllSections());
-    writeFile(path.join(groupsDir, 'global', 'CLAUDE.md'), 'global context');
-    writeFile(path.join(groupsDir, 'team', 'CLAUDE.md'), 'group context');
+    writeFile(path.join(agentsDir, 'shared', 'CLAUDE.md'), 'global context');
+    writeFile(path.join(agentsDir, 'team', 'CLAUDE.md'), 'group context');
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
 
     expect(prompt.indexOf('[[RUNTIME_RULES]]')).toBeLessThan(
@@ -95,7 +95,7 @@ describe('PromptProfileService', () => {
     expect(prompt).toContain('## Identity');
     expect(prompt).toContain('## Tool Conventions');
     expect(prompt).toContain('source: myclaw://personal-profile');
-    expect(prompt).toContain('source: myclaw://global-context');
+    expect(prompt).toContain('source: myclaw://shared-agent-profile');
     expect(prompt).toContain('source: myclaw://group-context');
     expect(prompt).not.toContain(root);
   });
@@ -105,7 +105,7 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     writeFile(
       path.join(configDir, 'CLAUDE.md'),
@@ -115,7 +115,7 @@ describe('PromptProfileService', () => {
     writeFile(path.join(configDir, 'TOOLS.md'), 'tools must never be injected');
     writeFile(path.join(configDir, 'USER.md'), 'user must never be injected');
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
 
     expect(prompt).toContain('Identity text');
@@ -130,7 +130,7 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     writeFile(
       path.join(configDir, 'CLAUDE.md'),
@@ -139,7 +139,7 @@ describe('PromptProfileService', () => {
       ),
     );
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
 
     expect(prompt).toContain('Top rules');
@@ -152,14 +152,14 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     writeFile(
       path.join(configDir, 'CLAUDE.md'),
       '# CLAUDE.md\n\n## Identity\nOnly one section present',
     );
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
 
     expect(loggerSpies.warn).toHaveBeenCalled();
@@ -173,18 +173,18 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     writeFile(path.join(configDir, 'CLAUDE.md'), profileWithAllSections());
 
     // Create the group context file then make it unreadable
-    const groupContextPath = path.join(groupsDir, 'team', 'CLAUDE.md');
+    const groupContextPath = path.join(agentsDir, 'team', 'CLAUDE.md');
     writeFile(groupContextPath, 'group context content');
     // Replace the file with a directory to force a read error
     fs.unlinkSync(groupContextPath);
     fs.mkdirSync(groupContextPath, { recursive: true });
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
 
     // Should compile without GROUP_CONTEXT since the file read failed
@@ -215,11 +215,11 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     writeFile(path.join(configDir, 'CLAUDE.md'), profileWithAllSections());
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     // Use an invalid group folder name (e.g., with path traversal)
     const prompt = service.compileSystemPrompt({ groupFolder: '../../../etc' });
 
@@ -234,19 +234,19 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     const hugeText = 'x'.repeat(2000);
     writeFile(
       path.join(configDir, 'CLAUDE.md'),
       `# CLAUDE.md\n\n## Identity\n${hugeText}\n\n## Voice\n${hugeText}\n\n## Operating Rules\n${hugeText}\n\n## User Preferences\n${hugeText}\n\n## Privacy Rules\n${hugeText}\n\n## Tool Conventions\n${hugeText}`,
     );
-    writeFile(path.join(groupsDir, 'global', 'CLAUDE.md'), 'g'.repeat(4000));
-    writeFile(path.join(groupsDir, 'team', 'CLAUDE.md'), 't'.repeat(4000));
+    writeFile(path.join(agentsDir, 'shared', 'CLAUDE.md'), 'g'.repeat(4000));
+    writeFile(path.join(agentsDir, 'team', 'CLAUDE.md'), 't'.repeat(4000));
 
     const service = new PromptProfileService({
       configDir,
-      groupsDir,
+      agentsDir,
       sectionBudgets: {
         PERSONAL_PROFILE: 600,
         GLOBAL_CONTEXT: 200,
@@ -266,16 +266,16 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     writeFile(path.join(configDir, 'CLAUDE.md'), profileWithAllSections());
-    writeFile(path.join(groupsDir, 'global', 'CLAUDE.md'), 'global context');
-    writeFile(path.join(groupsDir, 'team', 'CLAUDE.md'), 'group context');
+    writeFile(path.join(agentsDir, 'shared', 'CLAUDE.md'), 'global context');
+    writeFile(path.join(agentsDir, 'team', 'CLAUDE.md'), 'group context');
 
     // With a very small budget, only a portion of the first section fits
     const service = new PromptProfileService({
       configDir,
-      groupsDir,
+      agentsDir,
       totalBudget: 50,
     });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
@@ -289,7 +289,7 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     // Profile has headings, but none match expected sections
     writeFile(
@@ -297,7 +297,7 @@ describe('PromptProfileService', () => {
       '# CLAUDE.md\n\n## Random Section\nSome text\n\n## Another Section\nMore text',
     );
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
 
     // When no expected headings match (matchedCount === 0), falls back to raw profile
@@ -311,11 +311,11 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     writeFile(path.join(configDir, 'CLAUDE.md'), '   \n\n  \r\n  ');
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
 
     // Should have runtime rules but no personal profile
@@ -328,13 +328,13 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     // Create the CLAUDE.md path as a directory to cause readFileSync to throw
     const profilePath = path.join(configDir, 'CLAUDE.md');
     fs.mkdirSync(profilePath, { recursive: true });
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
 
     // Should have runtime rules but no personal profile
@@ -348,12 +348,12 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     writeFile(path.join(configDir, 'CLAUDE.md'), profileWithAllSections());
-    writeFile(path.join(groupsDir, 'global', 'CLAUDE.md'), '   \n  ');
+    writeFile(path.join(agentsDir, 'shared', 'CLAUDE.md'), '   \n  ');
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
 
     // Should not contain global context section since content is empty
@@ -365,7 +365,7 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     // Profile where Identity section has an empty body
     writeFile(
@@ -373,7 +373,7 @@ describe('PromptProfileService', () => {
       '# CLAUDE.md\n\n## Identity\n\n## Voice\nVoice text\n\n## Operating Rules\nRules\n\n## User Preferences\nPrefs\n\n## Privacy Rules\nPrivacy\n\n## Tool Conventions\nTools',
     );
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
 
     // Empty section body should use the placeholder
@@ -385,13 +385,13 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     const existingContent =
       '# My Custom Profile\n\n## Identity\nCustom identity';
     writeFile(path.join(configDir, 'CLAUDE.md'), existingContent);
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     service.ensureSeedFiles();
 
     // Should preserve existing content, not overwrite with template
@@ -404,12 +404,12 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     // Don't create any CLAUDE.md files
     fs.mkdirSync(configDir, { recursive: true });
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     // Delete the auto-seeded file after ensureSeedFiles runs
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
 
@@ -422,14 +422,14 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     writeFile(
       path.join(configDir, 'CLAUDE.md'),
       '# CLAUDE.md\r\n\r\n## Identity\r\nIdentity text\r\n\r\n## Voice\r\nVoice text\r\n\r\n## Operating Rules\r\nRules\r\n\r\n## User Preferences\r\nPrefs\r\n\r\n## Privacy Rules\r\nPrivacy\r\n\r\n## Tool Conventions\r\nTools',
     );
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
 
     // CRLF should be normalized and sections parsed correctly
@@ -442,7 +442,7 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     // Profile with content but zero ## headings → parseMarkdownSections returns []
     // → renderPersonalProfileBody hits the parsed.length === 0 branch (line 128)
@@ -451,7 +451,7 @@ describe('PromptProfileService', () => {
       'Plain text profile with no markdown headings at all.\nJust paragraphs.',
     );
 
-    const service = new PromptProfileService({ configDir, groupsDir });
+    const service = new PromptProfileService({ configDir, agentsDir });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
 
     expect(prompt).toContain('Plain text profile');
@@ -463,13 +463,13 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     writeFile(path.join(configDir, 'CLAUDE.md'), profileWithAllSections());
 
     const service = new PromptProfileService({
       configDir,
-      groupsDir,
+      agentsDir,
       sectionBudgets: {
         PERSONAL_PROFILE: 0,
         GLOBAL_CONTEXT: 2000,
@@ -488,14 +488,14 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     writeFile(path.join(configDir, 'CLAUDE.md'), profileWithAllSections());
-    writeFile(path.join(groupsDir, 'global', 'CLAUDE.md'), 'global content');
+    writeFile(path.join(agentsDir, 'shared', 'CLAUDE.md'), 'global content');
 
     const service = new PromptProfileService({
       configDir,
-      groupsDir,
+      agentsDir,
       sectionBudgets: {
         PERSONAL_PROFILE: 2000,
         GLOBAL_CONTEXT: 0,
@@ -513,16 +513,16 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     writeFile(path.join(configDir, 'CLAUDE.md'), profileWithAllSections());
-    writeFile(path.join(groupsDir, 'global', 'CLAUDE.md'), 'global context');
-    writeFile(path.join(groupsDir, 'team', 'CLAUDE.md'), 'group context');
+    writeFile(path.join(agentsDir, 'shared', 'CLAUDE.md'), 'global context');
+    writeFile(path.join(agentsDir, 'team', 'CLAUDE.md'), 'group context');
 
     // totalBudget just large enough for runtime rules, too small for anything else
     const service = new PromptProfileService({
       configDir,
-      groupsDir,
+      agentsDir,
       totalBudget: 50,
     });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
@@ -535,16 +535,16 @@ describe('PromptProfileService', () => {
     roots.push(root);
 
     const configDir = path.join(root, 'config');
-    const groupsDir = path.join(root, 'groups');
+    const agentsDir = path.join(root, 'agents');
 
     writeFile(path.join(configDir, 'CLAUDE.md'), profileWithAllSections());
-    writeFile(path.join(groupsDir, 'global', 'CLAUDE.md'), 'g'.repeat(5000));
-    writeFile(path.join(groupsDir, 'team', 'CLAUDE.md'), 't'.repeat(5000));
+    writeFile(path.join(agentsDir, 'shared', 'CLAUDE.md'), 'g'.repeat(5000));
+    writeFile(path.join(agentsDir, 'team', 'CLAUDE.md'), 't'.repeat(5000));
 
     // Tiny totalBudget
     const service = new PromptProfileService({
       configDir,
-      groupsDir,
+      agentsDir,
       totalBudget: 100,
     });
     const prompt = service.compileSystemPrompt({ groupFolder: 'team' });

@@ -24,6 +24,14 @@ interface RegisterArgs {
   assistantName: string;
 }
 
+function buildDefaultClaudeTemplate(isMain: boolean): string {
+  const lines = ['# Andy', '', 'You are Andy, a personal assistant.'];
+  if (isMain) {
+    lines.push('', '## Admin Context', '', 'This is the **main channel**.');
+  }
+  return `${lines.join('\n')}\n`;
+}
+
 function parseArgs(args: string[]): RegisterArgs {
   const result: RegisterArgs = {
     jid: '',
@@ -112,7 +120,7 @@ export async function run(args: string[]): Promise<void> {
   logger.info('Wrote registration to SQLite');
 
   // Create group folders
-  fs.mkdirSync(path.join(projectRoot, 'groups', parsed.folder, 'logs'), {
+  fs.mkdirSync(path.join(projectRoot, 'agents', parsed.folder, 'logs'), {
     recursive: true,
   });
 
@@ -123,19 +131,28 @@ export async function run(args: string[]): Promise<void> {
   // and a stock template replacement would destroy that work.
   const groupClaudeMdPath = path.join(
     projectRoot,
-    'groups',
+    'agents',
     parsed.folder,
     'CLAUDE.md',
   );
   if (!fs.existsSync(groupClaudeMdPath)) {
     const templatePath = parsed.isMain
-      ? path.join(projectRoot, 'groups', 'main', 'CLAUDE.md')
-      : path.join(projectRoot, 'groups', 'global', 'CLAUDE.md');
+      ? path.join(projectRoot, 'agents', 'main', 'CLAUDE.md')
+      : path.join(projectRoot, 'agents', 'global', 'CLAUDE.md');
     if (fs.existsSync(templatePath)) {
       fs.copyFileSync(templatePath, groupClaudeMdPath);
       logger.info(
         { file: groupClaudeMdPath, template: templatePath },
         'Created CLAUDE.md from template',
+      );
+    } else {
+      fs.writeFileSync(
+        groupClaudeMdPath,
+        buildDefaultClaudeTemplate(parsed.isMain),
+      );
+      logger.info(
+        { file: groupClaudeMdPath },
+        'Created CLAUDE.md from built-in default template',
       );
     }
   }
@@ -148,10 +165,10 @@ export async function run(args: string[]): Promise<void> {
       'Updating assistant name',
     );
 
-    const groupsDir = path.join(projectRoot, 'groups');
+    const agentsDir = path.join(projectRoot, 'agents');
     const mdFiles = fs
-      .readdirSync(groupsDir)
-      .map((d) => path.join(groupsDir, d, 'CLAUDE.md'))
+      .readdirSync(agentsDir)
+      .map((d) => path.join(agentsDir, d, 'CLAUDE.md'))
       .filter((f) => fs.existsSync(f));
 
     for (const mdFile of mdFiles) {

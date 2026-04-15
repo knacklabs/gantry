@@ -12,7 +12,7 @@ vi.mock('../core/config.js', () => ({
   AGENT_MAX_OUTPUT_SIZE: 10485760,
   AGENT_TIMEOUT: 1800000, // 30min
   DATA_DIR: '/tmp/myclaw-test-data',
-  GROUPS_DIR: '/tmp/myclaw-test-groups',
+  AGENTS_DIR: '/tmp/myclaw-test-groups',
   IDLE_TIMEOUT: 1800000, // 30min
   AGENT_ROOT: '/tmp/myclaw-config',
   ONECLI_URL: 'http://localhost:10254',
@@ -60,7 +60,7 @@ vi.mock('./agent-spawn-host.js', () => ({
     onecliApplied: false,
   }),
   prepareHostRuntimeContext: vi.fn(() => ({
-    groupDir: '/tmp/myclaw-test-data/groups/test-group',
+    groupDir: '/tmp/myclaw-test-data/agents/test-group',
     groupIpcDir: '/tmp/myclaw-test-data/ipc/test-group',
     runnerRoot: '/tmp/myclaw-home/.runtime/agent-runner',
   })),
@@ -76,7 +76,7 @@ vi.mock('./prompt-profile.js', () => ({
 // Mock platform
 vi.mock('../platform/group-folder.js', () => ({
   resolveGroupFolderPath: vi.fn(
-    (folder: string) => `/tmp/myclaw-test-data/groups/${folder}`,
+    (folder: string) => `/tmp/myclaw-test-data/agents/${folder}`,
   ),
 }));
 

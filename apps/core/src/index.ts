@@ -1,9 +1,9 @@
 import { OneCLI } from '@onecli-sh/sdk';
 
 import {
+  AGENT_ROOT,
   ASSISTANT_NAME,
   DEFAULT_TRIGGER,
-  GROUPS_DIR,
   ONECLI_URL,
 } from './core/config.js';
 import './channels/index.js';
@@ -78,6 +78,7 @@ import { runRuntimeStartupPreflight } from './runtime/runtime-diagnostics.js';
 import { ensurePromptProfileBootstrapped } from './runtime/prompt-profile.js';
 import { closeAllBrowsers } from './runtime/browser-manager.js';
 import { startMiniAppServer } from './mini-app/server.js';
+import { ensureRuntimeLayoutDirectories } from './platform/runtime-layout.js';
 
 export { escapeXml, formatMessages } from './messaging/router.js';
 
@@ -152,7 +153,6 @@ function saveState(): void {
 function registerGroup(jid: string, group: RegisteredGroup): void {
   registerGroupEntry(registeredGroups, jid, group, {
     assistantName: ASSISTANT_NAME,
-    groupsDir: GROUPS_DIR,
     persist: setRegisteredGroup,
     ensureOneCLIAgent,
   });
@@ -275,6 +275,7 @@ async function requestChannelUserAnswer(
 }
 
 export async function startMyClawRuntime(): Promise<void> {
+  ensureRuntimeLayoutDirectories(AGENT_ROOT);
   try {
     ensurePromptProfileBootstrapped();
   } catch (err) {

@@ -22,6 +22,7 @@ const BROWSER_REQUESTS_DIR = path.join(IPC_DIR, 'browser-requests');
 const BROWSER_RESPONSES_DIR = path.join(IPC_DIR, 'browser-responses');
 const PLAN_EVENTS_DIR = path.join(IPC_DIR, 'plan-events');
 const PLAN_RESPONSES_DIR = path.join(IPC_DIR, 'plan-responses');
+const TASK_RESPONSES_DIR = path.join(IPC_DIR, 'task-responses');
 const CURRENT_PLANS_FILE = path.join(IPC_DIR, 'current_plans.json');
 const IPC_AUTH_TOKEN = process.env.MYCLAW_IPC_AUTH_TOKEN || '';
 const MINI_APP_API_URL = (process.env.MYCLAW_MINI_APP_API_URL || '').trim();
@@ -32,6 +33,10 @@ const PLAN_EVENT_CONSUMER_ID = (
   process.env.CLAUDE_SESSION_ID || `pid-${process.pid}`
 ).trim();
 const consumedPlanEventFiles = new Set<string>();
+const USER_QUESTION_TIMEOUT_MS = 5 * 60 * 1000;
+const USER_QUESTION_POLL_INTERVAL_MS = 100;
+const USER_QUESTION_MAX_ANSWER_LENGTH = 500;
+const USER_QUESTION_MAX_ANSWERED_BY_LENGTH = 120;
 
 // Context from environment variables (set by the agent runner)
 const chatJid = process.env.MYCLAW_CHAT_JID!;
@@ -213,6 +218,34 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 1)}…`;
+}
+
+async function sleepWithAbort(
+  ms: number,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (!signal) {
+    await sleep(ms);
+    return false;
+  }
+  if (signal.aborted) return true;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(false);
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      resolve(true);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 function getMiniAppPlanUrl(planId: string): string {
   const normalized = (
     MINI_APP_FRONTEND_URL || 'https://app.myclaw.dev'
@@ -269,6 +302,15 @@ interface PlanTaskResponseEnvelope {
   timestamp?: string;
 }
 
+interface TaskResponseEnvelope {
+  taskId: string;
+  ok: boolean;
+  message?: string;
+  error?: string;
+  details?: string[];
+  timestamp?: string;
+}
+
 function parsePlanTaskResponseEnvelope(
   raw: unknown,
 ): PlanTaskResponseEnvelope | null {
@@ -292,6 +334,29 @@ function parsePlanTaskResponseEnvelope(
     ...(typeof row.url === 'string' ? { url: row.url } : {}),
     ...(typeof row.error === 'string' ? { error: row.error } : {}),
     ...(typeof row.warning === 'string' ? { warning: row.warning } : {}),
+    ...(typeof row.timestamp === 'string' ? { timestamp: row.timestamp } : {}),
+  };
+}
+
+function parseTaskResponseEnvelope(raw: unknown): TaskResponseEnvelope | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return null;
+  }
+  const row = raw as Record<string, unknown>;
+  const taskId = typeof row.taskId === 'string' ? row.taskId.trim() : '';
+  if (!taskId || typeof row.ok !== 'boolean') return null;
+  const details = Array.isArray(row.details)
+    ? row.details
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+    : undefined;
+  return {
+    taskId,
+    ok: row.ok,
+    ...(typeof row.message === 'string' ? { message: row.message } : {}),
+    ...(typeof row.error === 'string' ? { error: row.error } : {}),
+    ...(details ? { details } : {}),
     ...(typeof row.timestamp === 'string' ? { timestamp: row.timestamp } : {}),
   };
 }
@@ -331,6 +396,49 @@ async function waitForPlanTaskResponse(
             err instanceof Error
               ? err.message
               : 'Failed to parse plan task response',
+        };
+      }
+    }
+    await sleep(150);
+  }
+  return null;
+}
+
+async function waitForTaskResponse(
+  taskId: string,
+  timeoutMs = 15_000,
+): Promise<TaskResponseEnvelope | null> {
+  fs.mkdirSync(TASK_RESPONSES_DIR, { recursive: true });
+  const responsePath = path.join(TASK_RESPONSES_DIR, `task-${taskId}.json`);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(responsePath)) {
+      try {
+        const parsed = parseTaskResponseEnvelope(
+          JSON.parse(fs.readFileSync(responsePath, 'utf-8')),
+        );
+        fs.unlinkSync(responsePath);
+        if (!parsed) {
+          return {
+            taskId,
+            ok: false,
+            error: 'Invalid task response payload',
+          };
+        }
+        return parsed;
+      } catch (err) {
+        try {
+          fs.unlinkSync(responsePath);
+        } catch {
+          // ignore
+        }
+        return {
+          taskId,
+          ok: false,
+          error:
+            err instanceof Error
+              ? err.message
+              : 'Failed to parse task response',
         };
       }
     }
@@ -443,7 +551,12 @@ server.tool(
         'Your role/identity name (e.g. "Researcher"). When set, messages appear from a dedicated bot in Telegram.',
       ),
   },
-  async (args) => {
+  async (
+    args,
+    context?: {
+      signal?: AbortSignal;
+    },
+  ) => {
     const data: Record<string, string | undefined> = {
       type: 'message',
       chatJid,
@@ -456,6 +569,145 @@ server.tool(
     writeIpcFile(MESSAGES_DIR, data);
 
     return { content: [{ type: 'text' as const, text: 'Message sent.' }] };
+  },
+);
+
+server.tool(
+  'ask_user_question',
+  'Ask the user a structured multiple-choice question. Shows interactive buttons in Telegram. Use when you need the user to pick between discrete options (e.g. which database, which approach, which config). Returns the selected option(s).',
+  {
+    questions: z
+      .array(
+        z.object({
+          question: z
+            .string()
+            .describe('The question to ask (must end with ?)'),
+          header: z
+            .string()
+            .max(12)
+            .describe('Short label displayed as tag, e.g. "Deploy", "Config"'),
+          options: z
+            .array(
+              z.object({
+                label: z.string().describe('Option text (1-5 words)'),
+                description: z.string().describe('What this option means'),
+              }),
+            )
+            .min(2)
+            .max(4),
+          multiSelect: z
+            .boolean()
+            .default(false)
+            .describe('Allow selecting multiple options'),
+        }),
+      )
+      .min(1)
+      .max(4),
+  },
+  async (
+    args,
+    context?: {
+      signal?: AbortSignal;
+    },
+  ) => {
+    const userQuestionRequestsDir = path.join(IPC_DIR, 'user-questions');
+    const userQuestionResponsesDir = path.join(IPC_DIR, 'user-answers');
+    fs.mkdirSync(userQuestionRequestsDir, { recursive: true });
+    fs.mkdirSync(userQuestionResponsesDir, { recursive: true });
+
+    const requestId = `userq-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const requestPath = path.join(userQuestionRequestsDir, `${requestId}.json`);
+    const responsePath = path.join(
+      userQuestionResponsesDir,
+      `${requestId}.json`,
+    );
+    const tmpPath = `${requestPath}.tmp`;
+
+    const envelope = {
+      requestId,
+      sourceGroup: groupFolder,
+      questions: args.questions,
+      ...(IPC_AUTH_TOKEN ? { authToken: IPC_AUTH_TOKEN } : {}),
+      timestamp: new Date().toISOString(),
+    };
+
+    fs.writeFileSync(tmpPath, JSON.stringify(envelope, null, 2));
+    fs.renameSync(tmpPath, requestPath);
+
+    const deadline = Date.now() + USER_QUESTION_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (context?.signal?.aborted) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Question cancelled before an answer was received.',
+            },
+          ],
+        };
+      }
+      if (fs.existsSync(responsePath)) {
+        try {
+          const raw = JSON.parse(fs.readFileSync(responsePath, 'utf-8')) as {
+            answers?: Record<string, unknown>;
+            answeredBy?: unknown;
+          };
+          fs.unlinkSync(responsePath);
+          if (raw?.answers && typeof raw.answers === 'object') {
+            const lines: string[] = [];
+            for (const [q, answer] of Object.entries(raw.answers)) {
+              const normalizedAnswer = Array.isArray(answer)
+                ? answer.map((item) => String(item)).join(', ')
+                : String(answer);
+              lines.push(
+                `${q}: ${truncateText(normalizedAnswer, USER_QUESTION_MAX_ANSWER_LENGTH)}`,
+              );
+            }
+            if (typeof raw.answeredBy === 'string' && raw.answeredBy.trim()) {
+              lines.push(
+                `(answered by ${truncateText(raw.answeredBy.trim(), USER_QUESTION_MAX_ANSWERED_BY_LENGTH)})`,
+              );
+            }
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: lines.join('\n') || 'No answer received.',
+                },
+              ],
+            };
+          }
+        } catch {
+          return {
+            content: [
+              { type: 'text' as const, text: 'Failed to read answer.' },
+            ],
+          };
+        }
+      }
+      const aborted = await sleepWithAbort(
+        USER_QUESTION_POLL_INTERVAL_MS,
+        context?.signal,
+      );
+      if (aborted) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Question cancelled before an answer was received.',
+            },
+          ],
+        };
+      }
+    }
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: 'Question timed out — no answer received within 5 minutes.',
+        },
+      ],
+    };
   },
 );
 
@@ -1351,8 +1603,69 @@ server.tool(
 );
 
 server.tool(
-  'register_group',
-  `Register a new chat/group so the agent can respond to messages there. Main group only.
+  'service_restart',
+  'Restart the MyClaw service with config validation. Main agent only. If validation fails, returns actionable errors so you can correct settings and retry.',
+  {},
+  async () => {
+    if (!isMain) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: 'Only the main agent can restart the service.',
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    const taskId = `service-restart-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, {
+      type: 'service_restart',
+      taskId,
+      timestamp: new Date().toISOString(),
+    });
+
+    const response = await waitForTaskResponse(taskId, 20_000);
+    if (!response) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: 'Service restart requested, but host response timed out.',
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    if (!response.ok) {
+      const lines = [
+        response.error || 'Service restart failed.',
+        ...(response.details && response.details.length > 0
+          ? response.details.map((item) => `- ${item}`)
+          : []),
+      ];
+      return {
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: response.message || 'Service restart completed.',
+        },
+      ],
+    };
+  },
+);
+
+server.tool(
+  'register_agent',
+  `Register a new chat/channel agent so MyClaw can respond to messages there. Main agent only.
 
 Use available_groups.json to find the JID for a group. The folder name must be channel-prefixed: "{channel}_{group-name}" (e.g., "whatsapp_family-chat", "telegram_dev-team", "discord_general"). Use lowercase with hyphens for the group name part.`,
   {
@@ -1361,12 +1674,10 @@ Use available_groups.json to find the JID for a group. The folder name must be c
       .describe(
         'The chat JID (e.g., "120363336345536173@g.us", "tg:-1001234567890", "dc:1234567890123456")',
       ),
-    name: z.string().describe('Display name for the group'),
+    name: z.string().describe('Display name for the agent'),
     folder: z
       .string()
-      .describe(
-        'Channel-prefixed folder name (e.g., "whatsapp_family-chat", "telegram_dev-team")',
-      ),
+      .describe('Channel-prefixed folder name (e.g., "telegram_dev-team")'),
     trigger: z.string().describe('Trigger word (e.g., "@Andy")'),
     requiresTrigger: z
       .boolean()
@@ -1381,15 +1692,17 @@ Use available_groups.json to find the JID for a group. The folder name must be c
         content: [
           {
             type: 'text' as const,
-            text: 'Only the main group can register new groups.',
+            text: 'Only the main agent can register new agents.',
           },
         ],
         isError: true,
       };
     }
 
+    const taskId = `register-agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const data = {
-      type: 'register_group',
+      type: 'register_agent',
+      taskId,
       jid: args.jid,
       name: args.name,
       folder: args.folder,
@@ -1400,11 +1713,38 @@ Use available_groups.json to find the JID for a group. The folder name must be c
 
     writeIpcFile(TASKS_DIR, data);
 
+    const response = await waitForTaskResponse(taskId, 15_000);
+    if (!response) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: 'Agent registration requested, but host response timed out.',
+          },
+        ],
+        isError: true,
+      };
+    }
+    if (!response.ok) {
+      const lines = [
+        response.error || 'Agent registration failed.',
+        ...(response.details && response.details.length > 0
+          ? response.details.map((item) => `- ${item}`)
+          : []),
+      ];
+      return {
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
+        isError: true,
+      };
+    }
+
     return {
       content: [
         {
           type: 'text' as const,
-          text: `Group "${args.name}" registered. It will start receiving messages immediately.`,
+          text:
+            response.message ||
+            `Agent "${args.name}" registered. It will start receiving messages immediately.`,
         },
       ],
     };

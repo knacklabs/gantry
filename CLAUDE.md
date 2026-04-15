@@ -17,7 +17,7 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 | `apps/core/src/core/config.ts` | Trigger pattern, paths, intervals |
 | `apps/core/src/runtime/task-scheduler.ts` | Runs scheduled tasks |
 | `apps/core/src/storage/db.ts` | SQLite operations |
-| `apps/core/groups/{name}/CLAUDE.md` | Per-group memory templates |
+| `~/myclaw/agents/{name}/CLAUDE.md` | Runtime per-agent memory files |
 | `$AGENT_ROOT/.claude/skills/` | Custom skills (single source of truth, managed externally) |
 
 ## Secrets / Credentials / Proxy (OneCLI)

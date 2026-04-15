@@ -8,7 +8,7 @@ function createRuntimeHome(): string {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-service-test-'));
   fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
   fs.mkdirSync(path.join(home, 'store'), { recursive: true });
-  fs.mkdirSync(path.join(home, 'groups'), { recursive: true });
+  fs.mkdirSync(path.join(home, 'agents'), { recursive: true });
   fs.mkdirSync(path.join(home, 'data'), { recursive: true });
   return home;
 }

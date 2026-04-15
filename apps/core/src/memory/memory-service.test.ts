@@ -56,7 +56,7 @@ vi.mock('../core/config.js', async (importOriginal) => {
 });
 
 import {
-  GROUPS_DIR,
+  AGENTS_DIR,
   MEMORY_USAGE_DECAY_INTERVAL_TURNS,
   MEMORY_VECTOR_DIMENSIONS,
 } from '../core/config.js';
@@ -411,7 +411,7 @@ describe('MemoryService', () => {
   it('ingests only group CLAUDE.md from group-local docs', async () => {
     const service = makeService();
     const groupFolder = `memory-ingest-${Date.now()}`;
-    const groupDir = path.join(GROUPS_DIR, groupFolder);
+    const groupDir = path.join(AGENTS_DIR, groupFolder);
     tempGroups.push(groupDir);
     fs.mkdirSync(path.join(groupDir, 'conversations'), { recursive: true });
     fs.writeFileSync(
@@ -675,7 +675,7 @@ describe('MemoryService', () => {
 
     // Ingest a document to have searchable content
     const groupFolder = `search-test-${Date.now()}`;
-    const groupDir = path.join(GROUPS_DIR, groupFolder);
+    const groupDir = path.join(AGENTS_DIR, groupFolder);
     tempGroups.push(groupDir);
     fs.mkdirSync(groupDir, { recursive: true });
     fs.writeFileSync(
@@ -962,7 +962,7 @@ describe('MemoryService', () => {
   it('ingestGroupSources scans memory/ directory with subdirs and .md files', async () => {
     const service = makeService();
     const groupFolder = `memory-scan-${Date.now()}`;
-    const groupDir = path.join(GROUPS_DIR, groupFolder);
+    const groupDir = path.join(AGENTS_DIR, groupFolder);
     tempGroups.push(groupDir);
 
     // Create group dir with memory/ subdirectory containing nested .md files
@@ -1048,7 +1048,7 @@ describe('MemoryService', () => {
   it('ingestDocuments skips files with text too short to produce chunks', async () => {
     const service = makeService();
     const groupFolder = `short-text-${Date.now()}`;
-    const groupDir = path.join(GROUPS_DIR, groupFolder);
+    const groupDir = path.join(AGENTS_DIR, groupFolder);
     tempGroups.push(groupDir);
     fs.mkdirSync(groupDir, { recursive: true });
     // Write very short content - will produce chunk(s) shorter than 30 chars after trim
@@ -1065,7 +1065,7 @@ describe('MemoryService', () => {
   it('ingestDocuments skips files when all chunks already exist', async () => {
     const service = makeService();
     const groupFolder = `dedup-chunks-${Date.now()}`;
-    const groupDir = path.join(GROUPS_DIR, groupFolder);
+    const groupDir = path.join(AGENTS_DIR, groupFolder);
     tempGroups.push(groupDir);
     fs.mkdirSync(groupDir, { recursive: true });
     fs.writeFileSync(
@@ -1108,7 +1108,7 @@ describe('MemoryService', () => {
     };
 
     const groupFolder = `embed-mismatch-${Date.now()}`;
-    const groupDir = path.join(GROUPS_DIR, groupFolder);
+    const groupDir = path.join(AGENTS_DIR, groupFolder);
     tempGroups.push(groupDir);
     fs.mkdirSync(groupDir, { recursive: true });
     // Create a doc long enough to produce at least 2 chunks (each > 30 chars)
@@ -1861,7 +1861,7 @@ describe('MemoryService', () => {
   it('ingestGroupSources with no CLAUDE.md and no memory dir ingests nothing', async () => {
     const service = makeService();
     const groupFolder = `no-files-${Date.now()}`;
-    const groupDir = path.join(GROUPS_DIR, groupFolder);
+    const groupDir = path.join(AGENTS_DIR, groupFolder);
     tempGroups.push(groupDir);
     fs.mkdirSync(groupDir, { recursive: true });
 
@@ -1931,7 +1931,7 @@ describe('MemoryService', () => {
   it('chunkText produces multiple chunks for very long text and exercises overlap', async () => {
     const service = makeService();
     const groupFolder = `long-chunk-${Date.now()}`;
-    const groupDir = path.join(GROUPS_DIR, groupFolder);
+    const groupDir = path.join(AGENTS_DIR, groupFolder);
     tempGroups.push(groupDir);
     fs.mkdirSync(groupDir, { recursive: true });
 
@@ -1955,7 +1955,7 @@ describe('MemoryService', () => {
   it('chunkText returns empty for whitespace-only text', async () => {
     const service = makeService();
     const groupFolder = `whitespace-${Date.now()}`;
-    const groupDir = path.join(GROUPS_DIR, groupFolder);
+    const groupDir = path.join(AGENTS_DIR, groupFolder);
     tempGroups.push(groupDir);
     fs.mkdirSync(groupDir, { recursive: true });
 
@@ -1992,7 +1992,7 @@ describe('MemoryService', () => {
   it('ingestGroupSources with whitespace-only CLAUDE.md produces no chunks', async () => {
     const service = makeService();
     const groupFolder = `ws-claude-${Date.now()}`;
-    const groupDir = path.join(GROUPS_DIR, groupFolder);
+    const groupDir = path.join(AGENTS_DIR, groupFolder);
     tempGroups.push(groupDir);
     fs.mkdirSync(groupDir, { recursive: true });
     fs.writeFileSync(path.join(groupDir, 'CLAUDE.md'), '  \t\n  ');
@@ -2127,7 +2127,7 @@ describe('MemoryService', () => {
     };
 
     const groupFolder = `falsy-vec-${Date.now()}`;
-    const groupDir = path.join(GROUPS_DIR, groupFolder);
+    const groupDir = path.join(AGENTS_DIR, groupFolder);
     tempGroups.push(groupDir);
     fs.mkdirSync(groupDir, { recursive: true });
     fs.writeFileSync(

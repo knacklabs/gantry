@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-import { GROUPS_DIR, AGENT_ROOT } from '../core/config.js';
+import { AGENT_ROOT, AGENTS_DIR } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 
@@ -13,7 +13,7 @@ type PromptSectionName =
 
 const PERSONAL_PROFILE_FILENAME = 'CLAUDE.md';
 const PERSONAL_PROFILE_SOURCE = 'myclaw://personal-profile';
-const GLOBAL_CONTEXT_SOURCE = 'myclaw://global-context';
+const GLOBAL_CONTEXT_SOURCE = 'myclaw://shared-agent-profile';
 const GROUP_CONTEXT_SOURCE = 'myclaw://group-context';
 
 const EXPECTED_PROFILE_SECTIONS = [
@@ -51,7 +51,7 @@ export interface CompilePromptProfileOptions {
 
 export interface PromptProfileServiceOptions {
   configDir?: string;
-  groupsDir?: string;
+  agentsDir?: string;
   sectionBudgets?: Partial<Record<PromptSectionName, number>>;
   totalBudget?: number;
 }
@@ -170,13 +170,13 @@ function renderPersonalProfileBody(rawProfile: string): {
 
 export class PromptProfileService {
   private readonly configDir: string;
-  private readonly groupsDir: string;
+  private readonly agentsDir: string;
   private readonly sectionBudgets: Readonly<Record<PromptSectionName, number>>;
   private readonly totalBudget: number;
 
   constructor(options: PromptProfileServiceOptions = {}) {
     this.configDir = options.configDir || AGENT_ROOT;
-    this.groupsDir = options.groupsDir || GROUPS_DIR;
+    this.agentsDir = options.agentsDir || AGENTS_DIR;
     this.sectionBudgets = {
       ...DEFAULT_PROMPT_SECTION_BUDGETS,
       ...(options.sectionBudgets || {}),
@@ -265,10 +265,10 @@ export class PromptProfileService {
   }
 
   private readGlobalContextSection(): PromptSection | null {
-    const globalPath = path.join(this.groupsDir, 'global', 'CLAUDE.md');
+    const sharedPath = path.join(this.agentsDir, 'shared', 'CLAUDE.md');
     return this.readPlainSection(
       'GLOBAL_CONTEXT',
-      globalPath,
+      sharedPath,
       this.sectionBudgets.GLOBAL_CONTEXT,
       GLOBAL_CONTEXT_SOURCE,
     );
@@ -280,7 +280,7 @@ export class PromptProfileService {
       return null;
     }
 
-    const groupPath = path.join(this.groupsDir, groupFolder, 'CLAUDE.md');
+    const groupPath = path.join(this.agentsDir, groupFolder, 'CLAUDE.md');
     return this.readPlainSection(
       'GROUP_CONTEXT',
       groupPath,

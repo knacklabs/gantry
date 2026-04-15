@@ -54,8 +54,8 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 │  │                                                                │    │
 │  │  Working directory: /workspace/group (mounted from host)       │    │
 │  │  Volume mounts:                                                │    │
-│  │    • groups/{name}/ → /workspace/group                         │    │
-│  │    • groups/global/ → /workspace/global/ (non-main only)       │    │
+│  │    • agents/{name}/ → /workspace/group                         │    │
+│  │    • agents/shared/ → /workspace/shared/ (non-main only)       │    │
 │  │    • data/sessions/{group}/.claude/ → /home/node/.claude/      │    │
 │  │    • Additional dirs → /workspace/extra/*                      │    │
 │  │                                                                │    │
@@ -353,10 +353,10 @@ export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 
 // Paths are absolute (required for container mounts)
-const PROJECT_ROOT = process.cwd();
-export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
-export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
-export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
+const AGENT_ROOT = path.resolve(process.env.AGENT_ROOT || '~/myclaw');
+export const STORE_DIR = path.resolve(AGENT_ROOT, 'store');
+export const AGENTS_DIR = path.resolve(AGENT_ROOT, 'agents');
+export const DATA_DIR = path.resolve(AGENT_ROOT, 'data');
 
 // Container configuration
 export const CONTAINER_IMAGE = process.env.CONTAINER_IMAGE || 'myclaw-agent:latest';

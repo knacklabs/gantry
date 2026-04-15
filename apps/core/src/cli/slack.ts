@@ -32,7 +32,7 @@ export interface SlackChatAccessValidation {
 
 function defaultGroupClaudeMarkdown(): string {
   return [
-    '# MyClaw Group Assistant',
+    '# MyClaw Agent',
     '',
     'You are the assistant for this Slack chat.',
     'Keep responses clear, short, and useful.',
@@ -350,7 +350,7 @@ function buildGroupFolder(
 ): string {
   const used = new Set(Object.values(existing).map((group) => group.folder));
   const hasOnDiskFolder = (folder: string): boolean =>
-    fs.existsSync(path.join(runtimeHome, 'groups', folder));
+    fs.existsSync(path.join(runtimeHome, 'agents', folder));
 
   if (!used.has('slack_main') && !hasOnDiskFolder('slack_main')) {
     return 'slack_main';
@@ -377,7 +377,7 @@ export async function registerSlackMainGroup(options: {
 
     const groupName = options.displayName.trim() || 'Slack Main';
 
-    const groupDir = path.join(options.runtimeHome, 'groups', folder);
+    const groupDir = path.join(options.runtimeHome, 'agents', folder);
     fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
 
     const claudePath = path.join(groupDir, 'CLAUDE.md');
@@ -522,7 +522,7 @@ export async function runSlackConnectCommand(
     p.outro('Slack channel is configured and ready.');
   } else {
     p.outro(
-      'Slack tokens saved. Next: run `myclaw group add sl:<channel-id> --main --requires-trigger false`.',
+      'Slack tokens saved. Next: run `myclaw agent add sl:<channel-id> --main --requires-trigger false`.',
     );
   }
 

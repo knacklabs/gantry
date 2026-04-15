@@ -5,6 +5,7 @@ import { createHash } from 'crypto';
 import { CronExpressionParser } from 'cron-parser';
 
 import {
+  AGENT_ROOT,
   DATA_DIR,
   IPC_POLL_INTERVAL,
   MINI_APP_API_URL,
@@ -57,6 +58,12 @@ import {
   setPlanStatus,
   updatePlanSection,
 } from '../mini-app/plan-store.js';
+import { validateRuntimePreflight } from '../cli/runtime-preflight.js';
+import {
+  getServiceStatus,
+  startService,
+  stopService,
+} from '../cli/service-manager.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
@@ -942,6 +949,69 @@ function writePlanTaskResponse(
   });
 }
 
+function writeTaskIpcResponse(
+  sourceGroup: string,
+  taskId: string | undefined,
+  payload: {
+    ok: boolean;
+    message?: string;
+    error?: string;
+    details?: string[];
+  },
+): void {
+  if (!taskId || !PLAN_TASK_ID_PATTERN.test(taskId)) return;
+  if (!isValidGroupFolder(sourceGroup)) return;
+  const responseDir = path.join(DATA_DIR, 'ipc', sourceGroup, 'task-responses');
+  fs.mkdirSync(responseDir, { recursive: true });
+  const responsePath = path.join(responseDir, `task-${taskId}.json`);
+  writeJsonAtomic(responsePath, {
+    taskId,
+    ...payload,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+function restartServiceForRuntimeHome(runtimeHome: string): {
+  ok: boolean;
+  message: string;
+} {
+  try {
+    const serviceStatus = getServiceStatus(runtimeHome);
+    // launchd uses kickstart -k for in-place restart; bootout first can unload it.
+    if (serviceStatus.kind === 'launchd') {
+      const startOutcome = startService(runtimeHome);
+      if (!startOutcome.ok) {
+        return { ok: false, message: startOutcome.message };
+      }
+      return {
+        ok: true,
+        message: `${startOutcome.message} (restart completed).`,
+      };
+    }
+
+    const stopOutcome = stopService(runtimeHome);
+    if (!stopOutcome.ok) {
+      return { ok: false, message: stopOutcome.message };
+    }
+    const startOutcome = startService(runtimeHome);
+    if (!startOutcome.ok) {
+      return {
+        ok: false,
+        message: `Restart failed after stop: ${startOutcome.message}`,
+      };
+    }
+    return {
+      ok: true,
+      message: `${startOutcome.message} (restart completed).`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 export function startIpcWatcher(deps: IpcDeps): void {
   if (ipcWatcherRunning) {
     logger.debug('IPC watcher already running, skipping duplicate start');
@@ -1406,7 +1476,7 @@ export async function processTaskIpc(
     groupFolder?: string;
     chatJid?: string;
     targetJid?: string;
-    // For register_group
+    // For register_agent
     jid?: string;
     name?: string;
     folder?: string;
@@ -2240,21 +2310,30 @@ export async function processTaskIpc(
       }
       break;
 
-    case 'register_group':
-      // Only main group can register new groups
+    case 'register_agent': {
+      const taskId = toTrimmedString(data.taskId, { maxLen: 128 });
+      // Only main agent can register new agents
       if (!isMain) {
         logger.warn(
           { sourceGroup },
-          'Unauthorized register_group attempt blocked',
+          'Unauthorized register_agent attempt blocked',
         );
+        writeTaskIpcResponse(sourceGroup, taskId, {
+          ok: false,
+          error: 'Only the main agent can register new agents.',
+        });
         break;
       }
       if (data.jid && data.name && data.folder && data.trigger) {
         if (!isValidGroupFolder(data.folder)) {
           logger.warn(
             { sourceGroup, folder: data.folder },
-            'Invalid register_group request - unsafe folder name',
+            'Invalid register_agent request - unsafe folder name',
           );
+          writeTaskIpcResponse(sourceGroup, taskId, {
+            ok: false,
+            error: `Invalid agent folder: ${data.folder}`,
+          });
           break;
         }
         // Defense in depth: agent cannot set isMain via IPC.
@@ -2270,13 +2349,85 @@ export async function processTaskIpc(
           requiresTrigger: data.requiresTrigger,
           isMain: existingGroup?.isMain,
         });
+        writeTaskIpcResponse(sourceGroup, taskId, {
+          ok: true,
+          message: `Agent "${data.name}" registered.`,
+        });
       } else {
         logger.warn(
           { data },
-          'Invalid register_group request - missing required fields',
+          'Invalid register_agent request - missing required fields',
         );
+        writeTaskIpcResponse(sourceGroup, taskId, {
+          ok: false,
+          error: 'Missing required fields: jid, name, folder, trigger.',
+        });
       }
       break;
+    }
+
+    case 'service_restart': {
+      const taskId = toTrimmedString(data.taskId, { maxLen: 128 });
+      if (!isMain) {
+        logger.warn(
+          { sourceGroup },
+          'Unauthorized service_restart attempt blocked',
+        );
+        writeTaskIpcResponse(sourceGroup, taskId, {
+          ok: false,
+          error: 'Only the main agent can restart the service.',
+        });
+        break;
+      }
+
+      try {
+        const validation = validateRuntimePreflight(AGENT_ROOT);
+        if (!validation.ok) {
+          writeTaskIpcResponse(sourceGroup, taskId, {
+            ok: false,
+            error:
+              validation.failure?.summary ||
+              'Runtime configuration validation failed.',
+            details: validation.failure?.details || [],
+          });
+          break;
+        }
+
+        writeTaskIpcResponse(sourceGroup, taskId, {
+          ok: true,
+          message: 'Service restart accepted. Restarting now.',
+        });
+
+        setTimeout(() => {
+          const restartOutcome = restartServiceForRuntimeHome(AGENT_ROOT);
+          if (!restartOutcome.ok) {
+            logger.error(
+              { sourceGroup, taskId, error: restartOutcome.message },
+              'Service restart failed after acknowledgment',
+            );
+            return;
+          }
+          logger.info(
+            { sourceGroup, taskId, message: restartOutcome.message },
+            'Service restart completed',
+          );
+        }, 0);
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : 'Service restart failed with an unexpected error.';
+        logger.error(
+          { sourceGroup, taskId, err },
+          'Error while handling service_restart IPC task',
+        );
+        writeTaskIpcResponse(sourceGroup, taskId, {
+          ok: false,
+          error: message,
+        });
+      }
+      break;
+    }
 
     default:
       logger.warn({ type: data.type }, 'Unknown IPC task type');

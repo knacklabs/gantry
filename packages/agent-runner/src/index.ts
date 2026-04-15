@@ -20,8 +20,6 @@ import path from 'path';
 import { execFile } from 'child_process';
 import {
   query,
-  HookCallback,
-  PreCompactHookInput,
   type EffortLevel,
   type ThinkingConfig,
 } from '@anthropic-ai/claude-agent-sdk';
@@ -52,17 +50,6 @@ interface ContainerOutput {
   error?: string;
 }
 
-interface SessionEntry {
-  sessionId: string;
-  fullPath: string;
-  summary: string;
-  firstPrompt: string;
-}
-
-interface SessionsIndex {
-  entries: SessionEntry[];
-}
-
 interface SDKUserMessage {
   type: 'user';
   message: { role: 'user'; content: string };
@@ -77,19 +64,6 @@ const WORKSPACE_EXTRA_DIR =
 const IPC_BASE_DIR = process.env.MYCLAW_IPC_DIR || '/workspace/ipc';
 const IPC_INPUT_DIR =
   process.env.MYCLAW_IPC_INPUT_DIR || '/workspace/ipc/input';
-const IPC_PERMISSION_REQUESTS_DIR = path.join(
-  IPC_BASE_DIR,
-  'permission-requests',
-);
-const IPC_PERMISSION_RESPONSES_DIR = path.join(
-  IPC_BASE_DIR,
-  'permission-responses',
-);
-const IPC_USER_QUESTION_REQUESTS_DIR = path.join(
-  IPC_BASE_DIR,
-  'user-questions',
-);
-const IPC_USER_QUESTION_RESPONSES_DIR = path.join(IPC_BASE_DIR, 'user-answers');
 const IPC_AUTH_TOKEN = process.env.MYCLAW_IPC_AUTH_TOKEN || '';
 const PERMISSION_REQUEST_TIMEOUT_MS = Math.max(
   10_000,
@@ -107,90 +81,17 @@ interface PermissionDecision {
   reason?: string;
 }
 
-interface UserQuestionOptionPayload {
-  label: string;
-  description: string;
-  preview?: string;
-}
-
-interface UserQuestionItemPayload {
-  question: string;
-  header: string;
-  options: UserQuestionOptionPayload[];
-  multiSelect: boolean;
-}
-
-interface UserQuestionRequestPayload {
-  requestId: string;
-  sourceGroup: string;
-  questions: UserQuestionItemPayload[];
-}
-
-interface UserQuestionResponsePayload {
-  answers: Record<string, string | string[]>;
-  answeredBy?: string;
+function resolveGroupIpcDir(groupFolder: string): string {
+  // `MYCLAW_IPC_DIR` is normally group-scoped, but older/alternate runtimes
+  // may still provide the shared IPC root. Handle both without double-nesting.
+  if (path.basename(IPC_BASE_DIR) === groupFolder) {
+    return IPC_BASE_DIR;
+  }
+  return path.join(IPC_BASE_DIR, groupFolder);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function truncateText(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  return `${text.slice(0, maxLen)}...`;
-}
-
-function toShortString(
-  value: unknown,
-  maxLen: number,
-  allowEmpty = false,
-): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  if (!allowEmpty && trimmed.length === 0) return undefined;
-  return truncateText(trimmed, maxLen);
-}
-
-function normalizeAskUserQuestionInput(
-  input: unknown,
-): UserQuestionItemPayload[] | null {
-  if (!isPlainObject(input)) return null;
-  if (!Array.isArray(input.questions)) return null;
-  if (input.questions.length < 1 || input.questions.length > 4) return null;
-
-  const parsedQuestions: UserQuestionItemPayload[] = [];
-  for (const rawQuestion of input.questions) {
-    if (!isPlainObject(rawQuestion)) return null;
-    const question = toShortString(rawQuestion.question, 500);
-    const header = toShortString(rawQuestion.header, 64);
-    const multiSelect = Boolean(rawQuestion.multiSelect);
-    if (!question || !header) return null;
-    if (!Array.isArray(rawQuestion.options)) return null;
-    if (rawQuestion.options.length < 2 || rawQuestion.options.length > 4) {
-      return null;
-    }
-    const options: UserQuestionOptionPayload[] = [];
-    for (const rawOption of rawQuestion.options) {
-      if (!isPlainObject(rawOption)) return null;
-      const label = toShortString(rawOption.label, 120);
-      const description = toShortString(rawOption.description, 500, true) || '';
-      const preview = toShortString(rawOption.preview, 800, true);
-      if (!label) return null;
-      options.push({
-        label,
-        description,
-        ...(preview ? { preview } : {}),
-      });
-    }
-    parsedQuestions.push({
-      question,
-      header,
-      options,
-      multiSelect,
-    });
-  }
-
-  return parsedQuestions;
 }
 
 function buildSystemPrompt(append?: string):
@@ -361,168 +262,6 @@ function parseSessionSlashCommand(prompt: string): SessionSlashCommand | null {
   return null;
 }
 
-function getSessionSummary(
-  sessionId: string,
-  transcriptPath: string,
-): string | null {
-  const projectDir = path.dirname(transcriptPath);
-  const indexPath = path.join(projectDir, 'sessions-index.json');
-
-  if (!fs.existsSync(indexPath)) {
-    log(`Sessions index not found at ${indexPath}`);
-    return null;
-  }
-
-  try {
-    const index: SessionsIndex = JSON.parse(
-      fs.readFileSync(indexPath, 'utf-8'),
-    );
-    const entry = index.entries.find((e) => e.sessionId === sessionId);
-    if (entry?.summary) {
-      return entry.summary;
-    }
-  } catch (err) {
-    log(
-      `Failed to read sessions index: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
-  return null;
-}
-
-/**
- * Archive the full transcript to conversations/ before compaction.
- */
-function createPreCompactHook(assistantName?: string): HookCallback {
-  return async (input, _toolUseId, _context) => {
-    const preCompact = input as PreCompactHookInput;
-    const transcriptPath = preCompact.transcript_path;
-    const sessionId = preCompact.session_id;
-
-    if (!transcriptPath || !fs.existsSync(transcriptPath)) {
-      log('No transcript found for archiving');
-      return {};
-    }
-
-    try {
-      const content = fs.readFileSync(transcriptPath, 'utf-8');
-      const messages = parseTranscript(content);
-
-      if (messages.length === 0) {
-        log('No messages to archive');
-        return {};
-      }
-
-      const summary = getSessionSummary(sessionId, transcriptPath);
-      const name = summary ? sanitizeFilename(summary) : generateFallbackName();
-
-      const conversationsDir = path.join(WORKSPACE_GROUP_DIR, 'conversations');
-      fs.mkdirSync(conversationsDir, { recursive: true });
-
-      const date = new Date().toISOString().split('T')[0];
-      const filename = `${date}-${name}.md`;
-      const filePath = path.join(conversationsDir, filename);
-
-      const markdown = formatTranscriptMarkdown(
-        messages,
-        summary,
-        assistantName,
-      );
-      fs.writeFileSync(filePath, markdown);
-
-      log(`Archived conversation to ${filePath}`);
-    } catch (err) {
-      log(
-        `Failed to archive transcript: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-
-    return {};
-  };
-}
-
-function sanitizeFilename(summary: string): string {
-  return summary
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 50);
-}
-
-function generateFallbackName(): string {
-  const time = new Date();
-  return `conversation-${time.getHours().toString().padStart(2, '0')}${time.getMinutes().toString().padStart(2, '0')}`;
-}
-
-interface ParsedMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
-
-function parseTranscript(content: string): ParsedMessage[] {
-  const messages: ParsedMessage[] = [];
-
-  for (const line of content.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const entry = JSON.parse(line);
-      if (entry.type === 'user' && entry.message?.content) {
-        const text =
-          typeof entry.message.content === 'string'
-            ? entry.message.content
-            : entry.message.content
-                .map((c: { text?: string }) => c.text || '')
-                .join('');
-        if (text) messages.push({ role: 'user', content: text });
-      } else if (entry.type === 'assistant' && entry.message?.content) {
-        const textParts = entry.message.content
-          .filter((c: { type: string }) => c.type === 'text')
-          .map((c: { text: string }) => c.text);
-        const text = textParts.join('');
-        if (text) messages.push({ role: 'assistant', content: text });
-      }
-    } catch {}
-  }
-
-  return messages;
-}
-
-function formatTranscriptMarkdown(
-  messages: ParsedMessage[],
-  title?: string | null,
-  assistantName?: string,
-): string {
-  const now = new Date();
-  const formatDateTime = (d: Date) =>
-    d.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-
-  const lines: string[] = [];
-  lines.push(`# ${title || 'Conversation'}`);
-  lines.push('');
-  lines.push(`Archived: ${formatDateTime(now)}`);
-  lines.push('');
-  lines.push('---');
-  lines.push('');
-
-  for (const msg of messages) {
-    const sender = msg.role === 'user' ? 'User' : assistantName || 'Assistant';
-    const content =
-      msg.content.length > 2000
-        ? msg.content.slice(0, 2000) + '...'
-        : msg.content;
-    lines.push(`**${sender}**: ${content}`);
-    lines.push('');
-  }
-
-  return lines.join('\n');
-}
-
 /**
  * Check for _close sentinel.
  */
@@ -610,13 +349,16 @@ async function requestPermissionApproval(options: {
   toolInput?: unknown;
 }): Promise<PermissionDecision> {
   try {
-    fs.mkdirSync(IPC_PERMISSION_REQUESTS_DIR, { recursive: true });
-    fs.mkdirSync(IPC_PERMISSION_RESPONSES_DIR, { recursive: true });
-    const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const requestPath = path.join(
-      IPC_PERMISSION_REQUESTS_DIR,
-      `${requestId}.json`,
+    const groupIpcDir = resolveGroupIpcDir(options.groupFolder);
+    const permissionRequestsDir = path.join(groupIpcDir, 'permission-requests');
+    const permissionResponsesDir = path.join(
+      groupIpcDir,
+      'permission-responses',
     );
+    fs.mkdirSync(permissionRequestsDir, { recursive: true });
+    fs.mkdirSync(permissionResponsesDir, { recursive: true });
+    const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const requestPath = path.join(permissionRequestsDir, `${requestId}.json`);
     const requestTmpPath = `${requestPath}.tmp`;
     const envelope = {
       requestId,
@@ -638,10 +380,7 @@ async function requestPermissionApproval(options: {
     fs.writeFileSync(requestTmpPath, JSON.stringify(envelope, null, 2));
     fs.renameSync(requestTmpPath, requestPath);
 
-    const responsePath = path.join(
-      IPC_PERMISSION_RESPONSES_DIR,
-      `${requestId}.json`,
-    );
+    const responsePath = path.join(permissionResponsesDir, `${requestId}.json`);
     const deadline = Date.now() + PERMISSION_REQUEST_TIMEOUT_MS;
     while (Date.now() < deadline) {
       if (fs.existsSync(responsePath)) {
@@ -690,92 +429,6 @@ async function requestPermissionApproval(options: {
           ? `Permission request failed: ${err.message}`
           : 'Permission request failed',
     };
-  }
-}
-
-async function requestUserQuestionAnswer(options: {
-  groupFolder: string;
-  questions: UserQuestionItemPayload[];
-}): Promise<UserQuestionResponsePayload | null> {
-  try {
-    fs.mkdirSync(IPC_USER_QUESTION_REQUESTS_DIR, { recursive: true });
-    fs.mkdirSync(IPC_USER_QUESTION_RESPONSES_DIR, { recursive: true });
-    const requestId = `userq-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const requestPath = path.join(
-      IPC_USER_QUESTION_REQUESTS_DIR,
-      `${requestId}.json`,
-    );
-    const requestTmpPath = `${requestPath}.tmp`;
-    const envelope: UserQuestionRequestPayload & {
-      authToken?: string;
-      timestamp: string;
-    } = {
-      requestId,
-      sourceGroup: options.groupFolder,
-      questions: options.questions,
-      ...(IPC_AUTH_TOKEN ? { authToken: IPC_AUTH_TOKEN } : {}),
-      timestamp: new Date().toISOString(),
-    };
-    fs.writeFileSync(requestTmpPath, JSON.stringify(envelope, null, 2));
-    fs.renameSync(requestTmpPath, requestPath);
-
-    const responsePath = path.join(
-      IPC_USER_QUESTION_RESPONSES_DIR,
-      `${requestId}.json`,
-    );
-    const deadline = Date.now() + PERMISSION_REQUEST_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      if (fs.existsSync(responsePath)) {
-        try {
-          const raw = JSON.parse(fs.readFileSync(responsePath, 'utf-8'));
-          fs.unlinkSync(responsePath);
-          if (!isPlainObject(raw)) return null;
-          if (
-            typeof raw.requestId !== 'string' ||
-            raw.requestId !== requestId ||
-            !isPlainObject(raw.answers)
-          ) {
-            return null;
-          }
-          const answers: Record<string, string | string[]> = {};
-          for (const [key, value] of Object.entries(raw.answers)) {
-            if (typeof value === 'string') {
-              answers[key] = truncateText(value, 500);
-              continue;
-            }
-            if (
-              Array.isArray(value) &&
-              value.every((entry) => typeof entry === 'string')
-            ) {
-              answers[key] = value
-                .slice(0, 20)
-                .map((entry) => truncateText(entry, 200));
-            }
-          }
-          const answeredBy =
-            typeof raw.answeredBy === 'string' && raw.answeredBy.trim()
-              ? truncateText(raw.answeredBy.trim(), 120)
-              : undefined;
-          return {
-            answers,
-            ...(answeredBy ? { answeredBy } : {}),
-          };
-        } catch (err) {
-          log(
-            `Failed to read user question answer: ${err instanceof Error ? err.message : String(err)}`,
-          );
-          return null;
-        }
-      }
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    log('Timed out waiting for user question answer');
-    return null;
-  } catch (err) {
-    log(
-      `Failed to create user question request: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return null;
   }
 }
 
@@ -847,7 +500,6 @@ async function runQuery(
   if (extraDirs.length > 0) {
     log(`Additional directories: ${extraDirs.join(', ')}`);
   }
-  const pendingAskUserQuestionInputs: UserQuestionItemPayload[][] = [];
 
   for await (const message of query({
     prompt: stream,
@@ -882,7 +534,6 @@ async function runQuery(
         'Config',
         'EnterWorktree',
         'ExitWorktree',
-        'AskUserQuestion',
         'mcp__myclaw__*',
       ],
       env: sdkEnv,
@@ -893,16 +544,6 @@ async function runQuery(
           toolName === 'EnterWorktree' ||
           toolName === 'ExitWorktree'
         ) {
-          return { behavior: 'allow' as const, updatedInput: input };
-        }
-
-        if (toolName === 'AskUserQuestion') {
-          const normalized = normalizeAskUserQuestionInput(input);
-          if (normalized) {
-            pendingAskUserQuestionInputs.push(normalized);
-          } else {
-            log('AskUserQuestion input did not match expected schema');
-          }
           return { behavior: 'allow' as const, updatedInput: input };
         }
 
@@ -936,41 +577,6 @@ async function runQuery(
           interrupt: false,
         };
       },
-      onElicitation: async (request, options) => {
-        if (options.signal.aborted) {
-          return { action: 'cancel' as const };
-        }
-
-        if (request.mode && request.mode !== 'form') {
-          log(
-            `Declining unsupported elicitation mode: ${request.mode} (${request.serverName})`,
-          );
-          return { action: 'decline' as const };
-        }
-
-        const questions = pendingAskUserQuestionInputs.shift();
-        if (!questions || questions.length === 0) {
-          log(
-            `Declining elicitation without queued AskUserQuestion payload (${request.serverName})`,
-          );
-          return { action: 'decline' as const };
-        }
-
-        const response = await requestUserQuestionAnswer({
-          groupFolder: containerInput.groupFolder,
-          questions,
-        });
-
-        if (!response || Object.keys(response.answers).length === 0) {
-          log('No user answers received for AskUserQuestion elicitation');
-          return { action: 'decline' as const };
-        }
-
-        return {
-          action: 'accept' as const,
-          content: response.answers,
-        };
-      },
       settingSources: ['user'],
       mcpServers: {
         myclaw: {
@@ -1001,11 +607,6 @@ async function runQuery(
               : {}),
           },
         },
-      },
-      hooks: {
-        PreCompact: [
-          { hooks: [createPreCompactHook(containerInput.assistantName)] },
-        ],
       },
       includePartialMessages: true,
     },
@@ -1256,9 +857,6 @@ async function runSessionSlashCommand(
         permissionMode: 'bypassPermissions' as const,
         allowDangerouslySkipPermissions: true,
         settingSources: ['user'] as const,
-        hooks: {
-          PreCompact: [{ hooks: [createPreCompactHook(opts.assistantName)] }],
-        },
       },
     })) {
       const msgType =

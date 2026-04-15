@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Prune stale session artifacts (JSONLs, debug logs, todos, telemetry, group logs).
+# Prune stale session artifacts (JSONLs, debug logs, todos, telemetry, agent logs).
 # Safe to run while MyClaw is live — active sessions are read from the DB.
 #
 # Usage:  ./scripts/cleanup-sessions.sh [--dry-run]
@@ -10,16 +10,15 @@
 #   Debug logs:                     3 days
 #   Todo files:                     3 days
 #   Telemetry:                      7 days
-#   Group logs:                     7 days
+#   Agent logs:                     7 days
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+RUNTIME_HOME="${AGENT_ROOT:-${MYCLAW_RUNTIME_HOME:-$HOME/myclaw}}"
 
-STORE_DB="$PROJECT_ROOT/store/messages.db"
-SESSIONS_DIR="$PROJECT_ROOT/data/sessions"
-GROUPS_DIR="$PROJECT_ROOT/groups"
+STORE_DB="$RUNTIME_HOME/store/messages.db"
+SESSIONS_DIR="$RUNTIME_HOME/data/sessions"
+AGENTS_DIR="$RUNTIME_HOME/agents"
 
 DRY_RUN=false
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=true
@@ -135,11 +134,11 @@ for group_dir in "$SESSIONS_DIR"/*/; do
   done < <(find "$telem_dir" -type f -mtime +7 -print0 2>/dev/null)
 done
 
-# --- Prune group logs (>7 days) ---
+# --- Prune agent logs (>7 days) ---
 
 while IFS= read -r -d '' f; do
   remove "$f"
-done < <(find "$GROUPS_DIR"/*/logs -type f -mtime +7 -print0 2>/dev/null)
+done < <(find "$AGENTS_DIR"/*/logs -type f -mtime +7 -print0 2>/dev/null)
 
 # --- Summary ---
 

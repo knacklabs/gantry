@@ -13,13 +13,61 @@ import {
 
 let tmpDir: string;
 
-function cfgPath(name = 'sender-allowlist.json'): string {
+function settingsPath(name = 'settings.yaml'): string {
   return path.join(tmpDir, name);
 }
 
-function writeConfig(config: unknown, name?: string): string {
-  const p = cfgPath(name);
-  fs.writeFileSync(p, JSON.stringify(config));
+function renderSettingsYaml(overrides: {
+  defaultAllow: '*' | string[];
+  defaultMode: 'trigger' | 'drop';
+  chats?: Record<string, { allow: '*' | string[]; mode: 'trigger' | 'drop' }>;
+  logDenied?: boolean;
+}): string {
+  const lines = [
+    'version: 2',
+    'channels:',
+    '  telegram:',
+    '    enabled: true',
+    '  slack:',
+    '    enabled: false',
+    'features:',
+    '  memory: true',
+    '  embeddings: false',
+    '  dreaming: false',
+    'message_policy:',
+    '  sender_allowlist:',
+    '    default:',
+    `      allow: ${
+      overrides.defaultAllow === '*'
+        ? '"*"'
+        : JSON.stringify(overrides.defaultAllow)
+    }`,
+    `      mode: ${overrides.defaultMode}`,
+    '    chats:',
+  ];
+
+  for (const [chat, entry] of Object.entries(overrides.chats || {})) {
+    lines.push(`      ${chat}:`);
+    lines.push(
+      `        allow: ${entry.allow === '*' ? '"*"' : JSON.stringify(entry.allow)}`,
+    );
+    lines.push(`        mode: ${entry.mode}`);
+  }
+
+  lines.push(
+    `    log_denied: ${overrides.logDenied === false ? 'false' : 'true'}`,
+    '',
+  );
+
+  return lines.join('\n');
+}
+
+function writeSettings(
+  config: Parameters<typeof renderSettingsYaml>[0],
+  name?: string,
+): string {
+  const p = settingsPath(name);
+  fs.writeFileSync(p, renderSettingsYaml(config), 'utf-8');
   return p;
 }
 
@@ -33,15 +81,16 @@ afterEach(() => {
 
 describe('loadSenderAllowlist', () => {
   it('returns allow-all defaults when file is missing', () => {
-    const cfg = loadSenderAllowlist(cfgPath());
+    const cfg = loadSenderAllowlist(settingsPath());
     expect(cfg.default.allow).toBe('*');
     expect(cfg.default.mode).toBe('trigger');
     expect(cfg.logDenied).toBe(true);
   });
 
   it('loads allow=* config', () => {
-    const p = writeConfig({
-      default: { allow: '*', mode: 'trigger' },
+    const p = writeSettings({
+      defaultAllow: '*',
+      defaultMode: 'trigger',
       chats: {},
       logDenied: false,
     });
@@ -51,8 +100,9 @@ describe('loadSenderAllowlist', () => {
   });
 
   it('loads allow=[] (deny all)', () => {
-    const p = writeConfig({
-      default: { allow: [], mode: 'trigger' },
+    const p = writeSettings({
+      defaultAllow: [],
+      defaultMode: 'trigger',
       chats: {},
     });
     const cfg = loadSenderAllowlist(p);
@@ -60,8 +110,9 @@ describe('loadSenderAllowlist', () => {
   });
 
   it('loads allow=[list]', () => {
-    const p = writeConfig({
-      default: { allow: ['alice', 'bob'], mode: 'drop' },
+    const p = writeSettings({
+      defaultAllow: ['alice', 'bob'],
+      defaultMode: 'drop',
       chats: {},
     });
     const cfg = loadSenderAllowlist(p);
@@ -70,8 +121,9 @@ describe('loadSenderAllowlist', () => {
   });
 
   it('per-chat override beats default', () => {
-    const p = writeConfig({
-      default: { allow: '*', mode: 'trigger' },
+    const p = writeSettings({
+      defaultAllow: '*',
+      defaultMode: 'trigger',
       chats: { 'group-a': { allow: ['alice'], mode: 'drop' } },
     });
     const cfg = loadSenderAllowlist(p);
@@ -79,49 +131,30 @@ describe('loadSenderAllowlist', () => {
     expect(cfg.chats['group-a'].mode).toBe('drop');
   });
 
-  it('returns allow-all on invalid JSON', () => {
-    const p = cfgPath();
-    fs.writeFileSync(p, '{ not valid json }}}');
+  it('returns allow-all on invalid YAML', () => {
+    const p = settingsPath();
+    fs.writeFileSync(p, 'version\n', 'utf-8');
     const cfg = loadSenderAllowlist(p);
     expect(cfg.default.allow).toBe('*');
   });
 
   it('returns allow-all on invalid schema', () => {
-    const p = writeConfig({ default: { oops: true } });
+    const p = settingsPath();
+    fs.writeFileSync(
+      p,
+      ['version: 2', 'channels:', '  telegram: {}', '  slack: {}'].join('\n'),
+      'utf-8',
+    );
     const cfg = loadSenderAllowlist(p);
     expect(cfg.default.allow).toBe('*');
   });
 
   it('returns allow-all when readFileSync throws non-ENOENT error', () => {
-    // Cover lines 43-47: non-ENOENT read error branch
-    // Create a directory where a file is expected — reading a dir throws EISDIR
-    const dirPath = path.join(tmpDir, 'is-a-directory.json');
+    const dirPath = path.join(tmpDir, 'is-a-directory.yaml');
     fs.mkdirSync(dirPath);
     const cfg = loadSenderAllowlist(dirPath);
     expect(cfg.default.allow).toBe('*');
     expect(cfg.default.mode).toBe('trigger');
-  });
-
-  it('rejects non-string allow array items', () => {
-    const p = writeConfig({
-      default: { allow: [123, null, true], mode: 'trigger' },
-      chats: {},
-    });
-    const cfg = loadSenderAllowlist(p);
-    expect(cfg.default.allow).toBe('*'); // falls back to default
-  });
-
-  it('skips invalid per-chat entries', () => {
-    const p = writeConfig({
-      default: { allow: '*', mode: 'trigger' },
-      chats: {
-        good: { allow: ['alice'], mode: 'trigger' },
-        bad: { allow: 123 },
-      },
-    });
-    const cfg = loadSenderAllowlist(p);
-    expect(cfg.chats['good']).toBeDefined();
-    expect(cfg.chats['bad']).toBeUndefined();
   });
 });
 
@@ -221,6 +254,5 @@ describe('isTriggerAllowed', () => {
       logDenied: true,
     };
     isTriggerAllowed('g1', 'eve', cfg);
-    // Logger.debug is called — we just verify no crash; logger is a real pino instance
   });
 });

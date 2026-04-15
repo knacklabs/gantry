@@ -37,13 +37,13 @@ interface GroupTriggerOptions {
 
 function usage(): string {
   return [
-    'Group commands:',
-    '  myclaw group list',
-    '  myclaw group info <jid|folder>',
-    '  myclaw group add <jid|chat-id> [--name <name>] [--folder <folder>] [--trigger <word>] [--main] [--requires-trigger true|false] [--test-message|--no-test-message]',
-    '  myclaw group remove <jid|folder> [--delete-folder] [--yes]',
-    '  myclaw group trigger <jid|folder> <word>',
-    '  myclaw group trigger <jid|folder> --off',
+    'Agent commands:',
+    '  myclaw agent list',
+    '  myclaw agent info <jid|folder>',
+    '  myclaw agent add <jid|chat-id> [--name <name>] [--folder <folder>] [--trigger <word>] [--main] [--requires-trigger true|false] [--test-message|--no-test-message]',
+    '  myclaw agent remove <jid|folder> [--delete-folder] [--yes]',
+    '  myclaw agent trigger <jid|folder> <word>',
+    '  myclaw agent trigger <jid|folder> --off',
   ].join('\n');
 }
 
@@ -193,7 +193,7 @@ function ensureFolderAvailable(
     );
   }
 
-  const folderPath = path.join(runtimeHome, 'groups', desiredFolder);
+  const folderPath = path.join(runtimeHome, 'agents', desiredFolder);
   if (fs.existsSync(folderPath)) {
     throw new Error(
       `Folder already exists on disk: ${folderPath}. Choose another folder with --folder.`,
@@ -226,7 +226,7 @@ function allocateGroupFolder(options: {
     const candidate = i === 0 ? base : `${base}_${i + 1}`;
     if (!isValidGroupFolder(candidate)) continue;
     if (usedFolders.has(candidate)) continue;
-    const candidatePath = path.join(options.runtimeHome, 'groups', candidate);
+    const candidatePath = path.join(options.runtimeHome, 'agents', candidate);
     if (fs.existsSync(candidatePath)) continue;
     return candidate;
   }
@@ -235,7 +235,7 @@ function allocateGroupFolder(options: {
 }
 
 function ensureGroupFiles(runtimeHome: string, folder: string): void {
-  const groupDir = path.join(runtimeHome, 'groups', folder);
+  const groupDir = path.join(runtimeHome, 'agents', folder);
   if (fs.existsSync(groupDir)) {
     throw new Error(`Refusing to overwrite existing group folder: ${groupDir}`);
   }
@@ -332,7 +332,7 @@ function parseGroupAddArgs(
     }
 
     if (arg.startsWith('--')) {
-      return { error: `Unknown option for group add: ${arg}` };
+      return { error: `Unknown option for agent add: ${arg}` };
     }
 
     if (!options.selector) {
@@ -340,12 +340,12 @@ function parseGroupAddArgs(
       continue;
     }
 
-    return { error: `Unexpected argument for group add: ${arg}` };
+    return { error: `Unexpected argument for agent add: ${arg}` };
   }
 
   if (!options.selector) {
     return {
-      error: 'Missing JID/chat-id. Usage: myclaw group add <jid|chat-id> ...',
+      error: 'Missing JID/chat-id. Usage: myclaw agent add <jid|chat-id> ...',
     };
   }
 
@@ -371,20 +371,20 @@ function parseGroupRemoveArgs(
       continue;
     }
     if (arg.startsWith('--')) {
-      return { error: `Unknown option for group remove: ${arg}` };
+      return { error: `Unknown option for agent remove: ${arg}` };
     }
 
     if (!options.selector) {
       options.selector = arg;
       continue;
     }
-    return { error: `Unexpected argument for group remove: ${arg}` };
+    return { error: `Unexpected argument for agent remove: ${arg}` };
   }
 
   if (!options.selector) {
     return {
       error:
-        'Missing group selector. Usage: myclaw group remove <jid|folder> [--delete-folder]',
+        'Missing agent selector. Usage: myclaw agent remove <jid|folder> [--delete-folder]',
     };
   }
 
@@ -406,7 +406,7 @@ function parseGroupTriggerArgs(
     }
 
     if (arg.startsWith('--')) {
-      return { error: `Unknown option for group trigger: ${arg}` };
+      return { error: `Unknown option for agent trigger: ${arg}` };
     }
 
     if (!options.selector) {
@@ -419,19 +419,19 @@ function parseGroupTriggerArgs(
       continue;
     }
 
-    return { error: `Unexpected argument for group trigger: ${arg}` };
+    return { error: `Unexpected argument for agent trigger: ${arg}` };
   }
 
   if (!options.selector) {
     return {
       error:
-        'Missing group selector. Usage: myclaw group trigger <jid|folder> <word>|--off',
+        'Missing agent selector. Usage: myclaw agent trigger <jid|folder> <word>|--off',
     };
   }
   if (!options.disable && !options.trigger) {
     return {
       error:
-        'Missing trigger word. Usage: myclaw group trigger <jid|folder> <word>',
+        'Missing trigger word. Usage: myclaw agent trigger <jid|folder> <word>',
     };
   }
 
@@ -461,15 +461,15 @@ async function runList(runtimeHome: string): Promise<number> {
     }
 
     if (groups.length === 0) {
-      p.log.warn('No groups are registered in this runtime home.');
+      p.log.warn('No agents are registered in this runtime home.');
       p.log.info(
-        'Next action: run `myclaw group add <chat-id>` or `myclaw telegram connect`.',
+        'Next action: run `myclaw agent add <chat-id>` or `myclaw telegram connect`.',
       );
       return 0;
     }
 
     const lines = [
-      'Registered groups:',
+      'Registered agents:',
       '',
       'JID | Name | Folder | Trigger | Main | Requires Trigger',
     ];
@@ -499,7 +499,7 @@ async function runInfo(
   rawSelector?: string,
 ): Promise<number> {
   if (!rawSelector) {
-    p.log.error('Usage: myclaw group info <jid|folder>');
+    p.log.error('Usage: myclaw agent info <jid|folder>');
     return 1;
   }
 
@@ -528,7 +528,7 @@ async function runInfo(
       return 1;
     }
     if (!resolved.found) {
-      p.log.error(`No group found for selector "${rawSelector.trim()}".`);
+      p.log.error(`No agent found for selector "${rawSelector.trim()}".`);
       return 1;
     }
 
@@ -582,9 +582,9 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
     }
 
     if (groups[normalized]) {
-      p.log.error(`Group already exists for ${normalized}.`);
+      p.log.error(`Agent already exists for ${normalized}.`);
       p.log.info(
-        'Next action: run `myclaw group info <jid>` or `myclaw group trigger <jid> <word>`.',
+        'Next action: run `myclaw agent info <jid>` or `myclaw agent trigger <jid> <word>`.',
       );
       return 1;
     }
@@ -668,7 +668,7 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
       }
       db.setRegisteredGroup(normalized, record);
     } catch (err) {
-      const groupDir = path.join(runtimeHome, 'groups', groupFolder);
+      const groupDir = path.join(runtimeHome, 'agents', groupFolder);
       if (fs.existsSync(groupDir)) {
         try {
           fs.rmSync(groupDir, { recursive: true, force: true });
@@ -677,12 +677,12 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
         }
       }
       const message = err instanceof Error ? err.message : String(err);
-      p.log.error(`Could not save group in database: ${message}`);
+      p.log.error(`Could not save agent in database: ${message}`);
       return 1;
     }
 
     p.log.success(
-      `Added group ${displayName} (${normalized}) in folder ${groupFolder}.`,
+      `Added agent ${displayName} (${normalized}) in folder ${groupFolder}.`,
     );
     if (chatProbeMessage) {
       p.log.info(chatProbeMessage);
@@ -726,7 +726,7 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       return 1;
     }
     if (!resolved.found) {
-      p.log.error(`No group found for selector "${selector.trim()}".`);
+      p.log.error(`No agent found for selector "${selector.trim()}".`);
       return 1;
     }
     const found = resolved.found;
@@ -742,7 +742,7 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
         return 1;
       }
 
-      const folderPath = path.join(runtimeHome, 'groups', found.group.folder);
+      const folderPath = path.join(runtimeHome, 'agents', found.group.folder);
       const decision = await p.select({
         message: parsed.deleteFolder
           ? `Remove ${found.group.name} (${found.jid}) and delete folder ${folderPath}?`
@@ -753,7 +753,7 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
         ],
       });
       if (p.isCancel(decision) || decision !== 'yes') {
-        p.log.warn('Group removal cancelled. No changes were made.');
+        p.log.warn('Agent removal cancelled. No changes were made.');
         return 0;
       }
     }
@@ -763,12 +763,12 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       db.deleteSession(found.group.folder);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      p.log.error(`Could not remove group from database: ${message}`);
+      p.log.error(`Could not remove agent from database: ${message}`);
       return 1;
     }
 
     if (parsed.deleteFolder) {
-      const folderPath = path.join(runtimeHome, 'groups', found.group.folder);
+      const folderPath = path.join(runtimeHome, 'agents', found.group.folder);
       try {
         if (fs.existsSync(folderPath)) {
           fs.rmSync(folderPath, { recursive: true, force: false });
@@ -776,16 +776,16 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         p.log.warn(
-          `Group removed from database, but folder cleanup failed: ${folderPath}. Details: ${message}`,
+          `Agent removed from database, but folder cleanup failed: ${folderPath}. Details: ${message}`,
         );
         return 1;
       }
     }
 
-    p.log.success(`Removed group ${found.group.name} (${found.jid}).`);
+    p.log.success(`Removed agent ${found.group.name} (${found.jid}).`);
     if (!parsed.deleteFolder) {
       p.log.info(
-        `Group folder preserved at ${path.join(runtimeHome, 'groups', found.group.folder)}. Use --delete-folder to remove it.`,
+        `Agent folder preserved at ${path.join(runtimeHome, 'agents', found.group.folder)}. Use --delete-folder to remove it.`,
       );
     }
     return 0;
@@ -830,7 +830,7 @@ async function runTrigger(
       return 1;
     }
     if (!resolved.found) {
-      p.log.error(`No group found for selector "${selector.trim()}".`);
+      p.log.error(`No agent found for selector "${selector.trim()}".`);
       return 1;
     }
     const found = resolved.found;
@@ -872,7 +872,7 @@ async function runTrigger(
   }
 }
 
-export async function runGroupCommand(
+export async function runAgentCommand(
   runtimeHome: string,
   args: string[],
 ): Promise<number> {
@@ -903,7 +903,7 @@ export async function runGroupCommand(
     return runTrigger(runtimeHome, rest);
   }
 
-  p.log.error(`Unknown group command: ${subcommand}`);
+  p.log.error(`Unknown agent command: ${subcommand}`);
   console.log(usage());
   return 1;
 }

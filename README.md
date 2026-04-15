@@ -36,10 +36,12 @@ myclaw service stop
 Defaults in v1:
 
 - runtime home: `~/myclaw`
+- runtime settings file: `~/myclaw/settings.yaml` (validated before `start`/`restart`)
 - setup flow: Telegram-first (Slack can be added with `myclaw slack connect`)
 - memory: on
 - embeddings: off (unless OpenAI key is provided and enabled)
 - dreaming: off
+- sender allowlist: `message_policy.sender_allowlist` in `settings.yaml`
 
 ### Channel Setup
 
@@ -108,23 +110,23 @@ npm run dev:container
 
 Skills are slash commands the agent responds to inside chat. Run `/commands` to see the full list.
 
-| Skill | Purpose |
-|-------|---------|
-| `/commands` | List all available slash commands with descriptions |
-| `/setup` | First-time installation, authentication, service configuration |
-| `/customize` | Adding channels, integrations, changing behavior |
-| `/debug` | Container issues, logs, troubleshooting |
-| `/update-myclaw` | Bring upstream MyClaw updates into a customized install |
-| `/init-onecli` | Install OneCLI Agent Vault and migrate `.env` credentials |
+| Skill            | Purpose                                                        |
+| ---------------- | -------------------------------------------------------------- |
+| `/commands`      | List all available slash commands with descriptions            |
+| `/setup`         | First-time installation, authentication, service configuration |
+| `/customize`     | Adding channels, integrations, changing behavior               |
+| `/debug`         | Container issues, logs, troubleshooting                        |
+| `/update-myclaw` | Bring upstream MyClaw updates into a customized install        |
+| `/init-onecli`   | Install OneCLI Agent Vault and migrate `.env` credentials      |
 
 Feature skills (installed via branch merge):
 
-| Skill | Purpose |
-|-------|---------|
+| Skill           | Purpose                      |
+| --------------- | ---------------------------- |
 | `/add-telegram` | Add Telegram channel support |
-| `/add-slack` | Add Slack channel support |
-| `/add-discord` | Add Discord channel support |
-| `/add-gmail` | Add Gmail channel support |
+| `/add-slack`    | Add Slack channel support    |
+| `/add-discord`  | Add Discord channel support  |
+| `/add-gmail`    | Add Gmail channel support    |
 
 Optional skill packs like [gstack](https://github.com/garrytan/gstack) can be installed for additional capabilities (code review, QA, design review, security audits, and more). Run `/commands` after installing to see what's available.
 
@@ -156,7 +158,7 @@ Key paths:
 - `apps/core/src/runtime/container-runtime.ts` - runtime selection and health checks
 - `apps/core/src/session/session-commands.ts` - host-managed slash commands
 - `apps/core/src/storage/db.ts` - SQLite persistence
-- `apps/core/groups/*/` - tracked group templates and baseline working files
+- `~/myclaw/agents/*/` - runtime per-agent working files and memory
 
 ## Factory Mode
 

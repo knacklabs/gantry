@@ -61,7 +61,7 @@ vi.mock('./agent-spawn-layout.js', () => ({
 async function loadModule(config: {
   ONECLI_URL?: string;
   DATA_DIR?: string;
-  GROUPS_DIR?: string;
+  AGENTS_DIR?: string;
   AGENT_ROOT?: string;
   envFromFile?: Record<string, string>;
 }) {
@@ -104,7 +104,7 @@ async function loadModule(config: {
   vi.doMock('../core/config.js', () => ({
     ONECLI_URL: config.ONECLI_URL ?? '',
     DATA_DIR: config.DATA_DIR ?? '/tmp/myclaw-test/data',
-    GROUPS_DIR: config.GROUPS_DIR ?? '/tmp/myclaw-test/groups',
+    AGENTS_DIR: config.AGENTS_DIR ?? '/tmp/myclaw-test/agents',
     AGENT_ROOT: config.AGENT_ROOT ?? '/tmp/myclaw-test/config',
   }));
 
@@ -114,7 +114,7 @@ async function loadModule(config: {
 
   vi.doMock('../platform/group-folder.js', () => ({
     resolveGroupFolderPath: (folder: string) =>
-      `${config.GROUPS_DIR ?? '/tmp/myclaw-test/groups'}/${folder}`,
+      `${config.AGENTS_DIR ?? '/tmp/myclaw-test/agents'}/${folder}`,
     resolveGroupIpcPath: (folder: string) =>
       `${config.DATA_DIR ?? '/tmp/myclaw-test/data'}/ipc/${folder}`,
   }));
@@ -314,13 +314,13 @@ describe('prepareHostRuntimeContext', () => {
     mockExistsSync.mockReturnValue(false);
 
     const mod = await loadModule({
-      GROUPS_DIR: '/tmp/myclaw-test/groups',
+      AGENTS_DIR: '/tmp/myclaw-test/agents',
       DATA_DIR: '/tmp/myclaw-test/data',
     });
 
     const ctx = mod.prepareHostRuntimeContext(fakeGroup);
 
-    expect(ctx.groupDir).toBe('/tmp/myclaw-test/groups/test-group');
+    expect(ctx.groupDir).toBe('/tmp/myclaw-test/agents/test-group');
     expect(ctx.groupIpcDir).toBe('/tmp/myclaw-test/data/ipc/test-group');
     expect(ctx.runnerRoot).toBe(
       '/tmp/myclaw-test/config/.runtime/agent-runner',
@@ -328,7 +328,7 @@ describe('prepareHostRuntimeContext', () => {
 
     // Verify mkdirSync was called for the group directory
     expect(mockMkdirSync).toHaveBeenCalledWith(
-      '/tmp/myclaw-test/groups/test-group',
+      '/tmp/myclaw-test/agents/test-group',
       { recursive: true },
     );
 
@@ -341,26 +341,26 @@ describe('prepareHostRuntimeContext', () => {
     );
   });
 
-  it('returns globalDir when global directory exists', async () => {
+  it('returns globalDir when shared directory exists', async () => {
     mockExistsSync.mockImplementation(
-      (p: string) => p === '/tmp/myclaw-test/groups/global',
+      (p: string) => p === '/tmp/myclaw-test/agents/shared',
     );
 
     const mod = await loadModule({
-      GROUPS_DIR: '/tmp/myclaw-test/groups',
+      AGENTS_DIR: '/tmp/myclaw-test/agents',
       DATA_DIR: '/tmp/myclaw-test/data',
     });
 
     const ctx = mod.prepareHostRuntimeContext(fakeGroup);
 
-    expect(ctx.globalDir).toBe('/tmp/myclaw-test/groups/global');
+    expect(ctx.globalDir).toBe('/tmp/myclaw-test/agents/shared');
   });
 
-  it('returns undefined globalDir when global directory does not exist', async () => {
+  it('returns undefined globalDir when shared directory does not exist', async () => {
     mockExistsSync.mockReturnValue(false);
 
     const mod = await loadModule({
-      GROUPS_DIR: '/tmp/myclaw-test/groups',
+      AGENTS_DIR: '/tmp/myclaw-test/agents',
       DATA_DIR: '/tmp/myclaw-test/data',
     });
 

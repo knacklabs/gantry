@@ -658,7 +658,7 @@ describe('AGENT_ROOT runtime root', () => {
 
     expect(cfg.AGENT_ROOT).toBe('/tmp/myclaw-home');
     expect(cfg.STORE_DIR).toBe('/tmp/myclaw-home/store');
-    expect(cfg.GROUPS_DIR).toBe('/tmp/myclaw-home/groups');
+    expect(cfg.AGENTS_DIR).toBe('/tmp/myclaw-home/agents');
     expect(cfg.DATA_DIR).toBe('/tmp/myclaw-home/data');
     expect(cfg.MEMORY_SQLITE_PATH).toBe(
       '/tmp/myclaw-home/store/custom-memory.db',

@@ -50,11 +50,14 @@ Default path:
 Contains:
 
 - `.env`
+- `settings.yaml`
 - `store/`
-- `groups/`
+- `agents/`
 - `data/`
 - `logs/`
 - `.onboarding-state.json`
+
+`settings.yaml` is the single user-editable runtime settings file for behavior flags and message policy (including sender allowlist).
 
 Override at runtime:
 

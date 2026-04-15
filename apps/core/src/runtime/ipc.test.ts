@@ -962,13 +962,13 @@ describe('refresh_groups', () => {
 });
 
 // ---------------------------------------------------------------------------
-// register_group
+// register_agent
 // ---------------------------------------------------------------------------
-describe('register_group', () => {
+describe('register_agent', () => {
   it('rejects folder with path traversal characters', async () => {
     await processTaskIpc(
       {
-        type: 'register_group',
+        type: 'register_agent',
         jid: 'bad@g.us',
         name: 'Bad Group',
         folder: '../escape',
@@ -985,7 +985,7 @@ describe('register_group', () => {
   it('rejects reserved folder name "global"', async () => {
     await processTaskIpc(
       {
-        type: 'register_group',
+        type: 'register_agent',
         jid: 'global@g.us',
         name: 'Global Group',
         folder: 'global',
@@ -1002,7 +1002,7 @@ describe('register_group', () => {
   it('rejects empty folder name', async () => {
     await processTaskIpc(
       {
-        type: 'register_group',
+        type: 'register_agent',
         jid: 'empty-folder@g.us',
         name: 'Empty Folder',
         folder: '',
@@ -1019,7 +1019,7 @@ describe('register_group', () => {
   it('rejects when required fields are missing (no jid)', async () => {
     await processTaskIpc(
       {
-        type: 'register_group',
+        type: 'register_agent',
         name: 'No JID',
         folder: 'no-jid',
         trigger: '@Andy',
@@ -1038,7 +1038,7 @@ describe('register_group', () => {
   it('rejects when required fields are missing (no name)', async () => {
     await processTaskIpc(
       {
-        type: 'register_group',
+        type: 'register_agent',
         jid: 'noname@g.us',
         folder: 'no-name',
         trigger: '@Andy',
@@ -1054,7 +1054,7 @@ describe('register_group', () => {
   it('rejects when required fields are missing (no folder)', async () => {
     await processTaskIpc(
       {
-        type: 'register_group',
+        type: 'register_agent',
         jid: 'nofolder@g.us',
         name: 'No Folder',
         trigger: '@Andy',
@@ -1070,7 +1070,7 @@ describe('register_group', () => {
   it('rejects when required fields are missing (no trigger)', async () => {
     await processTaskIpc(
       {
-        type: 'register_group',
+        type: 'register_agent',
         jid: 'notrigger@g.us',
         name: 'No Trigger',
         folder: 'no-trigger',
@@ -1087,7 +1087,7 @@ describe('register_group', () => {
     // main@g.us is already registered with isMain: true
     await processTaskIpc(
       {
-        type: 'register_group',
+        type: 'register_agent',
         jid: 'main@g.us',
         name: 'Main Renamed',
         folder: 'whatsapp_main',
@@ -1107,7 +1107,7 @@ describe('register_group', () => {
   it('passes agentConfig and requiresTrigger fields', async () => {
     await processTaskIpc(
       {
-        type: 'register_group',
+        type: 'register_agent',
         jid: 'config@g.us',
         name: 'Config Group',
         folder: 'config-group',
@@ -1546,11 +1546,11 @@ describe('scheduler_trigger_job authorization', () => {
   });
 });
 
-describe('register_group authorization', () => {
+describe('register_agent authorization', () => {
   it('non-main group is blocked from registering a group', async () => {
     await processTaskIpc(
       {
-        type: 'register_group',
+        type: 'register_agent',
         jid: 'new@g.us',
         name: 'New Group',
         folder: 'new-group',
@@ -1672,6 +1672,10 @@ describe('startIpcWatcher', () => {
   const mockLoggerError = vi.fn();
   const mockProcessMemoryRequest = vi.fn();
   const mockWriteMemoryResponse = vi.fn();
+  const mockValidateRuntimePreflight = vi.fn();
+  const mockGetServiceStatus = vi.fn();
+  const mockStartService = vi.fn();
+  const mockStopService = vi.fn();
 
   let capturedSetTimeoutCallback: (() => void) | null = null;
 
@@ -1696,12 +1700,24 @@ describe('startIpcWatcher', () => {
     }));
 
     vi.doMock('../core/config.js', () => ({
+      AGENT_ROOT: '/tmp/test-runtime',
       DATA_DIR: dataDir,
       IPC_POLL_INTERVAL: 1000,
       MINI_APP_ENABLED: true,
       MINI_APP_API_URL: '',
       MINI_APP_FRONTEND_URL: 'https://app.myclaw.dev',
       TIMEZONE: 'UTC',
+    }));
+
+    vi.doMock('../cli/runtime-preflight.js', () => ({
+      validateRuntimePreflight: (...args: unknown[]) =>
+        mockValidateRuntimePreflight(...args),
+    }));
+
+    vi.doMock('../cli/service-manager.js', () => ({
+      getServiceStatus: (...args: unknown[]) => mockGetServiceStatus(...args),
+      startService: (...args: unknown[]) => mockStartService(...args),
+      stopService: (...args: unknown[]) => mockStopService(...args),
     }));
 
     vi.doMock('../core/logger.js', () => ({
@@ -1766,6 +1782,21 @@ describe('startIpcWatcher', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     capturedSetTimeoutCallback = null;
+    mockValidateRuntimePreflight.mockReturnValue({ ok: true });
+    mockGetServiceStatus.mockReturnValue({
+      kind: 'background',
+      status: 'running(pid:123)',
+    });
+    mockStopService.mockReturnValue({
+      ok: true,
+      kind: 'background',
+      message: 'stopped',
+    });
+    mockStartService.mockReturnValue({
+      ok: true,
+      kind: 'background',
+      message: 'started',
+    });
     mockRenameSync.mockImplementation(() => undefined);
     mockLstatSync.mockImplementation((target: unknown) => {
       const p = String(target || '');
@@ -3982,5 +4013,124 @@ describe('startIpcWatcher', () => {
       }),
       'Error processing memory IPC request',
     );
+  });
+
+  it('service_restart writes unauthorized response for non-main group', async () => {
+    const mod = await loadIpcModule('/tmp/test-ipc');
+
+    await mod.processTaskIpc(
+      {
+        type: 'service_restart',
+        taskId: 'svc-reject-1',
+      },
+      'other-group',
+      false,
+      deps,
+    );
+
+    expect(mockValidateRuntimePreflight).not.toHaveBeenCalled();
+    const writeCall = mockWriteFileSync.mock.calls.find(
+      (call: unknown[]) =>
+        typeof call[0] === 'string' &&
+        String(call[0]).includes(
+          '/tmp/test-ipc/ipc/other-group/task-responses/task-svc-reject-1.json.tmp',
+        ),
+    );
+    expect(writeCall).toBeTruthy();
+    expect(String(writeCall?.[1])).toContain('"ok": false');
+    expect(String(writeCall?.[1])).toContain('main agent');
+  });
+
+  it('service_restart returns preflight validation failure details', async () => {
+    const mod = await loadIpcModule('/tmp/test-ipc');
+    mockValidateRuntimePreflight.mockReturnValueOnce({
+      ok: false,
+      failure: {
+        summary: 'Runtime configuration is incomplete.',
+        details: ['Fix settings.yaml before restart.'],
+      },
+    });
+
+    await mod.processTaskIpc(
+      {
+        type: 'service_restart',
+        taskId: 'svc-validate-1',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+
+    const writeCall = mockWriteFileSync.mock.calls.find(
+      (call: unknown[]) =>
+        typeof call[0] === 'string' &&
+        String(call[0]).includes(
+          '/tmp/test-ipc/ipc/whatsapp_main/task-responses/task-svc-validate-1.json.tmp',
+        ),
+    );
+    expect(writeCall).toBeTruthy();
+    const payload = String(writeCall?.[1]);
+    expect(payload).toContain('"ok": false');
+    expect(payload).toContain('Runtime configuration is incomplete.');
+    expect(payload).toContain('Fix settings.yaml before restart.');
+    expect(mockStopService).not.toHaveBeenCalled();
+    expect(mockStartService).not.toHaveBeenCalled();
+  });
+
+  it('service_restart acknowledges before restart execution', async () => {
+    const mod = await loadIpcModule('/tmp/test-ipc');
+
+    await mod.processTaskIpc(
+      {
+        type: 'service_restart',
+        taskId: 'svc-ack-1',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+
+    const writeCall = mockWriteFileSync.mock.calls.find(
+      (call: unknown[]) =>
+        typeof call[0] === 'string' &&
+        String(call[0]).includes(
+          '/tmp/test-ipc/ipc/whatsapp_main/task-responses/task-svc-ack-1.json.tmp',
+        ),
+    );
+    expect(writeCall).toBeTruthy();
+    const payload = String(writeCall?.[1]);
+    expect(payload).toContain('"ok": true');
+    expect(payload).toContain('Service restart accepted. Restarting now.');
+    expect(mockStopService).not.toHaveBeenCalled();
+    expect(mockStartService).not.toHaveBeenCalled();
+  });
+
+  it('service_restart writes error response when preflight throws', async () => {
+    const mod = await loadIpcModule('/tmp/test-ipc');
+    mockValidateRuntimePreflight.mockImplementationOnce(() => {
+      throw new Error('preflight exploded');
+    });
+
+    await mod.processTaskIpc(
+      {
+        type: 'service_restart',
+        taskId: 'svc-throw-1',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+
+    const writeCall = mockWriteFileSync.mock.calls.find(
+      (call: unknown[]) =>
+        typeof call[0] === 'string' &&
+        String(call[0]).includes(
+          '/tmp/test-ipc/ipc/whatsapp_main/task-responses/task-svc-throw-1.json.tmp',
+        ),
+    );
+    expect(writeCall).toBeTruthy();
+    const payload = String(writeCall?.[1]);
+    expect(payload).toContain('"ok": false');
+    expect(payload).toContain('preflight exploded');
   });
 });

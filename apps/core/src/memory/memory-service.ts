@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import {
-  GROUPS_DIR,
+  AGENTS_DIR,
   MEMORY_CHUNK_OVERLAP,
   MEMORY_CHUNK_SIZE,
   MEMORY_CONFIDENCE_BOOST_ON_USE,
@@ -164,7 +164,7 @@ export class MemoryService {
 
   async ingestGroupSources(groupFolder: string): Promise<void> {
     const files: SourceDoc[] = [];
-    const groupDir = path.join(GROUPS_DIR, groupFolder);
+    const groupDir = path.join(AGENTS_DIR, groupFolder);
 
     const claudePath = path.join(groupDir, 'CLAUDE.md');
     if (fs.existsSync(claudePath)) {

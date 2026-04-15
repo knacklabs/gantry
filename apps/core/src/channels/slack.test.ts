@@ -9,6 +9,7 @@ vi.mock('../core/env.js', () => ({
 }));
 
 vi.mock('../core/config.js', () => ({
+  MINI_APP_ENABLED: false,
   MINI_APP_API_URL: '',
   MINI_APP_FRONTEND_URL: 'https://app.myclaw.dev',
   PERMISSION_APPROVAL_TIMEOUT_MS: 300000,
@@ -106,6 +107,7 @@ vi.mock('@slack/bolt', () => ({
 }));
 
 import { readEnvFile } from '../core/env.js';
+import { SLACK_PERMISSION_APPROVER_IDS } from '../core/config.js';
 import { registerChannel } from './registry.js';
 import { SlackChannel } from './slack.js';
 
@@ -125,6 +127,7 @@ function createOpts() {
 describe('Slack channel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    SLACK_PERMISSION_APPROVER_IDS.clear();
   });
 
   afterEach(() => {
@@ -181,7 +184,7 @@ describe('Slack channel', () => {
     expect(serializedBlocks).not.toContain('Open Mini App');
   });
 
-  it('sends Slack plan prompt without URL button when no prompt.url is provided', async () => {
+  it('sends Slack plan prompt without fallback URL when mini app is disabled', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -200,9 +203,341 @@ describe('Slack channel', () => {
       .mock.calls.at(-1)?.[0];
     expect(postCall).toBeDefined();
     expect(Array.isArray(postCall?.blocks)).toBe(true);
-    expect(
-      (postCall?.blocks || []).some((block: any) => block?.type === 'actions'),
-    ).toBe(false);
+    const actionBlock = (postCall?.blocks || []).find(
+      (block: any) => block?.type === 'actions',
+    );
+    expect(actionBlock).toBeUndefined();
+  });
+
+  it('sends Slack plan prompt URL button when prompt.url is provided', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    await channel.sendPlanReviewPrompt('sl:C1234567890', {
+      planId: 'plan_456',
+      title: 'Review with url',
+      sectionCount: 2,
+      url: 'https://example.test/plans/plan_456',
+    });
+
+    const postCall = vi
+      .mocked(appRef.current.client.chat.postMessage)
+      .mock.calls.at(-1)?.[0];
+    const actionBlock = (postCall?.blocks || []).find(
+      (block: any) => block?.type === 'actions',
+    );
+    expect(actionBlock).toBeDefined();
+    expect(actionBlock?.elements?.[0]?.url).toBe(
+      'https://example.test/plans/plan_456',
+    );
+  });
+
+  it('includes Bash command summary in Slack permission prompts', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    const approvalPromise = channel.requestPermissionApproval(
+      'sl:C1234567890',
+      {
+        requestId: 'perm-cmd',
+        sourceGroup: 'slack_main',
+        toolName: 'Bash',
+        toolInput: {
+          command: 'git status --short',
+        },
+      },
+    );
+
+    const postCall = vi
+      .mocked(appRef.current.client.chat.postMessage)
+      .mock.calls.at(-1)?.[0];
+    expect(postCall?.text).toContain('Command: `git status --short`');
+
+    const actionHandler = appRef.current.actionHandlers.get(
+      'myclaw_perm_decision',
+    );
+    await actionHandler?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: { user: { id: 'U_APPROVER', name: 'Approver' } },
+      action: {
+        value: JSON.stringify({ requestId: 'perm-cmd', decision: 'approve' }),
+      },
+    });
+
+    await expect(approvalPromise).resolves.toEqual(
+      expect.objectContaining({ approved: true }),
+    );
+  });
+
+  it('resolves Slack single-select user question from action callback', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
+      requestId: 'userq-1',
+      sourceGroup: 'slack_main',
+      questions: [
+        {
+          header: 'Pick one',
+          question: 'Preferred option?',
+          options: [
+            { label: 'Alpha', description: 'First option' },
+            { label: 'Beta', description: 'Second option' },
+          ],
+          multiSelect: false,
+        },
+      ],
+    });
+
+    const actionHandler = appRef.current.actionHandlers.get(
+      'myclaw_userq_select',
+    );
+    expect(actionHandler).toBeTypeOf('function');
+    const ack = vi.fn().mockResolvedValue(undefined);
+    await actionHandler?.({
+      ack,
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U123', name: 'Alice' },
+      },
+      action: {
+        value: JSON.stringify({
+          requestId: 'userq-1',
+          questionIndex: 0,
+          optionIndex: 1,
+        }),
+      },
+    });
+
+    const answer = await answerPromise;
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(answer.answers).toEqual({ 'Preferred option?': 'Beta' });
+    expect(answer.answeredBy).toBe('Alice');
+  });
+
+  it('blocks unauthorized Slack user-question answers when approvers are configured', async () => {
+    SLACK_PERMISSION_APPROVER_IDS.add('U_APPROVER');
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
+      requestId: 'userq-auth-1',
+      sourceGroup: 'slack_main',
+      questions: [
+        {
+          header: 'Pick one',
+          question: 'Preferred option?',
+          options: [
+            { label: 'Alpha', description: 'First option' },
+            { label: 'Beta', description: 'Second option' },
+          ],
+          multiSelect: false,
+        },
+      ],
+    });
+
+    const actionHandler = appRef.current.actionHandlers.get(
+      'myclaw_userq_select',
+    );
+    expect(actionHandler).toBeTypeOf('function');
+
+    await actionHandler?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U_OTHER', name: 'Not Allowed' },
+      },
+      action: {
+        value: JSON.stringify({
+          requestId: 'userq-auth-1',
+          questionIndex: 0,
+          optionIndex: 1,
+        }),
+      },
+    });
+
+    expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C1234567890',
+        user: 'U_OTHER',
+      }),
+    );
+
+    await actionHandler?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U_APPROVER', name: 'Allowed' },
+      },
+      action: {
+        value: JSON.stringify({
+          requestId: 'userq-auth-1',
+          questionIndex: 0,
+          optionIndex: 0,
+        }),
+      },
+    });
+
+    const answer = await answerPromise;
+    expect(answer.answers).toEqual({ 'Preferred option?': 'Alpha' });
+    expect(answer.answeredBy).toBe('Allowed');
+  });
+
+  it('resolves Slack multi-select user question after Done action', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
+      requestId: 'userq-2',
+      sourceGroup: 'slack_main',
+      questions: [
+        {
+          header: 'Pick many',
+          question: 'Select options',
+          options: [
+            { label: 'Alpha', description: 'First option' },
+            { label: 'Beta', description: 'Second option' },
+            { label: 'Gamma', description: 'Third option' },
+          ],
+          multiSelect: true,
+        },
+      ],
+    });
+
+    const selectHandler = appRef.current.actionHandlers.get(
+      'myclaw_userq_select',
+    );
+    const doneHandler = appRef.current.actionHandlers.get('myclaw_userq_done');
+    expect(selectHandler).toBeTypeOf('function');
+    expect(doneHandler).toBeTypeOf('function');
+
+    await selectHandler?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U123', name: 'Alice' },
+      },
+      action: {
+        value: JSON.stringify({
+          requestId: 'userq-2',
+          questionIndex: 0,
+          optionIndex: 0,
+        }),
+      },
+    });
+    await selectHandler?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U123', name: 'Alice' },
+      },
+      action: {
+        value: JSON.stringify({
+          requestId: 'userq-2',
+          questionIndex: 0,
+          optionIndex: 2,
+        }),
+      },
+    });
+    await doneHandler?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U123', name: 'Alice' },
+      },
+      action: {
+        value: JSON.stringify({
+          requestId: 'userq-2',
+          questionIndex: 0,
+        }),
+      },
+    });
+
+    const answer = await answerPromise;
+    expect(answer.answers).toEqual({ 'Select options': ['Alpha', 'Gamma'] });
+    expect(answer.answeredBy).toBe('Alice');
+  });
+
+  it('returns empty Slack user-question answers when prompt times out', async () => {
+    vi.useFakeTimers();
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
+      requestId: 'userq-timeout',
+      sourceGroup: 'slack_main',
+      questions: [
+        {
+          header: 'Timeout',
+          question: 'Will timeout',
+          options: [
+            { label: 'Alpha', description: 'First option' },
+            { label: 'Beta', description: 'Second option' },
+          ],
+          multiSelect: false,
+        },
+      ],
+    });
+
+    await vi.advanceTimersByTimeAsync(300000);
+    const answer = await answerPromise;
+    expect(answer.answers).toEqual({});
+    vi.useRealTimers();
+  });
+
+  it('cleans up pending Slack user-question prompts on disconnect', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
+      requestId: 'userq-disconnect',
+      sourceGroup: 'slack_main',
+      questions: [
+        {
+          header: 'Disconnect',
+          question: 'Pending question',
+          options: [
+            { label: 'Alpha', description: 'First option' },
+            { label: 'Beta', description: 'Second option' },
+          ],
+          multiSelect: false,
+        },
+      ],
+    });
+
+    await Promise.resolve();
+    await channel.disconnect();
+    await expect(answerPromise).resolves.toEqual(
+      expect.objectContaining({ answers: {} }),
+    );
   });
 
   it('does not duplicate first chunk when native Slack streaming starts', async () => {

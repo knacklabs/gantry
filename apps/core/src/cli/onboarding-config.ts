@@ -4,6 +4,7 @@ import {
   ensureRuntimeLayout,
   savePreferredRuntimeHome,
 } from './runtime-home.js';
+import { updateRuntimeSettingsFromOnboarding } from './runtime-settings.js';
 
 export interface OnboardingConfigInput {
   runtimeHome: string;
@@ -31,5 +32,13 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
       input.embeddingsEnabled && input.openAiApiKey?.trim()
         ? input.openAiApiKey.trim()
         : null,
+  });
+
+  updateRuntimeSettingsFromOnboarding({
+    runtimeHome: input.runtimeHome,
+    telegramEnabled: Boolean(input.telegramBotToken.trim()),
+    memoryEnabled: input.memoryEnabled,
+    embeddingsEnabled: input.memoryEnabled && input.embeddingsEnabled,
+    dreamingEnabled: input.dreamingEnabled,
   });
 }
