@@ -108,7 +108,12 @@ export async function startMessagePollingLoop(
               (m) =>
                 triggerPattern.test(m.content.trim()) &&
                 (m.is_from_me ||
-                  isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
+                  isTriggerAllowed(
+                    chatJid,
+                    m.sender,
+                    allowlistCfg,
+                    group.folder,
+                  )),
             );
             if (!hasTrigger) continue;
           }

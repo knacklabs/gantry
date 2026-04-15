@@ -7,6 +7,13 @@ import { RegisteredGroup } from '../core/types.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import { readEnvFile } from './env-file.js';
 import { envFilePath, ensureRuntimeLayout } from './runtime-home.js';
+import {
+  ChatAllowlistEntry,
+  RuntimeChannel,
+  RuntimeSettings,
+  loadRuntimeSettings,
+  saveRuntimeSettings,
+} from './runtime-settings.js';
 import { RuntimeGroupDb, openRuntimeGroupDb } from './runtime-group-db.js';
 import {
   normalizeTelegramChatJid,
@@ -35,6 +42,23 @@ interface GroupTriggerOptions {
   disable: boolean;
 }
 
+interface GroupPolicyOptions {
+  selector?: string;
+  allow?: '*' | string[];
+  mode?: ChatAllowlistEntry['mode'];
+  clear: boolean;
+}
+
+interface GroupPolicyDefaultOptions {
+  channel?: RuntimeChannel;
+  allow?: '*' | string[];
+  mode?: ChatAllowlistEntry['mode'];
+}
+
+interface GroupPolicyShowOptions {
+  channel?: RuntimeChannel;
+}
+
 function usage(): string {
   return [
     'Agent commands:',
@@ -44,6 +68,10 @@ function usage(): string {
     '  myclaw agent remove <jid|folder> [--delete-folder] [--yes]',
     '  myclaw agent trigger <jid|folder> <word>',
     '  myclaw agent trigger <jid|folder> --off',
+    '  myclaw agent policy <jid|folder> --allow <\"*\"|id1,id2> [--mode trigger|drop]',
+    '  myclaw agent policy <jid|folder> --clear',
+    '  myclaw agent policy-default --channel telegram|slack --allow <\"*\"|id1,id2> [--mode trigger|drop]',
+    '  myclaw agent policy-show [--channel telegram|slack]',
   ].join('\n');
 }
 
@@ -55,6 +83,38 @@ function parseBooleanFlag(raw: string): boolean | null {
   if (value === 'false' || value === '0' || value === 'no' || value === 'off') {
     return false;
   }
+  return null;
+}
+
+function parseAllowArg(raw: string): '*' | string[] | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (trimmed === '*') return '*';
+  if (trimmed === '[]') return [];
+  const values = trimmed
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  if (values.length === 0) return null;
+  return values;
+}
+
+function parseModeArg(raw: string): ChatAllowlistEntry['mode'] | null {
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed === 'trigger' || trimmed === 'drop') return trimmed;
+  return null;
+}
+
+function parseRuntimeChannel(raw: string): RuntimeChannel | null {
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'telegram' || normalized === 'tg') return 'telegram';
+  if (normalized === 'slack' || normalized === 'sl') return 'slack';
+  return null;
+}
+
+function channelFromGroupJid(jid: string): RuntimeChannel | null {
+  if (jid.startsWith('tg:')) return 'telegram';
+  if (jid.startsWith('sl:')) return 'slack';
   return null;
 }
 
@@ -435,6 +495,225 @@ function parseGroupTriggerArgs(
     };
   }
 
+  return options;
+}
+
+function parseGroupPolicyArgs(
+  args: string[],
+): GroupPolicyOptions | { error: string } {
+  const options: GroupPolicyOptions = {
+    clear: false,
+  };
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--clear') {
+      options.clear = true;
+      continue;
+    }
+    if (arg === '--allow') {
+      const raw = args[i + 1] || '';
+      const parsed = parseAllowArg(raw);
+      if (parsed === null) {
+        return {
+          error:
+            'Invalid value for --allow. Use "*" or a comma-separated sender list.',
+        };
+      }
+      options.allow = parsed;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--allow=')) {
+      const parsed = parseAllowArg(arg.slice('--allow='.length));
+      if (parsed === null) {
+        return {
+          error:
+            'Invalid value for --allow. Use "*" or a comma-separated sender list.',
+        };
+      }
+      options.allow = parsed;
+      continue;
+    }
+    if (arg === '--mode') {
+      const raw = args[i + 1] || '';
+      const parsed = parseModeArg(raw);
+      if (!parsed) {
+        return {
+          error: 'Invalid value for --mode. Use trigger or drop.',
+        };
+      }
+      options.mode = parsed;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--mode=')) {
+      const parsed = parseModeArg(arg.slice('--mode='.length));
+      if (!parsed) {
+        return {
+          error: 'Invalid value for --mode. Use trigger or drop.',
+        };
+      }
+      options.mode = parsed;
+      continue;
+    }
+    if (arg.startsWith('--')) {
+      return { error: `Unknown option for agent policy: ${arg}` };
+    }
+    if (!options.selector) {
+      options.selector = arg;
+      continue;
+    }
+    return { error: `Unexpected argument for agent policy: ${arg}` };
+  }
+
+  if (!options.selector) {
+    return {
+      error:
+        'Missing agent selector. Usage: myclaw agent policy <jid|folder> --allow <...> [--mode trigger|drop] or --clear',
+    };
+  }
+  if (
+    options.clear &&
+    (options.allow !== undefined || options.mode !== undefined)
+  ) {
+    return {
+      error: 'Cannot combine --clear with --allow or --mode.',
+    };
+  }
+  if (!options.clear && options.allow === undefined) {
+    return {
+      error: 'Missing --allow. Use "*" or a comma-separated sender list.',
+    };
+  }
+  return options;
+}
+
+function parseGroupPolicyDefaultArgs(
+  args: string[],
+): GroupPolicyDefaultOptions | { error: string } {
+  const options: GroupPolicyDefaultOptions = {};
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--channel') {
+      const raw = args[i + 1] || '';
+      const channel = parseRuntimeChannel(raw);
+      if (!channel) {
+        return {
+          error: 'Invalid --channel. Use telegram or slack.',
+        };
+      }
+      options.channel = channel;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--channel=')) {
+      const channel = parseRuntimeChannel(arg.slice('--channel='.length));
+      if (!channel) {
+        return {
+          error: 'Invalid --channel. Use telegram or slack.',
+        };
+      }
+      options.channel = channel;
+      continue;
+    }
+    if (arg === '--allow') {
+      const parsed = parseAllowArg(args[i + 1] || '');
+      if (parsed === null) {
+        return {
+          error:
+            'Invalid value for --allow. Use "*" or a comma-separated sender list.',
+        };
+      }
+      options.allow = parsed;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--allow=')) {
+      const parsed = parseAllowArg(arg.slice('--allow='.length));
+      if (parsed === null) {
+        return {
+          error:
+            'Invalid value for --allow. Use "*" or a comma-separated sender list.',
+        };
+      }
+      options.allow = parsed;
+      continue;
+    }
+    if (arg === '--mode') {
+      const parsed = parseModeArg(args[i + 1] || '');
+      if (!parsed) {
+        return {
+          error: 'Invalid value for --mode. Use trigger or drop.',
+        };
+      }
+      options.mode = parsed;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--mode=')) {
+      const parsed = parseModeArg(arg.slice('--mode='.length));
+      if (!parsed) {
+        return {
+          error: 'Invalid value for --mode. Use trigger or drop.',
+        };
+      }
+      options.mode = parsed;
+      continue;
+    }
+    if (arg.startsWith('--')) {
+      return { error: `Unknown option for agent policy-default: ${arg}` };
+    }
+    return { error: `Unexpected argument for agent policy-default: ${arg}` };
+  }
+
+  if (!options.channel) {
+    return {
+      error: 'Missing --channel. Use telegram or slack.',
+    };
+  }
+  if (options.allow === undefined) {
+    return {
+      error: 'Missing --allow. Use "*" or a comma-separated sender list.',
+    };
+  }
+
+  return options;
+}
+
+function parseGroupPolicyShowArgs(
+  args: string[],
+): GroupPolicyShowOptions | { error: string } {
+  const options: GroupPolicyShowOptions = {};
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--channel') {
+      const channel = parseRuntimeChannel(args[i + 1] || '');
+      if (!channel) {
+        return {
+          error: 'Invalid --channel. Use telegram or slack.',
+        };
+      }
+      options.channel = channel;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--channel=')) {
+      const channel = parseRuntimeChannel(arg.slice('--channel='.length));
+      if (!channel) {
+        return {
+          error: 'Invalid --channel. Use telegram or slack.',
+        };
+      }
+      options.channel = channel;
+      continue;
+    }
+    if (arg.startsWith('--')) {
+      return { error: `Unknown option for agent policy-show: ${arg}` };
+    }
+    return { error: `Unexpected argument for agent policy-show: ${arg}` };
+  }
   return options;
 }
 
@@ -872,6 +1151,168 @@ async function runTrigger(
   }
 }
 
+function renderAllow(allow: '*' | string[]): string {
+  if (allow === '*') return '*';
+  return allow.length > 0 ? allow.join(',') : '(none)';
+}
+
+function printPolicyChannel(
+  channel: RuntimeChannel,
+  settings: RuntimeSettings,
+): void {
+  const channelSettings = settings.channels[channel];
+  const policy = channelSettings.senderAllowlist;
+  const lines = [
+    `${channel}:`,
+    `  enabled: ${channelSettings.enabled ? 'yes' : 'no'}`,
+    `  default: allow=${renderAllow(policy.default.allow)} mode=${policy.default.mode}`,
+    `  log_denied: ${policy.logDenied ? 'true' : 'false'}`,
+    '  agents:',
+  ];
+  const entries = Object.entries(policy.agents).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  if (entries.length === 0) {
+    lines.push('    (none)');
+  } else {
+    for (const [folder, entry] of entries) {
+      lines.push(
+        `    ${folder}: allow=${renderAllow(entry.allow)} mode=${entry.mode}`,
+      );
+    }
+  }
+  console.log(lines.join('\n'));
+}
+
+async function runPolicy(runtimeHome: string, args: string[]): Promise<number> {
+  const parsed = parseGroupPolicyArgs(args);
+  if ('error' in parsed) {
+    p.log.error(parsed.error);
+    return 1;
+  }
+
+  let db: RuntimeGroupDb | null = null;
+  try {
+    db = await loadDatabase(runtimeHome);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    p.log.error(`Could not open runtime database: ${message}`);
+    return 1;
+  }
+
+  try {
+    const groups = db.getAllRegisteredGroups();
+    const selector = parsed.selector || '';
+    const resolved = resolveGroupSelector(groups, selector);
+    if (resolved.error) {
+      p.log.error(resolved.error);
+      return 1;
+    }
+    if (!resolved.found) {
+      p.log.error(`No agent found for selector "${selector.trim()}".`);
+      return 1;
+    }
+
+    const found = resolved.found;
+    const channel = channelFromGroupJid(found.jid);
+    if (!channel) {
+      p.log.error(
+        `Agent ${found.group.name} (${found.jid}) does not use telegram/slack sender policy.`,
+      );
+      return 1;
+    }
+
+    const settings = loadRuntimeSettings(runtimeHome);
+    const policy = settings.channels[channel].senderAllowlist;
+
+    if (parsed.clear) {
+      delete policy.agents[found.group.folder];
+      saveRuntimeSettings(runtimeHome, settings);
+      p.log.success(
+        `Cleared sender policy override for ${found.group.name} (${found.group.folder}) in ${channel}.`,
+      );
+      return 0;
+    }
+
+    const existing = policy.agents[found.group.folder];
+    policy.agents[found.group.folder] = {
+      allow: parsed.allow!,
+      mode: parsed.mode ?? existing?.mode ?? policy.default.mode,
+    };
+    saveRuntimeSettings(runtimeHome, settings);
+    p.log.success(
+      `Updated ${channel} sender policy for ${found.group.name} (${found.group.folder}).`,
+    );
+    return 0;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    p.log.error(`Could not update sender policy: ${message}`);
+    return 1;
+  } finally {
+    db?.close();
+  }
+}
+
+async function runPolicyDefault(
+  runtimeHome: string,
+  args: string[],
+): Promise<number> {
+  const parsed = parseGroupPolicyDefaultArgs(args);
+  if ('error' in parsed) {
+    p.log.error(parsed.error);
+    return 1;
+  }
+
+  try {
+    const settings = loadRuntimeSettings(runtimeHome);
+    const channel = parsed.channel;
+    const allow = parsed.allow;
+    if (!channel || allow === undefined) {
+      p.log.error('Missing required policy-default arguments.');
+      return 1;
+    }
+    const policy = settings.channels[channel].senderAllowlist;
+    policy.default = {
+      allow,
+      mode: parsed.mode ?? policy.default.mode,
+    };
+    saveRuntimeSettings(runtimeHome, settings);
+    p.log.success(`Updated default sender policy for ${channel} channel.`);
+    return 0;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    p.log.error(`Could not update default sender policy: ${message}`);
+    return 1;
+  }
+}
+
+async function runPolicyShow(
+  runtimeHome: string,
+  args: string[],
+): Promise<number> {
+  const parsed = parseGroupPolicyShowArgs(args);
+  if ('error' in parsed) {
+    p.log.error(parsed.error);
+    return 1;
+  }
+
+  try {
+    const settings = loadRuntimeSettings(runtimeHome);
+    if (parsed.channel) {
+      printPolicyChannel(parsed.channel, settings);
+      return 0;
+    }
+    printPolicyChannel('telegram', settings);
+    console.log('');
+    printPolicyChannel('slack', settings);
+    return 0;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    p.log.error(`Could not read sender policies: ${message}`);
+    return 1;
+  }
+}
+
 export async function runAgentCommand(
   runtimeHome: string,
   args: string[],
@@ -901,6 +1342,18 @@ export async function runAgentCommand(
 
   if (subcommand === 'trigger') {
     return runTrigger(runtimeHome, rest);
+  }
+
+  if (subcommand === 'policy') {
+    return runPolicy(runtimeHome, rest);
+  }
+
+  if (subcommand === 'policy-default') {
+    return runPolicyDefault(runtimeHome, rest);
+  }
+
+  if (subcommand === 'policy-show') {
+    return runPolicyShow(runtimeHome, rest);
   }
 
   p.log.error(`Unknown agent command: ${subcommand}`);

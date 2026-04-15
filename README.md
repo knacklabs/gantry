@@ -41,7 +41,7 @@ Defaults in v1:
 - memory: on
 - embeddings: off (unless OpenAI key is provided and enabled)
 - dreaming: off
-- sender allowlist: `message_policy.sender_allowlist` in `settings.yaml`
+- sender allowlist: `channels.telegram.sender_allowlist` / `channels.slack.sender_allowlist` in `settings.yaml`
 
 ### Channel Setup
 

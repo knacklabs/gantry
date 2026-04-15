@@ -44,6 +44,7 @@ import { restoreRemoteControl } from './runtime/remote-control.js';
 import {
   isSenderAllowed,
   loadSenderAllowlist,
+  shouldLogDenied,
   shouldDropMessage,
 } from './platform/sender-allowlist.js';
 import {
@@ -315,10 +316,15 @@ export async function startMyClawRuntime(): Promise<void> {
       if (!msg.is_from_me && !msg.is_bot_message && registeredGroups[chatJid]) {
         const cfg = loadSenderAllowlist();
         if (
-          shouldDropMessage(chatJid, cfg) &&
-          !isSenderAllowed(chatJid, msg.sender, cfg)
+          shouldDropMessage(chatJid, cfg, registeredGroups[chatJid]?.folder) &&
+          !isSenderAllowed(
+            chatJid,
+            msg.sender,
+            cfg,
+            registeredGroups[chatJid]?.folder,
+          )
         ) {
-          if (cfg.logDenied) {
+          if (shouldLogDenied(chatJid, cfg)) {
             logger.debug(
               { chatJid, sender: msg.sender },
               'sender-allowlist: dropping message (drop mode)',

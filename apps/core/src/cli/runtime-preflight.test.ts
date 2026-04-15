@@ -23,12 +23,23 @@ function seedRegisteredGroups(runtimeHome: string, jids: string[]): void {
   const db = new Database(dbPath);
   try {
     db.exec(
-      `CREATE TABLE IF NOT EXISTS registered_groups (jid TEXT PRIMARY KEY);`,
+      `CREATE TABLE IF NOT EXISTS registered_groups (
+        jid TEXT PRIMARY KEY,
+        folder TEXT NOT NULL
+      );`,
     );
     const insert = db.prepare(
-      `INSERT OR REPLACE INTO registered_groups (jid) VALUES (?)`,
+      `INSERT OR REPLACE INTO registered_groups (jid, folder) VALUES (?, ?)`,
     );
-    for (const jid of jids) insert.run(jid);
+    for (const jid of jids) {
+      const folder =
+        jid.startsWith('tg:') && jids.length === 1
+          ? 'telegram_kai-dev'
+          : jid.startsWith('sl:')
+            ? 'slack_ops'
+            : `agent_${jids.indexOf(jid) + 1}`;
+      insert.run(jid, folder);
+    }
   } finally {
     db.close();
   }

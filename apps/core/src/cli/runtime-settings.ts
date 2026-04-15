@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
 
+import { isValidGroupFolder } from '../platform/group-folder.js';
 import { readEnvFile } from './env-file.js';
 import {
   envFilePath,
@@ -16,23 +17,27 @@ export interface ChatAllowlistEntry {
 
 export interface SenderAllowlistConfig {
   default: ChatAllowlistEntry;
-  chats: Record<string, ChatAllowlistEntry>;
+  agents: Record<string, ChatAllowlistEntry>;
   logDenied: boolean;
 }
 
+export type RuntimeChannel = 'telegram' | 'slack';
+
+export interface RuntimeChannelSettings {
+  enabled: boolean;
+  senderAllowlist: SenderAllowlistConfig;
+}
+
 export interface RuntimeSettings {
-  version: 2;
+  version: 3;
   channels: {
-    telegram: { enabled: boolean };
-    slack: { enabled: boolean };
+    telegram: RuntimeChannelSettings;
+    slack: RuntimeChannelSettings;
   };
   features: {
     memory: boolean;
     embeddings: boolean;
     dreaming: boolean;
-  };
-  messagePolicy: {
-    senderAllowlist: SenderAllowlistConfig;
   };
 }
 
@@ -49,7 +54,7 @@ export interface RuntimeSettingsValidationResult {
 
 const DEFAULT_SENDER_ALLOWLIST: SenderAllowlistConfig = {
   default: { allow: '*', mode: 'trigger' },
-  chats: {},
+  agents: {},
   logDenied: true,
 };
 
@@ -105,6 +110,7 @@ function parseScalar(raw: string): unknown {
   const value = raw.trim();
   if (value === 'true') return true;
   if (value === 'false') return false;
+  if (value === '{}') return {};
   if (/^-?[0-9]+$/.test(value)) return Number.parseInt(value, 10);
   if (value.startsWith('[') && value.endsWith(']')) {
     return parseStringArray(value);
@@ -201,6 +207,89 @@ function isValidAllowlistEntry(entry: unknown): entry is ChatAllowlistEntry {
   return validAllow && validMode;
 }
 
+function normalizeAllowlistEntry(
+  entry: ChatAllowlistEntry,
+): ChatAllowlistEntry {
+  return {
+    allow: entry.allow === '*' ? '*' : entry.allow.map((value) => value.trim()),
+    mode: entry.mode,
+  };
+}
+
+function parseSenderAllowlistConfig(
+  raw: unknown,
+  pathPrefix: string,
+): SenderAllowlistConfig {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`${pathPrefix} must be a mapping`);
+  }
+
+  const map = raw as Record<string, unknown>;
+
+  if (!isValidAllowlistEntry(map.default)) {
+    throw new Error(`${pathPrefix}.default must include allow and mode`);
+  }
+
+  const agentsRaw = map.agents;
+  if (
+    typeof agentsRaw !== 'object' ||
+    agentsRaw === null ||
+    Array.isArray(agentsRaw)
+  ) {
+    throw new Error(`${pathPrefix}.agents must be a mapping`);
+  }
+
+  const agentsMap = agentsRaw as Record<string, unknown>;
+  const agents: Record<string, ChatAllowlistEntry> = {};
+  for (const [folder, entry] of Object.entries(agentsMap)) {
+    const trimmedFolder = folder.trim();
+    if (!trimmedFolder) {
+      throw new Error(`${pathPrefix}.agents has empty key`);
+    }
+    if (!isValidGroupFolder(trimmedFolder)) {
+      throw new Error(
+        `${pathPrefix}.agents.${trimmedFolder} must use a valid agent folder key`,
+      );
+    }
+    if (!isValidAllowlistEntry(entry)) {
+      throw new Error(`${pathPrefix}.agents.${trimmedFolder} is invalid`);
+    }
+    agents[trimmedFolder] = normalizeAllowlistEntry(entry);
+  }
+
+  if (typeof map.log_denied !== 'boolean') {
+    throw new Error(`${pathPrefix}.log_denied must be true/false`);
+  }
+
+  return {
+    default: normalizeAllowlistEntry(map.default as ChatAllowlistEntry),
+    agents,
+    logDenied: map.log_denied,
+  };
+}
+
+function parseChannelSettings(
+  raw: unknown,
+  pathPrefix: string,
+): RuntimeChannelSettings {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`${pathPrefix} must be a mapping`);
+  }
+
+  const channelMap = raw as Record<string, unknown>;
+  if (typeof channelMap.enabled !== 'boolean') {
+    throw new Error(`${pathPrefix}.enabled must be true/false`);
+  }
+
+  return {
+    enabled: channelMap.enabled,
+    senderAllowlist: parseSenderAllowlistConfig(
+      channelMap.sender_allowlist,
+      `${pathPrefix}.sender_allowlist`,
+    ),
+  };
+}
+
 function parseRuntimeSettings(raw: string): RuntimeSettings {
   const parsed = raw.trimStart().startsWith('{')
     ? (JSON.parse(raw) as unknown)
@@ -211,8 +300,8 @@ function parseRuntimeSettings(raw: string): RuntimeSettings {
   }
 
   const root = parsed as Record<string, unknown>;
-  if (root.version !== 2) {
-    throw new Error('version must be set to 2');
+  if (root.version !== 3) {
+    throw new Error('version must be set to 3');
   }
 
   const channels = root.channels;
@@ -225,27 +314,11 @@ function parseRuntimeSettings(raw: string): RuntimeSettings {
   }
   const channelsMap = channels as Record<string, unknown>;
 
-  const telegram = channelsMap.telegram;
-  if (
-    typeof telegram !== 'object' ||
-    telegram === null ||
-    Array.isArray(telegram)
-  ) {
-    throw new Error('channels.telegram must be a mapping');
-  }
-  const telegramEnabled = (telegram as Record<string, unknown>).enabled;
-  if (typeof telegramEnabled !== 'boolean') {
-    throw new Error('channels.telegram.enabled must be true/false');
-  }
-
-  const slack = channelsMap.slack;
-  if (typeof slack !== 'object' || slack === null || Array.isArray(slack)) {
-    throw new Error('channels.slack must be a mapping');
-  }
-  const slackEnabled = (slack as Record<string, unknown>).enabled;
-  if (typeof slackEnabled !== 'boolean') {
-    throw new Error('channels.slack.enabled must be true/false');
-  }
+  const telegram = parseChannelSettings(
+    channelsMap.telegram,
+    'channels.telegram',
+  );
+  const slack = parseChannelSettings(channelsMap.slack, 'channels.slack');
 
   const features = root.features;
   if (
@@ -255,6 +328,7 @@ function parseRuntimeSettings(raw: string): RuntimeSettings {
   ) {
     throw new Error('features must be a mapping');
   }
+
   const featuresMap = features as Record<string, unknown>;
   const memory = featuresMap.memory;
   const embeddings = featuresMap.embeddings;
@@ -269,116 +343,51 @@ function parseRuntimeSettings(raw: string): RuntimeSettings {
     throw new Error('features.dreaming must be true/false');
   }
 
-  const messagePolicy = root.message_policy;
-  if (
-    typeof messagePolicy !== 'object' ||
-    messagePolicy === null ||
-    Array.isArray(messagePolicy)
-  ) {
-    throw new Error('message_policy must be a mapping');
-  }
-  const messagePolicyMap = messagePolicy as Record<string, unknown>;
-
-  const senderAllowlistRaw = messagePolicyMap.sender_allowlist;
-  if (
-    typeof senderAllowlistRaw !== 'object' ||
-    senderAllowlistRaw === null ||
-    Array.isArray(senderAllowlistRaw)
-  ) {
-    throw new Error('message_policy.sender_allowlist must be a mapping');
-  }
-  const senderAllowlistMap = senderAllowlistRaw as Record<string, unknown>;
-
-  if (!isValidAllowlistEntry(senderAllowlistMap.default)) {
-    throw new Error(
-      'message_policy.sender_allowlist.default must include allow and mode',
-    );
-  }
-
-  const chatsRaw = senderAllowlistMap.chats;
-  if (
-    typeof chatsRaw !== 'object' ||
-    chatsRaw === null ||
-    Array.isArray(chatsRaw)
-  ) {
-    throw new Error('message_policy.sender_allowlist.chats must be a mapping');
-  }
-  const chatsMap = chatsRaw as Record<string, unknown>;
-  const chats: Record<string, ChatAllowlistEntry> = {};
-  for (const [chatJid, entry] of Object.entries(chatsMap)) {
-    if (!chatJid.trim()) {
-      throw new Error('message_policy.sender_allowlist.chats has empty key');
-    }
-    if (!isValidAllowlistEntry(entry)) {
-      throw new Error(
-        `message_policy.sender_allowlist.chats.${chatJid} is invalid`,
-      );
-    }
-    chats[chatJid] = {
-      allow:
-        entry.allow === '*'
-          ? '*'
-          : (entry.allow as string[]).map((v) => v.trim()),
-      mode: entry.mode,
-    };
-  }
-
-  const logDeniedRaw = senderAllowlistMap.log_denied;
-  if (typeof logDeniedRaw !== 'boolean') {
-    throw new Error(
-      'message_policy.sender_allowlist.log_denied must be true/false',
-    );
-  }
-
-  const defaultEntry = senderAllowlistMap.default as ChatAllowlistEntry;
   return {
-    version: 2,
-    channels: {
-      telegram: { enabled: telegramEnabled },
-      slack: { enabled: slackEnabled },
-    },
+    version: 3,
+    channels: { telegram, slack },
     features: {
       memory,
       embeddings,
       dreaming,
     },
-    messagePolicy: {
-      senderAllowlist: {
-        default: {
-          allow:
-            defaultEntry.allow === '*'
-              ? '*'
-              : defaultEntry.allow.map((item) => item.trim()),
-          mode: defaultEntry.mode,
-        },
-        chats,
-        logDenied: logDeniedRaw,
-      },
-    },
   };
 }
 
-function countRegisteredGroupsForPrefix(
+interface RegisteredGroupSummary {
+  count: number;
+  folders: Set<string>;
+  error?: string;
+}
+
+function getRegisteredGroupSummary(
   runtimeHome: string,
   prefix: 'tg:%' | 'sl:%',
-): { count: number; error?: string } {
+): RegisteredGroupSummary {
   const dbPath = path.join(runtimeHome, 'store', 'messages.db');
   if (!fs.existsSync(dbPath)) {
-    return { count: 0 };
+    return { count: 0, folders: new Set() };
   }
 
   let db: Database.Database | null = null;
   try {
     db = new Database(dbPath, { readonly: true });
-    const row = db
-      .prepare(
-        `SELECT COUNT(*) as count FROM registered_groups WHERE jid LIKE ?`,
-      )
-      .get(prefix) as { count: number };
-    return { count: row.count };
+    const rows = db
+      .prepare('SELECT jid, folder FROM registered_groups WHERE jid LIKE ?')
+      .all(prefix) as Array<{ jid: string; folder: string }>;
+    return {
+      count: rows.length,
+      folders: new Set(
+        rows
+          .map((row) => row.folder)
+          .filter((folder) => typeof folder === 'string' && folder.trim())
+          .map((folder) => folder.trim()),
+      ),
+    };
   } catch (err) {
     return {
       count: 0,
+      folders: new Set(),
       error: err instanceof Error ? err.message : String(err),
     };
   } finally {
@@ -400,37 +409,60 @@ function renderAllowValue(allow: '*' | string[]): string {
   return JSON.stringify(allow);
 }
 
+function renderSenderAllowlistYaml(
+  lines: string[],
+  indent: string,
+  config: SenderAllowlistConfig,
+): void {
+  lines.push(`${indent}default:`);
+  lines.push(`${indent}  allow: ${renderAllowValue(config.default.allow)}`);
+  lines.push(`${indent}  mode: ${config.default.mode}`);
+  lines.push(`${indent}agents:`);
+
+  const entries = Object.entries(config.agents).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  for (const [folder, entry] of entries) {
+    lines.push(`${indent}  ${quoteYamlKey(folder)}:`);
+    lines.push(`${indent}    allow: ${renderAllowValue(entry.allow)}`);
+    lines.push(`${indent}    mode: ${entry.mode}`);
+  }
+
+  lines.push(`${indent}log_denied: ${config.logDenied ? 'true' : 'false'}`);
+}
+
 function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
   const lines = [
-    'version: 2',
+    'version: 3',
     'channels:',
-    `  telegram:`,
+    '  telegram:',
     `    enabled: ${settings.channels.telegram.enabled ? 'true' : 'false'}`,
-    `  slack:`,
+    '    sender_allowlist:',
+  ];
+
+  renderSenderAllowlistYaml(
+    lines,
+    '      ',
+    settings.channels.telegram.senderAllowlist,
+  );
+
+  lines.push(
+    '  slack:',
     `    enabled: ${settings.channels.slack.enabled ? 'true' : 'false'}`,
+    '    sender_allowlist:',
+  );
+
+  renderSenderAllowlistYaml(
+    lines,
+    '      ',
+    settings.channels.slack.senderAllowlist,
+  );
+
+  lines.push(
     'features:',
     `  memory: ${settings.features.memory ? 'true' : 'false'}`,
     `  embeddings: ${settings.features.embeddings ? 'true' : 'false'}`,
     `  dreaming: ${settings.features.dreaming ? 'true' : 'false'}`,
-    'message_policy:',
-    '  sender_allowlist:',
-    '    default:',
-    `      allow: ${renderAllowValue(settings.messagePolicy.senderAllowlist.default.allow)}`,
-    `      mode: ${settings.messagePolicy.senderAllowlist.default.mode}`,
-    '    chats:',
-  ];
-
-  const chatEntries = Object.entries(
-    settings.messagePolicy.senderAllowlist.chats,
-  ).sort(([a], [b]) => a.localeCompare(b));
-  for (const [chatJid, entry] of chatEntries) {
-    lines.push(`      ${quoteYamlKey(chatJid)}:`);
-    lines.push(`        allow: ${renderAllowValue(entry.allow)}`);
-    lines.push(`        mode: ${entry.mode}`);
-  }
-
-  lines.push(
-    `    log_denied: ${settings.messagePolicy.senderAllowlist.logDenied ? 'true' : 'false'}`,
     '',
   );
 
@@ -448,6 +480,19 @@ function writeRuntimeSettings(
   );
 }
 
+function createDefaultChannelSettings(
+  enabled: boolean,
+): RuntimeChannelSettings {
+  return {
+    enabled,
+    senderAllowlist: {
+      default: { ...DEFAULT_SENDER_ALLOWLIST.default },
+      agents: {},
+      logDenied: DEFAULT_SENDER_ALLOWLIST.logDenied,
+    },
+  };
+}
+
 export function deriveRuntimeSettingsFromEnv(
   runtimeHome: string,
 ): RuntimeSettings {
@@ -458,29 +503,19 @@ export function deriveRuntimeSettingsFromEnv(
   const dreamingEnabled = parseBoolean(env.MEMORY_DREAMING_ENABLED, false);
 
   return {
-    version: 2,
+    version: 3,
     channels: {
-      telegram: { enabled: Boolean(env.TELEGRAM_BOT_TOKEN?.trim()) },
-      slack: {
-        enabled: Boolean(
-          env.SLACK_BOT_TOKEN?.trim() && env.SLACK_APP_TOKEN?.trim(),
-        ),
-      },
+      telegram: createDefaultChannelSettings(
+        Boolean(env.TELEGRAM_BOT_TOKEN?.trim()),
+      ),
+      slack: createDefaultChannelSettings(
+        Boolean(env.SLACK_BOT_TOKEN?.trim() && env.SLACK_APP_TOKEN?.trim()),
+      ),
     },
     features: {
       memory: memoryEnabled,
       embeddings: embeddingsEnabled,
       dreaming: dreamingEnabled,
-    },
-    messagePolicy: {
-      senderAllowlist: {
-        default: {
-          allow: DEFAULT_SENDER_ALLOWLIST.default.allow,
-          mode: DEFAULT_SENDER_ALLOWLIST.default.mode,
-        },
-        chats: {},
-        logDenied: DEFAULT_SENDER_ALLOWLIST.logDenied,
-      },
     },
   };
 }
@@ -516,6 +551,14 @@ export function loadRuntimeSettings(runtimeHome: string): RuntimeSettings {
   return ensureSettingsLoaded(runtimeHome).settings;
 }
 
+export function saveRuntimeSettings(
+  runtimeHome: string,
+  settings: RuntimeSettings,
+): void {
+  ensureRuntimeLayout(runtimeHome);
+  writeRuntimeSettings(runtimeHome, settings);
+}
+
 export function updateRuntimeSettingsFromOnboarding(input: {
   runtimeHome: string;
   telegramEnabled: boolean;
@@ -528,7 +571,10 @@ export function updateRuntimeSettingsFromOnboarding(input: {
     ...loaded.settings,
     channels: {
       ...loaded.settings.channels,
-      telegram: { enabled: input.telegramEnabled },
+      telegram: {
+        ...loaded.settings.channels.telegram,
+        enabled: input.telegramEnabled,
+      },
     },
     features: {
       memory: input.memoryEnabled,
@@ -537,6 +583,24 @@ export function updateRuntimeSettingsFromOnboarding(input: {
     },
   };
   writeRuntimeSettings(input.runtimeHome, merged);
+}
+
+function validateSenderAllowlistFolders(input: {
+  channel: RuntimeChannel;
+  config: SenderAllowlistConfig;
+  knownFolders: Set<string>;
+  details: string[];
+  filePath: string;
+}): void {
+  for (const folder of Object.keys(input.config.agents).sort((a, b) =>
+    a.localeCompare(b),
+  )) {
+    if (!input.knownFolders.has(folder)) {
+      input.details.push(
+        `${input.filePath} has channels.${input.channel}.sender_allowlist.agents.${folder}, but no registered ${input.channel} agent uses folder "${folder}". Run \`myclaw agent list\` and use an existing folder name.`,
+      );
+    }
+  }
 }
 
 export function validateRuntimeSettings(
@@ -590,30 +654,44 @@ export function validateRuntimeSettings(
     }
   }
 
-  if (settings.channels.telegram.enabled) {
-    const telegramGroups = countRegisteredGroupsForPrefix(runtimeHome, 'tg:%');
-    if (telegramGroups.error) {
-      details.push(
-        `Could not inspect Telegram registered chats in ${path.join(runtimeHome, 'store', 'messages.db')}: ${telegramGroups.error}`,
-      );
-    } else if (telegramGroups.count < 1) {
+  const telegramGroups = getRegisteredGroupSummary(runtimeHome, 'tg:%');
+  if (telegramGroups.error) {
+    details.push(
+      `Could not inspect Telegram registered chats in ${path.join(runtimeHome, 'store', 'messages.db')}: ${telegramGroups.error}`,
+    );
+  } else {
+    if (settings.channels.telegram.enabled && telegramGroups.count < 1) {
       details.push(
         'Telegram is enabled but no Telegram chats are registered. Run `myclaw telegram connect`.',
       );
     }
+    validateSenderAllowlistFolders({
+      channel: 'telegram',
+      config: settings.channels.telegram.senderAllowlist,
+      knownFolders: telegramGroups.folders,
+      details,
+      filePath: loaded.filePath,
+    });
   }
 
-  if (settings.channels.slack.enabled) {
-    const slackGroups = countRegisteredGroupsForPrefix(runtimeHome, 'sl:%');
-    if (slackGroups.error) {
-      details.push(
-        `Could not inspect Slack registered chats in ${path.join(runtimeHome, 'store', 'messages.db')}: ${slackGroups.error}`,
-      );
-    } else if (slackGroups.count < 1) {
+  const slackGroups = getRegisteredGroupSummary(runtimeHome, 'sl:%');
+  if (slackGroups.error) {
+    details.push(
+      `Could not inspect Slack registered chats in ${path.join(runtimeHome, 'store', 'messages.db')}: ${slackGroups.error}`,
+    );
+  } else {
+    if (settings.channels.slack.enabled && slackGroups.count < 1) {
       details.push(
         'Slack is enabled but no Slack chats are registered. Run `myclaw slack connect`.',
       );
     }
+    validateSenderAllowlistFolders({
+      channel: 'slack',
+      config: settings.channels.slack.senderAllowlist,
+      knownFolders: slackGroups.folders,
+      details,
+      filePath: loaded.filePath,
+    });
   }
 
   if (details.length > 0) {

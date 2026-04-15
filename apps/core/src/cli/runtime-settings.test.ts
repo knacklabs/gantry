@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import Database from 'better-sqlite3';
 
 import { describe, expect, it } from 'vitest';
 
@@ -21,42 +22,70 @@ function createRuntimeHome(): string {
   return home;
 }
 
+function seedRegisteredGroups(runtimeHome: string): void {
+  const dbPath = path.join(runtimeHome, 'store', 'messages.db');
+  const db = new Database(dbPath);
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS registered_groups (
+        jid TEXT PRIMARY KEY,
+        folder TEXT NOT NULL
+      );
+    `);
+    db.prepare(
+      `INSERT OR REPLACE INTO registered_groups (jid, folder) VALUES (?, ?)`,
+    ).run('tg:-1001', 'telegram_kai-dev');
+    db.prepare(
+      `INSERT OR REPLACE INTO registered_groups (jid, folder) VALUES (?, ?)`,
+    ).run('sl:C123', 'slack_ops');
+  } finally {
+    db.close();
+  }
+}
+
 describe('runtime-settings', () => {
-  it('parses sender allowlist entries from yaml', () => {
+  it('parses channel sender allowlist entries from yaml', () => {
     const settings = parseRuntimeSettingsText(`
-version: 2
+version: 3
 channels:
   telegram:
     enabled: true
+    sender_allowlist:
+      default:
+        allow: ["alice", "bob"]
+        mode: trigger
+      agents:
+        telegram_kai-dev:
+          allow: "*"
+          mode: drop
+      log_denied: true
   slack:
     enabled: false
+    sender_allowlist:
+      default:
+        allow: "*"
+        mode: trigger
+      agents: {}
+      log_denied: true
 features:
   memory: true
   embeddings: false
   dreaming: false
-message_policy:
-  sender_allowlist:
-    default:
-      allow: ["alice", "bob"]
-      mode: trigger
-    chats:
-      "tg:123":
-        allow: "*"
-        mode: drop
-    log_denied: true
 `);
 
-    expect(settings.messagePolicy.senderAllowlist.default.allow).toEqual([
+    expect(settings.channels.telegram.senderAllowlist.default.allow).toEqual([
       'alice',
       'bob',
     ]);
-    expect(settings.messagePolicy.senderAllowlist.chats['tg:123']).toEqual({
+    expect(
+      settings.channels.telegram.senderAllowlist.agents['telegram_kai-dev'],
+    ).toEqual({
       allow: '*',
       mode: 'drop',
     });
   });
 
-  it('rejects invalid sender allowlist entry shapes', () => {
+  it('rejects legacy v2 schema', () => {
     expect(() =>
       parseRuntimeSettingsText(`
 version: 2
@@ -69,15 +98,8 @@ features:
   memory: true
   embeddings: false
   dreaming: false
-message_policy:
-  sender_allowlist:
-    default:
-      allow: true
-      mode: trigger
-    chats:
-    log_denied: true
 `),
-    ).toThrow('must include allow and mode');
+    ).toThrow('version must be set to 3');
   });
 
   it('derives defaults from env values', () => {
@@ -94,6 +116,7 @@ message_policy:
     const settings = deriveRuntimeSettingsFromEnv(runtimeHome);
     expect(settings.channels.telegram.enabled).toBe(true);
     expect(settings.channels.slack.enabled).toBe(true);
+    expect(settings.channels.telegram.senderAllowlist.default.allow).toBe('*');
     expect(settings.features.memory).toBe(true);
     expect(settings.features.embeddings).toBe(true);
     expect(settings.features.dreaming).toBe(true);
@@ -109,5 +132,50 @@ message_policy:
     expect(result.failure?.details.join('\n')).toContain(
       settingsFilePath(runtimeHome),
     );
+  });
+
+  it('fails validation when sender policy references unknown agent folder', () => {
+    const runtimeHome = createRuntimeHome();
+    seedRegisteredGroups(runtimeHome);
+    upsertEnvFile(envFilePath(runtimeHome), {
+      TELEGRAM_BOT_TOKEN: 'token',
+      SLACK_BOT_TOKEN: 'token',
+      SLACK_APP_TOKEN: 'token',
+    });
+    fs.writeFileSync(
+      settingsFilePath(runtimeHome),
+      `
+version: 3
+channels:
+  telegram:
+    enabled: true
+    sender_allowlist:
+      default:
+        allow: "*"
+        mode: trigger
+      agents:
+        unknown_folder:
+          allow: ["123"]
+          mode: trigger
+      log_denied: true
+  slack:
+    enabled: true
+    sender_allowlist:
+      default:
+        allow: "*"
+        mode: trigger
+      agents: {}
+      log_denied: true
+features:
+  memory: true
+  embeddings: false
+  dreaming: false
+`.trimStart(),
+      'utf-8',
+    );
+
+    const result = validateRuntimeSettings(runtimeHome);
+    expect(result.ok).toBe(false);
+    expect(result.failure?.details.join('\n')).toContain('unknown_folder');
   });
 });

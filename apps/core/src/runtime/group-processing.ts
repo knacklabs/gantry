@@ -388,7 +388,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
             !reqTrigger ||
             (hasTrigger &&
               (msg.is_from_me ||
-                isTriggerAllowed(chatJid, msg.sender, loadSenderAllowlist())))
+                isTriggerAllowed(
+                  chatJid,
+                  msg.sender,
+                  loadSenderAllowlist(),
+                  group.folder,
+                )))
           );
         },
       },
@@ -401,7 +406,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       const hasTrigger = missedMessages.some(
         (m) =>
           triggerPattern.test(m.content.trim()) &&
-          (m.is_from_me || isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
+          (m.is_from_me ||
+            isTriggerAllowed(chatJid, m.sender, allowlistCfg, group.folder)),
       );
       if (!hasTrigger) {
         return true;

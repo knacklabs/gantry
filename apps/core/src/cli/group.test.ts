@@ -3,6 +3,8 @@ import os from 'os';
 import path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parseRuntimeSettingsText } from './runtime-settings.js';
+import { settingsFilePath } from './runtime-home.js';
 
 function createRuntimeHome(): string {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-group-test-'));
@@ -128,5 +130,75 @@ describe('group CLI commands', () => {
       0,
     );
     expect(await runAgentCommand(runtimeHome, ['info', jid])).toBe(1);
+  });
+
+  it('updates per-agent sender policy using folder keys', async () => {
+    const { runAgentCommand } = await import('./group.js');
+    const jid = `sl:policy-room-${Date.now().toString(36)}`;
+
+    expect(
+      await runAgentCommand(runtimeHome, [
+        'add',
+        jid,
+        '--name',
+        'Policy Group',
+        '--folder',
+        'slack_policy_group',
+      ]),
+    ).toBe(0);
+
+    expect(
+      await runAgentCommand(runtimeHome, [
+        'policy',
+        jid,
+        '--allow',
+        'U123,U456',
+        '--mode',
+        'drop',
+      ]),
+    ).toBe(0);
+
+    const settings = parseRuntimeSettingsText(
+      fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8'),
+    );
+    expect(
+      settings.channels.slack.senderAllowlist.agents.slack_policy_group,
+    ).toEqual({
+      allow: ['U123', 'U456'],
+      mode: 'drop',
+    });
+
+    expect(await runAgentCommand(runtimeHome, ['policy', jid, '--clear'])).toBe(
+      0,
+    );
+
+    const updated = parseRuntimeSettingsText(
+      fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8'),
+    );
+    expect(updated.channels.slack.senderAllowlist.agents).toEqual({});
+  });
+
+  it('updates default channel sender policy', async () => {
+    const { runAgentCommand } = await import('./group.js');
+
+    expect(
+      await runAgentCommand(runtimeHome, [
+        'policy-default',
+        '--channel',
+        'slack',
+        '--allow',
+        'U333',
+        '--mode',
+        'drop',
+      ]),
+    ).toBe(0);
+
+    const settings = parseRuntimeSettingsText(
+      fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8'),
+    );
+    expect(settings.channels.slack.senderAllowlist.default).toEqual({
+      allow: ['U333'],
+      mode: 'drop',
+    });
   });
 });
