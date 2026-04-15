@@ -88,8 +88,12 @@ describe('scheduler state file', () => {
 
 describe('writeSchedulerStateFileSafe', () => {
   it('does not throw when underlying write fails', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-scheduler-'));
+    const blockingFile = path.join(tempDir, 'not-a-directory');
+    fs.writeFileSync(blockingFile, 'block');
+
     vi.doMock('../core/config.js', () => ({
-      SCHEDULER_JOBS_JSON_PATH: '/proc/nonexistent/state.json',
+      SCHEDULER_JOBS_JSON_PATH: path.join(blockingFile, 'state.json'),
     }));
 
     vi.resetModules();
