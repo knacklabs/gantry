@@ -73,14 +73,34 @@ export const logger = {
     log('fatal', dataOrMsg, msg),
 };
 
-type MarkedProcessListener = ((...args: unknown[]) => void) & {
+type MarkedUncaughtExceptionHandler = ((err: Error) => void) & {
+  [LOGGER_HANDLER_MARK]?: true;
+};
+
+type MarkedUnhandledRejectionHandler = ((
+  reason: unknown,
+  promise: Promise<unknown>,
+) => void) & {
   [LOGGER_HANDLER_MARK]?: true;
 };
 
 function removeMarkedProcessListeners(
   event: 'uncaughtException' | 'unhandledRejection',
 ): void {
-  for (const listener of process.listeners(event) as MarkedProcessListener[]) {
+  if (event === 'uncaughtException') {
+    for (const listener of process.listeners(
+      event,
+    ) as MarkedUncaughtExceptionHandler[]) {
+      if (listener[LOGGER_HANDLER_MARK]) {
+        process.removeListener(event, listener);
+      }
+    }
+    return;
+  }
+
+  for (const listener of process.listeners(
+    event,
+  ) as MarkedUnhandledRejectionHandler[]) {
     if (listener[LOGGER_HANDLER_MARK]) {
       process.removeListener(event, listener);
     }
@@ -90,12 +110,12 @@ function removeMarkedProcessListeners(
 const uncaughtExceptionHandler = ((err: Error) => {
   logger.fatal({ err }, 'Uncaught exception');
   process.exit(1);
-}) as MarkedProcessListener;
+}) as MarkedUncaughtExceptionHandler;
 uncaughtExceptionHandler[LOGGER_HANDLER_MARK] = true;
 
 const unhandledRejectionHandler = ((reason: unknown) => {
   logger.error({ err: reason }, 'Unhandled rejection');
-}) as MarkedProcessListener;
+}) as MarkedUnhandledRejectionHandler;
 unhandledRejectionHandler[LOGGER_HANDLER_MARK] = true;
 
 // Route uncaught errors through logger so they get timestamps in stderr.
