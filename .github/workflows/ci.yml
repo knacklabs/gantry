@@ -38,7 +38,7 @@ jobs:
         run: |
           set -o pipefail
           : > /tmp/vitest.log
-          rg --files apps/core/src | rg '\.test\.ts$' | sort > /tmp/test-files.txt
+          find apps/core/src -type f -name '*.test.ts' | sort > /tmp/test-files.txt
           while IFS= read -r test_file; do
             [ -n "$test_file" ] || continue
             echo "Running $test_file" | tee -a /tmp/vitest.log
