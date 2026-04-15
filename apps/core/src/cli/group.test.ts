@@ -28,6 +28,29 @@ afterEach(() => {
 });
 
 describe('group CLI commands', () => {
+  it('seeds SOUL.md when adding an agent', async () => {
+    const { runAgentCommand } = await import('./group.js');
+    const jid = `dc:soul-seed-${Date.now().toString(36)}`;
+    const folder = 'telegram_soul_seed';
+
+    expect(
+      await runAgentCommand(runtimeHome, [
+        'add',
+        jid,
+        '--name',
+        'Soul Seed',
+        '--folder',
+        folder,
+      ]),
+    ).toBe(0);
+
+    const soulPath = path.join(runtimeHome, 'agents', folder, 'SOUL.md');
+    expect(fs.existsSync(soulPath)).toBe(true);
+    const soul = fs.readFileSync(soulPath, 'utf-8');
+    expect(soul).toContain('# Soul - Who You Are');
+    expect(soul).toContain('- **Name:** Soul Seed');
+  });
+
   it('adds and reads a non-telegram group', async () => {
     const { runAgentCommand } = await import('./group.js');
     const suffix = Date.now().toString(36);

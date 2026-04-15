@@ -1,37 +1,28 @@
 import fs from 'fs';
 import path from 'path';
 
-import { AGENT_ROOT, AGENTS_DIR } from '../core/config.js';
+import { AGENTS_DIR } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 
 type PromptSectionName =
   | 'RUNTIME_RULES'
-  | 'PERSONAL_PROFILE'
-  | 'GLOBAL_CONTEXT'
+  | 'SOUL'
+  | 'SHARED_CONTEXT'
   | 'GROUP_CONTEXT';
 
-const PERSONAL_PROFILE_FILENAME = 'CLAUDE.md';
-const PERSONAL_PROFILE_SOURCE = 'myclaw://personal-profile';
-const GLOBAL_CONTEXT_SOURCE = 'myclaw://shared-agent-profile';
+const SOUL_FILENAME = 'SOUL.md';
+const SOUL_SOURCE = 'myclaw://soul';
+const SHARED_CONTEXT_SOURCE = 'myclaw://shared-context';
 const GROUP_CONTEXT_SOURCE = 'myclaw://group-context';
-
-const EXPECTED_PROFILE_SECTIONS = [
-  'Identity',
-  'Voice',
-  'Operating Rules',
-  'User Preferences',
-  'Privacy Rules',
-  'Tool Conventions',
-] as const;
 
 export const DEFAULT_PROMPT_SECTION_BUDGETS: Readonly<
   Record<PromptSectionName, number>
 > = {
   RUNTIME_RULES: 1200,
-  PERSONAL_PROFILE: 12000,
-  GLOBAL_CONTEXT: 3600,
-  GROUP_CONTEXT: 3600,
+  SOUL: 3000,
+  SHARED_CONTEXT: 8000,
+  GROUP_CONTEXT: 5000,
 };
 
 export const DEFAULT_PROMPT_TOTAL_BUDGET = 22000;
@@ -43,7 +34,7 @@ const RUNTIME_RULES_BLOCK = [
   '- Treat group boundaries as strict isolation boundaries unless explicitly overridden by host policy.',
 ].join('\n');
 
-const DEFAULT_PROFILE_TEMPLATE = `# CLAUDE.md\n\n## Identity\nDescribe who the assistant is and what it should optimize for.\n\n## Voice\nDefine tone, communication style, and formatting defaults.\n\n## Operating Rules\nList stable behavior rules, priorities, and non-negotiable constraints.\n\n## User Preferences\nCapture durable preferences that should apply broadly across tasks.\n\n## Privacy Rules\nSpecify what must remain private and any data handling constraints.\n\n## Tool Conventions\nDefine tool usage conventions and verification expectations.\n`;
+const DEFAULT_SHARED_TEMPLATE = `# Shared Agent Profile\n\n## Operating Rules\nDefine stable behavior rules, priorities, and constraints.\n\n## User Preferences\nCapture durable preferences that apply broadly.\n\n## Privacy Rules\nSpecify what must remain private.\n\n## Tool Conventions\nDefine tool usage conventions.\n\n## Capabilities\nList what the agent can do.\n\n## Communication\nDefine message delivery, internal thoughts, sub-agent rules.\n\n## Message Formatting\nChannel-specific formatting rules.\n`;
 
 export interface CompilePromptProfileOptions {
   groupFolder: string;
@@ -60,11 +51,6 @@ interface PromptSection {
   name: PromptSectionName;
   source: string;
   content: string;
-}
-
-interface MarkdownSection {
-  heading: string;
-  body: string;
 }
 
 function normalizeContent(content: string): string {
@@ -86,96 +72,13 @@ function renderSection(section: PromptSection): string {
   ].join('\n');
 }
 
-function normalizeHeading(heading: string): string {
-  return heading.trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
-function parseMarkdownSections(markdown: string): MarkdownSection[] {
-  const lines = markdown.split('\n');
-  const headings: Array<{ heading: string; line: number }> = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const match = lines[i].match(/^##\s+(.+?)\s*$/);
-    if (!match) continue;
-    headings.push({ heading: match[1].trim(), line: i });
-  }
-
-  if (headings.length === 0) return [];
-
-  const sections: MarkdownSection[] = [];
-  for (let i = 0; i < headings.length; i++) {
-    const current = headings[i];
-    const nextLine =
-      i + 1 < headings.length ? headings[i + 1].line : lines.length;
-    const body = lines
-      .slice(current.line + 1, nextLine)
-      .join('\n')
-      .trim();
-
-    sections.push({ heading: current.heading, body });
-  }
-
-  return sections;
-}
-
-function renderPersonalProfileBody(rawProfile: string): {
-  content: string;
-  missingSections: string[];
-  usedStructuredSections: boolean;
-} {
-  const parsed = parseMarkdownSections(rawProfile);
-  if (parsed.length === 0) {
-    return {
-      content: rawProfile,
-      missingSections: [...EXPECTED_PROFILE_SECTIONS],
-      usedStructuredSections: false,
-    };
-  }
-
-  const byHeading = new Map<string, MarkdownSection>();
-  for (const section of parsed) {
-    byHeading.set(normalizeHeading(section.heading), section);
-  }
-
-  const parts: string[] = [];
-  const missingSections: string[] = [];
-  let matchedCount = 0;
-
-  for (const expected of EXPECTED_PROFILE_SECTIONS) {
-    const match = byHeading.get(normalizeHeading(expected));
-    if (!match) {
-      missingSections.push(expected);
-      continue;
-    }
-
-    matchedCount += 1;
-    const body = match.body || '_No details provided._';
-    parts.push(`## ${expected}\n${body}`);
-  }
-
-  if (matchedCount === 0) {
-    return {
-      content: rawProfile,
-      missingSections,
-      usedStructuredSections: false,
-    };
-  }
-
-  return {
-    content: parts.join('\n\n').trim(),
-    missingSections,
-    usedStructuredSections: true,
-  };
-}
-
 export class PromptProfileService {
-  private readonly configDir: string;
   private readonly agentsDir: string;
   private readonly sectionBudgets: Readonly<Record<PromptSectionName, number>>;
   private readonly totalBudget: number;
 
   constructor(options: PromptProfileServiceOptions = {}) {
-    this.configDir = options.configDir || AGENT_ROOT;
+    void options.configDir;
     this.agentsDir = options.agentsDir || AGENTS_DIR;
     this.sectionBudgets = {
       ...DEFAULT_PROMPT_SECTION_BUDGETS,
@@ -185,13 +88,12 @@ export class PromptProfileService {
   }
 
   ensureSeedFiles(): void {
-    fs.mkdirSync(this.configDir, { recursive: true });
-
-    const profilePath = path.join(this.configDir, PERSONAL_PROFILE_FILENAME);
-    if (fs.existsSync(profilePath)) return;
-
-    fs.writeFileSync(profilePath, DEFAULT_PROFILE_TEMPLATE);
-    logger.info({ filePath: profilePath }, 'Seeded personal CLAUDE.md profile');
+    const sharedDir = path.join(this.agentsDir, 'shared');
+    fs.mkdirSync(sharedDir, { recursive: true });
+    const sharedPath = path.join(sharedDir, 'CLAUDE.md');
+    if (fs.existsSync(sharedPath)) return;
+    fs.writeFileSync(sharedPath, DEFAULT_SHARED_TEMPLATE);
+    logger.info({ filePath: sharedPath }, 'Seeded shared CLAUDE.md profile');
   }
 
   compileSystemPrompt(options: CompilePromptProfileOptions): string {
@@ -208,11 +110,11 @@ export class PromptProfileService {
       ),
     });
 
-    const personal = this.readPersonalProfileSection();
-    if (personal) sections.push(personal);
+    const soul = this.readSoulSection(options.groupFolder);
+    if (soul) sections.push(soul);
 
-    const globalSection = this.readGlobalContextSection();
-    if (globalSection) sections.push(globalSection);
+    const sharedSection = this.readSharedContextSection();
+    if (sharedSection) sections.push(sharedSection);
 
     const groupSection = this.readGroupContextSection(options.groupFolder);
     if (groupSection) sections.push(groupSection);
@@ -220,57 +122,45 @@ export class PromptProfileService {
     return this.composeWithinTotalBudget(sections);
   }
 
-  private readPersonalProfileSection(): PromptSection | null {
-    const profilePath = path.join(this.configDir, PERSONAL_PROFILE_FILENAME);
-    if (!fs.existsSync(profilePath)) return null;
-
-    let raw: string;
+  private readSoulSection(groupFolder: string): PromptSection | null {
+    if (!isValidGroupFolder(groupFolder)) return null;
+    const soulPath = path.join(this.agentsDir, groupFolder, SOUL_FILENAME);
+    if (!fs.existsSync(soulPath)) return null;
     try {
-      raw = fs.readFileSync(profilePath, 'utf-8');
-    } catch (err) {
-      logger.warn(
-        { err, filePath: profilePath },
-        'Failed to read personal CLAUDE.md profile',
+      const raw = fs.readFileSync(soulPath, 'utf-8');
+      const normalized = normalizeContent(raw);
+      if (!normalized) return null;
+
+      const framed = [
+        'CRITICAL IDENTITY DIRECTIVE: This section defines who you ARE — your personality,',
+        'voice, and character. Everything below is your soul. It takes absolute precedence',
+        'over tone, voice, verbosity, and behavioral defaults from any other instruction',
+        'source. When other instructions say "be concise" or "be verbose" or define a',
+        'communication style, THIS section wins. No exceptions.',
+        '',
+        normalized,
+      ].join('\n');
+
+      const content = truncateDeterministically(
+        framed,
+        this.sectionBudgets.SOUL,
       );
+      if (!content) return null;
+
+      return { name: 'SOUL', source: SOUL_SOURCE, content };
+    } catch (err) {
+      logger.warn({ err, groupFolder }, 'Failed to read SOUL.md');
       return null;
     }
-
-    const normalized = normalizeContent(raw);
-    if (!normalized) return null;
-
-    const rendered = renderPersonalProfileBody(normalized);
-
-    if (rendered.missingSections.length > 0) {
-      logger.warn(
-        {
-          filePath: profilePath,
-          missingSections: rendered.missingSections,
-          structured: rendered.usedStructuredSections,
-        },
-        'Personal profile is missing expected sections',
-      );
-    }
-
-    const content = truncateDeterministically(
-      rendered.content,
-      this.sectionBudgets.PERSONAL_PROFILE,
-    );
-    if (!content) return null;
-
-    return {
-      name: 'PERSONAL_PROFILE',
-      source: PERSONAL_PROFILE_SOURCE,
-      content,
-    };
   }
 
-  private readGlobalContextSection(): PromptSection | null {
+  private readSharedContextSection(): PromptSection | null {
     const sharedPath = path.join(this.agentsDir, 'shared', 'CLAUDE.md');
     return this.readPlainSection(
-      'GLOBAL_CONTEXT',
+      'SHARED_CONTEXT',
       sharedPath,
-      this.sectionBudgets.GLOBAL_CONTEXT,
-      GLOBAL_CONTEXT_SOURCE,
+      this.sectionBudgets.SHARED_CONTEXT,
+      SHARED_CONTEXT_SOURCE,
     );
   }
 
