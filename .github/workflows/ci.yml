@@ -22,4 +22,4 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Tests
-        run: npx vitest run
+        run: CI=true npx vitest run --maxWorkers=1
