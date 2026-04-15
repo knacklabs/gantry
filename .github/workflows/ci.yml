@@ -39,10 +39,10 @@ jobs:
           set -o pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.debug_logs }}" = "true" ]; then
             echo "Running tests with verbose logs"
-            timeout 20m bash -lc 'CI=true npx vitest run --maxWorkers=1 --reporter=verbose' 2>&1 | tee /tmp/vitest.log
+            timeout 20m bash -lc 'CI=true npx vitest run --maxWorkers=1 --pool=forks --reporter=verbose' 2>&1 | tee /tmp/vitest.log
           else
             echo "Running tests with quiet logs"
-            timeout 20m bash -lc 'LOG_LEVEL=fatal CI=true npx vitest run --maxWorkers=1' 2>&1 | tee /tmp/vitest.log
+            timeout 20m bash -lc 'LOG_LEVEL=fatal CI=true npx vitest run --maxWorkers=1 --pool=forks' 2>&1 | tee /tmp/vitest.log
           fi
           status=${PIPESTATUS[0]}
           if [ "$status" -eq 124 ]; then
