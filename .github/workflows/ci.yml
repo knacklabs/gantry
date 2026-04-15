@@ -3,6 +3,17 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      debug_logs:
+        description: 'Enable verbose test logs (no LOG_LEVEL suppression)'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ci:
@@ -22,4 +33,11 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Tests
-        run: LOG_LEVEL=fatal CI=true npx vitest run --maxWorkers=1
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.debug_logs }}" = "true" ]; then
+            echo "Running tests with verbose logs"
+            CI=true npx vitest run --maxWorkers=1 --reporter=verbose
+          else
+            echo "Running tests with quiet logs"
+            LOG_LEVEL=fatal CI=true npx vitest run --maxWorkers=1
+          fi
