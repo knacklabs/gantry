@@ -54,14 +54,14 @@ describe('group CLI commands', () => {
   it('adds and reads a non-telegram group', async () => {
     const { runAgentCommand } = await import('./group.js');
     const suffix = Date.now().toString(36);
-    const jid = `dc:team-room-${suffix}`;
+    const jid = `grp:team-room-${suffix}`;
 
     expect(
       await runAgentCommand(runtimeHome, [
         'add',
         jid,
         '--name',
-        'Discord Team',
+        'Channel Team',
         '--trigger',
         '@Kai',
       ]),
@@ -73,20 +73,20 @@ describe('group CLI commands', () => {
     expect(await runAgentCommand(runtimeHome, ['info', jid])).toBe(0);
 
     const output = infoSpy.mock.calls.at(-1)?.[0] as string;
-    expect(output).toContain('Name: Discord Team');
+    expect(output).toContain('Name: Channel Team');
     expect(output).toContain('Trigger: @Kai');
   });
 
   it('updates and disables trigger mode', async () => {
     const { runAgentCommand } = await import('./group.js');
     const suffix = Date.now().toString(36);
-    const jid = `dc:ops-room-${suffix}`;
+    const jid = `grp:trigger-room-${suffix}`;
 
     await runAgentCommand(runtimeHome, [
       'add',
       jid,
       '--name',
-      'Ops',
+      'Trigger Group',
       '--trigger',
       '@Andy',
     ]);
