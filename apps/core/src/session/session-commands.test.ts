@@ -223,9 +223,7 @@ function makeDeps(
     setGroupModelOverride: vi.fn(),
     getGroupThinkingOverride: vi.fn().mockReturnValue(undefined),
     setGroupThinkingOverride: vi.fn(),
-    getRuntimeStatusMessage: vi
-      .fn()
-      .mockResolvedValue('Runtime mode: container'),
+    getRuntimeStatusMessage: vi.fn().mockResolvedValue('Runtime mode: host'),
     archiveCurrentSession: vi.fn().mockResolvedValue(undefined),
     clearCurrentSession: vi.fn(),
     canSenderInteract: vi.fn().mockReturnValue(true),

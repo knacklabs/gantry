@@ -3,14 +3,14 @@
 ## What This Repo Is
 
 MyClaw is a single-process Node.js personal assistant runtime with skill-based channels.
-Messages are ingested from channels, persisted in SQLite, then routed to Codex agents with container-first execution and an optional host runtime.
+Messages are ingested from channels, persisted in SQLite, then routed to Codex agents through the host runtime.
 
 Primary surfaces:
 
 - `apps/core/src/index.ts`: orchestrator loop and runtime wiring
 - `apps/core/src/runtime/group-queue.ts`: per-group queue and retry behavior
-- `apps/core/src/runtime/container-runner.ts`: container execution path
-- `apps/core/src/runtime/container-runtime.ts`: host/container runtime selection and health checks
+- `apps/core/src/runtime/agent-spawn.ts`: host execution path
+- `apps/core/src/runtime/runtime-diagnostics.ts`: host runtime health checks
 - `apps/core/src/session/session-commands.ts`: host-managed slash commands
 - `apps/core/src/storage/db.ts`: persistence for groups, messages, tasks, and sessions
 
@@ -26,8 +26,8 @@ Use `python3 .codex/scripts/stage_orchestrator.py` to get current phase commands
 
 ## Runtime Modes
 
-- `AGENT_RUNTIME=container` (default): isolated Linux container execution
-- `AGENT_RUNTIME=host`: host execution with host-level tool access
+- Host runtime is the only supported mode in this repo today.
+- Docker Compose/container runtime support is deferred to future work and must not be documented as active.
 
 Important constraints:
 

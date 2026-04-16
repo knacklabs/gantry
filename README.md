@@ -1,12 +1,12 @@
 <p align="center">
-  A personal AI assistant that runs agents in isolated containers, stays small enough to understand, and is meant to be customized in code.
+  A personal AI assistant runtime that stays small enough to understand and is meant to be customized in code.
 </p>
 
 ---
 
 ## What MyClaw Is
 
-MyClaw is a single-process Node.js assistant runtime. Messages come in from one or more channels, get stored in SQLite, and are routed to Codex-driven agents that usually run inside their own Linux containers.
+MyClaw is a single-process Node.js assistant runtime. Messages come in from one or more channels, get stored in SQLite, and are routed to Codex-driven agents through a host runtime process.
 
 The project is intentionally small. The goal is not to be a framework with every feature built in. The goal is to give one person a secure, understandable base they can shape to fit their own workflow.
 
@@ -61,7 +61,7 @@ Notes:
 ## Philosophy
 
 - Small enough to understand. One process, a small set of core files, and straightforward data flow.
-- Secure by isolation. Agents run in containers by default, so shell access stays inside the sandbox instead of touching your host machine.
+- Secure by explicit trust boundaries. The current runtime executes on host, so security depends on host controls, scoped mounts, and clear operational safeguards.
 - Customized in code. If you want different behavior, change the code instead of stacking on configuration.
 - Skills over core bloat. Reusable capabilities should be delivered as skills or narrowly scoped branches, not piled into the default runtime.
 - AI-native operations. Setup, debugging, and maintenance should be easy to drive from Claude Code or Codex.
@@ -72,27 +72,13 @@ Notes:
 - Per-group context and memory
 - Scheduled jobs
 - Web access and browser automation
-- Container-first execution with optional host runtime
+- Host runtime execution
 - Skill-driven extensions and channel installation
 
-## Runtime Modes
+## Runtime
 
-MyClaw supports two runtime modes:
-
-- `AGENT_RUNTIME=container` for the default isolated workflow
-- `AGENT_RUNTIME=host` when you explicitly want host-level tool access
-
-Container mode is the default and the safer choice. Host mode is available, but it intentionally trades isolation for direct machine access.
-
-### Runtime Commands
-
-```bash
-npm run dev:container
-npm run start:container
-
-npm run dev:host
-npm run start:host
-```
+MyClaw currently supports a single runtime mode: host execution.
+Use `npm run dev` for local development and `npm start` for production start.
 
 ## Repository Development
 
@@ -103,7 +89,7 @@ git clone https://github.com/qwibitai/myclaw.git
 cd myclaw
 npm install
 npm run build
-npm run dev:container
+npm run dev
 ```
 
 ## Built-in Skills
@@ -115,7 +101,7 @@ Skills are slash commands the agent responds to inside chat. Run `/commands` to 
 | `/commands`      | List all available slash commands with descriptions            |
 | `/setup`         | First-time installation, authentication, service configuration |
 | `/customize`     | Adding channels, integrations, changing behavior               |
-| `/debug`         | Container issues, logs, troubleshooting                        |
+| `/debug`         | Runtime issues, logs, troubleshooting                          |
 | `/update-myclaw` | Bring upstream MyClaw updates into a customized install        |
 | `/init-onecli`   | Install OneCLI Agent Vault and migrate `.env` credentials      |
 
@@ -145,7 +131,7 @@ Use these as standalone chat messages:
 ```
 
 - `/new` resets the current group session and archives the previous transcript.
-- `/runtime` shows the active runtime mode and health details.
+- `/runtime` shows runtime health details.
 - `/model <value>` switches the group model override only when validation succeeds.
 
 ## Project Layout
@@ -154,8 +140,8 @@ Key paths:
 
 - `apps/core/src/index.ts` - orchestrator loop and runtime wiring
 - `apps/core/src/runtime/group-queue.ts` - per-group queueing and retries
-- `apps/core/src/runtime/container-runner.ts` - container execution path
-- `apps/core/src/runtime/container-runtime.ts` - runtime selection and health checks
+- `apps/core/src/runtime/agent-spawn.ts` - host agent execution path
+- `apps/core/src/runtime/runtime-diagnostics.ts` - runtime health checks
 - `apps/core/src/session/session-commands.ts` - host-managed slash commands
 - `apps/core/src/storage/db.ts` - SQLite persistence
 - `~/myclaw/agents/*/` - runtime per-agent working files and memory

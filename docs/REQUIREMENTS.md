@@ -17,9 +17,9 @@ The default experience should stay:
 
 The core runtime should stay compact. Prefer one clear implementation over multiple abstraction layers.
 
-### Security Through Isolation
+### Security Through Explicit Host Boundaries
 
-Agents should run in real containers by default. They only get access to explicitly mounted paths and approved tools.
+Agents currently run through host execution. Security relies on explicit trust boundaries, scoped runtime paths, and least-privilege operational defaults.
 
 ### Built for One User at a Time
 
@@ -56,9 +56,9 @@ Optional capabilities should land as skills or narrow extensions whenever possib
 
 ### Runtime
 
-- default container runtime
-- explicit host runtime when the user chooses it
+- host runtime as the single supported execution path
 - clear runtime health and remediation signals
+- deferred Docker Compose/container runtime as future work
 
 ### Channels
 

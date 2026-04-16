@@ -6,31 +6,26 @@
 |--------|-------------|-----------|
 | Main group | Trusted | Private self-chat, admin control |
 | Non-main groups | Untrusted | Other users may be malicious |
-| Container agents | Sandboxed | Isolated execution environment |
+| Runtime agents | Host-executed | Agent processes run on host, so host controls are the boundary |
 | Incoming messages | User input | Potential prompt injection |
 
 ## Security Boundaries
 
-### 1. Container Isolation (Primary Boundary in `AGENT_RUNTIME=container`)
+### 1. Host Runtime Boundary (Primary)
 
-Agents execute in containers (lightweight Linux VMs), providing:
-- **Process isolation** - Container processes cannot affect the host
-- **Filesystem isolation** - Only explicitly mounted directories are visible
-- **Non-root execution** - Runs as unprivileged `node` user (uid 1000)
-- **Ephemeral containers** - Fresh environment per invocation (`--rm`)
+MyClaw currently supports host runtime execution only. The primary boundary is host-level control plus runtime scoping:
+- per-group working directories
+- per-group session storage
+- explicit runtime-home ownership and permissions
+- strict message routing and command authorization checks
 
-In `AGENT_RUNTIME=container`, this is the primary security boundary. Rather than relying on application-level permission checks, the attack surface is limited by what's mounted.
+There is no active container isolation boundary in the current runtime.
 
-### 1b. Host Runtime (`AGENT_RUNTIME=host`)
+### 2. Mount and Path Security
 
-Host mode is intentionally high-trust. The agent process runs directly on the host and bypasses container isolation. Use host mode only when you explicitly need host-level tool and filesystem access.
-
-### 2. Mount Security
-
-**External Allowlist** - Mount permissions stored at `~/.config/myclaw/mount-allowlist.json`, which is:
-- Outside project root
-- Never mounted into containers
-- Cannot be modified by agents
+**External Allowlist** - Mount permissions are stored at `~/.config/myclaw/mount-allowlist.json`, which is:
+- outside project root
+- not writable by runtime agents by default
 
 **Default Blocked Patterns:**
 ```
@@ -40,20 +35,16 @@ private_key, .secret
 ```
 
 **Protections:**
-- Symlink resolution before validation (prevents traversal attacks)
-- Container path validation (rejects `..` and absolute paths)
-- `nonMainReadOnly` option forces read-only for non-main groups
-
-**Read-Only Project Root:**
-
-The main group's project root is mounted read-only. Writable paths the agent needs (store, group folder, IPC, `.claude/`) are mounted separately. This prevents the agent from modifying host application code (`apps/core/src/`, `dist/`, `package.json`, etc.) which would bypass the sandbox entirely on next restart. The `store/` directory is mounted read-write so the main agent can access the SQLite database directly.
+- symlink resolution before validation (prevents traversal attacks)
+- path validation (rejects `..` and unsafe absolute rewrites)
+- `nonMainReadOnly` option to keep non-main mounts read-only
 
 ### 3. Session Isolation
 
 Each group has isolated Claude sessions at `data/sessions/{group}/.claude/`:
-- Groups cannot see other groups' conversation history
-- Session data includes full message history and file contents read
-- Prevents cross-group information disclosure
+- groups cannot read other groups' conversation history
+- session data includes prior messages and file reads
+- cross-group data leakage is blocked by path separation and authorization checks
 
 ### 4. IPC Authorization
 
@@ -70,60 +61,20 @@ Messages and scheduler operations are verified against group identity:
 
 ### 5. Credential Isolation (OneCLI Agent Vault)
 
-In container mode, real API credentials **never enter containers**. MyClaw uses [OneCLI's Agent Vault](https://github.com/onecli/onecli) to proxy outbound requests and inject credentials at the gateway level.
+Credentials should be provided through OneCLI and runtime environment controls.
 
 **How it works:**
-1. Credentials are registered once with `onecli secrets create`, stored and managed by OneCLI
-2. When MyClaw spawns a container, it applies OneCLI gateway settings so outbound HTTPS routes through the proxy
-3. The gateway matches requests by host and path, injects the real credential, and forwards
-4. Agents cannot discover real credentials — not in environment, stdin, files, or `/proc`
+1. Credentials are registered once with `onecli secrets create`
+2. MyClaw routes outbound calls through configured credential paths
+3. The gateway matches requests by host/path and injects credentials
+4. Agents do not need raw credentials embedded in project docs or source
 
-**Per-agent policies:**
-Each MyClaw group gets its own OneCLI agent identity. This allows different credential policies per group (e.g. your sales agent vs. support agent). OneCLI supports rate limits, and time-bound access and approval flows are on the roadmap.
+### Legacy naming debt (not runtime support)
 
-**NOT Mounted:**
-- Channel auth sessions (`store/auth/`) — host only
-- Mount allowlist — external, never mounted
-- Any credentials matching blocked patterns
-- `.env` is shadowed with `/dev/null` in the project root mount
+The following names still exist in code/schema and are tracked for cleanup:
+- `container_config`
+- `containerName`
+- `containerInput`
+- `AdditionalMount.containerPath`
 
-## Privilege Comparison
-
-| Capability | Main Group | Non-Main Group |
-|------------|------------|----------------|
-| Project root access | `/workspace/project` (ro) | None |
-| Store (SQLite DB) | `/workspace/project/store` (rw) | None |
-| Group folder | `/workspace/group` (rw) | `/workspace/group` (rw) |
-| Global memory | Implicit via project | `/workspace/global` (ro) |
-| Additional mounts | Configurable | Read-only unless allowed |
-| Network access | Unrestricted | Unrestricted |
-| MCP tools | All | All |
-
-## Security Architecture Diagram
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                        UNTRUSTED ZONE                             │
-│  Incoming Messages (potentially malicious)                         │
-└────────────────────────────────┬─────────────────────────────────┘
-                                 │
-                                 ▼ Trigger check, input escaping
-┌──────────────────────────────────────────────────────────────────┐
-│                     HOST PROCESS (TRUSTED)                        │
-│  • Message routing                                                │
-│  • IPC authorization                                              │
-│  • Mount validation (external allowlist)                          │
-│  • Container lifecycle                                            │
-│  • OneCLI Agent Vault (injects credentials, enforces policies)   │
-└────────────────────────────────┬─────────────────────────────────┘
-                                 │
-                                 ▼ Explicit mounts only, no secrets
-┌──────────────────────────────────────────────────────────────────┐
-│                CONTAINER (ISOLATED/SANDBOXED)                     │
-│  • Agent execution                                                │
-│  • Bash commands (sandboxed)                                      │
-│  • File operations (limited to mounts)                            │
-│  • API calls routed through OneCLI Agent Vault                   │
-│  • No real credentials in environment or filesystem              │
-└──────────────────────────────────────────────────────────────────┘
-```
+These are naming artifacts, not evidence of active container runtime support.

@@ -158,6 +158,6 @@ Next action:
 1. choose a different runtime home
 2. or fix permissions on the selected folder
 
-### Container runtime warning
+### Runtime mode check
 
-MyClaw can still run in host mode. Install Docker (or Apple Container on macOS) later and rerun `myclaw doctor`.
+MyClaw uses host runtime execution. If doctor reports runtime issues, resolve Node/runtime-home/credentials warnings and rerun `myclaw doctor`.

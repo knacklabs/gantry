@@ -4,7 +4,7 @@ Personal AI assistant runtime. See [README.md](README.md) for philosophy and set
 
 ## Quick Context
 
-Single Node.js process with skill-based channel system. Channels (WhatsApp, Telegram, Slack, Discord, Gmail) are skills that self-register at startup. Messages route to Claude Agent SDK running in containers (Linux VMs). Each group has isolated filesystem and memory.
+Single Node.js process with skill-based channel system. Channels (WhatsApp, Telegram, Slack, Discord, Gmail) are skills that self-register at startup. Messages route to Claude Agent SDK via host runtime processes. Each group has isolated filesystem and memory boundaries.
 
 ## Key Files
 
@@ -22,7 +22,7 @@ Single Node.js process with skill-based channel system. Channels (WhatsApp, Tele
 
 ## Secrets / Credentials / Proxy (OneCLI)
 
-API keys, secret keys, OAuth tokens, and auth credentials are managed by the OneCLI gateway — which handles secret injection into containers at request time, so no keys or tokens are ever passed to containers directly. Run `onecli --help`.
+API keys, secret keys, OAuth tokens, and auth credentials are managed by the OneCLI gateway and runtime environment controls. Run `onecli --help`.
 
 ## Skills
 
@@ -38,7 +38,7 @@ Four types of skills exist in MyClaw. See [CONTRIBUTING.md](CONTRIBUTING.md) for
 | `/commands` | List all available slash commands with descriptions |
 | `/setup` | First-time installation, authentication, service configuration |
 | `/customize` | Adding channels, integrations, changing behavior |
-| `/debug` | Container issues, logs, troubleshooting |
+| `/debug` | Runtime issues, logs, troubleshooting |
 | `/update-myclaw` | Bring upstream MyClaw updates into a customized install |
 | `/init-onecli` | Install OneCLI Agent Vault and migrate `.env` credentials to it |
 
@@ -79,6 +79,6 @@ Use the `/browse` skill from gstack for all web browsing. Never use `mcp__claude
 
 Available gstack skills: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/retro`, `/investigate`, `/document-release`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`.
 
-## Container Build Cache
+## Agent Runner Build Cache
 
 If you add or update the agent runner, rebuild from the repo root with `npm run build` so both the app and `packages/agent-runner` stay in sync.

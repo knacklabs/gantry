@@ -54,7 +54,7 @@ Operational skills are instruction-only workflows such as setup, debugging, or m
 
 ### Custom runtime skills
 
-Custom runtime skills live in the agent environment and shape how container agents behave.
+Custom runtime skills live in the agent environment and shape how runtime agents behave.
 
 ## SKILL.md Rules
 

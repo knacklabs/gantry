@@ -313,9 +313,9 @@ async function runRuntimeHomeStep(
 async function runPrerequisitesStep(): Promise<FlowAction> {
   p.note(
     [
-      'MyClaw runs in containers by default when a container runtime is available.',
-      'If no container runtime is available, you can still run in host mode.',
-      'You can proceed now and install Docker (or Apple Container) later.',
+      'MyClaw currently runs on the host runtime only.',
+      'No Docker or Apple Container setup is required for first-run onboarding.',
+      'Proceed once Node.js and runtime-home checks are passing.',
     ].join('\n'),
     'Runtime Prerequisites',
   );

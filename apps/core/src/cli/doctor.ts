@@ -12,10 +12,7 @@ import {
   detectPlatform,
   getNodeMajorVersion,
   getNodeVersion,
-  hasAppleContainer,
-  hasDocker,
   hasSystemdUser,
-  isDockerRunning,
 } from './platform.js';
 import { envFilePath, ensureRuntimeWritable } from './runtime-home.js';
 import { ensureRuntimeSettings, RuntimeSettings } from './runtime-settings.js';
@@ -238,39 +235,12 @@ export function runDoctor(
     });
   }
 
-  const hasContainerRuntime = hasAppleContainer() || hasDocker();
-  const dockerRunning = isDockerRunning();
-  if (hasContainerRuntime && (hasAppleContainer() || dockerRunning)) {
-    const runtimeName = hasAppleContainer()
-      ? 'Apple Container'
-      : dockerRunning
-        ? 'Docker (running)'
-        : 'Docker';
-    add(checks, {
-      id: 'container-runtime',
-      title: 'Container Runtime',
-      status: 'pass',
-      message: `${runtimeName} is available.`,
-    });
-  } else if (hasDocker() && !dockerRunning) {
-    add(checks, {
-      id: 'container-runtime',
-      title: 'Container Runtime',
-      status: 'warn',
-      message: 'Docker is installed but not running.',
-      nextAction:
-        'Start Docker Desktop (or Docker daemon) before running MyClaw in container mode.',
-    });
-  } else {
-    add(checks, {
-      id: 'container-runtime',
-      title: 'Container Runtime',
-      status: 'warn',
-      message: 'No container runtime detected.',
-      nextAction:
-        'Install Docker Desktop (or Apple Container on macOS). MyClaw can still run in host mode.',
-    });
-  }
+  add(checks, {
+    id: 'runtime-mode',
+    title: 'Runtime Mode',
+    status: 'pass',
+    message: 'Host runtime is active and officially supported.',
+  });
 
   const settingsResult = loadSettingsForDoctor(runtimeHome);
   const settings = settingsResult.settings;

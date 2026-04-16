@@ -1,6 +1,6 @@
 # MyClaw Specification
 
-A personal Claude assistant with multi-channel support, persistent memory per conversation, scheduled jobs, and container-isolated agent execution.
+A personal Claude assistant with multi-channel support, persistent memory per conversation, scheduled jobs, and host-runtime agent execution.
 
 ---
 
@@ -44,10 +44,10 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 │  └────────┬─────────┘    └────────┬─────────┘    └───────────────┘   │
 │           │                       │                                   │
 │           └───────────┬───────────┘                                   │
-│                       │ spawns container                              │
+│                       │ spawns host agent process                     │
 │                       ▼                                               │
 ├──────────────────────────────────────────────────────────────────────┤
-│                     CONTAINER (Linux VM)                               │
+│                     HOST AGENT RUNTIME                                  │
 ├──────────────────────────────────────────────────────────────────────┤
 │  ┌──────────────────────────────────────────────────────────────┐    │
 │  │                    AGENT RUNNER                               │    │
@@ -60,7 +60,7 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 │  │    • Additional dirs → /workspace/extra/*                      │    │
 │  │                                                                │    │
 │  │  Tools (all groups):                                           │    │
-│  │    • Bash (safe - sandboxed in container!)                     │    │
+│  │    • Bash (host-executed runtime scope)                        │    │
 │  │    • Read, Write, Edit, Glob, Grep (file operations)           │    │
 │  │    • WebSearch, WebFetch (internet access)                     │    │
 │  │    • agent-browser (browser automation)                        │    │
@@ -77,7 +77,7 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 |-----------|------------|---------|
 | Channel System | Channel registry (`apps/core/src/channels/registry.ts`) | Channels self-register at startup |
 | Message Storage | SQLite (better-sqlite3) | Store messages for polling |
-| Container Runtime | Containers (Linux VMs) | Isolated environments for agent execution |
+| Runtime Execution | Host process execution | Agent execution with runtime-home scoped paths |
 | Agent | @anthropic-ai/claude-agent-sdk (0.2.97) | Run Claude with tools and MCP servers |
 | Browser Automation | agent-browser + Chromium | Web interaction and screenshots |
 | Runtime | Node.js 20+ | Host process for routing and scheduling |
@@ -108,9 +108,9 @@ graph LR
         DB[(SQLite)]
     end
 
-    subgraph Execution["Container Execution"]
-        CR[Container Runner]
-        LC["Linux Container"]
+    subgraph Execution["Host Runtime Execution"]
+        CR[Agent Runner Process]
+        LC["Host Runtime"]
         IPC[IPC Watcher]
     end
 
@@ -303,12 +303,12 @@ myclaw/
 │   └── skills/
 │       ├── setup/SKILL.md              # /setup - First-time installation
 │       ├── customize/SKILL.md          # /customize - Add capabilities
-│       ├── debug/SKILL.md              # /debug - Container debugging
+│       ├── debug/SKILL.md              # /debug - Runtime debugging
 │       ├── add-telegram/SKILL.md       # /add-telegram - Telegram channel
 │       ├── add-gmail/SKILL.md          # /add-gmail - Gmail integration
 │       ├── add-voice-transcription/    # /add-voice-transcription - Whisper
 │       ├── x-integration/SKILL.md      # /x-integration - X/Twitter
-│       ├── convert-to-apple-container/  # /convert-to-apple-container - Apple Container runtime
+│       ├── convert-to-apple-container/  # Legacy/deferred skill path (not active runtime)
 │       └── add-parallel/SKILL.md       # /add-parallel - Parallel agents
 │
 ├── groups/
@@ -327,8 +327,8 @@ myclaw/
 │
 ├── data/                          # Application state (gitignored)
 │   ├── sessions/                  # Per-group session data (.claude/ dirs with JSONL transcripts)
-│   ├── env/env                    # Copy of .env for container mounting
-│   └── ipc/                       # Container IPC (messages/, tasks/)
+│   ├── env/env                    # Copy of .env for runtime loading
+│   └── ipc/                       # Runtime IPC (messages/, tasks/)
 │
 ├── logs/                          # Runtime logs (gitignored)
 │   ├── myclaw.log               # Host stdout
@@ -352,29 +352,27 @@ export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || 'Andy';
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 
-// Paths are absolute (required for container mounts)
+// Paths are absolute (required for runtime path enforcement)
 const AGENT_ROOT = path.resolve(process.env.AGENT_ROOT || '~/myclaw');
 export const STORE_DIR = path.resolve(AGENT_ROOT, 'store');
 export const AGENTS_DIR = path.resolve(AGENT_ROOT, 'agents');
 export const DATA_DIR = path.resolve(AGENT_ROOT, 'data');
 
-// Container configuration
-export const CONTAINER_IMAGE = process.env.CONTAINER_IMAGE || 'myclaw-agent:latest';
-export const AGENT_RUNTIME = process.env.AGENT_RUNTIME || 'container'; // strict: host | container
+// Runtime configuration
 export const CONTAINER_TIMEOUT = parseInt(process.env.CONTAINER_TIMEOUT || '1800000', 10); // 30min default
 export const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL;
 export const IPC_POLL_INTERVAL = 1000;
-export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min — keep container alive after last result
+export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min — keep runtime worker alive after last result
 export const MAX_CONCURRENT_CONTAINERS = Math.max(1, parseInt(process.env.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5);
 
 export const TRIGGER_PATTERN = new RegExp(`^@${ASSISTANT_NAME}\\b`, 'i');
 ```
 
-**Note:** Paths must be absolute for container volume mounts to work correctly.
+**Note:** Paths must be absolute for runtime path validation and scoped mounts.
 
-### Container Configuration
+### Agent Config (Legacy Naming)
 
-Groups can have additional directories mounted via `containerConfig` in the SQLite `registered_groups` table (stored as JSON in the `container_config` column). Example registration:
+Groups can have additional directories mounted via `containerConfig` in the SQLite `registered_groups` table (stored as JSON in the `container_config` column). The name is legacy schema debt but still active data shape. Example registration:
 
 ```typescript
 setRegisteredGroup("1234567890@g.us", {
@@ -398,7 +396,7 @@ setRegisteredGroup("1234567890@g.us", {
 
 Folder names follow the convention `{channel}_{group-name}` (e.g., `whatsapp_family-chat`, `telegram_dev-team`). The main group has `isMain: true` set during registration.
 
-Additional mounts appear at `/workspace/extra/{containerPath}` inside the container.
+Additional mounts appear at `/workspace/extra/{containerPath}` in the runtime workspace.
 
 Model precedence is:
 
@@ -407,7 +405,7 @@ Model precedence is:
 
 Use `/model` in a group session to switch the live model (`/model`, `/model <alias-or-name>`, `/model default`).
 
-**Mount syntax note:** Read-write mounts use `-v host:container`, but readonly mounts require `--mount "type=bind,source=...,target=...,readonly"` (the `:ro` suffix may not work on all runtimes).
+**Mount syntax note:** `containerPath` remains the field name in stored config for compatibility, but it is runtime workspace naming debt and not runtime-mode signaling.
 
 ### Claude Authentication
 
@@ -424,7 +422,7 @@ The token can be extracted from `~/.claude/.credentials.json` if you're logged i
 ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
-Only the authentication variables (`CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY`) are extracted from `.env` and written to `data/env/env`, then mounted into the container at `/workspace/env-dir/env` and sourced by the entrypoint script. This ensures other environment variables in `.env` are not exposed to the agent. This workaround is needed because some container runtimes lose `-e` environment variables when using `-i` (interactive mode with piped stdin).
+Only the authentication variables (`CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY`) are extracted from `.env` and written to `data/env/env` for runtime loading. This ensures other environment variables in `.env` are not exposed to agent prompts by default.
 
 ### Changing the Assistant Name
 
@@ -476,7 +474,7 @@ MyClaw has two memory layers: a file-based layer (CLAUDE.md) that the Claude Age
    - Only the "main" group (self-chat) can write to global memory
    - Main can manage registered groups and schedule jobs for any group
    - Main can configure additional directory mounts for any group
-   - All groups have Bash access (safe because it runs inside container)
+   - All groups have Bash access through the host runtime process
 
 ### Structured Memory Store
 
@@ -835,15 +833,14 @@ MyClaw runs as a single macOS launchd service.
 ### Startup Sequence
 
 When MyClaw starts, it:
-1. **Runs runtime preflight for `AGENT_RUNTIME`** - validates strict mode (`host|container`) and emits actionable fix steps on failure
-2. **Host mode only**: auto-builds `packages/agent-runner` artifacts and fails startup if build fails
-3. **Container mode only**: validates container runtime health and cleans up orphaned MyClaw containers
-4. Initializes the SQLite database (migrates from JSON files if they exist)
-5. Loads state from SQLite (registered groups, sessions, router state)
-6. **Connects channels** — loops through registered channels, instantiates those with credentials, calls `connect()` on each
-7. Once at least one channel is connected:
+1. Runs runtime preflight for host execution and emits actionable fix steps on failure
+2. Auto-builds `packages/agent-runner` artifacts and fails startup if build fails
+3. Initializes the SQLite database (migrates from JSON files if they exist)
+4. Loads state from SQLite (registered groups, sessions, router state)
+5. **Connects channels** — loops through registered channels, instantiates those with credentials, calls `connect()` on each
+6. Once at least one channel is connected:
    - Starts the scheduler loop
-   - Starts the IPC watcher for container messages
+   - Starts the IPC watcher for runtime messages
    - Sets up the per-group queue with `processGroupMessages`
    - Recovers any unprocessed messages from before shutdown
    - Starts the message polling loop
@@ -911,25 +908,14 @@ tail -f logs/myclaw.log
 
 ### Runtime Isolation
 
-`AGENT_RUNTIME=container` is the default and recommended mode for security boundaries.
-
-`AGENT_RUNTIME=host` is high-trust mode for host-level capabilities and intentionally bypasses container isolation.
-
-### Container Isolation (`AGENT_RUNTIME=container`)
-
-All agents run inside containers (lightweight Linux VMs), providing:
-- **Filesystem isolation**: Agents can only access mounted directories
-- **Safe Bash access**: Commands run inside the container, not on your Mac
-- **Network isolation**: Can be configured per-container if needed
-- **Process isolation**: Container processes can't affect the host
-- **Non-root user**: Container runs as unprivileged `node` user (uid 1000)
+Host runtime execution is the only supported runtime path today.
+Security boundaries are enforced through per-group directory scope, runtime-home controls, authorization checks, and explicit operational hardening.
 
 ### Prompt Injection Risk
 
 WhatsApp messages could contain malicious instructions attempting to manipulate Claude's behavior.
 
 **Mitigations:**
-- Container isolation limits blast radius
 - Only registered groups are processed
 - Trigger word required (reduces accidental processing)
 - Agents can only access their group's mounted directories
@@ -965,12 +951,10 @@ chmod 700 groups/
 | Issue | Cause | Solution |
 |-------|-------|----------|
 | No response to messages | Service not running | Check `launchctl list | grep myclaw` |
-| Startup fails at runtime preflight | Invalid `AGENT_RUNTIME` value | Set `AGENT_RUNTIME=host` or `AGENT_RUNTIME=container` |
-| Startup fails at runtime preflight | Container runtime unavailable in container mode | Start runtime and run `docker info` |
-| Startup fails at runtime preflight | Host runner artifacts missing/build failed in host mode | Run `npm --prefix packages/agent-runner run build` |
+| Startup fails at runtime preflight | Host runtime prerequisites failed | Run `npm run build` and re-check runtime diagnostics |
 | "Claude Code process exited with code 1" | Session mount path wrong | Ensure mount is to `/home/node/.claude/` not `/root/.claude/` |
 | Session not continuing | Session ID not saved | Check SQLite: `sqlite3 store/messages.db "SELECT * FROM sessions"` |
-| Session not continuing | Mount path mismatch | Container user is `node` with HOME=/home/node; sessions must be at `/home/node/.claude/` |
+| Session not continuing | Session path mismatch | Ensure per-group session paths exist under `data/sessions/{group}/.claude/` |
 | "QR code expired" | WhatsApp session expired | Delete store/auth/ and restart |
 | "No groups registered" | Haven't added groups | Use `@Andy add group "Name"` in main |
 
@@ -983,8 +967,6 @@ chmod 700 groups/
 
 Run manually for verbose output:
 ```bash
-npm run dev:container
-npm run dev:host
-npm run start:container
-npm run start:host
+npm run dev
+npm start
 ```
