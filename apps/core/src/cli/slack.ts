@@ -6,6 +6,10 @@ import * as p from '@clack/prompts';
 import { readEnvFile, upsertEnvFile } from './env-file.js';
 import { openRuntimeGroupDb } from './runtime-group-db.js';
 import { envFilePath, ensureRuntimeLayout } from './runtime-home.js';
+import {
+  loadRuntimeSettings,
+  saveRuntimeSettings,
+} from './runtime-settings.js';
 
 export interface SlackTokenValidation {
   ok: boolean;
@@ -517,6 +521,9 @@ export async function runSlackConnectCommand(
     SLACK_BOT_TOKEN: botTokenInput,
     SLACK_APP_TOKEN: appTokenInput,
   });
+  const settings = loadRuntimeSettings(runtimeHome);
+  settings.channels.slack.enabled = true;
+  saveRuntimeSettings(runtimeHome, settings);
 
   if (normalizedChatJid) {
     p.outro('Slack channel is configured and ready.');

@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { settingsFilePath } from './runtime-home.js';
 
 function createRuntimeHome(): string {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-service-test-'));
@@ -53,6 +54,17 @@ afterEach(() => {
 });
 
 describe('service manager background start', () => {
+  it('creates settings.yaml on service install when missing', async () => {
+    const runtimeHome = createRuntimeHome();
+    expect(fs.existsSync(settingsFilePath(runtimeHome))).toBe(false);
+
+    const mod = await loadServiceManagerWithMocks(vi.fn());
+    const outcome = mod.installService(import.meta.url, runtimeHome);
+
+    expect(outcome.ok).toBe(true);
+    expect(fs.existsSync(settingsFilePath(runtimeHome))).toBe(true);
+  });
+
   it('kills spawned process when pid persistence fails', async () => {
     const runtimeHome = createRuntimeHome();
     writeFallbackMetadata(runtimeHome);

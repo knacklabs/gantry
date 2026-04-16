@@ -40,9 +40,8 @@
     "format:fix": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/agent-runner/src/**/*.ts\"",
     "format:check": "prettier --check \"apps/core/**/*.{ts,md}\" \"packages/agent-runner/src/**/*.ts\"",
     "prepare": "husky",
-    "setup": "tsx apps/core/setup/index.ts",
-    "lint": "eslint apps/core/src apps/core/setup packages/agent-runner/src",
-    "lint:fix": "eslint apps/core/src apps/core/setup packages/agent-runner/src --fix",
+    "lint": "eslint apps/core/src packages/agent-runner/src",
+    "lint:fix": "eslint apps/core/src packages/agent-runner/src --fix",
     "test": "vitest run",
     "test:watch": "vitest"
   },

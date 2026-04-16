@@ -26,6 +26,7 @@ import { runSlackConnectCommand } from './slack.js';
 import { runSetupFlow } from './setup-flow.js';
 import { collectRuntimeStatus, formatRuntimeStatus } from './status.js';
 import { runTunnelCommand } from './tunnel.js';
+import { ensureRuntimeSettings } from './runtime-settings.js';
 
 interface ParsedArgs {
   command: string[];
@@ -325,6 +326,12 @@ async function main(): Promise<number> {
   const runtimeHome = resolveRuntimeHome(parsed.runtimeHomeArg);
   const [command, ...rest] = parsed.command;
   const subcommand = rest[0];
+
+  // Allow `myclaw doctor` to run even when settings.yaml is malformed so it can
+  // report actionable recovery guidance instead of failing at top-level parse.
+  if (command !== 'doctor') {
+    ensureRuntimeSettings(runtimeHome);
+  }
 
   if (!command) {
     return runSmartEntrypoint(runtimeHome);

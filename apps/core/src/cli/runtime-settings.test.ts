@@ -6,7 +6,7 @@ import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
 import {
-  deriveRuntimeSettingsFromEnv,
+  ensureRuntimeSettings,
   parseRuntimeSettingsText,
   validateRuntimeSettings,
 } from './runtime-settings.js';
@@ -112,24 +112,16 @@ features:
     expect(settings.channels.slack.enabled).toBe(true);
   });
 
-  it('derives defaults from env values', () => {
+  it('creates fixed defaults when settings.yaml is missing', () => {
     const runtimeHome = createRuntimeHome();
-    upsertEnvFile(envFilePath(runtimeHome), {
-      TELEGRAM_BOT_TOKEN: 'tg-token',
-      SLACK_BOT_TOKEN: 'slack-bot',
-      SLACK_APP_TOKEN: 'slack-app',
-      MEMORY_PROVIDER: 'sqlite',
-      MEMORY_EMBED_PROVIDER: 'openai',
-      MEMORY_DREAMING_ENABLED: 'true',
-    });
-
-    const settings = deriveRuntimeSettingsFromEnv(runtimeHome);
-    expect(settings.channels.telegram.enabled).toBe(true);
-    expect(settings.channels.slack.enabled).toBe(true);
+    const settings = ensureRuntimeSettings(runtimeHome);
+    expect(settings.channels.telegram.enabled).toBe(false);
+    expect(settings.channels.slack.enabled).toBe(false);
     expect(settings.channels.telegram.senderAllowlist.default.allow).toBe('*');
     expect(settings.features.memory).toBe(true);
-    expect(settings.features.embeddings).toBe(true);
-    expect(settings.features.dreaming).toBe(true);
+    expect(settings.features.embeddings).toBe(false);
+    expect(settings.features.dreaming).toBe(false);
+    expect(fs.existsSync(settingsFilePath(runtimeHome))).toBe(true);
   });
 
   it('surfaces actionable error when settings.yaml is malformed', () => {
