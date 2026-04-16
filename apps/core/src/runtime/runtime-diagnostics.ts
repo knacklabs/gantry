@@ -3,6 +3,11 @@ import fs from 'fs';
 import path from 'path';
 
 import { AGENT_ROOT, ONECLI_URL } from '../core/config.js';
+import {
+  parseHostCredentialMode,
+  resolveHostCredentialMode,
+} from '../core/credential-mode.js';
+import type { HostCredentialMode } from '../core/credential-mode.js';
 import { readEnvFile } from '../core/env.js';
 import {
   getRepoAgentRunnerRoot,
@@ -20,6 +25,7 @@ export interface RuntimeDiagnosticDetails {
   hostBuildAttempted: boolean;
   hostBuildSucceeded: boolean;
   onecliUrlConfigured: boolean;
+  credentialMode: HostCredentialMode;
   credentialPathStatus: 'onecli+env' | 'onecli-only' | 'env-only' | 'missing';
 }
 
@@ -41,11 +47,9 @@ function summarizeExecError(err: unknown): string {
   return err.message.replace(/\s+/g, ' ').trim();
 }
 
-function readCredentialPathStatus():
-  | 'onecli+env'
-  | 'onecli-only'
-  | 'env-only'
-  | 'missing' {
+function readCredentialPathStatus(
+  credentialMode: HostCredentialMode,
+): 'onecli+env' | 'onecli-only' | 'env-only' | 'missing' {
   const envKeys = readEnvFile([
     'CLAUDE_CODE_OAUTH_TOKEN',
     'ANTHROPIC_API_KEY',
@@ -53,6 +57,12 @@ function readCredentialPathStatus():
   ]);
   const hasEnvCredentials = Object.values(envKeys).some((v) => Boolean(v));
   const onecliConfigured = Boolean(ONECLI_URL?.trim());
+  if (credentialMode === 'env-only') {
+    return hasEnvCredentials ? 'env-only' : 'missing';
+  }
+  if (credentialMode === 'onecli-only') {
+    return onecliConfigured ? 'onecli-only' : 'missing';
+  }
   if (onecliConfigured && hasEnvCredentials) return 'onecli+env';
   if (onecliConfigured) return 'onecli-only';
   if (hasEnvCredentials) return 'env-only';
@@ -149,14 +159,44 @@ export async function collectRuntimeDiagnostics(
     );
   }
 
-  const credentialPathStatus = readCredentialPathStatus();
-  if (credentialPathStatus === 'missing') {
+  const credentialModeRaw =
+    process.env.MYCLAW_CREDENTIAL_MODE ||
+    readEnvFile(['MYCLAW_CREDENTIAL_MODE']).MYCLAW_CREDENTIAL_MODE;
+  const credentialMode = resolveHostCredentialMode(
+    credentialModeRaw,
+    ONECLI_URL,
+  );
+  const credentialPathStatus = readCredentialPathStatus(credentialMode);
+  if (
+    credentialModeRaw?.trim() &&
+    !parseHostCredentialMode(credentialModeRaw)
+  ) {
     warnings.push(
-      'No credentials detected in `.env` and no OneCLI URL configured.',
+      `Unrecognized MYCLAW_CREDENTIAL_MODE="${credentialModeRaw}". Using "${credentialMode}" mode.`,
+    );
+  }
+
+  if (credentialMode === 'onecli-only' && !ONECLI_URL?.trim()) {
+    errors.push(
+      'Credential mode is onecli-only but ONECLI_URL is not configured.',
     );
     fixes.push(
-      'Configure `ONECLI_URL` or set `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY`.',
+      'Set ONECLI_URL in runtime .env or switch MYCLAW_CREDENTIAL_MODE.',
     );
+  } else if (credentialPathStatus === 'missing') {
+    if (credentialMode === 'env-only') {
+      warnings.push('No credentials detected in runtime `.env`.');
+      fixes.push(
+        'Set `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` in runtime `.env`.',
+      );
+    } else if (credentialMode === 'hybrid') {
+      warnings.push(
+        'No credentials detected in `.env` and no OneCLI URL configured.',
+      );
+      fixes.push(
+        'Configure `ONECLI_URL` or set `CLAUDE_CODE_OAUTH_TOKEN` / `ANTHROPIC_API_KEY`.',
+      );
+    }
   }
 
   const diagnostics: RuntimeDiagnostics = {
@@ -175,6 +215,7 @@ export async function collectRuntimeDiagnostics(
       hostBuildAttempted,
       hostBuildSucceeded,
       onecliUrlConfigured: Boolean(ONECLI_URL?.trim()),
+      credentialMode,
       credentialPathStatus,
     },
   };
@@ -196,6 +237,7 @@ export function formatRuntimeDiagnosticsMessage(
   lines.push(
     `OneCLI configured: ${diagnostics.details.onecliUrlConfigured ? 'yes' : 'no'}`,
   );
+  lines.push(`Credential mode: ${diagnostics.details.credentialMode}`);
   lines.push(
     `Host artifacts: ${diagnostics.details.hostArtifactsPresent ? 'present' : 'missing'}`,
   );

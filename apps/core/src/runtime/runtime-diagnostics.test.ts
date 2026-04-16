@@ -23,7 +23,16 @@ async function loadRuntimeDiagnosticsModule(config: {
     AGENT_ROOT: '/tmp/myclaw-home',
   }));
   vi.doMock('../core/env.js', () => ({
-    readEnvFile: () => config.envVars || {},
+    readEnvFile: (keys: string[]) => {
+      const source = config.envVars || {};
+      return keys.reduce<Record<string, string>>((acc, key) => {
+        const value = source[key];
+        if (typeof value === 'string') {
+          acc[key] = value;
+        }
+        return acc;
+      }, {});
+    },
   }));
   vi.doMock('./agent-spawn-layout.js', () => ({
     getRepoAgentRunnerRoot: () => '/repo/packages/agent-runner',
@@ -115,7 +124,24 @@ describe('runtime-diagnostics', () => {
 
     const diagnostics = await mod.collectRuntimeDiagnostics();
 
-    expect(diagnostics.warnings.join(' ')).toContain('No credentials');
+    expect(diagnostics.warnings.join(' ')).toContain(
+      'No credentials detected in runtime',
+    );
+    expect(diagnostics.details.credentialMode).toBe('env-only');
+  });
+
+  it('errors when onecli-only mode is selected without ONECLI_URL', async () => {
+    const mod = await loadRuntimeDiagnosticsModule({
+      ONECLI_URL: '',
+      envVars: { MYCLAW_CREDENTIAL_MODE: 'onecli-only' },
+    });
+
+    const diagnostics = await mod.collectRuntimeDiagnostics();
+    expect(diagnostics.ok).toBe(false);
+    expect(diagnostics.details.credentialMode).toBe('onecli-only');
+    expect(diagnostics.errors.join(' ')).toContain(
+      'onecli-only but ONECLI_URL is not configured',
+    );
   });
 
   it('reports error when host runner build succeeds but artifacts are still missing (lines 77-83)', async () => {
@@ -195,6 +221,7 @@ describe('runtime-diagnostics', () => {
     expect(message).toContain('Runtime binary:');
     expect(message).toContain('Credential path: onecli+env');
     expect(message).toContain('OneCLI configured: yes');
+    expect(message).toContain('Credential mode: hybrid');
     expect(message).toContain('Host artifacts: present');
     // Should not have errors/warnings/fixes sections for healthy diagnostics
     expect(message).not.toContain('Errors:');
@@ -215,6 +242,7 @@ describe('runtime-diagnostics', () => {
     expect(message).toContain('Warnings:');
     expect(message).toContain('Fixes:');
     expect(message).toContain('OneCLI configured: no');
+    expect(message).toContain('Credential mode: env-only');
   });
 
   it('formatRuntimeDiagnosticsMessage includes auto-build status when attempted', async () => {

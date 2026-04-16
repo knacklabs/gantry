@@ -230,6 +230,7 @@ async function runSetupCommand(
     | 'doctor'
     | 'runtime_home'
     | 'prerequisites'
+    | 'credentials'
     | 'telegram'
     | 'memory'
     | 'embeddings'

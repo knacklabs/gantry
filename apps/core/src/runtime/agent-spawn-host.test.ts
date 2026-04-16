@@ -109,7 +109,16 @@ async function loadModule(config: {
   }));
 
   vi.doMock('../core/env.js', () => ({
-    readEnvFile: () => config.envFromFile ?? {},
+    readEnvFile: (keys: string[]) => {
+      const source = config.envFromFile ?? {};
+      return keys.reduce<Record<string, string>>((acc, key) => {
+        const value = source[key];
+        if (typeof value === 'string') {
+          acc[key] = value;
+        }
+        return acc;
+      }, {});
+    },
   }));
 
   vi.doMock('../platform/group-folder.js', () => ({
@@ -163,6 +172,58 @@ describe('getHostRuntimeCredentialEnv', () => {
 
     expect(result.onecliApplied).toBe(false);
     expect(result.env).toEqual({ ANTHROPIC_MODEL: 'opus' });
+    expect(mockGetContainerConfig).not.toHaveBeenCalled();
+  });
+
+  it('uses env-only mode even when ONECLI_URL is configured', async () => {
+    const mod = await loadModule({
+      ONECLI_URL: 'http://localhost:10254',
+      envFromFile: {
+        MYCLAW_CREDENTIAL_MODE: 'env-only',
+        ANTHROPIC_API_KEY: 'sk-file-key',
+      },
+    });
+
+    const result = await mod.getHostRuntimeCredentialEnv();
+
+    expect(result.onecliApplied).toBe(false);
+    expect(result.env).toEqual({ ANTHROPIC_API_KEY: 'sk-file-key' });
+    expect(mockGetContainerConfig).not.toHaveBeenCalled();
+  });
+
+  it('uses onecli-only mode without file env fallback', async () => {
+    mockGetContainerConfig.mockResolvedValue({
+      env: {
+        ANTHROPIC_AUTH_TOKEN: 'onecli-token',
+      },
+    });
+    const mod = await loadModule({
+      ONECLI_URL: 'http://localhost:10254',
+      envFromFile: {
+        MYCLAW_CREDENTIAL_MODE: 'onecli-only',
+        ANTHROPIC_API_KEY: 'sk-file-key',
+      },
+    });
+
+    const result = await mod.getHostRuntimeCredentialEnv();
+
+    expect(result.onecliApplied).toBe(true);
+    expect(result.env).toEqual({
+      ANTHROPIC_AUTH_TOKEN: 'onecli-token',
+    });
+  });
+
+  it('throws when onecli-only mode is set but ONECLI_URL is missing', async () => {
+    const mod = await loadModule({
+      ONECLI_URL: '',
+      envFromFile: {
+        MYCLAW_CREDENTIAL_MODE: 'onecli-only',
+      },
+    });
+
+    await expect(mod.getHostRuntimeCredentialEnv()).rejects.toThrow(
+      'ONECLI_URL is not configured',
+    );
     expect(mockGetContainerConfig).not.toHaveBeenCalled();
   });
 
@@ -254,6 +315,25 @@ describe('getHostRuntimeCredentialEnv', () => {
     expect(result.onecliCaPath).toBeUndefined();
     expect(mockLoggerWarn).toHaveBeenCalledWith(
       expect.objectContaining({ agentIdentifier: 'agent-x' }),
+      'OneCLI gateway not reachable',
+    );
+  });
+
+  it('throws when onecli-only mode cannot reach OneCLI gateway', async () => {
+    mockGetContainerConfig.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const mod = await loadModule({
+      ONECLI_URL: 'http://localhost:10254',
+      envFromFile: {
+        MYCLAW_CREDENTIAL_MODE: 'onecli-only',
+      },
+    });
+
+    await expect(mod.getHostRuntimeCredentialEnv()).rejects.toThrow(
+      'OneCLI gateway is not reachable',
+    );
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ agentIdentifier: 'default' }),
       'OneCLI gateway not reachable',
     );
   });

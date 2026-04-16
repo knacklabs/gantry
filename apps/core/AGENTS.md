@@ -13,3 +13,4 @@
 - `myclaw` CLI commands should return actionable plain-English recovery guidance instead of raw startup failures.
 - When path-sensitive code changes, update the matching tests in `apps/core/src/**/*.test.ts` in the same change.
 - Host runner sync code must work with npm workspace hoisting and installed package layouts; do not assume `packages/agent-runner/node_modules` exists.
+- Files under `apps/core/src/bootstrap/` own composition and wiring only; runtime behavior must live in `runtime/`, `session/`, `platform/`, `messaging/`, or storage modules.

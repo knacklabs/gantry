@@ -9,6 +9,7 @@ import {
   AGENT_ROOT,
   ONECLI_URL,
 } from '../core/config.js';
+import { resolveHostCredentialMode } from '../core/credential-mode.js';
 import { readEnvFile } from '../core/env.js';
 import { logger } from '../core/logger.js';
 import { RegisteredGroup } from '../core/types.js';
@@ -42,8 +43,31 @@ export async function getHostRuntimeCredentialEnv(
   onecliCaPath?: string;
 }> {
   const envFromFile = readEnvFile(HOST_AUTH_ENV_KEYS);
+  const credentialModeRaw =
+    process.env.MYCLAW_CREDENTIAL_MODE ||
+    readEnvFile(['MYCLAW_CREDENTIAL_MODE']).MYCLAW_CREDENTIAL_MODE;
+  const credentialMode = resolveHostCredentialMode(
+    credentialModeRaw,
+    ONECLI_URL,
+  );
   const onecliUrl = ONECLI_URL?.trim();
+  const onecliRequired = credentialMode === 'onecli-only';
+  const onecliEnabled = credentialMode === 'hybrid' || onecliRequired;
+
+  if (!onecliEnabled) {
+    return {
+      env: {
+        ...envFromFile,
+      },
+      onecliApplied: false,
+    };
+  }
   if (!onecliUrl) {
+    if (onecliRequired) {
+      throw new Error(
+        'OneCLI credential mode is enabled but ONECLI_URL is not configured.',
+      );
+    }
     return {
       env: {
         ...envFromFile,
@@ -85,11 +109,16 @@ export async function getHostRuntimeCredentialEnv(
       { err, agentIdentifier: agentIdentifier || 'default' },
       'OneCLI gateway not reachable',
     );
+    if (onecliRequired) {
+      throw new Error(
+        'OneCLI credential mode is enabled but the OneCLI gateway is not reachable.',
+      );
+    }
   }
 
   return {
     env: {
-      ...envFromFile,
+      ...(onecliRequired ? {} : envFromFile),
       ...onecliEnv,
     },
     onecliApplied,

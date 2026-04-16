@@ -1,5 +1,7 @@
 import * as p from '@clack/prompts';
 
+import { resolveHostCredentialMode } from '../core/credential-mode.js';
+import type { HostCredentialMode } from '../core/credential-mode.js';
 import {
   formatDoctorReport,
   hasRegisteredTelegramGroup,
@@ -29,17 +31,16 @@ import {
   validateTelegramBotToken,
   verifyTelegramChatAccess,
 } from './telegram.js';
-import {
-  getServiceStatus,
-  installService,
-  startService,
-} from './service-manager.js';
+import { runCredentialsStep } from './setup-credentials.js';
+import { runReadyStep } from './setup-ready.js';
+import { installService, startService } from './service-manager.js';
 
 const FULL_SEQUENCE: OnboardingStep[] = [
   'welcome',
   'doctor',
   'runtime_home',
   'prerequisites',
+  'credentials',
   'telegram',
   'memory',
   'embeddings',
@@ -62,6 +63,8 @@ type ServiceChoice = 'skip' | 'install' | 'install_start';
 
 interface SetupDraft {
   runtimeHome: string;
+  credentialMode: HostCredentialMode;
+  onecliUrl: string;
   telegramBotToken: string;
   telegramChatJid: string;
   telegramDisplayName: string;
@@ -131,10 +134,6 @@ async function chooseProgressAction(options: {
   return toAction(value);
 }
 
-function summarizeToggle(value: boolean): string {
-  return value ? 'on' : 'off';
-}
-
 function defaultStepIndex(step: OnboardingStep | undefined): number {
   if (!step) return 0;
   const idx = FULL_SEQUENCE.indexOf(step);
@@ -146,6 +145,8 @@ function updateStateData(state: OnboardingState, draft: SetupDraft): void {
     runtimeHome: draft.runtimeHome,
     telegramBotUsername: draft.telegramBotUsername || undefined,
     telegramChatJid: draft.telegramChatJid || undefined,
+    credentialMode: draft.credentialMode,
+    onecliUrl: draft.onecliUrl || undefined,
     memoryEnabled: draft.memoryEnabled,
     embeddingsEnabled: draft.embeddingsEnabled,
     dreamingEnabled: draft.dreamingEnabled,
@@ -193,8 +194,15 @@ function restoreDraft(
     }
   })();
   const savedChatJid = state?.data.telegramChatJid || '';
+  const savedOnecliUrl = state?.data.onecliUrl || env.ONECLI_URL?.trim() || '';
+  const credentialMode = resolveHostCredentialMode(
+    state?.data.credentialMode || env.MYCLAW_CREDENTIAL_MODE,
+    savedOnecliUrl,
+  );
   return {
     runtimeHome,
+    credentialMode,
+    onecliUrl: savedOnecliUrl,
     telegramBotToken: env.TELEGRAM_BOT_TOKEN || '',
     telegramChatJid: savedChatJid,
     telegramDisplayName: 'Telegram Main',
@@ -321,7 +329,7 @@ async function runPrerequisitesStep(): Promise<FlowAction> {
   );
 
   return chooseProgressAction({
-    message: 'Continue to Telegram connection?',
+    message: 'Continue to agent credential setup?',
     continueLabel: 'Continue',
     includeBack: true,
   });
@@ -658,6 +666,8 @@ async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
     persistOnboardingConfig({
       runtimeHome: draft.runtimeHome,
       telegramBotToken: draft.telegramBotToken,
+      credentialMode: draft.credentialMode,
+      onecliUrl: draft.onecliUrl || undefined,
       memoryEnabled: draft.memoryEnabled,
       embeddingsEnabled: draft.embeddingsEnabled,
       dreamingEnabled: draft.dreamingEnabled,
@@ -824,26 +834,6 @@ async function runVerifyStep(
   });
 }
 
-async function runReadyStep(draft: SetupDraft): Promise<FlowAction> {
-  const service = getServiceStatus(draft.runtimeHome);
-  p.note(
-    [
-      `Runtime home: ${draft.runtimeHome}`,
-      `Telegram chat: ${draft.telegramChatJid}`,
-      `Memory: ${summarizeToggle(draft.memoryEnabled)}`,
-      `Embeddings: ${summarizeToggle(draft.embeddingsEnabled)}`,
-      `Dreaming: ${summarizeToggle(draft.dreamingEnabled)}`,
-      `Service (${service.kind}): ${service.status}`,
-      '',
-      'Next steps:',
-      '- Run `myclaw status` to view your dashboard.',
-      '- Run `myclaw start` to run MyClaw now.',
-    ].join('\n'),
-    'Ready',
-  );
-  return { type: 'next' };
-}
-
 export async function runSetupFlow(
   options: SetupFlowOptions,
 ): Promise<SetupFlowResult> {
@@ -889,6 +879,8 @@ export async function runSetupFlow(
       }
     } else if (step === 'prerequisites') {
       action = await runPrerequisitesStep();
+    } else if (step === 'credentials') {
+      action = await runCredentialsStep(draft);
     } else if (step === 'telegram') {
       action = await runTelegramStep(draft);
     } else if (step === 'memory') {

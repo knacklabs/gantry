@@ -1,5 +1,6 @@
 import fs from 'fs';
 
+import type { HostCredentialMode } from '../core/credential-mode.js';
 import { onboardingStatePath } from './runtime-home.js';
 
 export type OnboardingStep =
@@ -7,6 +8,7 @@ export type OnboardingStep =
   | 'doctor'
   | 'runtime_home'
   | 'prerequisites'
+  | 'credentials'
   | 'telegram'
   | 'memory'
   | 'embeddings'
@@ -24,6 +26,8 @@ export interface OnboardingData {
   memoryEnabled?: boolean;
   embeddingsEnabled?: boolean;
   dreamingEnabled?: boolean;
+  credentialMode?: HostCredentialMode;
+  onecliUrl?: string;
 }
 
 export interface OnboardingState {
