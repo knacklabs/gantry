@@ -14,12 +14,14 @@ vi.mock('../platform/group-folder.js', () => ({
 import fs from 'fs';
 import { resolveGroupIpcPath } from '../platform/group-folder.js';
 import {
+  writeJobEventsSnapshot,
   writeJobsSnapshot,
   writeJobRunsSnapshot,
   writeGroupsSnapshot,
 } from './agent-spawn-snapshots.js';
 import type {
   AvailableGroup,
+  JobEventSnapshotRow,
   JobRunSnapshotRow,
   JobSnapshotRow,
 } from './agent-spawn-types.js';
@@ -46,6 +48,7 @@ function makeJob(overrides: Partial<JobSnapshotRow> = {}): JobSnapshotRow {
     retry_backoff_ms: 1000,
     max_consecutive_failures: 5,
     consecutive_failures: 0,
+    execution_mode: 'parallel',
     pause_reason: null,
     ...overrides,
   };
@@ -75,6 +78,20 @@ function makeGroup(overrides: Partial<AvailableGroup> = {}): AvailableGroup {
     name: 'Group Alpha',
     lastActivity: '2026-01-01T00:00:00Z',
     isRegistered: true,
+    ...overrides,
+  };
+}
+
+function makeEvent(
+  overrides: Partial<JobEventSnapshotRow> = {},
+): JobEventSnapshotRow {
+  return {
+    id: 1,
+    job_id: 'job-1',
+    run_id: 'run-1',
+    event_type: 'job.started',
+    payload: null,
+    created_at: '2026-01-01T01:00:00Z',
     ...overrides,
   };
 }
@@ -206,6 +223,44 @@ describe('writeJobRunsSnapshot', () => {
     expect(fs.writeFileSync).toHaveBeenCalledWith(
       '/mock/ipc/group-a/current_job_runs.json',
       JSON.stringify([r1, r2], null, 2),
+    );
+  });
+});
+
+// --- writeJobEventsSnapshot ---
+
+describe('writeJobEventsSnapshot', () => {
+  it('writes all events when isMain is true', () => {
+    const jobs = [
+      makeJob({ id: 'j1', group_scope: 'group-a' }),
+      makeJob({ id: 'j2', group_scope: 'group-b' }),
+    ];
+    const events = [
+      makeEvent({ id: 1, job_id: 'j1' }),
+      makeEvent({ id: 2, job_id: 'j2' }),
+    ];
+
+    writeJobEventsSnapshot('group-a', true, events, jobs);
+
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      '/mock/ipc/group-a/current_job_events.json',
+      JSON.stringify(events, null, 2),
+    );
+  });
+
+  it('filters events by group jobs when isMain is false', () => {
+    const jobs = [
+      makeJob({ id: 'j1', group_scope: 'group-a' }),
+      makeJob({ id: 'j2', group_scope: 'group-b' }),
+    ];
+    const eventA = makeEvent({ id: 1, job_id: 'j1' });
+    const eventB = makeEvent({ id: 2, job_id: 'j2' });
+
+    writeJobEventsSnapshot('group-a', false, [eventA, eventB], jobs);
+
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      '/mock/ipc/group-a/current_job_events.json',
+      JSON.stringify([eventA], null, 2),
     );
   });
 });

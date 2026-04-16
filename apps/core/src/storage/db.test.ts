@@ -25,6 +25,7 @@ import {
   getSession,
   listDeadLetterRuns,
   listDueJobs,
+  listRecentJobEvents,
   listJobRuns,
   markJobRunning,
   markJobRunNotified,
@@ -973,6 +974,7 @@ describe('upsertJob edge cases', () => {
     expect(job?.silent).toBe(false);
     expect(job?.thread_id).toBeNull();
     expect(job?.status).toBe('active');
+    expect(job?.execution_mode).toBe('parallel');
   });
 
   it('stores script field', () => {
@@ -1073,6 +1075,11 @@ describe('updateJob field coverage', () => {
   it('updates group_scope', () => {
     updateJob('upd-job', { group_scope: 'other-group' });
     expect(getJobById('upd-job')?.group_scope).toBe('other-group');
+  });
+
+  it('updates execution_mode', () => {
+    updateJob('upd-job', { execution_mode: 'serialized' });
+    expect(getJobById('upd-job')?.execution_mode).toBe('serialized');
   });
 
   it('updates next_run and last_run', () => {
@@ -1625,9 +1632,14 @@ describe('addJobEvent', () => {
       created_at: '2026-01-01T00:01:00.000Z',
     });
 
+    const events = listRecentJobEvents(10, { job_id: 'evt-job' });
+    expect(events).toHaveLength(2);
+    expect(events[0].event_type).toBe('paused');
+    expect(events[1].event_type).toBe('started');
+
     // Events are cleaned up with deleteJob
     deleteJob('evt-job');
-    // No way to query events directly, but deleteJob should not throw
+    expect(listRecentJobEvents(10, { job_id: 'evt-job' })).toHaveLength(0);
   });
 });
 

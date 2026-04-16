@@ -43,6 +43,13 @@ Important constraints:
 - Prefer local repo docs over speculative external docs links unless the external target is verified current.
 - When docs policy changes, update this file in the same PR.
 
+## Development Policy
+
+- MyClaw is early-stage: do not add legacy compatibility layers for breaking changes unless explicitly requested by the user.
+- Prefer clean cutovers over dual-path behavior (no fallback branches, shim flags, or backward-compat code by default).
+- Remove obsolete code paths in the same change when introducing a breaking replacement.
+- Every implementation task must end with a subagent review pass before marking the work complete.
+
 ## Hard Gates
 
 Before merge or release:

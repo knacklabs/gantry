@@ -47,6 +47,7 @@ vi.mock('../memory/memory-ipc.js', () => ({
 
 vi.mock('../platform/group-folder.js', () => ({
   resolveGroupFolderPath: vi.fn(() => '/tmp/test-group-folder'),
+  resolveGroupIpcPath: vi.fn(() => '/tmp/test-group-ipc'),
 }));
 
 vi.mock('../memory/memory-service.js', () => ({
@@ -1084,7 +1085,7 @@ describe('scheduler loop', () => {
     expect(onSchedulerChanged).toHaveBeenCalled();
   });
 
-  it('enqueues job tasks using queue.enqueueTask with correct jid', async () => {
+  it('enqueues parallel jobs on per-job scheduler queue key', async () => {
     upsertJob({
       id: 'enqueue-test',
       name: 'enqueue test',
@@ -1109,13 +1110,13 @@ describe('scheduler loop', () => {
     await Promise.resolve();
 
     expect(enqueueTask).toHaveBeenCalledWith(
-      'group@g.us',
+      '__scheduler__:main:enqueue-test',
       'enqueue-test',
       expect.any(Function),
     );
   });
 
-  it('uses group_scope:job as queueJid when no linked_sessions', async () => {
+  it('uses per-job scheduler queue key when linked_sessions are empty', async () => {
     upsertJob({
       id: 'no-session-job',
       name: 'no session',
@@ -1134,10 +1135,36 @@ describe('scheduler loop', () => {
     await vi.advanceTimersByTimeAsync(20);
     await Promise.resolve();
 
-    // With empty linked_sessions, queueJid = `${group_scope}:job`
     expect(enqueueTask).toHaveBeenCalledWith(
-      'main:job',
+      '__scheduler__:main:no-session-job',
       'no-session-job',
+      expect.any(Function),
+    );
+  });
+
+  it('enqueues serialized jobs on shared group scheduler queue key', async () => {
+    upsertJob({
+      id: 'serialized-enqueue-test',
+      name: 'serialized enqueue test',
+      prompt: 'test',
+      schedule_type: 'once',
+      schedule_value: new Date(Date.now() - 60_000).toISOString(),
+      linked_sessions: ['group@g.us'],
+      group_scope: 'main',
+      created_by: 'agent',
+      next_run: new Date(Date.now() - 60_000).toISOString(),
+      status: 'active',
+      execution_mode: 'serialized',
+    });
+
+    const enqueueTask = vi.fn();
+    startSchedulerLoop(makeDeps({ enqueueTask }));
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+
+    expect(enqueueTask).toHaveBeenCalledWith(
+      '__scheduler__:main',
+      'serialized-enqueue-test',
       expect.any(Function),
     );
   });
@@ -1600,7 +1627,7 @@ describe('scheduler coverage: streaming callback and edge cases', () => {
     };
   }
 
-  it('invokes streaming callback with result and scheduleClose', async () => {
+  it('invokes streaming callback with result without closing shared stdin', async () => {
     const closeStdin = vi.fn();
     const notifyIdle = vi.fn();
 
@@ -1636,12 +1663,11 @@ describe('scheduler coverage: streaming callback and edge cases', () => {
     await vi.advanceTimersByTimeAsync(20);
     await Promise.resolve();
     await Promise.resolve();
-    // Advance close delay timer (10s)
     await vi.advanceTimersByTimeAsync(11_000);
     await Promise.resolve();
 
-    expect(notifyIdle).toHaveBeenCalledWith('group@g.us');
-    expect(closeStdin).toHaveBeenCalledWith('group@g.us');
+    expect(notifyIdle).not.toHaveBeenCalled();
+    expect(closeStdin).not.toHaveBeenCalled();
   });
 
   it('invokes streaming callback with error status', async () => {
@@ -1755,7 +1781,7 @@ describe('scheduler coverage: streaming callback and edge cases', () => {
     expect(runs.length).toBe(1);
   });
 
-  it('spawnAgent onProcess callback is invoked', async () => {
+  it('spawnAgent onProcess callback is invoked with scheduler queue key', async () => {
     const onProcess = vi.fn();
     vi.mocked(spawnAgent).mockImplementationOnce(
       async (_group, _input, onProc, _onOutput, _options) => {
@@ -1784,10 +1810,11 @@ describe('scheduler coverage: streaming callback and edge cases', () => {
     await Promise.resolve();
 
     expect(onProcess).toHaveBeenCalledWith(
-      'group@g.us',
+      '__scheduler__:main:onprocess-job',
       expect.anything(),
       'test-container',
       'main',
+      ['group@g.us'],
     );
   });
 
@@ -2287,13 +2314,13 @@ describe('scheduler coverage: streaming callback and edge cases', () => {
     getJobByIdSpy.mockRestore();
   });
 
-  it('scheduleClose is only invoked once (idempotent guard)', async () => {
+  it('does not invoke closeStdin for repeated streamed chunks', async () => {
     const closeStdin = vi.fn();
 
     vi.mocked(spawnAgent).mockImplementationOnce(
       async (_group, _input, _onProcess, onOutput, _options) => {
         if (onOutput) {
-          // Invoke with result twice to test scheduleClose guard
+          // Invoke with result twice; scheduler jobs should not request closeStdin.
           await onOutput({ status: 'success', result: 'first' });
           await onOutput({ status: 'success', result: 'second' });
         }
@@ -2318,11 +2345,10 @@ describe('scheduler coverage: streaming callback and edge cases', () => {
     await vi.advanceTimersByTimeAsync(20);
     await Promise.resolve();
     await Promise.resolve();
-    // Advance past close delay
+    // Advance timers to ensure no delayed close is scheduled.
     await vi.advanceTimersByTimeAsync(11_000);
 
-    // closeStdin should be called only once despite scheduleClose being invoked multiple times
-    expect(closeStdin).toHaveBeenCalledTimes(1);
+    expect(closeStdin).not.toHaveBeenCalled();
   });
 
   it('system job error uses non-Error string fallback', async () => {
@@ -2352,7 +2378,7 @@ describe('scheduler coverage: streaming callback and edge cases', () => {
     expect(runs[0].error_summary).toBe('non-error-string');
   });
 
-  it('getSessions returns a session ID used by the job', async () => {
+  it('parallel jobs do not reuse persisted interactive session IDs', async () => {
     vi.mocked(spawnAgent).mockResolvedValueOnce({
       status: 'success',
       result: 'ok',
@@ -2383,10 +2409,108 @@ describe('scheduler coverage: streaming callback and edge cases', () => {
 
     expect(spawnAgent).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ sessionId: 'existing-session-id' }),
+      expect.objectContaining({ sessionId: undefined }),
       expect.anything(),
       expect.anything(),
       expect.anything(),
+    );
+  });
+
+  it('serialized jobs do not reuse persisted interactive session IDs', async () => {
+    vi.mocked(spawnAgent).mockResolvedValueOnce({
+      status: 'success',
+      result: 'ok',
+      newSessionId: 'sess-1',
+    });
+
+    upsertJob({
+      id: 'serialized-with-session',
+      name: 'serialized with session',
+      prompt: 'test',
+      schedule_type: 'once',
+      schedule_value: new Date(Date.now() - 60_000).toISOString(),
+      linked_sessions: ['group@g.us'],
+      group_scope: 'main',
+      created_by: 'agent',
+      next_run: new Date(Date.now() - 60_000).toISOString(),
+      status: 'active',
+      execution_mode: 'serialized',
+    });
+
+    startSchedulerLoop(
+      makeDeps({
+        getSessions: () => ({ main: 'existing-session-id' }),
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(spawnAgent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ sessionId: undefined }),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('serialized jobs reuse scheduler-owned session IDs between runs', async () => {
+    vi.mocked(spawnAgent)
+      .mockResolvedValueOnce({
+        status: 'success',
+        result: 'ok',
+        newSessionId: 'scheduler-session-1',
+      })
+      .mockResolvedValueOnce({
+        status: 'success',
+        result: 'ok2',
+        newSessionId: 'scheduler-session-2',
+      });
+
+    upsertJob({
+      id: 'serialized-run-1',
+      name: 'serialized run 1',
+      prompt: 'test',
+      schedule_type: 'once',
+      schedule_value: new Date(Date.now() - 60_000).toISOString(),
+      linked_sessions: ['group@g.us'],
+      group_scope: 'main',
+      created_by: 'agent',
+      next_run: new Date(Date.now() - 60_000).toISOString(),
+      status: 'active',
+      execution_mode: 'serialized',
+    });
+
+    upsertJob({
+      id: 'serialized-run-2',
+      name: 'serialized run 2',
+      prompt: 'test2',
+      schedule_type: 'once',
+      schedule_value: new Date(Date.now() - 60_000).toISOString(),
+      linked_sessions: ['group@g.us'],
+      group_scope: 'main',
+      created_by: 'agent',
+      next_run: new Date(Date.now() - 60_000).toISOString(),
+      status: 'active',
+      execution_mode: 'serialized',
+    });
+
+    startSchedulerLoop(makeDeps());
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(60_020);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const calls = vi.mocked(spawnAgent).mock.calls;
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(calls[0]?.[1]).toEqual(
+      expect.objectContaining({ sessionId: undefined }),
+    );
+    expect(calls[1]?.[1]).toEqual(
+      expect.objectContaining({ sessionId: 'scheduler-session-1' }),
     );
   });
 
@@ -2426,16 +2550,16 @@ describe('scheduler coverage: streaming callback and edge cases', () => {
     );
   });
 
-  it('clears closeTimer in finally block when it was set', async () => {
+  it('does not invoke closeStdin when spawnAgent returns error after output', async () => {
     const closeStdin = vi.fn();
 
     vi.mocked(spawnAgent).mockImplementationOnce(
       async (_group, _input, _onProcess, onOutput, _options) => {
         if (onOutput) {
-          // Set result which triggers scheduleClose (sets closeTimer)
+          // Emit streamed output before final error.
           await onOutput({ status: 'success', result: 'result' });
         }
-        // Return error to exercise more paths, but closeTimer was set
+        // Return error to exercise failure handling.
         return {
           status: 'error',
           result: null,
@@ -2464,10 +2588,9 @@ describe('scheduler coverage: streaming callback and edge cases', () => {
     await vi.advanceTimersByTimeAsync(20);
     await Promise.resolve();
     await Promise.resolve();
-    // Advance a lot — if closeTimer was NOT cleared, closeStdin would fire
+    // Advance a lot; closeStdin should still never fire for scheduled jobs.
     await vi.advanceTimersByTimeAsync(20_000);
 
-    // closeStdin should NOT have been called because the timer was cleared in finally
     expect(closeStdin).not.toHaveBeenCalled();
   });
 

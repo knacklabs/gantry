@@ -448,6 +448,7 @@ async function runQuery(
   queryThinking: ThinkingConfig | undefined,
   queryEffort: EffortLevel | undefined,
   resumeAt?: string,
+  enableIpcFollowups = true,
 ): Promise<{
   newSessionId?: string;
   lastAssistantUuid?: string;
@@ -461,6 +462,7 @@ async function runQuery(
   let ipcPolling = true;
   let closedDuringQuery = false;
   const pollIpcDuringQuery = () => {
+    if (!enableIpcFollowups) return;
     if (!ipcPolling) return;
     if (shouldClose()) {
       log('Close sentinel detected during query, ending stream');
@@ -476,7 +478,9 @@ async function runQuery(
     }
     setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
   };
-  setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
+  if (enableIpcFollowups) {
+    setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
+  }
 
   let newSessionId: string | undefined;
   let lastAssistantUuid: string | undefined;
@@ -1007,13 +1011,15 @@ async function main(): Promise<void> {
   log(`Configured thinking: ${configuredThinking.description}`);
 
   let sessionId = containerInput.sessionId;
-  fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
+  if (!containerInput.isScheduledJob) {
+    fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
-  // Clean up stale _close sentinel from previous container runs
-  try {
-    fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL);
-  } catch {
-    /* ignore */
+    // Clean up stale _close sentinel from previous container runs
+    try {
+      fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL);
+    } catch {
+      /* ignore */
+    }
   }
 
   // Build initial prompt (drain any pending IPC messages too)
@@ -1022,10 +1028,14 @@ async function main(): Promise<void> {
   if (containerInput.isScheduledJob) {
     prompt = `[SCHEDULED JOB - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
   }
-  const pending = drainIpcInput();
-  if (pending.length > 0) {
-    log(`Draining ${pending.length} pending IPC messages into initial prompt`);
-    prompt += '\n' + pending.join('\n');
+  if (!containerInput.isScheduledJob) {
+    const pending = drainIpcInput();
+    if (pending.length > 0) {
+      log(
+        `Draining ${pending.length} pending IPC messages into initial prompt`,
+      );
+      prompt += '\n' + pending.join('\n');
+    }
   }
 
   // --- Session slash commands + resume model preflight ---
@@ -1111,6 +1121,41 @@ async function main(): Promise<void> {
     prompt = `[SCHEDULED JOB]\n\nScript output:\n${JSON.stringify(scriptResult.data, null, 2)}\n\nInstructions:\n${containerInput.prompt}`;
   }
 
+  if (containerInput.isScheduledJob) {
+    log(
+      `Starting one-shot scheduled query (session: ${sessionId || 'new'})...`,
+    );
+    try {
+      const queryResult = await runQuery(
+        prompt,
+        sessionId,
+        mcpServerPath,
+        containerInput,
+        sdkEnv,
+        configuredModel.model,
+        configuredThinking.thinking,
+        configuredThinking.effort,
+        undefined,
+        false,
+      );
+      if (queryResult.newSessionId) {
+        sessionId = queryResult.newSessionId;
+      }
+      writeOutput({ status: 'success', result: null, newSessionId: sessionId });
+      return;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log(`Scheduled job error: ${errorMessage}`);
+      writeOutput({
+        status: 'error',
+        result: null,
+        newSessionId: sessionId,
+        error: errorMessage,
+      });
+      process.exit(1);
+    }
+  }
+
   // Query loop: run query → wait for IPC message → run new query → repeat
   let resumeAt: string | undefined;
   try {
@@ -1129,6 +1174,7 @@ async function main(): Promise<void> {
         configuredThinking.thinking,
         configuredThinking.effort,
         resumeAt,
+        true,
       );
       if (queryResult.newSessionId) {
         sessionId = queryResult.newSessionId;

@@ -19,6 +19,7 @@ import {
   getJobById,
   listDeadLetterRuns,
   listJobRuns,
+  listRecentJobEvents,
   upsertJob,
   updateJob,
 } from '../storage/db.js';
@@ -33,6 +34,7 @@ import {
   MemoryIpcAction,
 } from '../memory/memory-ipc-contract.js';
 import {
+  JobExecutionMode,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   PlanReviewPrompt,
@@ -118,6 +120,19 @@ const ipcRateLimitState = new Map<
   string,
   { windowStart: number; count: number }
 >();
+
+function normalizeIpcExecutionMode(
+  executionMode: unknown,
+  serialize: unknown,
+  fallback: JobExecutionMode = 'parallel',
+): JobExecutionMode {
+  if (executionMode === 'serialized') return 'serialized';
+  if (executionMode === 'parallel') return 'parallel';
+  if (typeof serialize === 'boolean') {
+    return serialize ? 'serialized' : 'parallel';
+  }
+  return fallback;
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -1471,7 +1486,12 @@ export async function processTaskIpc(
     maxRetries?: number;
     retryBackoffMs?: number;
     maxConsecutiveFailures?: number;
+    executionMode?: string;
+    serialize?: boolean;
     statuses?: string[];
+    runId?: string;
+    eventType?: string;
+    sinceId?: number;
     limit?: number;
     groupFolder?: string;
     chatJid?: string;
@@ -1615,6 +1635,10 @@ export async function processTaskIpc(
           typeof data.maxConsecutiveFailures === 'number'
             ? data.maxConsecutiveFailures
             : undefined,
+        execution_mode: normalizeIpcExecutionMode(
+          data.executionMode,
+          data.serialize,
+        ),
       });
 
       logger.info(
@@ -1774,6 +1798,10 @@ export async function processTaskIpc(
           typeof data.maxConsecutiveFailures === 'number'
             ? data.maxConsecutiveFailures
             : undefined,
+        execution_mode: normalizeIpcExecutionMode(
+          data.executionMode,
+          data.serialize,
+        ),
       });
 
       logger.info(
@@ -1845,6 +1873,13 @@ export async function processTaskIpc(
       if (typeof data.silent === 'boolean') updates.silent = data.silent;
       if (typeof data.cleanupAfterMs === 'number')
         updates.cleanup_after_ms = data.cleanupAfterMs;
+      if (data.executionMode !== undefined || data.serialize !== undefined) {
+        updates.execution_mode = normalizeIpcExecutionMode(
+          data.executionMode,
+          data.serialize,
+          job.execution_mode,
+        );
+      }
       if (data.threadId !== undefined)
         updates.thread_id = data.threadId || null;
       if (Array.isArray(data.linkedSessions) || Array.isArray(data.deliverTo)) {
@@ -2031,6 +2066,25 @@ export async function processTaskIpc(
       // Read-only path backed by current_job_runs snapshot in the container.
       // This no-op path exists for audit logs and future host-side query routing.
       listJobRuns(undefined, typeof data.limit === 'number' ? data.limit : 50);
+      break;
+    }
+
+    case 'scheduler_list_events':
+    case 'scheduler_wait_for_events': {
+      listRecentJobEvents(typeof data.limit === 'number' ? data.limit : 200, {
+        job_id:
+          typeof data.jobId === 'string' && data.jobId.trim().length > 0
+            ? data.jobId.trim()
+            : undefined,
+        run_id:
+          typeof data.runId === 'string' && data.runId.trim().length > 0
+            ? data.runId.trim()
+            : undefined,
+        event_type:
+          typeof data.eventType === 'string' && data.eventType.trim().length > 0
+            ? data.eventType.trim()
+            : undefined,
+      });
       break;
     }
 

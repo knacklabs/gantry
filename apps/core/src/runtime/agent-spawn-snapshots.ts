@@ -4,6 +4,7 @@ import path from 'path';
 import { resolveGroupIpcPath } from '../platform/group-folder.js';
 import {
   AvailableGroup,
+  JobEventSnapshotRow,
   JobRunSnapshotRow,
   JobSnapshotRow,
 } from './agent-spawn-types.js';
@@ -48,6 +49,33 @@ export function writeJobRunsSnapshot(
       : runs.filter((run) => allowedJobIds.has(run.job_id));
 
   const file = path.join(groupIpcDir, 'current_job_runs.json');
+  fs.writeFileSync(file, JSON.stringify(filtered, null, 2));
+}
+
+export function writeJobEventsSnapshot(
+  groupFolder: string,
+  isMain: boolean,
+  events: JobEventSnapshotRow[],
+  jobs: JobSnapshotRow[],
+): void {
+  const groupIpcDir = resolveGroupIpcPath(groupFolder);
+  fs.mkdirSync(groupIpcDir, { recursive: true });
+
+  let allowedJobIds: Set<string> | null = null;
+  if (!isMain) {
+    allowedJobIds = new Set(
+      jobs
+        .filter((job) => job.group_scope === groupFolder)
+        .map((job) => job.id),
+    );
+  }
+
+  const filtered =
+    isMain || !allowedJobIds
+      ? events
+      : events.filter((event) => allowedJobIds.has(event.job_id));
+
+  const file = path.join(groupIpcDir, 'current_job_events.json');
   fs.writeFileSync(file, JSON.stringify(filtered, null, 2));
 }
 

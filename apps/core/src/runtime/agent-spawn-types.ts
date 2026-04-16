@@ -14,6 +14,7 @@ export interface AgentInput {
   script?: string;
   compiledSystemPrompt?: string;
   thinking?: ThinkingOverride;
+  memoryContextFile?: string;
 }
 
 export interface AgentOutput {
@@ -64,6 +65,7 @@ export interface JobSnapshotRow {
   retry_backoff_ms: number;
   max_consecutive_failures: number;
   consecutive_failures: number;
+  execution_mode: string;
   pause_reason: string | null;
 }
 
@@ -78,6 +80,15 @@ export interface JobRunSnapshotRow {
   error_summary: string | null;
   retry_count: number;
   notified_at: string | null;
+}
+
+export interface JobEventSnapshotRow {
+  id: number;
+  job_id: string;
+  run_id: string | null;
+  event_type: string;
+  payload: string | null;
+  created_at: string;
 }
 
 export interface RunnerProcessSpec {

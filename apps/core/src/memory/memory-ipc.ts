@@ -344,6 +344,7 @@ export async function writeMemoryContextSnapshot(
   isMain: boolean,
   prompt: string,
   userId?: string,
+  options?: { fileName?: string },
 ): Promise<{ retrievedItemIds: string[] }> {
   const memory = MemoryService.getInstance();
   await memory.ingestGroupSources(groupFolder);
@@ -356,7 +357,10 @@ export async function writeMemoryContextSnapshot(
   );
 
   const ipcDir = resolveGroupIpcPath(groupFolder);
-  const filePath = path.join(ipcDir, 'memory_context.json');
+  const filePath = path.join(
+    ipcDir,
+    options?.fileName?.trim() || 'memory_context.json',
+  );
   fs.writeFileSync(
     filePath,
     JSON.stringify(

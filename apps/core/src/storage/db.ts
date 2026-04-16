@@ -7,6 +7,7 @@ import { isValidGroupFolder } from '../platform/group-folder.js';
 import { logger } from '../core/logger.js';
 import {
   Job,
+  JobExecutionMode,
   JobEvent,
   JobRun,
   NewMessage,
@@ -115,6 +116,10 @@ function isSafeIdentifier(identifier: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier);
 }
 
+function normalizeJobExecutionMode(value: unknown): JobExecutionMode {
+  return value === 'serialized' ? 'serialized' : 'parallel';
+}
+
 function hasColumn(
   database: Database.Database,
   tableName: string,
@@ -194,6 +199,7 @@ function createSchema(database: Database.Database): void {
       retry_backoff_ms INTEGER NOT NULL DEFAULT 5000,
       max_consecutive_failures INTEGER NOT NULL DEFAULT 5,
       consecutive_failures INTEGER NOT NULL DEFAULT 0,
+      execution_mode TEXT NOT NULL DEFAULT 'parallel',
       lease_run_id TEXT,
       lease_expires_at TEXT,
       pause_reason TEXT
@@ -327,6 +333,12 @@ function createSchema(database: Database.Database): void {
       'jobs',
       'cleanup_after_ms',
       'INTEGER DEFAULT 86400000',
+    );
+    addColumnIfMissing(
+      database,
+      'jobs',
+      'execution_mode',
+      "TEXT DEFAULT 'parallel'",
     );
   } catch (err) {
     logger.error({ err }, 'Database schema migration failed');
@@ -544,6 +556,9 @@ function mapJobRow(row: RawJobRow): Job {
     ...row,
     linked_sessions: linkedSessions,
     silent: Boolean(row.silent),
+    execution_mode: normalizeJobExecutionMode(
+      (row as { execution_mode?: unknown }).execution_mode,
+    ),
   };
 }
 
@@ -567,6 +582,7 @@ export interface JobUpsertInput {
   max_retries?: number;
   retry_backoff_ms?: number;
   max_consecutive_failures?: number;
+  execution_mode?: JobExecutionMode;
 }
 
 export function upsertJob(job: JobUpsertInput): { created: boolean } {
@@ -580,9 +596,10 @@ export function upsertJob(job: JobUpsertInput): { created: boolean } {
     INSERT INTO jobs (
       id, name, prompt, model, script, schedule_type, schedule_value, status,
       linked_sessions, thread_id, group_scope, created_by, created_at, updated_at,
-      next_run, silent, cleanup_after_ms, timeout_ms, max_retries, retry_backoff_ms, max_consecutive_failures
+      next_run, silent, cleanup_after_ms, timeout_ms, max_retries, retry_backoff_ms, max_consecutive_failures,
+      execution_mode
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       prompt = excluded.prompt,
@@ -604,7 +621,8 @@ export function upsertJob(job: JobUpsertInput): { created: boolean } {
       timeout_ms = excluded.timeout_ms,
       max_retries = excluded.max_retries,
       retry_backoff_ms = excluded.retry_backoff_ms,
-      max_consecutive_failures = excluded.max_consecutive_failures
+      max_consecutive_failures = excluded.max_consecutive_failures,
+      execution_mode = excluded.execution_mode
   `,
   ).run(
     job.id,
@@ -628,6 +646,7 @@ export function upsertJob(job: JobUpsertInput): { created: boolean } {
     job.max_retries ?? 3,
     job.retry_backoff_ms ?? 5000,
     job.max_consecutive_failures ?? 5,
+    normalizeJobExecutionMode(job.execution_mode),
   );
 
   return { created: !existing };
@@ -675,6 +694,7 @@ export function updateJob(
       | 'retry_backoff_ms'
       | 'max_consecutive_failures'
       | 'consecutive_failures'
+      | 'execution_mode'
       | 'pause_reason'
       | 'lease_run_id'
       | 'lease_expires_at'
@@ -759,6 +779,10 @@ export function updateJob(
   if (updates.consecutive_failures !== undefined) {
     fields.push('consecutive_failures = ?');
     values.push(updates.consecutive_failures);
+  }
+  if (updates.execution_mode !== undefined) {
+    fields.push('execution_mode = ?');
+    values.push(normalizeJobExecutionMode(updates.execution_mode));
   }
   if (updates.pause_reason !== undefined) {
     fields.push('pause_reason = ?');
@@ -930,6 +954,45 @@ export function addJobEvent(event: Omit<JobEvent, 'id'>): void {
     event.payload,
     event.created_at,
   );
+}
+
+export function listRecentJobEvents(
+  limit: number = 200,
+  filters?: {
+    job_id?: string;
+    run_id?: string;
+    event_type?: string;
+  },
+): JobEvent[] {
+  const clampedLimit = Math.max(1, Math.min(limit, 2000));
+  const where: string[] = [];
+  const values: unknown[] = [];
+
+  if (filters?.job_id) {
+    where.push('job_id = ?');
+    values.push(filters.job_id);
+  }
+  if (filters?.run_id) {
+    where.push('run_id = ?');
+    values.push(filters.run_id);
+  }
+  if (filters?.event_type) {
+    where.push('event_type = ?');
+    values.push(filters.event_type);
+  }
+
+  const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+  return db
+    .prepare(
+      `
+        SELECT id, job_id, run_id, event_type, payload, created_at
+        FROM job_events
+        ${whereClause}
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+      `,
+    )
+    .all(...values, clampedLimit) as JobEvent[];
 }
 
 // --- Router state accessors ---

@@ -2,12 +2,13 @@ import fs from 'fs';
 import path from 'path';
 
 import { SCHEDULER_JOBS_JSON_PATH } from '../core/config.js';
-import { Job, JobRun } from '../core/types.js';
+import { Job, JobEvent, JobRun } from '../core/types.js';
 import { logger } from '../core/logger.js';
 
 export function writeSchedulerStateFile(
   jobs: Job[],
   runs: JobRun[],
+  events: JobEvent[],
   filePath: string = SCHEDULER_JOBS_JSON_PATH,
 ): void {
   const dir = path.dirname(filePath);
@@ -17,6 +18,7 @@ export function writeSchedulerStateFile(
     updated_at: new Date().toISOString(),
     jobs,
     recent_runs: runs,
+    recent_events: events,
   };
 
   const tempPath = `${filePath}.tmp`;
@@ -24,9 +26,13 @@ export function writeSchedulerStateFile(
   fs.renameSync(tempPath, filePath);
 }
 
-export function writeSchedulerStateFileSafe(jobs: Job[], runs: JobRun[]): void {
+export function writeSchedulerStateFileSafe(
+  jobs: Job[],
+  runs: JobRun[],
+  events: JobEvent[],
+): void {
   try {
-    writeSchedulerStateFile(jobs, runs);
+    writeSchedulerStateFile(jobs, runs, events);
   } catch (err) {
     logger.warn({ err }, 'Failed to write scheduler state JSON');
   }

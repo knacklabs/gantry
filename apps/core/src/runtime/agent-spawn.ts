@@ -33,6 +33,7 @@ import {
 } from './agent-spawn-types.js';
 
 export {
+  writeJobEventsSnapshot,
   writeJobRunsSnapshot,
   writeJobsSnapshot,
   writeGroupsSnapshot,
@@ -159,6 +160,9 @@ export async function spawnAgent(
     MYCLAW_PERMISSION_TIMEOUT_MS: String(PERMISSION_APPROVAL_TIMEOUT_MS),
     ...((AGENT_MEMORY_ROOT || '').trim()
       ? { AGENT_MEMORY_ROOT: (AGENT_MEMORY_ROOT || '').trim() }
+      : {}),
+    ...(input.memoryContextFile
+      ? { MYCLAW_IPC_MEMORY_CONTEXT_FILE: input.memoryContextFile }
       : {}),
   };
   // Job-level model overrides group-level model.

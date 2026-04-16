@@ -63,22 +63,27 @@ const mockDeleteSession = vi.fn();
 const mockGetAllJobs = vi.fn();
 const mockGetMessagesSince = vi.fn();
 const mockGetRecentJobRuns = vi.fn();
+const mockListRecentJobEvents = vi.fn();
 vi.mock('../storage/db.js', () => ({
   deleteSession: (...args: unknown[]) => mockDeleteSession(...args),
   getAllJobs: (...args: unknown[]) => mockGetAllJobs(...args),
   getMessagesSince: (...args: unknown[]) => mockGetMessagesSince(...args),
   getRecentJobRuns: (...args: unknown[]) => mockGetRecentJobRuns(...args),
+  listRecentJobEvents: (...args: unknown[]) => mockListRecentJobEvents(...args),
 }));
 
 const mockSpawnAgent = vi.fn();
 const mockWriteJobRunsSnapshot = vi.fn();
 const mockWriteJobsSnapshot = vi.fn();
+const mockWriteJobEventsSnapshot = vi.fn();
 const mockWriteGroupsSnapshot = vi.fn();
 vi.mock('./agent-spawn.js', () => ({
   spawnAgent: (...args: unknown[]) => mockSpawnAgent(...args),
   writeJobRunsSnapshot: (...args: unknown[]) =>
     mockWriteJobRunsSnapshot(...args),
   writeJobsSnapshot: (...args: unknown[]) => mockWriteJobsSnapshot(...args),
+  writeJobEventsSnapshot: (...args: unknown[]) =>
+    mockWriteJobEventsSnapshot(...args),
   writeGroupsSnapshot: (...args: unknown[]) => mockWriteGroupsSnapshot(...args),
 }));
 
@@ -210,6 +215,7 @@ function setupHappyPath(
   );
   mockGetAllJobs.mockReturnValue([]);
   mockGetRecentJobRuns.mockReturnValue([]);
+  mockListRecentJobEvents.mockReturnValue([]);
   mockWriteMemoryContextSnapshot.mockResolvedValue({ retrievedItemIds: [] });
   mockReflectAfterTurn.mockResolvedValue(undefined);
   mockLoadSenderAllowlist.mockReturnValue({});

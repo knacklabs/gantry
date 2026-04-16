@@ -169,19 +169,20 @@ Changes take effect after restart.
 
 ```
 ~/myclaw/
-  settings.yaml              # Service config (this reference)
-  .env                       # Secrets and env vars
-  service-meta.json          # Runtime entry point
-  scheduler-jobs.json        # Scheduled job definitions
-  CLAUDE.md                  # Master agent profile
-  agent-memory/              # Global durable memory
+  settings.yaml
+  .env
+  service-meta.json
+  scheduler-jobs.json
+  agent-memory/
     procedures/              # Reusable workflows
     profile/                 # User facts
     knowledge/               # Knowledge base
   agents/
-    shared/CLAUDE.md         # Shared profile for all agents
+    shared/
+      CLAUDE.md              # Operational base (rules, prefs, capabilities, formatting)
     <channel>_<name>/        # Per-agent folder
-      CLAUDE.md              # Agent-specific profile
+      SOUL.md                # Personality, voice, vibe, boundaries
+      CLAUDE.md              # Group-specific overrides
       memory/                # Local memory files
       conversations/         # Conversation history
       logs/                  # Execution logs
@@ -193,7 +194,6 @@ Changes take effect after restart.
     plans/                   # Plan snapshots
   .claude/
     skills/                  # Skill definitions
-    settings.json            # Claude Code harness config
 ```
 
 ---

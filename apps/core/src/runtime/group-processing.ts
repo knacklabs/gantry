@@ -26,12 +26,14 @@ import {
   deleteSession,
   getAllJobs,
   getMessagesSince,
+  listRecentJobEvents,
   getRecentJobRuns,
 } from '../storage/db.js';
 import {
   AvailableGroup,
   AgentOutput,
   spawnAgent,
+  writeJobEventsSnapshot,
   writeJobRunsSnapshot,
   writeJobsSnapshot,
   writeGroupsSnapshot,
@@ -86,6 +88,7 @@ export interface GroupProcessingDeps {
       proc: ChildProcess,
       containerName: string,
       groupFolder?: string,
+      stopAliasJids?: string | string[],
     ) => void;
   };
 }
@@ -128,10 +131,17 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       retry_backoff_ms: job.retry_backoff_ms,
       max_consecutive_failures: job.max_consecutive_failures,
       consecutive_failures: job.consecutive_failures,
+      execution_mode: job.execution_mode,
       pause_reason: job.pause_reason,
     }));
     writeJobsSnapshot(group.folder, isMain, jobs);
     writeJobRunsSnapshot(group.folder, isMain, getRecentJobRuns(200), jobs);
+    writeJobEventsSnapshot(
+      group.folder,
+      isMain,
+      listRecentJobEvents(500),
+      jobs,
+    );
 
     try {
       const contextSnapshot = await writeMemoryContextSnapshot(

@@ -490,6 +490,33 @@ describe('scheduler_update_job', () => {
     expect(job!.max_consecutive_failures).toBe(10);
   });
 
+  it('preserves execution_mode when update omits mode fields', async () => {
+    await processTaskIpc(
+      {
+        type: 'scheduler_update_job',
+        jobId: 'upd-job',
+        executionMode: 'serialized',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+    expect(getJobById('upd-job')!.execution_mode).toBe('serialized');
+
+    await processTaskIpc(
+      {
+        type: 'scheduler_update_job',
+        jobId: 'upd-job',
+        name: 'No mode change',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+
+    expect(getJobById('upd-job')!.execution_mode).toBe('serialized');
+  });
+
   it('updates linkedSessions as main', async () => {
     await processTaskIpc(
       {

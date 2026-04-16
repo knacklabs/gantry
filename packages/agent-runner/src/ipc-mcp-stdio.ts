@@ -218,6 +218,71 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function normalizeExecutionMode(
+  executionMode: unknown,
+  serialize: unknown,
+): 'parallel' | 'serialized' {
+  if (executionMode === 'serialized') return 'serialized';
+  if (executionMode === 'parallel') return 'parallel';
+  if (typeof serialize === 'boolean') {
+    return serialize ? 'serialized' : 'parallel';
+  }
+  return 'parallel';
+}
+
+function filterSchedulerEvents(
+  events: unknown[],
+  args: {
+    job_id?: string;
+    run_id?: string;
+    event_type?: string;
+    since_id?: number;
+    since?: string;
+  },
+): Array<{
+  id?: number;
+  job_id?: string;
+  run_id?: string | null;
+  event_type?: string;
+  payload?: string | null;
+  created_at?: string;
+}> {
+  const sinceTimestamp = args.since ? Date.parse(args.since) : NaN;
+  return events.filter((item) => {
+    if (typeof item !== 'object' || item === null) return false;
+    const row = item as {
+      id?: number;
+      job_id?: string;
+      run_id?: string | null;
+      event_type?: string;
+      created_at?: string;
+    };
+    if (args.job_id && row.job_id !== args.job_id) return false;
+    if (args.run_id && row.run_id !== args.run_id) return false;
+    if (args.event_type && row.event_type !== args.event_type) return false;
+    if (
+      typeof args.since_id === 'number' &&
+      Number.isFinite(args.since_id) &&
+      typeof row.id === 'number' &&
+      row.id <= args.since_id
+    ) {
+      return false;
+    }
+    if (!Number.isNaN(sinceTimestamp) && row.created_at) {
+      const created = Date.parse(row.created_at);
+      if (Number.isFinite(created) && created <= sinceTimestamp) return false;
+    }
+    return true;
+  }) as Array<{
+    id?: number;
+    job_id?: string;
+    run_id?: string | null;
+    event_type?: string;
+    payload?: string | null;
+    created_at?: string;
+  }>;
+}
+
 function truncateText(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
   return `${value.slice(0, maxLength - 1)}…`;
@@ -731,6 +796,8 @@ server.tool(
     max_retries: z.number().optional(),
     retry_backoff_ms: z.number().optional(),
     max_consecutive_failures: z.number().optional(),
+    execution_mode: z.enum(['parallel', 'serialized']).optional(),
+    serialize: z.boolean().optional(),
   },
   async (args) => {
     if (args.schedule_type === 'cron') {
@@ -784,6 +851,11 @@ server.tool(
       maxRetries: args.max_retries,
       retryBackoffMs: args.retry_backoff_ms,
       maxConsecutiveFailures: args.max_consecutive_failures,
+      executionMode: normalizeExecutionMode(
+        args.execution_mode,
+        args.serialize,
+      ),
+      serialize: args.serialize,
       createdBy: 'agent',
       timestamp: new Date().toISOString(),
     };
@@ -815,6 +887,8 @@ server.tool(
     max_retries: z.number().optional(),
     retry_backoff_ms: z.number().optional(),
     max_consecutive_failures: z.number().optional(),
+    execution_mode: z.enum(['parallel', 'serialized']).optional(),
+    serialize: z.boolean().optional(),
   },
   async (args) => {
     const runAtDate = new Date(args.run_at);
@@ -843,6 +917,11 @@ server.tool(
       maxRetries: args.max_retries,
       retryBackoffMs: args.retry_backoff_ms,
       maxConsecutiveFailures: args.max_consecutive_failures,
+      executionMode: normalizeExecutionMode(
+        args.execution_mode,
+        args.serialize,
+      ),
+      serialize: args.serialize,
       createdBy: 'agent',
       timestamp: new Date().toISOString(),
     });
@@ -927,8 +1006,14 @@ server.tool(
     max_retries: z.number().optional(),
     retry_backoff_ms: z.number().optional(),
     max_consecutive_failures: z.number().optional(),
+    execution_mode: z.enum(['parallel', 'serialized']).optional(),
+    serialize: z.boolean().optional(),
   },
   async (args) => {
+    const executionMode =
+      args.execution_mode !== undefined || args.serialize !== undefined
+        ? normalizeExecutionMode(args.execution_mode, args.serialize)
+        : undefined;
     writeIpcFile(TASKS_DIR, {
       type: 'scheduler_update_job',
       jobId: args.job_id,
@@ -947,6 +1032,8 @@ server.tool(
       maxRetries: args.max_retries,
       retryBackoffMs: args.retry_backoff_ms,
       maxConsecutiveFailures: args.max_consecutive_failures,
+      executionMode,
+      serialize: args.serialize,
       timestamp: new Date().toISOString(),
     });
     return {
@@ -1051,6 +1138,90 @@ server.tool(
       content: [
         { type: 'text' as const, text: JSON.stringify(filtered, null, 2) },
       ],
+    };
+  },
+);
+
+server.tool(
+  'scheduler_list_events',
+  'List scheduler lifecycle events from host snapshots.',
+  {
+    job_id: z.string().optional(),
+    run_id: z.string().optional(),
+    event_type: z.string().optional(),
+    since_id: z.number().optional(),
+    since: z.string().optional(),
+    limit: z.number().optional(),
+  },
+  async (args) => {
+    const events = readJsonArraySnapshot(
+      path.join(IPC_DIR, 'current_job_events.json'),
+    );
+    const filtered = filterSchedulerEvents(events, args).slice(
+      0,
+      args.limit ?? 100,
+    );
+    writeIpcFile(TASKS_DIR, {
+      type: 'scheduler_list_events',
+      jobId: args.job_id,
+      runId: args.run_id,
+      eventType: args.event_type,
+      sinceId: args.since_id,
+      limit: args.limit,
+      timestamp: new Date().toISOString(),
+    });
+    return {
+      content: [
+        { type: 'text' as const, text: JSON.stringify(filtered, null, 2) },
+      ],
+    };
+  },
+);
+
+server.tool(
+  'scheduler_wait_for_events',
+  'Wait for scheduler lifecycle events to arrive in host snapshots.',
+  {
+    job_id: z.string().optional(),
+    run_id: z.string().optional(),
+    event_type: z.string().optional(),
+    since_id: z.number().optional(),
+    since: z.string().optional(),
+    limit: z.number().optional(),
+    timeout_ms: z.number().optional(),
+  },
+  async (args) => {
+    const timeoutMs = Math.max(
+      1_000,
+      Math.min(args.timeout_ms ?? 30_000, 120_000),
+    );
+    const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const events = readJsonArraySnapshot(
+        path.join(IPC_DIR, 'current_job_events.json'),
+      );
+      const filtered = filterSchedulerEvents(events, args).slice(0, limit);
+      if (filtered.length > 0) {
+        writeIpcFile(TASKS_DIR, {
+          type: 'scheduler_wait_for_events',
+          jobId: args.job_id,
+          runId: args.run_id,
+          eventType: args.event_type,
+          sinceId: args.since_id,
+          limit,
+          timestamp: new Date().toISOString(),
+        });
+        return {
+          content: [
+            { type: 'text' as const, text: JSON.stringify(filtered, null, 2) },
+          ],
+        };
+      }
+      await sleep(250);
+    }
+    return {
+      content: [{ type: 'text' as const, text: '[]' }],
     };
   },
 );

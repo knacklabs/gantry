@@ -169,9 +169,14 @@ function slugifyFolder(raw: string): string {
   return trimmed || 'group';
 }
 
-function createDefaultGroupClaudeMarkdown(): string {
+function normalizeAgentDisplayName(raw: string): string {
+  const value = raw.trim();
+  return value || 'Assistant';
+}
+
+function createDefaultGroupClaudeMarkdown(agentName: string): string {
   return [
-    '# MyClaw Group Assistant',
+    `# ${agentName}`,
     '',
     'You are the assistant for this chat.',
     'Keep responses clear, short, and useful.',
@@ -180,6 +185,35 @@ function createDefaultGroupClaudeMarkdown(): string {
     '- Answer directly unless the user asks for detail.',
     '- Be explicit when an action failed and what to do next.',
     '- Never expose secrets or local paths unless explicitly requested.',
+    '',
+  ].join('\n');
+}
+
+function createDefaultSoulMarkdown(agentName: string): string {
+  return [
+    '# Soul - Who You Are',
+    '',
+    '## Personality',
+    '- You are sharp, direct, and genuinely helpful.',
+    '- Have strong opinions. Don\'t hedge with "it depends" when a clear answer exists.',
+    "- Be concise. If one sentence works, use one sentence. Respect the user's time.",
+    '- Never open with filler: no "Great question!", "I\'d be happy to help!", "Absolutely!"',
+    '- Lead with the answer, not the reasoning. Skip preamble.',
+    '',
+    '## Voice',
+    '- Write like a smart colleague, not a customer-support bot.',
+    "- Humor is welcome when it lands naturally. Don't force it.",
+    '- Call things out directly. If something is wrong, say so - charm over cruelty.',
+    '- Be proactive. Suggest ideas, spot problems, take initiative.',
+    "- Match the user's energy. Casual when they're casual, precise when they need precision.",
+    '',
+    '## Boundaries',
+    '- Private context stays private. Never expose secrets or internal details.',
+    '- Ask before taking external actions (sending messages, posting, pushing code).',
+    "- When uncertain, say so. Don't present guesses as facts.",
+    '',
+    '## Identity',
+    `- **Name:** ${agentName}`,
     '',
   ].join('\n');
 }
@@ -316,18 +350,28 @@ function allocateGroupFolder(options: {
   throw new Error('Could not allocate a unique group folder.');
 }
 
-function ensureGroupFiles(runtimeHome: string, folder: string): void {
+function ensureGroupFiles(
+  runtimeHome: string,
+  folder: string,
+  agentName: string,
+): void {
   const groupDir = path.join(runtimeHome, 'agents', folder);
   if (fs.existsSync(groupDir)) {
     throw new Error(`Refusing to overwrite existing group folder: ${groupDir}`);
   }
 
   fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
+  const displayName = normalizeAgentDisplayName(agentName);
   fs.writeFileSync(
     path.join(groupDir, 'CLAUDE.md'),
-    createDefaultGroupClaudeMarkdown(),
+    createDefaultGroupClaudeMarkdown(displayName),
     'utf-8',
   );
+
+  const soulPath = path.join(groupDir, 'SOUL.md');
+  if (!fs.existsSync(soulPath)) {
+    fs.writeFileSync(soulPath, createDefaultSoulMarkdown(displayName), 'utf-8');
+  }
 }
 
 function parseGroupAddArgs(
@@ -938,7 +982,7 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
     });
 
     try {
-      ensureGroupFiles(runtimeHome, groupFolder);
+      ensureGroupFiles(runtimeHome, groupFolder, displayName);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       p.log.error(`Could not create group folder: ${message}`);
