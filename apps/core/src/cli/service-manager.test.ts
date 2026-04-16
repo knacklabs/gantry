@@ -19,13 +19,27 @@ async function loadServiceManagerWithMocks(
   tryExecMock: ReturnType<typeof vi.fn> = vi
     .fn()
     .mockReturnValue({ ok: true, stdout: '', stderr: '' }),
+  options: {
+    platform?: 'unknown' | 'linux' | 'macos';
+    hasSystemdUser?: boolean;
+    homeDir?: string;
+  } = {},
 ) {
   vi.resetModules();
+  const platform = options.platform ?? 'unknown';
+  const systemdUser = options.hasSystemdUser ?? false;
   vi.doMock('./platform.js', () => ({
-    detectPlatform: () => 'unknown',
-    hasSystemdUser: () => false,
+    detectPlatform: () => platform,
+    hasSystemdUser: () => systemdUser,
     tryExec: tryExecMock,
   }));
+  vi.doMock('os', async () => {
+    const actual = await vi.importActual<typeof import('os')>('os');
+    return {
+      ...actual,
+      homedir: () => options.homeDir ?? actual.homedir(),
+    };
+  });
   vi.doMock('child_process', async () => {
     const actual =
       await vi.importActual<typeof import('child_process')>('child_process');
@@ -54,6 +68,60 @@ afterEach(() => {
 });
 
 describe('service manager background start', () => {
+  it('installs systemd user service on linux', async () => {
+    const runtimeHome = createRuntimeHome();
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-home-'));
+    const tryExecMock = vi
+      .fn()
+      .mockReturnValue({ ok: true, stdout: '', stderr: '' });
+
+    const mod = await loadServiceManagerWithMocks(vi.fn(), tryExecMock, {
+      platform: 'linux',
+      hasSystemdUser: true,
+      homeDir,
+    });
+    const outcome = mod.installService(import.meta.url, runtimeHome);
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.kind).toBe('systemd-user');
+    expect(tryExecMock).toHaveBeenCalledWith('systemctl', [
+      '--user',
+      'daemon-reload',
+    ]);
+    expect(tryExecMock).toHaveBeenCalledWith('systemctl', [
+      '--user',
+      'enable',
+      'myclaw',
+    ]);
+
+    const installedAt = outcome.message.match(/at (.+)\.$/)?.[1];
+    expect(installedAt).toBeTruthy();
+    expect(fs.existsSync(installedAt!)).toBe(true);
+  });
+
+  it('starts systemd user service on linux', async () => {
+    const runtimeHome = createRuntimeHome();
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-home-'));
+    const tryExecMock = vi
+      .fn()
+      .mockReturnValue({ ok: true, stdout: '', stderr: '' });
+    const mod = await loadServiceManagerWithMocks(vi.fn(), tryExecMock, {
+      platform: 'linux',
+      hasSystemdUser: true,
+      homeDir,
+    });
+
+    const outcome = mod.startService(runtimeHome);
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.kind).toBe('systemd-user');
+    expect(tryExecMock).toHaveBeenCalledWith('systemctl', [
+      '--user',
+      'start',
+      'myclaw',
+    ]);
+  });
+
   it('creates settings.yaml on service install when missing', async () => {
     const runtimeHome = createRuntimeHome();
     expect(fs.existsSync(settingsFilePath(runtimeHome))).toBe(false);

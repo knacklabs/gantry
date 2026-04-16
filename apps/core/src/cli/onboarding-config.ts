@@ -40,6 +40,7 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
   const settings = loadRuntimeSettings(input.runtimeHome);
   settings.channels.telegram.enabled = Boolean(input.telegramBotToken.trim());
   settings.features = {
+    ...settings.features,
     memory: input.memoryEnabled,
     embeddings: input.memoryEnabled && input.embeddingsEnabled,
     dreaming: input.dreamingEnabled,
