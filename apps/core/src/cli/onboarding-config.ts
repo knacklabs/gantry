@@ -4,7 +4,10 @@ import {
   ensureRuntimeLayout,
   savePreferredRuntimeHome,
 } from './runtime-home.js';
-import { updateRuntimeSettingsFromOnboarding } from './runtime-settings.js';
+import {
+  loadRuntimeSettings,
+  saveRuntimeSettings,
+} from './runtime-settings.js';
 
 export interface OnboardingConfigInput {
   runtimeHome: string;
@@ -34,11 +37,13 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
         : null,
   });
 
-  updateRuntimeSettingsFromOnboarding({
-    runtimeHome: input.runtimeHome,
-    telegramEnabled: Boolean(input.telegramBotToken.trim()),
-    memoryEnabled: input.memoryEnabled,
-    embeddingsEnabled: input.memoryEnabled && input.embeddingsEnabled,
-    dreamingEnabled: input.dreamingEnabled,
-  });
+  const settings = loadRuntimeSettings(input.runtimeHome);
+  settings.channels.telegram.enabled = Boolean(input.telegramBotToken.trim());
+  settings.features = {
+    ...settings.features,
+    memory: input.memoryEnabled,
+    embeddings: input.memoryEnabled && input.embeddingsEnabled,
+    dreaming: input.dreamingEnabled,
+  };
+  saveRuntimeSettings(input.runtimeHome, settings);
 }

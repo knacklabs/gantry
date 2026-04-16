@@ -82,6 +82,7 @@ import { ensurePromptProfileBootstrapped } from './runtime/prompt-profile.js';
 import { closeAllBrowsers } from './runtime/browser-manager.js';
 import { startMiniAppServer } from './mini-app/server.js';
 import { ensureRuntimeLayoutDirectories } from './platform/runtime-layout.js';
+import { loadRuntimeSettings } from './cli/runtime-settings.js';
 
 export { escapeXml, formatMessages } from './messaging/router.js';
 
@@ -302,6 +303,7 @@ export async function startMyClawRuntime(): Promise<void> {
   await runRuntimeStartupPreflight();
   initDatabase();
   logger.info('Database initialized');
+  const runtimeSettings = loadRuntimeSettings(AGENT_ROOT);
   loadState();
 
   for (const [jid, group] of Object.entries(registeredGroups)) {
@@ -374,6 +376,23 @@ export async function startMyClawRuntime(): Promise<void> {
   };
 
   for (const channelName of getRegisteredChannelNames()) {
+    if (
+      channelName === 'telegram' &&
+      !runtimeSettings.channels.telegram.enabled
+    ) {
+      logger.info(
+        { channel: channelName },
+        'Channel disabled in settings.yaml — skipping connect',
+      );
+      continue;
+    }
+    if (channelName === 'slack' && !runtimeSettings.channels.slack.enabled) {
+      logger.info(
+        { channel: channelName },
+        'Channel disabled in settings.yaml — skipping connect',
+      );
+      continue;
+    }
     const factory = getChannelFactory(channelName)!;
     const channel = factory(channelOpts);
     if (!channel) {

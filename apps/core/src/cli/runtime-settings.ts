@@ -57,18 +57,6 @@ const DEFAULT_SENDER_ALLOWLIST: SenderAllowlistConfig = {
   logDenied: true,
 };
 
-function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
-  if (raw === undefined || raw === '') return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === '1' || normalized === 'true' || normalized === 'yes') {
-    return true;
-  }
-  if (normalized === '0' || normalized === 'false' || normalized === 'no') {
-    return false;
-  }
-  return fallback;
-}
-
 function unquote(value: string): string {
   const trimmed = value.trim();
   if (
@@ -487,28 +475,16 @@ function createDefaultChannelSettings(
   };
 }
 
-export function deriveRuntimeSettingsFromEnv(
-  runtimeHome: string,
-): RuntimeSettings {
-  const env = readEnvFile(envFilePath(runtimeHome));
-  const memoryEnabled = (env.MEMORY_PROVIDER || 'sqlite') !== 'noop';
-  const embeddingsEnabled =
-    memoryEnabled && (env.MEMORY_EMBED_PROVIDER || 'disabled') === 'openai';
-  const dreamingEnabled = parseBoolean(env.MEMORY_DREAMING_ENABLED, false);
-
+function createDefaultRuntimeSettings(): RuntimeSettings {
   return {
     channels: {
-      telegram: createDefaultChannelSettings(
-        Boolean(env.TELEGRAM_BOT_TOKEN?.trim()),
-      ),
-      slack: createDefaultChannelSettings(
-        Boolean(env.SLACK_BOT_TOKEN?.trim() && env.SLACK_APP_TOKEN?.trim()),
-      ),
+      telegram: createDefaultChannelSettings(false),
+      slack: createDefaultChannelSettings(false),
     },
     features: {
-      memory: memoryEnabled,
-      embeddings: embeddingsEnabled,
-      dreaming: dreamingEnabled,
+      memory: true,
+      embeddings: false,
+      dreaming: false,
     },
   };
 }
@@ -522,14 +498,14 @@ export function loadRuntimeSettingsFromPath(filePath: string): RuntimeSettings {
   return parseRuntimeSettings(raw);
 }
 
-function ensureSettingsLoaded(runtimeHome: string): {
+function ensureRuntimeSettingsLoaded(runtimeHome: string): {
   settings: RuntimeSettings;
   filePath: string;
 } {
   ensureRuntimeLayout(runtimeHome);
   const filePath = settingsFilePath(runtimeHome);
   if (!fs.existsSync(filePath)) {
-    const defaults = deriveRuntimeSettingsFromEnv(runtimeHome);
+    const defaults = createDefaultRuntimeSettings();
     writeRuntimeSettings(runtimeHome, defaults);
     return { settings: defaults, filePath };
   }
@@ -540,8 +516,12 @@ function ensureSettingsLoaded(runtimeHome: string): {
   };
 }
 
+export function ensureRuntimeSettings(runtimeHome: string): RuntimeSettings {
+  return ensureRuntimeSettingsLoaded(runtimeHome).settings;
+}
+
 export function loadRuntimeSettings(runtimeHome: string): RuntimeSettings {
-  return ensureSettingsLoaded(runtimeHome).settings;
+  return ensureRuntimeSettings(runtimeHome);
 }
 
 export function saveRuntimeSettings(
@@ -550,32 +530,6 @@ export function saveRuntimeSettings(
 ): void {
   ensureRuntimeLayout(runtimeHome);
   writeRuntimeSettings(runtimeHome, settings);
-}
-
-export function updateRuntimeSettingsFromOnboarding(input: {
-  runtimeHome: string;
-  telegramEnabled: boolean;
-  memoryEnabled: boolean;
-  embeddingsEnabled: boolean;
-  dreamingEnabled: boolean;
-}): void {
-  const loaded = ensureSettingsLoaded(input.runtimeHome);
-  const merged: RuntimeSettings = {
-    ...loaded.settings,
-    channels: {
-      ...loaded.settings.channels,
-      telegram: {
-        ...loaded.settings.channels.telegram,
-        enabled: input.telegramEnabled,
-      },
-    },
-    features: {
-      memory: input.memoryEnabled,
-      embeddings: input.embeddingsEnabled,
-      dreaming: input.dreamingEnabled,
-    },
-  };
-  writeRuntimeSettings(input.runtimeHome, merged);
 }
 
 function validateSenderAllowlistFolders(input: {
@@ -603,7 +557,7 @@ export function validateRuntimeSettings(
   let loaded: { settings: RuntimeSettings; filePath: string };
 
   try {
-    loaded = ensureSettingsLoaded(runtimeHome);
+    loaded = ensureRuntimeSettingsLoaded(runtimeHome);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {

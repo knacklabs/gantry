@@ -6,6 +6,7 @@ import { readEnvFile } from './env-file.js';
 import { DoctorReport, runDoctor } from './doctor.js';
 import { getServiceStatus } from './service-manager.js';
 import { envFilePath } from './runtime-home.js';
+import { ensureRuntimeSettings } from './runtime-settings.js';
 
 export interface RuntimeStatusSummary {
   runtimeHome: string;
@@ -14,26 +15,16 @@ export interface RuntimeStatusSummary {
     kind: string;
     status: string;
   };
+  telegramEnabled: boolean;
   telegramTokenConfigured: boolean;
   telegramGroups: number;
+  slackEnabled: boolean;
   slackBotTokenConfigured: boolean;
   slackAppTokenConfigured: boolean;
   slackGroups: number;
   memoryEnabled: boolean;
   embeddingsEnabled: boolean;
   dreamingEnabled: boolean;
-}
-
-function parseBool(raw: string | undefined, fallback: boolean): boolean {
-  if (raw === undefined || raw === '') return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === '1' || normalized === 'true' || normalized === 'yes') {
-    return true;
-  }
-  if (normalized === '0' || normalized === 'false' || normalized === 'no') {
-    return false;
-  }
-  return fallback;
 }
 
 function countRegisteredGroupsByPrefix(runtimeHome: string): {
@@ -73,24 +64,25 @@ export function collectRuntimeStatus(
   runtimeHome: string,
 ): RuntimeStatusSummary {
   const env = readEnvFile(envFilePath(runtimeHome));
+  const settings = ensureRuntimeSettings(runtimeHome);
   const service = getServiceStatus(runtimeHome);
   const doctor = runDoctor(importMetaUrl, runtimeHome);
-  const memoryProvider = (env.MEMORY_PROVIDER || 'sqlite').trim();
-  const embedProvider = (env.MEMORY_EMBED_PROVIDER || 'disabled').trim();
   const groupCounts = countRegisteredGroupsByPrefix(runtimeHome);
 
   return {
     runtimeHome,
     doctor,
     service,
+    telegramEnabled: settings.channels.telegram.enabled,
     telegramTokenConfigured: Boolean(env.TELEGRAM_BOT_TOKEN?.trim()),
     telegramGroups: groupCounts.telegram,
+    slackEnabled: settings.channels.slack.enabled,
     slackBotTokenConfigured: Boolean(env.SLACK_BOT_TOKEN?.trim()),
     slackAppTokenConfigured: Boolean(env.SLACK_APP_TOKEN?.trim()),
     slackGroups: groupCounts.slack,
-    memoryEnabled: memoryProvider !== 'noop' && memoryProvider !== 'none',
-    embeddingsEnabled: embedProvider === 'openai',
-    dreamingEnabled: parseBool(env.MEMORY_DREAMING_ENABLED, false),
+    memoryEnabled: settings.features.memory,
+    embeddingsEnabled: settings.features.embeddings,
+    dreamingEnabled: settings.features.dreaming,
   };
 }
 
@@ -108,15 +100,12 @@ export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
     `Doctor warnings: ${summary.doctor.warnings} | Doctor blocking issues: ${summary.doctor.blockingFailures}`,
   );
   lines.push(
-    `Telegram token: ${summary.telegramTokenConfigured ? 'configured' : 'missing'}`,
+    `Telegram: ${summary.telegramEnabled ? 'enabled' : 'disabled'} | token: ${summary.telegramTokenConfigured ? 'configured' : 'missing'}`,
+  );
+  lines.push(
+    `Slack: ${summary.slackEnabled ? 'enabled' : 'disabled'} | bot token: ${summary.slackBotTokenConfigured ? 'configured' : 'missing'} | app token: ${summary.slackAppTokenConfigured ? 'configured' : 'missing'}`,
   );
   lines.push(`Telegram groups: ${summary.telegramGroups}`);
-  lines.push(
-    `Slack bot token: ${summary.slackBotTokenConfigured ? 'configured' : 'missing'}`,
-  );
-  lines.push(
-    `Slack app token: ${summary.slackAppTokenConfigured ? 'configured' : 'missing'}`,
-  );
   lines.push(`Slack groups: ${summary.slackGroups}`);
   lines.push(`Memory: ${statusWord(summary.memoryEnabled)}`);
   lines.push(`Embeddings: ${statusWord(summary.embeddingsEnabled)}`);
@@ -125,8 +114,11 @@ export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
 
   const nextActions: string[] = [];
   if (
-    (!summary.telegramTokenConfigured || summary.telegramGroups === 0) &&
-    (!summary.slackBotTokenConfigured ||
+    (!summary.telegramEnabled ||
+      !summary.telegramTokenConfigured ||
+      summary.telegramGroups === 0) &&
+    (!summary.slackEnabled ||
+      !summary.slackBotTokenConfigured ||
       !summary.slackAppTokenConfigured ||
       summary.slackGroups === 0)
   ) {

@@ -8,6 +8,10 @@ import { describe, expect, it } from 'vitest';
 import { validateRuntimePreflight } from './runtime-preflight.js';
 import { upsertEnvFile } from './env-file.js';
 import { envFilePath, settingsFilePath } from './runtime-home.js';
+import {
+  loadRuntimeSettings,
+  saveRuntimeSettings,
+} from './runtime-settings.js';
 
 function createRuntimeHome(): string {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-preflight-test-'));
@@ -45,6 +49,16 @@ function seedRegisteredGroups(runtimeHome: string, jids: string[]): void {
   }
 }
 
+function setChannelEnabled(
+  runtimeHome: string,
+  channel: 'telegram' | 'slack',
+  enabled: boolean,
+): void {
+  const settings = loadRuntimeSettings(runtimeHome);
+  settings.channels[channel].enabled = enabled;
+  saveRuntimeSettings(runtimeHome, settings);
+}
+
 describe('validateRuntimePreflight', () => {
   it('fails when credentials are missing and points to env file', () => {
     const runtimeHome = createRuntimeHome();
@@ -58,6 +72,7 @@ describe('validateRuntimePreflight', () => {
 
   it('fails when configured channels do not match registered chats', () => {
     const runtimeHome = createRuntimeHome();
+    setChannelEnabled(runtimeHome, 'telegram', true);
     upsertEnvFile(envFilePath(runtimeHome), {
       TELEGRAM_BOT_TOKEN: 'token',
     });
@@ -74,6 +89,7 @@ describe('validateRuntimePreflight', () => {
 
   it('passes when telegram config and chat mapping are valid', () => {
     const runtimeHome = createRuntimeHome();
+    setChannelEnabled(runtimeHome, 'telegram', true);
     upsertEnvFile(envFilePath(runtimeHome), {
       TELEGRAM_BOT_TOKEN: 'token',
     });

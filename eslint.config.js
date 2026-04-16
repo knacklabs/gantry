@@ -21,12 +21,12 @@ const wrapperMessage =
 
 export default [
   { ignores: ['node_modules/', 'dist/', 'packages/agent-runner/dist/', 'apps/core/agents/'] },
-  { files: ['apps/core/src/**/*.{js,ts}', 'apps/core/setup/**/*.{js,ts}', 'packages/agent-runner/src/**/*.{js,ts}'] },
+  { files: ['apps/core/src/**/*.{js,ts}', 'packages/agent-runner/src/**/*.{js,ts}'] },
   { languageOptions: { globals: globals.node } },
   pluginJs.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['apps/core/src/**/*.{js,ts}', 'apps/core/setup/**/*.{js,ts}'],
+    files: ['apps/core/src/**/*.{js,ts}'],
     rules: {
       'no-restricted-imports': [
         'error',

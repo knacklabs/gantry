@@ -15,9 +15,8 @@ export interface ThinkingOverride {
 }
 
 /**
- * Mount Allowlist - Security configuration for additional mounts
- * This file should be stored at AGENT_ROOT/mount-allowlist.json
- * and is NOT mounted into any container, making it tamper-proof from agents.
+ * Mount allowlist configuration for additional host mounts.
+ * Stored at `AGENT_ROOT/mount-allowlist.json` and only editable from the host.
  */
 export interface MountAllowlist {
   // Directories that can be mounted into containers

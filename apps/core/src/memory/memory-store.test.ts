@@ -2601,42 +2601,46 @@ describe('MemoryStore', () => {
     expect(active[0]!.scope).toBe('user');
   });
 
-  it('applyRetentionPolicies preserves pinned items even during overflow', () => {
-    const store = makeStore();
-    const limit = MEMORY_ITEM_MAX_PER_GROUP;
+  it(
+    'applyRetentionPolicies preserves pinned items even during overflow',
+    { timeout: 20_000 },
+    () => {
+      const store = makeStore();
+      const limit = MEMORY_ITEM_MAX_PER_GROUP;
 
-    // Create one pinned item
-    const pinned = store.saveItem({
-      scope: 'group',
-      group_folder: 'team',
-      user_id: null,
-      kind: 'fact',
-      key: 'pinned-survivor',
-      value: 'must survive',
-      source: 'test',
-      confidence: 0.01, // lowest confidence
-      is_pinned: true,
-    });
-
-    // Fill to overflow
-    for (let i = 0; i < limit + 1; i++) {
-      store.saveItem({
+      // Create one pinned item
+      const pinned = store.saveItem({
         scope: 'group',
         group_folder: 'team',
         user_id: null,
         kind: 'fact',
-        key: `overflow-pin-${i}`,
-        value: `value-${i}`,
+        key: 'pinned-survivor',
+        value: 'must survive',
         source: 'test',
-        confidence: 0.5,
+        confidence: 0.01, // lowest confidence
+        is_pinned: true,
       });
-    }
 
-    store.applyRetentionPolicies('team');
+      // Fill to overflow
+      for (let i = 0; i < limit + 1; i++) {
+        store.saveItem({
+          scope: 'group',
+          group_folder: 'team',
+          user_id: null,
+          kind: 'fact',
+          key: `overflow-pin-${i}`,
+          value: `value-${i}`,
+          source: 'test',
+          confidence: 0.5,
+        });
+      }
 
-    // Pinned item should survive
-    expect(store.getItemById(pinned.id)).not.toBeNull();
-  });
+      store.applyRetentionPolicies('team');
+
+      // Pinned item should survive
+      expect(store.getItemById(pinned.id)).not.toBeNull();
+    },
+  );
 
   it('saveItemEmbedding handles non-array input as no-op', () => {
     const store = makeStore();

@@ -11,6 +11,7 @@ import {
   runtimeErrorLogPath,
   runtimeLogPath,
 } from './runtime-home.js';
+import { ensureRuntimeSettings } from './runtime-settings.js';
 
 export type ServiceKind = 'launchd' | 'systemd-user' | 'nohup' | 'background';
 
@@ -283,6 +284,7 @@ export function installService(
   runtimeHome: string,
 ): ServiceOutcome {
   ensureRuntimeLayout(runtimeHome);
+  ensureRuntimeSettings(runtimeHome);
   const runtimeEntry = getRuntimeEntryPath(importMetaUrl);
   const kind = resolveServiceKind();
 

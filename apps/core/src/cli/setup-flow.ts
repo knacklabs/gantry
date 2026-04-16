@@ -22,6 +22,7 @@ import {
   resolveRuntimeHome,
   savePreferredRuntimeHome,
 } from './runtime-home.js';
+import { loadRuntimeSettings } from './runtime-settings.js';
 import {
   normalizeTelegramChatJid,
   registerTelegramMainGroup,
@@ -82,18 +83,6 @@ export interface SetupFlowOptions {
 export interface SetupFlowResult {
   status: 'completed' | 'resumed' | 'cancelled';
   runtimeHome: string;
-}
-
-function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
-  if (raw === undefined || raw === '') return fallback;
-  const normalized = raw.trim().toLowerCase();
-  if (normalized === '1' || normalized === 'true' || normalized === 'yes') {
-    return true;
-  }
-  if (normalized === '0' || normalized === 'false' || normalized === 'no') {
-    return false;
-  }
-  return fallback;
 }
 
 function toAction(value: unknown): FlowAction {
@@ -172,6 +161,37 @@ function restoreDraft(
   state: OnboardingState | null,
 ): SetupDraft {
   const env = readEnvFile(envFilePath(runtimeHome));
+  const settings = (() => {
+    try {
+      return loadRuntimeSettings(runtimeHome);
+    } catch {
+      return {
+        channels: {
+          telegram: {
+            enabled: false,
+            senderAllowlist: {
+              default: { allow: '*', mode: 'trigger' },
+              agents: {},
+              logDenied: true,
+            },
+          },
+          slack: {
+            enabled: false,
+            senderAllowlist: {
+              default: { allow: '*', mode: 'trigger' },
+              agents: {},
+              logDenied: true,
+            },
+          },
+        },
+        features: {
+          memory: true,
+          embeddings: false,
+          dreaming: false,
+        },
+      };
+    }
+  })();
   const savedChatJid = state?.data.telegramChatJid || '';
   return {
     runtimeHome,
@@ -179,14 +199,10 @@ function restoreDraft(
     telegramChatJid: savedChatJid,
     telegramDisplayName: 'Telegram Main',
     telegramBotUsername: state?.data.telegramBotUsername || '',
-    memoryEnabled:
-      state?.data.memoryEnabled ??
-      (env.MEMORY_PROVIDER ? env.MEMORY_PROVIDER !== 'noop' : true),
+    memoryEnabled: state?.data.memoryEnabled ?? settings.features.memory,
     embeddingsEnabled:
-      state?.data.embeddingsEnabled ?? env.MEMORY_EMBED_PROVIDER === 'openai',
-    dreamingEnabled:
-      state?.data.dreamingEnabled ??
-      parseBoolean(env.MEMORY_DREAMING_ENABLED, false),
+      state?.data.embeddingsEnabled ?? settings.features.embeddings,
+    dreamingEnabled: state?.data.dreamingEnabled ?? settings.features.dreaming,
     openAiApiKey: env.OPENAI_API_KEY || '',
     serviceChoice: 'skip',
   };

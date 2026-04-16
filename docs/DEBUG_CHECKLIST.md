@@ -23,7 +23,7 @@ Both timers fire at the same time, so containers always exit via hard SIGKILL (c
 rdctl set --kubernetes-enabled=false
 
 # Then rebuild the container image
-npm run setup -- --step container --runtime docker
+npm run build
 ```
 
 **Diagnosis**: Check the k3s log for image GC activity:

@@ -11,7 +11,11 @@ import {
   runDoctorWithNetwork,
 } from './doctor.js';
 import { upsertEnvFile } from './env-file.js';
-import { envFilePath } from './runtime-home.js';
+import { envFilePath, settingsFilePath } from './runtime-home.js';
+import {
+  loadRuntimeSettings,
+  saveRuntimeSettings,
+} from './runtime-settings.js';
 
 function createRuntimeHome(): string {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-doctor-test-'));
@@ -38,13 +42,44 @@ function seedRegisteredGroups(runtimeHome: string, jids: string[]): void {
   }
 }
 
+function setChannelEnabled(
+  runtimeHome: string,
+  channel: 'telegram' | 'slack',
+  enabled: boolean,
+): void {
+  const settings = loadRuntimeSettings(runtimeHome);
+  settings.channels[channel].enabled = enabled;
+  saveRuntimeSettings(runtimeHome, settings);
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
 describe('doctor checks', () => {
+  it('creates settings.yaml on doctor run when missing', () => {
+    const runtimeHome = createRuntimeHome();
+    expect(fs.existsSync(settingsFilePath(runtimeHome))).toBe(false);
+
+    runDoctor(import.meta.url, runtimeHome);
+
+    expect(fs.existsSync(settingsFilePath(runtimeHome))).toBe(true);
+  });
+
+  it('fails when no channels are enabled in settings.yaml', () => {
+    const runtimeHome = createRuntimeHome();
+
+    const report = runDoctor(import.meta.url, runtimeHome);
+    const check = report.checks.find((item) => item.id === 'runtime-settings');
+
+    expect(report.ok).toBe(false);
+    expect(check?.status).toBe('fail');
+    expect(check?.message).toContain('no channels are enabled');
+  });
+
   it('reports DB corruption for Telegram group registry', () => {
     const runtimeHome = createRuntimeHome();
+    setChannelEnabled(runtimeHome, 'telegram', true);
     fs.writeFileSync(
       path.join(runtimeHome, 'store', 'messages.db'),
       'not-a-sqlite-db',
@@ -60,6 +95,7 @@ describe('doctor checks', () => {
 
   it('re-validates Telegram token via API in network doctor', async () => {
     const runtimeHome = createRuntimeHome();
+    setChannelEnabled(runtimeHome, 'telegram', true);
     upsertEnvFile(envFilePath(runtimeHome), {
       TELEGRAM_BOT_TOKEN: 'bad-token',
     });
@@ -110,6 +146,7 @@ describe('doctor checks', () => {
 describe('hasProcessableGroupForConfiguredChannel', () => {
   it('returns true when Telegram is configured and Telegram groups exist', () => {
     const runtimeHome = createRuntimeHome();
+    setChannelEnabled(runtimeHome, 'telegram', true);
     upsertEnvFile(envFilePath(runtimeHome), {
       TELEGRAM_BOT_TOKEN: 'token',
     });
@@ -120,6 +157,7 @@ describe('hasProcessableGroupForConfiguredChannel', () => {
 
   it('returns true when Slack is configured and Slack groups exist', () => {
     const runtimeHome = createRuntimeHome();
+    setChannelEnabled(runtimeHome, 'slack', true);
     upsertEnvFile(envFilePath(runtimeHome), {
       SLACK_BOT_TOKEN: 'xoxb-test',
       SLACK_APP_TOKEN: 'xapp-test',
@@ -131,6 +169,7 @@ describe('hasProcessableGroupForConfiguredChannel', () => {
 
   it('returns false when configured channels and registered groups do not match', () => {
     const runtimeHome = createRuntimeHome();
+    setChannelEnabled(runtimeHome, 'telegram', true);
     upsertEnvFile(envFilePath(runtimeHome), {
       TELEGRAM_BOT_TOKEN: 'token',
     });
