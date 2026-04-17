@@ -47,7 +47,9 @@ class HookContractTests(unittest.TestCase):
     def assert_execpolicy_decision(self, args: list[str], expected: str) -> None:
         codex = shutil.which("codex")
         if codex is None:
-            self.fail("codex CLI is required to validate native command-policy rules")
+            if os.environ.get("FACTORY_REQUIRE_CODEX_EXECPOLICY") == "1":
+                self.fail("codex CLI is required to validate native command-policy rules")
+            self.skipTest("codex CLI is not available")
 
         proc = subprocess.run(
             [
