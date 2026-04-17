@@ -25,6 +25,10 @@ import {
   MemorySearchResult,
   SimilarMemoryItemMatch,
 } from './memory-types.js';
+import {
+  buildFtsMatchQuery,
+  createItemSearcher,
+} from './memory-item-search.js';
 
 export interface ChunkInsert {
   source_type: string;
@@ -48,10 +52,12 @@ export class MemoryStore {
     'embedding_cache',
   ]);
   private readonly db: Database.Database;
+  readonly searchItemsByText: ReturnType<typeof createItemSearcher>;
 
   constructor(dbPath = MEMORY_SQLITE_PATH) {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
+    this.searchItemsByText = createItemSearcher(this.db);
     this.initializeSchema();
     this.initializeVectorBackend();
   }
@@ -1332,10 +1338,4 @@ export class MemoryStore {
       updated_at: String(row.updated_at),
     };
   }
-}
-
-function buildFtsMatchQuery(input: string): string | null {
-  const tokens = input.normalize('NFKC').match(/[\p{L}\p{N}]+/gu) ?? [];
-  if (tokens.length === 0) return null;
-  return tokens.map((token) => `"${token.replace(/"/g, '""')}"`).join(' ');
 }

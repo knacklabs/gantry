@@ -1,5 +1,5 @@
-model = "gpt-5.3-codex"
-model_reasoning_effort = "high"
+# model = "gpt-5.3-codex"
+# model_reasoning_effort = "high"
 plan_mode_reasoning_effort = "high"
 personality = "pragmatic"
 sandbox_mode = "danger-full-access"

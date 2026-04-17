@@ -41,6 +41,7 @@ export type MemoryProvider = Pick<
   | 'patchProcedure'
   | 'listTopProcedures'
   | 'saveChunks'
+  | 'searchItemsByText'
   | 'lexicalSearch'
   | 'vectorSearch'
   | 'searchProceduresByText'
@@ -175,6 +176,7 @@ function createNoopProvider(): MemoryProvider {
     },
     listTopProcedures: () => [],
     saveChunks: () => 0,
+    searchItemsByText: () => [],
     lexicalSearch: () => [],
     vectorSearch: () => [],
     searchProceduresByText: () => [],
@@ -285,15 +287,9 @@ function createQmdProvider(): MemoryProvider {
     },
     pinItem: (...args: Parameters<MemoryStore['pinItem']>) =>
       store.pinItem(...args),
-    saveItemEmbedding: (
-      ...args: Parameters<MemoryStore['saveItemEmbedding']>
-    ) => store.saveItemEmbedding(...args),
-    getCachedEmbedding: (
-      ...args: Parameters<MemoryStore['getCachedEmbedding']>
-    ) => store.getCachedEmbedding(...args),
-    putCachedEmbedding: (
-      ...args: Parameters<MemoryStore['putCachedEmbedding']>
-    ) => store.putCachedEmbedding(...args),
+    saveItemEmbedding: (...args) => store.saveItemEmbedding(...args),
+    getCachedEmbedding: (...args) => store.getCachedEmbedding(...args),
+    putCachedEmbedding: (...args) => store.putCachedEmbedding(...args),
     findSimilarItems: (...args: Parameters<MemoryStore['findSimilarItems']>) =>
       store.findSimilarItems(...args),
     listActiveItems: (...args: Parameters<MemoryStore['listActiveItems']>) =>
@@ -342,6 +338,7 @@ function createQmdProvider(): MemoryProvider {
     ) => store.listTopProcedures(...args),
     saveChunks: (...args: Parameters<MemoryStore['saveChunks']>) =>
       store.saveChunks(...args),
+    searchItemsByText: (...args) => store.searchItemsByText(...args),
     lexicalSearch: (...args: Parameters<MemoryStore['lexicalSearch']>) =>
       store.lexicalSearch(...args),
     vectorSearch: (...args: Parameters<MemoryStore['vectorSearch']>) =>
@@ -378,8 +375,6 @@ export function registerMemoryProvider(
 }
 
 function resolveConfiguredMemoryProvider(): string {
-  const runtimeValue = process.env.MEMORY_PROVIDER?.trim();
-  if (runtimeValue) return runtimeValue;
   return MEMORY_PROVIDER;
 }
 

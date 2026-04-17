@@ -28,16 +28,30 @@ export interface RuntimeChannelSettings {
   senderAllowlist: SenderAllowlistConfig;
 }
 
+export type MemoryProviderName = 'sqlite' | 'qmd' | 'noop' | 'none';
+export type EmbeddingProviderName = 'disabled' | 'none' | 'openai';
+
+export interface RuntimeMemorySettings {
+  enabled: boolean;
+  provider: MemoryProviderName;
+  sqlitePath: string;
+  qmdRoot: string;
+  embeddings: {
+    enabled: boolean;
+    provider: EmbeddingProviderName;
+    model: string;
+  };
+  dreaming: {
+    enabled: boolean;
+  };
+}
+
 export interface RuntimeSettings {
   channels: {
     telegram: RuntimeChannelSettings;
     slack: RuntimeChannelSettings;
   };
-  features: {
-    memory: boolean;
-    embeddings: boolean;
-    dreaming: boolean;
-  };
+  memory: RuntimeMemorySettings;
 }
 
 export interface RuntimeSettingsValidationFailure {
@@ -56,6 +70,21 @@ const DEFAULT_SENDER_ALLOWLIST: SenderAllowlistConfig = {
   agents: {},
   logDenied: true,
 };
+
+const VALID_MEMORY_PROVIDERS = new Set<MemoryProviderName>([
+  'sqlite',
+  'qmd',
+  'noop',
+  'none',
+]);
+const VALID_EMBEDDING_PROVIDERS = new Set<EmbeddingProviderName>([
+  'disabled',
+  'none',
+  'openai',
+]);
+const DEFAULT_SQLITE_PATH = 'store/memory.db';
+const DEFAULT_QMD_ROOT = 'agent-memory';
+const DEFAULT_EMBED_MODEL = 'text-embedding-3-large';
 
 function unquote(value: string): string {
   const trimmed = value.trim();
@@ -277,6 +306,123 @@ function parseChannelSettings(
   };
 }
 
+function parseStringValue(
+  raw: unknown,
+  pathPrefix: string,
+  fallback?: string,
+): string {
+  if (raw === undefined && fallback !== undefined) return fallback;
+  if (typeof raw !== 'string' || raw.trim().length === 0) {
+    throw new Error(`${pathPrefix} must be a non-empty string`);
+  }
+  return raw.trim();
+}
+
+function parseBooleanValue(
+  raw: unknown,
+  pathPrefix: string,
+  fallback?: boolean,
+): boolean {
+  if (raw === undefined && fallback !== undefined) return fallback;
+  if (typeof raw !== 'boolean') {
+    throw new Error(`${pathPrefix} must be true/false`);
+  }
+  return raw;
+}
+
+function parseMemoryProvider(
+  raw: unknown,
+  pathPrefix: string,
+): MemoryProviderName {
+  if (
+    typeof raw !== 'string' ||
+    !VALID_MEMORY_PROVIDERS.has(raw as MemoryProviderName)
+  ) {
+    throw new Error(`${pathPrefix} must be sqlite, qmd, noop, or none`);
+  }
+  return raw as MemoryProviderName;
+}
+
+function parseEmbeddingProvider(
+  raw: unknown,
+  pathPrefix: string,
+): EmbeddingProviderName {
+  if (
+    typeof raw !== 'string' ||
+    !VALID_EMBEDDING_PROVIDERS.has(raw as EmbeddingProviderName)
+  ) {
+    throw new Error(`${pathPrefix} must be disabled, none, or openai`);
+  }
+  return raw as EmbeddingProviderName;
+}
+
+function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error('memory must be a mapping');
+  }
+
+  const map = raw as Record<string, unknown>;
+  const embeddingsRaw = map.embeddings;
+  if (
+    typeof embeddingsRaw !== 'object' ||
+    embeddingsRaw === null ||
+    Array.isArray(embeddingsRaw)
+  ) {
+    throw new Error('memory.embeddings must be a mapping');
+  }
+  const dreamingRaw = map.dreaming;
+  if (
+    typeof dreamingRaw !== 'object' ||
+    dreamingRaw === null ||
+    Array.isArray(dreamingRaw)
+  ) {
+    throw new Error('memory.dreaming must be a mapping');
+  }
+
+  const embeddingsMap = embeddingsRaw as Record<string, unknown>;
+  const dreamingMap = dreamingRaw as Record<string, unknown>;
+  const enabled = parseBooleanValue(map.enabled, 'memory.enabled');
+  const provider = parseMemoryProvider(map.provider, 'memory.provider');
+  const embeddingsEnabled = parseBooleanValue(
+    embeddingsMap.enabled,
+    'memory.embeddings.enabled',
+  );
+  const embeddingProvider = parseEmbeddingProvider(
+    embeddingsMap.provider,
+    'memory.embeddings.provider',
+  );
+
+  return {
+    enabled,
+    provider,
+    sqlitePath: parseStringValue(
+      map.sqlite_path,
+      'memory.sqlite_path',
+      DEFAULT_SQLITE_PATH,
+    ),
+    qmdRoot: parseStringValue(
+      map.qmd_root,
+      'memory.qmd_root',
+      DEFAULT_QMD_ROOT,
+    ),
+    embeddings: {
+      enabled: embeddingsEnabled,
+      provider: embeddingsEnabled ? embeddingProvider : 'disabled',
+      model: parseStringValue(
+        embeddingsMap.model,
+        'memory.embeddings.model',
+        DEFAULT_EMBED_MODEL,
+      ),
+    },
+    dreaming: {
+      enabled: parseBooleanValue(
+        dreamingMap.enabled,
+        'memory.dreaming.enabled',
+      ),
+    },
+  };
+}
+
 function parseRuntimeSettings(raw: string): RuntimeSettings {
   const parsed = raw.trimStart().startsWith('{')
     ? (JSON.parse(raw) as unknown)
@@ -304,36 +450,16 @@ function parseRuntimeSettings(raw: string): RuntimeSettings {
   );
   const slack = parseChannelSettings(channelsMap.slack, 'channels.slack');
 
-  const features = root.features;
-  if (
-    typeof features !== 'object' ||
-    features === null ||
-    Array.isArray(features)
-  ) {
-    throw new Error('features must be a mapping');
+  if (root.features !== undefined) {
+    throw new Error(
+      'features block is not supported. Configure memory settings under memory.*',
+    );
   }
-
-  const featuresMap = features as Record<string, unknown>;
-  const memory = featuresMap.memory;
-  const embeddings = featuresMap.embeddings;
-  const dreaming = featuresMap.dreaming;
-  if (typeof memory !== 'boolean') {
-    throw new Error('features.memory must be true/false');
-  }
-  if (typeof embeddings !== 'boolean') {
-    throw new Error('features.embeddings must be true/false');
-  }
-  if (typeof dreaming !== 'boolean') {
-    throw new Error('features.dreaming must be true/false');
-  }
+  const memory = parseMemorySettings(root.memory);
 
   return {
     channels: { telegram, slack },
-    features: {
-      memory,
-      embeddings,
-      dreaming,
-    },
+    memory,
   };
 }
 
@@ -387,6 +513,11 @@ function quoteYamlKey(key: string): string {
   return JSON.stringify(key);
 }
 
+function quoteYamlString(value: string): string {
+  if (/^[A-Za-z0-9_./-]+$/.test(value)) return value;
+  return JSON.stringify(value);
+}
+
 function renderAllowValue(allow: '*' | string[]): string {
   if (allow === '*') return '"*"';
   return JSON.stringify(allow);
@@ -412,6 +543,26 @@ function renderSenderAllowlistYaml(
   }
 
   lines.push(`${indent}log_denied: ${config.logDenied ? 'true' : 'false'}`);
+}
+
+function renderMemorySettingsYaml(
+  lines: string[],
+  memory: RuntimeMemorySettings,
+): void {
+  lines.push(
+    'memory:',
+    `  enabled: ${memory.enabled ? 'true' : 'false'}`,
+    `  provider: ${memory.provider}`,
+    `  sqlite_path: ${quoteYamlString(memory.sqlitePath)}`,
+    `  qmd_root: ${quoteYamlString(memory.qmdRoot)}`,
+    '  embeddings:',
+    `    enabled: ${memory.embeddings.enabled ? 'true' : 'false'}`,
+    `    provider: ${memory.embeddings.provider}`,
+    `    model: ${quoteYamlString(memory.embeddings.model)}`,
+    '  dreaming:',
+    `    enabled: ${memory.dreaming.enabled ? 'true' : 'false'}`,
+    '',
+  );
 }
 
 function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
@@ -440,18 +591,13 @@ function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
     settings.channels.slack.senderAllowlist,
   );
 
-  lines.push(
-    'features:',
-    `  memory: ${settings.features.memory ? 'true' : 'false'}`,
-    `  embeddings: ${settings.features.embeddings ? 'true' : 'false'}`,
-    `  dreaming: ${settings.features.dreaming ? 'true' : 'false'}`,
-    '',
-  );
+  lines.push('');
+  renderMemorySettingsYaml(lines, settings.memory);
 
   return lines.join('\n');
 }
 
-function writeRuntimeSettings(
+export function saveRuntimeSettings(
   runtimeHome: string,
   settings: RuntimeSettings,
 ): void {
@@ -476,17 +622,31 @@ function createDefaultChannelSettings(
 }
 
 function createDefaultRuntimeSettings(): RuntimeSettings {
+  const memory: RuntimeMemorySettings = {
+    enabled: true,
+    provider: 'sqlite',
+    sqlitePath: DEFAULT_SQLITE_PATH,
+    qmdRoot: DEFAULT_QMD_ROOT,
+    embeddings: {
+      enabled: false,
+      provider: 'disabled',
+      model: DEFAULT_EMBED_MODEL,
+    },
+    dreaming: {
+      enabled: false,
+    },
+  };
   return {
     channels: {
       telegram: createDefaultChannelSettings(false),
       slack: createDefaultChannelSettings(false),
     },
-    features: {
-      memory: true,
-      embeddings: false,
-      dreaming: false,
-    },
+    memory,
   };
+}
+
+export function createDefaultRuntimeSettingsForTest(): RuntimeSettings {
+  return createDefaultRuntimeSettings();
 }
 
 export function parseRuntimeSettingsText(raw: string): RuntimeSettings {
@@ -498,6 +658,10 @@ export function loadRuntimeSettingsFromPath(filePath: string): RuntimeSettings {
   return parseRuntimeSettings(raw);
 }
 
+function shouldCanonicalizeSettings(raw: string): boolean {
+  return raw.trimStart().startsWith('{');
+}
+
 function ensureRuntimeSettingsLoaded(runtimeHome: string): {
   settings: RuntimeSettings;
   filePath: string;
@@ -506,14 +670,16 @@ function ensureRuntimeSettingsLoaded(runtimeHome: string): {
   const filePath = settingsFilePath(runtimeHome);
   if (!fs.existsSync(filePath)) {
     const defaults = createDefaultRuntimeSettings();
-    writeRuntimeSettings(runtimeHome, defaults);
+    saveRuntimeSettings(runtimeHome, defaults);
     return { settings: defaults, filePath };
   }
 
-  return {
-    settings: loadRuntimeSettingsFromPath(filePath),
-    filePath,
-  };
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  const settings = parseRuntimeSettings(raw);
+  if (shouldCanonicalizeSettings(raw)) {
+    saveRuntimeSettings(runtimeHome, settings);
+  }
+  return { settings, filePath };
 }
 
 export function ensureRuntimeSettings(runtimeHome: string): RuntimeSettings {
@@ -521,135 +687,130 @@ export function ensureRuntimeSettings(runtimeHome: string): RuntimeSettings {
 }
 
 export function loadRuntimeSettings(runtimeHome: string): RuntimeSettings {
-  return ensureRuntimeSettings(runtimeHome);
-}
-
-export function saveRuntimeSettings(
-  runtimeHome: string,
-  settings: RuntimeSettings,
-): void {
-  ensureRuntimeLayout(runtimeHome);
-  writeRuntimeSettings(runtimeHome, settings);
-}
-
-function validateSenderAllowlistFolders(input: {
-  channel: RuntimeChannel;
-  config: SenderAllowlistConfig;
-  knownFolders: Set<string>;
-  details: string[];
-  filePath: string;
-}): void {
-  for (const folder of Object.keys(input.config.agents).sort((a, b) =>
-    a.localeCompare(b),
-  )) {
-    if (!input.knownFolders.has(folder)) {
-      input.details.push(
-        `${input.filePath} has channels.${input.channel}.sender_allowlist.agents.${folder}, but no registered ${input.channel} agent uses folder "${folder}". Run \`myclaw agent list\` and use an existing folder name.`,
-      );
-    }
-  }
+  return ensureRuntimeSettingsLoaded(runtimeHome).settings;
 }
 
 export function validateRuntimeSettings(
   runtimeHome: string,
 ): RuntimeSettingsValidationResult {
-  const envPath = envFilePath(runtimeHome);
-  let loaded: { settings: RuntimeSettings; filePath: string };
-
   try {
-    loaded = ensureRuntimeSettingsLoaded(runtimeHome);
+    const { settings } = ensureRuntimeSettingsLoaded(runtimeHome);
+    const details: string[] = [];
+
+    const env = readEnvFile(envFilePath(runtimeHome));
+    const telegramEnabled = settings.channels.telegram.enabled;
+    const slackEnabled = settings.channels.slack.enabled;
+    if (!telegramEnabled && !slackEnabled) {
+      details.push(
+        'Enable at least one channel in settings.yaml (channels.telegram.enabled or channels.slack.enabled).',
+      );
+    }
+
+    if (telegramEnabled && !env.TELEGRAM_BOT_TOKEN?.trim()) {
+      details.push('TELEGRAM_BOT_TOKEN is required when Telegram is enabled.');
+    }
+
+    if (slackEnabled) {
+      if (!env.SLACK_BOT_TOKEN?.trim()) {
+        details.push('SLACK_BOT_TOKEN is required when Slack is enabled.');
+      }
+      if (!env.SLACK_APP_TOKEN?.trim()) {
+        details.push('SLACK_APP_TOKEN is required when Slack is enabled.');
+      }
+    }
+
+    const telegram = getRegisteredGroupSummary(runtimeHome, 'tg:%');
+    if (telegram.error) {
+      details.push(
+        `Could not validate Telegram registered groups: ${telegram.error}`,
+      );
+    } else if (telegramEnabled && telegram.count === 0) {
+      details.push(
+        'Telegram channel is enabled but no Telegram chats are registered.',
+      );
+    } else {
+      for (const folder of Object.keys(
+        settings.channels.telegram.senderAllowlist.agents,
+      )) {
+        if (!telegram.folders.has(folder)) {
+          details.push(
+            `channels.telegram.sender_allowlist.agents.${folder} is not a registered Telegram agent folder.`,
+          );
+        }
+      }
+    }
+
+    const slack = getRegisteredGroupSummary(runtimeHome, 'sl:%');
+    if (slack.error) {
+      details.push(
+        `Could not validate Slack registered groups: ${slack.error}`,
+      );
+    } else if (slackEnabled && slack.count === 0) {
+      details.push(
+        'Slack channel is enabled but no Slack chats are registered.',
+      );
+    } else {
+      for (const folder of Object.keys(
+        settings.channels.slack.senderAllowlist.agents,
+      )) {
+        if (!slack.folders.has(folder)) {
+          details.push(
+            `channels.slack.sender_allowlist.agents.${folder} is not a registered Slack agent folder.`,
+          );
+        }
+      }
+    }
+
+    if (
+      !settings.memory.enabled &&
+      settings.memory.provider !== 'noop' &&
+      settings.memory.provider !== 'none'
+    ) {
+      details.push(
+        'memory.provider should be noop or none when memory.enabled is false.',
+      );
+    }
+    if (
+      settings.memory.embeddings.enabled &&
+      settings.memory.embeddings.provider === 'disabled'
+    ) {
+      details.push(
+        'memory.embeddings.provider cannot be disabled when memory.embeddings.enabled is true.',
+      );
+    }
+    if (
+      settings.memory.dreaming.enabled &&
+      (!settings.memory.enabled ||
+        settings.memory.provider === 'noop' ||
+        settings.memory.provider === 'none')
+    ) {
+      details.push(
+        'memory.dreaming.enabled requires persistent memory provider sqlite or qmd.',
+      );
+    }
+
+    if (details.length > 0) {
+      return {
+        ok: false,
+        settings,
+        failure: {
+          summary: 'settings file is invalid for the current runtime',
+          details,
+        },
+      };
+    }
+
+    return { ok: true, settings };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     return {
       ok: false,
       failure: {
-        summary: 'Runtime settings file is invalid.',
+        summary: 'settings file is invalid',
         details: [
-          `Fix ${settingsFilePath(runtimeHome)} and retry.`,
-          `Validation error: ${message}`,
+          `File: ${settingsFilePath(runtimeHome)}`,
+          err instanceof Error ? err.message : String(err),
         ],
       },
     };
   }
-
-  const settings = loaded.settings;
-  const details: string[] = [];
-  const env = readEnvFile(envPath);
-
-  if (!settings.channels.telegram.enabled && !settings.channels.slack.enabled) {
-    details.push(
-      `Enable at least one channel in ${loaded.filePath} before restart.`,
-    );
-  }
-
-  if (settings.channels.telegram.enabled && !env.TELEGRAM_BOT_TOKEN?.trim()) {
-    details.push(
-      `Telegram is enabled in ${loaded.filePath} but TELEGRAM_BOT_TOKEN is missing in ${envPath}.`,
-    );
-  }
-
-  if (settings.channels.slack.enabled) {
-    if (!env.SLACK_BOT_TOKEN?.trim()) {
-      details.push(
-        `Slack is enabled in ${loaded.filePath} but SLACK_BOT_TOKEN is missing in ${envPath}.`,
-      );
-    }
-    if (!env.SLACK_APP_TOKEN?.trim()) {
-      details.push(
-        `Slack is enabled in ${loaded.filePath} but SLACK_APP_TOKEN is missing in ${envPath}.`,
-      );
-    }
-  }
-
-  const telegramGroups = getRegisteredGroupSummary(runtimeHome, 'tg:%');
-  if (telegramGroups.error) {
-    details.push(
-      `Could not inspect Telegram registered chats in ${path.join(runtimeHome, 'store', 'messages.db')}: ${telegramGroups.error}`,
-    );
-  } else {
-    if (settings.channels.telegram.enabled && telegramGroups.count < 1) {
-      details.push(
-        'Telegram is enabled but no Telegram chats are registered. Run `myclaw telegram connect`.',
-      );
-    }
-    validateSenderAllowlistFolders({
-      channel: 'telegram',
-      config: settings.channels.telegram.senderAllowlist,
-      knownFolders: telegramGroups.folders,
-      details,
-      filePath: loaded.filePath,
-    });
-  }
-
-  const slackGroups = getRegisteredGroupSummary(runtimeHome, 'sl:%');
-  if (slackGroups.error) {
-    details.push(
-      `Could not inspect Slack registered chats in ${path.join(runtimeHome, 'store', 'messages.db')}: ${slackGroups.error}`,
-    );
-  } else {
-    if (settings.channels.slack.enabled && slackGroups.count < 1) {
-      details.push(
-        'Slack is enabled but no Slack chats are registered. Run `myclaw slack connect`.',
-      );
-    }
-    validateSenderAllowlistFolders({
-      channel: 'slack',
-      config: settings.channels.slack.senderAllowlist,
-      knownFolders: slackGroups.folders,
-      details,
-      filePath: loaded.filePath,
-    });
-  }
-
-  if (details.length > 0) {
-    return {
-      ok: false,
-      failure: {
-        summary: 'Runtime settings validation failed.',
-        details,
-      },
-    };
-  }
-
-  return { ok: true, settings };
 }

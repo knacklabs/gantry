@@ -8,17 +8,26 @@ import {
   MAX_MESSAGES_PER_PROMPT,
   TIMEZONE,
 } from '../core/config.js';
+import {
+  encodeGroupMessageCursor,
+  toGroupMessageCursor,
+} from '../core/message-cursor.js';
 import { logger } from '../core/logger.js';
-import { Channel, RegisteredGroup, ThinkingOverride } from '../core/types.js';
+import {
+  MessageSendOptions,
+  ProgressUpdateOptions,
+  RegisteredGroup,
+  StreamingChunkOptions,
+  ThinkingOverride,
+} from '../core/types.js';
 import { writeMemoryContextSnapshot } from '../memory/memory-ipc.js';
 import { MemoryService } from '../memory/memory-service.js';
 import {
-  findChannel,
   formatMessages,
   formatOutboundForChannel,
-  stripInternalTagsPreserveWhitespace,
 } from '../messaging/router.js';
 import {
+  isSenderExplicitlyAllowed,
   isTriggerAllowed,
   loadSenderAllowlist,
 } from '../platform/sender-allowlist.js';
@@ -40,10 +49,6 @@ import {
 } from './agent-spawn.js';
 import { archiveSessionTranscript } from '../session/session-transcript-archive.js';
 import { handleSessionCommand } from '../session/session-commands.js';
-import {
-  collectRuntimeDiagnostics,
-  formatRuntimeDiagnosticsMessage,
-} from './runtime-diagnostics.js';
 
 const TYPING_HEARTBEAT_INTERVAL_MS = 4_000;
 const ELAPSED_PROGRESS_INTERVAL_MS = 60_000;
@@ -64,7 +69,28 @@ function formatElapsed(ms: number): string {
 }
 
 export interface GroupProcessingDeps {
-  channels: Channel[];
+  channelRuntime: {
+    hasChannel: (chatJid: string) => boolean;
+    supportsStreaming: (chatJid: string) => boolean;
+    supportsProgress: (chatJid: string) => boolean;
+    sendMessage: (
+      chatJid: string,
+      rawText: string,
+      options?: MessageSendOptions,
+    ) => Promise<void>;
+    sendStreamingChunk: (
+      chatJid: string,
+      rawText: string,
+      options?: StreamingChunkOptions,
+    ) => Promise<void>;
+    resetStreaming: (chatJid: string) => void;
+    setTyping: (chatJid: string, isTyping: boolean) => Promise<void>;
+    sendProgressUpdate: (
+      chatJid: string,
+      text: string,
+      options?: ProgressUpdateOptions,
+    ) => Promise<void>;
+  };
   getGroup: (chatJid: string) => RegisteredGroup | undefined;
   getSession: (groupFolder: string) => string | undefined;
   setSession: (groupFolder: string, sessionId: string) => void;
@@ -231,7 +257,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
 
         logger.error(
           { group: group.name, error: output.error },
-          'Container agent error',
+          'Agent runner error',
         );
         return 'error';
       }
@@ -252,8 +278,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
     const group = deps.getGroup(chatJid);
     if (!group) return true;
 
-    const channel = findChannel(deps.channels, chatJid);
-    if (!channel) {
+    if (!deps.channelRuntime.hasChannel(chatJid)) {
       logger.warn({ chatJid }, 'No channel owns JID, skipping messages');
       return true;
     }
@@ -270,7 +295,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
     if (missedMessages.length === 0) return true;
 
     const latestMessage = missedMessages[missedMessages.length - 1];
-    let latestSeenTimestamp = latestMessage.timestamp;
+    let latestSeenCursor = encodeGroupMessageCursor(
+      toGroupMessageCursor(latestMessage),
+    );
     let activeThreadId =
       typeof latestMessage?.thread_id === 'string' &&
       latestMessage.thread_id.trim()
@@ -280,13 +307,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       try {
         const newerMessages = getMessagesSince(
           chatJid,
-          latestSeenTimestamp,
+          latestSeenCursor,
           ASSISTANT_NAME,
           1,
         );
         if (newerMessages.length === 0) return;
         const newestMessage = newerMessages[newerMessages.length - 1];
-        latestSeenTimestamp = newestMessage.timestamp;
+        latestSeenCursor = encodeGroupMessageCursor(
+          toGroupMessageCursor(newestMessage),
+        );
         activeThreadId =
           typeof newestMessage.thread_id === 'string' &&
           newestMessage.thread_id.trim()
@@ -328,6 +357,26 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       }
       return { ...base };
     };
+    const sendMessageToChannel = async (
+      text: string,
+      options?: MessageSendOptions,
+    ): Promise<void> => {
+      if (options) {
+        await deps.channelRuntime.sendMessage(chatJid, text, options);
+        return;
+      }
+      await deps.channelRuntime.sendMessage(chatJid, text);
+    };
+    const sendProgressToChannel = async (
+      text: string,
+      options?: ProgressUpdateOptions,
+    ): Promise<void> => {
+      if (options) {
+        await deps.channelRuntime.sendProgressUpdate(chatJid, text, options);
+        return;
+      }
+      await deps.channelRuntime.sendProgressUpdate(chatJid, text);
+    };
 
     const cmdResult = await handleSessionCommand({
       missedMessages,
@@ -337,20 +386,16 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       timezone: TIMEZONE,
       deps: {
         sendMessage: (text, options) =>
-          (() => {
-            const messageOptions = buildMessageOptions(options?.threadId);
-            if (messageOptions) {
-              return channel.sendMessage(chatJid, text, messageOptions);
-            }
-            return channel.sendMessage(chatJid, text);
-          })(),
-        setTyping: (typing) =>
-          channel.setTyping?.(chatJid, typing) ?? Promise.resolve(),
+          sendMessageToChannel(text, buildMessageOptions(options?.threadId)),
+        setTyping: (typing) => deps.channelRuntime.setTyping(chatJid, typing),
         runAgent: (prompt, onOutput, options) =>
           runAgent(group, prompt, chatJid, onOutput, options),
         closeStdin: () => deps.queue.closeStdin(chatJid),
-        advanceCursor: (ts) => {
-          deps.setCursor(chatJid, ts);
+        advanceCursor: (message) => {
+          deps.setCursor(
+            chatJid,
+            encodeGroupMessageCursor(toGroupMessageCursor(message)),
+          );
           deps.saveState();
         },
         formatMessages,
@@ -361,25 +406,24 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
         getGroupThinkingOverride: () => group.agentConfig?.thinking,
         setGroupThinkingOverride: (value) =>
           deps.setGroupThinkingOverride(chatJid, value),
-        getRuntimeStatusMessage: async () => {
-          const diagnostics = await collectRuntimeDiagnostics();
-          return formatRuntimeDiagnosticsMessage(diagnostics);
-        },
-        archiveCurrentSession: async () => {
+        archiveCurrentSession: async (cause = 'new-session') => {
           const sessionId = deps.getSession(group.folder);
           if (!sessionId) return;
           archiveSessionTranscript({
             groupFolder: group.folder,
             sessionId,
             assistantName: ASSISTANT_NAME,
-            cause: 'new-session',
+            cause,
           });
         },
-        onSessionArchived: async () => {
+        onSessionArchived: async (cause = 'new-session') => {
           await MemoryService.getInstance().reflectAfterTurn({
             groupFolder: group.folder,
-            prompt: '/new',
-            result: 'session archived',
+            prompt: cause === 'manual-compact' ? '/compact' : '/new',
+            result:
+              cause === 'manual-compact'
+                ? 'session compacted'
+                : 'session archived',
             isMain: isMainGroup,
           });
         },
@@ -388,6 +432,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
           deleteSession(group.folder);
         },
         stopCurrentRun: () => deps.queue.stopGroup?.(chatJid) ?? false,
+        isSenderControlAllowlisted: (msg) => {
+          const allowlistCfg = loadSenderAllowlist();
+          return isSenderExplicitlyAllowed(
+            chatJid,
+            msg.sender,
+            allowlistCfg,
+            group.folder,
+          );
+        },
         canSenderInteract: (msg) => {
           const hasTrigger = getTriggerPattern(group.trigger).test(
             msg.content.trim(),
@@ -428,7 +481,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
     const previousCursor = deps.getCursor(chatJid) || '';
     deps.setCursor(
       chatJid,
-      missedMessages[missedMessages.length - 1].timestamp,
+      encodeGroupMessageCursor(
+        toGroupMessageCursor(missedMessages[missedMessages.length - 1]),
+      ),
     );
     deps.saveState();
 
@@ -437,7 +492,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       'Processing messages',
     );
     try {
-      channel.resetStreaming?.(chatJid);
+      deps.channelRuntime.resetStreaming(chatJid);
     } catch (err) {
       logger.debug(
         { err, group: group.name },
@@ -451,31 +506,24 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       idleTimer = setTimeout(() => {
         logger.debug(
           { group: group.name },
-          'Idle timeout, closing container stdin',
+          'Idle timeout, closing agent runner stdin',
         );
         deps.queue.closeStdin(chatJid);
       }, IDLE_TIMEOUT);
     };
 
-    await channel.setTyping?.(chatJid, true);
+    await deps.channelRuntime.setTyping(chatJid, true);
     const startedAt = Date.now();
     let lastAgentProgressAt = startedAt;
     let lastNoOutputWarningAt = 0;
     let lastElapsedProgressAt = 0;
     let typingHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let progressTimer: ReturnType<typeof setInterval> | null = null;
-    if (channel.sendProgressUpdate) {
+    const supportsProgress = deps.channelRuntime.supportsProgress(chatJid);
+    if (supportsProgress) {
       try {
         const progressOptions = buildMessageOptions();
-        if (progressOptions) {
-          await channel.sendProgressUpdate(
-            chatJid,
-            'Working on it...',
-            progressOptions,
-          );
-        } else {
-          await channel.sendProgressUpdate(chatJid, 'Working on it...');
-        }
+        await sendProgressToChannel('Working on it...', progressOptions);
       } catch (err) {
         logger.debug(
           { err, group: group.name },
@@ -484,8 +532,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       }
     }
     typingHeartbeatTimer = setInterval(() => {
-      void channel
-        .setTyping?.(chatJid, true)
+      void deps.channelRuntime
+        .setTyping(chatJid, true)
         .catch((err) =>
           logger.debug(
             { err, group: group.name },
@@ -494,38 +542,21 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
         );
     }, TYPING_HEARTBEAT_INTERVAL_MS);
     progressTimer = setInterval(() => {
-      if (!channel.sendProgressUpdate) return;
+      if (!supportsProgress) return;
       const now = Date.now();
       const elapsedMs = now - startedAt;
       if (now - lastElapsedProgressAt >= ELAPSED_PROGRESS_INTERVAL_MS) {
         lastElapsedProgressAt = now;
         const progressOptions = buildMessageOptions();
-        if (progressOptions) {
-          void channel
-            .sendProgressUpdate(
-              chatJid,
-              `Still working (${formatElapsed(elapsedMs)})...`,
-              progressOptions,
-            )
-            .catch((err) =>
-              logger.debug(
-                { err, group: group.name },
-                'Failed to send elapsed progress update',
-              ),
-            );
-        } else {
-          void channel
-            .sendProgressUpdate(
-              chatJid,
-              `Still working (${formatElapsed(elapsedMs)})...`,
-            )
-            .catch((err) =>
-              logger.debug(
-                { err, group: group.name },
-                'Failed to send elapsed progress update',
-              ),
-            );
-        }
+        void sendProgressToChannel(
+          `Still working (${formatElapsed(elapsedMs)})...`,
+          progressOptions,
+        ).catch((err) =>
+          logger.debug(
+            { err, group: group.name },
+            'Failed to send elapsed progress update',
+          ),
+        );
       }
       if (
         now - lastAgentProgressAt >= NO_OUTPUT_WARNING_INTERVAL_MS &&
@@ -533,39 +564,22 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       ) {
         lastNoOutputWarningAt = now;
         const progressOptions = buildMessageOptions();
-        if (progressOptions) {
-          void channel
-            .sendProgressUpdate(
-              chatJid,
-              `No new output yet, still running (${formatElapsed(elapsedMs)})...`,
-              progressOptions,
-            )
-            .catch((err) =>
-              logger.debug(
-                { err, group: group.name },
-                'Failed to send no-output warning',
-              ),
-            );
-        } else {
-          void channel
-            .sendProgressUpdate(
-              chatJid,
-              `No new output yet, still running (${formatElapsed(elapsedMs)})...`,
-            )
-            .catch((err) =>
-              logger.debug(
-                { err, group: group.name },
-                'Failed to send no-output warning',
-              ),
-            );
-        }
+        void sendProgressToChannel(
+          `No new output yet, still running (${formatElapsed(elapsedMs)})...`,
+          progressOptions,
+        ).catch((err) =>
+          logger.debug(
+            { err, group: group.name },
+            'Failed to send no-output warning',
+          ),
+        );
       }
     }, 5_000);
     let hadError = false;
     let outputSentToUser = false;
     let collectedOutput = '';
     const supportsStreamingChunks =
-      typeof channel.sendStreamingChunk === 'function';
+      deps.channelRuntime.supportsStreaming(chatJid);
     let streamFinalized = false;
     const finalizeStreamingOutput = async (
       reason: 'success-marker' | 'error-marker' | 'turn-complete',
@@ -573,7 +587,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       if (!supportsStreamingChunks || streamFinalized) return;
       streamFinalized = true;
       try {
-        await channel.sendStreamingChunk!(
+        await deps.channelRuntime.sendStreamingChunk(
           chatJid,
           '',
           buildStreamingOptions({ done: true }),
@@ -603,31 +617,21 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
               typeof result.result === 'string'
                 ? result.result
                 : JSON.stringify(result.result);
-            const isTelegramGroupStreaming =
-              supportsStreamingChunks &&
-              channel.name === 'telegram' &&
-              chatJid.startsWith('tg:-');
-            const text = isTelegramGroupStreaming
-              ? stripInternalTagsPreserveWhitespace(raw)
-              : formatOutboundForChannel(raw, channel.name);
+            const text = formatOutboundForChannel(raw);
             logger.info(
               { group: group.name },
               `Agent output: ${raw.length} chars`,
             );
             if (text) {
               if (supportsStreamingChunks) {
-                await channel.sendStreamingChunk!(
+                await deps.channelRuntime.sendStreamingChunk(
                   chatJid,
-                  text,
+                  raw,
                   buildStreamingOptions({}),
                 );
               } else {
                 const messageOptions = buildMessageOptions();
-                if (messageOptions) {
-                  await channel.sendMessage(chatJid, text, messageOptions);
-                } else {
-                  await channel.sendMessage(chatJid, text);
-                }
+                await sendMessageToChannel(text, messageOptions);
               }
               outputSentToUser = true;
               collectedOutput += `${text}\n`;
@@ -659,22 +663,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       if (typingHeartbeatTimer) clearInterval(typingHeartbeatTimer);
       if (progressTimer) clearInterval(progressTimer);
       const elapsed = formatElapsed(Date.now() - startedAt);
-      if (channel.sendProgressUpdate) {
+      if (supportsProgress) {
         const finalStatus =
           output === 'error' || hadError
             ? `Failed after ${elapsed}.`
             : `Done in ${elapsed}.`;
         try {
           const finalProgressOptions = buildStreamingOptions({ done: true });
-          if (finalProgressOptions) {
-            await channel.sendProgressUpdate(
-              chatJid,
-              finalStatus,
-              finalProgressOptions,
-            );
-          } else {
-            await channel.sendProgressUpdate(chatJid, finalStatus);
-          }
+          await sendProgressToChannel(finalStatus, finalProgressOptions);
         } catch (err) {
           logger.debug(
             { err, group: group.name },
@@ -682,7 +678,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
           );
         }
       }
-      await channel.setTyping?.(chatJid, false);
+      await deps.channelRuntime.setTyping(chatJid, false);
       if (idleTimer) clearTimeout(idleTimer);
     }
 

@@ -61,13 +61,9 @@ function writeFileAtomic(filePath: string, content: string): void {
 
 function resolveConfiguredRoot(rootOverride?: string): string {
   const configuredRoot =
-    rootOverride !== undefined
-      ? rootOverride.trim()
-      : process.env.AGENT_MEMORY_ROOT?.trim() || AGENT_MEMORY_ROOT.trim();
+    rootOverride !== undefined ? rootOverride.trim() : AGENT_MEMORY_ROOT.trim();
   if (!configuredRoot) {
-    throw new Error(
-      'AGENT_MEMORY_ROOT is required. Set AGENT_MEMORY_ROOT to an absolute path for durable memory.',
-    );
+    throw new Error('AGENT_MEMORY_ROOT is required for durable memory.');
   }
   return path.resolve(configuredRoot);
 }
@@ -101,6 +97,10 @@ export class AgentMemoryRootService {
 
   static resetForTests(): void {
     singleton = null;
+  }
+
+  static setRootForTests(root: string): void {
+    singleton = new AgentMemoryRootService(root);
   }
 
   getLayout(): AgentMemoryLayout {

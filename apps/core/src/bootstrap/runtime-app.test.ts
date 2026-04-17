@@ -7,6 +7,7 @@ import {
   storeChatMetadata,
   storeMessage,
 } from '../storage/db.js';
+import { decodeGroupMessageCursor } from '../core/message-cursor.js';
 import { createRuntimeApp } from './runtime-app.js';
 
 describe('createRuntimeApp', () => {
@@ -50,10 +51,18 @@ describe('createRuntimeApp', () => {
     app.loadState();
     const recovered = app.getOrRecoverCursor('group@g.us');
 
-    expect(recovered).toBe(timestamp);
+    expect(decodeGroupMessageCursor(recovered)).toEqual({
+      timestamp,
+      id: 'bot-1',
+    });
 
     const serialized = getRouterState('last_agent_timestamp');
     expect(serialized).toBeTruthy();
-    expect(JSON.parse(serialized || '{}')).toEqual({ 'group@g.us': timestamp });
+    expect(
+      decodeGroupMessageCursor(JSON.parse(serialized || '{}')['group@g.us']),
+    ).toEqual({
+      timestamp,
+      id: 'bot-1',
+    });
   });
 });

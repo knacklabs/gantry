@@ -22,7 +22,7 @@ export function assertRuntimeEntryExists(importMetaUrl: string): void {
   const runtimeEntry = getRuntimeEntryPath(importMetaUrl);
   if (!fs.existsSync(runtimeEntry)) {
     throw new Error(
-      `Runtime entry is missing at ${runtimeEntry}. Reinstall MyClaw or run npm run build.`,
+      `Runtime entry is missing at ${runtimeEntry}. Reinstall MyClaw from npm.`,
     );
   }
 }

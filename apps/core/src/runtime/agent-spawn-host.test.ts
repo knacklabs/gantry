@@ -41,8 +41,8 @@ vi.mock('../core/logger.js', () => ({
 const mockEnsureGroupIpcLayout = vi.fn();
 const mockEnsureSharedSessionSettings = vi.fn();
 const mockSyncGroupSkills = vi.fn();
-const mockSyncHostAgentRunnerRuntime = vi.fn(
-  () => '/tmp/myclaw-test/config/.runtime/agent-runner',
+const mockGetHostAgentRunnerRoot = vi.fn(
+  () => '/tmp/myclaw-test/packages/agent-runner',
 );
 
 vi.mock('./agent-spawn-layout.js', () => ({
@@ -51,7 +51,7 @@ vi.mock('./agent-spawn-layout.js', () => ({
   ensureSharedSessionSettings: (...args: unknown[]) =>
     mockEnsureSharedSessionSettings(...args),
   syncGroupSkills: (...args: unknown[]) => mockSyncGroupSkills(...args),
-  syncHostAgentRunnerRuntime: () => mockSyncHostAgentRunnerRuntime(),
+  getHostAgentRunnerRoot: () => mockGetHostAgentRunnerRoot(),
 }));
 
 /* ------------------------------------------------------------------ */
@@ -98,7 +98,7 @@ async function loadModule(config: {
     ensureSharedSessionSettings: (...args: unknown[]) =>
       mockEnsureSharedSessionSettings(...args),
     syncGroupSkills: (...args: unknown[]) => mockSyncGroupSkills(...args),
-    syncHostAgentRunnerRuntime: () => mockSyncHostAgentRunnerRuntime(),
+    getHostAgentRunnerRoot: () => mockGetHostAgentRunnerRoot(),
   }));
 
   vi.doMock('../core/config.js', () => ({
@@ -402,9 +402,7 @@ describe('prepareHostRuntimeContext', () => {
 
     expect(ctx.groupDir).toBe('/tmp/myclaw-test/agents/test-group');
     expect(ctx.groupIpcDir).toBe('/tmp/myclaw-test/data/ipc/test-group');
-    expect(ctx.runnerRoot).toBe(
-      '/tmp/myclaw-test/config/.runtime/agent-runner',
-    );
+    expect(ctx.runnerRoot).toBe('/tmp/myclaw-test/packages/agent-runner');
 
     // Verify mkdirSync was called for the group directory
     expect(mockMkdirSync).toHaveBeenCalledWith(
@@ -415,7 +413,7 @@ describe('prepareHostRuntimeContext', () => {
     // Verify layout helpers were called
     expect(mockEnsureSharedSessionSettings).toHaveBeenCalled();
     expect(mockSyncGroupSkills).toHaveBeenCalled();
-    expect(mockSyncHostAgentRunnerRuntime).toHaveBeenCalled();
+    expect(mockGetHostAgentRunnerRoot).toHaveBeenCalled();
     expect(mockEnsureGroupIpcLayout).toHaveBeenCalledWith(
       '/tmp/myclaw-test/data/ipc/test-group',
     );

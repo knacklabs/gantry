@@ -4,11 +4,20 @@ import {
   POLL_INTERVAL,
   TIMEZONE,
 } from '../core/config.js';
+import {
+  encodeGroupMessageCursor,
+  toGroupMessageCursor,
+} from '../core/message-cursor.js';
 import { logger } from '../core/logger.js';
-import { Channel, NewMessage, RegisteredGroup } from '../core/types.js';
+import {
+  NewMessage,
+  ProgressUpdateOptions,
+  RegisteredGroup,
+} from '../core/types.js';
 import { getMessagesSince, getNewMessages } from '../storage/db.js';
 import { formatMessages } from '../messaging/router.js';
 import {
+  isSenderExplicitlyAllowed,
   isTriggerAllowed,
   loadSenderAllowlist,
 } from '../platform/sender-allowlist.js';
@@ -25,7 +34,13 @@ export interface MessageLoopDeps {
   getOrRecoverCursor: (chatJid: string) => string;
   setAgentCursor: (chatJid: string, timestamp: string) => void;
   saveState: () => void;
-  findChannel: (chatJid: string) => Channel | undefined;
+  hasChannel: (chatJid: string) => boolean;
+  setTyping: (chatJid: string, isTyping: boolean) => Promise<void>;
+  sendProgressUpdate: (
+    chatJid: string,
+    text: string,
+    options?: ProgressUpdateOptions,
+  ) => Promise<void>;
   queue: {
     sendMessage: (chatJid: string, text: string) => boolean;
     enqueueMessageCheck: (chatJid: string) => void;
@@ -67,8 +82,7 @@ export async function startMessagePollingLoop(
           const group = registeredGroups[chatJid];
           if (!group) continue;
 
-          const channel = deps.findChannel(chatJid);
-          if (!channel) {
+          if (!deps.hasChannel(chatJid)) {
             logger.warn({ chatJid }, 'No channel owns JID, skipping messages');
             continue;
           }
@@ -85,10 +99,16 @@ export async function startMessagePollingLoop(
               loopCmdMsg.content,
               triggerPattern,
             );
+            const allowlistCfg = loadSenderAllowlist();
             if (
               isSessionCommandAllowed(
-                isMainGroup,
                 loopCmdMsg.is_from_me === true,
+                isSenderExplicitlyAllowed(
+                  chatJid,
+                  loopCmdMsg.sender,
+                  allowlistCfg,
+                  group.folder,
+                ),
               )
             ) {
               if (loopCommand?.kind === 'stop') {
@@ -137,36 +157,36 @@ export async function startMessagePollingLoop(
           if (deps.queue.sendMessage(chatJid, formatted)) {
             logger.debug(
               { chatJid, count: messagesToSend.length },
-              'Piped messages to active container',
+              'Piped messages to active agent run',
             );
             deps.setAgentCursor(
               chatJid,
-              messagesToSend[messagesToSend.length - 1].timestamp,
+              encodeGroupMessageCursor(
+                toGroupMessageCursor(messagesToSend[messagesToSend.length - 1]),
+              ),
             );
             deps.saveState();
-            channel
-              .setTyping?.(chatJid, true)
-              ?.catch((err: unknown) =>
+            deps
+              .setTyping(chatJid, true)
+              .catch((err: unknown) =>
                 logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
               );
-            if (channel.sendProgressUpdate) {
-              const progressPromise = activeThreadId
-                ? channel.sendProgressUpdate(
-                    chatJid,
-                    'Still working on it, got your follow-up.',
-                    { threadId: activeThreadId },
-                  )
-                : channel.sendProgressUpdate(
-                    chatJid,
-                    'Still working on it, got your follow-up.',
-                  );
-              progressPromise.catch((err: unknown) =>
-                logger.warn(
-                  { chatJid, err },
-                  'Failed to send follow-up progress update',
-                ),
-              );
-            }
+            const progressPromise = activeThreadId
+              ? deps.sendProgressUpdate(
+                  chatJid,
+                  'Still working on it, got your follow-up.',
+                  { threadId: activeThreadId },
+                )
+              : deps.sendProgressUpdate(
+                  chatJid,
+                  'Still working on it, got your follow-up.',
+                );
+            progressPromise.catch((err: unknown) =>
+              logger.warn(
+                { chatJid, err },
+                'Failed to send follow-up progress update',
+              ),
+            );
           } else {
             deps.queue.enqueueMessageCheck(chatJid);
           }

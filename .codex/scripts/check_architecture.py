@@ -6,6 +6,9 @@ from datetime import date
 from pathlib import Path
 
 from architecture_rules import (
+    check_forbidden_channel_registration_surface,
+    check_forbidden_ipc_contract_surface,
+    check_forbidden_ipc_orchestrator_monolith,
     check_doc_references,
     check_file_size_budget,
     check_forbidden_import_edges,
@@ -32,6 +35,9 @@ def print_grouped_failures(issues: dict[str, list[str]]) -> None:
         ("exception_hygiene", "Exception Hygiene"),
         ("file_size_budget", "File Size Budget"),
         ("forbidden_import_edges", "Forbidden Import Edges"),
+        ("forbidden_channel_registration_surface", "Channel Registration Surface"),
+        ("forbidden_ipc_contract_surface", "IPC Contract Surface"),
+        ("forbidden_ipc_orchestrator_monolith", "IPC Orchestrator"),
         ("doc_references", "Active Doc References"),
     )
     for key, label in groups:
@@ -58,6 +64,15 @@ def main() -> int:
         "exception_hygiene": exception_hygiene,
         "file_size_budget": check_file_size_budget(production_files, root, exceptions),
         "forbidden_import_edges": check_forbidden_import_edges(production_files, root),
+        "forbidden_channel_registration_surface": check_forbidden_channel_registration_surface(
+            production_files, root
+        ),
+        "forbidden_ipc_contract_surface": check_forbidden_ipc_contract_surface(
+            production_files, root
+        ),
+        "forbidden_ipc_orchestrator_monolith": check_forbidden_ipc_orchestrator_monolith(
+            root
+        ),
         "doc_references": check_doc_references(root),
     }
 

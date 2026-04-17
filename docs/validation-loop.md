@@ -37,7 +37,7 @@ Goal: keep unit/integration behavior stable and catch regressions.
 Run functional-checker for user-visible behavior and runtime lifecycle checks:
 - routing and trigger behavior
 - session/command behavior
-- container or host runtime path expectations
+- host runtime path expectations
 - channel response delivery
 
 Record with:

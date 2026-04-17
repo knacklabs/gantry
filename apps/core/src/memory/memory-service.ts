@@ -50,6 +50,11 @@ import {
   runDreamingSweep as runMemoryDreamingSweep,
 } from './memory-dreaming.js';
 import {
+  containsSensitiveMaterial,
+  createMemoryExtractionProvider,
+  MemoryExtractionProvider,
+} from './memory-extractor.js';
+import {
   ChunkInsert,
   createMemoryProvider,
   MemoryProvider,
@@ -105,13 +110,16 @@ let memoryServiceSingleton: MemoryService | null = null;
 export class MemoryService {
   private readonly store: MemoryProvider;
   private readonly embeddings: EmbeddingProvider;
+  private readonly extractor: MemoryExtractionProvider;
 
   constructor(
     store: MemoryProvider = createMemoryProvider(),
     embeddings: EmbeddingProvider = createEmbeddingProvider(),
+    extractor: MemoryExtractionProvider = createMemoryExtractionProvider(),
   ) {
     this.store = store;
     this.embeddings = new CachedEmbeddingProvider(embeddings, this.store);
+    this.extractor = extractor;
     this.embeddings.validateConfiguration();
   }
 
@@ -175,28 +183,17 @@ export class MemoryService {
         text: fs.readFileSync(claudePath, 'utf-8'),
       });
     }
-
-    // Ingest markdown files from the group's memory/ directory (recursive)
-    const memoryDir = path.join(groupDir, 'memory');
-    if (fs.existsSync(memoryDir)) {
-      const scanDir = (dir: string): void => {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (entry.isDirectory()) {
-            scanDir(path.join(dir, entry.name));
-          } else if (entry.name.endsWith('.md')) {
-            const filePath = path.join(dir, entry.name);
-            const relPath = path.relative(memoryDir, filePath);
-            files.push({
-              sourceId: `local_doc:${groupFolder}:${relPath}`,
-              sourcePath: filePath,
-              sourceType: 'local_doc',
-              text: fs.readFileSync(filePath, 'utf-8'),
-            });
-          }
-        }
-      };
-      scanDir(memoryDir);
-    }
+    files.push(
+      ...this.collectMarkdownDocs(
+        path.join(groupDir, 'knowledge'),
+        (filePath, relPath) => ({
+          sourceId: `local_doc:${groupFolder}:${relPath}`,
+          sourcePath: filePath,
+          sourceType: 'local_doc',
+          text: fs.readFileSync(filePath, 'utf-8'),
+        }),
+      ),
+    );
 
     await this.ingestDocuments(files, 'group', groupFolder);
 
@@ -208,31 +205,52 @@ export class MemoryService {
     if (!knowledgeDir) return;
     if (!fs.existsSync(knowledgeDir)) return;
 
-    const docs: SourceDoc[] = [];
-    const scanDir = (dir: string): void => {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (entry.isDirectory()) {
-          scanDir(path.join(dir, entry.name));
-          continue;
-        }
-        if (!entry.name.endsWith('.md')) continue;
-        const filePath = path.join(dir, entry.name);
-        const relPath = path
-          .relative(knowledgeDir, filePath)
-          .replace(/\\/g, '/');
-        docs.push({
-          sourceId: `knowledge_doc:${relPath}`,
-          sourcePath: filePath,
-          sourceType: 'knowledge_doc',
-          text: fs.readFileSync(filePath, 'utf-8'),
-        });
-      }
-    };
-    scanDir(knowledgeDir);
+    const docs = this.collectMarkdownDocs(
+      knowledgeDir,
+      (filePath, relPath) => ({
+        sourceId: `knowledge_doc:${relPath}`,
+        sourcePath: filePath,
+        sourceType: 'knowledge_doc',
+        text: fs.readFileSync(filePath, 'utf-8'),
+      }),
+    );
     if (docs.length === 0) return;
 
     await this.ingestDocuments(docs, 'global', MEMORY_GLOBAL_GROUP_FOLDER);
     this.store.applyRetentionPolicies(MEMORY_GLOBAL_GROUP_FOLDER);
+  }
+
+  private collectMarkdownDocs(
+    rootDir: string,
+    toSourceDoc: (filePath: string, relPath: string) => SourceDoc,
+  ): SourceDoc[] {
+    if (!fs.existsSync(rootDir)) return [];
+
+    const docs: SourceDoc[] = [];
+    const stack: string[] = [rootDir];
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(current, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        const nextPath = path.join(current, entry.name);
+        if (entry.isDirectory()) {
+          stack.push(nextPath);
+          continue;
+        }
+        if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.md')) {
+          continue;
+        }
+        const relPath = path.relative(rootDir, nextPath).replace(/\\/g, '/');
+        docs.push(toSourceDoc(nextPath, relPath));
+      }
+    }
+
+    return docs;
   }
 
   private async ingestDocuments(
@@ -287,20 +305,29 @@ export class MemoryService {
 
   async search(input: SearchInput): Promise<MemorySearchResult[]> {
     const limit = input.limit ?? MEMORY_RETRIEVAL_LIMIT;
+    const items = this.store.searchItemsByText(
+      input.query,
+      input.groupFolder,
+      limit,
+      input.userId,
+    );
     const lexical = this.store.lexicalSearch(
       input.query,
       input.groupFolder,
       limit * 2,
     );
 
-    const queryEmbedding = await this.embeddings.embedOne(input.query);
-    const vector = this.store.vectorSearch(
-      queryEmbedding,
-      input.groupFolder,
-      limit * 2,
-    );
+    let vector: MemorySearchResult[] = [];
+    if (this.embeddings.isEnabled()) {
+      const queryEmbedding = await this.embeddings.embedOne(input.query);
+      vector = this.store.vectorSearch(
+        queryEmbedding,
+        input.groupFolder,
+        limit * 2,
+      );
+    }
 
-    return fuseSearchResults(lexical, vector, limit, {
+    const snippets = fuseSearchResults(lexical, vector, limit, {
       minScore: MEMORY_RETRIEVAL_MIN_SCORE,
       halfLifeDays: MEMORY_TEMPORAL_DECAY_HALFLIFE_DAYS,
       mmrLambda: MEMORY_MMR_LAMBDA,
@@ -308,6 +335,7 @@ export class MemoryService {
       vectorWeight: MEMORY_RRF_VECTOR_WEIGHT,
       sourceTypeBoosts: MEMORY_SOURCE_TYPE_BOOSTS,
     });
+    return mergeSearchResults(items, snippets, limit);
   }
 
   async saveMemory(
@@ -513,11 +541,14 @@ export class MemoryService {
     _isMain: boolean,
     userId?: string,
   ): Promise<MemoryContextResult> {
-    const facts = dedupeItemsById([
-      ...this.store.listTopItems('user', groupFolder, 3, userId),
-      ...this.store.listTopItems('group', groupFolder, 3),
-      ...this.store.listTopItems('global', groupFolder, 2),
-    ]);
+    const facts = selectBriefItems(
+      dedupeItemsById([
+        ...this.store.listTopItems('user', groupFolder, 5, userId),
+        ...this.store.listTopItems('group', groupFolder, 8),
+        ...this.store.listTopItems('global', groupFolder, 4),
+      ]),
+      12,
+    );
     const retrievedItemIds = facts.map((fact) => fact.id);
 
     const procedures = this.store.listTopProcedures(groupFolder, 3);
@@ -550,19 +581,36 @@ export class MemoryService {
     }
 
     const lines: string[] = [];
-    lines.push('[Memory Context]');
+    lines.push('[Memory Brief]');
     if (facts.length > 0) {
-      lines.push('Facts:');
-      for (const item of facts) {
-        lines.push(
-          `- (${item.scope}/${item.kind}) ${item.key}: ${truncate(item.value, 180)}`,
-        );
-      }
+      const userPreferences = facts.filter(
+        (item) => item.kind === 'preference',
+      );
+      const activeDecisions = facts.filter((item) => item.kind === 'decision');
+      const constraints = facts.filter(
+        (item) => item.kind === 'constraint' || item.kind === 'correction',
+      );
+      const projectFacts = facts.filter(
+        (item) =>
+          item.kind !== 'preference' &&
+          item.kind !== 'decision' &&
+          item.kind !== 'constraint' &&
+          item.kind !== 'correction',
+      );
+
+      appendMemoryItems(lines, 'User Preferences', userPreferences);
+      appendMemoryItems(lines, 'Active Decisions', activeDecisions);
+      appendMemoryItems(lines, 'Corrections and Constraints', constraints);
+      appendMemoryItems(lines, 'Project Facts', projectFacts);
+    } else {
+      lines.push('No durable facts are available yet.');
     }
     if (procedures.length > 0) {
-      lines.push('Procedures:');
+      lines.push('Reusable Procedures:');
       for (const proc of procedures) {
-        lines.push(`- ${proc.title}: ${truncate(proc.body, 220)}`);
+        lines.push(
+          `- (${proc.scope}) ${proc.title}: ${truncate(proc.body, 220)}`,
+        );
       }
     }
     if (recentWork.length > 0) {
@@ -572,9 +620,23 @@ export class MemoryService {
       }
     }
 
-    if (snippets.length > 0) {
-      lines.push('Recall Snippets:');
-      for (const snippet of snippets.slice(0, 4)) {
+    const memoryMatches = snippets
+      .filter((snippet) => snippet.source_type === 'memory_item')
+      .slice(0, 4);
+    const sourceSnippets = snippets.filter(
+      (snippet) => snippet.source_type !== 'memory_item',
+    );
+
+    if (memoryMatches.length > 0) {
+      lines.push('Relevant Memory Matches:');
+      for (const match of memoryMatches) {
+        lines.push(`- (${match.scope}) ${truncate(match.text, 180)}`);
+      }
+    }
+
+    if (sourceSnippets.length > 0) {
+      lines.push('Relevant Source Snippets:');
+      for (const snippet of sourceSnippets.slice(0, 4)) {
         lines.push(
           `- [${formatSnippetSourceLabel(snippet)}] ${truncate(snippet.text, 220)}`,
         );
@@ -603,11 +665,11 @@ export class MemoryService {
       return;
     }
 
-    const extractedFacts = extractReflectionFacts(
-      input.prompt,
-      input.result,
-      input.userId,
-    );
+    const extractedFacts = this.extractor.extractFacts({
+      prompt: input.prompt,
+      result: input.result,
+      userId: input.userId,
+    });
     const writableFacts = extractedFacts
       .filter((fact) => fact.confidence >= MEMORY_REFLECTION_MIN_CONFIDENCE)
       .slice(0, MEMORY_REFLECTION_MAX_FACTS_PER_TURN);
@@ -826,6 +888,43 @@ function summarizeLine(value: string): string {
   return truncate(value.replace(/\s+/g, ' ').trim(), 180);
 }
 
+function appendMemoryItems(
+  lines: string[],
+  title: string,
+  items: MemoryItem[],
+): void {
+  if (items.length === 0) return;
+  lines.push(`${title}:`);
+  for (const item of items) {
+    lines.push(`- (${item.scope}) ${truncate(item.value, 180)}`);
+  }
+}
+
+function mergeSearchResults(
+  items: MemorySearchResult[],
+  snippets: MemorySearchResult[],
+  limit: number,
+): MemorySearchResult[] {
+  const byId = new Map<string, MemorySearchResult>();
+  for (const result of [...items, ...snippets]) {
+    const existing = byId.get(result.id);
+    if (
+      !existing ||
+      result.fused_score + result.lexical_score + result.vector_score >
+        existing.fused_score + existing.lexical_score + existing.vector_score
+    ) {
+      byId.set(result.id, result);
+    }
+  }
+  return [...byId.values()]
+    .sort((a, b) => {
+      const aScore = a.fused_score + a.lexical_score + a.vector_score;
+      const bScore = b.fused_score + b.lexical_score + b.vector_score;
+      return bScore - aScore;
+    })
+    .slice(0, limit);
+}
+
 function formatSnippetSourceLabel(snippet: MemorySearchResult): string {
   const sourceName =
     path.basename(snippet.source_path || '').trim() || 'unknown';
@@ -854,138 +953,6 @@ function isNoiseQuery(value: string): boolean {
   );
 }
 
-function containsSensitiveMaterial(text: string): boolean {
-  if (!text.trim()) return false;
-
-  // Explicit high-signal secret identifiers, even without value assignment.
-  if (/\b(api[_-]?key|client[_-]?secret|private[_-]?key)\b/i.test(text)) {
-    return true;
-  }
-
-  // High-signal secret formats and provider key prefixes.
-  if (
-    /\b(sk-[a-z0-9]{20,}|ghp_[a-z0-9]{20,}|xox[baprs]-[a-z0-9-]{20,})\b/i.test(
-      text,
-    )
-  ) {
-    return true;
-  }
-
-  // Explicit credential assignment patterns.
-  if (
-    /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|client[_-]?secret|private[_-]?key)\b\s*(?:=|:|is)\s*['"]?[a-z0-9._~+/-]{8,}['"]?/i.test(
-      text,
-    )
-  ) {
-    return true;
-  }
-
-  // Authorization header style bearer tokens.
-  if (/\bbearer\s+[a-z0-9._~+/-]{16,}\b/i.test(text)) {
-    return true;
-  }
-
-  return false;
-}
-
-function extractReflectionFacts(
-  prompt: string,
-  result: string,
-  userId?: string,
-): Array<{
-  scope: MemoryScope;
-  kind: 'preference' | 'fact' | 'correction';
-  key: string;
-  value: string;
-  confidence: number;
-  user_id?: string;
-}> {
-  const lines = `${prompt}\n${result}`
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(-40);
-
-  const facts: Array<{
-    scope: MemoryScope;
-    kind: 'preference' | 'fact' | 'correction';
-    key: string;
-    value: string;
-    confidence: number;
-    user_id?: string;
-  }> = [];
-
-  for (const line of lines) {
-    const normalized = line.replace(/\s+/g, ' ').trim();
-    if (normalized.length < 8 || normalized.length > 220) continue;
-    if (containsSensitiveMaterial(normalized)) continue;
-    if (isChatterLine(normalized)) continue;
-    if (isTemporaryLine(normalized)) continue;
-
-    if (
-      /\b(i prefer|please (use|respond|avoid)|call me|my timezone is|keep .* concise)\b/i.test(
-        normalized,
-      )
-    ) {
-      facts.push({
-        scope: 'user',
-        kind: 'preference',
-        key: makeFactKey('preference', normalized),
-        value: normalized,
-        confidence: 0.82,
-        user_id: userId,
-      });
-      continue;
-    }
-
-    if (
-      /\b(actually|correction|that's (wrong|incorrect)|that is (wrong|incorrect)|should be)\b/i.test(
-        normalized,
-      )
-    ) {
-      facts.push({
-        scope: 'user',
-        kind: 'correction',
-        key: makeFactKey('correction', normalized),
-        value: normalized,
-        confidence: 0.8,
-        user_id: userId,
-      });
-      continue;
-    }
-
-    if (
-      /\b(we use|our (project|repo|team) (uses|prefers)|convention(?: is)?|standard(?: is)?|always run|default is)\b/i.test(
-        normalized,
-      )
-    ) {
-      facts.push({
-        scope: 'group',
-        kind: 'fact',
-        key: makeFactKey('convention', normalized),
-        value: normalized,
-        confidence: 0.78,
-      });
-    }
-  }
-
-  return dedupeFacts(facts);
-}
-
-function dedupeFacts<T extends { key: string; value: string }>(
-  facts: T[],
-): T[] {
-  const seen = new Set<string>();
-  const out: T[] = [];
-  for (const fact of facts) {
-    const key = `${fact.key}|${fact.value}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(fact);
-  }
-  return out;
-}
-
 function dedupeItemsById(items: MemoryItem[]): MemoryItem[] {
   const byId = new Map<string, MemoryItem>();
   for (const item of items) {
@@ -994,6 +961,27 @@ function dedupeItemsById(items: MemoryItem[]): MemoryItem[] {
     }
   }
   return [...byId.values()];
+}
+
+function selectBriefItems(items: MemoryItem[], limit: number): MemoryItem[] {
+  const kindPriority: Record<string, number> = {
+    correction: 0,
+    preference: 1,
+    decision: 2,
+    constraint: 3,
+    fact: 4,
+    context: 5,
+    recent_work: 6,
+  };
+  return [...items]
+    .sort((a, b) => {
+      const priorityDiff =
+        (kindPriority[a.kind] ?? 99) - (kindPriority[b.kind] ?? 99);
+      if (priorityDiff !== 0) return priorityDiff;
+      if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+      return Date.parse(b.updated_at) - Date.parse(a.updated_at);
+    })
+    .slice(0, limit);
 }
 
 function dedupeStringIds(ids: string[]): string[] {
@@ -1022,14 +1010,6 @@ function extractProcedure(
   };
 }
 
-function makeFactKey(prefix: string, value: string): string {
-  const normalized = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return `${prefix}:${normalized.slice(0, 64)}`;
-}
-
 function normalizeForMatch(input: string): string {
   return input
     .toLowerCase()
@@ -1045,12 +1025,6 @@ function hashPrompt(input: string): string {
 
 function isChatterLine(line: string): boolean {
   return /^(thanks|thank you|ok|okay|cool|great|awesome|sounds good|got it|sure|hello|hi)[.!]*$/i.test(
-    line,
-  );
-}
-
-function isTemporaryLine(line: string): boolean {
-  return /\b(today|tomorrow|right now|later today|next week|in a bit|currently working on)\b/i.test(
     line,
   );
 }

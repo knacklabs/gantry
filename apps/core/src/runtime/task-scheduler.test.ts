@@ -331,6 +331,130 @@ describe('job scheduler', () => {
     expect(reflectAfterTurnMock).not.toHaveBeenCalled();
   });
 
+  it('keeps dead-lettered dreaming jobs unchanged when dreaming is disabled', async () => {
+    upsertJob({
+      id: 'system:dreaming:main',
+      name: 'Memory Dreaming (main)',
+      prompt: '__system:memory_dream',
+      schedule_type: 'cron',
+      schedule_value: '0 3 * * *',
+      linked_sessions: ['group@g.us'],
+      group_scope: 'main',
+      created_by: 'agent',
+      next_run: null,
+      status: 'dead_lettered',
+      max_retries: 1,
+      max_consecutive_failures: 3,
+    });
+    updateJob('system:dreaming:main', {
+      pause_reason: 'Paused after failures',
+      consecutive_failures: 3,
+    });
+
+    const onSchedulerChanged = vi.fn();
+    startSchedulerLoop({
+      registeredGroups: () => ({
+        'group@g.us': {
+          name: 'Main',
+          folder: 'main',
+          trigger: '@Andy',
+          added_at: '2026-01-01T00:00:00.000Z',
+          isMain: true,
+        },
+      }),
+      getSessions: () => ({}),
+      queue: {
+        enqueueTask: vi.fn(
+          (_groupJid: string, _taskId: string, fn: () => Promise<void>) => {
+            void fn();
+          },
+        ),
+        closeStdin: vi.fn(),
+        notifyIdle: vi.fn(),
+      } as any,
+      onProcess: () => {},
+      sendMessage: vi.fn(async () => {}),
+      onSchedulerChanged,
+    });
+
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const job = getJobById('system:dreaming:main');
+    expect(job?.status).toBe('dead_lettered');
+    expect(job?.pause_reason).toBe('Paused after failures');
+    expect(job?.consecutive_failures).toBe(3);
+    expect(onSchedulerChanged).not.toHaveBeenCalled();
+  });
+
+  it('notifies linked sessions when __system dreaming job fails', async () => {
+    runDreamingSweepMock.mockRejectedValueOnce(new Error('dream boom'));
+
+    upsertJob({
+      id: 'system:dreaming:main',
+      name: 'Memory Dreaming (main)',
+      prompt: '__system:memory_dream',
+      schedule_type: 'once',
+      schedule_value: new Date(Date.now() - 60_000).toISOString(),
+      linked_sessions: ['group@g.us'],
+      group_scope: 'main',
+      created_by: 'agent',
+      next_run: new Date(Date.now() - 60_000).toISOString(),
+      status: 'active',
+      max_retries: 0,
+      max_consecutive_failures: 1,
+    });
+
+    const sendMessage = vi.fn(async () => {});
+    startSchedulerLoop({
+      registeredGroups: () => ({
+        'group@g.us': {
+          name: 'Main',
+          folder: 'main',
+          trigger: '@Andy',
+          added_at: '2026-01-01T00:00:00.000Z',
+          isMain: true,
+        },
+      }),
+      getSessions: () => ({}),
+      queue: {
+        enqueueTask: vi.fn(
+          (_groupJid: string, _taskId: string, fn: () => Promise<void>) => {
+            void fn();
+          },
+        ),
+        closeStdin: vi.fn(),
+        notifyIdle: vi.fn(),
+      } as any,
+      onProcess: () => {},
+      sendMessage,
+    });
+
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(
+      sendMessage.mock.calls.some(
+        ([jid, text]) =>
+          jid === 'group@g.us' &&
+          typeof text === 'string' &&
+          text.includes('⚠️ Scheduled task failed: dream boom'),
+      ),
+    ).toBe(true);
+    expect(
+      sendMessage.mock.calls.some(
+        ([jid, text]) =>
+          jid === 'group@g.us' &&
+          typeof text === 'string' &&
+          text.includes('Scheduler Update') &&
+          text.includes('job_id: system:dreaming:main') &&
+          text.includes('status: '),
+      ),
+    ).toBe(true);
+  });
+
   it('does not crash with exponential backoff overflow on high consecutive_failures', async () => {
     // Bug: retry delay = retry_backoff_ms * 2^(retryCount-1).
     // With retryCount=40 and retry_backoff_ms=30000:

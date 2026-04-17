@@ -42,6 +42,25 @@ function seedRegisteredGroups(runtimeHome: string, jids: string[]): void {
   }
 }
 
+function seedRegisteredGroupFolders(
+  runtimeHome: string,
+  rows: Array<{ jid: string; folder: string }>,
+): void {
+  const dbPath = path.join(runtimeHome, 'store', 'messages.db');
+  const db = new Database(dbPath);
+  try {
+    db.exec(
+      `CREATE TABLE IF NOT EXISTS registered_groups (jid TEXT PRIMARY KEY, folder TEXT);`,
+    );
+    const insert = db.prepare(
+      `INSERT OR REPLACE INTO registered_groups (jid, folder) VALUES (?, ?)`,
+    );
+    for (const row of rows) insert.run(row.jid, row.folder);
+  } finally {
+    db.close();
+  }
+}
+
 function setChannelEnabled(
   runtimeHome: string,
   channel: 'telegram' | 'slack',
@@ -49,6 +68,27 @@ function setChannelEnabled(
 ): void {
   const settings = loadRuntimeSettings(runtimeHome);
   settings.channels[channel].enabled = enabled;
+  saveRuntimeSettings(runtimeHome, settings);
+}
+
+function setFeatureFlags(
+  runtimeHome: string,
+  flags: { memory?: boolean; embeddings?: boolean; dreaming?: boolean },
+): void {
+  const settings = loadRuntimeSettings(runtimeHome);
+  if (flags.memory !== undefined) {
+    settings.memory.enabled = flags.memory;
+    settings.memory.provider = flags.memory ? 'sqlite' : 'noop';
+  }
+  if (flags.embeddings !== undefined) {
+    settings.memory.embeddings.enabled = flags.embeddings;
+    settings.memory.embeddings.provider = flags.embeddings
+      ? 'openai'
+      : 'disabled';
+  }
+  if (flags.dreaming !== undefined) {
+    settings.memory.dreaming.enabled = flags.dreaming;
+  }
   saveRuntimeSettings(runtimeHome, settings);
 }
 
@@ -75,6 +115,68 @@ describe('doctor checks', () => {
     expect(report.ok).toBe(false);
     expect(check?.status).toBe('fail');
     expect(check?.message).toContain('no channels are enabled');
+  });
+
+  it('reports IPC layout health when runtime IPC paths are writable', () => {
+    const runtimeHome = createRuntimeHome();
+    const report = runDoctor(import.meta.url, runtimeHome);
+    const check = report.checks.find((item) => item.id === 'ipc-layout');
+
+    expect(check?.status).toBe('pass');
+    expect(check?.message).toContain('IPC');
+  });
+
+  it('pre-creates IPC layout for registered group folders', () => {
+    const runtimeHome = createRuntimeHome();
+    seedRegisteredGroupFolders(runtimeHome, [
+      { jid: 'group-1@g.us', folder: 'team_alpha' },
+      { jid: 'group-2@g.us', folder: 'team_alpha' },
+      { jid: 'group-3@g.us', folder: 'invalid/folder' },
+    ]);
+
+    const report = runDoctor(import.meta.url, runtimeHome);
+    const check = report.checks.find((item) => item.id === 'ipc-layout');
+
+    expect(check?.status).toBe('pass');
+    expect(check?.message).toContain('1 registered group folder');
+    expect(
+      fs.existsSync(
+        path.join(runtimeHome, 'data', 'ipc', 'team_alpha', 'messages'),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(runtimeHome, 'data', 'ipc', 'team_alpha', 'task-responses'),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(runtimeHome, 'data', 'ipc', 'invalid/folder', 'messages'),
+      ),
+    ).toBe(false);
+  });
+
+  it('fails IPC layout check when runtime IPC paths are not writable', () => {
+    const runtimeHome = createRuntimeHome();
+    const ipcPathPrefix = path.join(runtimeHome, 'data', 'ipc');
+    const originalMkdirSync = fs.mkdirSync;
+
+    vi.spyOn(fs, 'mkdirSync').mockImplementation((target, options) => {
+      const targetPath = String(target);
+      if (targetPath.startsWith(ipcPathPrefix)) {
+        throw new Error('permission denied');
+      }
+      return originalMkdirSync(
+        target as fs.PathLike,
+        options as fs.MakeDirectoryOptions,
+      );
+    });
+
+    const report = runDoctor(import.meta.url, runtimeHome);
+    const check = report.checks.find((item) => item.id === 'ipc-layout');
+
+    expect(check?.status).toBe('fail');
+    expect(check?.message).toContain('not writable');
   });
 
   it('reports DB corruption for Telegram group registry', () => {
@@ -140,6 +242,62 @@ describe('doctor checks', () => {
 
     expect(check?.status).toBe('pass');
     expect(check?.message).toContain('launchd');
+  });
+
+  it('reports memory provider health and marks embeddings optional when disabled', () => {
+    const runtimeHome = createRuntimeHome();
+    const report = runDoctor(import.meta.url, runtimeHome);
+    const providerCheck = report.checks.find(
+      (item) => item.id === 'memory-provider',
+    );
+    const embeddingsCheck = report.checks.find(
+      (item) => item.id === 'embeddings-provider',
+    );
+
+    expect(providerCheck?.status).toBe('pass');
+    expect(providerCheck?.message).toContain('sqlite');
+    expect(embeddingsCheck?.status).toBe('pass');
+    expect(embeddingsCheck?.message).toContain('optional');
+  });
+
+  it('warns when embeddings are enabled but OPENAI_API_KEY is missing', () => {
+    const runtimeHome = createRuntimeHome();
+    setFeatureFlags(runtimeHome, { memory: true, embeddings: true });
+    upsertEnvFile(envFilePath(runtimeHome), {
+      MEMORY_EMBED_PROVIDER: 'openai',
+      OPENAI_API_KEY: null,
+    });
+
+    const report = runDoctor(import.meta.url, runtimeHome);
+    const embeddingsCheck = report.checks.find(
+      (item) => item.id === 'embeddings-provider',
+    );
+
+    expect(embeddingsCheck?.status).toBe('warn');
+    expect(embeddingsCheck?.message).toContain('openai');
+    expect(embeddingsCheck?.message).toContain('missing');
+  });
+
+  it('ignores unrelated runtime env keys while validating active settings', () => {
+    const runtimeHome = createRuntimeHome();
+    upsertEnvFile(envFilePath(runtimeHome), {
+      AGENT_RUNTIME: 'container',
+      SETUP_CONTAINER: '1',
+      MEMORY_PROVIDER: 'qmd',
+      MEMORY_EMBED_PROVIDER: 'openai',
+    });
+
+    const report = runDoctor(import.meta.url, runtimeHome);
+    const providerCheck = report.checks.find(
+      (item) => item.id === 'memory-provider',
+    );
+    const unsupportedCheck = report.checks.find((item) =>
+      item.id.startsWith('unsupported-'),
+    );
+
+    expect(unsupportedCheck).toBeUndefined();
+    expect(providerCheck?.status).toBe('pass');
+    expect(providerCheck?.message).toContain('sqlite');
   });
 });
 

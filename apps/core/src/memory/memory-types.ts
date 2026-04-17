@@ -3,9 +3,11 @@ export const MEMORY_GLOBAL_GROUP_FOLDER = '_global';
 
 export type MemoryKind =
   | 'preference'
+  | 'decision'
   | 'fact'
   | 'context'
   | 'correction'
+  | 'constraint'
   | 'recent_work';
 
 export interface MemoryItem {

@@ -4,6 +4,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  isSenderExplicitlyAllowed,
   RuntimeSenderAllowlistConfig,
   isSenderAllowed,
   isTriggerAllowed,
@@ -77,10 +78,17 @@ function renderSettingsYaml(overrides: {
 
   lines.push(
     `      log_denied: ${overrides.slackLogDenied === false ? 'false' : 'true'}`,
-    'features:',
-    '  memory: true',
-    '  embeddings: false',
-    '  dreaming: false',
+    'memory:',
+    '  enabled: true',
+    '  provider: sqlite',
+    '  sqlite_path: store/memory.db',
+    '  qmd_root: agent-memory',
+    '  embeddings:',
+    '    enabled: false',
+    '    provider: disabled',
+    '    model: text-embedding-3-large',
+    '  dreaming:',
+    '    enabled: false',
     '',
   );
 
@@ -164,6 +172,39 @@ describe('isSenderAllowed', () => {
   it('applies channel default when folder override missing', () => {
     expect(isSenderAllowed('sl:C1', 'U1', cfg)).toBe(true);
     expect(isSenderAllowed('sl:C1', 'U2', cfg)).toBe(false);
+  });
+});
+
+describe('isSenderExplicitlyAllowed', () => {
+  const cfg: RuntimeSenderAllowlistConfig = {
+    telegram: {
+      default: { allow: '*', mode: 'trigger' },
+      agents: { telegram_kai: { allow: ['alice'], mode: 'drop' } },
+      logDenied: true,
+    },
+    slack: {
+      default: { allow: ['U1'], mode: 'trigger' },
+      agents: {},
+      logDenied: true,
+    },
+  };
+
+  it('treats allow=* as not explicitly allowlisted', () => {
+    expect(isSenderExplicitlyAllowed('tg:1', 'anyone', cfg)).toBe(false);
+  });
+
+  it('uses explicit per-agent allowlist when present', () => {
+    expect(
+      isSenderExplicitlyAllowed('tg:1', 'alice', cfg, 'telegram_kai'),
+    ).toBe(true);
+    expect(isSenderExplicitlyAllowed('tg:1', 'bob', cfg, 'telegram_kai')).toBe(
+      false,
+    );
+  });
+
+  it('uses explicit channel default allowlist for non-* defaults', () => {
+    expect(isSenderExplicitlyAllowed('sl:C1', 'U1', cfg)).toBe(true);
+    expect(isSenderExplicitlyAllowed('sl:C1', 'U2', cfg)).toBe(false);
   });
 });
 

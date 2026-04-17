@@ -16,6 +16,7 @@ export interface OnboardingConfigInput {
   credentialMode: HostCredentialMode;
   onecliUrl?: string;
   memoryEnabled: boolean;
+  memoryProvider?: 'sqlite' | 'qmd' | 'noop';
   embeddingsEnabled: boolean;
   dreamingEnabled: boolean;
   openAiApiKey?: string;
@@ -25,9 +26,6 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
   ensureRuntimeLayout(input.runtimeHome);
   savePreferredRuntimeHome(input.runtimeHome);
 
-  const memoryProvider = input.memoryEnabled ? 'sqlite' : 'noop';
-  const embeddingProvider =
-    input.memoryEnabled && input.embeddingsEnabled ? 'openai' : 'disabled';
   const onecliUrl = input.onecliUrl?.trim() || '';
 
   upsertEnvFile(envFilePath(input.runtimeHome), {
@@ -39,9 +37,6 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
         : onecliUrl.length > 0
           ? onecliUrl
           : null,
-    MEMORY_PROVIDER: memoryProvider,
-    MEMORY_EMBED_PROVIDER: embeddingProvider,
-    MEMORY_DREAMING_ENABLED: input.dreamingEnabled ? 'true' : 'false',
     OPENAI_API_KEY:
       input.embeddingsEnabled && input.openAiApiKey?.trim()
         ? input.openAiApiKey.trim()
@@ -50,11 +45,19 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
 
   const settings = loadRuntimeSettings(input.runtimeHome);
   settings.channels.telegram.enabled = Boolean(input.telegramBotToken.trim());
-  settings.features = {
-    ...settings.features,
-    memory: input.memoryEnabled,
-    embeddings: input.memoryEnabled && input.embeddingsEnabled,
-    dreaming: input.dreamingEnabled,
+  settings.memory = {
+    ...settings.memory,
+    enabled: input.memoryEnabled,
+    provider: input.memoryEnabled ? input.memoryProvider || 'sqlite' : 'noop',
+    embeddings: {
+      ...settings.memory.embeddings,
+      enabled: input.memoryEnabled && input.embeddingsEnabled,
+      provider:
+        input.memoryEnabled && input.embeddingsEnabled ? 'openai' : 'disabled',
+    },
+    dreaming: {
+      enabled: input.memoryEnabled && input.dreamingEnabled,
+    },
   };
   saveRuntimeSettings(input.runtimeHome, settings);
 }

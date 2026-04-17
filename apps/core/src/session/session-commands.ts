@@ -10,7 +10,6 @@ export type SessionCommand =
   | { kind: 'compact'; raw: '/compact' }
   | { kind: 'new'; raw: '/new' }
   | { kind: 'stop'; raw: '/stop' }
-  | { kind: 'runtime_show'; raw: '/runtime' }
   | { kind: 'model_show'; raw: '/model' }
   | { kind: 'model_set'; raw: string; value: string }
   | { kind: 'model_default'; raw: '/model default' }
@@ -99,7 +98,6 @@ export function extractSessionCommand(
   if (text === '/compact') return { kind: 'compact', raw: '/compact' };
   if (text === '/new') return { kind: 'new', raw: '/new' };
   if (text === '/stop') return { kind: 'stop', raw: '/stop' };
-  if (text === '/runtime') return { kind: 'runtime_show', raw: '/runtime' };
   if (text === '/model') return { kind: 'model_show', raw: '/model' };
 
   const modelMatch = text.match(/^\/model\s+(\S+)$/);
@@ -123,13 +121,13 @@ export function extractSessionCommand(
 
 /**
  * Check if a session command sender is authorized.
- * Allowed: main group (any sender), or trusted/admin sender (is_from_me) in any group.
+ * Allowed only for trusted/admin sender (is_from_me) or explicit sender allowlist membership.
  */
 export function isSessionCommandAllowed(
-  isMainGroup: boolean,
   isFromMe: boolean,
+  isSenderControlAllowlisted: boolean,
 ): boolean {
-  return isMainGroup || isFromMe;
+  return isFromMe || isSenderControlAllowlisted;
 }
 
 /** Minimal agent result interface — matches the subset of AgentOutput used here. */
@@ -148,18 +146,23 @@ export interface SessionCommandDeps {
     options?: { timeoutMs?: number },
   ) => Promise<'success' | 'error'>;
   closeStdin: () => void;
-  advanceCursor: (timestamp: string) => void;
+  advanceCursor: (message: Pick<NewMessage, 'timestamp' | 'id'>) => void;
   formatMessages: (msgs: NewMessage[], timezone: string) => string;
   getDefaultModel: () => string | undefined;
   getGroupModelOverride: () => string | undefined;
   setGroupModelOverride: (value: string | undefined) => void;
   getGroupThinkingOverride: () => ThinkingOverride | undefined;
   setGroupThinkingOverride: (value: ThinkingOverride | undefined) => void;
-  getRuntimeStatusMessage: () => Promise<string>;
-  archiveCurrentSession: () => Promise<void>;
-  onSessionArchived?: () => Promise<void>;
+  archiveCurrentSession: (
+    cause?: 'new-session' | 'manual-compact',
+  ) => Promise<void>;
+  onSessionArchived?: (
+    cause?: 'new-session' | 'manual-compact',
+  ) => Promise<void>;
   clearCurrentSession: () => void;
   stopCurrentRun?: () => boolean;
+  /** Whether sender is explicitly trusted for control-plane commands. */
+  isSenderControlAllowlisted: (msg: NewMessage) => boolean;
   /** Whether the denied sender would normally be allowed to interact (for denial messages). */
   canSenderInteract: (msg: NewMessage) => boolean;
 }
@@ -216,7 +219,12 @@ export async function handleSessionCommand(opts: {
 
   if (!command || !cmdMsg) return { handled: false };
 
-  if (!isSessionCommandAllowed(isMainGroup, cmdMsg.is_from_me === true)) {
+  if (
+    !isSessionCommandAllowed(
+      cmdMsg.is_from_me === true,
+      deps.isSenderControlAllowlisted(cmdMsg),
+    )
+  ) {
     // DENIED: send denial if the sender would normally be allowed to interact,
     // then silently consume the command by advancing the cursor past it.
     // Trade-off: other messages in the same batch are also consumed (cursor is
@@ -224,7 +232,7 @@ export async function handleSessionCommand(opts: {
     if (deps.canSenderInteract(cmdMsg)) {
       await deps.sendMessage('Session commands require admin access.');
     }
-    deps.advanceCursor(cmdMsg.timestamp);
+    deps.advanceCursor(cmdMsg);
     return { handled: true, success: true };
   }
 
@@ -233,7 +241,7 @@ export async function handleSessionCommand(opts: {
 
   if (command.kind === 'stop') {
     const stopped = deps.stopCurrentRun ? deps.stopCurrentRun() : false;
-    deps.advanceCursor(cmdMsg.timestamp);
+    deps.advanceCursor(cmdMsg);
     await deps.sendMessage(
       stopped ? 'Stopping current run.' : 'No active run to stop.',
     );
@@ -274,7 +282,7 @@ export async function handleSessionCommand(opts: {
       if (preOutputSent) {
         // Output was already sent — don't retry or it will duplicate.
         // Advance cursor past pre-command messages, leave command pending.
-        deps.advanceCursor(preCommandMsgs[preCommandMsgs.length - 1].timestamp);
+        deps.advanceCursor(preCommandMsgs[preCommandMsgs.length - 1]);
         return { handled: true, success: true };
       }
       return { handled: true, success: false };
@@ -295,8 +303,8 @@ export async function handleSessionCommand(opts: {
     }
 
     try {
-      await deps.archiveCurrentSession();
-      await deps.onSessionArchived?.();
+      await deps.archiveCurrentSession('new-session');
+      await deps.onSessionArchived?.('new-session');
     } catch (err) {
       logger.warn(
         { group: groupName, err },
@@ -304,7 +312,7 @@ export async function handleSessionCommand(opts: {
       );
     }
 
-    deps.advanceCursor(cmdMsg.timestamp);
+    deps.advanceCursor(cmdMsg);
     await deps.sendMessage('Started a fresh session.');
     return { handled: true, success: true };
   }
@@ -312,13 +320,6 @@ export async function handleSessionCommand(opts: {
   const defaultModel = deps.getDefaultModel();
   const groupOverrideModel = deps.getGroupModelOverride();
   const groupThinkingOverride = deps.getGroupThinkingOverride();
-
-  if (command.kind === 'runtime_show') {
-    const message = await deps.getRuntimeStatusMessage();
-    deps.advanceCursor(cmdMsg.timestamp);
-    await deps.sendMessage(message);
-    return { handled: true, success: true };
-  }
 
   if (command.kind === 'model_show') {
     let message: string;
@@ -329,7 +330,7 @@ export async function handleSessionCommand(opts: {
     } else {
       message = 'Current model: CLI default (no explicit override).';
     }
-    deps.advanceCursor(cmdMsg.timestamp);
+    deps.advanceCursor(cmdMsg);
     await deps.sendMessage(message);
     return { handled: true, success: true };
   }
@@ -338,7 +339,7 @@ export async function handleSessionCommand(opts: {
     const message = groupThinkingOverride
       ? `Current thinking: ${describeThinking(groupThinkingOverride)} (group override).`
       : 'Current thinking: adaptive (effort medium) (default).';
-    deps.advanceCursor(cmdMsg.timestamp);
+    deps.advanceCursor(cmdMsg);
     await deps.sendMessage(message);
     return { handled: true, success: true };
   }
@@ -361,7 +362,7 @@ export async function handleSessionCommand(opts: {
     );
 
     if (validateResult === 'error' || modelValidationFailed) {
-      deps.advanceCursor(cmdMsg.timestamp);
+      deps.advanceCursor(cmdMsg);
       await deps.sendMessage(
         modelValidationError
           ? `Failed to set model: ${modelValidationError}`
@@ -370,7 +371,7 @@ export async function handleSessionCommand(opts: {
       return { handled: true, success: true };
     }
 
-    deps.advanceCursor(cmdMsg.timestamp);
+    deps.advanceCursor(cmdMsg);
     deps.setGroupModelOverride(command.value);
     await deps.sendMessage(`Model set to ${command.value} for this group.`);
     return { handled: true, success: true };
@@ -378,7 +379,7 @@ export async function handleSessionCommand(opts: {
 
   if (command.kind === 'model_default') {
     deps.setGroupModelOverride(undefined);
-    deps.advanceCursor(cmdMsg.timestamp);
+    deps.advanceCursor(cmdMsg);
     if (defaultModel) {
       await deps.sendMessage(
         `Model override cleared. Using default model: ${defaultModel}.`,
@@ -393,7 +394,7 @@ export async function handleSessionCommand(opts: {
 
   if (command.kind === 'thinking_set') {
     deps.setGroupThinkingOverride(command.value);
-    deps.advanceCursor(cmdMsg.timestamp);
+    deps.advanceCursor(cmdMsg);
     await deps.sendMessage(
       `Thinking set to ${describeThinking(command.value)} for this group.`,
     );
@@ -402,7 +403,7 @@ export async function handleSessionCommand(opts: {
 
   if (command.kind === 'thinking_default') {
     deps.setGroupThinkingOverride(undefined);
-    deps.advanceCursor(cmdMsg.timestamp);
+    deps.advanceCursor(cmdMsg);
     await deps.sendMessage(
       'Thinking override cleared. Using default thinking: adaptive (effort medium).',
     );
@@ -420,12 +421,24 @@ export async function handleSessionCommand(opts: {
   });
 
   // Advance cursor to the command — messages AFTER it remain pending for next poll.
-  deps.advanceCursor(cmdMsg.timestamp);
+  deps.advanceCursor(cmdMsg);
   await deps.setTyping(false);
 
   if (cmdOutput === 'error' || hadCmdError) {
     await deps.sendMessage(`${command.raw} failed. The session is unchanged.`);
     return { handled: true, success: true };
+  }
+
+  if (command.kind === 'compact') {
+    try {
+      await deps.archiveCurrentSession('manual-compact');
+      await deps.onSessionArchived?.('manual-compact');
+    } catch (err) {
+      logger.warn(
+        { group: groupName, err },
+        'Session archive failed during /compact; continuing',
+      );
+    }
   }
 
   return { handled: true, success: true };

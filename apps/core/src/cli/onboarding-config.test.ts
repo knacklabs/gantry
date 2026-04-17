@@ -41,9 +41,11 @@ describe('persistOnboardingConfig', () => {
 
     const settings = loadRuntimeSettings(runtimeHome);
     expect(settings.channels.telegram.enabled).toBe(true);
-    expect(settings.features.memory).toBe(true);
-    expect(settings.features.embeddings).toBe(false);
-    expect(settings.features.dreaming).toBe(false);
+    expect(settings.memory.enabled).toBe(true);
+    expect(settings.memory.provider).toBe('sqlite');
+    expect(settings.memory.embeddings.enabled).toBe(false);
+    expect(settings.memory.embeddings.provider).toBe('disabled');
+    expect(settings.memory.dreaming.enabled).toBe(false);
   });
 
   it('persists onecli URL for hybrid mode', () => {
@@ -65,5 +67,15 @@ describe('persistOnboardingConfig', () => {
     expect(env.MYCLAW_CREDENTIAL_MODE).toBe('hybrid');
     expect(env.ONECLI_URL).toBe('http://localhost:10254');
     expect(env.OPENAI_API_KEY).toBe('sk-openai');
+    expect(env.MEMORY_PROVIDER).toBeUndefined();
+    expect(env.MEMORY_EMBED_PROVIDER).toBeUndefined();
+    expect(env.MEMORY_DREAMING_ENABLED).toBeUndefined();
+
+    const settings = loadRuntimeSettings(runtimeHome);
+    expect(settings.memory.enabled).toBe(true);
+    expect(settings.memory.provider).toBe('sqlite');
+    expect(settings.memory.embeddings.enabled).toBe(true);
+    expect(settings.memory.embeddings.provider).toBe('openai');
+    expect(settings.memory.dreaming.enabled).toBe(true);
   });
 });

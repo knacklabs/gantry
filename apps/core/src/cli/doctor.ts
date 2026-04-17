@@ -17,6 +17,7 @@ import {
 import { envFilePath, ensureRuntimeWritable } from './runtime-home.js';
 import { ensureRuntimeSettings, RuntimeSettings } from './runtime-settings.js';
 import { validateTelegramBotToken } from './telegram.js';
+import { inspectMemoryHealth } from './memory-health.js';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
 
@@ -158,6 +159,42 @@ function inspectRegisteredGroupCount(runtimeHome: string): {
   }
 }
 
+function inspectRegisteredGroupFolders(runtimeHome: string): {
+  folders: string[];
+  error?: string;
+} {
+  const dbPath = path.join(runtimeHome, 'store', 'messages.db');
+  if (!fs.existsSync(dbPath)) {
+    return { folders: [] };
+  }
+
+  let db: Database.Database | null = null;
+  try {
+    db = new Database(dbPath, { readonly: true });
+    const rows = db
+      .prepare(
+        `SELECT folder FROM registered_groups WHERE folder IS NOT NULL AND TRIM(folder) != ''`,
+      )
+      .all() as Array<{ folder: string }>;
+    const folders = rows
+      .map((row) => String(row.folder || '').trim())
+      .filter((value) => /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(value));
+    return { folders: [...new Set(folders)] };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/no such column:\\s*folder/i.test(message)) {
+      return { folders: [] };
+    }
+    return { folders: [], error: message };
+  } finally {
+    try {
+      db?.close();
+    } catch {
+      // Ignore close errors and preserve primary failure.
+    }
+  }
+}
+
 function loadSettingsForDoctor(runtimeHome: string): {
   settings?: RuntimeSettings;
   error?: string;
@@ -235,6 +272,66 @@ export function runDoctor(
     });
   }
 
+  const ipcBaseDir = path.join(runtimeHome, 'data', 'ipc');
+  const ipcSubdirs = [
+    'messages',
+    'tasks',
+    'input',
+    'memory-requests',
+    'memory-responses',
+    'permission-requests',
+    'permission-responses',
+    'browser-requests',
+    'browser-responses',
+    'user-questions',
+    'user-answers',
+    'plan-events',
+    'plan-responses',
+    'task-responses',
+  ];
+  try {
+    fs.mkdirSync(ipcBaseDir, { recursive: true });
+    const ipcFolders = inspectRegisteredGroupFolders(runtimeHome);
+    if (ipcFolders.error) {
+      add(checks, {
+        id: 'ipc-layout',
+        title: 'IPC Layout',
+        status: 'warn',
+        message:
+          'IPC base directory is writable, but registered group folders could not be inspected.',
+        nextAction: `Check ${path.join(runtimeHome, 'store', 'messages.db')}. Details: ${ipcFolders.error}`,
+      });
+    } else {
+      for (const folder of ipcFolders.folders) {
+        for (const subdir of ipcSubdirs) {
+          fs.mkdirSync(path.join(ipcBaseDir, folder, subdir), {
+            recursive: true,
+          });
+        }
+      }
+      add(checks, {
+        id: 'ipc-layout',
+        title: 'IPC Layout',
+        status: 'pass',
+        message:
+          ipcFolders.folders.length > 0
+            ? `IPC layout is ready for ${ipcFolders.folders.length} registered group folder(s).`
+            : 'IPC base directory is writable.',
+      });
+    }
+  } catch (err) {
+    add(checks, {
+      id: 'ipc-layout',
+      title: 'IPC Layout',
+      status: 'fail',
+      message: `IPC layout is not writable at ${ipcBaseDir}.`,
+      nextAction:
+        err instanceof Error
+          ? `Fix runtime-home permissions. Details: ${err.message}`
+          : 'Fix runtime-home permissions and rerun doctor.',
+    });
+  }
+
   const settingsResult = loadSettingsForDoctor(runtimeHome);
   const settings = settingsResult.settings;
   const telegramEnabled = settings?.channels.telegram.enabled ?? false;
@@ -245,7 +342,7 @@ export function runDoctor(
         id: 'runtime-settings',
         title: 'Runtime Settings',
         status: 'pass',
-        message: `Runtime settings loaded from ${path.join(runtimeHome, 'settings.yaml')}.`,
+        message: `Runtime settings loaded from ${path.join(runtimeHome, 'settings.yaml')} with canonical memory block.`,
       });
     } else {
       add(checks, {
@@ -270,6 +367,7 @@ export function runDoctor(
 
   const envPath = envFilePath(runtimeHome);
   const env = readEnvFile(envPath);
+
   const hasTelegramToken = Boolean(env.TELEGRAM_BOT_TOKEN?.trim());
   if (!telegramEnabled) {
     add(checks, {
@@ -318,27 +416,21 @@ export function runDoctor(
     });
   }
 
-  const embeddingsEnabled = settings?.features.embeddings ?? false;
-  const hasOpenAIKey = Boolean(env.OPENAI_API_KEY?.trim());
-  if (embeddingsEnabled && !hasOpenAIKey) {
-    add(checks, {
-      id: 'embeddings-key',
-      title: 'OpenAI Embeddings',
-      status: 'warn',
-      message:
-        'Embeddings are enabled in settings.yaml but OPENAI_API_KEY is missing.',
-      nextAction: 'Add OPENAI_API_KEY or disable embeddings in `myclaw setup`.',
-    });
-  } else {
-    add(checks, {
-      id: 'embeddings-key',
-      title: 'OpenAI Embeddings',
-      status: 'pass',
-      message: embeddingsEnabled
-        ? 'OpenAI embeddings are enabled and key is present.'
-        : 'Embeddings are disabled in settings.yaml.',
-    });
-  }
+  const memoryHealth = inspectMemoryHealth(runtimeHome, settings, env);
+  add(checks, {
+    id: 'memory-provider',
+    title: 'Memory Provider',
+    status: memoryHealth.memoryProviderCheck.status,
+    message: `${memoryHealth.memoryProvider} (source: ${memoryHealth.memoryProviderSource}): ${memoryHealth.memoryProviderCheck.message}`,
+    nextAction: memoryHealth.memoryProviderCheck.nextAction,
+  });
+  add(checks, {
+    id: 'embeddings-provider',
+    title: 'Memory Embeddings',
+    status: memoryHealth.embeddingProviderCheck.status,
+    message: `${memoryHealth.embeddingProvider} (source: ${memoryHealth.embeddingProviderSource}): ${memoryHealth.embeddingProviderCheck.message}`,
+    nextAction: memoryHealth.embeddingProviderCheck.nextAction,
+  });
 
   if (telegramEnabled) {
     const telegramGroups = inspectTelegramGroupCount(runtimeHome);

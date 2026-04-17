@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { ChildProcess } from 'child_process';
-import type { Channel, NewMessage, RegisteredGroup } from '../core/types.js';
+import type { NewMessage, RegisteredGroup } from '../core/types.js';
+import {
+  decodeGroupMessageCursor,
+  encodeGroupMessageCursor,
+} from '../core/message-cursor.js';
 import type { AgentOutput } from './agent-spawn-types.js';
 import type { GroupProcessingDeps } from './group-processing.js';
 
@@ -42,11 +46,9 @@ vi.mock('../memory/memory-service.js', () => ({
   },
 }));
 
-const mockFindChannel = vi.fn();
 const mockFormatMessages = vi.fn();
 const mockFormatOutboundForChannel = vi.fn();
 vi.mock('../messaging/router.js', () => ({
-  findChannel: (...args: unknown[]) => mockFindChannel(...args),
   formatMessages: (...args: unknown[]) => mockFormatMessages(...args),
   formatOutboundForChannel: (...args: unknown[]) =>
     mockFormatOutboundForChannel(...args),
@@ -99,15 +101,6 @@ vi.mock('../session/session-commands.js', () => ({
     mockHandleSessionCommand(...args),
 }));
 
-const mockCollectRuntimeDiagnostics = vi.fn();
-const mockFormatRuntimeDiagnosticsMessage = vi.fn();
-vi.mock('./runtime-diagnostics.js', () => ({
-  collectRuntimeDiagnostics: (...args: unknown[]) =>
-    mockCollectRuntimeDiagnostics(...args),
-  formatRuntimeDiagnosticsMessage: (...args: unknown[]) =>
-    mockFormatRuntimeDiagnosticsMessage(...args),
-}));
-
 // ---------------------------------------------------------------------------
 // Import the module under test AFTER all mocks are declared
 // ---------------------------------------------------------------------------
@@ -144,15 +137,30 @@ function makeGroup(overrides: Partial<RegisteredGroup> = {}): RegisteredGroup {
   };
 }
 
-function makeChannel(overrides: Partial<Channel> = {}): Channel {
+type TestChannelRuntime = GroupProcessingDeps['channelRuntime'];
+
+function makeChannel(
+  overrides: Partial<TestChannelRuntime> = {},
+): TestChannelRuntime {
+  const supportsStreaming =
+    overrides.supportsStreaming ??
+    (Object.prototype.hasOwnProperty.call(overrides, 'sendStreamingChunk')
+      ? vi.fn().mockReturnValue(true)
+      : vi.fn().mockReturnValue(false));
+  const supportsProgress =
+    overrides.supportsProgress ??
+    (Object.prototype.hasOwnProperty.call(overrides, 'sendProgressUpdate')
+      ? vi.fn().mockReturnValue(true)
+      : vi.fn().mockReturnValue(false));
   return {
-    name: 'test-channel',
-    connect: vi.fn().mockResolvedValue(undefined),
+    hasChannel: vi.fn().mockReturnValue(true),
+    supportsStreaming,
+    supportsProgress,
     sendMessage: vi.fn().mockResolvedValue(undefined),
-    isConnected: vi.fn().mockReturnValue(true),
-    ownsJid: vi.fn().mockReturnValue(true),
-    disconnect: vi.fn().mockResolvedValue(undefined),
+    sendStreamingChunk: vi.fn().mockResolvedValue(undefined),
+    resetStreaming: vi.fn(),
     setTyping: vi.fn().mockResolvedValue(undefined),
+    sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -161,7 +169,7 @@ function makeDeps(
   overrides: Partial<GroupProcessingDeps> = {},
 ): GroupProcessingDeps {
   return {
-    channels: [],
+    channelRuntime: makeChannel(),
     getGroup: vi.fn().mockReturnValue(undefined),
     getSession: vi.fn().mockReturnValue(undefined),
     setSession: vi.fn(),
@@ -202,11 +210,9 @@ function setupHappyPath(
   };
 
   const deps = makeDeps({
-    channels: [channel],
+    channelRuntime: channel,
     getGroup: vi.fn().mockReturnValue(group),
   });
-
-  mockFindChannel.mockReturnValue(channel);
   mockGetMessagesSince.mockReturnValue(messages);
   mockHandleSessionCommand.mockResolvedValue({ handled: false });
   mockFormatMessages.mockReturnValue('formatted prompt');
@@ -258,15 +264,17 @@ describe('createGroupProcessor', () => {
       const result = await processGroupMessages('unknown@g.us');
 
       expect(result).toBe(true);
-      expect(mockFindChannel).not.toHaveBeenCalled();
+      expect(deps.channelRuntime.hasChannel).not.toHaveBeenCalled();
     });
 
     it('returns true when channel is not found for the JID', async () => {
       const group = makeGroup();
       const deps = makeDeps({
+        channelRuntime: makeChannel({
+          hasChannel: vi.fn().mockReturnValue(false),
+        }),
         getGroup: vi.fn().mockReturnValue(group),
       });
-      mockFindChannel.mockReturnValue(undefined);
 
       const { processGroupMessages } = createGroupProcessor(deps);
       const result = await processGroupMessages('group1@g.us');
@@ -278,10 +286,9 @@ describe('createGroupProcessor', () => {
       const channel = makeChannel();
       const group = makeGroup();
       const deps = makeDeps({
-        channels: [channel],
+        channelRuntime: channel,
         getGroup: vi.fn().mockReturnValue(group),
       });
-      mockFindChannel.mockReturnValue(channel);
       mockGetMessagesSince.mockReturnValue([]);
 
       const { processGroupMessages } = createGroupProcessor(deps);
@@ -456,7 +463,14 @@ describe('createGroupProcessor', () => {
       await processGroupMessages('group1@g.us');
 
       // Cursor set to last message timestamp
-      expect(deps.setCursor).toHaveBeenCalledWith('group1@g.us', '1700000005');
+      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
+        .calls;
+      expect(setCursorCalls).toHaveLength(1);
+      expect(setCursorCalls[0][0]).toBe('group1@g.us');
+      expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
+        timestamp: '1700000005',
+        id: 'msg-2',
+      });
       expect(deps.saveState).toHaveBeenCalled();
     });
 
@@ -720,7 +734,11 @@ describe('createGroupProcessor', () => {
         .calls;
       // First call advances cursor to message timestamp; there should be no second rollback call
       expect(setCursorCalls).toHaveLength(1);
-      expect(setCursorCalls[0]).toEqual(['group1@g.us', '1700000001']);
+      expect(setCursorCalls[0][0]).toBe('group1@g.us');
+      expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
+        timestamp: '1700000001',
+        id: 'msg-1',
+      });
     });
   });
 
@@ -1078,8 +1096,7 @@ describe('createGroupProcessor', () => {
         sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
       });
       const { deps } = setupHappyPath({ group, messages });
-      deps.channels = [channel];
-      mockFindChannel.mockReturnValue(channel);
+      deps.channelRuntime = channel;
 
       mockSpawnAgent.mockImplementation(
         async (
@@ -1133,8 +1150,7 @@ describe('createGroupProcessor', () => {
         sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
       });
       const { deps } = setupHappyPath({ group, messages });
-      deps.channels = [channel];
-      mockFindChannel.mockReturnValue(channel);
+      deps.channelRuntime = channel;
 
       mockSpawnAgent.mockImplementation(
         async (
@@ -1175,8 +1191,7 @@ describe('createGroupProcessor', () => {
         sendStreamingChunk: vi.fn().mockResolvedValue(undefined),
       });
       const { deps } = setupHappyPath();
-      deps.channels = [streamingChannel];
-      mockFindChannel.mockReturnValue(streamingChannel);
+      deps.channelRuntime = streamingChannel;
 
       mockSpawnAgent.mockImplementation(
         async (
@@ -1221,8 +1236,7 @@ describe('createGroupProcessor', () => {
         sendStreamingChunk: vi.fn().mockResolvedValue(undefined),
       });
       const { deps } = setupHappyPath();
-      deps.channels = [streamingChannel];
-      mockFindChannel.mockReturnValue(streamingChannel);
+      deps.channelRuntime = streamingChannel;
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
@@ -1354,7 +1368,10 @@ describe('createGroupProcessor', () => {
       let providedFollowUp = false;
       mockGetMessagesSince.mockImplementation((_jid: string, since: string) => {
         if (since === '0') return initialMessages;
-        if (since === '1700000001' && !providedFollowUp) {
+        if (
+          decodeGroupMessageCursor(since).timestamp === '1700000001' &&
+          !providedFollowUp
+        ) {
           providedFollowUp = true;
           return [followUpMessage];
         }
@@ -1381,12 +1398,10 @@ describe('createGroupProcessor', () => {
       const group = makeGroup({ isMain: true });
       const channel = makeChannel();
       const deps = makeDeps({
-        channels: [channel],
+        channelRuntime: channel,
         getGroup: vi.fn().mockReturnValue(group),
         getCursor: vi.fn().mockReturnValue('cursor-ts-123'),
       });
-
-      mockFindChannel.mockReturnValue(channel);
       mockGetMessagesSince.mockReturnValue([]);
 
       const { processGroupMessages } = createGroupProcessor(deps);
@@ -1546,11 +1561,9 @@ describe('createGroupProcessor', () => {
       const messages = opts.messages ?? [makeMessage()];
 
       const deps = makeDeps({
-        channels: [channel],
+        channelRuntime: channel,
         getGroup: vi.fn().mockReturnValue(group),
       });
-
-      mockFindChannel.mockReturnValue(channel);
       mockGetMessagesSince.mockReturnValue(messages);
       mockLoadSenderAllowlist.mockReturnValue({});
       mockIsTriggerAllowed.mockReturnValue(true);
@@ -1605,11 +1618,19 @@ describe('createGroupProcessor', () => {
 
     it('advanceCursor sets cursor and saves state', async () => {
       const { capturedDeps, deps } = await captureSessionDeps();
-      const advanceCursor = capturedDeps.advanceCursor as (ts: string) => void;
+      const advanceCursor = capturedDeps.advanceCursor as (
+        message: Pick<NewMessage, 'timestamp' | 'id'>,
+      ) => void;
 
-      advanceCursor('1700099999');
+      advanceCursor({ timestamp: '1700099999', id: 'msg-advance' });
 
-      expect(deps.setCursor).toHaveBeenCalledWith('group1@g.us', '1700099999');
+      expect(deps.setCursor).toHaveBeenCalledWith(
+        'group1@g.us',
+        encodeGroupMessageCursor({
+          timestamp: '1700099999',
+          id: 'msg-advance',
+        }),
+      );
       expect(deps.saveState).toHaveBeenCalled();
     });
 
@@ -1671,23 +1692,6 @@ describe('createGroupProcessor', () => {
       );
     });
 
-    it('getRuntimeStatusMessage calls diagnostics and formats result', async () => {
-      const { capturedDeps } = await captureSessionDeps();
-      const getRuntimeStatusMessage =
-        capturedDeps.getRuntimeStatusMessage as () => Promise<string>;
-
-      mockCollectRuntimeDiagnostics.mockResolvedValue({ ok: true });
-      mockFormatRuntimeDiagnosticsMessage.mockReturnValue('all good');
-
-      const msg = await getRuntimeStatusMessage();
-
-      expect(mockCollectRuntimeDiagnostics).toHaveBeenCalled();
-      expect(mockFormatRuntimeDiagnosticsMessage).toHaveBeenCalledWith({
-        ok: true,
-      });
-      expect(msg).toBe('all good');
-    });
-
     it('archiveCurrentSession archives when session exists', async () => {
       const { capturedDeps, deps } = await captureSessionDeps();
       const archiveCurrentSession =
@@ -1732,6 +1736,25 @@ describe('createGroupProcessor', () => {
           groupFolder: 'grp-folder',
           prompt: '/new',
           result: 'session archived',
+          isMain: true,
+        }),
+      );
+    });
+
+    it('onSessionArchived maps manual-compact to /compact reflection payload', async () => {
+      const { capturedDeps } = await captureSessionDeps();
+      const onSessionArchived = capturedDeps.onSessionArchived as (
+        cause?: 'new-session' | 'manual-compact',
+      ) => Promise<void>;
+      mockReflectAfterTurn.mockResolvedValue(undefined);
+
+      await onSessionArchived('manual-compact');
+
+      expect(mockReflectAfterTurn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          groupFolder: 'grp-folder',
+          prompt: '/compact',
+          result: 'session compacted',
           isMain: true,
         }),
       );
@@ -1843,11 +1866,9 @@ describe('createGroupProcessor', () => {
       const messages = [makeMessage()];
 
       const deps = makeDeps({
-        channels: [channel],
+        channelRuntime: channel,
         getGroup: vi.fn().mockReturnValue(group),
       });
-
-      mockFindChannel.mockReturnValue(channel);
       mockGetMessagesSince.mockReturnValue(messages);
       mockGetAllJobs.mockReturnValue([]);
       mockGetRecentJobRuns.mockReturnValue([]);
@@ -1905,12 +1926,10 @@ describe('createGroupProcessor', () => {
       const messages = [makeMessage()];
 
       const deps = makeDeps({
-        channels: [channel],
+        channelRuntime: channel,
         getGroup: vi.fn().mockReturnValue(group),
         getCursor: vi.fn().mockReturnValue('0'),
       });
-
-      mockFindChannel.mockReturnValue(channel);
       mockGetMessagesSince.mockReturnValue(messages);
       mockHandleSessionCommand.mockResolvedValue({ handled: false });
       mockFormatMessages.mockReturnValue('formatted prompt');
@@ -1963,12 +1982,10 @@ describe('createGroupProcessor', () => {
       const messages = [makeMessage()];
 
       const deps = makeDeps({
-        channels: [channel],
+        channelRuntime: channel,
         getGroup: vi.fn().mockReturnValue(group),
         getCursor: vi.fn().mockReturnValue('0'),
       });
-
-      mockFindChannel.mockReturnValue(channel);
       mockGetMessagesSince.mockReturnValue(messages);
       mockHandleSessionCommand.mockResolvedValue({ handled: false });
       mockFormatMessages.mockReturnValue('formatted prompt');

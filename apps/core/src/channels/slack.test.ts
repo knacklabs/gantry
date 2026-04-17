@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('./registry.js', () => ({
-  registerChannel: vi.fn(),
-}));
-
 vi.mock('../core/env.js', () => ({
   readEnvFile: vi.fn(() => ({})),
 }));
@@ -105,13 +101,7 @@ vi.mock('@slack/bolt', () => ({
 
 import { readEnvFile } from '../core/env.js';
 import { SLACK_PERMISSION_APPROVER_IDS } from '../core/config.js';
-import { registerChannel } from './registry.js';
-import { SlackChannel } from './slack.js';
-
-const slackFactoryCall = vi
-  .mocked(registerChannel)
-  .mock.calls.find((call) => call[0] === 'slack');
-const slackFactory = slackFactoryCall?.[1];
+import { createSlackChannel, SlackChannel } from './slack.js';
 
 function createOpts() {
   return {
@@ -131,14 +121,36 @@ describe('Slack channel', () => {
     vi.restoreAllMocks();
   });
 
-  it('self-registers slack factory', () => {
-    expect(slackFactory).toBeTypeOf('function');
+  it('createSlackChannel returns null when tokens are missing', () => {
+    vi.mocked(readEnvFile).mockReturnValue({});
+    const savedBot = process.env.SLACK_BOT_TOKEN;
+    const savedApp = process.env.SLACK_APP_TOKEN;
+    delete process.env.SLACK_BOT_TOKEN;
+    delete process.env.SLACK_APP_TOKEN;
+    try {
+      expect(createSlackChannel(createOpts() as any)).toBeNull();
+    } finally {
+      if (savedBot !== undefined) process.env.SLACK_BOT_TOKEN = savedBot;
+      if (savedApp !== undefined) process.env.SLACK_APP_TOKEN = savedApp;
+    }
   });
 
-  it('factory returns null when tokens are missing', () => {
-    vi.mocked(readEnvFile).mockReturnValue({});
-    expect(slackFactory).toBeTypeOf('function');
-    expect(slackFactory?.(createOpts() as any)).toBeNull();
+  it('createSlackChannel returns a channel when tokens are available', () => {
+    vi.mocked(readEnvFile).mockReturnValue({
+      SLACK_BOT_TOKEN: 'xoxb-file-token',
+      SLACK_APP_TOKEN: 'xapp-file-token',
+    });
+    const savedBot = process.env.SLACK_BOT_TOKEN;
+    const savedApp = process.env.SLACK_APP_TOKEN;
+    delete process.env.SLACK_BOT_TOKEN;
+    delete process.env.SLACK_APP_TOKEN;
+    try {
+      const channel = createSlackChannel(createOpts() as any);
+      expect(channel).toBeInstanceOf(SlackChannel);
+    } finally {
+      if (savedBot !== undefined) process.env.SLACK_BOT_TOKEN = savedBot;
+      if (savedApp !== undefined) process.env.SLACK_APP_TOKEN = savedApp;
+    }
   });
 
   it('sends threaded Slack messages with thread_ts', async () => {

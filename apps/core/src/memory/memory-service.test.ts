@@ -207,7 +207,7 @@ describe('MemoryService', () => {
     expect(context.facts.length).toBeGreaterThan(0);
     expect(context.procedures.length).toBeGreaterThan(0);
     expect(context.snippets).toHaveLength(0);
-    expect(context.block).not.toContain('Recall Snippets:');
+    expect(context.block).not.toContain('Relevant Source Snippets:');
   });
 
   it('runs recall embedding search for substantive queries', async () => {
@@ -257,7 +257,7 @@ describe('MemoryService', () => {
       false,
     );
 
-    expect(context.block).toContain('Recall Snippets:');
+    expect(context.block).toContain('Relevant Source Snippets:');
     expect(context.block).toMatch(
       /\[local_doc:deploy-guide\.md \d{4}-\d{2}-\d{2}\]/,
     );
@@ -447,6 +447,41 @@ describe('MemoryService', () => {
     ).toBe(0);
   });
 
+  it('ingests group knowledge markdown from non-legacy knowledge directory', async () => {
+    const service = makeService();
+    const groupFolder = `memory-knowledge-${Date.now()}`;
+    const groupDir = path.join(AGENTS_DIR, groupFolder);
+    tempGroups.push(groupDir);
+
+    fs.mkdirSync(path.join(groupDir, 'knowledge', 'entities'), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(groupDir, 'knowledge', 'entities', 'project.md'),
+      '# Project facts\nThis is durable group knowledge that should be ingested into local_doc chunks.',
+    );
+    fs.writeFileSync(
+      path.join(groupDir, 'knowledge', 'entities', 'ignore.txt'),
+      'ignore me',
+    );
+
+    await service.ingestGroupSources(groupFolder);
+
+    const store = (service as unknown as { store: MemoryStore }).store;
+    expect(
+      store.listSourceChunks(
+        'local_doc',
+        `local_doc:${groupFolder}:entities/project.md`,
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      store.listSourceChunks(
+        'local_doc',
+        `local_doc:${groupFolder}:entities/ignore.txt`,
+      ).length,
+    ).toBe(0);
+  });
+
   it('ingests global knowledge docs from provided directory', async () => {
     const service = makeService();
     const knowledgeDir = fs.mkdtempSync(
@@ -488,6 +523,74 @@ describe('MemoryService', () => {
     );
     expect(conventionFact).toBeDefined();
     expect(conventionFact!.value).toMatch(/we use|our project uses/i);
+  });
+
+  it('extracts real decision memories during reflection', async () => {
+    const service = makeService();
+
+    await service.reflectAfterTurn({
+      groupFolder: 'team',
+      isMain: false,
+      prompt: 'We decided to use SQLite for local memory instead of Postgres.',
+      result: 'I will follow the SQLite memory decision.',
+    });
+
+    const context = await service.buildMemoryContext(
+      'memory backend decision',
+      'team',
+      false,
+    );
+    const decision = context.facts.find((fact) => fact.kind === 'decision');
+    expect(decision).toBeDefined();
+    expect(decision!.scope).toBe('group');
+    expect(decision!.value).toContain('SQLite');
+    expect(context.block).toContain('Active Decisions:');
+    expect(context.block).toContain('SQLite');
+  });
+
+  it('extracts constraint memories such as no legacy and optional embeddings', async () => {
+    const service = makeService();
+
+    await service.reflectAfterTurn({
+      groupFolder: 'team',
+      isMain: false,
+      prompt:
+        'No legacy code. Embeddings are optional but not mandatory for memory.',
+      result: 'Understood, memory will keep embeddings optional.',
+    });
+
+    const context = await service.buildMemoryContext(
+      'memory constraints',
+      'team',
+      false,
+    );
+    const constraints = context.facts.filter(
+      (fact) => fact.kind === 'constraint',
+    );
+    expect(constraints.length).toBeGreaterThan(0);
+    expect(context.block).toContain('Corrections and Constraints:');
+    expect(context.block).toMatch(/No legacy|Embeddings are optional/i);
+  });
+
+  it('does not persist assistant-only broad always/never language as constraints', async () => {
+    const service = makeService();
+
+    await service.reflectAfterTurn({
+      groupFolder: 'team',
+      isMain: false,
+      prompt: 'Continue the task.',
+      result:
+        'I will always keep the implementation concise and never block future work.',
+    });
+
+    const context = await service.buildMemoryContext(
+      'implementation constraints',
+      'team',
+      false,
+    );
+    expect(
+      context.facts.filter((fact) => fact.kind === 'constraint'),
+    ).toHaveLength(0);
   });
 
   it('extractProcedure returns null when fewer than 3 steps', async () => {
@@ -697,6 +800,69 @@ describe('MemoryService', () => {
       expect(results[0]!.text).toBeTruthy();
       expect(results[0]!.fused_score).toBeGreaterThan(0);
     }
+  });
+
+  it('search returns saved memory statements, not only document chunks', async () => {
+    const service = makeService();
+
+    await service.saveMemory(
+      {
+        kind: 'decision',
+        key: 'decision:memory-backend',
+        value: 'We decided to use SQLite for local memory.',
+        confidence: 0.9,
+      },
+      { isMain: false, groupFolder: 'team' },
+    );
+
+    const results = await service.search({
+      query: 'memory backend SQLite decision',
+      groupFolder: 'team',
+      limit: 5,
+    });
+
+    const memoryResult = results.find(
+      (result) => result.source_type === 'memory_item',
+    );
+    expect(memoryResult).toBeDefined();
+    expect(memoryResult!.text).toContain('SQLite');
+    expect(memoryResult!.source_path).toContain('decision:memory-backend');
+  });
+
+  it('search does not starve lower-confidence exact memory matches', async () => {
+    const service = makeService();
+
+    for (let index = 0; index < 30; index += 1) {
+      await service.saveMemory(
+        {
+          kind: 'fact',
+          key: `fact:unrelated-${index}`,
+          value: `Billing note ${index} about release hygiene.`,
+          confidence: 0.99,
+        },
+        { isMain: false, groupFolder: 'team' },
+      );
+    }
+
+    await service.saveMemory(
+      {
+        kind: 'decision',
+        key: 'decision:billing-ledger',
+        value: 'We decided the billing ledger uses SQLite snapshots.',
+        confidence: 0.71,
+      },
+      { isMain: false, groupFolder: 'team' },
+    );
+
+    const results = await service.search({
+      query: 'billing ledger SQLite snapshots',
+      groupFolder: 'team',
+      limit: 5,
+    });
+
+    expect(
+      results.some((result) => result.source_path.includes('billing-ledger')),
+    ).toBe(true);
   });
 
   it('containsSensitiveMaterial blocks reflection with actual secrets', async () => {
@@ -959,13 +1125,13 @@ describe('MemoryService', () => {
     expect(service.getProviderName()).toBe('unknown');
   });
 
-  it('ingestGroupSources scans memory/ directory with subdirs and .md files', async () => {
+  it('ingestGroupSources ignores retired markdown from agents/<group>/memory', async () => {
     const service = makeService();
     const groupFolder = `memory-scan-${Date.now()}`;
     const groupDir = path.join(AGENTS_DIR, groupFolder);
     tempGroups.push(groupDir);
 
-    // Create group dir with memory/ subdirectory containing nested .md files
+    // Create group dir with retired flat markdown data.
     fs.mkdirSync(path.join(groupDir, 'memory', 'subdir'), { recursive: true });
     fs.writeFileSync(
       path.join(groupDir, 'memory', 'guide.md'),
@@ -987,13 +1153,13 @@ describe('MemoryService', () => {
     expect(
       store.listSourceChunks('local_doc', `local_doc:${groupFolder}:guide.md`)
         .length,
-    ).toBeGreaterThan(0);
+    ).toBe(0);
     expect(
       store.listSourceChunks(
         'local_doc',
         `local_doc:${groupFolder}:subdir/nested.md`,
       ).length,
-    ).toBeGreaterThan(0);
+    ).toBe(0);
   });
 
   it('ingestGlobalKnowledge returns early when no knowledge dir is provided and default is empty', async () => {
@@ -1712,7 +1878,7 @@ describe('MemoryService', () => {
       false,
     );
 
-    expect(context.block).toContain('[Memory Context]');
+    expect(context.block).toContain('[Memory Brief]');
     expect(context.facts).toHaveLength(0);
     expect(context.procedures).toHaveLength(0);
   });
@@ -2061,7 +2227,7 @@ describe('MemoryService', () => {
       false,
     );
 
-    expect(context.block).toContain('Recall Snippets:');
+    expect(context.block).toContain('Relevant Source Snippets:');
     expect(context.block).toContain('conversation:session.md');
     expect(context.block).toContain('2026-04-01');
   });

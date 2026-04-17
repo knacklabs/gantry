@@ -38,7 +38,7 @@ describe('config CLI commands', () => {
     expect(spy).toHaveBeenCalledWith('abc123token');
   });
 
-  it('masks sensitive values in list output', () => {
+  it('lists env keys without runtime-compatibility annotations', () => {
     const runtimeHome = makeRuntimeHome();
 
     runConfigCommand(runtimeHome, ['set', 'TELEGRAM_BOT_TOKEN', 'abc123token']);
@@ -49,6 +49,7 @@ describe('config CLI commands', () => {
     const output = spy.mock.calls.at(-1)?.[0] as string;
 
     expect(output).toContain('MEMORY_PROVIDER=sqlite');
+    expect(output).not.toContain('ignored for runtime behavior');
     expect(output).toContain('TELEGRAM_BOT_TOKEN=abc***ken');
   });
 

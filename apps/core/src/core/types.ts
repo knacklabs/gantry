@@ -1,6 +1,6 @@
 export interface AdditionalMount {
   hostPath: string; // Absolute path on host (supports ~ for home)
-  containerPath?: string; // Optional — defaults to basename of hostPath. Mounted at /workspace/extra/{value}
+  containerPath?: string; // Persisted schema key for the agent workspace path.
   readonly?: boolean; // Default: true for safety
 }
 
@@ -19,7 +19,7 @@ export interface ThinkingOverride {
  * Stored at `AGENT_ROOT/mount-allowlist.json` and only editable from the host.
  */
 export interface MountAllowlist {
-  // Directories that can be mounted into containers
+  // Directories that can be exposed to agent runs.
   allowedRoots: AllowedRoot[];
   // Glob patterns for paths that should never be mounted (e.g., ".ssh", ".gnupg")
   blockedPatterns: string[];
@@ -137,7 +137,7 @@ export interface JobEvent {
   created_at: string;
 }
 
-// --- Channel abstraction ---
+// --- Channel capability ports ---
 export interface PermissionApprovalRequest {
   requestId: string;
   sourceGroup: string;
@@ -196,47 +196,6 @@ export interface MessageSendOptions {
   threadId?: string;
 }
 
-export interface Channel {
-  name: string;
-  connect(): Promise<void>;
-  sendMessage(
-    jid: string,
-    text: string,
-    options?: MessageSendOptions,
-  ): Promise<void>;
-  isConnected(): boolean;
-  ownsJid(jid: string): boolean;
-  disconnect(): Promise<void>;
-  // Optional: typing indicator. Channels that support it implement it.
-  setTyping?(jid: string, isTyping: boolean): Promise<void>;
-  // Optional: streaming sink for progressive output.
-  sendStreamingChunk?(
-    jid: string,
-    text: string,
-    options?: StreamingChunkOptions,
-  ): Promise<void>;
-  // Optional: clear per-jid streaming state before a new processing cycle.
-  resetStreaming?(jid: string): void;
-  // Optional: liveness/progress status sink (e.g. "still working...").
-  sendProgressUpdate?(
-    jid: string,
-    text: string,
-    options?: ProgressUpdateOptions,
-  ): Promise<void>;
-  // Optional: sync group/chat names from the platform.
-  syncGroups?(force: boolean): Promise<void>;
-  // Optional: human approval flow for sensitive tool permission requests.
-  requestPermissionApproval?(
-    jid: string,
-    request: PermissionApprovalRequest,
-  ): Promise<PermissionApprovalDecision>;
-  // Optional: structured question flow for AskUserQuestion.
-  requestUserAnswer?(
-    jid: string,
-    request: UserQuestionRequest,
-  ): Promise<UserQuestionResponse>;
-}
-
 // Callback type that channels use to deliver inbound messages
 export type OnInboundMessage = (chatJid: string, message: NewMessage) => void;
 
@@ -250,3 +209,89 @@ export type OnChatMetadata = (
   channel?: string,
   isGroup?: boolean,
 ) => void;
+
+export interface InboundMessageSource {
+  onMessage: OnInboundMessage;
+  onChatMetadata: OnChatMetadata;
+}
+
+export interface ChannelLifecyclePort {
+  name: string;
+  connect(): Promise<void>;
+  isConnected(): boolean;
+  disconnect(): Promise<void>;
+}
+
+export interface ChannelOwnershipPort {
+  name: string;
+  ownsJid(jid: string): boolean;
+}
+
+export interface MessageSink {
+  name: string;
+  sendMessage(
+    jid: string,
+    text: string,
+    options?: MessageSendOptions,
+  ): Promise<void>;
+}
+
+export interface TypingSink {
+  setTyping(jid: string, isTyping: boolean): Promise<void>;
+}
+
+export interface StreamingSink {
+  sendStreamingChunk(
+    jid: string,
+    text: string,
+    options?: StreamingChunkOptions,
+  ): Promise<void>;
+}
+
+export interface StreamingStateSink {
+  resetStreaming(jid: string): void;
+}
+
+export interface ProgressSink {
+  sendProgressUpdate(
+    jid: string,
+    text: string,
+    options?: ProgressUpdateOptions,
+  ): Promise<void>;
+}
+
+export interface GroupDiscoverySource {
+  syncGroups(force: boolean): Promise<void>;
+}
+
+export interface InteractionSurface {
+  requestPermissionApproval(
+    jid: string,
+    request: PermissionApprovalRequest,
+  ): Promise<PermissionApprovalDecision>;
+  requestUserAnswer(
+    jid: string,
+    request: UserQuestionRequest,
+  ): Promise<UserQuestionResponse>;
+}
+
+export interface PlanReviewRequest {
+  requestId: string;
+  sourceGroup: string;
+  title: string;
+  summary?: string;
+  options: UserQuestionOption[];
+}
+
+export interface PlanReviewResponse {
+  requestId: string;
+  selected?: string;
+  reviewedBy?: string;
+}
+
+export interface PlanReviewSurface {
+  requestPlanReview(
+    jid: string,
+    request: PlanReviewRequest,
+  ): Promise<PlanReviewResponse>;
+}

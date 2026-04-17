@@ -26,6 +26,7 @@ import { runSlackConnectCommand } from './slack.js';
 import { runSetupFlow } from './setup-flow.js';
 import { collectRuntimeStatus, formatRuntimeStatus } from './status.js';
 import { ensureRuntimeSettings } from './runtime-settings.js';
+import { runMemoryCommand } from './memory.js';
 
 interface ParsedArgs {
   command: string[];
@@ -42,6 +43,10 @@ function usage(): string {
     '  myclaw setup',
     '  myclaw doctor',
     '  myclaw status',
+    '  myclaw memory status',
+    '  myclaw memory provider <sqlite|qmd|noop|none>',
+    '  myclaw memory embeddings <off|openai>',
+    '  myclaw memory dreaming <on|off>',
     '  myclaw start',
     '  myclaw restart',
     '  myclaw config list',
@@ -346,6 +351,10 @@ async function main(): Promise<number> {
 
   if (command === 'status') {
     return runStatusCommand(import.meta.url, runtimeHome);
+  }
+
+  if (command === 'memory') {
+    return runMemoryCommand(runtimeHome, rest);
   }
 
   if (command === 'start') {

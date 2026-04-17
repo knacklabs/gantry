@@ -12,6 +12,9 @@ async function loadConfigWithEnv(env: { ANTHROPIC_MODEL?: string }) {
   vi.doMock('./env.js', () => ({
     readEnvFile: () => ({}),
   }));
+  vi.doMock('./runtime-memory-settings.js', () => ({
+    readRuntimeMemorySettingsSnapshot: () => ({}),
+  }));
   return import('./config.js');
 }
 
@@ -22,6 +25,7 @@ afterEach(() => {
   }
   vi.resetModules();
   vi.doUnmock('./env.js');
+  vi.doUnmock('./runtime-memory-settings.js');
 });
 
 describe('model config precedence', () => {
@@ -130,6 +134,30 @@ async function loadConfigWithAllEnv(env: Record<string, string | undefined>) {
   }
   vi.doMock('./env.js', () => ({
     readEnvFile: () => ({}),
+  }));
+  vi.doMock('./runtime-memory-settings.js', () => ({
+    readRuntimeMemorySettingsSnapshot: () => ({}),
+  }));
+  return import('./config.js');
+}
+
+async function loadConfigWithAllEnvAndRuntimeSnapshot(
+  env: Record<string, string | undefined>,
+  snapshot: Record<string, unknown>,
+) {
+  vi.resetModules();
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  vi.doMock('./env.js', () => ({
+    readEnvFile: () => ({}),
+  }));
+  vi.doMock('./runtime-memory-settings.js', () => ({
+    readRuntimeMemorySettingsSnapshot: () => snapshot,
   }));
   return import('./config.js');
 }
@@ -316,9 +344,7 @@ describe('config env overrides for branch coverage', () => {
       MEMORY_MAX_EVENTS: '30000',
       MEMORY_MAX_PROCEDURES_PER_GROUP: '1000',
       AGENT_TIMEOUT: '3600000',
-      CONTAINER_TIMEOUT: '3600000',
       AGENT_MAX_OUTPUT_SIZE: '20971520',
-      CONTAINER_MAX_OUTPUT_SIZE: '20971520',
       ONECLI_URL: 'http://test-onecli',
       MAX_MESSAGES_PER_PROMPT: '20',
       IDLE_TIMEOUT: '900000',
@@ -326,12 +352,12 @@ describe('config env overrides for branch coverage', () => {
     });
 
     expect(cfg.ASSISTANT_NAME).toBe('TestBot');
-    expect(cfg.MEMORY_PROVIDER).toBe('test-provider');
-    expect(cfg.AGENT_MEMORY_ROOT).toBe('/tmp/agent-memory');
+    expect(cfg.MEMORY_PROVIDER).toBe('sqlite');
+    expect(cfg.AGENT_MEMORY_ROOT).toMatch(/agent-memory$/);
     expect(cfg.OPENAI_API_KEY).toBe('test-api-key');
     expect(cfg.OPENAI_DAILY_EMBED_LIMIT).toBe(100);
-    expect(cfg.MEMORY_EMBED_MODEL).toBe('test-embed-model');
-    expect(cfg.MEMORY_EMBED_PROVIDER).toBe('test-embed-provider');
+    expect(cfg.MEMORY_EMBED_MODEL).toBe('text-embedding-3-large');
+    expect(cfg.MEMORY_EMBED_PROVIDER).toBe('disabled');
     expect(cfg.MEMORY_CHUNK_SIZE).toBe(2000);
     expect(cfg.MEMORY_CHUNK_OVERLAP).toBe(300);
     expect(cfg.MEMORY_RETRIEVAL_LIMIT).toBe(5);
@@ -359,7 +385,7 @@ describe('config env overrides for branch coverage', () => {
     expect(cfg.MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD).toBe(0.9);
     expect(cfg.MEMORY_CONSOLIDATION_MODEL).toBe('test-model');
     expect(cfg.MEMORY_CONSOLIDATION_MAX_CLUSTERS).toBe(20);
-    expect(cfg.MEMORY_DREAMING_ENABLED).toBe(true);
+    expect(cfg.MEMORY_DREAMING_ENABLED).toBe(false);
     expect(cfg.MEMORY_DREAMING_CRON).toBe('0 4 * * *');
     expect(cfg.MEMORY_DREAMING_PROMOTION_THRESHOLD).toBe(0.6);
     expect(cfg.MEMORY_DREAMING_DECAY_THRESHOLD).toBe(0.2);
@@ -436,9 +462,7 @@ describe('config env overrides for branch coverage', () => {
       'MEMORY_MAX_EVENTS',
       'MEMORY_MAX_PROCEDURES_PER_GROUP',
       'AGENT_TIMEOUT',
-      'CONTAINER_TIMEOUT',
       'AGENT_MAX_OUTPUT_SIZE',
-      'CONTAINER_MAX_OUTPUT_SIZE',
       'ONECLI_URL',
       'MAX_MESSAGES_PER_PROMPT',
       'IDLE_TIMEOUT',
@@ -503,14 +527,17 @@ describe('config env overrides for branch coverage', () => {
         MEMORY_SQLITE_PATH: '/tmp/env-memory.db',
       }),
     }));
+    vi.doMock('./runtime-memory-settings.js', () => ({
+      readRuntimeMemorySettingsSnapshot: () => ({}),
+    }));
     const cfg = await import('./config.js');
 
     expect(cfg.ASSISTANT_NAME).toBe('EnvBot');
-    expect(cfg.MEMORY_PROVIDER).toBe('env-provider');
+    expect(cfg.MEMORY_PROVIDER).toBe('sqlite');
     expect(cfg.OPENAI_API_KEY).toBe('env-api-key');
     expect(cfg.OPENAI_DAILY_EMBED_LIMIT).toBe(200);
-    expect(cfg.MEMORY_EMBED_MODEL).toBe('env-embed-model');
-    expect(cfg.MEMORY_EMBED_PROVIDER).toBe('env-embed-provider');
+    expect(cfg.MEMORY_EMBED_MODEL).toBe('text-embedding-3-large');
+    expect(cfg.MEMORY_EMBED_PROVIDER).toBe('disabled');
     expect(cfg.MEMORY_CHUNK_SIZE).toBe(1800);
     expect(cfg.MEMORY_CHUNK_OVERLAP).toBe(200);
     expect(cfg.MEMORY_RETRIEVAL_LIMIT).toBe(12);
@@ -639,22 +666,29 @@ describe('resolveOptionalPath branches', () => {
     expect(cfg.MEMORY_GLOBAL_KNOWLEDGE_DIR).not.toBe('relative/path');
   });
 
-  it('resolves AGENT_MEMORY_ROOT/knowledge fallback for MEMORY_GLOBAL_KNOWLEDGE_DIR', async () => {
-    const cfg = await loadConfigWithAllEnv({
-      MEMORY_GLOBAL_KNOWLEDGE_DIR: undefined,
-      AGENT_MEMORY_ROOT: '/tmp/agent-root',
-    });
-    // Should fallback to AGENT_MEMORY_ROOT/knowledge
+  it('resolves AGENT_MEMORY_ROOT/knowledge fallback from runtime settings', async () => {
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        MEMORY_GLOBAL_KNOWLEDGE_DIR: undefined,
+      },
+      {
+        qmdRoot: '/tmp/agent-root',
+      },
+    );
     expect(cfg.MEMORY_GLOBAL_KNOWLEDGE_DIR).toBe('/tmp/agent-root/knowledge');
   });
 });
 
 describe('AGENT_ROOT runtime root', () => {
   it('uses AGENT_ROOT for runtime directories and relative sqlite path', async () => {
-    const cfg = await loadConfigWithAllEnv({
-      AGENT_ROOT: '/tmp/myclaw-home',
-      MEMORY_SQLITE_PATH: 'store/custom-memory.db',
-    });
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        AGENT_ROOT: '/tmp/myclaw-home',
+      },
+      {
+        sqlitePath: 'store/custom-memory.db',
+      },
+    );
 
     expect(cfg.AGENT_ROOT).toBe('/tmp/myclaw-home');
     expect(cfg.STORE_DIR).toBe('/tmp/myclaw-home/store');
@@ -666,10 +700,14 @@ describe('AGENT_ROOT runtime root', () => {
   });
 
   it('preserves absolute sqlite path when AGENT_ROOT is set', async () => {
-    const cfg = await loadConfigWithAllEnv({
-      AGENT_ROOT: '/tmp/myclaw-home',
-      MEMORY_SQLITE_PATH: '/var/lib/myclaw/memory.db',
-    });
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        AGENT_ROOT: '/tmp/myclaw-home',
+      },
+      {
+        sqlitePath: '/var/lib/myclaw/memory.db',
+      },
+    );
     expect(cfg.MEMORY_SQLITE_PATH).toBe('/var/lib/myclaw/memory.db');
   });
 });
@@ -681,6 +719,9 @@ describe('HOME fallback', () => {
     vi.resetModules();
     vi.doMock('./env.js', () => ({
       readEnvFile: () => ({}),
+    }));
+    vi.doMock('./runtime-memory-settings.js', () => ({
+      readRuntimeMemorySettingsSnapshot: () => ({}),
     }));
     try {
       const cfg = await import('./config.js');
@@ -704,6 +745,9 @@ describe('resolveConfigTimezone fallback to UTC', () => {
     vi.resetModules();
     vi.doMock('./env.js', () => ({
       readEnvFile: () => ({ TZ: 'Also/Invalid' }),
+    }));
+    vi.doMock('./runtime-memory-settings.js', () => ({
+      readRuntimeMemorySettingsSnapshot: () => ({}),
     }));
     // Mock isValidTimezone to return false for everything except 'UTC'
     vi.doMock('./timezone.js', () => ({

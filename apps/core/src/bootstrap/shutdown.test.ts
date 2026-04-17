@@ -38,7 +38,10 @@ describe('installShutdownHandlers', () => {
     installShutdownHandlers(
       {
         queue,
-        channels: [channelA as any, channelB as any],
+        disconnectChannels: vi.fn(async () => {
+          await channelA.disconnect();
+          await channelB.disconnect();
+        }),
       },
       {
         onSignal: (signal, handler) => {

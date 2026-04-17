@@ -70,6 +70,7 @@ interface SetupDraft {
   telegramDisplayName: string;
   telegramBotUsername: string;
   memoryEnabled: boolean;
+  memoryProvider: 'sqlite' | 'qmd' | 'noop';
   embeddingsEnabled: boolean;
   dreamingEnabled: boolean;
   openAiApiKey: string;
@@ -148,6 +149,7 @@ function updateStateData(state: OnboardingState, draft: SetupDraft): void {
     credentialMode: draft.credentialMode,
     onecliUrl: draft.onecliUrl || undefined,
     memoryEnabled: draft.memoryEnabled,
+    memoryProvider: draft.memoryProvider,
     embeddingsEnabled: draft.embeddingsEnabled,
     dreamingEnabled: draft.dreamingEnabled,
   };
@@ -185,10 +187,19 @@ function restoreDraft(
             },
           },
         },
-        features: {
-          memory: true,
-          embeddings: false,
-          dreaming: false,
+        memory: {
+          enabled: true,
+          provider: 'sqlite',
+          sqlitePath: 'store/memory.db',
+          qmdRoot: 'agent-memory',
+          embeddings: {
+            enabled: false,
+            provider: 'disabled',
+            model: 'text-embedding-3-large',
+          },
+          dreaming: {
+            enabled: false,
+          },
         },
       };
     }
@@ -207,10 +218,18 @@ function restoreDraft(
     telegramChatJid: savedChatJid,
     telegramDisplayName: 'Telegram Main',
     telegramBotUsername: state?.data.telegramBotUsername || '',
-    memoryEnabled: state?.data.memoryEnabled ?? settings.features.memory,
+    memoryEnabled: state?.data.memoryEnabled ?? settings.memory.enabled,
+    memoryProvider:
+      state?.data.memoryProvider ??
+      (settings.memory.provider === 'qmd'
+        ? 'qmd'
+        : settings.memory.enabled
+          ? 'sqlite'
+          : 'noop'),
     embeddingsEnabled:
-      state?.data.embeddingsEnabled ?? settings.features.embeddings,
-    dreamingEnabled: state?.data.dreamingEnabled ?? settings.features.dreaming,
+      state?.data.embeddingsEnabled ?? settings.memory.embeddings.enabled,
+    dreamingEnabled:
+      state?.data.dreamingEnabled ?? settings.memory.dreaming.enabled,
     openAiApiKey: env.OPENAI_API_KEY || '',
     serviceChoice: 'skip',
   };
@@ -321,8 +340,7 @@ async function runRuntimeHomeStep(
 async function runPrerequisitesStep(): Promise<FlowAction> {
   p.note(
     [
-      'MyClaw currently runs on the host runtime only.',
-      'No Docker or Apple Container setup is required for first-run onboarding.',
+      'MyClaw runs as a local host process.',
       'Proceed once Node.js and runtime-home checks are passing.',
     ].join('\n'),
     'Runtime Prerequisites',
@@ -508,7 +526,13 @@ async function runTelegramStep(draft: SetupDraft): Promise<FlowAction> {
 }
 
 async function runMemoryStep(draft: SetupDraft): Promise<FlowAction> {
-  p.note('Memory lets MyClaw remember useful context between chats.', 'Memory');
+  p.note(
+    [
+      'Memory stores durable facts, preferences, decisions, corrections, constraints, and procedures.',
+      'Continuity uses that memory context to help agents resume current work and open loops instead of starting cold.',
+    ].join('\n'),
+    'Memory and continuity',
+  );
   const value = await p.select({
     message: 'Memory setting',
     options: [
@@ -542,6 +566,42 @@ async function runMemoryStep(draft: SetupDraft): Promise<FlowAction> {
   if (value === 'cancel') return { type: 'cancel' };
 
   draft.memoryEnabled = value === 'on';
+  if (!draft.memoryEnabled) {
+    draft.memoryProvider = 'noop';
+    return { type: 'next' };
+  }
+
+  const provider = await p.select({
+    message: 'Memory provider',
+    options: [
+      {
+        value: 'sqlite',
+        label: 'SQLite only (Recommended)',
+      },
+      {
+        value: 'qmd',
+        label: 'QMD markdown mirror',
+      },
+      {
+        value: 'back',
+        label: 'Back',
+      },
+      {
+        value: 'resume',
+        label: 'Resume Later',
+      },
+      {
+        value: 'cancel',
+        label: 'Cancel Setup',
+      },
+    ],
+    initialValue: draft.memoryProvider === 'qmd' ? 'qmd' : 'sqlite',
+  });
+  if (p.isCancel(provider)) return { type: 'resume' };
+  if (provider === 'back') return { type: 'back' };
+  if (provider === 'resume') return { type: 'resume' };
+  if (provider === 'cancel') return { type: 'cancel' };
+  draft.memoryProvider = provider as 'sqlite' | 'qmd';
   return { type: 'next' };
 }
 
@@ -669,6 +729,7 @@ async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
       credentialMode: draft.credentialMode,
       onecliUrl: draft.onecliUrl || undefined,
       memoryEnabled: draft.memoryEnabled,
+      memoryProvider: draft.memoryProvider,
       embeddingsEnabled: draft.embeddingsEnabled,
       dreamingEnabled: draft.dreamingEnabled,
       openAiApiKey: draft.openAiApiKey || undefined,

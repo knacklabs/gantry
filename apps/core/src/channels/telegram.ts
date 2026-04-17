@@ -15,16 +15,12 @@ import {
 import { readEnvFile } from '../core/env.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import { logger } from '../core/logger.js';
-import { registerChannel, ChannelOpts } from './registry.js';
+import { ChannelAdapter, ChannelOpts } from './channel-provider.js';
 import {
-  Channel,
   MessageSendOptions,
-  OnChatMetadata,
-  OnInboundMessage,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
-  RegisteredGroup,
   StreamingChunkOptions,
   UserQuestionRequest,
   UserQuestionResponse,
@@ -87,11 +83,7 @@ type PendingUserQuestionState = {
   }) => void;
 };
 
-export interface TelegramChannelOpts {
-  onMessage: OnInboundMessage;
-  onChatMetadata: OnChatMetadata;
-  registeredGroups: () => Record<string, RegisteredGroup>;
-}
+export interface TelegramChannelOpts extends ChannelOpts {}
 
 function escapeTelegramMarkdownV2Plain(text: string): string {
   return text.replace(/[\[\]()`>#+\-=|{}.!\\]/g, '\\$&');
@@ -290,7 +282,7 @@ async function editTelegramMessage(
   }
 }
 
-export class TelegramChannel implements Channel {
+export class TelegramChannel implements ChannelAdapter {
   name = 'telegram';
 
   private bot: Bot<TelegramContext> | null = null;
@@ -1020,7 +1012,7 @@ export class TelegramChannel implements Channel {
 
   /**
    * Download a Telegram file to the group's attachments directory.
-   * Returns the container-relative path (e.g. /workspace/group/attachments/photo_123.jpg)
+   * Returns the agent workspace path (e.g. /workspace/group/attachments/photo_123.jpg)
    * or null if the download fails.
    */
   private async downloadFile(
@@ -1952,7 +1944,9 @@ export class TelegramChannel implements Channel {
   }
 }
 
-registerChannel('telegram', (opts: ChannelOpts) => {
+export function createTelegramChannel(
+  opts: ChannelOpts,
+): TelegramChannel | null {
   const envVars = readEnvFile(['TELEGRAM_BOT_TOKEN']);
   const token =
     process.env.TELEGRAM_BOT_TOKEN || envVars.TELEGRAM_BOT_TOKEN || '';
@@ -1961,4 +1955,4 @@ registerChannel('telegram', (opts: ChannelOpts) => {
     return null;
   }
   return new TelegramChannel(token, opts);
-});
+}

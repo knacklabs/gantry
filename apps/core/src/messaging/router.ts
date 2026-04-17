@@ -1,4 +1,4 @@
-import { Channel, NewMessage } from '../core/types.js';
+import { ChannelOwnershipPort, NewMessage } from '../core/types.js';
 import { formatLocalTime } from '../core/timezone.js';
 import { ChannelType, parseTextStyles } from '../text-styles.js';
 
@@ -66,9 +66,9 @@ export function formatOutboundForChannel(
   return parseTextStyles(text, channel as ChannelType);
 }
 
-export function findChannel(
-  channels: Channel[],
+export function findChannel<T extends ChannelOwnershipPort>(
+  channels: T[],
   jid: string,
-): Channel | undefined {
+): T | undefined {
   return channels.find((c) => c.ownsJid(jid));
 }

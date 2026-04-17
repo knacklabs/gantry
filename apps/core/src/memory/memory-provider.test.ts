@@ -16,7 +16,6 @@ const tempRoots: string[] = [];
 
 afterEach(() => {
   AgentMemoryRootService.resetForTests();
-  delete process.env.AGENT_MEMORY_ROOT;
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -60,6 +59,7 @@ function makeFakeProvider(name: string): MemoryProvider {
     },
     listTopProcedures: () => [],
     saveChunks: () => 0,
+    searchItemsByText: () => [],
     lexicalSearch: () => [],
     vectorSearch: () => [],
     searchProceduresByText: () => [],
@@ -93,7 +93,7 @@ describe('memory provider registry', () => {
   it('writes qmd durable markdown and cache under AGENT_MEMORY_ROOT', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
     const item = provider.saveItem({
@@ -117,7 +117,7 @@ describe('memory provider registry', () => {
   it('qmd provider mirrors procedures to AGENT_MEMORY_ROOT', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
     const proc = provider.saveProcedure({
@@ -139,7 +139,7 @@ describe('memory provider registry', () => {
   it('qmd provider records events in journal', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
     provider.recordEvent('test_event', 'test_entity', 'entity-1', {
@@ -170,7 +170,7 @@ describe('memory provider registry', () => {
   it('qmd provider delegates read operations to sqlite store', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
     const item = provider.saveItem({
@@ -237,7 +237,7 @@ describe('memory provider registry', () => {
   it('qmd provider delegates listTopProcedures to sqlite store', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
     provider.saveProcedure({
@@ -260,7 +260,7 @@ describe('memory provider registry', () => {
   it('qmd provider delegates vectorSearch to sqlite store', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
     const embedding = new Array<number>(MEMORY_VECTOR_DIMENSIONS).fill(0);
@@ -288,7 +288,7 @@ describe('memory provider registry', () => {
   it('qmd provider delegates searchProceduresByText to sqlite store', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
     provider.saveProcedure({
@@ -308,43 +308,16 @@ describe('memory provider registry', () => {
     provider.close();
   });
 
-  it('resolves default memory provider from MEMORY_PROVIDER config fallback', () => {
-    // Cover line 254: resolveConfiguredMemoryProvider fallback path
-    // When MEMORY_PROVIDER env is not set, it uses the MEMORY_PROVIDER config constant
-    const saved = process.env.MEMORY_PROVIDER;
-    delete process.env.MEMORY_PROVIDER;
-    try {
-      // The default provider should resolve and be creatable without error
-      // (MEMORY_PROVIDER config default is 'sqlite' but could vary by env)
-      const provider = createMemoryProvider();
-      expect(provider.providerName).toBeDefined();
-      provider.close();
-    } finally {
-      if (saved !== undefined) process.env.MEMORY_PROVIDER = saved;
-    }
-  });
-
-  it('resolves memory provider from MEMORY_PROVIDER env var when set', () => {
-    // Cover line 252: resolveConfiguredMemoryProvider env path
-    const saved = process.env.MEMORY_PROVIDER;
-    process.env.MEMORY_PROVIDER = 'sqlite';
-    try {
-      const provider = createMemoryProvider();
-      expect(provider.providerName).toBe('sqlite');
-      provider.close();
-    } finally {
-      if (saved !== undefined) {
-        process.env.MEMORY_PROVIDER = saved;
-      } else {
-        delete process.env.MEMORY_PROVIDER;
-      }
-    }
+  it('resolves default memory provider from runtime config', () => {
+    const provider = createMemoryProvider();
+    expect(provider.providerName).toBeDefined();
+    provider.close();
   });
 
   it('qmd provider mirrors patched items and procedures', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
 
@@ -385,7 +358,7 @@ describe('memory provider registry', () => {
   it('qmd provider journalizes compact_manual event as lifecycle-manual-compact', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
     provider.recordEvent('compact_manual', 'session', 'sess-1', {});
@@ -410,7 +383,7 @@ describe('memory provider registry', () => {
   it('qmd provider journalizes compact_auto event as lifecycle-auto-compact', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
     provider.recordEvent('compact_auto', 'session', 'sess-2', {});
@@ -435,7 +408,7 @@ describe('memory provider registry', () => {
   it('qmd provider journalizes stale_session event as lifecycle-stale-session', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
     provider.recordEvent('stale_session', 'session', 'sess-3', {});
@@ -460,7 +433,7 @@ describe('memory provider registry', () => {
   it('qmd provider journalizes abandoned_session event as lifecycle-abandoned-session', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
     provider.recordEvent('abandoned_session', 'session', 'sess-4', {});
@@ -485,7 +458,7 @@ describe('memory provider registry', () => {
   it('qmd provider journalizes unknown event types as event-<type>', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
     provider.recordEvent('unknown_type', 'entity', 'e1', { info: 'test' });
@@ -511,7 +484,7 @@ describe('memory provider registry', () => {
   it('qmd provider records event with null entityId', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
     provider.recordEvent('custom_event', 'generic', null as unknown as string, {
@@ -538,7 +511,7 @@ describe('memory provider registry', () => {
   it('qmd provider mirrors item and logs warning when writeMemoryItem fails', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
 
@@ -572,7 +545,7 @@ describe('memory provider registry', () => {
   it('qmd provider mirrors procedure and logs warning when writeProcedure fails', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
 
@@ -602,7 +575,7 @@ describe('memory provider registry', () => {
   it('qmd provider delegates getCachedEmbedding and putCachedEmbedding', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
 
@@ -635,7 +608,7 @@ describe('memory provider registry', () => {
   it('qmd provider delegates findSimilarItems', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
 
@@ -670,7 +643,7 @@ describe('memory provider registry', () => {
   it('qmd provider delegates softDeleteItem', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
 
@@ -697,7 +670,7 @@ describe('memory provider registry', () => {
   it('qmd provider delegates getProcedureById', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
     const proc = provider.saveProcedure({
@@ -720,7 +693,7 @@ describe('memory provider registry', () => {
   it('qmd provider delegates chunkExists', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-qmd-'));
     tempRoots.push(root);
-    process.env.AGENT_MEMORY_ROOT = root;
+    AgentMemoryRootService.setRootForTests(root);
 
     const provider = createMemoryProvider('qmd');
 

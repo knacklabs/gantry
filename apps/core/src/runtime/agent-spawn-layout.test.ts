@@ -171,6 +171,22 @@ describe('syncGroupSkills', () => {
     }
   });
 
+  it('bundled commands skill does not advertise removed MyClaw skill commands', () => {
+    const commandsSkill = fs.readFileSync(
+      path.join(process.cwd(), '.claude', 'skills', 'commands', 'SKILL.md'),
+      'utf-8',
+    );
+
+    expect(commandsSkill).toContain('## MyClaw Session Commands');
+    expect(commandsSkill).toContain('## Built-In Memory Behavior');
+    expect(commandsSkill).not.toMatch(/`\/setup`/);
+    expect(commandsSkill).not.toMatch(/`\/customize`/);
+    expect(commandsSkill).not.toMatch(/`\/debug`/);
+    expect(commandsSkill).not.toMatch(/`\/update-myclaw`/);
+    expect(commandsSkill).not.toMatch(/`\/init-onecli`/);
+    expect(commandsSkill).not.toMatch(/`\/add-telegram`/);
+  });
+
   it('migrates a legacy symlink to a real directory', async () => {
     const configRoot = makeTmpRoot(roots);
     const cwdRoot = makeTmpRoot(roots);
@@ -405,7 +421,10 @@ describe('ensureGroupIpcLayout', () => {
       'messages',
       'permission-requests',
       'permission-responses',
+      'task-responses',
       'tasks',
+      'user-answers',
+      'user-questions',
     ];
 
     for (const sub of expected) {
@@ -442,96 +461,11 @@ describe('ensureGroupIpcLayout', () => {
       'messages',
       'permission-requests',
       'permission-responses',
+      'task-responses',
       'tasks',
+      'user-answers',
+      'user-questions',
     ]);
-  });
-});
-
-describe('syncHostAgentRunnerRuntime', () => {
-  const roots: string[] = [];
-  let originalCwd: string;
-
-  beforeEach(() => {
-    vi.resetModules();
-    originalCwd = process.cwd();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    process.chdir(originalCwd);
-    while (roots.length > 0) {
-      const root = roots.pop();
-      if (!root) continue;
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it.skip('symlinks runtime runner dependencies from the repo root when workspaces hoist node_modules', async () => {
-    const repoRoot = makeTmpRoot(roots);
-    const agentRoot = makeTmpRoot(roots);
-    const cwdRoot = path.join(repoRoot, 'apps', 'core');
-    const runnerRoot = path.join(repoRoot, 'packages', 'agent-runner');
-    const repoNodeModules = path.join(repoRoot, 'node_modules');
-    const runtimeNodeModules = path.join(
-      agentRoot,
-      '.runtime',
-      'agent-runner',
-      'node_modules',
-    );
-
-    fs.mkdirSync(path.join(cwdRoot, 'src'), { recursive: true });
-    fs.mkdirSync(path.join(runnerRoot, 'dist'), { recursive: true });
-    fs.mkdirSync(path.join(runnerRoot, 'node_modules'), { recursive: true });
-    fs.mkdirSync(
-      path.join(repoNodeModules, '@anthropic-ai', 'claude-agent-sdk'),
-      { recursive: true },
-    );
-    fs.writeFileSync(
-      path.join(runnerRoot, 'package.json'),
-      '{"name":"runner"}',
-    );
-    fs.writeFileSync(path.join(runnerRoot, 'package-lock.json'), '{}');
-    fs.writeFileSync(path.join(runnerRoot, 'dist', 'index.js'), 'export {};');
-    fs.writeFileSync(
-      path.join(runnerRoot, 'dist', 'ipc-mcp-stdio.js'),
-      'export {};',
-    );
-    fs.writeFileSync(
-      path.join(
-        repoNodeModules,
-        '@anthropic-ai',
-        'claude-agent-sdk',
-        'package.json',
-      ),
-      '{"name":"@anthropic-ai/claude-agent-sdk"}',
-    );
-
-    process.chdir(cwdRoot);
-
-    vi.doMock('../core/config.js', () => ({
-      AGENT_ROOT: agentRoot,
-      DATA_DIR: agentRoot,
-    }));
-
-    const { syncHostAgentRunnerRuntime, getRuntimeAgentRunnerRoot } =
-      await import('./agent-spawn-layout.js');
-    const runtimeRoot = syncHostAgentRunnerRuntime();
-
-    expect(runtimeRoot).toBe(getRuntimeAgentRunnerRoot());
-    expect(fs.existsSync(path.join(runtimeRoot, 'dist', 'index.js'))).toBe(
-      true,
-    );
-    expect(fs.lstatSync(runtimeNodeModules).isSymbolicLink()).toBe(true);
-    expect(
-      fs.existsSync(
-        path.join(
-          runtimeNodeModules,
-          '@anthropic-ai',
-          'claude-agent-sdk',
-          'package.json',
-        ),
-      ),
-    ).toBe(true);
   });
 });
 

@@ -19,6 +19,7 @@ import {
   getHostRuntimeCredentialEnv,
   prepareHostRuntimeContext,
 } from './agent-spawn-host.js';
+import { ensureGroupIpcLayout } from './agent-spawn-layout.js';
 import {
   DEFAULT_BROWSER_PROFILE_NAME,
   listActiveBrowserSessions,
@@ -116,6 +117,7 @@ export async function spawnAgent(
   };
 
   const hostRuntime = prepareHostRuntimeContext(group);
+  ensureGroupIpcLayout(hostRuntime.groupIpcDir);
   const hostCredentials = await getHostRuntimeCredentialEnv(agentIdentifier);
   const agentRunnerDir = path.join(hostRuntime.runnerRoot, 'dist');
   const hostRunnerPath = path.join(agentRunnerDir, 'index.js');
@@ -125,7 +127,7 @@ export async function spawnAgent(
       status: 'error',
       result: null,
       error:
-        'Host runtime is missing built agent-runner files. Run "npm --prefix packages/agent-runner run build".',
+        'Host runtime is missing required runner files. Reinstall MyClaw from npm and restart.',
     };
   }
 

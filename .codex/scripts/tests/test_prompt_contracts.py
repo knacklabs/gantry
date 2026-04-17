@@ -64,6 +64,11 @@ class PromptContractTests(unittest.TestCase):
         self.assertIn('"functional-checker"', playbook)
         self.assertIn("python3 .codex/scripts/validate_work.py", playbook)
 
+    def test_pr_ready_prompt_allows_new_scope_handoff(self) -> None:
+        prompt = read_text("prompts/pr-ready.md")
+        self.assertIn("do not block on the current PR-ready loop", prompt)
+        self.assertIn("start a new factory run with intake", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

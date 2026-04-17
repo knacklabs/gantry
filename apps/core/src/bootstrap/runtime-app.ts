@@ -1,10 +1,13 @@
 import { OneCLI } from '@onecli-sh/sdk';
 
 import { ASSISTANT_NAME, ONECLI_URL } from '../core/config.js';
+import { encodeGroupMessageCursor } from '../core/message-cursor.js';
 import { logger } from '../core/logger.js';
-import { Channel, RegisteredGroup, ThinkingOverride } from '../core/types.js';
-import { findChannel } from '../messaging/router.js';
-import { createGroupProcessor } from '../runtime/group-processing.js';
+import { RegisteredGroup, ThinkingOverride } from '../core/types.js';
+import {
+  createGroupProcessor,
+  GroupProcessingDeps,
+} from '../runtime/group-processing.js';
 import { listAvailableGroups } from '../runtime/group-registry.js';
 import { GroupQueue } from '../runtime/group-queue.js';
 import {
@@ -17,7 +20,7 @@ import {
   getAllChats,
   getAllRegisteredGroups,
   getAllSessions,
-  getLastBotMessageTimestamp,
+  getLastBotMessageCursor,
   getRouterState,
   setRegisteredGroup,
   setRouterState,
@@ -27,7 +30,6 @@ import {
 type OneCliLike = Pick<OneCLI, 'ensureAgent'>;
 
 export interface RuntimeApp {
-  channels: Channel[];
   queue: GroupQueue;
   loadState: () => void;
   saveState: () => void;
@@ -46,6 +48,7 @@ export interface RuntimeApp {
   getLastTimestamp: () => string;
   setLastTimestamp: (timestamp: string) => void;
   setAgentCursor: (chatJid: string, timestamp: string) => void;
+  setChannelRuntime: (runtime: GroupProcessingDeps['channelRuntime']) => void;
 }
 
 export interface RuntimeAppOptions {
@@ -59,9 +62,18 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   let registeredGroups: Record<string, RegisteredGroup> = {};
   let lastAgentTimestamp: Record<string, string> = {};
 
-  const channels: Channel[] = [];
   const queue = options.queue ?? new GroupQueue();
   const onecli = options.onecli ?? new OneCLI({ url: ONECLI_URL });
+  let channelRuntime: GroupProcessingDeps['channelRuntime'] = {
+    hasChannel: () => false,
+    supportsStreaming: () => false,
+    supportsProgress: () => false,
+    sendMessage: async () => {},
+    sendStreamingChunk: async () => {},
+    resetStreaming: () => {},
+    setTyping: async () => {},
+    sendProgressUpdate: async () => {},
+  };
 
   function ensureOneCLIAgent(jid: string, group: RegisteredGroup): void {
     if (group.isMain) return;
@@ -108,15 +120,20 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     const existing = lastAgentTimestamp[chatJid];
     if (existing) return existing;
 
-    const botTs = getLastBotMessageTimestamp(chatJid, ASSISTANT_NAME);
-    if (botTs) {
+    const botCursor = getLastBotMessageCursor(chatJid, ASSISTANT_NAME);
+    if (botCursor) {
+      const encoded = encodeGroupMessageCursor(botCursor);
       logger.info(
-        { chatJid, recoveredFrom: botTs },
+        {
+          chatJid,
+          recoveredFrom: botCursor.timestamp,
+          recoveredFromId: botCursor.id,
+        },
         'Recovered message cursor from last bot reply',
       );
-      lastAgentTimestamp[chatJid] = botTs;
+      lastAgentTimestamp[chatJid] = encoded;
       saveState();
-      return botTs;
+      return encoded;
     }
     return '';
   }
@@ -170,7 +187,20 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   }
 
   const groupProcessor = createGroupProcessor({
-    channels,
+    channelRuntime: {
+      hasChannel: (chatJid) => channelRuntime.hasChannel(chatJid),
+      supportsStreaming: (chatJid) => channelRuntime.supportsStreaming(chatJid),
+      supportsProgress: (chatJid) => channelRuntime.supportsProgress(chatJid),
+      sendMessage: (chatJid, rawText, options) =>
+        channelRuntime.sendMessage(chatJid, rawText, options),
+      sendStreamingChunk: (chatJid, rawText, options) =>
+        channelRuntime.sendStreamingChunk(chatJid, rawText, options),
+      resetStreaming: (chatJid) => channelRuntime.resetStreaming(chatJid),
+      setTyping: (chatJid, isTyping) =>
+        channelRuntime.setTyping(chatJid, isTyping),
+      sendProgressUpdate: (chatJid, text, options) =>
+        channelRuntime.sendProgressUpdate(chatJid, text, options),
+    },
     getGroup: (chatJid) => registeredGroups[chatJid],
     getSession: (groupFolder) => sessions[groupFolder],
     setSession: (groupFolder, sessionId) => {
@@ -212,7 +242,6 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   });
 
   return {
-    channels,
     queue,
     loadState,
     saveState,
@@ -232,6 +261,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     },
     setAgentCursor: (chatJid, timestamp) => {
       lastAgentTimestamp[chatJid] = timestamp;
+    },
+    setChannelRuntime: (runtime) => {
+      channelRuntime = runtime;
     },
   };
 }
@@ -254,11 +286,4 @@ export function _setRegisteredGroups(
   groups: Record<string, RegisteredGroup>,
 ): void {
   getDefaultRuntimeApp().setRegisteredGroupsForTest(groups);
-}
-
-export function findAppChannel(
-  app: RuntimeApp,
-  chatJid: string,
-): Channel | undefined {
-  return findChannel(app.channels, chatJid);
 }

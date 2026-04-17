@@ -2,9 +2,6 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 // --- Mocks ---
 
-// Mock registry (registerChannel runs at import time)
-vi.mock('./registry.js', () => ({ registerChannel: vi.fn() }));
-
 // Mock env reader (used by the factory, not needed in unit tests)
 vi.mock('../core/env.js', () => ({ readEnvFile: vi.fn(() => ({})) }));
 
@@ -97,16 +94,13 @@ vi.mock('grammy', () => ({
 }));
 
 import fs from 'fs';
-import { TelegramChannel, TelegramChannelOpts } from './telegram.js';
-import { registerChannel } from './registry.js';
+import {
+  createTelegramChannel,
+  TelegramChannel,
+  TelegramChannelOpts,
+} from './telegram.js';
 import { readEnvFile } from '../core/env.js';
 import { logger } from '../core/logger.js';
-
-// Capture the factory at import time (before clearAllMocks runs)
-const telegramFactoryCall = vi
-  .mocked(registerChannel)
-  .mock.calls.find((c) => c[0] === 'telegram');
-const telegramFactory = telegramFactoryCall?.[1];
 
 // --- Test helpers ---
 
@@ -2076,22 +2070,14 @@ describe('TelegramChannel', () => {
   });
 });
 
-// --- registerChannel factory (lines 468-475) ---
-
-describe('registerChannel factory', () => {
-  it('registerChannel was called at import time with "telegram" name', () => {
-    expect(telegramFactoryCall).toBeDefined();
-    expect(telegramFactoryCall![0]).toBe('telegram');
-    expect(typeof telegramFactory).toBe('function');
-  });
-
-  it('factory returns null when TELEGRAM_BOT_TOKEN is not set', () => {
+describe('createTelegramChannel factory', () => {
+  it('returns null when TELEGRAM_BOT_TOKEN is not set', () => {
     vi.mocked(readEnvFile).mockReturnValueOnce({});
 
     const saved = process.env.TELEGRAM_BOT_TOKEN;
     delete process.env.TELEGRAM_BOT_TOKEN;
     try {
-      const result = telegramFactory!({
+      const result = createTelegramChannel({
         onMessage: vi.fn(),
         onChatMetadata: vi.fn(),
         registeredGroups: () => ({}),
@@ -2105,7 +2091,7 @@ describe('registerChannel factory', () => {
     }
   });
 
-  it('factory returns a TelegramChannel when token is available', () => {
+  it('returns a TelegramChannel when token is available', () => {
     vi.mocked(readEnvFile).mockReturnValueOnce({
       TELEGRAM_BOT_TOKEN: 'test-token-from-env',
     });
@@ -2113,7 +2099,7 @@ describe('registerChannel factory', () => {
     const saved = process.env.TELEGRAM_BOT_TOKEN;
     delete process.env.TELEGRAM_BOT_TOKEN;
     try {
-      const result = telegramFactory!({
+      const result = createTelegramChannel({
         onMessage: vi.fn(),
         onChatMetadata: vi.fn(),
         registeredGroups: () => ({}),

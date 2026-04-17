@@ -112,10 +112,19 @@ async function loadSetupFlowModule(options: SetupFlowTestOptions) {
           },
         },
       },
-      features: {
-        memory: true,
-        embeddings: false,
-        dreaming: false,
+      memory: {
+        enabled: true,
+        provider: 'sqlite',
+        sqlitePath: 'store/memory.db',
+        qmdRoot: 'agent-memory',
+        embeddings: {
+          enabled: false,
+          provider: 'disabled',
+          model: 'text-embedding-3-large',
+        },
+        dreaming: {
+          enabled: false,
+        },
       },
     })),
   }));

@@ -10,7 +10,6 @@ const tempRoots: string[] = [];
 
 afterEach(() => {
   AgentMemoryRootService.resetForTests();
-  delete process.env.AGENT_MEMORY_ROOT;
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }

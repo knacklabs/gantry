@@ -2,6 +2,7 @@ import os from 'os';
 import path from 'path';
 
 import { readEnvFile } from './env.js';
+import { readRuntimeMemorySettingsSnapshot } from './runtime-memory-settings.js';
 import { isValidTimezone } from './timezone.js';
 
 // Read config values from .env (falls back to process.env).
@@ -11,13 +12,8 @@ const envConfig = readEnvFile([
   'ONECLI_URL',
   'TZ',
   'ANTHROPIC_MODEL',
-  'MEMORY_SQLITE_PATH',
-  'MEMORY_PROVIDER',
-  'AGENT_MEMORY_ROOT',
   'OPENAI_API_KEY',
   'OPENAI_DAILY_EMBED_LIMIT',
-  'MEMORY_EMBED_MODEL',
-  'MEMORY_EMBED_PROVIDER',
   'MEMORY_CHUNK_SIZE',
   'MEMORY_CHUNK_OVERLAP',
   'MEMORY_RETRIEVAL_LIMIT',
@@ -45,7 +41,6 @@ const envConfig = readEnvFile([
   'MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD',
   'MEMORY_CONSOLIDATION_MODEL',
   'MEMORY_CONSOLIDATION_MAX_CLUSTERS',
-  'MEMORY_DREAMING_ENABLED',
   'MEMORY_DREAMING_CRON',
   'MEMORY_DREAMING_PROMOTION_THRESHOLD',
   'MEMORY_DREAMING_DECAY_THRESHOLD',
@@ -85,19 +80,20 @@ export const SCHEDULER_JOBS_JSON_PATH = path.join(
 export const STORE_DIR = path.resolve(RUNTIME_ROOT, 'store');
 export const AGENTS_DIR = path.resolve(RUNTIME_ROOT, 'agents');
 export const DATA_DIR = path.resolve(RUNTIME_ROOT, 'data');
+const runtimeMemorySettings = readRuntimeMemorySettingsSnapshot(AGENT_ROOT);
 const MEMORY_SQLITE_PATH_RAW =
-  process.env.MEMORY_SQLITE_PATH ||
-  envConfig.MEMORY_SQLITE_PATH ||
-  'store/memory.db';
+  runtimeMemorySettings.sqlitePath || 'store/memory.db';
 export const MEMORY_SQLITE_PATH = path.isAbsolute(MEMORY_SQLITE_PATH_RAW)
   ? path.resolve(MEMORY_SQLITE_PATH_RAW)
   : path.resolve(RUNTIME_ROOT, MEMORY_SQLITE_PATH_RAW);
 export const MEMORY_PROVIDER =
-  process.env.MEMORY_PROVIDER || envConfig.MEMORY_PROVIDER || 'sqlite';
-export const AGENT_MEMORY_ROOT =
-  process.env.AGENT_MEMORY_ROOT ||
-  envConfig.AGENT_MEMORY_ROOT ||
-  path.join(AGENT_ROOT, 'agent-memory');
+  runtimeMemorySettings.enabled === false
+    ? 'noop'
+    : runtimeMemorySettings.provider || 'sqlite';
+const AGENT_MEMORY_ROOT_RAW = runtimeMemorySettings.qmdRoot || 'agent-memory';
+export const AGENT_MEMORY_ROOT = path.isAbsolute(AGENT_MEMORY_ROOT_RAW)
+  ? path.resolve(AGENT_MEMORY_ROOT_RAW)
+  : path.resolve(RUNTIME_ROOT, AGENT_MEMORY_ROOT_RAW);
 const MEMORY_GLOBAL_KNOWLEDGE_DIR_RAW =
   process.env.MEMORY_GLOBAL_KNOWLEDGE_DIR ||
   envConfig.MEMORY_GLOBAL_KNOWLEDGE_DIR ||
@@ -152,13 +148,11 @@ export const OPENAI_DAILY_EMBED_LIMIT = Math.max(
   ),
 ); // 0 = unlimited
 export const MEMORY_EMBED_MODEL =
-  process.env.MEMORY_EMBED_MODEL ||
-  envConfig.MEMORY_EMBED_MODEL ||
-  'text-embedding-3-large';
+  runtimeMemorySettings.embeddingModel || 'text-embedding-3-large';
 export const MEMORY_EMBED_PROVIDER =
-  process.env.MEMORY_EMBED_PROVIDER ||
-  envConfig.MEMORY_EMBED_PROVIDER ||
-  'disabled';
+  runtimeMemorySettings.embeddingsEnabled === false
+    ? 'disabled'
+    : runtimeMemorySettings.embeddingProvider || 'disabled';
 export const MEMORY_CHUNK_SIZE = Math.max(
   300,
   parseInt(
@@ -369,7 +363,11 @@ export const MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD = Math.max(
   ),
 );
 export const MEMORY_DREAMING_ENABLED = parseBooleanEnv(
-  process.env.MEMORY_DREAMING_ENABLED || envConfig.MEMORY_DREAMING_ENABLED,
+  runtimeMemorySettings.dreamingEnabled === undefined
+    ? undefined
+    : runtimeMemorySettings.dreamingEnabled
+      ? 'true'
+      : 'false',
   false,
 );
 export const MEMORY_DREAMING_CRON =
@@ -527,13 +525,11 @@ export const MEMORY_CONSOLIDATION_MAX_CLUSTERS = Math.max(
 );
 
 export const AGENT_TIMEOUT = parseInt(
-  process.env.AGENT_TIMEOUT || process.env.CONTAINER_TIMEOUT || '1800000',
+  process.env.AGENT_TIMEOUT || '1800000',
   10,
 );
 export const AGENT_MAX_OUTPUT_SIZE = parseInt(
-  process.env.AGENT_MAX_OUTPUT_SIZE ||
-    process.env.CONTAINER_MAX_OUTPUT_SIZE ||
-    '10485760',
+  process.env.AGENT_MAX_OUTPUT_SIZE || '10485760',
   10,
 ); // 10MB default
 export const ONECLI_URL = process.env.ONECLI_URL || envConfig.ONECLI_URL;
@@ -585,7 +581,7 @@ export const MAX_MESSAGES_PER_PROMPT = Math.max(
   parseInt(process.env.MAX_MESSAGES_PER_PROMPT || '10', 10) || 10,
 );
 export const IPC_POLL_INTERVAL = 1000;
-export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min default — how long to keep container alive after last result
+export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min default — how long to keep the agent run alive after last result
 export const MAX_CONCURRENT_CONTAINERS = Math.max(
   1,
   parseInt(process.env.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5,

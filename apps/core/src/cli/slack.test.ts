@@ -1,17 +1,36 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   normalizeSlackChatJid,
+  registerSlackMainGroup,
   validateSlackAppToken,
   validateSlackBotToken,
   verifySlackChatAccess,
 } from './slack.js';
 
+const runtimeHomes: string[] = [];
+
 afterEach(() => {
   vi.restoreAllMocks();
+  while (runtimeHomes.length > 0) {
+    const runtimeHome = runtimeHomes.pop();
+    if (runtimeHome) fs.rmSync(runtimeHome, { recursive: true, force: true });
+  }
 });
 
 describe('cli slack helpers', () => {
+  function makeRuntimeHome(): string {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-slack-test-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    return runtimeHome;
+  }
+
   it('normalizes valid Slack chat ids', () => {
     expect(normalizeSlackChatJid('C0123456789')).toBe('sl:C0123456789');
     expect(normalizeSlackChatJid('sl:g0123456789')).toBe('sl:G0123456789');
@@ -98,5 +117,26 @@ describe('cli slack helpers', () => {
     expect(result.chatTitle).toBe('ops-room');
     expect(result.sentTestMessage).toBe(true);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('seeds CLAUDE.md and SOUL.md when registering the main group', async () => {
+    const runtimeHome = makeRuntimeHome();
+
+    const result = await registerSlackMainGroup({
+      runtimeHome,
+      chatJid: 'sl:C0123456789',
+      displayName: 'Kai Slack',
+    });
+
+    const groupDir = path.join(runtimeHome, 'agents', result.folder);
+    const claude = fs.readFileSync(path.join(groupDir, 'CLAUDE.md'), 'utf-8');
+    const soul = fs.readFileSync(path.join(groupDir, 'SOUL.md'), 'utf-8');
+
+    expect(result.groupName).toBe('Kai Slack');
+    expect(claude).toContain('Static Chat Guidance');
+    expect(claude).toContain('memory/continuity brief');
+    expect(soul).toContain('# Soul - Who You Are');
+    expect(soul).toContain('- **Name:** Kai Slack');
+    expect(soul).toContain('## Continuity Boundary');
   });
 });

@@ -40,6 +40,13 @@ class StagePlaybookTests(unittest.TestCase):
         self.assertIn("automated-tester", text)
         self.assertIn("Goal:", text)
 
+    def test_pr_ready_context_includes_new_scope_override(self) -> None:
+        text = render_stage_context(
+            {"phase": "pr-ready", "issue_key": "ENG-456", "title": "Ship migration"},
+        )
+        self.assertIn("User override:", text)
+        self.assertIn("intake` -> `planning` -> `decomposing`", text)
+
 
 if __name__ == "__main__":
     unittest.main()

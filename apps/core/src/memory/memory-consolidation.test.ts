@@ -59,7 +59,14 @@ function addItem(
     key: string;
     value: string;
     confidence: number;
-    kind: 'preference' | 'fact' | 'context' | 'correction' | 'recent_work';
+    kind:
+      | 'preference'
+      | 'decision'
+      | 'fact'
+      | 'context'
+      | 'correction'
+      | 'constraint'
+      | 'recent_work';
   }> = {},
 ) {
   return store.saveItem({

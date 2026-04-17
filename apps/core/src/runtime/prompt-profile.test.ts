@@ -59,6 +59,18 @@ describe('PromptProfileService', () => {
     expect(fs.existsSync(path.join(agentsDir, 'shared', 'CLAUDE.md'))).toBe(
       true,
     );
+    const shared = fs.readFileSync(
+      path.join(agentsDir, 'shared', 'CLAUDE.md'),
+      'utf-8',
+    );
+    expect(shared).toContain('## Memory Rules');
+    expect(shared).toContain('## Continuity Rules');
+    expect(shared).toContain(
+      'Do not save raw chat logs, terminal output, temporary task progress',
+    );
+    expect(shared).toContain(
+      'When the user says "continue", resume from continuity first',
+    );
     expect(fs.existsSync(path.join(configDir, 'CLAUDE.md'))).toBe(false);
     expect(fs.existsSync(path.join(configDir, 'SOUL.md'))).toBe(false);
     expect(

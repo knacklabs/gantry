@@ -19,8 +19,8 @@ import {
 } from '../platform/group-folder.js';
 import {
   ensureGroupIpcLayout,
+  getHostAgentRunnerRoot,
   ensureSharedSessionSettings,
-  syncHostAgentRunnerRuntime,
   syncGroupSkills,
 } from './agent-spawn-layout.js';
 import { HostRuntimeContext } from './agent-spawn-types.js';
@@ -135,7 +135,7 @@ export function prepareHostRuntimeContext(
   // Shared .claude/ under AGENT_ROOT for skills, settings, plugins
   ensureSharedSessionSettings();
   syncGroupSkills();
-  const runnerRoot = syncHostAgentRunnerRuntime();
+  const runnerRoot = getHostAgentRunnerRoot();
 
   const groupIpcDir = resolveGroupIpcPath(group.folder);
   ensureGroupIpcLayout(groupIpcDir);

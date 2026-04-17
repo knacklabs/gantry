@@ -7,9 +7,11 @@ import { DoctorReport, runDoctor } from './doctor.js';
 import { getServiceStatus } from './service-manager.js';
 import { envFilePath } from './runtime-home.js';
 import { ensureRuntimeSettings } from './runtime-settings.js';
+import { inspectMemoryHealth } from './memory-health.js';
 
 export interface RuntimeStatusSummary {
   runtimeHome: string;
+  runtimeMode: 'host';
   doctor: DoctorReport;
   service: {
     kind: string;
@@ -23,8 +25,21 @@ export interface RuntimeStatusSummary {
   slackAppTokenConfigured: boolean;
   slackGroups: number;
   memoryEnabled: boolean;
+  memoryProvider: string;
+  memoryProviderSource: string;
+  memoryProviderHealth: string;
+  memorySqlitePath: string;
+  memorySqlitePathSource: string;
+  memoryQmdRoot: string;
+  memoryQmdRootSource: string;
   embeddingsEnabled: boolean;
+  embeddingProvider: string;
+  embeddingProviderSource: string;
+  embeddingProviderHealth: string;
+  embeddingModel: string;
+  embeddingModelSource: string;
   dreamingEnabled: boolean;
+  dreamingSource: string;
 }
 
 function countRegisteredGroupsByPrefix(runtimeHome: string): {
@@ -68,9 +83,17 @@ export function collectRuntimeStatus(
   const service = getServiceStatus(runtimeHome);
   const doctor = runDoctor(importMetaUrl, runtimeHome);
   const groupCounts = countRegisteredGroupsByPrefix(runtimeHome);
+  const memoryHealth = inspectMemoryHealth(runtimeHome, settings, env);
+  const memoryProviderCheck = doctor.checks.find(
+    (check) => check.id === 'memory-provider',
+  );
+  const embeddingsProviderCheck = doctor.checks.find(
+    (check) => check.id === 'embeddings-provider',
+  );
 
   return {
     runtimeHome,
+    runtimeMode: 'host',
     doctor,
     service,
     telegramEnabled: settings.channels.telegram.enabled,
@@ -80,9 +103,22 @@ export function collectRuntimeStatus(
     slackBotTokenConfigured: Boolean(env.SLACK_BOT_TOKEN?.trim()),
     slackAppTokenConfigured: Boolean(env.SLACK_APP_TOKEN?.trim()),
     slackGroups: groupCounts.slack,
-    memoryEnabled: settings.features.memory,
-    embeddingsEnabled: settings.features.embeddings,
-    dreamingEnabled: settings.features.dreaming,
+    memoryEnabled: memoryHealth.memoryEnabled,
+    memoryProvider: memoryHealth.memoryProvider,
+    memoryProviderSource: memoryHealth.memoryProviderSource,
+    memoryProviderHealth: memoryProviderCheck?.status || 'unknown',
+    memorySqlitePath: memoryHealth.sqlitePath,
+    memorySqlitePathSource: memoryHealth.sqlitePathSource,
+    memoryQmdRoot: memoryHealth.qmdRoot,
+    memoryQmdRootSource: memoryHealth.qmdRootSource,
+    embeddingsEnabled: memoryHealth.embeddingsEnabled,
+    embeddingProvider: memoryHealth.embeddingProvider,
+    embeddingProviderSource: memoryHealth.embeddingProviderSource,
+    embeddingProviderHealth: embeddingsProviderCheck?.status || 'unknown',
+    embeddingModel: memoryHealth.embeddingModel,
+    embeddingModelSource: memoryHealth.embeddingModelSource,
+    dreamingEnabled: memoryHealth.dreamingEnabled,
+    dreamingSource: memoryHealth.dreamingSource,
   };
 }
 
@@ -95,6 +131,7 @@ export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
   lines.push('MyClaw Status');
   lines.push('');
   lines.push(`Runtime home: ${summary.runtimeHome}`);
+  lines.push(`Runtime mode: ${summary.runtimeMode}`);
   lines.push(`Doctor: ${summary.doctor.ok ? 'healthy' : 'needs attention'}`);
   lines.push(
     `Doctor warnings: ${summary.doctor.warnings} | Doctor blocking issues: ${summary.doctor.blockingFailures}`,
@@ -108,8 +145,25 @@ export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
   lines.push(`Telegram groups: ${summary.telegramGroups}`);
   lines.push(`Slack groups: ${summary.slackGroups}`);
   lines.push(`Memory: ${statusWord(summary.memoryEnabled)}`);
+  lines.push(
+    `Memory provider: ${summary.memoryProvider} (${summary.memoryProviderHealth}, source: ${summary.memoryProviderSource})`,
+  );
+  lines.push(
+    `SQLite memory DB: ${summary.memorySqlitePath} (source: ${summary.memorySqlitePathSource})`,
+  );
+  lines.push(
+    `QMD memory root: ${summary.memoryQmdRoot} (source: ${summary.memoryQmdRootSource})`,
+  );
   lines.push(`Embeddings: ${statusWord(summary.embeddingsEnabled)}`);
-  lines.push(`Dreaming: ${statusWord(summary.dreamingEnabled)}`);
+  lines.push(
+    `Embedding provider: ${summary.embeddingProvider} (${summary.embeddingProviderHealth}, source: ${summary.embeddingProviderSource})`,
+  );
+  lines.push(
+    `Embedding model: ${summary.embeddingModel} (source: ${summary.embeddingModelSource})`,
+  );
+  lines.push(
+    `Dreaming: ${statusWord(summary.dreamingEnabled)} (source: ${summary.dreamingSource})`,
+  );
   lines.push(`Service (${summary.service.kind}): ${summary.service.status}`);
 
   const nextActions: string[] = [];

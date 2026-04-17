@@ -23,6 +23,11 @@ commands = [
         or "python3 .codex/scripts/check_architecture.py",
     ),
     (
+        "runtime-truth",
+        os.environ.get("FACTORY_RUNTIME_TRUTH_CMD")
+        or "python3 .codex/scripts/check_runtime_truth.py",
+    ),
+    (
         "factory-python-tests",
         os.environ.get("FACTORY_PYTHON_TEST_CMD")
         or "python3 -m unittest discover .codex/scripts/tests",

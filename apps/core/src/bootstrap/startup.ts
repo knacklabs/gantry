@@ -7,14 +7,12 @@ import { logger } from '../core/logger.js';
 import { ensureRuntimeLayoutDirectories } from '../platform/runtime-layout.js';
 import { ensurePromptProfileBootstrapped } from '../runtime/prompt-profile.js';
 import { restoreRemoteControl } from '../runtime/remote-control.js';
-import { runRuntimeStartupPreflight } from '../runtime/runtime-diagnostics.js';
 import { initDatabase } from '../storage/db.js';
 import { RuntimeApp } from './runtime-app.js';
 
 interface StartupDeps {
   ensureRuntimeLayoutDirectories: typeof ensureRuntimeLayoutDirectories;
   ensurePromptProfileBootstrapped: typeof ensurePromptProfileBootstrapped;
-  runRuntimeStartupPreflight: typeof runRuntimeStartupPreflight;
   initDatabase: typeof initDatabase;
   loadRuntimeSettings: typeof loadRuntimeSettings;
   restoreRemoteControl: typeof restoreRemoteControl;
@@ -29,7 +27,6 @@ function makeDefaultDeps(): StartupDeps {
   return {
     ensureRuntimeLayoutDirectories,
     ensurePromptProfileBootstrapped,
-    runRuntimeStartupPreflight,
     initDatabase,
     loadRuntimeSettings,
     restoreRemoteControl,
@@ -56,7 +53,6 @@ export async function runStartup(
     );
   }
 
-  await resolved.runRuntimeStartupPreflight();
   resolved.initDatabase();
   resolved.logger.info('Database initialized');
 

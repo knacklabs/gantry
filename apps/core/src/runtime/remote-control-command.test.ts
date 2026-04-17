@@ -66,6 +66,7 @@ describe('handleRemoteControlCommand', () => {
       baseMsgFields,
       getGroup,
       findChannel,
+      () => false,
     );
 
     expect(channel.sent).toHaveLength(0);
@@ -82,6 +83,7 @@ describe('handleRemoteControlCommand', () => {
       baseMsgFields,
       getGroup,
       findChannel,
+      () => false,
     );
 
     expect(channel.sent).toHaveLength(0);
@@ -98,8 +100,27 @@ describe('handleRemoteControlCommand', () => {
       baseMsgFields,
       getGroup,
       findChannel,
+      () => true,
     );
     // no error thrown
+  });
+
+  it('rejects unauthorized sender in main group', async () => {
+    const channel = makeChannel();
+    const getGroup = () =>
+      ({ isMain: true }) as unknown as RegisteredGroup | undefined;
+    const findChannel = () => channel;
+
+    await handleRemoteControlCommand(
+      '/remote-control',
+      'group@g.us',
+      baseMsgFields,
+      getGroup,
+      findChannel,
+      () => false,
+    );
+
+    expect(channel.sent).toHaveLength(0);
   });
 
   it('sends URL on successful /remote-control start', async () => {
@@ -132,6 +153,7 @@ describe('handleRemoteControlCommand', () => {
       baseMsgFields,
       getGroup,
       findChannel,
+      () => true,
     );
 
     expect(mockStart).toHaveBeenCalledWith(
@@ -169,6 +191,7 @@ describe('handleRemoteControlCommand', () => {
       baseMsgFields,
       getGroup,
       findChannel,
+      () => true,
     );
 
     expect(channel.sent[0]).toContain('Remote Control failed');
@@ -199,6 +222,7 @@ describe('handleRemoteControlCommand', () => {
       baseMsgFields,
       getGroup,
       findChannel,
+      () => true,
     );
 
     expect(channel.sent[0]).toContain('session ended');
@@ -230,6 +254,7 @@ describe('handleRemoteControlCommand', () => {
       baseMsgFields,
       getGroup,
       findChannel,
+      () => true,
     );
 
     expect(channel.sent[0]).toContain('no active session');

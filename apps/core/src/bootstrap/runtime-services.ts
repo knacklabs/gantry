@@ -192,7 +192,11 @@ export function startRuntimeServices(
       app.setAgentCursor(chatJid, timestamp);
     },
     saveState: app.saveState,
-    findChannel: (chatJid) => channelWiring.findChannel(chatJid),
+    hasChannel: (chatJid) => channelWiring.hasChannel(chatJid),
+    setTyping: (chatJid, isTyping) =>
+      channelWiring.setTyping(chatJid, isTyping),
+    sendProgressUpdate: (chatJid, text, options) =>
+      channelWiring.sendProgressUpdate(chatJid, text, options),
     queue: app.queue,
   });
 
@@ -211,7 +215,11 @@ export function startRuntimeServices(
         app.setAgentCursor(chatJid, timestamp);
       },
       saveState: app.saveState,
-      findChannel: (chatJid) => channelWiring.findChannel(chatJid),
+      hasChannel: (chatJid) => channelWiring.hasChannel(chatJid),
+      setTyping: (chatJid, isTyping) =>
+        channelWiring.setTyping(chatJid, isTyping),
+      sendProgressUpdate: (chatJid, text, options) =>
+        channelWiring.sendProgressUpdate(chatJid, text, options),
       queue: app.queue,
     })
     .catch((err) => {

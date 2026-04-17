@@ -66,10 +66,17 @@ channels:
         mode: trigger
       agents: {}
       log_denied: true
-features:
-  memory: true
-  embeddings: false
-  dreaming: false
+memory:
+  enabled: true
+  provider: sqlite
+  sqlite_path: store/memory.db
+  qmd_root: agent-memory
+  embeddings:
+    enabled: false
+    provider: disabled
+    model: text-embedding-3-large
+  dreaming:
+    enabled: false
 `);
 
     expect(settings.channels.telegram.senderAllowlist.default.allow).toEqual([
@@ -103,10 +110,17 @@ channels:
         mode: trigger
       agents: {}
       log_denied: true
-features:
-  memory: true
-  embeddings: false
-  dreaming: false
+memory:
+  enabled: true
+  provider: sqlite
+  sqlite_path: store/memory.db
+  qmd_root: agent-memory
+  embeddings:
+    enabled: false
+    provider: disabled
+    model: text-embedding-3-large
+  dreaming:
+    enabled: false
 `);
     expect(settings.channels.telegram.enabled).toBe(false);
     expect(settings.channels.slack.enabled).toBe(true);
@@ -118,10 +132,48 @@ features:
     expect(settings.channels.telegram.enabled).toBe(false);
     expect(settings.channels.slack.enabled).toBe(false);
     expect(settings.channels.telegram.senderAllowlist.default.allow).toBe('*');
-    expect(settings.features.memory).toBe(true);
-    expect(settings.features.embeddings).toBe(false);
-    expect(settings.features.dreaming).toBe(false);
+    expect(settings.memory.enabled).toBe(true);
+    expect(settings.memory.provider).toBe('sqlite');
+    expect(settings.memory.embeddings.enabled).toBe(false);
+    expect(settings.memory.dreaming.enabled).toBe(false);
     expect(fs.existsSync(settingsFilePath(runtimeHome))).toBe(true);
+    const rendered = fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8');
+    expect(rendered).toContain('memory:');
+  });
+
+  it('rejects unsupported features block and requires memory.* settings', () => {
+    const runtimeHome = createRuntimeHome();
+    fs.writeFileSync(
+      settingsFilePath(runtimeHome),
+      `
+channels:
+  telegram:
+    enabled: false
+    sender_allowlist:
+      default:
+        allow: "*"
+        mode: trigger
+      agents: {}
+      log_denied: true
+  slack:
+    enabled: false
+    sender_allowlist:
+      default:
+        allow: "*"
+        mode: trigger
+      agents: {}
+      log_denied: true
+features:
+  memory: true
+  embeddings: true
+  dreaming: false
+`.trimStart(),
+      'utf-8',
+    );
+
+    const result = validateRuntimeSettings(runtimeHome);
+    expect(result.ok).toBe(false);
+    expect(result.failure?.details.join('\n')).toContain('features block');
   });
 
   it('surfaces actionable error when settings.yaml is malformed', () => {
@@ -167,10 +219,17 @@ channels:
         mode: trigger
       agents: {}
       log_denied: true
-features:
-  memory: true
-  embeddings: false
-  dreaming: false
+memory:
+  enabled: true
+  provider: sqlite
+  sqlite_path: store/memory.db
+  qmd_root: agent-memory
+  embeddings:
+    enabled: false
+    provider: disabled
+    model: text-embedding-3-large
+  dreaming:
+    enabled: false
 `.trimStart(),
       'utf-8',
     );

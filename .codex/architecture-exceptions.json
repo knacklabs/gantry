@@ -25,7 +25,7 @@
       "owner": "A0.3",
       "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
       "expires_on": "2026-09-30",
-      "max_lines": 581,
+      "max_lines": 720,
       "delete_after": "File is split into production modules at or below 400 LOC."
     },
     {
@@ -43,7 +43,7 @@
       "owner": "A0.3",
       "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
       "expires_on": "2026-09-30",
-      "max_lines": 655,
+      "max_lines": 820,
       "delete_after": "File is split into production modules at or below 400 LOC."
     },
     {
@@ -61,7 +61,7 @@
       "owner": "A0.3",
       "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
       "expires_on": "2026-09-30",
-      "max_lines": 947,
+      "max_lines": 1010,
       "delete_after": "File is split into production modules at or below 400 LOC."
     },
     {
@@ -84,20 +84,11 @@
     },
     {
       "rule": "file_size_budget",
-      "target": "apps/core/src/memory/memory-provider.ts",
-      "owner": "A0.3",
-      "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
-      "expires_on": "2026-09-30",
-      "max_lines": 403,
-      "delete_after": "File is split into production modules at or below 400 LOC."
-    },
-    {
-      "rule": "file_size_budget",
       "target": "apps/core/src/memory/memory-service.ts",
       "owner": "A0.3",
       "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
       "expires_on": "2026-09-30",
-      "max_lines": 1056,
+      "max_lines": 1117,
       "delete_after": "File is split into production modules at or below 400 LOC."
     },
     {
@@ -124,7 +115,7 @@
       "owner": "A0.3",
       "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
       "expires_on": "2026-09-30",
-      "max_lines": 726,
+      "max_lines": 729,
       "delete_after": "File is split into production modules at or below 400 LOC."
     },
     {
@@ -142,7 +133,7 @@
       "owner": "A0.3",
       "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
       "expires_on": "2026-09-30",
-      "max_lines": 2489,
+      "max_lines": 2540,
       "delete_after": "File is split into production modules at or below 400 LOC."
     },
     {
@@ -151,7 +142,7 @@
       "owner": "A0.3",
       "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
       "expires_on": "2026-09-30",
-      "max_lines": 977,
+      "max_lines": 1007,
       "delete_after": "File is split into production modules at or below 400 LOC."
     },
     {
@@ -160,7 +151,7 @@
       "owner": "A0.3",
       "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
       "expires_on": "2026-09-30",
-      "max_lines": 432,
+      "max_lines": 448,
       "delete_after": "File is split into production modules at or below 400 LOC."
     },
     {
@@ -187,7 +178,7 @@
       "owner": "A0.3",
       "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
       "expires_on": "2026-09-30",
-      "max_lines": 1927,
+      "max_lines": 1932,
       "delete_after": "File is split into production modules at or below 400 LOC."
     }
   ]

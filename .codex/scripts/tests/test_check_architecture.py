@@ -151,6 +151,47 @@ class CheckArchitectureTests(unittest.TestCase):
             self.assertIn("[Forbidden Import Edges]", result.stdout)
             self.assertIn("apps/core/src/core/boundary-break.ts imports apps/core/src/runtime/worker.ts", result.stdout)
 
+    def test_forbidden_channel_registration_surface_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/channels/slack.ts",
+                "registerChannel('slack', () => null);\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Channel Registration Surface]", result.stdout)
+            self.assertIn("legacy channel self-registration API", result.stdout)
+
+    def test_forbidden_ipc_contract_surface_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/ipc.ts",
+                'import { MEMORY_IPC_ACTIONS } from "../memory/memory-ipc-contract";\n',
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[IPC Contract Surface]", result.stdout)
+            self.assertIn("removed IPC contract import path", result.stdout)
+
+    def test_forbidden_ipc_orchestrator_monolith_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/ipc.ts",
+                "export async function processTaskIpc() {\n"
+                "  switch (data.type) {\n"
+                "    case 'scheduler_once':\n"
+                "      return;\n"
+                "  }\n"
+                "}\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[IPC Orchestrator]", result.stdout)
+            self.assertIn("in-orchestrator task domain handler", result.stdout)
+
     def test_stale_doc_reference_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))
@@ -186,7 +227,9 @@ class CheckArchitectureTests(unittest.TestCase):
 
 
 class VerifyContractTests(unittest.TestCase):
-    def test_verify_print_only_includes_architecture_phase(self) -> None:
+    def test_verify_print_only_includes_architecture_and_runtime_truth_phases(
+        self,
+    ) -> None:
         result = subprocess.run(
             [sys.executable, str(VERIFY_SCRIPT), "--print-only"],
             cwd=REPO_ROOT,
@@ -196,8 +239,10 @@ class VerifyContractTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
         phases = [line.split(":", 1)[0] for line in result.stdout.splitlines() if ":" in line]
         self.assertIn("architecture", phases)
+        self.assertIn("runtime-truth", phases)
         self.assertLess(phases.index("structural"), phases.index("architecture"))
-        self.assertLess(phases.index("architecture"), phases.index("factory-python-tests"))
+        self.assertLess(phases.index("architecture"), phases.index("runtime-truth"))
+        self.assertLess(phases.index("runtime-truth"), phases.index("factory-python-tests"))
         self.assertLess(phases.index("factory-python-tests"), phases.index("typecheck"))
 
 

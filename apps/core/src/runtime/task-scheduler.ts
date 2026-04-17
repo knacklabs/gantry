@@ -341,15 +341,18 @@ function registerSystemJobs(deps: SchedulerDependencies): void {
   for (const [groupFolder, linkedSessions] of byFolder.entries()) {
     const jobId = `system:dreaming:${groupFolder}`;
     const existing = getJobById(jobId);
-    const nextRun =
-      existing?.next_run ||
-      computeNextJobRun(
-        {
-          schedule_type: 'cron',
-          schedule_value: MEMORY_DREAMING_CRON,
-        },
-        nowIso,
-      );
+    if (existing?.status === 'dead_lettered') {
+      continue;
+    }
+    const computedNextRun = computeNextJobRun(
+      {
+        schedule_type: 'cron',
+        schedule_value: MEMORY_DREAMING_CRON,
+      },
+      nowIso,
+    );
+    const nextRun = existing?.next_run || computedNextRun;
+    const desiredStatus = existing?.status === 'paused' ? 'paused' : 'active';
 
     upsertJob({
       id: jobId,
@@ -360,8 +363,9 @@ function registerSystemJobs(deps: SchedulerDependencies): void {
       linked_sessions: linkedSessions,
       group_scope: groupFolder,
       created_by: 'agent',
-      status: existing?.status || 'active',
+      status: desiredStatus,
       next_run: nextRun,
+      silent: false,
       timeout_ms: 300_000,
       max_retries: 1,
       retry_backoff_ms: 30_000,
@@ -793,6 +797,17 @@ async function runJob(
     : resultSummary
       ? resultSummary.slice(0, 4000)
       : 'Completed';
+  if (error && currentJob.prompt === MEMORY_DREAM_SYSTEM_PROMPT) {
+    logger.error(
+      {
+        jobId: currentJob.id,
+        groupScope: currentJob.group_scope,
+        runId,
+        error,
+      },
+      'Memory dreaming system job failed',
+    );
+  }
   let notified = false;
   if (error && !currentJob.silent) {
     const delivered = await deliverMessage(

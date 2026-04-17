@@ -71,3 +71,5 @@ A branch is PR-ready only when:
 - automated and functional test artifacts exist with no blockers
 - all three review artifacts exist with score `>= 8` and no blockers
 - acceptance criteria have direct evidence
+
+PR-ready on one issue does not block new user-requested work on a different issue. When new scope is requested, start a new run with intake and continue from `planning` for that new issue.

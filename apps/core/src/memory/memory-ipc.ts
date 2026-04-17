@@ -1,10 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+import { MemoryIpcRequest, MemoryIpcResponse } from '@myclaw/contracts';
 
 import { logger } from '../core/logger.js';
 import { resolveGroupIpcPath } from '../platform/group-folder.js';
 import { MemoryService } from './memory-service.js';
-import { MemoryIpcRequest, MemoryIpcResponse } from './memory-ipc-contract.js';
 import {
   PatchMemoryInput,
   PatchProcedureInput,
@@ -62,9 +62,11 @@ function parseMemoryKind(value: unknown): SaveMemoryInput['kind'] | undefined {
   const kind = parseOptionalString(value, { maxLen: 32 });
   if (
     kind === 'preference' ||
+    kind === 'decision' ||
     kind === 'fact' ||
     kind === 'context' ||
     kind === 'correction' ||
+    kind === 'constraint' ||
     kind === 'recent_work'
   ) {
     return kind;

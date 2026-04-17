@@ -19,8 +19,6 @@ MyClaw currently supports host runtime execution only. The primary boundary is h
 - explicit runtime-home ownership and permissions
 - strict message routing and command authorization checks
 
-There is no active container isolation boundary in the current runtime.
-
 ### 2. Mount and Path Security
 
 **External Allowlist** - Mount permissions are stored at `~/.config/myclaw/mount-allowlist.json`, which is:
@@ -70,7 +68,7 @@ Messages and scheduler operations are verified against group identity:
 | Global memory access | Read/write | Read-only (when mounted) |
 | Additional mounts | Configurable by admin policy | Read-only unless policy allows write |
 | Scheduler control scope | All groups | Own group only |
-| Session commands (`/new`, `/model`, `/runtime`) | Allowed | Admin/trusted sender only |
+| Session commands (`/new`, `/model`) | Allowed | Admin/trusted sender only |
 
 ### 5. Credential Isolation (OneCLI Agent Vault)
 
@@ -81,16 +79,6 @@ Credentials should be provided through OneCLI and runtime environment controls.
 2. MyClaw routes outbound calls through configured credential paths
 3. The gateway matches requests by host/path and injects credentials
 4. Agents do not need raw credentials embedded in project docs or source
-
-### Legacy naming debt (not runtime support)
-
-The following names still exist in code/schema and are tracked for cleanup:
-- `container_config`
-- `containerName`
-- `containerInput`
-- `AdditionalMount.containerPath`
-
-These are naming artifacts, not evidence of active container runtime support.
 
 ## Security Architecture (Host Runtime)
 

@@ -31,13 +31,6 @@ describe('extractSessionCommand', () => {
     });
   });
 
-  it('detects bare /runtime', () => {
-    expect(extractSessionCommand('/runtime', trigger)).toEqual({
-      kind: 'runtime_show',
-      raw: '/runtime',
-    });
-  });
-
   it('detects /model with alias', () => {
     expect(extractSessionCommand('/model opus', trigger)).toEqual({
       kind: 'model_set',
@@ -136,10 +129,6 @@ describe('extractSessionCommand', () => {
     expect(extractSessionCommand('/thinking enabled 0', trigger)).toBeNull();
   });
 
-  it('rejects /runtime with extra text', () => {
-    expect(extractSessionCommand('/runtime now', trigger)).toBeNull();
-  });
-
   it('detects bare /new', () => {
     expect(extractSessionCommand('/new', trigger)).toEqual({
       kind: 'new',
@@ -176,20 +165,16 @@ describe('extractSessionCommand', () => {
 });
 
 describe('isSessionCommandAllowed', () => {
-  it('allows main group regardless of sender', () => {
+  it('allows trusted/admin sender (is_from_me)', () => {
     expect(isSessionCommandAllowed(true, false)).toBe(true);
   });
 
-  it('allows trusted/admin sender (is_from_me) in non-main group', () => {
+  it('allows explicitly allowlisted sender', () => {
     expect(isSessionCommandAllowed(false, true)).toBe(true);
   });
 
-  it('denies untrusted sender in non-main group', () => {
+  it('denies sender that is neither owner nor explicitly allowlisted', () => {
     expect(isSessionCommandAllowed(false, false)).toBe(false);
-  });
-
-  it('allows trusted sender in main group', () => {
-    expect(isSessionCommandAllowed(true, true)).toBe(true);
   });
 });
 
@@ -204,6 +189,7 @@ function makeMsg(
     sender_name: 'User',
     content,
     timestamp: '100',
+    is_from_me: true,
     ...overrides,
   };
 }
@@ -223,9 +209,10 @@ function makeDeps(
     setGroupModelOverride: vi.fn(),
     getGroupThinkingOverride: vi.fn().mockReturnValue(undefined),
     setGroupThinkingOverride: vi.fn(),
-    getRuntimeStatusMessage: vi.fn().mockResolvedValue('Runtime mode: host'),
     archiveCurrentSession: vi.fn().mockResolvedValue(undefined),
+    onSessionArchived: vi.fn().mockResolvedValue(undefined),
     clearCurrentSession: vi.fn(),
+    isSenderControlAllowlisted: vi.fn().mockReturnValue(false),
     canSenderInteract: vi.fn().mockReturnValue(true),
     ...overrides,
   };
@@ -262,7 +249,31 @@ describe('handleSessionCommand', () => {
       '/compact',
       expect.any(Function),
     );
-    expect(deps.advanceCursor).toHaveBeenCalledWith('100');
+    expect(deps.archiveCurrentSession).toHaveBeenCalledWith('manual-compact');
+    expect(deps.onSessionArchived).toHaveBeenCalledWith('manual-compact');
+    expect(deps.advanceCursor).toHaveBeenCalledWith(
+      expect.objectContaining({ timestamp: '100' }),
+    );
+  });
+
+  it('denies /compact in main group when sender is not owner and not allowlisted', async () => {
+    const deps = makeDeps({
+      isSenderControlAllowlisted: vi.fn().mockReturnValue(false),
+    });
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/compact', { is_from_me: false })],
+      isMainGroup: true,
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+
+    expect(result).toEqual({ handled: true, success: true });
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      'Session commands require admin access.',
+    );
+    expect(deps.runAgent).not.toHaveBeenCalled();
   });
 
   it('handles authorized /new in main group', async () => {
@@ -277,10 +288,13 @@ describe('handleSessionCommand', () => {
     });
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.runAgent).not.toHaveBeenCalled();
-    expect(deps.archiveCurrentSession).toHaveBeenCalledTimes(1);
+    expect(deps.archiveCurrentSession).toHaveBeenCalledWith('new-session');
+    expect(deps.onSessionArchived).toHaveBeenCalledWith('new-session');
     expect(deps.clearCurrentSession).toHaveBeenCalledTimes(1);
     expect(deps.sendMessage).toHaveBeenCalledWith('Started a fresh session.');
-    expect(deps.advanceCursor).toHaveBeenCalledWith('100');
+    expect(deps.advanceCursor).toHaveBeenCalledWith(
+      expect.objectContaining({ timestamp: '100' }),
+    );
   });
 
   it('handles /stop by stopping current run without invoking runAgent', async () => {
@@ -299,7 +313,9 @@ describe('handleSessionCommand', () => {
     expect(deps.stopCurrentRun).toHaveBeenCalledTimes(1);
     expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith('Stopping current run.');
-    expect(deps.advanceCursor).toHaveBeenCalledWith('100');
+    expect(deps.advanceCursor).toHaveBeenCalledWith(
+      expect.objectContaining({ timestamp: '100' }),
+    );
   });
 
   it('handles /stop when nothing is active', async () => {
@@ -318,29 +334,6 @@ describe('handleSessionCommand', () => {
     expect(deps.sendMessage).toHaveBeenCalledWith('No active run to stop.');
   });
 
-  it('handles authorized /runtime in main group', async () => {
-    const deps = makeDeps({
-      getRuntimeStatusMessage: vi
-        .fn()
-        .mockResolvedValue('Runtime mode: host\nHealth: healthy'),
-    });
-    const result = await handleSessionCommand({
-      missedMessages: [makeMsg('/runtime')],
-      isMainGroup: true,
-      groupName: 'test',
-      triggerPattern: trigger,
-      timezone: 'UTC',
-      deps,
-    });
-    expect(result).toEqual({ handled: true, success: true });
-    expect(deps.getRuntimeStatusMessage).toHaveBeenCalledTimes(1);
-    expect(deps.sendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('Runtime mode: host'),
-    );
-    expect(deps.runAgent).not.toHaveBeenCalled();
-    expect(deps.advanceCursor).toHaveBeenCalledWith('100');
-  });
-
   it('sends denial to interactable sender in non-main group', async () => {
     const deps = makeDeps();
     const result = await handleSessionCommand({
@@ -356,7 +349,9 @@ describe('handleSessionCommand', () => {
       'Session commands require admin access.',
     );
     expect(deps.runAgent).not.toHaveBeenCalled();
-    expect(deps.advanceCursor).toHaveBeenCalledWith('100');
+    expect(deps.advanceCursor).toHaveBeenCalledWith(
+      expect.objectContaining({ timestamp: '100' }),
+    );
   });
 
   it('silently consumes denied command when sender cannot interact', async () => {
@@ -373,7 +368,9 @@ describe('handleSessionCommand', () => {
     });
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.sendMessage).not.toHaveBeenCalled();
-    expect(deps.advanceCursor).toHaveBeenCalledWith('100');
+    expect(deps.advanceCursor).toHaveBeenCalledWith(
+      expect.objectContaining({ timestamp: '100' }),
+    );
   });
 
   it('processes pre-compact messages before /compact', async () => {
@@ -455,23 +452,6 @@ describe('handleSessionCommand', () => {
     );
   });
 
-  it('denies unauthorized /runtime in non-main group', async () => {
-    const deps = makeDeps();
-    const result = await handleSessionCommand({
-      missedMessages: [makeMsg('/runtime', { is_from_me: false })],
-      isMainGroup: false,
-      groupName: 'test',
-      triggerPattern: trigger,
-      timezone: 'UTC',
-      deps,
-    });
-    expect(result).toEqual({ handled: true, success: true });
-    expect(deps.getRuntimeStatusMessage).not.toHaveBeenCalled();
-    expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Session commands require admin access.',
-    );
-  });
-
   it('reports failure when command-stage runAgent returns error without streamed status', async () => {
     // runAgent resolves 'error' but callback never gets status: 'error'
     const deps = makeDeps({
@@ -492,6 +472,8 @@ describe('handleSessionCommand', () => {
     expect(deps.sendMessage).toHaveBeenCalledWith(
       expect.stringContaining('failed'),
     );
+    expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
+    expect(deps.onSessionArchived).not.toHaveBeenCalled();
     expect(deps.setGroupModelOverride).not.toHaveBeenCalled();
   });
 
@@ -533,7 +515,9 @@ describe('handleSessionCommand', () => {
     expect(result).toEqual({ handled: true, success: false });
     expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
     expect(deps.clearCurrentSession).not.toHaveBeenCalled();
-    expect(deps.advanceCursor).not.toHaveBeenCalledWith('100');
+    expect(deps.advanceCursor).not.toHaveBeenCalledWith(
+      expect.objectContaining({ timestamp: '100' }),
+    );
   });
 
   it('processes pre-command messages before /new and leaves post-command pending', async () => {
@@ -560,8 +544,12 @@ describe('handleSessionCommand', () => {
     );
     expect(deps.archiveCurrentSession).toHaveBeenCalledTimes(1);
     expect(deps.clearCurrentSession).toHaveBeenCalledTimes(1);
-    expect(deps.advanceCursor).toHaveBeenCalledWith('100');
-    expect(deps.advanceCursor).not.toHaveBeenCalledWith('101');
+    expect(deps.advanceCursor).toHaveBeenCalledWith(
+      expect.objectContaining({ timestamp: '100' }),
+    );
+    expect(deps.advanceCursor).not.toHaveBeenCalledWith(
+      expect.objectContaining({ timestamp: '101' }),
+    );
   });
 
   it('handles /model by showing group override when present', async () => {
@@ -918,7 +906,9 @@ describe('handleSessionCommand', () => {
     // When pre-command fails but output was already sent, cursor advances
     // to the last pre-command message and returns success:true (no retry)
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.advanceCursor).toHaveBeenCalledWith('99');
+    expect(deps.advanceCursor).toHaveBeenCalledWith(
+      expect.objectContaining({ timestamp: '99' }),
+    );
     expect(deps.sendMessage).toHaveBeenCalledWith(
       expect.stringContaining('Failed to process'),
     );
@@ -943,7 +933,9 @@ describe('handleSessionCommand', () => {
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.clearCurrentSession).toHaveBeenCalledTimes(1);
     expect(deps.sendMessage).toHaveBeenCalledWith('Started a fresh session.');
-    expect(deps.advanceCursor).toHaveBeenCalledWith('100');
+    expect(deps.advanceCursor).toHaveBeenCalledWith(
+      expect.objectContaining({ timestamp: '100' }),
+    );
   });
 
   it('calls onSessionArchived callback during /new when provided', async () => {

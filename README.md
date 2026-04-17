@@ -25,6 +25,10 @@ myclaw
 myclaw setup
 myclaw doctor
 myclaw status
+myclaw memory status
+myclaw memory provider <sqlite|qmd|noop|none>
+myclaw memory embeddings <off|openai>
+myclaw memory dreaming <on|off>
 myclaw start
 myclaw telegram connect
 myclaw slack connect
@@ -39,9 +43,26 @@ Defaults in v1:
 - runtime settings file: `~/myclaw/settings.yaml` (validated before `start`/`restart`)
 - setup flow: Telegram-first (Slack can be added with `myclaw slack connect`)
 - memory: on
+- memory provider: `sqlite` by default; `qmd` adds a markdown audit mirror
 - embeddings: off (unless OpenAI key is provided and enabled)
 - dreaming: off
 - sender allowlist: `channels.telegram.sender_allowlist` / `channels.slack.sender_allowlist` in `settings.yaml`
+
+Canonical memory settings live in `~/myclaw/settings.yaml`:
+
+```yaml
+memory:
+  enabled: true
+  provider: sqlite
+  sqlite_path: store/memory.db
+  qmd_root: agent-memory
+  embeddings:
+    enabled: false
+    provider: disabled
+    model: text-embedding-3-large
+  dreaming:
+    enabled: false
+```
 
 ### Channel Setup
 
@@ -75,6 +96,32 @@ Notes:
 - Host runtime execution
 - Skill-driven extensions and channel installation
 
+## Memory And Continuity
+
+Memory stores durable knowledge the agent should remember later:
+
+- preferences
+- decisions
+- facts
+- corrections
+- constraints
+- reusable procedures
+
+Continuity is the runtime context that helps the agent pick up where it left off:
+
+- current task state
+- relevant remembered facts
+- prior decisions
+- recent work context
+- open loops once commitment tracking is enabled
+
+Embeddings are off by default. Memory search and context injection still work without embeddings; embeddings only improve ranking when enabled.
+
+Provider model:
+
+- `sqlite`: simple local SQLite database, no markdown mirror
+- `qmd`: SQLite plus human-readable markdown mirror under `~/myclaw/agent-memory`
+
 ## Runtime
 
 MyClaw currently supports a single runtime mode: host execution.
@@ -92,27 +139,24 @@ npm run build
 npm run dev
 ```
 
-## Built-in Skills
+## Shipped Chat Skills
 
-Skills are slash commands the agent responds to inside chat. Run `/commands` to see the full list.
+Skills are agent instructions bundled into the npm package and synced into `~/myclaw/.claude/skills/`.
 
-| Skill            | Purpose                                                        |
-| ---------------- | -------------------------------------------------------------- |
-| `/commands`      | List all available slash commands with descriptions            |
-| `/setup`         | First-time installation, authentication, service configuration |
-| `/customize`     | Adding channels, integrations, changing behavior               |
-| `/debug`         | Runtime issues, logs, troubleshooting                          |
-| `/update-myclaw` | Bring upstream MyClaw updates into a customized install        |
-| `/init-onecli`   | Install OneCLI Agent Vault and migrate `.env` credentials      |
+| Skill | Purpose |
+| ----- | ------- |
+| `/commands` | List available chat commands and installed skill packs |
+| `myclaw-admin` | Internal administration reference used by agents when managing MyClaw |
 
-Feature skills (installed via branch merge):
+Session commands are handled by the host runtime, not bundled skills:
 
-| Skill           | Purpose                      |
-| --------------- | ---------------------------- |
-| `/add-telegram` | Add Telegram channel support |
-| `/add-slack`    | Add Slack channel support    |
-| `/add-discord`  | Add Discord channel support  |
-| `/add-gmail`    | Add Gmail channel support    |
+```text
+/compact
+/new
+/model
+/model <value>
+/model default
+```
 
 Optional skill packs like [gstack](https://github.com/garrytan/gstack) can be installed for additional capabilities (code review, QA, design review, security audits, and more). Run `/commands` after installing to see what's available.
 
@@ -123,7 +167,6 @@ Use these as standalone chat messages:
 ```text
 /compact
 /new
-/runtime
 /model
 /model opus
 /model claude-opus-4-1-20250805
@@ -131,7 +174,6 @@ Use these as standalone chat messages:
 ```
 
 - `/new` resets the current group session and archives the previous transcript.
-- `/runtime` shows runtime health details.
 - `/model <value>` switches the group model override only when validation succeeds.
 
 ## Project Layout
@@ -141,10 +183,13 @@ Key paths:
 - `apps/core/src/index.ts` - orchestrator loop and runtime wiring
 - `apps/core/src/runtime/group-queue.ts` - per-group queueing and retries
 - `apps/core/src/runtime/agent-spawn.ts` - host agent execution path
-- `apps/core/src/runtime/runtime-diagnostics.ts` - runtime health checks
 - `apps/core/src/session/session-commands.ts` - host-managed slash commands
 - `apps/core/src/storage/db.ts` - SQLite persistence
-- `~/myclaw/agents/*/` - runtime per-agent working files and memory
+- `~/myclaw/agents/shared/CLAUDE.md` - static shared prompt guidance
+- `~/myclaw/agents/*/SOUL.md` - per-agent personality prompt
+- `~/myclaw/agents/*/CLAUDE.md` - static group-specific prompt guidance
+- `~/myclaw/store/memory.db` - default SQLite memory database
+- `~/myclaw/agent-memory/` - QMD markdown mirror when `settings.yaml memory.provider=qmd`
 
 ## Factory Mode
 
@@ -174,7 +219,7 @@ Examples:
 - "Add a morning greeting flow."
 - "Store weekly conversation summaries."
 
-For guided changes, run `/customize`.
+Reusable guided workflows can be added as skills under `~/myclaw/.claude/skills/`.
 
 ## Contributing
 

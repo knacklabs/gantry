@@ -49,3 +49,5 @@ tmp-coverage/
 .myclaw/
 
 agents-sdk-docs
+# CocoIndex Code (ccc)
+/.cocoindex_code/

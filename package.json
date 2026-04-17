@@ -9,29 +9,35 @@
   },
   "files": [
     "dist/",
+    "packages/contracts/dist/",
+    "packages/contracts/package.json",
     "packages/agent-runner/dist/",
     "packages/agent-runner/package.json",
     ".claude/skills/"
   ],
   "workspaces": [
+    "packages/contracts",
     "packages/agent-runner"
   ],
   "scripts": {
-    "build": "tsc && npm run build --workspace myclaw-agent-runner",
+    "build:contracts": "npm run build --workspace @myclaw/contracts",
+    "clean": "rm -rf dist packages/contracts/dist packages/agent-runner/dist",
+    "build": "npm run clean && npm run build:contracts && tsc && npm run build --workspace myclaw-agent-runner",
     "start": "node dist/index.js",
     "dev": "tsx apps/core/src/index.ts",
     "cli:dev": "tsx apps/core/src/cli/index.ts",
-    "typecheck": "tsc --noEmit && npm run build --workspace myclaw-agent-runner",
-    "format": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/agent-runner/src/**/*.ts\"",
-    "format:fix": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/agent-runner/src/**/*.ts\"",
-    "format:check": "prettier --check \"apps/core/**/*.{ts,md}\" \"packages/agent-runner/src/**/*.ts\"",
+    "typecheck": "npm run typecheck --workspace @myclaw/contracts && tsc --noEmit && npm run build --workspace myclaw-agent-runner",
+    "format": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/agent-runner/src/**/*.ts\"",
+    "format:fix": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/agent-runner/src/**/*.ts\"",
+    "format:check": "prettier --check \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/agent-runner/src/**/*.ts\"",
     "prepare": "husky",
-    "lint": "eslint apps/core/src packages/agent-runner/src",
-    "lint:fix": "eslint apps/core/src packages/agent-runner/src --fix",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "lint": "eslint apps/core/src packages/contracts/src packages/agent-runner/src",
+    "lint:fix": "eslint apps/core/src packages/contracts/src packages/agent-runner/src --fix",
+    "test": "npm run build:contracts && vitest run",
+    "test:watch": "npm run build:contracts && vitest"
   },
   "dependencies": {
+    "@myclaw/contracts": "file:packages/contracts",
     "@anthropic-ai/claude-agent-sdk": "0.2.97",
     "@anthropic-ai/sdk": "^0.88.0",
     "@clack/prompts": "^1.2.0",

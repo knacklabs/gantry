@@ -178,13 +178,11 @@ function createDefaultGroupClaudeMarkdown(agentName: string): string {
   return [
     `# ${agentName}`,
     '',
-    'You are the assistant for this chat.',
-    'Keep responses clear, short, and useful.',
+    'You are the assistant for this chat.\nKeep responses clear, short, and useful.',
     '',
-    'Rules:',
-    '- Answer directly unless the user asks for detail.',
-    '- Be explicit when an action failed and what to do next.',
-    '- Never expose secrets or local paths unless explicitly requested.',
+    '## Static Chat Guidance\n\nThis file is for stable, group-specific instructions only.\nDynamic task state, open commitments, and remembered facts come from the injected memory/continuity brief.\nDo not duplicate current task progress, raw logs, or remembered facts here.',
+    '',
+    'Rules:\n- Answer directly unless the user asks for detail.\n- Be explicit when an action failed and what to do next.\n- Never expose secrets or local paths unless explicitly requested.\n- When the user says "continue", use the injected memory/continuity brief before guessing.',
     '',
   ].join('\n');
 }
@@ -211,6 +209,8 @@ function createDefaultSoulMarkdown(agentName: string): string {
     '- Private context stays private. Never expose secrets or internal details.',
     '- Ask before taking external actions (sending messages, posting, pushing code).',
     "- When uncertain, say so. Don't present guesses as facts.",
+    '',
+    '## Continuity Boundary\n- Your personality lives here.\n- Durable facts, user preferences, task state, and open commitments do not live here.\n- Use the injected memory/continuity brief for remembered context.',
     '',
     '## Identity',
     `- **Name:** ${agentName}`,

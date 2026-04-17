@@ -4,6 +4,7 @@ const mockGetNewMessages = vi.fn();
 const mockGetMessagesSince = vi.fn();
 const mockGetTriggerPattern = vi.fn();
 const mockLoadSenderAllowlist = vi.fn();
+const mockIsSenderExplicitlyAllowed = vi.fn();
 const mockIsTriggerAllowed = vi.fn();
 const mockExtractSessionCommand = vi.fn();
 const mockIsSessionCommandAllowed = vi.fn();
@@ -21,6 +22,8 @@ vi.mock('../core/config.js', () => ({
 }));
 vi.mock('../platform/sender-allowlist.js', () => ({
   loadSenderAllowlist: (...args: unknown[]) => mockLoadSenderAllowlist(...args),
+  isSenderExplicitlyAllowed: (...args: unknown[]) =>
+    mockIsSenderExplicitlyAllowed(...args),
   isTriggerAllowed: (...args: unknown[]) => mockIsTriggerAllowed(...args),
 }));
 vi.mock('../session/session-commands.js', () => ({
@@ -34,7 +37,8 @@ vi.mock('../messaging/router.js', () => ({
 }));
 
 import { MessageLoopDeps, recoverPendingMessages } from './message-loop.js';
-import { Channel, RegisteredGroup } from '../core/types.js';
+import { decodeGroupMessageCursor } from '../core/message-cursor.js';
+import { RegisteredGroup } from '../core/types.js';
 
 function makeDeps(overrides: Partial<MessageLoopDeps> = {}): MessageLoopDeps & {
   enqueued: string[];
@@ -79,13 +83,9 @@ function makeDeps(overrides: Partial<MessageLoopDeps> = {}): MessageLoopDeps & {
     saveState: () => {
       savedCount += 1;
     },
-    findChannel: () =>
-      ({
-        name: 'test',
-        owns: () => true,
-        sendMessage: async () => {},
-        setTyping: vi.fn().mockResolvedValue(undefined),
-      }) as unknown as Channel,
+    hasChannel: () => true,
+    setTyping: vi.fn().mockResolvedValue(undefined),
+    sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
     queue: {
       sendMessage: (chatJid: string) => {
         sentTo.push(chatJid);
@@ -119,6 +119,7 @@ beforeEach(() => {
   mockGetMessagesSince.mockReturnValue([]);
   mockGetTriggerPattern.mockReturnValue(/@Andy/i);
   mockLoadSenderAllowlist.mockReturnValue({});
+  mockIsSenderExplicitlyAllowed.mockReturnValue(false);
   mockIsTriggerAllowed.mockReturnValue(true);
   mockExtractSessionCommand.mockReturnValue(null);
   mockIsSessionCommandAllowed.mockReturnValue(false);
@@ -231,7 +232,10 @@ describe('startMessagePollingLoop', () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(deps.sentTo).toContain('group@g.us');
-    expect(deps.cursors['group@g.us']).toBe('2024-01-01T00:00:01.000Z');
+    expect(decodeGroupMessageCursor(deps.cursors['group@g.us'])).toEqual({
+      timestamp: '2024-01-01T00:00:01.000Z',
+      id: '1',
+    });
 
     // We can't cleanly stop the infinite loop in tests, so we just verify behavior
     // The loop will be cleaned up when the test ends
@@ -256,7 +260,7 @@ describe('startMessagePollingLoop', () => {
       newTimestamp: '2024-01-01T00:00:01.000Z',
     });
 
-    const deps = makeDeps({ findChannel: () => undefined });
+    const deps = makeDeps({ hasChannel: () => false });
     const { startMessagePollingLoop } = await import('./message-loop.js');
 
     const loopPromise = startMessagePollingLoop(deps);
@@ -454,7 +458,10 @@ describe('startMessagePollingLoop', () => {
     // Both messages were grouped under the same JID and sent together
     expect(deps.sentTo).toContain('group@g.us');
     // Cursor set to last message timestamp
-    expect(deps.cursors['group@g.us']).toBe('2024-01-01T00:00:02.000Z');
+    expect(decodeGroupMessageCursor(deps.cursors['group@g.us'])).toEqual({
+      timestamp: '2024-01-01T00:00:02.000Z',
+      id: '2',
+    });
   });
 
   it('catches setTyping rejection without crashing the loop', async () => {
@@ -476,13 +483,7 @@ describe('startMessagePollingLoop', () => {
 
     const setTypingMock = vi.fn().mockRejectedValue(new Error('typing failed'));
     const deps = makeDeps({
-      findChannel: () =>
-        ({
-          name: 'test',
-          ownsJid: () => true,
-          sendMessage: async () => {},
-          setTyping: setTypingMock,
-        }) as unknown as Channel,
+      setTyping: setTypingMock,
     });
     const { startMessagePollingLoop } = await import('./message-loop.js');
 
@@ -494,7 +495,7 @@ describe('startMessagePollingLoop', () => {
     expect(deps.sentTo).toContain('group@g.us');
   });
 
-  it('sends follow-up progress update when piping to active container', async () => {
+  it('sends follow-up progress update when piping to active agent run', async () => {
     const msg = {
       id: '1',
       chat_jid: 'group@g.us',
@@ -513,14 +514,7 @@ describe('startMessagePollingLoop', () => {
 
     const sendProgressUpdateMock = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps({
-      findChannel: () =>
-        ({
-          name: 'test',
-          ownsJid: () => true,
-          sendMessage: async () => {},
-          setTyping: vi.fn().mockResolvedValue(undefined),
-          sendProgressUpdate: sendProgressUpdateMock,
-        }) as unknown as Channel,
+      sendProgressUpdate: sendProgressUpdateMock,
     });
     const { startMessagePollingLoop } = await import('./message-loop.js');
 
@@ -560,14 +554,7 @@ describe('startMessagePollingLoop', () => {
 
     const sendProgressUpdateMock = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps({
-      findChannel: () =>
-        ({
-          name: 'test',
-          ownsJid: () => true,
-          sendMessage: async () => {},
-          setTyping: vi.fn().mockResolvedValue(undefined),
-          sendProgressUpdate: sendProgressUpdateMock,
-        }) as unknown as Channel,
+      sendProgressUpdate: sendProgressUpdateMock,
     });
     const { startMessagePollingLoop } = await import('./message-loop.js');
 
@@ -608,14 +595,7 @@ describe('startMessagePollingLoop', () => {
 
     const sendProgressUpdateMock = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps({
-      findChannel: () =>
-        ({
-          name: 'test',
-          ownsJid: () => true,
-          sendMessage: async () => {},
-          setTyping: vi.fn().mockResolvedValue(undefined),
-          sendProgressUpdate: sendProgressUpdateMock,
-        }) as unknown as Channel,
+      sendProgressUpdate: sendProgressUpdateMock,
     });
     const { startMessagePollingLoop } = await import('./message-loop.js');
 

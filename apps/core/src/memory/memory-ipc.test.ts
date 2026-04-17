@@ -7,6 +7,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const ORIGINAL_ENV = { ...process.env };
 const tempRoots: string[] = [];
 
+function writeMemoryProviderSettings(
+  runtimeHome: string,
+  provider: string,
+): void {
+  const settingsPath = path.join(runtimeHome, 'settings.yaml');
+  fs.writeFileSync(
+    settingsPath,
+    [
+      'memory:',
+      '  enabled: true',
+      `  provider: ${provider}`,
+      '  sqlite_path: store/memory.db',
+      '  qmd_root: agent-memory',
+      '  embeddings:',
+      '    enabled: false',
+      '    provider: disabled',
+      '    model: text-embedding-3-large',
+      '  dreaming:',
+      '    enabled: false',
+      '',
+    ].join('\n'),
+    'utf-8',
+  );
+}
+
 beforeEach(() => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-memory-ipc-'));
   tempRoots.push(root);
@@ -36,7 +61,7 @@ afterEach(async () => {
 
 describe('memory IPC provider integration', () => {
   it('routes memory IPC requests through the configured provider', async () => {
-    process.env.MEMORY_PROVIDER = 'ipc-test-provider';
+    writeMemoryProviderSettings(process.env.AGENT_ROOT!, 'ipc-test-provider');
     process.env.OPENAI_API_KEY = 'test-key';
     process.env.MEMORY_SEMANTIC_DEDUP_ENABLED = 'false';
 
@@ -106,6 +131,7 @@ describe('memory IPC provider integration', () => {
       },
       listTopProcedures: () => [],
       saveChunks: () => 0,
+      searchItemsByText: () => [],
       lexicalSearch: () => [],
       vectorSearch: () => [],
       searchProceduresByText: () => [],
@@ -265,7 +291,7 @@ describe('memory IPC provider integration', () => {
   it('memory_search succeeds when embeddings are disabled by default', async () => {
     // Embeddings are disabled by default, so search should stay available even
     // when OPENAI_API_KEY is empty.
-    process.env.MEMORY_PROVIDER = 'ipc-search-provider';
+    writeMemoryProviderSettings(process.env.AGENT_ROOT!, 'ipc-search-provider');
     process.env.OPENAI_API_KEY = '';
     process.env.MEMORY_SEMANTIC_DEDUP_ENABLED = 'false';
 
@@ -309,6 +335,7 @@ describe('memory IPC provider integration', () => {
       },
       listTopProcedures: () => [],
       saveChunks: () => 0,
+      searchItemsByText: () => [],
       lexicalSearch: () => [],
       vectorSearch: () => [],
       searchProceduresByText: () => [],
@@ -337,7 +364,7 @@ describe('memory IPC provider integration', () => {
   });
 
   it('returns error for empty search query', async () => {
-    process.env.MEMORY_PROVIDER = 'ipc-search-empty';
+    writeMemoryProviderSettings(process.env.AGENT_ROOT!, 'ipc-search-empty');
     process.env.OPENAI_API_KEY = 'test-key';
     process.env.MEMORY_SEMANTIC_DEDUP_ENABLED = 'false';
 
@@ -381,6 +408,7 @@ describe('memory IPC provider integration', () => {
       },
       listTopProcedures: () => [],
       saveChunks: () => 0,
+      searchItemsByText: () => [],
       lexicalSearch: () => [],
       vectorSearch: () => [],
       searchProceduresByText: () => [],
@@ -408,7 +436,7 @@ describe('memory IPC provider integration', () => {
   });
 
   it('returns error for unsupported memory action', async () => {
-    process.env.MEMORY_PROVIDER = 'ipc-unsupported';
+    writeMemoryProviderSettings(process.env.AGENT_ROOT!, 'ipc-unsupported');
     process.env.OPENAI_API_KEY = 'test-key';
     process.env.MEMORY_SEMANTIC_DEDUP_ENABLED = 'false';
 
@@ -452,6 +480,7 @@ describe('memory IPC provider integration', () => {
       },
       listTopProcedures: () => [],
       saveChunks: () => 0,
+      searchItemsByText: () => [],
       lexicalSearch: () => [],
       vectorSearch: () => [],
       searchProceduresByText: () => [],

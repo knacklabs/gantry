@@ -1,82 +1,41 @@
 import fs from 'fs';
 import path from 'path';
-import { createHash } from 'crypto';
 
-import { CronExpressionParser } from 'cron-parser';
-
-import {
-  AGENT_ROOT,
-  DATA_DIR,
-  IPC_POLL_INTERVAL,
-  TIMEZONE,
-} from '../core/config.js';
-import { AvailableGroup } from './agent-spawn.js';
-import {
-  deleteJob,
-  getJobById,
-  listDeadLetterRuns,
-  listJobRuns,
-  listRecentJobEvents,
-  upsertJob,
-  updateJob,
-} from '../storage/db.js';
+import { DATA_DIR, IPC_POLL_INTERVAL } from '../core/config.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import { logger } from '../core/logger.js';
+import { IPC_GROUP_SUBDIRS } from './agent-spawn-layout.js';
 import {
   processMemoryRequest,
   writeMemoryResponse,
 } from '../memory/memory-ipc.js';
 import {
+  BROWSER_IPC_ACTIONS,
+  BrowserIpcAction,
   MEMORY_IPC_ACTIONS,
   MemoryIpcAction,
-} from '../memory/memory-ipc-contract.js';
+} from '@myclaw/contracts';
 import {
-  JobExecutionMode,
-  PermissionApprovalDecision,
   PermissionApprovalRequest,
   RegisteredGroup,
   UserQuestionRequest,
-  UserQuestionResponse,
 } from '../core/types.js';
 import { validateIpcAuthToken } from './ipc-auth.js';
 import {
-  BrowserIpcAction,
-  BROWSER_IPC_ACTIONS,
-} from './browser-ipc-contract.js';
-import { createProfile } from './browser-profiles.js';
+  processBrowserIpcRequest,
+  writeBrowserIpcResponse,
+} from './ipc-browser-handler.js';
+import type { IpcDeps } from './ipc-domain-types.js';
 import {
-  DEFAULT_BROWSER_PROFILE_NAME,
-  closeBrowser,
-  getBrowserStatus,
-  launchBrowser,
-} from './browser-manager.js';
-import { validateRuntimePreflight } from '../cli/runtime-preflight.js';
-import {
-  getServiceStatus,
-  startService,
-  stopService,
-} from '../cli/service-manager.js';
+  processPermissionIpcRequest,
+  processUserQuestionIpcRequest,
+  writePermissionIpcResponse,
+  writeUserQuestionIpcResponse,
+} from './ipc-interaction-handler.js';
+import { processTaskIpc, TaskIpcData } from './ipc-task-handler.js';
 
-export interface IpcDeps {
-  sendMessage: (jid: string, text: string) => Promise<void>;
-  registeredGroups: () => Record<string, RegisteredGroup>;
-  registerGroup: (jid: string, group: RegisteredGroup) => void;
-  syncGroups: (force: boolean) => Promise<void>;
-  getAvailableGroups: () => AvailableGroup[];
-  writeGroupsSnapshot: (
-    groupFolder: string,
-    isMain: boolean,
-    availableGroups: AvailableGroup[],
-    registeredJids: Set<string>,
-  ) => void;
-  onSchedulerChanged: () => void;
-  requestPermissionApproval?: (
-    request: PermissionApprovalRequest,
-  ) => Promise<PermissionApprovalDecision>;
-  requestUserAnswer?: (
-    request: UserQuestionRequest,
-  ) => Promise<UserQuestionResponse>;
-}
+export type { IpcDeps } from './ipc-domain-types.js';
+export { processTaskIpc } from './ipc-task-handler.js';
 
 let ipcWatcherRunning = false;
 const IPC_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -84,26 +43,12 @@ const IPC_RATE_LIMIT_MAX_FILES_PER_WINDOW = 300;
 const MEMORY_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const PERMISSION_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const BROWSER_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
-const TASK_IPC_RESPONSE_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const USER_QUESTION_IPC_REQUEST_ID_PATTERN =
   /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const ipcRateLimitState = new Map<
   string,
   { windowStart: number; count: number }
 >();
-
-function normalizeIpcExecutionMode(
-  executionMode: unknown,
-  serialize: unknown,
-  fallback: JobExecutionMode = 'parallel',
-): JobExecutionMode {
-  if (executionMode === 'serialized') return 'serialized';
-  if (executionMode === 'parallel') return 'parallel';
-  if (typeof serialize === 'boolean') {
-    return serialize ? 'serialized' : 'parallel';
-  }
-  return fallback;
-}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -218,6 +163,25 @@ function isTrustedDirectory(dirPath: string): boolean {
   }
 }
 
+function ensureGroupIpcLayout(ipcBaseDir: string, groupFolder: string): void {
+  const groupDir = path.join(ipcBaseDir, groupFolder);
+  for (const subdir of IPC_GROUP_SUBDIRS) {
+    fs.mkdirSync(path.join(groupDir, subdir), { recursive: true });
+  }
+}
+
+function hasCompleteTrustedGroupIpcLayout(
+  ipcBaseDir: string,
+  groupFolder: string,
+): boolean {
+  const groupDir = path.join(ipcBaseDir, groupFolder);
+  if (!isTrustedDirectory(groupDir)) return false;
+  for (const subdir of IPC_GROUP_SUBDIRS) {
+    if (!isTrustedDirectory(path.join(groupDir, subdir))) return false;
+  }
+  return true;
+}
+
 function claimIpcFile(filePath: string): string {
   const stat = fs.lstatSync(filePath);
   if (!stat.isFile() || stat.isSymbolicLink()) {
@@ -277,43 +241,6 @@ function parseIpcMessage(raw: unknown, sourceGroup: string): ParsedIpcMessage {
   return { type: 'message', chatJid, text, ...(sender ? { sender } : {}) };
 }
 
-interface ParsedTaskIpcData {
-  type: string;
-  taskId?: string;
-  prompt?: string;
-  model?: string;
-  schedule_type?: 'cron' | 'interval' | 'once' | 'manual';
-  schedule_value?: string;
-  context_mode?: string;
-  script?: string;
-  jobId?: string;
-  scheduleType?: 'cron' | 'interval' | 'once' | 'manual';
-  linkedSessions?: string[];
-  groupScope?: string;
-  threadId?: string;
-  runAt?: string;
-  deliverTo?: string[];
-  createdBy?: 'agent' | 'human';
-  silent?: boolean;
-  timeoutMs?: number;
-  cleanupAfterMs?: number;
-  maxRetries?: number;
-  retryBackoffMs?: number;
-  maxConsecutiveFailures?: number;
-  statuses?: string[];
-  limit?: number;
-  groupFolder?: string;
-  chatJid?: string;
-  targetJid?: string;
-  jid?: string;
-  name?: string;
-  folder?: string;
-  trigger?: string;
-  requiresTrigger?: boolean;
-  agentConfig?: RegisteredGroup['agentConfig'];
-  payload?: Record<string, unknown>;
-}
-
 function toScheduleType(
   value: unknown,
 ): 'cron' | 'interval' | 'once' | 'manual' | undefined {
@@ -345,10 +272,7 @@ function parseAgentConfigPayload(
   return Object.keys(parsed).length > 0 ? parsed : undefined;
 }
 
-function parseTaskIpcData(
-  raw: unknown,
-  sourceGroup: string,
-): ParsedTaskIpcData {
+function parseTaskIpcData(raw: unknown, sourceGroup: string): TaskIpcData {
   if (!isPlainObject(raw)) throw new Error('Invalid IPC task payload');
   const authToken = toTrimmedString(raw.authToken, { maxLen: 512 }) || '';
   if (!validateIpcAuthToken(sourceGroup, authToken)) {
@@ -356,7 +280,7 @@ function parseTaskIpcData(
   }
   const type = toTrimmedString(raw.type, { maxLen: 80 });
   if (!type) throw new Error('IPC task type is required');
-  const parsed: ParsedTaskIpcData = { type };
+  const parsed: TaskIpcData = { type };
   const taskId = toTrimmedString(raw.taskId, { maxLen: 128 });
   const prompt = toTrimmedString(raw.prompt, { maxLen: 20000 });
   const model = toTrimmedString(raw.model, { maxLen: 120 });
@@ -548,35 +472,6 @@ function parsePermissionIpcRequest(
   };
 }
 
-function writePermissionIpcResponse(
-  ipcBaseDir: string,
-  sourceGroup: string,
-  decision: PermissionApprovalDecision & { requestId: string },
-): void {
-  const responseDir = path.join(
-    ipcBaseDir,
-    sourceGroup,
-    'permission-responses',
-  );
-  fs.mkdirSync(responseDir, { recursive: true });
-  const responsePath = path.join(responseDir, `${decision.requestId}.json`);
-  const tmpPath = `${responsePath}.tmp`;
-  fs.writeFileSync(
-    tmpPath,
-    JSON.stringify(
-      {
-        requestId: decision.requestId,
-        approved: decision.approved,
-        ...(decision.decidedBy ? { decidedBy: decision.decidedBy } : {}),
-        ...(decision.reason ? { reason: decision.reason } : {}),
-      },
-      null,
-      2,
-    ),
-  );
-  fs.renameSync(tmpPath, responsePath);
-}
-
 function parseUserQuestionIpcRequest(
   raw: unknown,
   sourceGroup: string,
@@ -657,46 +552,6 @@ function parseUserQuestionIpcRequest(
   };
 }
 
-function writeUserQuestionIpcResponse(
-  ipcBaseDir: string,
-  sourceGroup: string,
-  response: UserQuestionResponse,
-): void {
-  const responseDir = path.join(ipcBaseDir, sourceGroup, 'user-answers');
-  fs.mkdirSync(responseDir, { recursive: true });
-  const responsePath = path.join(responseDir, `${response.requestId}.json`);
-  const tmpPath = `${responsePath}.tmp`;
-  const safeAnswers: Record<string, string | string[]> = {};
-  for (const [key, value] of Object.entries(response.answers || {})) {
-    const safeKey = toTrimmedString(key, { maxLen: 500 });
-    if (!safeKey) continue;
-    if (typeof value === 'string') {
-      safeAnswers[safeKey] = value.slice(0, 500);
-      continue;
-    }
-    if (Array.isArray(value)) {
-      const filtered = value
-        .filter((entry): entry is string => typeof entry === 'string')
-        .map((entry) => entry.slice(0, 200))
-        .slice(0, 20);
-      safeAnswers[safeKey] = filtered;
-    }
-  }
-  fs.writeFileSync(
-    tmpPath,
-    JSON.stringify(
-      {
-        requestId: response.requestId,
-        answers: safeAnswers,
-        ...(response.answeredBy ? { answeredBy: response.answeredBy } : {}),
-      },
-      null,
-      2,
-    ),
-  );
-  fs.renameSync(tmpPath, responsePath);
-}
-
 function parseBrowserIpcRequest(
   raw: unknown,
   sourceGroup: string,
@@ -732,238 +587,6 @@ function parseBrowserIpcRequest(
   };
 }
 
-function writeBrowserIpcResponse(
-  ipcBaseDir: string,
-  sourceGroup: string,
-  response: { requestId: string; ok: boolean; data?: unknown; error?: string },
-): void {
-  const responseDir = path.join(ipcBaseDir, sourceGroup, 'browser-responses');
-  fs.mkdirSync(responseDir, { recursive: true });
-  const responsePath = path.join(responseDir, `${response.requestId}.json`);
-  const tmpPath = `${responsePath}.tmp`;
-  fs.writeFileSync(
-    tmpPath,
-    JSON.stringify(
-      {
-        requestId: response.requestId,
-        ok: response.ok,
-        ...(response.data !== undefined ? { data: response.data } : {}),
-        ...(response.error ? { error: response.error } : {}),
-      },
-      null,
-      2,
-    ),
-  );
-  fs.renameSync(tmpPath, responsePath);
-}
-
-function getProfileNameFromPayload(payload: Record<string, unknown>): string {
-  const requested = toTrimmedString(payload.profile_name, { maxLen: 64 });
-  if (!requested) return DEFAULT_BROWSER_PROFILE_NAME;
-  const normalized = requested.toLowerCase();
-  if (normalized !== DEFAULT_BROWSER_PROFILE_NAME) {
-    throw new Error(
-      `Only browser profile \"${DEFAULT_BROWSER_PROFILE_NAME}\" is supported`,
-    );
-  }
-  return normalized;
-}
-
-async function processBrowserIpcRequest(
-  request: {
-    requestId: string;
-    action: BrowserIpcAction;
-    payload: Record<string, unknown>;
-  },
-  sourceGroup: string,
-  isMain: boolean,
-): Promise<{ ok: boolean; data?: unknown; error?: string }> {
-  const mainOnlyActions = new Set<BrowserIpcAction>([
-    'browser_profile_list',
-    'browser_launch',
-    'browser_close',
-    'browser_status',
-  ]);
-
-  if (!isMain && mainOnlyActions.has(request.action)) {
-    return {
-      ok: false,
-      error: `Browser action ${request.action} is restricted to the main group`,
-    };
-  }
-
-  try {
-    switch (request.action) {
-      case 'browser_profile_list': {
-        const profile = createProfile(DEFAULT_BROWSER_PROFILE_NAME);
-        const profiles = [
-          {
-            name: profile.name,
-            created_at: profile.metadata.created_at,
-            last_used: profile.metadata.last_used,
-            cdp_port: profile.metadata.cdp_port,
-            auth_markers: profile.metadata.auth_markers || [],
-            has_state: fs.existsSync(profile.statePath),
-          },
-        ];
-        return { ok: true, data: { profiles } };
-      }
-
-      case 'browser_launch': {
-        const profileName = getProfileNameFromPayload(request.payload);
-        const status = await launchBrowser({
-          profileName,
-          headless: toOptionalBoolean(request.payload.headless),
-          cdpPort: toOptionalNumber(request.payload.cdp_port, {
-            min: 1024,
-            max: 65535,
-          }),
-          keepAliveMs: toOptionalNumber(request.payload.keep_alive_ms, {
-            min: 10_000,
-            max: 3_600_000,
-          }),
-        });
-        return { ok: true, data: status };
-      }
-
-      case 'browser_close': {
-        const profileName = getProfileNameFromPayload(request.payload);
-        const closed = await closeBrowser(profileName);
-        return { ok: true, data: closed };
-      }
-
-      case 'browser_status': {
-        const profileName = getProfileNameFromPayload(request.payload);
-        return { ok: true, data: getBrowserStatus(profileName) };
-      }
-
-      default:
-        return {
-          ok: false,
-          error: `Unsupported browser action: ${String(request.action)}`,
-        };
-    }
-  } catch (err) {
-    logger.warn(
-      {
-        err,
-        sourceGroup,
-        action: request.action,
-        requestId: request.requestId,
-      },
-      'Browser IPC request failed',
-    );
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : 'Browser IPC request failed',
-    };
-  }
-}
-
-function jobBelongsToSourceGroup(
-  job: { group_scope: string; linked_sessions: string[] },
-  sourceGroup: string,
-  registeredGroups: Record<string, RegisteredGroup>,
-): boolean {
-  if (job.group_scope !== sourceGroup) return false;
-  return job.linked_sessions.every((jid) => {
-    const group = registeredGroups[jid];
-    return !!group && group.folder === sourceGroup;
-  });
-}
-
-function generateJobId(params: {
-  name: string;
-  prompt: string;
-  scheduleType: string;
-  scheduleValue: string;
-  groupScope: string;
-}): string {
-  const base = JSON.stringify({
-    name: params.name,
-    prompt: params.prompt,
-    scheduleType: params.scheduleType,
-    scheduleValue: params.scheduleValue,
-    groupScope: params.groupScope,
-  });
-  const hash = createHash('sha256').update(base).digest('hex').slice(0, 12);
-  const slug = params.name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
-  return `job-${slug || 'scheduled'}-${hash}`;
-}
-
-function writeJsonAtomic(filePath: string, value: unknown): void {
-  const tempPath = `${filePath}.tmp`;
-  fs.writeFileSync(tempPath, JSON.stringify(value, null, 2));
-  fs.renameSync(tempPath, filePath);
-}
-
-function writeTaskIpcResponse(
-  sourceGroup: string,
-  taskId: string | undefined,
-  payload: {
-    ok: boolean;
-    message?: string;
-    error?: string;
-    details?: string[];
-  },
-): void {
-  if (!taskId || !TASK_IPC_RESPONSE_ID_PATTERN.test(taskId)) return;
-  if (!isValidGroupFolder(sourceGroup)) return;
-  const responseDir = path.join(DATA_DIR, 'ipc', sourceGroup, 'task-responses');
-  fs.mkdirSync(responseDir, { recursive: true });
-  const responsePath = path.join(responseDir, `task-${taskId}.json`);
-  writeJsonAtomic(responsePath, {
-    taskId,
-    ...payload,
-    timestamp: new Date().toISOString(),
-  });
-}
-
-function restartServiceForRuntimeHome(runtimeHome: string): {
-  ok: boolean;
-  message: string;
-} {
-  try {
-    const serviceStatus = getServiceStatus(runtimeHome);
-    // launchd uses kickstart -k for in-place restart; bootout first can unload it.
-    if (serviceStatus.kind === 'launchd') {
-      const startOutcome = startService(runtimeHome);
-      if (!startOutcome.ok) {
-        return { ok: false, message: startOutcome.message };
-      }
-      return {
-        ok: true,
-        message: `${startOutcome.message} (restart completed).`,
-      };
-    }
-
-    const stopOutcome = stopService(runtimeHome);
-    if (!stopOutcome.ok) {
-      return { ok: false, message: stopOutcome.message };
-    }
-    const startOutcome = startService(runtimeHome);
-    if (!startOutcome.ok) {
-      return {
-        ok: false,
-        message: `Restart failed after stop: ${startOutcome.message}`,
-      };
-    }
-    return {
-      ok: true,
-      message: `${startOutcome.message} (restart completed).`,
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      message: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
 export function startIpcWatcher(deps: IpcDeps): void {
   if (ipcWatcherRunning) {
     logger.debug('IPC watcher already running, skipping duplicate start');
@@ -973,8 +596,50 @@ export function startIpcWatcher(deps: IpcDeps): void {
 
   const ipcBaseDir = path.join(DATA_DIR, 'ipc');
   fs.mkdirSync(ipcBaseDir, { recursive: true });
+  const initializedLayoutFolders = new Set<string>();
 
   const processIpcFiles = async () => {
+    const registeredGroups = deps.registeredGroups();
+    const allowedFolders = new Set(
+      Object.values(registeredGroups)
+        .map((group) => group.folder)
+        .filter((folder): folder is string => isValidGroupFolder(folder)),
+    );
+
+    for (const folder of allowedFolders) {
+      const groupDir = path.join(ipcBaseDir, folder);
+      if (
+        initializedLayoutFolders.has(folder) &&
+        hasCompleteTrustedGroupIpcLayout(ipcBaseDir, folder)
+      ) {
+        continue;
+      }
+
+      if (fs.existsSync(groupDir) && !isTrustedDirectory(groupDir)) {
+        initializedLayoutFolders.delete(folder);
+        logger.warn(
+          { sourceGroup: folder },
+          'Skipping IPC layout pre-create for untrusted registered group directory',
+        );
+        continue;
+      }
+
+      try {
+        ensureGroupIpcLayout(ipcBaseDir, folder);
+        if (hasCompleteTrustedGroupIpcLayout(ipcBaseDir, folder)) {
+          initializedLayoutFolders.add(folder);
+        } else {
+          initializedLayoutFolders.delete(folder);
+        }
+      } catch (err) {
+        initializedLayoutFolders.delete(folder);
+        logger.warn(
+          { sourceGroup: folder, err },
+          'Failed to pre-create IPC layout for registered group',
+        );
+      }
+    }
+
     // Scan group IPC directories (identity determined by directory)
     let discoveredGroupFolders: string[];
     try {
@@ -996,10 +661,6 @@ export function startIpcWatcher(deps: IpcDeps): void {
       return;
     }
 
-    const registeredGroups = deps.registeredGroups();
-    const allowedFolders = new Set(
-      Object.values(registeredGroups).map((group) => group.folder),
-    );
     const groupFolders: string[] = [];
     for (const folder of discoveredGroupFolders) {
       if (allowedFolders.size > 0 && !allowedFolders.has(folder)) {
@@ -1203,11 +864,10 @@ export function startIpcWatcher(deps: IpcDeps): void {
               );
               const request = parseBrowserIpcRequest(rawRequest, sourceGroup);
               requestId = request.requestId;
-              const response = await processBrowserIpcRequest(
-                request,
+              const response = await processBrowserIpcRequest(request, {
                 sourceGroup,
                 isMain,
-              );
+              });
               writeBrowserIpcResponse(ipcBaseDir, sourceGroup, {
                 requestId,
                 ok: response.ok,
@@ -1273,12 +933,9 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 sourceGroup,
               );
               requestId = request.requestId;
-              const decision = deps.requestPermissionApproval
-                ? await deps.requestPermissionApproval(request)
-                : {
-                    approved: false,
-                    reason: 'No channel approval handler is configured',
-                  };
+              const decision = await processPermissionIpcRequest(request, {
+                requestPermissionApproval: deps.requestPermissionApproval,
+              });
               writePermissionIpcResponse(ipcBaseDir, sourceGroup, {
                 requestId,
                 approved: decision.approved,
@@ -1344,12 +1001,9 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 sourceGroup,
               );
               requestId = request.requestId;
-              const response = deps.requestUserAnswer
-                ? await deps.requestUserAnswer(request)
-                : {
-                    requestId,
-                    answers: {},
-                  };
+              const response = await processUserQuestionIpcRequest(request, {
+                requestUserAnswer: deps.requestUserAnswer,
+              });
               writeUserQuestionIpcResponse(ipcBaseDir, sourceGroup, {
                 requestId,
                 answers: response.answers || {},
@@ -1396,784 +1050,4 @@ export function startIpcWatcher(deps: IpcDeps): void {
 
   processIpcFiles();
   logger.info('IPC watcher started (per-group namespaces)');
-}
-
-export async function processTaskIpc(
-  data: {
-    type: string;
-    taskId?: string;
-    prompt?: string;
-    model?: string;
-    schedule_type?: string;
-    schedule_value?: string;
-    context_mode?: string;
-    script?: string;
-    jobId?: string;
-    scheduleType?: string;
-    scheduleValue?: string;
-    linkedSessions?: string[];
-    deliverTo?: string[];
-    groupScope?: string;
-    threadId?: string;
-    runAt?: string;
-    createdBy?: 'agent' | 'human';
-    silent?: boolean;
-    timeoutMs?: number;
-    cleanupAfterMs?: number;
-    maxRetries?: number;
-    retryBackoffMs?: number;
-    maxConsecutiveFailures?: number;
-    executionMode?: string;
-    serialize?: boolean;
-    statuses?: string[];
-    runId?: string;
-    eventType?: string;
-    sinceId?: number;
-    limit?: number;
-    groupFolder?: string;
-    chatJid?: string;
-    targetJid?: string;
-    // For register_agent
-    jid?: string;
-    name?: string;
-    folder?: string;
-    trigger?: string;
-    requiresTrigger?: boolean;
-    agentConfig?: RegisteredGroup['agentConfig'];
-    payload?: Record<string, unknown>;
-  },
-  sourceGroup: string, // Verified identity from IPC directory
-  isMain: boolean, // Verified from directory path
-  deps: IpcDeps,
-): Promise<void> {
-  const registeredGroups = deps.registeredGroups();
-  const sourceGroupJids = Object.entries(registeredGroups)
-    .filter(([, group]) => group.folder === sourceGroup)
-    .map(([jid]) => jid);
-
-  switch (data.type) {
-    case 'scheduler_once': {
-      const name = (data.name || '').trim();
-      const prompt = (data.prompt || '').trim();
-      const runAtRaw = (data.runAt || data.schedule_value || '').trim();
-      if (!name || !prompt || !runAtRaw) break;
-      if (typeof data.script === 'string' && data.script.trim().length > 0) {
-        logger.warn(
-          { sourceGroup, name },
-          'Rejected scheduler_once with script payload from IPC',
-        );
-        break;
-      }
-
-      const runAtDate = new Date(runAtRaw);
-      if (isNaN(runAtDate.getTime())) {
-        logger.warn({ runAtRaw }, 'Invalid run_at for scheduler_once');
-        break;
-      }
-
-      const groupScope = (data.groupScope || sourceGroup).trim();
-      if (!isMain && groupScope !== sourceGroup) {
-        logger.warn(
-          { sourceGroup, groupScope },
-          'Unauthorized scheduler_once attempt blocked',
-        );
-        break;
-      }
-
-      let linkedSessions = Array.isArray(data.deliverTo)
-        ? data.deliverTo.map((item) => String(item)).filter((item) => item)
-        : sourceGroupJids;
-      if (linkedSessions.length === 0) {
-        linkedSessions = Array.isArray(data.linkedSessions)
-          ? data.linkedSessions
-              .map((item) => String(item))
-              .filter((item) => item.length > 0)
-          : sourceGroupJids;
-      }
-      if (linkedSessions.length === 0) linkedSessions = sourceGroupJids;
-      if (linkedSessions.length === 0) {
-        logger.warn(
-          { sourceGroup, name },
-          'scheduler_once requires at least one delivery session',
-        );
-        break;
-      }
-
-      if (!isMain) {
-        const unauthorized = linkedSessions.some((jid) => {
-          const group = registeredGroups[jid];
-          return !group || group.folder !== sourceGroup;
-        });
-        if (unauthorized) {
-          logger.warn(
-            { sourceGroup, linkedSessions },
-            'Unauthorized linked sessions in scheduler_once',
-          );
-          break;
-        }
-      }
-
-      const scheduleValue = runAtDate.toISOString();
-      const requestedJobId = (data.jobId || '').toString().trim();
-      let id = generateJobId({
-        name,
-        prompt,
-        scheduleType: 'once',
-        scheduleValue,
-        groupScope,
-      });
-      if (requestedJobId) {
-        const existing = getJobById(requestedJobId);
-        if (existing) {
-          if (
-            !isMain &&
-            !jobBelongsToSourceGroup(existing, sourceGroup, registeredGroups)
-          ) {
-            logger.warn(
-              { sourceGroup, requestedJobId },
-              'Rejected scheduler_once with cross-group jobId',
-            );
-            break;
-          }
-          id = requestedJobId;
-        } else {
-          id = requestedJobId;
-        }
-      }
-
-      const upsertResult = upsertJob({
-        id,
-        name,
-        prompt,
-        model: data.model || null,
-        script: null,
-        schedule_type: 'once',
-        schedule_value: scheduleValue,
-        linked_sessions: linkedSessions,
-        thread_id: data.threadId || null,
-        group_scope: groupScope,
-        created_by: 'agent',
-        status: 'active',
-        next_run: scheduleValue,
-        silent: data.silent === true,
-        cleanup_after_ms:
-          typeof data.cleanupAfterMs === 'number'
-            ? data.cleanupAfterMs
-            : undefined,
-        timeout_ms:
-          typeof data.timeoutMs === 'number' ? data.timeoutMs : undefined,
-        max_retries:
-          typeof data.maxRetries === 'number' ? data.maxRetries : undefined,
-        retry_backoff_ms:
-          typeof data.retryBackoffMs === 'number'
-            ? data.retryBackoffMs
-            : undefined,
-        max_consecutive_failures:
-          typeof data.maxConsecutiveFailures === 'number'
-            ? data.maxConsecutiveFailures
-            : undefined,
-        execution_mode: normalizeIpcExecutionMode(
-          data.executionMode,
-          data.serialize,
-        ),
-      });
-
-      logger.info(
-        { id, created: upsertResult.created, sourceGroup, groupScope },
-        'One-time job created via IPC',
-      );
-      deps.onSchedulerChanged();
-      break;
-    }
-
-    case 'scheduler_upsert_job': {
-      const scheduleType = (data.schedule_type || data.scheduleType) as
-        | 'cron'
-        | 'interval'
-        | 'once'
-        | 'manual';
-      const scheduleValue = (data.schedule_value || data.scheduleValue || '')
-        .toString()
-        .trim();
-      const name = (data.name || '').trim();
-      const prompt = (data.prompt || '').trim();
-      if (!name || !prompt || !scheduleType) break;
-      if (typeof data.script === 'string' && data.script.trim().length > 0) {
-        logger.warn(
-          { sourceGroup, name },
-          'Rejected scheduler_upsert_job with script payload from IPC',
-        );
-        break;
-      }
-
-      const groupScope = (data.groupScope || sourceGroup).trim();
-      if (!isMain && groupScope !== sourceGroup) {
-        logger.warn(
-          { sourceGroup, groupScope },
-          'Unauthorized scheduler_upsert_job attempt blocked',
-        );
-        break;
-      }
-
-      let linkedSessions = Array.isArray(data.deliverTo)
-        ? data.deliverTo
-            .map((item) => String(item))
-            .filter((item) => item.length > 0)
-        : Array.isArray(data.linkedSessions)
-          ? data.linkedSessions
-              .map((item) => String(item))
-              .filter((item) => item.length > 0)
-          : sourceGroupJids;
-      if (linkedSessions.length === 0) linkedSessions = sourceGroupJids;
-      if (linkedSessions.length === 0) {
-        logger.warn(
-          { sourceGroup, name },
-          'scheduler_upsert_job requires at least one linked session',
-        );
-        break;
-      }
-
-      if (!isMain) {
-        const unauthorized = linkedSessions.some((jid) => {
-          const group = registeredGroups[jid];
-          return !group || group.folder !== sourceGroup;
-        });
-        if (unauthorized) {
-          logger.warn(
-            { sourceGroup, linkedSessions },
-            'Unauthorized linked sessions in scheduler_upsert_job',
-          );
-          break;
-        }
-      }
-
-      let nextRun: string | null = null;
-      if (scheduleType === 'cron') {
-        try {
-          const interval = CronExpressionParser.parse(scheduleValue, {
-            tz: TIMEZONE,
-          });
-          nextRun = interval.next().toISOString();
-        } catch {
-          logger.warn({ scheduleValue }, 'Invalid cron expression for job');
-          break;
-        }
-      } else if (scheduleType === 'interval') {
-        const ms = parseInt(scheduleValue, 10);
-        if (isNaN(ms) || ms <= 0) {
-          logger.warn({ scheduleValue }, 'Invalid interval for job');
-          break;
-        }
-        nextRun = new Date(Date.now() + ms).toISOString();
-      } else if (scheduleType === 'once') {
-        const date = new Date(scheduleValue);
-        if (isNaN(date.getTime())) {
-          logger.warn({ scheduleValue }, 'Invalid once timestamp for job');
-          break;
-        }
-        nextRun = date.toISOString();
-      } else if (scheduleType === 'manual') {
-        nextRun = null;
-      } else {
-        break;
-      }
-
-      const requestedJobId = (data.jobId || '').toString().trim();
-      let id = generateJobId({
-        name,
-        prompt,
-        scheduleType,
-        scheduleValue,
-        groupScope,
-      });
-      if (requestedJobId) {
-        const existing = getJobById(requestedJobId);
-        if (existing) {
-          if (
-            !isMain &&
-            !jobBelongsToSourceGroup(existing, sourceGroup, registeredGroups)
-          ) {
-            logger.warn(
-              { sourceGroup, requestedJobId },
-              'Rejected scheduler_upsert_job with cross-group jobId',
-            );
-            break;
-          }
-          id = requestedJobId;
-        } else {
-          id = requestedJobId;
-        }
-      }
-      const upsertResult = upsertJob({
-        id,
-        name,
-        prompt,
-        model: data.model || null,
-        script: null,
-        schedule_type: scheduleType,
-        schedule_value: scheduleValue,
-        linked_sessions: linkedSessions,
-        thread_id: data.threadId || null,
-        group_scope: groupScope,
-        created_by: 'agent',
-        status: 'active',
-        next_run: nextRun,
-        silent: data.silent === true,
-        cleanup_after_ms:
-          typeof data.cleanupAfterMs === 'number'
-            ? data.cleanupAfterMs
-            : undefined,
-        timeout_ms:
-          typeof data.timeoutMs === 'number' ? data.timeoutMs : undefined,
-        max_retries:
-          typeof data.maxRetries === 'number' ? data.maxRetries : undefined,
-        retry_backoff_ms:
-          typeof data.retryBackoffMs === 'number'
-            ? data.retryBackoffMs
-            : undefined,
-        max_consecutive_failures:
-          typeof data.maxConsecutiveFailures === 'number'
-            ? data.maxConsecutiveFailures
-            : undefined,
-        execution_mode: normalizeIpcExecutionMode(
-          data.executionMode,
-          data.serialize,
-        ),
-      });
-
-      logger.info(
-        { id, created: upsertResult.created, sourceGroup, groupScope },
-        'Job upserted via IPC',
-      );
-      deps.onSchedulerChanged();
-      break;
-    }
-
-    case 'scheduler_update_job': {
-      const jobId = (data.jobId || data.taskId || '').toString();
-      if (!jobId) break;
-      const job = getJobById(jobId);
-      if (!job) break;
-      if (
-        !isMain &&
-        !jobBelongsToSourceGroup(job, sourceGroup, registeredGroups)
-      ) {
-        logger.warn(
-          {
-            sourceGroup,
-            groupScope: job.group_scope,
-            linkedSessions: job.linked_sessions,
-            jobId,
-          },
-          'Unauthorized scheduler_update_job attempt blocked',
-        );
-        break;
-      }
-
-      const updates: Parameters<typeof updateJob>[1] = {};
-      if (data.name !== undefined) updates.name = data.name;
-      if (data.prompt !== undefined) updates.prompt = data.prompt;
-      if (data.model !== undefined) updates.model = data.model;
-      if (data.script !== undefined) {
-        logger.warn(
-          { sourceGroup, jobId },
-          'Rejected scheduler_update_job script mutation from IPC',
-        );
-        break;
-      }
-      if (data.schedule_type !== undefined)
-        updates.schedule_type = data.schedule_type as
-          | 'cron'
-          | 'interval'
-          | 'once'
-          | 'manual';
-      if (data.schedule_value !== undefined)
-        updates.schedule_value = data.schedule_value;
-      if (data.groupScope !== undefined) {
-        if (!isMain && data.groupScope !== sourceGroup) {
-          logger.warn(
-            { sourceGroup, requestedGroupScope: data.groupScope, jobId },
-            'Unauthorized group scope mutation in scheduler_update_job',
-          );
-          break;
-        }
-        updates.group_scope = data.groupScope;
-      }
-      if (typeof data.timeoutMs === 'number')
-        updates.timeout_ms = data.timeoutMs;
-      if (typeof data.maxRetries === 'number')
-        updates.max_retries = data.maxRetries;
-      if (typeof data.retryBackoffMs === 'number')
-        updates.retry_backoff_ms = data.retryBackoffMs;
-      if (typeof data.maxConsecutiveFailures === 'number')
-        updates.max_consecutive_failures = data.maxConsecutiveFailures;
-      if (typeof data.silent === 'boolean') updates.silent = data.silent;
-      if (typeof data.cleanupAfterMs === 'number')
-        updates.cleanup_after_ms = data.cleanupAfterMs;
-      if (data.executionMode !== undefined || data.serialize !== undefined) {
-        updates.execution_mode = normalizeIpcExecutionMode(
-          data.executionMode,
-          data.serialize,
-          job.execution_mode,
-        );
-      }
-      if (data.threadId !== undefined)
-        updates.thread_id = data.threadId || null;
-      if (Array.isArray(data.linkedSessions) || Array.isArray(data.deliverTo)) {
-        const source = Array.isArray(data.deliverTo)
-          ? data.deliverTo
-          : data.linkedSessions || [];
-        const linked = source.map((item) => String(item));
-        if (!isMain) {
-          const unauthorized = linked.some((jid) => {
-            const group = registeredGroups[jid];
-            return !group || group.folder !== sourceGroup;
-          });
-          if (unauthorized) {
-            logger.warn(
-              { sourceGroup, linked },
-              'Unauthorized linked sessions in scheduler_update_job',
-            );
-            break;
-          }
-        }
-        updates.linked_sessions = linked;
-      }
-
-      const merged = { ...job, ...updates };
-      if (
-        updates.schedule_type !== undefined ||
-        updates.schedule_value !== undefined
-      ) {
-        if (merged.schedule_type === 'cron') {
-          try {
-            const interval = CronExpressionParser.parse(merged.schedule_value, {
-              tz: TIMEZONE,
-            });
-            updates.next_run = interval.next().toISOString();
-          } catch {
-            logger.warn(
-              { jobId, value: merged.schedule_value },
-              'Invalid cron in scheduler_update_job',
-            );
-            break;
-          }
-        } else if (merged.schedule_type === 'interval') {
-          const ms = parseInt(merged.schedule_value, 10);
-          if (isNaN(ms) || ms <= 0) {
-            logger.warn(
-              { jobId, value: merged.schedule_value },
-              'Invalid interval in scheduler_update_job',
-            );
-            break;
-          }
-          updates.next_run = new Date(Date.now() + ms).toISOString();
-        } else if (merged.schedule_type === 'once') {
-          const date = new Date(merged.schedule_value);
-          if (isNaN(date.getTime())) {
-            logger.warn(
-              { jobId, value: merged.schedule_value },
-              'Invalid once timestamp in scheduler_update_job',
-            );
-            break;
-          }
-          updates.next_run = date.toISOString();
-        } else {
-          updates.next_run = null;
-        }
-      }
-
-      updateJob(jobId, updates);
-      deps.onSchedulerChanged();
-      break;
-    }
-
-    case 'scheduler_delete_job': {
-      const jobId = (data.jobId || data.taskId || '').toString();
-      if (!jobId) break;
-      const job = getJobById(jobId);
-      if (!job) break;
-      if (
-        !isMain &&
-        !jobBelongsToSourceGroup(job, sourceGroup, registeredGroups)
-      ) {
-        logger.warn(
-          {
-            sourceGroup,
-            groupScope: job.group_scope,
-            linkedSessions: job.linked_sessions,
-            jobId,
-          },
-          'Unauthorized scheduler_delete_job attempt blocked',
-        );
-        break;
-      }
-      deleteJob(jobId);
-      deps.onSchedulerChanged();
-      break;
-    }
-
-    case 'scheduler_pause_job': {
-      const jobId = (data.jobId || data.taskId || '').toString();
-      if (!jobId) break;
-      const job = getJobById(jobId);
-      if (!job) break;
-      if (
-        !isMain &&
-        !jobBelongsToSourceGroup(job, sourceGroup, registeredGroups)
-      ) {
-        logger.warn(
-          {
-            sourceGroup,
-            groupScope: job.group_scope,
-            linkedSessions: job.linked_sessions,
-            jobId,
-          },
-          'Unauthorized scheduler_pause_job attempt blocked',
-        );
-        break;
-      }
-      updateJob(jobId, {
-        status: 'paused',
-        pause_reason: 'Paused by user',
-      });
-      deps.onSchedulerChanged();
-      break;
-    }
-
-    case 'scheduler_resume_job': {
-      const jobId = (data.jobId || data.taskId || '').toString();
-      if (!jobId) break;
-      const job = getJobById(jobId);
-      if (!job) break;
-      if (
-        !isMain &&
-        !jobBelongsToSourceGroup(job, sourceGroup, registeredGroups)
-      ) {
-        logger.warn(
-          {
-            sourceGroup,
-            groupScope: job.group_scope,
-            linkedSessions: job.linked_sessions,
-            jobId,
-          },
-          'Unauthorized scheduler_resume_job attempt blocked',
-        );
-        break;
-      }
-      updateJob(jobId, {
-        status: 'active',
-        pause_reason: null,
-        next_run: job.next_run || new Date().toISOString(),
-      });
-      deps.onSchedulerChanged();
-      break;
-    }
-
-    case 'scheduler_trigger_job': {
-      const jobId = (data.jobId || data.taskId || '').toString();
-      if (!jobId) break;
-      const job = getJobById(jobId);
-      if (!job) break;
-      if (
-        !isMain &&
-        !jobBelongsToSourceGroup(job, sourceGroup, registeredGroups)
-      ) {
-        logger.warn(
-          {
-            sourceGroup,
-            groupScope: job.group_scope,
-            linkedSessions: job.linked_sessions,
-            jobId,
-          },
-          'Unauthorized scheduler_trigger_job attempt blocked',
-        );
-        break;
-      }
-      updateJob(jobId, {
-        status: 'active',
-        next_run: new Date().toISOString(),
-        pause_reason: null,
-      });
-      deps.onSchedulerChanged();
-      break;
-    }
-
-    case 'scheduler_list_runs': {
-      // Read-only path backed by current_job_runs snapshot in the container.
-      // This no-op path exists for audit logs and future host-side query routing.
-      listJobRuns(undefined, typeof data.limit === 'number' ? data.limit : 50);
-      break;
-    }
-
-    case 'scheduler_list_events':
-    case 'scheduler_wait_for_events': {
-      listRecentJobEvents(typeof data.limit === 'number' ? data.limit : 200, {
-        job_id:
-          typeof data.jobId === 'string' && data.jobId.trim().length > 0
-            ? data.jobId.trim()
-            : undefined,
-        run_id:
-          typeof data.runId === 'string' && data.runId.trim().length > 0
-            ? data.runId.trim()
-            : undefined,
-        event_type:
-          typeof data.eventType === 'string' && data.eventType.trim().length > 0
-            ? data.eventType.trim()
-            : undefined,
-      });
-      break;
-    }
-
-    case 'scheduler_get_dead_letter': {
-      listDeadLetterRuns(typeof data.limit === 'number' ? data.limit : 50);
-      break;
-    }
-
-    case 'refresh_groups':
-      // Only main group can request a refresh
-      if (isMain) {
-        logger.info(
-          { sourceGroup },
-          'Group metadata refresh requested via IPC',
-        );
-        await deps.syncGroups(true);
-        // Write updated snapshot immediately
-        const availableGroups = deps.getAvailableGroups();
-        deps.writeGroupsSnapshot(
-          sourceGroup,
-          true,
-          availableGroups,
-          new Set(Object.keys(registeredGroups)),
-        );
-      } else {
-        logger.warn(
-          { sourceGroup },
-          'Unauthorized refresh_groups attempt blocked',
-        );
-      }
-      break;
-
-    case 'register_agent': {
-      const taskId = toTrimmedString(data.taskId, { maxLen: 128 });
-      // Only main agent can register new agents
-      if (!isMain) {
-        logger.warn(
-          { sourceGroup },
-          'Unauthorized register_agent attempt blocked',
-        );
-        writeTaskIpcResponse(sourceGroup, taskId, {
-          ok: false,
-          error: 'Only the main agent can register new agents.',
-        });
-        break;
-      }
-      if (data.jid && data.name && data.folder && data.trigger) {
-        if (!isValidGroupFolder(data.folder)) {
-          logger.warn(
-            { sourceGroup, folder: data.folder },
-            'Invalid register_agent request - unsafe folder name',
-          );
-          writeTaskIpcResponse(sourceGroup, taskId, {
-            ok: false,
-            error: `Invalid agent folder: ${data.folder}`,
-          });
-          break;
-        }
-        // Defense in depth: agent cannot set isMain via IPC.
-        // Preserve isMain from the existing registration so IPC config
-        // updates (e.g. adding additionalMounts) don't strip the flag.
-        const existingGroup = registeredGroups[data.jid];
-        deps.registerGroup(data.jid, {
-          name: data.name,
-          folder: data.folder,
-          trigger: data.trigger,
-          added_at: new Date().toISOString(),
-          agentConfig: data.agentConfig,
-          requiresTrigger: data.requiresTrigger,
-          isMain: existingGroup?.isMain,
-        });
-        writeTaskIpcResponse(sourceGroup, taskId, {
-          ok: true,
-          message: `Agent "${data.name}" registered.`,
-        });
-      } else {
-        logger.warn(
-          { data },
-          'Invalid register_agent request - missing required fields',
-        );
-        writeTaskIpcResponse(sourceGroup, taskId, {
-          ok: false,
-          error: 'Missing required fields: jid, name, folder, trigger.',
-        });
-      }
-      break;
-    }
-
-    case 'service_restart': {
-      const taskId = toTrimmedString(data.taskId, { maxLen: 128 });
-      if (!isMain) {
-        logger.warn(
-          { sourceGroup },
-          'Unauthorized service_restart attempt blocked',
-        );
-        writeTaskIpcResponse(sourceGroup, taskId, {
-          ok: false,
-          error: 'Only the main agent can restart the service.',
-        });
-        break;
-      }
-
-      try {
-        const validation = validateRuntimePreflight(AGENT_ROOT);
-        if (!validation.ok) {
-          writeTaskIpcResponse(sourceGroup, taskId, {
-            ok: false,
-            error:
-              validation.failure?.summary ||
-              'Runtime configuration validation failed.',
-            details: validation.failure?.details || [],
-          });
-          break;
-        }
-
-        writeTaskIpcResponse(sourceGroup, taskId, {
-          ok: true,
-          message: 'Service restart accepted. Restarting now.',
-        });
-
-        setTimeout(() => {
-          const restartOutcome = restartServiceForRuntimeHome(AGENT_ROOT);
-          if (!restartOutcome.ok) {
-            logger.error(
-              { sourceGroup, taskId, error: restartOutcome.message },
-              'Service restart failed after acknowledgment',
-            );
-            return;
-          }
-          logger.info(
-            { sourceGroup, taskId, message: restartOutcome.message },
-            'Service restart completed',
-          );
-        }, 0);
-      } catch (err) {
-        const message =
-          err instanceof Error
-            ? err.message
-            : 'Service restart failed with an unexpected error.';
-        logger.error(
-          { sourceGroup, taskId, err },
-          'Error while handling service_restart IPC task',
-        );
-        writeTaskIpcResponse(sourceGroup, taskId, {
-          ok: false,
-          error: message,
-        });
-      }
-      break;
-    }
-
-    default:
-      logger.warn({ type: data.type }, 'Unknown IPC task type');
-  }
 }

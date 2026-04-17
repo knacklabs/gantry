@@ -65,7 +65,7 @@ describe('validateRuntimePreflight', () => {
     const result = validateRuntimePreflight(runtimeHome);
 
     expect(result.ok).toBe(false);
-    expect(result.failure?.summary).toContain('validation');
+    expect(result.failure?.summary).toContain('invalid');
     expect(result.failure?.details.join('\n')).toContain('Enable at least one');
     expect(fs.existsSync(settingsFilePath(runtimeHome))).toBe(true);
   });
@@ -81,7 +81,7 @@ describe('validateRuntimePreflight', () => {
     const result = validateRuntimePreflight(runtimeHome);
 
     expect(result.ok).toBe(false);
-    expect(result.failure?.summary).toContain('validation');
+    expect(result.failure?.summary).toContain('invalid');
     expect(result.failure?.details.join('\n')).toContain(
       'no Telegram chats are registered',
     );

@@ -159,7 +159,7 @@ export class GroupQueue {
       if (state.idleWaiting) {
         this.closeStdin(groupJid);
       }
-      logger.debug({ groupJid }, 'Container active, message queued');
+      logger.debug({ groupJid }, 'Agent run active, message queued');
       return;
     }
 
@@ -198,7 +198,7 @@ export class GroupQueue {
       if (state.idleWaiting) {
         this.closeStdin(groupJid);
       }
-      logger.debug({ groupJid, taskId }, 'Container active, task queued');
+      logger.debug({ groupJid, taskId }, 'Agent run active, task queued');
       return;
     }
 
@@ -240,7 +240,7 @@ export class GroupQueue {
 
   /**
    * Mark the container as idle-waiting (finished work, waiting for IPC input).
-   * If tasks are pending, preempt the idle container immediately.
+   * If tasks are pending, preempt the idle agent run immediately.
    */
   notifyIdle(groupJid: string): void {
     const state = this.getGroup(groupJid);
@@ -251,8 +251,8 @@ export class GroupQueue {
   }
 
   /**
-   * Send a follow-up message to the active container via IPC file.
-   * Returns true if the message was written, false if no active container.
+   * Send a follow-up message to the active agent run via IPC file.
+   * Returns true if the message was written, false if no active agent run.
    */
   sendMessage(groupJid: string, text: string): boolean {
     const state = this.getGroup(groupJid);
@@ -280,7 +280,7 @@ export class GroupQueue {
   }
 
   /**
-   * Signal the active container to wind down by writing a close sentinel.
+   * Signal the active agent run to wind down by writing a close sentinel.
    */
   closeStdin(groupJid: string): void {
     const state = this.getGroup(groupJid);
@@ -376,7 +376,7 @@ export class GroupQueue {
         activeMessageCount: this.activeMessageCount,
         activeTaskCount: this.activeTaskCount,
       },
-      'Starting container for group',
+      'Starting agent run for group',
     );
 
     try {
@@ -546,8 +546,8 @@ export class GroupQueue {
   async shutdown(_gracePeriodMs: number): Promise<void> {
     this.shuttingDown = true;
 
-    // Count active containers but don't kill them — they'll finish on their own
-    // via idle timeout or container timeout. The --rm flag cleans them up on exit.
+    // Count active agent runs but don't kill them — they'll finish on their own
+    // via idle timeout or agent timeout. The --rm flag cleans them up on exit.
     // This prevents WhatsApp reconnection restarts from killing working agents.
     const activeContainers: string[] = [];
     for (const [_jid, state] of this.groups) {
@@ -562,7 +562,7 @@ export class GroupQueue {
         activeTaskCount: this.activeTaskCount,
         detachedContainers: activeContainers,
       },
-      'GroupQueue shutting down (containers detached, not killed)',
+      'GroupQueue shutting down (agent runs detached, not killed)',
     );
   }
 }

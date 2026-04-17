@@ -94,6 +94,17 @@ export function isSenderAllowed(
   return entry.allow.includes(sender);
 }
 
+export function isSenderExplicitlyAllowed(
+  chatJid: string,
+  sender: string,
+  cfg: RuntimeSenderAllowlistConfig,
+  groupFolder?: string,
+): boolean {
+  const entry = getEntry(chatJid, cfg, groupFolder);
+  if (entry.allow === '*') return false;
+  return entry.allow.includes(sender);
+}
+
 export function shouldDropMessage(
   chatJid: string,
   cfg: RuntimeSenderAllowlistConfig,

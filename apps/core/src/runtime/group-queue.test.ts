@@ -281,7 +281,7 @@ describe('GroupQueue', () => {
 
   // --- Idle preemption ---
 
-  it('does NOT preempt active container when not idle', async () => {
+  it('does NOT preempt active agent run when not idle', async () => {
     const fs = await import('fs');
     let resolveProcess: () => void;
 
@@ -306,7 +306,7 @@ describe('GroupQueue', () => {
       'test-group',
     );
 
-    // Enqueue a task while container is active but NOT idle
+    // Enqueue a task while agent run is active but NOT idle
     const taskFn = vi.fn(async () => {});
     queue.enqueueTask('group1@g.us', 'task-1', taskFn);
 
@@ -321,7 +321,7 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
   });
 
-  it('preempts idle container when task is enqueued', async () => {
+  it('preempts idle agent run when task is enqueued', async () => {
     const fs = await import('fs');
     let resolveProcess: () => void;
 
@@ -354,7 +354,7 @@ describe('GroupQueue', () => {
     const taskFn = vi.fn(async () => {});
     queue.enqueueTask('group1@g.us', 'task-1', taskFn);
 
-    // _close SHOULD have been written (container is idle)
+    // _close SHOULD have been written (agent run is idle)
     const closeWrites = writeFileSync.mock.calls.filter(
       (call) => typeof call[0] === 'string' && call[0].endsWith('_close'),
     );
@@ -388,12 +388,12 @@ describe('GroupQueue', () => {
     // Container becomes idle
     queue.notifyIdle('group1@g.us');
 
-    // A new user message should not be piped into an idle container.
+    // A new user message should not be piped into an idle agent run.
     // The host should instead spin down this runner and process in a fresh turn.
     const piped = queue.sendMessage('group1@g.us', 'hello');
     expect(piped).toBe(false);
 
-    // enqueueMessageCheck on an idle active container should preempt via _close.
+    // enqueueMessageCheck on an idle active agent run should preempt via _close.
     const writeFileSync = vi.mocked(fs.default.writeFileSync);
     writeFileSync.mockClear();
     queue.enqueueMessageCheck('group1@g.us');
@@ -415,7 +415,7 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
   });
 
-  it('sendMessage returns false when container is active but idle-waiting', async () => {
+  it('sendMessage returns false when agent run is active but idle-waiting', async () => {
     let resolveProcess: () => void;
 
     const processMessages = vi.fn(async () => {
@@ -485,7 +485,7 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
   });
 
-  it('sendMessage returns false for task containers so user messages queue up', async () => {
+  it('sendMessage returns false for task agent runs so user messages queue up', async () => {
     let resolveTask: () => void;
 
     const taskFn = vi.fn(async () => {
@@ -504,7 +504,7 @@ describe('GroupQueue', () => {
       'test-group',
     );
 
-    // sendMessage should return false — user messages must not go to task containers
+    // sendMessage should return false — user messages must not go to task agent runs
     const result = queue.sendMessage('group1@g.us', 'hello');
     expect(result).toBe(false);
 
@@ -627,7 +627,7 @@ describe('GroupQueue', () => {
 
   // --- Coverage for shutdown with active processes (lines 355-356) ---
 
-  it('shutdown logs active containers and detaches them', async () => {
+  it('shutdown logs active agent runs and detaches them', async () => {
     let resolveProcess: () => void;
     const processMessages = vi.fn(async () => {
       await new Promise<void>((resolve) => {
@@ -744,7 +744,7 @@ describe('GroupQueue', () => {
     );
     expect(closeWrites).toHaveLength(0);
 
-    // Now container becomes idle — should preempt because task is pending
+    // Now agent run becomes idle — should preempt because task is pending
     writeFileSync.mockClear();
     queue.notifyIdle('group1@g.us');
 
@@ -759,7 +759,7 @@ describe('GroupQueue', () => {
 
   // --- Coverage for sendMessage returning false when not active ---
 
-  it('sendMessage returns false when no container is active for the group', () => {
+  it('sendMessage returns false when no agent run is active for the group', () => {
     const result = queue.sendMessage('group1@g.us', 'hello');
     expect(result).toBe(false);
   });
@@ -787,7 +787,7 @@ describe('GroupQueue', () => {
 
   // --- Coverage for closeStdin when not active ---
 
-  it('closeStdin does nothing when no container is active', async () => {
+  it('closeStdin does nothing when no agent run is active', async () => {
     const fs = await import('fs');
     const writeFileSync = vi.mocked(fs.default.writeFileSync);
     writeFileSync.mockClear();
@@ -978,7 +978,7 @@ describe('GroupQueue', () => {
 
   // --- Coverage for sendMessage success path ---
 
-  it('sendMessage returns true and writes IPC file for active message container', async () => {
+  it('sendMessage returns true and writes IPC file for active message agent run', async () => {
     const fs = await import('fs');
     let resolveProcess: () => void;
 

@@ -58,7 +58,6 @@ Optional capabilities should land as skills or narrow extensions whenever possib
 
 - host runtime as the single supported execution path
 - clear runtime health and remediation signals
-- deferred Docker Compose/container runtime as future work
 
 ### Channels
 

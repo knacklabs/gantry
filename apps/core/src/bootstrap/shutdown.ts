@@ -1,6 +1,5 @@
 import { closeAllBrowsers } from '../runtime/browser-manager.js';
 import { logger } from '../core/logger.js';
-import { Channel } from '../core/types.js';
 
 interface ShutdownDeps {
   onSignal: (signal: 'SIGTERM' | 'SIGINT', handler: () => void) => void;
@@ -15,7 +14,7 @@ interface ShutdownQueue {
 
 export interface InstallShutdownHandlersOptions {
   queue: ShutdownQueue;
-  channels: Channel[];
+  disconnectChannels: () => Promise<void>;
 }
 
 function makeDefaultDeps(): ShutdownDeps {
@@ -42,9 +41,7 @@ export function installShutdownHandlers(
     resolved.logger.info({ signal }, 'Shutdown signal received');
     await options.queue.shutdown(10000);
     await resolved.closeAllBrowsers();
-    for (const channel of options.channels) {
-      await channel.disconnect();
-    }
+    await options.disconnectChannels();
     resolved.exit(0);
   };
 

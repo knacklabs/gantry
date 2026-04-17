@@ -64,6 +64,73 @@ FORBIDDEN_IMPORT_RULES = (
     ("packages/agent-runner/src", ("apps/core/src",)),
 )
 
+FORBIDDEN_CHANNEL_REGISTRATION_FILES = (
+    "apps/core/src/channels/index.ts",
+    "apps/core/src/channels/registry.ts",
+)
+
+FORBIDDEN_CHANNEL_REGISTRATION_PATTERNS = (
+    (re.compile(r"\bregisterChannel\s*\("), "legacy channel self-registration API"),
+    (
+        re.compile(r"import\s+['\"]\.\./channels/index(?:\.[cm]?[jt]s)?['\"]"),
+        "side-effect channel registration import",
+    ),
+    (
+        re.compile(r"from\s+['\"]\./registry(?:\.[cm]?[jt]s)?['\"]"),
+        "legacy channel registry import",
+    ),
+)
+
+FORBIDDEN_RUNTIME_RUNNER_MATERIALIZATION_PATTERNS = (
+    (
+        re.compile(r"\b(?:syncHostAgentRunnerRuntime|getRuntimeAgentRunnerRoot)\b"),
+        "legacy runtime runner materialization API",
+    ),
+    (
+        re.compile(r"""['"]\.runtime['"]"""),
+        "runtime-home .runtime path usage",
+    ),
+)
+
+FORBIDDEN_IPC_CONTRACT_FILES = (
+    "apps/core/src/memory/memory-ipc-contract.ts",
+    "apps/core/src/runtime/browser-ipc-contract.ts",
+    "packages/agent-runner/src/memory-ipc-contract.ts",
+    "packages/agent-runner/src/browser-ipc-contract.ts",
+)
+
+FORBIDDEN_IPC_CONTRACT_IMPORT_PATTERNS = (
+    (
+        re.compile(r"""from\s+['"][^'"]*(?:memory-ipc-contract|browser-ipc-contract)(?:\.[cm]?[jt]s)?['"]"""),
+        "removed IPC contract import path",
+    ),
+    (
+        re.compile(r"""import\s+['"][^'"]*(?:memory-ipc-contract|browser-ipc-contract)(?:\.[cm]?[jt]s)?['"]"""),
+        "removed IPC contract side-effect import path",
+    ),
+)
+
+IPC_ORCHESTRATOR_FILE = "apps/core/src/runtime/ipc.ts"
+
+FORBIDDEN_IPC_ORCHESTRATOR_MONOLITH_PATTERNS = (
+    (
+        re.compile(r"\bexport\s+async\s+function\s+processTaskIpc\s*\("),
+        "in-orchestrator task domain handler",
+    ),
+    (
+        re.compile(r"\basync\s+function\s+processBrowserIpcRequest\s*\("),
+        "in-orchestrator browser domain handler",
+    ),
+    (
+        re.compile(r"\bswitch\s*\(\s*data\.type\s*\)"),
+        "in-orchestrator task switch dispatch",
+    ),
+    (
+        re.compile(r"case\s+'scheduler_[^']+'"),
+        "in-orchestrator scheduler case branch",
+    ),
+)
+
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 IMPORT_FROM_RE = re.compile(r"(?:^|\n)\s*(?:import|export)\b[^;]*?\bfrom\s*['\"]([^'\"]+)['\"]", re.MULTILINE)
@@ -320,6 +387,73 @@ def check_forbidden_import_edges(production_files: list[Path], root: Path) -> li
                             f"{source_rel} imports {target_rel} via `{specifier}` "
                             f"(forbidden {source_prefix} -> {forbidden_prefix})."
                         )
+    return sorted(violations)
+
+
+def check_forbidden_channel_registration_surface(production_files: list[Path], root: Path) -> list[str]:
+    violations: set[str] = set()
+    for rel in FORBIDDEN_CHANNEL_REGISTRATION_FILES:
+        if (root / rel).exists():
+            violations.add(f"{rel} exists but side-effect channel registration is not allowed.")
+
+    for source_file in production_files:
+        source_rel = source_file.relative_to(root).as_posix()
+        source_text = source_file.read_text()
+        for pattern, description in FORBIDDEN_CHANNEL_REGISTRATION_PATTERNS:
+            for match in pattern.finditer(source_text):
+                line = source_text.count("\n", 0, match.start()) + 1
+                violations.add(
+                    f"{source_rel}:{line}: matched {description} ({pattern.pattern})"
+                )
+    return sorted(violations)
+
+
+def check_forbidden_runtime_runner_materialization(production_files: list[Path], root: Path) -> list[str]:
+    violations: set[str] = set()
+    for source_file in production_files:
+        source_rel = source_file.relative_to(root).as_posix()
+        source_text = source_file.read_text()
+        for pattern, description in FORBIDDEN_RUNTIME_RUNNER_MATERIALIZATION_PATTERNS:
+            for match in pattern.finditer(source_text):
+                line = source_text.count("\n", 0, match.start()) + 1
+                violations.add(
+                    f"{source_rel}:{line}: matched {description} ({pattern.pattern})"
+                )
+    return sorted(violations)
+
+
+def check_forbidden_ipc_contract_surface(production_files: list[Path], root: Path) -> list[str]:
+    violations: set[str] = set()
+    for rel in FORBIDDEN_IPC_CONTRACT_FILES:
+        if (root / rel).exists():
+            violations.add(f"{rel} exists but IPC contracts must live only in packages/contracts.")
+
+    for source_file in production_files:
+        source_rel = source_file.relative_to(root).as_posix()
+        source_text = source_file.read_text()
+        for pattern, description in FORBIDDEN_IPC_CONTRACT_IMPORT_PATTERNS:
+            for match in pattern.finditer(source_text):
+                line = source_text.count("\n", 0, match.start()) + 1
+                violations.add(
+                    f"{source_rel}:{line}: matched {description} ({pattern.pattern})"
+                )
+    return sorted(violations)
+
+
+def check_forbidden_ipc_orchestrator_monolith(root: Path) -> list[str]:
+    source_file = root / IPC_ORCHESTRATOR_FILE
+    if not source_file.exists():
+        return []
+
+    source_text = source_file.read_text()
+    violations: set[str] = set()
+    source_rel = source_file.relative_to(root).as_posix()
+    for pattern, description in FORBIDDEN_IPC_ORCHESTRATOR_MONOLITH_PATTERNS:
+        for match in pattern.finditer(source_text):
+            line = source_text.count("\n", 0, match.start()) + 1
+            violations.add(
+                f"{source_rel}:{line}: matched {description} ({pattern.pattern})"
+            )
     return sorted(violations)
 
 

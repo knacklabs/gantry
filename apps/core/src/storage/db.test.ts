@@ -39,6 +39,10 @@ import {
   upsertJob,
 } from './db.js';
 import { formatMessages } from '../messaging/router.js';
+import {
+  decodeGlobalMessageCursor,
+  encodeGroupMessageCursor,
+} from '../core/message-cursor.js';
 import { RegisteredGroup } from '../core/types.js';
 
 beforeEach(() => {
@@ -433,12 +437,11 @@ describe('getMessagesSince', () => {
     const recovered = getLastBotMessageTimestamp('group@g.us', 'Andy');
     expect(recovered).toBe('2024-01-01T00:00:03.000Z');
 
-    // With limit=10, only the 10 most recent are returned
+    // With limit=10, drain starts from the oldest unseen messages
     const msgs = getMessagesSince('group@g.us', recovered!, 'Andy', 10);
     expect(msgs).toHaveLength(10);
-    // Most recent 10: pending-21 through pending-30
-    expect(msgs[0].content).toBe('pending message 21');
-    expect(msgs[9].content).toBe('pending message 30');
+    expect(msgs[0].content).toBe('third');
+    expect(msgs[9].content).toBe('pending message 9');
   });
 
   it('returns last N messages when no bot reply and no cursor exist', () => {
@@ -536,7 +539,11 @@ describe('getNewMessages', () => {
     );
     // Excludes bot message, returns 3 user messages
     expect(messages).toHaveLength(3);
-    expect(newTimestamp).toBe('2024-01-01T00:00:04.000Z');
+    expect(decodeGlobalMessageCursor(newTimestamp)).toEqual({
+      timestamp: '2024-01-01T00:00:04.000Z',
+      chatJid: 'group1@g.us',
+      id: 'a4',
+    });
   });
 
   it('filters by timestamp', () => {
@@ -2042,7 +2049,7 @@ describe('message query LIMIT', () => {
     }
   });
 
-  it('getNewMessages caps to limit and returns most recent in chronological order', () => {
+  it('getNewMessages caps to limit and returns oldest unseen messages first', () => {
     const { messages, newTimestamp } = getNewMessages(
       ['group@g.us'],
       '2024-01-01T00:00:00.000Z',
@@ -2050,15 +2057,18 @@ describe('message query LIMIT', () => {
       3,
     );
     expect(messages).toHaveLength(3);
-    expect(messages[0].content).toBe('message 8');
-    expect(messages[2].content).toBe('message 10');
+    expect(messages[0].content).toBe('message 1');
+    expect(messages[2].content).toBe('message 3');
     // Chronological order preserved
     expect(messages[1].timestamp > messages[0].timestamp).toBe(true);
-    // newTimestamp reflects latest returned row
-    expect(newTimestamp).toBe('2024-01-01T00:00:10.000Z');
+    expect(decodeGlobalMessageCursor(newTimestamp)).toEqual({
+      timestamp: '2024-01-01T00:00:03.000Z',
+      chatJid: 'group@g.us',
+      id: 'lim-3',
+    });
   });
 
-  it('getMessagesSince caps to limit and returns most recent in chronological order', () => {
+  it('getMessagesSince caps to limit and returns oldest unseen messages first', () => {
     const messages = getMessagesSince(
       'group@g.us',
       '2024-01-01T00:00:00.000Z',
@@ -2066,8 +2076,8 @@ describe('message query LIMIT', () => {
       3,
     );
     expect(messages).toHaveLength(3);
-    expect(messages[0].content).toBe('message 8');
-    expect(messages[2].content).toBe('message 10');
+    expect(messages[0].content).toBe('message 1');
+    expect(messages[2].content).toBe('message 3');
     expect(messages[1].timestamp > messages[0].timestamp).toBe(true);
   });
 
@@ -2079,6 +2089,98 @@ describe('message query LIMIT', () => {
       50,
     );
     expect(messages).toHaveLength(10);
+  });
+
+  it('drains unseen messages across batches without dropping backlog', () => {
+    const firstBatch = getMessagesSince('group@g.us', '', 'Andy', 4);
+    expect(firstBatch.map((m) => m.content)).toEqual([
+      'message 1',
+      'message 2',
+      'message 3',
+      'message 4',
+    ]);
+
+    const firstCursor = encodeGroupMessageCursor({
+      timestamp: firstBatch[firstBatch.length - 1].timestamp,
+      id: firstBatch[firstBatch.length - 1].id,
+    });
+    const secondBatch = getMessagesSince('group@g.us', firstCursor, 'Andy', 4);
+    expect(secondBatch.map((m) => m.content)).toEqual([
+      'message 5',
+      'message 6',
+      'message 7',
+      'message 8',
+    ]);
+
+    const secondCursor = encodeGroupMessageCursor({
+      timestamp: secondBatch[secondBatch.length - 1].timestamp,
+      id: secondBatch[secondBatch.length - 1].id,
+    });
+    const thirdBatch = getMessagesSince('group@g.us', secondCursor, 'Andy', 4);
+    expect(thirdBatch.map((m) => m.content)).toEqual([
+      'message 9',
+      'message 10',
+    ]);
+  });
+
+  it('does not skip messages that share the same timestamp', () => {
+    storeChatMetadata('same-ts@g.us', '2024-01-01T00:00:00.000Z');
+    for (const id of ['a', 'b', 'c', 'd']) {
+      store({
+        id,
+        chat_jid: 'same-ts@g.us',
+        sender: 'user@s.whatsapp.net',
+        sender_name: 'User',
+        content: `same-ts-${id}`,
+        timestamp: '2024-02-01T00:00:00.000Z',
+      });
+    }
+
+    const firstBatch = getMessagesSince('same-ts@g.us', '', 'Andy', 2);
+    expect(firstBatch.map((m) => m.id)).toEqual(['a', 'b']);
+
+    const cursor = encodeGroupMessageCursor({
+      timestamp: firstBatch[firstBatch.length - 1].timestamp,
+      id: firstBatch[firstBatch.length - 1].id,
+    });
+    const secondBatch = getMessagesSince('same-ts@g.us', cursor, 'Andy', 2);
+    expect(secondBatch.map((m) => m.id)).toEqual(['c', 'd']);
+  });
+
+  it('uses global cursor tie-breakers to continue batches deterministically', () => {
+    storeChatMetadata('same-ts-2@g.us', '2024-01-01T00:00:00.000Z');
+    store({
+      id: 'z1',
+      chat_jid: 'same-ts-2@g.us',
+      sender: 'user@s.whatsapp.net',
+      sender_name: 'User',
+      content: 'group2-msg',
+      timestamp: '2024-01-01T00:00:05.000Z',
+    });
+
+    const first = getNewMessages(
+      ['group@g.us', 'same-ts-2@g.us'],
+      '',
+      'Andy',
+      3,
+    );
+    expect(first.messages).toHaveLength(3);
+    const firstIds = first.messages.map((m) => `${m.chat_jid}:${m.id}`);
+    expect(firstIds).toEqual([
+      'group@g.us:lim-1',
+      'group@g.us:lim-2',
+      'group@g.us:lim-3',
+    ]);
+
+    const second = getNewMessages(
+      ['group@g.us', 'same-ts-2@g.us'],
+      first.newTimestamp,
+      'Andy',
+      20,
+    );
+    expect(second.messages.length).toBeGreaterThan(0);
+    const secondIds = second.messages.map((m) => `${m.chat_jid}:${m.id}`);
+    expect(secondIds).toContain('same-ts-2@g.us:z1');
   });
 });
 

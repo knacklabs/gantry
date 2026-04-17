@@ -2,8 +2,7 @@
 
 ## Runtime Truth
 
-MyClaw currently supports host runtime execution only.
-If you see container-oriented names in logs or schema (for example `container_config`, `containerName`), treat them as legacy naming debt.
+MyClaw runs as a local host process.
 
 ## Quick Status Check
 
@@ -65,8 +64,8 @@ sqlite3 store/messages.db "SELECT chat_jid, MAX(timestamp) as latest FROM messag
 ## Group Config Inspection
 
 ```bash
-# Review registered group agent config (legacy column name retained)
-sqlite3 store/messages.db "SELECT name, container_config FROM registered_groups;"
+# Review registered groups
+sqlite3 store/messages.db "SELECT name, folder, trigger_pattern FROM registered_groups;"
 
 # Review runtime settings
 cat ~/myclaw/settings.yaml

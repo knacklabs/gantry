@@ -325,7 +325,7 @@ Remove from group CLAUDE.md (already in shared):
 Keep in group CLAUDE.md (group-specific only):
 - Admin Context (main channel, elevated privileges)
 - Authentication
-- Container Mounts
+- Workspace mounts
 - Managing Groups (finding, adding, removing, listing)
 - Scheduling for Other Groups
 - Global Memory
@@ -360,7 +360,6 @@ Update Runtime File Layout:
     <channel>_<name>/
       SOUL.md                # Personality, voice, vibe, boundaries
       CLAUDE.md              # Group-specific overrides
-      memory/
       conversations/
       logs/
   store/
@@ -393,4 +392,4 @@ Remove reference to master `~/myclaw/CLAUDE.md`.
 | Delete | `~/myclaw/CLAUDE.md` (master profile, content merged) |
 | Update | `.claude/skills/myclaw-admin/SKILL.md` (both locations) |
 
-**No new files. No new dependencies. No settings.yaml changes. No ContainerInput changes. No agent-runner changes.**
+**No new files. No new dependencies. No settings.yaml changes. No agent-runner changes.**

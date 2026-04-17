@@ -80,7 +80,11 @@ STAGE_PLAYBOOK: dict[str, StageSpec] = {
         "commands": [
             "python3 .codex/scripts/validate_work.py",
         ],
-        "next_transition": "Transition to `done` once PR is opened/merged per your delivery policy.",
+        "next_transition": (
+            "Transition to `done` once PR is opened/merged per your delivery policy. "
+            "If the user requests new implementation scope, start a new run via intake and move that run to "
+            "`planning` instead of continuing this PR-ready loop."
+        ),
     },
     "done": {
         "goal": "Run complete. No further orchestration required.",
@@ -141,6 +145,11 @@ def render_stage_context(run_state: dict[str, Any] | None) -> str:
         for command in commands:
             lines.append(f"- `{command}`")
 
+    if phase == "pr-ready":
+        lines.append(
+            "User override: if a new feature/fix request arrives, do not block on this issue; "
+            "open a new run (`intake` -> `planning` -> `decomposing`) for the new scope."
+        )
+
     lines.append(f"Transition rule: {spec['next_transition']}")
     return "\n".join(lines)
-

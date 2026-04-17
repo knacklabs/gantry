@@ -10,7 +10,6 @@ Primary surfaces:
 - `apps/core/src/index.ts`: orchestrator loop and runtime wiring
 - `apps/core/src/runtime/group-queue.ts`: per-group queue and retry behavior
 - `apps/core/src/runtime/agent-spawn.ts`: host execution path
-- `apps/core/src/runtime/runtime-diagnostics.ts`: host runtime health checks
 - `apps/core/src/session/session-commands.ts`: host-managed slash commands
 - `apps/core/src/storage/db.ts`: persistence for groups, messages, tasks, and sessions
 
@@ -27,13 +26,12 @@ Use `python3 .codex/scripts/stage_orchestrator.py` to get current phase commands
 ## Runtime Modes
 
 - Host runtime is the only supported mode in this repo today.
-- Docker Compose/container runtime support is deferred to future work and must not be documented as active.
 
 Important constraints:
 
 - `/new` clears persisted session state but preserves the group model override
 - transcript archive during `/new` is best-effort and must not block reset success
-- per-agent memory remains isolated in `~/myclaw/agents/<folder>/`
+- durable memory lives in the configured SQLite/QMD memory provider; do not load `~/myclaw/agents/<folder>/memory/`
 
 ## Docs Rules
 
@@ -72,3 +70,6 @@ If running full factory mode:
 - Background maintenance timers must be stoppable so tests and CI can exit cleanly.
 - Keep docs concise, non-duplicative, and aligned with the current product behavior.
 - When changing the npm publish surface, update `package.json` publish entries and verify `npm pack --dry-run` does not ship internal scaffolding.
+- We need single cut feature with no support for legacy or backward compatibility, no runtime behavior to handle deleting legacy files. Keep it clean.
+- Always follow provider pattern for any external sources.
+- Always follow single responsibility principle applied.

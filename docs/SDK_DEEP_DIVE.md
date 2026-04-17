@@ -2,7 +2,7 @@
 
 Findings from reverse-engineering `@anthropic-ai/claude-agent-sdk` v0.2.29–0.2.34 to understand how `query()` works, why agent teams subagents were being killed, and how to fix it. Supplemented with official SDK reference docs.
 
-Current container runtime pin (as of April 9, 2026): `@anthropic-ai/claude-agent-sdk@0.2.97` with `@anthropic-ai/claude-code@2.1.97`.
+Current agent SDK pin (as of April 9, 2026): `@anthropic-ai/claude-agent-sdk@0.2.97` with `@anthropic-ai/claude-code@2.1.97`.
 
 ## Architecture
 
@@ -399,7 +399,7 @@ When prompt is an `AsyncIterable`:
 
 ### Additional Benefit: Streaming New Messages
 
-With the async iterable approach, we can push new incoming WhatsApp messages into the iterable while the agent is still working. Instead of queuing messages until the container exits and spawning a new container, we stream them directly into the running session.
+With the async iterable approach, we can push new incoming WhatsApp messages into the iterable while the agent is still working. Instead of waiting for the current run to exit and starting a new run, we stream them directly into the running session.
 
 ### Intended Lifecycle with Agent Teams
 

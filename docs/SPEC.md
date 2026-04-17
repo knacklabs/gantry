@@ -248,7 +248,7 @@ To add a new channel, contribute a skill to `.claude/skills/add-<name>/` that:
 3. Returns `null` from the factory if credentials are missing
 4. Adds an import line to `apps/core/src/channels/index.ts`
 
-See existing skills (`/add-whatsapp`, `/add-telegram`, `/add-slack`, `/add-discord`, `/add-gmail`) for the pattern.
+Channel-extension skills can follow this pattern when they are added to the bundled or user-installed skill set. The default npm package only ships the core command-discovery and administration skills.
 
 ---
 
@@ -279,9 +279,7 @@ myclaw/
 │       │   ├── runtime/           # Agent spawn, IPC, browser, queue, scheduler
 │       │   ├── session/           # Slash commands and transcript archive flow
 │       │   └── storage/           # SQLite persistence
-│       ├── setup/                 # Setup CLI steps and environment checks
 │       ├── config-examples/       # Example config payloads
-│       └── groups/                # Tracked group templates in the repo
 │
 ├── packages/
 │   └── agent-runner/             # Code that runs inside the host-synced agent runtime
@@ -300,28 +298,19 @@ myclaw/
 │
 ├── .claude/
 │   └── skills/
-│       ├── setup/SKILL.md              # /setup - First-time installation
-│       ├── customize/SKILL.md          # /customize - Add capabilities
-│       ├── debug/SKILL.md              # /debug - Runtime debugging
-│       ├── add-telegram/SKILL.md       # /add-telegram - Telegram channel
-│       ├── add-gmail/SKILL.md          # /add-gmail - Gmail integration
-│       ├── add-voice-transcription/    # /add-voice-transcription - Whisper
-│       ├── x-integration/SKILL.md      # /x-integration - X/Twitter
-│       ├── convert-to-apple-container/  # Legacy/deferred skill path (not active runtime)
-│       └── add-parallel/SKILL.md       # /add-parallel - Parallel agents
+│       ├── commands/SKILL.md            # /commands - command discovery
+│       └── myclaw-admin/SKILL.md        # Internal runtime administration reference
 │
-├── groups/
-│   ├── CLAUDE.md                  # Global memory (all groups read this)
-│   ├── {channel}_main/             # Main control channel (e.g., whatsapp_main/)
-│   │   ├── CLAUDE.md              # Main channel memory
-│   │   └── logs/                  # Task execution logs
+├── agents/
+│   ├── shared/
+│   │   └── CLAUDE.md              # Static shared prompt guidance
 │   └── {channel}_{group-name}/    # Per-group folders (created on registration)
-│       ├── CLAUDE.md              # Group-specific memory
-│       ├── logs/                  # Task logs for this group
-│       └── *.md                   # Files created by the agent
+│       ├── SOUL.md                # Personality, voice, boundaries
+│       ├── CLAUDE.md              # Static group-specific prompt guidance
+│       └── logs/                  # Task execution logs
 │
 ├── store/                         # Local data (gitignored)
-│   ├── auth/                      # WhatsApp authentication state
+│   ├── memory.db                  # Default SQLite memory database
 │   └── messages.db                # SQLite database (messages, chats, jobs, job_runs, job_events, registered_groups, sessions, router_state)
 │
 ├── data/                          # Application state (gitignored)
@@ -332,7 +321,7 @@ myclaw/
 ├── logs/                          # Runtime logs (gitignored)
 │   ├── myclaw.log               # Host stdout
 │   └── myclaw.error.log         # Host stderr
-│   # Note: Per-container logs are in groups/{folder}/logs/container-*.log
+│   # Note: Per-agent logs are in agents/{folder}/logs/
 │
 └── ops/launchd/
     └── com.myclaw.plist         # macOS service configuration
@@ -358,20 +347,19 @@ export const AGENTS_DIR = path.resolve(AGENT_ROOT, 'agents');
 export const DATA_DIR = path.resolve(AGENT_ROOT, 'data');
 
 // Runtime configuration
-export const CONTAINER_TIMEOUT = parseInt(process.env.CONTAINER_TIMEOUT || '1800000', 10); // 30min default
+export const AGENT_TIMEOUT = parseInt(process.env.AGENT_TIMEOUT || '1800000', 10); // 30min default
 export const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL;
 export const IPC_POLL_INTERVAL = 1000;
 export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min — keep runtime worker alive after last result
-export const MAX_CONCURRENT_CONTAINERS = Math.max(1, parseInt(process.env.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5);
 
 export const TRIGGER_PATTERN = new RegExp(`^@${ASSISTANT_NAME}\\b`, 'i');
 ```
 
 **Note:** Paths must be absolute for runtime path validation and scoped mounts.
 
-### Agent Config (Legacy Naming)
+### Agent Config
 
-Groups can have additional directories mounted via `containerConfig` in the SQLite `registered_groups` table (stored as JSON in the `container_config` column). The name is legacy schema debt but still active data shape. Example registration:
+Groups can have additional directories exposed to the agent workspace through the registered group agent config. Example registration:
 
 ```typescript
 setRegisteredGroup("1234567890@g.us", {
@@ -379,12 +367,11 @@ setRegisteredGroup("1234567890@g.us", {
   folder: "whatsapp_dev-team",
   trigger: "@Andy",
   added_at: new Date().toISOString(),
-  containerConfig: {
+  agentConfig: {
     model: "opus",
     additionalMounts: [
       {
         hostPath: "~/projects/webapp",
-        containerPath: "webapp",
         readonly: false,
       },
     ],
@@ -395,16 +382,14 @@ setRegisteredGroup("1234567890@g.us", {
 
 Folder names follow the convention `{channel}_{group-name}` (e.g., `whatsapp_family-chat`, `telegram_dev-team`). The main group has `isMain: true` set during registration.
 
-Additional mounts appear at `/workspace/extra/{containerPath}` in the runtime workspace.
+Additional mounts appear under `/workspace/extra/` in the runtime workspace.
 
 Model precedence is:
 
-1. `group.containerConfig.model`
+1. `group.agentConfig.model`
 2. `ANTHROPIC_MODEL`
 
 Use `/model` in a group session to switch the live model (`/model`, `/model <alias-or-name>`, `/model default`).
-
-**Mount syntax note:** `containerPath` remains the field name in stored config for compatibility, but it is runtime workspace naming debt and not runtime-mode signaling.
 
 ### Claude Authentication
 
@@ -446,47 +431,46 @@ Files with `{{PLACEHOLDER}}` values need to be configured:
 
 ## Memory System
 
-MyClaw has two memory layers: a file-based layer (CLAUDE.md) that the Claude Agent SDK loads automatically, and a structured memory store (SQLite + vector embeddings) exposed via MCP tools. Both work together.
+MyClaw separates static prompt profile files from structured memory and runtime continuity context.
 
-### Memory Hierarchy (File Layer)
+### Prompt Profile Layer
 
-| Level | Location | Read By | Written By | Purpose |
-|-------|----------|---------|------------|---------|
-| **Global** | `groups/CLAUDE.md` | All groups | Main only | Preferences, facts, context shared across all conversations |
-| **Group** | `groups/{name}/CLAUDE.md` | That group | That group | Group-specific context, conversation memory |
-| **Files** | `groups/{name}/*.md` | That group | That group | Notes, research, documents created during conversation |
+Prompt profile files are static guidance, not memory dumps:
 
-### How File-Based Memory Works
+| Layer | Location | Purpose |
+|-------|----------|---------|
+| **Shared context** | `agents/shared/CLAUDE.md` | Stable operating rules, memory rules, communication conventions |
+| **Soul** | `agents/{group}/SOUL.md` | Agent personality, voice, and boundaries |
+| **Group context** | `agents/{group}/CLAUDE.md` | Stable group-specific guidance |
 
-1. **Agent Context Loading**
-   - Agent runs with `cwd` set to `groups/{group-name}/`
-   - Claude Agent SDK with `settingSources: ['project']` automatically loads:
-     - `../CLAUDE.md` (parent directory = global memory)
-     - `./CLAUDE.md` (current directory = group memory)
+Dynamic facts, current task state, open loops, and raw transcripts must not be written into these files. Durable facts go through structured memory. Current task state belongs to continuity context.
 
-2. **Writing Memory**
-   - When user says "remember this", agent writes to `./CLAUDE.md`
-   - When user says "remember this globally" (main channel only), agent writes to `../CLAUDE.md`
-   - Agent can create files like `notes.md`, `research.md` in the group folder
+### Continuity Context
 
-3. **Main Channel Privileges**
-   - Only the "main" group (self-chat) can write to global memory
-   - Main can manage registered groups and schedule jobs for any group
-   - Main can configure additional directory mounts for any group
-   - All groups have Bash access through the host runtime process
+Continuity is the runtime context that helps the agent resume current work:
+
+- current relevant memory
+- prior decisions
+- user/group preferences
+- recent work context
+- open loops when commitment tracking is enabled
+
+Before an agent run, the host builds a memory/continuity context block and passes it to the agent runner. The agent runner appends it to the prompt so the model can use remembered context without treating prompt profile files as mutable memory.
+
+See [CONTINUITY.md](CONTINUITY.md) for the continuity model.
 
 ### Structured Memory Store
 
-The structured memory store provides semantic search, versioned facts, and learned procedures. It runs on SQLite with sqlite-vec for vector search.
+The structured memory store provides scoped recall for durable statements and learned procedures. It stores facts, decisions, preferences, corrections, constraints, and procedures in SQLite, with optional sqlite-vec search when embeddings are enabled.
 
 #### Storage Backend
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| **Facts & procedures** | SQLite (`memory_items`, `memory_procedures`) | Key-value structured memory with scoping, confidence, versioning |
+| **Memory statements & procedures** | SQLite (`memory_items`, `memory_procedures`) | Human-readable memory entries with scoping, confidence, versioning |
 | **Chunks** | SQLite (`memory_chunks`) | Chunked text from ingested source files |
 | **Lexical search** | FTS5 (`memory_chunks_fts`) | BM25 keyword search with unicode61 tokenization |
-| **Vector search** | sqlite-vec (`memory_chunks_vec`) | Semantic similarity search on embeddings |
+| **Vector search** | sqlite-vec (`memory_chunks_vec`) | Optional semantic similarity search on embeddings |
 | **Audit log** | SQLite (`memory_events`) | All memory operations logged for debugging |
 
 Default database path: `store/memory.db`
@@ -497,8 +481,8 @@ Agents interact with memory via MCP tools over IPC:
 
 | Tool | Purpose |
 |------|---------|
-| `memory_save` | Save a fact, preference, correction, or context item |
-| `memory_search` | Hybrid lexical + vector search across chunks and items |
+| `memory_save` | Save a durable fact, decision, preference, correction, constraint, or context item |
+| `memory_search` | Search scoped memory statements and source snippets |
 | `memory_patch` | Update an existing item (optimistic concurrency via version) |
 | `procedure_save` | Save a reusable multi-step procedure |
 | `procedure_patch` | Update an existing procedure |
@@ -517,10 +501,10 @@ Default scope is controlled by `MEMORY_SCOPE_POLICY` (default: `group`).
 
 #### Search Architecture (Hybrid Retrieval)
 
-Search combines two channels using Reciprocal Rank Fusion (K=60):
+Search combines lexical recall with optional semantic recall using Reciprocal Rank Fusion (K=60):
 
 1. **Lexical (BM25)**: FTS5 with unicode61 tokenization, NFKC normalization. Score: `1 / (1 + bm25_rank)`
-2. **Vector (Semantic)**: OpenAI embeddings (text-embedding-3-large, 3072 dims). Score: `1 / (1 + distance)`
+2. **Vector (Semantic)**: Configured embedding provider when enabled. Score: `1 / (1 + distance)`
 3. **Fusion**: RRF merges both ranked lists. For each result at rank i: `score += 1 / (K + i + 1)`. Top-K returned.
 
 #### Source Ingestion
@@ -529,30 +513,32 @@ On each message or scheduled task, MyClaw auto-ingests group source files into t
 
 | Source | Path | Source Type |
 |--------|------|-------------|
-| CLAUDE.md | `groups/{name}/CLAUDE.md` | `claude_md` |
-| Memory directory | `groups/{name}/memory/**/*.md` | `local_doc` |
+| CLAUDE.md | `agents/{name}/CLAUDE.md` | `claude_md` |
+| Group knowledge directory | `agents/{name}/knowledge/**/*.md` | `local_doc` |
 
 **Chunking**: Sliding window (default 1400 chars, 240 overlap). Chunks < 30 chars are filtered. Deduplication via SHA256 hash of `scope:group:source_type:source_id:text`.
 
-**Embedding**: Batch embedding via OpenAI API (default batch size 16). Only new chunks (not matching existing hashes) are embedded.
+**Embedding**: Optional batch embedding via the configured provider (default batch size 16). Only new chunks (not matching existing hashes) are embedded when embeddings are enabled.
 
 **Retention**: Chunks older than `MEMORY_CHUNK_RETENTION_DAYS` (default 120) are pruned. Max `MEMORY_MAX_CHUNKS_PER_GROUP` (default 6000) per group.
 
 #### Reflection (Auto-Capture)
 
-After each agent turn, the system can extract facts from the conversation:
-- Detects preferences, corrections, conventions via regex patterns
-- Stores with reflection-derived confidence scores (preferences: 0.82, corrections: 0.8, conventions: 0.78)
+After each successful agent turn, the system extracts durable memory statements from the conversation:
+- Uses a provider interface; the default extractor is rule-based and can be replaced without changing storage or recall.
+- Detects preferences, decisions, facts, corrections, and constraints.
+- Stores real human-readable statements with reflection-derived confidence scores.
 - Filters sensitive material (API keys, tokens, passwords)
-- Controlled by `MEMORY_REFLECTION_MIN_CONFIDENCE` (default 0.7) and `MEMORY_REFLECTION_MAX_FACTS_PER_TURN` (default 5)
+- Rejects prompt-injection style text before it becomes future context
+- Controlled by `MEMORY_REFLECTION_MIN_CONFIDENCE` (default 0.7) and `MEMORY_REFLECTION_MAX_FACTS_PER_TURN` (default 6)
 
 ### Memory Providers
 
-MyClaw supports two memory provider backends, set via `MEMORY_PROVIDER`:
+MyClaw supports two memory provider backends, set via `settings.yaml memory.provider`:
 
 #### `sqlite` (Default)
 
-Standard SQLite backend. All data lives in `MEMORY_SQLITE_PATH` (default: `store/memory.db`).
+Standard SQLite backend. All data lives in `settings.yaml memory.sqlite_path` (default: `store/memory.db`).
 
 - Simple, single-file storage
 - No external dependencies beyond sqlite-vec
@@ -560,14 +546,14 @@ Standard SQLite backend. All data lives in `MEMORY_SQLITE_PATH` (default: `store
 
 #### `qmd` (Durable Markdown Mirror)
 
-QMD wraps the SQLite provider and mirrors every write to a filesystem tree at `AGENT_MEMORY_ROOT`. The SQLite database still handles all reads and search. The markdown mirror provides:
+QMD wraps the SQLite provider and mirrors every write to a filesystem tree at `settings.yaml memory.qmd_root`. The SQLite database still handles all reads and search. The markdown mirror provides:
 
 - **Human-readable audit trail** — every memory item and procedure is a markdown file
 - **Git-friendly durability** — the memory root can be committed to version control
 - **Journal logging** — all operations (saves, patches, lifecycle events) appended to daily journal files
 - **Session archiving** — compacted/stale sessions archived as dated markdown files
 
-**Required config**: `AGENT_MEMORY_ROOT` must be set to an absolute path.
+**Default config**: `memory.qmd_root` defaults to `agent-memory` (resolved under runtime home).
 
 **Filesystem layout**:
 
@@ -615,13 +601,14 @@ QMD wraps the SQLite provider and mirrors every write to a filesystem tree at `A
 
 ### Memory Configuration Reference
 
-| Variable | Default | Description |
+| Setting | Default | Description |
 |----------|---------|-------------|
-| `MEMORY_PROVIDER` | `sqlite` | Backend: `sqlite` or `qmd` |
-| `MEMORY_SQLITE_PATH` | `store/memory.db` | Path to SQLite database |
-| `AGENT_MEMORY_ROOT` | (empty) | Filesystem root for QMD mirror (required if provider is `qmd`) |
-| `MEMORY_EMBED_PROVIDER` | `openai` | Embedding provider |
-| `MEMORY_EMBED_MODEL` | `text-embedding-3-large` | Embedding model |
+| `memory.provider` | `sqlite` | Backend: `sqlite`, `qmd`, `noop`, or `none` |
+| `memory.sqlite_path` | `store/memory.db` | Path to SQLite database |
+| `memory.qmd_root` | `agent-memory` | Filesystem root for QMD mirror when provider is `qmd` |
+| `memory.embeddings.enabled` | `false` | Optional embedding toggle |
+| `memory.embeddings.provider` | `disabled` | Embedding provider (`disabled`, `none`, or `openai`) |
+| `memory.embeddings.model` | `text-embedding-3-large` | Embedding model |
 | `MEMORY_VECTOR_DIMENSIONS` | `3072` | Vector dimensions (must match model output) |
 | `MEMORY_EMBED_BATCH_SIZE` | `16` | Texts per embedding API call |
 | `MEMORY_CHUNK_SIZE` | `1400` | Characters per chunk |
@@ -629,7 +616,7 @@ QMD wraps the SQLite provider and mirrors every write to a filesystem tree at `A
 | `MEMORY_RETRIEVAL_LIMIT` | `8` | Default results per search |
 | `MEMORY_SCOPE_POLICY` | `group` | Default scope for new items |
 | `MEMORY_REFLECTION_MIN_CONFIDENCE` | `0.7` | Min confidence for auto-captured facts |
-| `MEMORY_REFLECTION_MAX_FACTS_PER_TURN` | `5` | Max facts extracted per turn |
+| `MEMORY_REFLECTION_MAX_FACTS_PER_TURN` | `6` | Max facts extracted per turn |
 | `MEMORY_MAX_CHUNKS_PER_GROUP` | `6000` | Chunk cap per group |
 | `MEMORY_CHUNK_RETENTION_DAYS` | `120` | Days before chunks are pruned |
 | `MEMORY_MAX_EVENTS` | `20000` | Max audit log entries |
@@ -679,15 +666,15 @@ Sessions enable conversation continuity - Claude remembers what you talked about
    │
    ▼
 7. Router invokes Claude Agent SDK:
-   ├── cwd: groups/{group-name}/
+   ├── cwd: agents/{group-name}/
    ├── prompt: conversation history + current message
    ├── resume: session_id (for continuity)
    └── mcpServers: myclaw (scheduler)
    │
    ▼
 8. Claude processes message:
-   ├── Reads CLAUDE.md files for context
-   └── Uses tools as needed (search, email, etc.)
+   ├── Uses injected prompt profile and memory/continuity context
+   └── Uses tools as needed
    │
    ▼
 9. Router prefixes response with assistant name and sends via the owning channel
@@ -936,9 +923,9 @@ WhatsApp messages could contain malicious instructions attempting to manipulate 
 
 ### File Permissions
 
-The groups/ folder contains personal memory and should be protected:
+The runtime agents and store directories contain personal context and should be protected:
 ```bash
-chmod 700 groups/
+chmod 700 ~/myclaw/agents ~/myclaw/store
 ```
 
 ---

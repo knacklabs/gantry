@@ -8,6 +8,7 @@ export interface SetupReadyDraft {
   credentialMode: 'env-only' | 'onecli-only' | 'hybrid';
   onecliUrl: string;
   memoryEnabled: boolean;
+  memoryProvider?: 'sqlite' | 'qmd' | 'noop';
   embeddingsEnabled: boolean;
   dreamingEnabled: boolean;
 }
@@ -27,7 +28,8 @@ export async function runReadyStep(
       `Credential mode: ${draft.credentialMode}`,
       ...(draft.onecliUrl ? [`OneCLI URL: ${draft.onecliUrl}`] : []),
       `Memory: ${summarizeToggle(draft.memoryEnabled)}`,
-      `Embeddings: ${summarizeToggle(draft.embeddingsEnabled)}`,
+      `Memory provider: ${draft.memoryEnabled ? draft.memoryProvider || 'sqlite' : 'noop'}`,
+      `Embeddings: ${draft.embeddingsEnabled ? 'openai' : 'disabled'}`,
       `Dreaming: ${summarizeToggle(draft.dreamingEnabled)}`,
       `Service (${service.kind}): ${service.status}`,
       '',

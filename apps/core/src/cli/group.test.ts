@@ -49,6 +49,19 @@ describe('group CLI commands', () => {
     const soul = fs.readFileSync(soulPath, 'utf-8');
     expect(soul).toContain('# Soul - Who You Are');
     expect(soul).toContain('- **Name:** Soul Seed');
+    expect(soul).toContain('## Continuity Boundary');
+    expect(soul).toContain(
+      'Durable facts, user preferences, task state, and open commitments do not live here.',
+    );
+
+    const groupPrompt = fs.readFileSync(
+      path.join(runtimeHome, 'agents', folder, 'CLAUDE.md'),
+      'utf-8',
+    );
+    expect(groupPrompt).toContain('## Static Chat Guidance');
+    expect(groupPrompt).toContain(
+      'Dynamic task state, open commitments, and remembered facts come from the injected memory/continuity brief.',
+    );
   });
 
   it('adds and reads a non-telegram group', async () => {

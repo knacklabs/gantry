@@ -6,12 +6,15 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { BrowserIpcAction, MemoryIpcAction } from '@myclaw/contracts';
 import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
-import { MemoryIpcAction } from './memory-ipc-contract.js';
-import { BrowserIpcAction } from './browser-ipc-contract.js';
+import {
+  formatMemoryTimeoutError,
+  getMemoryActionTimeoutMs,
+} from './memory-timeouts.js';
 
 const IPC_DIR = process.env.MYCLAW_IPC_DIR || '/workspace/ipc';
 const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
@@ -85,7 +88,8 @@ async function requestMemoryAction(
   );
   fs.renameSync(tmpReqPath, reqPath);
 
-  const deadline = Date.now() + 15000;
+  const timeoutMs = getMemoryActionTimeoutMs(action);
+  const deadline = Date.now() + timeoutMs;
   const responsePath = path.join(MEMORY_RESPONSES_DIR, `${requestId}.json`);
 
   while (Date.now() < deadline) {
@@ -112,7 +116,7 @@ async function requestMemoryAction(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
-  return { ok: false, error: 'Timed out waiting for memory service response' };
+  return { ok: false, error: formatMemoryTimeoutError(timeoutMs) };
 }
 
 async function requestBrowserAction(
@@ -1025,7 +1029,7 @@ server.tool(
 
 server.tool(
   'memory_search',
-  'Search durable memory using lexical+embedding fusion and return scoped snippets with provenance.',
+  'Search durable MyClaw memory. Returns real scoped memory statements, procedures, and source snippets with provenance; scores are only ranking metadata.',
   {
     query: z.string().describe('Search query'),
     group_folder: z
@@ -1066,16 +1070,30 @@ server.tool(
 
 server.tool(
   'memory_save',
-  'Save a durable memory fact/preference/correction item.',
+  'Save a durable memory statement. Use this for user preferences, project facts, decisions, corrections, constraints, and reusable context that should survive future sessions. Do not save raw logs, temporary task progress, secrets, or generic summaries.',
   {
     scope: z.enum(['user', 'group', 'global']).optional(),
     group_folder: z.string().optional(),
     user_id: z.string().optional(),
     kind: z
-      .enum(['preference', 'fact', 'context', 'correction', 'recent_work'])
+      .enum([
+        'preference',
+        'decision',
+        'fact',
+        'context',
+        'correction',
+        'constraint',
+        'recent_work',
+      ])
       .optional(),
-    key: z.string(),
-    value: z.string(),
+    key: z
+      .string()
+      .describe(
+        'Stable key such as preference:response-style or decision:memory-backend',
+      ),
+    value: z
+      .string()
+      .describe('One human-readable durable statement, not a transcript dump'),
     confidence: z.number().min(0).max(1).optional(),
     source: z.string().optional(),
   },

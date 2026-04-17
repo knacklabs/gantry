@@ -14,17 +14,30 @@ export {
 export async function startMyClawRuntime(): Promise<void> {
   const app = getDefaultRuntimeApp();
   const channelWiring = createChannelWiring(app);
+  app.setChannelRuntime({
+    hasChannel: channelWiring.hasChannel,
+    supportsStreaming: channelWiring.supportsStreaming,
+    supportsProgress: channelWiring.supportsProgress,
+    sendMessage: (chatJid, rawText, options) =>
+      channelWiring.sendMessage(chatJid, rawText, {
+        messageOptions: options,
+      }),
+    sendStreamingChunk: channelWiring.sendStreamingChunk,
+    resetStreaming: channelWiring.resetStreaming,
+    setTyping: channelWiring.setTyping,
+    sendProgressUpdate: channelWiring.sendProgressUpdate,
+  });
 
   const { runtimeSettings } = await runStartup(app);
 
   installShutdownHandlers({
     queue: app.queue,
-    channels: app.channels,
+    disconnectChannels: channelWiring.disconnectChannels,
   });
 
   await channelWiring.connectEnabledChannels(runtimeSettings);
 
-  if (app.channels.length === 0) {
+  if (!channelWiring.hasConnectedChannels()) {
     logger.fatal('No channels connected');
     process.exit(1);
   }

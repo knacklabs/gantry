@@ -1,6 +1,6 @@
 import { AGENT_ROOT } from '../core/config.js';
 import { logger } from '../core/logger.js';
-import { Channel, NewMessage, RegisteredGroup } from '../core/types.js';
+import { MessageSink, NewMessage, RegisteredGroup } from '../core/types.js';
 import { startRemoteControl, stopRemoteControl } from './remote-control.js';
 
 export type RemoteControlCommand = '/remote-control' | '/remote-control-end';
@@ -19,7 +19,8 @@ export async function handleRemoteControlCommand(
   chatJid: string,
   msg: NewMessage,
   getGroup: (chatJid: string) => RegisteredGroup | undefined,
-  findChannel: (chatJid: string) => Channel | undefined,
+  findMessageSink: (chatJid: string) => MessageSink | undefined,
+  isSenderControlAllowlisted: (msg: NewMessage) => boolean,
   cwd = AGENT_ROOT,
 ): Promise<void> {
   const group = getGroup(chatJid);
@@ -31,26 +32,31 @@ export async function handleRemoteControlCommand(
     return;
   }
 
-  const channel = findChannel(chatJid);
-  if (!channel) return;
+  if (!(msg.is_from_me === true || isSenderControlAllowlisted(msg))) {
+    logger.warn(
+      { chatJid, sender: msg.sender },
+      'Remote control rejected: sender not authorized',
+    );
+    return;
+  }
+
+  const sink = findMessageSink(chatJid);
+  if (!sink) return;
 
   if (command === '/remote-control') {
     const result = await startRemoteControl(msg.sender, chatJid, cwd);
     if (result.ok) {
-      await channel.sendMessage(chatJid, result.url);
+      await sink.sendMessage(chatJid, result.url);
       return;
     }
-    await channel.sendMessage(
-      chatJid,
-      `Remote Control failed: ${result.error}`,
-    );
+    await sink.sendMessage(chatJid, `Remote Control failed: ${result.error}`);
     return;
   }
 
   const result = stopRemoteControl();
   if (result.ok) {
-    await channel.sendMessage(chatJid, 'Remote Control session ended.');
+    await sink.sendMessage(chatJid, 'Remote Control session ended.');
     return;
   }
-  await channel.sendMessage(chatJid, result.error);
+  await sink.sendMessage(chatJid, result.error);
 }

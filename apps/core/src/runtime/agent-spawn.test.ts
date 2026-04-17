@@ -62,8 +62,14 @@ vi.mock('./agent-spawn-host.js', () => ({
   prepareHostRuntimeContext: vi.fn(() => ({
     groupDir: '/tmp/myclaw-test-data/agents/test-group',
     groupIpcDir: '/tmp/myclaw-test-data/ipc/test-group',
-    runnerRoot: '/tmp/myclaw-home/.runtime/agent-runner',
+    runnerRoot: '/tmp/myclaw-home/packages/agent-runner',
   })),
+}));
+
+const mockEnsureGroupIpcLayout = vi.fn();
+vi.mock('./agent-spawn-layout.js', () => ({
+  ensureGroupIpcLayout: (...args: unknown[]) =>
+    mockEnsureGroupIpcLayout(...args),
 }));
 
 // Mock prompt-profile
@@ -145,6 +151,7 @@ describe('agent-spawn timeout behavior', () => {
     fakeProc = createFakeProcess();
     vi.mocked(spawn).mockClear();
     vi.mocked(getEffectiveModelConfig).mockClear();
+    mockEnsureGroupIpcLayout.mockClear();
   });
 
   afterEach(() => {
@@ -221,6 +228,18 @@ describe('agent-spawn timeout behavior', () => {
     const result = await resultPromise;
     expect(result.status).toBe('success');
     expect(result.newSessionId).toBe('session-456');
+  });
+
+  it('ensures group IPC layout before spawning host runner', async () => {
+    const resultPromise = spawnAgent(testGroup, testInput, () => {});
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    expect(mockEnsureGroupIpcLayout).toHaveBeenCalledWith(
+      '/tmp/myclaw-test-data/ipc/test-group',
+    );
   });
 
   it('passes effective model to process env when configured', async () => {
@@ -359,7 +378,7 @@ describe('agent-spawn timeout behavior', () => {
     const result = await spawnAgent(testGroup, testInput, () => {});
 
     expect(result.status).toBe('error');
-    expect(result.error).toContain('missing built agent-runner files');
+    expect(result.error).toContain('missing required runner files');
 
     // Restore default behavior
     vi.mocked(fs.existsSync).mockReturnValue(true);

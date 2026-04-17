@@ -24,6 +24,7 @@ export interface OnboardingData {
   telegramBotUsername?: string;
   telegramChatJid?: string;
   memoryEnabled?: boolean;
+  memoryProvider?: 'sqlite' | 'qmd' | 'noop';
   embeddingsEnabled?: boolean;
   dreamingEnabled?: boolean;
   credentialMode?: HostCredentialMode;

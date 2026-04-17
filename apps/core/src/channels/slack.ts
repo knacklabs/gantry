@@ -9,7 +9,6 @@ import {
 } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import {
-  Channel,
   MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
@@ -24,7 +23,7 @@ import {
 } from '../messaging/router.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import { readEnvFile } from '../core/env.js';
-import { ChannelOpts, registerChannel } from './registry.js';
+import { ChannelAdapter, ChannelOpts } from './channel-provider.js';
 
 const SLACK_STREAM_UPDATE_INTERVAL_MS = 900;
 const SLACK_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
@@ -94,7 +93,7 @@ interface SlackMessageLike {
   edited?: unknown;
 }
 
-export class SlackChannel implements Channel {
+export class SlackChannel implements ChannelAdapter {
   name = 'slack';
 
   private app: App | null = null;
@@ -1636,7 +1635,7 @@ export class SlackChannel implements Channel {
   }
 }
 
-registerChannel('slack', (opts: ChannelOpts) => {
+export function createSlackChannel(opts: ChannelOpts): SlackChannel | null {
   const envVars = readEnvFile(['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN']);
   const botToken = process.env.SLACK_BOT_TOKEN || envVars.SLACK_BOT_TOKEN || '';
   const appToken = process.env.SLACK_APP_TOKEN || envVars.SLACK_APP_TOKEN || '';
@@ -1647,4 +1646,4 @@ registerChannel('slack', (opts: ChannelOpts) => {
   }
 
   return new SlackChannel(botToken, appToken, opts);
-});
+}

@@ -10,3 +10,7 @@ Each decision record should include:
 - Rollback or migration notes
 
 Decision docs here take precedence when they conflict with general architecture notes.
+
+Current decisions:
+
+- [2026-04-17 — Settings And Runtime Truth](./2026-04-17-settings-runtime-truth.md)

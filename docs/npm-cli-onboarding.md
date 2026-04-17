@@ -24,7 +24,7 @@ The first run is Telegram-first and guided one step at a time:
 3. runtime home confirmation (`~/myclaw` by default)
 4. runtime prerequisite check
 5. Telegram token + chat connection
-6. memory decision
+6. memory and continuity decision
 7. embeddings decision
 8. dreaming decision
 9. config write
@@ -57,7 +57,7 @@ Contains:
 - `logs/`
 - `.onboarding-state.json`
 
-`settings.yaml` is the single user-editable runtime settings file for behavior flags and message policy (including sender allowlist).
+`settings.yaml` is the single user-editable runtime settings file for channel and memory behavior (including sender allowlist).
 
 Override at runtime:
 
@@ -94,15 +94,37 @@ myclaw slack connect
 
 ## Memory Settings (Beginner Language)
 
-- Memory: remember useful context between chats.
-- Embeddings: improve memory search quality using OpenAI.
+- Memory: remember durable facts, preferences, decisions, corrections, constraints, and procedures.
+- Continuity: use remembered context so the agent can resume current work instead of starting cold.
+- SQLite provider: default local database storage.
+- QMD provider: optional SQLite-backed markdown mirror for users who want human-readable memory files.
+- Embeddings: optional OpenAI-powered ranking improvement for memory search.
 - Dreaming: background memory cleanup and improvement.
 
 Default choices:
 
 - memory: on
+- provider: sqlite
 - embeddings: off
 - dreaming: off
+
+Canonical memory block written by setup:
+
+```yaml
+memory:
+  enabled: true
+  provider: sqlite
+  sqlite_path: store/memory.db
+  qmd_root: agent-memory
+  embeddings:
+    enabled: false
+    provider: disabled
+    model: text-embedding-3-large
+  dreaming:
+    enabled: false
+```
+
+Memory and continuity work without embeddings. Enable embeddings only when you want better semantic ranking and are comfortable providing an OpenAI API key.
 
 ## Service Management
 

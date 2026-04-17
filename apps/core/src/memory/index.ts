@@ -2,7 +2,6 @@ export * from './memory-consolidation.js';
 export * from './memory-dreaming.js';
 export * from './memory-embeddings.js';
 export * from './memory-embedding-cache.js';
-export * from './memory-ipc-contract.js';
 export * from './memory-ipc.js';
 export * from './memory-provider.js';
 export * from './memory-retrieval.js';

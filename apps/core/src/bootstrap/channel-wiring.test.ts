@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { RuntimeSettings } from '../cli/runtime-settings.js';
-import { Channel } from '../core/types.js';
+import { ChannelAdapter } from '../channels/channel-provider.js';
+import { ChannelProvider } from './channel-providers.js';
 import { createChannelWiring } from './channel-wiring.js';
 import { RuntimeApp } from './runtime-app.js';
 
@@ -19,15 +20,24 @@ function makeRuntimeSettings(enabled: {
       telegram: { enabled: enabled.telegram, senderAllowlist: allowlist },
       slack: { enabled: enabled.slack, senderAllowlist: allowlist },
     },
-    features: {
-      memory: true,
-      embeddings: false,
-      dreaming: false,
+    memory: {
+      enabled: true,
+      provider: 'sqlite',
+      sqlitePath: 'store/memory.db',
+      qmdRoot: 'agent-memory',
+      embeddings: {
+        enabled: false,
+        provider: 'disabled',
+        model: 'text-embedding-3-large',
+      },
+      dreaming: {
+        enabled: false,
+      },
     },
   };
 }
 
-function makeChannel(overrides: Partial<Channel> = {}): Channel {
+function makeChannel(overrides: Partial<ChannelAdapter> = {}): ChannelAdapter {
   return {
     name: 'telegram',
     connect: vi.fn(async () => {}),
@@ -41,7 +51,6 @@ function makeChannel(overrides: Partial<Channel> = {}): Channel {
 
 function makeApp(registeredGroups: Record<string, any> = {}): RuntimeApp {
   return {
-    channels: [],
     queue: {} as RuntimeApp['queue'],
     loadState: vi.fn(),
     saveState: vi.fn(),
@@ -57,6 +66,21 @@ function makeApp(registeredGroups: Record<string, any> = {}): RuntimeApp {
     getLastTimestamp: vi.fn(() => ''),
     setLastTimestamp: vi.fn(),
     setAgentCursor: vi.fn(),
+    setChannelRuntime: vi.fn(),
+  };
+}
+
+function makeProvider(
+  id: ChannelProvider['id'],
+  create: ChannelProvider['create'],
+): ChannelProvider {
+  return {
+    id,
+    isEnabled: (settings: RuntimeSettings) =>
+      id === 'telegram'
+        ? settings.channels.telegram.enabled
+        : settings.channels.slack.enabled,
+    create,
   };
 }
 
@@ -66,8 +90,16 @@ describe('createChannelWiring', () => {
     const info = vi.fn();
 
     const wiring = createChannelWiring(app, {
-      getRegisteredChannelNames: () => ['telegram', 'slack'],
-      getChannelFactory: vi.fn(() => vi.fn(() => makeChannel())) as any,
+      channelProviders: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => makeChannel()),
+        ),
+        makeProvider(
+          'slack',
+          vi.fn(() => makeChannel()),
+        ),
+      ],
       logger: {
         info,
         warn: vi.fn(),
@@ -80,7 +112,7 @@ describe('createChannelWiring', () => {
       makeRuntimeSettings({ telegram: false, slack: false }),
     );
 
-    expect(app.channels).toHaveLength(0);
+    expect(wiring.hasConnectedChannels()).toBe(false);
     expect(info).toHaveBeenCalledTimes(2);
   });
 
@@ -89,8 +121,12 @@ describe('createChannelWiring', () => {
     const warn = vi.fn();
 
     const wiring = createChannelWiring(app, {
-      getRegisteredChannelNames: () => ['telegram'],
-      getChannelFactory: vi.fn(() => vi.fn(() => null)) as any,
+      channelProviders: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => null),
+        ),
+      ],
       logger: {
         info: vi.fn(),
         warn,
@@ -103,7 +139,7 @@ describe('createChannelWiring', () => {
       makeRuntimeSettings({ telegram: true, slack: false }),
     );
 
-    expect(app.channels).toHaveLength(0);
+    expect(wiring.hasConnectedChannels()).toBe(false);
     expect(warn).toHaveBeenCalledOnce();
   });
 
@@ -115,11 +151,12 @@ describe('createChannelWiring', () => {
     let onMessage: ((chatJid: string, msg: any) => void) | undefined;
 
     const wiring = createChannelWiring(app, {
-      getRegisteredChannelNames: () => ['telegram'],
-      getChannelFactory: vi.fn(() => (opts: any) => {
-        onMessage = opts.onMessage;
-        return makeChannel();
-      }) as any,
+      channelProviders: [
+        makeProvider('telegram', (opts: any) => {
+          onMessage = opts.onMessage;
+          return makeChannel();
+        }),
+      ],
       storeMessage,
       loadSenderAllowlist: vi.fn(() => ({}) as any),
       shouldDropMessage: vi.fn(() => true),
@@ -154,11 +191,12 @@ describe('createChannelWiring', () => {
     let onMessage: ((chatJid: string, msg: any) => void) | undefined;
 
     const wiring = createChannelWiring(app, {
-      getRegisteredChannelNames: () => ['telegram'],
-      getChannelFactory: vi.fn(() => (opts: any) => {
-        onMessage = opts.onMessage;
-        return makeChannel();
-      }) as any,
+      channelProviders: [
+        makeProvider('telegram', (opts: any) => {
+          onMessage = opts.onMessage;
+          return makeChannel();
+        }),
+      ],
       storeMessage,
       asRemoteControlCommand: vi.fn(() => ({ command: 'start' }) as any),
       handleRemoteControlCommand: handleRemoteControl as any,
@@ -189,11 +227,12 @@ describe('createChannelWiring', () => {
     let onMessage: ((chatJid: string, msg: any) => void) | undefined;
 
     const wiring = createChannelWiring(app, {
-      getRegisteredChannelNames: () => ['telegram'],
-      getChannelFactory: vi.fn(() => (opts: any) => {
-        onMessage = opts.onMessage;
-        return makeChannel();
-      }) as any,
+      channelProviders: [
+        makeProvider('telegram', (opts: any) => {
+          onMessage = opts.onMessage;
+          return makeChannel();
+        }),
+      ],
       storeMessage,
       asRemoteControlCommand: vi.fn(() => null),
       shouldDropMessage: vi.fn(() => false),
@@ -227,10 +266,17 @@ describe('createChannelWiring', () => {
       ownsJid: vi.fn((jid: string) => jid === 'tg:main'),
       requestPermissionApproval: vi.fn(async () => ({ approved: true })),
     });
-
-    app.channels.push(approvalChannel);
-
-    const wiring = createChannelWiring(app);
+    const wiring = createChannelWiring(app, {
+      channelProviders: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => approvalChannel),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
     const result = await wiring.requestPermissionApproval({
       requestId: 'req-1',
       sourceGroup: 'tg:other',
@@ -263,9 +309,13 @@ describe('createChannelWiring', () => {
         throw new Error('request failed');
       }),
     });
-    app.channels.push(questionChannel);
-
     const wiring = createChannelWiring(app, {
+      channelProviders: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => questionChannel),
+        ),
+      ],
       logger: {
         info: vi.fn(),
         warn: vi.fn(),
@@ -273,6 +323,9 @@ describe('createChannelWiring', () => {
         error: vi.fn(),
       },
     });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
 
     const response = await wiring.requestUserAnswer({
       requestId: 'q-1',

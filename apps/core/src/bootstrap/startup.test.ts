@@ -37,16 +37,13 @@ describe('runStartup', () => {
       }),
     });
 
-    const runtimeSettings = { channels: {}, features: {} } as any;
+    const runtimeSettings = { channels: {}, memory: {} } as any;
     const result = await runStartup(app, {
       ensureRuntimeLayoutDirectories: vi.fn(() => {
         order.push('layout');
       }),
       ensurePromptProfileBootstrapped: vi.fn(() => {
         order.push('prompt-bootstrap');
-      }),
-      runRuntimeStartupPreflight: vi.fn(async () => {
-        order.push('preflight');
       }),
       initDatabase: vi.fn(() => {
         order.push('init-db');
@@ -69,7 +66,6 @@ describe('runStartup', () => {
     expect(order).toEqual([
       'layout',
       'prompt-bootstrap',
-      'preflight',
       'init-db',
       'log-db-init',
       'load-settings',
@@ -91,13 +87,10 @@ describe('runStartup', () => {
       ensurePromptProfileBootstrapped: vi.fn(() => {
         throw new Error('seed failed');
       }),
-      runRuntimeStartupPreflight: vi.fn(async () => {
-        order.push('preflight');
-      }),
       initDatabase: vi.fn(() => {
         order.push('init-db');
       }),
-      loadRuntimeSettings: vi.fn(() => ({ channels: {}, features: {} }) as any),
+      loadRuntimeSettings: vi.fn(() => ({ channels: {}, memory: {} }) as any),
       restoreRemoteControl: vi.fn(() => {
         order.push('restore-remote-control');
       }),
@@ -107,12 +100,7 @@ describe('runStartup', () => {
       },
     });
 
-    expect(order).toEqual([
-      'layout',
-      'preflight',
-      'init-db',
-      'restore-remote-control',
-    ]);
+    expect(order).toEqual(['layout', 'init-db', 'restore-remote-control']);
     expect(warn).toHaveBeenCalledOnce();
   });
 });

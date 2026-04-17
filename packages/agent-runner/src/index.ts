@@ -1,9 +1,9 @@
 /**
  * MyClaw Agent Runner
- * Runs inside a container, receives config via stdin, outputs result to stdout
+ * Runs as the child agent process, receives config via stdin, outputs result to stdout
  *
  * Input protocol:
- *   Stdin: Full ContainerInput JSON (read until EOF, like before)
+ *   Stdin: Full agent input JSON (read until EOF)
  *   IPC:   Follow-up messages written as JSON files to /workspace/ipc/input/
  *          Files: {type:"message", text:"..."}.json — polled and consumed
  *          Sentinel: /workspace/ipc/input/_close — signals session end
@@ -25,7 +25,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { fileURLToPath } from 'url';
 
-interface ContainerInput {
+interface AgentRunnerInput {
   prompt: string;
   sessionId?: string;
   groupFolder: string;
@@ -43,7 +43,7 @@ interface ContainerInput {
   };
 }
 
-interface ContainerOutput {
+interface AgentRunnerOutput {
   status: 'success' | 'error';
   result: string | null;
   newSessionId?: string;
@@ -170,7 +170,7 @@ async function readStdin(): Promise<string> {
 const OUTPUT_START_MARKER = '---MYCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---MYCLAW_OUTPUT_END---';
 
-function writeOutput(output: ContainerOutput): void {
+function writeOutput(output: AgentRunnerOutput): void {
   console.log(OUTPUT_START_MARKER);
   console.log(JSON.stringify(output));
   console.log(OUTPUT_END_MARKER);
@@ -197,7 +197,7 @@ function resolveConfiguredModel(): {
 }
 
 function resolveThinkingOptions(
-  thinkingOverride?: ContainerInput['thinking'],
+  thinkingOverride?: AgentRunnerInput['thinking'],
 ): {
   thinking?: ThinkingConfig;
   effort?: EffortLevel;
@@ -442,7 +442,7 @@ async function runQuery(
   prompt: string,
   sessionId: string | undefined,
   mcpServerPath: string,
-  containerInput: ContainerInput,
+  agentInput: AgentRunnerInput,
   sdkEnv: Record<string, string | undefined>,
   configuredModel: string | undefined,
   queryThinking: ThinkingConfig | undefined,
@@ -487,7 +487,7 @@ async function runQuery(
   let messageCount = 0;
   let resultCount = 0;
   let sawPartialTextSinceLastResult = false;
-  const systemPrompt = buildSystemPrompt(containerInput.compiledSystemPrompt);
+  const systemPrompt = buildSystemPrompt(agentInput.compiledSystemPrompt);
 
   // Discover additional directories mounted at runtime-specific extra dir.
   // These paths are exposed to the SDK for file access when present.
@@ -558,7 +558,7 @@ async function runQuery(
           };
         }
         const decision = await requestPermissionApproval({
-          groupFolder: containerInput.groupFolder,
+          groupFolder: agentInput.groupFolder,
           toolName,
           title: permissionOpts.title,
           displayName: permissionOpts.displayName,
@@ -587,9 +587,9 @@ async function runQuery(
           command: 'node',
           args: [mcpServerPath],
           env: {
-            MYCLAW_CHAT_JID: containerInput.chatJid,
-            MYCLAW_GROUP_FOLDER: containerInput.groupFolder,
-            MYCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+            MYCLAW_CHAT_JID: agentInput.chatJid,
+            MYCLAW_GROUP_FOLDER: agentInput.groupFolder,
+            MYCLAW_IS_MAIN: agentInput.isMain ? '1' : '0',
             ...(process.env.MYCLAW_IPC_DIR
               ? { MYCLAW_IPC_DIR: process.env.MYCLAW_IPC_DIR }
               : {}),
@@ -963,12 +963,12 @@ async function runSessionSlashCommand(
 }
 
 async function main(): Promise<void> {
-  let containerInput: ContainerInput;
+  let agentInput: AgentRunnerInput;
 
   try {
     const stdinData = await readStdin();
-    containerInput = JSON.parse(stdinData);
-    log(`Received input for group: ${containerInput.groupFolder}`);
+    agentInput = JSON.parse(stdinData);
+    log(`Received input for group: ${agentInput.groupFolder}`);
   } catch (err) {
     writeOutput({
       status: 'error',
@@ -979,7 +979,7 @@ async function main(): Promise<void> {
   }
 
   // Credentials are injected by the host's credential proxy via ANTHROPIC_BASE_URL.
-  // No real secrets exist in the container environment.
+  // No real secrets exist in the agent process environment.
   const sdkEnv: Record<string, string | undefined> = {
     ...process.env,
     CLAUDE_CODE_AUTO_COMPACT_WINDOW: '165000',
@@ -989,7 +989,7 @@ async function main(): Promise<void> {
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
 
   const configuredModel = resolveConfiguredModel();
-  const configuredThinking = resolveThinkingOptions(containerInput.thinking);
+  const configuredThinking = resolveThinkingOptions(agentInput.thinking);
   if (configuredModel.model) {
     log(
       `Configured model: ${configuredModel.model} (source: ${configuredModel.source})`,
@@ -999,11 +999,11 @@ async function main(): Promise<void> {
   }
   log(`Configured thinking: ${configuredThinking.description}`);
 
-  let sessionId = containerInput.sessionId;
-  if (!containerInput.isScheduledJob) {
+  let sessionId = agentInput.sessionId;
+  if (!agentInput.isScheduledJob) {
     fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
-    // Clean up stale _close sentinel from previous container runs
+    // Clean up stale _close sentinel from previous agent runs
     try {
       fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL);
     } catch {
@@ -1012,12 +1012,12 @@ async function main(): Promise<void> {
   }
 
   // Build initial prompt (drain any pending IPC messages too)
-  let prompt = containerInput.prompt;
-  const compiledSystemPrompt = containerInput.compiledSystemPrompt?.trim();
-  if (containerInput.isScheduledJob) {
+  let prompt = agentInput.prompt;
+  const compiledSystemPrompt = agentInput.compiledSystemPrompt?.trim();
+  if (agentInput.isScheduledJob) {
     prompt = `[SCHEDULED JOB - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
   }
-  if (!containerInput.isScheduledJob) {
+  if (!agentInput.isScheduledJob) {
     const pending = drainIpcInput();
     if (pending.length > 0) {
       log(
@@ -1039,7 +1039,7 @@ async function main(): Promise<void> {
       kind: 'model',
       sessionId,
       sdkEnv,
-      assistantName: containerInput.assistantName,
+      assistantName: agentInput.assistantName,
       configuredModel: configuredModel.model,
       configuredThinking: configuredThinking.thinking,
       configuredEffort: configuredThinking.effort,
@@ -1070,7 +1070,7 @@ async function main(): Promise<void> {
       kind: sessionSlashCommand.kind,
       sessionId,
       sdkEnv,
-      assistantName: containerInput.assistantName,
+      assistantName: agentInput.assistantName,
       configuredModel: configuredModel.model,
       configuredThinking: configuredThinking.thinking,
       configuredEffort: configuredThinking.effort,
@@ -1089,9 +1089,9 @@ async function main(): Promise<void> {
   // --- End session slash handling ---
 
   // Script phase: run script before waking agent
-  if (containerInput.script && containerInput.isScheduledJob) {
+  if (agentInput.script && agentInput.isScheduledJob) {
     log('Running scheduler job script...');
-    const scriptResult = await runScript(containerInput.script);
+    const scriptResult = await runScript(agentInput.script);
 
     if (!scriptResult || !scriptResult.wakeAgent) {
       const reason = scriptResult
@@ -1107,10 +1107,10 @@ async function main(): Promise<void> {
 
     // Script says wake agent — enrich prompt with script data
     log(`Script wakeAgent=true, enriching prompt with data`);
-    prompt = `[SCHEDULED JOB]\n\nScript output:\n${JSON.stringify(scriptResult.data, null, 2)}\n\nInstructions:\n${containerInput.prompt}`;
+    prompt = `[SCHEDULED JOB]\n\nScript output:\n${JSON.stringify(scriptResult.data, null, 2)}\n\nInstructions:\n${agentInput.prompt}`;
   }
 
-  if (containerInput.isScheduledJob) {
+  if (agentInput.isScheduledJob) {
     log(
       `Starting one-shot scheduled query (session: ${sessionId || 'new'})...`,
     );
@@ -1119,7 +1119,7 @@ async function main(): Promise<void> {
         prompt,
         sessionId,
         mcpServerPath,
-        containerInput,
+        agentInput,
         sdkEnv,
         configuredModel.model,
         configuredThinking.thinking,
@@ -1157,7 +1157,7 @@ async function main(): Promise<void> {
         prompt,
         sessionId,
         mcpServerPath,
-        containerInput,
+        agentInput,
         sdkEnv,
         configuredModel.model,
         configuredThinking.thinking,
