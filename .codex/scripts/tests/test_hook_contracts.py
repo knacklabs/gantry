@@ -72,11 +72,10 @@ class HookContractTests(unittest.TestCase):
         payload = json.loads(proc.stdout)
         self.assertEqual(payload.get("decision", "allow"), expected, proc.stdout)
 
-    def test_hooks_are_lifecycle_only(self) -> None:
+    def test_hooks_are_lifecycle_plus_silent_pre_tool_safety_only(self) -> None:
         hooks = json.loads(read_text(HOOKS_PATH))["hooks"]
 
-        self.assertEqual(set(hooks), {"SessionStart", "UserPromptSubmit", "Stop"})
-        self.assertNotIn("PreToolUse", hooks)
+        self.assertEqual(set(hooks), {"SessionStart", "UserPromptSubmit", "PreToolUse", "Stop"})
         self.assertNotIn("PostToolUse", hooks)
 
     def test_lifecycle_hooks_have_short_timeouts_and_existing_scripts(self) -> None:
@@ -84,6 +83,7 @@ class HookContractTests(unittest.TestCase):
         expected_limits = {
             "SessionStart": 5,
             "UserPromptSubmit": 5,
+            "PreToolUse": 3,
             "Stop": 10,
         }
 
@@ -102,6 +102,7 @@ class HookContractTests(unittest.TestCase):
     def test_no_old_noisy_hook_messages_remain(self) -> None:
         search_paths = [
             HOOKS_PATH,
+            SCRIPTS_DIR / "pre_tool_use.py",
             SCRIPTS_DIR / "user_prompt_submit.py",
             SCRIPTS_DIR / "stop_continue.py",
         ]
@@ -209,7 +210,7 @@ class HookContractTests(unittest.TestCase):
             with self.subTest(args=args):
                 self.assert_execpolicy_decision(args, "allow")
 
-    def test_old_per_command_hooks_are_not_referenced(self) -> None:
+    def test_obsolete_post_tool_hook_and_history_are_not_referenced(self) -> None:
         tracked_paths = [
             HOOKS_PATH,
             CODEX_ROOT / "AGENTS.md",
@@ -219,9 +220,40 @@ class HookContractTests(unittest.TestCase):
         ]
         combined = "\n".join(read_text(path) for path in tracked_paths)
 
-        self.assertNotIn("pre_tool_use.py", combined)
         self.assertNotIn("post_tool_use.py", combined)
         self.assertNotIn("tool-history.jsonl", combined)
+
+    def test_pre_tool_use_blocks_assignment_prefixed_destructive_commands(self) -> None:
+        cases = [
+            "AWS_PROFILE=prod rm -rf build",
+            "X=1 git reset --hard",
+            "A=1 terraform destroy",
+            "PATH=/usr/bin kubectl delete namespace prod",
+        ]
+
+        for command in cases:
+            with self.subTest(command=command):
+                proc = run_hook(
+                    "pre_tool_use.py",
+                    {"hook_event_name": "PreToolUse", "tool_input": {"command": command}},
+                    REPO_ROOT,
+                )
+                self.assertEqual(proc.returncode, 0)
+                payload = json.loads(proc.stdout)
+                output = payload["hookSpecificOutput"]
+                self.assertEqual(output["hookEventName"], "PreToolUse")
+                self.assertEqual(output["permissionDecision"], "deny")
+
+    def test_pre_tool_use_is_silent_for_allowed_commands(self) -> None:
+        proc = run_hook(
+            "pre_tool_use.py",
+            {"hook_event_name": "PreToolUse", "tool_input": {"command": "npm test"}},
+            REPO_ROOT,
+        )
+
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout, "")
+        self.assertEqual(proc.stderr, "")
 
     def test_user_prompt_submit_is_silent_for_casual_prompt_without_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
