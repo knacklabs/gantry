@@ -13,14 +13,9 @@ interface ShutdownQueue {
   shutdown: (timeoutMs: number) => Promise<void>;
 }
 
-interface MiniAppServerLike {
-  close: () => Promise<void>;
-}
-
 export interface InstallShutdownHandlersOptions {
   queue: ShutdownQueue;
   channels: Channel[];
-  miniAppServer: MiniAppServerLike | null;
 }
 
 function makeDefaultDeps(): ShutdownDeps {
@@ -47,9 +42,6 @@ export function installShutdownHandlers(
     resolved.logger.info({ signal }, 'Shutdown signal received');
     await options.queue.shutdown(10000);
     await resolved.closeAllBrowsers();
-    if (options.miniAppServer) {
-      await options.miniAppServer.close();
-    }
     for (const channel of options.channels) {
       await channel.disconnect();
     }

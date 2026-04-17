@@ -9,9 +9,6 @@ vi.mock('../core/env.js', () => ({
 }));
 
 vi.mock('../core/config.js', () => ({
-  MINI_APP_ENABLED: false,
-  MINI_APP_API_URL: '',
-  MINI_APP_FRONTEND_URL: 'https://app.myclaw.dev',
   PERMISSION_APPROVAL_TIMEOUT_MS: 300000,
   SLACK_PERMISSION_APPROVER_IDS: new Set<string>(),
 }));
@@ -165,7 +162,7 @@ describe('Slack channel', () => {
     );
   });
 
-  it('publishes Slack App Home without Mini App CTA button', async () => {
+  it('publishes Slack App Home without extra CTA buttons', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -181,59 +178,7 @@ describe('Slack channel', () => {
       .mocked(appRef.current.client.views.publish)
       .mock.calls.at(-1)?.[0];
     const serializedBlocks = JSON.stringify(publishCall?.view?.blocks || []);
-    expect(serializedBlocks).not.toContain('Open Mini App');
-  });
-
-  it('sends Slack plan prompt without fallback URL when mini app is disabled', async () => {
-    const channel = new SlackChannel(
-      'xoxb-token',
-      'xapp-token',
-      createOpts() as any,
-    );
-    await channel.connect();
-
-    await channel.sendPlanReviewPrompt('sl:C1234567890', {
-      planId: 'plan_123',
-      title: 'Review plan',
-      sectionCount: 3,
-    });
-
-    const postCall = vi
-      .mocked(appRef.current.client.chat.postMessage)
-      .mock.calls.at(-1)?.[0];
-    expect(postCall).toBeDefined();
-    expect(Array.isArray(postCall?.blocks)).toBe(true);
-    const actionBlock = (postCall?.blocks || []).find(
-      (block: any) => block?.type === 'actions',
-    );
-    expect(actionBlock).toBeUndefined();
-  });
-
-  it('sends Slack plan prompt URL button when prompt.url is provided', async () => {
-    const channel = new SlackChannel(
-      'xoxb-token',
-      'xapp-token',
-      createOpts() as any,
-    );
-    await channel.connect();
-
-    await channel.sendPlanReviewPrompt('sl:C1234567890', {
-      planId: 'plan_456',
-      title: 'Review with url',
-      sectionCount: 2,
-      url: 'https://example.test/plans/plan_456',
-    });
-
-    const postCall = vi
-      .mocked(appRef.current.client.chat.postMessage)
-      .mock.calls.at(-1)?.[0];
-    const actionBlock = (postCall?.blocks || []).find(
-      (block: any) => block?.type === 'actions',
-    );
-    expect(actionBlock).toBeDefined();
-    expect(actionBlock?.elements?.[0]?.url).toBe(
-      'https://example.test/plans/plan_456',
-    );
+    expect(serializedBlocks).not.toContain('Open');
   });
 
   it('includes Bash command summary in Slack permission prompts', async () => {

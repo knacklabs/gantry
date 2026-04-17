@@ -56,7 +56,7 @@ Notes:
 
 - Telegram uses `TELEGRAM_BOT_TOKEN` and a chat ID like `tg:-1001234567890`.
 - Slack uses Socket Mode with `SLACK_BOT_TOKEN` (`xoxb-...`) and `SLACK_APP_TOKEN` (`xapp-...`), then registers chats like `sl:C0123456789`.
-- Telegram Mini App features are optional and Telegram-specific. Slack UX uses native Slack surfaces (threads, streaming updates, actions).
+- Slack UX uses native Slack surfaces (threads, streaming updates, actions).
 
 ## Philosophy
 

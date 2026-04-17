@@ -132,17 +132,6 @@ export async function spawnAgent(
   const command = process.execPath;
   const args = [hostRunnerPath];
   const env: NodeJS.ProcessEnv = {
-    // Read directly from process env so tests with partial config mocks do not
-    // require extra config exports.
-    ...(process.env.MINI_APP_API_URL?.trim()
-      ? { MYCLAW_MINI_APP_API_URL: process.env.MINI_APP_API_URL.trim() }
-      : {}),
-    ...(process.env.MINI_APP_FRONTEND_URL?.trim()
-      ? {
-          MYCLAW_MINI_APP_FRONTEND_URL:
-            process.env.MINI_APP_FRONTEND_URL.trim(),
-        }
-      : {}),
     ...pickSafeHostEnv(process.env),
     ...hostCredentials.env,
     TZ: TIMEZONE,

@@ -247,6 +247,30 @@ describe('syncGroupSkills', () => {
     );
   });
 
+  it('removes managed skills that are no longer bundled', async () => {
+    const configRoot = makeTmpRoot(roots);
+    const cwdRoot = makeTmpRoot(roots);
+    originalCwd = process.cwd();
+
+    const removedSkill = ['setup', 'mini', 'app'].join('-');
+    const skillDir = path.join(configRoot, '.claude', 'skills', removedSkill);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, '.version'), '1.2.51\n');
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# Removed Skill');
+
+    process.chdir(cwdRoot);
+
+    vi.doMock('../core/config.js', () => ({
+      AGENT_ROOT: configRoot,
+      DATA_DIR: configRoot,
+    }));
+
+    const { syncGroupSkills } = await import('./agent-spawn-layout.js');
+    syncGroupSkills();
+
+    expect(fs.existsSync(skillDir)).toBe(false);
+  });
+
   it('installs bundled skills with a version marker', async () => {
     const configRoot = makeTmpRoot(roots);
     const cwdRoot = makeTmpRoot(roots);
@@ -269,7 +293,7 @@ describe('syncGroupSkills', () => {
       configRoot,
       '.claude',
       'skills',
-      'setup-mini-app',
+      'commands',
       '.version',
     );
     expect(fs.existsSync(versionPath)).toBe(true);
@@ -282,12 +306,7 @@ describe('syncGroupSkills', () => {
     originalCwd = process.cwd();
     process.chdir(cwdRoot);
 
-    const skillDir = path.join(
-      configRoot,
-      '.claude',
-      'skills',
-      'setup-mini-app',
-    );
+    const skillDir = path.join(configRoot, '.claude', 'skills', 'commands');
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# stale');
     fs.writeFileSync(path.join(skillDir, '.version'), '0.0.1\n');
@@ -301,7 +320,7 @@ describe('syncGroupSkills', () => {
       fs.readFileSync(path.join(originalCwd, 'package.json'), 'utf-8'),
     ).version as string;
     const bundledSkill = fs.readFileSync(
-      path.join(originalCwd, '.claude', 'skills', 'setup-mini-app', 'SKILL.md'),
+      path.join(originalCwd, '.claude', 'skills', 'commands', 'SKILL.md'),
       'utf-8',
     );
 
@@ -322,12 +341,7 @@ describe('syncGroupSkills', () => {
     originalCwd = process.cwd();
     process.chdir(cwdRoot);
 
-    const skillDir = path.join(
-      configRoot,
-      '.claude',
-      'skills',
-      'setup-mini-app',
-    );
+    const skillDir = path.join(configRoot, '.claude', 'skills', 'commands');
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# My Custom Skill');
 
@@ -370,7 +384,7 @@ describe('ensureGroupIpcLayout', () => {
     }
   });
 
-  it('creates all 11 IPC subdirectories', async () => {
+  it('creates all IPC subdirectories', async () => {
     const root = makeTmpRoot(roots);
     const ipcDir = path.join(root, 'group-ipc');
 
@@ -391,8 +405,6 @@ describe('ensureGroupIpcLayout', () => {
       'messages',
       'permission-requests',
       'permission-responses',
-      'plan-events',
-      'plan-responses',
       'tasks',
     ];
 
@@ -402,7 +414,7 @@ describe('ensureGroupIpcLayout', () => {
       expect(fs.statSync(fullPath).isDirectory()).toBe(true);
     }
 
-    // Exactly these 11 and nothing else
+    // Exactly these directories and nothing else
     const actual = fs.readdirSync(ipcDir).sort();
     expect(actual).toEqual(expected);
   });
@@ -430,8 +442,6 @@ describe('ensureGroupIpcLayout', () => {
       'messages',
       'permission-requests',
       'permission-responses',
-      'plan-events',
-      'plan-responses',
       'tasks',
     ]);
   });

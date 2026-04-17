@@ -111,24 +111,6 @@
     },
     {
       "rule": "file_size_budget",
-      "target": "apps/core/src/mini-app/plan-store.ts",
-      "owner": "A0.3",
-      "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
-      "expires_on": "2026-09-30",
-      "max_lines": 417,
-      "delete_after": "File is split into production modules at or below 400 LOC."
-    },
-    {
-      "rule": "file_size_budget",
-      "target": "apps/core/src/mini-app/server.ts",
-      "owner": "A0.3",
-      "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
-      "expires_on": "2026-09-30",
-      "max_lines": 561,
-      "delete_after": "File is split into production modules at or below 400 LOC."
-    },
-    {
-      "rule": "file_size_budget",
       "target": "apps/core/src/runtime/agent-spawn-process.ts",
       "owner": "A0.3",
       "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",

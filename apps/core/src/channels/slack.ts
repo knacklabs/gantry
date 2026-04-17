@@ -4,9 +4,6 @@ import path from 'path';
 import { App } from '@slack/bolt';
 
 import {
-  MINI_APP_ENABLED,
-  MINI_APP_API_URL,
-  MINI_APP_FRONTEND_URL,
   PERMISSION_APPROVAL_TIMEOUT_MS,
   SLACK_PERMISSION_APPROVER_IDS,
 } from '../core/config.js';
@@ -16,7 +13,6 @@ import {
   MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
-  PlanReviewPrompt,
   ProgressUpdateOptions,
   StreamingChunkOptions,
   UserQuestionRequest,
@@ -34,10 +30,6 @@ const SLACK_STREAM_UPDATE_INTERVAL_MS = 900;
 const SLACK_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 const SLACK_BUTTON_TEXT_MAX_LENGTH = 75;
 const SLACK_ACTION_VALUE_MAX_LENGTH = 2000;
-const MINI_APP_FRONTEND_URL_VALUE = MINI_APP_FRONTEND_URL.trim();
-const MINI_APP_API_URL_VALUE = MINI_APP_API_URL.trim();
-const SLACK_MINI_APP_ENABLED =
-  MINI_APP_ENABLED && MINI_APP_FRONTEND_URL_VALUE.length > 0;
 
 interface ActiveStreamState {
   channelId: string;
@@ -386,14 +378,6 @@ export class SlackChannel implements Channel {
         'Failed to finalize Slack user question prompt',
       );
     }
-  }
-
-  private buildSlackMiniAppUrl(planId: string): string | undefined {
-    if (!SLACK_MINI_APP_ENABLED) return undefined;
-    const base = MINI_APP_FRONTEND_URL_VALUE.replace(/\/+$/, '');
-    const url = `${base}/plans/${encodeURIComponent(planId)}`;
-    if (!MINI_APP_API_URL_VALUE) return url;
-    return `${url}?api=${encodeURIComponent(MINI_APP_API_URL_VALUE)}`;
   }
 
   private clearStreamingStateForJid(jid: string): void {
@@ -1559,52 +1543,6 @@ export class SlackChannel implements Channel {
       answers,
       ...(answeredBy ? { answeredBy } : {}),
     };
-  }
-
-  async sendPlanReviewPrompt(
-    jid: string,
-    prompt: PlanReviewPrompt,
-  ): Promise<void> {
-    if (!this.app) return;
-    const parsed = this.parseJid(jid);
-    if (!parsed) return;
-
-    const url = prompt.url?.trim() || this.buildSlackMiniAppUrl(prompt.planId);
-
-    const summary = `${prompt.sectionCount} sections ready for review.`;
-
-    const blocks: Array<Record<string, unknown>> = [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `*Plan ready:* ${prompt.title}\\n${summary}`,
-        },
-      },
-    ];
-
-    if (url) {
-      blocks.push({
-        type: 'actions',
-        elements: [
-          {
-            type: 'button',
-            text: {
-              type: 'plain_text',
-              text: 'Review Plan',
-            },
-            url,
-            action_id: 'myclaw_plan_review_open',
-          },
-        ],
-      });
-    }
-
-    await this.app.client.chat.postMessage({
-      channel: parsed.channelId,
-      text: `Plan ready: ${prompt.title}`,
-      blocks: blocks as any,
-    });
   }
 
   async syncGroups(force = false): Promise<void> {

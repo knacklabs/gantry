@@ -88,8 +88,6 @@ Complete reference for managing the MyClaw runtime. The CLI binary is `myclaw` a
 - `MEMORY_PROVIDER` — `sqlite` (default) or `noop`
 - `MEMORY_EMBED_PROVIDER` — `openai` or `disabled`
 - `MEMORY_DREAMING_ENABLED` — `true` / `false`
-- `MINI_APP_API_URL` — Tunnel URL for Mini App
-- `MINI_APP_PORT` — Mini App port (default: 3100)
 - `ASSISTANT_NAME` — Assistant display name
 - `AGENT_ROOT` — Runtime home directory
 - Runtime mode — Host runtime is the only supported mode.
@@ -100,12 +98,6 @@ Complete reference for managing the MyClaw runtime. The CLI binary is `myclaw` a
 |---------|-------------|
 | `myclaw telegram connect` | Connect Telegram (setup wizard) |
 | `myclaw slack connect` | Connect Slack (setup wizard) |
-
-### Tunnel
-
-| Command | Description |
-|---------|-------------|
-| `myclaw tunnel quick` | Start Cloudflare quick tunnel, auto-update MINI_APP_API_URL |
 
 ### Global Options
 
@@ -223,9 +215,6 @@ These MCP tools are available from within agent sessions:
 | `mcp__myclaw__procedure_patch` | Update a procedure |
 | `mcp__myclaw__send_message` | Send a message to a chat |
 | `mcp__myclaw__ask_user_question` | Ask user with interactive buttons |
-| `mcp__myclaw__create_plan` | Create a plan |
-| `mcp__myclaw__get_plan` | Get current plan |
-| `mcp__myclaw__update_plan_section` | Update plan section |
 | `mcp__myclaw__browser_launch` | Launch headless browser |
 | `mcp__myclaw__browser_close` | Close browser |
 | `mcp__myclaw__browser_status` | Check browser status |

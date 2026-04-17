@@ -20,7 +20,6 @@ List all available slash commands grouped by category with a one-line descriptio
 
 - `/commands` -- List all available commands (this skill)
 - `/setup` -- First-time installation, authentication, service configuration
-- `/setup-mini-app` -- Set up Telegram Mini App (BotFather, Cloudflare Pages, tunnel, env)
 - `/customize` -- Adding channels, integrations, changing behavior
 - `/debug` -- Container issues, logs, troubleshooting
 - `/update-myclaw` -- Bring upstream MyClaw updates into a customized install

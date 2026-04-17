@@ -68,10 +68,6 @@ export interface ChannelWiring {
   requestUserAnswer: (
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
-  sendPlanReviewPrompt: (
-    jid: string,
-    prompt: import('../core/types.js').PlanReviewPrompt,
-  ) => Promise<void>;
 }
 
 function makeDefaultDeps(): ChannelWiringDeps {
@@ -317,28 +313,6 @@ export function createChannelWiring(
     return { requestId: request.requestId, answers: {} };
   }
 
-  async function sendPlanReviewPrompt(
-    jid: string,
-    prompt: import('../core/types.js').PlanReviewPrompt,
-  ): Promise<void> {
-    const channel = findBoundChannel(jid);
-    if (!channel) {
-      throw new Error(`No channel for JID: ${jid}`);
-    }
-    if (channel.sendPlanReviewPrompt) {
-      await channel.sendPlanReviewPrompt(jid, prompt);
-      return;
-    }
-    const lines = [
-      `Plan ready: ${prompt.title}`,
-      `${prompt.sectionCount} sections ready for review.`,
-      ...(prompt.url ? [`Open: ${prompt.url}`] : []),
-    ];
-    const fallback = formatOutboundForChannel(lines.join('\n'), channel.name);
-    if (!fallback) return;
-    await channel.sendMessage(jid, fallback);
-  }
-
   return {
     connectEnabledChannels,
     findChannel: findBoundChannel,
@@ -348,6 +322,5 @@ export function createChannelWiring(
     syncGroups,
     requestPermissionApproval,
     requestUserAnswer,
-    sendPlanReviewPrompt,
   };
 }

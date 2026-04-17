@@ -4,7 +4,6 @@ import {
 } from '../cli/runtime-settings.js';
 import { AGENT_ROOT } from '../core/config.js';
 import { logger } from '../core/logger.js';
-import { startMiniAppServer } from '../mini-app/server.js';
 import { ensureRuntimeLayoutDirectories } from '../platform/runtime-layout.js';
 import { ensurePromptProfileBootstrapped } from '../runtime/prompt-profile.js';
 import { restoreRemoteControl } from '../runtime/remote-control.js';
@@ -19,13 +18,11 @@ interface StartupDeps {
   initDatabase: typeof initDatabase;
   loadRuntimeSettings: typeof loadRuntimeSettings;
   restoreRemoteControl: typeof restoreRemoteControl;
-  startMiniAppServer: typeof startMiniAppServer;
   logger: Pick<typeof logger, 'info' | 'warn'>;
 }
 
 export interface StartupResult {
   runtimeSettings: RuntimeSettings;
-  miniAppServer: Awaited<ReturnType<typeof startMiniAppServer>>;
 }
 
 function makeDefaultDeps(): StartupDeps {
@@ -36,7 +33,6 @@ function makeDefaultDeps(): StartupDeps {
     initDatabase,
     loadRuntimeSettings,
     restoreRemoteControl,
-    startMiniAppServer,
     logger,
   };
 }
@@ -69,10 +65,8 @@ export async function runStartup(
   app.ensureOneCLIAgentsForRegisteredGroups();
 
   resolved.restoreRemoteControl();
-  const miniAppServer = await resolved.startMiniAppServer();
 
   return {
     runtimeSettings,
-    miniAppServer,
   };
 }

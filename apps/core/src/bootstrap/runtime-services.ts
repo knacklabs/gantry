@@ -171,7 +171,6 @@ export function startRuntimeServices(
     onSchedulerChanged: syncSchedulerState,
     requestPermissionApproval: channelWiring.requestPermissionApproval,
     requestUserAnswer: channelWiring.requestUserAnswer,
-    sendPlanReviewPrompt: channelWiring.sendPlanReviewPrompt,
   });
 
   syncSchedulerState();

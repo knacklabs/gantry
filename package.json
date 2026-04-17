@@ -11,23 +11,13 @@
     "dist/",
     "packages/agent-runner/dist/",
     "packages/agent-runner/package.json",
-    ".claude/skills/",
-    "apps/mini-app/src/",
-    "apps/mini-app/public/",
-    "apps/mini-app/index.html",
-    "apps/mini-app/package.json",
-    "apps/mini-app/tsconfig.json",
-    "apps/mini-app/tsconfig.node.json",
-    "apps/mini-app/vite.config.ts",
-    "docs/mini-app-setup.md"
+    ".claude/skills/"
   ],
   "workspaces": [
-    "packages/agent-runner",
-    "apps/mini-app"
+    "packages/agent-runner"
   ],
   "scripts": {
     "build": "tsc && npm run build --workspace myclaw-agent-runner",
-    "build:mini-app": "VITE_API_URL=$MINI_APP_API_URL npm run build --workspace apps/mini-app",
     "start": "node dist/index.js",
     "dev": "tsx apps/core/src/index.ts",
     "cli:dev": "tsx apps/core/src/cli/index.ts",
@@ -45,7 +35,6 @@
     "@anthropic-ai/claude-agent-sdk": "0.2.97",
     "@anthropic-ai/sdk": "^0.88.0",
     "@clack/prompts": "^1.2.0",
-    "@fastify/cors": "^10.0.2",
     "@grammyjs/auto-retry": "^2.0.2",
     "@grammyjs/stream": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.12.1",
@@ -53,7 +42,6 @@
     "@slack/bolt": "^4.7.0",
     "better-sqlite3": "11.10.0",
     "cron-parser": "5.5.0",
-    "fastify": "^5.6.1",
     "grammy": "^1.42.0",
     "sqlite-vec": "^0.1.9",
     "zod": "^4.0.0"

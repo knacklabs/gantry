@@ -18,10 +18,6 @@ describe('installShutdownHandlers', () => {
       }),
     };
 
-    const closeMiniApp = vi.fn(async () => {
-      order.push('mini-app.close');
-    });
-
     const channelA = {
       disconnect: vi.fn(async () => {
         order.push('channel-a.disconnect');
@@ -43,7 +39,6 @@ describe('installShutdownHandlers', () => {
       {
         queue,
         channels: [channelA as any, channelB as any],
-        miniAppServer: { close: closeMiniApp },
       },
       {
         onSignal: (signal, handler) => {
@@ -68,7 +63,6 @@ describe('installShutdownHandlers', () => {
       'log-signal',
       'queue.shutdown',
       'closeAllBrowsers',
-      'mini-app.close',
       'channel-a.disconnect',
       'channel-b.disconnect',
       'exit:0',

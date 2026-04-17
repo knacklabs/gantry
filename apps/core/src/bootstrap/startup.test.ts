@@ -26,7 +26,7 @@ function makeApp(overrides: Partial<RuntimeApp> = {}): RuntimeApp {
 }
 
 describe('runStartup', () => {
-  it('preserves startup order through mini-app startup', async () => {
+  it('preserves startup order through host runtime startup', async () => {
     const order: string[] = [];
     const app = makeApp({
       loadState: vi.fn(() => {
@@ -38,8 +38,6 @@ describe('runStartup', () => {
     });
 
     const runtimeSettings = { channels: {}, features: {} } as any;
-    const miniAppServer = { close: vi.fn() };
-
     const result = await runStartup(app, {
       ensureRuntimeLayoutDirectories: vi.fn(() => {
         order.push('layout');
@@ -66,10 +64,6 @@ describe('runStartup', () => {
       restoreRemoteControl: vi.fn(() => {
         order.push('restore-remote-control');
       }),
-      startMiniAppServer: vi.fn(async () => {
-        order.push('start-mini-app');
-        return miniAppServer;
-      }),
     });
 
     expect(order).toEqual([
@@ -82,10 +76,8 @@ describe('runStartup', () => {
       'load-state',
       'ensure-onecli',
       'restore-remote-control',
-      'start-mini-app',
     ]);
     expect(result.runtimeSettings).toBe(runtimeSettings);
-    expect(result.miniAppServer).toBe(miniAppServer);
   });
 
   it('continues startup when prompt bootstrap fails', async () => {
@@ -109,7 +101,6 @@ describe('runStartup', () => {
       restoreRemoteControl: vi.fn(() => {
         order.push('restore-remote-control');
       }),
-      startMiniAppServer: vi.fn(async () => null),
       logger: {
         info: vi.fn(),
         warn,

@@ -53,7 +53,6 @@ function makeChannelWiring(): ChannelWiring {
     syncGroups: vi.fn(async () => {}),
     requestPermissionApproval: vi.fn(async () => ({ approved: true })),
     requestUserAnswer: vi.fn(async () => ({ requestId: 'q', answers: {} })),
-    sendPlanReviewPrompt: vi.fn(async () => {}),
   };
 }
 

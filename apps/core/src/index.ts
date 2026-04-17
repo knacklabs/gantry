@@ -15,12 +15,11 @@ export async function startMyClawRuntime(): Promise<void> {
   const app = getDefaultRuntimeApp();
   const channelWiring = createChannelWiring(app);
 
-  const { runtimeSettings, miniAppServer } = await runStartup(app);
+  const { runtimeSettings } = await runStartup(app);
 
   installShutdownHandlers({
     queue: app.queue,
     channels: app.channels,
-    miniAppServer,
   });
 
   await channelWiring.connectEnabledChannels(runtimeSettings);

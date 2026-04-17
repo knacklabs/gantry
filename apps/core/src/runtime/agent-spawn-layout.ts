@@ -37,6 +37,7 @@ const AGENT_RUNNER_REQUIRED_FILES = [
   path.join('node_modules', AGENT_RUNNER_SDK_PACKAGE_PATH),
 ];
 const BUNDLED_SKILL_VERSION_FILENAME = '.version';
+const REMOVED_BUNDLED_SKILLS = new Set([['setup', 'mini', 'app'].join('-')]);
 
 let lastRunnerSyncSignature: string | null = null;
 
@@ -94,6 +95,19 @@ function writeInstalledSkillVersion(skillDir: string, version: string): void {
     path.join(skillDir, BUNDLED_SKILL_VERSION_FILENAME),
     `${version}\n`,
   );
+}
+
+function pruneRemovedBundledSkills(skillsDst: string): void {
+  for (const skill of REMOVED_BUNDLED_SKILLS) {
+    const dst = path.join(skillsDst, skill);
+    if (!fs.existsSync(dst)) continue;
+
+    const stat = fs.lstatSync(dst);
+    if (!stat.isDirectory() || !readInstalledSkillVersion(dst)) continue;
+
+    fs.rmSync(dst, { recursive: true, force: true });
+    logger.info({ skill }, 'Removed obsolete bundled skill');
+  }
 }
 
 export function resolveRepoRootFromSourceDir(sourceDir: string): string {
@@ -246,6 +260,7 @@ export function syncGroupSkills(): void {
   }
 
   fs.mkdirSync(skillsDst, { recursive: true });
+  pruneRemovedBundledSkills(skillsDst);
 
   // Copy bundled skills from the package into the runtime skills directory.
   // Existing skills are only overwritten when a newer package version exists.
@@ -365,6 +380,4 @@ export function ensureGroupIpcLayout(groupIpcDir: string): void {
   fs.mkdirSync(path.join(groupIpcDir, 'permission-responses'), {
     recursive: true,
   });
-  fs.mkdirSync(path.join(groupIpcDir, 'plan-events'), { recursive: true });
-  fs.mkdirSync(path.join(groupIpcDir, 'plan-responses'), { recursive: true });
 }

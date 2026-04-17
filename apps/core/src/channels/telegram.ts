@@ -8,10 +8,6 @@ import { StreamFlavor, stream, streamApi } from '@grammyjs/stream';
 
 import {
   ASSISTANT_NAME,
-  MINI_APP_ENABLED,
-  MINI_APP_API_URL,
-  MINI_APP_FRONTEND_URL,
-  MINI_APP_SHORT_NAME,
   PERMISSION_APPROVAL_TIMEOUT_MS,
   TELEGRAM_PERMISSION_APPROVER_IDS,
   TRIGGER_PATTERN,
@@ -27,7 +23,6 @@ import {
   OnInboundMessage,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
-  PlanReviewPrompt,
   ProgressUpdateOptions,
   RegisteredGroup,
   StreamingChunkOptions,
@@ -48,10 +43,6 @@ const TELEGRAM_PERMISSION_CALLBACK_PATTERN =
   /^perm:(approve|deny):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})$/;
 const TELEGRAM_USER_QUESTION_CALLBACK_PATTERN =
   /^userq:(select|done):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127}):(\d+)(?::(\d+))?$/;
-const MINI_APP_FRONTEND_URL_VALUE = MINI_APP_FRONTEND_URL.trim();
-const MINI_APP_API_URL_VALUE = MINI_APP_API_URL.trim();
-const TELEGRAM_MINI_APP_ENABLED =
-  MINI_APP_ENABLED && MINI_APP_FRONTEND_URL_VALUE.length > 0;
 
 type TelegramContext = StreamFlavor<Context>;
 type TelegramStreamApi = ReturnType<typeof streamApi>;
@@ -308,7 +299,6 @@ export class TelegramChannel implements Channel {
   private pollingRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private opts: TelegramChannelOpts;
   private botToken: string;
-  private botUsername: string | null = null;
   private pendingPermissionPrompts = new Map<
     string,
     {
@@ -1002,34 +992,10 @@ export class TelegramChannel implements Channel {
     Promise.resolve(
       this.bot.start({
         onStart: (botInfo) => {
-          this.botUsername = botInfo.username;
           logger.info(
             { username: botInfo.username, id: botInfo.id },
             'Telegram bot connected',
           );
-          if (TELEGRAM_MINI_APP_ENABLED) {
-            const frontendBase = MINI_APP_FRONTEND_URL_VALUE.replace(
-              /\/+$/,
-              '',
-            );
-            const menuUrl = MINI_APP_API_URL_VALUE
-              ? `${frontendBase}?api=${encodeURIComponent(MINI_APP_API_URL_VALUE)}`
-              : frontendBase;
-            this.bot?.api
-              .setChatMenuButton?.({
-                menu_button: {
-                  type: 'web_app',
-                  text: 'Plans',
-                  web_app: { url: menuUrl },
-                },
-              })
-              .catch((err) => {
-                logger.warn(
-                  { err: this.sanitizeErrorMessage(err), menuUrl },
-                  'Failed to set Telegram Mini App menu button',
-                );
-              });
-          }
           logger.info(
             {
               username: botInfo.username,
@@ -1921,97 +1887,6 @@ export class TelegramChannel implements Channel {
       answers,
       ...(answeredBy ? { answeredBy } : {}),
     };
-  }
-
-  async sendPlanReviewPrompt(
-    jid: string,
-    prompt: PlanReviewPrompt,
-  ): Promise<void> {
-    if (!this.bot) return;
-    const chatId = jid.replace(/^tg:/, '');
-    if (!chatId) return;
-    const frontendUrl =
-      prompt.url ||
-      (TELEGRAM_MINI_APP_ENABLED
-        ? `${MINI_APP_FRONTEND_URL_VALUE.replace(/\/+$/, '')}/plans/${prompt.planId}${MINI_APP_API_URL_VALUE ? `?api=${encodeURIComponent(MINI_APP_API_URL_VALUE)}` : ''}`
-        : undefined);
-    const frontendRequiresApiOverride = (() => {
-      if (!frontendUrl) return false;
-      try {
-        return new URL(frontendUrl).searchParams.has('api');
-      } catch {
-        return /[?&]api=/.test(frontendUrl);
-      }
-    })();
-
-    // Build t.me deep link for Mini App (works in both private and group chats).
-    // web_app inline buttons only work in private chats; url buttons with
-    // t.me/{bot}/{app}?startapp= open the Mini App everywhere.
-    const shortName = TELEGRAM_MINI_APP_ENABLED ? MINI_APP_SHORT_NAME : '';
-    const deepLink =
-      this.botUsername && shortName
-        ? `https://t.me/${this.botUsername}/${shortName}?startapp=${prompt.planId}`
-        : undefined;
-
-    const isPrivateChat = !chatId.startsWith('-');
-
-    const text = `📋 ${prompt.title}\n\n${prompt.sectionCount} sections ready for review.`;
-    try {
-      // If API override is required, preserve the explicit frontend URL that
-      // carries ?api=... instead of switching to startapp deep-link.
-      if (frontendRequiresApiOverride && frontendUrl && isPrivateChat) {
-        await this.bot.api.sendMessage(chatId, text, {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '📋 Review Plan', web_app: { url: frontendUrl } }],
-            ],
-          },
-        });
-      } else if (frontendRequiresApiOverride && frontendUrl) {
-        await this.bot.api.sendMessage(chatId, text, {
-          reply_markup: {
-            inline_keyboard: [[{ text: '📋 Review Plan', url: frontendUrl }]],
-          },
-        });
-      } else if (deepLink) {
-        // url button with t.me deep link — works in all chat types
-        await this.bot.api.sendMessage(chatId, text, {
-          reply_markup: {
-            inline_keyboard: [[{ text: '📋 Review Plan', url: deepLink }]],
-          },
-        });
-      } else if (frontendUrl && isPrivateChat) {
-        // web_app button — only works in private chats
-        await this.bot.api.sendMessage(chatId, text, {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '📋 Review Plan', web_app: { url: frontendUrl } }],
-            ],
-          },
-        });
-      } else if (frontendUrl) {
-        // Group chat without deep link config — use url button to frontend
-        await this.bot.api.sendMessage(chatId, text, {
-          reply_markup: {
-            inline_keyboard: [[{ text: '📋 Review Plan', url: frontendUrl }]],
-          },
-        });
-      } else {
-        await this.bot.api.sendMessage(chatId, text);
-      }
-    } catch (err) {
-      logger.warn(
-        { jid, planId: prompt.planId, err: this.sanitizeErrorMessage(err) },
-        'Failed to send Telegram plan review prompt',
-      );
-      const fallbackUrl = deepLink || frontendUrl;
-      if (fallbackUrl) {
-        await this.sendMessage(
-          jid,
-          `${text}\n\nOpen in Mini App: ${fallbackUrl}`,
-        );
-      }
-    }
   }
 
   isConnected(): boolean {

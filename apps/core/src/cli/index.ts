@@ -25,7 +25,6 @@ import {
 import { runSlackConnectCommand } from './slack.js';
 import { runSetupFlow } from './setup-flow.js';
 import { collectRuntimeStatus, formatRuntimeStatus } from './status.js';
-import { runTunnelCommand } from './tunnel.js';
 import { ensureRuntimeSettings } from './runtime-settings.js';
 
 interface ParsedArgs {
@@ -56,7 +55,6 @@ function usage(): string {
     '  myclaw agent trigger <jid|folder> <word>',
     '  myclaw telegram connect',
     '  myclaw slack connect',
-    '  myclaw tunnel quick',
     '  myclaw service install',
     '  myclaw service start',
     '  myclaw service stop',
@@ -372,10 +370,6 @@ async function main(): Promise<number> {
 
   if (command === 'slack' && subcommand === 'connect') {
     return runSlackConnect(runtimeHome);
-  }
-
-  if (command === 'tunnel') {
-    return runTunnelCommand(runtimeHome, rest);
   }
 
   if (command === 'service' && subcommand) {

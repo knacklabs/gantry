@@ -598,17 +598,6 @@ async function runQuery(
                   MYCLAW_IPC_AUTH_TOKEN: process.env.MYCLAW_IPC_AUTH_TOKEN,
                 }
               : {}),
-            ...(process.env.MYCLAW_MINI_APP_API_URL
-              ? {
-                  MYCLAW_MINI_APP_API_URL: process.env.MYCLAW_MINI_APP_API_URL,
-                }
-              : {}),
-            ...(process.env.MYCLAW_MINI_APP_FRONTEND_URL
-              ? {
-                  MYCLAW_MINI_APP_FRONTEND_URL:
-                    process.env.MYCLAW_MINI_APP_FRONTEND_URL,
-                }
-              : {}),
           },
         },
       },

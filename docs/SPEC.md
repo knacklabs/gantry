@@ -185,7 +185,6 @@ interface Channel {
   ): Promise<void>;
   syncGroups?(force: boolean): Promise<void>;
   requestPermissionApproval?(jid: string, request: unknown): Promise<unknown>;
-  sendPlanReviewPrompt?(jid: string, prompt: unknown): Promise<void>;
 }
 ```
 

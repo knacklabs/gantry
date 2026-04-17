@@ -30,7 +30,6 @@ FORBIDDEN_IMPORT_RULES = (
             "apps/core/src/storage",
             "apps/core/src/session",
             "apps/core/src/memory",
-            "apps/core/src/mini-app",
         ),
     ),
     (
@@ -42,7 +41,6 @@ FORBIDDEN_IMPORT_RULES = (
             "apps/core/src/storage",
             "apps/core/src/session",
             "apps/core/src/memory",
-            "apps/core/src/mini-app",
         ),
     ),
     (
@@ -53,7 +51,6 @@ FORBIDDEN_IMPORT_RULES = (
             "apps/core/src/cli",
             "apps/core/src/session",
             "apps/core/src/memory",
-            "apps/core/src/mini-app",
         ),
     ),
     (
@@ -61,11 +58,9 @@ FORBIDDEN_IMPORT_RULES = (
         (
             "apps/core/src/channels",
             "apps/core/src/cli",
-            "apps/core/src/mini-app",
         ),
     ),
     ("apps/core/src/channels", ("apps/core/src/cli",)),
-    ("apps/mini-app/src", ("apps/core/src",)),
     ("packages/agent-runner/src", ("apps/core/src",)),
 )
 

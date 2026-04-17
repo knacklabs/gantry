@@ -11,10 +11,6 @@ vi.mock('../core/env.js', () => ({ readEnvFile: vi.fn(() => ({})) }));
 // Mock config
 vi.mock('../core/config.js', () => ({
   ASSISTANT_NAME: 'Andy',
-  MINI_APP_ENABLED: true,
-  MINI_APP_API_URL: '',
-  MINI_APP_FRONTEND_URL: 'https://app.myclaw.dev',
-  MINI_APP_SHORT_NAME: 'plans',
   PERMISSION_APPROVAL_TIMEOUT_MS: 300000,
   TELEGRAM_PERMISSION_APPROVER_IDS: new Set<string>(),
   TRIGGER_PATTERN: /^@Andy\b/i,
@@ -1702,63 +1698,6 @@ describe('TelegramChannel', () => {
       await handler(ctx);
 
       expect(ctx.reply).toHaveBeenCalledWith('Andy is online.');
-    });
-  });
-
-  describe('plan review prompts', () => {
-    it('uses explicit frontend URL in groups when it carries api override', async () => {
-      const opts = createTestOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-
-      const urlWithApi =
-        'https://myclaw-mini-app.pages.dev/plans/plan_123?api=https%3A%2F%2Falpha-beta.trycloudflare.com';
-      await channel.sendPlanReviewPrompt('tg:-100200300', {
-        planId: 'plan_123',
-        title: 'Plan with API override',
-        sectionCount: 3,
-        url: urlWithApi,
-      });
-
-      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
-        '-100200300',
-        expect.stringContaining('Plan with API override'),
-        expect.objectContaining({
-          reply_markup: {
-            inline_keyboard: [[{ text: '📋 Review Plan', url: urlWithApi }]],
-          },
-        }),
-      );
-    });
-
-    it('uses deep link when no api override is needed', async () => {
-      const opts = createTestOpts();
-      const channel = new TelegramChannel('test-token', opts);
-      await channel.connect();
-
-      await channel.sendPlanReviewPrompt('tg:-100200300', {
-        planId: 'plan_123',
-        title: 'Regular Plan',
-        sectionCount: 2,
-        url: 'https://myclaw-mini-app.pages.dev/plans/plan_123',
-      });
-
-      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
-        '-100200300',
-        expect.stringContaining('Regular Plan'),
-        expect.objectContaining({
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: '📋 Review Plan',
-                  url: 'https://t.me/andy_ai_bot/plans?startapp=plan_123',
-                },
-              ],
-            ],
-          },
-        }),
-      );
     });
   });
 
