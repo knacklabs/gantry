@@ -347,7 +347,7 @@ export async function writeMemoryContextSnapshot(
   prompt: string,
   userId?: string,
   options?: { fileName?: string },
-): Promise<{ retrievedItemIds: string[] }> {
+): Promise<{ retrievedItemIds: string[]; filePath: string }> {
   const memory = MemoryService.getInstance();
   await memory.ingestGroupSources(groupFolder);
   await memory.ingestGlobalKnowledge();
@@ -379,5 +379,5 @@ export async function writeMemoryContextSnapshot(
       2,
     ),
   );
-  return { retrievedItemIds: context.retrievedItemIds };
+  return { retrievedItemIds: context.retrievedItemIds, filePath };
 }

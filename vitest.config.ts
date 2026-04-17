@@ -1,31 +1,11 @@
-import { defineConfig } from 'vitest/config';
-import path from 'path';
+import { makeVitestConfig } from './vitest.shared.js';
 
-export default defineConfig({
-  resolve: {
-    alias: {
-      '@myclaw/contracts': path.resolve(
-        __dirname,
-        'packages/contracts/src/index.ts',
-      ),
-    },
-  },
-  test: {
-    include: [
-      'apps/core/src/**/*.test.ts',
-      'packages/contracts/src/**/*.test.ts',
-    ],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'text-summary'],
-      reportOnFailure: true,
-      include: ['apps/core/src/**/*.ts'],
-      exclude: [
-        'apps/core/src/**/*.test.ts',
-        'apps/core/src/**/index.ts',
-        'apps/core/src/**/*-types.ts',
-        'apps/core/src/**/types.ts',
-      ],
-    },
-  },
+export default makeVitestConfig({
+  include: [
+    'apps/core/test/unit/**/*.test.ts',
+    'packages/contracts/test/unit/**/*.test.ts',
+    'packages/agent-runner/test/unit/**/*.test.ts',
+    'apps/core/test/integration/**/*.test.ts',
+  ],
+  withCoverage: true,
 });

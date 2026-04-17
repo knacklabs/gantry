@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MyClaw — Talk Design System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400&family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --ink:      #0B0D0E;
+    --ink-2:    #14171A;
+    --ink-3:    #1E2327;
+    --paper:    #F5F1EA;
+    --paper-2:  #E9E3D7;
+    --ember:    #E8A63C;
+    --ember-2:  #F5C678;
+    --graphite: #5C5F63;
+    --graphite-2: #8A8F95;
+    --line:     #2A2F33;
+
+    --display: 'Fraunces', Georgia, serif;
+    --body:    'Geist', system-ui, -apple-system, sans-serif;
+    --mono:    'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+    --slide-w: 1280px;
+    --slide-h: 720px;
+    --slide-pad: 96px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--ink);
+    color: var(--paper);
+    font-family: var(--body);
+    font-weight: 400;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "ss01", "cv11";
+  }
+  main { max-width: 1440px; margin: 0 auto; padding: 80px 48px 120px; }
+
+  /* ============ HERO ============ */
+  .hero {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 72px;
+    margin-bottom: 72px;
+  }
+  .hero .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--graphite-2);
+  }
+  .hero h1 {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: clamp(56px, 7vw, 112px);
+    line-height: 0.98;
+    letter-spacing: -0.02em;
+    margin: 18px 0 22px;
+    color: var(--paper);
+  }
+  .hero h1 em { font-style: italic; color: var(--ember); font-weight: 400; }
+  .hero .lede {
+    max-width: 720px;
+    font-family: var(--body);
+    font-size: 20px;
+    font-weight: 400;
+    line-height: 1.55;
+    color: var(--paper-2);
+  }
+
+  /* ============ SECTION SHELL ============ */
+  section { margin-bottom: 96px; }
+  .section-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ember);
+    margin-bottom: 14px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .section-label::before {
+    content: "";
+    display: inline-block;
+    width: 24px; height: 1px;
+    background: var(--ember);
+  }
+  .section-title {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 40px;
+    line-height: 1.1;
+    letter-spacing: -0.015em;
+    margin: 0 0 8px;
+  }
+  .section-sub {
+    font-family: var(--body);
+    font-size: 16px;
+    color: var(--graphite-2);
+    margin: 0 0 40px;
+    max-width: 640px;
+  }
+
+  /* ============ COLOR PALETTE ============ */
+  .palette {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+  }
+  .swatch {
+    padding: 28px 24px;
+    min-height: 200px;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .swatch .name {
+    font-family: var(--body);
+    font-weight: 500;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+  }
+  .swatch .hex {
+    font-family: var(--mono);
+    font-size: 12px;
+    opacity: 0.7;
+  }
+  .swatch .role {
+    font-family: var(--body);
+    font-size: 13px;
+    line-height: 1.5;
+    opacity: 0.75;
+    max-width: 220px;
+  }
+  .sw-ink      { background: var(--ink);      color: var(--paper); }
+  .sw-paper    { background: var(--paper);    color: var(--ink); }
+  .sw-ember    { background: var(--ember);    color: var(--ink); }
+  .sw-graphite { background: var(--graphite); color: var(--paper); }
+
+  /* ============ TYPOGRAPHY SPECIMENS ============ */
+  .specs { display: grid; grid-template-columns: 180px 1fr; gap: 48px; row-gap: 64px; align-items: baseline; }
+  .spec-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--graphite-2);
+  }
+  .spec-label small { display: block; font-family: var(--body); text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--graphite); margin-top: 6px; }
+  .spec-display {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 64px;
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+    color: var(--paper);
+  }
+  .spec-display em { font-style: italic; color: var(--ember); font-weight: 400; }
+  .spec-body {
+    font-family: var(--body);
+    font-size: 20px;
+    font-weight: 400;
+    line-height: 1.55;
+    color: var(--paper-2);
+    max-width: 680px;
+  }
+  .spec-mono {
+    font-family: var(--mono);
+    font-size: 20px;
+    line-height: 1.5;
+    color: var(--ember-2);
+    background: var(--ink-2);
+    border-left: 2px solid var(--ember);
+    padding: 18px 22px;
+    max-width: 680px;
+  }
+
+  /* ============ SLIDE DECK GRID ============ */
+  .slides {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+    gap: 36px;
+  }
+  .slide-card {
+    position: relative;
+    background: var(--ink-2);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .slide-card .meta {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--graphite-2);
+  }
+  .slide-card .meta .num { color: var(--ember); }
+  .slide {
+    aspect-ratio: 16 / 9;
+    background: var(--ink);
+    padding: 44px 56px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  .slide.justify-center { justify-content: center; }
+  .slide.justify-end    { justify-content: flex-end; }
+  .slide .slide-eyebrow {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--graphite);
+  }
+  .slide h2 {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 48px;
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+    margin: 10px 0 18px;
+    color: var(--paper);
+  }
+  .slide h2 em { font-style: italic; color: var(--ember); font-weight: 400; }
+  .slide p {
+    font-family: var(--body);
+    font-size: 18px;
+    line-height: 1.5;
+    color: var(--paper-2);
+    margin: 0 0 10px;
+    max-width: 560px;
+  }
+  .slide .tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--graphite-2);
+    margin-top: auto;
+  }
+
+  /* slide-specific */
+  .s-title h2 { font-size: 88px; letter-spacing: -0.03em; line-height: 0.96; }
+  .s-title .kicker { font-family: var(--display); font-style: italic; color: var(--ember); font-size: 26px; margin-top: 2px; }
+
+  .api-math {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+  }
+  .api-math .dollar {
+    font-family: var(--display);
+    font-size: 128px;
+    line-height: 1;
+    color: var(--ember);
+    font-weight: 400;
+    letter-spacing: -0.03em;
+  }
+  .api-math .unit {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--graphite-2);
+  }
+
+  .flow {
+    font-family: var(--mono);
+    font-size: 18px;
+    color: var(--paper);
+    background: var(--ink-2);
+    border-top: 1px solid var(--ember);
+    border-bottom: 1px solid var(--ember);
+    padding: 26px 32px;
+    margin: 16px 0;
+    letter-spacing: 0.02em;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .flow .arrow { color: var(--ember); }
+  .flow .dim { color: var(--graphite-2); }
+
+  .memory-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin-top: 18px;
+  }
+  .memory-grid .cell {
+    background: var(--ink-2);
+    padding: 18px;
+  }
+  .memory-grid .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--graphite-2);
+  }
+  .memory-grid .tech {
+    font-family: var(--display);
+    font-size: 28px;
+    color: var(--ember);
+    margin-top: 8px;
+    font-style: italic;
+  }
+
+  .tradeoffs { font-family: var(--body); font-size: 17px; line-height: 1.45; color: var(--paper-2); }
+  .tradeoffs li { list-style: none; padding-left: 18px; position: relative; margin-bottom: 10px; }
+  .tradeoffs li::before { content: "—"; position: absolute; left: 0; color: var(--ember); }
+  .close-thesis {
+    font-family: var(--display);
+    font-size: 54px;
+    line-height: 1.02;
+    font-weight: 400;
+    color: var(--paper);
+    letter-spacing: -0.015em;
+  }
+  .close-thesis em { font-style: italic; color: var(--ember); font-weight: 400; }
+
+  /* ============ GUIDELINES ============ */
+  .guide { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
+  .guide .card {
+    border: 1px solid var(--line);
+    padding: 24px 26px;
+    background: var(--ink-2);
+  }
+  .guide .card h3 {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 22px;
+    margin: 0 0 10px;
+    color: var(--paper);
+  }
+  .guide .card p {
+    font-family: var(--body);
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--paper-2);
+    margin: 0 0 8px;
+  }
+  .guide .card code {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ember-2);
+  }
+
+  footer {
+    margin-top: 80px; padding-top: 32px;
+    border-top: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--graphite);
+  }
+
+  @media (max-width: 900px) {
+    .palette { grid-template-columns: repeat(2, 1fr); }
+    .specs { grid-template-columns: 1fr; row-gap: 36px; }
+    .slides { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<header class="hero">
+  <div class="eyebrow">Design system · Talk deck · v0.1</div>
+  <h1>MyClaw<br/><em>built because I had to.</em></h1>
+  <p class="lede">A literary-minimal design system for a thirty-minute conference talk. Serious, personal, legible from the back row. Typography does the work, amber carries the emphasis, everything else gets out of the way.</p>
+</header>
+
+<section>
+  <div class="section-label">01 · Palette</div>
+  <h2 class="section-title">Four colors, three of them working.</h2>
+  <p class="section-sub">Near-black ground, warm off-white for body, amber for the emphasis, graphite for the quieter work. No gradients. No secondary. Scarcity is the point.</p>
+  <div class="palette">
+    <div class="swatch sw-ink">
+      <div><div class="name">Ink</div><div class="hex">#0B0D0E</div></div>
+      <div class="role">Slide background. Reads black under a bright projector, not harsh under a dim one.</div>
+    </div>
+    <div class="swatch sw-paper">
+      <div><div class="name">Paper</div><div class="hex">#F5F1EA</div></div>
+      <div class="role">Body text. Warm off-white, easier on the eye than pure white for long stretches.</div>
+    </div>
+    <div class="swatch sw-ember">
+      <div><div class="name">Ember</div><div class="hex">#E8A63C</div></div>
+      <div class="role">Used sparingly. Dollar amounts, thesis lines, the arrow chain, one word of italic display.</div>
+    </div>
+    <div class="swatch sw-graphite">
+      <div><div class="name">Graphite</div><div class="hex">#5C5F63</div></div>
+      <div class="role">Tag-lines, footers, slide metadata. The quiet layer that gives hierarchy room to breathe.</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">02 · Typography</div>
+  <h2 class="section-title">Three voices, each with a job.</h2>
+  <p class="section-sub">A literary serif for headlines, a clean humanist sans for body, a precise monospace for code and flow. Nothing else.</p>
+  <div class="specs">
+    <div class="spec-label">Fraunces<small>display · 48–112px · weight 400 · italic for emphasis words</small></div>
+    <div class="spec-display">Claude isn’t a model.<br/>It’s a <em>runtime.</em></div>
+
+    <div class="spec-label">Geist<small>body · 17–20px · weight 400–500 · tight 1.5 line-height</small></div>
+    <div class="spec-body">I’ve been an OpenClaw contributor and heavy user since November. My whole personal workflow ran through it. Then January happened, and the math stopped working. So I rebuilt the stack to make API-path Opus affordable for a single-user assistant.</div>
+
+    <div class="spec-label">JetBrains Mono<small>code · 14–18px · weight 500 · used for identifiers and the flow motif</small></div>
+    <div class="spec-mono">canUseTool(toolName, input, opts) → { behavior: 'allow' | 'deny' }</div>
+  </div>
+</section>
+
+<section>
+  <div class="section-label">03 · The deck, in situ</div>
+  <h2 class="section-title">Four slides, rendered to scale.</h2>
+  <p class="section-sub">Not a typography specimen. Actual slides from your deck, one grid, one palette, one thesis. Each slide does one job.</p>
+
+  <div class="slides">
+
+    <article class="slide-card">
+      <div class="meta"><span>Slide 01</span><span class="num">Title</span></div>
+      <div class="slide s-title justify-center">
+        <div class="slide-eyebrow">MyClaw</div>
+        <h2>built because<br/>I had to.</h2>
+        <div class="kicker">a personal story · 30 minutes</div>
+      </div>
+    </article>
+
+    <article class="slide-card">
+      <div class="meta"><span>Slide 04</span><span class="num">The API math</span></div>
+      <div class="slide justify-center">
+        <div class="slide-eyebrow">What Opus actually costs</div>
+        <h2>Personal assistant.<br/>Tool-heavy. <em>Every day.</em></h2>
+        <div class="api-math" style="margin-top: 8px;">
+          <div class="dollar">~$2,000</div>
+          <div class="unit">per month · on API</div>
+        </div>
+      </div>
+    </article>
+
+    <article class="slide-card">
+      <div class="meta"><span>Slide 07</span><span class="num">AskUserQuestion</span></div>
+      <div class="slide justify-center">
+        <div class="slide-eyebrow">Every tool call is a conversation</div>
+        <h2>The SDK ships <em>this hook.</em></h2>
+        <div class="flow"><span>agent</span> <span class="arrow">──▶</span> <span>canUseTool</span> <span class="arrow">──▶</span> <span>your phone</span> <span class="arrow">──▶</span> <span>approve</span> <span class="arrow">──▶</span> <span class="dim">tool runs</span></div>
+        <p style="margin-top:8px;color:var(--graphite-2);font-family:var(--mono);font-size:13px;letter-spacing:0.08em;">live demo</p>
+      </div>
+    </article>
+
+    <article class="slide-card">
+      <div class="meta"><span>Slide 08</span><span class="num">Memory that dreams</span></div>
+      <div class="slide justify-center">
+        <div class="slide-eyebrow">Memory that consolidates itself</div>
+        <h2>Your brain consolidates<br/>while you sleep. <em>So does the agent.</em></h2>
+        <div class="memory-grid">
+          <div class="cell"><div class="label">lexical</div><div class="tech">BM25</div></div>
+          <div class="cell"><div class="label">semantic</div><div class="tech">vectors</div></div>
+          <div class="cell"><div class="label">recency</div><div class="tech">decay</div></div>
+          <div class="cell"><div class="label">diversity</div><div class="tech">MMR</div></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="slide-card">
+      <div class="meta"><span>Slide 09</span><span class="num">Trade-offs</span></div>
+      <div class="slide justify-center">
+        <div class="slide-eyebrow">What I gave up</div>
+        <ul class="tradeoffs">
+          <li>Locked in to Anthropic. No provider swap.</li>
+          <li>Two channels: Telegram, Slack.</li>
+          <li>IPC is filesystem polling. Debuggable. Not free at scale.</li>
+        </ul>
+        <p style="margin-top:24px;font-family:var(--display);font-style:italic;font-size:22px;color:var(--paper);">It’s a personal tool. That’s the point.</p>
+      </div>
+    </article>
+
+    <article class="slide-card">
+      <div class="meta"><span>Slide 10</span><span class="num">Close</span></div>
+      <div class="slide justify-center">
+        <div class="close-thesis">Claude isn’t a model.<br/><em>It’s a runtime.</em></div>
+        <p class="tag" style="margin-top:40px;">github.com/[you]/myclaw · npx myclaw setup</p>
+      </div>
+    </article>
+
+  </div>
+</section>
+
+<section>
+  <div class="section-label">04 · Application rules</div>
+  <h2 class="section-title">Where ember goes. Where it doesn’t.</h2>
+  <p class="section-sub">The system works only if the accent stays scarce. One ember moment per slide, two max. Everything else is paper on ink, or graphite for quiet metadata.</p>
+  <div class="guide">
+    <div class="card">
+      <h3>Display type</h3>
+      <p>Fraunces 48–112px, weight 400. Italic only for the one emphasized noun in each headline. Never italic a whole line. Never bold.</p>
+    </div>
+    <div class="card">
+      <h3>Ember as emphasis</h3>
+      <p>Reserved for: the dollar amount on slide 4, the italic word on slide 6/10, the arrow and start/end nodes of the flow motif, the memory technique names on slide 8.</p>
+    </div>
+    <div class="card">
+      <h3>Readable at 20 feet</h3>
+      <p>Body text never smaller than 20px on the slide. Monospace code never smaller than 18px. Tag-lines at 11–13px are OK because nobody has to read them from row 30.</p>
+    </div>
+    <div class="card">
+      <h3>Side padding</h3>
+      <p>96px minimum on 1280×720. The slide should feel like a page in a magazine, not a terminal window.</p>
+    </div>
+    <div class="card">
+      <h3>Motion</h3>
+      <p>Cut or crossfade only. No builds. No typewriter effects. No kinetic typography. Trust the words.</p>
+    </div>
+    <div class="card">
+      <h3>Monospace chain</h3>
+      <p>The <code>agent ──▶ canUseTool ──▶ phone ──▶ approve</code> motif is the single repeating visual device. Appears once on slide 7, nowhere else. Must be readable at 20 feet.</p>
+    </div>
+  </div>
+</section>
+
+<footer>DESIGN SYSTEM · MYCLAW TALK · APRIL 2026</footer>
+
+</main>
+</body>
+</html>

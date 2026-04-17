@@ -34,6 +34,14 @@ function toTrimmedString(
   return trimmed;
 }
 
+function protectTerminalResponseFile(filePath: string): void {
+  try {
+    fs.chmodSync(filePath, 0o444);
+  } catch {
+    // Best effort hardening only.
+  }
+}
+
 export function writePermissionIpcResponse(
   ipcBaseDir: string,
   sourceGroup: string,
@@ -46,6 +54,7 @@ export function writePermissionIpcResponse(
   );
   fs.mkdirSync(responseDir, { recursive: true });
   const responsePath = path.join(responseDir, `${decision.requestId}.json`);
+  if (fs.existsSync(responsePath)) return;
   const tmpPath = `${responsePath}.tmp`;
   fs.writeFileSync(
     tmpPath,
@@ -60,7 +69,12 @@ export function writePermissionIpcResponse(
       2,
     ),
   );
+  if (fs.existsSync(responsePath)) {
+    fs.rmSync(tmpPath, { force: true });
+    return;
+  }
   fs.renameSync(tmpPath, responsePath);
+  protectTerminalResponseFile(responsePath);
 }
 
 export function writeUserQuestionIpcResponse(
@@ -71,6 +85,7 @@ export function writeUserQuestionIpcResponse(
   const responseDir = path.join(ipcBaseDir, sourceGroup, 'user-answers');
   fs.mkdirSync(responseDir, { recursive: true });
   const responsePath = path.join(responseDir, `${response.requestId}.json`);
+  if (fs.existsSync(responsePath)) return;
   const tmpPath = `${responsePath}.tmp`;
   const safeAnswers: Record<string, string | string[]> = {};
   for (const [key, value] of Object.entries(response.answers || {})) {
@@ -100,5 +115,10 @@ export function writeUserQuestionIpcResponse(
       2,
     ),
   );
+  if (fs.existsSync(responsePath)) {
+    fs.rmSync(tmpPath, { force: true });
+    return;
+  }
   fs.renameSync(tmpPath, responsePath);
+  protectTerminalResponseFile(responsePath);
 }

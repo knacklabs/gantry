@@ -39,6 +39,7 @@ export class GroupQueue {
   private activeTaskCount = 0;
   private waitingMessageGroups: string[] = [];
   private waitingTaskGroups: string[] = [];
+  private continuationSequence = 0;
   private processMessagesFn: ((groupJid: string) => Promise<boolean>) | null =
     null;
   private shuttingDown = false;
@@ -250,10 +251,6 @@ export class GroupQueue {
     }
   }
 
-  /**
-   * Send a follow-up message to the active agent run via IPC file.
-   * Returns true if the message was written, false if no active agent run.
-   */
   sendMessage(groupJid: string, text: string): boolean {
     const state = this.getGroup(groupJid);
     if (
@@ -263,12 +260,13 @@ export class GroupQueue {
       state.idleWaiting
     )
       return false;
+    const groupFolder = state.groupFolder;
     state.idleWaiting = false; // Agent is about to receive work, no longer idle
-
-    const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
+    const inputDir = path.join(DATA_DIR, 'ipc', groupFolder, 'input');
     try {
       fs.mkdirSync(inputDir, { recursive: true });
-      const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}.json`;
+      const seq = this.continuationSequence++;
+      const filename = `${Date.now()}-${String(seq).padStart(12, '0')}.json`;
       const filepath = path.join(inputDir, filename);
       const tempPath = `${filepath}.tmp`;
       fs.writeFileSync(tempPath, JSON.stringify({ type: 'message', text }));
@@ -279,9 +277,6 @@ export class GroupQueue {
     }
   }
 
-  /**
-   * Signal the active agent run to wind down by writing a close sentinel.
-   */
   closeStdin(groupJid: string): void {
     const state = this.getGroup(groupJid);
     if (!state.active || !state.groupFolder) return;
@@ -355,6 +350,21 @@ export class GroupQueue {
       }
     }
 
+    return false;
+  }
+
+  isGroupActive(groupJid: string): boolean {
+    const targetQueueJids = [groupJid];
+    const aliased = this.stopAliases.get(groupJid);
+    if (aliased) targetQueueJids.push(...aliased);
+
+    for (const targetQueueJid of targetQueueJids) {
+      const state = this.groups.get(targetQueueJid);
+      if (!state) continue;
+      if (state.active && !state.isTaskContainer) {
+        return true;
+      }
+    }
     return false;
   }
 

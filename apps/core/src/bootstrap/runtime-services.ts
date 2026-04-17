@@ -1,5 +1,10 @@
 import { ASSISTANT_NAME, DEFAULT_TRIGGER } from '../core/config.js';
+import {
+  encodeGroupMessageCursor,
+  toGroupMessageCursor,
+} from '../core/message-cursor.js';
 import { logger } from '../core/logger.js';
+import type { NewMessage } from '../core/types.js';
 import {
   writeJobEventsSnapshot,
   writeJobRunsSnapshot,
@@ -180,6 +185,53 @@ export function startRuntimeServices(
     app.processGroupMessages(chatJid),
   );
 
+  const handleActiveControlCommand = async ({
+    chatJid,
+    command,
+    message,
+  }: {
+    chatJid: string;
+    command: { kind: string };
+    message: NewMessage;
+  }): Promise<boolean> => {
+    if (command.kind !== 'stop' && command.kind !== 'new') {
+      return false;
+    }
+
+    if (!app.queue.isGroupActive(chatJid)) {
+      return false;
+    }
+
+    const stopped = app.queue.stopGroup(chatJid);
+    if (!stopped) {
+      return false;
+    }
+
+    if (command.kind === 'new') {
+      app.clearSessionForChatJid(chatJid);
+    }
+
+    app.setAgentCursor(
+      chatJid,
+      encodeGroupMessageCursor(toGroupMessageCursor(message)),
+    );
+    app.saveState();
+
+    const threadId =
+      typeof message.thread_id === 'string' && message.thread_id.trim()
+        ? message.thread_id.trim()
+        : undefined;
+    await channelWiring.sendMessage(
+      chatJid,
+      command.kind === 'stop'
+        ? 'Stopping current run.'
+        : 'Started a fresh session.',
+      threadId ? { messageOptions: { threadId } } : undefined,
+    );
+
+    return true;
+  };
+
   resolved.recoverPendingMessages({
     assistantName: ASSISTANT_NAME,
     getRegisteredGroups: () => app.getRegisteredGroups(),
@@ -198,6 +250,7 @@ export function startRuntimeServices(
     sendProgressUpdate: (chatJid, text, options) =>
       channelWiring.sendProgressUpdate(chatJid, text, options),
     queue: app.queue,
+    handleActiveControlCommand,
   });
 
   resolved.logger.info(`MyClaw running (default trigger: ${DEFAULT_TRIGGER})`);
@@ -221,6 +274,7 @@ export function startRuntimeServices(
       sendProgressUpdate: (chatJid, text, options) =>
         channelWiring.sendProgressUpdate(chatJid, text, options),
       queue: app.queue,
+      handleActiveControlCommand,
     })
     .catch((err) => {
       resolved.logger.fatal({ err }, 'Message loop crashed unexpectedly');

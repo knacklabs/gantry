@@ -117,11 +117,14 @@ export interface GroupProcessingDeps {
       stopAliasJids?: string | string[],
     ) => void;
   };
+  runAgent?: typeof spawnAgent;
 }
 
 export function createGroupProcessor(deps: GroupProcessingDeps): {
   processGroupMessages: (chatJid: string) => Promise<boolean>;
 } {
+  const runAgentImpl = deps.runAgent ?? spawnAgent;
+
   async function runAgent(
     group: RegisteredGroup,
     prompt: string,
@@ -169,6 +172,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       jobs,
     );
 
+    let memoryContextFilePath: string | undefined;
+
     try {
       const contextSnapshot = await writeMemoryContextSnapshot(
         group.folder,
@@ -176,6 +181,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
         prompt,
         userId,
       );
+      memoryContextFilePath = contextSnapshot.filePath;
       onMemoryContext?.(contextSnapshot.retrievedItemIds);
     } catch (err) {
       logger.warn(
@@ -204,7 +210,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       : undefined;
 
     try {
-      const output = await spawnAgent(
+      const output = await runAgentImpl(
         group,
         {
           prompt,
@@ -214,6 +220,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
           isMain,
           assistantName: ASSISTANT_NAME,
           thinking: group.agentConfig?.thinking,
+          memoryContextFile: memoryContextFilePath,
         },
         (proc, containerName) =>
           deps.queue.registerProcess(

@@ -10,6 +10,30 @@ Every change must pass five independent checks:
 5. security review
 6. functional check
 
+## Test Architecture
+
+Production source trees are test-free:
+
+- `apps/core/src/**`
+- `packages/*/src/**`
+
+Tests and harnesses must use:
+
+- `apps/core/test/unit/**`
+- `apps/core/test/integration/**`
+- `apps/core/test/e2e/**`
+- `apps/core/test/harness/**`
+- `packages/contracts/test/unit/**`
+
+Default test gate:
+
+- `npm test` must run contracts build + unit + integration suites.
+
+Explicit e2e gate:
+
+- `npm run test:e2e` must run hermetic runtime flows without external credentials (Telegram, Slack, Claude, OpenAI, OneCLI, browser, or network auth).
+- e2e and integration tests must not use real runtime home paths (`~/myclaw`), repo `store/`, repo `data/`, or real user credential files.
+
 ## Review Subagents
 
 ### quality-reviewer
@@ -83,3 +107,16 @@ PR-ready requires:
 Validation commands:
 - `python3 .codex/scripts/validate_artifacts.py` checks artifact shape and gate thresholds
 - `python3 .codex/scripts/validate_work.py` runs verify + artifact validation and marks PR-ready on success
+
+Recommended implementation verification commands:
+
+```bash
+npm run test:unit
+npm run test:integration
+npm test
+npm run test:e2e
+npm run build
+python3 .codex/scripts/verify.py
+python3 .codex/scripts/validate_artifacts.py --allow-missing-run
+python3 .codex/scripts/validate_work.py
+```

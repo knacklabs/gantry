@@ -510,15 +510,20 @@ export function getNewMessages(
       cursor.id,
       `${botPrefix}:%`,
       limit,
-    ) as NewMessage[];
+    ) as Array<NewMessage & { is_from_me?: number | boolean }>;
+
+  const messages = rows.map((row) => ({
+    ...row,
+    is_from_me: Boolean(row.is_from_me),
+  }));
 
   let newTimestamp = lastCursor;
-  const latest = rows[rows.length - 1];
+  const latest = messages[messages.length - 1];
   if (latest) {
     newTimestamp = encodeGlobalMessageCursor(toGlobalMessageCursor(latest));
   }
 
-  return { messages: rows, newTimestamp };
+  return { messages, newTimestamp };
 }
 
 export function getMessagesSince(
@@ -545,7 +550,7 @@ export function getMessagesSince(
     ORDER BY timestamp ASC, id ASC
     LIMIT ?
   `;
-  return db
+  const rows = db
     .prepare(sql)
     .all(
       chatJid,
@@ -554,7 +559,11 @@ export function getMessagesSince(
       cursor.id,
       `${botPrefix}:%`,
       limit,
-    ) as NewMessage[];
+    ) as Array<NewMessage & { is_from_me?: number | boolean }>;
+  return rows.map((row) => ({
+    ...row,
+    is_from_me: Boolean(row.is_from_me),
+  }));
 }
 
 export function getLastBotMessageCursor(

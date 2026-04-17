@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+<title>MyClaw — built because I had to.</title>
+
+<!-- reveal.js core + its default reset -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reset.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css" />
+
+<!-- fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;1,9..144,400;1,9..144,500&family=Geist:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<style>
+  :root {
+    --ink:        #0B0D0E;
+    --ink-2:      #14171A;
+    --ink-3:      #1E2327;
+    --paper:      #F5F1EA;
+    --paper-2:    #E9E3D7;
+    --ember:      #E8A63C;
+    --ember-2:    #F5C678;
+    --graphite:   #5C5F63;
+    --graphite-2: #8A8F95;
+    --line:       #2A2F33;
+
+    --display: 'Fraunces', Georgia, serif;
+    --body:    'Geist', system-ui, -apple-system, sans-serif;
+    --mono:    'JetBrains Mono', ui-monospace, Menlo, monospace;
+  }
+
+  html, body { background: var(--ink); }
+
+  .reveal {
+    font-family: var(--body);
+    color: var(--paper);
+    font-weight: 400;
+    font-size: 28px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  .reveal .slides { text-align: left; }
+  .reveal .slides section,
+  .reveal .slides section > section {
+    text-align: left;
+    padding: 0 96px;
+    box-sizing: border-box;
+    height: 100%;
+  }
+
+  /* no default reveal bullets / numbering */
+  .reveal ol, .reveal ul { list-style: none; margin: 0; padding: 0; }
+
+  /* kill reveal's default heading treatment */
+  .reveal h1, .reveal h2, .reveal h3, .reveal h4, .reveal p {
+    color: var(--paper);
+    text-transform: none;
+    letter-spacing: normal;
+    line-height: 1.02;
+    margin: 0;
+    font-weight: 400;
+  }
+
+  /* ============ reusable pieces ============ */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--graphite-2);
+    margin-bottom: 16px;
+  }
+  .eyebrow.ember { color: var(--ember); }
+  .eyebrow::before {
+    content: "";
+    display: inline-block;
+    width: 28px; height: 1px;
+    background: currentColor;
+    vertical-align: middle;
+    margin-right: 14px;
+    transform: translateY(-3px);
+  }
+
+  .display {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 88px;
+    line-height: 1.0;
+    letter-spacing: -0.02em;
+    color: var(--paper);
+  }
+  .display em { font-style: italic; color: var(--ember); font-weight: 400; }
+  .display.tight { font-size: 72px; line-height: 1.02; }
+  .display.hero  { font-size: 120px; line-height: 0.96; letter-spacing: -0.03em; }
+
+  .lede {
+    font-family: var(--body);
+    font-size: 26px;
+    line-height: 1.5;
+    color: var(--paper-2);
+    max-width: 900px;
+    margin-top: 28px;
+  }
+  .lede strong { color: var(--paper); font-weight: 500; }
+
+  .tag {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 0.12em;
+    color: var(--graphite-2);
+    margin-top: 48px;
+  }
+
+  .kicker {
+    font-family: var(--display);
+    font-style: italic;
+    color: var(--ember);
+    font-size: 30px;
+    margin-top: 20px;
+  }
+
+  /* slide vertical anchors */
+  .anchor-center { display: flex; flex-direction: column; justify-content: center; }
+  .anchor-end    { display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 96px !important; }
+
+  /* ============ slide 4 : API math ============ */
+  .dollar {
+    font-family: var(--display);
+    font-size: 192px;
+    line-height: 1;
+    color: var(--ember);
+    font-weight: 400;
+    letter-spacing: -0.03em;
+    margin-top: 16px;
+  }
+  .dollar-unit {
+    font-family: var(--mono);
+    font-size: 16px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--graphite-2);
+    margin-top: 10px;
+  }
+  .coda {
+    font-family: var(--body);
+    font-size: 22px;
+    color: var(--paper-2);
+    margin-top: 36px;
+  }
+
+  /* ============ slide 5 : thesis ============ */
+  .thesis-list {
+    font-family: var(--display);
+    font-size: 72px;
+    line-height: 1.1;
+    color: var(--paper);
+  }
+  .thesis-list li { margin-bottom: 4px; }
+
+  /* ============ slide 6 : package ============ */
+  .pkg {
+    font-family: var(--mono);
+    font-size: 32px;
+    color: var(--ember-2);
+    background: var(--ink-2);
+    border-left: 2px solid var(--ember);
+    padding: 18px 24px;
+    display: inline-block;
+    margin-bottom: 28px;
+  }
+
+  /* ============ slide 7 : flow motif ============ */
+  .flow {
+    font-family: var(--mono);
+    font-size: 28px;
+    color: var(--paper);
+    background: var(--ink-2);
+    border-top: 1px solid var(--ember);
+    border-bottom: 1px solid var(--ember);
+    padding: 36px 40px;
+    margin: 28px 0;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    overflow-x: auto;
+  }
+  .flow .arrow { color: var(--ember); padding: 0 4px; }
+  .flow .dim   { color: var(--graphite-2); }
+  .demo-tag {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--ember);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    margin-top: 8px;
+  }
+  .demo-tag::before { content: "● "; color: var(--ember); }
+
+  /* ============ slide 8 : memory grid ============ */
+  .mem-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin-top: 28px;
+    max-width: 1080px;
+  }
+  .mem-grid .cell { background: var(--ink-2); padding: 28px 24px; }
+  .mem-grid .lbl  {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--graphite-2);
+  }
+  .mem-grid .tech {
+    font-family: var(--display);
+    font-style: italic;
+    font-size: 44px;
+    color: var(--ember);
+    margin-top: 10px;
+    line-height: 1;
+  }
+  .mem-coda {
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--graphite-2);
+    margin-top: 22px;
+    letter-spacing: 0.1em;
+  }
+
+  /* ============ slide 9 : trade-offs ============ */
+  .tradeoffs {
+    font-family: var(--body);
+    font-size: 30px;
+    color: var(--paper-2);
+    line-height: 1.4;
+  }
+  .tradeoffs li {
+    position: relative;
+    padding-left: 32px;
+    margin-bottom: 18px;
+  }
+  .tradeoffs li::before {
+    content: "—";
+    position: absolute;
+    left: 0;
+    color: var(--ember);
+  }
+  .tradeoffs-coda {
+    font-family: var(--display);
+    font-style: italic;
+    font-size: 32px;
+    color: var(--paper);
+    margin-top: 36px;
+  }
+
+  /* ============ slide 10 : close ============ */
+  .close-thesis {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: 108px;
+    line-height: 1.0;
+    letter-spacing: -0.025em;
+    color: var(--paper);
+  }
+  .close-thesis em { font-style: italic; color: var(--ember); font-weight: 400; }
+  .close-url {
+    font-family: var(--mono);
+    font-size: 16px;
+    letter-spacing: 0.12em;
+    color: var(--graphite-2);
+    margin-top: 56px;
+  }
+
+  /* ============ slide number / progress ============ */
+  .reveal .slide-number {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--graphite);
+    background: transparent;
+    letter-spacing: 0.1em;
+    right: 28px;
+    bottom: 24px;
+  }
+  .reveal .progress {
+    color: var(--ember);
+    height: 2px;
+  }
+  .reveal .progress span { background: var(--ember); }
+
+  /* ============ overview / presenter nav ============ */
+  .reveal .controls { color: var(--graphite); }
+  .reveal .controls .navigate-left,
+  .reveal .controls .navigate-right,
+  .reveal .controls .navigate-up,
+  .reveal .controls .navigate-down { color: var(--graphite); }
+
+  /* ============ speaker notes visibility (when toggled with 's') ============ */
+  /* reveal opens notes in a separate window via presenter mode */
+
+  /* responsive: scale slide text down a bit on narrow windows */
+  @media (max-width: 1200px) {
+    .display       { font-size: 64px; }
+    .display.hero  { font-size: 84px; }
+    .display.tight { font-size: 56px; }
+    .dollar        { font-size: 128px; }
+    .thesis-list   { font-size: 56px; }
+    .close-thesis  { font-size: 80px; }
+    .flow          { font-size: 20px; padding: 24px 28px; }
+    .reveal .slides section { padding: 0 56px; }
+  }
+</style>
+
+</head>
+<body>
+
+<div class="reveal">
+  <div class="slides">
+
+    <!-- ============ SLIDE 1 : TITLE ============ -->
+    <section data-background-color="#0B0D0E" class="anchor-center">
+      <div class="eyebrow">MyClaw · a personal story</div>
+      <h1 class="display hero">built<br/>because<br/><em>I had to.</em></h1>
+      <div class="kicker">30 minutes · one runtime</div>
+      <aside class="notes">
+        I'm [name]. For the next half hour I want to tell you about a Claude-based agent runtime I've been building called MyClaw — and specifically, why I built it, because I didn't set out to build another framework. I built this because my previous setup broke. Thirty minutes. I'll take questions at the end.
+
+        Move on. Don't linger on the title.
+      </aside>
+    </section>
+
+    <!-- ============ SLIDE 2 : ME + OPENCLAW ============ -->
+    <section data-background-color="#0B0D0E" class="anchor-center">
+      <div class="eyebrow">Me</div>
+      <h2 class="display">I've been an <em>OpenClaw</em><br/>contributor and heavy user<br/>since <em>November 2025.</em></h2>
+      <p class="lede">It's great. I still run it.</p>
+      <aside class="notes">
+        Show of hands — who here runs an agent over Telegram, Slack, or any messaging channel? [Pause.] Okay. Some of you. If you do, you've probably seen OpenClaw. It's a self-hosted gateway that connects Claude-based agents to dozens of messaging platforms.
+
+        I've been a contributor since November 2025. I was a heavy daily user. My whole personal workflow — reminders, scheduling, research, code questions, Linear updates — ran through OpenClaw on Telegram. I loved it. I still think it's the right answer for a lot of people, including a lot of people in this room.
+
+        And then January happened.
+
+        (This slide builds CREDIBILITY and STAKES. You're not a critic from the outside. You were in the trenches.)
+      </aside>
+    </section>
+
+    <!-- ============ SLIDE 3 : JANUARY 2026 ============ -->
+    <section data-background-color="#0B0D0E" class="anchor-center">
+      <div class="eyebrow ember">January 2026</div>
+      <h2 class="display">Anthropic closed<br/>subscription OAuth<br/>for third-party tools.</h2>
+      <p class="lede" style="font-family: var(--display); font-style: italic; color: var(--ember); font-size: 44px; line-height: 1.1; margin-top: 36px;">Mine was one of them.</p>
+      <aside class="notes">
+        On January 9, Anthropic deployed server-side checks that blocked third-party tools from using Claude Pro or Max subscription OAuth tokens. OpenClaw was in the crosshairs by name. A few weeks later the ToS update made it formal: OAuth tokens from Pro or Max accounts can't be used in any tool or service — including the Agent SDK. Official enforcement landed on April 4.
+
+        I'll be straight with you before I go further. MyClaw's code today still reads the OAuth token env var. I wrote that code before the policy enforcement, and I keep it because the SDK supports it. It is a gray area. I'm not going to pretend it isn't.
+
+        For my real daily usage I'm on API keys. That's the path I architected for. That's what the rest of this talk is about. MyClaw is a personal tool. I'm transparent about that. I wouldn't ship it to a company as a subscription-evasion layer — I'd feel bad about that. I don't.
+
+        What I built is an answer to the question: how do I run a serious Claude-based personal assistant on the API path, which is the supported path, without paying two thousand dollars a month?
+
+        (This is the candor slide. Do NOT skip this framing. Rehearse these three paragraphs once out loud so the delivery feels steady, not defensive. ToS quote: "OAuth tokens obtained through Claude Free, Pro, or Max accounts cannot be used in any product, tool, or service — including the Agent SDK.")
+      </aside>
+    </section>
+
+    <!-- ============ SLIDE 4 : API MATH ============ -->
+    <section data-background-color="#0B0D0E" class="anchor-center">
+      <div class="eyebrow">What Opus actually costs</div>
+      <h2 class="display tight">Personal assistant.<br/>Tool-heavy. <em>Every day.</em></h2>
+      <div class="dollar">~$2,000</div>
+      <div class="dollar-unit">per month · on API</div>
+      <p class="coda">Not affordable for a personal tool.</p>
+      <aside class="notes">
+        Here's what API-path Opus actually costs for my use case. Personal assistant. Tool-heavy. Long-context conversations. Dozens of turns a day, every day. Memory, retrieval, scheduled jobs, the whole thing.
+
+        On Opus, that usage ran me around two thousand dollars a month on the API. Maybe more on heavy research days.
+
+        I'm not paying two grand a month for a personal assistant. Neither are most of you. That's not a choice — that's a constraint.
+
+        So the entire MyClaw codebase is organized around one question: how do I get the same personal-assistant behavior out of Opus, on the API, at a fraction of that cost?
+
+        (Use your actual numbers if you're comfortable. Illustrative is fine — but stay directionally honest.)
+      </aside>
+    </section>
+
+    <!-- ============ SLIDE 5 : SO I BUILT MYCLAW ============ -->
+    <section data-background-color="#0B0D0E" class="anchor-center">
+      <div class="eyebrow">So I built MyClaw</div>
+      <ul class="thesis-list">
+        <li>Personal.</li>
+        <li>Small.</li>
+        <li>Built to make API usage sustainable.</li>
+      </ul>
+      <aside class="notes">
+        So in February and March, instead of fighting the policy, I sat down and rebuilt the thing. MyClaw. Personal. Small. Built with one goal: make API-path usage sustainable for a single-user personal assistant.
+
+        That's not a feature list. That's a design constraint. Every choice downstream of that constraint — the SDK I picked, the memory architecture, the permission model — follows from trying to use fewer tokens per turn, cache more aggressively, and reach for Opus only when it actually matters.
+
+        Now let me show you the three choices that fell out of that constraint.
+
+        (Hinge slide. If they understand "MyClaw is what a single-user Claude assistant looks like when you can't afford to waste tokens," the rest of the talk is just evidence.)
+      </aside>
+    </section>
+
+    <!-- ============ SLIDE 6 : CLOSER TO THE PRIMITIVE ============ -->
+    <section data-background-color="#0B0D0E" class="anchor-center">
+      <div class="eyebrow">Closer to the primitive</div>
+      <div class="pkg">@anthropic-ai/claude-agent-sdk</div>
+      <h2 class="display tight">Not a wrapper.<br/>Not a custom loop.<br/><em>The SDK itself.</em></h2>
+      <p class="lede">Every group gets its own <code style="font-family: var(--mono); color: var(--ember-2);">CLAUDE.md</code> and <code style="font-family: var(--mono); color: var(--ember-2);">SOUL.md</code>. Skills, subagents, the permission hook — all included.</p>
+      <aside class="notes">
+        Open packages/agent-runner/src/index.ts on your laptop. Scroll to line 508.
+
+        This is the agent runner. The whole thing. It's a call to query() from the Claude Agent SDK, and a streaming loop around the response. I don't own the agent loop. I don't own the tool dispatcher. I don't own the skill system. All of that comes from @anthropic-ai/claude-agent-sdk.
+
+        OpenClaw and Hermes are both on the raw Anthropic SDK — the completion API. That means they wrote their own loop, their own tool parsing, their own skill system, their own approval layer. Good engineering. Not what I wanted to maintain.
+
+        Because I'm on the Agent SDK, two things come essentially for free.
+
+        ONE: every group has a home. Look at apps/core/src/runtime/prompt-profile.ts:14. Every Telegram chat, every Slack channel gets its own directory at ~/myclaw/agents/<groupFolder>/. Inside: a CLAUDE.md the agent reads every turn, a SOUL.md that holds the group's identity. The agent's working directory IS the group's directory. If you've used Claude Code in a repo, this is the same pattern — now every chat is a repo.
+
+        TWO: prompt caching. Because the Agent SDK uses Claude Code's system prompt preset and because the group CLAUDE.md files are static, a large fraction of every turn is cache-hit. That is the single biggest reason API usage is affordable at all. Without caching, none of the rest of the economics work.
+
+        (If asked about channels: built-in providers today, architecture supports more. Do NOT say "channels are skills" — the code is provider-based.)
+      </aside>
+    </section>
+
+    <!-- ============ SLIDE 7 : ASK USER QUESTION (FLOW MOTIF) ============ -->
+    <section data-background-color="#0B0D0E" class="anchor-center">
+      <div class="eyebrow">Every tool call is a conversation</div>
+      <h2 class="display tight">The SDK ships <em>this hook.</em></h2>
+      <div class="flow"><span>agent</span><span class="arrow">──▶</span><span>canUseTool</span><span class="arrow">──▶</span><span>your phone</span><span class="arrow">──▶</span><span>approve</span><span class="arrow">──▶</span><span class="dim">tool runs</span></div>
+      <p class="lede">Raw-SDK projects don't use it — they rewrite approval from scratch. MyClaw gates <em style="font-style: italic; color: var(--ember);">every</em> tool by default.</p>
+      <div class="demo-tag">live demo</div>
+      <aside class="notes">
+        DO THE DEMO FIRST. 60 seconds.
+
+        "Watch. I'm going to ask the agent on my laptop to write a file. Anyone who's used these tools knows the agent just writes it. But…"
+
+        Trigger the agent. Your phone lights up. Hold the phone up to the room. Tap approve. The agent writes the file.
+
+        "Okay. Now let me tell you what just happened.
+
+        The Claude Agent SDK has a hook called canUseTool. Before any tool fires, the SDK asks: 'agent wants to call this tool with these arguments — yes or no?' You can return true, false, or prompt for an answer. Most code uses this hook to block a handful of dangerous commands.
+
+        MyClaw uses it for every tool call, by default. When the hook fires, MyClaw writes a permission-request file to an IPC directory. The host watches the directory — rate-limited, auth-token-validated — and renders the request as a Telegram inline keyboard or a Slack interactive block. Your reply flows back through the same IPC channel. The hook returns, the tool runs. Total round-trip: usually under two seconds. If you don't reply in five minutes, default is deny.
+
+        Here's the interesting part. I checked both OpenClaw and Hermes. Neither uses canUseTool in their runtime — not one match. They built their own approval systems from scratch because the raw Anthropic SDK doesn't have this hook. Doing that for just bash is reasonable. Doing it for every tool would be a substantial rewrite. MyClaw gets it free because it sits on the SDK that ships with it.
+
+        There's also a separate tool called ask_user_question for multi-choice prompts — 'draft this formal or casual?' Same IPC plumbing, buttons in Telegram, modals in Slack.
+
+        (This is the slide where the audience starts tweeting. Don't rush it. If demo fails: switch to pre-recorded screencast.)
+      </aside>
+    </section>
+
+    <!-- ============ SLIDE 8 : MEMORY ============ -->
+    <section data-background-color="#0B0D0E" class="anchor-center">
+      <div class="eyebrow">Memory that consolidates itself</div>
+      <h2 class="display tight">Your brain consolidates<br/>while you sleep.<br/><em>So does the agent.</em></h2>
+      <div class="mem-grid">
+        <div class="cell"><div class="lbl">lexical</div><div class="tech">BM25</div></div>
+        <div class="cell"><div class="lbl">semantic</div><div class="tech">vectors</div></div>
+        <div class="cell"><div class="lbl">recency</div><div class="tech">decay</div></div>
+        <div class="cell"><div class="lbl">diversity</div><div class="tech">MMR</div></div>
+      </div>
+      <p class="mem-coda">SQLite + sqlite-vec · scheduled consolidation</p>
+      <aside class="notes">
+        Last piece. Memory.
+
+        Memory in MyClaw is a SQLite database per group, with the sqlite-vec extension for vector search. No Redis. No Pinecone. The retrieval query isn't just cosine similarity — it's reciprocal-rank fusion of BM25 lexical search and vector similarity, with temporal decay (newer memories outrank older ones) and maximal marginal relevance to deduplicate near-identical results. Four standard IR techniques. Combined, they produce a ranked list that's meaningfully better than any one of them alone.
+
+        The top results go into a hidden message block that prepends the user prompt. The agent sees it as context. You never see the mechanism.
+
+        The interesting piece is what happens on a schedule. MyClaw has a persistent cron scheduler. One of the jobs is memory DREAMING. It runs on a schedule, reads raw memory chunks from recent conversations, groups them, rewrites them as higher-level items — facts, procedures, preferences — and puts them back in the same SQLite.
+
+        Think about that for a second. The agent's memory is being rewritten by the agent itself, on a schedule, with no human in the loop. It's consolidation. Like what your brain does during sleep. Hence 'dreaming'. Over weeks, the raw noise fades and the useful abstractions stay.
+
+        Why does this matter for the economics? Because consolidated memory means shorter effective context at inference time, which means fewer tokens per turn, which means API usage stays affordable. Every piece is in service of the same constraint.
+      </aside>
+    </section>
+
+    <!-- ============ SLIDE 9 : TRADE-OFFS ============ -->
+    <section data-background-color="#0B0D0E" class="anchor-center">
+      <div class="eyebrow">What I gave up</div>
+      <ul class="tradeoffs">
+        <li>Locked in to Anthropic. No provider swap.</li>
+        <li>Two channels: Telegram, Slack.</li>
+        <li>IPC is filesystem polling. Debuggable. Not free at scale.</li>
+      </ul>
+      <p class="tradeoffs-coda">It's a personal tool. That's the point.</p>
+      <aside class="notes">
+        A few things I gave up.
+
+        One: provider portability. MyClaw runs on Claude. If I want to swap to another provider, I'm writing a new runner. Hermes can flip a config line. I can't.
+
+        Two: channel breadth. Two channels today — Telegram and Slack. If you need iMessage, Signal, Discord, there are better tools.
+
+        Three: the IPC layer. Every tool call writes a JSON file. Every response reads one. It's unreasonably debuggable — I can tail -f the IPC directory and watch the agent think. But it's not free at scale. Single-user, small-team — it's fine. A public service with thousands of users would need a real transport.
+
+        This is a personal tool. It's built for my constraints. It probably fits some of yours. If not, use OpenClaw or Hermes — they're the right answer for different constraints.
+
+        (Do not say "MyClaw is ahead of them" or "better than them." The story already made your case. Landing with humility is the strongest closing position.)
+      </aside>
+    </section>
+
+    <!-- ============ SLIDE 10 : CLOSE ============ -->
+    <section data-background-color="#0B0D0E" class="anchor-center">
+      <h2 class="close-thesis">Claude isn't a model.<br/><em>It's a runtime.</em></h2>
+      <p class="close-url">github.com/[you]/myclaw · npx myclaw setup</p>
+      <aside class="notes">
+        (Let the slide sit. Don't read it.)
+
+        "If you remember one thing from this talk, remember that. The model-vs-runtime distinction is the bet. Everything I just showed you — the per-group homes, the tool-call approvals, the dreaming memory — all of it follows from that one choice.
+
+        Repo is on the slide. npx myclaw setup walks you through auth, Telegram, memory. Ten minutes to hello-agent.
+
+        I'll take questions."
+
+        (Keep this tight. The last line they read should be your thesis, not a URL.)
+      </aside>
+    </section>
+
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+<script>
+  Reveal.initialize({
+    width: 1440,
+    height: 900,
+    margin: 0.04,
+    minScale: 0.2,
+    maxScale: 2.0,
+    controls: true,
+    controlsLayout: 'edges',
+    progress: true,
+    slideNumber: 'c/t',
+    hash: true,
+    transition: 'fade',
+    transitionSpeed: 'fast',
+    backgroundTransition: 'none',
+    plugins: [RevealNotes],
+    keyboard: {
+      83: function() { RevealNotes.open(); } // 's' for speaker notes
+    }
+  });
+</script>
+</body>
+</html>

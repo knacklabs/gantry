@@ -82,6 +82,20 @@ Test the change you made, not the entire universe.
 - For code changes, run the smallest command set that proves the behavior.
 - For skills, exercise the skill end to end on a clean checkout when possible.
 
+Test location rules:
+
+- keep production code under `apps/core/src/**` and `packages/*/src/**` test-free
+- place core tests under `apps/core/test/{unit,integration,e2e}/**`
+- place reusable runtime fixtures under `apps/core/test/harness/**`
+- place contracts tests under `packages/contracts/test/unit/**`
+
+Command expectations:
+
+- run `npm run test:unit` for unit-only changes
+- run `npm run test:integration` for runtime/data boundary changes
+- run `npm test` before merge (contracts build + unit + integration)
+- run `npm run test:e2e` when touching runtime flow behavior or test harness seams
+
 ## Pull Requests
 
 A good PR description should answer:

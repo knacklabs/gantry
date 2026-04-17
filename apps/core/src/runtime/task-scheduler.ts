@@ -56,6 +56,7 @@ export interface SchedulerDependencies {
   ) => Promise<void>;
   resetStreaming?: (jid: string) => void;
   onSchedulerChanged?: () => void;
+  runAgent?: typeof spawnAgent;
 }
 
 const DEFAULT_JOB_CLEANUP_AFTER_MS = 86_400_000;
@@ -390,6 +391,7 @@ async function runJob(
   queueJid: string,
   executionModeHint?: JobExecutionMode,
 ): Promise<void> {
+  const runAgentImpl = deps.runAgent ?? spawnAgent;
   const currentJob = getJobById(job.id);
   if (!currentJob || currentJob.status !== 'active') {
     return;
@@ -486,7 +488,7 @@ async function runJob(
   );
   const sessionId = schedulerSession || undefined;
   const memoryContextFileName = `memory_context.${runId}.json`;
-  const memoryContextFilePath = path.join(
+  let memoryContextFilePath = path.join(
     resolveGroupIpcPath(execution.group.folder),
     memoryContextFileName,
   );
@@ -613,6 +615,7 @@ async function runJob(
           { fileName: memoryContextFileName },
         );
         retrievedItemIds = contextSnapshot.retrievedItemIds;
+        memoryContextFilePath = contextSnapshot.filePath;
       } catch (err) {
         logger.warn(
           { err, jobId: currentJob.id },
@@ -638,7 +641,7 @@ async function runJob(
         lastStreamingEventMs = nowMs;
       };
       try {
-        const output = await spawnAgent(
+        const output = await runAgentImpl(
           execution.group,
           {
             prompt: currentJob.prompt,
@@ -886,6 +889,91 @@ async function runJob(
 
 let schedulerRunning = false;
 
+export async function runSchedulerTick(
+  deps: SchedulerDependencies,
+): Promise<void> {
+  try {
+    registerSystemJobs(deps);
+
+    const released = releaseStaleJobLeases();
+    if (released > 0) {
+      logger.warn({ count: released }, 'Released stale scheduler leases');
+      deps.onSchedulerChanged?.();
+    }
+
+    const dueJobs = listDueJobs();
+    if (dueJobs.length > 0) {
+      logger.info({ count: dueJobs.length }, 'Found due scheduler jobs');
+    }
+
+    const queuedParallelRunsThisTick = new Map<string, number>();
+    const queuedSerializedRunsThisTick = new Map<string, number>();
+    for (const job of dueJobs) {
+      const current = getJobById(job.id);
+      if (!current || current.status !== 'active') continue;
+      const executionMode = normalizeExecutionMode(current.execution_mode);
+      if (
+        executionMode === 'parallel' &&
+        !canScheduleParallelRunForGroup(
+          current.group_scope,
+          queuedParallelRunsThisTick,
+          queuedSerializedRunsThisTick,
+        )
+      ) {
+        continue;
+      }
+      if (
+        executionMode === 'serialized' &&
+        !canScheduleSerializedRunForGroup(
+          current.group_scope,
+          queuedParallelRunsThisTick,
+          queuedSerializedRunsThisTick,
+        )
+      ) {
+        continue;
+      }
+      const queueJid =
+        executionMode === 'serialized'
+          ? schedulerQueueJid(current.group_scope)
+          : schedulerQueueJid(current.group_scope, current.id);
+      if (executionMode === 'parallel') {
+        reserveParallelRunForTick(
+          current.group_scope,
+          queuedParallelRunsThisTick,
+        );
+      }
+      if (executionMode === 'serialized') {
+        reserveSerializedRunForTick(
+          current.group_scope,
+          queuedSerializedRunsThisTick,
+        );
+      }
+      deps.queue.enqueueTask(queueJid, current.id, () =>
+        (async () => {
+          const releaseSlot =
+            executionMode === 'parallel'
+              ? acquireParallelRunSlot(current.group_scope)
+              : acquireSerializedRunSlot(current.group_scope);
+          try {
+            await runJob(current, deps, queueJid, executionMode);
+          } finally {
+            releaseSlot?.();
+          }
+        })(),
+      );
+    }
+
+    const removed = sweepCompletedOneTimeJobs();
+    if (removed) {
+      deps.onSchedulerChanged?.();
+    }
+
+    pruneSchedulerSessions(getAllJobs());
+  } catch (err) {
+    logger.error({ err }, 'Error in scheduler loop');
+  }
+}
+
 export function startSchedulerLoop(deps: SchedulerDependencies): void {
   if (schedulerRunning) {
     logger.debug('Scheduler loop already running, skipping duplicate start');
@@ -895,87 +983,7 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
   logger.info('Scheduler loop started');
 
   const loop = async () => {
-    try {
-      registerSystemJobs(deps);
-
-      const released = releaseStaleJobLeases();
-      if (released > 0) {
-        logger.warn({ count: released }, 'Released stale scheduler leases');
-        deps.onSchedulerChanged?.();
-      }
-
-      const dueJobs = listDueJobs();
-      if (dueJobs.length > 0) {
-        logger.info({ count: dueJobs.length }, 'Found due scheduler jobs');
-      }
-
-      const queuedParallelRunsThisTick = new Map<string, number>();
-      const queuedSerializedRunsThisTick = new Map<string, number>();
-      for (const job of dueJobs) {
-        const current = getJobById(job.id);
-        if (!current || current.status !== 'active') continue;
-        const executionMode = normalizeExecutionMode(current.execution_mode);
-        if (
-          executionMode === 'parallel' &&
-          !canScheduleParallelRunForGroup(
-            current.group_scope,
-            queuedParallelRunsThisTick,
-            queuedSerializedRunsThisTick,
-          )
-        ) {
-          continue;
-        }
-        if (
-          executionMode === 'serialized' &&
-          !canScheduleSerializedRunForGroup(
-            current.group_scope,
-            queuedParallelRunsThisTick,
-            queuedSerializedRunsThisTick,
-          )
-        ) {
-          continue;
-        }
-        const queueJid =
-          executionMode === 'serialized'
-            ? schedulerQueueJid(current.group_scope)
-            : schedulerQueueJid(current.group_scope, current.id);
-        if (executionMode === 'parallel') {
-          reserveParallelRunForTick(
-            current.group_scope,
-            queuedParallelRunsThisTick,
-          );
-        }
-        if (executionMode === 'serialized') {
-          reserveSerializedRunForTick(
-            current.group_scope,
-            queuedSerializedRunsThisTick,
-          );
-        }
-        deps.queue.enqueueTask(queueJid, current.id, () =>
-          (async () => {
-            const releaseSlot =
-              executionMode === 'parallel'
-                ? acquireParallelRunSlot(current.group_scope)
-                : acquireSerializedRunSlot(current.group_scope);
-            try {
-              await runJob(current, deps, queueJid, executionMode);
-            } finally {
-              releaseSlot?.();
-            }
-          })(),
-        );
-      }
-
-      const removed = sweepCompletedOneTimeJobs();
-      if (removed) {
-        deps.onSchedulerChanged?.();
-      }
-
-      pruneSchedulerSessions(getAllJobs());
-    } catch (err) {
-      logger.error({ err }, 'Error in scheduler loop');
-    }
-
+    await runSchedulerTick(deps);
     setTimeout(loop, SCHEDULER_POLL_INTERVAL);
   };
 

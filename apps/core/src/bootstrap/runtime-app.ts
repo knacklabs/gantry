@@ -43,6 +43,7 @@ export interface RuntimeApp {
   getAvailableGroups: () => import('../runtime/agent-spawn.js').AvailableGroup[];
   setRegisteredGroupsForTest: (groups: Record<string, RegisteredGroup>) => void;
   ensureOneCLIAgentsForRegisteredGroups: () => void;
+  clearSessionForChatJid: (chatJid: string) => void;
   processGroupMessages: (chatJid: string) => Promise<boolean>;
   getRegisteredGroups: () => Record<string, RegisteredGroup>;
   getLastTimestamp: () => string;
@@ -54,6 +55,7 @@ export interface RuntimeApp {
 export interface RuntimeAppOptions {
   onecli?: OneCliLike;
   queue?: GroupQueue;
+  runAgent?: GroupProcessingDeps['runAgent'];
 }
 
 export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
@@ -186,6 +188,13 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     }
   }
 
+  function clearSessionForChatJid(chatJid: string): void {
+    const group = registeredGroups[chatJid];
+    if (!group) return;
+    delete sessions[group.folder];
+    deleteSession(group.folder);
+  }
+
   const groupProcessor = createGroupProcessor({
     channelRuntime: {
       hasChannel: (chatJid) => channelRuntime.hasChannel(chatJid),
@@ -239,6 +248,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
           stopAliasJids,
         ),
     },
+    runAgent: options.runAgent,
   });
 
   return {
@@ -252,6 +262,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     getAvailableGroups,
     setRegisteredGroupsForTest,
     ensureOneCLIAgentsForRegisteredGroups,
+    clearSessionForChatJid,
     processGroupMessages: (chatJid) =>
       groupProcessor.processGroupMessages(chatJid),
     getRegisteredGroups: () => registeredGroups,
