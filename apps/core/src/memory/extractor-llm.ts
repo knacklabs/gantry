@@ -117,7 +117,9 @@ function parseFacts(
       key,
       value,
       confidence,
-      ...(scope === 'user' && options.userId ? { user_id: options.userId } : {}),
+      ...(scope === 'user' && options.userId
+        ? { user_id: options.userId }
+        : {}),
       ...(why ? { why } : {}),
       ...(typeof row.load_bearing === 'boolean'
         ? { load_bearing: row.load_bearing }

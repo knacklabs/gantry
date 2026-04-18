@@ -63,9 +63,7 @@ async function runWithOauth(
   auth: ClaudeAuthState,
 ): Promise<string> {
   const oauthEnv: Record<string, string> = {
-    ...(auth.oauthToken
-      ? { CLAUDE_CODE_OAUTH_TOKEN: auth.oauthToken }
-      : {}),
+    ...(auth.oauthToken ? { CLAUDE_CODE_OAUTH_TOKEN: auth.oauthToken } : {}),
     ...(auth.apiKey ? { ANTHROPIC_API_KEY: auth.apiKey } : {}),
   };
   const stream = query({

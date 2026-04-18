@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type {
-  MemoryExtractionInput,
-} from '@core/memory/memory-extractor.js';
+import type { MemoryExtractionInput } from '@core/memory/memory-extractor.js';
 import { LlmMemoryExtractionProvider } from '@core/memory/extractor-llm.js';
 
 const claudeQueryMock = vi.hoisted(() => vi.fn());

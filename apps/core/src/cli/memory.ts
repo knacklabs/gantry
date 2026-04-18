@@ -261,9 +261,7 @@ export async function runMemoryCommand(
         return 1;
       }
       setModelProfile(runtimeHome, profile);
-      p.log.success(
-        `Memory model profile set to ${profile} in settings.yaml.`,
-      );
+      p.log.success(`Memory model profile set to ${profile} in settings.yaml.`);
       return 0;
     }
 

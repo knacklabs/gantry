@@ -1,7 +1,4 @@
-import {
-  MODEL_DREAMING,
-  MEMORY_DREAMING_DRY_RUN,
-} from '../core/config.js';
+import { MODEL_DREAMING, MEMORY_DREAMING_DRY_RUN } from '../core/config.js';
 import { runClaudeQuery } from './claude-query.js';
 import { firstUngroundedToken } from './grounding-check.js';
 import { MEMORY_DREAM_REVIEW_PROMPT } from './prompts/dream.js';

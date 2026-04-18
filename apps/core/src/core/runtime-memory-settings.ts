@@ -121,7 +121,9 @@ export function readRuntimeMemorySettingsSnapshot(
     ),
     embeddingModel: stringValue(readKeyValue(embeddingsBlock, 'model', 4)),
     dreamingEnabled: booleanValue(readKeyValue(dreamingBlock, 'enabled', 4)),
-    llmExtractorModel: stringValue(readKeyValue(llmModelsBlock, 'extractor', 6)),
+    llmExtractorModel: stringValue(
+      readKeyValue(llmModelsBlock, 'extractor', 6),
+    ),
     llmDreamingModel: stringValue(readKeyValue(llmModelsBlock, 'dreaming', 6)),
     llmConsolidationModel: stringValue(
       readKeyValue(llmModelsBlock, 'consolidation', 6),

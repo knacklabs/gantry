@@ -104,27 +104,29 @@ const DEFAULT_EMBED_MODEL = 'text-embedding-3-large';
 const DEFAULT_MODEL_HAIKU = 'claude-haiku-4-5-20251001';
 const DEFAULT_MODEL_SONNET = 'claude-sonnet-4-6';
 
-const MEMORY_MODEL_PROFILES: Record<MemoryModelProfile, RuntimeMemoryLlmModels> =
-  {
-    cheap: {
-      extractor: DEFAULT_MODEL_HAIKU,
-      dreaming: DEFAULT_MODEL_HAIKU,
-      consolidation: DEFAULT_MODEL_HAIKU,
-      sessionSummary: DEFAULT_MODEL_HAIKU,
-    },
-    balanced: {
-      extractor: DEFAULT_MODEL_HAIKU,
-      dreaming: DEFAULT_MODEL_SONNET,
-      consolidation: DEFAULT_MODEL_SONNET,
-      sessionSummary: DEFAULT_MODEL_HAIKU,
-    },
-    quality: {
-      extractor: DEFAULT_MODEL_SONNET,
-      dreaming: DEFAULT_MODEL_SONNET,
-      consolidation: DEFAULT_MODEL_SONNET,
-      sessionSummary: DEFAULT_MODEL_SONNET,
-    },
-  };
+const MEMORY_MODEL_PROFILES: Record<
+  MemoryModelProfile,
+  RuntimeMemoryLlmModels
+> = {
+  cheap: {
+    extractor: DEFAULT_MODEL_HAIKU,
+    dreaming: DEFAULT_MODEL_HAIKU,
+    consolidation: DEFAULT_MODEL_HAIKU,
+    sessionSummary: DEFAULT_MODEL_HAIKU,
+  },
+  balanced: {
+    extractor: DEFAULT_MODEL_HAIKU,
+    dreaming: DEFAULT_MODEL_SONNET,
+    consolidation: DEFAULT_MODEL_SONNET,
+    sessionSummary: DEFAULT_MODEL_HAIKU,
+  },
+  quality: {
+    extractor: DEFAULT_MODEL_SONNET,
+    dreaming: DEFAULT_MODEL_SONNET,
+    consolidation: DEFAULT_MODEL_SONNET,
+    sessionSummary: DEFAULT_MODEL_SONNET,
+  },
+};
 
 export function getMemoryModelProfileDefaults(
   profile: MemoryModelProfile,

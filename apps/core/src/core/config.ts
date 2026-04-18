@@ -598,7 +598,9 @@ export function resolveClaudeAuthState(overrides?: {
   oauthToken?: string | undefined | null;
   apiKey?: string | undefined | null;
 }): ClaudeAuthState {
-  const hasOauthOverride = Boolean(overrides && hasOwn(overrides, 'oauthToken'));
+  const hasOauthOverride = Boolean(
+    overrides && hasOwn(overrides, 'oauthToken'),
+  );
   const hasApiKeyOverride = Boolean(overrides && hasOwn(overrides, 'apiKey'));
   const hasProcessOauth = hasOwn(process.env, 'CLAUDE_CODE_OAUTH_TOKEN');
   const hasProcessApiKey = hasOwn(process.env, 'ANTHROPIC_API_KEY');
@@ -634,9 +636,7 @@ function resolveMemoryLlmModel(
   taskModel: string | undefined,
   hardDefault: string,
 ): string {
-  return (
-    normalizeModelValue(taskModel) || ANTHROPIC_MODEL || hardDefault
-  );
+  return normalizeModelValue(taskModel) || ANTHROPIC_MODEL || hardDefault;
 }
 
 export const MODEL_EXTRACTOR = resolveMemoryLlmModel(

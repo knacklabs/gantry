@@ -52,7 +52,7 @@ vi.mock('@core/memory/claude-query.js', () => ({
   hasClaudeAuthConfigured: () =>
     Boolean(
       process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim() ||
-        process.env.ANTHROPIC_API_KEY?.trim(),
+      process.env.ANTHROPIC_API_KEY?.trim(),
     ),
   runClaudeQuery: async ({ prompt }: { prompt: string }) => {
     const marker =

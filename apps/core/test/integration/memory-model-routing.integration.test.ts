@@ -99,7 +99,9 @@ describe('memory model routing integration', () => {
     });
     expect(extracted.length).toBe(1);
 
-    const dreamingStore = new MemoryStore(path.join(makeTempRoot(), 'dream.db'));
+    const dreamingStore = new MemoryStore(
+      path.join(makeTempRoot(), 'dream.db'),
+    );
     const dreamed = dreamingStore.saveItem({
       scope: 'group',
       group_folder: 'team',
