@@ -1,9 +1,15 @@
 import fs from 'fs';
 import path from 'path';
-import Database from 'better-sqlite3';
 
 import { isValidGroupFolder } from '../platform/group-folder.js';
+import type { HostCapabilitiesSettings } from '../platform/host-capabilities.js';
 import { readEnvFile } from './env-file.js';
+import { getRegisteredGroupSummary } from './runtime-settings-db.js';
+import {
+  createDefaultHostCapabilities,
+  parseHostCapabilitiesSettings,
+  renderHostCapabilitiesYaml,
+} from './runtime-settings-host-capabilities.js';
 import {
   envFilePath,
   ensureRuntimeLayout,
@@ -38,6 +44,7 @@ export interface RuntimeSettings {
     embeddings: boolean;
     dreaming: boolean;
   };
+  hostCapabilities: HostCapabilitiesSettings;
 }
 
 export interface RuntimeSettingsValidationFailure {
@@ -327,6 +334,10 @@ function parseRuntimeSettings(raw: string): RuntimeSettings {
     throw new Error('features.dreaming must be true/false');
   }
 
+  const hostCapabilities = parseHostCapabilitiesSettings(
+    root.host_capabilities,
+  );
+
   return {
     channels: { telegram, slack },
     features: {
@@ -334,52 +345,8 @@ function parseRuntimeSettings(raw: string): RuntimeSettings {
       embeddings,
       dreaming,
     },
+    hostCapabilities,
   };
-}
-
-interface RegisteredGroupSummary {
-  count: number;
-  folders: Set<string>;
-  error?: string;
-}
-
-function getRegisteredGroupSummary(
-  runtimeHome: string,
-  prefix: 'tg:%' | 'sl:%',
-): RegisteredGroupSummary {
-  const dbPath = path.join(runtimeHome, 'store', 'messages.db');
-  if (!fs.existsSync(dbPath)) {
-    return { count: 0, folders: new Set() };
-  }
-
-  let db: Database.Database | null = null;
-  try {
-    db = new Database(dbPath, { readonly: true });
-    const rows = db
-      .prepare('SELECT jid, folder FROM registered_groups WHERE jid LIKE ?')
-      .all(prefix) as Array<{ jid: string; folder: string }>;
-    return {
-      count: rows.length,
-      folders: new Set(
-        rows
-          .map((row) => row.folder)
-          .filter((folder) => typeof folder === 'string' && folder.trim())
-          .map((folder) => folder.trim()),
-      ),
-    };
-  } catch (err) {
-    return {
-      count: 0,
-      folders: new Set(),
-      error: err instanceof Error ? err.message : String(err),
-    };
-  } finally {
-    try {
-      db?.close();
-    } catch {
-      // Keep primary error only.
-    }
-  }
 }
 
 function quoteYamlKey(key: string): string {
@@ -445,8 +412,9 @@ function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
     `  memory: ${settings.features.memory ? 'true' : 'false'}`,
     `  embeddings: ${settings.features.embeddings ? 'true' : 'false'}`,
     `  dreaming: ${settings.features.dreaming ? 'true' : 'false'}`,
-    '',
   );
+  renderHostCapabilitiesYaml(lines, settings.hostCapabilities);
+  lines.push('');
 
   return lines.join('\n');
 }
@@ -486,6 +454,7 @@ function createDefaultRuntimeSettings(): RuntimeSettings {
       embeddings: false,
       dreaming: false,
     },
+    hostCapabilities: createDefaultHostCapabilities(),
   };
 }
 

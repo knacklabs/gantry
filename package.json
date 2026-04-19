@@ -18,9 +18,9 @@
   ],
   "scripts": {
     "build": "tsc && npm run build --workspace myclaw-agent-runner",
-    "start": "node dist/index.js",
-    "dev": "tsx apps/core/src/index.ts",
-    "cli:dev": "tsx apps/core/src/cli/index.ts",
+    "start": "node scripts/with-project-node.mjs node dist/index.js",
+    "dev": "node scripts/with-project-node.mjs tsx apps/core/src/index.ts",
+    "cli:dev": "node scripts/with-project-node.mjs tsx apps/core/src/cli/index.ts",
     "typecheck": "tsc --noEmit && npm run build --workspace myclaw-agent-runner",
     "format": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/agent-runner/src/**/*.ts\"",
     "format:fix": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/agent-runner/src/**/*.ts\"",

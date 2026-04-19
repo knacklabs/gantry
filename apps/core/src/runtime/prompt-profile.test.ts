@@ -9,11 +9,19 @@ const loggerSpies = vi.hoisted(() => ({
   warn: vi.fn(),
 }));
 
+const hostCapabilityText = vi.hoisted(() => ({
+  value: '',
+}));
+
 vi.mock('../core/logger.js', () => ({
   logger: {
     info: loggerSpies.info,
     warn: loggerSpies.warn,
   },
+}));
+
+vi.mock('../platform/host-capabilities.js', () => ({
+  buildHostCapabilityPromptText: () => hostCapabilityText.value,
 }));
 
 import {
@@ -37,6 +45,7 @@ describe('PromptProfileService', () => {
   afterEach(() => {
     loggerSpies.warn.mockReset();
     loggerSpies.info.mockReset();
+    hostCapabilityText.value = '';
     while (roots.length > 0) {
       const root = roots.pop();
       if (!root) continue;
@@ -287,6 +296,20 @@ describe('PromptProfileService', () => {
 
     expect(prompt).toContain('Voice line');
     expect(prompt).toContain('shared\nrules');
+  });
+
+  it('injects detected host capability guidance into runtime rules', () => {
+    const root = makeTempRoot();
+    roots.push(root);
+    const agentsDir = path.join(root, 'agents');
+    hostCapabilityText.value =
+      'Host capability detected: Google Workspace CLI is available in this runtime.\nCLI command: `gws`.';
+
+    const service = new PromptProfileService({ agentsDir });
+    const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
+
+    expect(prompt).toContain('[[RUNTIME_RULES]]');
+    expect(prompt).toContain('CLI command: `gws`.');
   });
 
   it('getPromptProfileService returns singleton and bootstrap works', () => {

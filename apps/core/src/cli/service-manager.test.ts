@@ -35,9 +35,13 @@ async function loadServiceManagerWithMocks(
   }));
   vi.doMock('os', async () => {
     const actual = await vi.importActual<typeof import('os')>('os');
-    return {
+    const mocked = {
       ...actual,
       homedir: () => options.homeDir ?? actual.homedir(),
+    };
+    return {
+      ...mocked,
+      default: mocked,
     };
   });
   vi.doMock('child_process', async () => {

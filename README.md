@@ -80,6 +80,20 @@ Notes:
 MyClaw currently supports a single runtime mode: host execution.
 Use `npm run dev` for local development and `npm start` for production start.
 
+## Optional Host Capabilities
+
+For Google Sheets, Gmail, Calendar, and similar external systems, prefer host CLIs over new MyClaw integrations.
+
+- install the target CLI on the host, such as `gws` (Google Workspace CLI)
+- keep credentials in OneCLI instead of repo files
+- run credentialed commands as `onecli exec -- <cli> ...`
+
+See [`docs/operations/google-capabilities.md`](docs/operations/google-capabilities.md) for the Google Workspace path and guardrails.
+For VM deployment, see [`docs/operations/vm-runtime-config.md`](docs/operations/vm-runtime-config.md) for the `.env` vs `settings.yaml` split.
+
+For fast current-info lookups, MyClaw can also expose a small host lookup CLI to agents so short questions do not have to wait on slower generic web search.
+See [`docs/operations/fast-search-capabilities.md`](docs/operations/fast-search-capabilities.md).
+
 ## Repository Development
 
 Use this only when you are working on the source code:

@@ -58,12 +58,15 @@ Contains:
 - `.onboarding-state.json`
 
 `settings.yaml` is the single user-editable runtime settings file for behavior flags and message policy (including sender allowlist).
+Use it for channels, feature flags, and declared host capabilities.
 
 Override at runtime:
 
 ```bash
 myclaw --runtime-home /path/to/runtime
 ```
+
+For VM-ready examples of what belongs in `settings.yaml` versus `.env`, see [operations/vm-runtime-config.md](operations/vm-runtime-config.md).
 
 ## Telegram Setup
 
@@ -131,6 +134,34 @@ myclaw doctor
 myclaw status
 myclaw start
 ```
+
+## Optional Google Workspace Access
+
+The easiest Google integration path is host CLI access, not custom MyClaw Google API code.
+
+Use this shape:
+
+```bash
+onecli exec -- gws sheets spreadsheets get ...
+onecli exec -- gws gmail users messages list ...
+onecli exec -- gws calendar events list ...
+```
+
+Guidelines:
+
+- install `onecli` and `gws` on the host machine
+- keep Google credentials in OneCLI, not `settings.yaml` or repo docs
+- declare Google capability intent in `settings.yaml` under `host_capabilities`
+- start with read-only commands, then add approvals for writes
+- rerun `myclaw doctor` after provisioning so host capability warnings clear
+
+For the full workflow, see [operations/google-capabilities.md](operations/google-capabilities.md).
+
+## Optional Fast Lookup CLI
+
+MyClaw can also expose a fast host lookup CLI for short current-info questions so the agent can answer simple searches faster than generic browser-style lookup.
+
+See [operations/fast-search-capabilities.md](operations/fast-search-capabilities.md).
 
 ## Troubleshooting
 

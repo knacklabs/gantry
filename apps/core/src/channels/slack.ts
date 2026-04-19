@@ -1142,10 +1142,10 @@ export class SlackChannel implements Channel {
 
     if (text) state.rawBuffer += text;
 
-    const rendered = formatOutboundForChannel(
-      stripInternalTagsPreserveWhitespace(state.rawBuffer),
-      'slack',
-    );
+    // Streaming callers already pass channel-formatted text. Re-formatting here
+    // can both mutate markdown twice and trim away word-boundary spaces between
+    // chunks, so only strip internal tags while preserving whitespace.
+    const rendered = stripInternalTagsPreserveWhitespace(state.rawBuffer);
 
     if (!rendered && options.done) {
       this.activeStreams.delete(key);

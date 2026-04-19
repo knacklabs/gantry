@@ -2,7 +2,18 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('./runtime-home.js', async () => {
+  const actual =
+    await vi.importActual<typeof import('./runtime-home.js')>(
+      './runtime-home.js',
+    );
+  return {
+    ...actual,
+    savePreferredRuntimeHome: vi.fn(),
+  };
+});
 
 import { readEnvFile } from './env-file.js';
 import { persistOnboardingConfig } from './onboarding-config.js';

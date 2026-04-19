@@ -252,6 +252,27 @@ describe('createChannelWiring', () => {
     });
   });
 
+  it('preserves whitespace when routing streaming chunks to Slack', async () => {
+    const streamingChannel = makeChannel({
+      name: 'slack',
+      ownsJid: vi.fn((jid: string) => jid.startsWith('sl:')),
+      sendStreamingChunk: vi.fn(async () => {}),
+    });
+    const app = makeApp();
+    app.channels.push(streamingChannel);
+
+    const wiring = createChannelWiring(app);
+    await wiring.sendStreamingChunk('sl:C123', 'Back ', {
+      generation: 1,
+    });
+
+    expect(streamingChannel.sendStreamingChunk).toHaveBeenCalledWith(
+      'sl:C123',
+      'Back ',
+      expect.objectContaining({ generation: 1 }),
+    );
+  });
+
   it('returns empty answers when user-question flow fails', async () => {
     const app = makeApp({
       'tg:main': { name: 'Main', folder: 'main', isMain: true },

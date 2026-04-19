@@ -73,6 +73,35 @@ vi.mock('./prompt-profile.js', () => ({
   })),
 }));
 
+vi.mock('../cli/runtime-settings.js', () => ({
+  loadRuntimeSettings: vi.fn(() => ({
+    hostCapabilities: {
+      googleWorkspace: {
+        mode: 'auto',
+        command: 'auto',
+        useOnecli: true,
+      },
+      fastLookup: {
+        enabled: true,
+      },
+    },
+  })),
+}));
+
+vi.mock('../platform/host-capabilities.js', () => ({
+  DISABLED_HOST_CAPABILITIES: {
+    googleWorkspace: {
+      mode: 'off',
+      command: 'auto',
+      useOnecli: true,
+    },
+    fastLookup: {
+      enabled: false,
+    },
+  },
+  buildGoogleWorkspaceCliEnv: vi.fn(() => ({})),
+}));
+
 // Mock platform
 vi.mock('../platform/group-folder.js', () => ({
   resolveGroupFolderPath: vi.fn(
@@ -116,6 +145,8 @@ import fs from 'fs';
 import type { RegisteredGroup } from '../core/types.js';
 import { getPromptProfileService } from './prompt-profile.js';
 import { logger } from '../core/logger.js';
+import { buildGoogleWorkspaceCliEnv } from '../platform/host-capabilities.js';
+import { loadRuntimeSettings } from '../cli/runtime-settings.js';
 
 const testGroup: RegisteredGroup = {
   name: 'Test Group',
@@ -322,6 +353,56 @@ describe('agent-spawn timeout behavior', () => {
         process.env.OPENAI_API_KEY = originalKey;
       }
     }
+  });
+
+  it('injects Google Workspace CLI runtime env when available', async () => {
+    vi.mocked(buildGoogleWorkspaceCliEnv).mockReturnValueOnce({
+      GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND: 'file',
+      SSL_CERT_FILE: '/etc/ssl/cert.pem',
+    });
+
+    const resultPromise = spawnAgent(testGroup, testInput, () => {});
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const spawnCalls = vi.mocked(spawn).mock.calls;
+    const env = spawnCalls[spawnCalls.length - 1][2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND).toBe('file');
+    expect(env.SSL_CERT_FILE).toBe('/etc/ssl/cert.pem');
+  });
+
+  it('passes fast lookup enablement into runner env', async () => {
+    vi.mocked(loadRuntimeSettings).mockReturnValueOnce({
+      hostCapabilities: {
+        googleWorkspace: {
+          mode: 'auto',
+          command: 'auto',
+          useOnecli: true,
+        },
+        fastLookup: {
+          enabled: false,
+        },
+      },
+    } as any);
+
+    const resultPromise = spawnAgent(testGroup, testInput, () => {});
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const spawnCalls = vi.mocked(spawn).mock.calls;
+    const env = spawnCalls[spawnCalls.length - 1][2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.MYCLAW_FAST_LOOKUP_ENABLED).toBe('0');
+    expect(env.MYCLAW_FAST_LOOKUP_CLI).toBeUndefined();
   });
 
   it('continues without custom system prompt when compileSystemPrompt throws (line 70)', async () => {

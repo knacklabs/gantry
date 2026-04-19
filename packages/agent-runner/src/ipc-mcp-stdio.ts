@@ -12,6 +12,7 @@ import path from 'path';
 import { CronExpressionParser } from 'cron-parser';
 import { MemoryIpcAction } from './memory-ipc-contract.js';
 import { BrowserIpcAction } from './browser-ipc-contract.js';
+import { runFastLookup } from './fast-lookup.js';
 
 const IPC_DIR = process.env.MYCLAW_IPC_DIR || '/workspace/ipc';
 const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
@@ -31,6 +32,54 @@ const USER_QUESTION_MAX_ANSWERED_BY_LENGTH = 120;
 const chatJid = process.env.MYCLAW_CHAT_JID!;
 const groupFolder = process.env.MYCLAW_GROUP_FOLDER!;
 const isMain = process.env.MYCLAW_IS_MAIN === '1';
+
+export function isFastLookupEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.MYCLAW_FAST_LOOKUP_ENABLED !== '0';
+}
+
+export function registerFastLookupTool(
+  target: Pick<McpServer, 'tool'>,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (!isFastLookupEnabled(env)) {
+    return false;
+  }
+
+  target.tool(
+    'fast_lookup',
+    'Run a fast structured live lookup for short factual questions, web search results, sports/news checks, or weather. Prefer this before generic WebSearch for quick current-info questions in MyClaw.',
+    {
+      mode: z
+        .enum(['lookup', 'search', 'weather'])
+        .default('lookup')
+        .describe(
+          'lookup = auto-route current-info queries, search = general quick results, weather = weather-only queries',
+        ),
+      query: z
+        .string()
+        .trim()
+        .min(1)
+        .max(240)
+        .refine((value) => !/[\r\n]/.test(value), {
+          message: 'query must be a single line',
+        })
+        .describe(
+          'A short single-line question or location to look up with the MyClaw live-search helper',
+        ),
+    },
+    async (args) => {
+      const result = await runFastLookup(args.mode, args.query);
+      return {
+        content: [
+          { type: 'text' as const, text: JSON.stringify(result, null, 2) },
+        ],
+      };
+    },
+  );
+  return true;
+}
 
 function writeIpcFile(dir: string, data: object): string {
   fs.mkdirSync(dir, { recursive: true });
@@ -412,6 +461,8 @@ server.tool(
     return { content: [{ type: 'text' as const, text: 'Message sent.' }] };
   },
 );
+
+registerFastLookupTool(server);
 
 server.tool(
   'ask_user_question',

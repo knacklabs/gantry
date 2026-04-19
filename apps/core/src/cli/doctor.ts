@@ -1,7 +1,12 @@
-import fs from 'fs';
 import path from 'path';
-import Database from 'better-sqlite3';
 
+import { getOptionalHostCapabilitiesCheck } from './doctor-host-capabilities.js';
+import {
+  inspectRegisteredGroupCount,
+  inspectSlackGroupCount,
+  inspectTelegramGroupCount,
+  loadSettingsForDoctor,
+} from './doctor-inspection.js';
 import { readEnvFile } from './env-file.js';
 import {
   assertRuntimeEntryExists,
@@ -62,113 +67,6 @@ function addToReport(report: DoctorReport, check: DoctorCheck): DoctorReport {
     warnings,
     ok: blockingFailures === 0,
   };
-}
-
-function inspectTelegramGroupCount(runtimeHome: string): {
-  count: number;
-  error?: string;
-} {
-  const dbPath = path.join(runtimeHome, 'store', 'messages.db');
-  if (!fs.existsSync(dbPath)) {
-    return { count: 0 };
-  }
-
-  let db: Database.Database | null = null;
-  try {
-    db = new Database(dbPath, { readonly: true });
-    const row = db
-      .prepare(
-        `SELECT COUNT(*) as count FROM registered_groups WHERE jid LIKE 'tg:%'`,
-      )
-      .get() as { count: number };
-    return { count: row.count };
-  } catch (err) {
-    return {
-      count: 0,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  } finally {
-    try {
-      db?.close();
-    } catch {
-      // Ignore close errors and preserve primary failure.
-    }
-  }
-}
-
-function inspectSlackGroupCount(runtimeHome: string): {
-  count: number;
-  error?: string;
-} {
-  const dbPath = path.join(runtimeHome, 'store', 'messages.db');
-  if (!fs.existsSync(dbPath)) {
-    return { count: 0 };
-  }
-
-  let db: Database.Database | null = null;
-  try {
-    db = new Database(dbPath, { readonly: true });
-    const row = db
-      .prepare(
-        `SELECT COUNT(*) as count FROM registered_groups WHERE jid LIKE 'sl:%'`,
-      )
-      .get() as { count: number };
-    return { count: row.count };
-  } catch (err) {
-    return {
-      count: 0,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  } finally {
-    try {
-      db?.close();
-    } catch {
-      // Ignore close errors and preserve primary failure.
-    }
-  }
-}
-
-function inspectRegisteredGroupCount(runtimeHome: string): {
-  count: number;
-  error?: string;
-} {
-  const dbPath = path.join(runtimeHome, 'store', 'messages.db');
-  if (!fs.existsSync(dbPath)) {
-    return { count: 0 };
-  }
-
-  let db: Database.Database | null = null;
-  try {
-    db = new Database(dbPath, { readonly: true });
-    const row = db
-      .prepare(`SELECT COUNT(*) as count FROM registered_groups`)
-      .get() as { count: number };
-    return { count: row.count };
-  } catch (err) {
-    return {
-      count: 0,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  } finally {
-    try {
-      db?.close();
-    } catch {
-      // Ignore close errors and preserve primary failure.
-    }
-  }
-}
-
-function loadSettingsForDoctor(runtimeHome: string): {
-  settings?: RuntimeSettings;
-  error?: string;
-} {
-  try {
-    return { settings: ensureRuntimeSettings(runtimeHome) };
-  } catch (err) {
-    return {
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
 }
 
 export function runDoctor(
@@ -338,6 +236,11 @@ export function runDoctor(
         ? 'OpenAI embeddings are enabled and key is present.'
         : 'Embeddings are disabled in settings.yaml.',
     });
+  }
+
+  const hostCapabilitiesCheck = getOptionalHostCapabilitiesCheck(env, settings);
+  if (hostCapabilitiesCheck) {
+    add(checks, hostCapabilitiesCheck);
   }
 
   if (telegramEnabled) {

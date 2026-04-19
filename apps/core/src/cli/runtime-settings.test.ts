@@ -70,6 +70,13 @@ features:
   memory: true
   embeddings: false
   dreaming: false
+host_capabilities:
+  google_workspace:
+    mode: auto
+    command: auto
+    use_onecli: true
+  fast_lookup:
+    enabled: true
 `);
 
     expect(settings.channels.telegram.senderAllowlist.default.allow).toEqual([
@@ -107,9 +114,56 @@ features:
   memory: true
   embeddings: false
   dreaming: false
+host_capabilities:
+  google_workspace:
+    mode: auto
+    command: auto
+    use_onecli: true
+  fast_lookup:
+    enabled: true
 `);
     expect(settings.channels.telegram.enabled).toBe(false);
     expect(settings.channels.slack.enabled).toBe(true);
+  });
+
+  it('parses host capability settings for VM-style deployment', () => {
+    const settings = parseRuntimeSettingsText(`
+channels:
+  telegram:
+    enabled: false
+    sender_allowlist:
+      default:
+        allow: "*"
+        mode: trigger
+      agents: {}
+      log_denied: true
+  slack:
+    enabled: false
+    sender_allowlist:
+      default:
+        allow: "*"
+        mode: trigger
+      agents: {}
+      log_denied: true
+features:
+  memory: true
+  embeddings: false
+  dreaming: false
+host_capabilities:
+  google_workspace:
+    mode: on
+    command: gws
+    use_onecli: true
+  fast_lookup:
+    enabled: false
+`);
+
+    expect(settings.hostCapabilities.googleWorkspace).toEqual({
+      mode: 'on',
+      command: 'gws',
+      useOnecli: true,
+    });
+    expect(settings.hostCapabilities.fastLookup.enabled).toBe(false);
   });
 
   it('creates fixed defaults when settings.yaml is missing', () => {
@@ -121,6 +175,10 @@ features:
     expect(settings.features.memory).toBe(true);
     expect(settings.features.embeddings).toBe(false);
     expect(settings.features.dreaming).toBe(false);
+    expect(settings.hostCapabilities.googleWorkspace.mode).toBe('auto');
+    expect(settings.hostCapabilities.googleWorkspace.command).toBe('auto');
+    expect(settings.hostCapabilities.googleWorkspace.useOnecli).toBe(true);
+    expect(settings.hostCapabilities.fastLookup.enabled).toBe(true);
     expect(fs.existsSync(settingsFilePath(runtimeHome))).toBe(true);
   });
 
@@ -171,6 +229,13 @@ features:
   memory: true
   embeddings: false
   dreaming: false
+host_capabilities:
+  google_workspace:
+    mode: auto
+    command: auto
+    use_onecli: true
+  fast_lookup:
+    enabled: true
 `.trimStart(),
       'utf-8',
     );

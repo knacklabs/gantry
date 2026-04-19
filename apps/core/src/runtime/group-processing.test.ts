@@ -45,11 +45,14 @@ vi.mock('../memory/memory-service.js', () => ({
 const mockFindChannel = vi.fn();
 const mockFormatMessages = vi.fn();
 const mockFormatOutboundForChannel = vi.fn();
+const mockStripInternalTagsPreserveWhitespace = vi.fn();
 vi.mock('../messaging/router.js', () => ({
   findChannel: (...args: unknown[]) => mockFindChannel(...args),
   formatMessages: (...args: unknown[]) => mockFormatMessages(...args),
   formatOutboundForChannel: (...args: unknown[]) =>
     mockFormatOutboundForChannel(...args),
+  stripInternalTagsPreserveWhitespace: (...args: unknown[]) =>
+    mockStripInternalTagsPreserveWhitespace(...args),
 }));
 
 const mockIsTriggerAllowed = vi.fn();
@@ -212,6 +215,9 @@ function setupHappyPath(
   mockFormatMessages.mockReturnValue('formatted prompt');
   mockFormatOutboundForChannel.mockImplementation((raw: string) =>
     raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim(),
+  );
+  mockStripInternalTagsPreserveWhitespace.mockImplementation((raw: string) =>
+    raw.replace(/<internal>[\s\S]*?<\/internal>/g, ''),
   );
   mockGetAllJobs.mockReturnValue([]);
   mockGetRecentJobRuns.mockReturnValue([]);
@@ -1211,6 +1217,48 @@ describe('createGroupProcessor', () => {
           done: true,
           generation: firstCallGeneration,
         }),
+      );
+    });
+
+    it('preserves trailing spaces for streamed chunks before channel delivery', async () => {
+      const streamingChannel = makeChannel({
+        name: 'slack',
+        sendStreamingChunk: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath();
+      deps.channels = [streamingChannel];
+      mockFindChannel.mockReturnValue(streamingChannel);
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: RegisteredGroup,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: 'Back ' });
+          await onOutput?.({
+            status: 'success',
+            result: 'to `auth_method:none`',
+          });
+          return { status: 'success', result: 'done' } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(streamingChannel.sendStreamingChunk).toHaveBeenNthCalledWith(
+        1,
+        'group1@g.us',
+        'Back ',
+        expect.objectContaining({ generation: expect.any(Number) }),
+      );
+      expect(streamingChannel.sendStreamingChunk).toHaveBeenNthCalledWith(
+        2,
+        'group1@g.us',
+        'to `auth_method:none`',
+        expect.objectContaining({ generation: expect.any(Number) }),
       );
     });
 

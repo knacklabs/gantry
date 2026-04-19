@@ -603,11 +603,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
               typeof result.result === 'string'
                 ? result.result
                 : JSON.stringify(result.result);
-            const isTelegramGroupStreaming =
-              supportsStreamingChunks &&
-              channel.name === 'telegram' &&
-              chatJid.startsWith('tg:-');
-            const text = isTelegramGroupStreaming
+            const text = supportsStreamingChunks
               ? stripInternalTagsPreserveWhitespace(raw)
               : formatOutboundForChannel(raw, channel.name);
             logger.info(

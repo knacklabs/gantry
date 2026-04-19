@@ -141,6 +141,118 @@ describe('doctor checks', () => {
     expect(check?.status).toBe('pass');
     expect(check?.message).toContain('launchd');
   });
+
+  it('warns when OneCLI credential mode is configured but onecli is missing', async () => {
+    const runtimeHome = createRuntimeHome();
+    upsertEnvFile(envFilePath(runtimeHome), {
+      ONECLI_URL: 'http://localhost:10254',
+      MYCLAW_CREDENTIAL_MODE: 'onecli-only',
+    });
+
+    vi.resetModules();
+    vi.doMock('../platform/host-capabilities.js', async () => {
+      const actual = await vi.importActual<
+        typeof import('../platform/host-capabilities.js')
+      >('../platform/host-capabilities.js');
+      return {
+        ...actual,
+        detectGoogleWorkspaceCli: () => ({
+          command: 'gws' as const,
+          onecliInstalled: false,
+        }),
+        isOnecliInstalled: () => false,
+      };
+    });
+
+    const mod = await import('./doctor.js');
+    const report = mod.runDoctor(import.meta.url, runtimeHome);
+    const check = report.checks.find((item) => item.id === 'host-capabilities');
+
+    expect(check?.status).toBe('warn');
+    expect(check?.message).toContain('onecli');
+    expect(check?.message).toContain('gws');
+    expect(check?.nextAction).toContain('onecli exec -- <cli>');
+  });
+
+  it('reports Google host capabilities when onecli and gws are installed', async () => {
+    vi.resetModules();
+    vi.doMock('../platform/host-capabilities.js', async () => {
+      const actual = await vi.importActual<
+        typeof import('../platform/host-capabilities.js')
+      >('../platform/host-capabilities.js');
+      return {
+        ...actual,
+        detectGoogleWorkspaceCli: () => ({
+          command: 'gws' as const,
+          onecliInstalled: true,
+        }),
+        isOnecliInstalled: () => true,
+      };
+    });
+
+    const mod = await import('./doctor.js');
+    const report = mod.runDoctor(import.meta.url, createRuntimeHome());
+    const check = report.checks.find((item) => item.id === 'host-capabilities');
+
+    expect(check?.status).toBe('pass');
+    expect(check?.message).toContain('onecli exec -- gws');
+  });
+
+  it('warns when Google Workspace capability is enabled in settings but CLI is missing', async () => {
+    const runtimeHome = createRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.hostCapabilities.googleWorkspace.mode = 'on';
+    settings.hostCapabilities.googleWorkspace.command = 'gworkspace';
+    settings.hostCapabilities.googleWorkspace.useOnecli = true;
+    saveRuntimeSettings(runtimeHome, settings);
+
+    vi.resetModules();
+    vi.doMock('../platform/host-capabilities.js', async () => {
+      const actual = await vi.importActual<
+        typeof import('../platform/host-capabilities.js')
+      >('../platform/host-capabilities.js');
+      return {
+        ...actual,
+        detectGoogleWorkspaceCli: () => undefined,
+        isOnecliInstalled: () => false,
+      };
+    });
+
+    const mod = await import('./doctor.js');
+    const report = mod.runDoctor(import.meta.url, runtimeHome);
+    const check = report.checks.find((item) => item.id === 'host-capabilities');
+
+    expect(check?.status).toBe('warn');
+    expect(check?.message).toContain('enabled in settings.yaml');
+    expect(check?.message).toContain('`gworkspace`');
+  });
+
+  it('keeps auto-mode Google capability informational when CLI is missing', async () => {
+    const runtimeHome = createRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.hostCapabilities.googleWorkspace.mode = 'auto';
+    settings.hostCapabilities.googleWorkspace.command = 'gworkspace';
+    saveRuntimeSettings(runtimeHome, settings);
+
+    vi.resetModules();
+    vi.doMock('../platform/host-capabilities.js', async () => {
+      const actual = await vi.importActual<
+        typeof import('../platform/host-capabilities.js')
+      >('../platform/host-capabilities.js');
+      return {
+        ...actual,
+        detectGoogleWorkspaceCli: () => undefined,
+        isOnecliInstalled: () => true,
+      };
+    });
+
+    const mod = await import('./doctor.js');
+    const report = mod.runDoctor(import.meta.url, runtimeHome);
+    const check = report.checks.find((item) => item.id === 'host-capabilities');
+
+    expect(check?.status).toBe('pass');
+    expect(check?.message).toContain('optional in settings.yaml');
+  });
 });
 
 describe('hasProcessableGroupForConfiguredChannel', () => {

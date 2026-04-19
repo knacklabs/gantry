@@ -1,9 +1,15 @@
 import fs from 'fs';
 import path from 'path';
 
+import { loadRuntimeSettings } from '../cli/runtime-settings.js';
 import { AGENTS_DIR } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
+import {
+  buildHostCapabilityPromptText,
+  DISABLED_HOST_CAPABILITIES,
+  type HostCapabilitiesSettings,
+} from '../platform/host-capabilities.js';
 
 type PromptSectionName =
   | 'RUNTIME_RULES'
@@ -27,17 +33,46 @@ export const DEFAULT_PROMPT_SECTION_BUDGETS: Readonly<
 
 export const DEFAULT_PROMPT_TOTAL_BUDGET = 22000;
 
-const RUNTIME_RULES_BLOCK = [
-  '# MyClaw Runtime Rules',
-  '- Follow MyClaw safety and execution constraints exactly.',
-  '- Keep static profile behavior separate from dynamic memory context.',
-  '- Treat group boundaries as strict isolation boundaries unless explicitly overridden by host policy.',
-].join('\n');
+function buildRuntimeRulesBlock(
+  runtimeHome?: string,
+  hostCapabilities?: HostCapabilitiesSettings,
+): string {
+  const lines = [
+    '# MyClaw Runtime Rules',
+    '- Follow MyClaw safety and execution constraints exactly.',
+    '- Keep static profile behavior separate from dynamic memory context.',
+    '- Treat group boundaries as strict isolation boundaries unless explicitly overridden by host policy.',
+  ];
+
+  let hostCapabilitiesText = '';
+  if (hostCapabilities) {
+    hostCapabilitiesText = buildHostCapabilityPromptText(hostCapabilities);
+  } else if (runtimeHome) {
+    try {
+      hostCapabilitiesText = buildHostCapabilityPromptText(
+        loadRuntimeSettings(runtimeHome).hostCapabilities,
+      );
+    } catch {
+      hostCapabilitiesText = buildHostCapabilityPromptText(
+        DISABLED_HOST_CAPABILITIES,
+      );
+    }
+  } else {
+    hostCapabilitiesText = buildHostCapabilityPromptText();
+  }
+  if (hostCapabilitiesText) {
+    lines.push('', hostCapabilitiesText);
+  }
+
+  return lines.join('\n');
+}
 
 const DEFAULT_SHARED_TEMPLATE = `# Shared Agent Profile\n\n## Operating Rules\nDefine stable behavior rules, priorities, and constraints.\n\n## User Preferences\nCapture durable preferences that apply broadly.\n\n## Privacy Rules\nSpecify what must remain private.\n\n## Tool Conventions\nDefine tool usage conventions.\n\n## Capabilities\nList what the agent can do.\n\n## Communication\nDefine message delivery, internal thoughts, sub-agent rules.\n\n## Message Formatting\nChannel-specific formatting rules.\n`;
 
 export interface CompilePromptProfileOptions {
   groupFolder: string;
+  runtimeHome?: string;
+  hostCapabilities?: HostCapabilitiesSettings;
 }
 
 export interface PromptProfileServiceOptions {
@@ -104,7 +139,7 @@ export class PromptProfileService {
       name: 'RUNTIME_RULES',
       source: 'myclaw://runtime-rules',
       content: truncateDeterministically(
-        RUNTIME_RULES_BLOCK,
+        buildRuntimeRulesBlock(options.runtimeHome, options.hostCapabilities),
         this.sectionBudgets.RUNTIME_RULES,
       ),
     });

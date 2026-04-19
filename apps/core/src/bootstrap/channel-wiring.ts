@@ -229,11 +229,7 @@ export function createChannelWiring(
       return;
     }
 
-    const isTelegramGroup =
-      channel.name === 'telegram' && jid.startsWith('tg:-');
-    const text = isTelegramGroup
-      ? stripInternalTagsPreserveWhitespace(rawText)
-      : formatOutboundForChannel(rawText, channel.name);
+    const text = stripInternalTagsPreserveWhitespace(rawText);
     if (!text && !options?.done) return;
 
     if (channel.sendStreamingChunk) {

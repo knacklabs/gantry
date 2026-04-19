@@ -569,6 +569,86 @@ describe('Slack channel', () => {
     );
   });
 
+  it('preserves whitespace when streamed chunks split on trailing spaces', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    vi.mocked(appRef.current.client.apiCall).mockImplementation(
+      async (method: string, payload: Record<string, unknown>) => {
+        if (method === 'chat.startStream') {
+          return { ok: true, stream_ts: '1710000000.222333', payload };
+        }
+        if (method === 'chat.appendStream') {
+          return { ok: true, payload };
+        }
+        if (method === 'chat.stopStream') {
+          return { ok: true };
+        }
+        return { ok: false };
+      },
+    );
+
+    const nowSpy = vi.spyOn(Date, 'now');
+    nowSpy
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(2200)
+      .mockReturnValueOnce(3400);
+
+    await channel.sendStreamingChunk('sl:C1234567890', 'Let ');
+    await channel.sendStreamingChunk('sl:C1234567890', 'me ');
+    await channel.sendStreamingChunk('sl:C1234567890', 'check');
+
+    const apiCallCalls = vi.mocked(appRef.current.client.apiCall).mock.calls;
+    const startCall = apiCallCalls.find(
+      ([method]: [string]) => method === 'chat.startStream',
+    );
+    const appendCalls = apiCallCalls.filter(
+      ([method]: [string]) => method === 'chat.appendStream',
+    );
+
+    expect(startCall?.[1]).toEqual(
+      expect.objectContaining({ markdown_text: 'Let ' }),
+    );
+    expect(appendCalls[0]?.[1]).toEqual(
+      expect.objectContaining({ markdown_text: 'me ' }),
+    );
+    expect(appendCalls[1]?.[1]).toEqual(
+      expect.objectContaining({ markdown_text: 'check' }),
+    );
+  });
+
+  it('does not reformat already-formatted Slack markdown during streaming', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    vi.mocked(appRef.current.client.apiCall).mockImplementation(
+      async (method: string, payload: Record<string, unknown>) => {
+        if (method === 'chat.startStream') {
+          return { ok: true, stream_ts: '1710000000.222333', payload };
+        }
+        return { ok: false };
+      },
+    );
+
+    await channel.sendStreamingChunk('sl:C1234567890', '*done*');
+
+    expect(vi.mocked(appRef.current.client.apiCall)).toHaveBeenCalledWith(
+      'chat.startStream',
+      expect.objectContaining({
+        channel: 'C1234567890',
+        markdown_text: '*done*',
+      }),
+    );
+  });
+
   it('falls back to message streaming without duplicating native-rendered prefix', async () => {
     const channel = new SlackChannel(
       'xoxb-token',

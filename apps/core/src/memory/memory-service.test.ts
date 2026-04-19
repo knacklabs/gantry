@@ -14,6 +14,8 @@ const configOverrides = vi.hoisted(() => ({
   MEMORY_CONSOLIDATION_ENABLED: undefined as boolean | undefined,
   MEMORY_GLOBAL_KNOWLEDGE_DIR: undefined as string | undefined,
   OPENAI_API_KEY: undefined as string | null | undefined,
+  AGENT_ROOT: `/tmp/myclaw-memory-agent-root-${process.pid}`,
+  AGENTS_DIR: `/tmp/myclaw-memory-agent-root-${process.pid}/agents`,
 }));
 
 vi.mock('../core/config.js', async (importOriginal) => {
@@ -52,6 +54,12 @@ vi.mock('../core/config.js', async (importOriginal) => {
     get OPENAI_API_KEY() {
       return configOverrides.OPENAI_API_KEY ?? original.OPENAI_API_KEY;
     },
+    get AGENT_ROOT() {
+      return configOverrides.AGENT_ROOT ?? original.AGENT_ROOT;
+    },
+    get AGENTS_DIR() {
+      return configOverrides.AGENTS_DIR ?? original.AGENTS_DIR;
+    },
   };
 });
 
@@ -80,6 +88,7 @@ afterEach(() => {
   configOverrides.MEMORY_GLOBAL_KNOWLEDGE_DIR = undefined;
   configOverrides.OPENAI_API_KEY = undefined;
 
+  fs.rmSync(configOverrides.AGENT_ROOT, { recursive: true, force: true });
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -16,6 +16,13 @@ import { logger } from '../core/logger.js';
 import { RegisteredGroup } from '../core/types.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import {
+  buildGoogleWorkspaceCliEnv,
+  DISABLED_HOST_CAPABILITIES,
+  type GoogleWorkspaceCapabilitySettings,
+  type HostCapabilitiesSettings,
+} from '../platform/host-capabilities.js';
+import { loadRuntimeSettings } from '../cli/runtime-settings.js';
+import {
   getHostRuntimeCredentialEnv,
   prepareHostRuntimeContext,
 } from './agent-spawn-host.js';
@@ -98,10 +105,23 @@ export async function spawnAgent(
     : group.folder.toLowerCase().replace(/_/g, '-');
 
   let compiledSystemPrompt = '';
+  let hostCapabilities: HostCapabilitiesSettings = DISABLED_HOST_CAPABILITIES;
+  let googleWorkspaceSettings: GoogleWorkspaceCapabilitySettings =
+    DISABLED_HOST_CAPABILITIES.googleWorkspace;
+
+  try {
+    hostCapabilities = loadRuntimeSettings(AGENT_ROOT).hostCapabilities;
+    googleWorkspaceSettings = hostCapabilities.googleWorkspace;
+  } catch {
+    hostCapabilities = DISABLED_HOST_CAPABILITIES;
+    googleWorkspaceSettings = DISABLED_HOST_CAPABILITIES.googleWorkspace;
+  }
 
   try {
     compiledSystemPrompt = promptProfileService.compileSystemPrompt({
       groupFolder: group.folder,
+      runtimeHome: AGENT_ROOT,
+      hostCapabilities,
     });
   } catch (err) {
     logger.warn(
@@ -120,6 +140,7 @@ export async function spawnAgent(
   const agentRunnerDir = path.join(hostRuntime.runnerRoot, 'dist');
   const hostRunnerPath = path.join(agentRunnerDir, 'index.js');
   const mcpServerPath = path.join(agentRunnerDir, 'ipc-mcp-stdio.js');
+  const fastLookupCliPath = path.join(agentRunnerDir, 'fast-lookup.js');
   if (!fs.existsSync(hostRunnerPath) || !fs.existsSync(mcpServerPath)) {
     return {
       status: 'error',
@@ -133,6 +154,7 @@ export async function spawnAgent(
   const args = [hostRunnerPath];
   const env: NodeJS.ProcessEnv = {
     ...pickSafeHostEnv(process.env),
+    ...buildGoogleWorkspaceCliEnv(process.env, googleWorkspaceSettings),
     ...hostCredentials.env,
     TZ: TIMEZONE,
     MYCLAW_WORKSPACE_GROUP_DIR: hostRuntime.groupDir,
@@ -147,6 +169,10 @@ export async function spawnAgent(
     MYCLAW_IPC_INPUT_DIR: path.join(hostRuntime.groupIpcDir, 'input'),
     MYCLAW_IPC_AUTH_TOKEN: computeIpcAuthToken(group.folder),
     MYCLAW_PERMISSION_TIMEOUT_MS: String(PERMISSION_APPROVAL_TIMEOUT_MS),
+    MYCLAW_FAST_LOOKUP_ENABLED: hostCapabilities.fastLookup.enabled ? '1' : '0',
+    ...(hostCapabilities.fastLookup.enabled && fs.existsSync(fastLookupCliPath)
+      ? { MYCLAW_FAST_LOOKUP_CLI: fastLookupCliPath }
+      : {}),
     ...((AGENT_MEMORY_ROOT || '').trim()
       ? { AGENT_MEMORY_ROOT: (AGENT_MEMORY_ROOT || '').trim() }
       : {}),
@@ -176,6 +202,7 @@ export async function spawnAgent(
     `ipcInput=${path.join(hostRuntime.groupIpcDir, 'input')}`,
     `onecliApplied=${hostCredentials.onecliApplied}`,
     `onecliCaPath=${hostCredentials.onecliCaPath || '(none)'}`,
+    `fastLookupCli=${fs.existsSync(fastLookupCliPath) ? fastLookupCliPath : '(none)'}`,
     `runner=${hostRunnerPath}`,
   ];
 
