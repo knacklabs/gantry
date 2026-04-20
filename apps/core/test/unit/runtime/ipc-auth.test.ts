@@ -107,8 +107,8 @@ describe('scheduler authorization', () => {
         type: 'scheduler_upsert_job',
         name: 'cross-scope',
         prompt: 'do work',
-        schedule_type: 'interval',
-        schedule_value: '60000',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
         groupScope: 'third-group',
       },
       'other-group',
@@ -126,8 +126,8 @@ describe('scheduler authorization', () => {
         jobId: 'job-foreign-link',
         name: 'cross-link',
         prompt: 'do work',
-        schedule_type: 'interval',
-        schedule_value: '60000',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
         linkedSessions: ['other@g.us', 'third@g.us'],
       },
       'other-group',
@@ -138,15 +138,15 @@ describe('scheduler authorization', () => {
     expect(getJobById('job-foreign-link')).toBeUndefined();
   });
 
-  it('main can upsert cross-group jobs and trigger them', async () => {
+  it('main can upsert and mutate cross-group jobs', async () => {
     await processTaskIpc(
       {
         type: 'scheduler_upsert_job',
         jobId: 'job-main-1',
         name: 'main-job',
         prompt: 'do work',
-        schedule_type: 'interval',
-        schedule_value: '60000',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
         groupScope: 'other-group',
         linkedSessions: ['other@g.us'],
       },
@@ -159,7 +159,7 @@ describe('scheduler authorization', () => {
 
     await processTaskIpc(
       {
-        type: 'scheduler_trigger_job',
+        type: 'scheduler_pause_job',
         jobId: 'job-main-1',
       },
       'whatsapp_main',
@@ -167,9 +167,21 @@ describe('scheduler authorization', () => {
       deps,
     );
 
-    const triggered = getJobById('job-main-1');
-    expect(triggered?.status).toBe('active');
-    expect(triggered?.next_run).toBeTruthy();
+    expect(getJobById('job-main-1')?.status).toBe('paused');
+
+    await processTaskIpc(
+      {
+        type: 'scheduler_resume_job',
+        jobId: 'job-main-1',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+
+    const resumed = getJobById('job-main-1');
+    expect(resumed?.status).toBe('active');
+    expect(resumed?.next_run).toBeTruthy();
   });
 
   it('non-main cannot mutate jobs that include foreign linked sessions', async () => {
@@ -179,8 +191,8 @@ describe('scheduler authorization', () => {
         jobId: 'job-mixed-links',
         name: 'mixed-links',
         prompt: 'do work',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
         linkedSessions: ['other@g.us', 'third@g.us'],
         groupScope: 'other-group',
       },
@@ -210,8 +222,8 @@ describe('scheduler authorization', () => {
         jobId: 'job-own',
         name: 'own-job',
         prompt: 'do work',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
       },
       'other-group',
       false,

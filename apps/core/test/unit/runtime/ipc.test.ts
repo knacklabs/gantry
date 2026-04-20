@@ -11,6 +11,16 @@ import {
 import { RegisteredGroup } from '@core/core/types.js';
 import { IpcDeps, processTaskIpc } from '@core/runtime/ipc.js';
 
+vi.mock('@core/core/config.js', async () => {
+  const actual = await vi.importActual<typeof import('@core/core/config.js')>(
+    '@core/core/config.js',
+  );
+  return {
+    ...actual,
+    CHROME_PATH: undefined,
+  };
+});
+
 const MAIN_GROUP: RegisteredGroup = {
   name: 'Main',
   folder: 'whatsapp_main',
@@ -74,8 +84,8 @@ async function upsertViaIpc(
     jobId: 'test-job-1',
     name: 'Test Job',
     prompt: 'do something',
-    schedule_type: 'interval',
-    schedule_value: '60000',
+    scheduleType: 'interval',
+    scheduleValue: '60000',
     ...overrides,
   };
   await processTaskIpc(base, sourceGroup, isMain, deps);
@@ -88,8 +98,8 @@ describe('scheduler_upsert_job', () => {
   it('creates a cron job with correct next_run', async () => {
     await upsertViaIpc({
       jobId: 'cron-job',
-      schedule_type: 'cron',
-      schedule_value: '*/5 * * * *',
+      scheduleType: 'cron',
+      scheduleValue: '*/5 * * * *',
     });
 
     const job = getJobById('cron-job');
@@ -107,8 +117,8 @@ describe('scheduler_upsert_job', () => {
     const before = Date.now();
     await upsertViaIpc({
       jobId: 'interval-job',
-      schedule_type: 'interval',
-      schedule_value: '120000',
+      scheduleType: 'interval',
+      scheduleValue: '120000',
     });
 
     const job = getJobById('interval-job');
@@ -123,8 +133,8 @@ describe('scheduler_upsert_job', () => {
     const futureDate = new Date(Date.now() + 86_400_000).toISOString();
     await upsertViaIpc({
       jobId: 'once-job',
-      schedule_type: 'once',
-      schedule_value: futureDate,
+      scheduleType: 'once',
+      scheduleValue: futureDate,
     });
 
     const job = getJobById('once-job');
@@ -133,25 +143,23 @@ describe('scheduler_upsert_job', () => {
     expect(job!.next_run).toBe(futureDate);
   });
 
-  it('creates a manual job with null next_run', async () => {
+  it('rejects unsupported manual schedule type', async () => {
     await upsertViaIpc({
       jobId: 'manual-job',
-      schedule_type: 'manual',
-      schedule_value: '',
+      scheduleType: 'manual',
+      scheduleValue: '',
     });
 
-    const job = getJobById('manual-job');
-    expect(job).toBeDefined();
-    expect(job!.schedule_type).toBe('manual');
-    expect(job!.next_run).toBeNull();
+    expect(getJobById('manual-job')).toBeUndefined();
+    expect(deps.onSchedulerChanged).not.toHaveBeenCalled();
   });
 
   it('stores optional model override on upsert', async () => {
     await upsertViaIpc({
       jobId: 'model-job',
       model: 'claude-sonnet-4-6',
-      schedule_type: 'manual',
-      schedule_value: '',
+      scheduleType: 'interval',
+      scheduleValue: '60000',
     });
 
     const job = getJobById('model-job');
@@ -162,8 +170,8 @@ describe('scheduler_upsert_job', () => {
   it('rejects invalid cron expression', async () => {
     await upsertViaIpc({
       jobId: 'bad-cron',
-      schedule_type: 'cron',
-      schedule_value: 'not-a-cron',
+      scheduleType: 'cron',
+      scheduleValue: 'not-a-cron',
     });
 
     expect(getJobById('bad-cron')).toBeUndefined();
@@ -173,8 +181,8 @@ describe('scheduler_upsert_job', () => {
   it('rejects invalid interval (non-numeric)', async () => {
     await upsertViaIpc({
       jobId: 'bad-interval',
-      schedule_type: 'interval',
-      schedule_value: 'abc',
+      scheduleType: 'interval',
+      scheduleValue: 'abc',
     });
 
     expect(getJobById('bad-interval')).toBeUndefined();
@@ -184,8 +192,8 @@ describe('scheduler_upsert_job', () => {
   it('rejects invalid interval (zero)', async () => {
     await upsertViaIpc({
       jobId: 'zero-interval',
-      schedule_type: 'interval',
-      schedule_value: '0',
+      scheduleType: 'interval',
+      scheduleValue: '0',
     });
 
     expect(getJobById('zero-interval')).toBeUndefined();
@@ -194,8 +202,8 @@ describe('scheduler_upsert_job', () => {
   it('rejects invalid interval (negative)', async () => {
     await upsertViaIpc({
       jobId: 'neg-interval',
-      schedule_type: 'interval',
-      schedule_value: '-1000',
+      scheduleType: 'interval',
+      scheduleValue: '-1000',
     });
 
     expect(getJobById('neg-interval')).toBeUndefined();
@@ -204,8 +212,8 @@ describe('scheduler_upsert_job', () => {
   it('rejects invalid once timestamp', async () => {
     await upsertViaIpc({
       jobId: 'bad-once',
-      schedule_type: 'once',
-      schedule_value: 'not-a-date',
+      scheduleType: 'once',
+      scheduleValue: 'not-a-date',
     });
 
     expect(getJobById('bad-once')).toBeUndefined();
@@ -217,8 +225,8 @@ describe('scheduler_upsert_job', () => {
       jobId: undefined,
       name: 'Auto ID Job',
       prompt: 'run something',
-      schedule_type: 'manual',
-      schedule_value: '',
+      scheduleType: 'interval',
+      scheduleValue: '60000',
     });
 
     // The generated ID should follow the pattern job-<slug>-<hash>
@@ -234,8 +242,8 @@ describe('scheduler_upsert_job', () => {
       jobId: 'no-name',
       name: '',
       prompt: 'something',
-      schedule_type: 'manual',
-      schedule_value: '',
+      scheduleType: 'interval',
+      scheduleValue: '60000',
     });
 
     expect(getJobById('no-name')).toBeUndefined();
@@ -247,8 +255,8 @@ describe('scheduler_upsert_job', () => {
       jobId: 'no-prompt',
       name: 'Some Name',
       prompt: '',
-      schedule_type: 'manual',
-      schedule_value: '',
+      scheduleType: 'interval',
+      scheduleValue: '60000',
     });
 
     expect(getJobById('no-prompt')).toBeUndefined();
@@ -260,7 +268,6 @@ describe('scheduler_upsert_job', () => {
       jobId: 'no-schedule',
       name: 'Some Name',
       prompt: 'something',
-      schedule_type: undefined,
       scheduleType: undefined,
     });
 
@@ -271,8 +278,8 @@ describe('scheduler_upsert_job', () => {
   it('passes optional fields (timeoutMs, maxRetries, etc.)', async () => {
     await upsertViaIpc({
       jobId: 'opts-job',
-      schedule_type: 'manual',
-      schedule_value: '',
+      scheduleType: 'interval',
+      scheduleValue: '60000',
       timeoutMs: 5000,
       maxRetries: 1,
       retryBackoffMs: 2000,
@@ -286,15 +293,15 @@ describe('scheduler_upsert_job', () => {
     expect(job!.max_retries).toBe(1);
     expect(job!.retry_backoff_ms).toBe(2000);
     expect(job!.max_consecutive_failures).toBe(2);
-    expect(job!.created_by).toBe('agent');
+    expect(job!.created_by).toBe('human');
     expect(job!.script).toBeNull();
   });
 
   it('stores delivery metadata fields (threadId, silent, cleanupAfterMs)', async () => {
     await upsertViaIpc({
       jobId: 'delivery-meta-job',
-      schedule_type: 'manual',
-      schedule_value: '',
+      scheduleType: 'interval',
+      scheduleValue: '60000',
       threadId: 'thread-42',
       silent: true,
       cleanupAfterMs: 60000,
@@ -314,8 +321,8 @@ describe('scheduler_upsert_job', () => {
         jobId: 'auto-link-job',
         name: 'Auto Link',
         prompt: 'do it',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
       },
       'other-group',
       false,
@@ -336,8 +343,8 @@ describe('scheduler_upsert_job', () => {
         jobId: 'empty-link-job',
         name: 'Empty Link',
         prompt: 'do it',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
         linkedSessions: [],
       },
       'other-group',
@@ -353,65 +360,12 @@ describe('scheduler_upsert_job', () => {
   it('breaks on unknown schedule type', async () => {
     await upsertViaIpc({
       jobId: 'unknown-sched',
-      schedule_type: 'weekly',
-      schedule_value: 'Monday',
+      scheduleType: 'weekly',
+      scheduleValue: 'Monday',
     });
 
     expect(getJobById('unknown-sched')).toBeUndefined();
     expect(deps.onSchedulerChanged).not.toHaveBeenCalled();
-  });
-});
-
-describe('scheduler_once', () => {
-  it('creates a one-time job and defaults delivery to source group JID', async () => {
-    const runAt = new Date(Date.now() + 3600000).toISOString();
-    await processTaskIpc(
-      {
-        type: 'scheduler_once',
-        jobId: 'once-convenience',
-        name: 'Reminder',
-        prompt: 'Review PR',
-        runAt,
-      },
-      'other-group',
-      false,
-      deps,
-    );
-
-    const job = getJobById('once-convenience');
-    expect(job).toBeDefined();
-    expect(job!.schedule_type).toBe('once');
-    expect(job!.schedule_value).toBe(runAt);
-    expect(job!.next_run).toBe(runAt);
-    expect(job!.linked_sessions).toEqual(['other@g.us']);
-    expect(job!.group_scope).toBe('other-group');
-  });
-
-  it('applies deliverTo, threadId, silent, cleanupAfterMs', async () => {
-    const runAt = new Date(Date.now() + 7200000).toISOString();
-    await processTaskIpc(
-      {
-        type: 'scheduler_once',
-        jobId: 'once-delivery-meta',
-        name: 'Reminder',
-        prompt: 'Review PR',
-        runAt,
-        deliverTo: ['other@g.us'],
-        threadId: 'thread-7',
-        silent: true,
-        cleanupAfterMs: 0,
-      },
-      'whatsapp_main',
-      true,
-      deps,
-    );
-
-    const job = getJobById('once-delivery-meta');
-    expect(job).toBeDefined();
-    expect(job!.linked_sessions).toEqual(['other@g.us']);
-    expect(job!.thread_id).toBe('thread-7');
-    expect(job!.silent).toBe(true);
-    expect(job!.cleanup_after_ms).toBe(0);
   });
 });
 
@@ -425,8 +379,8 @@ describe('scheduler_update_job', () => {
       jobId: 'upd-job',
       name: 'Update Me',
       prompt: 'old prompt',
-      schedule_type: 'manual',
-      schedule_value: '',
+      scheduleType: 'interval',
+      scheduleValue: '60000',
     });
     vi.mocked(deps.onSchedulerChanged).mockClear();
   });
@@ -554,8 +508,8 @@ describe('scheduler_update_job', () => {
       {
         type: 'scheduler_update_job',
         jobId: 'upd-job',
-        schedule_type: 'cron',
-        schedule_value: '0 * * * *',
+        scheduleType: 'cron',
+        scheduleValue: '0 * * * *',
       },
       'whatsapp_main',
       true,
@@ -576,8 +530,8 @@ describe('scheduler_update_job', () => {
       {
         type: 'scheduler_update_job',
         jobId: 'upd-job',
-        schedule_type: 'interval',
-        schedule_value: '30000',
+        scheduleType: 'interval',
+        scheduleValue: '30000',
       },
       'whatsapp_main',
       true,
@@ -596,8 +550,8 @@ describe('scheduler_update_job', () => {
       {
         type: 'scheduler_update_job',
         jobId: 'upd-job',
-        schedule_type: 'once',
-        schedule_value: futureDate,
+        scheduleType: 'once',
+        scheduleValue: futureDate,
       },
       'whatsapp_main',
       true,
@@ -609,20 +563,14 @@ describe('scheduler_update_job', () => {
     expect(job!.next_run).toBe(futureDate);
   });
 
-  it('sets next_run to null when schedule_type changes to manual', async () => {
-    // First make it interval so next_run is non-null
-    await upsertViaIpc({
-      jobId: 'upd-job',
-      schedule_type: 'interval',
-      schedule_value: '60000',
-    });
-
+  it('rejects unsupported manual schedule type during update', async () => {
+    const before = getJobById('upd-job');
     await processTaskIpc(
       {
         type: 'scheduler_update_job',
         jobId: 'upd-job',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'manual',
+        scheduleValue: '',
       },
       'whatsapp_main',
       true,
@@ -630,7 +578,9 @@ describe('scheduler_update_job', () => {
     );
 
     const job = getJobById('upd-job');
-    expect(job!.next_run).toBeNull();
+    expect(job!.schedule_type).toBe('interval');
+    expect(job!.schedule_value).toBe('60000');
+    expect(job!.next_run).toBe(before!.next_run);
   });
 
   it('rejects invalid cron during schedule update', async () => {
@@ -638,8 +588,8 @@ describe('scheduler_update_job', () => {
       {
         type: 'scheduler_update_job',
         jobId: 'upd-job',
-        schedule_type: 'cron',
-        schedule_value: 'bad-cron',
+        scheduleType: 'cron',
+        scheduleValue: 'bad-cron',
       },
       'whatsapp_main',
       true,
@@ -648,7 +598,7 @@ describe('scheduler_update_job', () => {
 
     // Job should still have old schedule_type
     const job = getJobById('upd-job');
-    expect(job!.schedule_type).toBe('manual');
+    expect(job!.schedule_type).toBe('interval');
   });
 
   it('rejects invalid interval during schedule update', async () => {
@@ -656,8 +606,8 @@ describe('scheduler_update_job', () => {
       {
         type: 'scheduler_update_job',
         jobId: 'upd-job',
-        schedule_type: 'interval',
-        schedule_value: 'not-a-number',
+        scheduleType: 'interval',
+        scheduleValue: 'not-a-number',
       },
       'whatsapp_main',
       true,
@@ -665,7 +615,7 @@ describe('scheduler_update_job', () => {
     );
 
     const job = getJobById('upd-job');
-    expect(job!.schedule_type).toBe('manual');
+    expect(job!.schedule_type).toBe('interval');
   });
 
   it('rejects invalid once timestamp during schedule update', async () => {
@@ -673,8 +623,8 @@ describe('scheduler_update_job', () => {
       {
         type: 'scheduler_update_job',
         jobId: 'upd-job',
-        schedule_type: 'once',
-        schedule_value: 'garbage',
+        scheduleType: 'once',
+        scheduleValue: 'garbage',
       },
       'whatsapp_main',
       true,
@@ -682,7 +632,7 @@ describe('scheduler_update_job', () => {
     );
 
     const job = getJobById('upd-job');
-    expect(job!.schedule_type).toBe('manual');
+    expect(job!.schedule_type).toBe('interval');
   });
 
   it('no-ops when jobId is empty', async () => {
@@ -711,8 +661,8 @@ describe('scheduler_update_job', () => {
       {
         type: 'scheduler_update_job',
         jobId: 'upd-job',
-        schedule_type: 'cron',
-        schedule_value: '0 * * * *',
+        scheduleType: 'cron',
+        scheduleValue: '0 * * * *',
       },
       'whatsapp_main',
       true,
@@ -725,7 +675,7 @@ describe('scheduler_update_job', () => {
       {
         type: 'scheduler_update_job',
         jobId: 'upd-job',
-        schedule_value: '30 * * * *',
+        scheduleValue: '30 * * * *',
       },
       'whatsapp_main',
       true,
@@ -1174,67 +1124,6 @@ describe('unknown IPC task type', () => {
 });
 
 // ---------------------------------------------------------------------------
-// scheduler_upsert_job — uses taskId fallback in related operations
-// ---------------------------------------------------------------------------
-describe('taskId fallback', () => {
-  beforeEach(async () => {
-    await upsertViaIpc({ jobId: 'taskid-job' });
-    vi.mocked(deps.onSchedulerChanged).mockClear();
-  });
-
-  it('scheduler_delete_job uses taskId when jobId is missing', async () => {
-    await processTaskIpc(
-      { type: 'scheduler_delete_job', taskId: 'taskid-job' },
-      'whatsapp_main',
-      true,
-      deps,
-    );
-
-    expect(getJobById('taskid-job')).toBeUndefined();
-    expect(deps.onSchedulerChanged).toHaveBeenCalled();
-  });
-
-  it('scheduler_pause_job uses taskId when jobId is missing', async () => {
-    await processTaskIpc(
-      { type: 'scheduler_pause_job', taskId: 'taskid-job' },
-      'whatsapp_main',
-      true,
-      deps,
-    );
-
-    expect(getJobById('taskid-job')!.status).toBe('paused');
-  });
-
-  it('scheduler_resume_job uses taskId when jobId is missing', async () => {
-    updateJob('taskid-job', { status: 'paused' });
-
-    await processTaskIpc(
-      { type: 'scheduler_resume_job', taskId: 'taskid-job' },
-      'whatsapp_main',
-      true,
-      deps,
-    );
-
-    expect(getJobById('taskid-job')!.status).toBe('active');
-  });
-
-  it('scheduler_update_job uses taskId when jobId is missing', async () => {
-    await processTaskIpc(
-      {
-        type: 'scheduler_update_job',
-        taskId: 'taskid-job',
-        name: 'Renamed via taskId',
-      },
-      'whatsapp_main',
-      true,
-      deps,
-    );
-
-    expect(getJobById('taskid-job')!.name).toBe('Renamed via taskId');
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Authorization: non-main groups blocked from cross-group operations
 // ---------------------------------------------------------------------------
 describe('scheduler_upsert_job authorization', () => {
@@ -1245,8 +1134,8 @@ describe('scheduler_upsert_job authorization', () => {
         jobId: 'cross-scope-job',
         name: 'Cross Scope',
         prompt: 'do something',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
         groupScope: 'whatsapp_main',
       },
       'other-group',
@@ -1265,8 +1154,8 @@ describe('scheduler_upsert_job authorization', () => {
         jobId: 'cross-link-job',
         name: 'Cross Link',
         prompt: 'do something',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
         linkedSessions: ['main@g.us'],
       },
       'other-group',
@@ -1286,8 +1175,8 @@ describe('scheduler_upsert_job authorization', () => {
         jobId: 'orphan-job',
         name: 'Orphan',
         prompt: 'do something',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
         linkedSessions: [],
       },
       'orphan-group',
@@ -1309,8 +1198,8 @@ describe('scheduler_update_job authorization', () => {
         jobId: 'auth-upd-job',
         name: 'Auth Update',
         prompt: 'do something',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
         linkedSessions: ['other@g.us'],
       },
       'other-group',
@@ -1381,8 +1270,8 @@ describe('scheduler_delete_job authorization', () => {
         jobId: 'auth-del-job',
         name: 'Auth Delete',
         prompt: 'do something',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
         linkedSessions: ['other@g.us'],
       },
       'other-group',
@@ -1416,8 +1305,8 @@ describe('scheduler_pause_job authorization', () => {
         jobId: 'auth-pause-job',
         name: 'Auth Pause',
         prompt: 'do something',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
         linkedSessions: ['other@g.us'],
       },
       'other-group',
@@ -1452,8 +1341,8 @@ describe('scheduler_resume_job authorization', () => {
         jobId: 'auth-resume-job',
         name: 'Auth Resume',
         prompt: 'do something',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
         linkedSessions: ['other@g.us'],
       },
       'other-group',
@@ -1477,98 +1366,6 @@ describe('scheduler_resume_job authorization', () => {
 
     const job = getJobById('auth-resume-job');
     expect(job!.status).toBe('paused');
-    expect(deps.onSchedulerChanged).not.toHaveBeenCalled();
-  });
-});
-
-describe('scheduler_trigger_job', () => {
-  beforeEach(async () => {
-    await upsertViaIpc({ jobId: 'trigger-job' });
-    updateJob('trigger-job', { status: 'paused', pause_reason: 'test' });
-    vi.mocked(deps.onSchedulerChanged).mockClear();
-  });
-
-  it('triggers a job (sets active, next_run = now)', async () => {
-    const before = Date.now();
-    await processTaskIpc(
-      { type: 'scheduler_trigger_job', jobId: 'trigger-job' },
-      'whatsapp_main',
-      true,
-      deps,
-    );
-
-    const job = getJobById('trigger-job');
-    expect(job!.status).toBe('active');
-    expect(job!.pause_reason).toBeNull();
-    const nextRun = new Date(job!.next_run!).getTime();
-    expect(nextRun).toBeGreaterThanOrEqual(before - 1000);
-    expect(nextRun).toBeLessThanOrEqual(Date.now() + 1000);
-    expect(deps.onSchedulerChanged).toHaveBeenCalled();
-  });
-
-  it('uses taskId fallback', async () => {
-    await processTaskIpc(
-      { type: 'scheduler_trigger_job', taskId: 'trigger-job' },
-      'whatsapp_main',
-      true,
-      deps,
-    );
-
-    const job = getJobById('trigger-job');
-    expect(job!.status).toBe('active');
-  });
-
-  it('no-ops when jobId is empty', async () => {
-    await processTaskIpc(
-      { type: 'scheduler_trigger_job', jobId: '' },
-      'whatsapp_main',
-      true,
-      deps,
-    );
-    expect(deps.onSchedulerChanged).not.toHaveBeenCalled();
-  });
-
-  it('no-ops when job does not exist', async () => {
-    await processTaskIpc(
-      { type: 'scheduler_trigger_job', jobId: 'nonexistent' },
-      'whatsapp_main',
-      true,
-      deps,
-    );
-    expect(deps.onSchedulerChanged).not.toHaveBeenCalled();
-  });
-});
-
-describe('scheduler_trigger_job authorization', () => {
-  beforeEach(async () => {
-    await processTaskIpc(
-      {
-        type: 'scheduler_upsert_job',
-        jobId: 'auth-trigger-job',
-        name: 'Auth Trigger',
-        prompt: 'do something',
-        schedule_type: 'manual',
-        schedule_value: '',
-        linkedSessions: ['other@g.us'],
-      },
-      'other-group',
-      false,
-      deps,
-    );
-    vi.mocked(deps.onSchedulerChanged).mockClear();
-  });
-
-  it('non-main group is blocked from triggering a job in another group', async () => {
-    await processTaskIpc(
-      {
-        type: 'scheduler_trigger_job',
-        jobId: 'auth-trigger-job',
-      },
-      'third-group',
-      false,
-      deps,
-    );
-
     expect(deps.onSchedulerChanged).not.toHaveBeenCalled();
   });
 });
@@ -1600,8 +1397,8 @@ describe('scheduler IPC hardening', () => {
         jobId: 'shared-id',
         name: 'Foreign Job',
         prompt: 'foreign prompt',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
         groupScope: 'third-group',
         linkedSessions: ['third@g.us'],
       },
@@ -1616,8 +1413,8 @@ describe('scheduler IPC hardening', () => {
         jobId: 'shared-id',
         name: 'Hijack Attempt',
         prompt: 'hijack prompt',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
       },
       'other-group',
       false,
@@ -1637,8 +1434,8 @@ describe('scheduler IPC hardening', () => {
         jobId: 'script-upsert',
         name: 'Script Job',
         prompt: 'do work',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
         script: 'echo hacked',
       },
       'whatsapp_main',
@@ -1656,8 +1453,8 @@ describe('scheduler IPC hardening', () => {
         jobId: 'script-update',
         name: 'Script Update Job',
         prompt: 'do work',
-        schedule_type: 'manual',
-        schedule_value: '',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
       },
       'whatsapp_main',
       true,
@@ -1733,6 +1530,7 @@ describe('startIpcWatcher', () => {
 
     vi.doMock('@core/core/config.js', () => ({
       AGENT_ROOT: '/tmp/test-runtime',
+      CHROME_PATH: undefined,
       DATA_DIR: dataDir,
       IPC_POLL_INTERVAL: 1000,
       TIMEZONE: 'UTC',
@@ -4117,10 +3915,8 @@ describe('startIpcWatcher', () => {
           retryBackoffMs: 2.8,
           maxConsecutiveFailures: 3.9,
           limit: 4.1,
-          scheduleType: 'manual',
-          schedule_type: 'manual',
-          scheduleValue: '',
-          schedule_value: '',
+          scheduleType: 'interval',
+          scheduleValue: '60000',
           prompt: ' p ',
           taskId: ' t1 ',
           createdBy: 'human',

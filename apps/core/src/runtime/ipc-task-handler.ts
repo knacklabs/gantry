@@ -5,6 +5,7 @@ import { schedulerCreateTaskHandlers } from './ipc-task-scheduler-create-handler
 import { schedulerMutateTaskHandlers } from './ipc-task-scheduler-mutate-handlers.js';
 import { schedulerQueryTaskHandlers } from './ipc-task-scheduler-query-handlers.js';
 import { TaskHandler, TaskIpcData } from './ipc-task-types.js';
+import { writeTaskIpcResponse } from './ipc-task-shared.js';
 
 const taskHandlers: Record<string, TaskHandler> = {
   ...schedulerCreateTaskHandlers,
@@ -28,7 +29,11 @@ export async function processTaskIpc(
 
   const handler = taskHandlers[data.type];
   if (!handler) {
-    logger.warn({ type: data.type }, 'Unknown IPC task type');
+    logger.warn({ type: data.type, sourceGroup }, 'Unknown IPC task type');
+    writeTaskIpcResponse(sourceGroup, data.taskId, {
+      ok: false,
+      error: `Unsupported IPC task type: ${data.type}`,
+    });
     return;
   }
 

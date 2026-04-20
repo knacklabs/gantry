@@ -249,11 +249,12 @@ describe('runtime interactive IPC integration', () => {
     harness.writeIpcTaskRequest(
       'team',
       {
-        type: 'scheduler_once',
+        type: 'scheduler_upsert_job',
         jobId: 'unauthenticated-job',
         name: 'Unauthenticated Job',
         prompt: 'should not exist',
-        run_at: new Date().toISOString(),
+        scheduleType: 'once',
+        scheduleValue: new Date().toISOString(),
         deliverTo: ['tg:team'],
         groupScope: 'team',
       },

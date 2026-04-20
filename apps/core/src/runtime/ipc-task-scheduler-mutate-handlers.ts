@@ -9,9 +9,40 @@ import {
   normalizeIpcExecutionMode,
 } from './ipc-task-shared.js';
 
+function computeResumeNextRun(job: {
+  id: string;
+  schedule_type: string;
+  schedule_value: string;
+  next_run: string | null;
+}): string | null {
+  if (job.next_run) return job.next_run;
+
+  if (job.schedule_type === 'once') {
+    const date = new Date(job.schedule_value);
+    return Number.isFinite(date.getTime()) ? new Date().toISOString() : null;
+  }
+
+  if (job.schedule_type === 'cron') {
+    try {
+      CronExpressionParser.parse(job.schedule_value, { tz: TIMEZONE });
+      return new Date().toISOString();
+    } catch {
+      return null;
+    }
+  }
+
+  if (job.schedule_type === 'interval') {
+    const ms = parseInt(job.schedule_value, 10);
+    if (!Number.isFinite(ms) || ms <= 0) return null;
+    return new Date().toISOString();
+  }
+
+  return null;
+}
+
 const schedulerUpdateJobHandler: TaskHandler = (context) => {
   const { data, sourceGroup, isMain, deps, registeredGroups } = context;
-  const jobId = (data.jobId || data.taskId || '').toString();
+  const jobId = (data.jobId || '').toString();
   if (!jobId) return;
   const job = getJobById(jobId);
   if (!job) return;
@@ -39,15 +70,22 @@ const schedulerUpdateJobHandler: TaskHandler = (context) => {
     );
     return;
   }
-  if (data.schedule_type !== undefined) {
-    updates.schedule_type = data.schedule_type as
-      | 'cron'
-      | 'interval'
-      | 'once'
-      | 'manual';
+  if (data.scheduleType !== undefined) {
+    if (
+      data.scheduleType !== 'cron' &&
+      data.scheduleType !== 'interval' &&
+      data.scheduleType !== 'once'
+    ) {
+      logger.warn(
+        { sourceGroup, jobId, scheduleType: data.scheduleType },
+        'Rejected scheduler_update_job with unsupported scheduleType',
+      );
+      return;
+    }
+    updates.schedule_type = data.scheduleType;
   }
-  if (data.schedule_value !== undefined)
-    updates.schedule_value = data.schedule_value;
+  if (data.scheduleValue !== undefined)
+    updates.schedule_value = data.scheduleValue;
   if (data.groupScope !== undefined) {
     if (!isMain && data.groupScope !== sourceGroup) {
       logger.warn(
@@ -139,7 +177,7 @@ const schedulerUpdateJobHandler: TaskHandler = (context) => {
       }
       updates.next_run = date.toISOString();
     } else {
-      updates.next_run = null;
+      return;
     }
   }
 
@@ -149,7 +187,7 @@ const schedulerUpdateJobHandler: TaskHandler = (context) => {
 
 const schedulerDeleteJobHandler: TaskHandler = (context) => {
   const { data, sourceGroup, isMain, deps, registeredGroups } = context;
-  const jobId = (data.jobId || data.taskId || '').toString();
+  const jobId = (data.jobId || '').toString();
   if (!jobId) return;
   const job = getJobById(jobId);
   if (!job) return;
@@ -171,7 +209,7 @@ const schedulerDeleteJobHandler: TaskHandler = (context) => {
 
 const schedulerPauseJobHandler: TaskHandler = (context) => {
   const { data, sourceGroup, isMain, deps, registeredGroups } = context;
-  const jobId = (data.jobId || data.taskId || '').toString();
+  const jobId = (data.jobId || '').toString();
   if (!jobId) return;
   const job = getJobById(jobId);
   if (!job) return;
@@ -196,7 +234,7 @@ const schedulerPauseJobHandler: TaskHandler = (context) => {
 
 const schedulerResumeJobHandler: TaskHandler = (context) => {
   const { data, sourceGroup, isMain, deps, registeredGroups } = context;
-  const jobId = (data.jobId || data.taskId || '').toString();
+  const jobId = (data.jobId || '').toString();
   if (!jobId) return;
   const job = getJobById(jobId);
   if (!job) return;
@@ -212,36 +250,30 @@ const schedulerResumeJobHandler: TaskHandler = (context) => {
     );
     return;
   }
-  updateJob(jobId, {
-    status: 'active',
-    pause_reason: null,
-    next_run: job.next_run || new Date().toISOString(),
+  const nextRun = computeResumeNextRun({
+    id: job.id,
+    schedule_type: String(job.schedule_type),
+    schedule_value: job.schedule_value,
+    next_run: job.next_run,
   });
-  deps.onSchedulerChanged();
-};
-
-const schedulerTriggerJobHandler: TaskHandler = (context) => {
-  const { data, sourceGroup, isMain, deps, registeredGroups } = context;
-  const jobId = (data.jobId || data.taskId || '').toString();
-  if (!jobId) return;
-  const job = getJobById(jobId);
-  if (!job) return;
-  if (!isMain && !jobBelongsToSourceGroup(job, sourceGroup, registeredGroups)) {
+  if (!nextRun) {
+    const pauseReason = `Cannot resume with invalid schedule configuration (${job.schedule_type}:${job.schedule_value}).`;
     logger.warn(
-      {
-        sourceGroup,
-        groupScope: job.group_scope,
-        linkedSessions: job.linked_sessions,
-        jobId,
-      },
-      'Unauthorized scheduler_trigger_job attempt blocked',
+      { sourceGroup, jobId, pauseReason },
+      'Rejected scheduler_resume_job due to invalid schedule config',
     );
+    updateJob(jobId, {
+      status: 'dead_lettered',
+      pause_reason: pauseReason,
+      next_run: null,
+    });
+    deps.onSchedulerChanged();
     return;
   }
   updateJob(jobId, {
     status: 'active',
-    next_run: new Date().toISOString(),
     pause_reason: null,
+    next_run: nextRun,
   });
   deps.onSchedulerChanged();
 };
@@ -251,5 +283,4 @@ export const schedulerMutateTaskHandlers: Record<string, TaskHandler> = {
   scheduler_delete_job: schedulerDeleteJobHandler,
   scheduler_pause_job: schedulerPauseJobHandler,
   scheduler_resume_job: schedulerResumeJobHandler,
-  scheduler_trigger_job: schedulerTriggerJobHandler,
 };

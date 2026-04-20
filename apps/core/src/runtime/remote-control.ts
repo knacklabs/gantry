@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import { DATA_DIR } from '../core/config.js';
+import { DATA_DIR, REMOTE_CONTROL_AUTO_ACCEPT } from '../core/config.js';
 import { logger } from '../core/logger.js';
 
 interface RemoteControlSession {
@@ -30,8 +30,7 @@ const STDOUT_FILE = path.join(DATA_DIR, 'remote-control.stdout');
 const STDERR_FILE = path.join(DATA_DIR, 'remote-control.stderr');
 
 function shouldAutoAcceptRemoteControl(): boolean {
-  const raw = process.env.REMOTE_CONTROL_AUTO_ACCEPT?.trim().toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes';
+  return REMOTE_CONTROL_AUTO_ACCEPT;
 }
 
 function saveState(session: RemoteControlSession): void {

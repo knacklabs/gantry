@@ -1,11 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@core/core/env.js', () => ({
-  readEnvFile: vi.fn(() => ({})),
-}));
-
 vi.mock('@core/core/config.js', () => ({
   PERMISSION_APPROVAL_TIMEOUT_MS: 300000,
+  getSlackBotToken: () => process.env.SLACK_BOT_TOKEN || '',
+  getSlackAppToken: () => process.env.SLACK_APP_TOKEN || '',
   SLACK_PERMISSION_APPROVER_IDS: new Set<string>(),
 }));
 
@@ -99,7 +97,6 @@ vi.mock('@slack/bolt', () => ({
   },
 }));
 
-import { readEnvFile } from '@core/core/env.js';
 import { SLACK_PERMISSION_APPROVER_IDS } from '@core/core/config.js';
 import { createSlackChannel, SlackChannel } from '@core/channels/slack.js';
 
@@ -122,7 +119,6 @@ describe('Slack channel', () => {
   });
 
   it('createSlackChannel returns null when tokens are missing', () => {
-    vi.mocked(readEnvFile).mockReturnValue({});
     const savedBot = process.env.SLACK_BOT_TOKEN;
     const savedApp = process.env.SLACK_APP_TOKEN;
     delete process.env.SLACK_BOT_TOKEN;
@@ -136,20 +132,18 @@ describe('Slack channel', () => {
   });
 
   it('createSlackChannel returns a channel when tokens are available', () => {
-    vi.mocked(readEnvFile).mockReturnValue({
-      SLACK_BOT_TOKEN: 'xoxb-file-token',
-      SLACK_APP_TOKEN: 'xapp-file-token',
-    });
     const savedBot = process.env.SLACK_BOT_TOKEN;
     const savedApp = process.env.SLACK_APP_TOKEN;
-    delete process.env.SLACK_BOT_TOKEN;
-    delete process.env.SLACK_APP_TOKEN;
+    process.env.SLACK_BOT_TOKEN = 'xoxb-file-token';
+    process.env.SLACK_APP_TOKEN = 'xapp-file-token';
     try {
       const channel = createSlackChannel(createOpts() as any);
       expect(channel).toBeInstanceOf(SlackChannel);
     } finally {
       if (savedBot !== undefined) process.env.SLACK_BOT_TOKEN = savedBot;
+      else delete process.env.SLACK_BOT_TOKEN;
       if (savedApp !== undefined) process.env.SLACK_APP_TOKEN = savedApp;
+      else delete process.env.SLACK_APP_TOKEN;
     }
   });
 

@@ -316,7 +316,7 @@ export function collectMemoryStatus(runtimeHome: string): MemoryStatusSnapshot {
   const liveDbPath = resolveLiveDbPath(health);
   const liveDbExists = fs.existsSync(liveDbPath);
   const liveData = readLiveCounts(liveDbPath);
-  const journal = inspectMemoryJournalStatus(runtimeHome, settings, env);
+  const journal = inspectMemoryJournalStatus(runtimeHome, settings);
   const latestCheckpoint = findLatestCheckpoint(journal.journalRoot);
   const sourceCounts = collectSourceCounts(health.memoryRoot);
 

@@ -44,7 +44,7 @@ async function loadArchiveModule() {
   vi.doMock('@core/core/config.js', () => ({
     DATA_DIR: dataDir,
     AGENTS_DIR: agentsDir,
-    MEMORY_ROOT: memoryRoot,
+    memoryStorageDir: memoryRoot,
   }));
   return import('@core/session/session-transcript-archive.js');
 }
@@ -68,7 +68,7 @@ afterEach(() => {
 });
 
 describe('archiveSessionTranscript', () => {
-  it('archives a valid transcript into MEMORY_ROOT sessions', async () => {
+  it('archives a valid transcript into memoryStorageDir sessions', async () => {
     writeTranscript({
       groupFolder: 'team1',
       sessionId: 'sess-1',
@@ -747,7 +747,7 @@ describe('archiveSessionTranscript', () => {
     vi.doMock('@core/core/config.js', () => ({
       DATA_DIR: dataDir,
       AGENTS_DIR: agentsDir,
-      MEMORY_ROOT: memoryRoot,
+      memoryStorageDir: memoryRoot,
     }));
     vi.doMock('@core/memory/memory-root.js', () => ({
       MemoryRootService: {
@@ -785,7 +785,7 @@ describe('archiveSessionTranscript', () => {
     vi.doMock('@core/core/config.js', () => ({
       DATA_DIR: dataDir,
       AGENTS_DIR: agentsDir,
-      MEMORY_ROOT: memoryRoot,
+      memoryStorageDir: memoryRoot,
     }));
     vi.doMock('@core/memory/memory-root.js', () => ({
       MemoryRootService: {

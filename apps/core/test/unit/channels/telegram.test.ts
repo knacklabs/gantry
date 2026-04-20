@@ -2,13 +2,11 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 // --- Mocks ---
 
-// Mock env reader (used by the factory, not needed in unit tests)
-vi.mock('@core/core/env.js', () => ({ readEnvFile: vi.fn(() => ({})) }));
-
 // Mock config
 vi.mock('@core/core/config.js', () => ({
   ASSISTANT_NAME: 'Andy',
   PERMISSION_APPROVAL_TIMEOUT_MS: 300000,
+  getTelegramBotToken: () => process.env.TELEGRAM_BOT_TOKEN || '',
   TELEGRAM_PERMISSION_APPROVER_IDS: new Set<string>(),
   TRIGGER_PATTERN: /^@Andy\b/i,
 }));
@@ -99,7 +97,6 @@ import {
   TelegramChannel,
   TelegramChannelOpts,
 } from '@core/channels/telegram.js';
-import { readEnvFile } from '@core/core/env.js';
 import { logger } from '@core/core/logger.js';
 
 // --- Test helpers ---
@@ -2072,8 +2069,6 @@ describe('TelegramChannel', () => {
 
 describe('createTelegramChannel factory', () => {
   it('returns null when TELEGRAM_BOT_TOKEN is not set', () => {
-    vi.mocked(readEnvFile).mockReturnValueOnce({});
-
     const saved = process.env.TELEGRAM_BOT_TOKEN;
     delete process.env.TELEGRAM_BOT_TOKEN;
     try {
@@ -2092,12 +2087,8 @@ describe('createTelegramChannel factory', () => {
   });
 
   it('returns a TelegramChannel when token is available', () => {
-    vi.mocked(readEnvFile).mockReturnValueOnce({
-      TELEGRAM_BOT_TOKEN: 'test-token-from-env',
-    });
-
     const saved = process.env.TELEGRAM_BOT_TOKEN;
-    delete process.env.TELEGRAM_BOT_TOKEN;
+    process.env.TELEGRAM_BOT_TOKEN = 'test-token-from-env';
     try {
       const result = createTelegramChannel({
         onMessage: vi.fn(),
@@ -2108,6 +2099,7 @@ describe('createTelegramChannel factory', () => {
       expect(result).toBeInstanceOf(TelegramChannel);
     } finally {
       if (saved !== undefined) process.env.TELEGRAM_BOT_TOKEN = saved;
+      else delete process.env.TELEGRAM_BOT_TOKEN;
     }
   });
 });

@@ -28,6 +28,9 @@ vi.mock('@core/core/config.js', () => ({
   AGENT_MAX_OUTPUT_SIZE: 512, // small limit so truncation tests are manageable
   AGENT_TIMEOUT: 5000, // 5 s
   IDLE_TIMEOUT: 5000, // 5 s
+  get LOG_LEVEL() {
+    return process.env.LOG_LEVEL || 'info';
+  },
 }));
 
 vi.mock('@core/core/logger.js', () => ({

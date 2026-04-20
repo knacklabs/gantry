@@ -173,7 +173,7 @@ export function inspectMemoryHealth(
 
   const memoryRoot = resolveRuntimePath(
     runtimeHome,
-    resolveMemoryRootOverride(settings, env),
+    settingsMemory?.root,
     'memory',
   );
   const sqlitePath = path.join(memoryRoot, '.cache', 'memory.db');
@@ -200,11 +200,7 @@ export function inspectMemoryHealth(
     sqlitePath,
     embeddingModel,
     memorySource: settingsMemory ? 'settings.yaml' : 'default',
-    memoryRootSource: env.MEMORY_ROOT?.trim()
-      ? 'env'
-      : settingsMemory?.root
-        ? 'settings.yaml'
-        : 'default',
+    memoryRootSource: settingsMemory?.root ? 'settings.yaml' : 'default',
     sqlitePathSource: 'derived',
     embeddingProviderSource: settingsMemory ? 'settings.yaml' : 'default',
     embeddingModelSource: settingsMemory?.embeddings.model
@@ -234,25 +230,13 @@ export interface MemoryJournalStatusReport {
 function resolveJournalRoot(
   runtimeHome: string,
   settings: RuntimeSettings | undefined,
-  env: Record<string, string | undefined>,
 ): string {
   const memoryRoot = resolveRuntimePath(
     runtimeHome,
-    resolveMemoryRootOverride(settings, env),
+    settings?.memory?.root,
     'memory',
   );
   return path.join(memoryRoot, '.journal');
-}
-
-function resolveMemoryRootOverride(
-  settings: RuntimeSettings | undefined,
-  env: Record<string, string | undefined>,
-): string | undefined {
-  const processValue = process.env.MEMORY_ROOT?.trim();
-  if (processValue) return processValue;
-  const envFileValue = env.MEMORY_ROOT?.trim();
-  if (envFileValue) return envFileValue;
-  return settings?.memory?.root;
 }
 
 function parseLatestEventTimestamp(filePath: string): number {
@@ -288,9 +272,8 @@ function parseLatestEventTimestamp(filePath: string): number {
 export function inspectMemoryJournalStatus(
   runtimeHome: string,
   settings: RuntimeSettings | undefined,
-  env: Record<string, string | undefined>,
 ): MemoryJournalStatusReport {
-  const journalRoot = resolveJournalRoot(runtimeHome, settings, env);
+  const journalRoot = resolveJournalRoot(runtimeHome, settings);
   if (!fs.existsSync(journalRoot)) {
     return {
       journalRoot,
@@ -401,7 +384,7 @@ export async function inspectMemoryDivergence(
   settings: RuntimeSettings | undefined,
   env: Record<string, string | undefined>,
 ): Promise<MemoryDivergenceReport> {
-  const journalRoot = resolveJournalRoot(runtimeHome, settings, env);
+  const journalRoot = resolveJournalRoot(runtimeHome, settings);
   if (!fs.existsSync(journalRoot)) {
     throw new Error(`Journal root not found: ${journalRoot}`);
   }

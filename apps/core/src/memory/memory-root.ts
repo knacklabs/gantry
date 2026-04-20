@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-import { MEMORY_ROOT } from '../core/config.js';
+import { memoryStorageDir } from '../core/config.js';
 
 export type SessionArchiveCause =
   | 'new-session'
@@ -73,7 +73,7 @@ export class MemoryRootService {
   private readonly layout: MemoryLayout;
 
   constructor(rootOverride?: string) {
-    const resolvedRoot = path.resolve(rootOverride?.trim() || MEMORY_ROOT);
+    const resolvedRoot = path.resolve(rootOverride?.trim() || memoryStorageDir);
     this.layout = {
       root: resolvedRoot,
       itemsDir: path.join(resolvedRoot, 'items'),

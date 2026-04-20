@@ -85,7 +85,7 @@ const VALID_EMBEDDING_PROVIDERS = new Set<EmbeddingProviderName>([
   'none',
   'openai',
 ]);
-const DEFAULT_MEMORY_ROOT = 'memory';
+const DEFAULT_MEMORY_STORAGE_DIR = 'memory';
 const DEFAULT_EMBED_MODEL = 'text-embedding-3-large';
 const DEFAULT_MODEL_HAIKU = 'claude-haiku-4-5-20251001';
 const DEFAULT_MODEL_SONNET = 'claude-sonnet-4-6';
@@ -702,7 +702,7 @@ function createDefaultChannelSettings(
 export function createDefaultRuntimeSettings(): RuntimeSettings {
   const memory: RuntimeMemorySettings = {
     enabled: true,
-    root: DEFAULT_MEMORY_ROOT,
+    root: DEFAULT_MEMORY_STORAGE_DIR,
     embeddings: {
       enabled: false,
       provider: 'disabled',

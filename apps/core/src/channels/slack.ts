@@ -4,6 +4,8 @@ import path from 'path';
 import { App } from '@slack/bolt';
 
 import {
+  getSlackAppToken,
+  getSlackBotToken,
   PERMISSION_APPROVAL_TIMEOUT_MS,
   SLACK_PERMISSION_APPROVER_IDS,
 } from '../core/config.js';
@@ -22,7 +24,6 @@ import {
   stripInternalTagsPreserveWhitespace,
 } from '../messaging/router.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
-import { readEnvFile } from '../core/env.js';
 import { ChannelAdapter, ChannelOpts } from './channel-provider.js';
 import { ChannelProvider } from './provider-registry.js';
 
@@ -1648,10 +1649,8 @@ export class SlackChannel implements ChannelAdapter {
 }
 
 export function createSlackChannel(opts: ChannelOpts): SlackChannel | null {
-  const envVars = readEnvFile(['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN']);
-  const botToken = process.env.SLACK_BOT_TOKEN || envVars.SLACK_BOT_TOKEN || '';
-  const appToken = process.env.SLACK_APP_TOKEN || envVars.SLACK_APP_TOKEN || '';
-
+  const botToken = getSlackBotToken();
+  const appToken = getSlackAppToken();
   if (!botToken || !appToken) {
     logger.warn('Slack: SLACK_BOT_TOKEN and SLACK_APP_TOKEN are required');
     return null;

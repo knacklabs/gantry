@@ -1,12 +1,9 @@
 import { createHmac, timingSafeEqual, randomBytes } from 'crypto';
-import { readEnvFile } from '../core/env.js';
+import { MYCLAW_IPC_AUTH_SECRET } from '../core/config.js';
 import { logger } from '../core/logger.js';
 
-const envConfig = readEnvFile(['MYCLAW_IPC_AUTH_SECRET']);
-
 const IPC_AUTH_SECRET =
-  process.env.MYCLAW_IPC_AUTH_SECRET?.trim() ||
-  envConfig.MYCLAW_IPC_AUTH_SECRET?.trim() ||
+  MYCLAW_IPC_AUTH_SECRET ||
   (() => {
     const generated = randomBytes(32).toString('hex');
     logger.warn(

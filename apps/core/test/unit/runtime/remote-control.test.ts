@@ -4,6 +4,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 // Mock config before importing the module under test
 vi.mock('@core/core/config.js', () => ({
   DATA_DIR: '/tmp/myclaw-rc-test',
+  get REMOTE_CONTROL_AUTO_ACCEPT() {
+    const raw = process.env.REMOTE_CONTROL_AUTO_ACCEPT?.trim().toLowerCase();
+    return raw === '1' || raw === 'true' || raw === 'yes';
+  },
 }));
 
 // Mock child_process

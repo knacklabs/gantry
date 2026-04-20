@@ -22,6 +22,7 @@ import { MemoryService } from '../memory/memory-service.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import { GroupQueue } from './group-queue.js';
 import { AgentOutput, spawnAgent } from './agent-spawn.js';
+import { validateScheduleConfig } from './task-scheduler-schedule.js';
 import {
   addJobEvent,
   completeJobRun,
@@ -63,7 +64,6 @@ export interface SchedulerDependencies {
 const DEFAULT_JOB_CLEANUP_AFTER_MS = 86_400_000;
 const MAX_PARALLEL_JOBS_PER_GROUP_SCOPE = 2;
 let schedulerStreamingGenerationCounter = 0;
-const schedulerSessions = new Map<string, string>();
 const activeParallelRunsByGroupScope = new Map<string, number>();
 const activeSerializedRunsByGroupScope = new Map<string, number>();
 type MemoryMaintenanceQueueLike = {
@@ -85,11 +85,6 @@ function nextSchedulerStreamingGeneration(): number {
 function schedulerQueueJid(groupScope: string, jobId?: string): string {
   if (jobId) return `__scheduler__:${groupScope}:${jobId}`;
   return `__scheduler__:${groupScope}`;
-}
-
-function schedulerSessionKey(job: Job, mode: JobExecutionMode): string {
-  if (mode === 'serialized') return `serialized:${job.group_scope}`;
-  return `parallel:${job.id}`;
 }
 
 function canScheduleParallelRunForGroup(
@@ -168,19 +163,6 @@ function acquireSerializedRunSlot(groupScope: string): () => void {
   };
 }
 
-function pruneSchedulerSessions(jobs: Job[]): void {
-  const validKeys = new Set<string>();
-  for (const job of jobs) {
-    const mode = normalizeExecutionMode(job.execution_mode);
-    validKeys.add(schedulerSessionKey(job, mode));
-  }
-  for (const key of schedulerSessions.keys()) {
-    if (!validKeys.has(key)) {
-      schedulerSessions.delete(key);
-    }
-  }
-}
-
 function normalizeExecutionMode(mode: unknown): JobExecutionMode {
   return mode === 'serialized' ? 'serialized' : 'parallel';
 }
@@ -221,10 +203,10 @@ const MEMORY_DREAM_SYSTEM_PROMPT = '__system:memory_dream';
 const MEMORY_CLEANUP_SYSTEM_PROMPT = '__system:memory_cleanup';
 
 export function computeNextJobRun(
-  job: Pick<Job, 'schedule_type' | 'schedule_value'>,
+  job: Pick<Job, 'schedule_value'> & { schedule_type: string },
   scheduledFor: string | null,
 ): string | null {
-  if (job.schedule_type === 'once' || job.schedule_type === 'manual') {
+  if (job.schedule_type === 'once') {
     return null;
   }
 
@@ -236,10 +218,12 @@ export function computeNextJobRun(
     return interval.next().toISOString();
   }
 
-  const ms = parseInt(job.schedule_value, 10);
-  if (!ms || ms <= 0) {
-    return new Date(Date.now() + 60_000).toISOString();
+  if (job.schedule_type !== 'interval') {
+    return null;
   }
+
+  const ms = parseInt(job.schedule_value, 10);
+  if (!ms || ms <= 0) return null;
 
   const parsedAnchor = scheduledFor ? Date.parse(scheduledFor) : Date.now();
   const anchor = Number.isFinite(parsedAnchor) ? parsedAnchor : Date.now();
@@ -247,9 +231,7 @@ export function computeNextJobRun(
   const steps = anchor >= now ? 1 : Math.floor((now - anchor) / ms) + 1;
   const next = anchor + steps * ms;
 
-  if (!Number.isFinite(next) || Math.abs(next) > 8.64e15) {
-    return new Date(now + 60_000).toISOString();
-  }
+  if (!Number.isFinite(next) || Math.abs(next) > 8.64e15) return null;
   return new Date(next).toISOString();
 }
 
@@ -378,6 +360,7 @@ function registerSystemJobs(deps: SchedulerDependencies): void {
         schedule_type: 'cron',
         schedule_value: MEMORY_DREAMING_CRON,
         linked_sessions: linkedSessions,
+        session_id: existing?.session_id ?? null,
         group_scope: groupFolder,
         created_by: 'agent',
         status: desiredStatus,
@@ -414,6 +397,7 @@ function registerSystemJobs(deps: SchedulerDependencies): void {
     schedule_type: 'cron',
     schedule_value: '0 4 * * *',
     linked_sessions: cleanupLinkedSessions,
+    session_id: cleanupExisting?.session_id ?? null,
     group_scope: cleanupGroupFolder,
     created_by: 'agent',
     status: cleanupExisting?.status === 'paused' ? 'paused' : 'active',
@@ -583,6 +567,7 @@ async function runJob(
   let result: string | null = null;
   let error: string | null = null;
   let collectedResult = '';
+  let pendingSessionId: string | undefined;
 
   let groupDir: string;
   try {
@@ -592,10 +577,7 @@ async function runJob(
     error = err instanceof Error ? err.message : String(err);
   }
 
-  const schedulerSession = schedulerSessions.get(
-    schedulerSessionKey(currentJob, executionMode),
-  );
-  const sessionId = schedulerSession || undefined;
+  const sessionId = currentJob.session_id || undefined;
   const isMain = execution.group.isMain === true;
   let ranSystemJob = false;
   const linkedSessions = Array.from(new Set(currentJob.linked_sessions));
@@ -785,11 +767,8 @@ async function runJob(
           result = output.result;
           if (!collectedResult) collectedResult = output.result;
         }
-        if (output.newSessionId) {
-          schedulerSessions.set(
-            schedulerSessionKey(currentJob, executionMode),
-            output.newSessionId,
-          );
+        if (output.newSessionId && !isJobDeleted()) {
+          pendingSessionId = output.newSessionId;
         }
 
         if (!error) {
@@ -842,6 +821,7 @@ async function runJob(
         pause_reason: pauseReason,
         lease_run_id: null,
         lease_expires_at: null,
+        ...(pendingSessionId ? { session_id: pendingSessionId } : {}),
       });
     } else {
       const baseBackoff = Math.max(0, currentJob.retry_backoff_ms || 0);
@@ -861,6 +841,7 @@ async function runJob(
         pause_reason: null,
         lease_run_id: null,
         lease_expires_at: null,
+        ...(pendingSessionId ? { session_id: pendingSessionId } : {}),
       });
     }
   } else {
@@ -872,6 +853,7 @@ async function runJob(
       pause_reason: null,
       lease_run_id: null,
       lease_expires_at: null,
+      ...(pendingSessionId ? { session_id: pendingSessionId } : {}),
     });
   }
 
@@ -977,6 +959,22 @@ export async function runSchedulerTick(
     for (const job of dueJobs) {
       const current = getJobById(job.id);
       if (!current || current.status !== 'active') continue;
+      const scheduleValidationError = validateScheduleConfig(current);
+      if (scheduleValidationError) {
+        logger.warn(
+          { jobId: current.id, scheduleValidationError },
+          'Dead-lettering scheduler job with invalid schedule config',
+        );
+        updateJob(current.id, {
+          status: 'dead_lettered',
+          pause_reason: scheduleValidationError,
+          next_run: null,
+          lease_run_id: null,
+          lease_expires_at: null,
+        });
+        deps.onSchedulerChanged?.();
+        continue;
+      }
       const executionMode = normalizeExecutionMode(current.execution_mode);
       if (
         executionMode === 'parallel' &&
@@ -1033,8 +1031,6 @@ export async function runSchedulerTick(
     if (removed) {
       deps.onSchedulerChanged?.();
     }
-
-    pruneSchedulerSessions(getAllJobs());
   } catch (err) {
     logger.error({ err }, 'Error in scheduler loop');
   }
@@ -1060,7 +1056,6 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
 export function _resetSchedulerLoopForTests(): void {
   schedulerRunning = false;
   schedulerStreamingGenerationCounter = 0;
-  schedulerSessions.clear();
   activeParallelRunsByGroupScope.clear();
   activeSerializedRunsByGroupScope.clear();
   memoryMaintenanceQueue = getMemoryMaintenanceQueue();

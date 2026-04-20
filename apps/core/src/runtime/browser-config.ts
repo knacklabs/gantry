@@ -1,3 +1,5 @@
+import { CHROME_PATH as configuredChromePath } from '../core/config.js';
+
 export const DEFAULT_CHROME_ARGS = [
   '--disable-blink-features=AutomationControlled',
   '--no-sandbox',
@@ -18,4 +20,4 @@ export const DEFAULT_VIEWPORT = {
 export const DEFAULT_CDP_PORT = 9222;
 export const DEFAULT_BROWSER_KEEPALIVE_MS = 5 * 60 * 1000;
 
-export const CHROME_PATH = process.env.CHROME_PATH?.trim() || undefined;
+export const CHROME_PATH = configuredChromePath;

@@ -1,3 +1,4 @@
+import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -478,7 +479,6 @@ describe('config env overrides for branch coverage', () => {
   it('exercises process.env branch for all config variables', async () => {
     const cfg = await loadConfigWithAllEnv({
       ASSISTANT_NAME: 'TestBot',
-      MEMORY_ROOT: '/tmp/agent-memory',
       OPENAI_API_KEY: 'test-api-key',
       OPENAI_DAILY_EMBED_LIMIT: '100',
       MEMORY_EMBED_MODEL: 'test-embed-model',
@@ -531,8 +531,10 @@ describe('config env overrides for branch coverage', () => {
     });
 
     expect(cfg.ASSISTANT_NAME).toBe('TestBot');
-    expect(cfg.MEMORY_ROOT).toMatch(/agent-memory$/);
-    expect(cfg.MEMORY_SQLITE_PATH).toBe('/tmp/agent-memory/.cache/memory.db');
+    expect(cfg.memoryStorageDir).toBe(path.join(cfg.AGENT_ROOT, 'memory'));
+    expect(cfg.MEMORY_SQLITE_PATH).toBe(
+      path.join(cfg.AGENT_ROOT, 'memory', '.cache', 'memory.db'),
+    );
     expect(cfg.OPENAI_API_KEY).toBe('test-api-key');
     expect(cfg.OPENAI_DAILY_EMBED_LIMIT).toBe(100);
     expect(cfg.MEMORY_EMBED_MODEL).toBe('text-embedding-3-large');
@@ -591,7 +593,6 @@ describe('config env overrides for branch coverage', () => {
     // Delete all the env vars we might have set
     const envKeys = [
       'ASSISTANT_NAME',
-      'MEMORY_ROOT',
       'OPENAI_API_KEY',
       'OPENAI_DAILY_EMBED_LIMIT',
       'MEMORY_EMBED_MODEL',
@@ -649,7 +650,6 @@ describe('config env overrides for branch coverage', () => {
     vi.doMock('@core/core/env.js', () => ({
       readEnvFile: () => ({
         ASSISTANT_NAME: 'EnvBot',
-        MEMORY_ROOT: '/tmp/env-memory',
         OPENAI_API_KEY: 'env-api-key',
         OPENAI_DAILY_EMBED_LIMIT: '200',
         MEMORY_EMBED_MODEL: 'env-embed-model',
@@ -702,8 +702,10 @@ describe('config env overrides for branch coverage', () => {
     const cfg = await import('@core/core/config.js');
 
     expect(cfg.ASSISTANT_NAME).toBe('EnvBot');
-    expect(cfg.MEMORY_ROOT).toBe('/tmp/env-memory');
-    expect(cfg.MEMORY_SQLITE_PATH).toBe('/tmp/env-memory/.cache/memory.db');
+    expect(cfg.memoryStorageDir).toBe(path.join(cfg.AGENT_ROOT, 'memory'));
+    expect(cfg.MEMORY_SQLITE_PATH).toBe(
+      path.join(cfg.AGENT_ROOT, 'memory', '.cache', 'memory.db'),
+    );
     expect(cfg.OPENAI_API_KEY).toBe('env-api-key');
     expect(cfg.OPENAI_DAILY_EMBED_LIMIT).toBe(200);
     expect(cfg.MEMORY_EMBED_MODEL).toBe('text-embedding-3-large');
@@ -836,7 +838,7 @@ describe('resolveOptionalPath branches', () => {
     expect(cfg.MEMORY_GLOBAL_KNOWLEDGE_DIR).not.toBe('relative/path');
   });
 
-  it('resolves MEMORY_ROOT/knowledge fallback from runtime settings', async () => {
+  it('resolves memoryStorageDir/knowledge fallback from runtime settings', async () => {
     const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
       {
         MEMORY_GLOBAL_KNOWLEDGE_DIR: undefined,

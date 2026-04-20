@@ -69,7 +69,7 @@ describe('startRuntimeServices', () => {
         prompt: 'Do thing',
         model: '',
         script: '',
-        schedule_type: 'manual',
+        schedule_type: 'interval',
         schedule_value: '',
         status: 'active',
         group_scope: 'tg:main',

@@ -47,16 +47,10 @@ function createRuntimeHome(): string {
 
 describe('memory CLI commands', () => {
   let runtimeHome: string;
-  const originalMemoryRoot = process.env.MEMORY_ROOT;
 
   beforeEach(() => {
     runtimeHome = createRuntimeHome();
     vi.clearAllMocks();
-    if (originalMemoryRoot === undefined) {
-      delete process.env.MEMORY_ROOT;
-    } else {
-      process.env.MEMORY_ROOT = originalMemoryRoot;
-    }
   });
 
   it('rejects openai embeddings when OPENAI_API_KEY is missing', async () => {
@@ -118,23 +112,10 @@ describe('memory CLI commands', () => {
     expect(promptMocks.note).toHaveBeenCalled();
   });
 
-  it('uses MEMORY_ROOT env override for journal-status root resolution', async () => {
-    upsertEnvFile(envFilePath(runtimeHome), { MEMORY_ROOT: 'env-memory' });
-    const code = await runMemoryCommand(runtimeHome, [
-      'health',
-      'journal-status',
-    ]);
-    expect(code).toBe(0);
-    const expectedRoot = path.resolve(runtimeHome, 'env-memory', '.journal');
-    expect(promptMocks.note).toHaveBeenCalledWith(
-      expect.stringContaining(`Root: ${expectedRoot}`),
-      'Memory Health',
-    );
-  });
-
-  it('prefers process env MEMORY_ROOT over runtime env file for journal-status', async () => {
-    upsertEnvFile(envFilePath(runtimeHome), { MEMORY_ROOT: 'env-memory' });
-    process.env.MEMORY_ROOT = 'process-memory';
+  it('uses settings memory.root for journal-status root resolution', async () => {
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.memory.root = 'settings-memory';
+    saveRuntimeSettings(runtimeHome, settings);
     const code = await runMemoryCommand(runtimeHome, [
       'health',
       'journal-status',
@@ -142,7 +123,7 @@ describe('memory CLI commands', () => {
     expect(code).toBe(0);
     const expectedRoot = path.resolve(
       runtimeHome,
-      'process-memory',
+      'settings-memory',
       '.journal',
     );
     expect(promptMocks.note).toHaveBeenCalledWith(
@@ -263,30 +244,6 @@ describe('memory CLI commands', () => {
     expect(code).toBe(1);
     expect(promptMocks.log.error).toHaveBeenCalledWith(
       expect.stringContaining('memory.root must resolve inside runtime home'),
-    );
-  });
-
-  it('rejects full reindex when MEMORY_ROOT env override resolves outside runtime home', async () => {
-    const settings = loadRuntimeSettings(runtimeHome);
-    settings.memory.root = 'memory';
-    saveRuntimeSettings(runtimeHome, settings);
-    upsertEnvFile(envFilePath(runtimeHome), {
-      MEMORY_ROOT: path.join(os.tmpdir(), 'outside-memory-root'),
-    });
-
-    const code = await runMemoryCommand(runtimeHome, ['reindex', '--full']);
-    expect(code).toBe(1);
-    expect(promptMocks.log.error).toHaveBeenCalledWith(
-      expect.stringContaining('must resolve inside runtime home'),
-    );
-  });
-
-  it('rejects full reindex when process env MEMORY_ROOT resolves outside runtime home', async () => {
-    process.env.MEMORY_ROOT = path.join(os.tmpdir(), 'outside-memory-root');
-    const code = await runMemoryCommand(runtimeHome, ['reindex', '--full']);
-    expect(code).toBe(1);
-    expect(promptMocks.log.error).toHaveBeenCalledWith(
-      expect.stringContaining('must resolve inside runtime home'),
     );
   });
 

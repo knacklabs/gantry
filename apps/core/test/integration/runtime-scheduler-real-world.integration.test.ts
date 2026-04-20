@@ -309,7 +309,7 @@ describe('real-world scheduler restart and operational scenarios', () => {
     harness.writeIpcTaskRequest('main', {
       type: 'scheduler_update_job',
       jobId: 'backoff-mutation-job',
-      schedule_value: '*/10 * * * *',
+      scheduleValue: '*/10 * * * *',
       prompt: 'mutated after backoff',
     });
     await harness.waitFor(
@@ -350,8 +350,8 @@ describe('real-world scheduler restart and operational scenarios', () => {
       jobId: 'dst-gap-job',
       name: 'DST Gap Job',
       prompt: 'run at local 02:30',
-      schedule_type: 'cron',
-      schedule_value: '30 2 * * *',
+      scheduleType: 'cron',
+      scheduleValue: '30 2 * * *',
       deliverTo: ['tg:main'],
       groupScope: 'main',
     });

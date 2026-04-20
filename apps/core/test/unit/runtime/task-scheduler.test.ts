@@ -113,16 +113,10 @@ describe('job scheduler', () => {
     );
   });
 
-  it('computeNextJobRun returns null for once/manual schedules', () => {
+  it('computeNextJobRun returns null for once schedules', () => {
     expect(
       computeNextJobRun(
         { schedule_type: 'once', schedule_value: '2026-01-01T00:00:00.000Z' },
-        new Date().toISOString(),
-      ),
-    ).toBeNull();
-    expect(
-      computeNextJobRun(
-        { schedule_type: 'manual', schedule_value: '' },
         new Date().toISOString(),
       ),
     ).toBeNull();
@@ -678,14 +672,6 @@ describe('computeNextJobRun', () => {
     expect(result).toBeNull();
   });
 
-  it('returns null for "manual" schedule type', () => {
-    const result = computeNextJobRun(
-      { schedule_type: 'manual', schedule_value: '' },
-      null,
-    );
-    expect(result).toBeNull();
-  });
-
   it('computes next cron run from scheduledFor date', () => {
     vi.setSystemTime(new Date('2026-04-12T10:00:00.000Z'));
     const result = computeNextJobRun(
@@ -742,35 +728,31 @@ describe('computeNextJobRun', () => {
     expect(nextTime).toBe(Date.now() + 60000);
   });
 
-  it('interval: defaults to 60s when schedule_value is invalid (0)', () => {
+  it('interval: returns null when schedule_value is invalid (0)', () => {
     vi.setSystemTime(new Date('2026-04-12T10:00:00.000Z'));
     const result = computeNextJobRun(
       { schedule_type: 'interval', schedule_value: '0' },
       null,
     );
-    expect(result).not.toBeNull();
-    // Falls through to ms <= 0 branch -> returns Date.now() + 60_000
-    expect(new Date(result!).getTime()).toBe(Date.now() + 60_000);
+    expect(result).toBeNull();
   });
 
-  it('interval: defaults to 60s when schedule_value is negative', () => {
+  it('interval: returns null when schedule_value is negative', () => {
     vi.setSystemTime(new Date('2026-04-12T10:00:00.000Z'));
     const result = computeNextJobRun(
       { schedule_type: 'interval', schedule_value: '-5000' },
       null,
     );
-    expect(result).not.toBeNull();
-    expect(new Date(result!).getTime()).toBe(Date.now() + 60_000);
+    expect(result).toBeNull();
   });
 
-  it('interval: defaults to 60s when schedule_value is NaN', () => {
+  it('interval: returns null when schedule_value is NaN', () => {
     vi.setSystemTime(new Date('2026-04-12T10:00:00.000Z'));
     const result = computeNextJobRun(
       { schedule_type: 'interval', schedule_value: 'not-a-number' },
       null,
     );
-    expect(result).not.toBeNull();
-    expect(new Date(result!).getTime()).toBe(Date.now() + 60_000);
+    expect(result).toBeNull();
   });
 
   it('interval: returns anchor + ms when anchor is in the future', () => {
@@ -2864,7 +2846,7 @@ describe('scheduler coverage: streaming callback and edge cases', () => {
     );
   });
 
-  it('serialized jobs reuse scheduler-owned session IDs between runs', async () => {
+  it('serialized jobs keep per-job sessions isolated between jobs', async () => {
     vi.mocked(spawnAgent)
       .mockResolvedValueOnce({
         status: 'success',
@@ -2919,7 +2901,7 @@ describe('scheduler coverage: streaming callback and edge cases', () => {
       expect.objectContaining({ sessionId: undefined }),
     );
     expect(calls[1]?.[1]).toEqual(
-      expect.objectContaining({ sessionId: 'scheduler-session-1' }),
+      expect.objectContaining({ sessionId: undefined }),
     );
   });
 

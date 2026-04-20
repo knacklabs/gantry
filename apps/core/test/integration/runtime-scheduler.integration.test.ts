@@ -49,8 +49,8 @@ describe('runtime scheduler integration', () => {
       jobId: 'cron-job-1',
       name: 'Cron Job',
       prompt: 'Run cron task',
-      schedule_type: 'cron',
-      schedule_value: '*/5 * * * *',
+      scheduleType: 'cron',
+      scheduleValue: '*/5 * * * *',
       deliverTo: ['tg:main'],
       groupScope: 'main',
       executionMode: 'parallel',
@@ -101,27 +101,29 @@ describe('runtime scheduler integration', () => {
       jobId: 'bad-cron',
       name: 'Bad Cron',
       prompt: 'Nope',
-      schedule_type: 'cron',
-      schedule_value: 'not a cron',
+      scheduleType: 'cron',
+      scheduleValue: 'not a cron',
       deliverTo: ['tg:main'],
       groupScope: 'main',
     });
     harness.writeIpcTaskRequest('main', {
-      type: 'scheduler_once',
+      type: 'scheduler_upsert_job',
       jobId: 'script-once',
       name: 'Script Once',
       prompt: 'Nope',
-      run_at: new Date().toISOString(),
+      scheduleType: 'once',
+      scheduleValue: new Date().toISOString(),
       script: 'echo no',
       deliverTo: ['tg:main'],
       groupScope: 'main',
     });
     harness.writeIpcTaskRequest('team', {
-      type: 'scheduler_once',
+      type: 'scheduler_upsert_job',
       jobId: 'cross-group-once',
       name: 'Cross Group',
       prompt: 'Nope',
-      run_at: new Date().toISOString(),
+      scheduleType: 'once',
+      scheduleValue: new Date().toISOString(),
       deliverTo: ['tg:main'],
       groupScope: 'main',
     });
@@ -146,11 +148,12 @@ describe('runtime scheduler integration', () => {
     harness.startIpcWatcher();
 
     harness.writeIpcTaskRequest('main', {
-      type: 'scheduler_once',
+      type: 'scheduler_upsert_job',
       jobId: 'once-job-1',
       name: 'Once Job',
       prompt: 'Run once task',
-      run_at: new Date(Date.now() - 1_000).toISOString(),
+      scheduleType: 'once',
+      scheduleValue: new Date(Date.now() - 1_000).toISOString(),
       deliverTo: ['tg:main'],
       groupScope: 'main',
       cleanupAfterMs: 0,
@@ -170,9 +173,9 @@ describe('runtime scheduler integration', () => {
     ).toBe(true);
   });
 
-  it('keeps manual jobs idle until scheduler_trigger_job runs them once', async () => {
+  it('keeps paused jobs idle until scheduler_resume_job resumes them', async () => {
     const harness = await createHermeticRuntimeHarness({
-      fakeAgent: { resultText: 'manual-result' },
+      fakeAgent: { resultText: 'resumed-result' },
     });
     activeHarnesses.push(harness);
     registerMainAndTeam(harness);
@@ -180,27 +183,35 @@ describe('runtime scheduler integration', () => {
 
     harness.writeIpcTaskRequest('main', {
       type: 'scheduler_upsert_job',
-      jobId: 'manual-trigger-job',
-      name: 'Manual Trigger Job',
-      prompt: 'Run only when triggered',
-      schedule_type: 'manual',
-      schedule_value: 'manual',
+      jobId: 'paused-resume-job',
+      name: 'Paused Resume Job',
+      prompt: 'Run only when resumed',
+      scheduleType: 'once',
+      scheduleValue: new Date(Date.now() - 1_000).toISOString(),
       deliverTo: ['tg:main'],
       groupScope: 'main',
     });
 
     await harness.waitFor(() =>
-      Boolean(harness.db.getJobById('manual-trigger-job')),
+      Boolean(harness.db.getJobById('paused-resume-job')),
     );
+    harness.writeIpcTaskRequest('main', {
+      type: 'scheduler_pause_job',
+      jobId: 'paused-resume-job',
+    });
+    await harness.waitFor(
+      () => harness.db.getJobById('paused-resume-job')?.status === 'paused',
+    );
+
     await harness.runSchedulerOnce();
     expect(harness.fakeAgent.invocations).toHaveLength(0);
 
     harness.writeIpcTaskRequest('main', {
-      type: 'scheduler_trigger_job',
-      jobId: 'manual-trigger-job',
+      type: 'scheduler_resume_job',
+      jobId: 'paused-resume-job',
     });
-    await harness.waitFor(() =>
-      Boolean(harness.db.getJobById('manual-trigger-job')?.next_run),
+    await harness.waitFor(
+      () => harness.db.getJobById('paused-resume-job')?.status === 'active',
     );
     await harness.runSchedulerOnce();
 
@@ -209,11 +220,11 @@ describe('runtime scheduler integration', () => {
         .getRecentJobRuns(20)
         .some(
           (run) =>
-            run.job_id === 'manual-trigger-job' && run.status === 'completed',
+            run.job_id === 'paused-resume-job' && run.status === 'completed',
         ),
     );
     expect(harness.fakeAgent.invocations).toHaveLength(1);
-    expect(harness.db.getJobById('manual-trigger-job')?.status).toBe(
+    expect(harness.db.getJobById('paused-resume-job')?.status).toBe(
       'completed',
     );
   });
@@ -266,13 +277,13 @@ describe('runtime scheduler integration', () => {
       id: 'owned-job',
       name: 'Owned Job',
       prompt: 'Original',
-      schedule_type: 'manual',
-      schedule_value: 'manual',
+      schedule_type: 'interval',
+      schedule_value: '60000',
       linked_sessions: ['tg:team'],
       group_scope: 'team',
       created_by: 'agent',
       status: 'active',
-      next_run: null,
+      next_run: new Date(Date.now() + 60_000).toISOString(),
     });
 
     harness.writeIpcTaskRequest('main', {
@@ -626,7 +637,7 @@ describe('runtime scheduler integration', () => {
       type: 'scheduler_update_job',
       jobId: 'mutate-while-running',
       prompt: 'updated while running',
-      schedule_value: '*/10 * * * *',
+      scheduleValue: '*/10 * * * *',
     });
     await harness.waitFor(
       () =>

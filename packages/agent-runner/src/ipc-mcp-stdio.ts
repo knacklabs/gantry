@@ -564,7 +564,7 @@ server.tool(
     name: z.string(),
     prompt: z.string(),
     model: z.string().optional(),
-    schedule_type: z.enum(['cron', 'interval', 'once', 'manual']),
+    schedule_type: z.enum(['cron', 'interval', 'once']),
     schedule_value: z.string().default(''),
     linked_sessions: z.array(z.string()).optional(),
     deliver_to: z.array(z.string()).optional(),
@@ -619,8 +619,8 @@ server.tool(
       name: args.name,
       prompt: args.prompt,
       model: args.model,
-      schedule_type: args.schedule_type,
-      schedule_value: args.schedule_value,
+      scheduleType: args.schedule_type,
+      scheduleValue: args.schedule_value,
       linkedSessions: args.linked_sessions,
       deliverTo: args.deliver_to,
       threadId: args.thread_id,
@@ -643,72 +643,6 @@ server.tool(
     return {
       content: [
         { type: 'text' as const, text: 'Scheduler job upsert requested.' },
-      ],
-    };
-  },
-);
-
-server.tool(
-  'scheduler_once',
-  'Schedule a one-time task and deliver the result back to chat.',
-  {
-    name: z.string(),
-    prompt: z.string(),
-    run_at: z
-      .string()
-      .describe('ISO timestamp, e.g. 2026-04-14T15:00:00+05:30'),
-    deliver_to: z.array(z.string()).optional(),
-    thread_id: z.string().optional(),
-    cleanup_after_ms: z.number().default(86_400_000),
-    timeout_ms: z.number().default(300_000),
-    silent: z.boolean().default(false),
-    model: z.string().optional(),
-    group_scope: z.string().optional(),
-    max_retries: z.number().optional(),
-    retry_backoff_ms: z.number().optional(),
-    max_consecutive_failures: z.number().optional(),
-    execution_mode: z.enum(['parallel', 'serialized']).optional(),
-    serialize: z.boolean().optional(),
-  },
-  async (args) => {
-    const runAtDate = new Date(args.run_at);
-    if (isNaN(runAtDate.getTime())) {
-      return {
-        content: [{ type: 'text' as const, text: 'Invalid run_at timestamp.' }],
-        isError: true,
-      };
-    }
-
-    writeIpcFile(TASKS_DIR, {
-      type: 'scheduler_once',
-      name: args.name,
-      prompt: args.prompt,
-      model: args.model,
-      run_at: runAtDate.toISOString(),
-      deliverTo:
-        args.deliver_to && args.deliver_to.length > 0
-          ? args.deliver_to
-          : [chatJid],
-      threadId: args.thread_id,
-      groupScope: args.group_scope ?? groupFolder,
-      silent: args.silent,
-      cleanupAfterMs: args.cleanup_after_ms,
-      timeoutMs: args.timeout_ms,
-      maxRetries: args.max_retries,
-      retryBackoffMs: args.retry_backoff_ms,
-      maxConsecutiveFailures: args.max_consecutive_failures,
-      executionMode: normalizeExecutionMode(
-        args.execution_mode,
-        args.serialize,
-      ),
-      serialize: args.serialize,
-      createdBy: 'agent',
-      timestamp: new Date().toISOString(),
-    });
-
-    return {
-      content: [
-        { type: 'text' as const, text: 'One-time scheduler job requested.' },
       ],
     };
   },
@@ -774,7 +708,7 @@ server.tool(
     name: z.string().optional(),
     prompt: z.string().optional(),
     model: z.string().optional(),
-    schedule_type: z.enum(['cron', 'interval', 'once', 'manual']).optional(),
+    schedule_type: z.enum(['cron', 'interval', 'once']).optional(),
     schedule_value: z.string().optional(),
     linked_sessions: z.array(z.string()).optional(),
     deliver_to: z.array(z.string()).optional(),
@@ -800,8 +734,8 @@ server.tool(
       name: args.name,
       prompt: args.prompt,
       model: args.model,
-      schedule_type: args.schedule_type,
-      schedule_value: args.schedule_value,
+      scheduleType: args.schedule_type,
+      scheduleValue: args.schedule_value,
       linkedSessions: args.linked_sessions,
       deliverTo: args.deliver_to,
       threadId: args.thread_id,
@@ -873,24 +807,6 @@ server.tool(
     return {
       content: [
         { type: 'text' as const, text: 'Scheduler job resume requested.' },
-      ],
-    };
-  },
-);
-
-server.tool(
-  'scheduler_trigger_job',
-  'Trigger a scheduler job immediately.',
-  { job_id: z.string() },
-  async (args) => {
-    writeIpcFile(TASKS_DIR, {
-      type: 'scheduler_trigger_job',
-      jobId: args.job_id,
-      timestamp: new Date().toISOString(),
-    });
-    return {
-      content: [
-        { type: 'text' as const, text: 'Scheduler trigger requested.' },
       ],
     };
   },

@@ -8,11 +8,11 @@ import { StreamFlavor, stream, streamApi } from '@grammyjs/stream';
 
 import {
   ASSISTANT_NAME,
+  getTelegramBotToken,
   PERMISSION_APPROVAL_TIMEOUT_MS,
   TELEGRAM_PERMISSION_APPROVER_IDS,
   TRIGGER_PATTERN,
 } from '../core/config.js';
-import { readEnvFile } from '../core/env.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import { logger } from '../core/logger.js';
 import { ChannelAdapter, ChannelOpts } from './channel-provider.js';
@@ -1965,9 +1965,7 @@ export class TelegramChannel implements ChannelAdapter {
 export function createTelegramChannel(
   opts: ChannelOpts,
 ): TelegramChannel | null {
-  const envVars = readEnvFile(['TELEGRAM_BOT_TOKEN']);
-  const token =
-    process.env.TELEGRAM_BOT_TOKEN || envVars.TELEGRAM_BOT_TOKEN || '';
+  const token = getTelegramBotToken();
   if (!token) {
     logger.warn('Telegram: TELEGRAM_BOT_TOKEN not set');
     return null;

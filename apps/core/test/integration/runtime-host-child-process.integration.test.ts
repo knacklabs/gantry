@@ -83,19 +83,24 @@ describe('host child-process runtime smoke', () => {
     const memoryContextFile = path.join(groupIpcDir, 'memory_context.run.json');
     writeHostRunner(runnerRoot, recordPath);
 
-    vi.doMock('@core/core/config.js', () => ({
-      MEMORY_ROOT: path.join(root, 'memory'),
-      AGENT_MAX_OUTPUT_SIZE: 1024 * 1024,
-      AGENT_TIMEOUT: 5_000,
-      DATA_DIR: dataDir,
-      AGENTS_DIR: agentRoot,
-      IDLE_TIMEOUT: 5_000,
-      AGENT_ROOT: agentRoot,
-      ONECLI_URL: '',
-      PERMISSION_APPROVAL_TIMEOUT_MS: 5_000,
-      TIMEZONE: 'UTC',
-      getEffectiveModelConfig: () => ({ source: 'unset' }),
-    }));
+    vi.doMock('@core/core/config.js', async () => {
+      const actual = await vi.importActual<
+        typeof import('@core/core/config.js')
+      >('@core/core/config.js');
+      return {
+        ...actual,
+        AGENT_MAX_OUTPUT_SIZE: 1024 * 1024,
+        AGENT_TIMEOUT: 5_000,
+        DATA_DIR: dataDir,
+        AGENTS_DIR: agentRoot,
+        IDLE_TIMEOUT: 5_000,
+        AGENT_ROOT: agentRoot,
+        ONECLI_URL: '',
+        PERMISSION_APPROVAL_TIMEOUT_MS: 5_000,
+        TIMEZONE: 'UTC',
+        getEffectiveModelConfig: () => ({ source: 'unset' }),
+      };
+    });
     vi.doMock('@core/core/logger.js', () => ({
       logger: {
         debug: vi.fn(),

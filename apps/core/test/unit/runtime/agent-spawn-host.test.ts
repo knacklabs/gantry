@@ -106,12 +106,34 @@ async function loadModule(config: {
     DATA_DIR: config.DATA_DIR ?? '/tmp/myclaw-test/data',
     AGENTS_DIR: config.AGENTS_DIR ?? '/tmp/myclaw-test/agents',
     AGENT_ROOT: config.AGENT_ROOT ?? '/tmp/myclaw-test/config',
-  }));
-
-  vi.doMock('@core/core/env.js', () => ({
-    readEnvFile: (keys: string[]) => {
+    MYCLAW_CREDENTIAL_MODE: config.envFromFile?.MYCLAW_CREDENTIAL_MODE ?? '',
+    ONECLI_ALLOWED_ENV_KEYS: [
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_AUTH_TOKEN',
+      'ANTHROPIC_BASE_URL',
+      'CLAUDE_CODE_OAUTH_TOKEN',
+      'ANTHROPIC_MODEL',
+      'MEMORY_EXTRACTOR_MAX_TURNS',
+      'OPENAI_API_KEY',
+      'OPENAI_BASE_URL',
+      'OPENAI_ORG_ID',
+      'OPENAI_PROJECT',
+      'SSL_CERT_FILE',
+      'NODE_EXTRA_CA_CERTS',
+      'HTTP_PROXY',
+      'HTTPS_PROXY',
+      'NO_PROXY',
+    ],
+    getHostCredentialEnv: () => {
       const source = config.envFromFile ?? {};
-      return keys.reduce<Record<string, string>>((acc, key) => {
+      return [
+        'ANTHROPIC_API_KEY',
+        'ANTHROPIC_AUTH_TOKEN',
+        'ANTHROPIC_BASE_URL',
+        'CLAUDE_CODE_OAUTH_TOKEN',
+        'ANTHROPIC_MODEL',
+        'MEMORY_EXTRACTOR_MAX_TURNS',
+      ].reduce<Record<string, string>>((acc, key) => {
         const value = source[key];
         if (typeof value === 'string') {
           acc[key] = value;

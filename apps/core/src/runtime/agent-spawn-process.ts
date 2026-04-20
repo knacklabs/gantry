@@ -6,6 +6,7 @@ import {
   AGENT_MAX_OUTPUT_SIZE,
   AGENT_TIMEOUT,
   IDLE_TIMEOUT,
+  LOG_LEVEL,
 } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import {
@@ -272,8 +273,7 @@ export function executeRunnerProcess(
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const logFile = path.join(logsDir, `agent-${timestamp}.log`);
-      const isVerbose =
-        process.env.LOG_LEVEL === 'debug' || process.env.LOG_LEVEL === 'trace';
+      const isVerbose = LOG_LEVEL === 'debug' || LOG_LEVEL === 'trace';
 
       const logLines = [
         `=== Agent Run Log ===`,

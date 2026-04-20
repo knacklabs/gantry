@@ -26,6 +26,7 @@ import {
   writeBrowserIpcResponse,
 } from './ipc-browser-handler.js';
 import type { IpcDeps } from './ipc-domain-types.js';
+import { writeTaskIpcResponse } from './ipc-task-shared.js';
 import {
   processPermissionIpcRequest,
   processUserQuestionIpcRequest,
@@ -340,17 +341,58 @@ function parseIpcMessage(raw: unknown, sourceGroup: string): ParsedIpcMessage {
 
 function toScheduleType(
   value: unknown,
-): 'cron' | 'interval' | 'once' | 'manual' | undefined {
+): 'cron' | 'interval' | 'once' | undefined {
   const parsed = toTrimmedString(value, { maxLen: 32 });
-  if (
-    parsed === 'cron' ||
-    parsed === 'interval' ||
-    parsed === 'once' ||
-    parsed === 'manual'
-  ) {
+  if (parsed === 'cron' || parsed === 'interval' || parsed === 'once') {
     return parsed;
   }
   return undefined;
+}
+
+const DISALLOWED_TASK_FIELDS = [
+  'task_id',
+  'job_id',
+  'schedule_type',
+  'schedule_value',
+  'context_mode',
+  'deliver_to',
+  'linked_sessions',
+  'group_scope',
+  'thread_id',
+  'run_at',
+  'created_by',
+  'cleanup_after_ms',
+  'timeout_ms',
+  'max_retries',
+  'retry_backoff_ms',
+  'max_consecutive_failures',
+  'execution_mode',
+  'run_id',
+  'event_type',
+  'group_folder',
+  'chat_jid',
+  'target_jid',
+  'since_id',
+] as const;
+
+function findDisallowedTaskFields(raw: Record<string, unknown>): string[] {
+  const found: string[] = [];
+  for (const key of DISALLOWED_TASK_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(raw, key)) {
+      found.push(key);
+    }
+  }
+  return found;
+}
+
+function assertNoDisallowedTaskFields(raw: Record<string, unknown>): void {
+  const fields = findDisallowedTaskFields(raw);
+  if (fields.length === 0) return;
+  throw new Error(
+    `Unsupported IPC task fields: ${fields.join(
+      ', ',
+    )}. IPC tasks accept camelCase fields only.`,
+  );
 }
 
 function parseAgentConfigPayload(
@@ -371,6 +413,7 @@ function parseAgentConfigPayload(
 
 function parseTaskIpcData(raw: unknown, sourceGroup: string): TaskIpcData {
   if (!isPlainObject(raw)) throw new Error('Invalid IPC task payload');
+  assertNoDisallowedTaskFields(raw);
   const authToken = toTrimmedString(raw.authToken, { maxLen: 512 }) || '';
   if (!validateIpcAuthToken(sourceGroup, authToken)) {
     throw new Error('Invalid IPC task auth token');
@@ -382,42 +425,37 @@ function parseTaskIpcData(raw: unknown, sourceGroup: string): TaskIpcData {
   const prompt = toTrimmedString(raw.prompt, { maxLen: 20000 });
   const model = toTrimmedString(raw.model, { maxLen: 120 });
   const scheduleType = toScheduleType(raw.scheduleType);
-  const scheduleTypeSnake = toScheduleType(raw.schedule_type);
   const scheduleValue = toTrimmedString(raw.scheduleValue, {
     maxLen: 1024,
     allowEmpty: true,
   });
-  const scheduleValueSnake = toTrimmedString(raw.schedule_value, {
-    maxLen: 1024,
-    allowEmpty: true,
-  });
-  const contextMode = toTrimmedString(raw.context_mode, { maxLen: 64 });
+  const contextMode = toTrimmedString(raw.contextMode, { maxLen: 64 });
   const script = toTrimmedString(raw.script, {
     maxLen: 50_000,
     allowEmpty: true,
   });
   const jobId = toTrimmedString(raw.jobId, { maxLen: 128 });
   const linkedSessions = toOptionalStringArray(raw.linkedSessions, 200, 255);
-  const deliverToArray =
-    toOptionalStringArray(raw.deliverTo, 200, 255) ??
-    toOptionalStringArray(raw.deliver_to, 200, 255);
-  const deliverToSingle =
-    toTrimmedString(raw.deliverTo, { maxLen: 255 }) ??
-    toTrimmedString(raw.deliver_to, { maxLen: 255 });
+  const deliverToArray = toOptionalStringArray(raw.deliverTo, 200, 255);
+  const deliverToSingle = toTrimmedString(raw.deliverTo, { maxLen: 255 });
   const deliverTo =
     deliverToArray || (deliverToSingle ? [deliverToSingle] : undefined);
   const groupScope = toTrimmedString(raw.groupScope, { maxLen: 128 });
-  const threadId =
-    toTrimmedString(raw.threadId, { maxLen: 255, allowEmpty: true }) ??
-    toTrimmedString(raw.thread_id, { maxLen: 255, allowEmpty: true });
-  const runAt =
-    toTrimmedString(raw.runAt, {
-      maxLen: 1024,
-      allowEmpty: true,
-    }) ?? toTrimmedString(raw.run_at, { maxLen: 1024, allowEmpty: true });
+  const threadId = toTrimmedString(raw.threadId, {
+    maxLen: 255,
+    allowEmpty: true,
+  });
   const silent = toOptionalBoolean(raw.silent);
+  const serialize = toOptionalBoolean(raw.serialize);
+  const executionModeRaw = toTrimmedString(raw.executionMode, { maxLen: 32 });
+  const executionMode =
+    executionModeRaw === 'parallel' || executionModeRaw === 'serialized'
+      ? executionModeRaw
+      : undefined;
   const createdByRaw = toTrimmedString(raw.createdBy, { maxLen: 16 });
   const statuses = toOptionalStringArray(raw.statuses, 50, 64);
+  const runId = toTrimmedString(raw.runId, { maxLen: 128 });
+  const eventType = toTrimmedString(raw.eventType, { maxLen: 128 });
   const groupFolder = toTrimmedString(raw.groupFolder, { maxLen: 128 });
   const chatJid = toTrimmedString(raw.chatJid, { maxLen: 255 });
   const targetJid = toTrimmedString(raw.targetJid, { maxLen: 255 });
@@ -430,15 +468,10 @@ function parseTaskIpcData(raw: unknown, sourceGroup: string): TaskIpcData {
   const payload = isPlainObject(raw.payload) ? raw.payload : undefined;
   const numericFields = {
     timeoutMs: toOptionalNumber(raw.timeoutMs, { min: 1000, max: 3_600_000 }),
-    cleanupAfterMs:
-      toOptionalNumber(raw.cleanupAfterMs, {
-        min: 0,
-        max: 31_536_000_000,
-      }) ??
-      toOptionalNumber(raw.cleanup_after_ms, {
-        min: 0,
-        max: 31_536_000_000,
-      }),
+    cleanupAfterMs: toOptionalNumber(raw.cleanupAfterMs, {
+      min: 0,
+      max: 31_536_000_000,
+    }),
     maxRetries: toOptionalNumber(raw.maxRetries, { min: 0, max: 100 }),
     retryBackoffMs: toOptionalNumber(raw.retryBackoffMs, {
       min: 0,
@@ -448,6 +481,10 @@ function parseTaskIpcData(raw: unknown, sourceGroup: string): TaskIpcData {
       min: 1,
       max: 1000,
     }),
+    sinceId: toOptionalNumber(raw.sinceId, {
+      min: 0,
+      max: Number.MAX_SAFE_INTEGER,
+    }),
     limit: toOptionalNumber(raw.limit, { min: 1, max: 1000 }),
   };
 
@@ -455,23 +492,23 @@ function parseTaskIpcData(raw: unknown, sourceGroup: string): TaskIpcData {
   if (prompt !== undefined) parsed.prompt = prompt;
   if (model !== undefined) parsed.model = model;
   if (scheduleType !== undefined) parsed.scheduleType = scheduleType;
-  if (scheduleTypeSnake !== undefined) parsed.schedule_type = scheduleTypeSnake;
-  if (scheduleValue !== undefined) parsed.schedule_value = scheduleValue;
-  if (scheduleValueSnake !== undefined)
-    parsed.schedule_value = scheduleValueSnake;
-  if (contextMode) parsed.context_mode = contextMode;
+  if (scheduleValue !== undefined) parsed.scheduleValue = scheduleValue;
+  if (contextMode) parsed.contextMode = contextMode;
   if (script !== undefined) parsed.script = script;
   if (jobId) parsed.jobId = jobId;
   if (linkedSessions !== undefined) parsed.linkedSessions = linkedSessions;
   if (deliverTo !== undefined) parsed.deliverTo = deliverTo;
   if (groupScope) parsed.groupScope = groupScope;
   if (threadId !== undefined) parsed.threadId = threadId || '';
-  if (runAt !== undefined) parsed.runAt = runAt;
   if (silent !== undefined) parsed.silent = silent;
+  if (serialize !== undefined) parsed.serialize = serialize;
+  if (executionMode !== undefined) parsed.executionMode = executionMode;
   if (createdByRaw === 'agent' || createdByRaw === 'human') {
     parsed.createdBy = createdByRaw;
   }
   if (statuses !== undefined) parsed.statuses = statuses;
+  if (runId) parsed.runId = runId;
+  if (eventType) parsed.eventType = eventType;
   if (groupFolder) parsed.groupFolder = groupFolder;
   if (chatJid) parsed.chatJid = chatJid;
   if (targetJid) parsed.targetJid = targetJid;
@@ -494,6 +531,8 @@ function parseTaskIpcData(raw: unknown, sourceGroup: string): TaskIpcData {
     parsed.maxConsecutiveFailures = Math.round(
       numericFields.maxConsecutiveFailures,
     );
+  if (numericFields.sinceId !== undefined)
+    parsed.sinceId = Math.round(numericFields.sinceId);
   if (numericFields.limit !== undefined)
     parsed.limit = Math.round(numericFields.limit);
   return parsed;
@@ -927,17 +966,29 @@ export function startIpcWatcher(deps: IpcDeps): void {
           for (const file of taskFiles) {
             const filePath = path.join(tasksDir, file);
             let claimedPath = filePath;
+            let rawTaskData: unknown;
             try {
               if (!canProcessIpcFile(sourceGroup, 'tasks')) {
                 throw new Error('IPC task rate limit exceeded');
               }
               claimedPath = claimIpcFile(filePath);
-              const rawData = JSON.parse(fs.readFileSync(claimedPath, 'utf-8'));
-              const data = parseTaskIpcData(rawData, sourceGroup);
+              rawTaskData = JSON.parse(fs.readFileSync(claimedPath, 'utf-8'));
+              const data = parseTaskIpcData(rawTaskData, sourceGroup);
               // Pass source group identity to processTaskIpc for authorization
               await processTaskIpc(data, sourceGroup, isMain, deps);
               fs.unlinkSync(claimedPath);
             } catch (err) {
+              const errorMessage =
+                err instanceof Error ? err.message : String(err);
+              if (isPlainObject(rawTaskData)) {
+                const taskId = toTrimmedString(rawTaskData.taskId, {
+                  maxLen: 128,
+                });
+                writeTaskIpcResponse(sourceGroup, taskId, {
+                  ok: false,
+                  error: errorMessage,
+                });
+              }
               logger.error(
                 { file, sourceGroup, err },
                 'Error processing IPC task',

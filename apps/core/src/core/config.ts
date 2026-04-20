@@ -1,82 +1,12 @@
 import os from 'os';
 import path from 'path';
 
-import { readEnvFile } from './env.js';
+import { envConfig, envValue } from './config-env.js';
 import {
   readRuntimeMemorySettingsSnapshot,
   type RuntimeMemorySettingsSnapshot,
 } from './runtime-memory-settings.js';
 import { isValidTimezone } from './timezone.js';
-
-// Read config values from .env (falls back to process.env).
-const envConfig = readEnvFile([
-  'AGENT_ROOT',
-  'ASSISTANT_NAME',
-  'ONECLI_URL',
-  'TZ',
-  'ANTHROPIC_MODEL',
-  'ANTHROPIC_API_KEY',
-  'CLAUDE_CODE_OAUTH_TOKEN',
-  'OPENAI_API_KEY',
-  'OPENAI_DAILY_EMBED_LIMIT',
-  'MEMORY_ROOT',
-  'MEMORY_KNOWLEDGE_EMBED_BUDGET_PER_DAY',
-  'MEMORY_CHUNK_SIZE',
-  'MEMORY_CHUNK_OVERLAP',
-  'MEMORY_RETRIEVAL_LIMIT',
-  'MEMORY_RETRIEVAL_MIN_SCORE',
-  'MEMORY_TEMPORAL_DECAY_HALFLIFE_DAYS',
-  'MEMORY_MMR_LAMBDA',
-  'MEMORY_RRF_LEXICAL_WEIGHT',
-  'MEMORY_RRF_VECTOR_WEIGHT',
-  'MEMORY_SOURCE_TYPE_BOOSTS',
-  'MEMORY_EXTRACTOR_MAX_FACTS',
-  'MEMORY_EXTRACTOR_MIN_CONFIDENCE',
-  'MEMORY_EXTRACTOR_MAX_TURNS',
-  'MEMORY_REFLECTION_MIN_CONFIDENCE',
-  'MEMORY_REFLECTION_MAX_FACTS_PER_TURN',
-  'MEMORY_SCOPE_POLICY',
-  'MEMORY_RETENTION_PIN_THRESHOLD',
-  'MEMORY_ITEM_MAX_PER_GROUP',
-  'MEMORY_SEMANTIC_DEDUP_ENABLED',
-  'MEMORY_SEMANTIC_DEDUP_THRESHOLD',
-  'MEMORY_GLOBAL_KNOWLEDGE_DIR',
-  'MEMORY_MAX_GLOBAL_CHUNKS',
-  'MEMORY_USAGE_FEEDBACK_ENABLED',
-  'MEMORY_CONFIDENCE_BOOST_ON_USE',
-  'MEMORY_CONFIDENCE_DECAY_ON_UNUSED',
-  'MEMORY_USAGE_DECAY_INTERVAL_TURNS',
-  'MEMORY_CONSOLIDATION_MIN_ITEMS',
-  'MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD',
-  'MEMORY_CONSOLIDATION_EMBEDDING_FALLBACK',
-  'MEMORY_CONSOLIDATION_MAX_CLUSTERS',
-  'MEMORY_DREAMING_CRON',
-  'MEMORY_DREAMING_DRY_RUN',
-  'MEMORY_DREAMING_PROMOTION_THRESHOLD',
-  'MEMORY_DREAMING_DECAY_THRESHOLD',
-  'MEMORY_DREAMING_MIN_RECALLS',
-  'MEMORY_DREAMING_MIN_UNIQUE_QUERIES',
-  'MEMORY_DREAMING_CONFIDENCE_BOOST',
-  'MEMORY_DREAMING_CONFIDENCE_DECAY',
-  'MEMORY_EMBED_BATCH_SIZE',
-  'MEMORY_VECTOR_DIMENSIONS',
-  'MEMORY_MAX_CHUNKS_PER_GROUP',
-  'MEMORY_CHUNK_RETENTION_DAYS',
-  'MEMORY_MAX_EVENTS',
-  'MEMORY_MAX_PROCEDURES_PER_GROUP',
-  'MEMORY_CLEANUP_PURGE_DAYS',
-  'MEMORY_JOURNAL_GZIP_DAYS',
-  'MEMORY_JOURNAL_DELETE_DAYS',
-  'MEMORY_MAINTENANCE_MAX_PENDING',
-  'MYCLAW_MEMORY_JOURNAL_DISABLED',
-  'MEMORY_BRIEF_INCLUDE_LAST_SESSION',
-  'MEMORY_BRIEF_DIRTY_REFRESH',
-  'PERMISSION_APPROVAL_TIMEOUT_MS',
-  'TELEGRAM_PERMISSION_APPROVER_IDS',
-  'SLACK_BOT_TOKEN',
-  'SLACK_APP_TOKEN',
-  'SLACK_PERMISSION_APPROVER_IDS',
-]);
 
 export const ASSISTANT_NAME =
   process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
@@ -110,16 +40,12 @@ if (runtimeMemorySettingsError) {
     `Invalid runtime memory settings: ${runtimeMemorySettingsError.message}`,
   );
 }
-const MEMORY_ROOT_RAW =
-  process.env.MEMORY_ROOT?.trim() ||
-  envConfig.MEMORY_ROOT?.trim() ||
-  runtimeMemorySettings.root ||
-  'memory';
-export const MEMORY_ROOT = path.isAbsolute(MEMORY_ROOT_RAW)
-  ? path.resolve(MEMORY_ROOT_RAW)
-  : path.resolve(RUNTIME_ROOT, MEMORY_ROOT_RAW);
+const memoryRootSetting = runtimeMemorySettings.root || 'memory';
+export const memoryStorageDir = path.isAbsolute(memoryRootSetting)
+  ? path.resolve(memoryRootSetting)
+  : path.resolve(RUNTIME_ROOT, memoryRootSetting);
 export const MEMORY_SQLITE_PATH = path.resolve(
-  MEMORY_ROOT,
+  memoryStorageDir,
   '.cache',
   'memory.db',
 );
@@ -166,8 +92,7 @@ function parseSourceTypeBoosts(
   }
 }
 
-export const OPENAI_API_KEY =
-  process.env.OPENAI_API_KEY || envConfig.OPENAI_API_KEY || null;
+export const OPENAI_API_KEY = envValue('OPENAI_API_KEY') || null;
 export const OPENAI_DAILY_EMBED_LIMIT = Math.max(
   0,
   parseInt(
@@ -348,8 +273,7 @@ export const MEMORY_SEMANTIC_DEDUP_THRESHOLD = Math.max(
   ),
 );
 export const MEMORY_GLOBAL_KNOWLEDGE_DIR = resolveOptionalPath(
-  MEMORY_GLOBAL_KNOWLEDGE_DIR_RAW ||
-    (MEMORY_ROOT ? path.join(MEMORY_ROOT, 'knowledge') : ''),
+  MEMORY_GLOBAL_KNOWLEDGE_DIR_RAW || path.join(memoryStorageDir, 'knowledge'),
 );
 export const MEMORY_KNOWLEDGE_EMBED_BUDGET_PER_DAY = Math.max(
   0,
@@ -598,23 +522,63 @@ export const AGENT_MAX_OUTPUT_SIZE = parseInt(
   process.env.AGENT_MAX_OUTPUT_SIZE || '10485760',
   10,
 ); // 10MB default
-export const ONECLI_URL = process.env.ONECLI_URL || envConfig.ONECLI_URL;
+export const ONECLI_URL = envValue('ONECLI_URL');
 function normalizeModelValue(value?: string): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
 }
 
-export const ANTHROPIC_MODEL = normalizeModelValue(
-  process.env.ANTHROPIC_MODEL || envConfig.ANTHROPIC_MODEL,
+export const ANTHROPIC_MODEL = normalizeModelValue(envValue('ANTHROPIC_MODEL'));
+export const ANTHROPIC_API_KEY = envValue('ANTHROPIC_API_KEY');
+export const CLAUDE_OAUTH_TOKEN = envValue('CLAUDE_CODE_OAUTH_TOKEN');
+export const TELEGRAM_BOT_TOKEN = envValue('TELEGRAM_BOT_TOKEN');
+export const SLACK_BOT_TOKEN = envValue('SLACK_BOT_TOKEN');
+export const SLACK_APP_TOKEN = envValue('SLACK_APP_TOKEN');
+export const MYCLAW_IPC_AUTH_SECRET = envValue('MYCLAW_IPC_AUTH_SECRET');
+export const MYCLAW_CREDENTIAL_MODE = envValue('MYCLAW_CREDENTIAL_MODE');
+export const REMOTE_CONTROL_AUTO_ACCEPT = parseBooleanEnv(
+  envValue('REMOTE_CONTROL_AUTO_ACCEPT'),
+  false,
 );
-export const ANTHROPIC_API_KEY =
-  process.env.ANTHROPIC_API_KEY?.trim() ||
-  envConfig.ANTHROPIC_API_KEY?.trim() ||
-  '';
-export const CLAUDE_OAUTH_TOKEN =
-  process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim() ||
-  envConfig.CLAUDE_CODE_OAUTH_TOKEN?.trim() ||
-  '';
+export const CHROME_PATH = envValue('CHROME_PATH') || undefined;
+export const LOG_LEVEL = envValue('LOG_LEVEL') || 'info';
+export const HOST_CREDENTIAL_ENV_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'ANTHROPIC_MODEL',
+  'MEMORY_EXTRACTOR_MAX_TURNS',
+] as const;
+export const ONECLI_ALLOWED_ENV_KEYS = [
+  ...HOST_CREDENTIAL_ENV_KEYS,
+  'OPENAI_API_KEY',
+  'OPENAI_BASE_URL',
+  'OPENAI_ORG_ID',
+  'OPENAI_PROJECT',
+  'SSL_CERT_FILE',
+  'NODE_EXTRA_CA_CERTS',
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'NO_PROXY',
+] as const;
+export function getHostCredentialEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of HOST_CREDENTIAL_ENV_KEYS) {
+    const value = envValue(key);
+    if (value) env[key] = value;
+  }
+  return env;
+}
+export function getTelegramBotToken(): string {
+  return envValue('TELEGRAM_BOT_TOKEN');
+}
+export function getSlackBotToken(): string {
+  return envValue('SLACK_BOT_TOKEN');
+}
+export function getSlackAppToken(): string {
+  return envValue('SLACK_APP_TOKEN');
+}
 export type ClaudeAuthMode = 'oauth' | 'api_key' | 'none';
 
 export interface ClaudeAuthState {
