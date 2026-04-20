@@ -10,12 +10,40 @@ export type SessionCommand =
   | { kind: 'compact'; raw: '/compact' }
   | { kind: 'new'; raw: '/new' }
   | { kind: 'stop'; raw: '/stop' }
+  | { kind: 'dream'; raw: '/dream' }
+  | { kind: 'memory_status'; raw: '/memory-status' }
+  | { kind: 'save_procedure'; raw: string; title: string; body?: string }
   | { kind: 'model_show'; raw: '/model' }
   | { kind: 'model_set'; raw: string; value: string }
   | { kind: 'model_default'; raw: '/model default' }
   | { kind: 'thinking_show'; raw: '/thinking' }
   | { kind: 'thinking_set'; raw: string; value: ThinkingOverride }
   | { kind: 'thinking_default'; raw: '/thinking default' };
+
+export interface MemoryStatusSnapshot {
+  items_by_kind: Record<string, number>;
+  items_by_scope: Record<string, number>;
+  top10_most_used: Array<{ key: string; retrieval_count: number }>;
+  top10_stalest: Array<{ key: string; updated_at: string }>;
+  last_dream_run?: { at?: string; summary?: string };
+  disk_kb?: Record<string, number>;
+}
+
+interface DreamQueueResult {
+  queued: boolean;
+  deduped: boolean;
+  pending?: number;
+  reason?: 'queued' | 'deduped' | 'full' | 'invalid';
+}
+
+function isDreamQueueResult(value: unknown): value is DreamQueueResult {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.queued === 'boolean' &&
+    typeof candidate.deduped === 'boolean'
+  );
+}
 
 function parseThinkingCommand(text: string): SessionCommand | null {
   if (text === '/thinking') return { kind: 'thinking_show', raw: '/thinking' };
@@ -98,7 +126,27 @@ export function extractSessionCommand(
   if (text === '/compact') return { kind: 'compact', raw: '/compact' };
   if (text === '/new') return { kind: 'new', raw: '/new' };
   if (text === '/stop') return { kind: 'stop', raw: '/stop' };
+  if (text === '/dream') return { kind: 'dream', raw: '/dream' };
+  if (text === '/memory-status') {
+    return { kind: 'memory_status', raw: '/memory-status' };
+  }
   if (text === '/model') return { kind: 'model_show', raw: '/model' };
+
+  const saveProcedureMatch = text.match(
+    /^\/save-procedure(?:\s+"([^"\n]{1,80})"|\s+([^\n]{1,80}))(?:\n([\s\S]+))?$/,
+  );
+  if (saveProcedureMatch) {
+    const title = (saveProcedureMatch[1] || saveProcedureMatch[2] || '').trim();
+    const body = saveProcedureMatch[3]?.trim();
+    if (title) {
+      return {
+        kind: 'save_procedure',
+        raw: text,
+        title,
+        ...(body ? { body } : {}),
+      };
+    }
+  }
 
   const modelMatch = text.match(/^\/model\s+(\S+)$/);
   if (modelMatch) {
@@ -161,10 +209,48 @@ export interface SessionCommandDeps {
   ) => Promise<void>;
   clearCurrentSession: () => void;
   stopCurrentRun?: () => boolean;
+  runMemoryDreaming?: () => Promise<unknown>;
+  getMemoryStatus?: () => Promise<MemoryStatusSnapshot>;
+  saveProcedure?: (input: {
+    title: string;
+    body: string;
+  }) => Promise<{ id: string } | void> | { id: string } | void;
   /** Whether sender is explicitly trusted for control-plane commands. */
   isSenderControlAllowlisted: (msg: NewMessage) => boolean;
   /** Whether the denied sender would normally be allowed to interact (for denial messages). */
   canSenderInteract: (msg: NewMessage) => boolean;
+}
+
+function formatMemoryStatus(status: MemoryStatusSnapshot): string {
+  const kinds = Object.entries(status.items_by_kind || {})
+    .map(([kind, count]) => `${kind}:${count}`)
+    .join(', ');
+  const scopes = Object.entries(status.items_by_scope || {})
+    .map(([scope, count]) => `${scope}:${count}`)
+    .join(', ');
+  const used = (status.top10_most_used || [])
+    .slice(0, 5)
+    .map((row) => `${row.key}(${row.retrieval_count})`)
+    .join(', ');
+  const stalest = (status.top10_stalest || [])
+    .slice(0, 5)
+    .map((row) => `${row.key}@${row.updated_at.slice(0, 10)}`)
+    .join(', ');
+  const dream = status.last_dream_run?.at || 'never';
+  const disk = status.disk_kb
+    ? Object.entries(status.disk_kb)
+        .map(([k, v]) => `${k}:${v}kb`)
+        .join(', ')
+    : 'n/a';
+  return [
+    'Memory status',
+    `kinds: ${kinds || 'none'}`,
+    `scopes: ${scopes || 'none'}`,
+    `top_used: ${used || 'none'}`,
+    `stale: ${stalest || 'none'}`,
+    `last_dream: ${dream}`,
+    `disk: ${disk}`,
+  ].join('\n');
 }
 
 const MODEL_VALIDATION_TIMEOUT_MS = 90_000;
@@ -185,6 +271,22 @@ function sanitizeErrorText(text: string): string {
     .trim();
   if (normalized.length <= MAX_MODEL_ERROR_MESSAGE_CHARS) return normalized;
   return `${normalized.slice(0, MAX_MODEL_ERROR_MESSAGE_CHARS - 1)}…`;
+}
+
+const FORBIDDEN_PROCEDURE_TITLE_PREFIX =
+  /^(Found it|Findings|Critical|End-to-end|No answer|Three full|On it|##|\*\*)/i;
+
+function hasAtLeastTwoNumberedSteps(body: string): boolean {
+  const matches = body.match(/^\s*\d+\.\s+/gm);
+  return (matches?.length || 0) >= 2;
+}
+
+function normalizeBodyForComparison(value: string): string {
+  return value
+    .normalize('NFKC')
+    .replace(/\r\n/g, '\n')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**
@@ -315,6 +417,120 @@ export async function handleSessionCommand(opts: {
     deps.advanceCursor(cmdMsg);
     await deps.sendMessage('Started a fresh session.');
     return { handled: true, success: true };
+  }
+
+  if (command.kind === 'dream') {
+    deps.advanceCursor(cmdMsg);
+    if (!deps.runMemoryDreaming) {
+      await deps.sendMessage('/dream is unavailable in this runtime.');
+      return { handled: true, success: true };
+    }
+    try {
+      const result = await deps.runMemoryDreaming();
+      if (isDreamQueueResult(result)) {
+        if (!result.queued && result.reason === 'deduped') {
+          await deps.sendMessage(
+            `Dreaming already in progress.\n${JSON.stringify(result).slice(0, 1500)}`,
+          );
+          return { handled: true, success: true };
+        }
+        if (!result.queued) {
+          const reason = result.reason || 'rejected';
+          await deps.sendMessage(`/dream failed: ${sanitizeErrorText(reason)}`);
+          return { handled: true, success: true };
+        }
+      }
+      const summary =
+        result && typeof result === 'object'
+          ? JSON.stringify(result)
+          : String(result ?? '');
+      await deps.sendMessage(
+        `Dreaming completed.\n${summary.slice(0, 1500) || 'no output'}`,
+      );
+      return { handled: true, success: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await deps.sendMessage(`/dream failed: ${sanitizeErrorText(message)}`);
+      return { handled: true, success: true };
+    }
+  }
+
+  if (command.kind === 'memory_status') {
+    deps.advanceCursor(cmdMsg);
+    if (!deps.getMemoryStatus) {
+      await deps.sendMessage('/memory-status is unavailable in this runtime.');
+      return { handled: true, success: true };
+    }
+    try {
+      const status = await deps.getMemoryStatus();
+      await deps.sendMessage(formatMemoryStatus(status));
+      return { handled: true, success: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await deps.sendMessage(
+        `/memory-status failed: ${sanitizeErrorText(message)}`,
+      );
+      return { handled: true, success: true };
+    }
+  }
+
+  if (command.kind === 'save_procedure') {
+    deps.advanceCursor(cmdMsg);
+    if (!deps.saveProcedure) {
+      await deps.sendMessage('/save-procedure is unavailable in this runtime.');
+      return { handled: true, success: true };
+    }
+    if (command.title.length < 10 || command.title.length > 80) {
+      await deps.sendMessage('/save-procedure title must be 10-80 characters.');
+      return { handled: true, success: true };
+    }
+    if (FORBIDDEN_PROCEDURE_TITLE_PREFIX.test(command.title)) {
+      await deps.sendMessage(
+        '/save-procedure rejected: title looks like transcript text, not a reusable procedure.',
+      );
+      return { handled: true, success: true };
+    }
+    const procedureBody =
+      command.body || deps.formatMessages(preCommandMsgs, timezone).trim();
+    if (!procedureBody) {
+      await deps.sendMessage(
+        '/save-procedure requires steps in the message body or prior context in this batch.',
+      );
+      return { handled: true, success: true };
+    }
+    if (!hasAtLeastTwoNumberedSteps(procedureBody)) {
+      await deps.sendMessage(
+        '/save-procedure body must include at least two numbered steps.',
+      );
+      return { handled: true, success: true };
+    }
+    const normalizedBody = normalizeBodyForComparison(procedureBody);
+    const assistantBodies = preCommandMsgs
+      .filter((msg) => msg.is_from_me === true)
+      .slice(-5)
+      .map((msg) => normalizeBodyForComparison(msg.content));
+    if (assistantBodies.some((entry) => entry === normalizedBody)) {
+      await deps.sendMessage(
+        '/save-procedure rejected: body matches a recent assistant reply verbatim.',
+      );
+      return { handled: true, success: true };
+    }
+    try {
+      const result = await deps.saveProcedure({
+        title: command.title,
+        body: procedureBody,
+      });
+      await deps.sendMessage(
+        `Saved procedure "${command.title}"${result && 'id' in result ? ` (${result.id})` : ''}.`,
+      );
+      return { handled: true, success: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await deps.sendMessage(
+        `/save-procedure failed: ${sanitizeErrorText(message)}`,
+      );
+      return { handled: true, success: true };
+    }
   }
 
   const defaultModel = deps.getDefaultModel();

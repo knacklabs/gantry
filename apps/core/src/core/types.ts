@@ -245,7 +245,7 @@ export interface StreamingSink {
     jid: string,
     text: string,
     options?: StreamingChunkOptions,
-  ): Promise<void>;
+  ): Promise<boolean>;
 }
 
 export interface StreamingStateSink {

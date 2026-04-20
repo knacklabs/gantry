@@ -35,11 +35,10 @@ MyClaw currently has these layers:
    - `memory_chunks` for ingested markdown knowledge
    - SQLite as the live search source
 
-3. Injected runtime context
-   - Before an agent run, MyClaw builds a memory context block.
-   - The agent runner appends that block to the user prompt.
-   - The agent can also call memory MCP tools during the run.
-   - After a successful run, reflection extracts durable memories.
+3. Hook-driven continuity context
+   - Session hooks load a concise memory brief at session boundaries.
+   - The agent can call memory MCP tools during the run.
+   - After successful boundaries, extraction writes durable memories.
 
 This gives the baseline for continuity today: remembered facts and relevant context can be injected into the next run.
 

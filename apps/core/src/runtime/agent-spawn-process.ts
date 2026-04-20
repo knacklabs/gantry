@@ -17,7 +17,12 @@ import { AgentOutput, RunnerProcessSpec } from './agent-spawn-types.js';
 const SENSITIVE_TEXT_PATTERNS: RegExp[] = [
   /\b(ANTHROPIC_API_KEY|OPENAI_API_KEY|CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_AUTH_TOKEN|GITHUB_TOKEN|GH_TOKEN)\s*[:=]\s*([^\s"']+)/gi,
   /\b(Bearer)\s+[A-Za-z0-9._\-~+/]+=*/gi,
-  /\bsk-[A-Za-z0-9]{16,}\b/g,
+  /\bsk-[A-Za-z0-9_-]{16,}\b/g,
+  /\bsk-ant-[A-Za-z0-9_-]{16,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
+  /\b(AKIA|ASIA)[0-9A-Z]{16}\b/g,
+  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
 ];
 const STREAM_PARSE_BUFFER_LIMIT = Math.max(AGENT_MAX_OUTPUT_SIZE * 4, 131_072);
 
@@ -37,7 +42,7 @@ function sanitizeLogText(value: string, maxChars = 4000): string {
   return text;
 }
 
-function parseLegacyOutput(stdout: string): AgentOutput {
+function parseBufferedRunnerOutput(stdout: string): AgentOutput {
   const startIdx = stdout.indexOf(OUTPUT_START_MARKER);
   const endIdx = stdout.indexOf(OUTPUT_END_MARKER);
 
@@ -195,7 +200,11 @@ export function executeRunnerProcess(
 
     runner.stderr.on('data', (data) => {
       const chunk = data.toString();
-      const lines = chunk.trim().split('\n');
+      const sanitizedChunkForLog = sanitizeLogText(
+        chunk,
+        AGENT_MAX_OUTPUT_SIZE,
+      );
+      const lines = sanitizedChunkForLog.trim().split('\n');
       for (const line of lines) {
         if (line) logger.debug({ agent: group.folder }, line);
       }
@@ -279,9 +288,24 @@ export function executeRunnerProcess(
       ];
 
       const isError = code !== 0;
+      const sanitizedStdoutForLog = sanitizeLogText(
+        stdout,
+        AGENT_MAX_OUTPUT_SIZE,
+      );
+      const sanitizedStderrForLog = sanitizeLogText(
+        stderr,
+        AGENT_MAX_OUTPUT_SIZE,
+      );
       if (isVerbose || isError) {
         if (isVerbose) {
-          logLines.push(`=== Input ===`, JSON.stringify(input, null, 2), ``);
+          logLines.push(
+            `=== Input Summary ===`,
+            `Prompt length: ${input.prompt.length} chars`,
+            `Session ID: ${input.sessionId || 'new'}`,
+            `Chat JID: ${input.chatJid}`,
+            `Group Folder: ${input.groupFolder}`,
+            '',
+          );
         } else {
           logLines.push(
             `=== Input Summary ===`,
@@ -298,10 +322,10 @@ export function executeRunnerProcess(
           runtimeDetails.join('\n'),
           ``,
           `=== Stderr${stderrTruncated ? ' (TRUNCATED)' : ''} ===`,
-          stderr,
+          sanitizedStderrForLog,
           ``,
           `=== Stdout${stdoutTruncated ? ' (TRUNCATED)' : ''} ===`,
-          stdout,
+          sanitizedStdoutForLog,
         );
       } else {
         logLines.push(
@@ -336,7 +360,7 @@ export function executeRunnerProcess(
         resolve({
           status: 'error',
           result: null,
-          error: `${runnerLabel} exited with code ${code}: ${stderr.slice(-200)}`,
+          error: `${runnerLabel} exited with code ${code}: ${sanitizeLogText(stderr.slice(-200), 200)}`,
         });
         return;
       }
@@ -357,7 +381,7 @@ export function executeRunnerProcess(
       }
 
       try {
-        const output = parseLegacyOutput(stdout);
+        const output = parseBufferedRunnerOutput(stdout);
 
         logger.info(
           {

@@ -5,9 +5,8 @@ import fs from 'fs';
 import path from 'path';
 
 import {
-  AGENT_MEMORY_ROOT,
   DATA_DIR,
-  AGENT_ROOT,
+  MEMORY_ROOT,
   PERMISSION_APPROVAL_TIMEOUT_MS,
   TIMEZONE,
   getEffectiveModelConfig,
@@ -149,8 +148,8 @@ export async function spawnAgent(
     MYCLAW_IPC_INPUT_DIR: path.join(hostRuntime.groupIpcDir, 'input'),
     MYCLAW_IPC_AUTH_TOKEN: computeIpcAuthToken(group.folder),
     MYCLAW_PERMISSION_TIMEOUT_MS: String(PERMISSION_APPROVAL_TIMEOUT_MS),
-    ...((AGENT_MEMORY_ROOT || '').trim()
-      ? { AGENT_MEMORY_ROOT: (AGENT_MEMORY_ROOT || '').trim() }
+    ...((MEMORY_ROOT || '').trim()
+      ? { MEMORY_ROOT: (MEMORY_ROOT || '').trim() }
       : {}),
     ...(input.memoryContextFile
       ? { MYCLAW_IPC_MEMORY_CONTEXT_FILE: input.memoryContextFile }

@@ -25,13 +25,11 @@ export interface RuntimeStatusSummary {
   slackAppTokenConfigured: boolean;
   slackGroups: number;
   memoryEnabled: boolean;
-  memoryProvider: string;
-  memoryProviderSource: string;
-  memoryProviderHealth: string;
+  memoryHealth: string;
+  memoryRoot: string;
+  memoryRootSource: string;
   memorySqlitePath: string;
   memorySqlitePathSource: string;
-  memoryQmdRoot: string;
-  memoryQmdRootSource: string;
   embeddingsEnabled: boolean;
   embeddingProvider: string;
   embeddingProviderSource: string;
@@ -84,9 +82,6 @@ export function collectRuntimeStatus(
   const doctor = runDoctor(importMetaUrl, runtimeHome);
   const groupCounts = countRegisteredGroupsByPrefix(runtimeHome);
   const memoryHealth = inspectMemoryHealth(runtimeHome, settings, env);
-  const memoryProviderCheck = doctor.checks.find(
-    (check) => check.id === 'memory-provider',
-  );
   const embeddingsProviderCheck = doctor.checks.find(
     (check) => check.id === 'embeddings-provider',
   );
@@ -104,13 +99,11 @@ export function collectRuntimeStatus(
     slackAppTokenConfigured: Boolean(env.SLACK_APP_TOKEN?.trim()),
     slackGroups: groupCounts.slack,
     memoryEnabled: memoryHealth.memoryEnabled,
-    memoryProvider: memoryHealth.memoryProvider,
-    memoryProviderSource: memoryHealth.memoryProviderSource,
-    memoryProviderHealth: memoryProviderCheck?.status || 'unknown',
+    memoryHealth: memoryHealth.memoryCheck.status,
+    memoryRoot: memoryHealth.memoryRoot,
+    memoryRootSource: memoryHealth.memoryRootSource,
     memorySqlitePath: memoryHealth.sqlitePath,
     memorySqlitePathSource: memoryHealth.sqlitePathSource,
-    memoryQmdRoot: memoryHealth.qmdRoot,
-    memoryQmdRootSource: memoryHealth.qmdRootSource,
     embeddingsEnabled: memoryHealth.embeddingsEnabled,
     embeddingProvider: memoryHealth.embeddingProvider,
     embeddingProviderSource: memoryHealth.embeddingProviderSource,
@@ -146,13 +139,10 @@ export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
   lines.push(`Slack groups: ${summary.slackGroups}`);
   lines.push(`Memory: ${statusWord(summary.memoryEnabled)}`);
   lines.push(
-    `Memory provider: ${summary.memoryProvider} (${summary.memoryProviderHealth}, source: ${summary.memoryProviderSource})`,
+    `Memory storage: ${summary.memoryHealth} (root: ${summary.memoryRoot}, source: ${summary.memoryRootSource})`,
   );
   lines.push(
     `SQLite memory DB: ${summary.memorySqlitePath} (source: ${summary.memorySqlitePathSource})`,
-  );
-  lines.push(
-    `QMD memory root: ${summary.memoryQmdRoot} (source: ${summary.memoryQmdRootSource})`,
   );
   lines.push(`Embeddings: ${statusWord(summary.embeddingsEnabled)}`);
   lines.push(

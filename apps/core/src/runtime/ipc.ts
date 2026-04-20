@@ -38,6 +38,8 @@ export type { IpcDeps } from './ipc-domain-types.js';
 export { processTaskIpc } from './ipc-task-handler.js';
 
 let ipcWatcherRunning = false;
+let ipcWatcherTimer: ReturnType<typeof setTimeout> | undefined;
+let ipcRootLockPath: string | undefined;
 const IPC_RATE_LIMIT_WINDOW_MS = 60_000;
 const IPC_RATE_LIMIT_MAX_FILES_PER_WINDOW = 300;
 const MEMORY_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
@@ -216,6 +218,101 @@ function archiveIpcErrorFile(
     if (code !== 'ENOENT') {
       throw err;
     }
+  }
+}
+
+interface IpcRootLockDetails {
+  pid?: number;
+  startedAt?: string;
+}
+
+function readIpcRootLockDetails(lockPath: string): IpcRootLockDetails {
+  try {
+    const raw = fs.readFileSync(lockPath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (!isPlainObject(parsed)) return {};
+    const pidRaw = parsed.pid;
+    const pid =
+      typeof pidRaw === 'number' && Number.isInteger(pidRaw) && pidRaw > 0
+        ? pidRaw
+        : undefined;
+    const startedAt = toTrimmedString(parsed.startedAt, { maxLen: 128 });
+    return { pid, startedAt };
+  } catch {
+    return {};
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    const code =
+      err && typeof err === 'object' && 'code' in err
+        ? String((err as { code?: string }).code)
+        : '';
+    if (code === 'ESRCH') return false;
+    if (code === 'EPERM') return true;
+    logger.warn(
+      { err, pid },
+      'Unable to validate IPC lock PID liveness, assuming process is active',
+    );
+    return true;
+  }
+}
+
+function recoverStaleIpcRootLock(
+  lockPath: string,
+): IpcRootLockDetails & { recovered: boolean; recoveryReason?: string } {
+  const details = readIpcRootLockDetails(lockPath);
+  if (typeof details.pid !== 'number') {
+    return {
+      ...details,
+      recovered: false,
+      recoveryReason: 'invalid_or_missing_pid',
+    };
+  }
+  if (details.pid === process.pid) {
+    return { ...details, recovered: false, recoveryReason: 'same_process' };
+  }
+  if (isProcessAlive(details.pid)) {
+    return { ...details, recovered: false, recoveryReason: 'pid_alive' };
+  }
+  const recoveryReason = 'pid_not_running';
+  try {
+    fs.rmSync(lockPath, { force: true });
+    return { ...details, recovered: true, recoveryReason };
+  } catch (err) {
+    logger.warn({ err, lockPath }, 'Failed to remove stale IPC watcher lock');
+    return { ...details, recovered: false, recoveryReason: 'remove_failed' };
+  }
+}
+
+function acquireIpcRootLock(ipcBaseDir: string): string {
+  const lockPath = path.join(ipcBaseDir, '.lock');
+  fs.writeFileSync(
+    lockPath,
+    JSON.stringify({
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+    }),
+    { flag: 'wx' },
+  );
+  return lockPath;
+}
+
+function releaseIpcRootLock(): void {
+  if (!ipcRootLockPath) return;
+  try {
+    fs.rmSync(ipcRootLockPath, { force: true });
+  } catch (err) {
+    logger.warn(
+      { err, lockPath: ipcRootLockPath },
+      'Failed to release IPC lock',
+    );
+  } finally {
+    ipcRootLockPath = undefined;
   }
 }
 
@@ -592,13 +689,78 @@ export function startIpcWatcher(deps: IpcDeps): void {
     logger.debug('IPC watcher already running, skipping duplicate start');
     return;
   }
-  ipcWatcherRunning = true;
 
   const ipcBaseDir = path.join(DATA_DIR, 'ipc');
   fs.mkdirSync(ipcBaseDir, { recursive: true });
+  try {
+    ipcRootLockPath = acquireIpcRootLock(ipcBaseDir);
+  } catch (err) {
+    const lockPath = path.join(ipcBaseDir, '.lock');
+    const code =
+      err && typeof err === 'object' && 'code' in err
+        ? String((err as { code?: string }).code)
+        : '';
+    if (code === 'EEXIST') {
+      const recoveredLock = recoverStaleIpcRootLock(lockPath);
+      if (!recoveredLock.recovered) {
+        logger.warn(
+          {
+            lockPath,
+            holderPid: recoveredLock.pid,
+            holderStartedAt: recoveredLock.startedAt,
+            reason: recoveredLock.recoveryReason,
+          },
+          'IPC watcher lock already held, skipping start',
+        );
+        return;
+      }
+      logger.warn(
+        {
+          lockPath,
+          holderPid: recoveredLock.pid,
+          holderStartedAt: recoveredLock.startedAt,
+          reason: recoveredLock.recoveryReason,
+        },
+        'Recovered stale IPC watcher lock; retrying start',
+      );
+      try {
+        ipcRootLockPath = acquireIpcRootLock(ipcBaseDir);
+      } catch (retryErr) {
+        const retryCode =
+          retryErr && typeof retryErr === 'object' && 'code' in retryErr
+            ? String((retryErr as { code?: string }).code)
+            : '';
+        if (retryCode === 'EEXIST') {
+          const retryDetails = readIpcRootLockDetails(lockPath);
+          logger.warn(
+            {
+              lockPath,
+              holderPid: retryDetails.pid,
+              holderStartedAt: retryDetails.startedAt,
+              reason: 'reacquire_raced',
+            },
+            'IPC watcher lock already held, skipping start',
+          );
+          return;
+        }
+        throw retryErr;
+      }
+    } else {
+      throw err;
+    }
+  }
+  ipcWatcherRunning = true;
   const initializedLayoutFolders = new Set<string>();
 
+  const scheduleNextPoll = (): void => {
+    if (!ipcWatcherRunning) return;
+    ipcWatcherTimer = setTimeout(() => {
+      void processIpcFiles();
+    }, IPC_POLL_INTERVAL);
+  };
+
   const processIpcFiles = async () => {
+    if (!ipcWatcherRunning) return;
     const registeredGroups = deps.registeredGroups();
     const allowedFolders = new Set(
       Object.values(registeredGroups)
@@ -644,7 +806,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
     let discoveredGroupFolders: string[];
     try {
       discoveredGroupFolders = fs.readdirSync(ipcBaseDir).filter((f) => {
-        if (f === 'errors') return false;
+        if (f === 'errors' || f === '.lock') return false;
         const groupPath = path.join(ipcBaseDir, f);
         const trusted = isTrustedDirectory(groupPath);
         if (!trusted && fs.existsSync(groupPath)) {
@@ -657,7 +819,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
       });
     } catch (err) {
       logger.error({ err }, 'Error reading IPC base directory');
-      setTimeout(processIpcFiles, IPC_POLL_INTERVAL);
+      scheduleNextPoll();
       return;
     }
 
@@ -1045,9 +1207,20 @@ export function startIpcWatcher(deps: IpcDeps): void {
       }
     }
 
-    setTimeout(processIpcFiles, IPC_POLL_INTERVAL);
+    scheduleNextPoll();
   };
 
-  processIpcFiles();
+  void processIpcFiles();
   logger.info('IPC watcher started (per-group namespaces)');
+}
+
+export function stopIpcWatcher(): void {
+  if (ipcWatcherTimer) {
+    clearTimeout(ipcWatcherTimer);
+    ipcWatcherTimer = undefined;
+  }
+  ipcWatcherRunning = false;
+  ipcRateLimitState.clear();
+  releaseIpcRootLock();
+  logger.info('IPC watcher stopped');
 }

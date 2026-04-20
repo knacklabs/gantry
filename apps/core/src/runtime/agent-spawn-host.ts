@@ -33,7 +33,134 @@ const HOST_AUTH_ENV_KEYS = [
   'ANTHROPIC_BASE_URL',
   'CLAUDE_CODE_OAUTH_TOKEN',
   'ANTHROPIC_MODEL',
+  'MEMORY_EXTRACTOR_MAX_TURNS',
 ];
+const ONECLI_ALLOWED_ENV_KEYS = new Set<string>([
+  ...HOST_AUTH_ENV_KEYS,
+  'OPENAI_API_KEY',
+  'OPENAI_BASE_URL',
+  'OPENAI_ORG_ID',
+  'OPENAI_PROJECT',
+  'SSL_CERT_FILE',
+  'NODE_EXTRA_CA_CERTS',
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'NO_PROXY',
+]);
+const ONECLI_CA_CERT_ROOT = path.resolve(DATA_DIR, 'onecli', 'certs');
+
+function isPathInside(root: string, candidate: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return (
+    relative === '' ||
+    (!relative.startsWith('..') && !path.isAbsolute(relative))
+  );
+}
+
+function safeRealpathSync(targetPath: string): string {
+  const maybeRealpath = (
+    fs as unknown as { realpathSync?: (p: string) => string }
+  ).realpathSync;
+  if (typeof maybeRealpath !== 'function') {
+    return path.resolve(targetPath);
+  }
+  try {
+    return maybeRealpath(targetPath);
+  } catch {
+    return path.resolve(targetPath);
+  }
+}
+
+function resolvePathWithRealParent(targetPath: string): string {
+  const resolved = path.resolve(targetPath);
+  const suffix: string[] = [path.basename(resolved)];
+  let anchor = path.dirname(resolved);
+  while (!fs.existsSync(anchor)) {
+    const parent = path.dirname(anchor);
+    if (parent === anchor) break;
+    suffix.unshift(path.basename(anchor));
+    anchor = parent;
+  }
+  const realAnchor = safeRealpathSync(anchor);
+  return path.join(realAnchor, ...suffix);
+}
+
+function sanitizeCertFileSegment(value?: string): string {
+  const trimmed = value?.trim();
+  if (!trimmed) return 'default';
+  return (
+    trimmed
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'default'
+  );
+}
+
+function resolveOnecliCaTargetPath(
+  requestedPath: string | undefined,
+  agentIdentifier?: string,
+): { targetPath: string; remapped: boolean } {
+  const realRoot = safeRealpathSync(ONECLI_CA_CERT_ROOT);
+  const fallbackPath = path.join(
+    realRoot,
+    `${sanitizeCertFileSegment(agentIdentifier)}.pem`,
+  );
+  if (!requestedPath) {
+    return { targetPath: fallbackPath, remapped: false };
+  }
+
+  const resolvedRequestedPath = resolvePathWithRealParent(requestedPath);
+  if (isPathInside(realRoot, resolvedRequestedPath)) {
+    return { targetPath: resolvedRequestedPath, remapped: false };
+  }
+
+  return { targetPath: fallbackPath, remapped: true };
+}
+
+function filterOnecliEnv(
+  source: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const dropped: string[] = [];
+  for (const [key, value] of Object.entries(source)) {
+    if (
+      !ONECLI_ALLOWED_ENV_KEYS.has(key) ||
+      typeof value !== 'string' ||
+      value.length === 0
+    ) {
+      dropped.push(key);
+      continue;
+    }
+    out[key] = value;
+  }
+  if (dropped.length > 0) {
+    logger.warn(
+      {
+        droppedKeys: dropped.sort().slice(0, 20),
+        droppedCount: dropped.length,
+      },
+      'Dropped disallowed OneCLI env keys',
+    );
+  }
+  return out;
+}
+
+function remapOnecliEnvCertificatePath(
+  env: Record<string, string>,
+  originalPath: string | undefined,
+  targetPath: string,
+): void {
+  if (originalPath) {
+    for (const [key, value] of Object.entries(env)) {
+      if (value === originalPath) {
+        env[key] = targetPath;
+      }
+    }
+  }
+  env.NODE_EXTRA_CA_CERTS = targetPath;
+}
 
 export async function getHostRuntimeCredentialEnv(
   agentIdentifier?: string,
@@ -82,24 +209,47 @@ export async function getHostRuntimeCredentialEnv(
 
   try {
     const config = await onecli.getContainerConfig(agentIdentifier);
-    onecliEnv = config.env;
+    onecliEnv = filterOnecliEnv(config.env || {});
     onecliApplied = true;
-    if (config.caCertificate && config.caCertificateContainerPath) {
+    if (config.caCertificate) {
+      const requestedPath = config.caCertificateContainerPath?.trim();
+      const { targetPath, remapped } = resolveOnecliCaTargetPath(
+        requestedPath,
+        agentIdentifier,
+      );
       try {
-        fs.mkdirSync(path.dirname(config.caCertificateContainerPath), {
+        if (remapped && requestedPath) {
+          logger.warn(
+            {
+              requestedPath,
+              targetPath,
+            },
+            'Remapped OneCLI CA certificate path outside runtime data directory',
+          );
+        }
+        fs.mkdirSync(path.dirname(targetPath), {
           recursive: true,
+          mode: 0o700,
         });
-        fs.writeFileSync(
-          config.caCertificateContainerPath,
-          config.caCertificate,
-          {
-            mode: 0o600,
-          },
+        const realRoot = safeRealpathSync(ONECLI_CA_CERT_ROOT);
+        const writeTargetPath = resolvePathWithRealParent(targetPath);
+        if (!isPathInside(realRoot, writeTargetPath)) {
+          throw new Error(
+            `Refusing to write OneCLI CA certificate outside runtime root: ${writeTargetPath}`,
+          );
+        }
+        fs.writeFileSync(writeTargetPath, config.caCertificate, {
+          mode: 0o600,
+        });
+        remapOnecliEnvCertificatePath(
+          onecliEnv,
+          requestedPath,
+          writeTargetPath,
         );
-        onecliCaPath = config.caCertificateContainerPath;
+        onecliCaPath = writeTargetPath;
       } catch (err) {
         logger.warn(
-          { certificatePath: config.caCertificateContainerPath, err },
+          { certificatePath: targetPath, err },
           'Failed to write OneCLI CA certificate',
         );
       }

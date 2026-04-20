@@ -1,20 +1,23 @@
-import Anthropic from '@anthropic-ai/sdk';
-
 import {
-  MEMORY_CONSOLIDATION_MODEL,
+  MODEL_CONSOLIDATION,
+  MEMORY_CONSOLIDATION_EMBEDDING_FALLBACK,
   MEMORY_RETENTION_PIN_THRESHOLD,
 } from '../core/config.js';
 import { EmbeddingProvider } from './memory-embeddings.js';
-import { MemoryProvider } from './memory-provider.js';
+import { MemoryStore } from './memory-store.js';
 import { MemoryItem } from './memory-types.js';
+import { buildConsolidationPrompt } from './prompts/consolidate.js';
+import { runClaudeQuery } from './claude-query.js';
+import { sanitizeOutboundLlmText } from './sensitive-material.js';
 
 interface ConsolidationOptions {
   groupFolder: string;
-  store: MemoryProvider;
+  store: MemoryStore;
   embeddings: EmbeddingProvider;
   minItems: number;
   clusterThreshold: number;
   maxClusters: number;
+  embeddingFallback?: boolean;
 }
 
 interface EmbeddedItem {
@@ -25,6 +28,7 @@ interface EmbeddedItem {
 interface ConsolidatedFact {
   key: string;
   value: string;
+  why?: string;
   confidence: number;
   retiredIds: string[];
   mode: 'llm' | 'heuristic';
@@ -44,6 +48,8 @@ export interface ConsolidationResult {
 export async function consolidateMemoryItems(
   input: ConsolidationOptions,
 ): Promise<ConsolidationResult> {
+  const allowLexicalFallback =
+    input.embeddingFallback ?? MEMORY_CONSOLIDATION_EMBEDDING_FALLBACK;
   const active = input.store.listActiveItems(input.groupFolder, 10_000);
   if (active.length < input.minItems) {
     return {
@@ -58,49 +64,76 @@ export async function consolidateMemoryItems(
     };
   }
 
-  const embedded = await ensureEmbeddings(
-    active,
-    input.store,
-    input.embeddings,
-  );
-  if (embedded.length < input.minItems) {
+  let consideredItems = active.length;
+  let clusters: MemoryItem[][] = [];
+  let clusteringMode: 'embedding' | 'lexical' = 'embedding';
+
+  if (input.embeddings.isEnabled()) {
+    const embedded = await ensureEmbeddings(
+      active,
+      input.store,
+      input.embeddings,
+    );
+    consideredItems = embedded.length;
+    if (embedded.length >= input.minItems) {
+      clusters = buildClusters(embedded, input.clusterThreshold)
+        .filter((cluster) => cluster.length >= 2)
+        .map((cluster) => cluster.map((entry) => entry.item))
+        .sort((a, b) => b.length - a.length);
+    }
+  }
+
+  if (
+    clusters.length === 0 &&
+    allowLexicalFallback &&
+    active.length >= input.minItems
+  ) {
+    clusteringMode = 'lexical';
+    clusters = buildLexicalClusters(active).sort((a, b) => b.length - a.length);
+  }
+
+  if (clusters.length === 0) {
     return {
       enabled: true,
-      consideredItems: embedded.length,
+      consideredItems,
       clustersFound: 0,
       clustersProcessed: 0,
       mergedItems: 0,
       retiredItems: 0,
       mode: 'none',
-      skippedReason: 'insufficient_embedded_items',
+      skippedReason:
+        clusteringMode === 'embedding' && consideredItems < input.minItems
+          ? 'insufficient_embedded_items'
+          : 'no_similar_clusters',
     };
   }
-
-  const clusters = buildClusters(embedded, input.clusterThreshold)
-    .filter((cluster) => cluster.length >= 2)
-    .sort((a, b) => b.length - a.length);
 
   const selected = clusters.slice(0, Math.max(1, input.maxClusters));
-  if (selected.length === 0) {
-    return {
-      enabled: true,
-      consideredItems: embedded.length,
-      clustersFound: 0,
-      clustersProcessed: 0,
-      mergedItems: 0,
-      retiredItems: 0,
-      mode: 'none',
-      skippedReason: 'no_similar_clusters',
-    };
-  }
 
   let mergedItems = 0;
   let retiredItems = 0;
   let mode: ConsolidationResult['mode'] = 'none';
 
   for (const cluster of selected) {
-    const merged = await mergeCluster(cluster.map((entry) => entry.item));
+    const merged = await mergeCluster(cluster);
     if (!merged) continue;
+    const retiredIds = new Set(merged.retiredIds.filter(Boolean));
+    const clusterById = new Map(cluster.map((item) => [item.id, item]));
+    const retireBeforeInsert = [...retiredIds].filter((id) => {
+      const source = clusterById.get(id);
+      if (!source) return false;
+      return (
+        source.scope === 'group' &&
+        source.group_folder === input.groupFolder &&
+        source.user_id === null &&
+        source.key === merged.key
+      );
+    });
+    for (const id of retireBeforeInsert) {
+      input.store.softDeleteItem(id);
+      retiredIds.delete(id);
+      retiredItems += 1;
+    }
 
     const saved = input.store.saveItem({
       scope: 'group',
@@ -109,17 +142,20 @@ export async function consolidateMemoryItems(
       kind: 'fact',
       key: merged.key,
       value: merged.value,
+      why: merged.why,
       source: 'consolidation',
       confidence: clamp01(merged.confidence),
       is_pinned: merged.confidence >= MEMORY_RETENTION_PIN_THRESHOLD,
     });
 
-    const embedding = await input.embeddings.embedOne(
-      `${saved.key}: ${saved.value}`,
-    );
-    input.store.saveItemEmbedding(saved.id, embedding);
+    if (input.embeddings.isEnabled()) {
+      const embedding = await input.embeddings.embedOne(
+        `${saved.key}: ${saved.value}`,
+      );
+      input.store.saveItemEmbedding(saved.id, embedding);
+    }
 
-    for (const id of merged.retiredIds) {
+    for (const id of retiredIds) {
       if (id === saved.id) continue;
       input.store.softDeleteItem(id);
       retiredItems += 1;
@@ -139,7 +175,7 @@ export async function consolidateMemoryItems(
 
   return {
     enabled: true,
-    consideredItems: embedded.length,
+    consideredItems,
     clustersFound: clusters.length,
     clustersProcessed: selected.length,
     mergedItems,
@@ -150,7 +186,7 @@ export async function consolidateMemoryItems(
 
 async function ensureEmbeddings(
   items: MemoryItem[],
-  store: MemoryProvider,
+  store: MemoryStore,
   embeddings: EmbeddingProvider,
 ): Promise<EmbeddedItem[]> {
   const out: EmbeddedItem[] = [];
@@ -210,12 +246,47 @@ function buildClusters(
   return clusters;
 }
 
+function buildLexicalClusters(items: MemoryItem[]): MemoryItem[][] {
+  const used = new Set<string>();
+  const analyzed = items.map((item) => ({
+    item,
+    keyTokens: tokenize(item.key),
+    valueTokens: new Set(tokenize(item.value)),
+  }));
+  const clusters: MemoryItem[][] = [];
+
+  for (let i = 0; i < analyzed.length; i += 1) {
+    const seed = analyzed[i]!;
+    if (used.has(seed.item.id)) continue;
+    used.add(seed.item.id);
+    const cluster: MemoryItem[] = [seed.item];
+
+    for (let j = i + 1; j < analyzed.length; j += 1) {
+      const candidate = analyzed[j]!;
+      if (used.has(candidate.item.id)) continue;
+      if (
+        hasKeyPrefixOverlap(seed.keyTokens, candidate.keyTokens, 3) ||
+        jaccardSimilarity(seed.valueTokens, candidate.valueTokens) >= 0.6
+      ) {
+        cluster.push(candidate.item);
+        used.add(candidate.item.id);
+      }
+    }
+
+    if (cluster.length >= 2) {
+      clusters.push(cluster);
+    }
+  }
+
+  return clusters;
+}
+
 async function mergeCluster(
   items: MemoryItem[],
 ): Promise<ConsolidatedFact | null> {
   if (items.length < 2) return null;
 
-  const llmMerge = await tryMergeWithAnthropic(items);
+  const llmMerge = await tryMergeWithClaude(items);
   if (llmMerge) {
     return {
       ...llmMerge,
@@ -236,55 +307,44 @@ async function mergeCluster(
   return {
     key: `consolidated:${anchor.key.replace(/^consolidated:/, '')}`,
     value: mergedValue || anchor.value,
+    why: anchor.why,
     confidence: Math.max(anchor.confidence, 0.8),
     retiredIds: items.map((item) => item.id),
     mode: 'heuristic',
   };
 }
 
-async function tryMergeWithAnthropic(
+async function tryMergeWithClaude(
   items: MemoryItem[],
 ): Promise<Omit<ConsolidatedFact, 'mode'> | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-  const model =
-    process.env.MEMORY_CONSOLIDATION_MODEL?.trim() ||
-    process.env.ANTHROPIC_MODEL?.trim() ||
-    MEMORY_CONSOLIDATION_MODEL?.trim();
-  if (!apiKey || !model) return null;
-
-  const prompt = [
-    'Merge these memory facts into one durable canonical memory.',
-    'Return strict JSON with keys: key, value, confidence, retired_ids.',
-    'Facts:',
-    ...items.map(
-      (item, idx) =>
-        `${idx + 1}. id=${item.id} key=${item.key} confidence=${item.confidence} value=${item.value}`,
-    ),
-  ].join('\n');
+  const sanitizedItems = items.flatMap((item) => {
+    const sanitizedKey = sanitizeOutboundLlmText(item.key);
+    const sanitizedValue = sanitizeOutboundLlmText(item.value);
+    if (sanitizedKey.blocked || sanitizedValue.blocked) {
+      return [];
+    }
+    return [
+      {
+        ...item,
+        key: sanitizedKey.text,
+        value: sanitizedValue.text,
+      },
+    ];
+  });
+  if (sanitizedItems.length < 2) return null;
+  const prompt = buildConsolidationPrompt(sanitizedItems);
 
   try {
-    const client = new Anthropic({
-      apiKey,
-      // Resolve fetch at call-time so tests can mock global fetch.
-      fetch: globalThis.fetch,
+    const text = await runClaudeQuery({
+      model: MODEL_CONSOLIDATION,
+      prompt,
     });
-    const response = await client.messages
-      .create({
-        model,
-        max_tokens: 500,
-        temperature: 0,
-        messages: [{ role: 'user', content: prompt }],
-      })
-      .asResponse();
-    const json = (await response.json()) as {
-      content?: Array<{ type?: string; text?: string }>;
-    };
-    const text = json.content?.find((block) => block.type === 'text')?.text;
     if (!text) return null;
 
     const parsed = parseFirstJsonObject(text) as {
       key?: unknown;
       value?: unknown;
+      why?: unknown;
       confidence?: unknown;
       retired_ids?: unknown;
     } | null;
@@ -292,8 +352,9 @@ async function tryMergeWithAnthropic(
 
     const key = typeof parsed.key === 'string' ? parsed.key.trim() : '';
     const value = typeof parsed.value === 'string' ? parsed.value.trim() : '';
+    const why = typeof parsed.why === 'string' ? parsed.why.trim() : '';
     const confidence = Number(parsed.confidence);
-    const allowedIds = new Set(items.map((item) => item.id));
+    const allowedIds = new Set(sanitizedItems.map((item) => item.id));
     const retiredIds = Array.isArray(parsed.retired_ids)
       ? parsed.retired_ids
           .filter(
@@ -305,12 +366,23 @@ async function tryMergeWithAnthropic(
       : [];
 
     if (!key || !value) return null;
+    const groundingInputs = sanitizedItems.flatMap((item) => [
+      item.key,
+      item.value,
+      item.why || '',
+    ]);
+    if (firstUngroundedToken(value, groundingInputs)) {
+      return null;
+    }
     return {
       key,
       value,
+      ...(why ? { why } : {}),
       confidence: Number.isFinite(confidence) ? clamp01(confidence) : 0.8,
       retiredIds:
-        retiredIds.length > 0 ? retiredIds : items.map((item) => item.id),
+        retiredIds.length > 0
+          ? retiredIds
+          : sanitizedItems.map((item) => item.id),
     };
   } catch {
     return null;
@@ -361,4 +433,119 @@ function cosineSimilarity(a: number[], b: number[]): number {
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+const TOKEN_PATTERN =
+  /\b(?:[a-zA-Z_][a-zA-Z0-9_./:-]{2,}|[0-9]{2,}|[a-z]+-[a-z0-9-]{2,})\b/g;
+
+const STOP_TOKENS = new Set([
+  'the',
+  'and',
+  'with',
+  'from',
+  'that',
+  'this',
+  'have',
+  'will',
+  'were',
+  'been',
+  'into',
+  'about',
+  'after',
+  'before',
+  'where',
+  'which',
+  'their',
+  'there',
+  'should',
+  'could',
+  'would',
+  'because',
+  'while',
+  'when',
+  'what',
+  'your',
+  'they',
+  'them',
+  'than',
+  'then',
+  'over',
+  'under',
+  'more',
+  'most',
+  'less',
+  'very',
+  'true',
+  'false',
+  'none',
+]);
+
+function normalizeToken(token: string): string {
+  return token.trim().toLowerCase();
+}
+
+function requiresStrictGrounding(token: string): boolean {
+  return /[0-9_./:]/.test(token) || token.includes('-');
+}
+
+function extractGroundingTokens(text: string): string[] {
+  const tokens = text.match(TOKEN_PATTERN) || [];
+  return tokens
+    .map(normalizeToken)
+    .filter((token) => token.length >= 3 && !STOP_TOKENS.has(token));
+}
+
+function firstUngroundedToken(
+  candidateText: string,
+  sourceTexts: string[],
+): string | null {
+  const sourceTokenSet = new Set<string>();
+  for (const text of sourceTexts) {
+    for (const token of extractGroundingTokens(text)) {
+      sourceTokenSet.add(token);
+    }
+  }
+  for (const token of extractGroundingTokens(candidateText)) {
+    if (!requiresStrictGrounding(token)) {
+      continue;
+    }
+    if (!sourceTokenSet.has(token)) {
+      return token;
+    }
+  }
+  return null;
+}
+
+function tokenize(input: string): string[] {
+  return input
+    .toLowerCase()
+    .normalize('NFKC')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token.length >= 3);
+}
+
+function hasKeyPrefixOverlap(
+  left: string[],
+  right: string[],
+  minTokens: number,
+): boolean {
+  const min = Math.min(left.length, right.length);
+  let matched = 0;
+  for (let index = 0; index < min; index += 1) {
+    if (left[index] !== right[index]) break;
+    matched += 1;
+  }
+  return matched >= minTokens;
+}
+
+function jaccardSimilarity(left: Set<string>, right: Set<string>): number {
+  if (left.size === 0 || right.size === 0) return 0;
+  let intersection = 0;
+  for (const token of left) {
+    if (right.has(token)) intersection += 1;
+  }
+  const union = left.size + right.size - intersection;
+  return union === 0 ? 0 : intersection / union;
 }

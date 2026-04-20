@@ -20,8 +20,8 @@ import {
   StreamingChunkOptions,
   ThinkingOverride,
 } from '../core/types.js';
-import { writeMemoryContextSnapshot } from '../memory/memory-ipc.js';
 import { MemoryService } from '../memory/memory-service.js';
+import { getMemoryMaintenanceQueue } from '../memory/maintenance-queue.js';
 import {
   formatMessages,
   formatOutboundForChannel,
@@ -53,6 +53,9 @@ import { handleSessionCommand } from '../session/session-commands.js';
 const TYPING_HEARTBEAT_INTERVAL_MS = 4_000;
 const ELAPSED_PROGRESS_INTERVAL_MS = 60_000;
 const NO_OUTPUT_WARNING_INTERVAL_MS = 180_000;
+const NO_VISIBLE_OUTPUT_FALLBACK_MESSAGE =
+  'I finished that run but did not generate a user-visible reply. Please send your message again.';
+const memoryMaintenanceQueue = getMemoryMaintenanceQueue();
 let streamingGenerationCounter = 0;
 
 function nextStreamingGeneration(): number {
@@ -82,7 +85,7 @@ export interface GroupProcessingDeps {
       chatJid: string,
       rawText: string,
       options?: StreamingChunkOptions,
-    ) => Promise<void>;
+    ) => Promise<boolean>;
     resetStreaming: (chatJid: string) => void;
     setTyping: (chatJid: string, isTyping: boolean) => Promise<void>;
     sendProgressUpdate: (
@@ -117,19 +120,20 @@ export interface GroupProcessingDeps {
       stopAliasJids?: string | string[],
     ) => void;
   };
+  runAgent?: typeof spawnAgent;
 }
 
 export function createGroupProcessor(deps: GroupProcessingDeps): {
   processGroupMessages: (chatJid: string) => Promise<boolean>;
 } {
+  const runAgentImpl = deps.runAgent ?? spawnAgent;
+
   async function runAgent(
     group: RegisteredGroup,
     prompt: string,
     chatJid: string,
     onOutput?: (output: AgentOutput) => Promise<void>,
     options?: { timeoutMs?: number },
-    userId?: string,
-    onMemoryContext?: (retrievedItemIds: string[]) => void,
   ): Promise<'success' | 'error'> {
     const isMain = group.isMain === true;
     const sessionId = deps.getSession(group.folder);
@@ -169,22 +173,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       jobs,
     );
 
-    try {
-      const contextSnapshot = await writeMemoryContextSnapshot(
-        group.folder,
-        isMain,
-        prompt,
-        userId,
-      );
-      onMemoryContext?.(contextSnapshot.retrievedItemIds);
-    } catch (err) {
-      logger.warn(
-        { err, group: group.name },
-        'Memory context snapshot failed; continuing without memory context',
-      );
-      onMemoryContext?.([]);
-    }
-
     writeGroupsSnapshot(
       group.folder,
       isMain,
@@ -204,7 +192,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       : undefined;
 
     try {
-      const output = await spawnAgent(
+      const output = await runAgentImpl(
         group,
         {
           prompt,
@@ -416,22 +404,53 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
             cause,
           });
         },
-        onSessionArchived: async (cause = 'new-session') => {
-          await MemoryService.getInstance().reflectAfterTurn({
-            groupFolder: group.folder,
-            prompt: cause === 'manual-compact' ? '/compact' : '/new',
-            result:
-              cause === 'manual-compact'
-                ? 'session compacted'
-                : 'session archived',
-            isMain: isMainGroup,
-          });
-        },
         clearCurrentSession: () => {
           deps.clearSession(group.folder);
           deleteSession(group.folder);
         },
         stopCurrentRun: () => deps.queue.stopGroup?.(chatJid) ?? false,
+        runMemoryDreaming: async () => {
+          const result = await memoryMaintenanceQueue.enqueueAndWait(
+            group.folder,
+            async () => {
+              await MemoryService.getInstance().runDreamingSweep(group.folder);
+            },
+            `dream:${group.folder}`,
+          );
+          if (!result.queued) {
+            if (result.reason === 'full') {
+              throw new Error('memory maintenance queue full');
+            }
+            if (result.reason === 'invalid') {
+              throw new Error('invalid memory maintenance group');
+            }
+          }
+          return {
+            queued: result.queued,
+            pending: memoryMaintenanceQueue.getPendingCount(),
+            deduped: result.deduped,
+            reason: result.reason,
+          };
+        },
+        getMemoryStatus: async () =>
+          MemoryService.getInstance().getStatus(group.folder),
+        saveProcedure: async ({ title, body }) =>
+          MemoryService.getInstance().saveProcedure(
+            {
+              scope: 'group',
+              group_folder: group.folder,
+              title,
+              body,
+              source: 'explicit',
+              confidence: 0.8,
+              tags: ['explicit'],
+            },
+            {
+              isMain: isMainGroup,
+              groupFolder: group.folder,
+              actor: 'agent',
+            },
+          ),
         isSenderControlAllowlisted: (msg) => {
           const allowlistCfg = loadSenderAllowlist();
           return isSenderExplicitlyAllowed(
@@ -578,6 +597,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
     let hadError = false;
     let outputSentToUser = false;
     let collectedOutput = '';
+    let sawRawOutput = false;
     const supportsStreamingChunks =
       deps.channelRuntime.supportsStreaming(chatJid);
     let streamFinalized = false;
@@ -599,11 +619,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
         );
       }
     };
-    let retrievedItemIdsForTurn: string[] = [];
-    const memoryUserId = [...missedMessages]
-      .reverse()
-      .find((msg) => !msg.is_from_me && !msg.is_bot_message)?.sender;
-
     let output: 'success' | 'error' = 'error';
     try {
       output = await runAgent(
@@ -617,14 +632,16 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
               typeof result.result === 'string'
                 ? result.result
                 : JSON.stringify(result.result);
+            sawRawOutput = true;
             const text = formatOutboundForChannel(raw);
             logger.info(
               { group: group.name },
               `Agent output: ${raw.length} chars`,
             );
             if (text) {
+              let delivered = false;
               if (supportsStreamingChunks) {
-                await deps.channelRuntime.sendStreamingChunk(
+                delivered = await deps.channelRuntime.sendStreamingChunk(
                   chatJid,
                   raw,
                   buildStreamingOptions({}),
@@ -632,8 +649,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
               } else {
                 const messageOptions = buildMessageOptions();
                 await sendMessageToChannel(text, messageOptions);
+                delivered = true;
               }
-              outputSentToUser = true;
+              if (delivered) outputSentToUser = true;
               collectedOutput += `${text}\n`;
             }
             resetIdleTimer();
@@ -653,10 +671,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
           }
         },
         undefined,
-        memoryUserId,
-        (retrievedItemIds) => {
-          retrievedItemIdsForTurn = retrievedItemIds;
-        },
       );
     } finally {
       await finalizeStreamingOutput('turn-complete');
@@ -699,20 +713,42 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       return false;
     }
 
-    try {
-      await MemoryService.getInstance().reflectAfterTurn({
-        groupFolder: group.folder,
-        prompt,
-        result: collectedOutput,
-        isMain: isMainGroup,
-        userId: memoryUserId,
-        retrievedItemIds: retrievedItemIdsForTurn,
-      });
-    } catch (err) {
-      logger.warn(
-        { err, group: group.name },
-        'Memory reflection failed after successful turn',
-      );
+    if (!outputSentToUser) {
+      const fallbackText = collectedOutput.trim();
+      if (fallbackText) {
+        try {
+          const messageOptions = buildMessageOptions();
+          await sendMessageToChannel(fallbackText, messageOptions);
+          outputSentToUser = true;
+          logger.warn(
+            { group: group.name, fallbackChars: fallbackText.length },
+            'Streamed output was not confirmed as delivered; sent fallback message',
+          );
+        } catch (err) {
+          logger.warn(
+            { err, group: group.name },
+            'Failed to send fallback message after streaming run',
+          );
+        }
+      } else if (sawRawOutput) {
+        try {
+          const messageOptions = buildMessageOptions();
+          await sendMessageToChannel(
+            NO_VISIBLE_OUTPUT_FALLBACK_MESSAGE,
+            messageOptions,
+          );
+          outputSentToUser = true;
+          logger.warn(
+            { group: group.name },
+            'Agent produced only non-displayable output; sent explicit fallback notice',
+          );
+        } catch (err) {
+          logger.warn(
+            { err, group: group.name },
+            'Failed to send no-visible-output fallback notice after streaming run',
+          );
+        }
+      }
     }
 
     return true;

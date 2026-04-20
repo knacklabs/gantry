@@ -139,6 +139,32 @@ npm run build
 npm run dev
 ```
 
+## Testing
+
+Test and harness files must live outside production source trees.
+
+Approved test layout:
+
+- `apps/core/test/unit/**`
+- `apps/core/test/integration/**`
+- `apps/core/test/e2e/**`
+- `apps/core/test/harness/**`
+- `packages/contracts/test/unit/**`
+
+Do not add `*.test.ts` files under `apps/core/src/**` or `packages/*/src/**`.
+
+Common commands:
+
+```bash
+npm run test:unit
+npm run test:integration
+npm test
+npm run test:e2e
+```
+
+- `npm test` runs contracts build + unit + integration tests.
+- `npm run test:e2e` runs hermetic end-to-end runtime flows without external service credentials.
+
 ## Shipped Chat Skills
 
 Skills are agent instructions bundled into the npm package and synced into `~/myclaw/.claude/skills/`.

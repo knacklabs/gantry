@@ -64,10 +64,8 @@ function parseMemoryKind(value: unknown): SaveMemoryInput['kind'] | undefined {
     kind === 'preference' ||
     kind === 'decision' ||
     kind === 'fact' ||
-    kind === 'context' ||
     kind === 'correction' ||
-    kind === 'constraint' ||
-    kind === 'recent_work'
+    kind === 'constraint'
   ) {
     return kind;
   }
@@ -93,7 +91,20 @@ function parseSaveMemoryInput(payload: unknown): SaveMemoryInput {
     min: 0,
     max: 1,
   });
+  const why = parseOptionalString(payload.why, { maxLen: 500 });
+  const sourceTurnId = parseOptionalString(payload.source_turn_id, {
+    maxLen: 255,
+  });
+  const loadBearing =
+    typeof payload.load_bearing === 'boolean'
+      ? payload.load_bearing
+      : undefined;
   const source = parseOptionalString(payload.source, { maxLen: 255 });
+  const supersedes = Array.isArray(payload.supersedes)
+    ? payload.supersedes
+        .map((entry) => parseOptionalString(entry, { maxLen: 128 }))
+        .filter((entry): entry is string => Boolean(entry))
+    : undefined;
   return {
     key,
     value,
@@ -102,6 +113,10 @@ function parseSaveMemoryInput(payload: unknown): SaveMemoryInput {
     ...(groupFolder ? { group_folder: groupFolder } : {}),
     ...(userId ? { user_id: userId } : {}),
     ...(confidence !== undefined ? { confidence } : {}),
+    ...(why ? { why } : {}),
+    ...(sourceTurnId ? { source_turn_id: sourceTurnId } : {}),
+    ...(loadBearing !== undefined ? { load_bearing: loadBearing } : {}),
+    ...(supersedes && supersedes.length > 0 ? { supersedes } : {}),
     ...(source ? { source } : {}),
   };
 }
@@ -123,11 +138,18 @@ function parsePatchMemoryInput(payload: unknown): PatchMemoryInput {
     min: 0,
     max: 1,
   });
+  const why = parseOptionalString(payload.why, { maxLen: 500 });
+  const loadBearing =
+    typeof payload.load_bearing === 'boolean'
+      ? payload.load_bearing
+      : undefined;
   return {
     id,
     expected_version: Math.round(expectedVersion),
     ...(key ? { key } : {}),
     ...(value ? { value } : {}),
+    ...(why ? { why } : {}),
+    ...(loadBearing !== undefined ? { load_bearing: loadBearing } : {}),
     ...(confidence !== undefined ? { confidence } : {}),
   };
 }
@@ -152,6 +174,12 @@ function parseSaveProcedureInput(payload: unknown): SaveProcedureInput {
     maxLen: 128,
   });
   const tags = parseOptionalTags(payload.tags);
+  const originRaw = parseOptionalString(payload.origin, { maxLen: 64 });
+  const origin =
+    originRaw === 'explicit' || originRaw === 'accepted_suggestion'
+      ? originRaw
+      : undefined;
+  const trigger = parseOptionalString(payload.trigger, { maxLen: 280 });
   const confidence = parseOptionalNumber(payload.confidence, {
     min: 0,
     max: 1,
@@ -163,6 +191,8 @@ function parseSaveProcedureInput(payload: unknown): SaveProcedureInput {
     ...(scope ? { scope } : {}),
     ...(groupFolder ? { group_folder: groupFolder } : {}),
     ...(tags ? { tags } : {}),
+    ...(origin ? { origin } : {}),
+    ...(trigger ? { trigger } : {}),
     ...(confidence !== undefined ? { confidence } : {}),
     ...(source ? { source } : {}),
   };
@@ -182,6 +212,10 @@ function parsePatchProcedureInput(payload: unknown): PatchProcedureInput {
   const title = parseOptionalString(payload.title, { maxLen: 256 });
   const body = parseOptionalString(payload.body, { maxLen: 50_000 });
   const tags = parseOptionalTags(payload.tags);
+  const trigger =
+    payload.trigger === null
+      ? null
+      : parseOptionalString(payload.trigger, { maxLen: 280 });
   const confidence = parseOptionalNumber(payload.confidence, {
     min: 0,
     max: 1,
@@ -192,6 +226,7 @@ function parsePatchProcedureInput(payload: unknown): PatchProcedureInput {
     ...(title ? { title } : {}),
     ...(body ? { body } : {}),
     ...(tags ? { tags } : {}),
+    ...(trigger !== undefined ? { trigger } : {}),
     ...(confidence !== undefined ? { confidence } : {}),
   };
 }
@@ -243,6 +278,7 @@ export async function processMemoryRequest(
         const saved = await memory.saveMemory(input, {
           isMain,
           groupFolder: sourceGroup,
+          actor: 'mcp-tool',
         });
         return {
           ok: true,
@@ -256,6 +292,7 @@ export async function processMemoryRequest(
         const patched = memory.patchMemory(input, {
           isMain,
           groupFolder: sourceGroup,
+          actor: 'mcp-tool',
         });
         return {
           ok: true,
@@ -289,6 +326,7 @@ export async function processMemoryRequest(
         const saved = memory.saveProcedure(input, {
           isMain,
           groupFolder: sourceGroup,
+          actor: 'mcp-tool',
         });
         return {
           ok: true,
@@ -302,6 +340,7 @@ export async function processMemoryRequest(
         const patched = memory.patchProcedure(input, {
           isMain,
           groupFolder: sourceGroup,
+          actor: 'mcp-tool',
         });
         return {
           ok: true,
@@ -339,45 +378,4 @@ export function writeMemoryResponse(
   const tmpPath = `${filePath}.tmp`;
   fs.writeFileSync(tmpPath, JSON.stringify(response, null, 2));
   fs.renameSync(tmpPath, filePath);
-}
-
-export async function writeMemoryContextSnapshot(
-  groupFolder: string,
-  isMain: boolean,
-  prompt: string,
-  userId?: string,
-  options?: { fileName?: string },
-): Promise<{ retrievedItemIds: string[] }> {
-  const memory = MemoryService.getInstance();
-  await memory.ingestGroupSources(groupFolder);
-  await memory.ingestGlobalKnowledge();
-  const context = await memory.buildMemoryContext(
-    prompt,
-    groupFolder,
-    isMain,
-    userId,
-  );
-
-  const ipcDir = resolveGroupIpcPath(groupFolder);
-  const filePath = path.join(
-    ipcDir,
-    options?.fileName?.trim() || 'memory_context.json',
-  );
-  fs.writeFileSync(
-    filePath,
-    JSON.stringify(
-      {
-        block: context.block,
-        generatedAt: new Date().toISOString(),
-        facts: context.facts,
-        procedures: context.procedures,
-        snippets: context.snippets,
-        recentWork: context.recentWork,
-        retrievedItemIds: context.retrievedItemIds,
-      },
-      null,
-      2,
-    ),
-  );
-  return { retrievedItemIds: context.retrievedItemIds };
 }

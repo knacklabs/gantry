@@ -1,0 +1,955 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const ORIGINAL_ENV = { ...process.env };
+
+async function loadConfigWithEnv(env: { ANTHROPIC_MODEL?: string }) {
+  vi.resetModules();
+  if (env.ANTHROPIC_MODEL === undefined) {
+    delete process.env.ANTHROPIC_MODEL;
+  } else {
+    process.env.ANTHROPIC_MODEL = env.ANTHROPIC_MODEL;
+  }
+  vi.doMock('@core/core/env.js', () => ({
+    readEnvFile: () => ({}),
+  }));
+  vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+    readRuntimeMemorySettingsSnapshot: () => ({}),
+  }));
+  return import('@core/core/config.js');
+}
+
+afterEach(() => {
+  delete process.env.ANTHROPIC_MODEL;
+  for (const [key, value] of Object.entries(ORIGINAL_ENV)) {
+    process.env[key] = value;
+  }
+  vi.resetModules();
+  vi.doUnmock('@core/core/env.js');
+  vi.doUnmock('@core/core/runtime-memory-settings.js');
+});
+
+describe('model config precedence', () => {
+  it('uses ANTHROPIC_MODEL when only ANTHROPIC_MODEL is set', async () => {
+    const cfg = await loadConfigWithEnv({ ANTHROPIC_MODEL: 'opus' });
+    expect(cfg.getDefaultModelConfig()).toEqual({
+      model: 'opus',
+      source: 'ANTHROPIC_MODEL',
+    });
+  });
+
+  it('uses ANTHROPIC_MODEL when set', async () => {
+    const cfg = await loadConfigWithEnv({ ANTHROPIC_MODEL: 'opus' });
+    expect(cfg.getDefaultModelConfig()).toEqual({
+      model: 'opus',
+      source: 'ANTHROPIC_MODEL',
+    });
+  });
+
+  it('prefers group override over env defaults', async () => {
+    const cfg = await loadConfigWithEnv({ ANTHROPIC_MODEL: 'sonnet' });
+    expect(cfg.getEffectiveModelConfig('opus')).toEqual({
+      model: 'opus',
+      source: 'group.agentConfig.model',
+    });
+  });
+
+  // --- Coverage for line 541: getDefaultModelConfig returns unset ---
+
+  it('returns unset source when ANTHROPIC_MODEL is not set', async () => {
+    const cfg = await loadConfigWithEnv({});
+    const result = cfg.getDefaultModelConfig();
+    expect(result).toEqual({ source: 'unset' });
+    expect(result.model).toBeUndefined();
+  });
+
+  // --- Coverage for line 555: getEffectiveModelConfig falls back to default ---
+
+  it('getEffectiveModelConfig falls back to default when group model is empty', async () => {
+    const cfg = await loadConfigWithEnv({ ANTHROPIC_MODEL: 'opus' });
+    // Empty string group model should fall back to env default
+    expect(cfg.getEffectiveModelConfig('')).toEqual({
+      model: 'opus',
+      source: 'ANTHROPIC_MODEL',
+    });
+  });
+
+  it('getEffectiveModelConfig falls back to default when group model is whitespace', async () => {
+    const cfg = await loadConfigWithEnv({ ANTHROPIC_MODEL: 'sonnet' });
+    expect(cfg.getEffectiveModelConfig('  ')).toEqual({
+      model: 'sonnet',
+      source: 'ANTHROPIC_MODEL',
+    });
+  });
+
+  it('getEffectiveModelConfig falls back to unset when no models configured', async () => {
+    const cfg = await loadConfigWithEnv({});
+    expect(cfg.getEffectiveModelConfig(undefined)).toEqual({
+      source: 'unset',
+    });
+  });
+});
+
+// --- Coverage for line 597: resolveConfigTimezone fallback to UTC ---
+
+describe('timezone resolution', () => {
+  it('TIMEZONE is a valid string', async () => {
+    const cfg = await loadConfigWithEnv({});
+    // TIMEZONE should always resolve to something valid
+    expect(typeof cfg.TIMEZONE).toBe('string');
+    expect(cfg.TIMEZONE.length).toBeGreaterThan(0);
+  });
+
+  it('buildTriggerPattern creates case-insensitive word-boundary regex', async () => {
+    const cfg = await loadConfigWithEnv({});
+    const pattern = cfg.buildTriggerPattern('@TestBot');
+    expect(pattern.test('@TestBot hello')).toBe(true);
+    expect(pattern.test('@testbot hello')).toBe(true);
+    expect(pattern.test('hello @TestBot')).toBe(false);
+  });
+
+  it('getTriggerPattern uses default when trigger is empty', async () => {
+    const cfg = await loadConfigWithEnv({});
+    const pattern = cfg.getTriggerPattern('');
+    // Should use DEFAULT_TRIGGER
+    expect(pattern).toBeInstanceOf(RegExp);
+  });
+
+  it('getTriggerPattern uses provided trigger', async () => {
+    const cfg = await loadConfigWithEnv({});
+    const pattern = cfg.getTriggerPattern('@CustomBot');
+    expect(pattern.test('@CustomBot hey')).toBe(true);
+  });
+});
+
+// --- Helper that can set any env vars for a fresh config import ---
+
+async function loadConfigWithAllEnv(env: Record<string, string | undefined>) {
+  vi.resetModules();
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  vi.doMock('@core/core/env.js', () => ({
+    readEnvFile: () => ({}),
+  }));
+  vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+    readRuntimeMemorySettingsSnapshot: () => ({}),
+  }));
+  return import('@core/core/config.js');
+}
+
+async function loadConfigWithAllEnvAndRuntimeSnapshot(
+  env: Record<string, string | undefined>,
+  snapshot: Record<string, unknown>,
+) {
+  vi.resetModules();
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  vi.doMock('@core/core/env.js', () => ({
+    readEnvFile: () => ({}),
+  }));
+  vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+    readRuntimeMemorySettingsSnapshot: () => snapshot,
+  }));
+  return import('@core/core/config.js');
+}
+
+async function loadConfigWithRuntimeSnapshotError(
+  env: Record<string, string | undefined>,
+  message = 'broken settings',
+) {
+  vi.resetModules();
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  vi.doMock('@core/core/env.js', () => ({
+    readEnvFile: () => ({}),
+  }));
+  vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+    readRuntimeMemorySettingsSnapshot: () => {
+      throw new Error(message);
+    },
+  }));
+  return import('@core/core/config.js');
+}
+
+describe('memory model defaults', () => {
+  it('throws when runtime settings snapshot cannot be parsed', async () => {
+    await expect(
+      loadConfigWithRuntimeSnapshotError(
+        {},
+        'memory.enabled must be true or false',
+      ),
+    ).rejects.toThrow(
+      'Invalid runtime memory settings: memory.enabled must be true or false',
+    );
+  });
+
+  it('falls back to ANTHROPIC_MODEL when runtime model is unset', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      ANTHROPIC_MODEL: 'claude-opus-4-1-20250805',
+    });
+    expect(cfg.MODEL_CONSOLIDATION).toBe('claude-opus-4-1-20250805');
+  });
+
+  it('prefers runtime per-task model over ANTHROPIC_MODEL', async () => {
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        ANTHROPIC_MODEL: 'claude-opus-4-1-20250805',
+      },
+      {
+        llmConsolidationModel: 'claude-sonnet-4-6-20260301',
+      },
+    );
+    expect(cfg.MODEL_CONSOLIDATION).toBe('claude-sonnet-4-6-20260301');
+  });
+
+  it('uses hard defaults when no runtime model or ANTHROPIC_MODEL is set', async () => {
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        ANTHROPIC_MODEL: undefined,
+      },
+      {},
+    );
+    expect(cfg.MODEL_EXTRACTOR).toBe('claude-haiku-4-5-20251001');
+    expect(cfg.MODEL_DREAMING).toBe('claude-sonnet-4-6');
+    expect(cfg.MODEL_CONSOLIDATION).toBe('claude-sonnet-4-6');
+    expect(cfg.MODEL_SESSION_SUMMARY).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('enables LLM when CLAUDE_CODE_OAUTH_TOKEN is set', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      CLAUDE_CODE_OAUTH_TOKEN: 'oauth-token',
+    });
+    expect(cfg.LLM_ENABLED).toBe(true);
+  });
+
+  it('disables LLM when CLAUDE_CODE_OAUTH_TOKEN is missing', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      CLAUDE_CODE_OAUTH_TOKEN: undefined,
+      ANTHROPIC_API_KEY: undefined,
+    });
+    expect(cfg.LLM_ENABLED).toBe(false);
+  });
+
+  it('enables LLM when ANTHROPIC_API_KEY is set', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      CLAUDE_CODE_OAUTH_TOKEN: undefined,
+      ANTHROPIC_API_KEY: 'sk-ant-test',
+    });
+    expect(cfg.LLM_ENABLED).toBe(true);
+  });
+
+  it('resolves Claude auth mode with OAuth precedence over API key', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      CLAUDE_CODE_OAUTH_TOKEN: 'oauth-token',
+      ANTHROPIC_API_KEY: 'sk-ant-test',
+    });
+    expect(cfg.resolveClaudeAuthState().mode).toBe('oauth');
+    expect(cfg.resolveClaudeAuthState().hasOauthToken).toBe(true);
+    expect(cfg.resolveClaudeAuthState().hasApiKey).toBe(true);
+  });
+
+  it('uses runtime mixed-task model snapshot values', async () => {
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        ANTHROPIC_MODEL: undefined,
+      },
+      {
+        llmExtractorModel: 'claude-haiku-4-5-20251001',
+        llmDreamingModel: 'claude-sonnet-4-6',
+        llmConsolidationModel: 'claude-sonnet-4-6',
+        llmSessionSummaryModel: 'claude-haiku-4-5-20251001',
+      },
+    );
+    expect(cfg.MODEL_EXTRACTOR).toBe('claude-haiku-4-5-20251001');
+    expect(cfg.MODEL_DREAMING).toBe('claude-sonnet-4-6');
+    expect(cfg.MODEL_CONSOLIDATION).toBe('claude-sonnet-4-6');
+    expect(cfg.MODEL_SESSION_SUMMARY).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('uses ANTHROPIC_MODEL as shared fallback for all tasks', async () => {
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        ANTHROPIC_MODEL: 'claude-opus-4-1-20250805',
+      },
+      {},
+    );
+    expect(cfg.MODEL_EXTRACTOR).toBe('claude-opus-4-1-20250805');
+    expect(cfg.MODEL_DREAMING).toBe('claude-opus-4-1-20250805');
+    expect(cfg.MODEL_CONSOLIDATION).toBe('claude-opus-4-1-20250805');
+    expect(cfg.MODEL_SESSION_SUMMARY).toBe('claude-opus-4-1-20250805');
+  });
+
+  it('trims CLAUDE_CODE_OAUTH_TOKEN before enabling LLM', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      CLAUDE_CODE_OAUTH_TOKEN: '  token  ',
+    });
+    expect(cfg.CLAUDE_OAUTH_TOKEN).toBe('token');
+    expect(cfg.LLM_ENABLED).toBe(true);
+  });
+
+  it('falls back to hard defaults when runtime model is blank', async () => {
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        ANTHROPIC_MODEL: undefined,
+      },
+      {
+        llmExtractorModel: '   ',
+      },
+    );
+    expect(cfg.MODEL_EXTRACTOR).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('prefers runtime dreaming model over ANTHROPIC_MODEL', async () => {
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        ANTHROPIC_MODEL: 'claude-opus-4-1-20250805',
+      },
+      {
+        llmDreamingModel: 'claude-sonnet-4-6',
+      },
+    );
+    expect(cfg.MODEL_DREAMING).toBe('claude-sonnet-4-6');
+  });
+
+  it('prefers runtime session summary model over ANTHROPIC_MODEL', async () => {
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        ANTHROPIC_MODEL: 'claude-opus-4-1-20250805',
+      },
+      {
+        llmSessionSummaryModel: 'claude-haiku-4-5-20251001',
+      },
+    );
+    expect(cfg.MODEL_SESSION_SUMMARY).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('prefers runtime extractor model over ANTHROPIC_MODEL', async () => {
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        ANTHROPIC_MODEL: 'claude-opus-4-1-20250805',
+      },
+      {
+        llmExtractorModel: 'claude-haiku-4-5-20251001',
+      },
+    );
+    expect(cfg.MODEL_EXTRACTOR).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('prefers runtime consolidation model over ANTHROPIC_MODEL', async () => {
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        ANTHROPIC_MODEL: 'claude-opus-4-1-20250805',
+      },
+      {
+        llmConsolidationModel: 'claude-sonnet-4-6',
+      },
+    );
+    expect(cfg.MODEL_CONSOLIDATION).toBe('claude-sonnet-4-6');
+  });
+});
+
+// --- Coverage for parseBooleanEnv: all branches ---
+
+describe('parseBooleanEnv all branches', () => {
+  it('returns true for recognized truthy value "1"', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_SEMANTIC_DEDUP_ENABLED: '1',
+    });
+    expect(cfg.MEMORY_SEMANTIC_DEDUP_ENABLED).toBe(true);
+  });
+
+  it('returns true for recognized truthy value "true"', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_SEMANTIC_DEDUP_ENABLED: 'true',
+    });
+    expect(cfg.MEMORY_SEMANTIC_DEDUP_ENABLED).toBe(true);
+  });
+
+  it('returns true for recognized truthy value "yes"', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_SEMANTIC_DEDUP_ENABLED: 'YES',
+    });
+    expect(cfg.MEMORY_SEMANTIC_DEDUP_ENABLED).toBe(true);
+  });
+
+  it('returns false for recognized falsy value "0"', async () => {
+    // MEMORY_SEMANTIC_DEDUP_ENABLED defaults to true; override to '0'
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_SEMANTIC_DEDUP_ENABLED: '0',
+    });
+    expect(cfg.MEMORY_SEMANTIC_DEDUP_ENABLED).toBe(false);
+  });
+
+  it('returns false for recognized falsy value "false"', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_SEMANTIC_DEDUP_ENABLED: 'false',
+    });
+    expect(cfg.MEMORY_SEMANTIC_DEDUP_ENABLED).toBe(false);
+  });
+
+  it('returns false for recognized falsy value "no"', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_SEMANTIC_DEDUP_ENABLED: 'NO',
+    });
+    expect(cfg.MEMORY_SEMANTIC_DEDUP_ENABLED).toBe(false);
+  });
+
+  it('returns fallback (true) when env value is an unrecognized string', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_SEMANTIC_DEDUP_ENABLED: 'maybe',
+    });
+    expect(cfg.MEMORY_SEMANTIC_DEDUP_ENABLED).toBe(true);
+  });
+
+  it('returns fallback (true) when env value is unrecognized for a true-default field', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_SEMANTIC_DEDUP_ENABLED: 'sometimes',
+    });
+    expect(cfg.MEMORY_SEMANTIC_DEDUP_ENABLED).toBe(true);
+  });
+});
+
+// --- Coverage for lines 122-133: parseSourceTypeBoosts ---
+
+describe('parseSourceTypeBoosts', () => {
+  it('parses valid JSON and merges with defaults', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_SOURCE_TYPE_BOOSTS: JSON.stringify({
+        claude_md: 2.0,
+        custom_source: 3.5,
+      }),
+    });
+    // claude_md should be overridden, others should keep defaults
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.claude_md).toBe(2.0);
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.custom_source).toBe(3.5);
+    // Defaults should still be present
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.local_doc).toBe(1.2);
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.knowledge_doc).toBe(1.4);
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.conversation).toBe(1.0);
+  });
+
+  it('returns fallback for invalid JSON', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_SOURCE_TYPE_BOOSTS: 'not-json{{{',
+    });
+    // Should fall back to defaults (catch branch, line 133)
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.claude_md).toBe(1.3);
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.local_doc).toBe(1.2);
+  });
+
+  it('skips non-finite and non-positive boost values', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_SOURCE_TYPE_BOOSTS: JSON.stringify({
+        claude_md: -1, // negative, skip
+        local_doc: 0, // zero, skip (boost <= 0)
+        knowledge_doc: Infinity, // not finite, skip
+        conversation: 'abc', // NaN, skip
+        custom: 5.0, // valid
+      }),
+    });
+    // Skipped values should remain at defaults
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.claude_md).toBe(1.3);
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.local_doc).toBe(1.2);
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.knowledge_doc).toBe(1.4);
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.conversation).toBe(1.0);
+    // Valid override
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.custom).toBe(5.0);
+  });
+
+  it('returns fallback when env is empty string', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_SOURCE_TYPE_BOOSTS: '',
+    });
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.claude_md).toBe(1.3);
+  });
+
+  it('returns fallback when parsed value is not an object', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_SOURCE_TYPE_BOOSTS: '"just a string"',
+    });
+    // JSON.parse("\"just a string\"") returns a string, not object → fallback
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.claude_md).toBe(1.3);
+  });
+});
+
+// --- Coverage for line 597: resolveConfigTimezone fallback to UTC ---
+
+// --- Coverage for all process.env || envConfig || default branches ---
+
+describe('config env overrides for branch coverage', () => {
+  it('exercises process.env branch for all config variables', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      ASSISTANT_NAME: 'TestBot',
+      MEMORY_ROOT: '/tmp/agent-memory',
+      OPENAI_API_KEY: 'test-api-key',
+      OPENAI_DAILY_EMBED_LIMIT: '100',
+      MEMORY_EMBED_MODEL: 'test-embed-model',
+      MEMORY_EMBED_PROVIDER: 'test-embed-provider',
+      MEMORY_CHUNK_SIZE: '2000',
+      MEMORY_CHUNK_OVERLAP: '300',
+      MEMORY_RETRIEVAL_LIMIT: '5',
+      MEMORY_RETRIEVAL_MIN_SCORE: '0.01',
+      MEMORY_TEMPORAL_DECAY_HALFLIFE_DAYS: '30',
+      MEMORY_MMR_LAMBDA: '0.5',
+      MEMORY_RRF_LEXICAL_WEIGHT: '2.0',
+      MEMORY_RRF_VECTOR_WEIGHT: '2.0',
+      MEMORY_SOURCE_TYPE_BOOSTS: JSON.stringify({ claude_md: 2.0 }),
+      MEMORY_REFLECTION_MIN_CONFIDENCE: '0.5',
+      MEMORY_REFLECTION_MAX_FACTS_PER_TURN: '3',
+      MEMORY_SCOPE_POLICY: 'global',
+      MEMORY_RETENTION_PIN_THRESHOLD: '0.95',
+      MEMORY_ITEM_MAX_PER_GROUP: '3000',
+      MEMORY_SEMANTIC_DEDUP_ENABLED: 'true',
+      MEMORY_SEMANTIC_DEDUP_THRESHOLD: '0.9',
+      MEMORY_GLOBAL_KNOWLEDGE_DIR: '/tmp/knowledge',
+      MEMORY_MAX_GLOBAL_CHUNKS: '5000',
+      MEMORY_USAGE_FEEDBACK_ENABLED: 'true',
+      MEMORY_CONFIDENCE_BOOST_ON_USE: '0.05',
+      MEMORY_CONFIDENCE_DECAY_ON_UNUSED: '0.03',
+      MEMORY_USAGE_DECAY_INTERVAL_TURNS: '10',
+      MEMORY_CONSOLIDATION_MIN_ITEMS: '100',
+      MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD: '0.9',
+      MEMORY_CONSOLIDATION_MAX_CLUSTERS: '20',
+      MEMORY_DREAMING_CRON: '0 4 * * *',
+      MEMORY_DREAMING_PROMOTION_THRESHOLD: '0.6',
+      MEMORY_DREAMING_DECAY_THRESHOLD: '0.2',
+      MEMORY_DREAMING_MIN_RECALLS: '5',
+      MEMORY_DREAMING_MIN_UNIQUE_QUERIES: '3',
+      MEMORY_DREAMING_CONFIDENCE_BOOST: '0.1',
+      MEMORY_DREAMING_CONFIDENCE_DECAY: '0.05',
+      MEMORY_EMBED_BATCH_SIZE: '32',
+      MEMORY_VECTOR_DIMENSIONS: '1536',
+      MEMORY_MAX_CHUNKS_PER_GROUP: '8000',
+      MEMORY_CHUNK_RETENTION_DAYS: '90',
+      MEMORY_MAX_EVENTS: '30000',
+      MEMORY_MAX_PROCEDURES_PER_GROUP: '1000',
+      AGENT_TIMEOUT: '3600000',
+      AGENT_MAX_OUTPUT_SIZE: '20971520',
+      ONECLI_URL: 'http://test-onecli',
+      ANTHROPIC_MODEL: 'test-model',
+      MAX_MESSAGES_PER_PROMPT: '20',
+      IDLE_TIMEOUT: '900000',
+      MAX_CONCURRENT_CONTAINERS: '10',
+    });
+
+    expect(cfg.ASSISTANT_NAME).toBe('TestBot');
+    expect(cfg.MEMORY_ROOT).toMatch(/agent-memory$/);
+    expect(cfg.MEMORY_SQLITE_PATH).toBe('/tmp/agent-memory/.cache/memory.db');
+    expect(cfg.OPENAI_API_KEY).toBe('test-api-key');
+    expect(cfg.OPENAI_DAILY_EMBED_LIMIT).toBe(100);
+    expect(cfg.MEMORY_EMBED_MODEL).toBe('text-embedding-3-large');
+    expect(cfg.MEMORY_EMBED_PROVIDER).toBe('disabled');
+    expect(cfg.MEMORY_CHUNK_SIZE).toBe(2000);
+    expect(cfg.MEMORY_CHUNK_OVERLAP).toBe(300);
+    expect(cfg.MEMORY_RETRIEVAL_LIMIT).toBe(5);
+    expect(cfg.MEMORY_RETRIEVAL_MIN_SCORE).toBe(0.01);
+    expect(cfg.MEMORY_TEMPORAL_DECAY_HALFLIFE_DAYS).toBe(30);
+    expect(cfg.MEMORY_MMR_LAMBDA).toBe(0.5);
+    expect(cfg.MEMORY_RRF_LEXICAL_WEIGHT).toBe(2.0);
+    expect(cfg.MEMORY_RRF_VECTOR_WEIGHT).toBe(2.0);
+    expect(cfg.MEMORY_SOURCE_TYPE_BOOSTS.claude_md).toBe(2.0);
+    expect(cfg.MEMORY_REFLECTION_MIN_CONFIDENCE).toBe(0.5);
+    expect(cfg.MEMORY_REFLECTION_MAX_FACTS_PER_TURN).toBe(3);
+    expect(cfg.MEMORY_SCOPE_POLICY).toBe('global');
+    expect(cfg.MEMORY_RETENTION_PIN_THRESHOLD).toBe(0.95);
+    expect(cfg.MEMORY_ITEM_MAX_PER_GROUP).toBe(3000);
+    expect(cfg.MEMORY_SEMANTIC_DEDUP_ENABLED).toBe(true);
+    expect(cfg.MEMORY_SEMANTIC_DEDUP_THRESHOLD).toBe(0.9);
+    expect(cfg.MEMORY_GLOBAL_KNOWLEDGE_DIR).toBe('/tmp/knowledge');
+    expect(cfg.MEMORY_MAX_GLOBAL_CHUNKS).toBe(5000);
+    expect(cfg.MEMORY_USAGE_FEEDBACK_ENABLED).toBe(true);
+    expect(cfg.MEMORY_CONFIDENCE_BOOST_ON_USE).toBe(0.05);
+    expect(cfg.MEMORY_CONFIDENCE_DECAY_ON_UNUSED).toBe(0.03);
+    expect(cfg.MEMORY_USAGE_DECAY_INTERVAL_TURNS).toBe(10);
+    expect(cfg.MEMORY_CONSOLIDATION_MIN_ITEMS).toBe(100);
+    expect(cfg.MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD).toBe(0.9);
+    expect(cfg.MODEL_CONSOLIDATION).toBe('test-model');
+    expect(cfg.MEMORY_CONSOLIDATION_MAX_CLUSTERS).toBe(20);
+    expect(cfg.RUNTIME_MEMORY_DREAMING_ENABLED).toBe(false);
+    expect(cfg.MEMORY_DREAMING_CRON).toBe('0 4 * * *');
+    expect(cfg.MEMORY_DREAMING_PROMOTION_THRESHOLD).toBe(0.6);
+    expect(cfg.MEMORY_DREAMING_DECAY_THRESHOLD).toBe(0.2);
+    expect(cfg.MEMORY_DREAMING_MIN_RECALLS).toBe(5);
+    expect(cfg.MEMORY_DREAMING_MIN_UNIQUE_QUERIES).toBe(3);
+    expect(cfg.MEMORY_DREAMING_CONFIDENCE_BOOST).toBe(0.1);
+    expect(cfg.MEMORY_DREAMING_CONFIDENCE_DECAY).toBe(0.05);
+    expect(cfg.MEMORY_EMBED_BATCH_SIZE).toBe(32);
+    expect(cfg.MEMORY_VECTOR_DIMENSIONS).toBe(1536);
+    expect(cfg.MEMORY_MAX_CHUNKS_PER_GROUP).toBe(8000);
+    expect(cfg.MEMORY_CHUNK_RETENTION_DAYS).toBe(90);
+    expect(cfg.MEMORY_MAX_EVENTS).toBe(30000);
+    expect(cfg.MEMORY_MAX_PROCEDURES_PER_GROUP).toBe(1000);
+    expect(cfg.AGENT_TIMEOUT).toBe(3600000);
+    expect(cfg.AGENT_MAX_OUTPUT_SIZE).toBe(20971520);
+    expect(cfg.ONECLI_URL).toBe('http://test-onecli');
+    expect(cfg.MAX_MESSAGES_PER_PROMPT).toBe(20);
+    expect(cfg.IDLE_TIMEOUT).toBe(900000);
+    expect(cfg.MAX_CONCURRENT_CONTAINERS).toBe(10);
+  });
+
+  it('exercises envConfig branch for config variables', async () => {
+    // Clear all process.env overrides so envConfig values are used
+    vi.resetModules();
+    // Delete all the env vars we might have set
+    const envKeys = [
+      'ASSISTANT_NAME',
+      'MEMORY_ROOT',
+      'OPENAI_API_KEY',
+      'OPENAI_DAILY_EMBED_LIMIT',
+      'MEMORY_EMBED_MODEL',
+      'MEMORY_EMBED_PROVIDER',
+      'MEMORY_CHUNK_SIZE',
+      'MEMORY_CHUNK_OVERLAP',
+      'MEMORY_RETRIEVAL_LIMIT',
+      'MEMORY_RETRIEVAL_MIN_SCORE',
+      'MEMORY_TEMPORAL_DECAY_HALFLIFE_DAYS',
+      'MEMORY_MMR_LAMBDA',
+      'MEMORY_RRF_LEXICAL_WEIGHT',
+      'MEMORY_RRF_VECTOR_WEIGHT',
+      'MEMORY_SOURCE_TYPE_BOOSTS',
+      'MEMORY_REFLECTION_MIN_CONFIDENCE',
+      'MEMORY_REFLECTION_MAX_FACTS_PER_TURN',
+      'MEMORY_SCOPE_POLICY',
+      'MEMORY_RETENTION_PIN_THRESHOLD',
+      'MEMORY_ITEM_MAX_PER_GROUP',
+      'MEMORY_SEMANTIC_DEDUP_ENABLED',
+      'MEMORY_SEMANTIC_DEDUP_THRESHOLD',
+      'MEMORY_GLOBAL_KNOWLEDGE_DIR',
+      'MEMORY_MAX_GLOBAL_CHUNKS',
+      'MEMORY_USAGE_FEEDBACK_ENABLED',
+      'MEMORY_CONFIDENCE_BOOST_ON_USE',
+      'MEMORY_CONFIDENCE_DECAY_ON_UNUSED',
+      'MEMORY_USAGE_DECAY_INTERVAL_TURNS',
+      'MEMORY_CONSOLIDATION_MIN_ITEMS',
+      'MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD',
+      'MEMORY_CONSOLIDATION_MODEL',
+      'MEMORY_CONSOLIDATION_MAX_CLUSTERS',
+      'MEMORY_DREAMING_CRON',
+      'MEMORY_DREAMING_PROMOTION_THRESHOLD',
+      'MEMORY_DREAMING_DECAY_THRESHOLD',
+      'MEMORY_DREAMING_MIN_RECALLS',
+      'MEMORY_DREAMING_MIN_UNIQUE_QUERIES',
+      'MEMORY_DREAMING_CONFIDENCE_BOOST',
+      'MEMORY_DREAMING_CONFIDENCE_DECAY',
+      'MEMORY_EMBED_BATCH_SIZE',
+      'MEMORY_VECTOR_DIMENSIONS',
+      'MEMORY_MAX_CHUNKS_PER_GROUP',
+      'MEMORY_CHUNK_RETENTION_DAYS',
+      'MEMORY_MAX_EVENTS',
+      'MEMORY_MAX_PROCEDURES_PER_GROUP',
+      'AGENT_TIMEOUT',
+      'AGENT_MAX_OUTPUT_SIZE',
+      'ONECLI_URL',
+      'MAX_MESSAGES_PER_PROMPT',
+      'IDLE_TIMEOUT',
+      'MAX_CONCURRENT_CONTAINERS',
+      'ANTHROPIC_MODEL',
+    ];
+    for (const key of envKeys) {
+      delete process.env[key];
+    }
+    vi.doMock('@core/core/env.js', () => ({
+      readEnvFile: () => ({
+        ASSISTANT_NAME: 'EnvBot',
+        MEMORY_ROOT: '/tmp/env-memory',
+        OPENAI_API_KEY: 'env-api-key',
+        OPENAI_DAILY_EMBED_LIMIT: '200',
+        MEMORY_EMBED_MODEL: 'env-embed-model',
+        MEMORY_EMBED_PROVIDER: 'env-embed-provider',
+        MEMORY_CHUNK_SIZE: '1800',
+        MEMORY_CHUNK_OVERLAP: '200',
+        MEMORY_RETRIEVAL_LIMIT: '12',
+        MEMORY_RETRIEVAL_MIN_SCORE: '0.02',
+        MEMORY_TEMPORAL_DECAY_HALFLIFE_DAYS: '60',
+        MEMORY_MMR_LAMBDA: '0.6',
+        MEMORY_RRF_LEXICAL_WEIGHT: '1.5',
+        MEMORY_RRF_VECTOR_WEIGHT: '1.5',
+        MEMORY_SOURCE_TYPE_BOOSTS: JSON.stringify({ local_doc: 2.0 }),
+        MEMORY_REFLECTION_MIN_CONFIDENCE: '0.8',
+        MEMORY_REFLECTION_MAX_FACTS_PER_TURN: '4',
+        MEMORY_SCOPE_POLICY: 'shared',
+        MEMORY_RETENTION_PIN_THRESHOLD: '0.93',
+        MEMORY_ITEM_MAX_PER_GROUP: '2500',
+        MEMORY_SEMANTIC_DEDUP_ENABLED: 'false',
+        MEMORY_SEMANTIC_DEDUP_THRESHOLD: '0.85',
+        MEMORY_GLOBAL_KNOWLEDGE_DIR: '/tmp/env-knowledge',
+        MEMORY_MAX_GLOBAL_CHUNKS: '4000',
+        MEMORY_USAGE_FEEDBACK_ENABLED: 'false',
+        MEMORY_CONFIDENCE_BOOST_ON_USE: '0.04',
+        MEMORY_CONFIDENCE_DECAY_ON_UNUSED: '0.02',
+        MEMORY_USAGE_DECAY_INTERVAL_TURNS: '15',
+        MEMORY_CONSOLIDATION_MIN_ITEMS: '75',
+        MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD: '0.85',
+        MEMORY_CONSOLIDATION_MAX_CLUSTERS: '15',
+        MEMORY_DREAMING_CRON: '0 2 * * *',
+        MEMORY_DREAMING_PROMOTION_THRESHOLD: '0.65',
+        MEMORY_DREAMING_DECAY_THRESHOLD: '0.1',
+        MEMORY_DREAMING_MIN_RECALLS: '4',
+        MEMORY_DREAMING_MIN_UNIQUE_QUERIES: '4',
+        MEMORY_DREAMING_CONFIDENCE_BOOST: '0.08',
+        MEMORY_DREAMING_CONFIDENCE_DECAY: '0.04',
+        MEMORY_EMBED_BATCH_SIZE: '24',
+        MEMORY_VECTOR_DIMENSIONS: '2048',
+        MEMORY_MAX_CHUNKS_PER_GROUP: '7000',
+        MEMORY_CHUNK_RETENTION_DAYS: '60',
+        MEMORY_MAX_EVENTS: '25000',
+        MEMORY_MAX_PROCEDURES_PER_GROUP: '750',
+        ONECLI_URL: 'http://env-onecli',
+        ANTHROPIC_MODEL: 'env-opus',
+      }),
+    }));
+    vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+      readRuntimeMemorySettingsSnapshot: () => ({}),
+    }));
+    const cfg = await import('@core/core/config.js');
+
+    expect(cfg.ASSISTANT_NAME).toBe('EnvBot');
+    expect(cfg.MEMORY_ROOT).toBe('/tmp/env-memory');
+    expect(cfg.MEMORY_SQLITE_PATH).toBe('/tmp/env-memory/.cache/memory.db');
+    expect(cfg.OPENAI_API_KEY).toBe('env-api-key');
+    expect(cfg.OPENAI_DAILY_EMBED_LIMIT).toBe(200);
+    expect(cfg.MEMORY_EMBED_MODEL).toBe('text-embedding-3-large');
+    expect(cfg.MEMORY_EMBED_PROVIDER).toBe('disabled');
+    expect(cfg.MEMORY_CHUNK_SIZE).toBe(1800);
+    expect(cfg.MEMORY_CHUNK_OVERLAP).toBe(200);
+    expect(cfg.MEMORY_RETRIEVAL_LIMIT).toBe(12);
+    expect(cfg.MEMORY_SCOPE_POLICY).toBe('shared');
+    expect(cfg.RUNTIME_MEMORY_DREAMING_ENABLED).toBe(false);
+    expect(cfg.MODEL_CONSOLIDATION).toBe('env-opus');
+    expect(cfg.MEMORY_DREAMING_CRON).toBe('0 2 * * *');
+    expect(cfg.ONECLI_URL).toBe('http://env-onecli');
+    expect(cfg.ANTHROPIC_MODEL).toBe('env-opus');
+  });
+});
+
+describe('config fallback branches for parseInt/parseFloat || default', () => {
+  it('triggers fallback when parseInt returns 0 (falsy)', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_CHUNK_SIZE: '0',
+      MEMORY_CHUNK_OVERLAP: '0',
+      MEMORY_RETRIEVAL_LIMIT: '0',
+      MEMORY_RETRIEVAL_MIN_SCORE: '0',
+      MEMORY_TEMPORAL_DECAY_HALFLIFE_DAYS: '0',
+      MEMORY_MMR_LAMBDA: '0',
+      MEMORY_RRF_LEXICAL_WEIGHT: '0',
+      MEMORY_RRF_VECTOR_WEIGHT: '0',
+      MEMORY_REFLECTION_MIN_CONFIDENCE: '0',
+      MEMORY_REFLECTION_MAX_FACTS_PER_TURN: '0',
+      MEMORY_RETENTION_PIN_THRESHOLD: '0',
+      MEMORY_ITEM_MAX_PER_GROUP: '0',
+      MEMORY_SEMANTIC_DEDUP_THRESHOLD: '0',
+      MEMORY_MAX_GLOBAL_CHUNKS: '0',
+      MEMORY_CONFIDENCE_BOOST_ON_USE: '0',
+      MEMORY_CONFIDENCE_DECAY_ON_UNUSED: '0',
+      MEMORY_USAGE_DECAY_INTERVAL_TURNS: '0',
+      MEMORY_CONSOLIDATION_MIN_ITEMS: '0',
+      MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD: '0',
+      MEMORY_CONSOLIDATION_MAX_CLUSTERS: '0',
+      MEMORY_DREAMING_PROMOTION_THRESHOLD: '0',
+      MEMORY_DREAMING_DECAY_THRESHOLD: '0',
+      MEMORY_DREAMING_MIN_RECALLS: '0',
+      MEMORY_DREAMING_MIN_UNIQUE_QUERIES: '0',
+      MEMORY_DREAMING_CONFIDENCE_BOOST: '0',
+      MEMORY_DREAMING_CONFIDENCE_DECAY: '0',
+      MEMORY_EMBED_BATCH_SIZE: '0',
+      MEMORY_VECTOR_DIMENSIONS: '0',
+      MEMORY_MAX_CHUNKS_PER_GROUP: '0',
+      MEMORY_CHUNK_RETENTION_DAYS: '0',
+      MEMORY_MAX_EVENTS: '0',
+      MEMORY_MAX_PROCEDURES_PER_GROUP: '0',
+      MAX_MESSAGES_PER_PROMPT: '0',
+      MAX_CONCURRENT_CONTAINERS: '0',
+    });
+
+    // All numeric configs should use their fallback defaults (clamped by Math.max)
+    expect(cfg.MEMORY_CHUNK_SIZE).toBe(1400); // fallback 1400, Math.max(300, 1400)
+    expect(cfg.MEMORY_CHUNK_OVERLAP).toBe(240);
+    expect(cfg.MEMORY_RETRIEVAL_LIMIT).toBe(8);
+    expect(cfg.MEMORY_TEMPORAL_DECAY_HALFLIFE_DAYS).toBe(45);
+    expect(cfg.MEMORY_REFLECTION_MAX_FACTS_PER_TURN).toBe(6);
+    expect(cfg.MEMORY_CONSOLIDATION_MAX_CLUSTERS).toBe(10);
+    expect(cfg.MAX_MESSAGES_PER_PROMPT).toBe(10);
+    expect(cfg.MAX_CONCURRENT_CONTAINERS).toBe(5);
+    expect(cfg.MEMORY_EMBED_BATCH_SIZE).toBe(16);
+    expect(cfg.MEMORY_VECTOR_DIMENSIONS).toBe(3072);
+    expect(cfg.MEMORY_MAX_CHUNKS_PER_GROUP).toBe(6000);
+    expect(cfg.MEMORY_CHUNK_RETENTION_DAYS).toBe(120);
+    expect(cfg.MEMORY_MAX_EVENTS).toBe(20000);
+    expect(cfg.MEMORY_MAX_PROCEDURES_PER_GROUP).toBe(500);
+    expect(cfg.MEMORY_CONSOLIDATION_MIN_ITEMS).toBe(20);
+    expect(cfg.MEMORY_ITEM_MAX_PER_GROUP).toBe(2000);
+    expect(cfg.MEMORY_MAX_GLOBAL_CHUNKS).toBe(3000);
+    expect(cfg.MEMORY_USAGE_DECAY_INTERVAL_TURNS).toBe(20);
+    expect(cfg.MEMORY_DREAMING_MIN_RECALLS).toBe(3);
+    expect(cfg.MEMORY_DREAMING_MIN_UNIQUE_QUERIES).toBe(2);
+  });
+
+  it('triggers fallback when parseFloat returns 0 (falsy) for float configs', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_RETRIEVAL_MIN_SCORE: '0',
+      MEMORY_MMR_LAMBDA: '0',
+      MEMORY_RRF_LEXICAL_WEIGHT: '0',
+      MEMORY_RRF_VECTOR_WEIGHT: '0',
+      MEMORY_REFLECTION_MIN_CONFIDENCE: '0',
+      MEMORY_RETENTION_PIN_THRESHOLD: '0',
+      MEMORY_SEMANTIC_DEDUP_THRESHOLD: '0',
+      MEMORY_CONFIDENCE_BOOST_ON_USE: '0',
+      MEMORY_CONFIDENCE_DECAY_ON_UNUSED: '0',
+      MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD: '0',
+      MEMORY_DREAMING_PROMOTION_THRESHOLD: '0',
+      MEMORY_DREAMING_DECAY_THRESHOLD: '0',
+      MEMORY_DREAMING_CONFIDENCE_BOOST: '0',
+      MEMORY_DREAMING_CONFIDENCE_DECAY: '0',
+    });
+
+    // Float configs with 0 should trigger || fallback then Math.max/Math.min clamp
+    expect(cfg.MEMORY_RETRIEVAL_MIN_SCORE).toBe(0.005);
+    expect(cfg.MEMORY_MMR_LAMBDA).toBe(0.7);
+    expect(cfg.MEMORY_RRF_LEXICAL_WEIGHT).toBe(1.0);
+    expect(cfg.MEMORY_RRF_VECTOR_WEIGHT).toBe(1.0);
+    expect(cfg.MEMORY_REFLECTION_MIN_CONFIDENCE).toBe(0.7);
+    expect(cfg.MEMORY_RETENTION_PIN_THRESHOLD).toBe(0.92);
+    expect(cfg.MEMORY_SEMANTIC_DEDUP_THRESHOLD).toBe(0.88);
+    expect(cfg.MEMORY_CONFIDENCE_BOOST_ON_USE).toBe(0.02);
+    expect(cfg.MEMORY_CONFIDENCE_DECAY_ON_UNUSED).toBe(0.01);
+    expect(cfg.MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD).toBe(0.8);
+    expect(cfg.MEMORY_DREAMING_PROMOTION_THRESHOLD).toBe(0.55);
+    expect(cfg.MEMORY_DREAMING_DECAY_THRESHOLD).toBe(0.15);
+    expect(cfg.MEMORY_DREAMING_CONFIDENCE_BOOST).toBe(0.05);
+    expect(cfg.MEMORY_DREAMING_CONFIDENCE_DECAY).toBe(0.03);
+  });
+});
+
+describe('resolveOptionalPath branches', () => {
+  it('returns empty string when input is empty or whitespace', async () => {
+    // Whitespace MEMORY_GLOBAL_KNOWLEDGE_DIR should normalize to empty.
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_GLOBAL_KNOWLEDGE_DIR: '   ',
+    });
+    expect(cfg.MEMORY_GLOBAL_KNOWLEDGE_DIR).toBe('');
+  });
+
+  it('resolves relative path relative to PROJECT_ROOT', async () => {
+    const cfg = await loadConfigWithAllEnv({
+      MEMORY_GLOBAL_KNOWLEDGE_DIR: 'relative/path',
+    });
+    // Should resolve relative to PROJECT_ROOT (process.cwd())
+    expect(cfg.MEMORY_GLOBAL_KNOWLEDGE_DIR).toContain('relative/path');
+    expect(cfg.MEMORY_GLOBAL_KNOWLEDGE_DIR).not.toBe('relative/path');
+  });
+
+  it('resolves MEMORY_ROOT/knowledge fallback from runtime settings', async () => {
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        MEMORY_GLOBAL_KNOWLEDGE_DIR: undefined,
+      },
+      {
+        root: '/tmp/agent-root',
+      },
+    );
+    expect(cfg.MEMORY_GLOBAL_KNOWLEDGE_DIR).toBe('/tmp/agent-root/knowledge');
+  });
+});
+
+describe('AGENT_ROOT runtime root', () => {
+  it('uses AGENT_ROOT for runtime directories and default sqlite path', async () => {
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        AGENT_ROOT: '/tmp/myclaw-home',
+      },
+      {},
+    );
+
+    expect(cfg.AGENT_ROOT).toBe('/tmp/myclaw-home');
+    expect(cfg.STORE_DIR).toBe('/tmp/myclaw-home/store');
+    expect(cfg.AGENTS_DIR).toBe('/tmp/myclaw-home/agents');
+    expect(cfg.DATA_DIR).toBe('/tmp/myclaw-home/data');
+    expect(cfg.MEMORY_SQLITE_PATH).toBe(
+      '/tmp/myclaw-home/memory/.cache/memory.db',
+    );
+  });
+
+  it('honors runtime snapshot root override when AGENT_ROOT is set', async () => {
+    const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
+      {
+        AGENT_ROOT: '/tmp/myclaw-home',
+      },
+      {
+        root: '/var/lib/myclaw/memory',
+      },
+    );
+    expect(cfg.MEMORY_SQLITE_PATH).toBe(
+      '/var/lib/myclaw/memory/.cache/memory.db',
+    );
+  });
+});
+
+describe('HOME fallback', () => {
+  it('uses os.homedir() when HOME is not set', async () => {
+    const originalHome = process.env.HOME;
+    delete process.env.HOME;
+    vi.resetModules();
+    vi.doMock('@core/core/env.js', () => ({
+      readEnvFile: () => ({}),
+    }));
+    vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+      readRuntimeMemorySettingsSnapshot: () => ({}),
+    }));
+    try {
+      const cfg = await import('@core/core/config.js');
+      // AGENT_ROOT should still be defined (using os.homedir())
+      expect(typeof cfg.AGENT_ROOT).toBe('string');
+      expect(cfg.AGENT_ROOT.length).toBeGreaterThan(0);
+    } finally {
+      if (originalHome !== undefined) {
+        process.env.HOME = originalHome;
+      }
+    }
+  });
+});
+
+describe('resolveConfigTimezone fallback to UTC', () => {
+  it('falls back to UTC when all timezone candidates are invalid', async () => {
+    const originalTZ = process.env.TZ;
+    // Set TZ to an invalid timezone
+    process.env.TZ = 'Invalid/Timezone';
+
+    vi.resetModules();
+    vi.doMock('@core/core/env.js', () => ({
+      readEnvFile: () => ({ TZ: 'Also/Invalid' }),
+    }));
+    vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+      readRuntimeMemorySettingsSnapshot: () => ({}),
+    }));
+    // Mock isValidTimezone to return false for everything except 'UTC'
+    vi.doMock('@core/core/timezone.js', () => ({
+      isValidTimezone: (tz: string) => tz === 'UTC',
+    }));
+
+    try {
+      const cfg = await import('@core/core/config.js');
+      expect(cfg.TIMEZONE).toBe('UTC');
+    } finally {
+      vi.doUnmock('@core/core/timezone.js');
+      if (originalTZ !== undefined) {
+        process.env.TZ = originalTZ;
+      } else {
+        delete process.env.TZ;
+      }
+    }
+  });
+});

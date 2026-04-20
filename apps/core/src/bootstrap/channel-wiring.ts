@@ -73,7 +73,7 @@ export interface ChannelWiring {
     jid: string,
     rawText: string,
     options?: StreamingChunkOptions,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   resetStreaming: (jid: string) => void;
   setTyping: (jid: string, isTyping: boolean) => Promise<void>;
   sendProgressUpdate: (
@@ -259,14 +259,14 @@ export function createChannelWiring(
     jid: string,
     rawText: string,
     options?: StreamingChunkOptions,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const channel = findBoundChannel(jid);
     if (!channel) {
       resolved.logger.warn(
         { jid },
         'No channel owns JID, cannot stream message',
       );
-      return;
+      return false;
     }
 
     const isTelegramGroup =
@@ -274,23 +274,23 @@ export function createChannelWiring(
     const text = isTelegramGroup
       ? stripInternalTagsPreserveWhitespace(rawText)
       : formatOutboundForChannel(rawText, channel.name);
-    if (!text && !options?.done) return;
+    if (!text && !options?.done) return false;
 
     const streamingSink = asStreamingSink(channel);
     if (streamingSink) {
-      await streamingSink.sendStreamingChunk(jid, text || '', options);
-      return;
+      return streamingSink.sendStreamingChunk(jid, text || '', options);
     }
 
-    if (!text) return;
+    if (!text) return false;
     const messageOptions: MessageSendOptions | undefined = options?.threadId
       ? { threadId: options.threadId }
       : undefined;
     if (messageOptions) {
       await channel.sendMessage(jid, text, messageOptions);
-      return;
+      return true;
     }
     await channel.sendMessage(jid, text);
+    return true;
   }
 
   function resetStreaming(jid: string): void {

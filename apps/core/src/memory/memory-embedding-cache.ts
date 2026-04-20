@@ -5,7 +5,7 @@ import {
   OPENAI_DAILY_EMBED_LIMIT,
 } from '../core/config.js';
 import { logger } from '../core/logger.js';
-import type { MemoryProvider } from './memory-provider.js';
+import type { MemoryStore } from './memory-store.js';
 import type { EmbeddingProvider } from './memory-embeddings.js';
 
 let dailyApiCalls = 0;
@@ -41,7 +41,7 @@ export class CachedEmbeddingProvider implements EmbeddingProvider {
   constructor(
     private readonly inner: EmbeddingProvider,
     private readonly store: Pick<
-      MemoryProvider,
+      MemoryStore,
       'getCachedEmbedding' | 'putCachedEmbedding'
     >,
     private readonly model: string = MEMORY_EMBED_MODEL,

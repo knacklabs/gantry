@@ -1,0 +1,28 @@
+import { execFileSync } from 'child_process';
+
+import { describe, expect, it } from 'vitest';
+
+describe('package hygiene', () => {
+  it('keeps tests, factory artifacts, coverage, pycache, and validation reports out of npm pack output', () => {
+    const raw = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+      encoding: 'utf-8',
+    });
+    const [pack] = JSON.parse(raw) as Array<{
+      files: Array<{ path: string }>;
+    }>;
+    const files = pack.files.map((file) => file.path);
+
+    expect(
+      files.filter(
+        (file) =>
+          file.includes('/test/') ||
+          file.startsWith('test/') ||
+          file.startsWith('.factory/') ||
+          file.startsWith('coverage/') ||
+          file.includes('__pycache__') ||
+          file.endsWith('.pyc') ||
+          /validation.*\.(json|md|txt)$/i.test(file),
+      ),
+    ).toEqual([]);
+  }, 30_000);
+});

@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 
-import { ASSISTANT_NAME, DATA_DIR, STORE_DIR } from '../core/config.js';
+import { STORE_DIR } from '../core/config.js';
 import {
   decodeGlobalMessageCursor,
   decodeGroupMessageCursor,
@@ -118,43 +118,95 @@ function parseRegisteredGroupAgentConfig(
   }
 }
 
-function isSafeIdentifier(identifier: string): boolean {
-  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier);
-}
-
 function normalizeJobExecutionMode(value: unknown): JobExecutionMode {
   return value === 'serialized' ? 'serialized' : 'parallel';
 }
 
-function hasColumn(
+const REQUIRED_SCHEMA_COLUMNS = {
+  chats: ['jid', 'name', 'last_message_time', 'channel', 'is_group'],
+  messages: [
+    'id',
+    'chat_jid',
+    'sender',
+    'sender_name',
+    'content',
+    'timestamp',
+    'thread_id',
+    'reply_to_message_id',
+    'reply_to_message_content',
+    'reply_to_sender_name',
+    'is_from_me',
+    'is_bot_message',
+  ],
+  jobs: [
+    'id',
+    'name',
+    'prompt',
+    'model',
+    'script',
+    'schedule_type',
+    'schedule_value',
+    'status',
+    'linked_sessions',
+    'thread_id',
+    'group_scope',
+    'created_by',
+    'created_at',
+    'updated_at',
+    'next_run',
+    'last_run',
+    'silent',
+    'cleanup_after_ms',
+    'timeout_ms',
+    'max_retries',
+    'retry_backoff_ms',
+    'max_consecutive_failures',
+    'consecutive_failures',
+    'execution_mode',
+    'lease_run_id',
+    'lease_expires_at',
+    'pause_reason',
+  ],
+  registered_groups: [
+    'jid',
+    'name',
+    'folder',
+    'trigger_pattern',
+    'added_at',
+    'container_config',
+    'requires_trigger',
+    'is_main',
+  ],
+} as const;
+
+function assertTableColumns(
   database: Database.Database,
   tableName: string,
-  columnName: string,
-): boolean {
-  if (!isSafeIdentifier(tableName) || !isSafeIdentifier(columnName)) {
-    throw new Error(
-      `Unsafe schema identifier (table=${tableName}, column=${columnName})`,
-    );
-  }
+  requiredColumns: readonly string[],
+): void {
   const rows = database
     .prepare(`PRAGMA table_info(${tableName})`)
     .all() as Array<{ name?: string }>;
-  return rows.some((row) => row.name === columnName);
+  const present = new Set(rows.map((row) => String(row.name || '')));
+  const missing = requiredColumns.filter((column) => !present.has(column));
+  if (missing.length === 0) return;
+
+  throw new Error(
+    `[MyClaw] incompatible SQLite schema in ${tableName}; missing columns: ${missing.join(
+      ', ',
+    )}. Recreate store/messages.db with the current schema.`,
+  );
 }
 
-function addColumnIfMissing(
-  database: Database.Database,
-  tableName: string,
-  columnName: string,
-  columnDefinition: string,
-): boolean {
-  if (hasColumn(database, tableName, columnName)) {
-    return false;
-  }
-  database.exec(
-    `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`,
+function assertSchemaCompatibility(database: Database.Database): void {
+  assertTableColumns(database, 'chats', REQUIRED_SCHEMA_COLUMNS.chats);
+  assertTableColumns(database, 'messages', REQUIRED_SCHEMA_COLUMNS.messages);
+  assertTableColumns(database, 'jobs', REQUIRED_SCHEMA_COLUMNS.jobs);
+  assertTableColumns(
+    database,
+    'registered_groups',
+    REQUIRED_SCHEMA_COLUMNS.registered_groups,
   );
-  return true;
 }
 
 function createSchema(database: Database.Database): void {
@@ -174,12 +226,16 @@ function createSchema(database: Database.Database): void {
       content TEXT,
       timestamp TEXT,
       thread_id TEXT,
+      reply_to_message_id TEXT,
+      reply_to_message_content TEXT,
+      reply_to_sender_name TEXT,
       is_from_me INTEGER,
       is_bot_message INTEGER DEFAULT 0,
       PRIMARY KEY (id, chat_jid),
       FOREIGN KEY (chat_jid) REFERENCES chats(jid)
     );
     CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_messages_chat_thread ON messages(chat_jid, thread_id);
 
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
@@ -256,100 +312,10 @@ function createSchema(database: Database.Database): void {
       trigger_pattern TEXT NOT NULL,
       added_at TEXT NOT NULL,
       container_config TEXT,
-      requires_trigger INTEGER DEFAULT 1
+      requires_trigger INTEGER DEFAULT 1,
+      is_main INTEGER DEFAULT 0
     );
   `);
-
-  // Remove legacy scheduler tables now that job-based scheduling is the only path.
-  database.exec(`
-    DROP TABLE IF EXISTS task_run_logs;
-    DROP TABLE IF EXISTS scheduled_tasks;
-  `);
-
-  try {
-    // Add is_bot_message column if needed, then backfill legacy prefix rows.
-    addColumnIfMissing(
-      database,
-      'messages',
-      'is_bot_message',
-      'INTEGER DEFAULT 0',
-    );
-    database
-      .prepare(
-        `UPDATE messages
-         SET is_bot_message = 1
-         WHERE is_bot_message = 0 AND content LIKE ?`,
-      )
-      .run(`${ASSISTANT_NAME}:%`);
-
-    // Add is_main and mark existing main group rows.
-    addColumnIfMissing(
-      database,
-      'registered_groups',
-      'is_main',
-      'INTEGER DEFAULT 0',
-    );
-    database.exec(
-      `UPDATE registered_groups SET is_main = 1 WHERE folder = 'main'`,
-    );
-
-    // Add channel/is_group metadata columns and backfill chat types when missing.
-    addColumnIfMissing(database, 'chats', 'channel', 'TEXT');
-    addColumnIfMissing(database, 'chats', 'is_group', 'INTEGER DEFAULT 0');
-    database.exec(
-      `UPDATE chats SET channel = 'whatsapp', is_group = 1
-       WHERE channel IS NULL AND jid LIKE '%@g.us'`,
-    );
-    database.exec(
-      `UPDATE chats SET channel = 'whatsapp', is_group = 0
-       WHERE channel IS NULL AND jid LIKE '%@s.whatsapp.net'`,
-    );
-    database.exec(
-      `UPDATE chats SET channel = 'discord', is_group = 1
-       WHERE channel IS NULL AND jid LIKE 'dc:%'`,
-    );
-    database.exec(
-      `UPDATE chats SET channel = 'telegram', is_group = 0
-       WHERE channel IS NULL AND jid LIKE 'tg:%'`,
-    );
-
-    // Add reply context columns.
-    addColumnIfMissing(database, 'messages', 'reply_to_message_id', 'TEXT');
-    addColumnIfMissing(
-      database,
-      'messages',
-      'reply_to_message_content',
-      'TEXT',
-    );
-    addColumnIfMissing(database, 'messages', 'reply_to_sender_name', 'TEXT');
-
-    // Add thread_id column.
-    addColumnIfMissing(database, 'messages', 'thread_id', 'TEXT');
-    // Must run after thread_id migration for upgrade safety.
-    database.exec(
-      `CREATE INDEX IF NOT EXISTS idx_messages_chat_thread ON messages(chat_jid, thread_id)`,
-    );
-
-    // Add per-job model override column.
-    addColumnIfMissing(database, 'jobs', 'model', 'TEXT DEFAULT NULL');
-    addColumnIfMissing(database, 'jobs', 'thread_id', 'TEXT');
-    addColumnIfMissing(database, 'jobs', 'silent', 'INTEGER DEFAULT 0');
-    addColumnIfMissing(
-      database,
-      'jobs',
-      'cleanup_after_ms',
-      'INTEGER DEFAULT 86400000',
-    );
-    addColumnIfMissing(
-      database,
-      'jobs',
-      'execution_mode',
-      "TEXT DEFAULT 'parallel'",
-    );
-  } catch (err) {
-    logger.error({ err }, 'Database schema migration failed');
-    throw err;
-  }
 }
 
 export function initDatabase(): void {
@@ -358,20 +324,20 @@ export function initDatabase(): void {
 
   db = new Database(dbPath);
   createSchema(db);
-
-  // Migrate from JSON files if they exist
-  migrateJsonState();
+  assertSchemaCompatibility(db);
 }
 
 /** @internal - for tests only. Creates a fresh in-memory database. */
 export function _initTestDatabase(): void {
   db = new Database(':memory:');
   createSchema(db);
+  assertSchemaCompatibility(db);
 }
 
 /** @internal - for tests only. Applies schema/migrations to a provided DB. */
 export function _createSchemaForTest(database: Database.Database): void {
   createSchema(database);
+  assertSchemaCompatibility(database);
 }
 
 /** @internal - for tests only. */
@@ -510,15 +476,20 @@ export function getNewMessages(
       cursor.id,
       `${botPrefix}:%`,
       limit,
-    ) as NewMessage[];
+    ) as Array<NewMessage & { is_from_me?: number | boolean }>;
+
+  const messages = rows.map((row) => ({
+    ...row,
+    is_from_me: Boolean(row.is_from_me),
+  }));
 
   let newTimestamp = lastCursor;
-  const latest = rows[rows.length - 1];
+  const latest = messages[messages.length - 1];
   if (latest) {
     newTimestamp = encodeGlobalMessageCursor(toGlobalMessageCursor(latest));
   }
 
-  return { messages: rows, newTimestamp };
+  return { messages, newTimestamp };
 }
 
 export function getMessagesSince(
@@ -545,7 +516,7 @@ export function getMessagesSince(
     ORDER BY timestamp ASC, id ASC
     LIMIT ?
   `;
-  return db
+  const rows = db
     .prepare(sql)
     .all(
       chatJid,
@@ -554,7 +525,11 @@ export function getMessagesSince(
       cursor.id,
       `${botPrefix}:%`,
       limit,
-    ) as NewMessage[];
+    ) as Array<NewMessage & { is_from_me?: number | boolean }>;
+  return rows.map((row) => ({
+    ...row,
+    is_from_me: Boolean(row.is_from_me),
+  }));
 }
 
 export function getLastBotMessageCursor(
@@ -1186,66 +1161,4 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
     };
   }
   return result;
-}
-
-// --- JSON migration ---
-
-function migrateJsonState(): void {
-  const migrateFile = (filename: string) => {
-    const filePath = path.join(DATA_DIR, filename);
-    if (!fs.existsSync(filePath)) return null;
-    try {
-      const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-      fs.renameSync(filePath, `${filePath}.migrated`);
-      return data;
-    } catch {
-      return null;
-    }
-  };
-
-  // Migrate router_state.json
-  const routerState = migrateFile('router_state.json') as {
-    last_timestamp?: string;
-    last_agent_timestamp?: Record<string, string>;
-  } | null;
-  if (routerState) {
-    if (routerState.last_timestamp) {
-      setRouterState('last_timestamp', routerState.last_timestamp);
-    }
-    if (routerState.last_agent_timestamp) {
-      setRouterState(
-        'last_agent_timestamp',
-        JSON.stringify(routerState.last_agent_timestamp),
-      );
-    }
-  }
-
-  // Migrate sessions.json
-  const sessions = migrateFile('sessions.json') as Record<
-    string,
-    string
-  > | null;
-  if (sessions) {
-    for (const [folder, sessionId] of Object.entries(sessions)) {
-      setSession(folder, sessionId);
-    }
-  }
-
-  // Migrate registered_groups.json
-  const groups = migrateFile('registered_groups.json') as Record<
-    string,
-    RegisteredGroup
-  > | null;
-  if (groups) {
-    for (const [jid, group] of Object.entries(groups)) {
-      try {
-        setRegisteredGroup(jid, group);
-      } catch (err) {
-        logger.warn(
-          { jid, folder: group.folder, err },
-          'Skipping migrated registered group with invalid folder',
-        );
-      }
-    }
-  }
 }

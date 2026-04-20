@@ -1,41 +1,40 @@
-import crypto from 'crypto';
+import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
 import {
   AGENTS_DIR,
+  MEMORY_ROOT,
   MEMORY_CHUNK_OVERLAP,
   MEMORY_CHUNK_SIZE,
-  MEMORY_CONFIDENCE_BOOST_ON_USE,
-  MEMORY_CONFIDENCE_DECAY_ON_UNUSED,
   MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD,
-  MEMORY_CONSOLIDATION_ENABLED,
   MEMORY_CONSOLIDATION_MAX_CLUSTERS,
   MEMORY_CONSOLIDATION_MIN_ITEMS,
   MEMORY_DREAMING_CONFIDENCE_BOOST,
   MEMORY_DREAMING_CONFIDENCE_DECAY,
   MEMORY_DREAMING_DECAY_THRESHOLD,
-  MEMORY_DREAMING_ENABLED,
   MEMORY_DREAMING_MIN_RECALLS,
   MEMORY_DREAMING_MIN_UNIQUE_QUERIES,
   MEMORY_DREAMING_PROMOTION_THRESHOLD,
+  MEMORY_EXTRACTOR_MIN_CONFIDENCE,
+  MEMORY_EXTRACTOR_MAX_TURNS,
   MEMORY_GLOBAL_KNOWLEDGE_DIR,
-  MEMORY_REFLECTION_MAX_FACTS_PER_TURN,
-  MEMORY_REFLECTION_MIN_CONFIDENCE,
   MEMORY_MMR_LAMBDA,
   MEMORY_RETRIEVAL_MIN_SCORE,
   MEMORY_RETENTION_PIN_THRESHOLD,
   MEMORY_RRF_LEXICAL_WEIGHT,
   MEMORY_RRF_VECTOR_WEIGHT,
   MEMORY_RETRIEVAL_LIMIT,
+  MEMORY_JOURNAL_DISABLED,
+  RUNTIME_MEMORY_ENABLED,
   MEMORY_SEMANTIC_DEDUP_ENABLED,
   MEMORY_SEMANTIC_DEDUP_THRESHOLD,
   MEMORY_SOURCE_TYPE_BOOSTS,
   MEMORY_SCOPE_POLICY,
   MEMORY_TEMPORAL_DECAY_HALFLIFE_DAYS,
-  MEMORY_USAGE_DECAY_INTERVAL_TURNS,
-  MEMORY_USAGE_FEEDBACK_ENABLED,
+  RUNTIME_MEMORY_DREAMING_ENABLED,
 } from '../core/config.js';
+import { logger } from '../core/logger.js';
 import {
   createEmbeddingProvider,
   EmbeddingProvider,
@@ -50,16 +49,15 @@ import {
   runDreamingSweep as runMemoryDreamingSweep,
 } from './memory-dreaming.js';
 import {
-  containsSensitiveMaterial,
   createMemoryExtractionProvider,
+  MemoryExtractorUsage,
   MemoryExtractionProvider,
 } from './memory-extractor.js';
-import {
-  ChunkInsert,
-  createMemoryProvider,
-  MemoryProvider,
-} from './memory-provider.js';
+import { ChunkInsert, MemoryStore } from './memory-store.js';
+import { JournalAppendInput, MemoryJournal } from './memory-journal.js';
+import { MemoryIndexer } from './memory-indexer.js';
 import { fuseSearchResults } from './memory-retrieval.js';
+import { classifySensitiveMemoryMaterial } from './sensitive-material.js';
 import {
   MEMORY_GLOBAL_GROUP_FOLDER,
   MemoryItem,
@@ -78,24 +76,35 @@ interface SearchInput {
   groupFolder: string;
   userId?: string;
   limit?: number;
+  source?: string;
 }
 
-interface ReflectionInput {
+interface TranscriptExtractionInput {
   groupFolder: string;
-  prompt: string;
-  result: string;
-  isMain: boolean;
+  transcriptPath: string;
+  trigger: 'precompact' | 'session-end';
+  sessionId?: string;
   userId?: string;
-  retrievedItemIds?: string[];
 }
 
-interface MemoryContextResult {
-  block: string;
-  facts: MemoryItem[];
-  procedures: MemoryProcedure[];
-  snippets: MemorySearchResult[];
-  recentWork: string[];
-  retrievedItemIds: string[];
+interface BuildBriefInput {
+  groupFolder: string;
+  maxItems: number;
+  userId?: string;
+}
+
+interface ArcTurn {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+export interface MemoryStatusSnapshot {
+  items_by_kind: Record<string, number>;
+  items_by_scope: Record<string, number>;
+  top10_most_used: Array<{ key: string; retrieval_count: number }>;
+  top10_stalest: Array<{ key: string; updated_at: string }>;
+  last_dream_run?: { at?: string; summary?: string };
+  disk_kb?: Record<string, number>;
 }
 
 interface SourceDoc {
@@ -105,21 +114,68 @@ interface SourceDoc {
   text: string;
 }
 
+export interface MemoryServiceCounters {
+  extractions_total: number;
+  extractions_failed_total: number;
+  facts_saved_total: number;
+  facts_filtered_sensitive_total: number;
+  journal_writes_failed_total: number;
+  stale_patch_retries_total: number;
+  dreaming_sweeps_total: number;
+  cache_read_tokens_total: number;
+  cache_creation_tokens_total: number;
+}
+
+const INITIAL_MEMORY_COUNTERS: MemoryServiceCounters = {
+  extractions_total: 0,
+  extractions_failed_total: 0,
+  facts_saved_total: 0,
+  facts_filtered_sensitive_total: 0,
+  journal_writes_failed_total: 0,
+  stale_patch_retries_total: 0,
+  dreaming_sweeps_total: 0,
+  cache_read_tokens_total: 0,
+  cache_creation_tokens_total: 0,
+};
+
 let memoryServiceSingleton: MemoryService | null = null;
 
 export class MemoryService {
-  private readonly store: MemoryProvider;
+  private static counters: MemoryServiceCounters = {
+    ...INITIAL_MEMORY_COUNTERS,
+  };
+  private readonly store: MemoryStore;
   private readonly embeddings: EmbeddingProvider;
   private readonly extractor: MemoryExtractionProvider;
+  private readonly journal: MemoryJournal;
+  private readonly indexer: MemoryIndexer;
+
+  private static incrementCounter(
+    name: keyof MemoryServiceCounters,
+    delta = 1,
+  ): void {
+    const next = (MemoryService.counters[name] || 0) + delta;
+    MemoryService.counters[name] = Math.max(0, Number(next) || 0);
+  }
+
+  static getCountersSnapshot(): MemoryServiceCounters {
+    return { ...MemoryService.counters };
+  }
 
   constructor(
-    store: MemoryProvider = createMemoryProvider(),
+    store: MemoryStore = new MemoryStore(),
     embeddings: EmbeddingProvider = createEmbeddingProvider(),
     extractor: MemoryExtractionProvider = createMemoryExtractionProvider(),
+    journal: MemoryJournal = new MemoryJournal(
+      path.join(MEMORY_ROOT, '.journal'),
+      MEMORY_JOURNAL_DISABLED,
+    ),
   ) {
     this.store = store;
     this.embeddings = new CachedEmbeddingProvider(embeddings, this.store);
     this.extractor = extractor;
+    this.journal = journal;
+    this.indexer = new MemoryIndexer(MEMORY_ROOT, this.store, this.embeddings);
     this.embeddings.validateConfiguration();
   }
 
@@ -131,12 +187,21 @@ export class MemoryService {
   }
 
   static closeInstance(): void {
+    memoryServiceSingleton?.journal.close();
     memoryServiceSingleton?.store.close();
     memoryServiceSingleton = null;
   }
 
   getProviderName(): string {
-    return this.store.providerName || 'unknown';
+    return RUNTIME_MEMORY_ENABLED ? 'sqlite' : 'disabled';
+  }
+
+  getCounters(): MemoryServiceCounters {
+    return MemoryService.getCountersSnapshot();
+  }
+
+  async reindexFiles(): Promise<{ scanned: number; reindexed: number }> {
+    return await this.indexer.reindexStaleFilesAndWait();
   }
 
   async consolidateGroupMemory(
@@ -153,10 +218,10 @@ export class MemoryService {
   }
 
   async runDreamingSweep(groupFolder: string): Promise<DreamingResult> {
+    MemoryService.incrementCounter('dreaming_sweeps_total');
     return runMemoryDreamingSweep({
       groupFolder,
       store: this.store,
-      consolidationEnabled: MEMORY_CONSOLIDATION_ENABLED,
       consolidateGroupMemory: (targetGroupFolder) =>
         this.consolidateGroupMemory(targetGroupFolder),
       retentionPinThreshold: MEMORY_RETENTION_PIN_THRESHOLD,
@@ -166,8 +231,90 @@ export class MemoryService {
       minUniqueQueries: MEMORY_DREAMING_MIN_UNIQUE_QUERIES,
       confidenceBoost: MEMORY_DREAMING_CONFIDENCE_BOOST,
       confidenceDecay: MEMORY_DREAMING_CONFIDENCE_DECAY,
-      enabled: MEMORY_DREAMING_ENABLED,
+      enabled: RUNTIME_MEMORY_DREAMING_ENABLED,
     });
+  }
+
+  async getStatus(groupFolder: string): Promise<MemoryStatusSnapshot> {
+    if (!RUNTIME_MEMORY_ENABLED) {
+      return {
+        items_by_kind: {},
+        items_by_scope: {},
+        top10_most_used: [],
+        top10_stalest: [],
+      };
+    }
+    const groupItems = this.store.listActiveItems(groupFolder, 20_000);
+    const globalItems = this.store.listTopItems('global', groupFolder, 5_000);
+    const items = dedupeItemsById([...groupItems, ...globalItems]);
+
+    const itemsByKind: Record<string, number> = {};
+    const itemsByScope: Record<string, number> = {};
+    for (const item of items) {
+      itemsByKind[item.kind] = (itemsByKind[item.kind] || 0) + 1;
+      itemsByScope[item.scope] = (itemsByScope[item.scope] || 0) + 1;
+    }
+
+    const topUsed = [...items]
+      .sort((a, b) => b.retrieval_count - a.retrieval_count)
+      .slice(0, 10)
+      .map((item) => ({
+        key: item.key,
+        retrieval_count: item.retrieval_count,
+      }));
+    const topStalest = [...items]
+      .sort((a, b) => Date.parse(a.updated_at) - Date.parse(b.updated_at))
+      .slice(0, 10)
+      .map((item) => ({ key: item.key, updated_at: item.updated_at }));
+
+    const latestDream =
+      this.store.getLatestEvent('dream_completed', groupFolder) ||
+      this.store.getLatestEvent('dreaming_completed', groupFolder);
+    let lastDreamRun: MemoryStatusSnapshot['last_dream_run'] = undefined;
+    if (latestDream) {
+      let summary = '';
+      try {
+        const payload = JSON.parse(latestDream.payload_json) as {
+          promotedCount?: number;
+          retiredCount?: number;
+          decayedCount?: number;
+        };
+        summary = `promoted=${payload.promotedCount ?? 0}, decayed=${payload.decayedCount ?? 0}, retired=${payload.retiredCount ?? 0}`;
+      } catch {
+        summary = '';
+      }
+      lastDreamRun = {
+        at: latestDream.created_at,
+        ...(summary ? { summary } : {}),
+      };
+    }
+
+    let diskKb: Record<string, number> | undefined;
+    try {
+      const layout = {
+        itemsDir: path.join(MEMORY_ROOT, 'items'),
+        proceduresDir: path.join(MEMORY_ROOT, 'procedures'),
+        sessionsDir: path.join(MEMORY_ROOT, 'sessions'),
+        journalDir: path.join(MEMORY_ROOT, '.journal'),
+      };
+      diskKb = {
+        items: directorySizeKb(layout.itemsDir),
+        procedures: directorySizeKb(layout.proceduresDir),
+        sessions: directorySizeKb(layout.sessionsDir),
+        journal: directorySizeKb(layout.journalDir),
+      };
+    } catch {
+      diskKb = undefined;
+    }
+
+    return {
+      items_by_kind: itemsByKind,
+      items_by_scope: itemsByScope,
+      top10_most_used: topUsed,
+      top10_stalest: topStalest,
+      ...(lastDreamRun ? { last_dream_run: lastDreamRun } : {}),
+      ...(diskKb ? { disk_kb: diskKb } : {}),
+    };
   }
 
   async ingestGroupSources(groupFolder: string): Promise<void> {
@@ -197,7 +344,7 @@ export class MemoryService {
 
     await this.ingestDocuments(files, 'group', groupFolder);
 
-    this.store.applyRetentionPolicies(groupFolder);
+    this.applyRetentionWithJournal(groupFolder, 'retention:ingest');
   }
 
   async ingestGlobalKnowledge(dirOverride?: string): Promise<void> {
@@ -217,7 +364,10 @@ export class MemoryService {
     if (docs.length === 0) return;
 
     await this.ingestDocuments(docs, 'global', MEMORY_GLOBAL_GROUP_FOLDER);
-    this.store.applyRetentionPolicies(MEMORY_GLOBAL_GROUP_FOLDER);
+    this.applyRetentionWithJournal(
+      MEMORY_GLOBAL_GROUP_FOLDER,
+      'retention:global',
+    );
   }
 
   private collectMarkdownDocs(
@@ -304,6 +454,12 @@ export class MemoryService {
   }
 
   async search(input: SearchInput): Promise<MemorySearchResult[]> {
+    if (!RUNTIME_MEMORY_ENABLED) return [];
+    try {
+      this.indexer.reindexStaleFiles();
+    } catch (err) {
+      logger.warn({ err }, 'memory_reindex_failed');
+    }
     const limit = input.limit ?? MEMORY_RETRIEVAL_LIMIT;
     const items = this.store.searchItemsByText(
       input.query,
@@ -335,7 +491,13 @@ export class MemoryService {
       vectorWeight: MEMORY_RRF_VECTOR_WEIGHT,
       sourceTypeBoosts: MEMORY_SOURCE_TYPE_BOOSTS,
     });
-    return mergeSearchResults(items, snippets, limit);
+    const filteredSnippets = input.source?.trim()
+      ? snippets.filter((item) => item.source_type === input.source)
+      : snippets;
+    const filteredItems = input.source?.trim()
+      ? items.filter((item) => item.source_type === input.source)
+      : items;
+    return mergeSearchResults(filteredItems, filteredSnippets, limit);
   }
 
   async saveMemory(
@@ -343,6 +505,9 @@ export class MemoryService {
     ctx: MemoryWriteContext,
     precomputedEmbedding?: number[] | null,
   ): Promise<MemoryItem> {
+    if (!RUNTIME_MEMORY_ENABLED) {
+      throw new Error('memory is disabled');
+    }
     const resolvedScope = this.resolveScope(input.scope, ctx);
     const scope =
       resolvedScope === 'user' && !input.user_id ? 'group' : resolvedScope;
@@ -351,6 +516,17 @@ export class MemoryService {
     const confidence = clampConfidence(input.confidence);
     const kind = input.kind || 'fact';
     const source = input.source || 'agent';
+    const actor = this.resolveWriteActor(ctx, source);
+    this.assertNoSensitiveMaterialOrThrow({
+      groupFolder,
+      actor,
+      scope,
+      fields: [
+        { name: 'key', value: input.key },
+        { name: 'value', value: input.value },
+        { name: 'why', value: input.why },
+      ],
+    });
 
     const existing = this.store.findItemByKey({
       scope,
@@ -368,16 +544,31 @@ export class MemoryService {
     }
 
     if (existing) {
-      const memory = this.store.patchItem(existing.id, existing.version, {
+      const previousFilePath = existing.file_path;
+      const patch = {
         key: input.key,
         value: input.value,
+        why: input.why,
+        load_bearing: input.load_bearing,
+        source_turn_id: input.source_turn_id,
         kind,
         source,
         confidence,
+      };
+      const { memory, previousVersion } = this.patchItemWithRetry({
+        initialItem: existing,
+        reloadItem: () =>
+          this.store.findItemByKey({
+            scope,
+            groupFolder,
+            key: input.key,
+            userId: input.user_id || null,
+          }),
+        patch,
       });
-      this.pinIfNeeded(memory.id, memory.confidence);
+      const pinnedChanged = this.pinIfNeeded(memory);
       if (embedding) {
-        this.store.saveItemEmbedding(memory.id, embedding);
+        this.persistEmbeddingBestEffort(memory, embedding, actor);
       }
 
       this.store.recordEvent('memory_saved', 'memory_item', memory.id, {
@@ -387,6 +578,39 @@ export class MemoryService {
         confidence: memory.confidence,
         deduped: 'key',
       });
+      this.appendJournal({
+        kind: 'memory.item.patched',
+        group_folder: memory.group_folder,
+        scope: memory.scope,
+        actor,
+        payload: {
+          ...memory,
+          prev_version: previousVersion,
+        },
+      });
+      if (pinnedChanged) {
+        this.appendJournal({
+          kind: 'memory.item.pinned',
+          group_folder: memory.group_folder,
+          scope: memory.scope,
+          actor,
+          payload: {
+            id: memory.id,
+            pinned: true,
+          },
+        });
+      }
+
+      const persisted = this.persistItemMarkdown(memory);
+      this.store.setItemFileMetadata({
+        itemId: memory.id,
+        source_folder: 'items',
+        file_path: persisted.filePath,
+        content_hash: persisted.contentHash,
+        indexed_at: persisted.indexedAt,
+      });
+      this.removeStaleItemFile(previousFilePath, persisted.filePath);
+      this.indexer.indexFile(persisted.filePath);
 
       return memory;
     }
@@ -401,15 +625,24 @@ export class MemoryService {
       });
       const best = similar[0];
       if (best && best.similarity >= MEMORY_SEMANTIC_DEDUP_THRESHOLD) {
-        const memory = this.store.patchItem(best.item.id, best.item.version, {
+        const patch = {
           key: input.key,
           value: input.value,
+          why: input.why,
+          load_bearing: input.load_bearing,
+          source_turn_id: input.source_turn_id,
           kind,
           source,
           confidence,
+        };
+        const { memory, previousVersion } = this.patchItemWithRetry({
+          initialItem: best.item,
+          reloadItem: () => this.store.getItemById(best.item.id),
+          patch,
         });
-        this.pinIfNeeded(memory.id, memory.confidence);
-        this.store.saveItemEmbedding(memory.id, embedding);
+        const previousFilePath = best.item.file_path;
+        const pinnedChanged = this.pinIfNeeded(memory);
+        this.persistEmbeddingBestEffort(memory, embedding, actor);
         this.store.recordEvent('memory_saved', 'memory_item', memory.id, {
           scope: memory.scope,
           group_folder: memory.group_folder,
@@ -418,6 +651,38 @@ export class MemoryService {
           deduped: 'semantic',
           similarity: best.similarity,
         });
+        this.appendJournal({
+          kind: 'memory.item.patched',
+          group_folder: memory.group_folder,
+          scope: memory.scope,
+          actor,
+          payload: {
+            ...memory,
+            prev_version: previousVersion,
+          },
+        });
+        if (pinnedChanged) {
+          this.appendJournal({
+            kind: 'memory.item.pinned',
+            group_folder: memory.group_folder,
+            scope: memory.scope,
+            actor,
+            payload: {
+              id: memory.id,
+              pinned: true,
+            },
+          });
+        }
+        const persisted = this.persistItemMarkdown(memory);
+        this.store.setItemFileMetadata({
+          itemId: memory.id,
+          source_folder: 'items',
+          file_path: persisted.filePath,
+          content_hash: persisted.contentHash,
+          indexed_at: persisted.indexedAt,
+        });
+        this.removeStaleItemFile(previousFilePath, persisted.filePath);
+        this.indexer.indexFile(persisted.filePath);
         return memory;
       }
     }
@@ -429,13 +694,16 @@ export class MemoryService {
       kind,
       key: input.key,
       value: input.value,
+      why: input.why,
+      load_bearing: input.load_bearing,
+      source_turn_id: input.source_turn_id,
       source,
       confidence,
       is_pinned: confidence >= MEMORY_RETENTION_PIN_THRESHOLD,
     });
-    this.pinIfNeeded(memory.id, memory.confidence);
+    const pinnedChanged = this.pinIfNeeded(memory);
     if (embedding) {
-      this.store.saveItemEmbedding(memory.id, embedding);
+      this.persistEmbeddingBestEffort(memory, embedding, actor);
     }
 
     this.store.recordEvent('memory_saved', 'memory_item', memory.id, {
@@ -445,26 +713,105 @@ export class MemoryService {
       confidence: memory.confidence,
       deduped: 'none',
     });
+    this.appendJournal({
+      kind: 'memory.item.saved',
+      group_folder: memory.group_folder,
+      scope: memory.scope,
+      actor,
+      payload: memory,
+    });
+    if (pinnedChanged) {
+      this.appendJournal({
+        kind: 'memory.item.pinned',
+        group_folder: memory.group_folder,
+        scope: memory.scope,
+        actor,
+        payload: {
+          id: memory.id,
+          pinned: true,
+        },
+      });
+    }
+
+    const persisted = this.persistItemMarkdown(memory);
+    this.store.setItemFileMetadata({
+      itemId: memory.id,
+      source_folder: 'items',
+      file_path: persisted.filePath,
+      content_hash: persisted.contentHash,
+      indexed_at: persisted.indexedAt,
+    });
+    this.indexer.indexFile(persisted.filePath);
 
     return memory;
   }
 
   patchMemory(input: PatchMemoryInput, ctx: MemoryWriteContext): MemoryItem {
+    if (!RUNTIME_MEMORY_ENABLED) {
+      throw new Error('memory is disabled');
+    }
     const existing = this.store.getItemById(input.id);
     if (!existing) throw new Error('memory item not found');
+    const previousFilePath = existing.file_path;
     this.enforcePatchAccess(existing.scope, existing.group_folder, ctx);
+    const actor = this.resolveWriteActor(ctx, existing.source);
+    this.assertNoSensitiveMaterialOrThrow({
+      groupFolder: existing.group_folder,
+      actor,
+      scope: existing.scope,
+      fields: [
+        { name: 'key', value: input.key },
+        { name: 'value', value: input.value },
+        { name: 'why', value: input.why },
+      ],
+    });
 
     const patched = this.store.patchItem(input.id, input.expected_version, {
       key: input.key,
       value: input.value,
+      why: input.why,
+      load_bearing: input.load_bearing,
       confidence: input.confidence,
     });
-    this.pinIfNeeded(patched.id, patched.confidence);
+    const pinnedChanged = this.pinIfNeeded(patched);
 
     this.store.recordEvent('memory_patched', 'memory_item', patched.id, {
       version: patched.version,
       confidence: patched.confidence,
     });
+    this.appendJournal({
+      kind: 'memory.item.patched',
+      group_folder: patched.group_folder,
+      scope: patched.scope,
+      actor,
+      payload: {
+        ...patched,
+        prev_version: existing.version,
+      },
+    });
+    if (pinnedChanged) {
+      this.appendJournal({
+        kind: 'memory.item.pinned',
+        group_folder: patched.group_folder,
+        scope: patched.scope,
+        actor,
+        payload: {
+          id: patched.id,
+          pinned: true,
+        },
+      });
+    }
+
+    const persisted = this.persistItemMarkdown(patched);
+    this.store.setItemFileMetadata({
+      itemId: patched.id,
+      source_folder: 'items',
+      file_path: persisted.filePath,
+      content_hash: persisted.contentHash,
+      indexed_at: persisted.indexedAt,
+    });
+    this.removeStaleItemFile(previousFilePath, persisted.filePath);
+    this.indexer.indexFile(persisted.filePath);
 
     return patched;
   }
@@ -473,19 +820,35 @@ export class MemoryService {
     input: SaveProcedureInput,
     ctx: MemoryWriteContext,
   ): MemoryProcedure {
+    if (!RUNTIME_MEMORY_ENABLED) {
+      throw new Error('memory is disabled');
+    }
     const scope = this.resolveScope(input.scope, ctx);
     if (scope === 'user') {
       throw new Error('user-scoped procedures are not supported');
     }
     this.enforceScope(scope, ctx);
+    const groupFolder = this.resolveTargetGroupFolder(input.group_folder, ctx);
+    const actor = this.resolveWriteActor(ctx, input.source || 'agent');
+    this.assertNoSensitiveMaterialOrThrow({
+      groupFolder,
+      actor,
+      scope,
+      fields: [
+        { name: 'title', value: input.title },
+        { name: 'body', value: input.body },
+      ],
+    });
 
     const procedure = this.store.saveProcedure({
       scope,
-      group_folder: this.resolveTargetGroupFolder(input.group_folder, ctx),
+      group_folder: groupFolder,
       title: input.title,
       body: input.body,
       tags: input.tags || [],
       source: input.source || 'agent',
+      origin: input.origin || 'explicit',
+      trigger: input.trigger || null,
       confidence: clampConfidence(input.confidence),
     });
 
@@ -499,6 +862,15 @@ export class MemoryService {
         confidence: procedure.confidence,
       },
     );
+    this.appendJournal({
+      kind: 'memory.procedure.saved',
+      group_folder: procedure.group_folder,
+      scope: procedure.scope,
+      actor,
+      payload: procedure,
+    });
+
+    this.persistProcedureMarkdown(procedure);
 
     return procedure;
   }
@@ -507,9 +879,23 @@ export class MemoryService {
     input: PatchProcedureInput,
     ctx: MemoryWriteContext,
   ): MemoryProcedure {
+    if (!RUNTIME_MEMORY_ENABLED) {
+      throw new Error('memory is disabled');
+    }
     const existing = this.store.getProcedureById(input.id);
     if (!existing) throw new Error('memory procedure not found');
     this.enforcePatchAccess(existing.scope, existing.group_folder, ctx);
+    const actor = this.resolveWriteActor(ctx, existing.source);
+    this.assertNoSensitiveMaterialOrThrow({
+      groupFolder: existing.group_folder,
+      actor,
+      scope: existing.scope,
+      fields: [
+        { name: 'title', value: input.title },
+        { name: 'body', value: input.body },
+      ],
+    });
+    const previousFilePath = this.getProcedureMarkdownPath(existing);
 
     const patched = this.store.patchProcedure(
       input.id,
@@ -518,6 +904,7 @@ export class MemoryService {
         title: input.title,
         body: input.body,
         tags: input.tags,
+        trigger: input.trigger,
         confidence: input.confidence,
       },
     );
@@ -531,285 +918,402 @@ export class MemoryService {
         confidence: patched.confidence,
       },
     );
+    this.appendJournal({
+      kind: 'memory.procedure.patched',
+      group_folder: patched.group_folder,
+      scope: patched.scope,
+      actor,
+      payload: patched,
+    });
+
+    const currentFilePath = this.persistProcedureMarkdown(patched);
+    if (previousFilePath !== currentFilePath) {
+      this.removeManagedMemoryFile(previousFilePath, 'procedures');
+    }
 
     return patched;
   }
 
-  async buildMemoryContext(
-    prompt: string,
-    groupFolder: string,
-    _isMain: boolean,
-    userId?: string,
-  ): Promise<MemoryContextResult> {
-    const facts = selectBriefItems(
-      dedupeItemsById([
-        ...this.store.listTopItems('user', groupFolder, 5, userId),
-        ...this.store.listTopItems('group', groupFolder, 8),
-        ...this.store.listTopItems('global', groupFolder, 4),
-      ]),
-      12,
-    );
-    const retrievedItemIds = facts.map((fact) => fact.id);
+  async buildBrief(input: BuildBriefInput): Promise<string> {
+    if (!RUNTIME_MEMORY_ENABLED) return 'No durable memory available yet.';
+    const resolvedUserId = input.userId?.trim() || undefined;
+    const userScopedItems = resolvedUserId
+      ? this.store.listTopItems(
+          'user',
+          input.groupFolder,
+          input.maxItems,
+          resolvedUserId,
+        )
+      : [];
+    const scoped = dedupeItemsById([
+      ...userScopedItems,
+      ...this.store.listTopItems('group', input.groupFolder, input.maxItems),
+      ...this.store.listTopItems('global', input.groupFolder, input.maxItems),
+    ])
+      .sort((a, b) => {
+        if (a.is_pinned !== b.is_pinned) {
+          return Number(b.is_pinned) - Number(a.is_pinned);
+        }
+        if (b.confidence !== a.confidence) {
+          return b.confidence - a.confidence;
+        }
+        const aLast = Date.parse(a.last_retrieved_at || a.updated_at);
+        const bLast = Date.parse(b.last_retrieved_at || b.updated_at);
+        return bLast - aLast;
+      })
+      .slice(0, input.maxItems);
+    const procedures = this.store.listTopProcedures(input.groupFolder, 5);
 
-    const procedures = this.store.listTopProcedures(groupFolder, 3);
-    const snippets = isNoiseQuery(prompt)
-      ? []
-      : await this.search({
-          query: prompt,
-          groupFolder,
-          limit: MEMORY_RETRIEVAL_LIMIT,
-        });
-
-    const recentWork =
-      /what were we working on|where did we leave off|resume|continue|pick up/i.test(
-        prompt,
-      )
-        ? snippets
-            .filter((s) => s.source_type === 'conversation')
-            .slice(0, 3)
-            .map((s) => summarizeLine(s.text))
-        : [];
-
-    for (const fact of facts) {
-      this.store.touchItem(fact.id);
+    for (const item of scoped) {
+      this.store.touchItem(item.id);
     }
-    if (MEMORY_USAGE_FEEDBACK_ENABLED && retrievedItemIds.length > 0) {
-      const queryHash = hashPrompt(prompt);
-      for (const fact of facts) {
-        this.store.recordRetrievalSignal(fact.id, fact.confidence, queryHash);
+
+    const decisions = scoped.filter((item) => item.kind === 'decision');
+    const facts = scoped.filter((item) => item.kind !== 'decision');
+
+    const lines: string[] = ['## Memory Brief', ''];
+    if (decisions.length > 0) {
+      lines.push('### Active Decisions');
+      for (const item of decisions) {
+        lines.push(`- (${item.scope}) ${truncate(item.value, 220)}`);
       }
+      lines.push('');
     }
 
-    const lines: string[] = [];
-    lines.push('[Memory Brief]');
     if (facts.length > 0) {
-      const userPreferences = facts.filter(
-        (item) => item.kind === 'preference',
-      );
-      const activeDecisions = facts.filter((item) => item.kind === 'decision');
-      const constraints = facts.filter(
-        (item) => item.kind === 'constraint' || item.kind === 'correction',
-      );
-      const projectFacts = facts.filter(
-        (item) =>
-          item.kind !== 'preference' &&
-          item.kind !== 'decision' &&
-          item.kind !== 'constraint' &&
-          item.kind !== 'correction',
-      );
-
-      appendMemoryItems(lines, 'User Preferences', userPreferences);
-      appendMemoryItems(lines, 'Active Decisions', activeDecisions);
-      appendMemoryItems(lines, 'Corrections and Constraints', constraints);
-      appendMemoryItems(lines, 'Project Facts', projectFacts);
-    } else {
-      lines.push('No durable facts are available yet.');
+      lines.push('### Facts');
+      for (const item of facts) {
+        lines.push(`- (${item.scope}) ${truncate(item.value, 220)}`);
+      }
+      lines.push('');
     }
+
     if (procedures.length > 0) {
-      lines.push('Reusable Procedures:');
-      for (const proc of procedures) {
+      lines.push('### Procedures');
+      for (const procedure of procedures) {
         lines.push(
-          `- (${proc.scope}) ${proc.title}: ${truncate(proc.body, 220)}`,
+          `- **${truncate(procedure.title, 120)}**: ${truncate(procedure.body, 220)}`,
         );
       }
-    }
-    if (recentWork.length > 0) {
-      lines.push('Recent Work Recap:');
-      for (const row of recentWork) {
-        lines.push(`- ${row}`);
-      }
+      lines.push('');
     }
 
-    const memoryMatches = snippets
-      .filter((snippet) => snippet.source_type === 'memory_item')
-      .slice(0, 4);
-    const sourceSnippets = snippets.filter(
-      (snippet) => snippet.source_type !== 'memory_item',
-    );
-
-    if (memoryMatches.length > 0) {
-      lines.push('Relevant Memory Matches:');
-      for (const match of memoryMatches) {
-        lines.push(`- (${match.scope}) ${truncate(match.text, 180)}`);
-      }
+    if (
+      decisions.length === 0 &&
+      facts.length === 0 &&
+      procedures.length === 0
+    ) {
+      lines.push('No durable memory available yet.');
+      lines.push('');
     }
 
-    if (sourceSnippets.length > 0) {
-      lines.push('Relevant Source Snippets:');
-      for (const snippet of sourceSnippets.slice(0, 4)) {
-        lines.push(
-          `- [${formatSnippetSourceLabel(snippet)}] ${truncate(snippet.text, 220)}`,
-        );
-      }
-    }
-
-    return {
-      block: lines.join('\n'),
-      facts,
-      procedures,
-      snippets,
-      recentWork,
-      retrievedItemIds,
-    };
+    return lines.join('\n').trim();
   }
 
-  async reflectAfterTurn(input: ReflectionInput): Promise<void> {
-    if (!input.result.trim()) return;
-
-    const combined = `${input.prompt}\n${input.result}`;
-    if (containsSensitiveMaterial(combined)) {
-      this.store.recordEvent('reflection_skipped', 'reflection', null, {
-        reason: 'sensitive_material',
-        group_folder: input.groupFolder,
-      });
-      return;
-    }
-
-    const extractedFacts = this.extractor.extractFacts({
-      prompt: input.prompt,
-      result: input.result,
-      userId: input.userId,
-    });
-    const writableFacts = extractedFacts
-      .filter((fact) => fact.confidence >= MEMORY_REFLECTION_MIN_CONFIDENCE)
-      .slice(0, MEMORY_REFLECTION_MAX_FACTS_PER_TURN);
-
-    let factEmbeddings: number[][] = [];
-    if (writableFacts.length > 0 && MEMORY_SEMANTIC_DEDUP_ENABLED) {
-      factEmbeddings = await this.embeddings.embedMany(
-        writableFacts.map((fact) => `${fact.key}: ${fact.value}`),
+  async extractFromTranscript(input: TranscriptExtractionInput): Promise<void> {
+    if (!RUNTIME_MEMORY_ENABLED) return;
+    MemoryService.incrementCounter('extractions_total');
+    try {
+      const resolvedUserId = input.userId?.trim() || undefined;
+      const turns = parseTranscriptArc(
+        input.transcriptPath,
+        MEMORY_EXTRACTOR_MAX_TURNS,
       );
-      if (factEmbeddings.length !== writableFacts.length) {
-        throw new Error(
-          `embedding provider returned ${factEmbeddings.length} vectors for ${writableFacts.length} facts`,
+      if (turns.length === 0) {
+        const payload = {
+          group_folder: input.groupFolder,
+          trigger: input.trigger,
+          transcript_path: input.transcriptPath,
+          session_id: input.sessionId || null,
+          facts_extracted: 0,
+          facts_saved: 0,
+        };
+        this.store.recordEvent(
+          'reflection_completed',
+          'reflection',
+          input.groupFolder,
+          payload,
+        );
+        this.appendJournal({
+          kind: 'reflection.completed',
+          group_folder: input.groupFolder,
+          actor: `extractor:${input.trigger}`,
+          payload,
+        });
+        return;
+      }
+
+      const userScopedItems = resolvedUserId
+        ? this.store.listTopItems('user', input.groupFolder, 10, resolvedUserId)
+        : [];
+      const retrievedItems = dedupeItemsById([
+        ...this.store.listTopItems('group', input.groupFolder, 10),
+        ...this.store.listTopItems('global', input.groupFolder, 10),
+        ...userScopedItems,
+      ]).slice(0, 10);
+      const supersedeCandidatesById = new Map<string, MemoryItem>(
+        retrievedItems.map((item) => [item.id, item]),
+      );
+
+      let extractorUsage: MemoryExtractorUsage | undefined;
+      const extractedFacts = await this.extractor.extractFacts({
+        turns,
+        trigger: input.trigger,
+        userId: resolvedUserId,
+        retrievedItems: retrievedItems.map((item) => ({
+          id: item.id,
+          key: item.key,
+          value: item.value,
+        })),
+        onUsage: (usage) => {
+          extractorUsage = usage;
+        },
+      });
+      if (extractorUsage) {
+        this.store.recordEvent(
+          'memory_extractor_usage',
+          'memory_extractor',
+          input.groupFolder,
+          {
+            trigger: input.trigger,
+            model: extractorUsage.model,
+            input_tokens: extractorUsage.input_tokens,
+            output_tokens: extractorUsage.output_tokens,
+            cache_read_input_tokens: extractorUsage.cache_read_input_tokens,
+            cache_creation_input_tokens:
+              extractorUsage.cache_creation_input_tokens,
+          },
+        );
+        MemoryService.incrementCounter(
+          'cache_read_tokens_total',
+          extractorUsage.cache_read_input_tokens ?? 0,
+        );
+        MemoryService.incrementCounter(
+          'cache_creation_tokens_total',
+          extractorUsage.cache_creation_input_tokens ?? 0,
         );
       }
-    }
 
-    let savedFacts = 0;
-    for (let i = 0; i < writableFacts.length; i += 1) {
-      const fact = writableFacts[i]!;
-      await this.saveMemory(
-        {
-          scope: fact.scope,
-          group_folder: input.groupFolder,
-          user_id: fact.user_id,
-          key: fact.key,
-          value: fact.value,
-          kind: fact.kind,
-          confidence: fact.confidence,
-          source: 'reflection',
-        },
-        { isMain: input.isMain, groupFolder: input.groupFolder },
-        factEmbeddings[i] || null,
-      );
-      savedFacts += 1;
-    }
-
-    const procedure = extractProcedure(input.result);
-    if (procedure) {
-      this.saveProcedure(
-        {
-          scope: 'group',
-          group_folder: input.groupFolder,
-          title: procedure.title,
-          body: procedure.body,
-          tags: ['reflection', 'learned'],
-          confidence: procedure.confidence,
-          source: 'reflection',
-        },
-        { isMain: input.isMain, groupFolder: input.groupFolder },
-      );
-    }
-
-    let usedRetrievedItemIds: string[] = [];
-    let decayedUnusedCount = 0;
-    if (MEMORY_USAGE_FEEDBACK_ENABLED) {
-      const retrievedIds = dedupeStringIds(input.retrievedItemIds || []);
-      if (retrievedIds.length > 0) {
-        usedRetrievedItemIds = this.findUsedRetrievedItemIds(
-          input.result,
-          retrievedIds,
+      const writableFacts: typeof extractedFacts = [];
+      for (const fact of extractedFacts) {
+        if (fact.confidence < MEMORY_EXTRACTOR_MIN_CONFIDENCE) continue;
+        const sensitiveKeyReason = classifySensitiveMemoryMaterial(fact.key);
+        if (sensitiveKeyReason) {
+          MemoryService.incrementCounter('facts_filtered_sensitive_total');
+          this.store.recordEvent(
+            'sensitive_material_filtered',
+            'memory_extractor',
+            input.groupFolder,
+            {
+              trigger: input.trigger,
+              scope: fact.scope,
+              key_fingerprint: fingerprintSensitiveToken(fact.key),
+              field: 'key',
+              reason: sensitiveKeyReason,
+            },
+          );
+          continue;
+        }
+        const sensitiveValueReason = classifySensitiveMemoryMaterial(
+          fact.value,
         );
-        if (usedRetrievedItemIds.length > 0) {
-          this.store.bumpConfidence(
-            usedRetrievedItemIds,
-            MEMORY_CONFIDENCE_BOOST_ON_USE,
+        if (sensitiveValueReason) {
+          MemoryService.incrementCounter('facts_filtered_sensitive_total');
+          this.store.recordEvent(
+            'sensitive_material_filtered',
+            'memory_extractor',
+            input.groupFolder,
+            {
+              trigger: input.trigger,
+              scope: fact.scope,
+              key_fingerprint: fingerprintSensitiveToken(fact.key),
+              field: 'value',
+              reason: sensitiveValueReason,
+            },
+          );
+          continue;
+        }
+        const sensitiveWhyReason = fact.why
+          ? classifySensitiveMemoryMaterial(fact.why)
+          : null;
+        if (sensitiveWhyReason) {
+          MemoryService.incrementCounter('facts_filtered_sensitive_total');
+          this.store.recordEvent(
+            'sensitive_material_filtered',
+            'memory_extractor',
+            input.groupFolder,
+            {
+              trigger: input.trigger,
+              scope: fact.scope,
+              key_fingerprint: fingerprintSensitiveToken(fact.key),
+              field: 'why',
+              reason: sensitiveWhyReason,
+            },
+          );
+          continue;
+        }
+        writableFacts.push(fact);
+      }
+
+      let factEmbeddings: number[][] = [];
+      if (writableFacts.length > 0 && MEMORY_SEMANTIC_DEDUP_ENABLED) {
+        factEmbeddings = await this.embeddings.embedMany(
+          writableFacts.map((fact) => `${fact.key}: ${fact.value}`),
+        );
+        if (factEmbeddings.length !== writableFacts.length) {
+          throw new Error(
+            `embedding provider returned ${factEmbeddings.length} vectors for ${writableFacts.length} facts`,
           );
         }
       }
 
-      const turns = this.store.countReflectionsSinceLastUsageDecay(
+      let savedFacts = 0;
+      for (let i = 0; i < writableFacts.length; i += 1) {
+        const fact = writableFacts[i]!;
+        if (fact.scope === 'global') {
+          continue;
+        }
+        const saved = await this.saveMemory(
+          {
+            scope: fact.scope,
+            group_folder: input.groupFolder,
+            user_id: fact.user_id,
+            key: fact.key,
+            value: fact.value,
+            why: fact.why,
+            load_bearing: fact.load_bearing,
+            source_turn_id: fact.source_turn_id,
+            kind: fact.kind,
+            confidence: fact.confidence,
+            source: input.trigger,
+          },
+          {
+            isMain: false,
+            groupFolder: input.groupFolder,
+            actor: `extractor:${input.trigger}`,
+          },
+          factEmbeddings[i] || null,
+        );
+        if (Array.isArray(fact.supersedes)) {
+          const validSupersedeIds = new Set<string>();
+          for (const id of fact.supersedes) {
+            if (!id) continue;
+            const candidate = supersedeCandidatesById.get(id);
+            if (!candidate) continue;
+            if (candidate.group_folder !== input.groupFolder) continue;
+            if (candidate.scope !== saved.scope) continue;
+            if (
+              candidate.scope === 'user' &&
+              saved.user_id &&
+              candidate.user_id !== saved.user_id
+            ) {
+              continue;
+            }
+            validSupersedeIds.add(id);
+          }
+          for (const id of validSupersedeIds) {
+            this.store.softDeleteItem(id, saved.id);
+            this.appendJournal({
+              kind: 'memory.item.superseded',
+              group_folder: input.groupFolder,
+              scope: saved.scope,
+              actor: `extractor:${input.trigger}`,
+              payload: {
+                id,
+                superseded_by: saved.id,
+              },
+            });
+          }
+        }
+        savedFacts += 1;
+      }
+      MemoryService.incrementCounter('facts_saved_total', savedFacts);
+
+      this.applyRetentionWithJournal(
+        input.groupFolder,
+        `retention:${input.trigger}`,
+      );
+      const consolidation = await this.consolidateGroupMemory(
         input.groupFolder,
       );
-      if (turns >= MEMORY_USAGE_DECAY_INTERVAL_TURNS) {
-        decayedUnusedCount = this.store.decayUnusedConfidence(
-          input.groupFolder,
-          MEMORY_CONFIDENCE_DECAY_ON_UNUSED,
-        );
-        this.store.recordUsageDecayRun(input.groupFolder);
-      }
-    }
 
-    this.store.applyRetentionPolicies(input.groupFolder);
-
-    let consolidation: ConsolidationResult | null = null;
-    if (MEMORY_CONSOLIDATION_ENABLED) {
-      consolidation = await this.consolidateGroupMemory(input.groupFolder);
-    }
-
-    this.store.recordEvent(
-      'reflection_completed',
-      'reflection',
-      input.groupFolder,
-      {
+      const reflectionPayload = {
         group_folder: input.groupFolder,
+        trigger: input.trigger,
+        transcript_path: input.transcriptPath,
+        session_id: input.sessionId || null,
         facts_extracted: extractedFacts.length,
         facts_saved: savedFacts,
-        procedure_saved: Boolean(procedure),
-        retrieved_item_ids: input.retrievedItemIds || [],
-        used_retrieved_item_ids: usedRetrievedItemIds,
-        unused_decay_count: decayedUnusedCount,
         consolidation,
-      },
-    );
-  }
-
-  private pinIfNeeded(id: string, confidence: number): void {
-    if (confidence >= MEMORY_RETENTION_PIN_THRESHOLD) {
-      this.store.pinItem(id, true);
+      };
+      this.store.recordEvent(
+        'reflection_completed',
+        'reflection',
+        input.groupFolder,
+        reflectionPayload,
+      );
+      this.appendJournal({
+        kind: 'reflection.completed',
+        group_folder: input.groupFolder,
+        actor: `extractor:${input.trigger}`,
+        payload: reflectionPayload,
+      });
+    } catch (err) {
+      MemoryService.incrementCounter('extractions_failed_total');
+      throw err;
     }
   }
 
-  private findUsedRetrievedItemIds(
-    outputText: string,
-    retrievedItemIds: string[],
-  ): string[] {
-    const normalizedOutput = normalizeForMatch(outputText);
-    if (!normalizedOutput) return [];
-
-    const used: string[] = [];
-    for (const id of retrievedItemIds) {
-      const item = this.store.getItemById(id);
-      if (!item) continue;
-      const value = normalizeForMatch(item.value);
-      if (value.length >= 12 && normalizedOutput.includes(value)) {
-        used.push(id);
-        continue;
-      }
-      const keyTokens = normalizeForMatch(item.key)
-        .split(' ')
-        .filter((token) => token.length >= 3);
-      if (keyTokens.length >= 2) {
-        const matched = keyTokens.filter((token) =>
-          normalizedOutput.includes(token),
-        ).length;
-        if (matched >= Math.ceil(keyTokens.length * 0.75)) {
-          used.push(id);
-        }
-      }
+  private applyRetentionWithJournal(groupFolder: string, actor: string): void {
+    const retention = this.store.applyRetentionPolicies(groupFolder);
+    for (const id of retention.removedItemIds) {
+      this.appendJournal({
+        kind: 'memory.item.superseded',
+        group_folder: groupFolder,
+        actor,
+        payload: {
+          id,
+          superseded_by: null,
+          reason: 'retention',
+        },
+      });
     }
-    return dedupeStringIds(used);
+    for (const id of retention.removedProcedureIds) {
+      this.removeProcedureMirrorById(id);
+      this.appendJournal({
+        kind: 'memory.procedure.deleted',
+        group_folder: groupFolder,
+        actor,
+        payload: {
+          id,
+          reason: 'retention',
+        },
+      });
+    }
+    if (
+      retention.removedItemIds.length > 0 ||
+      retention.removedProcedureIds.length > 0 ||
+      retention.evictedChunkIds.length > 0
+    ) {
+      this.appendJournal({
+        kind: 'retention.applied',
+        group_folder: groupFolder,
+        actor,
+        payload: {
+          removed_item_ids: retention.removedItemIds,
+          removed_procedure_ids: retention.removedProcedureIds,
+          evicted_chunk_ids: retention.evictedChunkIds,
+        },
+      });
+    }
+  }
+
+  private pinIfNeeded(memory: MemoryItem): boolean {
+    if (memory.is_pinned) return false;
+    if (memory.confidence < MEMORY_RETENTION_PIN_THRESHOLD) return false;
+    this.store.pinItem(memory.id, true);
+    memory.is_pinned = true;
+    return true;
   }
 
   private resolveScope(
@@ -856,6 +1360,362 @@ export class MemoryService {
     }
     return ctx.groupFolder;
   }
+
+  private resolveWriteActor(ctx: MemoryWriteContext, source?: string): string {
+    const explicit = ctx.actor?.trim();
+    if (explicit) return explicit;
+    const normalized = source?.trim().toLowerCase();
+    if (normalized === 'precompact' || normalized === 'session-end') {
+      return `extractor:${normalized}`;
+    }
+    if (normalized === 'consolidation') {
+      return 'consolidation';
+    }
+    if (normalized === 'dreaming') {
+      return 'dreaming';
+    }
+    if (normalized === 'mcp-tool') {
+      return 'mcp-tool';
+    }
+    return 'agent';
+  }
+
+  private patchItemWithRetry(input: {
+    initialItem: MemoryItem;
+    reloadItem: () => MemoryItem | null;
+    patch: {
+      key: string;
+      value: string;
+      why?: string;
+      load_bearing?: boolean;
+      source_turn_id?: string;
+      kind: MemoryItem['kind'];
+      source: string;
+      confidence: number;
+    };
+  }): { memory: MemoryItem; previousVersion: number } {
+    let current = input.initialItem;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const memory = this.store.patchItem(current.id, current.version, {
+          ...input.patch,
+        });
+        return {
+          memory,
+          previousVersion: current.version,
+        };
+      } catch (err) {
+        if (!isStalePatchError(err) || attempt > 0) {
+          throw err;
+        }
+        MemoryService.incrementCounter('stale_patch_retries_total');
+        const refreshed = input.reloadItem();
+        if (!refreshed) {
+          throw err;
+        }
+        current = refreshed;
+      }
+    }
+    throw new Error('patch retry failed');
+  }
+
+  private assertNoSensitiveMaterialOrThrow(input: {
+    groupFolder: string;
+    actor: string;
+    scope: MemoryScope;
+    fields: Array<{
+      name: string;
+      value?: string | null;
+    }>;
+  }): void {
+    for (const field of input.fields) {
+      const value = field.value?.trim();
+      if (!value) continue;
+      const reason = classifySensitiveMemoryMaterial(value);
+      if (!reason) continue;
+      MemoryService.incrementCounter('facts_filtered_sensitive_total');
+      this.store.recordEvent(
+        'sensitive_material_filtered',
+        'memory_write',
+        input.groupFolder,
+        {
+          actor: input.actor,
+          scope: input.scope,
+          field: field.name,
+          reason,
+        },
+      );
+      throw new Error(
+        `sensitive material blocked in memory write (${field.name})`,
+      );
+    }
+  }
+
+  private persistEmbeddingBestEffort(
+    memory: MemoryItem,
+    embedding: number[] | null,
+    actor: string,
+  ): void {
+    if (!embedding) return;
+    try {
+      this.store.saveItemEmbedding(memory.id, embedding);
+    } catch (err) {
+      logger.warn(
+        {
+          err,
+          itemId: memory.id,
+          scope: memory.scope,
+          group_folder: memory.group_folder,
+          actor,
+        },
+        'memory_embedding_persist_failed',
+      );
+      this.store.recordEvent(
+        'memory_embedding_persist_failed',
+        'memory_item',
+        memory.id,
+        {
+          scope: memory.scope,
+          group_folder: memory.group_folder,
+          actor,
+          reason: err instanceof Error ? err.message : String(err),
+          fallback: 'keyword_only',
+        },
+      );
+    }
+  }
+
+  private persistItemMarkdown(memory: MemoryItem): {
+    filePath: string;
+    contentHash: string;
+    indexedAt: string;
+  } {
+    const slugBase = sanitizePathSegment(memory.key || memory.id, 'memory');
+    const slugId = sanitizePathSegment(memory.id, 'item');
+    const filePath = path.join(
+      MEMORY_ROOT,
+      'items',
+      sanitizePathSegment(memory.kind, 'fact'),
+      `${slugBase}-${slugId}.md`,
+    );
+    const body = [
+      '---',
+      `id: ${memory.id}`,
+      `scope: ${memory.scope}`,
+      `group_folder: ${memory.group_folder}`,
+      ...(memory.user_id ? [`user_id: ${memory.user_id}`] : []),
+      `kind: ${memory.kind}`,
+      `key: ${yamlSafe(memory.key)}`,
+      `source: ${memory.source}`,
+      `confidence: ${memory.confidence}`,
+      `version: ${memory.version}`,
+      `pinned: ${memory.is_pinned ? 'true' : 'false'}`,
+      `load_bearing: ${memory.load_bearing ? 'true' : 'false'}`,
+      `created_at: ${memory.created_at}`,
+      `updated_at: ${memory.updated_at}`,
+      '---',
+      '',
+      '## Value',
+      memory.value.trim(),
+      '',
+      '## Why',
+      (memory.why || '').trim(),
+      '',
+    ].join('\n');
+    writeFileAtomic(filePath, body);
+    return {
+      filePath,
+      contentHash: sha256(body),
+      indexedAt: new Date().toISOString(),
+    };
+  }
+
+  private getProcedureMarkdownPath(procedure: MemoryProcedure): string {
+    const slugBase = sanitizePathSegment(
+      procedure.title || procedure.id,
+      'procedure',
+    );
+    const slugId = sanitizePathSegment(procedure.id, 'procedure');
+    return path.join(MEMORY_ROOT, 'procedures', `${slugBase}-${slugId}.md`);
+  }
+
+  private persistProcedureMarkdown(procedure: MemoryProcedure): string {
+    const slugBase = sanitizePathSegment(
+      procedure.title || procedure.id,
+      'procedure',
+    );
+    const filePath = this.getProcedureMarkdownPath(procedure);
+    const body = [
+      '---',
+      `id: ${procedure.id}`,
+      `scope: ${procedure.scope}`,
+      `group_folder: ${procedure.group_folder}`,
+      `slug: ${slugBase}`,
+      `version: ${procedure.version}`,
+      `tags: [${(procedure.tags || []).map((tag) => yamlSafe(tag)).join(', ')}]`,
+      `created_at: ${procedure.created_at}`,
+      `updated_at: ${procedure.updated_at}`,
+      '---',
+      '',
+      '## Purpose',
+      procedure.title.trim(),
+      '',
+      '## Steps',
+      procedure.body.trim(),
+      '',
+    ].join('\n');
+    writeFileAtomic(filePath, body);
+    return filePath;
+  }
+
+  private removeStaleItemFile(
+    previousFilePath: string | null | undefined,
+    currentFilePath: string,
+  ): void {
+    if (!previousFilePath) return;
+    const previousResolved = path.resolve(previousFilePath);
+    const currentResolved = path.resolve(currentFilePath);
+    if (previousResolved === currentResolved) return;
+    this.removeManagedMemoryFile(previousResolved, 'items');
+  }
+
+  private removeProcedureMirrorById(procedureId: string): void {
+    const normalizedId = sanitizePathSegment(procedureId, 'procedure');
+    const proceduresDir = path.join(MEMORY_ROOT, 'procedures');
+    if (!fs.existsSync(proceduresDir)) return;
+    const suffix = `-${normalizedId}.md`;
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(proceduresDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      if (!entry.name.endsWith(suffix)) continue;
+      this.removeManagedMemoryFile(path.join(proceduresDir, entry.name), '.');
+    }
+  }
+
+  private removeManagedMemoryFile(
+    filePath: string,
+    managedSubdir: string,
+  ): void {
+    const managedRoot =
+      managedSubdir === '.'
+        ? MEMORY_ROOT
+        : path.join(MEMORY_ROOT, managedSubdir);
+    if (!isInsideRoot(managedRoot, filePath)) return;
+    try {
+      const stat = fs.lstatSync(filePath);
+      if (!stat.isFile() || stat.isSymbolicLink()) return;
+    } catch {
+      return;
+    }
+    fs.rmSync(filePath, { force: true });
+  }
+
+  private appendJournal(input: JournalAppendInput): void {
+    try {
+      this.journal.append(input);
+    } catch (err) {
+      MemoryService.incrementCounter('journal_writes_failed_total');
+      logger.error(
+        {
+          err,
+          kind: input.kind,
+          group_folder: input.group_folder,
+          actor: input.actor,
+        },
+        'journal_write_failed',
+      );
+      try {
+        this.store.recordEvent(
+          'journal_write_failed',
+          'memory_journal',
+          input.group_folder,
+          {
+            kind: input.kind,
+            actor: input.actor,
+            error:
+              err instanceof Error ? err.message : String(err || 'unknown'),
+          },
+        );
+      } catch (recordErr) {
+        logger.error({ err: recordErr }, 'journal_write_failed_record_failed');
+      }
+    }
+  }
+}
+
+function isStalePatchError(err: unknown): boolean {
+  return err instanceof Error && /stale patch/i.test(err.message);
+}
+
+function sanitizePathSegment(input: string, fallback: string): string {
+  const normalized = input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || fallback;
+}
+
+function yamlSafe(value: string): string {
+  if (/^[A-Za-z0-9._/-]+$/.test(value)) return value;
+  return JSON.stringify(value);
+}
+
+function writeFileAtomic(filePath: string, content: string): void {
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const tmpPath = path.join(
+    dir,
+    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`,
+  );
+  fs.writeFileSync(tmpPath, content, { mode: 0o600 });
+  fs.renameSync(tmpPath, filePath);
+}
+
+function sha256(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+function safeRealpathSync(targetPath: string): string {
+  try {
+    return fs.realpathSync(targetPath);
+  } catch {
+    return path.resolve(targetPath);
+  }
+}
+
+function resolvePathWithRealParent(targetPath: string): string {
+  const resolved = path.resolve(targetPath);
+  let existingParent = path.dirname(resolved);
+  while (!fs.existsSync(existingParent)) {
+    const parent = path.dirname(existingParent);
+    if (parent === existingParent) break;
+    existingParent = parent;
+  }
+  const parentReal = safeRealpathSync(existingParent);
+  const tail = path.relative(existingParent, resolved);
+  return path.resolve(parentReal, tail);
+}
+
+function isInsideRoot(rootDir: string, candidatePath: string): boolean {
+  const rootResolved = safeRealpathSync(rootDir);
+  const candidateResolved = resolvePathWithRealParent(candidatePath);
+  const relative = path.relative(rootResolved, candidateResolved);
+  return (
+    relative === '' ||
+    (!relative.startsWith('..') && !path.isAbsolute(relative))
+  );
+}
+
+function fingerprintSensitiveToken(value: string): string {
+  const hash = sha256(value);
+  return `${hash.slice(0, 12)}:${value.length}`;
 }
 
 function clampConfidence(value: number | undefined): number {
@@ -884,20 +1744,88 @@ function truncate(value: string, max: number): string {
   return `${value.slice(0, max - 1)}…`;
 }
 
-function summarizeLine(value: string): string {
-  return truncate(value.replace(/\s+/g, ' ').trim(), 180);
+function extractUserText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) =>
+      typeof part === 'object' &&
+      part !== null &&
+      'text' in part &&
+      typeof part.text === 'string'
+        ? part.text
+        : '',
+    )
+    .join('');
 }
 
-function appendMemoryItems(
-  lines: string[],
-  title: string,
-  items: MemoryItem[],
-): void {
-  if (items.length === 0) return;
-  lines.push(`${title}:`);
-  for (const item of items) {
-    lines.push(`- (${item.scope}) ${truncate(item.value, 180)}`);
+function extractAssistantText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter(
+      (part) =>
+        typeof part === 'object' &&
+        part !== null &&
+        'type' in part &&
+        part.type === 'text' &&
+        'text' in part &&
+        typeof part.text === 'string',
+    )
+    .map((part) => part.text as string)
+    .join('');
+}
+
+function parseTranscriptArc(
+  transcriptPath: string,
+  maxTurns: number,
+): ArcTurn[] {
+  const content = fs.readFileSync(transcriptPath, 'utf-8');
+  const turns: ArcTurn[] = [];
+
+  const lines = content.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    let parsed: Record<string, unknown>;
+    try {
+      const candidate = JSON.parse(trimmed) as unknown;
+      if (
+        !candidate ||
+        typeof candidate !== 'object' ||
+        Array.isArray(candidate)
+      ) {
+        continue;
+      }
+      parsed = candidate as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    const roleRaw =
+      (typeof parsed.type === 'string' ? parsed.type : undefined) ||
+      (typeof parsed.role === 'string' ? parsed.role : undefined);
+    const normalizedRole = roleRaw?.trim().toLowerCase();
+    if (normalizedRole !== 'user' && normalizedRole !== 'assistant') {
+      continue;
+    }
+
+    const message = parsed.message;
+    const contentValue =
+      message && typeof message === 'object' && !Array.isArray(message)
+        ? (message as Record<string, unknown>).content
+        : parsed.content;
+    const text =
+      normalizedRole === 'user'
+        ? extractUserText(contentValue).trim()
+        : extractAssistantText(contentValue).trim();
+    if (!text) continue;
+    turns.push({ role: normalizedRole, text });
   }
+
+  if (turns.length <= maxTurns) return turns;
+  return turns.slice(turns.length - maxTurns);
 }
 
 function mergeSearchResults(
@@ -925,34 +1853,6 @@ function mergeSearchResults(
     .slice(0, limit);
 }
 
-function formatSnippetSourceLabel(snippet: MemorySearchResult): string {
-  const sourceName =
-    path.basename(snippet.source_path || '').trim() || 'unknown';
-  const createdDate = formatSnippetDate(snippet.created_at);
-  return `${snippet.source_type}:${sourceName} ${createdDate}`;
-}
-
-function formatSnippetDate(value: string): string {
-  const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return 'unknown-date';
-  return new Date(timestamp).toISOString().slice(0, 10);
-}
-
-function isNoiseQuery(value: string): boolean {
-  const normalized = value.replace(/\s+/g, ' ').trim().toLowerCase();
-  if (!normalized) return true;
-  if (!/[a-z0-9]/.test(normalized)) return true;
-  if (normalized.length <= 2) return true;
-
-  return (
-    /^(hi|hey|hello|yo|sup|gm|gn|ping|test)$/.test(normalized) ||
-    /^(ok|okay|k|kk|cool|sure|noted|got it|thanks|thank you|thx|ty)$/.test(
-      normalized,
-    ) ||
-    /^(good (morning|afternoon|evening|night))$/.test(normalized)
-  );
-}
-
 function dedupeItemsById(items: MemoryItem[]): MemoryItem[] {
   const byId = new Map<string, MemoryItem>();
   for (const item of items) {
@@ -963,68 +1863,33 @@ function dedupeItemsById(items: MemoryItem[]): MemoryItem[] {
   return [...byId.values()];
 }
 
-function selectBriefItems(items: MemoryItem[], limit: number): MemoryItem[] {
-  const kindPriority: Record<string, number> = {
-    correction: 0,
-    preference: 1,
-    decision: 2,
-    constraint: 3,
-    fact: 4,
-    context: 5,
-    recent_work: 6,
-  };
-  return [...items]
-    .sort((a, b) => {
-      const priorityDiff =
-        (kindPriority[a.kind] ?? 99) - (kindPriority[b.kind] ?? 99);
-      if (priorityDiff !== 0) return priorityDiff;
-      if (b.confidence !== a.confidence) return b.confidence - a.confidence;
-      return Date.parse(b.updated_at) - Date.parse(a.updated_at);
-    })
-    .slice(0, limit);
-}
-
-function dedupeStringIds(ids: string[]): string[] {
-  return [...new Set(ids.filter(Boolean))];
-}
-
-function extractProcedure(
-  result: string,
-): { title: string; body: string; confidence: number } | null {
-  if (containsSensitiveMaterial(result)) return null;
-
-  const lines = result
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !isChatterLine(line));
-
-  const stepCount = lines.filter((line) => /^\d+\.|^-\s+/.test(line)).length;
-  if (stepCount < 3) return null;
-
-  const titleLine =
-    lines.find((line) => line.length > 10) || 'Learned workflow';
-  return {
-    title: truncate(titleLine.replace(/^#+\s*/, ''), 80),
-    body: truncate(lines.join('\n'), 1200),
-    confidence: 0.74,
-  };
-}
-
-function normalizeForMatch(input: string): string {
-  return input
-    .toLowerCase()
-    .normalize('NFKC')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function hashPrompt(input: string): string {
-  return crypto.createHash('sha256').update(input).digest('hex');
-}
-
-function isChatterLine(line: string): boolean {
-  return /^(thanks|thank you|ok|okay|cool|great|awesome|sounds good|got it|sure|hello|hi)[.!]*$/i.test(
-    line,
-  );
+function directorySizeKb(root: string): number {
+  if (!root || !fs.existsSync(root)) return 0;
+  let totalBytes = 0;
+  const stack = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    if (!dir) break;
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      try {
+        if (entry.isDirectory()) {
+          stack.push(full);
+          continue;
+        }
+        if (entry.isFile()) {
+          totalBytes += fs.statSync(full).size;
+        }
+      } catch {
+        // Best-effort accounting.
+      }
+    }
+  }
+  return Math.round(totalBytes / 1024);
 }

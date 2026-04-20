@@ -16,7 +16,6 @@ export interface OnboardingConfigInput {
   credentialMode: HostCredentialMode;
   onecliUrl?: string;
   memoryEnabled: boolean;
-  memoryProvider?: 'sqlite' | 'qmd' | 'noop';
   embeddingsEnabled: boolean;
   dreamingEnabled: boolean;
   openAiApiKey?: string;
@@ -48,7 +47,6 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
   settings.memory = {
     ...settings.memory,
     enabled: input.memoryEnabled,
-    provider: input.memoryEnabled ? input.memoryProvider || 'sqlite' : 'noop',
     embeddings: {
       ...settings.memory.embeddings,
       enabled: input.memoryEnabled && input.embeddingsEnabled,

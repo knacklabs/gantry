@@ -70,8 +70,7 @@ const PERMISSION_REQUEST_TIMEOUT_MS = Math.max(
   parseInt(process.env.MYCLAW_PERMISSION_TIMEOUT_MS || '300000', 10) || 300_000,
 );
 const IPC_MEMORY_CONTEXT_FILE =
-  process.env.MYCLAW_IPC_MEMORY_CONTEXT_FILE ||
-  '/workspace/ipc/memory_context.json';
+  process.env.MYCLAW_IPC_MEMORY_CONTEXT_FILE?.trim() || '';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
 
@@ -723,6 +722,7 @@ async function runQuery(
 
 function readMemoryContextBlock(): string {
   try {
+    if (!IPC_MEMORY_CONTEXT_FILE) return '';
     if (!fs.existsSync(IPC_MEMORY_CONTEXT_FILE)) return '';
     const parsed = JSON.parse(
       fs.readFileSync(IPC_MEMORY_CONTEXT_FILE, 'utf-8'),

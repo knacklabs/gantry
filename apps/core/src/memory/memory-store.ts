@@ -42,21 +42,21 @@ export interface ChunkInsert {
   embedding: number[] | null;
 }
 
+export interface RetentionPolicyResult {
+  removedItemIds: string[];
+  removedProcedureIds: string[];
+  evictedChunkIds: string[];
+}
+
 export class MemoryStore {
-  private static readonly SCHEMA_VERSION = 3;
-  private static readonly PRAGMA_TABLE_ALLOWLIST = new Set([
-    'memory_items',
-    'memory_chunks',
-    'memory_procedures',
-    'memory_events',
-    'embedding_cache',
-  ]);
+  private static readonly STALE_PATCH_MESSAGE_PREFIX = 'stale patch:';
   private readonly db: Database.Database;
   readonly searchItemsByText: ReturnType<typeof createItemSearcher>;
 
   constructor(dbPath = MEMORY_SQLITE_PATH) {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
+    this.initializePragmas();
     this.searchItemsByText = createItemSearcher(this.db);
     this.initializeSchema();
     this.initializeVectorBackend();
@@ -79,6 +79,7 @@ export class MemoryStore {
       'memory_item_vector_map',
       'memory_items_vec',
       'memory_events',
+      'memory_usage_events',
       'embedding_cache',
     ];
     for (const objectName of requiredObjects) {
@@ -94,113 +95,103 @@ export class MemoryStore {
   }
 
   private initializeSchema(): void {
-    const currentVersion = this.getSchemaVersion();
-    if (currentVersion > MemoryStore.SCHEMA_VERSION) {
-      throw new Error(
-        `memory schema version ${currentVersion} is newer than supported version ${MemoryStore.SCHEMA_VERSION}`,
-      );
-    }
-
     this.createSchema();
-
-    if (currentVersion === 0) {
-      this.setSchemaVersion(MemoryStore.SCHEMA_VERSION);
-      return;
-    }
-
-    if (currentVersion < 2) {
-      this.migrateToV2();
-      this.setSchemaVersion(2);
-    }
-    if (currentVersion < 3) {
-      this.migrateToV3();
-      this.setSchemaVersion(3);
-    }
+    this.assertRequiredSchema();
   }
 
-  private getSchemaVersion(): number {
-    return this.db.pragma('user_version', { simple: true }) as number;
+  private initializePragmas(): void {
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('synchronous = NORMAL');
+    this.db.pragma('foreign_keys = ON');
+    this.db.pragma('busy_timeout = 5000');
   }
 
-  private setSchemaVersion(version: number): void {
-    const normalized = Math.max(0, Math.trunc(version));
-    this.db.pragma(`user_version = ${normalized}`);
+  private assertRequiredSchema(): void {
+    this.assertTableColumns('memory_items', [
+      'id',
+      'scope',
+      'group_folder',
+      'user_id',
+      'kind',
+      'key',
+      'value',
+      'why',
+      'load_bearing',
+      'source_turn_id',
+      'source',
+      'source_folder',
+      'file_path',
+      'content_hash',
+      'indexed_at',
+      'embedding_pending',
+      'blocked_reason',
+      'confidence',
+      'is_pinned',
+      'used_count',
+      'superseded_by',
+      'version',
+      'last_used_at',
+      'last_retrieved_at',
+      'retrieval_count',
+      'total_score',
+      'max_score',
+      'query_hashes_json',
+      'recall_days_json',
+      'embedding_json',
+      'created_at',
+      'updated_at',
+      'is_deleted',
+      'deleted_at',
+      'last_reviewed_at',
+    ]);
+    this.assertTableColumns('memory_procedures', [
+      'id',
+      'scope',
+      'group_folder',
+      'title',
+      'body',
+      'tags_json',
+      'origin',
+      'trigger',
+      'source',
+      'confidence',
+      'version',
+      'last_used_at',
+      'created_at',
+      'updated_at',
+      'is_deleted',
+      'deleted_at',
+    ]);
+    this.assertTableColumns('memory_chunks', [
+      'id',
+      'source_type',
+      'source_id',
+      'source_path',
+      'scope',
+      'group_folder',
+      'kind',
+      'chunk_hash',
+      'text',
+      'token_count',
+      'importance_weight',
+      'embedding_json',
+      'created_at',
+      'updated_at',
+    ]);
   }
 
-  private columnExists(tableName: string, columnName: string): boolean {
-    if (!MemoryStore.PRAGMA_TABLE_ALLOWLIST.has(tableName)) {
-      throw new Error(`Unsafe table name for PRAGMA table_info: ${tableName}`);
-    }
+  private assertTableColumns(tableName: string, required: string[]): void {
     const rows = this.db
-      .prepare(`PRAGMA table_info("${tableName}")`)
-      .all() as Array<Record<string, unknown>>;
-    return rows.some((row) => String(row.name) === columnName);
-  }
-
-  private migrateToV2(): void {
-    if (!this.columnExists('memory_items', 'is_pinned')) {
-      this.db.exec(
-        `ALTER TABLE memory_items ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0`,
-      );
-    }
-    if (!this.columnExists('memory_items', 'embedding_json')) {
-      this.db.exec(`ALTER TABLE memory_items ADD COLUMN embedding_json TEXT`);
-    }
-    if (!this.columnExists('memory_items', 'retrieval_count')) {
-      this.db.exec(
-        `ALTER TABLE memory_items ADD COLUMN retrieval_count INTEGER NOT NULL DEFAULT 0`,
-      );
-    }
-    if (!this.columnExists('memory_items', 'last_retrieved_at')) {
-      this.db.exec(
-        `ALTER TABLE memory_items ADD COLUMN last_retrieved_at TEXT`,
-      );
-    }
-    if (!this.columnExists('memory_chunks', 'importance_weight')) {
-      this.db.exec(
-        `ALTER TABLE memory_chunks ADD COLUMN importance_weight REAL NOT NULL DEFAULT 1.0`,
-      );
-    }
-
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS memory_item_vector_map (
-        item_id TEXT PRIMARY KEY,
-        vec_rowid INTEGER NOT NULL UNIQUE
-      );
-    `);
-  }
-
-  private migrateToV3(): void {
-    if (!this.columnExists('memory_items', 'total_score')) {
-      this.db.exec(
-        `ALTER TABLE memory_items ADD COLUMN total_score REAL NOT NULL DEFAULT 0`,
-      );
-    }
-    if (!this.columnExists('memory_items', 'max_score')) {
-      this.db.exec(
-        `ALTER TABLE memory_items ADD COLUMN max_score REAL NOT NULL DEFAULT 0`,
-      );
-    }
-    if (!this.columnExists('memory_items', 'query_hashes_json')) {
-      this.db.exec(
-        `ALTER TABLE memory_items ADD COLUMN query_hashes_json TEXT NOT NULL DEFAULT '[]'`,
-      );
-    }
-    if (!this.columnExists('memory_items', 'recall_days_json')) {
-      this.db.exec(
-        `ALTER TABLE memory_items ADD COLUMN recall_days_json TEXT NOT NULL DEFAULT '[]'`,
-      );
-    }
-
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS embedding_cache (
-        text_hash TEXT NOT NULL,
-        model TEXT NOT NULL,
-        embedding_json TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        PRIMARY KEY (text_hash, model)
-      );
-    `);
+      .prepare(`PRAGMA table_info(${tableName})`)
+      .all() as Array<{ name?: string }>;
+    const available = new Set(rows.map((row) => String(row.name || '')));
+    const missing = required.filter((column) => !available.has(column));
+    if (missing.length === 0) return;
+    throw new Error(
+      `[MyClaw] incompatible memory schema in ${tableName}; missing column(s): ${missing.join(
+        ', ',
+      )}. Recreate memory/.cache/memory.db with current schema.`,
+    );
   }
 
   private createSchema(): void {
@@ -213,9 +204,20 @@ export class MemoryStore {
         kind TEXT NOT NULL,
         key TEXT NOT NULL,
         value TEXT NOT NULL,
+        why TEXT,
+        load_bearing INTEGER NOT NULL DEFAULT 0,
+        source_turn_id TEXT,
         source TEXT NOT NULL,
+        source_folder TEXT NOT NULL DEFAULT 'items',
+        file_path TEXT NOT NULL DEFAULT '',
+        content_hash TEXT NOT NULL DEFAULT '',
+        indexed_at TEXT,
+        embedding_pending INTEGER NOT NULL DEFAULT 0,
+        blocked_reason TEXT,
         confidence REAL NOT NULL DEFAULT 0.5,
         is_pinned INTEGER NOT NULL DEFAULT 0,
+        used_count INTEGER NOT NULL DEFAULT 0,
+        superseded_by TEXT,
         version INTEGER NOT NULL DEFAULT 1,
         last_used_at TEXT,
         last_retrieved_at TEXT,
@@ -227,9 +229,15 @@ export class MemoryStore {
         embedding_json TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        is_deleted INTEGER NOT NULL DEFAULT 0
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at TEXT,
+        last_reviewed_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_memory_items_scope_group ON memory_items(scope, group_folder, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_memory_items_file_path ON memory_items(file_path);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_items_active_unique_key
+      ON memory_items(scope, group_folder, COALESCE(user_id, ''), key)
+      WHERE is_deleted = 0;
 
       CREATE TABLE IF NOT EXISTS memory_procedures (
         id TEXT PRIMARY KEY,
@@ -238,13 +246,16 @@ export class MemoryStore {
         title TEXT NOT NULL,
         body TEXT NOT NULL,
         tags_json TEXT NOT NULL,
+        origin TEXT NOT NULL DEFAULT 'explicit' CHECK(origin IN ('explicit','accepted_suggestion')),
+        trigger TEXT,
         source TEXT NOT NULL,
         confidence REAL NOT NULL DEFAULT 0.5,
         version INTEGER NOT NULL DEFAULT 1,
         last_used_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        is_deleted INTEGER NOT NULL DEFAULT 0
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        deleted_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_memory_procedures_scope_group ON memory_procedures(scope, group_folder, updated_at DESC);
 
@@ -293,6 +304,17 @@ export class MemoryStore {
       );
       CREATE INDEX IF NOT EXISTS idx_memory_events_type_time ON memory_events(event_type, created_at DESC);
 
+      CREATE TABLE IF NOT EXISTS memory_usage_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_id TEXT NOT NULL,
+        turn_id TEXT,
+        event TEXT CHECK(event IN ('retrieved', 'used', 'contradicted')) NOT NULL,
+        at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY(item_id) REFERENCES memory_items(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_usage_events_item ON memory_usage_events(item_id);
+      CREATE INDEX IF NOT EXISTS idx_usage_events_at ON memory_usage_events(at);
+
       CREATE TABLE IF NOT EXISTS embedding_cache (
         text_hash TEXT NOT NULL,
         model TEXT NOT NULL,
@@ -314,6 +336,8 @@ export class MemoryStore {
           embedding float[${MEMORY_VECTOR_DIMENSIONS}]
         );
       `);
+      this.assertVectorDimension('memory_chunks_vec');
+      this.assertVectorDimension('memory_items_vec');
     } catch (err) {
       throw new Error(
         `sqlite-vec backend initialization failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -324,6 +348,21 @@ export class MemoryStore {
 
   static makeId(prefix: string): string {
     return `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  }
+
+  private assertVectorDimension(tableName: string): void {
+    const row = this.db
+      .prepare(`SELECT sql FROM sqlite_master WHERE name = ? LIMIT 1`)
+      .get(tableName) as { sql?: string } | undefined;
+    const sql = row?.sql || '';
+    const match = /embedding\s+float\[(\d+)\]/i.exec(sql);
+    if (!match) return;
+    const actual = Number(match[1]);
+    if (!Number.isFinite(actual)) return;
+    if (actual === MEMORY_VECTOR_DIMENSIONS) return;
+    throw new Error(
+      `${tableName} dimension mismatch: db=${actual}, config=${MEMORY_VECTOR_DIMENSIONS}. Rebuild vectors by replaying memory journal into a fresh DB via "myclaw memory-replay --from <journal_dir> --to <new_db> --overwrite".`,
+    );
   }
 
   static chunkHash(input: ChunkInsert): string {
@@ -344,24 +383,93 @@ export class MemoryStore {
       | 'kind'
       | 'key'
       | 'value'
+      | 'why'
+      | 'load_bearing'
+      | 'source_turn_id'
       | 'source'
       | 'confidence'
-    > & { is_pinned?: boolean },
+    > & {
+      id?: string;
+      is_pinned?: boolean;
+      used_count?: number;
+      version?: number;
+      created_at?: string;
+      updated_at?: string;
+      is_deleted?: boolean;
+      deleted_at?: string | null;
+      superseded_by?: string | null;
+      last_used_at?: string | null;
+      last_retrieved_at?: string | null;
+      retrieval_count?: number;
+      total_score?: number;
+      max_score?: number;
+      query_hashes_json?: string;
+      recall_days_json?: string;
+      embedding_json?: string | null;
+      last_reviewed_at?: string | null;
+      source_folder?: string;
+      file_path?: string;
+      content_hash?: string;
+      indexed_at?: string;
+      embedding_pending?: boolean;
+      blocked_reason?: string | null;
+    },
   ): MemoryItem {
     const now = new Date().toISOString();
-    const id = MemoryStore.makeId('mem');
-    this.db
+    const createdAt = input.created_at || now;
+    const updatedAt = input.updated_at || createdAt;
+    const id = input.id || MemoryStore.makeId('mem');
+    const version = Math.max(1, Math.round(input.version || 1));
+    const usedCount = Math.max(0, Math.round(input.used_count || 0));
+    const retrievalCount = Math.max(0, Math.round(input.retrieval_count || 0));
+    const totalScore = Number.isFinite(input.total_score)
+      ? Number(input.total_score)
+      : 0;
+    const maxScore = Number.isFinite(input.max_score)
+      ? Number(input.max_score)
+      : 0;
+    const result = this.db
       .prepare(
         `INSERT INTO memory_items
-        (id, scope, group_folder, user_id, kind, key, value, source, confidence, is_pinned, version, created_at, updated_at)
-        VALUES (@id, @scope, @group_folder, @user_id, @kind, @key, @value, @source, @confidence, @is_pinned, 1, @created_at, @updated_at)`,
+        (id, scope, group_folder, user_id, kind, key, value, why, load_bearing, source_turn_id, source, source_folder, file_path, content_hash, indexed_at, embedding_pending, blocked_reason, confidence, is_pinned, used_count, superseded_by, version, last_used_at, last_retrieved_at, retrieval_count, total_score, max_score, query_hashes_json, recall_days_json, embedding_json, created_at, updated_at, is_deleted, deleted_at, last_reviewed_at)
+        VALUES (@id, @scope, @group_folder, @user_id, @kind, @key, @value, @why, @load_bearing, @source_turn_id, @source, @source_folder, @file_path, @content_hash, @indexed_at, @embedding_pending, @blocked_reason, @confidence, @is_pinned, @used_count, @superseded_by, @version, @last_used_at, @last_retrieved_at, @retrieval_count, @total_score, @max_score, @query_hashes_json, @recall_days_json, @embedding_json, @created_at, @updated_at, @is_deleted, @deleted_at, @last_reviewed_at)`,
       )
       .run({
-        ...input,
         id,
+        scope: input.scope,
+        group_folder: input.group_folder,
+        user_id: input.user_id,
+        kind: input.kind,
+        key: input.key,
+        value: input.value,
+        why: input.why ?? null,
         is_pinned: input.is_pinned ? 1 : 0,
-        created_at: now,
-        updated_at: now,
+        load_bearing: input.load_bearing ? 1 : 0,
+        source_turn_id: input.source_turn_id ?? null,
+        source: input.source,
+        source_folder: input.source_folder || 'items',
+        file_path: input.file_path || '',
+        content_hash: input.content_hash || '',
+        indexed_at: input.indexed_at ?? updatedAt,
+        embedding_pending: input.embedding_pending ? 1 : 0,
+        blocked_reason: input.blocked_reason ?? null,
+        confidence: input.confidence,
+        used_count: usedCount,
+        superseded_by: input.superseded_by ?? null,
+        version,
+        last_used_at: input.last_used_at ?? null,
+        last_retrieved_at: input.last_retrieved_at ?? null,
+        retrieval_count: retrievalCount,
+        total_score: totalScore,
+        max_score: maxScore,
+        query_hashes_json: input.query_hashes_json || '[]',
+        recall_days_json: input.recall_days_json || '[]',
+        embedding_json: input.embedding_json ?? null,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        is_deleted: input.is_deleted ? 1 : 0,
+        deleted_at: input.deleted_at ?? null,
+        last_reviewed_at: input.last_reviewed_at ?? null,
       });
 
     return this.getItemById(id)!;
@@ -428,39 +536,206 @@ export class MemoryStore {
     return row ? this.toItem(row) : null;
   }
 
+  getItemByIdAny(id: string): MemoryItem | null {
+    const row = this.db
+      .prepare(`SELECT * FROM memory_items WHERE id = ? LIMIT 1`)
+      .get(id) as Record<string, unknown> | undefined;
+    return row ? this.toItem(row) : null;
+  }
+
+  getItemByFilePath(filePath: string): MemoryItem | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM memory_items
+         WHERE is_deleted = 0
+           AND file_path = ?
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+      )
+      .get(filePath) as Record<string, unknown> | undefined;
+    return row ? this.toItem(row) : null;
+  }
+
+  getItemByFilePathAny(filePath: string): MemoryItem | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM memory_items
+         WHERE file_path = ?
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+      )
+      .get(filePath) as Record<string, unknown> | undefined;
+    return row ? this.toItem(row) : null;
+  }
+
+  listIndexedFiles(): Array<{
+    id: string;
+    file_path: string;
+    content_hash: string;
+    indexed_at: string | null;
+    source_folder: string;
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, file_path, content_hash, indexed_at, source_folder
+         FROM memory_items
+         WHERE is_deleted = 0
+           AND file_path != ''`,
+      )
+      .all() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      file_path: String(row.file_path || ''),
+      content_hash: String(row.content_hash || ''),
+      indexed_at: row.indexed_at ? String(row.indexed_at) : null,
+      source_folder: String(row.source_folder || 'items'),
+    }));
+  }
+
+  listIndexedChunkFiles(): Array<{
+    source_type: string;
+    source_id: string;
+    source_path: string;
+    indexed_at: string | null;
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT source_type, source_id, source_path, MAX(updated_at) AS indexed_at
+         FROM memory_chunks
+         WHERE source_path != ''
+         GROUP BY source_type, source_id, source_path`,
+      )
+      .all() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      source_type: String(row.source_type || ''),
+      source_id: String(row.source_id || ''),
+      source_path: String(row.source_path || ''),
+      indexed_at: row.indexed_at ? String(row.indexed_at) : null,
+    }));
+  }
+
   patchItem(
     id: string,
     expectedVersion: number,
     patch: Partial<
-      Pick<MemoryItem, 'key' | 'value' | 'confidence' | 'kind' | 'source'>
+      Pick<
+        MemoryItem,
+        | 'key'
+        | 'value'
+        | 'why'
+        | 'load_bearing'
+        | 'confidence'
+        | 'kind'
+        | 'source'
+        | 'source_turn_id'
+        | 'superseded_by'
+        | 'last_reviewed_at'
+        | 'source_folder'
+        | 'file_path'
+        | 'content_hash'
+        | 'indexed_at'
+        | 'embedding_pending'
+        | 'blocked_reason'
+      >
     >,
   ): MemoryItem {
     const current = this.getItemById(id);
     if (!current) throw new Error('memory item not found');
-    if (current.version !== expectedVersion) {
-      throw new Error(
-        `stale patch: expected version ${expectedVersion}, current ${current.version}`,
-      );
-    }
 
     const next = {
       key: patch.key ?? current.key,
       value: patch.value ?? current.value,
+      why: patch.why ?? current.why ?? null,
+      load_bearing:
+        patch.load_bearing !== undefined
+          ? patch.load_bearing
+          : Boolean(current.load_bearing),
+      source_turn_id:
+        patch.source_turn_id !== undefined
+          ? patch.source_turn_id
+          : current.source_turn_id || null,
+      superseded_by:
+        patch.superseded_by !== undefined
+          ? patch.superseded_by
+          : current.superseded_by || null,
+      last_reviewed_at:
+        patch.last_reviewed_at !== undefined
+          ? patch.last_reviewed_at
+          : current.last_reviewed_at || null,
       kind: patch.kind ?? current.kind,
       source: patch.source ?? current.source,
+      source_folder: patch.source_folder ?? current.source_folder ?? 'items',
+      file_path: patch.file_path ?? current.file_path ?? '',
+      content_hash: patch.content_hash ?? current.content_hash ?? '',
+      indexed_at: patch.indexed_at ?? current.indexed_at ?? null,
+      embedding_pending:
+        patch.embedding_pending !== undefined
+          ? patch.embedding_pending
+          : Boolean(current.embedding_pending),
+      blocked_reason:
+        patch.blocked_reason !== undefined
+          ? patch.blocked_reason
+          : current.blocked_reason || null,
       confidence: patch.confidence ?? current.confidence,
       updated_at: new Date().toISOString(),
       version: current.version + 1,
       id,
     };
 
-    this.db
+    const result = this.db
       .prepare(
         `UPDATE memory_items
-        SET key = @key, value = @value, kind = @kind, source = @source, confidence = @confidence, version = @version, updated_at = @updated_at
-        WHERE id = @id`,
+        SET key = @key,
+            value = @value,
+            why = @why,
+            load_bearing = @load_bearing,
+            source_turn_id = @source_turn_id,
+            superseded_by = @superseded_by,
+            last_reviewed_at = @last_reviewed_at,
+            kind = @kind,
+            source = @source,
+            source_folder = @source_folder,
+            file_path = @file_path,
+            content_hash = @content_hash,
+            indexed_at = @indexed_at,
+            embedding_pending = @embedding_pending,
+            blocked_reason = @blocked_reason,
+            confidence = @confidence,
+            version = @version,
+            updated_at = @updated_at
+        WHERE id = @id
+          AND version = @expected_version
+          AND is_deleted = 0`,
       )
-      .run(next);
+      .run({
+        ...next,
+        expected_version: expectedVersion,
+        load_bearing: next.load_bearing ? 1 : 0,
+        embedding_pending: next.embedding_pending ? 1 : 0,
+      });
+
+    if (result.changes === 0) {
+      const row = this.db
+        .prepare(
+          `SELECT version, is_deleted
+           FROM memory_items
+           WHERE id = ?
+           LIMIT 1`,
+        )
+        .get(id) as
+        | {
+            version?: number;
+            is_deleted?: number;
+          }
+        | undefined;
+      if (!row || Number(row.is_deleted) === 1) {
+        throw new Error('memory item not found');
+      }
+      const currentVersion = Number(row.version || 0);
+      throw new Error(
+        `${MemoryStore.STALE_PATCH_MESSAGE_PREFIX} expected version ${expectedVersion}, current ${currentVersion}`,
+      );
+    }
 
     return this.getItemById(id)!;
   }
@@ -477,32 +752,93 @@ export class MemoryStore {
     if (!Array.isArray(embedding) || embedding.length === 0) return;
     const now = new Date().toISOString();
     const serialized = JSON.stringify(embedding);
-    const existing = this.db
-      .prepare(`SELECT vec_rowid FROM memory_item_vector_map WHERE item_id = ?`)
-      .get(itemId) as { vec_rowid?: number } | undefined;
 
-    if (existing?.vec_rowid !== undefined) {
-      this.db
-        .prepare(`UPDATE memory_items_vec SET embedding = ? WHERE rowid = ?`)
-        .run(serialized, existing.vec_rowid);
-    } else {
-      const vecInsert = this.db
-        .prepare(`INSERT INTO memory_items_vec(embedding) VALUES (?)`)
-        .run(serialized);
+    const saveEmbeddingTx = this.db.transaction(() => {
+      const existing = this.db
+        .prepare(
+          `SELECT vec_rowid FROM memory_item_vector_map WHERE item_id = ?`,
+        )
+        .get(itemId) as { vec_rowid?: number } | undefined;
+
+      if (existing?.vec_rowid !== undefined) {
+        this.db
+          .prepare(`UPDATE memory_items_vec SET embedding = ? WHERE rowid = ?`)
+          .run(serialized, existing.vec_rowid);
+      } else {
+        const vecInsert = this.db
+          .prepare(`INSERT INTO memory_items_vec(embedding) VALUES (?)`)
+          .run(serialized);
+        this.db
+          .prepare(
+            `INSERT INTO memory_item_vector_map(item_id, vec_rowid) VALUES (?, ?)`,
+          )
+          .run(itemId, Number(vecInsert.lastInsertRowid));
+      }
+
       this.db
         .prepare(
-          `INSERT INTO memory_item_vector_map(item_id, vec_rowid) VALUES (?, ?)`,
+          `UPDATE memory_items
+           SET embedding_json = ?, embedding_pending = 0, blocked_reason = NULL, updated_at = ?
+           WHERE id = ?`,
         )
-        .run(itemId, Number(vecInsert.lastInsertRowid));
-    }
+        .run(serialized, now, itemId);
+    });
 
+    saveEmbeddingTx();
+  }
+
+  markItemEmbeddingPending(
+    itemId: string,
+    blockedReason: string | null = null,
+  ): void {
     this.db
       .prepare(
         `UPDATE memory_items
-         SET embedding_json = ?, updated_at = ?
+         SET embedding_pending = 1,
+             blocked_reason = COALESCE(?, blocked_reason),
+             updated_at = ?
          WHERE id = ?`,
       )
-      .run(serialized, now, itemId);
+      .run(blockedReason, new Date().toISOString(), itemId);
+  }
+
+  setItemFileMetadata(input: {
+    itemId: string;
+    source_folder: string;
+    file_path: string;
+    content_hash: string;
+    indexed_at: string;
+    embedding_pending?: boolean;
+    blocked_reason?: string | null;
+  }): void {
+    this.db
+      .prepare(
+        `UPDATE memory_items
+         SET source_folder = @source_folder,
+             file_path = @file_path,
+             content_hash = @content_hash,
+             indexed_at = @indexed_at,
+             embedding_pending = COALESCE(@embedding_pending, embedding_pending),
+             blocked_reason = COALESCE(@blocked_reason, blocked_reason),
+             updated_at = @updated_at
+         WHERE id = @item_id`,
+      )
+      .run({
+        item_id: input.itemId,
+        source_folder: input.source_folder,
+        file_path: input.file_path,
+        content_hash: input.content_hash,
+        indexed_at: input.indexed_at,
+        embedding_pending:
+          input.embedding_pending === undefined
+            ? null
+            : input.embedding_pending
+              ? 1
+              : 0,
+        blocked_reason:
+          input.blocked_reason === undefined ? null : input.blocked_reason,
+        updated_at: new Date().toISOString(),
+      });
   }
 
   getCachedEmbedding(textHash: string, model: string): number[] | null {
@@ -610,15 +946,18 @@ export class MemoryStore {
     return rows.map((row) => this.toItem(row));
   }
 
-  softDeleteItem(id: string): void {
+  softDeleteItem(id: string, supersededBy?: string | null): void {
     const now = new Date().toISOString();
     this.db
       .prepare(
         `UPDATE memory_items
-         SET is_deleted = 1, updated_at = ?
+         SET is_deleted = 1,
+             deleted_at = ?,
+             superseded_by = COALESCE(?, superseded_by),
+             updated_at = ?
          WHERE id = ?`,
       )
-      .run(now, id);
+      .run(now, supersededBy ?? null, now, id);
     this.deleteItemVectorsByIds([id]);
   }
 
@@ -815,16 +1154,33 @@ export class MemoryStore {
   saveProcedure(
     input: Omit<
       MemoryProcedure,
-      'id' | 'version' | 'created_at' | 'updated_at' | 'last_used_at'
-    >,
+      | 'id'
+      | 'version'
+      | 'created_at'
+      | 'updated_at'
+      | 'last_used_at'
+      | 'is_deleted'
+      | 'deleted_at'
+    > & {
+      id?: string;
+      version?: number;
+      created_at?: string;
+      updated_at?: string;
+      last_used_at?: string | null;
+      is_deleted?: boolean;
+      deleted_at?: string | null;
+    },
   ): MemoryProcedure {
     const now = new Date().toISOString();
-    const id = MemoryStore.makeId('proc');
+    const id = input.id || MemoryStore.makeId('proc');
+    const createdAt = input.created_at || now;
+    const updatedAt = input.updated_at || createdAt;
+    const version = Math.max(1, Math.round(input.version || 1));
     this.db
       .prepare(
         `INSERT INTO memory_procedures
-        (id, scope, group_folder, title, body, tags_json, source, confidence, version, created_at, updated_at)
-        VALUES (@id, @scope, @group_folder, @title, @body, @tags_json, @source, @confidence, 1, @created_at, @updated_at)`,
+        (id, scope, group_folder, title, body, tags_json, origin, trigger, source, confidence, version, last_used_at, created_at, updated_at, is_deleted, deleted_at)
+        VALUES (@id, @scope, @group_folder, @title, @body, @tags_json, @origin, @trigger, @source, @confidence, @version, @last_used_at, @created_at, @updated_at, @is_deleted, @deleted_at)`,
       )
       .run({
         id,
@@ -833,10 +1189,16 @@ export class MemoryStore {
         title: input.title,
         body: input.body,
         tags_json: JSON.stringify(input.tags),
+        origin: input.origin || 'explicit',
+        trigger: input.trigger || null,
         source: input.source,
         confidence: input.confidence,
-        created_at: now,
-        updated_at: now,
+        version,
+        last_used_at: input.last_used_at ?? null,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        is_deleted: input.is_deleted ? 1 : 0,
+        deleted_at: input.deleted_at ?? null,
       });
 
     return this.getProcedureById(id)!;
@@ -851,38 +1213,79 @@ export class MemoryStore {
     return row ? this.toProcedure(row) : null;
   }
 
+  getProcedureByIdAny(id: string): MemoryProcedure | null {
+    const row = this.db
+      .prepare(`SELECT * FROM memory_procedures WHERE id = ? LIMIT 1`)
+      .get(id) as Record<string, unknown> | undefined;
+    return row ? this.toProcedure(row) : null;
+  }
+
   patchProcedure(
     id: string,
     expectedVersion: number,
     patch: Partial<
-      Pick<MemoryProcedure, 'title' | 'body' | 'tags' | 'confidence'>
+      Pick<
+        MemoryProcedure,
+        'title' | 'body' | 'tags' | 'trigger' | 'confidence'
+      >
     >,
   ): MemoryProcedure {
     const current = this.getProcedureById(id);
     if (!current) throw new Error('memory procedure not found');
-    if (current.version !== expectedVersion) {
-      throw new Error(
-        `stale patch: expected version ${expectedVersion}, current ${current.version}`,
-      );
-    }
 
     const next = {
       id,
       title: patch.title ?? current.title,
       body: patch.body ?? current.body,
       tags_json: JSON.stringify(patch.tags ?? current.tags),
+      trigger:
+        patch.trigger !== undefined ? patch.trigger : current.trigger || null,
       confidence: patch.confidence ?? current.confidence,
       version: current.version + 1,
       updated_at: new Date().toISOString(),
     };
 
-    this.db
+    const result = this.db
       .prepare(
         `UPDATE memory_procedures
-         SET title = @title, body = @body, tags_json = @tags_json, confidence = @confidence, version = @version, updated_at = @updated_at
-         WHERE id = @id`,
+         SET title = @title,
+             body = @body,
+             tags_json = @tags_json,
+             trigger = @trigger,
+             confidence = @confidence,
+             version = @version,
+             updated_at = @updated_at
+         WHERE id = @id
+           AND version = @expected_version
+           AND is_deleted = 0`,
       )
-      .run(next);
+      .run({
+        ...next,
+        expected_version: expectedVersion,
+      });
+
+    if (result.changes === 0) {
+      const row = this.db
+        .prepare(
+          `SELECT version, is_deleted
+           FROM memory_procedures
+           WHERE id = ?
+           LIMIT 1`,
+        )
+        .get(id) as
+        | {
+            version?: number;
+            is_deleted?: number;
+          }
+        | undefined;
+      if (!row || Number(row.is_deleted) === 1) {
+        throw new Error('memory procedure not found');
+      }
+      const currentVersion = Number(row.version || 0);
+      throw new Error(
+        `${MemoryStore.STALE_PATCH_MESSAGE_PREFIX} expected version ${expectedVersion}, current ${currentVersion}`,
+      );
+    }
 
     return this.getProcedureById(id)!;
   }
@@ -898,6 +1301,19 @@ export class MemoryStore {
       )
       .all({ group_folder: groupFolder, limit }) as Record<string, unknown>[];
     return rows.map((row) => this.toProcedure(row));
+  }
+
+  softDeleteProcedure(id: string): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `UPDATE memory_procedures
+         SET is_deleted = 1,
+             deleted_at = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(now, now, id);
   }
 
   saveChunks(chunks: ChunkInsert[]): number {
@@ -1078,7 +1494,24 @@ export class MemoryStore {
     return rows.map((row) => this.toChunk(row));
   }
 
-  applyRetentionPolicies(groupFolder: string): void {
+  deleteSourceChunks(sourceType: string, sourceId: string): number {
+    const rows = this.db
+      .prepare(
+        `SELECT id
+         FROM memory_chunks
+         WHERE source_type = ?
+           AND source_id = ?`,
+      )
+      .all(sourceType, sourceId) as Array<{ id: string }>;
+    if (rows.length === 0) return 0;
+    this.deleteChunksByIds(rows.map((row) => row.id));
+    return rows.length;
+  }
+
+  applyRetentionPolicies(groupFolder: string): RetentionPolicyResult {
+    const removedItemIds: string[] = [];
+    const removedProcedureIds: string[] = [];
+    const evictedChunkIds: string[] = [];
     const maxChunksForScope =
       groupFolder === MEMORY_GLOBAL_GROUP_FOLDER
         ? MEMORY_MAX_GLOBAL_CHUNKS
@@ -1097,7 +1530,9 @@ export class MemoryStore {
       .all(groupFolder, cutoff) as Array<{ id: string }>;
 
     if (oldChunkIds.length > 0) {
-      this.deleteChunksByIds(oldChunkIds.map((row) => row.id));
+      const chunkIds = oldChunkIds.map((row) => row.id);
+      this.deleteChunksByIds(chunkIds);
+      evictedChunkIds.push(...chunkIds);
     }
 
     const overflowChunks = this.db
@@ -1110,7 +1545,9 @@ export class MemoryStore {
       .all(groupFolder, maxChunksForScope) as Array<{ id: string }>;
 
     if (overflowChunks.length > 0) {
-      this.deleteChunksByIds(overflowChunks.map((row) => row.id));
+      const chunkIds = overflowChunks.map((row) => row.id);
+      this.deleteChunksByIds(chunkIds);
+      evictedChunkIds.push(...chunkIds);
     }
 
     const overflowItemIds = this.db
@@ -1119,6 +1556,7 @@ export class MemoryStore {
          WHERE is_deleted = 0
            AND group_folder = ?
            AND is_pinned = 0
+           AND load_bearing = 0
          ORDER BY CASE WHEN confidence < ? THEN 0 ELSE 1 END ASC,
                   confidence ASC,
                   updated_at ASC
@@ -1140,16 +1578,19 @@ export class MemoryStore {
       const now = new Date().toISOString();
       const markDeleted = this.db.prepare(
         `UPDATE memory_items
-         SET is_deleted = 1, updated_at = ?
+         SET is_deleted = 1,
+             deleted_at = ?,
+             updated_at = ?
          WHERE id = ?`,
       );
       const txn = this.db.transaction((rows: Array<{ id: string }>) => {
         for (const row of rows) {
-          markDeleted.run(now, row.id);
+          markDeleted.run(now, now, row.id);
         }
       });
       txn(overflowItemIds);
       this.deleteItemVectorsByIds(overflowItemIds.map((row) => row.id));
+      removedItemIds.push(...overflowItemIds.map((row) => row.id));
     }
 
     const overflowProcedures = this.db
@@ -1166,21 +1607,36 @@ export class MemoryStore {
 
     if (overflowProcedures.length > 0) {
       const markDeleted = this.db.prepare(
-        `UPDATE memory_procedures SET is_deleted = 1 WHERE id = ?`,
+        `UPDATE memory_procedures
+         SET is_deleted = 1,
+             deleted_at = ?,
+             updated_at = ?
+         WHERE id = ?`,
       );
       for (const row of overflowProcedures) {
-        markDeleted.run(row.id);
+        const now = new Date().toISOString();
+        markDeleted.run(now, now, row.id);
+        removedProcedureIds.push(row.id);
       }
     }
 
-    this.db.exec(`
-      DELETE FROM memory_events
-      WHERE id NOT IN (
-        SELECT id FROM memory_events
-        ORDER BY id DESC
-        LIMIT ${MEMORY_MAX_EVENTS}
-      );
-    `);
+    this.db
+      .prepare(
+        `DELETE FROM memory_events
+         WHERE id IN (
+           SELECT id
+           FROM memory_events
+           ORDER BY id DESC
+           LIMIT -1 OFFSET ?
+         )`,
+      )
+      .run(MEMORY_MAX_EVENTS);
+
+    return {
+      removedItemIds,
+      removedProcedureIds,
+      evictedChunkIds,
+    };
   }
 
   recordEvent(
@@ -1201,6 +1657,39 @@ export class MemoryStore {
         JSON.stringify(payload),
         new Date().toISOString(),
       );
+  }
+
+  getLatestEvent(
+    eventType: string,
+    entityId?: string | null,
+  ): {
+    event_type: string;
+    entity_type: string;
+    entity_id: string | null;
+    payload_json: string;
+    created_at: string;
+  } | null {
+    const row = this.db
+      .prepare(
+        `SELECT event_type, entity_type, entity_id, payload_json, created_at
+         FROM memory_events
+         WHERE event_type = @event_type
+           AND (@entity_id IS NULL OR entity_id = @entity_id)
+         ORDER BY id DESC
+         LIMIT 1`,
+      )
+      .get({
+        event_type: eventType,
+        entity_id: entityId ?? null,
+      }) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      event_type: String(row.event_type),
+      entity_type: String(row.entity_type),
+      entity_id: row.entity_id ? String(row.entity_id) : null,
+      payload_json: String(row.payload_json || '{}'),
+      created_at: String(row.created_at),
+    };
   }
 
   private deleteChunksByIds(ids: string[]): void {
@@ -1270,9 +1759,25 @@ export class MemoryStore {
       kind: row.kind as MemoryItem['kind'],
       key: String(row.key),
       value: String(row.value),
+      why: row.why ? String(row.why) : undefined,
+      load_bearing: Number(row.load_bearing || 0) === 1,
+      source_turn_id: row.source_turn_id ? String(row.source_turn_id) : null,
       source: String(row.source),
+      source_folder: row.source_folder ? String(row.source_folder) : 'items',
+      file_path: row.file_path ? String(row.file_path) : '',
+      content_hash: row.content_hash ? String(row.content_hash) : '',
+      indexed_at: row.indexed_at ? String(row.indexed_at) : null,
+      embedding_pending: Number(row.embedding_pending || 0) === 1,
+      blocked_reason: row.blocked_reason ? String(row.blocked_reason) : null,
       confidence: Number(row.confidence),
       is_pinned: Number(row.is_pinned || 0) === 1,
+      used_count: Number(row.used_count || 0),
+      superseded_by: row.superseded_by ? String(row.superseded_by) : null,
+      is_deleted: Number(row.is_deleted || 0) === 1,
+      deleted_at: row.deleted_at ? String(row.deleted_at) : null,
+      last_reviewed_at: row.last_reviewed_at
+        ? String(row.last_reviewed_at)
+        : null,
       version: Number(row.version),
       last_used_at: row.last_used_at ? String(row.last_used_at) : null,
       last_retrieved_at: row.last_retrieved_at
@@ -1311,8 +1816,15 @@ export class MemoryStore {
       title: String(row.title),
       body: String(row.body),
       tags: JSON.parse(String(row.tags_json || '[]')) as string[],
+      origin:
+        row.origin === 'accepted_suggestion'
+          ? 'accepted_suggestion'
+          : 'explicit',
+      trigger: row.trigger ? String(row.trigger) : null,
       source: String(row.source),
       confidence: Number(row.confidence),
+      is_deleted: Number(row.is_deleted || 0) === 1,
+      deleted_at: row.deleted_at ? String(row.deleted_at) : null,
       version: Number(row.version),
       last_used_at: row.last_used_at ? String(row.last_used_at) : null,
       created_at: String(row.created_at),

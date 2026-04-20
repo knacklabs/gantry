@@ -3,7 +3,7 @@ export * from './memory-dreaming.js';
 export * from './memory-embeddings.js';
 export * from './memory-embedding-cache.js';
 export * from './memory-ipc.js';
-export * from './memory-provider.js';
+export * from './memory-root.js';
 export * from './memory-retrieval.js';
 export * from './memory-service.js';
 export * from './memory-store.js';

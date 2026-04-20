@@ -41,6 +41,28 @@ export interface DoctorNetworkOptions {
   telegramTimeoutMs?: number;
 }
 
+type ClaudeAuthMode = 'oauth' | 'api_key' | 'none';
+
+function resolveClaudeAuthState(input: {
+  oauthToken?: string;
+  apiKey?: string;
+}): {
+  hasOauthToken: boolean;
+  hasApiKey: boolean;
+  mode: ClaudeAuthMode;
+} {
+  const oauthToken = input.oauthToken?.trim() || '';
+  const apiKey = input.apiKey?.trim() || '';
+  const hasOauthToken = Boolean(oauthToken);
+  const hasApiKey = Boolean(apiKey);
+  const mode: ClaudeAuthMode = hasOauthToken
+    ? 'oauth'
+    : hasApiKey
+      ? 'api_key'
+      : 'none';
+  return { hasOauthToken, hasApiKey, mode };
+}
+
 function statusLabel(status: DoctorStatus): string {
   if (status === 'pass') return 'PASS';
   if (status === 'warn') return 'WARN';
@@ -367,6 +389,10 @@ export function runDoctor(
 
   const envPath = envFilePath(runtimeHome);
   const env = readEnvFile(envPath);
+  const claudeAuth = resolveClaudeAuthState({
+    oauthToken: env.CLAUDE_CODE_OAUTH_TOKEN,
+    apiKey: env.ANTHROPIC_API_KEY,
+  });
 
   const hasTelegramToken = Boolean(env.TELEGRAM_BOT_TOKEN?.trim());
   if (!telegramEnabled) {
@@ -419,17 +445,30 @@ export function runDoctor(
   const memoryHealth = inspectMemoryHealth(runtimeHome, settings, env);
   add(checks, {
     id: 'memory-provider',
-    title: 'Memory Provider',
-    status: memoryHealth.memoryProviderCheck.status,
-    message: `${memoryHealth.memoryProvider} (source: ${memoryHealth.memoryProviderSource}): ${memoryHealth.memoryProviderCheck.message}`,
-    nextAction: memoryHealth.memoryProviderCheck.nextAction,
+    title: 'Memory Storage',
+    status: memoryHealth.memoryCheck.status,
+    message: `root=${memoryHealth.memoryRoot} (source: ${memoryHealth.memoryRootSource}): ${memoryHealth.memoryCheck.message}`,
+    nextAction: memoryHealth.memoryCheck.nextAction,
   });
   add(checks, {
     id: 'embeddings-provider',
     title: 'Memory Embeddings',
-    status: memoryHealth.embeddingProviderCheck.status,
-    message: `${memoryHealth.embeddingProvider} (source: ${memoryHealth.embeddingProviderSource}): ${memoryHealth.embeddingProviderCheck.message}`,
-    nextAction: memoryHealth.embeddingProviderCheck.nextAction,
+    status: memoryHealth.embeddingCheck.status,
+    message: `${memoryHealth.embeddingProvider} (source: ${memoryHealth.embeddingProviderSource}): ${memoryHealth.embeddingCheck.message}`,
+    nextAction: memoryHealth.embeddingCheck.nextAction,
+  });
+  add(checks, {
+    id: 'claude-auth',
+    title: 'Claude Auth',
+    status: claudeAuth.mode !== 'none' ? 'pass' : 'warn',
+    message:
+      claudeAuth.mode !== 'none'
+        ? `Claude auth is configured (oauth=${claudeAuth.hasOauthToken ? 'present' : 'missing'}, api_key=${claudeAuth.hasApiKey ? 'present' : 'missing'}, mode=${claudeAuth.mode}).`
+        : 'Claude auth is missing. Memory LLM extraction/review paths will fallback.',
+    nextAction:
+      claudeAuth.mode !== 'none'
+        ? undefined
+        : 'Set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in .env, then rerun `myclaw doctor`.',
   });
 
   if (telegramEnabled) {

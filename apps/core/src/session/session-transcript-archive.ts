@@ -4,9 +4,10 @@ import path from 'path';
 import { DATA_DIR } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import {
-  AgentMemoryRootService,
+  MemoryRootService,
   SessionArchiveCause,
-} from '../memory/agent-memory-root.js';
+} from '../memory/memory-root.js';
+import { isValidGroupFolder } from '../platform/group-folder.js';
 
 interface SessionEntry {
   sessionId?: string;
@@ -27,6 +28,12 @@ interface TranscriptEntry {
   message?: {
     content?: unknown;
   };
+}
+
+function isSafeSessionId(sessionId: string): boolean {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(sessionId)) return false;
+  if (sessionId.includes('..')) return false;
+  return true;
 }
 
 export interface ArchiveSessionTranscriptInput {
@@ -245,6 +252,9 @@ function findTranscriptPath(
   groupFolder: string,
   sessionId: string,
 ): string | null {
+  if (!isValidGroupFolder(groupFolder) || !isSafeSessionId(sessionId)) {
+    return null;
+  }
   const projectsDir = path.join(
     DATA_DIR,
     'sessions',
@@ -275,9 +285,19 @@ export function archiveSessionTranscript(
     errorSummary,
     writePlaceholderOnMissing = false,
   } = input;
+  if (!isValidGroupFolder(groupFolder) || !isSafeSessionId(sessionId)) {
+    logger.warn(
+      {
+        groupFolder,
+        sessionId,
+      },
+      'Skipped session transcript archive due to invalid identifiers',
+    );
+    return null;
+  }
 
   try {
-    const memoryRoot = AgentMemoryRootService.getInstance();
+    const memoryRoot = MemoryRootService.getInstance();
     const transcriptPath = findTranscriptPath(groupFolder, sessionId);
     if (!transcriptPath) {
       logger.info(

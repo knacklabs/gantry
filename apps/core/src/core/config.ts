@@ -2,7 +2,10 @@ import os from 'os';
 import path from 'path';
 
 import { readEnvFile } from './env.js';
-import { readRuntimeMemorySettingsSnapshot } from './runtime-memory-settings.js';
+import {
+  readRuntimeMemorySettingsSnapshot,
+  type RuntimeMemorySettingsSnapshot,
+} from './runtime-memory-settings.js';
 import { isValidTimezone } from './timezone.js';
 
 // Read config values from .env (falls back to process.env).
@@ -12,8 +15,12 @@ const envConfig = readEnvFile([
   'ONECLI_URL',
   'TZ',
   'ANTHROPIC_MODEL',
+  'ANTHROPIC_API_KEY',
+  'CLAUDE_CODE_OAUTH_TOKEN',
   'OPENAI_API_KEY',
   'OPENAI_DAILY_EMBED_LIMIT',
+  'MEMORY_ROOT',
+  'MEMORY_KNOWLEDGE_EMBED_BUDGET_PER_DAY',
   'MEMORY_CHUNK_SIZE',
   'MEMORY_CHUNK_OVERLAP',
   'MEMORY_RETRIEVAL_LIMIT',
@@ -23,6 +30,9 @@ const envConfig = readEnvFile([
   'MEMORY_RRF_LEXICAL_WEIGHT',
   'MEMORY_RRF_VECTOR_WEIGHT',
   'MEMORY_SOURCE_TYPE_BOOSTS',
+  'MEMORY_EXTRACTOR_MAX_FACTS',
+  'MEMORY_EXTRACTOR_MIN_CONFIDENCE',
+  'MEMORY_EXTRACTOR_MAX_TURNS',
   'MEMORY_REFLECTION_MIN_CONFIDENCE',
   'MEMORY_REFLECTION_MAX_FACTS_PER_TURN',
   'MEMORY_SCOPE_POLICY',
@@ -36,12 +46,12 @@ const envConfig = readEnvFile([
   'MEMORY_CONFIDENCE_BOOST_ON_USE',
   'MEMORY_CONFIDENCE_DECAY_ON_UNUSED',
   'MEMORY_USAGE_DECAY_INTERVAL_TURNS',
-  'MEMORY_CONSOLIDATION_ENABLED',
   'MEMORY_CONSOLIDATION_MIN_ITEMS',
   'MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD',
-  'MEMORY_CONSOLIDATION_MODEL',
+  'MEMORY_CONSOLIDATION_EMBEDDING_FALLBACK',
   'MEMORY_CONSOLIDATION_MAX_CLUSTERS',
   'MEMORY_DREAMING_CRON',
+  'MEMORY_DREAMING_DRY_RUN',
   'MEMORY_DREAMING_PROMOTION_THRESHOLD',
   'MEMORY_DREAMING_DECAY_THRESHOLD',
   'MEMORY_DREAMING_MIN_RECALLS',
@@ -54,6 +64,13 @@ const envConfig = readEnvFile([
   'MEMORY_CHUNK_RETENTION_DAYS',
   'MEMORY_MAX_EVENTS',
   'MEMORY_MAX_PROCEDURES_PER_GROUP',
+  'MEMORY_CLEANUP_PURGE_DAYS',
+  'MEMORY_JOURNAL_GZIP_DAYS',
+  'MEMORY_JOURNAL_DELETE_DAYS',
+  'MEMORY_MAINTENANCE_MAX_PENDING',
+  'MYCLAW_MEMORY_JOURNAL_DISABLED',
+  'MEMORY_BRIEF_INCLUDE_LAST_SESSION',
+  'MEMORY_BRIEF_DIRTY_REFRESH',
   'PERMISSION_APPROVAL_TIMEOUT_MS',
   'TELEGRAM_PERMISSION_APPROVER_IDS',
   'SLACK_BOT_TOKEN',
@@ -80,20 +97,33 @@ export const SCHEDULER_JOBS_JSON_PATH = path.join(
 export const STORE_DIR = path.resolve(RUNTIME_ROOT, 'store');
 export const AGENTS_DIR = path.resolve(RUNTIME_ROOT, 'agents');
 export const DATA_DIR = path.resolve(RUNTIME_ROOT, 'data');
-const runtimeMemorySettings = readRuntimeMemorySettingsSnapshot(AGENT_ROOT);
-const MEMORY_SQLITE_PATH_RAW =
-  runtimeMemorySettings.sqlitePath || 'store/memory.db';
-export const MEMORY_SQLITE_PATH = path.isAbsolute(MEMORY_SQLITE_PATH_RAW)
-  ? path.resolve(MEMORY_SQLITE_PATH_RAW)
-  : path.resolve(RUNTIME_ROOT, MEMORY_SQLITE_PATH_RAW);
-export const MEMORY_PROVIDER =
-  runtimeMemorySettings.enabled === false
-    ? 'noop'
-    : runtimeMemorySettings.provider || 'sqlite';
-const AGENT_MEMORY_ROOT_RAW = runtimeMemorySettings.qmdRoot || 'agent-memory';
-export const AGENT_MEMORY_ROOT = path.isAbsolute(AGENT_MEMORY_ROOT_RAW)
-  ? path.resolve(AGENT_MEMORY_ROOT_RAW)
-  : path.resolve(RUNTIME_ROOT, AGENT_MEMORY_ROOT_RAW);
+let runtimeMemorySettings: RuntimeMemorySettingsSnapshot = {};
+let runtimeMemorySettingsError: Error | null = null;
+try {
+  runtimeMemorySettings = readRuntimeMemorySettingsSnapshot(AGENT_ROOT);
+} catch (err) {
+  runtimeMemorySettingsError =
+    err instanceof Error ? err : new Error(String(err));
+}
+if (runtimeMemorySettingsError) {
+  throw new Error(
+    `Invalid runtime memory settings: ${runtimeMemorySettingsError.message}`,
+  );
+}
+const MEMORY_ROOT_RAW =
+  process.env.MEMORY_ROOT?.trim() ||
+  envConfig.MEMORY_ROOT?.trim() ||
+  runtimeMemorySettings.root ||
+  'memory';
+export const MEMORY_ROOT = path.isAbsolute(MEMORY_ROOT_RAW)
+  ? path.resolve(MEMORY_ROOT_RAW)
+  : path.resolve(RUNTIME_ROOT, MEMORY_ROOT_RAW);
+export const MEMORY_SQLITE_PATH = path.resolve(
+  MEMORY_ROOT,
+  '.cache',
+  'memory.db',
+);
+export const RUNTIME_MEMORY_ENABLED = runtimeMemorySettings.enabled ?? true;
 const MEMORY_GLOBAL_KNOWLEDGE_DIR_RAW =
   process.env.MEMORY_GLOBAL_KNOWLEDGE_DIR ||
   envConfig.MEMORY_GLOBAL_KNOWLEDGE_DIR ||
@@ -230,6 +260,35 @@ export const MEMORY_SOURCE_TYPE_BOOSTS = parseSourceTypeBoosts(
   process.env.MEMORY_SOURCE_TYPE_BOOSTS || envConfig.MEMORY_SOURCE_TYPE_BOOSTS,
   DEFAULT_MEMORY_SOURCE_TYPE_BOOSTS,
 );
+export const MEMORY_EXTRACTOR_MAX_FACTS = Math.max(
+  1,
+  parseInt(
+    process.env.MEMORY_EXTRACTOR_MAX_FACTS ||
+      envConfig.MEMORY_EXTRACTOR_MAX_FACTS ||
+      '8',
+    10,
+  ) || 8,
+);
+export const MEMORY_EXTRACTOR_MIN_CONFIDENCE = Math.max(
+  0,
+  Math.min(
+    1,
+    parseFloat(
+      process.env.MEMORY_EXTRACTOR_MIN_CONFIDENCE ||
+        envConfig.MEMORY_EXTRACTOR_MIN_CONFIDENCE ||
+        '0.6',
+    ) || 0.6,
+  ),
+);
+export const MEMORY_EXTRACTOR_MAX_TURNS = Math.max(
+  10,
+  parseInt(
+    process.env.MEMORY_EXTRACTOR_MAX_TURNS ||
+      envConfig.MEMORY_EXTRACTOR_MAX_TURNS ||
+      '60',
+    10,
+  ) || 60,
+);
 export const MEMORY_REFLECTION_MIN_CONFIDENCE = Math.max(
   0,
   Math.min(
@@ -290,7 +349,16 @@ export const MEMORY_SEMANTIC_DEDUP_THRESHOLD = Math.max(
 );
 export const MEMORY_GLOBAL_KNOWLEDGE_DIR = resolveOptionalPath(
   MEMORY_GLOBAL_KNOWLEDGE_DIR_RAW ||
-    (AGENT_MEMORY_ROOT ? path.join(AGENT_MEMORY_ROOT, 'knowledge') : ''),
+    (MEMORY_ROOT ? path.join(MEMORY_ROOT, 'knowledge') : ''),
+);
+export const MEMORY_KNOWLEDGE_EMBED_BUDGET_PER_DAY = Math.max(
+  0,
+  parseInt(
+    process.env.MEMORY_KNOWLEDGE_EMBED_BUDGET_PER_DAY ||
+      envConfig.MEMORY_KNOWLEDGE_EMBED_BUDGET_PER_DAY ||
+      '200',
+    10,
+  ) || 200,
 );
 export const MEMORY_MAX_GLOBAL_CHUNKS = Math.max(
   100,
@@ -337,19 +405,14 @@ export const MEMORY_USAGE_DECAY_INTERVAL_TURNS = Math.max(
     10,
   ) || 20,
 );
-export const MEMORY_CONSOLIDATION_ENABLED = parseBooleanEnv(
-  process.env.MEMORY_CONSOLIDATION_ENABLED ||
-    envConfig.MEMORY_CONSOLIDATION_ENABLED,
-  false,
-);
 export const MEMORY_CONSOLIDATION_MIN_ITEMS = Math.max(
   2,
   parseInt(
     process.env.MEMORY_CONSOLIDATION_MIN_ITEMS ||
       envConfig.MEMORY_CONSOLIDATION_MIN_ITEMS ||
-      '50',
+      '20',
     10,
-  ) || 50,
+  ) || 20,
 );
 export const MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD = Math.max(
   0,
@@ -362,18 +425,16 @@ export const MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD = Math.max(
     ) || 0.8,
   ),
 );
-export const MEMORY_DREAMING_ENABLED = parseBooleanEnv(
-  runtimeMemorySettings.dreamingEnabled === undefined
-    ? undefined
-    : runtimeMemorySettings.dreamingEnabled
-      ? 'true'
-      : 'false',
-  false,
-);
+export const RUNTIME_MEMORY_DREAMING_ENABLED =
+  runtimeMemorySettings.dreamingEnabled ?? false;
 export const MEMORY_DREAMING_CRON =
   process.env.MEMORY_DREAMING_CRON ||
   envConfig.MEMORY_DREAMING_CRON ||
   '0 3 * * *';
+export const MEMORY_DREAMING_DRY_RUN = parseBooleanEnv(
+  process.env.MEMORY_DREAMING_DRY_RUN || envConfig.MEMORY_DREAMING_DRY_RUN,
+  true,
+);
 export const MEMORY_DREAMING_PROMOTION_THRESHOLD = Math.max(
   0,
   Math.min(
@@ -523,6 +584,11 @@ export const MEMORY_CONSOLIDATION_MAX_CLUSTERS = Math.max(
     10,
   ) || 10,
 );
+export const MEMORY_CONSOLIDATION_EMBEDDING_FALLBACK = parseBooleanEnv(
+  process.env.MEMORY_CONSOLIDATION_EMBEDDING_FALLBACK ||
+    envConfig.MEMORY_CONSOLIDATION_EMBEDDING_FALLBACK,
+  true,
+);
 
 export const AGENT_TIMEOUT = parseInt(
   process.env.AGENT_TIMEOUT || '1800000',
@@ -541,11 +607,144 @@ function normalizeModelValue(value?: string): string | undefined {
 export const ANTHROPIC_MODEL = normalizeModelValue(
   process.env.ANTHROPIC_MODEL || envConfig.ANTHROPIC_MODEL,
 );
-export const MEMORY_CONSOLIDATION_MODEL =
-  process.env.MEMORY_CONSOLIDATION_MODEL ||
-  envConfig.MEMORY_CONSOLIDATION_MODEL ||
-  ANTHROPIC_MODEL ||
+export const ANTHROPIC_API_KEY =
+  process.env.ANTHROPIC_API_KEY?.trim() ||
+  envConfig.ANTHROPIC_API_KEY?.trim() ||
   '';
+export const CLAUDE_OAUTH_TOKEN =
+  process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim() ||
+  envConfig.CLAUDE_CODE_OAUTH_TOKEN?.trim() ||
+  '';
+export type ClaudeAuthMode = 'oauth' | 'api_key' | 'none';
+
+export interface ClaudeAuthState {
+  oauthToken: string;
+  apiKey: string;
+  hasOauthToken: boolean;
+  hasApiKey: boolean;
+  mode: ClaudeAuthMode;
+}
+
+function normalizeSecretValue(value: string | undefined | null): string {
+  return value?.trim() || '';
+}
+
+function hasOwn(obj: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+export function resolveClaudeAuthState(overrides?: {
+  oauthToken?: string | undefined | null;
+  apiKey?: string | undefined | null;
+}): ClaudeAuthState {
+  const hasOauthOverride = Boolean(
+    overrides && hasOwn(overrides, 'oauthToken'),
+  );
+  const hasApiKeyOverride = Boolean(overrides && hasOwn(overrides, 'apiKey'));
+  const hasProcessOauth = hasOwn(process.env, 'CLAUDE_CODE_OAUTH_TOKEN');
+  const hasProcessApiKey = hasOwn(process.env, 'ANTHROPIC_API_KEY');
+
+  const oauthToken = hasOauthOverride
+    ? normalizeSecretValue(overrides?.oauthToken)
+    : hasProcessOauth
+      ? normalizeSecretValue(process.env.CLAUDE_CODE_OAUTH_TOKEN)
+      : CLAUDE_OAUTH_TOKEN;
+  const apiKey = hasApiKeyOverride
+    ? normalizeSecretValue(overrides?.apiKey)
+    : hasProcessApiKey
+      ? normalizeSecretValue(process.env.ANTHROPIC_API_KEY)
+      : ANTHROPIC_API_KEY;
+  const hasOauthToken = Boolean(oauthToken);
+  const hasApiKey = Boolean(apiKey);
+  const mode: ClaudeAuthMode = hasOauthToken
+    ? 'oauth'
+    : hasApiKey
+      ? 'api_key'
+      : 'none';
+  return { oauthToken, apiKey, hasOauthToken, hasApiKey, mode };
+}
+
+export const LLM_ENABLED = resolveClaudeAuthState().mode !== 'none';
+
+const HARD_DEFAULT_MODEL_EXTRACTOR = 'claude-haiku-4-5-20251001';
+const HARD_DEFAULT_MODEL_DREAMING = 'claude-sonnet-4-6';
+const HARD_DEFAULT_MODEL_CONSOLIDATION = 'claude-sonnet-4-6';
+const HARD_DEFAULT_MODEL_SESSION_SUMMARY = 'claude-haiku-4-5-20251001';
+
+function resolveMemoryLlmModel(
+  taskModel: string | undefined,
+  hardDefault: string,
+): string {
+  return normalizeModelValue(taskModel) || ANTHROPIC_MODEL || hardDefault;
+}
+
+export const MODEL_EXTRACTOR = resolveMemoryLlmModel(
+  runtimeMemorySettings.llmExtractorModel,
+  HARD_DEFAULT_MODEL_EXTRACTOR,
+);
+export const MODEL_DREAMING = resolveMemoryLlmModel(
+  runtimeMemorySettings.llmDreamingModel,
+  HARD_DEFAULT_MODEL_DREAMING,
+);
+export const MODEL_CONSOLIDATION = resolveMemoryLlmModel(
+  runtimeMemorySettings.llmConsolidationModel,
+  HARD_DEFAULT_MODEL_CONSOLIDATION,
+);
+export const MODEL_SESSION_SUMMARY = resolveMemoryLlmModel(
+  runtimeMemorySettings.llmSessionSummaryModel,
+  HARD_DEFAULT_MODEL_SESSION_SUMMARY,
+);
+export const MEMORY_CLEANUP_PURGE_DAYS = Math.max(
+  1,
+  parseInt(
+    process.env.MEMORY_CLEANUP_PURGE_DAYS ||
+      envConfig.MEMORY_CLEANUP_PURGE_DAYS ||
+      '30',
+    10,
+  ) || 30,
+);
+export const MEMORY_JOURNAL_GZIP_DAYS = Math.max(
+  1,
+  parseInt(
+    process.env.MEMORY_JOURNAL_GZIP_DAYS ||
+      envConfig.MEMORY_JOURNAL_GZIP_DAYS ||
+      '7',
+    10,
+  ) || 7,
+);
+export const MEMORY_JOURNAL_DELETE_DAYS = Math.max(
+  1,
+  parseInt(
+    process.env.MEMORY_JOURNAL_DELETE_DAYS ||
+      envConfig.MEMORY_JOURNAL_DELETE_DAYS ||
+      '90',
+    10,
+  ) || 90,
+);
+export const MEMORY_JOURNAL_DISABLED = parseBooleanEnv(
+  process.env.MYCLAW_MEMORY_JOURNAL_DISABLED ||
+    envConfig.MYCLAW_MEMORY_JOURNAL_DISABLED,
+  false,
+);
+export const MEMORY_MAINTENANCE_MAX_PENDING = Math.max(
+  100,
+  parseInt(
+    process.env.MEMORY_MAINTENANCE_MAX_PENDING ||
+      envConfig.MEMORY_MAINTENANCE_MAX_PENDING ||
+      '5000',
+    10,
+  ) || 5000,
+);
+export const MEMORY_BRIEF_INCLUDE_LAST_SESSION = parseBooleanEnv(
+  process.env.MEMORY_BRIEF_INCLUDE_LAST_SESSION ||
+    envConfig.MEMORY_BRIEF_INCLUDE_LAST_SESSION,
+  true,
+);
+export const MEMORY_BRIEF_DIRTY_REFRESH = parseBooleanEnv(
+  process.env.MEMORY_BRIEF_DIRTY_REFRESH ||
+    envConfig.MEMORY_BRIEF_DIRTY_REFRESH,
+  true,
+);
 
 export type DefaultModelSource = 'ANTHROPIC_MODEL' | 'unset';
 export type EffectiveModelSource =

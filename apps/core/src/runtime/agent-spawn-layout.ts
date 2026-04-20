@@ -163,7 +163,7 @@ export function ensureSharedSessionSettings(): void {
 /**
  * Ensure AGENT_ROOT/.claude/skills/ exists as a real directory.
  * Skills are managed directly under this directory (single source of truth).
- * Legacy symlinks are migrated to real directories automatically.
+ * Existing symlinks are migrated to real directories automatically.
  * Bundled skills from the package are copied if not already present.
  * Existing skills are updated only when their bundled version is older.
  */
@@ -171,7 +171,7 @@ export function syncGroupSkills(): void {
   const skillsDst = path.join(AGENT_ROOT, '.claude', 'skills');
   const bundledVersion = readPackageVersion(REPO_ROOT);
 
-  // Migrate legacy symlink to a real directory
+  // Migrate symlink to a real directory.
   try {
     const stat = fs.lstatSync(skillsDst);
     if (stat.isSymbolicLink()) {
@@ -207,12 +207,12 @@ export function syncGroupSkills(): void {
 
       const installedVersion = readInstalledSkillVersion(dst);
       if (!installedVersion) {
-        // Legacy install without a managed version marker: preserve current
+        // Existing install without a managed version marker: preserve current
         // files and stamp the version so future upgrades are trackable.
         writeInstalledSkillVersion(dst, bundledVersion);
         logger.info(
           { skill: entry.name, version: bundledVersion },
-          'Stamped bundled skill version for legacy install',
+          'Stamped bundled skill version for existing install',
         );
         continue;
       }
@@ -236,6 +236,13 @@ function copyDirRecursive(src: string, dst: string): void {
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
     const srcPath = path.join(src, entry.name);
     const dstPath = path.join(dst, entry.name);
+    if (entry.isSymbolicLink()) {
+      logger.warn(
+        { path: srcPath },
+        'Skipping symlink while syncing bundled skills',
+      );
+      continue;
+    }
     if (entry.isDirectory()) {
       copyDirRecursive(srcPath, dstPath);
     } else {

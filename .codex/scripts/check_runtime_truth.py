@@ -71,8 +71,7 @@ def _check_runtime_settings_renderer() -> list[str]:
     ).read_text(encoding="utf-8")
     required_fragments = [
         "memory:",
-        "sqlite_path:",
-        "qmd_root:",
+        "root:",
         "embeddings:",
         "dreaming:",
     ]

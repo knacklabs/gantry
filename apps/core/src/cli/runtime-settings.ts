@@ -28,14 +28,24 @@ export interface RuntimeChannelSettings {
   senderAllowlist: SenderAllowlistConfig;
 }
 
-export type MemoryProviderName = 'sqlite' | 'qmd' | 'noop' | 'none';
 export type EmbeddingProviderName = 'disabled' | 'none' | 'openai';
+export type MemoryModelProfile = 'cheap' | 'balanced' | 'quality';
+export type MemoryModelTask =
+  | 'extractor'
+  | 'dreaming'
+  | 'consolidation'
+  | 'sessionSummary';
+
+export interface RuntimeMemoryLlmModels {
+  extractor: string;
+  dreaming: string;
+  consolidation: string;
+  sessionSummary: string;
+}
 
 export interface RuntimeMemorySettings {
   enabled: boolean;
-  provider: MemoryProviderName;
-  sqlitePath: string;
-  qmdRoot: string;
+  root: string;
   embeddings: {
     enabled: boolean;
     provider: EmbeddingProviderName;
@@ -43,6 +53,9 @@ export interface RuntimeMemorySettings {
   };
   dreaming: {
     enabled: boolean;
+  };
+  llm: {
+    models: RuntimeMemoryLlmModels;
   };
 }
 
@@ -71,20 +84,51 @@ const DEFAULT_SENDER_ALLOWLIST: SenderAllowlistConfig = {
   logDenied: true,
 };
 
-const VALID_MEMORY_PROVIDERS = new Set<MemoryProviderName>([
-  'sqlite',
-  'qmd',
-  'noop',
-  'none',
-]);
 const VALID_EMBEDDING_PROVIDERS = new Set<EmbeddingProviderName>([
   'disabled',
   'none',
   'openai',
 ]);
-const DEFAULT_SQLITE_PATH = 'store/memory.db';
-const DEFAULT_QMD_ROOT = 'agent-memory';
+const DEFAULT_MEMORY_ROOT = 'memory';
 const DEFAULT_EMBED_MODEL = 'text-embedding-3-large';
+const DEFAULT_MODEL_HAIKU = 'claude-haiku-4-5-20251001';
+const DEFAULT_MODEL_SONNET = 'claude-sonnet-4-6';
+
+const MEMORY_MODEL_PROFILES: Record<
+  MemoryModelProfile,
+  RuntimeMemoryLlmModels
+> = {
+  cheap: {
+    extractor: DEFAULT_MODEL_HAIKU,
+    dreaming: DEFAULT_MODEL_HAIKU,
+    consolidation: DEFAULT_MODEL_HAIKU,
+    sessionSummary: DEFAULT_MODEL_HAIKU,
+  },
+  balanced: {
+    extractor: DEFAULT_MODEL_HAIKU,
+    dreaming: DEFAULT_MODEL_SONNET,
+    consolidation: DEFAULT_MODEL_SONNET,
+    sessionSummary: DEFAULT_MODEL_HAIKU,
+  },
+  quality: {
+    extractor: DEFAULT_MODEL_SONNET,
+    dreaming: DEFAULT_MODEL_SONNET,
+    consolidation: DEFAULT_MODEL_SONNET,
+    sessionSummary: DEFAULT_MODEL_SONNET,
+  },
+};
+
+export function getMemoryModelProfileDefaults(
+  profile: MemoryModelProfile,
+): RuntimeMemoryLlmModels {
+  const selected = MEMORY_MODEL_PROFILES[profile];
+  return {
+    extractor: selected.extractor,
+    dreaming: selected.dreaming,
+    consolidation: selected.consolidation,
+    sessionSummary: selected.sessionSummary,
+  };
+}
 
 function unquote(value: string): string {
   const trimmed = value.trim();
@@ -122,8 +166,28 @@ function parseStringArray(raw: string): string[] {
     .filter((item) => item.length > 0);
 }
 
+function stripInlineComment(raw: string): string {
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (ch === '#' && !inSingle && !inDouble) {
+      return raw.slice(0, i).trimEnd();
+    }
+  }
+  return raw.trimEnd();
+}
+
 function parseScalar(raw: string): unknown {
-  const value = raw.trim();
+  const value = stripInlineComment(raw).trim();
   if (value === 'true') return true;
   if (value === 'false') return false;
   if (value === '{}') return {};
@@ -330,19 +394,6 @@ function parseBooleanValue(
   return raw;
 }
 
-function parseMemoryProvider(
-  raw: unknown,
-  pathPrefix: string,
-): MemoryProviderName {
-  if (
-    typeof raw !== 'string' ||
-    !VALID_MEMORY_PROVIDERS.has(raw as MemoryProviderName)
-  ) {
-    throw new Error(`${pathPrefix} must be sqlite, qmd, noop, or none`);
-  }
-  return raw as MemoryProviderName;
-}
-
 function parseEmbeddingProvider(
   raw: unknown,
   pathPrefix: string,
@@ -354,6 +405,42 @@ function parseEmbeddingProvider(
     throw new Error(`${pathPrefix} must be disabled, none, or openai`);
   }
   return raw as EmbeddingProviderName;
+}
+
+function parseMemoryLlmModels(
+  raw: unknown,
+  pathPrefix: string,
+): RuntimeMemoryLlmModels {
+  const defaults = getMemoryModelProfileDefaults('balanced');
+  if (raw === undefined) {
+    return defaults;
+  }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`${pathPrefix} must be a mapping`);
+  }
+  const map = raw as Record<string, unknown>;
+  return {
+    extractor: parseStringValue(
+      map.extractor,
+      `${pathPrefix}.extractor`,
+      defaults.extractor,
+    ),
+    dreaming: parseStringValue(
+      map.dreaming,
+      `${pathPrefix}.dreaming`,
+      defaults.dreaming,
+    ),
+    consolidation: parseStringValue(
+      map.consolidation,
+      `${pathPrefix}.consolidation`,
+      defaults.consolidation,
+    ),
+    sessionSummary: parseStringValue(
+      map.session_summary ?? map.sessionSummary,
+      `${pathPrefix}.session_summary`,
+      defaults.sessionSummary,
+    ),
+  };
 }
 
 function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
@@ -372,7 +459,7 @@ function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
   }
   const dreamingRaw = map.dreaming;
   if (
-    typeof dreamingRaw !== 'object' ||
+    (dreamingRaw !== undefined && typeof dreamingRaw !== 'object') ||
     dreamingRaw === null ||
     Array.isArray(dreamingRaw)
   ) {
@@ -380,9 +467,19 @@ function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
   }
 
   const embeddingsMap = embeddingsRaw as Record<string, unknown>;
-  const dreamingMap = dreamingRaw as Record<string, unknown>;
+  const dreamingMap = (dreamingRaw || {}) as Record<string, unknown>;
+  const llmRaw = map.llm;
+  if (
+    llmRaw !== undefined &&
+    (typeof llmRaw !== 'object' || llmRaw === null || Array.isArray(llmRaw))
+  ) {
+    throw new Error('memory.llm must be a mapping');
+  }
+  const llmMap = (llmRaw || {}) as Record<string, unknown>;
   const enabled = parseBooleanValue(map.enabled, 'memory.enabled');
-  const provider = parseMemoryProvider(map.provider, 'memory.provider');
+  if (!Object.prototype.hasOwnProperty.call(map, 'root')) {
+    throw new Error('memory.root must be set explicitly');
+  }
   const embeddingsEnabled = parseBooleanValue(
     embeddingsMap.enabled,
     'memory.embeddings.enabled',
@@ -394,17 +491,7 @@ function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
 
   return {
     enabled,
-    provider,
-    sqlitePath: parseStringValue(
-      map.sqlite_path,
-      'memory.sqlite_path',
-      DEFAULT_SQLITE_PATH,
-    ),
-    qmdRoot: parseStringValue(
-      map.qmd_root,
-      'memory.qmd_root',
-      DEFAULT_QMD_ROOT,
-    ),
+    root: parseStringValue(map.root, 'memory.root'),
     embeddings: {
       enabled: embeddingsEnabled,
       provider: embeddingsEnabled ? embeddingProvider : 'disabled',
@@ -418,7 +505,11 @@ function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
       enabled: parseBooleanValue(
         dreamingMap.enabled,
         'memory.dreaming.enabled',
+        false,
       ),
+    },
+    llm: {
+      models: parseMemoryLlmModels(llmMap.models, 'memory.llm.models'),
     },
   };
 }
@@ -552,15 +643,19 @@ function renderMemorySettingsYaml(
   lines.push(
     'memory:',
     `  enabled: ${memory.enabled ? 'true' : 'false'}`,
-    `  provider: ${memory.provider}`,
-    `  sqlite_path: ${quoteYamlString(memory.sqlitePath)}`,
-    `  qmd_root: ${quoteYamlString(memory.qmdRoot)}`,
+    `  root: ${quoteYamlString(memory.root)}`,
     '  embeddings:',
     `    enabled: ${memory.embeddings.enabled ? 'true' : 'false'}`,
     `    provider: ${memory.embeddings.provider}`,
     `    model: ${quoteYamlString(memory.embeddings.model)}`,
     '  dreaming:',
     `    enabled: ${memory.dreaming.enabled ? 'true' : 'false'}`,
+    '  llm:',
+    '    models:',
+    `      extractor: ${quoteYamlString(memory.llm.models.extractor)}`,
+    `      dreaming: ${quoteYamlString(memory.llm.models.dreaming)}`,
+    `      consolidation: ${quoteYamlString(memory.llm.models.consolidation)}`,
+    `      session_summary: ${quoteYamlString(memory.llm.models.sessionSummary)}`,
     '',
   );
 }
@@ -624,9 +719,7 @@ function createDefaultChannelSettings(
 function createDefaultRuntimeSettings(): RuntimeSettings {
   const memory: RuntimeMemorySettings = {
     enabled: true,
-    provider: 'sqlite',
-    sqlitePath: DEFAULT_SQLITE_PATH,
-    qmdRoot: DEFAULT_QMD_ROOT,
+    root: DEFAULT_MEMORY_ROOT,
     embeddings: {
       enabled: false,
       provider: 'disabled',
@@ -634,6 +727,9 @@ function createDefaultRuntimeSettings(): RuntimeSettings {
     },
     dreaming: {
       enabled: false,
+    },
+    llm: {
+      models: getMemoryModelProfileDefaults('balanced'),
     },
   };
   return {
@@ -647,6 +743,13 @@ function createDefaultRuntimeSettings(): RuntimeSettings {
 
 export function createDefaultRuntimeSettingsForTest(): RuntimeSettings {
   return createDefaultRuntimeSettings();
+}
+
+export function applyMemoryModelProfile(
+  settings: RuntimeSettings,
+  profile: MemoryModelProfile,
+): void {
+  settings.memory.llm.models = getMemoryModelProfileDefaults(profile);
 }
 
 export function parseRuntimeSettingsText(raw: string): RuntimeSettings {
@@ -762,15 +865,6 @@ export function validateRuntimeSettings(
     }
 
     if (
-      !settings.memory.enabled &&
-      settings.memory.provider !== 'noop' &&
-      settings.memory.provider !== 'none'
-    ) {
-      details.push(
-        'memory.provider should be noop or none when memory.enabled is false.',
-      );
-    }
-    if (
       settings.memory.embeddings.enabled &&
       settings.memory.embeddings.provider === 'disabled'
     ) {
@@ -778,15 +872,8 @@ export function validateRuntimeSettings(
         'memory.embeddings.provider cannot be disabled when memory.embeddings.enabled is true.',
       );
     }
-    if (
-      settings.memory.dreaming.enabled &&
-      (!settings.memory.enabled ||
-        settings.memory.provider === 'noop' ||
-        settings.memory.provider === 'none')
-    ) {
-      details.push(
-        'memory.dreaming.enabled requires persistent memory provider sqlite or qmd.',
-      );
+    if (settings.memory.dreaming.enabled && !settings.memory.enabled) {
+      details.push('memory.dreaming.enabled requires memory.enabled=true.');
     }
 
     if (details.length > 0) {

@@ -1118,11 +1118,11 @@ export class SlackChannel implements ChannelAdapter {
     jid: string,
     text: string,
     options: StreamingChunkOptions = {},
-  ): Promise<void> {
-    if (!this.app) return;
+  ): Promise<boolean> {
+    if (!this.app) return false;
     const parsed = this.parseJid(jid);
-    if (!parsed) return;
-    if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return;
+    if (!parsed) return false;
+    if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
 
     const key = this.streamKey(jid, options.threadId);
     let state = this.activeStreams.get(key);
@@ -1149,7 +1149,7 @@ export class SlackChannel implements ChannelAdapter {
     if (!rendered && options.done) {
       this.activeStreams.delete(key);
       this.markStreamingGenerationDone(jid, options.generation);
-      return;
+      return false;
     }
 
     const now = Date.now();
@@ -1158,10 +1158,13 @@ export class SlackChannel implements ChannelAdapter {
       options.done ||
       !hasMessageHandle ||
       now - state.lastFlushAt >= SLACK_STREAM_UPDATE_INTERVAL_MS;
-    if (!shouldFlush) return;
+    if (!shouldFlush) {
+      return Boolean(state.messageTs || state.nativeStreamTs);
+    }
 
     let nextText = rendered;
     if (!nextText) nextText = state.lastSentText;
+    let delivered = false;
 
     try {
       let startedNativeThisFlush = false;
@@ -1177,6 +1180,7 @@ export class SlackChannel implements ChannelAdapter {
           state.lastNativeText = nextText;
           state.lastSentText = nextText;
           startedNativeThisFlush = true;
+          delivered = true;
         } else {
           state.nativeEnabled = false;
         }
@@ -1198,6 +1202,7 @@ export class SlackChannel implements ChannelAdapter {
             state.nativeEnabled = false;
           } else {
             state.lastNativeText = nextText;
+            delivered = true;
           }
         }
         if (options.done && state.nativeEnabled) {
@@ -1206,10 +1211,13 @@ export class SlackChannel implements ChannelAdapter {
             state.nativeStreamTs,
           );
           if (!stopped) state.nativeEnabled = false;
+          if (stopped) delivered = true;
         }
       }
 
-      if (!this.isCurrentStreamingGeneration(jid, options.generation)) return;
+      if (!this.isCurrentStreamingGeneration(jid, options.generation)) {
+        return delivered;
+      }
       if (!state.nativeEnabled) {
         const fallbackText =
           state.lastNativeText && nextText.startsWith(state.lastNativeText)
@@ -1223,6 +1231,7 @@ export class SlackChannel implements ChannelAdapter {
               ...(state.threadId ? { thread_ts: state.threadId } : {}),
             })) as { ts?: string };
             state.messageTs = posted.ts;
+            delivered = true;
           }
         } else if (fallbackText) {
           await this.app.client.chat.update({
@@ -1230,6 +1239,7 @@ export class SlackChannel implements ChannelAdapter {
             ts: state.messageTs,
             text: fallbackText,
           });
+          delivered = true;
         }
       }
 
@@ -1248,6 +1258,7 @@ export class SlackChannel implements ChannelAdapter {
     } else {
       this.activeStreams.set(key, state);
     }
+    return delivered || Boolean(state.messageTs || state.nativeStreamTs);
   }
 
   resetStreaming(jid: string): void {

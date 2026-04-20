@@ -552,8 +552,9 @@ export class TelegramChannel implements ChannelAdapter {
     numericId: string,
     text: string,
     options: StreamingChunkOptions,
-  ): Promise<void> {
-    if (!this.bot) return;
+  ): Promise<boolean> {
+    if (!this.bot) return false;
+    let delivered = false;
     const parsedThreadId = options.threadId
       ? Number.parseInt(options.threadId, 10)
       : undefined;
@@ -581,7 +582,7 @@ export class TelegramChannel implements ChannelAdapter {
         this.activeGroupStreams.delete(key);
         this.markStreamingGenerationDone(jid, options.generation);
       }
-      return;
+      return false;
     }
 
     const now = Date.now();
@@ -605,7 +606,10 @@ export class TelegramChannel implements ChannelAdapter {
               headText,
               sendOptions,
             );
-            if (messageId) state.messageId = messageId;
+            if (messageId) {
+              state.messageId = messageId;
+              delivered = true;
+            }
           } else {
             const sent = await this.bot.api.sendMessage(
               numericId,
@@ -613,7 +617,10 @@ export class TelegramChannel implements ChannelAdapter {
               sendOptions,
             );
             const messageId = (sent as { message_id?: number })?.message_id;
-            if (messageId) state.messageId = messageId;
+            if (messageId) {
+              state.messageId = messageId;
+              delivered = true;
+            }
           }
         } else if (options.done) {
           // Final edit — apply MarkdownV2 formatting
@@ -623,6 +630,7 @@ export class TelegramChannel implements ChannelAdapter {
             state.messageId,
             headText,
           );
+          delivered = true;
         } else {
           // Intermediate edits — plain text, single API call, no fallback cascade
           try {
@@ -631,6 +639,7 @@ export class TelegramChannel implements ChannelAdapter {
               state.messageId,
               headText,
             );
+            delivered = true;
           } catch (err) {
             const msg = this.sanitizeErrorMessage(err);
             if (!/message is not modified/i.test(msg)) {
@@ -660,10 +669,11 @@ export class TelegramChannel implements ChannelAdapter {
             await this.sendMessage(jid, overflowText, {
               threadId: options.threadId,
             });
+            delivered = true;
           }
           this.markStreamingGenerationDone(jid, options.generation);
         }
-        return;
+        return delivered || Boolean(state.messageId);
       }
       logger.warn(
         { jid, err: sanitizedError },
@@ -674,11 +684,12 @@ export class TelegramChannel implements ChannelAdapter {
           await this.sendMessage(jid, renderedBuffer, {
             threadId: options.threadId,
           });
+          delivered = true;
         }
         this.activeGroupStreams.delete(key);
         this.markStreamingGenerationDone(jid, options.generation);
       }
-      return;
+      return delivered || Boolean(state.messageId);
     }
 
     if (options.done) {
@@ -693,9 +704,11 @@ export class TelegramChannel implements ChannelAdapter {
         await this.sendMessage(jid, overflowText, {
           threadId: options.threadId,
         });
+        delivered = true;
       }
       this.markStreamingGenerationDone(jid, options.generation);
     }
+    return delivered || Boolean(state.messageId);
   }
 
   private schedulePollingRetry(): void {
@@ -1525,19 +1538,18 @@ export class TelegramChannel implements ChannelAdapter {
     jid: string,
     text: string,
     options: StreamingChunkOptions = {},
-  ): Promise<void> {
-    if (!this.bot || !this.draftStreamApi) return;
-    if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return;
+  ): Promise<boolean> {
+    if (!this.bot || !this.draftStreamApi) return false;
+    if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
 
     const numericId = jid.replace(/^tg:/, '');
     const parsedChatId = Number.parseInt(numericId, 10);
     if (!Number.isFinite(parsedChatId)) {
       logger.warn({ jid }, 'Invalid Telegram chat id for streaming chunk');
-      return;
+      return false;
     }
     if (!this.isLikelyPrivateChatId(numericId)) {
-      await this.handleGroupStreamingChunk(jid, numericId, text, options);
-      return;
+      return this.handleGroupStreamingChunk(jid, numericId, text, options);
     }
 
     const parsedThreadId = options.threadId
@@ -1547,7 +1559,7 @@ export class TelegramChannel implements ChannelAdapter {
     let state = this.activeDraftStreams.get(key);
     if (!state && !text && options.done) {
       this.markStreamingGenerationDone(jid, options.generation);
-      return;
+      return false;
     }
     if (!state) {
       const draftThreadId = Number.isFinite(parsedThreadId)
@@ -1605,7 +1617,9 @@ export class TelegramChannel implements ChannelAdapter {
       this.activeDraftStreams.set(key, streamState);
       state = streamState;
     }
-    if (!state) return;
+    if (!state) return false;
+
+    let delivered = false;
 
     if (text) {
       state.rawBuffer += text;
@@ -1619,6 +1633,7 @@ export class TelegramChannel implements ChannelAdapter {
           continue;
         }
         state.pushChunk(chunk);
+        delivered = true;
       }
     }
 
@@ -1626,7 +1641,9 @@ export class TelegramChannel implements ChannelAdapter {
       state.closeStream();
       await state.streamPromise;
       this.markStreamingGenerationDone(jid, options.generation);
+      delivered = delivered || state.rawBuffer.trim().length > 0;
     }
+    return delivered || Boolean(this.activeDraftStreams.get(key));
   }
 
   async sendProgressUpdate(
