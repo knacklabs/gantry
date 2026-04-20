@@ -19,8 +19,8 @@ import { parseSignalStyles, parseTextStyles } from '@core/text-styles.js';
 function makeMsg(overrides: Partial<NewMessage> = {}): NewMessage {
   return {
     id: '1',
-    chat_jid: 'group@g.us',
-    sender: '123@s.whatsapp.net',
+    chat_jid: 'grp:1',
+    sender: 'user:alice',
     sender_name: 'Alice',
     content: 'hello',
     timestamp: '2024-01-01T00:00:00.000Z',
@@ -505,19 +505,19 @@ describe('findChannel', () => {
   }
 
   it('returns the channel that owns the given JID', () => {
-    const wa = makeFakeChannel('whatsapp', ['group@g.us', 'dm@s.whatsapp.net']);
-    const tg = makeFakeChannel('telegram', ['chat_123']);
+    const first = makeFakeChannel('first', ['grp:1', 'dm:1']);
+    const second = makeFakeChannel('second', ['room:2']);
 
-    expect(findChannel([wa, tg], 'group@g.us')).toBe(wa);
-    expect(findChannel([wa, tg], 'chat_123')).toBe(tg);
+    expect(findChannel([first, second], 'grp:1')).toBe(first);
+    expect(findChannel([first, second], 'room:2')).toBe(second);
   });
 
   it('returns undefined when no channel owns the JID', () => {
-    const wa = makeFakeChannel('whatsapp', ['group@g.us']);
-    expect(findChannel([wa], 'unknown-jid')).toBeUndefined();
+    const first = makeFakeChannel('first', ['grp:1']);
+    expect(findChannel([first], 'unknown-jid')).toBeUndefined();
   });
 
   it('returns undefined for an empty channels array', () => {
-    expect(findChannel([], 'group@g.us')).toBeUndefined();
+    expect(findChannel([], 'grp:1')).toBeUndefined();
   });
 });
