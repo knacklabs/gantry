@@ -800,8 +800,11 @@ async function runList(runtimeHome: string): Promise<number> {
 
     if (groups.length === 0) {
       p.log.warn('No agents are registered in this runtime home.');
+      const connectCommands = getChannelIds().map(
+        (channel) => `\`myclaw ${channel} connect\``,
+      );
       p.log.info(
-        'Next action: run `myclaw agent add <chat-id>` or `myclaw telegram connect`.',
+        `Next action: run \`myclaw agent add <chat-id>\` or ${connectCommands.join(' / ')}.`,
       );
       return 0;
     }

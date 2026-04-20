@@ -24,11 +24,23 @@ async function createBuiltInChannel(
 }
 
 async function runBuiltInSetup(
-  loadProvider: () => Promise<ChannelProvider>,
+  setup: (runtimeHome: string) => Promise<number>,
   ctx: ChannelProviderSetupContext,
 ): Promise<void> {
-  const provider = await loadProvider();
-  await provider.setup.run(ctx);
+  const code = await setup(ctx.runtimeHome);
+  if (code !== 0) {
+    throw new Error('Channel setup did not complete successfully');
+  }
+}
+
+async function runTelegramSetup(runtimeHome: string): Promise<number> {
+  const mod = await import('../cli/telegram-connect.js');
+  return await mod.runTelegramConnectCommand(runtimeHome);
+}
+
+async function runSlackSetup(runtimeHome: string): Promise<number> {
+  const mod = await import('../cli/slack.js');
+  return await mod.runSlackConnectCommand(runtimeHome);
 }
 
 function isChannelEnabled(
@@ -52,7 +64,7 @@ const telegramProvider: ChannelProvider = {
   setup: {
     envKeys: ['TELEGRAM_BOT_TOKEN'],
     describe: () => 'Telegram bot via Bot API',
-    run: (ctx) => runBuiltInSetup(loadTelegramProvider, ctx),
+    run: (ctx) => runBuiltInSetup(runTelegramSetup, ctx),
   },
 };
 
@@ -68,7 +80,7 @@ const slackProvider: ChannelProvider = {
   setup: {
     envKeys: ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'],
     describe: () => 'Slack Socket Mode',
-    run: (ctx) => runBuiltInSetup(loadSlackProvider, ctx),
+    run: (ctx) => runBuiltInSetup(runSlackSetup, ctx),
   },
 };
 

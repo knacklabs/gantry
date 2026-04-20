@@ -1,5 +1,6 @@
 import { upsertEnvFile } from './env-file.js';
 import type { HostCredentialMode } from '../core/credential-mode.js';
+import { getChannelProvider } from '../bootstrap/channel-providers.js';
 import {
   envFilePath,
   ensureRuntimeLayout,
@@ -43,7 +44,12 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
   });
 
   const settings = loadRuntimeSettings(input.runtimeHome);
-  settings.channels.telegram.enabled = Boolean(input.telegramBotToken.trim());
+  const telegramProvider = getChannelProvider('telegram');
+  if (telegramProvider && settings.channels[telegramProvider.id]) {
+    settings.channels[telegramProvider.id].enabled = Boolean(
+      input.telegramBotToken.trim(),
+    );
+  }
   settings.memory = {
     ...settings.memory,
     enabled: input.memoryEnabled,

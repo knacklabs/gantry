@@ -2,6 +2,10 @@
 
 import * as p from '@clack/prompts';
 import { runSessionHook } from '../bin/session-hook.js';
+import {
+  getChannelProvider,
+  listChannelProviders,
+} from '../bootstrap/channel-providers.js';
 
 import { formatDoctorReport, runDoctorWithNetwork } from './doctor.js';
 import { runConfigCommand } from './config.js';
@@ -28,7 +32,7 @@ import {
   formatRuntimePreflightFailure,
   validateRuntimePreflight,
 } from './runtime-preflight.js';
-import { runSlackConnectCommand } from './slack.js';
+import { runProviderConnectCommand } from './provider-connect.js';
 import { runSetupFlow } from './setup-flow.js';
 import { collectRuntimeStatus, formatRuntimeStatus } from './status.js';
 import { ensureRuntimeSettings } from './runtime-settings.js';
@@ -43,6 +47,10 @@ interface ParsedArgs {
 }
 
 function usage(): string {
+  const providerConnectCommands = listChannelProviders().map(
+    (provider) => `  myclaw ${provider.id} connect`,
+  );
+
   return [
     'MyClaw CLI',
     '',
@@ -78,8 +86,7 @@ function usage(): string {
     '  myclaw agent add <jid|chat-id>',
     '  myclaw agent remove <jid|folder>',
     '  myclaw agent trigger <jid|folder> <word>',
-    '  myclaw telegram connect',
-    '  myclaw slack connect',
+    ...providerConnectCommands,
     '  myclaw service install',
     '  myclaw service start',
     '  myclaw service stop',
@@ -384,14 +391,6 @@ async function runSmartEntrypoint(runtimeHome: string): Promise<number> {
   return runStatusCommand(import.meta.url, runtimeHome);
 }
 
-async function runTelegramConnectCommand(runtimeHome: string): Promise<number> {
-  return runSetupCommand(runtimeHome, 'telegram');
-}
-
-async function runSlackConnect(runtimeHome: string): Promise<number> {
-  return runSlackConnectCommand(runtimeHome);
-}
-
 async function main(): Promise<number> {
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed.help) {
@@ -458,12 +457,8 @@ async function main(): Promise<number> {
     return runConfigCommand(runtimeHome, rest);
   }
 
-  if (command === 'telegram' && subcommand === 'connect') {
-    return runTelegramConnectCommand(runtimeHome);
-  }
-
-  if (command === 'slack' && subcommand === 'connect') {
-    return runSlackConnect(runtimeHome);
+  if (subcommand === 'connect' && getChannelProvider(command)) {
+    return runProviderConnectCommand(runtimeHome, command);
   }
 
   if (command === 'service' && subcommand) {

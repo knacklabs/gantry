@@ -24,7 +24,11 @@ describe('runtime status', () => {
     const status = collectRuntimeStatus(import.meta.url, runtimeHome);
 
     expect(fs.existsSync(settingsFilePath(runtimeHome))).toBe(true);
-    expect(status.telegramEnabled).toBe(false);
-    expect(status.slackEnabled).toBe(false);
+    expect(
+      status.channels.find((channel) => channel.id === 'telegram')?.enabled,
+    ).toBe(false);
+    expect(
+      status.channels.find((channel) => channel.id === 'slack')?.enabled,
+    ).toBe(false);
   });
 });

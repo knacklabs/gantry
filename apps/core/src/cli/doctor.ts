@@ -1,6 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
+import {
+  getChannelProvider,
+  listChannelProviders,
+} from '../bootstrap/channel-providers.js';
 
 import { readEnvFile } from './env-file.js';
 import {
@@ -87,7 +91,10 @@ function addToReport(report: DoctorReport, check: DoctorCheck): DoctorReport {
   };
 }
 
-function inspectTelegramGroupCount(runtimeHome: string): {
+function inspectProviderGroupCount(
+  runtimeHome: string,
+  jidPrefix: string,
+): {
   count: number;
   error?: string;
 } {
@@ -101,9 +108,9 @@ function inspectTelegramGroupCount(runtimeHome: string): {
     db = new Database(dbPath, { readonly: true });
     const row = db
       .prepare(
-        `SELECT COUNT(*) as count FROM registered_groups WHERE jid LIKE 'tg:%'`,
+        `SELECT COUNT(*) as count FROM registered_groups WHERE jid LIKE ?`,
       )
-      .get() as { count: number };
+      .get(`${jidPrefix}%`) as { count: number };
     return { count: row.count };
   } catch (err) {
     return {
@@ -119,36 +126,18 @@ function inspectTelegramGroupCount(runtimeHome: string): {
   }
 }
 
+function inspectTelegramGroupCount(runtimeHome: string): {
+  count: number;
+  error?: string;
+} {
+  return inspectProviderGroupCount(runtimeHome, 'tg:');
+}
+
 function inspectSlackGroupCount(runtimeHome: string): {
   count: number;
   error?: string;
 } {
-  const dbPath = path.join(runtimeHome, 'store', 'messages.db');
-  if (!fs.existsSync(dbPath)) {
-    return { count: 0 };
-  }
-
-  let db: Database.Database | null = null;
-  try {
-    db = new Database(dbPath, { readonly: true });
-    const row = db
-      .prepare(
-        `SELECT COUNT(*) as count FROM registered_groups WHERE jid LIKE 'sl:%'`,
-      )
-      .get() as { count: number };
-    return { count: row.count };
-  } catch (err) {
-    return {
-      count: 0,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  } finally {
-    try {
-      db?.close();
-    } catch {
-      // Ignore close errors and preserve primary failure.
-    }
-  }
+  return inspectProviderGroupCount(runtimeHome, 'sl:');
 }
 
 function inspectRegisteredGroupCount(runtimeHome: string): {
@@ -356,10 +345,12 @@ export function runDoctor(
 
   const settingsResult = loadSettingsForDoctor(runtimeHome);
   const settings = settingsResult.settings;
-  const telegramEnabled = settings?.channels.telegram.enabled ?? false;
-  const slackEnabled = settings?.channels.slack.enabled ?? false;
+  const providers = listChannelProviders();
+  const enabledProviders = settings
+    ? providers.filter((provider) => settings.channels[provider.id]?.enabled)
+    : [];
   if (settings) {
-    if (telegramEnabled || slackEnabled) {
+    if (enabledProviders.length > 0) {
       add(checks, {
         id: 'runtime-settings',
         title: 'Runtime Settings',
@@ -373,8 +364,7 @@ export function runDoctor(
         status: 'fail',
         message:
           'Runtime settings are valid, but no channels are enabled in settings.yaml.',
-        nextAction:
-          'Run `myclaw telegram connect` or `myclaw slack connect` to enable a channel.',
+        nextAction: `Run ${providers.map((provider) => `\`myclaw ${provider.id} connect\``).join(' or ')} to enable a channel.`,
       });
     }
   } else {
@@ -394,52 +384,61 @@ export function runDoctor(
     apiKey: env.ANTHROPIC_API_KEY,
   });
 
-  const hasTelegramToken = Boolean(env.TELEGRAM_BOT_TOKEN?.trim());
-  if (!telegramEnabled) {
-    add(checks, {
-      id: 'telegram-token',
-      title: 'Telegram Token',
-      status: 'pass',
-      message: 'Telegram channel is disabled in settings.yaml.',
-    });
-  } else {
-    add(checks, {
-      id: 'telegram-token',
-      title: 'Telegram Token',
-      status: hasTelegramToken ? 'pass' : 'warn',
-      message: hasTelegramToken
-        ? 'Telegram token is configured.'
-        : `Telegram token is missing in ${envPath}.`,
-      nextAction: hasTelegramToken
-        ? undefined
-        : 'Run `myclaw telegram connect` to configure your bot token.',
-    });
-  }
+  for (const provider of providers) {
+    const enabled = settings?.channels[provider.id]?.enabled ?? false;
+    const configuredKeys = provider.setup.envKeys.filter((envKey) =>
+      Boolean(env[envKey]?.trim()),
+    );
+    const missingKeys = provider.setup.envKeys.filter(
+      (envKey) => !env[envKey]?.trim(),
+    );
+    const envCheckId =
+      provider.id === 'telegram'
+        ? 'telegram-token'
+        : provider.id === 'slack'
+          ? 'slack-tokens'
+          : `${provider.id}-credentials`;
+    const envCheckTitle =
+      provider.id === 'telegram'
+        ? 'Telegram Token'
+        : provider.id === 'slack'
+          ? 'Slack Tokens'
+          : `${provider.label} Credentials`;
 
-  const hasSlackBotToken = Boolean(env.SLACK_BOT_TOKEN?.trim());
-  const hasSlackAppToken = Boolean(env.SLACK_APP_TOKEN?.trim());
-  const slackTokensConfigured = hasSlackBotToken && hasSlackAppToken;
-  if (!slackEnabled) {
-    add(checks, {
-      id: 'slack-tokens',
-      title: 'Slack Tokens',
-      status: 'pass',
-      message: 'Slack channel is disabled in settings.yaml.',
-    });
-  } else {
-    add(checks, {
-      id: 'slack-tokens',
-      title: 'Slack Tokens',
-      status: slackTokensConfigured ? 'pass' : 'warn',
-      message: slackTokensConfigured
-        ? 'Slack bot/app tokens are configured.'
-        : hasSlackBotToken || hasSlackAppToken
-          ? 'Slack token setup is incomplete (both bot and app tokens are required).'
-          : `Slack tokens are missing in ${envPath}.`,
-      nextAction: slackTokensConfigured
-        ? undefined
-        : 'Run `myclaw slack connect` to configure Slack Socket Mode credentials.',
-    });
+    if (!enabled) {
+      add(checks, {
+        id: envCheckId,
+        title: envCheckTitle,
+        status: 'pass',
+        message: `${provider.label} channel is disabled in settings.yaml.`,
+      });
+    } else if (missingKeys.length === 0) {
+      add(checks, {
+        id: envCheckId,
+        title: envCheckTitle,
+        status: 'pass',
+        message:
+          provider.id === 'telegram'
+            ? 'Telegram token is configured.'
+            : provider.id === 'slack'
+              ? 'Slack bot/app tokens are configured.'
+              : `${provider.label} credentials are configured.`,
+      });
+    } else {
+      const partialConfigured = configuredKeys.length > 0;
+      add(checks, {
+        id: envCheckId,
+        title: envCheckTitle,
+        status: 'warn',
+        message:
+          provider.id === 'telegram'
+            ? `Telegram token is missing in ${envPath}.`
+            : provider.id === 'slack' && partialConfigured
+              ? 'Slack token setup is incomplete (both bot and app tokens are required).'
+              : `${provider.label} credentials are missing in ${envPath}.`,
+        nextAction: `Run \`myclaw ${provider.id} connect\` to configure ${provider.label}.`,
+      });
+    }
   }
 
   const memoryHealth = inspectMemoryHealth(runtimeHome, settings, env);
@@ -471,77 +470,62 @@ export function runDoctor(
         : 'Set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in .env, then rerun `myclaw doctor`.',
   });
 
-  if (telegramEnabled) {
-    const telegramGroups = inspectTelegramGroupCount(runtimeHome);
-    if (telegramGroups.error) {
-      add(checks, {
-        id: 'telegram-groups',
-        title: 'Telegram Group Registry',
-        status: 'fail',
-        message:
-          'Could not read registered Telegram groups; runtime database may be corrupted.',
-        nextAction: `Repair or replace ${path.join(runtimeHome, 'store', 'messages.db')}. Details: ${telegramGroups.error}`,
-      });
-    } else if (telegramGroups.count > 0) {
-      add(checks, {
-        id: 'telegram-groups',
-        title: 'Telegram Group Registry',
-        status: 'pass',
-        message: `${telegramGroups.count} Telegram group(s) registered.`,
-      });
-    } else {
-      add(checks, {
-        id: 'telegram-groups',
-        title: 'Telegram Group Registry',
-        status: 'warn',
-        message: 'No Telegram groups are registered.',
-        nextAction:
-          'Run `myclaw telegram connect` (or `myclaw agent add <chat-id>`) to connect a chat.',
-      });
-    }
-  } else {
-    add(checks, {
-      id: 'telegram-groups',
-      title: 'Telegram Group Registry',
-      status: 'pass',
-      message: 'Telegram channel is disabled in settings.yaml.',
-    });
-  }
+  for (const provider of providers) {
+    const enabled = settings?.channels[provider.id]?.enabled ?? false;
+    const groupCheckId =
+      provider.id === 'telegram'
+        ? 'telegram-groups'
+        : provider.id === 'slack'
+          ? 'slack-groups'
+          : `${provider.id}-groups`;
+    const groupCheckTitle =
+      provider.id === 'telegram'
+        ? 'Telegram Group Registry'
+        : provider.id === 'slack'
+          ? 'Slack Group Registry'
+          : `${provider.label} Group Registry`;
 
-  if (slackEnabled) {
-    const slackGroups = inspectSlackGroupCount(runtimeHome);
-    if (slackGroups.error) {
+    if (!enabled) {
       add(checks, {
-        id: 'slack-groups',
-        title: 'Slack Group Registry',
-        status: 'fail',
-        message:
-          'Could not read registered Slack groups; runtime database may be corrupted.',
-        nextAction: `Repair or replace ${path.join(runtimeHome, 'store', 'messages.db')}. Details: ${slackGroups.error}`,
-      });
-    } else if (slackGroups.count > 0) {
-      add(checks, {
-        id: 'slack-groups',
-        title: 'Slack Group Registry',
+        id: groupCheckId,
+        title: groupCheckTitle,
         status: 'pass',
-        message: `${slackGroups.count} Slack group(s) registered.`,
+        message: `${provider.label} channel is disabled in settings.yaml.`,
       });
-    } else {
-      add(checks, {
-        id: 'slack-groups',
-        title: 'Slack Group Registry',
-        status: 'warn',
-        message: 'No Slack groups are registered.',
-        nextAction:
-          'Run `myclaw slack connect` (or `myclaw agent add sl:<channel-id>`) to connect Slack.',
-      });
+      continue;
     }
-  } else {
+
+    const groupSummary = inspectProviderGroupCount(
+      runtimeHome,
+      provider.jidPrefix,
+    );
+    if (groupSummary.error) {
+      add(checks, {
+        id: groupCheckId,
+        title: groupCheckTitle,
+        status: 'fail',
+        message: `Could not read registered ${provider.label} groups; runtime database may be corrupted.`,
+        nextAction: `Repair or replace ${path.join(runtimeHome, 'store', 'messages.db')}. Details: ${groupSummary.error}`,
+      });
+      continue;
+    }
+
+    if (groupSummary.count > 0) {
+      add(checks, {
+        id: groupCheckId,
+        title: groupCheckTitle,
+        status: 'pass',
+        message: `${groupSummary.count} ${provider.label} group(s) registered.`,
+      });
+      continue;
+    }
+
     add(checks, {
-      id: 'slack-groups',
-      title: 'Slack Group Registry',
-      status: 'pass',
-      message: 'Slack channel is disabled in settings.yaml.',
+      id: groupCheckId,
+      title: groupCheckTitle,
+      status: 'warn',
+      message: `No ${provider.label} groups are registered.`,
+      nextAction: `Run \`myclaw ${provider.id} connect\` (or \`myclaw agent add <jid>\`) to connect ${provider.label}.`,
     });
   }
 
@@ -604,8 +588,13 @@ export async function runDoctorWithNetwork(
     return report;
   }
 
+  const telegramProvider = getChannelProvider('telegram');
+  if (!telegramProvider) {
+    return report;
+  }
+
   const settings = loadSettingsForDoctor(runtimeHome).settings;
-  if (!settings?.channels.telegram.enabled) {
+  if (!settings?.channels[telegramProvider.id]?.enabled) {
     return report;
   }
 
@@ -664,8 +653,8 @@ export function formatDoctorReport(report: DoctorReport): string {
 export function hasRuntimeConfig(runtimeHome: string): boolean {
   try {
     const settings = ensureRuntimeSettings(runtimeHome);
-    return (
-      settings.channels.telegram.enabled || settings.channels.slack.enabled
+    return listChannelProviders().some(
+      (provider) => settings.channels[provider.id]?.enabled,
     );
   } catch {
     return false;
@@ -694,18 +683,16 @@ export function hasProcessableGroupForConfiguredChannel(
 
   const env = readEnvFile(envFilePath(runtimeHome));
 
-  if (settings.channels.telegram.enabled && env.TELEGRAM_BOT_TOKEN?.trim()) {
-    const telegramGroups = inspectTelegramGroupCount(runtimeHome);
-    if (!telegramGroups.error && telegramGroups.count > 0) return true;
-  }
-
-  if (
-    settings.channels.slack.enabled &&
-    env.SLACK_BOT_TOKEN?.trim() &&
-    env.SLACK_APP_TOKEN?.trim()
-  ) {
-    const slackGroups = inspectSlackGroupCount(runtimeHome);
-    if (!slackGroups.error && slackGroups.count > 0) return true;
+  for (const provider of listChannelProviders()) {
+    if (!settings.channels[provider.id]?.enabled) continue;
+    const hasRequiredCredentials = provider.setup.envKeys.every((envKey) =>
+      Boolean(env[envKey]?.trim()),
+    );
+    if (!hasRequiredCredentials) continue;
+    const groups = inspectProviderGroupCount(runtimeHome, provider.jidPrefix);
+    if (!groups.error && groups.count > 0) {
+      return true;
+    }
   }
 
   return false;
