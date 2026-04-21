@@ -35,11 +35,11 @@ These have been verified in the current codebase as of 2026-04-18:
 
 ### File layout
 
-- Memory module: `apps/core/src/memory/` contains `memory-types.ts`, `memory-store.ts`, `memory-service.ts`, `memory-provider.ts`, `memory-retrieval.ts`, `memory-extractor.ts`, `memory-consolidation.ts`, `memory-dreaming.ts`, `memory-embeddings.ts`, `memory-embedding-cache.ts`, `memory-item-search.ts`, `memory-ipc.ts`, `agent-memory-root.ts`, `index.ts`.
+- Memory module: `apps/core/src/memory/` contains `memory-types.ts`, `memory-store.ts`, `memory-service.ts`, `memory-retrieval.ts`, `extractor-llm.ts`, `extractor-types.ts`, `memory-consolidation.ts`, `memory-dreaming.ts`, `memory-embeddings.ts`, `memory-embedding-cache.ts`, `memory-item-search.ts`, `memory-ipc.ts`, `memory-root.ts`, `index.ts`.
 - Session module: `apps/core/src/session/` contains `session-commands.ts`, `session-transcript-archive.ts`.
 - Config: `apps/core/src/core/config.ts`.
 - Runtime IPC + scheduler: `apps/core/src/runtime/ipc.ts`, `apps/core/src/runtime/task-scheduler.ts`, `apps/core/src/runtime/group-processing.ts`.
-- Agent runner (MCP stdio + permission flow): `packages/agent-runner/src/index.ts`, `packages/agent-runner/src/ipc-mcp-stdio.ts`.
+- Agent runner (MCP stdio + permission flow): moved into core runtime under `apps/core/src/runner/index.ts` and `apps/core/src/runner/ipc-mcp-stdio.ts`.
 - Anthropic SDK already present as `@anthropic-ai/sdk` and used in `memory-consolidation.ts`.
 - SQLite via `better-sqlite3` with `sqlite-vec` for vector search.
 
@@ -147,7 +147,7 @@ After every user-assistant turn, inside `MemoryService.reflectAfterTurn()` (exis
 
 ### Pre-filter (keep regex as gate)
 
-Reuse the existing regex patterns in `memory-extractor.ts` (`isPreferenceLine` etc.) but only to decide **whether to call the LLM**. If zero pattern hits across the turn, skip the LLM call entirely and emit telemetry `extraction_skipped_prefilter`.
+Reuse the extraction pre-filter patterns in `extractor-llm.ts` for deciding **whether to call the LLM**. If zero pattern hits across the turn, skip the LLM call entirely and emit telemetry `extraction_skipped_prefilter`.
 
 ### New file: `apps/core/src/memory/extractor-llm.ts`
 

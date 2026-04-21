@@ -5,7 +5,7 @@
 Create a provider file under `apps/core/src/channels/<name>.ts` and export a `ChannelProvider`:
 
 ```ts
-import type { ChannelProvider } from './api.js';
+import type { ChannelProvider } from './provider-registry.js';
 
 export const exampleProvider: ChannelProvider = {
   id: 'example',

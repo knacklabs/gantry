@@ -5,22 +5,20 @@ import {
   registerChannelProvider,
 } from './provider-registry.js';
 
-async function loadTelegramProvider(): Promise<ChannelProvider> {
-  const mod = await import('./telegram.js');
-  return mod.telegramProvider;
-}
-
-async function loadSlackProvider(): Promise<ChannelProvider> {
-  const mod = await import('./slack.js');
-  return mod.slackProvider;
-}
-
-async function createBuiltInChannel(
-  loadProvider: () => Promise<ChannelProvider>,
+async function createTelegramBuiltInChannel(
   opts: ChannelOpts,
-): Promise<Awaited<ReturnType<ChannelProvider['create']>>> {
-  const provider = await loadProvider();
-  return await provider.create(opts);
+): Promise<
+  ReturnType<(typeof import('./telegram.js'))['createTelegramChannel']>
+> {
+  const mod = await import('./telegram.js');
+  return mod.createTelegramChannel(opts);
+}
+
+async function createSlackBuiltInChannel(
+  opts: ChannelOpts,
+): Promise<ReturnType<(typeof import('./slack.js'))['createSlackChannel']>> {
+  const mod = await import('./slack.js');
+  return mod.createSlackChannel(opts);
 }
 
 async function runBuiltInSetup(
@@ -63,7 +61,7 @@ const telegramProvider: ChannelProvider = {
   isGroupJid: (jid: string) => jid.startsWith('tg:-'),
   formatting: 'telegram-html',
   isEnabled: (settings) => isChannelEnabled(settings, 'telegram'),
-  create: (opts) => createBuiltInChannel(loadTelegramProvider, opts),
+  create: createTelegramBuiltInChannel,
   setup: {
     envKeys: ['TELEGRAM_BOT_TOKEN'],
     describe: () => 'Telegram bot via Bot API',
@@ -79,7 +77,7 @@ const slackProvider: ChannelProvider = {
   isGroupJid: () => true,
   formatting: 'mrkdwn',
   isEnabled: (settings) => isChannelEnabled(settings, 'slack'),
-  create: (opts) => createBuiltInChannel(loadSlackProvider, opts),
+  create: createSlackBuiltInChannel,
   setup: {
     envKeys: ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'],
     describe: () => 'Slack Socket Mode',

@@ -26,7 +26,6 @@ import {
   UserQuestionResponse,
 } from '../core/types.js';
 import { parseTextStyles } from '../text-styles.js';
-import { ChannelProvider } from './provider-registry.js';
 
 const TELEGRAM_MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
 const TELEGRAM_DRAFT_MAX_LENGTH = 4096;
@@ -83,8 +82,6 @@ type PendingUserQuestionState = {
     answeredBy?: string;
   }) => void;
 };
-
-export interface TelegramChannelOpts extends ChannelOpts {}
 
 function escapeTelegramMarkdownV2Plain(text: string): string {
   return text.replace(/[\[\]()`>#+\-=|{}.!\\]/g, '\\$&');
@@ -290,7 +287,7 @@ export class TelegramChannel implements ChannelAdapter {
   private draftStreamApi: TelegramStreamApi | null = null;
   private isStopping = false;
   private pollingRetryTimer: ReturnType<typeof setTimeout> | null = null;
-  private opts: TelegramChannelOpts;
+  private opts: ChannelOpts;
   private botToken: string;
   private pendingPermissionPrompts = new Map<
     string,
@@ -309,7 +306,7 @@ export class TelegramChannel implements ChannelAdapter {
   private activeProgressMessages = new Map<string, ActiveProgressState>();
   private nextDraftIdOffset = 1;
 
-  constructor(botToken: string, opts: TelegramChannelOpts) {
+  constructor(botToken: string, opts: ChannelOpts) {
     this.botToken = botToken;
     this.opts = opts;
   }
@@ -1971,19 +1968,3 @@ export function createTelegramChannel(
   }
   return new TelegramChannel(token, opts);
 }
-
-export const telegramProvider: ChannelProvider = {
-  id: 'telegram',
-  label: 'Telegram',
-  jidPrefix: 'tg:',
-  folderPrefix: 'telegram_',
-  isGroupJid: (jid: string) => jid.startsWith('tg:-'),
-  formatting: 'telegram-html',
-  isEnabled: (settings) => settings.channels.telegram?.enabled ?? false,
-  create: (opts) => createTelegramChannel(opts),
-  setup: {
-    envKeys: ['TELEGRAM_BOT_TOKEN'],
-    describe: () => 'Telegram bot via Bot API',
-    run: async () => {},
-  },
-};

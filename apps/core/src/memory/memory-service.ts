@@ -48,11 +48,11 @@ import {
   DreamingResult,
   runDreamingSweep as runMemoryDreamingSweep,
 } from './memory-dreaming.js';
-import {
-  createLlmMemoryExtractionProvider,
+import { createLlmMemoryExtractionProvider } from './extractor-llm.js';
+import type {
   MemoryExtractorUsage,
   MemoryExtractionProvider,
-} from './extractor-llm.js';
+} from './extractor-types.js';
 import { ChunkInsert, MemoryStore } from './memory-store.js';
 import { JournalAppendInput, MemoryJournal } from './memory-journal.js';
 import { MemoryIndexer } from './memory-indexer.js';

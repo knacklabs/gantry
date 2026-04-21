@@ -25,7 +25,6 @@ import {
 } from '../messaging/router.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import { ChannelAdapter, ChannelOpts } from './channel-provider.js';
-import { ChannelProvider } from './provider-registry.js';
 
 const SLACK_STREAM_UPDATE_INTERVAL_MS = 900;
 const SLACK_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
@@ -1658,19 +1657,3 @@ export function createSlackChannel(opts: ChannelOpts): SlackChannel | null {
 
   return new SlackChannel(botToken, appToken, opts);
 }
-
-export const slackProvider: ChannelProvider = {
-  id: 'slack',
-  label: 'Slack',
-  jidPrefix: 'sl:',
-  folderPrefix: 'slack_',
-  isGroupJid: () => true,
-  formatting: 'mrkdwn',
-  isEnabled: (settings) => settings.channels.slack?.enabled ?? false,
-  create: (opts) => createSlackChannel(opts),
-  setup: {
-    envKeys: ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'],
-    describe: () => 'Slack Socket Mode',
-    run: async () => {},
-  },
-};

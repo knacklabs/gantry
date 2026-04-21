@@ -21,14 +21,6 @@ import type {
 } from './extractor-types.js';
 import { sanitizeOutboundLlmText } from './sensitive-material.js';
 
-export type {
-  ArcExtractionInput,
-  ExtractedMemoryFact,
-  ExtractableMemoryKind,
-  MemoryExtractionProvider,
-  MemoryExtractorUsage,
-} from './extractor-types.js';
-
 interface LlmFact {
   kind?: unknown;
   scope?: unknown;

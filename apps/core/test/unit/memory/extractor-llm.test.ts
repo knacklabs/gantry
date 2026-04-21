@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ArcExtractionInput } from '@core/memory/extractor-llm.js';
+import type { ArcExtractionInput } from '@core/memory/extractor-types.js';
 import { LlmMemoryExtractionProvider } from '@core/memory/extractor-llm.js';
 
 const claudeQueryMock = vi.hoisted(() => vi.fn());
