@@ -65,7 +65,7 @@ describe('memory-hook command', () => {
     const service = createServiceMock();
     const env: NodeJS.ProcessEnv = {
       MYCLAW_GROUP_FOLDER: 'team',
-      AGENT_ROOT: '/tmp/runtime',
+      MYCLAW_HOME: '/tmp/runtime',
     };
     const writeSpy = vi
       .spyOn(process.stdout, 'write')
@@ -103,7 +103,7 @@ describe('memory-hook command', () => {
     const transcriptPath = createTranscript(runtimeHome, 'team', sessionId);
     const env: NodeJS.ProcessEnv = {
       MYCLAW_GROUP_FOLDER: 'team',
-      AGENT_ROOT: runtimeHome,
+      MYCLAW_HOME: runtimeHome,
     };
 
     const code = await runMemoryHookCommand(
@@ -130,7 +130,7 @@ describe('memory-hook command', () => {
     const transcriptPath = createTranscript(runtimeHome, 'team', sessionId);
     const env: NodeJS.ProcessEnv = {
       MYCLAW_GROUP_FOLDER: 'team',
-      AGENT_ROOT: runtimeHome,
+      MYCLAW_HOME: runtimeHome,
     };
 
     const code = await runMemoryHookCommand(
@@ -158,7 +158,7 @@ describe('memory-hook command', () => {
     const runtimeHome = createRuntimeHome();
     const env: NodeJS.ProcessEnv = {
       MYCLAW_GROUP_FOLDER: 'team',
-      AGENT_ROOT: runtimeHome,
+      MYCLAW_HOME: runtimeHome,
     };
 
     const code = await runMemoryHookCommand(

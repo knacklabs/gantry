@@ -1,11 +1,11 @@
-import os from 'os';
 import path from 'path';
 
-import { envConfig, envValue } from './config-env.js';
 import {
   readRuntimeMemorySettingsSnapshot,
   type RuntimeMemorySettingsSnapshot,
-} from './runtime-memory-settings.js';
+} from '../cli/runtime-settings.js';
+import { envConfig, envValue } from './config-env.js';
+import { getMyclawHome } from './myclaw-home.js';
 import { isValidTimezone } from './timezone.js';
 
 export const ASSISTANT_NAME =
@@ -13,15 +13,13 @@ export const ASSISTANT_NAME =
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 
-const HOME_DIR = process.env.HOME || os.homedir();
-const AGENT_ROOT_RAW =
-  process.env.AGENT_ROOT?.trim() || envConfig.AGENT_ROOT?.trim() || '';
-const DEFAULT_AGENT_ROOT = path.join(HOME_DIR, 'myclaw');
-export const AGENT_ROOT = path.resolve(AGENT_ROOT_RAW || DEFAULT_AGENT_ROOT);
-const RUNTIME_ROOT = AGENT_ROOT;
+const MYCLAW_HOME_RAW =
+  process.env.MYCLAW_HOME?.trim() || envConfig.MYCLAW_HOME?.trim() || '';
+export const MYCLAW_HOME = getMyclawHome(MYCLAW_HOME_RAW);
+const RUNTIME_ROOT = MYCLAW_HOME;
 
 export const SCHEDULER_JOBS_JSON_PATH = path.join(
-  AGENT_ROOT,
+  MYCLAW_HOME,
   'scheduler-jobs.json',
 );
 export const STORE_DIR = path.resolve(RUNTIME_ROOT, 'store');
@@ -30,7 +28,7 @@ export const DATA_DIR = path.resolve(RUNTIME_ROOT, 'data');
 let runtimeMemorySettings: RuntimeMemorySettingsSnapshot = {};
 let runtimeMemorySettingsError: Error | null = null;
 try {
-  runtimeMemorySettings = readRuntimeMemorySettingsSnapshot(AGENT_ROOT);
+  runtimeMemorySettings = readRuntimeMemorySettingsSnapshot(MYCLAW_HOME);
 } catch (err) {
   runtimeMemorySettingsError =
     err instanceof Error ? err : new Error(String(err));
@@ -744,10 +742,6 @@ export const MAX_MESSAGES_PER_PROMPT = Math.max(
 );
 export const IPC_POLL_INTERVAL = 1000;
 export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min default — how long to keep the agent run alive after last result
-export const MAX_CONCURRENT_CONTAINERS = Math.max(
-  1,
-  parseInt(process.env.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5,
-);
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

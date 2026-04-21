@@ -4,10 +4,10 @@
   "type": "module",
   "description": "Canonical IPC contracts for MyClaw host and runner.",
   "main": "dist/index.js",
-  "types": "src/index.ts",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
+      "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
   },

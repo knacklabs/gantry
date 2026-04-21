@@ -4,6 +4,5 @@ export default makeVitestConfig({
   include: [
     'apps/core/test/unit/**/*.test.ts',
     'packages/contracts/test/unit/**/*.test.ts',
-    'packages/agent-runner/test/unit/**/*.test.ts',
   ],
 });

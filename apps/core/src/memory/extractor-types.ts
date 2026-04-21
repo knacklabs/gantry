@@ -1,5 +1,4 @@
 import { MemoryKind, MemoryScope } from './memory-types.js';
-import { createLlmMemoryExtractionProvider } from './extractor-llm.js';
 
 export interface ArcExtractionInput {
   turns: Array<{ role: 'user' | 'assistant'; text: string }>;
@@ -40,8 +39,4 @@ export interface MemoryExtractionProvider {
   extractFacts(
     input: ArcExtractionInput,
   ): ExtractedMemoryFact[] | Promise<ExtractedMemoryFact[]>;
-}
-
-export function createMemoryExtractionProvider(): MemoryExtractionProvider {
-  return createLlmMemoryExtractionProvider();
 }

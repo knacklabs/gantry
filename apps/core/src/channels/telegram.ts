@@ -1026,8 +1026,7 @@ export class TelegramChannel implements ChannelAdapter {
 
   /**
    * Download a Telegram file to the group's attachments directory.
-   * Returns the agent workspace path (e.g. /workspace/group/attachments/photo_123.jpg)
-   * or null if the download fails.
+   * Returns the absolute attachment path on disk or null if the download fails.
    */
   private async downloadFile(
     fileId: string,
@@ -1080,7 +1079,7 @@ export class TelegramChannel implements ChannelAdapter {
       if (!wrote) return null;
 
       logger.info({ fileId, dest: destPath }, 'Telegram file downloaded');
-      return `/workspace/group/attachments/${finalName}`;
+      return destPath;
     } catch (err) {
       logger.error(
         { fileId, error: this.sanitizeErrorMessage(err) },

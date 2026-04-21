@@ -3,11 +3,15 @@ import path from 'path';
 
 import { DATA_DIR } from '../core/config.js';
 import { logger } from '../core/logger.js';
+import { getClaudeProjectDirName } from '../core/myclaw-home.js';
 import {
   MemoryRootService,
   SessionArchiveCause,
 } from '../memory/memory-root.js';
-import { isValidGroupFolder } from '../platform/group-folder.js';
+import {
+  isValidGroupFolder,
+  resolveGroupFolderPath,
+} from '../platform/group-folder.js';
 
 interface SessionEntry {
   sessionId?: string;
@@ -264,7 +268,7 @@ function findTranscriptPath(
   );
   const expectedPath = path.join(
     projectsDir,
-    '-workspace-group',
+    getClaudeProjectDirName(resolveGroupFolderPath(groupFolder)),
     `${sessionId}.jsonl`,
   );
 

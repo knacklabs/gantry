@@ -2,7 +2,7 @@ import {
   RuntimeSettings,
   loadRuntimeSettings,
 } from '../cli/runtime-settings.js';
-import { AGENT_ROOT } from '../core/config.js';
+import { MYCLAW_HOME } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import { ensureRuntimeLayoutDirectories } from '../platform/runtime-layout.js';
 import { ensurePromptProfileBootstrapped } from '../runtime/prompt-profile.js';
@@ -43,7 +43,7 @@ export async function runStartup(
     ...deps,
   };
 
-  resolved.ensureRuntimeLayoutDirectories(AGENT_ROOT);
+  resolved.ensureRuntimeLayoutDirectories(MYCLAW_HOME);
   try {
     resolved.ensurePromptProfileBootstrapped();
   } catch (err) {
@@ -56,7 +56,7 @@ export async function runStartup(
   resolved.initDatabase();
   resolved.logger.info('Database initialized');
 
-  const runtimeSettings = resolved.loadRuntimeSettings(AGENT_ROOT);
+  const runtimeSettings = resolved.loadRuntimeSettings(MYCLAW_HOME);
   app.loadState();
   app.ensureOneCLIAgentsForRegisteredGroups();
 

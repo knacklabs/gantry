@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatMemoryTimeoutError,
   getMemoryActionTimeoutMs,
-} from '@agent-runner-src/memory-timeouts.js';
+} from '../../../src/runner/memory-timeouts.js';
 
 describe('agent-runner memory timeout helpers', () => {
   it('uses extended timeout for memory consolidation and dreaming actions', () => {

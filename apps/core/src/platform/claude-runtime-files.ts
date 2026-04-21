@@ -17,10 +17,7 @@ export function resolvePackageRootFromSourceDir(sourceDir: string): string {
   let currentDir = path.resolve(sourceDir);
 
   while (true) {
-    if (
-      fs.existsSync(path.join(currentDir, 'package.json')) &&
-      fs.existsSync(path.join(currentDir, 'packages', 'agent-runner'))
-    ) {
+    if (fs.existsSync(path.join(currentDir, 'package.json'))) {
       return currentDir;
     }
 
@@ -56,7 +53,7 @@ function readPackageSpec(packageRoot: string): string {
   } catch {
     // Fall through to the public package name.
   }
-  return 'myclaw';
+  return '@myclaw/core';
 }
 
 function buildMemoryHookSettings(): Record<string, unknown> {

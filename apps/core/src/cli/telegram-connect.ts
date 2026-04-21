@@ -1,5 +1,6 @@
 import * as p from '@clack/prompts';
-import { getChannelProvider } from '../bootstrap/channel-providers.js';
+import '../channels/register-builtins.js';
+import { getChannelProvider } from '../channels/provider-registry.js';
 import { upsertEnvFile } from './env-file.js';
 import { envFilePath, ensureRuntimeLayout } from './runtime-home.js';
 import {

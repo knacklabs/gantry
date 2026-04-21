@@ -4,9 +4,9 @@
  *
  * Input protocol:
  *   Stdin: Full agent input JSON (read until EOF)
- *   IPC:   Follow-up messages written as JSON files to /workspace/ipc/input/
+ *   IPC:   Follow-up messages written as JSON files to MYCLAW_IPC_INPUT_DIR
  *          Files: {type:"message", text:"..."}.json — polled and consumed
- *          Sentinel: /workspace/ipc/input/_close — signals session end
+ *          Sentinel: MYCLAW_IPC_INPUT_DIR/_close — signals session end
  *
  * Stdout protocol:
  *   Each result is wrapped in OUTPUT_START_MARKER / OUTPUT_END_MARKER pairs.
@@ -57,13 +57,18 @@ interface SDKUserMessage {
   session_id: string;
 }
 
-const WORKSPACE_GROUP_DIR =
-  process.env.MYCLAW_WORKSPACE_GROUP_DIR || '/workspace/group';
-const WORKSPACE_EXTRA_DIR =
-  process.env.MYCLAW_WORKSPACE_EXTRA_DIR || '/workspace/extra';
-const IPC_BASE_DIR = process.env.MYCLAW_IPC_DIR || '/workspace/ipc';
-const IPC_INPUT_DIR =
-  process.env.MYCLAW_IPC_INPUT_DIR || '/workspace/ipc/input';
+function requirePathEnv(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
+const WORKSPACE_GROUP_DIR = requirePathEnv('MYCLAW_WORKSPACE_GROUP_DIR');
+const WORKSPACE_EXTRA_DIR = requirePathEnv('MYCLAW_WORKSPACE_EXTRA_DIR');
+const IPC_BASE_DIR = requirePathEnv('MYCLAW_IPC_DIR');
+const IPC_INPUT_DIR = requirePathEnv('MYCLAW_IPC_INPUT_DIR');
 const IPC_AUTH_TOKEN = process.env.MYCLAW_IPC_AUTH_TOKEN || '';
 const PERMISSION_REQUEST_TIMEOUT_MS = Math.max(
   10_000,
@@ -81,8 +86,6 @@ interface PermissionDecision {
 }
 
 function resolveGroupIpcDir(groupFolder: string): string {
-  // `MYCLAW_IPC_DIR` is normally group-scoped, but older/alternate runtimes
-  // may still provide the shared IPC root. Handle both without double-nesting.
   if (path.basename(IPC_BASE_DIR) === groupFolder) {
     return IPC_BASE_DIR;
   }

@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { RuntimeSettings } from '@core/cli/runtime-settings.js';
+import '@core/channels/register-builtins.js';
 import {
   getChannelProvider,
   listChannelProviders,
   providerForJid,
   registerChannelProvider,
-} from '@core/bootstrap/channel-providers.js';
+} from '@core/channels/provider-registry.js';
 
 function makeRuntimeSettings(enabled: {
   telegram: boolean;

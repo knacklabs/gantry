@@ -19,10 +19,10 @@ export async function createTempRuntimeHome(
     path.join(os.tmpdir(), 'myclaw-hermetic-runtime-'),
   );
 
-  const previousAgentRoot = process.env.AGENT_ROOT;
+  const previousAgentRoot = process.env.MYCLAW_HOME;
   const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
   const previousHome = process.env.HOME;
-  process.env.AGENT_ROOT = runtimeHome;
+  process.env.MYCLAW_HOME = runtimeHome;
   process.env.HOME = runtimeHome;
   delete process.env.OPENAI_API_KEY;
 
@@ -47,9 +47,9 @@ export async function createTempRuntimeHome(
     settings,
     cleanup: () => {
       if (previousAgentRoot === undefined) {
-        delete process.env.AGENT_ROOT;
+        delete process.env.MYCLAW_HOME;
       } else {
-        process.env.AGENT_ROOT = previousAgentRoot;
+        process.env.MYCLAW_HOME = previousAgentRoot;
       }
       if (previousOpenAiApiKey === undefined) {
         delete process.env.OPENAI_API_KEY;

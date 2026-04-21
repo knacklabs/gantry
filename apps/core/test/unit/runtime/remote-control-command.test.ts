@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { AGENT_ROOT } from '@core/core/config.js';
+import { MYCLAW_HOME } from '@core/core/config.js';
 import { Channel, NewMessage, RegisteredGroup } from '@core/core/types.js';
 import {
   asRemoteControlCommand,
@@ -161,7 +161,7 @@ describe('handleRemoteControlCommand', () => {
     expect(mockStart).toHaveBeenCalledWith(
       baseMsgFields.sender,
       'group@g.us',
-      AGENT_ROOT,
+      MYCLAW_HOME,
     );
     expect(channel.sent).toContain('https://example.com/session');
 

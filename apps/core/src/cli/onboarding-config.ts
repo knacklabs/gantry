@@ -1,6 +1,7 @@
 import { upsertEnvFile } from './env-file.js';
 import type { HostCredentialMode } from '../core/credential-mode.js';
-import { getChannelProvider } from '../bootstrap/channel-providers.js';
+import '../channels/register-builtins.js';
+import { getChannelProvider } from '../channels/provider-registry.js';
 import {
   envFilePath,
   ensureRuntimeLayout,

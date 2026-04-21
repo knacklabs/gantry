@@ -1,5 +1,6 @@
 import * as p from '@clack/prompts';
-import { getChannelProvider } from '../bootstrap/channel-providers.js';
+import '../channels/register-builtins.js';
+import { getChannelProvider } from '../channels/provider-registry.js';
 
 export async function runProviderConnectCommand(
   runtimeHome: string,

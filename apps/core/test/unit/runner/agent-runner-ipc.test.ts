@@ -60,10 +60,7 @@ function createRunnerFixture(): {
   const memoryContextFile = path.join(ipcDir, 'memory_context.json');
 
   fs.mkdirSync(sdkDir, { recursive: true });
-  fs.copyFileSync(
-    path.resolve('packages/agent-runner/src/index.ts'),
-    runnerPath,
-  );
+  fs.copyFileSync(path.resolve('apps/core/src/runner/index.ts'), runnerPath);
   fs.writeFileSync(
     path.join(sdkDir, 'package.json'),
     JSON.stringify({ type: 'module', main: 'index.js' }),
@@ -137,7 +134,7 @@ export async function* query({ prompt, options }) {
         displayName: 'Bash',
         description: 'Needs shell access',
         decisionReason: 'Agent wants to verify tests',
-        blockedPath: '/workspace/group',
+        blockedPath: process.env.MYCLAW_WORKSPACE_GROUP_DIR,
       },
     );
     const requestDir = path.join(process.env.MYCLAW_IPC_DIR, 'permission-requests');

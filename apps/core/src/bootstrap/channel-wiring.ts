@@ -1,5 +1,6 @@
 import { RuntimeSettings } from '../cli/runtime-settings.js';
 import { logger } from '../core/logger.js';
+import '../channels/register-builtins.js';
 import {
   GroupDiscoverySource,
   MessageSendOptions,
@@ -43,7 +44,7 @@ import {
   ChannelProvider,
   listChannelProviders,
   providerForJid,
-} from './channel-providers.js';
+} from '../channels/provider-registry.js';
 
 interface ChannelWiringDeps {
   channelProviders: readonly ChannelProvider[];

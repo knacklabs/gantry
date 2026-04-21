@@ -15,7 +15,7 @@ import {
 import {
   getChannelProvider,
   registerChannelProvider,
-} from '@core/bootstrap/channel-providers.js';
+} from '@core/channels/provider-registry.js';
 
 let tmpDir: string;
 

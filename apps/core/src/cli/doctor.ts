@@ -1,10 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
+import '../channels/register-builtins.js';
 import {
   getChannelProvider,
   listChannelProviders,
-} from '../bootstrap/channel-providers.js';
+} from '../channels/provider-registry.js';
 
 import { readEnvFile } from './env-file.js';
 import {

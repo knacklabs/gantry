@@ -1,9 +1,0 @@
-# Core code - maintainer only
-/apps/core/ @gavrielc @gabi-simons
-/packages/agent-runner/ @gavrielc @gabi-simons
-/ops/ @gavrielc @gabi-simons
-/package.json @gavrielc @gabi-simons
-/package-lock.json @gavrielc @gabi-simons
-
-# Skills - open to contributors
-/.claude/skills/

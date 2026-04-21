@@ -16,7 +16,7 @@ describe('runClaudeQuery', () => {
     runtimeRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), 'myclaw-claude-query-'),
     );
-    vi.stubEnv('AGENT_ROOT', runtimeRoot);
+    vi.stubEnv('MYCLAW_HOME', runtimeRoot);
     vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', '');
     vi.stubEnv('ANTHROPIC_API_KEY', '');
     queryMock.mockReset();

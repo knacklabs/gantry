@@ -30,7 +30,7 @@ function writeMemorySettings(runtimeHome: string): void {
 beforeEach(() => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-memory-ipc-'));
   tempRoots.push(root);
-  process.env.AGENT_ROOT = root;
+  process.env.MYCLAW_HOME = root;
 });
 
 afterEach(async () => {
@@ -60,7 +60,7 @@ afterEach(async () => {
 
 describe('memory IPC provider integration', () => {
   it('routes memory IPC requests through memory service', async () => {
-    writeMemorySettings(process.env.AGENT_ROOT!);
+    writeMemorySettings(process.env.MYCLAW_HOME!);
     process.env.OPENAI_API_KEY = 'test-key';
     process.env.MEMORY_SEMANTIC_DEDUP_ENABLED = 'false';
 
@@ -210,7 +210,7 @@ describe('memory IPC provider integration', () => {
   it('memory_search succeeds when embeddings are disabled by default', async () => {
     // Embeddings are disabled by default, so search should stay available even
     // when OPENAI_API_KEY is empty.
-    writeMemorySettings(process.env.AGENT_ROOT!);
+    writeMemorySettings(process.env.MYCLAW_HOME!);
     process.env.OPENAI_API_KEY = '';
     process.env.MEMORY_SEMANTIC_DEDUP_ENABLED = 'false';
 
@@ -233,7 +233,7 @@ describe('memory IPC provider integration', () => {
   });
 
   it('returns error for empty search query', async () => {
-    writeMemorySettings(process.env.AGENT_ROOT!);
+    writeMemorySettings(process.env.MYCLAW_HOME!);
     process.env.OPENAI_API_KEY = 'test-key';
     process.env.MEMORY_SEMANTIC_DEDUP_ENABLED = 'false';
 
@@ -255,7 +255,7 @@ describe('memory IPC provider integration', () => {
   });
 
   it('returns error for unsupported memory action', async () => {
-    writeMemorySettings(process.env.AGENT_ROOT!);
+    writeMemorySettings(process.env.MYCLAW_HOME!);
     process.env.OPENAI_API_KEY = 'test-key';
     process.env.MEMORY_SEMANTIC_DEDUP_ENABLED = 'false';
 

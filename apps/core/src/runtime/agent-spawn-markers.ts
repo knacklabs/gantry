@@ -1,2 +1,0 @@
-export const OUTPUT_START_MARKER = '---MYCLAW_OUTPUT_START---';
-export const OUTPUT_END_MARKER = '---MYCLAW_OUTPUT_END---';

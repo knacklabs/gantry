@@ -2,7 +2,8 @@ import fs from 'fs';
 import path from 'path';
 
 import * as p from '@clack/prompts';
-import { getChannelProvider } from '../bootstrap/channel-providers.js';
+import '../channels/register-builtins.js';
+import { getChannelProvider } from '../channels/provider-registry.js';
 
 import { readEnvFile, upsertEnvFile } from './env-file.js';
 import { openRuntimeGroupDb } from './runtime-group-db.js';

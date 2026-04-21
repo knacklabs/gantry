@@ -1,5 +1,6 @@
 import * as p from '@clack/prompts';
-import { listChannelProviders } from '../bootstrap/channel-providers.js';
+import '../channels/register-builtins.js';
+import { listChannelProviders } from '../channels/provider-registry.js';
 
 import { resolveHostCredentialMode } from '../core/credential-mode.js';
 import type { HostCredentialMode } from '../core/credential-mode.js';

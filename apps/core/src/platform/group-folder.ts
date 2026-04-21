@@ -1,19 +1,9 @@
 import path from 'path';
 
 import { DATA_DIR, AGENTS_DIR } from '../core/config.js';
+import { isValidGroupFolder } from './group-folder-rules.js';
 
-const GROUP_FOLDER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
-const RESERVED_FOLDERS = new Set(['global', 'shared']);
-
-export function isValidGroupFolder(folder: string): boolean {
-  if (!folder) return false;
-  if (folder !== folder.trim()) return false;
-  if (!GROUP_FOLDER_PATTERN.test(folder)) return false;
-  if (folder.includes('/') || folder.includes('\\')) return false;
-  if (folder.includes('..')) return false;
-  if (RESERVED_FOLDERS.has(folder.toLowerCase())) return false;
-  return true;
-}
+export { isValidGroupFolder } from './group-folder-rules.js';
 
 function assertValidGroupFolder(folder: string): void {
   if (!isValidGroupFolder(folder)) {

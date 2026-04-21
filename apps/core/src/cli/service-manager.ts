@@ -200,7 +200,7 @@ function writeLaunchdPlist(runtimeHome: string, runtimeEntry: string): void {
   <true/>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>AGENT_ROOT</key>
+    <key>MYCLAW_HOME</key>
     <string>${runtimeHome}</string>
     <key>HOME</key>
     <string>${os.homedir()}</string>
@@ -240,7 +240,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-Environment=AGENT_ROOT=${runtimeHome}
+Environment=MYCLAW_HOME=${runtimeHome}
 Environment=HOME=${os.homedir()}
 Environment=PATH=${servicePath}
 ExecStart=${process.execPath} ${runtimeEntry}
@@ -270,7 +270,7 @@ if [ -f ${JSON.stringify(pidPath)} ]; then
     sleep 1
   fi
 fi
-AGENT_ROOT=${JSON.stringify(runtimeHome)} nohup ${JSON.stringify(process.execPath)} ${JSON.stringify(runtimeEntry)} \\
+MYCLAW_HOME=${JSON.stringify(runtimeHome)} nohup ${JSON.stringify(process.execPath)} ${JSON.stringify(runtimeEntry)} \\
   >> ${JSON.stringify(runtimeLogPath(runtimeHome))} \\
   2>> ${JSON.stringify(runtimeErrorLogPath(runtimeHome))} &
 echo $! > ${JSON.stringify(pidPath)}
@@ -440,7 +440,7 @@ export function startService(runtimeHome: string): ServiceOutcome {
         windowsHide: true,
         env: {
           ...process.env,
-          AGENT_ROOT: runtimeHome,
+          MYCLAW_HOME: runtimeHome,
           HOME: os.homedir(),
           PATH: buildServicePath(os.homedir()),
         },

@@ -50,7 +50,7 @@ export function makeVitestConfig(options: VitestConfigOptions) {
         '@contracts-src': path.resolve(__dirname, 'packages/contracts/src'),
         '@agent-runner-src': path.resolve(
           __dirname,
-          'packages/agent-runner/src',
+          'apps/core/src/runner',
         ),
       },
     },

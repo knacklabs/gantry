@@ -26,16 +26,10 @@ function makeTempRoot(): string {
   return root;
 }
 
-function writeHostRunner(runnerRoot: string, recordPath: string): void {
-  const distDir = path.join(runnerRoot, 'dist');
-  fs.mkdirSync(distDir, { recursive: true });
+function writeHostRunner(runnerDistDir: string, recordPath: string): void {
+  fs.mkdirSync(runnerDistDir, { recursive: true });
   fs.writeFileSync(
-    path.join(runnerRoot, 'package.json'),
-    JSON.stringify({ type: 'module' }),
-    'utf-8',
-  );
-  fs.writeFileSync(
-    path.join(distDir, 'index.js'),
+    path.join(runnerDistDir, 'index.js'),
     `
 import fs from 'node:fs';
 
@@ -68,7 +62,7 @@ process.stdin.on('end', () => {
 });
 `,
   );
-  fs.writeFileSync(path.join(distDir, 'ipc-mcp-stdio.js'), '');
+  fs.writeFileSync(path.join(runnerDistDir, 'ipc-mcp-stdio.js'), '');
 }
 
 describe('host child-process runtime smoke', () => {
@@ -76,12 +70,12 @@ describe('host child-process runtime smoke', () => {
     const root = makeTempRoot();
     const dataDir = path.join(root, 'data');
     const agentRoot = path.join(root, 'agents');
-    const runnerRoot = path.join(root, 'runner');
+    const runnerDistDir = path.join(root, 'dist', 'runner');
     const groupDir = path.join(agentRoot, 'main');
     const groupIpcDir = path.join(dataDir, 'ipc', 'main');
     const recordPath = path.join(root, 'child-record.json');
     const memoryContextFile = path.join(groupIpcDir, 'memory_context.run.json');
-    writeHostRunner(runnerRoot, recordPath);
+    writeHostRunner(runnerDistDir, recordPath);
 
     vi.doMock('@core/core/config.js', async () => {
       const actual = await vi.importActual<
@@ -94,7 +88,8 @@ describe('host child-process runtime smoke', () => {
         DATA_DIR: dataDir,
         AGENTS_DIR: agentRoot,
         IDLE_TIMEOUT: 5_000,
-        AGENT_ROOT: agentRoot,
+        MYCLAW_HOME: agentRoot,
+        MYCLAW_HOME: agentRoot,
         ONECLI_URL: '',
         PERMISSION_APPROVAL_TIMEOUT_MS: 5_000,
         TIMEZONE: 'UTC',
@@ -117,7 +112,7 @@ describe('host child-process runtime smoke', () => {
       prepareHostRuntimeContext: () => ({
         groupDir,
         groupIpcDir,
-        runnerRoot,
+        runnerDistDir,
       }),
     }));
     vi.doMock('@core/runtime/agent-spawn-layout.js', () => ({

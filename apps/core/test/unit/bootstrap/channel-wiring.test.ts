@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { RuntimeSettings } from '@core/cli/runtime-settings.js';
 import { ChannelAdapter } from '@core/channels/channel-provider.js';
-import { ChannelProvider } from '@core/bootstrap/channel-providers.js';
+import { ChannelProvider } from '@core/channels/provider-registry.js';
 import { createChannelWiring } from '@core/bootstrap/channel-wiring.js';
 import { RuntimeApp } from '@core/bootstrap/runtime-app.js';
 

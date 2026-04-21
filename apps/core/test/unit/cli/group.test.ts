@@ -20,7 +20,7 @@ let runtimeHome = '';
 beforeEach(() => {
   vi.resetModules();
   runtimeHome = createRuntimeHome();
-  process.env.AGENT_ROOT = runtimeHome;
+  process.env.MYCLAW_HOME = runtimeHome;
 });
 
 afterEach(() => {

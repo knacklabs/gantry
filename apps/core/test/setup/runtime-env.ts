@@ -48,4 +48,4 @@ fs.mkdirSync(path.join(runtimeHome, 'agents'), { recursive: true });
 fs.mkdirSync(path.join(runtimeHome, 'memory'), { recursive: true });
 fs.writeFileSync(settingsPath, settingsYaml, 'utf-8');
 
-process.env.AGENT_ROOT = runtimeHome;
+process.env.MYCLAW_HOME = runtimeHome;

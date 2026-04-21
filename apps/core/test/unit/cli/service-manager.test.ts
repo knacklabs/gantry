@@ -27,7 +27,7 @@ async function loadServiceManagerWithMocks(
   } = {},
 ) {
   vi.resetModules();
-  vi.stubEnv('AGENT_ROOT', options.runtimeHome ?? createRuntimeHome());
+  vi.stubEnv('MYCLAW_HOME', options.runtimeHome ?? createRuntimeHome());
   const platform = options.platform ?? 'unknown';
   const systemdUser = options.hasSystemdUser ?? false;
   vi.doMock('@core/cli/platform.js', () => ({

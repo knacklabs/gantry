@@ -49,10 +49,10 @@ import {
   runDreamingSweep as runMemoryDreamingSweep,
 } from './memory-dreaming.js';
 import {
-  createMemoryExtractionProvider,
+  createLlmMemoryExtractionProvider,
   MemoryExtractorUsage,
   MemoryExtractionProvider,
-} from './memory-extractor.js';
+} from './extractor-llm.js';
 import { ChunkInsert, MemoryStore } from './memory-store.js';
 import { JournalAppendInput, MemoryJournal } from './memory-journal.js';
 import { MemoryIndexer } from './memory-indexer.js';
@@ -165,7 +165,7 @@ export class MemoryService {
   constructor(
     store: MemoryStore = new MemoryStore(),
     embeddings: EmbeddingProvider = createEmbeddingProvider(),
-    extractor: MemoryExtractionProvider = createMemoryExtractionProvider(),
+    extractor: MemoryExtractionProvider = createLlmMemoryExtractionProvider(),
     journal: MemoryJournal = new MemoryJournal(
       path.join(memoryStorageDir, '.journal'),
       MEMORY_JOURNAL_DISABLED,

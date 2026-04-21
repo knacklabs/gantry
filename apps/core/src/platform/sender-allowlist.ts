@@ -1,5 +1,6 @@
-import { AGENT_ROOT } from '../core/config.js';
+import { MYCLAW_HOME } from '../core/config.js';
 import { logger } from '../core/logger.js';
+import '../channels/register-builtins.js';
 import {
   ChatAllowlistEntry,
   SenderAllowlistConfig,
@@ -9,7 +10,7 @@ import { settingsFilePath } from '../cli/runtime-home.js';
 import {
   listChannelProviders,
   providerForJid,
-} from '../bootstrap/channel-providers.js';
+} from '../channels/provider-registry.js';
 
 export type RuntimeSenderAllowlistConfig = Record<
   string,
@@ -55,7 +56,7 @@ function getChannelConfig(
 export function loadSenderAllowlist(
   settingsPathOverride?: string,
 ): RuntimeSenderAllowlistConfig {
-  const filePath = settingsPathOverride ?? settingsFilePath(AGENT_ROOT);
+  const filePath = settingsPathOverride ?? settingsFilePath(MYCLAW_HOME);
 
   try {
     const settings = loadRuntimeSettingsFromPath(filePath);

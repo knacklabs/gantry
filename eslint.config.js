@@ -20,8 +20,15 @@ const wrapperMessage =
   'Import from the split domain modules (core/storage/platform/messaging), not root wrappers.'
 
 export default [
-  { ignores: ['node_modules/', 'dist/', 'packages/agent-runner/dist/', 'apps/core/agents/'] },
-  { files: ['apps/core/src/**/*.{js,ts}', 'packages/agent-runner/src/**/*.{js,ts}'] },
+  { ignores: ['node_modules/', 'dist/', 'apps/core/agents/'] },
+  {
+    files: [
+      'apps/core/src/**/*.{js,ts}',
+      'apps/core/test/**/*.{js,ts}',
+      'packages/contracts/src/**/*.{js,ts}',
+      'packages/contracts/test/**/*.{js,ts}',
+    ],
+  },
   { languageOptions: { globals: globals.node } },
   pluginJs.configs.recommended,
   ...tseslint.configs.recommended,

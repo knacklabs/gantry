@@ -2,31 +2,23 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+import { getMyclawHome } from '../core/myclaw-home.js';
 import { ensureRuntimeLayoutDirectories } from '../platform/runtime-layout.js';
 
-export const DEFAULT_RUNTIME_HOME = path.join(os.homedir(), 'myclaw');
+export const DEFAULT_RUNTIME_HOME = path.join(os.homedir(), '.myclaw');
 const GLOBAL_CONFIG_DIR = path.join(os.homedir(), '.config', 'myclaw');
 const RUNTIME_HOME_POINTER_PATH = path.join(
   GLOBAL_CONFIG_DIR,
   'runtime-home.txt',
 );
 
-function expandHomePath(input: string): string {
-  if (input === '~') return os.homedir();
-  if (input.startsWith('~/') || input.startsWith('~\\')) {
-    return path.join(os.homedir(), input.slice(2));
-  }
-  return input;
-}
-
 export function resolveRuntimeHome(raw?: string): string {
   const source =
     raw?.trim() ||
-    process.env.AGENT_ROOT?.trim() ||
+    process.env.MYCLAW_HOME?.trim() ||
     readPreferredRuntimeHome() ||
     DEFAULT_RUNTIME_HOME;
-  const expanded = expandHomePath(source);
-  return path.resolve(expanded);
+  return getMyclawHome(source);
 }
 
 export function ensureRuntimeLayout(runtimeHome: string): void {
@@ -66,7 +58,7 @@ export function savePreferredRuntimeHome(runtimeHome: string): void {
 export function readPreferredRuntimeHome(): string | null {
   try {
     const value = fs.readFileSync(RUNTIME_HOME_POINTER_PATH, 'utf-8').trim();
-    return value ? path.resolve(expandHomePath(value)) : null;
+    return value ? getMyclawHome(value) : null;
   } catch {
     return null;
   }

@@ -53,7 +53,7 @@ describe('ensureSharedSessionSettings', () => {
 
     // Mock AGENT_ROOT to point to our temp root
     vi.doMock('@core/core/config.js', () => ({
-      AGENT_ROOT: root,
+      MYCLAW_HOME: root,
       DATA_DIR: root,
     }));
 
@@ -86,7 +86,7 @@ describe('ensureSharedSessionSettings', () => {
     const root = makeTmpRoot(roots);
 
     vi.doMock('@core/core/config.js', () => ({
-      AGENT_ROOT: root,
+      MYCLAW_HOME: root,
       DATA_DIR: root,
     }));
 
@@ -121,7 +121,7 @@ describe('ensureSharedSessionSettings', () => {
     fs.writeFileSync(settingsPath, '{{not valid json}}');
 
     vi.doMock('@core/core/config.js', () => ({
-      AGENT_ROOT: root,
+      MYCLAW_HOME: root,
       DATA_DIR: root,
     }));
 
@@ -154,7 +154,7 @@ describe('ensureSharedSessionSettings', () => {
     fs.writeFileSync(settingsPath, '"just a string"');
 
     vi.doMock('@core/core/config.js', () => ({
-      AGENT_ROOT: root,
+      MYCLAW_HOME: root,
       DATA_DIR: root,
     }));
 
@@ -215,7 +215,7 @@ describe('ensureSharedSessionSettings', () => {
     );
 
     vi.doMock('@core/core/config.js', () => ({
-      AGENT_ROOT: root,
+      MYCLAW_HOME: root,
       DATA_DIR: root,
     }));
 
@@ -292,7 +292,7 @@ describe('syncGroupSkills', () => {
     process.chdir(cwdRoot);
 
     vi.doMock('@core/core/config.js', () => ({
-      AGENT_ROOT: configRoot,
+      MYCLAW_HOME: configRoot,
       DATA_DIR: configRoot,
     }));
 
@@ -313,7 +313,7 @@ describe('syncGroupSkills', () => {
     process.chdir(cwdRoot);
 
     vi.doMock('@core/core/config.js', () => ({
-      AGENT_ROOT: configRoot,
+      MYCLAW_HOME: configRoot,
       DATA_DIR: configRoot,
     }));
 
@@ -339,7 +339,7 @@ describe('syncGroupSkills', () => {
     process.chdir(cwdRoot);
 
     vi.doMock('@core/core/config.js', () => ({
-      AGENT_ROOT: configRoot,
+      MYCLAW_HOME: configRoot,
       DATA_DIR: configRoot,
     }));
 
@@ -360,7 +360,7 @@ describe('syncGroupSkills', () => {
     process.chdir(cwdRoot);
 
     vi.doMock('@core/core/config.js', () => ({
-      AGENT_ROOT: configRoot,
+      MYCLAW_HOME: configRoot,
       DATA_DIR: configRoot,
     }));
 
@@ -391,7 +391,7 @@ describe('syncGroupSkills', () => {
     fs.writeFileSync(path.join(skillDir, 'LOCAL.txt'), 'remove me');
 
     vi.doMock('@core/core/config.js', () => ({
-      AGENT_ROOT: configRoot,
+      MYCLAW_HOME: configRoot,
       DATA_DIR: configRoot,
     }));
 
@@ -421,7 +421,7 @@ describe('syncGroupSkills', () => {
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# My Custom Skill');
 
     vi.doMock('@core/core/config.js', () => ({
-      AGENT_ROOT: configRoot,
+      MYCLAW_HOME: configRoot,
       DATA_DIR: configRoot,
     }));
 
@@ -458,7 +458,7 @@ describe('ensureGroupIpcLayout', () => {
     const ipcDir = path.join(root, 'group-ipc');
 
     vi.doMock('@core/core/config.js', () => ({
-      AGENT_ROOT: root,
+      MYCLAW_HOME: root,
       DATA_DIR: root,
     }));
 
@@ -497,7 +497,7 @@ describe('ensureGroupIpcLayout', () => {
     const ipcDir = path.join(root, 'ipc-idem');
 
     vi.doMock('@core/core/config.js', () => ({
-      AGENT_ROOT: root,
+      MYCLAW_HOME: root,
       DATA_DIR: root,
     }));
 
@@ -547,11 +547,11 @@ describe('resolvePackageRootFromSourceDir', () => {
     const repoRoot = makeTmpRoot(roots);
     const sourceDir = path.join(repoRoot, 'apps', 'core', 'src', 'runtime');
 
-    fs.mkdirSync(path.join(repoRoot, 'packages', 'agent-runner'), {
-      recursive: true,
-    });
     fs.mkdirSync(sourceDir, { recursive: true });
-    fs.writeFileSync(path.join(repoRoot, 'package.json'), '{"name":"myclaw"}');
+    fs.writeFileSync(
+      path.join(repoRoot, 'package.json'),
+      '{"name":"@myclaw/core"}',
+    );
 
     const { resolvePackageRootFromSourceDir } =
       await import('@core/platform/claude-runtime-files.js');
@@ -563,11 +563,11 @@ describe('resolvePackageRootFromSourceDir', () => {
     const repoRoot = makeTmpRoot(roots);
     const distRuntimeDir = path.join(repoRoot, 'dist', 'runtime');
 
-    fs.mkdirSync(path.join(repoRoot, 'packages', 'agent-runner'), {
-      recursive: true,
-    });
     fs.mkdirSync(distRuntimeDir, { recursive: true });
-    fs.writeFileSync(path.join(repoRoot, 'package.json'), '{"name":"myclaw"}');
+    fs.writeFileSync(
+      path.join(repoRoot, 'package.json'),
+      '{"name":"@myclaw/core"}',
+    );
 
     const { resolvePackageRootFromSourceDir } =
       await import('@core/platform/claude-runtime-files.js');

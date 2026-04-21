@@ -1,7 +1,8 @@
+import '../channels/register-builtins.js';
 import {
   listChannelProviders,
   providerForJid,
-} from '../bootstrap/channel-providers.js';
+} from '../channels/provider-registry.js';
 import { RuntimeChannel } from './runtime-settings.js';
 
 export function getChannelIds(): RuntimeChannel[] {

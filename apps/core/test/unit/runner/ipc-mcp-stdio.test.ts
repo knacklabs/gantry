@@ -57,11 +57,11 @@ function createMcpFixture(): {
     JSON.stringify({ type: 'module' }),
   );
   fs.copyFileSync(
-    path.resolve('packages/agent-runner/src/ipc-mcp-stdio.ts'),
+    path.resolve('apps/core/src/runner/ipc-mcp-stdio.ts'),
     serverPath,
   );
   fs.copyFileSync(
-    path.resolve('packages/agent-runner/src/memory-timeouts.ts'),
+    path.resolve('apps/core/src/runner/memory-timeouts.ts'),
     path.join(root, 'memory-timeouts.ts'),
   );
   symlinkPackage(root, 'zod', 'node_modules/zod');

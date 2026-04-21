@@ -16,7 +16,7 @@ export interface ThinkingOverride {
 
 /**
  * Mount allowlist configuration for additional host mounts.
- * Stored at `AGENT_ROOT/mount-allowlist.json` and only editable from the host.
+ * Stored at `MYCLAW_HOME/mount-allowlist.json` and only editable from the host.
  */
 export interface MountAllowlist {
   // Directories that can be exposed to agent runs.

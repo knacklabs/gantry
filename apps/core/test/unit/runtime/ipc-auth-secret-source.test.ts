@@ -1,6 +1,14 @@
 import { createHmac } from 'crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+function mockConfigEnvModule(values: Record<string, string> = {}) {
+  return {
+    envConfig: values,
+    envValue: (key: string) =>
+      process.env[key]?.trim() || values[key]?.trim() || '',
+  };
+}
+
 describe('ipc auth secret source', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -13,10 +21,13 @@ describe('ipc auth secret source', () => {
   });
 
   it('loads MYCLAW_IPC_AUTH_SECRET from .env when process env is missing', async () => {
-    vi.doMock('@core/core/env.js', () => ({
-      readEnvFile: vi.fn(() => ({
+    vi.doMock('@core/core/config-env.js', () =>
+      mockConfigEnvModule({
         MYCLAW_IPC_AUTH_SECRET: 'env-file-secret',
-      })),
+      }),
+    );
+    vi.doMock('@core/cli/runtime-settings.js', () => ({
+      readRuntimeMemorySettingsSnapshot: () => ({}),
     }));
     vi.doMock('@core/core/logger.js', () => ({
       logger: { warn: vi.fn() },
@@ -34,10 +45,13 @@ describe('ipc auth secret source', () => {
   it('prefers process.env over .env secret when both are present', async () => {
     process.env.MYCLAW_IPC_AUTH_SECRET = 'process-secret';
 
-    vi.doMock('@core/core/env.js', () => ({
-      readEnvFile: vi.fn(() => ({
+    vi.doMock('@core/core/config-env.js', () =>
+      mockConfigEnvModule({
         MYCLAW_IPC_AUTH_SECRET: 'env-file-secret',
-      })),
+      }),
+    );
+    vi.doMock('@core/cli/runtime-settings.js', () => ({
+      readRuntimeMemorySettingsSnapshot: () => ({}),
     }));
     vi.doMock('@core/core/logger.js', () => ({
       logger: { warn: vi.fn() },

@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-RUNTIME_HOME="${AGENT_ROOT:-${MYCLAW_RUNTIME_HOME:-$HOME/myclaw}}"
+RUNTIME_HOME="${MYCLAW_HOME:-${MYCLAW_RUNTIME_HOME:-$HOME/.myclaw}}"
 
 STORE_DB="$RUNTIME_HOME/store/messages.db"
 SESSIONS_DIR="$RUNTIME_HOME/data/sessions"
@@ -68,12 +68,12 @@ is_active() {
 
 for group_dir in "$SESSIONS_DIR"/*/; do
   [ -d "$group_dir" ] || continue
-  jsonl_dir="$group_dir/.claude/projects/-workspace-group"
-  [ -d "$jsonl_dir" ] || continue
+  project_root="$group_dir/.claude/projects"
+  [ -d "$project_root" ] || continue
 
-  for jsonl in "$jsonl_dir"/*.jsonl; do
-    [ -f "$jsonl" ] || continue
+  while IFS= read -r -d '' jsonl; do
     id=$(basename "$jsonl" .jsonl)
+    jsonl_dir=$(dirname "$jsonl")
 
     # Never delete the active session
     if is_active "$id"; then
@@ -86,7 +86,7 @@ for group_dir in "$SESSIONS_DIR"/*/; do
       # Remove matching tool-results directory
       [ -d "$jsonl_dir/$id" ] && remove "$jsonl_dir/$id"
     fi
-  done
+  done < <(find "$project_root" -type f -name "*.jsonl" -print0 2>/dev/null)
 done
 
 # --- Prune debug logs (>3 days, skip files named after active sessions) ---

@@ -1,18 +1,23 @@
 import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
+import '../channels/register-builtins.js';
 
-import { isValidGroupFolder } from '../platform/group-folder.js';
+import { isValidGroupFolder } from '../platform/group-folder-rules.js';
 import {
   getChannelProvider,
   listChannelProviders,
-} from '../bootstrap/channel-providers.js';
+} from '../channels/provider-registry.js';
 import { readEnvFile } from './env-file.js';
 import {
   envFilePath,
   ensureRuntimeLayout,
   settingsFilePath,
 } from './runtime-home.js';
+import {
+  parseRuntimeMemorySnapshotFromRoot,
+  type RuntimeMemorySettingsSnapshot,
+} from './runtime-memory-settings-snapshot.js';
 
 export interface ChatAllowlistEntry {
   allow: '*' | string[];
@@ -57,6 +62,8 @@ export interface RuntimeMemorySettings {
     models: RuntimeMemoryLlmModels;
   };
 }
+
+export type { RuntimeMemorySettingsSnapshot };
 
 export interface RuntimeSettings {
   channels: Record<string, RuntimeChannelSettings>;
@@ -761,6 +768,22 @@ export function ensureRuntimeSettings(runtimeHome: string): RuntimeSettings {
 
 export function loadRuntimeSettings(runtimeHome: string): RuntimeSettings {
   return ensureRuntimeSettingsLoaded(runtimeHome).settings;
+}
+
+export function readRuntimeMemorySettingsSnapshot(
+  runtimeHome: string,
+): RuntimeMemorySettingsSnapshot {
+  const filePath = settingsFilePath(runtimeHome);
+  if (!fs.existsSync(filePath)) return {};
+
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  const parsed = raw.trimStart().startsWith('{')
+    ? (JSON.parse(raw) as unknown)
+    : (parseSimpleYamlObject(raw) as unknown);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('root must be a mapping');
+  }
+  return parseRuntimeMemorySnapshotFromRoot(parsed as Record<string, unknown>);
 }
 
 export function validateRuntimeSettings(

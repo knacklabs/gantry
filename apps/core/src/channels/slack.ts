@@ -636,7 +636,7 @@ export class SlackChannel implements ChannelAdapter {
 
       const wrote = await this.writeFetchResponseToFile(resp, destPath);
       if (!wrote) return url;
-      return `/workspace/group/attachments/${filename}`;
+      return destPath;
     } catch (err) {
       logger.warn({ jid, err, filename }, 'Slack attachment download failed');
       return url;

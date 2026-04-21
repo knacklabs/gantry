@@ -41,8 +41,8 @@ vi.mock('@core/core/logger.js', () => ({
 const mockEnsureGroupIpcLayout = vi.fn();
 const mockEnsureSharedSessionSettings = vi.fn();
 const mockSyncGroupSkills = vi.fn();
-const mockGetHostAgentRunnerRoot = vi.fn(
-  () => '/tmp/myclaw-test/packages/agent-runner',
+const mockGetHostAgentRunnerDistDir = vi.fn(
+  () => '/tmp/myclaw-test/dist/runner',
 );
 
 vi.mock('@core/runtime/agent-spawn-layout.js', () => ({
@@ -51,7 +51,7 @@ vi.mock('@core/runtime/agent-spawn-layout.js', () => ({
   ensureSharedSessionSettings: (...args: unknown[]) =>
     mockEnsureSharedSessionSettings(...args),
   syncGroupSkills: (...args: unknown[]) => mockSyncGroupSkills(...args),
-  getHostAgentRunnerRoot: () => mockGetHostAgentRunnerRoot(),
+  getHostAgentRunnerDistDir: () => mockGetHostAgentRunnerDistDir(),
 }));
 
 /* ------------------------------------------------------------------ */
@@ -62,7 +62,7 @@ async function loadModule(config: {
   ONECLI_URL?: string;
   DATA_DIR?: string;
   AGENTS_DIR?: string;
-  AGENT_ROOT?: string;
+  MYCLAW_HOME?: string;
   envFromFile?: Record<string, string>;
 }) {
   vi.resetModules();
@@ -98,14 +98,14 @@ async function loadModule(config: {
     ensureSharedSessionSettings: (...args: unknown[]) =>
       mockEnsureSharedSessionSettings(...args),
     syncGroupSkills: (...args: unknown[]) => mockSyncGroupSkills(...args),
-    getHostAgentRunnerRoot: () => mockGetHostAgentRunnerRoot(),
+    getHostAgentRunnerDistDir: () => mockGetHostAgentRunnerDistDir(),
   }));
 
   vi.doMock('@core/core/config.js', () => ({
     ONECLI_URL: config.ONECLI_URL ?? '',
     DATA_DIR: config.DATA_DIR ?? '/tmp/myclaw-test/data',
     AGENTS_DIR: config.AGENTS_DIR ?? '/tmp/myclaw-test/agents',
-    AGENT_ROOT: config.AGENT_ROOT ?? '/tmp/myclaw-test/config',
+    MYCLAW_HOME: config.MYCLAW_HOME ?? '/tmp/myclaw-test/config',
     MYCLAW_CREDENTIAL_MODE: config.envFromFile?.MYCLAW_CREDENTIAL_MODE ?? '',
     ONECLI_ALLOWED_ENV_KEYS: [
       'ANTHROPIC_API_KEY',
@@ -491,7 +491,7 @@ describe('prepareHostRuntimeContext', () => {
 
     expect(ctx.groupDir).toBe('/tmp/myclaw-test/agents/test-group');
     expect(ctx.groupIpcDir).toBe('/tmp/myclaw-test/data/ipc/test-group');
-    expect(ctx.runnerRoot).toBe('/tmp/myclaw-test/packages/agent-runner');
+    expect(ctx.runnerDistDir).toBe('/tmp/myclaw-test/dist/runner');
 
     // Verify mkdirSync was called for the group directory
     expect(mockMkdirSync).toHaveBeenCalledWith(
@@ -502,7 +502,7 @@ describe('prepareHostRuntimeContext', () => {
     // Verify layout helpers were called
     expect(mockEnsureSharedSessionSettings).toHaveBeenCalled();
     expect(mockSyncGroupSkills).toHaveBeenCalled();
-    expect(mockGetHostAgentRunnerRoot).toHaveBeenCalled();
+    expect(mockGetHostAgentRunnerDistDir).toHaveBeenCalled();
     expect(mockEnsureGroupIpcLayout).toHaveBeenCalledWith(
       '/tmp/myclaw-test/data/ipc/test-group',
     );

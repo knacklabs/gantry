@@ -11,6 +11,14 @@ vi.mock('@core/memory/claude-query.js', () => ({
   hasClaudeAuthConfigured: () => true,
 }));
 
+function mockConfigEnvModule(values: Record<string, string> = {}) {
+  return {
+    envConfig: values,
+    envValue: (key: string) =>
+      process.env[key]?.trim() || values[key]?.trim() || '',
+  };
+}
+
 const tempRoots: string[] = [];
 
 function makeTempRoot(): string {
@@ -26,22 +34,20 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.resetModules();
   vi.restoreAllMocks();
-  vi.doUnmock('@core/core/env.js');
-  vi.doUnmock('@core/core/runtime-memory-settings.js');
+  vi.doUnmock('@core/core/config-env.js');
+  vi.doUnmock('@core/cli/runtime-settings.js');
   runClaudeQueryMock.mockReset();
 });
 
 describe('memory model routing integration', () => {
   it('routes extractor/dreaming/consolidation to per-task runtime models', async () => {
     const runtimeRoot = makeTempRoot();
-    vi.stubEnv('AGENT_ROOT', runtimeRoot);
+    vi.stubEnv('MYCLAW_HOME', runtimeRoot);
     vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'oauth-test-token');
     vi.stubEnv('ANTHROPIC_MODEL', 'claude-opus-fallback');
 
-    vi.doMock('@core/core/env.js', () => ({
-      readEnvFile: () => ({}),
-    }));
-    vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+    vi.doMock('@core/core/config-env.js', () => mockConfigEnvModule());
+    vi.doMock('@core/cli/runtime-settings.js', () => ({
       readRuntimeMemorySettingsSnapshot: () => ({
         llmExtractorModel: 'model-extractor-custom',
         llmDreamingModel: 'model-dreaming-custom',

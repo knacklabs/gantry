@@ -1,5 +1,6 @@
 import { ChannelOwnershipPort, NewMessage } from '../core/types.js';
 import { formatLocalTime } from '../core/timezone.js';
+import '../channels/register-builtins.js';
 import { getChannelProvider } from '../channels/provider-registry.js';
 import { parseTextStyles } from '../text-styles.js';
 

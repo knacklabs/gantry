@@ -4,12 +4,6 @@ import {
   MEMORY_EXTRACTOR_MIN_CONFIDENCE,
 } from '../core/config.js';
 import { logger } from '../core/logger.js';
-import type {
-  ArcExtractionInput,
-  ExtractedMemoryFact,
-  ExtractableMemoryKind,
-  MemoryExtractionProvider,
-} from './memory-extractor.js';
 import {
   MEMORY_EXTRACTION_FEW_SHOTS,
   MEMORY_EXTRACTION_SYSTEM_PROMPT,
@@ -19,7 +13,21 @@ import {
   hasClaudeAuthConfigured,
   runClaudeQuery,
 } from './claude-query.js';
+import type {
+  ArcExtractionInput,
+  ExtractedMemoryFact,
+  ExtractableMemoryKind,
+  MemoryExtractionProvider,
+} from './extractor-types.js';
 import { sanitizeOutboundLlmText } from './sensitive-material.js';
+
+export type {
+  ArcExtractionInput,
+  ExtractedMemoryFact,
+  ExtractableMemoryKind,
+  MemoryExtractionProvider,
+  MemoryExtractorUsage,
+} from './extractor-types.js';
 
 interface LlmFact {
   kind?: unknown;
@@ -456,8 +464,6 @@ export class LlmMemoryExtractionProvider implements MemoryExtractionProvider {
   }
 }
 
-export function createLlmMemoryExtractionProvider(
-  _fallback?: MemoryExtractionProvider,
-): MemoryExtractionProvider {
+export function createLlmMemoryExtractionProvider(): MemoryExtractionProvider {
   return new LlmMemoryExtractionProvider();
 }

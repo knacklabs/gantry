@@ -61,7 +61,6 @@ FORBIDDEN_IMPORT_RULES = (
         ),
     ),
     ("apps/core/src/channels", ("apps/core/src/cli",)),
-    ("packages/agent-runner/src", ("apps/core/src",)),
 )
 
 FORBIDDEN_CHANNEL_REGISTRATION_FILES = (
@@ -95,8 +94,6 @@ FORBIDDEN_RUNTIME_RUNNER_MATERIALIZATION_PATTERNS = (
 FORBIDDEN_IPC_CONTRACT_FILES = (
     "apps/core/src/memory/memory-ipc-contract.ts",
     "apps/core/src/runtime/browser-ipc-contract.ts",
-    "packages/agent-runner/src/memory-ipc-contract.ts",
-    "packages/agent-runner/src/browser-ipc-contract.ts",
 )
 
 FORBIDDEN_IPC_CONTRACT_IMPORT_PATTERNS = (

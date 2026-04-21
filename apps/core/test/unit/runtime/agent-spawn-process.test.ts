@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
 
-// Sentinel markers must match agent-spawn-markers.ts
+// Sentinel markers must match runtime agent output framing.
 const OUTPUT_START_MARKER = '---MYCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---MYCLAW_OUTPUT_END---';
 
@@ -51,11 +51,6 @@ vi.mock('fs', async () => {
     },
   };
 });
-
-vi.mock('@core/runtime/agent-spawn-markers.js', () => ({
-  OUTPUT_START_MARKER: '---MYCLAW_OUTPUT_START---',
-  OUTPUT_END_MARKER: '---MYCLAW_OUTPUT_END---',
-}));
 
 /* ------------------------------------------------------------------ */
 /*  Fake child process helper                                          */

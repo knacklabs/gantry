@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { logger } from '../core/logger.js';
+import { getAgentDir, getClaudeProjectDirName } from '../core/myclaw-home.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import { openRuntimeGroupDb } from './runtime-group-db.js';
 
@@ -110,7 +111,7 @@ function resolveRuntimeAndGroup(
   const projectDir = normalizePath(env.CLAUDE_PROJECT_DIR);
   const fromProject = resolveRuntimeAndGroupFromProjectDir(projectDir);
   const runtimeHome =
-    env.AGENT_ROOT?.trim() || fromProject.runtimeHome || undefined;
+    env.MYCLAW_HOME?.trim() || fromProject.runtimeHome || undefined;
 
   let groupFolder: string | undefined;
   if (explicitGroup && isValidGroupFolder(explicitGroup)) {
@@ -224,7 +225,7 @@ function resolveTranscriptPath(
   }
   const expectedPath = path.join(
     projectsRoot,
-    '-workspace-group',
+    getClaudeProjectDirName(getAgentDir(groupFolder, runtimeHome)),
     `${sessionId}.jsonl`,
   );
   const expectedValidated = validateCandidate(expectedPath);
@@ -317,8 +318,8 @@ export async function runMemoryHookCommand(
     const { runtimeHome, groupFolder } = resolveRuntimeAndGroup(payload, env);
 
     if (runtimeHome) {
-      env.AGENT_ROOT = runtimeHome;
-      process.env.AGENT_ROOT = runtimeHome;
+      env.MYCLAW_HOME = runtimeHome;
+      process.env.MYCLAW_HOME = runtimeHome;
     }
 
     if (subcommand === 'load') {

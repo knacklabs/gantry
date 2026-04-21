@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
-import { listChannelProviders } from '../bootstrap/channel-providers.js';
+import '../channels/register-builtins.js';
+import { listChannelProviders } from '../channels/provider-registry.js';
 
 import { readEnvFile } from './env-file.js';
 import { DoctorReport, runDoctor } from './doctor.js';

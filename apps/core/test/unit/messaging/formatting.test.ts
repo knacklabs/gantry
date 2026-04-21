@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import '@core/bootstrap/channel-providers.js';
+import '@core/channels/provider-registry.js';
 import {
   ASSISTANT_NAME,
   getTriggerPattern,

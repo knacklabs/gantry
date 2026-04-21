@@ -1,7 +1,27 @@
 {
-  "name": "myclaw",
+  "name": "@myclaw/core",
   "version": "1.2.52",
   "description": "Personal AI assistant runtime. Lightweight, secure, customizable.",
+  "author": "MyClaw Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vrknetha/myclaw.git"
+  },
+  "homepage": "https://github.com/vrknetha/myclaw",
+  "bugs": {
+    "url": "https://github.com/vrknetha/myclaw/issues"
+  },
+  "keywords": [
+    "assistant",
+    "agent",
+    "runtime",
+    "cli",
+    "automation"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -11,28 +31,27 @@
     "dist/",
     "packages/contracts/dist/",
     "packages/contracts/package.json",
-    "packages/agent-runner/dist/",
-    "packages/agent-runner/package.json",
+    "!**/*.map",
     ".claude/skills/*/SKILL.md"
   ],
   "workspaces": [
-    "packages/contracts",
-    "packages/agent-runner"
+    "packages/contracts"
   ],
   "scripts": {
     "build:contracts": "npm run build --workspace @myclaw/contracts",
-    "clean": "rm -rf dist packages/contracts/dist packages/agent-runner/dist",
-    "build": "npm run clean && npm run build:contracts && tsc && npm run build --workspace myclaw-agent-runner",
+    "clean": "rm -rf dist packages/contracts/dist",
+    "build": "npm run clean && npm run build:contracts && tsc",
     "start": "node dist/index.js",
     "dev": "tsx apps/core/src/index.ts",
     "cli:dev": "tsx apps/core/src/cli/index.ts",
-    "typecheck": "npm run typecheck --workspace @myclaw/contracts && tsc --noEmit && npm run build --workspace myclaw-agent-runner",
-    "format": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/agent-runner/src/**/*.ts\"",
-    "format:fix": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/agent-runner/src/**/*.ts\"",
-    "format:check": "prettier --check \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\" \"packages/agent-runner/src/**/*.ts\"",
-    "prepare": "husky",
-    "lint": "eslint apps/core/src packages/contracts/src packages/agent-runner/src",
-    "lint:fix": "eslint apps/core/src packages/contracts/src packages/agent-runner/src --fix",
+    "typecheck": "npm run typecheck --workspace @myclaw/contracts && tsc --noEmit",
+    "format": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\"",
+    "format:fix": "prettier --write \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\"",
+    "format:check": "prettier --check \"apps/core/**/*.{ts,md}\" \"packages/contracts/src/**/*.ts\"",
+    "prepare": "HUSKY=1 husky || true",
+    "prepublishOnly": "npm run build",
+    "lint": "eslint apps/core/src packages/contracts/src",
+    "lint:fix": "eslint apps/core/src packages/contracts/src --fix",
     "test": "npm run build:contracts && npm run test:unit && npm run test:integration",
     "test:unit": "npm run build:contracts && vitest run -c vitest.unit.config.ts",
     "test:integration": "npm run build:contracts && vitest run -c vitest.integration.config.ts",

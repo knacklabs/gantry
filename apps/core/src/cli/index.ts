@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
 import * as p from '@clack/prompts';
+import '../channels/register-builtins.js';
 import {
   getChannelProvider,
   listChannelProviders,
-} from '../bootstrap/channel-providers.js';
+} from '../channels/provider-registry.js';
 
 import { formatDoctorReport, runDoctorWithNetwork } from './doctor.js';
 import { runConfigCommand } from './config.js';
@@ -142,7 +143,7 @@ async function runStartCommand(runtimeHome: string): Promise<number> {
     return 1;
   }
 
-  process.env.AGENT_ROOT = runtimeHome;
+  process.env.MYCLAW_HOME = runtimeHome;
   const runtime = await import('../index.js');
   await runtime.startMyClawRuntime();
   return 0;

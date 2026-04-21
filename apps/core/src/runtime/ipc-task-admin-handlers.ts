@@ -1,4 +1,4 @@
-import { AGENT_ROOT } from '../core/config.js';
+import { MYCLAW_HOME } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import { validateRuntimePreflight } from '../cli/runtime-preflight.js';
@@ -91,7 +91,7 @@ const serviceRestartHandler: TaskHandler = (context) => {
   }
 
   try {
-    const validation = validateRuntimePreflight(AGENT_ROOT);
+    const validation = validateRuntimePreflight(MYCLAW_HOME);
     if (!validation.ok) {
       writeTaskIpcResponse(sourceGroup, taskId, {
         ok: false,
@@ -109,7 +109,7 @@ const serviceRestartHandler: TaskHandler = (context) => {
     });
 
     setTimeout(() => {
-      const restartOutcome = restartServiceForRuntimeHome(AGENT_ROOT);
+      const restartOutcome = restartServiceForRuntimeHome(MYCLAW_HOME);
       if (!restartOutcome.ok) {
         logger.error(
           { sourceGroup, taskId, error: restartOutcome.message },

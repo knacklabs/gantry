@@ -16,7 +16,15 @@ import {
   getMemoryActionTimeoutMs,
 } from './memory-timeouts.js';
 
-const IPC_DIR = process.env.MYCLAW_IPC_DIR || '/workspace/ipc';
+function requirePathEnv(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
+const IPC_DIR = requirePathEnv('MYCLAW_IPC_DIR');
 const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
 const TASKS_DIR = path.join(IPC_DIR, 'tasks');
 const MEMORY_REQUESTS_DIR = path.join(IPC_DIR, 'memory-requests');

@@ -30,10 +30,5 @@ describe('repo test layout', () => {
     expect(
       collectSourceAdjacentTests(path.join(repoRoot, 'packages/contracts/src')),
     ).toEqual([]);
-    expect(
-      collectSourceAdjacentTests(
-        path.join(repoRoot, 'packages/agent-runner/src'),
-      ),
-    ).toEqual([]);
   });
 });

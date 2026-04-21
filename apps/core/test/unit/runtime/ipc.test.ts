@@ -1529,7 +1529,7 @@ describe('startIpcWatcher', () => {
     }));
 
     vi.doMock('@core/core/config.js', () => ({
-      AGENT_ROOT: '/tmp/test-runtime',
+      MYCLAW_HOME: '/tmp/test-runtime',
       CHROME_PATH: undefined,
       DATA_DIR: dataDir,
       IPC_POLL_INTERVAL: 1000,

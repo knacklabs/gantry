@@ -1,7 +1,10 @@
-import { readEnvFile } from './env.js';
+import path from 'path';
+
+import { readEnvFile } from '../cli/env-file.js';
+import { getMyclawHome } from './myclaw-home.js';
 
 export const CONFIG_ENV_KEYS = [
-  'AGENT_ROOT',
+  'MYCLAW_HOME',
   'ASSISTANT_NAME',
   'ONECLI_URL',
   'TZ',
@@ -84,7 +87,20 @@ export const CONFIG_ENV_KEYS = [
   'SLACK_PERMISSION_APPROVER_IDS',
 ] as const;
 
-export const envConfig = readEnvFile([...CONFIG_ENV_KEYS]);
+function loadRuntimeEnvConfig(keys: readonly string[]): Record<string, string> {
+  const envFilePath = path.join(getMyclawHome(), '.env');
+  const raw = readEnvFile(envFilePath);
+  const out: Record<string, string> = {};
+  for (const key of keys) {
+    const value = raw[key]?.trim();
+    if (value) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+export const envConfig = loadRuntimeEnvConfig(CONFIG_ENV_KEYS);
 
 export function envValue(key: (typeof CONFIG_ENV_KEYS)[number]): string {
   return process.env[key]?.trim() || envConfig[key]?.trim() || '';

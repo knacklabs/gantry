@@ -3,6 +3,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const ORIGINAL_ENV = { ...process.env };
 
+function mockConfigEnvModule(values: Record<string, string> = {}) {
+  return {
+    envConfig: values,
+    envValue: (key: string) => {
+      const processValue = process.env[key]?.trim();
+      if (processValue) return processValue;
+      const envValue = values[key]?.trim();
+      return envValue || '';
+    },
+  };
+}
+
 async function loadConfigWithEnv(env: { ANTHROPIC_MODEL?: string }) {
   vi.resetModules();
   if (env.ANTHROPIC_MODEL === undefined) {
@@ -10,10 +22,8 @@ async function loadConfigWithEnv(env: { ANTHROPIC_MODEL?: string }) {
   } else {
     process.env.ANTHROPIC_MODEL = env.ANTHROPIC_MODEL;
   }
-  vi.doMock('@core/core/env.js', () => ({
-    readEnvFile: () => ({}),
-  }));
-  vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+  vi.doMock('@core/core/config-env.js', () => mockConfigEnvModule());
+  vi.doMock('@core/cli/runtime-settings.js', () => ({
     readRuntimeMemorySettingsSnapshot: () => ({}),
   }));
   return import('@core/core/config.js');
@@ -25,8 +35,8 @@ afterEach(() => {
     process.env[key] = value;
   }
   vi.resetModules();
-  vi.doUnmock('@core/core/env.js');
-  vi.doUnmock('@core/core/runtime-memory-settings.js');
+  vi.doUnmock('@core/core/config-env.js');
+  vi.doUnmock('@core/cli/runtime-settings.js');
 });
 
 describe('model config precedence', () => {
@@ -133,10 +143,8 @@ async function loadConfigWithAllEnv(env: Record<string, string | undefined>) {
       process.env[key] = value;
     }
   }
-  vi.doMock('@core/core/env.js', () => ({
-    readEnvFile: () => ({}),
-  }));
-  vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+  vi.doMock('@core/core/config-env.js', () => mockConfigEnvModule());
+  vi.doMock('@core/cli/runtime-settings.js', () => ({
     readRuntimeMemorySettingsSnapshot: () => ({}),
   }));
   return import('@core/core/config.js');
@@ -154,10 +162,8 @@ async function loadConfigWithAllEnvAndRuntimeSnapshot(
       process.env[key] = value;
     }
   }
-  vi.doMock('@core/core/env.js', () => ({
-    readEnvFile: () => ({}),
-  }));
-  vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+  vi.doMock('@core/core/config-env.js', () => mockConfigEnvModule());
+  vi.doMock('@core/cli/runtime-settings.js', () => ({
     readRuntimeMemorySettingsSnapshot: () => snapshot,
   }));
   return import('@core/core/config.js');
@@ -175,10 +181,8 @@ async function loadConfigWithRuntimeSnapshotError(
       process.env[key] = value;
     }
   }
-  vi.doMock('@core/core/env.js', () => ({
-    readEnvFile: () => ({}),
-  }));
-  vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+  vi.doMock('@core/core/config-env.js', () => mockConfigEnvModule());
+  vi.doMock('@core/cli/runtime-settings.js', () => ({
     readRuntimeMemorySettingsSnapshot: () => {
       throw new Error(message);
     },
@@ -527,13 +531,12 @@ describe('config env overrides for branch coverage', () => {
       ANTHROPIC_MODEL: 'test-model',
       MAX_MESSAGES_PER_PROMPT: '20',
       IDLE_TIMEOUT: '900000',
-      MAX_CONCURRENT_CONTAINERS: '10',
     });
 
     expect(cfg.ASSISTANT_NAME).toBe('TestBot');
-    expect(cfg.memoryStorageDir).toBe(path.join(cfg.AGENT_ROOT, 'memory'));
+    expect(cfg.memoryStorageDir).toBe(path.join(cfg.MYCLAW_HOME, 'memory'));
     expect(cfg.MEMORY_SQLITE_PATH).toBe(
-      path.join(cfg.AGENT_ROOT, 'memory', '.cache', 'memory.db'),
+      path.join(cfg.MYCLAW_HOME, 'memory', '.cache', 'memory.db'),
     );
     expect(cfg.OPENAI_API_KEY).toBe('test-api-key');
     expect(cfg.OPENAI_DAILY_EMBED_LIMIT).toBe(100);
@@ -584,7 +587,6 @@ describe('config env overrides for branch coverage', () => {
     expect(cfg.ONECLI_URL).toBe('http://test-onecli');
     expect(cfg.MAX_MESSAGES_PER_PROMPT).toBe(20);
     expect(cfg.IDLE_TIMEOUT).toBe(900000);
-    expect(cfg.MAX_CONCURRENT_CONTAINERS).toBe(10);
   });
 
   it('exercises envConfig branch for config variables', async () => {
@@ -641,14 +643,13 @@ describe('config env overrides for branch coverage', () => {
       'ONECLI_URL',
       'MAX_MESSAGES_PER_PROMPT',
       'IDLE_TIMEOUT',
-      'MAX_CONCURRENT_CONTAINERS',
       'ANTHROPIC_MODEL',
     ];
     for (const key of envKeys) {
       delete process.env[key];
     }
-    vi.doMock('@core/core/env.js', () => ({
-      readEnvFile: () => ({
+    vi.doMock('@core/core/config-env.js', () =>
+      mockConfigEnvModule({
         ASSISTANT_NAME: 'EnvBot',
         OPENAI_API_KEY: 'env-api-key',
         OPENAI_DAILY_EMBED_LIMIT: '200',
@@ -695,16 +696,16 @@ describe('config env overrides for branch coverage', () => {
         ONECLI_URL: 'http://env-onecli',
         ANTHROPIC_MODEL: 'env-opus',
       }),
-    }));
-    vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+    );
+    vi.doMock('@core/cli/runtime-settings.js', () => ({
       readRuntimeMemorySettingsSnapshot: () => ({}),
     }));
     const cfg = await import('@core/core/config.js');
 
     expect(cfg.ASSISTANT_NAME).toBe('EnvBot');
-    expect(cfg.memoryStorageDir).toBe(path.join(cfg.AGENT_ROOT, 'memory'));
+    expect(cfg.memoryStorageDir).toBe(path.join(cfg.MYCLAW_HOME, 'memory'));
     expect(cfg.MEMORY_SQLITE_PATH).toBe(
-      path.join(cfg.AGENT_ROOT, 'memory', '.cache', 'memory.db'),
+      path.join(cfg.MYCLAW_HOME, 'memory', '.cache', 'memory.db'),
     );
     expect(cfg.OPENAI_API_KEY).toBe('env-api-key');
     expect(cfg.OPENAI_DAILY_EMBED_LIMIT).toBe(200);
@@ -758,7 +759,6 @@ describe('config fallback branches for parseInt/parseFloat || default', () => {
       MEMORY_MAX_EVENTS: '0',
       MEMORY_MAX_PROCEDURES_PER_GROUP: '0',
       MAX_MESSAGES_PER_PROMPT: '0',
-      MAX_CONCURRENT_CONTAINERS: '0',
     });
 
     // All numeric configs should use their fallback defaults (clamped by Math.max)
@@ -769,7 +769,6 @@ describe('config fallback branches for parseInt/parseFloat || default', () => {
     expect(cfg.MEMORY_REFLECTION_MAX_FACTS_PER_TURN).toBe(6);
     expect(cfg.MEMORY_CONSOLIDATION_MAX_CLUSTERS).toBe(10);
     expect(cfg.MAX_MESSAGES_PER_PROMPT).toBe(10);
-    expect(cfg.MAX_CONCURRENT_CONTAINERS).toBe(5);
     expect(cfg.MEMORY_EMBED_BATCH_SIZE).toBe(16);
     expect(cfg.MEMORY_VECTOR_DIMENSIONS).toBe(3072);
     expect(cfg.MEMORY_MAX_CHUNKS_PER_GROUP).toBe(6000);
@@ -851,16 +850,16 @@ describe('resolveOptionalPath branches', () => {
   });
 });
 
-describe('AGENT_ROOT runtime root', () => {
-  it('uses AGENT_ROOT for runtime directories and default sqlite path', async () => {
+describe('MYCLAW_HOME runtime root', () => {
+  it('uses MYCLAW_HOME for runtime directories and default sqlite path', async () => {
     const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
       {
-        AGENT_ROOT: '/tmp/myclaw-home',
+        MYCLAW_HOME: '/tmp/myclaw-home',
       },
       {},
     );
 
-    expect(cfg.AGENT_ROOT).toBe('/tmp/myclaw-home');
+    expect(cfg.MYCLAW_HOME).toBe('/tmp/myclaw-home');
     expect(cfg.STORE_DIR).toBe('/tmp/myclaw-home/store');
     expect(cfg.AGENTS_DIR).toBe('/tmp/myclaw-home/agents');
     expect(cfg.DATA_DIR).toBe('/tmp/myclaw-home/data');
@@ -869,10 +868,10 @@ describe('AGENT_ROOT runtime root', () => {
     );
   });
 
-  it('honors runtime snapshot root override when AGENT_ROOT is set', async () => {
+  it('honors runtime snapshot root override when MYCLAW_HOME is set', async () => {
     const cfg = await loadConfigWithAllEnvAndRuntimeSnapshot(
       {
-        AGENT_ROOT: '/tmp/myclaw-home',
+        MYCLAW_HOME: '/tmp/myclaw-home',
       },
       {
         root: '/var/lib/myclaw/memory',
@@ -889,17 +888,15 @@ describe('HOME fallback', () => {
     const originalHome = process.env.HOME;
     delete process.env.HOME;
     vi.resetModules();
-    vi.doMock('@core/core/env.js', () => ({
-      readEnvFile: () => ({}),
-    }));
-    vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+    vi.doMock('@core/core/config-env.js', () => mockConfigEnvModule());
+    vi.doMock('@core/cli/runtime-settings.js', () => ({
       readRuntimeMemorySettingsSnapshot: () => ({}),
     }));
     try {
       const cfg = await import('@core/core/config.js');
-      // AGENT_ROOT should still be defined (using os.homedir())
-      expect(typeof cfg.AGENT_ROOT).toBe('string');
-      expect(cfg.AGENT_ROOT.length).toBeGreaterThan(0);
+      // MYCLAW_HOME should still be defined (using os.homedir())
+      expect(typeof cfg.MYCLAW_HOME).toBe('string');
+      expect(cfg.MYCLAW_HOME.length).toBeGreaterThan(0);
     } finally {
       if (originalHome !== undefined) {
         process.env.HOME = originalHome;
@@ -915,10 +912,10 @@ describe('resolveConfigTimezone fallback to UTC', () => {
     process.env.TZ = 'Invalid/Timezone';
 
     vi.resetModules();
-    vi.doMock('@core/core/env.js', () => ({
-      readEnvFile: () => ({ TZ: 'Also/Invalid' }),
-    }));
-    vi.doMock('@core/core/runtime-memory-settings.js', () => ({
+    vi.doMock('@core/core/config-env.js', () =>
+      mockConfigEnvModule({ TZ: 'Also/Invalid' }),
+    );
+    vi.doMock('@core/cli/runtime-settings.js', () => ({
       readRuntimeMemorySettingsSnapshot: () => ({}),
     }));
     // Mock isValidTimezone to return false for everything except 'UTC'

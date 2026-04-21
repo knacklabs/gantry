@@ -1,4 +1,4 @@
-import { AGENT_ROOT } from '../core/config.js';
+import { MYCLAW_HOME } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import { MessageSink, NewMessage, RegisteredGroup } from '../core/types.js';
 import { startRemoteControl, stopRemoteControl } from './remote-control.js';
@@ -21,7 +21,7 @@ export async function handleRemoteControlCommand(
   getGroup: (chatJid: string) => RegisteredGroup | undefined,
   findMessageSink: (chatJid: string) => MessageSink | undefined,
   isSenderControlAllowlisted: (msg: NewMessage) => boolean,
-  cwd = AGENT_ROOT,
+  cwd = MYCLAW_HOME,
 ): Promise<void> {
   const group = getGroup(chatJid);
   if (!group?.isMain) {
