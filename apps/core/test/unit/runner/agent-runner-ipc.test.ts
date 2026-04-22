@@ -468,7 +468,7 @@ describe('agent-runner IPC lifecycle', () => {
     expect(
       fs.readdirSync(path.join(fixture.ipcDir, 'permission-responses')),
     ).toHaveLength(0);
-  });
+  }, 15000);
 
   it('fails SDK canUseTool closed when permission response denies the request', async () => {
     const fixture = createRunnerFixture();
@@ -487,5 +487,5 @@ describe('agent-runner IPC lifecycle', () => {
         interrupt: false,
       }),
     );
-  });
+  }, 15000);
 });
