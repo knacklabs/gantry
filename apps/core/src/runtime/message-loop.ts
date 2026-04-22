@@ -14,7 +14,11 @@ import {
   ProgressUpdateOptions,
   RegisteredGroup,
 } from '../core/types.js';
-import { getMessagesSince, getNewMessages } from '../storage/db.js';
+import {
+  getMessagesSince,
+  getMessageThreadIds,
+  getNewMessages,
+} from '../storage/db.js';
 import { formatMessages } from '../messaging/router.js';
 import {
   isSenderExplicitlyAllowed,
@@ -264,24 +268,31 @@ export async function startMessagePollingLoop(
 
 export function recoverPendingMessages(deps: MessageLoopDeps): void {
   for (const [chatJid, group] of Object.entries(deps.getRegisteredGroups())) {
-    const pending = getMessagesSince(
-      chatJid,
-      deps.getOrRecoverCursor(chatJid),
-      MAX_MESSAGES_PER_PROMPT,
-    );
-    if (pending.length > 0) {
-      logger.info(
-        { group: group.name, pendingCount: pending.length },
-        'Recovery: found unprocessed messages',
+    const queuedThreads = new Set<string>();
+    let pendingCount = 0;
+
+    for (const threadId of getMessageThreadIds(chatJid)) {
+      const queueJid = makeThreadQueueKey(chatJid, threadId);
+      const pending = getMessagesSince(
+        chatJid,
+        deps.getOrRecoverCursor(queueJid),
+        MAX_MESSAGES_PER_PROMPT,
+        { threadId },
       );
-      const queuedThreads = new Set(
-        pending.map((message) =>
-          makeThreadQueueKey(chatJid, message.thread_id),
-        ),
-      );
-      for (const queueJid of queuedThreads) {
-        deps.queue.enqueueMessageCheck(queueJid);
+      if (pending.length > 0) {
+        pendingCount += pending.length;
+        queuedThreads.add(queueJid);
       }
+    }
+
+    if (pendingCount === 0) continue;
+
+    logger.info(
+      { group: group.name, pendingCount },
+      'Recovery: found unprocessed messages',
+    );
+    for (const queueJid of queuedThreads) {
+      deps.queue.enqueueMessageCheck(queueJid);
     }
   }
 }

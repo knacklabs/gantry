@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 const mockGetNewMessages = vi.fn();
 const mockGetMessagesSince = vi.fn();
+const mockGetMessageThreadIds = vi.fn();
 const mockGetTriggerPattern = vi.fn();
 const mockLoadSenderAllowlist = vi.fn();
 const mockIsSenderExplicitlyAllowed = vi.fn();
@@ -13,6 +14,7 @@ const mockFormatMessages = vi.fn();
 vi.mock('@core/storage/db.js', () => ({
   getNewMessages: (...args: unknown[]) => mockGetNewMessages(...args),
   getMessagesSince: (...args: unknown[]) => mockGetMessagesSince(...args),
+  getMessageThreadIds: (...args: unknown[]) => mockGetMessageThreadIds(...args),
 }));
 vi.mock('@core/core/config.js', () => ({
   getTriggerPattern: (...args: unknown[]) => mockGetTriggerPattern(...args),
@@ -120,6 +122,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGetNewMessages.mockReturnValue({ messages: [], newTimestamp: '' });
   mockGetMessagesSince.mockReturnValue([]);
+  mockGetMessageThreadIds.mockReturnValue([null]);
   mockGetTriggerPattern.mockReturnValue(/@Andy/i);
   mockLoadSenderAllowlist.mockReturnValue({});
   mockIsSenderExplicitlyAllowed.mockReturnValue(false);
@@ -163,6 +166,42 @@ describe('recoverPendingMessages', () => {
     recoverPendingMessages(deps);
 
     expect(deps.enqueued).toHaveLength(0);
+  });
+
+  it('recovers pending thread messages using the thread cursor, not the root cursor', () => {
+    mockGetMessageThreadIds.mockReturnValue([null, 'topic-1']);
+    mockGetMessagesSince.mockImplementation(
+      (_chatJid: string, cursor: string, _limit: number, options: any) => {
+        if (options?.threadId === 'topic-1') {
+          expect(cursor).toBe('');
+          return [
+            {
+              id: 2,
+              chat_jid: 'group@g.us',
+              sender: 'user@s.whatsapp.net',
+              content: 'pending thread message',
+              timestamp: '2024-01-01T00:00:01.000Z',
+              thread_id: 'topic-1',
+              is_from_me: false,
+              message_id: 'msg-2',
+              reply_to_message_id: null,
+              reply_to_content: null,
+              sender_name: 'User',
+            },
+          ];
+        }
+        expect(cursor).toBe('root-cursor');
+        return [];
+      },
+    );
+
+    const deps = makeDeps({
+      getOrRecoverCursor: (queueJid: string) =>
+        queueJid.includes('::thread:') ? '' : 'root-cursor',
+    });
+    recoverPendingMessages(deps);
+
+    expect(deps.enqueued).toEqual(['group@g.us::thread:topic-1']);
   });
 
   it('checks all registered groups', () => {

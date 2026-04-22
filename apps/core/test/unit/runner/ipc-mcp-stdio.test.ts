@@ -292,6 +292,33 @@ describe('agent-runner MCP stdio tools', () => {
     expect(task.context.threadId).toBe('trusted-thread');
   });
 
+  it('rejects scheduler upsert thread targets outside the current runtime thread', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'scheduler_upsert_job',
+      {
+        name: 'Daily review',
+        prompt: 'Review memory',
+        schedule_type: 'interval',
+        schedule_value: '60000',
+        thread_id: 'attacker-thread',
+      },
+      { MYCLAW_THREAD_ID: 'trusted-thread' },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskDir = path.join(fixture.ipcDir, 'tasks');
+    const taskFiles = fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : [];
+    expect(taskFiles).toHaveLength(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.isError).toBe(true);
+    expect(record.result.content[0].text).toContain(
+      'thread_id can only target the current thread/topic',
+    );
+  });
+
   it('does not retarget scheduler updates to the ambient runtime thread', async () => {
     const fixture = createMcpFixture();
 

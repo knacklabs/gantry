@@ -17,6 +17,7 @@ import {
   getAllSessions,
   getLastBotMessageTimestamp,
   getJobById,
+  getMessageThreadIds,
   getMessagesSince,
   getNewMessages,
   getRecentJobRuns,
@@ -246,6 +247,39 @@ describe('thread context', () => {
     );
     expect(messages).toHaveLength(1);
     expect(messages[0].thread_id).toBe('1710000000.000100');
+  });
+
+  it('lists distinct user-message thread ids for recovery', () => {
+    storeChatMetadata('group@g.us', '2024-01-01T00:00:00.000Z');
+    storeMessage({
+      id: 'root-1',
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      sender_name: 'User',
+      content: 'root',
+      timestamp: '2024-01-01T00:00:01.000Z',
+    });
+    storeMessage({
+      id: 'thread-1',
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      sender_name: 'User',
+      content: 'topic',
+      timestamp: '2024-01-01T00:00:02.000Z',
+      thread_id: 'topic-1',
+    });
+    storeMessage({
+      id: 'bot-thread',
+      chat_jid: 'group@g.us',
+      sender: 'assistant',
+      sender_name: 'MyClaw',
+      content: 'bot topic',
+      timestamp: '2024-01-01T00:00:03.000Z',
+      thread_id: 'bot-only-topic',
+      is_bot_message: true,
+    });
+
+    expect(getMessageThreadIds('group@g.us')).toEqual([null, 'topic-1']);
   });
 
   it('fails on incompatible messages table missing required thread columns', () => {

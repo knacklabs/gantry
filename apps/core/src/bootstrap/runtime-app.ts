@@ -128,6 +128,8 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     if (existing) return existing;
 
     const parsed = parseThreadQueueKey(chatJid);
+    if (parsed.threadId) return '';
+
     const baseChatJid = parsed.chatJid;
     const baseExisting = lastAgentTimestamp[baseChatJid];
     if (baseExisting) {

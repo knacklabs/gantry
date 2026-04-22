@@ -554,6 +554,32 @@ export function getMessagesSince(
   }));
 }
 
+export function getMessageThreadIds(chatJid: string): Array<string | null> {
+  const rows = db
+    .prepare(
+      `
+      SELECT DISTINCT thread_id
+      FROM messages
+      WHERE chat_jid = ?
+        AND is_bot_message = 0
+        AND content != '' AND content IS NOT NULL
+      ORDER BY thread_id ASC
+    `,
+    )
+    .all(chatJid) as Array<{ thread_id?: string | null }>;
+
+  const seen = new Set<string>();
+  const threads: Array<string | null> = [];
+  for (const row of rows) {
+    const threadId = row.thread_id?.trim() || null;
+    const key = threadId ?? '';
+    if (seen.has(key)) continue;
+    seen.add(key);
+    threads.push(threadId);
+  }
+  return threads;
+}
+
 export function getLastBotMessageCursor(
   chatJid: string,
 ): { timestamp: string; id: string } | undefined {
