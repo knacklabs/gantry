@@ -33,6 +33,10 @@ import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import { GroupQueue } from './group-queue.js';
 import { AgentOutput, spawnAgent } from './agent-spawn.js';
 import { createInjectedMemoryContextBlock } from './memory-context.js';
+import {
+  notifyLinkedSessions,
+  type SchedulerSendMessage,
+} from './task-scheduler-delivery.js';
 import { validateScheduleConfig } from './task-scheduler-schedule.js';
 import {
   addJobEvent,
@@ -60,7 +64,7 @@ export interface SchedulerDependencies {
     groupFolder: string,
     stopAliasJids?: string[],
   ) => void;
-  sendMessage: (jid: string, text: string) => Promise<void>;
+  sendMessage: SchedulerSendMessage;
   sendStreamingChunk?: (
     jid: string,
     text: string,
@@ -304,27 +308,6 @@ function resolveExecutionContext(
     }
   }
   return null;
-}
-
-async function notifyLinkedSessions(
-  job: Job,
-  text: string,
-  sendMessage: SchedulerDependencies['sendMessage'],
-): Promise<boolean> {
-  const unique = Array.from(new Set(job.linked_sessions));
-  let delivered = false;
-  for (const jid of unique) {
-    try {
-      await sendMessage(jid, text);
-      delivered = true;
-    } catch (err) {
-      logger.warn(
-        { jobId: job.id, jid, err },
-        'Failed to send scheduler status message',
-      );
-    }
-  }
-  return delivered;
 }
 
 function registerSystemJobs(deps: SchedulerDependencies): void {
@@ -620,10 +603,15 @@ async function runJob(
   };
   const deliverMessage = async (text: string): Promise<boolean> => {
     if (!shouldDeliverToChat || !text || isJobDeleted()) return false;
+    const options = currentJob.thread_id
+      ? { threadId: currentJob.thread_id }
+      : undefined;
     let delivered = false;
     for (const jid of linkedSessions) {
       try {
-        await deps.sendMessage(jid, text);
+        await (options
+          ? deps.sendMessage(jid, text, options)
+          : deps.sendMessage(jid, text));
         delivered = true;
       } catch (err) {
         logger.warn(

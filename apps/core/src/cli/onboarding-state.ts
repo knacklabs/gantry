@@ -25,7 +25,7 @@ export type OnboardingStep =
 export interface OnboardingData {
   runtimeHome: string;
   primaryProvider?: 'telegram' | 'slack';
-  storageProvider?: 'sqlite' | 'postgres';
+  storageProvider?: 'sqlite';
   serviceChoice?: 'skip' | 'install' | 'install_start';
   telegramBotUsername?: string;
   telegramChatJid?: string;

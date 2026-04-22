@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 
-import { STORAGE_SQLITE_PATH } from '../core/config.js';
+import { STORAGE_PROVIDER, STORAGE_SQLITE_PATH } from '../core/config.js';
 import { nowIso as currentIso } from '../core/datetime.js';
 import {
   decodeGlobalMessageCursor,
@@ -319,6 +319,11 @@ function createSchema(database: Database.Database): void {
 }
 
 export function initDatabase(): void {
+  if (STORAGE_PROVIDER !== 'sqlite') {
+    throw new Error(
+      'storage.provider=postgres is not available in host runtime yet. Use storage.provider=sqlite.',
+    );
+  }
   const dbPath = STORAGE_SQLITE_PATH;
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 

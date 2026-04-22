@@ -406,10 +406,9 @@ describe('runSetupFlow credential step', () => {
     expect(mod.password).not.toHaveBeenCalled();
   });
 
-  it('asks for a database URL when postgres storage is selected', async () => {
+  it('does not expose postgres storage in guided setup', async () => {
     const mod = await loadSetupFlowModule({
       selectQueue: ['postgres'],
-      passwordQueue: ['postgresql://user:pass@localhost:5432/myclaw'],
     });
 
     const result = await mod.runSetupFlow({
@@ -419,11 +418,7 @@ describe('runSetupFlow credential step', () => {
     });
 
     expect(result.status).toBe('resumed');
-    expect(mod.password).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: expect.stringContaining('Postgres URL'),
-      }),
-    );
+    expect(mod.password).not.toHaveBeenCalled();
   });
 
   it('asks fresh-user setup questions in the expected order', async () => {

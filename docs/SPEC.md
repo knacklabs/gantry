@@ -529,9 +529,8 @@ MyClaw memory uses a dedicated SQLite database derived from `memory.root`.
 
 | Setting                                | Default                  | Description                                                   |
 | -------------------------------------- | ------------------------ | ------------------------------------------------------------- |
-| `storage.provider`                     | `sqlite`                 | Host runtime storage backend (`sqlite` or `postgres`)        |
+| `storage.provider`                     | `sqlite`                 | Host runtime storage backend                                 |
 | `storage.sqlite.path`                  | `store/myclaw.db`        | SQLite DB path (runtime-home relative unless absolute)        |
-| `storage.postgres.url_env`             | `MYCLAW_DATABASE_URL`    | `.env` key containing the Postgres connection URL             |
 | `memory.enabled`                       | `true`                   | Enables durable memory                                        |
 | `memory.root`                          | `memory`                 | Memory root path, resolved under runtime home unless absolute |
 | `memory.embeddings.enabled`            | `false`                  | Optional embedding toggle                                     |

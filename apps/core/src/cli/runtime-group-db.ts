@@ -19,6 +19,11 @@ export interface RuntimeGroupDb {
 
 function openDatabase(runtimeHome: string): Database.Database {
   const settings = ensureRuntimeSettings(runtimeHome);
+  if (settings.storage.provider !== 'sqlite') {
+    throw new Error(
+      'storage.provider=postgres is not available in host runtime yet. Use storage.provider=sqlite.',
+    );
+  }
   const dbPath = resolveRuntimeStorageSqlitePath(runtimeHome, settings);
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new Database(dbPath);

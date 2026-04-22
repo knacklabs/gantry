@@ -141,7 +141,12 @@ export function startRuntimeServices(
         groupFolder,
         stopAliasJids,
       ),
-    sendMessage: (jid, rawText) => channelWiring.sendMessage(jid, rawText),
+    sendMessage: (jid, rawText, options) =>
+      channelWiring.sendMessage(jid, rawText, {
+        ...(options?.threadId
+          ? { messageOptions: { threadId: options.threadId } }
+          : {}),
+      }),
     sendStreamingChunk: (jid, rawText, chunkOptions) =>
       channelWiring.sendStreamingChunk(jid, rawText, chunkOptions),
     resetStreaming: (jid) => {

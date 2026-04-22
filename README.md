@@ -31,7 +31,7 @@ npm i -g myclaw && myclaw
 Then follow this order:
 
 1. Run `myclaw` with no args.
-2. Confirm runtime home and storage (`SQLite` recommended; optional `Postgres` asks for `MYCLAW_DATABASE_URL`).
+2. Confirm runtime home and storage (`SQLite` is the supported runtime database in this release).
 3. Choose your first provider: `Telegram` or `Slack`.
 4. Follow the in-CLI provider guide, paste credentials, and pick a discovered chat/channel (or enter an ID manually).
 5. Choose credential mode (`env-only` by default), then set Claude auth (`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`) when that mode needs local credentials.
@@ -65,7 +65,7 @@ Defaults in v1:
 - runtime home: `~/myclaw`
 - runtime settings file: `~/myclaw/settings.yaml` (validated before `start`/`restart`)
 - setup flow: guided multi-channel first run (choose Telegram or Slack)
-- storage provider: `sqlite` by default; `postgres` is available when you provide `MYCLAW_DATABASE_URL`
+- storage provider: `sqlite`; Postgres is not exposed until runtime persistence is provider-backed end to end
 - storage SQLite path: `store/myclaw.db`
 - memory: on
 - embeddings: off (unless OpenAI key is provided and enabled)
@@ -81,8 +81,6 @@ storage:
   provider: sqlite
   sqlite:
     path: store/myclaw.db
-  postgres:
-    url_env: MYCLAW_DATABASE_URL
 
 memory:
   enabled: true

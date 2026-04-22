@@ -136,14 +136,18 @@ describe('persistOnboardingConfig', () => {
     expect(settings.channels.slack.enabled).toBe(true);
   });
 
-  it('persists postgres database URL when selected', () => {
+  it('clears stale database URL and persists sqlite storage', () => {
     const runtimeHome = createRuntimeHome();
     const envPath = envFilePath(runtimeHome);
+    fs.writeFileSync(
+      envPath,
+      'MYCLAW_DATABASE_URL=postgresql://user:pass@localhost:5432/myclaw\n',
+      'utf-8',
+    );
 
     persistOnboardingConfig({
       runtimeHome,
-      storageProvider: 'postgres',
-      postgresDatabaseUrl: 'postgresql://user:pass@localhost:5432/myclaw',
+      storageProvider: 'sqlite',
       primaryProvider: 'telegram',
       telegramBotToken: 'token',
       anthropicModel: 'claude-sonnet-4-6',
@@ -154,12 +158,9 @@ describe('persistOnboardingConfig', () => {
     });
 
     const env = readEnvFile(envPath);
-    expect(env.MYCLAW_DATABASE_URL).toBe(
-      'postgresql://user:pass@localhost:5432/myclaw',
-    );
+    expect(env.MYCLAW_DATABASE_URL).toBeUndefined();
 
     const settings = loadRuntimeSettings(runtimeHome);
-    expect(settings.storage.provider).toBe('postgres');
-    expect(settings.storage.postgres.urlEnv).toBe('MYCLAW_DATABASE_URL');
+    expect(settings.storage.provider).toBe('sqlite');
   });
 });

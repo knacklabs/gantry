@@ -204,7 +204,8 @@ export async function createHermeticRuntimeHarness(
           groupFolder,
           stopAliasJids,
         ),
-      sendMessage: (jid, text) => channel.runtime.sendMessage(jid, text),
+      sendMessage: (jid, text, options) =>
+        channel.runtime.sendMessage(jid, text, options),
       sendStreamingChunk: (jid, text, chunkOptions) =>
         channel.runtime.sendStreamingChunk(jid, text, chunkOptions),
       resetStreaming: (jid) => channel.runtime.resetStreaming(jid),
@@ -220,7 +221,8 @@ export async function createHermeticRuntimeHarness(
     if (ipcWatcherStarted) return;
     ipcWatcherStarted = true;
     ipc.startIpcWatcher({
-      sendMessage: (jid, text) => channel.runtime.sendMessage(jid, text),
+      sendMessage: (jid, text, options) =>
+        channel.runtime.sendMessage(jid, text, options),
       registeredGroups: () => app.getRegisteredGroups(),
       registerGroup: app.registerGroup,
       syncGroups: async () => {},

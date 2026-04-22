@@ -10,8 +10,7 @@ import {
 
 export interface OnboardingConfigInput {
   runtimeHome: string;
-  storageProvider: 'sqlite' | 'postgres';
-  postgresDatabaseUrl?: string;
+  storageProvider: 'sqlite';
   primaryProvider: 'telegram' | 'slack';
   telegramBotToken?: string;
   slackBotToken?: string;
@@ -45,10 +44,7 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
         ? null
         : input.anthropicApiKey?.trim() || null,
     ANTHROPIC_MODEL: input.anthropicModel?.trim() || null,
-    MYCLAW_DATABASE_URL:
-      input.storageProvider === 'postgres'
-        ? input.postgresDatabaseUrl?.trim() || null
-        : null,
+    MYCLAW_DATABASE_URL: null,
     MYCLAW_CREDENTIAL_MODE: input.credentialMode,
     ONECLI_URL:
       input.credentialMode === 'env-only'

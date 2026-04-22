@@ -60,7 +60,7 @@ describe('runtime-group-db', () => {
     reopened.close();
   });
 
-  it('persists registered groups using storage.sqlite.path when storage.provider is postgres', () => {
+  it('rejects postgres storage until runtime persistence is provider-backed', () => {
     const runtimeHome = createRuntimeHome();
     const settings = loadRuntimeSettings(runtimeHome);
     settings.storage.provider = 'postgres';
@@ -68,17 +68,9 @@ describe('runtime-group-db', () => {
     settings.storage.postgres.urlEnv = 'MYCLAW_DATABASE_URL';
     saveRuntimeSettings(runtimeHome, settings);
 
-    const groupDb = openRuntimeGroupDb(runtimeHome);
-    groupDb.setRegisteredGroup('tg:456', {
-      name: 'Postgres Mode',
-      folder: 'postgres_mode',
-      trigger: '@myclaw',
-      added_at: '2026-04-21T00:00:00.000Z',
-    });
-    groupDb.close();
-
-    const sqlitePath = path.join(runtimeHome, 'store', 'postgres-groups.db');
-    expect(fs.existsSync(sqlitePath)).toBe(true);
+    expect(() => openRuntimeGroupDb(runtimeHome)).toThrow(
+      /storage\.provider=postgres is not available/i,
+    );
   });
 
   it('rejects sqlite paths that escape runtime home', () => {
