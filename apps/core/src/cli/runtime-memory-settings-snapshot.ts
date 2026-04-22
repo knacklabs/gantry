@@ -14,6 +14,7 @@ export interface RuntimeStorageSettingsSnapshot {
   provider?: 'sqlite' | 'postgres';
   sqlitePath?: string;
   postgresUrlEnv?: string;
+  postgresSchema?: string;
 }
 
 function parseOptionalBoolean(
@@ -31,6 +32,17 @@ function parseOptionalString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   return trimmed || undefined;
+}
+
+function parseOptionalPostgresSchema(value: unknown): string | undefined {
+  const schema = parseOptionalString(value);
+  if (schema === undefined) return undefined;
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/.test(schema)) {
+    throw new Error(
+      'storage.postgres.schema must be a valid PostgreSQL schema identifier',
+    );
+  }
+  return schema;
 }
 
 export function parseRuntimeMemorySnapshotFromRoot(
@@ -171,5 +183,6 @@ export function parseRuntimeStorageSnapshotFromRoot(
     provider,
     sqlitePath: parseOptionalString(sqlite.path),
     postgresUrlEnv: parseOptionalString(postgres.url_env),
+    postgresSchema: parseOptionalPostgresSchema(postgres.schema),
   };
 }

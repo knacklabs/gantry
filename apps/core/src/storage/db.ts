@@ -2,6 +2,22 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from 'drizzle-orm';
+import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3';
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
+
 import { STORAGE_PROVIDER, STORAGE_SQLITE_PATH } from '../core/config.js';
 import { nowIso as currentIso } from '../core/datetime.js';
 import {
@@ -10,19 +26,35 @@ import {
   encodeGlobalMessageCursor,
   toGlobalMessageCursor,
 } from '../core/message-cursor.js';
-import { isPlainObject } from '../core/object.js';
-import { isValidGroupFolder } from '../platform/group-folder.js';
 import { logger } from '../core/logger.js';
+import { isPlainObject } from '../core/object.js';
 import {
   Job,
-  JobExecutionMode,
   JobEvent,
+  JobExecutionMode,
   JobRun,
   NewMessage,
   RegisteredGroup,
 } from '../core/types.js';
+import { isValidGroupFolder } from '../platform/group-folder.js';
+import { SQLITE_MIGRATIONS } from './migrations.js';
+import * as sqliteSchema from './schema/sqlite.js';
 
-let db: Database.Database;
+let sqlite: Database.Database;
+let db: BetterSQLite3Database<typeof sqliteSchema>;
+
+function toSqliteBool(value: boolean | undefined | null): number {
+  return value ? 1 : 0;
+}
+
+function fromSqliteBool(value: unknown): boolean {
+  return value === true || value === 1;
+}
+
+function normalizeText(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
 
 function parseRegisteredGroupAgentConfig(
   rawConfig: string | null,
@@ -120,6 +152,22 @@ function normalizeJobExecutionMode(value: unknown): JobExecutionMode {
   return value === 'serialized' ? 'serialized' : 'parallel';
 }
 
+export function makeSessionScopeKey(
+  groupFolder: string,
+  threadId?: string | null,
+): string {
+  const normalizedThreadId = threadId?.trim();
+  return normalizedThreadId
+    ? `${groupFolder}::thread:${normalizedThreadId}`
+    : groupFolder;
+}
+
+function applySqliteMigrations(database: Database.Database): void {
+  for (const statement of SQLITE_MIGRATIONS) {
+    database.exec(statement);
+  }
+}
+
 const REQUIRED_SCHEMA_COLUMNS = {
   chats: ['jid', 'name', 'last_message_time', 'channel', 'is_group'],
   messages: [
@@ -210,158 +258,136 @@ function assertSchemaCompatibility(database: Database.Database): void {
   assertTableColumns(database, 'sessions', REQUIRED_SCHEMA_COLUMNS.sessions);
 }
 
-export function makeSessionScopeKey(
-  groupFolder: string,
-  threadId?: string | null,
-): string {
-  const normalizedThreadId = threadId?.trim();
-  return normalizedThreadId
-    ? `${groupFolder}::thread:${normalizedThreadId}`
-    : groupFolder;
+function mapMessageRow(
+  row: typeof sqliteSchema.messagesSqlite.$inferSelect,
+): NewMessage {
+  return {
+    id: row.id,
+    chat_jid: row.chatJid,
+    sender: row.sender || '',
+    sender_name: row.senderName || '',
+    content: row.content || '',
+    timestamp: row.timestamp || '',
+    is_from_me: fromSqliteBool(row.isFromMe),
+    thread_id: row.threadId || undefined,
+    reply_to_message_id: row.replyToMessageId || null,
+    reply_to_message_content: row.replyToMessageContent || null,
+    reply_to_sender_name: row.replyToSenderName || null,
+  } as NewMessage;
 }
 
-function createSchema(database: Database.Database): void {
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS chats (
-      jid TEXT PRIMARY KEY,
-      name TEXT,
-      last_message_time TEXT,
-      channel TEXT,
-      is_group INTEGER DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT,
-      chat_jid TEXT,
-      sender TEXT,
-      sender_name TEXT,
-      content TEXT,
-      timestamp TEXT,
-      thread_id TEXT,
-      reply_to_message_id TEXT,
-      reply_to_message_content TEXT,
-      reply_to_sender_name TEXT,
-      is_from_me INTEGER,
-      is_bot_message INTEGER DEFAULT 0,
-      PRIMARY KEY (id, chat_jid),
-      FOREIGN KEY (chat_jid) REFERENCES chats(jid)
-    );
-    CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp);
-    CREATE INDEX IF NOT EXISTS idx_messages_chat_thread ON messages(chat_jid, thread_id);
+type JobRow = typeof sqliteSchema.jobsSqlite.$inferSelect;
 
-    CREATE TABLE IF NOT EXISTS jobs (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      prompt TEXT NOT NULL,
-      model TEXT DEFAULT NULL,
-      script TEXT,
-      schedule_type TEXT NOT NULL,
-      schedule_value TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      linked_sessions TEXT NOT NULL,
-      session_id TEXT,
-      thread_id TEXT,
-      group_scope TEXT NOT NULL,
-      created_by TEXT NOT NULL DEFAULT 'agent',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      next_run TEXT,
-      last_run TEXT,
-      silent INTEGER NOT NULL DEFAULT 0,
-      cleanup_after_ms INTEGER NOT NULL DEFAULT 86400000,
-      timeout_ms INTEGER NOT NULL DEFAULT 300000,
-      max_retries INTEGER NOT NULL DEFAULT 3,
-      retry_backoff_ms INTEGER NOT NULL DEFAULT 5000,
-      max_consecutive_failures INTEGER NOT NULL DEFAULT 5,
-      consecutive_failures INTEGER NOT NULL DEFAULT 0,
-      execution_mode TEXT NOT NULL DEFAULT 'parallel',
-      lease_run_id TEXT,
-      lease_expires_at TEXT,
-      pause_reason TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_jobs_status_next_run ON jobs(status, next_run);
-    CREATE INDEX IF NOT EXISTS idx_jobs_group_scope ON jobs(group_scope);
+function mapJobRow(row: JobRow): Job {
+  let linkedSessions: string[] = [];
+  try {
+    const parsed = JSON.parse(row.linkedSessions);
+    if (Array.isArray(parsed)) {
+      linkedSessions = parsed.filter((item) => typeof item === 'string');
+    }
+  } catch {
+    linkedSessions = [];
+  }
 
-    CREATE TABLE IF NOT EXISTS job_runs (
-      run_id TEXT PRIMARY KEY,
-      job_id TEXT NOT NULL,
-      scheduled_for TEXT NOT NULL,
-      started_at TEXT NOT NULL,
-      ended_at TEXT,
-      status TEXT NOT NULL,
-      result_summary TEXT,
-      error_summary TEXT,
-      retry_count INTEGER NOT NULL DEFAULT 0,
-      notified_at TEXT,
-      FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
-      UNIQUE (job_id, scheduled_for)
-    );
-    CREATE INDEX IF NOT EXISTS idx_job_runs_job_started ON job_runs(job_id, started_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_job_runs_status ON job_runs(status);
+  return {
+    id: row.id,
+    name: row.name,
+    prompt: row.prompt,
+    model: row.model,
+    script: row.script,
+    schedule_type: row.scheduleType as Job['schedule_type'],
+    schedule_value: row.scheduleValue,
+    status: row.status as Job['status'],
+    linked_sessions: linkedSessions,
+    session_id: row.sessionId,
+    thread_id: row.threadId,
+    group_scope: row.groupScope,
+    created_by: (row.createdBy as Job['created_by']) || 'agent',
+    created_at: row.createdAt,
+    updated_at: row.updatedAt,
+    next_run: row.nextRun,
+    last_run: row.lastRun,
+    silent: fromSqliteBool(row.silent),
+    cleanup_after_ms: row.cleanupAfterMs,
+    timeout_ms: row.timeoutMs,
+    max_retries: row.maxRetries,
+    retry_backoff_ms: row.retryBackoffMs,
+    max_consecutive_failures: row.maxConsecutiveFailures,
+    consecutive_failures: row.consecutiveFailures,
+    execution_mode: normalizeJobExecutionMode(row.executionMode),
+    lease_run_id: row.leaseRunId,
+    lease_expires_at: row.leaseExpiresAt,
+    pause_reason: row.pauseReason,
+  };
+}
 
-    CREATE TABLE IF NOT EXISTS job_events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      job_id TEXT NOT NULL,
-      run_id TEXT,
-      event_type TEXT NOT NULL,
-      payload TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
-    );
-    CREATE INDEX IF NOT EXISTS idx_job_events_job_id ON job_events(job_id, created_at DESC);
+function mapJobRunRow(
+  row: typeof sqliteSchema.jobRunsSqlite.$inferSelect,
+): JobRun {
+  return {
+    run_id: row.runId,
+    job_id: row.jobId,
+    scheduled_for: row.scheduledFor,
+    started_at: row.startedAt,
+    ended_at: row.endedAt,
+    status: row.status as JobRun['status'],
+    result_summary: row.resultSummary,
+    error_summary: row.errorSummary,
+    retry_count: row.retryCount,
+    notified_at: row.notifiedAt,
+  };
+}
 
-    CREATE TABLE IF NOT EXISTS router_state (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS sessions (
-      scope_key TEXT PRIMARY KEY,
-      group_folder TEXT NOT NULL,
-      thread_id TEXT,
-      session_id TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS registered_groups (
-      jid TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      folder TEXT NOT NULL UNIQUE,
-      trigger_pattern TEXT NOT NULL,
-      added_at TEXT NOT NULL,
-      container_config TEXT,
-      requires_trigger INTEGER DEFAULT 1,
-      is_main INTEGER DEFAULT 0
-    );
-  `);
+function mapJobEventRow(
+  row: typeof sqliteSchema.jobEventsSqlite.$inferSelect,
+): JobEvent {
+  return {
+    id: row.id,
+    job_id: row.jobId,
+    run_id: row.runId,
+    event_type: row.eventType,
+    payload: row.payload,
+    created_at: row.createdAt,
+  };
 }
 
 export function initDatabase(): void {
   if (STORAGE_PROVIDER !== 'sqlite') {
     throw new Error(
-      'storage.provider=postgres is not available in host runtime yet. Use storage.provider=sqlite.',
+      'storage.provider=postgres is not available in host runtime yet. Runtime persistence cutover is in progress; use storage.provider=sqlite for now.',
     );
   }
   const dbPath = STORAGE_SQLITE_PATH;
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
-  db = new Database(dbPath);
-  createSchema(db);
-  assertSchemaCompatibility(db);
+  sqlite = new Database(dbPath);
+  sqlite.pragma('journal_mode = WAL');
+  sqlite.pragma('synchronous = NORMAL');
+  sqlite.pragma('foreign_keys = ON');
+  sqlite.pragma('busy_timeout = 5000');
+  applySqliteMigrations(sqlite);
+  assertSchemaCompatibility(sqlite);
+  db = drizzleSqlite(sqlite, { schema: sqliteSchema });
 }
 
 /** @internal - for tests only. Creates a fresh in-memory database. */
 export function _initTestDatabase(): void {
-  db = new Database(':memory:');
-  createSchema(db);
-  assertSchemaCompatibility(db);
+  sqlite = new Database(':memory:');
+  sqlite.pragma('foreign_keys = ON');
+  applySqliteMigrations(sqlite);
+  assertSchemaCompatibility(sqlite);
+  db = drizzleSqlite(sqlite, { schema: sqliteSchema });
 }
 
 /** @internal - for tests only. Applies schema/migrations to a provided DB. */
 export function _createSchemaForTest(database: Database.Database): void {
-  createSchema(database);
+  applySqliteMigrations(database);
   assertSchemaCompatibility(database);
 }
 
 /** @internal - for tests only. */
 export function _closeDatabase(): void {
-  db.close();
+  sqlite?.close();
 }
 
 /**
@@ -375,33 +401,36 @@ export function storeChatMetadata(
   channel?: string,
   isGroup?: boolean,
 ): void {
-  const ch = channel ?? null;
-  const group = isGroup === undefined ? null : isGroup ? 1 : 0;
+  const effectiveTimestamp = timestamp || currentIso();
+  const chat = sqliteSchema.chatsSqlite;
 
-  if (name) {
-    // Update with name, preserving existing timestamp if newer
-    db.prepare(
-      `
-      INSERT INTO chats (jid, name, last_message_time, channel, is_group) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(jid) DO UPDATE SET
-        name = excluded.name,
-        last_message_time = MAX(last_message_time, excluded.last_message_time),
-        channel = COALESCE(excluded.channel, channel),
-        is_group = COALESCE(excluded.is_group, is_group)
-    `,
-    ).run(chatJid, name, timestamp, ch, group);
-  } else {
-    // Update timestamp only, preserve existing name if any
-    db.prepare(
-      `
-      INSERT INTO chats (jid, name, last_message_time, channel, is_group) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(jid) DO UPDATE SET
-        last_message_time = MAX(last_message_time, excluded.last_message_time),
-        channel = COALESCE(excluded.channel, channel),
-        is_group = COALESCE(excluded.is_group, is_group)
-    `,
-    ).run(chatJid, chatJid, timestamp, ch, group);
-  }
+  db.insert(chat)
+    .values({
+      jid: chatJid,
+      name: name || chatJid,
+      lastMessageTime: effectiveTimestamp,
+      channel: channel ?? null,
+      isGroup: toSqliteBool(isGroup),
+    })
+    .onConflictDoUpdate({
+      target: chat.jid,
+      set: {
+        name: name
+          ? sql`excluded.name`
+          : sql`COALESCE(${chat.name}, excluded.name)`,
+        lastMessageTime: sql`CASE
+          WHEN ${chat.lastMessageTime} IS NOT NULL
+            AND ${chat.lastMessageTime} > excluded.last_message_time
+          THEN ${chat.lastMessageTime}
+          ELSE excluded.last_message_time
+        END`,
+        channel:
+          channel === undefined ? sql`${chat.channel}` : sql`excluded.channel`,
+        isGroup:
+          isGroup === undefined ? sql`${chat.isGroup}` : sql`excluded.is_group`,
+      },
+    })
+    .run();
 }
 
 export interface ChatInfo {
@@ -417,14 +446,17 @@ export interface ChatInfo {
  */
 export function getAllChats(): ChatInfo[] {
   return db
-    .prepare(
-      `
-    SELECT jid, name, last_message_time, channel, is_group
-    FROM chats
-    ORDER BY last_message_time DESC
-  `,
-    )
-    .all() as ChatInfo[];
+    .select()
+    .from(sqliteSchema.chatsSqlite)
+    .orderBy(desc(sqliteSchema.chatsSqlite.lastMessageTime))
+    .all()
+    .map((row) => ({
+      jid: row.jid,
+      name: row.name || row.jid,
+      last_message_time: row.lastMessageTime || '',
+      channel: row.channel || '',
+      is_group: fromSqliteBool(row.isGroup) ? 1 : 0,
+    }));
 }
 
 /**
@@ -432,22 +464,40 @@ export function getAllChats(): ChatInfo[] {
  * Only call this for registered groups where message history is needed.
  */
 export function storeMessage(msg: NewMessage): void {
-  db.prepare(
-    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, thread_id, is_from_me, is_bot_message, reply_to_message_id, reply_to_message_content, reply_to_sender_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    msg.id,
-    msg.chat_jid,
-    msg.sender,
-    msg.sender_name,
-    msg.content,
-    msg.timestamp,
-    msg.thread_id ?? null,
-    msg.is_from_me ? 1 : 0,
-    msg.is_bot_message ? 1 : 0,
-    msg.reply_to_message_id ?? null,
-    msg.reply_to_message_content ?? null,
-    msg.reply_to_sender_name ?? null,
-  );
+  db.insert(sqliteSchema.messagesSqlite)
+    .values({
+      id: msg.id,
+      chatJid: msg.chat_jid,
+      sender: msg.sender,
+      senderName: msg.sender_name,
+      content: msg.content,
+      timestamp: msg.timestamp,
+      threadId: msg.thread_id ?? null,
+      isFromMe: toSqliteBool(Boolean(msg.is_from_me)),
+      isBotMessage: toSqliteBool(Boolean(msg.is_bot_message)),
+      replyToMessageId: msg.reply_to_message_id ?? null,
+      replyToMessageContent: msg.reply_to_message_content ?? null,
+      replyToSenderName: msg.reply_to_sender_name ?? null,
+    })
+    .onConflictDoUpdate({
+      target: [
+        sqliteSchema.messagesSqlite.id,
+        sqliteSchema.messagesSqlite.chatJid,
+      ],
+      set: {
+        sender: msg.sender,
+        senderName: msg.sender_name,
+        content: msg.content,
+        timestamp: msg.timestamp,
+        threadId: msg.thread_id ?? null,
+        isFromMe: toSqliteBool(Boolean(msg.is_from_me)),
+        isBotMessage: toSqliteBool(Boolean(msg.is_bot_message)),
+        replyToMessageId: msg.reply_to_message_id ?? null,
+        replyToMessageContent: msg.reply_to_message_content ?? null,
+        replyToSenderName: msg.reply_to_sender_name ?? null,
+      },
+    })
+    .run();
 }
 
 export function getNewMessages(
@@ -458,45 +508,34 @@ export function getNewMessages(
   if (jids.length === 0) return { messages: [], newTimestamp: lastCursor };
 
   const cursor = decodeGlobalMessageCursor(lastCursor);
-  const placeholders = jids.map(() => '?').join(',');
-  const sql = `
-    SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me,
-           thread_id,
-           reply_to_message_id, reply_to_message_content, reply_to_sender_name
-    FROM messages
-    WHERE chat_jid IN (${placeholders})
-      AND (
-        timestamp > ?
-        OR (
-          timestamp = ?
-          AND (
-            chat_jid > ?
-            OR (chat_jid = ? AND id > ?)
-          )
-        )
-      )
-      AND is_bot_message = 0
-      AND content != '' AND content IS NOT NULL
-    ORDER BY timestamp ASC, chat_jid ASC, id ASC
-    LIMIT ?
-  `;
+  const m = sqliteSchema.messagesSqlite;
 
   const rows = db
-    .prepare(sql)
-    .all(
-      ...jids,
-      cursor.timestamp,
-      cursor.timestamp,
-      cursor.chatJid,
-      cursor.chatJid,
-      cursor.id,
-      limit,
-    ) as Array<NewMessage & { is_from_me?: number | boolean }>;
+    .select()
+    .from(m)
+    .where(
+      and(
+        inArray(m.chatJid, jids),
+        sql<boolean>`(
+          ${m.timestamp} > ${cursor.timestamp}
+          OR (
+            ${m.timestamp} = ${cursor.timestamp}
+            AND (
+              ${m.chatJid} > ${cursor.chatJid}
+              OR (${m.chatJid} = ${cursor.chatJid} AND ${m.id} > ${cursor.id})
+            )
+          )
+        )`,
+        eq(m.isBotMessage, 0),
+        isNotNull(m.content),
+        sql<boolean>`${m.content} != ''`,
+      ),
+    )
+    .orderBy(asc(m.timestamp), asc(m.chatJid), asc(m.id))
+    .limit(limit)
+    .all();
 
-  const messages = rows.map((row) => ({
-    ...row,
-    is_from_me: Boolean(row.is_from_me),
-  }));
+  const messages = rows.map((row) => mapMessageRow(row));
 
   let newTimestamp = lastCursor;
   const latest = messages[messages.length - 1];
@@ -514,68 +553,68 @@ export function getMessagesSince(
   options: { threadId?: string | null } = {},
 ): NewMessage[] {
   const cursor = decodeGroupMessageCursor(sinceCursor);
+  const m = sqliteSchema.messagesSqlite;
   const hasThreadFilter = Object.prototype.hasOwnProperty.call(
     options,
     'threadId',
   );
   const threadId = options.threadId?.trim() || null;
-  const sql = `
-    SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me,
-           thread_id,
-           reply_to_message_id, reply_to_message_content, reply_to_sender_name
-    FROM messages
-    WHERE chat_jid = @chat_jid
-      AND (
-        timestamp > @timestamp
-        OR (timestamp = @timestamp AND id > @id)
-      )
-      AND is_bot_message = 0
-      AND content != '' AND content IS NOT NULL
-      ${
-        hasThreadFilter
-          ? threadId
-            ? 'AND thread_id = @thread_id'
-            : "AND (thread_id IS NULL OR TRIM(thread_id) = '')"
-          : ''
-      }
-    ORDER BY timestamp ASC, id ASC
-    LIMIT @limit
-  `;
-  const rows = db.prepare(sql).all({
-    chat_jid: chatJid,
-    timestamp: cursor.timestamp,
-    id: cursor.id,
-    thread_id: threadId,
-    limit,
-  }) as Array<NewMessage & { is_from_me?: number | boolean }>;
-  return rows.map((row) => ({
-    ...row,
-    is_from_me: Boolean(row.is_from_me),
-  }));
+
+  const threadFilter = hasThreadFilter
+    ? threadId
+      ? eq(m.threadId, threadId)
+      : or(
+          sql<boolean>`${m.threadId} IS NULL`,
+          sql<boolean>`TRIM(${m.threadId}) = ''`,
+        )
+    : undefined;
+
+  const where = and(
+    eq(m.chatJid, chatJid),
+    or(
+      gt(m.timestamp, cursor.timestamp),
+      and(eq(m.timestamp, cursor.timestamp), gt(m.id, cursor.id)),
+    ),
+    eq(m.isBotMessage, 0),
+    isNotNull(m.content),
+    sql<boolean>`${m.content} != ''`,
+    threadFilter,
+  );
+
+  return db
+    .select()
+    .from(m)
+    .where(where)
+    .orderBy(asc(m.timestamp), asc(m.id))
+    .limit(limit)
+    .all()
+    .map((row) => mapMessageRow(row));
 }
 
 export function getMessageThreadIds(chatJid: string): Array<string | null> {
+  const m = sqliteSchema.messagesSqlite;
   const rows = db
-    .prepare(
-      `
-      SELECT DISTINCT thread_id
-      FROM messages
-      WHERE chat_jid = ?
-        AND is_bot_message = 0
-        AND content != '' AND content IS NOT NULL
-      ORDER BY thread_id ASC
-    `,
+    .selectDistinct({ threadId: m.threadId })
+    .from(m)
+    .where(
+      and(
+        eq(m.chatJid, chatJid),
+        eq(m.isBotMessage, 0),
+        isNotNull(m.content),
+        sql<boolean>`${m.content} != ''`,
+      ),
     )
-    .all(chatJid) as Array<{ thread_id?: string | null }>;
+    .orderBy(asc(m.threadId))
+    .all();
 
   const seen = new Set<string>();
   const threads: Array<string | null> = [];
   for (const row of rows) {
-    const threadId = row.thread_id?.trim() || null;
-    const key = threadId ?? '';
+    const normalized = normalizeText(row.threadId);
+    const key = normalized ?? '';
     if (seen.has(key)) continue;
     seen.add(key);
-    threads.push(threadId);
+    threads.push(normalized);
   }
   return threads;
 }
@@ -584,46 +623,31 @@ export function getLastBotMessageCursor(
   chatJid: string,
 ): { timestamp: string; id: string } | undefined {
   const row = db
-    .prepare(
-      `SELECT timestamp, id FROM messages
-       WHERE chat_jid = ? AND is_bot_message = 1
-       ORDER BY timestamp DESC, id DESC
-       LIMIT 1`,
+    .select({
+      timestamp: sqliteSchema.messagesSqlite.timestamp,
+      id: sqliteSchema.messagesSqlite.id,
+    })
+    .from(sqliteSchema.messagesSqlite)
+    .where(
+      and(
+        eq(sqliteSchema.messagesSqlite.chatJid, chatJid),
+        eq(sqliteSchema.messagesSqlite.isBotMessage, 1),
+      ),
     )
-    .get(chatJid) as { timestamp: string; id: string } | undefined;
-  if (!row) return undefined;
-  return row;
+    .orderBy(
+      desc(sqliteSchema.messagesSqlite.timestamp),
+      desc(sqliteSchema.messagesSqlite.id),
+    )
+    .limit(1)
+    .get();
+  if (!row || !row.timestamp) return undefined;
+  return { timestamp: row.timestamp, id: row.id };
 }
 
 export function getLastBotMessageTimestamp(
   chatJid: string,
 ): string | undefined {
   return getLastBotMessageCursor(chatJid)?.timestamp;
-}
-
-type RawJobRow = Omit<Job, 'linked_sessions' | 'silent'> & {
-  linked_sessions: string;
-  silent: number | boolean;
-};
-
-function mapJobRow(row: RawJobRow): Job {
-  let linkedSessions: string[] = [];
-  try {
-    const parsed = JSON.parse(row.linked_sessions);
-    if (Array.isArray(parsed)) {
-      linkedSessions = parsed.filter((item) => typeof item === 'string');
-    }
-  } catch {
-    linkedSessions = [];
-  }
-  return {
-    ...row,
-    linked_sessions: linkedSessions,
-    silent: Boolean(row.silent),
-    execution_mode: normalizeJobExecutionMode(
-      (row as { execution_mode?: unknown }).execution_mode,
-    ),
-  };
 }
 
 export interface JobUpsertInput {
@@ -651,86 +675,94 @@ export interface JobUpsertInput {
 }
 
 export function upsertJob(job: JobUpsertInput): { created: boolean } {
-  const existing = db
-    .prepare('SELECT id FROM jobs WHERE id = ?')
-    .get(job.id) as { id: string } | undefined;
+  const j = sqliteSchema.jobsSqlite;
   const now = currentIso();
+  const existing = db
+    .select({ id: j.id })
+    .from(j)
+    .where(eq(j.id, job.id))
+    .limit(1)
+    .get();
 
-  db.prepare(
-    `
-    INSERT INTO jobs (
-      id, name, prompt, model, script, schedule_type, schedule_value, status,
-      linked_sessions, session_id, thread_id, group_scope, created_by, created_at, updated_at,
-      next_run, silent, cleanup_after_ms, timeout_ms, max_retries, retry_backoff_ms, max_consecutive_failures,
-      execution_mode
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      name = excluded.name,
-      prompt = excluded.prompt,
-      model = excluded.model,
-      script = excluded.script,
-      schedule_type = excluded.schedule_type,
-      schedule_value = excluded.schedule_value,
-      status = CASE
-        WHEN jobs.status IN ('running', 'dead_lettered') THEN jobs.status
-        ELSE excluded.status
-      END,
-      linked_sessions = excluded.linked_sessions,
-      session_id = excluded.session_id,
-      thread_id = excluded.thread_id,
-      group_scope = excluded.group_scope,
-      updated_at = excluded.updated_at,
-      next_run = excluded.next_run,
-      silent = excluded.silent,
-      cleanup_after_ms = excluded.cleanup_after_ms,
-      timeout_ms = excluded.timeout_ms,
-      max_retries = excluded.max_retries,
-      retry_backoff_ms = excluded.retry_backoff_ms,
-      max_consecutive_failures = excluded.max_consecutive_failures,
-      execution_mode = excluded.execution_mode
-  `,
-  ).run(
-    job.id,
-    job.name,
-    job.prompt,
-    job.model || null,
-    job.script || null,
-    job.schedule_type,
-    job.schedule_value,
-    job.status || 'active',
-    JSON.stringify(job.linked_sessions),
-    job.session_id || null,
-    job.thread_id || null,
-    job.group_scope,
-    job.created_by,
-    now,
-    now,
-    job.next_run,
-    job.silent ? 1 : 0,
-    job.cleanup_after_ms ?? 86400000,
-    job.timeout_ms ?? 300000,
-    job.max_retries ?? 3,
-    job.retry_backoff_ms ?? 5000,
-    job.max_consecutive_failures ?? 5,
-    normalizeJobExecutionMode(job.execution_mode),
-  );
+  db.insert(j)
+    .values({
+      id: job.id,
+      name: job.name,
+      prompt: job.prompt,
+      model: job.model || null,
+      script: job.script || null,
+      scheduleType: job.schedule_type,
+      scheduleValue: job.schedule_value,
+      status: job.status || 'active',
+      linkedSessions: JSON.stringify(job.linked_sessions),
+      sessionId: job.session_id || null,
+      threadId: job.thread_id || null,
+      groupScope: job.group_scope,
+      createdBy: job.created_by,
+      createdAt: now,
+      updatedAt: now,
+      nextRun: job.next_run,
+      silent: toSqliteBool(Boolean(job.silent)),
+      cleanupAfterMs: job.cleanup_after_ms ?? 86400000,
+      timeoutMs: job.timeout_ms ?? 300000,
+      maxRetries: job.max_retries ?? 3,
+      retryBackoffMs: job.retry_backoff_ms ?? 5000,
+      maxConsecutiveFailures: job.max_consecutive_failures ?? 5,
+      executionMode: normalizeJobExecutionMode(job.execution_mode),
+    })
+    .onConflictDoUpdate({
+      target: j.id,
+      set: {
+        name: job.name,
+        prompt: job.prompt,
+        model: job.model || null,
+        script: job.script || null,
+        scheduleType: job.schedule_type,
+        scheduleValue: job.schedule_value,
+        status: sql`CASE
+          WHEN ${j.status} IN ('running', 'dead_lettered') THEN ${j.status}
+          ELSE excluded.status
+        END`,
+        linkedSessions: JSON.stringify(job.linked_sessions),
+        sessionId: job.session_id || null,
+        threadId: job.thread_id || null,
+        groupScope: job.group_scope,
+        updatedAt: now,
+        nextRun: job.next_run,
+        silent: toSqliteBool(Boolean(job.silent)),
+        cleanupAfterMs: job.cleanup_after_ms ?? 86400000,
+        timeoutMs: job.timeout_ms ?? 300000,
+        maxRetries: job.max_retries ?? 3,
+        retryBackoffMs: job.retry_backoff_ms ?? 5000,
+        maxConsecutiveFailures: job.max_consecutive_failures ?? 5,
+        executionMode: normalizeJobExecutionMode(job.execution_mode),
+      },
+    })
+    .run();
 
   return { created: !existing };
 }
 
 export function getJobById(id: string): Job | undefined {
-  const row = db.prepare('SELECT * FROM jobs WHERE id = ?').get(id) as
-    | RawJobRow
-    | undefined;
+  const row = db
+    .select()
+    .from(sqliteSchema.jobsSqlite)
+    .where(eq(sqliteSchema.jobsSqlite.id, id))
+    .limit(1)
+    .get();
   return row ? mapJobRow(row) : undefined;
 }
 
 export function getAllJobs(): Job[] {
   return db
-    .prepare('SELECT * FROM jobs ORDER BY updated_at DESC, created_at DESC')
+    .select()
+    .from(sqliteSchema.jobsSqlite)
+    .orderBy(
+      desc(sqliteSchema.jobsSqlite.updatedAt),
+      desc(sqliteSchema.jobsSqlite.createdAt),
+    )
     .all()
-    .map((row) => mapJobRow(row as RawJobRow));
+    .map((row) => mapJobRow(row));
 }
 
 export function getRecentJobRuns(limit: number = 200): JobRun[] {
@@ -769,133 +801,76 @@ export function updateJob(
     >
   >,
 ): void {
-  const fields: string[] = [];
-  const values: unknown[] = [];
+  const setValues: Partial<typeof sqliteSchema.jobsSqlite.$inferInsert> = {
+    updatedAt: currentIso(),
+  };
 
-  if (updates.name !== undefined) {
-    fields.push('name = ?');
-    values.push(updates.name);
-  }
-  if (updates.prompt !== undefined) {
-    fields.push('prompt = ?');
-    values.push(updates.prompt);
-  }
-  if (updates.model !== undefined) {
-    fields.push('model = ?');
-    values.push(updates.model || null);
-  }
-  if (updates.script !== undefined) {
-    fields.push('script = ?');
-    values.push(updates.script || null);
-  }
-  if (updates.schedule_type !== undefined) {
-    fields.push('schedule_type = ?');
-    values.push(updates.schedule_type);
-  }
-  if (updates.schedule_value !== undefined) {
-    fields.push('schedule_value = ?');
-    values.push(updates.schedule_value);
-  }
-  if (updates.status !== undefined) {
-    fields.push('status = ?');
-    values.push(updates.status);
-  }
-  if (updates.linked_sessions !== undefined) {
-    fields.push('linked_sessions = ?');
-    values.push(JSON.stringify(updates.linked_sessions));
-  }
-  if (updates.session_id !== undefined) {
-    fields.push('session_id = ?');
-    values.push(updates.session_id);
-  }
-  if (updates.thread_id !== undefined) {
-    fields.push('thread_id = ?');
-    values.push(updates.thread_id);
-  }
-  if (updates.group_scope !== undefined) {
-    fields.push('group_scope = ?');
-    values.push(updates.group_scope);
-  }
-  if (updates.next_run !== undefined) {
-    fields.push('next_run = ?');
-    values.push(updates.next_run);
-  }
-  if (updates.last_run !== undefined) {
-    fields.push('last_run = ?');
-    values.push(updates.last_run);
-  }
-  if (updates.silent !== undefined) {
-    fields.push('silent = ?');
-    values.push(updates.silent ? 1 : 0);
-  }
-  if (updates.cleanup_after_ms !== undefined) {
-    fields.push('cleanup_after_ms = ?');
-    values.push(updates.cleanup_after_ms);
-  }
-  if (updates.timeout_ms !== undefined) {
-    fields.push('timeout_ms = ?');
-    values.push(updates.timeout_ms);
-  }
-  if (updates.max_retries !== undefined) {
-    fields.push('max_retries = ?');
-    values.push(updates.max_retries);
-  }
-  if (updates.retry_backoff_ms !== undefined) {
-    fields.push('retry_backoff_ms = ?');
-    values.push(updates.retry_backoff_ms);
-  }
-  if (updates.max_consecutive_failures !== undefined) {
-    fields.push('max_consecutive_failures = ?');
-    values.push(updates.max_consecutive_failures);
-  }
-  if (updates.consecutive_failures !== undefined) {
-    fields.push('consecutive_failures = ?');
-    values.push(updates.consecutive_failures);
-  }
-  if (updates.execution_mode !== undefined) {
-    fields.push('execution_mode = ?');
-    values.push(normalizeJobExecutionMode(updates.execution_mode));
-  }
-  if (updates.pause_reason !== undefined) {
-    fields.push('pause_reason = ?');
-    values.push(updates.pause_reason);
-  }
-  if (updates.lease_run_id !== undefined) {
-    fields.push('lease_run_id = ?');
-    values.push(updates.lease_run_id);
-  }
-  if (updates.lease_expires_at !== undefined) {
-    fields.push('lease_expires_at = ?');
-    values.push(updates.lease_expires_at);
-  }
+  if (updates.name !== undefined) setValues.name = updates.name;
+  if (updates.prompt !== undefined) setValues.prompt = updates.prompt;
+  if (updates.model !== undefined) setValues.model = updates.model || null;
+  if (updates.script !== undefined) setValues.script = updates.script || null;
+  if (updates.schedule_type !== undefined)
+    setValues.scheduleType = updates.schedule_type;
+  if (updates.schedule_value !== undefined)
+    setValues.scheduleValue = updates.schedule_value;
+  if (updates.status !== undefined) setValues.status = updates.status;
+  if (updates.linked_sessions !== undefined)
+    setValues.linkedSessions = JSON.stringify(updates.linked_sessions);
+  if (updates.session_id !== undefined)
+    setValues.sessionId = updates.session_id;
+  if (updates.thread_id !== undefined) setValues.threadId = updates.thread_id;
+  if (updates.group_scope !== undefined)
+    setValues.groupScope = updates.group_scope;
+  if (updates.next_run !== undefined) setValues.nextRun = updates.next_run;
+  if (updates.last_run !== undefined) setValues.lastRun = updates.last_run;
+  if (updates.silent !== undefined)
+    setValues.silent = toSqliteBool(Boolean(updates.silent));
+  if (updates.cleanup_after_ms !== undefined)
+    setValues.cleanupAfterMs = updates.cleanup_after_ms;
+  if (updates.timeout_ms !== undefined)
+    setValues.timeoutMs = updates.timeout_ms;
+  if (updates.max_retries !== undefined)
+    setValues.maxRetries = updates.max_retries;
+  if (updates.retry_backoff_ms !== undefined)
+    setValues.retryBackoffMs = updates.retry_backoff_ms;
+  if (updates.max_consecutive_failures !== undefined)
+    setValues.maxConsecutiveFailures = updates.max_consecutive_failures;
+  if (updates.consecutive_failures !== undefined)
+    setValues.consecutiveFailures = updates.consecutive_failures;
+  if (updates.execution_mode !== undefined)
+    setValues.executionMode = normalizeJobExecutionMode(updates.execution_mode);
+  if (updates.pause_reason !== undefined)
+    setValues.pauseReason = updates.pause_reason;
+  if (updates.lease_run_id !== undefined)
+    setValues.leaseRunId = updates.lease_run_id;
+  if (updates.lease_expires_at !== undefined)
+    setValues.leaseExpiresAt = updates.lease_expires_at;
 
-  if (fields.length === 0) return;
+  if (Object.keys(setValues).length === 1) return;
 
-  fields.push('updated_at = ?');
-  values.push(currentIso());
-  values.push(id);
-  db.prepare(`UPDATE jobs SET ${fields.join(', ')} WHERE id = ?`).run(
-    ...values,
-  );
+  db.update(sqliteSchema.jobsSqlite)
+    .set(setValues)
+    .where(eq(sqliteSchema.jobsSqlite.id, id))
+    .run();
 }
 
 export function deleteJob(id: string): void {
-  db.prepare('DELETE FROM job_events WHERE job_id = ?').run(id);
-  db.prepare('DELETE FROM job_runs WHERE job_id = ?').run(id);
-  db.prepare('DELETE FROM jobs WHERE id = ?').run(id);
+  db.delete(sqliteSchema.jobsSqlite)
+    .where(eq(sqliteSchema.jobsSqlite.id, id))
+    .run();
 }
 
 export function listDueJobs(nowIso: string = currentIso()): Job[] {
+  const j = sqliteSchema.jobsSqlite;
   return db
-    .prepare(
-      `
-      SELECT * FROM jobs
-      WHERE status = 'active' AND next_run IS NOT NULL AND next_run <= ?
-      ORDER BY next_run ASC, updated_at ASC
-    `,
+    .select()
+    .from(j)
+    .where(
+      and(eq(j.status, 'active'), isNotNull(j.nextRun), lte(j.nextRun, nowIso)),
     )
-    .all(nowIso)
-    .map((row) => mapJobRow(row as RawJobRow));
+    .orderBy(asc(j.nextRun), asc(j.updatedAt))
+    .all()
+    .map((row) => mapJobRow(row));
 }
 
 export function markJobRunning(
@@ -903,58 +878,61 @@ export function markJobRunning(
   runId: string,
   leaseExpiresAt: string,
 ): boolean {
-  const changes = db
-    .prepare(
-      `
-      UPDATE jobs
-      SET status = 'running',
-          lease_run_id = ?,
-          lease_expires_at = ?,
-          updated_at = ?
-      WHERE id = ? AND status = 'active'
-    `,
+  const result = db
+    .update(sqliteSchema.jobsSqlite)
+    .set({
+      status: 'running',
+      leaseRunId: runId,
+      leaseExpiresAt,
+      updatedAt: currentIso(),
+    })
+    .where(
+      and(
+        eq(sqliteSchema.jobsSqlite.id, id),
+        eq(sqliteSchema.jobsSqlite.status, 'active'),
+      ),
     )
-    .run(runId, leaseExpiresAt, currentIso(), id).changes;
-  return changes > 0;
+    .run();
+  return result.changes > 0;
 }
 
 export function releaseStaleJobLeases(nowIso: string = currentIso()): number {
-  return db
-    .prepare(
-      `
-      UPDATE jobs
-      SET status = 'active',
-          lease_run_id = NULL,
-          lease_expires_at = NULL,
-          updated_at = ?
-      WHERE status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?
-    `,
+  const result = db
+    .update(sqliteSchema.jobsSqlite)
+    .set({
+      status: 'active',
+      leaseRunId: null,
+      leaseExpiresAt: null,
+      updatedAt: nowIso,
+    })
+    .where(
+      and(
+        eq(sqliteSchema.jobsSqlite.status, 'running'),
+        isNotNull(sqliteSchema.jobsSqlite.leaseExpiresAt),
+        lt(sqliteSchema.jobsSqlite.leaseExpiresAt, nowIso),
+      ),
     )
-    .run(nowIso, nowIso).changes;
+    .run();
+  return result.changes;
 }
 
 export function createJobRun(run: JobRun): boolean {
   const result = db
-    .prepare(
-      `
-      INSERT OR IGNORE INTO job_runs (
-        run_id, job_id, scheduled_for, started_at, ended_at, status,
-        result_summary, error_summary, retry_count, notified_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    )
-    .run(
-      run.run_id,
-      run.job_id,
-      run.scheduled_for,
-      run.started_at,
-      run.ended_at,
-      run.status,
-      run.result_summary,
-      run.error_summary,
-      run.retry_count,
-      run.notified_at,
-    );
+    .insert(sqliteSchema.jobRunsSqlite)
+    .values({
+      runId: run.run_id,
+      jobId: run.job_id,
+      scheduledFor: run.scheduled_for,
+      startedAt: run.started_at,
+      endedAt: run.ended_at,
+      status: run.status,
+      resultSummary: run.result_summary,
+      errorSummary: run.error_summary,
+      retryCount: run.retry_count,
+      notifiedAt: run.notified_at,
+    })
+    .onConflictDoNothing()
+    .run();
   return result.changes > 0;
 }
 
@@ -964,66 +942,67 @@ export function completeJobRun(
   resultSummary: string | null,
   errorSummary: string | null,
 ): void {
-  db.prepare(
-    `
-      UPDATE job_runs
-      SET status = ?, ended_at = ?, result_summary = ?, error_summary = ?
-      WHERE run_id = ?
-    `,
-  ).run(status, currentIso(), resultSummary, errorSummary, runId);
+  db.update(sqliteSchema.jobRunsSqlite)
+    .set({
+      status,
+      endedAt: currentIso(),
+      resultSummary,
+      errorSummary,
+    })
+    .where(eq(sqliteSchema.jobRunsSqlite.runId, runId))
+    .run();
 }
 
 export function markJobRunNotified(runId: string): void {
-  db.prepare('UPDATE job_runs SET notified_at = ? WHERE run_id = ?').run(
-    currentIso(),
-    runId,
-  );
+  db.update(sqliteSchema.jobRunsSqlite)
+    .set({ notifiedAt: currentIso() })
+    .where(eq(sqliteSchema.jobRunsSqlite.runId, runId))
+    .run();
 }
 
 export function listJobRuns(jobId?: string, limit: number = 50): JobRun[] {
   const clampedLimit = Math.max(1, Math.min(limit, 500));
-  if (jobId) {
-    return db
-      .prepare(
-        `
-          SELECT * FROM job_runs WHERE job_id = ?
-          ORDER BY started_at DESC LIMIT ?
-        `,
-      )
-      .all(jobId, clampedLimit) as JobRun[];
-  }
 
-  return db
-    .prepare('SELECT * FROM job_runs ORDER BY started_at DESC LIMIT ?')
-    .all(clampedLimit) as JobRun[];
+  const rows = jobId
+    ? db
+        .select()
+        .from(sqliteSchema.jobRunsSqlite)
+        .where(eq(sqliteSchema.jobRunsSqlite.jobId, jobId))
+        .orderBy(desc(sqliteSchema.jobRunsSqlite.startedAt))
+        .limit(clampedLimit)
+        .all()
+    : db
+        .select()
+        .from(sqliteSchema.jobRunsSqlite)
+        .orderBy(desc(sqliteSchema.jobRunsSqlite.startedAt))
+        .limit(clampedLimit)
+        .all();
+
+  return rows.map((row) => mapJobRunRow(row));
 }
 
 export function listDeadLetterRuns(limit: number = 50): JobRun[] {
   const clampedLimit = Math.max(1, Math.min(limit, 500));
   return db
-    .prepare(
-      `
-        SELECT * FROM job_runs
-        WHERE status = 'dead_lettered'
-        ORDER BY started_at DESC LIMIT ?
-      `,
-    )
-    .all(clampedLimit) as JobRun[];
+    .select()
+    .from(sqliteSchema.jobRunsSqlite)
+    .where(eq(sqliteSchema.jobRunsSqlite.status, 'dead_lettered'))
+    .orderBy(desc(sqliteSchema.jobRunsSqlite.startedAt))
+    .limit(clampedLimit)
+    .all()
+    .map((row) => mapJobRunRow(row));
 }
 
 export function addJobEvent(event: Omit<JobEvent, 'id'>): void {
-  db.prepare(
-    `
-      INSERT INTO job_events (job_id, run_id, event_type, payload, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `,
-  ).run(
-    event.job_id,
-    event.run_id,
-    event.event_type,
-    event.payload,
-    event.created_at,
-  );
+  db.insert(sqliteSchema.jobEventsSqlite)
+    .values({
+      jobId: event.job_id,
+      runId: event.run_id,
+      eventType: event.event_type,
+      payload: event.payload,
+      createdAt: event.created_at,
+    })
+    .run();
 }
 
 export function listRecentJobEvents(
@@ -1035,49 +1014,48 @@ export function listRecentJobEvents(
   },
 ): JobEvent[] {
   const clampedLimit = Math.max(1, Math.min(limit, 2000));
-  const where: string[] = [];
-  const values: unknown[] = [];
+  const conditions = [];
+  if (filters?.job_id)
+    conditions.push(eq(sqliteSchema.jobEventsSqlite.jobId, filters.job_id));
+  if (filters?.run_id)
+    conditions.push(eq(sqliteSchema.jobEventsSqlite.runId, filters.run_id));
+  if (filters?.event_type)
+    conditions.push(
+      eq(sqliteSchema.jobEventsSqlite.eventType, filters.event_type),
+    );
 
-  if (filters?.job_id) {
-    where.push('job_id = ?');
-    values.push(filters.job_id);
-  }
-  if (filters?.run_id) {
-    where.push('run_id = ?');
-    values.push(filters.run_id);
-  }
-  if (filters?.event_type) {
-    where.push('event_type = ?');
-    values.push(filters.event_type);
-  }
-
-  const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
   return db
-    .prepare(
-      `
-        SELECT id, job_id, run_id, event_type, payload, created_at
-        FROM job_events
-        ${whereClause}
-        ORDER BY created_at DESC, id DESC
-        LIMIT ?
-      `,
+    .select()
+    .from(sqliteSchema.jobEventsSqlite)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(
+      desc(sqliteSchema.jobEventsSqlite.createdAt),
+      desc(sqliteSchema.jobEventsSqlite.id),
     )
-    .all(...values, clampedLimit) as JobEvent[];
+    .limit(clampedLimit)
+    .all()
+    .map((row) => mapJobEventRow(row));
 }
 
 // --- Router state accessors ---
 
 export function getRouterState(key: string): string | undefined {
-  const row = db
-    .prepare('SELECT value FROM router_state WHERE key = ?')
-    .get(key) as { value: string } | undefined;
-  return row?.value;
+  return db
+    .select({ value: sqliteSchema.routerStateSqlite.value })
+    .from(sqliteSchema.routerStateSqlite)
+    .where(eq(sqliteSchema.routerStateSqlite.key, key))
+    .limit(1)
+    .get()?.value;
 }
 
 export function setRouterState(key: string, value: string): void {
-  db.prepare(
-    'INSERT OR REPLACE INTO router_state (key, value) VALUES (?, ?)',
-  ).run(key, value);
+  db.insert(sqliteSchema.routerStateSqlite)
+    .values({ key, value })
+    .onConflictDoUpdate({
+      target: sqliteSchema.routerStateSqlite.key,
+      set: { value },
+    })
+    .run();
 }
 
 // --- Session accessors ---
@@ -1086,12 +1064,17 @@ export function getSession(
   groupFolder: string,
   threadId?: string | null,
 ): string | undefined {
-  const row = db
-    .prepare('SELECT session_id FROM sessions WHERE scope_key = ?')
-    .get(makeSessionScopeKey(groupFolder, threadId)) as
-    | { session_id: string }
-    | undefined;
-  return row?.session_id;
+  return db
+    .select({ sessionId: sqliteSchema.sessionsSqlite.sessionId })
+    .from(sqliteSchema.sessionsSqlite)
+    .where(
+      eq(
+        sqliteSchema.sessionsSqlite.scopeKey,
+        makeSessionScopeKey(groupFolder, threadId),
+      ),
+    )
+    .limit(1)
+    .get()?.sessionId;
 }
 
 export function setSession(
@@ -1100,32 +1083,43 @@ export function setSession(
   threadId?: string | null,
 ): void {
   const normalizedThreadId = threadId?.trim() || null;
-  db.prepare(
-    'INSERT OR REPLACE INTO sessions (scope_key, group_folder, thread_id, session_id) VALUES (?, ?, ?, ?)',
-  ).run(
-    makeSessionScopeKey(groupFolder, normalizedThreadId),
-    groupFolder,
-    normalizedThreadId,
-    sessionId,
-  );
+  db.insert(sqliteSchema.sessionsSqlite)
+    .values({
+      scopeKey: makeSessionScopeKey(groupFolder, normalizedThreadId),
+      groupFolder,
+      threadId: normalizedThreadId,
+      sessionId,
+    })
+    .onConflictDoUpdate({
+      target: sqliteSchema.sessionsSqlite.scopeKey,
+      set: {
+        groupFolder,
+        threadId: normalizedThreadId,
+        sessionId,
+      },
+    })
+    .run();
 }
 
 export function deleteSession(
   groupFolder: string,
   threadId?: string | null,
 ): void {
-  db.prepare('DELETE FROM sessions WHERE scope_key = ?').run(
-    makeSessionScopeKey(groupFolder, threadId),
-  );
+  db.delete(sqliteSchema.sessionsSqlite)
+    .where(
+      eq(
+        sqliteSchema.sessionsSqlite.scopeKey,
+        makeSessionScopeKey(groupFolder, threadId),
+      ),
+    )
+    .run();
 }
 
 export function getAllSessions(): Record<string, string> {
-  const rows = db
-    .prepare('SELECT scope_key, session_id FROM sessions')
-    .all() as Array<{ scope_key: string; session_id: string }>;
+  const rows = db.select().from(sqliteSchema.sessionsSqlite).all();
   const result: Record<string, string> = {};
   for (const row of rows) {
-    result[row.scope_key] = row.session_id;
+    result[row.scopeKey] = row.sessionId;
   }
   return result;
 }
@@ -1136,19 +1130,11 @@ export function getRegisteredGroup(
   jid: string,
 ): (RegisteredGroup & { jid: string }) | undefined {
   const row = db
-    .prepare('SELECT * FROM registered_groups WHERE jid = ?')
-    .get(jid) as
-    | {
-        jid: string;
-        name: string;
-        folder: string;
-        trigger_pattern: string;
-        added_at: string;
-        container_config: string | null;
-        requires_trigger: number | null;
-        is_main: number | null;
-      }
-    | undefined;
+    .select()
+    .from(sqliteSchema.registeredGroupsSqlite)
+    .where(eq(sqliteSchema.registeredGroupsSqlite.jid, jid))
+    .limit(1)
+    .get();
   if (!row) return undefined;
   if (!isValidGroupFolder(row.folder)) {
     logger.warn(
@@ -1161,15 +1147,17 @@ export function getRegisteredGroup(
     jid: row.jid,
     name: row.name,
     folder: row.folder,
-    trigger: row.trigger_pattern,
-    added_at: row.added_at,
-    agentConfig: parseRegisteredGroupAgentConfig(row.container_config, {
+    trigger: row.triggerPattern,
+    added_at: row.addedAt,
+    agentConfig: parseRegisteredGroupAgentConfig(row.containerConfig, {
       jid: row.jid,
       folder: row.folder,
     }),
     requiresTrigger:
-      row.requires_trigger === null ? undefined : row.requires_trigger === 1,
-    isMain: row.is_main === 1 ? true : undefined,
+      row.requiresTrigger === null
+        ? undefined
+        : fromSqliteBool(row.requiresTrigger),
+    isMain: fromSqliteBool(row.isMain) ? true : undefined,
   };
 }
 
@@ -1177,36 +1165,50 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   if (!isValidGroupFolder(group.folder)) {
     throw new Error(`Invalid group folder "${group.folder}" for JID ${jid}`);
   }
-  db.prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    jid,
-    group.name,
-    group.folder,
-    group.trigger,
-    group.added_at,
-    group.agentConfig ? JSON.stringify(group.agentConfig) : null,
-    group.requiresTrigger === undefined ? 1 : group.requiresTrigger ? 1 : 0,
-    group.isMain ? 1 : 0,
-  );
+  db.insert(sqliteSchema.registeredGroupsSqlite)
+    .values({
+      jid,
+      name: group.name,
+      folder: group.folder,
+      triggerPattern: group.trigger,
+      addedAt: group.added_at,
+      containerConfig: group.agentConfig
+        ? JSON.stringify(group.agentConfig)
+        : null,
+      requiresTrigger:
+        group.requiresTrigger === undefined
+          ? 1
+          : toSqliteBool(group.requiresTrigger),
+      isMain: toSqliteBool(Boolean(group.isMain)),
+    })
+    .onConflictDoUpdate({
+      target: sqliteSchema.registeredGroupsSqlite.jid,
+      set: {
+        name: group.name,
+        folder: group.folder,
+        triggerPattern: group.trigger,
+        addedAt: group.added_at,
+        containerConfig: group.agentConfig
+          ? JSON.stringify(group.agentConfig)
+          : null,
+        requiresTrigger:
+          group.requiresTrigger === undefined
+            ? 1
+            : toSqliteBool(group.requiresTrigger),
+        isMain: toSqliteBool(Boolean(group.isMain)),
+      },
+    })
+    .run();
 }
 
 export function deleteRegisteredGroup(jid: string): void {
-  db.prepare('DELETE FROM registered_groups WHERE jid = ?').run(jid);
+  db.delete(sqliteSchema.registeredGroupsSqlite)
+    .where(eq(sqliteSchema.registeredGroupsSqlite.jid, jid))
+    .run();
 }
 
 export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
-  const rows = db.prepare('SELECT * FROM registered_groups').all() as Array<{
-    jid: string;
-    name: string;
-    folder: string;
-    trigger_pattern: string;
-    added_at: string;
-    container_config: string | null;
-    requires_trigger: number | null;
-    is_main: number | null;
-  }>;
+  const rows = db.select().from(sqliteSchema.registeredGroupsSqlite).all();
   const result: Record<string, RegisteredGroup> = {};
   for (const row of rows) {
     if (!isValidGroupFolder(row.folder)) {
@@ -1219,15 +1221,17 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
     result[row.jid] = {
       name: row.name,
       folder: row.folder,
-      trigger: row.trigger_pattern,
-      added_at: row.added_at,
-      agentConfig: parseRegisteredGroupAgentConfig(row.container_config, {
+      trigger: row.triggerPattern,
+      added_at: row.addedAt,
+      agentConfig: parseRegisteredGroupAgentConfig(row.containerConfig, {
         jid: row.jid,
         folder: row.folder,
       }),
       requiresTrigger:
-        row.requires_trigger === null ? undefined : row.requires_trigger === 1,
-      isMain: row.is_main === 1 ? true : undefined,
+        row.requiresTrigger === null
+          ? undefined
+          : fromSqliteBool(row.requiresTrigger),
+      isMain: fromSqliteBool(row.isMain) ? true : undefined,
     };
   }
   return result;

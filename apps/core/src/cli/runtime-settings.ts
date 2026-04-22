@@ -1,9 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
+import { like } from 'drizzle-orm';
+import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3';
 import '../channels/register-builtins.js';
 
 import { isValidGroupFolder } from '../platform/group-folder-rules.js';
+import * as sqliteSchema from '../storage/schema/sqlite.js';
 import {
   getChannelProvider,
   listChannelProviders,
@@ -77,6 +80,7 @@ export interface RuntimeStorageSettings {
   };
   postgres: {
     urlEnv: string;
+    schema: string;
   };
 }
 
@@ -116,6 +120,7 @@ const VALID_STORAGE_PROVIDERS = new Set<StorageProviderName>([
 const DEFAULT_STORAGE_PROVIDER: StorageProviderName = 'sqlite';
 const DEFAULT_STORAGE_SQLITE_PATH = path.join('store', 'myclaw.db');
 const DEFAULT_STORAGE_POSTGRES_URL_ENV = 'MYCLAW_DATABASE_URL';
+const DEFAULT_STORAGE_POSTGRES_SCHEMA = 'myclaw';
 const DEFAULT_MEMORY_STORAGE_DIR = 'memory';
 const DEFAULT_EMBED_MODEL = 'text-embedding-3-large';
 const DEFAULT_MODEL_HAIKU = 'claude-haiku-4-5-20251001';
@@ -301,12 +306,29 @@ function parseStorageProvider(
   return raw as StorageProviderName;
 }
 
+function parsePostgresSchema(raw: unknown, pathPrefix: string): string {
+  const value = parseStringValue(
+    raw,
+    pathPrefix,
+    DEFAULT_STORAGE_POSTGRES_SCHEMA,
+  );
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/.test(value)) {
+    throw new Error(
+      `${pathPrefix} must be a valid PostgreSQL schema identifier`,
+    );
+  }
+  return value;
+}
+
 function parseStorageSettings(raw: unknown): RuntimeStorageSettings {
   if (raw === undefined) {
     return {
       provider: DEFAULT_STORAGE_PROVIDER,
       sqlite: { path: DEFAULT_STORAGE_SQLITE_PATH },
-      postgres: { urlEnv: DEFAULT_STORAGE_POSTGRES_URL_ENV },
+      postgres: {
+        urlEnv: DEFAULT_STORAGE_POSTGRES_URL_ENV,
+        schema: DEFAULT_STORAGE_POSTGRES_SCHEMA,
+      },
     };
   }
 
@@ -354,6 +376,7 @@ function parseStorageSettings(raw: unknown): RuntimeStorageSettings {
         'storage.postgres.url_env',
         DEFAULT_STORAGE_POSTGRES_URL_ENV,
       ),
+      schema: parsePostgresSchema(postgres.schema, 'storage.postgres.schema'),
     },
   };
 }
@@ -558,9 +581,15 @@ function getRegisteredGroupSummary(
   let db: Database.Database | null = null;
   try {
     db = new Database(dbPath, { readonly: true });
-    const rows = db
-      .prepare('SELECT jid, folder FROM registered_groups WHERE jid LIKE ?')
-      .all(prefix) as Array<{ jid: string; folder: string }>;
+    const drizzleDb = drizzleSqlite(db, { schema: sqliteSchema });
+    const rows = drizzleDb
+      .select({
+        jid: sqliteSchema.registeredGroupsSqlite.jid,
+        folder: sqliteSchema.registeredGroupsSqlite.folder,
+      })
+      .from(sqliteSchema.registeredGroupsSqlite)
+      .where(like(sqliteSchema.registeredGroupsSqlite.jid, prefix))
+      .all();
     return {
       count: rows.length,
       folders: new Set(
@@ -651,6 +680,7 @@ function renderStorageSettingsYaml(
     `    path: ${quoteYamlString(storage.sqlite.path)}`,
     '  postgres:',
     `    url_env: ${quoteYamlString(storage.postgres.urlEnv)}`,
+    `    schema: ${quoteYamlString(storage.postgres.schema)}`,
     '',
   );
 }
@@ -712,6 +742,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     },
     postgres: {
       urlEnv: DEFAULT_STORAGE_POSTGRES_URL_ENV,
+      schema: DEFAULT_STORAGE_POSTGRES_SCHEMA,
     },
   };
   const memory: RuntimeMemorySettings = {

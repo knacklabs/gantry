@@ -12,6 +12,7 @@ import { load as loadSqliteVec } from 'sqlite-vec';
 import {
   STORAGE_POSTGRES_URL,
   STORAGE_POSTGRES_URL_ENV,
+  STORAGE_POSTGRES_SCHEMA,
   STORAGE_PROVIDER,
   STORAGE_SQLITE_PATH,
 } from '../core/config.js';
@@ -43,6 +44,7 @@ export interface ResolvedStorageConfig {
   sqlitePath: string;
   postgresUrl: string | null;
   postgresUrlEnv: string;
+  postgresSchema: string;
 }
 
 export function resolveStorageConfigFromRuntime(): ResolvedStorageConfig {
@@ -51,6 +53,7 @@ export function resolveStorageConfigFromRuntime(): ResolvedStorageConfig {
     sqlitePath: STORAGE_SQLITE_PATH,
     postgresUrl: STORAGE_POSTGRES_URL,
     postgresUrlEnv: STORAGE_POSTGRES_URL_ENV,
+    postgresSchema: STORAGE_POSTGRES_SCHEMA,
   };
 }
 
@@ -135,7 +138,7 @@ class PostgresStorageService implements StorageService {
   }
 
   async migrate(): Promise<void> {
-    for (const statement of POSTGRES_MIGRATIONS) {
+    for (const statement of POSTGRES_MIGRATIONS(STORAGE_POSTGRES_SCHEMA)) {
       await this.pool.query(statement);
     }
   }
@@ -169,6 +172,11 @@ export function createStorageService(
   if (!config.postgresUrl?.trim()) {
     throw new Error(
       `storage.provider is postgres but ${config.postgresUrlEnv} is not set`,
+    );
+  }
+  if (config.postgresSchema !== STORAGE_POSTGRES_SCHEMA) {
+    throw new Error(
+      `storage.postgres.schema (${config.postgresSchema}) must match runtime schema (${STORAGE_POSTGRES_SCHEMA})`,
     );
   }
   return new PostgresStorageService(config.postgresUrl);

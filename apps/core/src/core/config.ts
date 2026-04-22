@@ -66,6 +66,8 @@ export const STORAGE_POSTGRES_URL_ENV =
   runtimeStorageSettings.postgresUrlEnv || 'MYCLAW_DATABASE_URL';
 export const STORAGE_POSTGRES_URL =
   envValueDynamic(STORAGE_POSTGRES_URL_ENV).trim() || null;
+export const STORAGE_POSTGRES_SCHEMA =
+  runtimeStorageSettings.postgresSchema || 'myclaw';
 
 let runtimeMemorySettings: RuntimeMemorySettingsSnapshot = {};
 let runtimeMemorySettingsError: Error | null = null;

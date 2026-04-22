@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-import { MemoryScope, MemorySearchResult } from './memory-types.js';
+import { MemoryScope, MemorySearchResult } from '../memory-types.js';
 
 export function createItemSearcher(db: Database.Database) {
   return (

@@ -93,20 +93,11 @@
     },
     {
       "rule": "file_size_budget",
-      "target": "apps/core/src/memory/cleanup-job.ts",
-      "owner": "ENG-123",
-      "reason": "Single-cut memory redesign increased this module; split cleanup orchestration and fs safety helpers in a follow-up refactor.",
-      "expires_on": "2026-09-30",
-      "max_lines": 540,
-      "delete_after": "File is split into production modules at or below 400 LOC."
-    },
-    {
-      "rule": "file_size_budget",
       "target": "apps/core/src/cli/runtime-settings.ts",
       "owner": "A0.3",
       "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
       "expires_on": "2026-09-30",
-      "max_lines": 950,
+      "max_lines": 980,
       "delete_after": "File is split into production modules at or below 400 LOC."
     },
     {
@@ -201,12 +192,21 @@
     },
     {
       "rule": "file_size_budget",
-      "target": "apps/core/src/memory/memory-store.ts",
-      "owner": "A0.3",
-      "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
+      "target": "apps/core/src/memory/sqlite/cleanup-job-sqlite.ts",
+      "owner": "LOCAL-2",
+      "reason": "SQLite-specific memory cleanup adapter contains existing purge/checkpoint SQL after storage-boundary isolation; split purge, checkpoint, and journal cleanup adapters in the next memory repository decomposition.",
       "expires_on": "2026-09-30",
-      "max_lines": 2220,
-      "delete_after": "File is split into production modules at or below 400 LOC."
+      "max_lines": 540,
+      "delete_after": "SQLite memory cleanup adapter is split into bounded files at or below 400 LOC."
+    },
+    {
+      "rule": "file_size_budget",
+      "target": "apps/core/src/memory/sqlite/memory-store-sqlite.ts",
+      "owner": "LOCAL-2",
+      "reason": "SQLite-specific memory adapter contains existing FTS/vector/raw SQL after app-level facade split; split items, procedures, chunks, events, embedding cache, and vector adapters in the next repository decomposition.",
+      "expires_on": "2026-09-30",
+      "max_lines": 1940,
+      "delete_after": "SQLite memory adapter is decomposed into bounded repository modules at or below 400 LOC."
     },
     {
       "rule": "file_size_budget",

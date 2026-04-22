@@ -358,6 +358,7 @@ storage:
     path: store/custom.db
   postgres:
     url_env: CUSTOM_DB_URL
+    schema: custom_myclaw
 memory:
   enabled: true
   root: memory
@@ -372,6 +373,7 @@ memory:
     expect(settings.storage.provider).toBe('postgres');
     expect(settings.storage.sqlite.path).toBe('store/custom.db');
     expect(settings.storage.postgres.urlEnv).toBe('CUSTOM_DB_URL');
+    expect(settings.storage.postgres.schema).toBe('custom_myclaw');
   });
 
   it('defaults storage settings when block is omitted', () => {
@@ -407,6 +409,7 @@ memory:
     expect(settings.storage.provider).toBe('sqlite');
     expect(settings.storage.sqlite.path).toBe('store/myclaw.db');
     expect(settings.storage.postgres.urlEnv).toBe('MYCLAW_DATABASE_URL');
+    expect(settings.storage.postgres.schema).toBe('myclaw');
   });
 
   it('rejects deprecated memory provider settings', () => {

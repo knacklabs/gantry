@@ -30,6 +30,7 @@ describe('storage-service', () => {
       sqlitePath,
       postgresUrl: null,
       postgresUrlEnv: 'MYCLAW_DATABASE_URL',
+      postgresSchema: 'myclaw',
     });
     await service.migrate();
     const health = await service.healthCheck();
@@ -47,6 +48,7 @@ describe('storage-service', () => {
         sqlitePath: path.join(createTempDir(), 'store', 'myclaw.db'),
         postgresUrl: '',
         postgresUrlEnv: 'MYCLAW_DATABASE_URL',
+        postgresSchema: 'myclaw',
       }),
     ).toThrow(/MYCLAW_DATABASE_URL is not set/);
   });
@@ -57,9 +59,22 @@ describe('storage-service', () => {
       sqlitePath: path.join(createTempDir(), 'store', 'myclaw.db'),
       postgresUrl: 'postgres://user:pass@127.0.0.1:5432/myclaw',
       postgresUrlEnv: 'MYCLAW_DATABASE_URL',
+      postgresSchema: 'myclaw',
     });
     expect(service.provider).toBe('postgres');
     await service.close();
+  });
+
+  it('rejects postgres schema config that disagrees with runtime schema', () => {
+    expect(() =>
+      createStorageService({
+        provider: 'postgres',
+        sqlitePath: path.join(createTempDir(), 'store', 'myclaw.db'),
+        postgresUrl: 'postgres://user:pass@127.0.0.1:5432/myclaw',
+        postgresUrlEnv: 'MYCLAW_DATABASE_URL',
+        postgresSchema: 'other_schema',
+      }),
+    ).toThrow(/storage\.postgres\.schema.*runtime schema/i);
   });
 
   it('rejects remote postgres urls without sslmode=require', () => {
@@ -69,6 +84,7 @@ describe('storage-service', () => {
         sqlitePath: path.join(createTempDir(), 'store', 'myclaw.db'),
         postgresUrl: 'postgres://user:pass@db.example.com:5432/myclaw',
         postgresUrlEnv: 'MYCLAW_DATABASE_URL',
+        postgresSchema: 'myclaw',
       }),
     ).toThrow(/sslmode=require/i);
   });
@@ -80,6 +96,7 @@ describe('storage-service', () => {
       postgresUrl:
         'postgres://user:pass@db.example.com:5432/myclaw?sslmode=require',
       postgresUrlEnv: 'MYCLAW_DATABASE_URL',
+      postgresSchema: 'myclaw',
     });
     expect(service.provider).toBe('postgres');
     await service.close();

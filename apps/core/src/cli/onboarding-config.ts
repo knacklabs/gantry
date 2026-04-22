@@ -61,6 +61,7 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
   const settings = loadRuntimeSettings(input.runtimeHome);
   settings.storage.provider = input.storageProvider;
   settings.storage.postgres.urlEnv = 'MYCLAW_DATABASE_URL';
+  settings.storage.postgres.schema = 'myclaw';
   const telegramProvider = getChannelProvider('telegram');
   if (telegramProvider && settings.channels[telegramProvider.id]) {
     const shouldEnable =

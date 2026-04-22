@@ -1,5 +1,3 @@
-import fs from 'fs';
-import Database from 'better-sqlite3';
 import '../channels/register-builtins.js';
 import { listChannelProviders } from '../channels/provider-registry.js';
 
@@ -7,11 +5,9 @@ import { readEnvFile } from './env-file.js';
 import { DoctorReport, runDoctor } from './doctor.js';
 import { getServiceStatus } from './service-manager.js';
 import { envFilePath } from './runtime-home.js';
-import {
-  ensureRuntimeSettings,
-  resolveRuntimeStorageSqlitePath,
-} from './runtime-settings.js';
+import { ensureRuntimeSettings } from './runtime-settings.js';
 import { inspectMemoryHealth } from './memory-health.js';
+import { openRuntimeGroupReadonlyDb } from './runtime-group-db.js';
 
 export interface RuntimeStatusSummary {
   runtimeHome: string;
@@ -48,32 +44,16 @@ export interface RuntimeStatusSummary {
 
 function countRegisteredGroupsByPrefix(
   runtimeHome: string,
-  settings: ReturnType<typeof ensureRuntimeSettings>,
   jidPrefix: string,
 ): number {
-  let dbPath: string;
+  let groupDb: ReturnType<typeof openRuntimeGroupReadonlyDb> | null = null;
   try {
-    dbPath = resolveRuntimeStorageSqlitePath(runtimeHome, settings);
-  } catch {
-    return 0;
-  }
-  if (!fs.existsSync(dbPath)) return 0;
-
-  let db: Database.Database | null = null;
-  try {
-    db = new Database(dbPath, { readonly: true });
-    const row = db
-      .prepare(
-        `SELECT COUNT(*) AS count FROM registered_groups WHERE jid LIKE ?`,
-      )
-      .get(`${jidPrefix}%`) as {
-      count?: number | null;
-    };
-    return row.count ?? 0;
+    groupDb = openRuntimeGroupReadonlyDb(runtimeHome);
+    return groupDb.countRegisteredGroupsByJidPrefix(jidPrefix);
   } catch {
     return 0;
   } finally {
-    db?.close();
+    groupDb?.close();
   }
 }
 
@@ -106,11 +86,7 @@ export function collectRuntimeStatus(
       enabled: settings.channels[provider.id]?.enabled ?? false,
       configuredEnvKeys,
       missingEnvKeys,
-      groups: countRegisteredGroupsByPrefix(
-        runtimeHome,
-        settings,
-        provider.jidPrefix,
-      ),
+      groups: countRegisteredGroupsByPrefix(runtimeHome, provider.jidPrefix),
     };
   });
 

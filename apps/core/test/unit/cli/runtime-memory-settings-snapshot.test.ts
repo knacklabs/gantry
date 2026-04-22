@@ -190,6 +190,7 @@ storage:
     path: store/custom.db
   postgres:
     url_env: CUSTOM_DB_URL
+    schema: custom_myclaw
 memory:
   enabled: true
   root: memory
@@ -204,6 +205,7 @@ memory:
     expect(snapshot.provider).toBe('postgres');
     expect(snapshot.sqlitePath).toBe('store/custom.db');
     expect(snapshot.postgresUrlEnv).toBe('CUSTOM_DB_URL');
+    expect(snapshot.postgresSchema).toBe('custom_myclaw');
   });
 
   it('throws when storage.provider is not sqlite or postgres', () => {
@@ -216,6 +218,21 @@ memory:
 `);
     expect(() => readRuntimeStorageSettingsSnapshot(runtimeHome)).toThrow(
       /storage\.provider must be sqlite or postgres/i,
+    );
+  });
+
+  it('throws when storage.postgres.schema is not a safe identifier', () => {
+    const runtimeHome = writeSettings(`
+storage:
+  provider: postgres
+  postgres:
+    schema: "bad-schema;drop"
+memory:
+  enabled: true
+  root: memory
+`);
+    expect(() => readRuntimeStorageSettingsSnapshot(runtimeHome)).toThrow(
+      /storage\.postgres\.schema must be a valid PostgreSQL schema identifier/i,
     );
   });
 });
