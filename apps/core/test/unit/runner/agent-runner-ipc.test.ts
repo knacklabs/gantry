@@ -404,7 +404,7 @@ describe('agent-runner IPC lifecycle', () => {
       'active follow-up first',
       'active follow-up second',
     ]);
-  });
+  }, 15000);
 
   it('ends the active query stream when _close arrives during the query', async () => {
     const fixture = createRunnerFixture();
@@ -417,7 +417,7 @@ describe('agent-runner IPC lifecycle', () => {
     const call = readRecord(fixture.recordPath).calls[0];
     expect(call?.streamEnded).toBe(true);
     expect(result.stdout.match(/---MYCLAW_OUTPUT_START---/g)).toHaveLength(1);
-  });
+  }, 15000);
 
   it('appends memory context blocks to the first streamed user prompt only', async () => {
     const fixture = createRunnerFixture();

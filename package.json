@@ -33,7 +33,8 @@
     "packages/contracts/dist/",
     "packages/contracts/package.json",
     "!**/*.map",
-    ".claude/skills/*/SKILL.md"
+    ".claude/skills/*/SKILL.md",
+    ".claude/skills/agent-browser/browser_cdp.py"
   ],
   "workspaces": [
     "packages/contracts"
