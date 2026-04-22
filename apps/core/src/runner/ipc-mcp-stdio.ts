@@ -53,8 +53,23 @@ function writeIpcFile(dir: string, data: object): string {
 
   // Atomic write: temp file then rename
   const tempPath = `${filepath}.tmp`;
+  const existingContext =
+    'context' in data &&
+    typeof data.context === 'object' &&
+    data.context !== null &&
+    !Array.isArray(data.context)
+      ? (data.context as Record<string, unknown>)
+      : {};
   const envelope = IPC_AUTH_TOKEN
-    ? { ...data, ...(threadId ? { threadId } : {}), authToken: IPC_AUTH_TOKEN }
+    ? {
+        ...data,
+        ...(threadId
+          ? { context: { ...existingContext, threadId } }
+          : 'context' in data
+            ? { context: existingContext }
+            : {}),
+        authToken: IPC_AUTH_TOKEN,
+      }
     : data;
   fs.writeFileSync(tempPath, JSON.stringify(envelope, null, 2));
   fs.renameSync(tempPath, filepath);
@@ -66,6 +81,23 @@ function readJsonArraySnapshot(filePath: string): unknown[] {
   if (!fs.existsSync(filePath)) return [];
   const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
   return Array.isArray(parsed) ? parsed : [];
+}
+
+function resolveSchedulerThreadArg(
+  requestedThreadId: string | undefined,
+  useAmbientDefault: boolean,
+): { threadId?: string; error?: string } {
+  if (requestedThreadId !== undefined) {
+    const requested = requestedThreadId.trim();
+    if (requested && requested !== threadId) {
+      return {
+        error:
+          'thread_id can only target the current thread/topic for this agent run.',
+      };
+    }
+    return { threadId: requested };
+  }
+  return useAmbientDefault && threadId ? { threadId } : {};
 }
 
 async function requestMemoryAction(
@@ -579,6 +611,7 @@ server.tool(
     schedule_value: z.string().default(''),
     linked_sessions: z.array(z.string()).optional(),
     deliver_to: z.array(z.string()).optional(),
+    thread_id: z.string().optional(),
     silent: z.boolean().optional(),
     cleanup_after_ms: z.number().optional(),
     group_scope: z.string().optional(),
@@ -623,6 +656,14 @@ server.tool(
       }
     }
 
+    const schedulerThread = resolveSchedulerThreadArg(args.thread_id, true);
+    if (schedulerThread.error) {
+      return {
+        content: [{ type: 'text' as const, text: schedulerThread.error }],
+        isError: true,
+      };
+    }
+
     const data = {
       type: 'scheduler_upsert_job',
       jobId: args.job_id,
@@ -633,7 +674,9 @@ server.tool(
       scheduleValue: args.schedule_value,
       linkedSessions: args.linked_sessions,
       deliverTo: args.deliver_to,
-      threadId,
+      ...(schedulerThread.threadId !== undefined
+        ? { threadId: schedulerThread.threadId }
+        : {}),
       silent: args.silent,
       cleanupAfterMs: args.cleanup_after_ms,
       groupScope: args.group_scope,
@@ -722,6 +765,7 @@ server.tool(
     schedule_value: z.string().optional(),
     linked_sessions: z.array(z.string()).optional(),
     deliver_to: z.array(z.string()).optional(),
+    thread_id: z.string().optional(),
     silent: z.boolean().optional(),
     cleanup_after_ms: z.number().optional(),
     group_scope: z.string().optional(),
@@ -737,6 +781,13 @@ server.tool(
       args.execution_mode !== undefined || args.serialize !== undefined
         ? normalizeExecutionMode(args.execution_mode, args.serialize)
         : undefined;
+    const schedulerThread = resolveSchedulerThreadArg(args.thread_id, false);
+    if (schedulerThread.error) {
+      return {
+        content: [{ type: 'text' as const, text: schedulerThread.error }],
+        isError: true,
+      };
+    }
     writeIpcFile(TASKS_DIR, {
       type: 'scheduler_update_job',
       jobId: args.job_id,
@@ -747,7 +798,9 @@ server.tool(
       scheduleValue: args.schedule_value,
       linkedSessions: args.linked_sessions,
       deliverTo: args.deliver_to,
-      ...(threadId ? { threadId } : {}),
+      ...(schedulerThread.threadId !== undefined
+        ? { threadId: schedulerThread.threadId }
+        : {}),
       silent: args.silent,
       cleanupAfterMs: args.cleanup_after_ms,
       groupScope: args.group_scope,

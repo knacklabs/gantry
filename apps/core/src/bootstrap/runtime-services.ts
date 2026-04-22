@@ -216,14 +216,14 @@ export function startRuntimeServices(
       return false;
     }
 
-    if (command.kind === 'new') {
-      app.clearSessionForChatJid(chatJid);
-    }
-
     const threadId =
       typeof message.thread_id === 'string' && message.thread_id.trim()
         ? message.thread_id.trim()
         : undefined;
+
+    if (command.kind === 'new') {
+      app.clearSessionForChatJid(chatJid, threadId);
+    }
     app.setAgentCursor(
       makeThreadQueueKey(chatJid, threadId),
       encodeGroupMessageCursor(toGroupMessageCursor(message)),

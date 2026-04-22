@@ -176,6 +176,7 @@ const REQUIRED_SCHEMA_COLUMNS = {
     'requires_trigger',
     'is_main',
   ],
+  sessions: ['scope_key', 'group_folder', 'thread_id', 'session_id'],
 } as const;
 
 function assertTableColumns(
@@ -206,6 +207,17 @@ function assertSchemaCompatibility(database: Database.Database): void {
     'registered_groups',
     REQUIRED_SCHEMA_COLUMNS.registered_groups,
   );
+  assertTableColumns(database, 'sessions', REQUIRED_SCHEMA_COLUMNS.sessions);
+}
+
+export function makeSessionScopeKey(
+  groupFolder: string,
+  threadId?: string | null,
+): string {
+  const normalizedThreadId = threadId?.trim();
+  return normalizedThreadId
+    ? `${groupFolder}::thread:${normalizedThreadId}`
+    : groupFolder;
 }
 
 function createSchema(database: Database.Database): void {
@@ -302,7 +314,9 @@ function createSchema(database: Database.Database): void {
       value TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sessions (
-      group_folder TEXT PRIMARY KEY,
+      scope_key TEXT PRIMARY KEY,
+      group_folder TEXT NOT NULL,
+      thread_id TEXT,
       session_id TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS registered_groups (
@@ -1042,30 +1056,50 @@ export function setRouterState(key: string, value: string): void {
 
 // --- Session accessors ---
 
-export function getSession(groupFolder: string): string | undefined {
+export function getSession(
+  groupFolder: string,
+  threadId?: string | null,
+): string | undefined {
   const row = db
-    .prepare('SELECT session_id FROM sessions WHERE group_folder = ?')
-    .get(groupFolder) as { session_id: string } | undefined;
+    .prepare('SELECT session_id FROM sessions WHERE scope_key = ?')
+    .get(makeSessionScopeKey(groupFolder, threadId)) as
+    | { session_id: string }
+    | undefined;
   return row?.session_id;
 }
 
-export function setSession(groupFolder: string, sessionId: string): void {
+export function setSession(
+  groupFolder: string,
+  sessionId: string,
+  threadId?: string | null,
+): void {
+  const normalizedThreadId = threadId?.trim() || null;
   db.prepare(
-    'INSERT OR REPLACE INTO sessions (group_folder, session_id) VALUES (?, ?)',
-  ).run(groupFolder, sessionId);
+    'INSERT OR REPLACE INTO sessions (scope_key, group_folder, thread_id, session_id) VALUES (?, ?, ?, ?)',
+  ).run(
+    makeSessionScopeKey(groupFolder, normalizedThreadId),
+    groupFolder,
+    normalizedThreadId,
+    sessionId,
+  );
 }
 
-export function deleteSession(groupFolder: string): void {
-  db.prepare('DELETE FROM sessions WHERE group_folder = ?').run(groupFolder);
+export function deleteSession(
+  groupFolder: string,
+  threadId?: string | null,
+): void {
+  db.prepare('DELETE FROM sessions WHERE scope_key = ?').run(
+    makeSessionScopeKey(groupFolder, threadId),
+  );
 }
 
 export function getAllSessions(): Record<string, string> {
   const rows = db
-    .prepare('SELECT group_folder, session_id FROM sessions')
-    .all() as Array<{ group_folder: string; session_id: string }>;
+    .prepare('SELECT scope_key, session_id FROM sessions')
+    .all() as Array<{ scope_key: string; session_id: string }>;
   const result: Record<string, string> = {};
   for (const row of rows) {
-    result[row.group_folder] = row.session_id;
+    result[row.scope_key] = row.session_id;
   }
   return result;
 }

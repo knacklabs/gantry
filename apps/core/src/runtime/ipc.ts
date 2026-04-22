@@ -173,9 +173,7 @@ function readTrustedThreadBinding(
     : payloadThreadId;
   return {
     authThreadId: trustedThreadId || undefined,
-    ...(trustedThreadId !== undefined
-      ? { payloadThreadId: trustedThreadId }
-      : {}),
+    ...(hasPayloadThreadId ? { payloadThreadId } : {}),
   };
 }
 

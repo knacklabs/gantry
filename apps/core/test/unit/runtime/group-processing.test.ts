@@ -737,7 +737,7 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(deps.clearSession).toHaveBeenCalledWith('test-group');
+      expect(deps.clearSession).toHaveBeenCalledWith('test-group', null);
       expect(mockArchiveSessionTranscript).toHaveBeenCalledWith(
         expect.objectContaining({
           groupFolder: 'test-group',
@@ -773,7 +773,7 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(deps.clearSession).toHaveBeenCalledWith('test-group');
+      expect(deps.clearSession).toHaveBeenCalledWith('test-group', null);
     });
 
     it('clears session on session not found error pattern', async () => {
@@ -802,7 +802,7 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(deps.clearSession).toHaveBeenCalledWith('test-group');
+      expect(deps.clearSession).toHaveBeenCalledWith('test-group', null);
     });
 
     it('does NOT clear session when error is unrelated', async () => {
@@ -886,6 +886,7 @@ describe('createGroupProcessor', () => {
       expect(deps.setSession).toHaveBeenCalledWith(
         'test-group',
         'new-sess-123',
+        null,
       );
     });
 
@@ -917,6 +918,7 @@ describe('createGroupProcessor', () => {
       expect(deps.setSession).toHaveBeenCalledWith(
         'test-group',
         'streamed-sess',
+        null,
       );
     });
   });
@@ -1264,6 +1266,9 @@ describe('createGroupProcessor', () => {
         }),
       ];
       const { deps } = setupHappyPath({ messages });
+      (deps.getSession as ReturnType<typeof vi.fn>).mockReturnValue(
+        'sess-thread-a',
+      );
       const mockProc = {} as ChildProcess;
       mockSpawnAgent.mockImplementation(
         async (
@@ -1302,11 +1307,13 @@ describe('createGroupProcessor', () => {
         expect.objectContaining({
           chatJid: 'group1@g.us',
           threadId: 'thread-a',
+          sessionId: 'sess-thread-a',
         }),
         expect.any(Function),
         expect.any(Function),
         undefined,
       );
+      expect(deps.getSession).toHaveBeenCalledWith('test-group', 'thread-a');
     });
 
     it('refreshes thread context when a newer message arrives during processing', async () => {
@@ -1696,8 +1703,8 @@ describe('createGroupProcessor', () => {
 
       clearCurrentSession();
 
-      expect(deps.clearSession).toHaveBeenCalledWith('grp-folder');
-      expect(mockDeleteSession).toHaveBeenCalledWith('grp-folder');
+      expect(deps.clearSession).toHaveBeenCalledWith('grp-folder', undefined);
+      expect(mockDeleteSession).toHaveBeenCalledWith('grp-folder', undefined);
     });
 
     describe('canSenderInteract', () => {

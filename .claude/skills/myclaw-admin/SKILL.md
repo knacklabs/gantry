@@ -171,7 +171,7 @@ Rules:
 - At least one channel should be enabled for normal operation.
 - Enabled channels require matching credentials in `.env`.
 - `memory.root` is resolved relative to runtime home unless absolute.
-- `storage.provider` defaults to `sqlite`; `postgres` requires `MYCLAW_DATABASE_URL` in `.env`.
+- `storage.provider` is `sqlite`; `postgres` is not available in the host runtime yet.
 - `memory.embeddings.provider` is `disabled` or `openai`.
 - `memory.embeddings.enabled: true` with `provider: openai` requires `OPENAI_API_KEY`.
 - Sender policy `allow` is `"*"` or a string array.
@@ -361,6 +361,12 @@ mcp__myclaw__scheduler_update_job(
   execution_mode?: "parallel" | "serialized"
 )
 ```
+
+Thread behavior:
+
+- New scheduler jobs created from a Slack thread or Telegram topic default to that current thread/topic.
+- Scheduler updates do not retarget an existing job unless `thread_id` is explicitly supplied.
+- `thread_id` may only be the current thread/topic for the active agent run; arbitrary cross-thread retargeting is rejected.
 
 Operational controls:
 

@@ -2453,7 +2453,7 @@ describe('startIpcWatcher', () => {
     );
   });
 
-  it('uses authenticated context threadId for IPC task scheduling', async () => {
+  it('does not use auth context threadId as a scheduler delivery target', async () => {
     mockReaddirSync.mockImplementation((dir: string) => {
       if (dir === '/tmp/test-ipc/ipc') return ['whatsapp_main'];
       if (dir.endsWith('/tasks')) return ['task-thread-context.json'];
@@ -2507,6 +2507,67 @@ describe('startIpcWatcher', () => {
     expect(mockUpsertJob).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'thread-context-job',
+        thread_id: null,
+      }),
+    );
+    expect(watcherDeps.onSchedulerChanged).toHaveBeenCalled();
+  });
+
+  it('uses explicit payload threadId for IPC task scheduling when it matches auth context', async () => {
+    mockReaddirSync.mockImplementation((dir: string) => {
+      if (dir === '/tmp/test-ipc/ipc') return ['whatsapp_main'];
+      if (dir.endsWith('/tasks')) return ['task-thread-payload.json'];
+      return [];
+    });
+    mockExistsSync.mockImplementation((p: string) =>
+      p.endsWith('/tasks') ? true : false,
+    );
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        authToken: 'valid-token',
+        context: { threadId: 'topic-42' },
+        threadId: 'topic-42',
+        type: 'scheduler_upsert_job',
+        jobId: 'thread-payload-job',
+        name: 'Thread Payload',
+        prompt: 'do it',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
+      }),
+    );
+
+    const mod = await loadIpcModule('/tmp/test-ipc');
+    const watcherDeps: import('@core/runtime/ipc.js').IpcDeps = {
+      sendMessage: vi.fn(),
+      registeredGroups: () => ({
+        'main@g.us': {
+          name: 'Main',
+          folder: 'whatsapp_main',
+          trigger: 'always',
+          added_at: '2024-01-01',
+          isMain: true,
+        },
+      }),
+      registerGroup: vi.fn(),
+      syncGroups: vi.fn(),
+      getAvailableGroups: vi.fn(() => []),
+      writeGroupsSnapshot: vi.fn(),
+      onSchedulerChanged: vi.fn(),
+    };
+
+    mod.startIpcWatcher(watcherDeps);
+    await vi.waitFor(() => {
+      expect(capturedSetTimeoutCallback).not.toBeNull();
+    });
+
+    expect(mockValidateIpcAuthToken).toHaveBeenCalledWith(
+      'whatsapp_main',
+      'valid-token',
+      'topic-42',
+    );
+    expect(mockUpsertJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'thread-payload-job',
         thread_id: 'topic-42',
       }),
     );

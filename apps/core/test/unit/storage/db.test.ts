@@ -27,6 +27,7 @@ import {
   listDueJobs,
   listRecentJobEvents,
   listJobRuns,
+  makeSessionScopeKey,
   markJobRunning,
   markJobRunNotified,
   releaseStaleJobLeases,
@@ -899,6 +900,21 @@ describe('session accessors', () => {
     expect(getSession('whatsapp_main')).toBeUndefined();
   });
 
+  it('scopes sessions independently by thread id', () => {
+    setSession('whatsapp_main', 'session-base');
+    setSession('whatsapp_main', 'session-thread-a', 'thread-a');
+    setSession('whatsapp_main', 'session-thread-b', 'thread-b');
+
+    expect(getSession('whatsapp_main')).toBe('session-base');
+    expect(getSession('whatsapp_main', 'thread-a')).toBe('session-thread-a');
+    expect(getSession('whatsapp_main', 'thread-b')).toBe('session-thread-b');
+
+    deleteSession('whatsapp_main', 'thread-a');
+    expect(getSession('whatsapp_main')).toBe('session-base');
+    expect(getSession('whatsapp_main', 'thread-a')).toBeUndefined();
+    expect(getSession('whatsapp_main', 'thread-b')).toBe('session-thread-b');
+  });
+
   it('delete on nonexistent session is a no-op', () => {
     // Should not throw
     deleteSession('nonexistent');
@@ -915,6 +931,16 @@ describe('session accessors', () => {
       'folder-a': 'sid-1',
       'folder-b': 'sid-2',
       'folder-c': 'sid-3',
+    });
+  });
+
+  it('getAllSessions keys threaded sessions by session scope', () => {
+    setSession('folder-a', 'sid-base');
+    setSession('folder-a', 'sid-thread', 'topic-1');
+
+    expect(getAllSessions()).toEqual({
+      'folder-a': 'sid-base',
+      [makeSessionScopeKey('folder-a', 'topic-1')]: 'sid-thread',
     });
   });
 

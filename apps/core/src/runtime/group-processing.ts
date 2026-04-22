@@ -97,9 +97,16 @@ export interface GroupProcessingDeps {
     ) => Promise<void>;
   };
   getGroup: (chatJid: string) => RegisteredGroup | undefined;
-  getSession: (groupFolder: string) => string | undefined;
-  setSession: (groupFolder: string, sessionId: string) => void;
-  clearSession: (groupFolder: string) => void;
+  getSession: (
+    groupFolder: string,
+    threadId?: string | null,
+  ) => string | undefined;
+  setSession: (
+    groupFolder: string,
+    sessionId: string,
+    threadId?: string | null,
+  ) => void;
+  clearSession: (groupFolder: string, threadId?: string | null) => void;
   getCursor: (chatJid: string) => string;
   setCursor: (chatJid: string, timestamp: string) => void;
   saveState: () => void;
@@ -150,7 +157,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
     },
   ): Promise<'success' | 'error'> {
     const isMain = group.isMain === true;
-    const sessionId = deps.getSession(group.folder);
+    const sessionThreadId = options?.memoryContext?.threadId ?? null;
+    const sessionId = deps.getSession(group.folder, sessionThreadId);
 
     const jobs = getAllJobs().map((job) => ({
       id: job.id,
@@ -265,7 +273,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
             errorSummary: output.error,
             writePlaceholderOnMissing: true,
           });
-          deps.clearSession(group.folder);
+          deps.clearSession(group.folder, sessionThreadId);
         }
 
         logger.error(
@@ -277,7 +285,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
 
       const nextSessionId = output.newSessionId || pendingSessionId;
       if (nextSessionId) {
-        deps.setSession(group.folder, nextSessionId);
+        deps.setSession(group.folder, nextSessionId, sessionThreadId);
       }
 
       return 'success';
@@ -442,7 +450,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
         setGroupThinkingOverride: (value) =>
           deps.setGroupThinkingOverride(chatJid, value),
         archiveCurrentSession: async (cause = 'new-session') => {
-          const sessionId = deps.getSession(group.folder);
+          const sessionId = deps.getSession(group.folder, activeThreadId);
           if (!sessionId) return;
           archiveSessionTranscript({
             groupFolder: group.folder,
@@ -452,8 +460,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
           });
         },
         clearCurrentSession: () => {
-          deps.clearSession(group.folder);
-          deleteSession(group.folder);
+          deps.clearSession(group.folder, activeThreadId);
+          deleteSession(group.folder, activeThreadId);
         },
         stopCurrentRun: () => deps.queue.stopGroup?.(queueJid) ?? false,
         runMemoryDreaming: () => runDreamingForGroup(group.folder),

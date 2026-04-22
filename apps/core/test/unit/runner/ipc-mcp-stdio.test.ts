@@ -264,7 +264,7 @@ describe('agent-runner MCP stdio tools', () => {
     expect(record.responseFiles).toHaveLength(0);
   });
 
-  it('binds scheduler upsert thread context to trusted runtime env', async () => {
+  it('defaults scheduler upsert delivery to the trusted runtime thread', async () => {
     const fixture = createMcpFixture();
 
     const result = await runMcpFixture(
@@ -275,7 +275,59 @@ describe('agent-runner MCP stdio tools', () => {
         prompt: 'Review memory',
         schedule_type: 'interval',
         schedule_value: '60000',
-        thread_id: 'attacker-thread',
+      },
+      { MYCLAW_THREAD_ID: 'trusted-thread' },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task.threadId).toBe('trusted-thread');
+    expect(task.context.threadId).toBe('trusted-thread');
+  });
+
+  it('does not retarget scheduler updates to the ambient runtime thread', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'scheduler_update_job',
+      {
+        job_id: 'job-1',
+        prompt: 'Updated prompt',
+      },
+      { MYCLAW_THREAD_ID: 'trusted-thread' },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task.context.threadId).toBe('trusted-thread');
+    expect(task.threadId).toBeUndefined();
+  });
+
+  it('allows scheduler updates to explicitly target the current runtime thread', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'scheduler_update_job',
+      {
+        job_id: 'job-1',
+        prompt: 'Updated prompt',
+        thread_id: 'trusted-thread',
       },
       { MYCLAW_THREAD_ID: 'trusted-thread' },
     );
@@ -292,7 +344,7 @@ describe('agent-runner MCP stdio tools', () => {
     expect(task.threadId).toBe('trusted-thread');
   });
 
-  it('does not allow scheduler updates to set model-supplied thread context', async () => {
+  it('rejects scheduler thread targets outside the current runtime thread', async () => {
     const fixture = createMcpFixture();
 
     const result = await runMcpFixture(
@@ -307,14 +359,13 @@ describe('agent-runner MCP stdio tools', () => {
     );
 
     expect(result.exitCode, result.stderr).toBe(0);
-    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
-    expect(taskFiles).toHaveLength(1);
-    const task = JSON.parse(
-      fs.readFileSync(
-        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
-        'utf-8',
-      ),
+    const taskDir = path.join(fixture.ipcDir, 'tasks');
+    const taskFiles = fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : [];
+    expect(taskFiles).toHaveLength(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.isError).toBe(true);
+    expect(record.result.content[0].text).toContain(
+      'thread_id can only target the current thread/topic',
     );
-    expect(task.threadId).toBeUndefined();
   });
 });

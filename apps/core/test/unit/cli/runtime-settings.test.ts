@@ -476,7 +476,7 @@ memory:
     ).toThrow(/memory\.embeddings\.provider must be disabled or openai/i);
   });
 
-  it('rejects validation when storage.provider is postgres without database URL', () => {
+  it('rejects validation when storage.provider is postgres', () => {
     const runtimeHome = createRuntimeHome();
     fs.writeFileSync(
       settingsFilePath(runtimeHome),
@@ -518,11 +518,11 @@ memory:
     const result = validateRuntimeSettings(runtimeHome);
     expect(result.ok).toBe(false);
     expect(result.failure?.details.join('\n')).toMatch(
-      /CUSTOM_DB_URL is required when storage\.provider=postgres/i,
+      /storage\.provider=postgres is not available/i,
     );
   });
 
-  it('accepts validation when postgres storage env key exists in runtime env', () => {
+  it('rejects validation when postgres storage env key exists in runtime env', () => {
     const runtimeHome = createRuntimeHome();
     fs.writeFileSync(
       settingsFilePath(runtimeHome),
@@ -565,6 +565,9 @@ memory:
     });
 
     const result = validateRuntimeSettings(runtimeHome);
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(result.failure?.details.join('\n')).toMatch(
+      /storage\.provider=postgres is not available/i,
+    );
   });
 });

@@ -23,6 +23,7 @@ import {
   getAllSessions,
   getLastBotMessageCursor,
   getRouterState,
+  makeSessionScopeKey,
   setRegisteredGroup,
   setRouterState,
   setSession,
@@ -44,7 +45,7 @@ export interface RuntimeApp {
   getAvailableGroups: () => import('../runtime/agent-spawn.js').AvailableGroup[];
   setRegisteredGroupsForTest: (groups: Record<string, RegisteredGroup>) => void;
   ensureOneCLIAgentsForRegisteredGroups: () => void;
-  clearSessionForChatJid: (chatJid: string) => void;
+  clearSessionForChatJid: (chatJid: string, threadId?: string | null) => void;
   processGroupMessages: (
     chatJid: string,
     options?: { queued?: boolean },
@@ -200,11 +201,14 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     }
   }
 
-  function clearSessionForChatJid(chatJid: string): void {
+  function clearSessionForChatJid(
+    chatJid: string,
+    threadId?: string | null,
+  ): void {
     const group = registeredGroups[chatJid];
     if (!group) return;
-    delete sessions[group.folder];
-    deleteSession(group.folder);
+    delete sessions[makeSessionScopeKey(group.folder, threadId)];
+    deleteSession(group.folder, threadId);
   }
 
   const groupProcessor = createGroupProcessor({
@@ -223,14 +227,15 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
         channelRuntime.sendProgressUpdate(chatJid, text, options),
     },
     getGroup: (chatJid) => registeredGroups[chatJid],
-    getSession: (groupFolder) => sessions[groupFolder],
-    setSession: (groupFolder, sessionId) => {
-      sessions[groupFolder] = sessionId;
-      setSession(groupFolder, sessionId);
+    getSession: (groupFolder, threadId) =>
+      sessions[makeSessionScopeKey(groupFolder, threadId)],
+    setSession: (groupFolder, sessionId, threadId) => {
+      sessions[makeSessionScopeKey(groupFolder, threadId)] = sessionId;
+      setSession(groupFolder, sessionId, threadId);
     },
-    clearSession: (groupFolder) => {
-      delete sessions[groupFolder];
-      deleteSession(groupFolder);
+    clearSession: (groupFolder, threadId) => {
+      delete sessions[makeSessionScopeKey(groupFolder, threadId)];
+      deleteSession(groupFolder, threadId);
     },
     getCursor: getOrRecoverCursor,
     setCursor: (chatJid, timestamp) => {
