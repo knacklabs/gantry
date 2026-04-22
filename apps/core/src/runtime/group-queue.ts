@@ -289,7 +289,7 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
     if (!state.active || !state.groupFolder) return;
     try {
-      writeCloseSignal(state.groupFolder);
+      writeCloseSignal(state.groupFolder, state.threadId);
     } catch {
       // ignore
     }

@@ -348,6 +348,7 @@ async function requestPermissionApproval(options: {
   decisionReason?: string;
   blockedPath?: string;
   toolInput?: unknown;
+  threadId?: string;
 }): Promise<PermissionDecision> {
   try {
     const groupIpcDir = resolveGroupIpcDir(options.groupFolder);
@@ -375,6 +376,7 @@ async function requestPermissionApproval(options: {
       ...(isPlainObject(options.toolInput)
         ? { toolInput: options.toolInput }
         : {}),
+      ...(options.threadId ? { threadId: options.threadId } : {}),
       ...(IPC_AUTH_TOKEN ? { authToken: IPC_AUTH_TOKEN } : {}),
       timestamp: nowIso(),
     };
@@ -550,6 +552,7 @@ async function runQuery(
           decisionReason: permissionOpts.decisionReason,
           blockedPath: permissionOpts.blockedPath,
           toolInput: input,
+          threadId: agentInput.threadId,
         });
         if (decision.approved) {
           log(

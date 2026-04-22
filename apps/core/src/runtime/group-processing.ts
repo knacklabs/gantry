@@ -22,7 +22,6 @@ import {
   ThinkingOverride,
 } from '../core/types.js';
 import { MemoryService } from '../memory/memory-service.js';
-import { getMemoryMaintenanceQueue } from '../memory/maintenance-queue.js';
 import {
   formatMessages,
   formatOutboundForChannel,
@@ -51,6 +50,7 @@ import {
 import { archiveSessionTranscript } from '../session/session-transcript-archive.js';
 import { handleSessionCommand } from '../session/session-commands.js';
 import { createInjectedMemoryContextBlock } from './memory-context.js';
+import { runDreamingForGroup } from './memory-dreaming-runner.js';
 import { firstThreadQueueId, parseThreadQueueKey } from './thread-queue-key.js';
 
 const TYPING_HEARTBEAT_INTERVAL_MS = 4_000;
@@ -58,7 +58,6 @@ const ELAPSED_PROGRESS_INTERVAL_MS = 60_000;
 const NO_OUTPUT_WARNING_INTERVAL_MS = 180_000;
 const NO_VISIBLE_OUTPUT_FALLBACK_MESSAGE =
   'I finished that run but did not generate a user-visible reply. Please send your message again.';
-const memoryMaintenanceQueue = getMemoryMaintenanceQueue();
 let streamingGenerationCounter = 0;
 
 function nextStreamingGeneration(): number {
@@ -128,7 +127,10 @@ export interface GroupProcessingDeps {
 }
 
 export function createGroupProcessor(deps: GroupProcessingDeps): {
-  processGroupMessages: (chatJid: string) => Promise<boolean>;
+  processGroupMessages: (
+    chatJid: string,
+    options?: { queued?: boolean },
+  ) => Promise<boolean>;
 } {
   const runAgentImpl = deps.runAgent ?? spawnAgent;
 
@@ -285,7 +287,10 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
     }
   }
 
-  async function processGroupMessages(queueJid: string): Promise<boolean> {
+  async function processGroupMessages(
+    queueJid: string,
+    options: { queued?: boolean } = {},
+  ): Promise<boolean> {
     const { chatJid, threadId: queueThreadId } = parseThreadQueueKey(queueJid);
     const group = deps.getGroup(chatJid);
     if (!group) return true;
@@ -297,11 +302,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
 
     const isMainGroup = group.isMain === true;
 
+    const scopedQueue = options.queued === true || queueThreadId !== undefined;
+    const messageFilter = scopedQueue
+      ? { threadId: queueThreadId ?? null }
+      : undefined;
     const missedMessages = getMessagesSince(
       chatJid,
       deps.getCursor(queueJid),
       MAX_MESSAGES_PER_PROMPT,
-      { threadId: queueThreadId ?? null },
+      messageFilter,
     );
 
     if (missedMessages.length === 0) return true;
@@ -315,9 +324,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
     let activeThreadId = getActiveThreadId(latestMessage);
     const refreshActiveThreadId = () => {
       try {
-        const newerMessages = getMessagesSince(chatJid, latestSeenCursor, 1, {
-          threadId: queueThreadId ?? null,
-        });
+        const newerMessages = getMessagesSince(
+          chatJid,
+          latestSeenCursor,
+          1,
+          messageFilter,
+        );
         if (newerMessages.length === 0) return;
         const newestMessage = newerMessages[newerMessages.length - 1];
         latestSeenCursor = encodeGroupMessageCursor(
@@ -444,29 +456,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
           deleteSession(group.folder);
         },
         stopCurrentRun: () => deps.queue.stopGroup?.(queueJid) ?? false,
-        runMemoryDreaming: async () => {
-          const result = await memoryMaintenanceQueue.enqueueAndWait(
-            group.folder,
-            async () => {
-              await MemoryService.getInstance().runDreamingSweep(group.folder);
-            },
-            `dream:${group.folder}`,
-          );
-          if (!result.queued) {
-            if (result.reason === 'full') {
-              throw new Error('memory maintenance queue full');
-            }
-            if (result.reason === 'invalid') {
-              throw new Error('invalid memory maintenance group');
-            }
-          }
-          return {
-            queued: result.queued,
-            pending: memoryMaintenanceQueue.getPendingCount(),
-            deduped: result.deduped,
-            reason: result.reason,
-          };
-        },
+        runMemoryDreaming: () => runDreamingForGroup(group.folder),
         getMemoryStatus: async () =>
           MemoryService.getInstance().getStatus(group.folder),
         saveProcedure: async ({ title, body }) =>
@@ -474,6 +464,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
             {
               scope: 'group',
               group_folder: group.folder,
+              topic_id: activeThreadId,
               title,
               body,
               source: 'explicit',
@@ -484,6 +475,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
               isMain: isMainGroup,
               groupFolder: group.folder,
               actor: 'agent',
+              threadId: activeThreadId,
             },
           ),
         isSenderControlAllowlisted: (msg) => {
@@ -562,7 +554,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
           { group: group.name },
           'Idle timeout, closing agent runner stdin',
         );
-        deps.queue.closeStdin(chatJid);
+        deps.queue.closeStdin(queueJid);
       }, IDLE_TIMEOUT);
     };
 

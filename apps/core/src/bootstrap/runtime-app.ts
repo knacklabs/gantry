@@ -45,7 +45,10 @@ export interface RuntimeApp {
   setRegisteredGroupsForTest: (groups: Record<string, RegisteredGroup>) => void;
   ensureOneCLIAgentsForRegisteredGroups: () => void;
   clearSessionForChatJid: (chatJid: string) => void;
-  processGroupMessages: (chatJid: string) => Promise<boolean>;
+  processGroupMessages: (
+    chatJid: string,
+    options?: { queued?: boolean },
+  ) => Promise<boolean>;
   getRegisteredGroups: () => Record<string, RegisteredGroup>;
   getLastTimestamp: () => string;
   setLastTimestamp: (timestamp: string) => void;
@@ -248,6 +251,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
         containerName,
         groupFolder,
         stopAliasJids,
+        threadId,
       ) =>
         queue.registerProcess(
           groupJid,
@@ -255,6 +259,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
           containerName,
           groupFolder,
           stopAliasJids,
+          threadId,
         ),
     },
     runAgent: options.runAgent,
@@ -272,8 +277,8 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     setRegisteredGroupsForTest,
     ensureOneCLIAgentsForRegisteredGroups,
     clearSessionForChatJid,
-    processGroupMessages: (chatJid) =>
-      groupProcessor.processGroupMessages(chatJid),
+    processGroupMessages: (chatJid, options) =>
+      groupProcessor.processGroupMessages(chatJid, options),
     getRegisteredGroups: () => registeredGroups,
     getLastTimestamp: () => lastTimestamp,
     setLastTimestamp: (timestamp) => {

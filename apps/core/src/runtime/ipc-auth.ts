@@ -12,18 +12,29 @@ const IPC_AUTH_SECRET =
     return generated;
   })();
 
-export function computeIpcAuthToken(groupFolder: string): string {
+function authScope(groupFolder: string, threadId?: string | null): string {
+  const normalizedThreadId = threadId?.trim();
+  return normalizedThreadId
+    ? `${groupFolder}\0thread\0${normalizedThreadId}`
+    : groupFolder;
+}
+
+export function computeIpcAuthToken(
+  groupFolder: string,
+  threadId?: string | null,
+): string {
   return createHmac('sha256', IPC_AUTH_SECRET)
-    .update(groupFolder)
+    .update(authScope(groupFolder, threadId))
     .digest('hex');
 }
 
 export function validateIpcAuthToken(
   groupFolder: string,
   candidateToken: string,
+  threadId?: string | null,
 ): boolean {
   if (!candidateToken) return false;
-  const expected = computeIpcAuthToken(groupFolder);
+  const expected = computeIpcAuthToken(groupFolder, threadId);
   if (candidateToken.length !== expected.length) return false;
   return timingSafeEqual(Buffer.from(candidateToken), Buffer.from(expected));
 }

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { getContinuationInputNamespace } from '@core/runtime/continuation-input.js';
 import { createHermeticRuntimeHarness } from '../harness/runtime-harness.js';
 
 const activeHarnesses: Array<{ cleanup: () => void }> = [];
@@ -46,12 +47,13 @@ describe('runtime continuation and restart e2e flows', () => {
     });
     await harness.pollMessagesOnce();
 
+    const threadInput = getContinuationInputNamespace('thread-1');
     await harness.waitFor(
-      () => harness.listIpcJson('main', 'input').length === 1,
+      () => harness.listIpcJson('main', threadInput).length === 1,
     );
     const pipedMessages = harness.listIpcJson<{ type: string; text: string }>(
       'main',
-      'input',
+      threadInput,
     );
     expect(pipedMessages[0]?.type).toBe('message');
     expect(pipedMessages[0]?.text).toContain('here is more context');
@@ -71,6 +73,78 @@ describe('runtime continuation and restart e2e flows', () => {
         msg.text.includes('continued-result'),
       ),
     );
+  });
+
+  it('isolates concurrent continuations for separate threads in the same chat', async () => {
+    const harness = await createHermeticRuntimeHarness({
+      fakeAgent: {
+        blockUntilReleased: true,
+        resultText: 'thread-isolated-result',
+      },
+    });
+    activeHarnesses.push(harness);
+
+    harness.registerGroup({
+      jid: 'tg:main',
+      name: 'Main',
+      folder: 'main',
+      trigger: 'Andy',
+      isMain: true,
+      requiresTrigger: false,
+    });
+
+    harness.storeInboundMessage({
+      chatJid: 'tg:main',
+      sender: 'tg:user:a',
+      content: 'start thread a',
+      threadId: 'thread-a',
+    });
+    harness.storeInboundMessage({
+      chatJid: 'tg:main',
+      sender: 'tg:user:b',
+      content: 'start thread b',
+      threadId: 'thread-b',
+    });
+    await harness.pollMessagesOnce();
+    await harness.waitFor(() => harness.fakeAgent.invocations.length === 2);
+
+    harness.storeInboundMessage({
+      chatJid: 'tg:main',
+      sender: 'tg:user:a',
+      content: 'only for thread a',
+      threadId: 'thread-a',
+    });
+    harness.storeInboundMessage({
+      chatJid: 'tg:main',
+      sender: 'tg:user:b',
+      content: 'only for thread b',
+      threadId: 'thread-b',
+    });
+    await harness.pollMessagesOnce();
+
+    const threadAInput = getContinuationInputNamespace('thread-a');
+    const threadBInput = getContinuationInputNamespace('thread-b');
+    await harness.waitFor(
+      () =>
+        harness.listIpcJson('main', threadAInput).length === 1 &&
+        harness.listIpcJson('main', threadBInput).length === 1,
+    );
+
+    const threadAText = harness
+      .listIpcJson<{ text: string }>('main', threadAInput)
+      .map((item) => item.text)
+      .join('\n');
+    const threadBText = harness
+      .listIpcJson<{ text: string }>('main', threadBInput)
+      .map((item) => item.text)
+      .join('\n');
+    expect(threadAText).toContain('only for thread a');
+    expect(threadAText).not.toContain('only for thread b');
+    expect(threadBText).toContain('only for thread b');
+    expect(threadBText).not.toContain('only for thread a');
+    expect(harness.listIpcJson('main', 'input')).toHaveLength(0);
+
+    harness.fakeAgent.releaseAll();
   });
 
   it('pipes multiple rapid follow-ups as one ordered continuation batch', async () => {

@@ -74,7 +74,7 @@ export async function createHermeticRuntimeHarness(
   );
   app.setChannelRuntime(channel.runtime);
   app.queue.setProcessMessagesFn((chatJid) =>
-    app.processGroupMessages(chatJid),
+    app.processGroupMessages(chatJid, { queued: true }),
   );
 
   let messageCounter = 0;

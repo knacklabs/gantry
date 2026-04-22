@@ -1370,6 +1370,20 @@ describe('createGroupProcessor', () => {
         'group1@g.us',
         'cursor-ts-123',
         50,
+        undefined,
+      );
+    });
+
+    it('filters to unthreaded messages when invoked by the queue for a base chat', async () => {
+      const { deps } = setupHappyPath();
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', { queued: true });
+
+      expect(mockGetMessagesSince).toHaveBeenCalledWith(
+        'group1@g.us',
+        '0',
+        50,
         { threadId: null },
       );
     });
@@ -1478,6 +1492,7 @@ describe('createGroupProcessor', () => {
       opts: {
         group?: RegisteredGroup;
         messages?: NewMessage[];
+        queueJid?: string;
       } = {},
     ) {
       const group =
@@ -1502,7 +1517,7 @@ describe('createGroupProcessor', () => {
       );
 
       const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
+      await processGroupMessages(opts.queueJid ?? 'group1@g.us');
 
       return { capturedDeps, deps, channel, group };
     }
@@ -1614,6 +1629,32 @@ describe('createGroupProcessor', () => {
       expect(deps.setGroupThinkingOverride).toHaveBeenCalledWith(
         'group1@g.us',
         { mode: 'disabled' },
+      );
+    });
+
+    it('saveProcedure carries active thread scope into memory writes', async () => {
+      const { capturedDeps } = await captureSessionDeps({
+        messages: [
+          makeMessage({
+            id: 'thread-save-procedure',
+            thread_id: 'thread-procedure',
+          }),
+        ],
+        queueJid: 'group1@g.us::thread:thread-procedure',
+      });
+      const saveProcedure = capturedDeps.saveProcedure as (input: {
+        title: string;
+        body: string;
+      }) => Promise<unknown>;
+
+      await saveProcedure({ title: 'Deploy flow', body: '1. Build\n2. Ship' });
+
+      expect(mockSaveProcedure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          topic_id: 'thread-procedure',
+          title: 'Deploy flow',
+        }),
+        expect.objectContaining({ threadId: 'thread-procedure' }),
       );
     });
 

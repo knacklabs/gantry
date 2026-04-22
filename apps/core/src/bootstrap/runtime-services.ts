@@ -179,7 +179,7 @@ export function startRuntimeServices(
   syncSchedulerState();
 
   app.queue.setProcessMessagesFn((chatJid) =>
-    app.processGroupMessages(chatJid),
+    app.processGroupMessages(chatJid, { queued: true }),
   );
 
   const handleActiveControlCommand = async ({

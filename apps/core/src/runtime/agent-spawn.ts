@@ -24,6 +24,7 @@ import {
   listActiveBrowserSessions,
 } from './browser-manager.js';
 import { computeIpcAuthToken } from './ipc-auth.js';
+import { getContinuationInputDir } from './continuation-input.js';
 import { getPromptProfileService } from './prompt-profile.js';
 import { executeRunnerProcess } from './agent-spawn-process.js';
 import {
@@ -134,6 +135,7 @@ export async function spawnAgent(
 
   const command = process.execPath;
   const args = [hostRunnerPath];
+  const ipcInputDir = getContinuationInputDir(group.folder, input.threadId);
   const env: NodeJS.ProcessEnv = {
     ...pickSafeHostEnv(process.env),
     ...hostCredentials.env,
@@ -147,8 +149,8 @@ export async function spawnAgent(
       'extra',
     ),
     MYCLAW_IPC_DIR: hostRuntime.groupIpcDir,
-    MYCLAW_IPC_INPUT_DIR: path.join(hostRuntime.groupIpcDir, 'input'),
-    MYCLAW_IPC_AUTH_TOKEN: computeIpcAuthToken(group.folder),
+    MYCLAW_IPC_INPUT_DIR: ipcInputDir,
+    MYCLAW_IPC_AUTH_TOKEN: computeIpcAuthToken(group.folder, input.threadId),
     MYCLAW_THREAD_ID: input.threadId || '',
     MYCLAW_PERMISSION_TIMEOUT_MS: String(PERMISSION_APPROVAL_TIMEOUT_MS),
     CLAUDE_CONFIG_DIR: path.join(MYCLAW_HOME, '.claude'),
@@ -172,7 +174,7 @@ export async function spawnAgent(
   const runtimeDetails = [
     `groupDir=${hostRuntime.groupDir}`,
     `globalDir=${hostRuntime.globalDir || '(none)'}`,
-    `ipcInput=${path.join(hostRuntime.groupIpcDir, 'input')}`,
+    `ipcInput=${ipcInputDir}`,
     `onecliApplied=${hostCredentials.onecliApplied}`,
     `onecliCaPath=${hostCredentials.onecliCaPath || '(none)'}`,
     `runner=${hostRunnerPath}`,

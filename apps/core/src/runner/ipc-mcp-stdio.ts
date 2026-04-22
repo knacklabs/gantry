@@ -54,7 +54,7 @@ function writeIpcFile(dir: string, data: object): string {
   // Atomic write: temp file then rename
   const tempPath = `${filepath}.tmp`;
   const envelope = IPC_AUTH_TOKEN
-    ? { ...data, authToken: IPC_AUTH_TOKEN }
+    ? { ...data, ...(threadId ? { threadId } : {}), authToken: IPC_AUTH_TOKEN }
     : data;
   fs.writeFileSync(tempPath, JSON.stringify(envelope, null, 2));
   fs.renameSync(tempPath, filepath);
@@ -154,6 +154,7 @@ async function requestBrowserAction(
         requestId,
         action,
         payload,
+        ...(threadId ? { threadId } : {}),
         ...(IPC_AUTH_TOKEN ? { authToken: IPC_AUTH_TOKEN } : {}),
       },
       null,
@@ -481,6 +482,7 @@ server.tool(
       requestId,
       sourceGroup: groupFolder,
       questions: args.questions,
+      ...(threadId ? { threadId } : {}),
       ...(IPC_AUTH_TOKEN ? { authToken: IPC_AUTH_TOKEN } : {}),
       timestamp: nowIso(),
     };
