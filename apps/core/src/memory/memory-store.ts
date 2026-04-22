@@ -36,6 +36,7 @@ export interface ChunkInsert {
   source_path: string;
   scope: MemoryScope;
   group_folder: string;
+  topic_id?: string | null;
   kind: string;
   text: string;
   importance_weight?: number;
@@ -171,6 +172,7 @@ export class MemoryStore {
       'source_path',
       'scope',
       'group_folder',
+      'topic_id',
       'kind',
       'chunk_hash',
       'text',
@@ -270,6 +272,7 @@ export class MemoryStore {
         source_path TEXT NOT NULL,
         scope TEXT NOT NULL,
         group_folder TEXT NOT NULL,
+        topic_id TEXT,
         kind TEXT NOT NULL,
         chunk_hash TEXT NOT NULL UNIQUE,
         text TEXT NOT NULL,
@@ -279,7 +282,7 @@ export class MemoryStore {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_memory_chunks_scope_group ON memory_chunks(scope, group_folder, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_memory_chunks_scope_group ON memory_chunks(scope, group_folder, topic_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_memory_chunks_source ON memory_chunks(source_type, source_id);
 
       CREATE VIRTUAL TABLE IF NOT EXISTS memory_chunks_fts USING fts5(
@@ -373,7 +376,7 @@ export class MemoryStore {
     return crypto
       .createHash('sha256')
       .update(
-        `${input.scope}:${input.group_folder}:${input.source_type}:${input.source_id}:${input.text}`,
+        `${input.scope}:${input.group_folder}:${input.topic_id || ''}:${input.source_type}:${input.source_id}:${input.text}`,
       )
       .digest('hex');
   }
@@ -1351,8 +1354,8 @@ export class MemoryStore {
     const now = new Date().toISOString();
     const insertChunk = this.db.prepare(
       `INSERT OR IGNORE INTO memory_chunks
-      (id, source_type, source_id, source_path, scope, group_folder, kind, chunk_hash, text, token_count, importance_weight, embedding_json, created_at, updated_at)
-      VALUES (@id, @source_type, @source_id, @source_path, @scope, @group_folder, @kind, @chunk_hash, @text, @token_count, @importance_weight, @embedding_json, @created_at, @updated_at)`,
+      (id, source_type, source_id, source_path, scope, group_folder, topic_id, kind, chunk_hash, text, token_count, importance_weight, embedding_json, created_at, updated_at)
+      VALUES (@id, @source_type, @source_id, @source_path, @scope, @group_folder, @topic_id, @kind, @chunk_hash, @text, @token_count, @importance_weight, @embedding_json, @created_at, @updated_at)`,
     );
     const insertFts = this.db.prepare(
       `INSERT INTO memory_chunks_fts(id, text) VALUES (?, ?)`,
@@ -1378,6 +1381,7 @@ export class MemoryStore {
           source_path: chunk.source_path,
           scope: chunk.scope,
           group_folder: chunk.group_folder,
+          topic_id: chunk.topic_id ?? null,
           kind: chunk.kind,
           chunk_hash: chunkHash,
           text: chunk.text,
@@ -1409,6 +1413,7 @@ export class MemoryStore {
     query: string,
     groupFolder: string,
     limit: number,
+    topicId?: string,
   ): MemorySearchResult[] {
     const matchQuery = buildFtsMatchQuery(query);
     if (!matchQuery) return [];
@@ -1421,12 +1426,14 @@ export class MemoryStore {
          JOIN memory_chunks c ON c.id = memory_chunks_fts.id
          WHERE memory_chunks_fts MATCH @match_query
            AND (c.scope = 'global' OR c.group_folder = @group_folder)
+           AND COALESCE(c.topic_id, '') = COALESCE(@topic_id, '')
          ORDER BY lexical_score ASC
          LIMIT @limit`,
       )
       .all({
         match_query: matchQuery,
         group_folder: groupFolder,
+        topic_id: topicId || null,
         limit,
       }) as Array<Record<string, unknown>>;
 
@@ -1448,6 +1455,7 @@ export class MemoryStore {
     queryEmbedding: number[],
     groupFolder: string,
     limit: number,
+    topicId?: string,
   ): MemorySearchResult[] {
     const candidateLimit = Math.max(limit, Math.min(limit * 4, 200));
 
@@ -1465,6 +1473,7 @@ export class MemoryStore {
          JOIN memory_chunks c ON c.id = m.chunk_id
          WHERE c.id IS NOT NULL
            AND (c.scope = 'global' OR c.group_folder = @group_folder)
+           AND COALESCE(c.topic_id, '') = COALESCE(@topic_id, '')
          ORDER BY n.distance ASC
          LIMIT @limit`,
       )
@@ -1472,6 +1481,7 @@ export class MemoryStore {
         embedding: JSON.stringify(queryEmbedding),
         candidate_limit: candidateLimit,
         group_folder: groupFolder,
+        topic_id: topicId || null,
         limit,
       }) as Array<Record<string, unknown>>;
 

@@ -532,6 +532,7 @@ function parseMemoryIpcRequest(
   requestId: string;
   action: MemoryIpcAction;
   payload: Record<string, unknown>;
+  context?: { threadId?: string };
 } {
   if (!isPlainObject(raw)) throw new Error('Invalid memory IPC payload');
   const authToken = toTrimmedString(raw.authToken, { maxLen: 512 }) || '';
@@ -553,10 +554,13 @@ function parseMemoryIpcRequest(
   if (!isPlainObject(payload)) {
     throw new Error('Invalid memory IPC payload body');
   }
+  const context = isPlainObject(raw.context) ? raw.context : {};
+  const threadId = toTrimmedString(context.threadId, { maxLen: 255 });
   return {
     requestId,
     action: action as MemoryIpcAction,
     payload,
+    ...(threadId ? { context: { threadId } } : {}),
   };
 }
 
@@ -1017,6 +1021,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   requestId: request.requestId,
                   action: request.action,
                   payload: request.payload || {},
+                  ...(request.context ? { context: request.context } : {}),
                 },
                 sourceGroup,
                 isMain,

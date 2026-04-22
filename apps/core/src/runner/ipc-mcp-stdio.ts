@@ -90,6 +90,9 @@ async function requestMemoryAction(
         requestId,
         action,
         payload,
+        context: {
+          ...(threadId ? { threadId } : {}),
+        },
         ...(IPC_AUTH_TOKEN ? { authToken: IPC_AUTH_TOKEN } : {}),
       },
       null,
@@ -1028,10 +1031,8 @@ server.tool(
     source: z.string().optional(),
   },
   async (args) => {
-    const response = await requestMemoryAction('memory_save', {
-      ...args,
-      topic_id: args.topic_id || args.thread_id || threadId,
-    });
+    const { topic_id: _topicId, thread_id: _threadId, ...input } = args;
+    const response = await requestMemoryAction('memory_save', input);
     if (!response.ok) {
       return {
         content: [

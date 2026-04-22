@@ -79,8 +79,8 @@ interface SearchInput {
   query: string;
   groupFolder: string;
   userId?: string;
+  threadId?: string;
   limit?: number;
-  source?: string;
 }
 
 interface TranscriptExtractionInput {
@@ -470,18 +470,20 @@ export class MemoryService {
       logger.warn({ err }, 'memory_reindex_failed');
     }
     const limit = input.limit ?? MEMORY_RETRIEVAL_LIMIT;
+    const topicId = normalizeMemoryTopicId(input.threadId);
     const items = this.store.searchItemsByText(
       input.query,
       input.groupFolder,
       limit,
       input.userId,
+      topicId,
     );
     const lexical = this.store.lexicalSearch(
       input.query,
       input.groupFolder,
       limit * 2,
+      topicId,
     );
-
     let vector: MemorySearchResult[] = [];
     if (this.embeddings.isEnabled()) {
       const queryEmbedding = await this.embeddings.embedOne(input.query);
@@ -489,9 +491,9 @@ export class MemoryService {
         queryEmbedding,
         input.groupFolder,
         limit * 2,
+        topicId,
       );
     }
-
     const snippets = fuseSearchResults(lexical, vector, limit, {
       minScore: MEMORY_RETRIEVAL_MIN_SCORE,
       halfLifeDays: MEMORY_TEMPORAL_DECAY_HALFLIFE_DAYS,
@@ -500,13 +502,7 @@ export class MemoryService {
       vectorWeight: MEMORY_RRF_VECTOR_WEIGHT,
       sourceTypeBoosts: MEMORY_SOURCE_TYPE_BOOSTS,
     });
-    const filteredSnippets = input.source?.trim()
-      ? snippets.filter((item) => item.source_type === input.source)
-      : snippets;
-    const filteredItems = input.source?.trim()
-      ? items.filter((item) => item.source_type === input.source)
-      : items;
-    return mergeSearchResults(filteredItems, filteredSnippets, limit);
+    return mergeSearchResults(items, snippets, limit);
   }
 
   async saveMemory(

@@ -457,4 +457,53 @@ describe('runSetupFlow credential step', () => {
         ?.options?.slice(0, 2),
     ).toEqual(['next', 'start_now']);
   });
+
+  it('does not mark setup completed when final doctor has blocking failures', async () => {
+    const mod = await loadSetupFlowModule({
+      selectQueue: [
+        'next',
+        'next',
+        'sqlite',
+        'next',
+        'telegram',
+        'tg:-1001234567890',
+        'next',
+        'env-only',
+        'oauth',
+        'claude-sonnet-4-6',
+        'on',
+        'off',
+        'on',
+        'skip',
+        'next',
+      ],
+      textQueue: ['/tmp/myclaw-test', 'Telegram Main'],
+      passwordQueue: ['telegram-token', 'claude-oauth-token'],
+      doctorReports: [
+        {
+          ok: false,
+          blockingFailures: 1,
+          warnings: 0,
+          checks: [
+            {
+              id: 'runtime-settings',
+              title: 'Runtime Settings',
+              status: 'fail',
+              message: 'No channels are enabled.',
+            },
+          ],
+        },
+      ],
+    });
+
+    const result = await mod.runSetupFlow({
+      importMetaUrl: import.meta.url,
+      runtimeHome: '/tmp/myclaw-test',
+    });
+
+    expect(result.status).toBe('resumed');
+    expect(mod.promptCalls.map((call) => call.message)).not.toContain(
+      'Setup complete. What should MyClaw do now?',
+    );
+  });
 });

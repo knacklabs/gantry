@@ -159,9 +159,15 @@ function makeServiceFixture() {
     journal as unknown as ConstructorParameters<typeof MemoryService>[3],
   );
   (
-    service as unknown as { indexer: { indexFile: (p: string) => void } }
+    service as unknown as {
+      indexer: {
+        indexFile: (p: string) => void;
+        reindexStaleFiles: () => void;
+      };
+    }
   ).indexer = {
     indexFile: vi.fn(),
+    reindexStaleFiles: vi.fn(),
   };
 
   return {
@@ -465,6 +471,30 @@ describe('MemoryService boundary extraction', () => {
     expect(saved.topic_id).toBe('t-1');
     expect(fixture.store.saveItem).toHaveBeenCalledWith(
       expect.objectContaining({ topic_id: 't-1' }),
+    );
+  });
+
+  it('search passes thread topic boundary into item and chunk retrieval', async () => {
+    const fixture = makeServiceFixture();
+
+    await fixture.service.search({
+      query: 'deployment',
+      groupFolder: 'team',
+      threadId: 'thread-a',
+    });
+
+    expect(fixture.store.searchItemsByText).toHaveBeenCalledWith(
+      'deployment',
+      'team',
+      expect.any(Number),
+      undefined,
+      'thread-a',
+    );
+    expect(fixture.store.lexicalSearch).toHaveBeenCalledWith(
+      'deployment',
+      'team',
+      expect.any(Number),
+      'thread-a',
     );
   });
 

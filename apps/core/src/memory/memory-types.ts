@@ -76,6 +76,7 @@ export interface MemoryChunk {
   source_path: string;
   scope: MemoryScope;
   group_folder: string;
+  topic_id?: string | null;
   kind: string;
   chunk_hash: string;
   text: string;

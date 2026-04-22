@@ -84,9 +84,6 @@ function parseSaveMemoryInput(payload: unknown): SaveMemoryInput {
     maxLen: 128,
   });
   const userId = parseOptionalString(payload.user_id, { maxLen: 255 });
-  const topicId =
-    parseOptionalString(payload.topic_id, { maxLen: 255 }) ||
-    parseOptionalString(payload.thread_id, { maxLen: 255 });
   const confidence = parseOptionalNumber(payload.confidence, {
     min: 0,
     max: 1,
@@ -112,7 +109,6 @@ function parseSaveMemoryInput(payload: unknown): SaveMemoryInput {
     ...(kind ? { kind } : {}),
     ...(groupFolder ? { group_folder: groupFolder } : {}),
     ...(userId ? { user_id: userId } : {}),
-    ...(topicId ? { topic_id: topicId } : {}),
     ...(confidence !== undefined ? { confidence } : {}),
     ...(why ? { why } : {}),
     ...(sourceTurnId ? { source_turn_id: sourceTurnId } : {}),
@@ -263,6 +259,7 @@ export async function processMemoryRequest(
           userId: request.payload.user_id
             ? String(request.payload.user_id)
             : undefined,
+          threadId: request.context?.threadId,
           limit: request.payload.limit
             ? Number(request.payload.limit)
             : undefined,
@@ -275,11 +272,17 @@ export async function processMemoryRequest(
         };
       }
       case 'memory_save': {
-        const input = parseSaveMemoryInput(request.payload);
+        const input = {
+          ...parseSaveMemoryInput(request.payload),
+          ...(request.context?.threadId
+            ? { topic_id: request.context.threadId }
+            : {}),
+        };
         const saved = await memory.saveMemory(input, {
           isMain,
           groupFolder: sourceGroup,
           actor: 'mcp-tool',
+          threadId: request.context?.threadId,
         });
         return {
           ok: true,
@@ -323,11 +326,17 @@ export async function processMemoryRequest(
         };
       }
       case 'procedure_save': {
-        const input = parseSaveProcedureInput(request.payload);
+        const input = {
+          ...parseSaveProcedureInput(request.payload),
+          ...(request.context?.threadId
+            ? { topic_id: request.context.threadId }
+            : {}),
+        };
         const saved = memory.saveProcedure(input, {
           isMain,
           groupFolder: sourceGroup,
           actor: 'mcp-tool',
+          threadId: request.context?.threadId,
         });
         return {
           ok: true,

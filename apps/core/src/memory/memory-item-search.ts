@@ -8,8 +8,9 @@ export function createItemSearcher(db: Database.Database) {
     groupFolder: string,
     limit: number,
     userId?: string,
+    topicId?: string,
   ): MemorySearchResult[] =>
-    searchMemoryItemsByText(db, query, groupFolder, limit, userId);
+    searchMemoryItemsByText(db, query, groupFolder, limit, userId, topicId);
 }
 
 export function buildFtsMatchQuery(input: string): string | null {
@@ -24,6 +25,7 @@ function searchMemoryItemsByText(
   groupFolder: string,
   limit: number,
   userId?: string,
+  topicId?: string,
 ): MemorySearchResult[] {
   const tokens = tokenizeMemorySearch(query).slice(0, 8);
   if (tokens.length === 0) return [];
@@ -40,12 +42,14 @@ function searchMemoryItemsByText(
          AND (scope = 'global'
            OR (group_folder = @group_folder
              AND (scope != 'user' OR (@user_id IS NOT NULL AND user_id = @user_id))))
+         AND COALESCE(topic_id, '') = COALESCE(@topic_id, '')
          AND (${matchClauses.join(' OR ')})
        ORDER BY updated_at DESC`,
     )
     .all({
       group_folder: groupFolder,
       user_id: userId || null,
+      topic_id: topicId || null,
       ...Object.fromEntries(
         tokens.map((token, index) => [
           `token_${index}`,

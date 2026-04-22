@@ -534,7 +534,7 @@ export async function runSlackConnectCommand(
     const access = await verifySlackChatAccess({
       botToken: botTokenInput,
       chatJid: normalizedChatJid,
-      sendTestMessage: true,
+      sendTestMessage: false,
     });
     if (!access.ok) {
       p.log.error(access.message);

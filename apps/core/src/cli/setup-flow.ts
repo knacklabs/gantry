@@ -1467,9 +1467,9 @@ async function runVerifyStep(
 
   if (!report.ok) {
     p.log.warn(
-      'Verification found blocking issues after runtime creation. Setup is saved; run `myclaw doctor` after fixing the next actions above.',
+      'Verification found blocking issues after runtime creation. Setup is saved but not complete; fix the next actions above, then run `myclaw setup` to continue.',
     );
-    return { type: 'next' };
+    return { type: 'resume' };
   }
 
   p.log.success('Verification passed.');

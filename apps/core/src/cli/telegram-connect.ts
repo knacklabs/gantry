@@ -149,7 +149,7 @@ export async function runTelegramConnectCommand(
       token: tokenInput,
       chatJid: normalizedChatJid,
       botId: validation.botId,
-      sendTestMessage: true,
+      sendTestMessage: false,
     });
     if (!access.ok) {
       p.log.error(access.message);
