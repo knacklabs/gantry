@@ -17,25 +17,33 @@ myclaw
 
 ## First Run Flow
 
-The first run is Telegram-first and guided one step at a time:
+The first run is guided and channel-agnostic:
 
 1. welcome
-2. machine doctor
-3. runtime home confirmation (`~/myclaw` by default)
+2. runtime home confirmation (`~/myclaw` by default)
+3. storage selection (`SQLite`; Postgres is not exposed in guided setup yet)
 4. runtime prerequisite check
-5. Telegram token + chat connection
-6. memory and continuity decision
-7. embeddings decision
-8. dreaming decision
-9. config write
-10. Telegram group registration
-11. optional service install/start
-12. final verification
-13. ready screen
+5. channel selection (`Telegram` or `Slack`)
+6. provider token + chat/conversation connection
+7. credential source mode selection (`env-only` default, optional OneCLI)
+8. Claude auth selection (`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`) for credential modes that need local credentials
+9. model selection (`Sonnet` recommended, optional `Opus`)
+10. memory decision
+11. embeddings decision (off by default; asks for OpenAI key only if enabled)
+12. dreaming decision (on by default)
+13. optional service choice
+14. final review + `Create Runtime`
+15. config write
+16. group registration
+17. optional service install/start
+18. final doctor verification
+19. ready screen that exits by default and starts the runtime only when explicitly selected
 
-If setup is interrupted, rerun `myclaw` to resume.
+Doctor verification is intentionally last in first-run setup. A fresh runtime is expected to be incomplete until channel credentials, model credentials, memory settings, and the first group are written.
 
-Slack can be connected after first-run setup (or as an additional channel) with `myclaw slack connect`.
+Until `Create Runtime`, Back, Resume Later, and Cancel are transactional: setup may save onboarding progress, but it does not enable channels or register a group. If setup is interrupted, rerun `myclaw` to resume.
+
+Slack can still be connected later (or as an additional channel) with `myclaw slack connect`.
 
 ## Runtime Home
 
@@ -69,8 +77,9 @@ myclaw --runtime-home /path/to/runtime
 
 Required values:
 
-- Telegram bot token from BotFather
+- Telegram bot token from BotFather (`@BotFather` -> `/newbot`)
 - Telegram chat ID (for example `-1001234567890`)
+- For group chats, add the bot to the group and send a message before discovery; use admin rights or BotFather `/setprivacy` if the bot must see every group message.
 
 Reconnect Telegram later:
 
@@ -85,6 +94,7 @@ Required values:
 - Slack Bot User OAuth token (`SLACK_BOT_TOKEN`, starts with `xoxb-`)
 - Slack App-level token (`SLACK_APP_TOKEN`, starts with `xapp-`, `connections:write`)
 - Slack chat/channel ID (for example `C0123456789`, stored as `sl:C0123456789`)
+- Slack app setup: create an app, add a bot user and message/conversation scopes, enable Socket Mode, reinstall after scope changes, then invite the app to the target channel or DM it once.
 
 Connect or reconnect Slack:
 
@@ -96,7 +106,7 @@ myclaw slack connect
 
 - Memory: remember durable facts, preferences, decisions, corrections, constraints, and procedures.
 - Continuity: use remembered context so the agent can resume current work instead of starting cold.
-- Storage backend: app-wide storage (`storage.provider`) defaults to SQLite.
+- Storage backend: SQLite (`storage.provider=sqlite`). Postgres is not exposed until runtime persistence is provider-backed end to end.
 - SQLite path: default local database at `store/myclaw.db`.
 - Embeddings: optional OpenAI-powered ranking improvement for memory search.
 - Dreaming: background memory cleanup and improvement.
@@ -105,7 +115,7 @@ Default choices:
 
 - memory: on
 - embeddings: off
-- dreaming: off
+- dreaming: on
 
 Canonical memory block written by setup:
 
@@ -123,7 +133,7 @@ memory:
     provider: disabled
     model: text-embedding-3-large
   dreaming:
-    enabled: false
+    enabled: true
 ```
 
 Memory and continuity work without embeddings. Enable embeddings only when you want better semantic ranking and are comfortable providing an OpenAI API key.

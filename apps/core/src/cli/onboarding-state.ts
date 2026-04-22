@@ -5,11 +5,14 @@ import { onboardingStatePath } from './runtime-home.js';
 
 export type OnboardingStep =
   | 'welcome'
-  | 'doctor'
   | 'runtime_home'
+  | 'storage'
   | 'prerequisites'
+  | 'channel'
   | 'credentials'
+  | 'model'
   | 'telegram'
+  | 'slack'
   | 'memory'
   | 'embeddings'
   | 'dreaming'
@@ -21,13 +24,18 @@ export type OnboardingStep =
 
 export interface OnboardingData {
   runtimeHome: string;
+  primaryProvider?: 'telegram' | 'slack';
+  storageProvider?: 'sqlite';
+  serviceChoice?: 'skip' | 'install' | 'install_start';
   telegramBotUsername?: string;
   telegramChatJid?: string;
+  slackChatJid?: string;
   memoryEnabled?: boolean;
   embeddingsEnabled?: boolean;
   dreamingEnabled?: boolean;
   credentialMode?: HostCredentialMode;
   onecliUrl?: string;
+  selectedModel?: string;
 }
 
 export interface OnboardingState {

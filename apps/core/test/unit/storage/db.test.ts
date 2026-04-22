@@ -17,6 +17,7 @@ import {
   getAllSessions,
   getLastBotMessageTimestamp,
   getJobById,
+  getMessageThreadIds,
   getMessagesSince,
   getNewMessages,
   getRecentJobRuns,
@@ -27,6 +28,7 @@ import {
   listDueJobs,
   listRecentJobEvents,
   listJobRuns,
+  makeSessionScopeKey,
   markJobRunning,
   markJobRunNotified,
   releaseStaleJobLeases,
@@ -245,6 +247,39 @@ describe('thread context', () => {
     );
     expect(messages).toHaveLength(1);
     expect(messages[0].thread_id).toBe('1710000000.000100');
+  });
+
+  it('lists distinct user-message thread ids for recovery', () => {
+    storeChatMetadata('group@g.us', '2024-01-01T00:00:00.000Z');
+    storeMessage({
+      id: 'root-1',
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      sender_name: 'User',
+      content: 'root',
+      timestamp: '2024-01-01T00:00:01.000Z',
+    });
+    storeMessage({
+      id: 'thread-1',
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      sender_name: 'User',
+      content: 'topic',
+      timestamp: '2024-01-01T00:00:02.000Z',
+      thread_id: 'topic-1',
+    });
+    storeMessage({
+      id: 'bot-thread',
+      chat_jid: 'group@g.us',
+      sender: 'assistant',
+      sender_name: 'MyClaw',
+      content: 'bot topic',
+      timestamp: '2024-01-01T00:00:03.000Z',
+      thread_id: 'bot-only-topic',
+      is_bot_message: true,
+    });
+
+    expect(getMessageThreadIds('group@g.us')).toEqual([null, 'topic-1']);
   });
 
   it('fails on incompatible messages table missing required thread columns', () => {
@@ -899,6 +934,21 @@ describe('session accessors', () => {
     expect(getSession('whatsapp_main')).toBeUndefined();
   });
 
+  it('scopes sessions independently by thread id', () => {
+    setSession('whatsapp_main', 'session-base');
+    setSession('whatsapp_main', 'session-thread-a', 'thread-a');
+    setSession('whatsapp_main', 'session-thread-b', 'thread-b');
+
+    expect(getSession('whatsapp_main')).toBe('session-base');
+    expect(getSession('whatsapp_main', 'thread-a')).toBe('session-thread-a');
+    expect(getSession('whatsapp_main', 'thread-b')).toBe('session-thread-b');
+
+    deleteSession('whatsapp_main', 'thread-a');
+    expect(getSession('whatsapp_main')).toBe('session-base');
+    expect(getSession('whatsapp_main', 'thread-a')).toBeUndefined();
+    expect(getSession('whatsapp_main', 'thread-b')).toBe('session-thread-b');
+  });
+
   it('delete on nonexistent session is a no-op', () => {
     // Should not throw
     deleteSession('nonexistent');
@@ -915,6 +965,16 @@ describe('session accessors', () => {
       'folder-a': 'sid-1',
       'folder-b': 'sid-2',
       'folder-c': 'sid-3',
+    });
+  });
+
+  it('getAllSessions keys threaded sessions by session scope', () => {
+    setSession('folder-a', 'sid-base');
+    setSession('folder-a', 'sid-thread', 'topic-1');
+
+    expect(getAllSessions()).toEqual({
+      'folder-a': 'sid-base',
+      [makeSessionScopeKey('folder-a', 'topic-1')]: 'sid-thread',
     });
   });
 

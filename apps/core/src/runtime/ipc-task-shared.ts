@@ -41,6 +41,14 @@ export function jobBelongsToSourceGroup(
   });
 }
 
+export function jobBelongsToAuthThread(
+  job: { thread_id: string | null },
+  authThreadId?: string,
+): boolean {
+  if (!authThreadId) return true;
+  return (job.thread_id || null) === authThreadId;
+}
+
 export function generateJobId(params: {
   name: string;
   prompt: string;

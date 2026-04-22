@@ -2,6 +2,11 @@ import fs from 'fs';
 import path from 'path';
 
 import { readEnvFile } from './env-file.js';
+import {
+  safeTelegramDescription,
+  TOKEN_BOUND_HTTP_GUIDANCE,
+  TOKEN_BOUND_NETWORK_GUIDANCE,
+} from './provider-error-guidance.js';
 import { openRuntimeGroupDb } from './runtime-group-db.js';
 import { envFilePath, ensureRuntimeLayout } from './runtime-home.js';
 
@@ -56,11 +61,10 @@ export async function validateTelegramBotToken(
     );
 
     if (!response.ok) {
-      const body = await response.text();
       return {
         ok: false,
         message: `Telegram API returned ${response.status}.`,
-        nextAction: `Check your token and try again. Response: ${body.slice(0, 120)}`,
+        nextAction: TOKEN_BOUND_HTTP_GUIDANCE,
       };
     }
 
@@ -73,7 +77,10 @@ export async function validateTelegramBotToken(
     if (!payload.ok || !payload.result?.id) {
       return {
         ok: false,
-        message: payload.description || 'Telegram rejected this token.',
+        message: safeTelegramDescription(
+          payload.description,
+          'Telegram rejected this token.',
+        ),
         nextAction: 'Generate a fresh token in BotFather and retry.',
       };
     }
@@ -87,12 +94,11 @@ export async function validateTelegramBotToken(
       displayName,
       message: `Connected to @${username || 'bot'} (${payload.result.id}).`,
     };
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
+  } catch {
     return {
       ok: false,
       message: 'Could not reach Telegram API.',
-      nextAction: `Check your internet connection and retry. Details: ${reason}`,
+      nextAction: TOKEN_BOUND_NETWORK_GUIDANCE,
     };
   } finally {
     clearTimeout(timeout);
@@ -180,11 +186,10 @@ export async function verifyTelegramChatAccess(options: {
     );
 
     if (!getChatResponse.ok) {
-      const body = await getChatResponse.text();
       return {
         ok: false,
         message: `Telegram getChat failed with HTTP ${getChatResponse.status}.`,
-        nextAction: `Confirm chat ID and bot permissions. Response: ${body.slice(0, 160)}`,
+        nextAction: TOKEN_BOUND_HTTP_GUIDANCE,
       };
     }
 
@@ -199,8 +204,10 @@ export async function verifyTelegramChatAccess(options: {
     if (!chatPayload.ok || !chatPayload.result?.id) {
       return {
         ok: false,
-        message:
-          chatPayload.description || 'Telegram could not resolve this chat.',
+        message: safeTelegramDescription(
+          chatPayload.description,
+          'Telegram could not resolve this chat.',
+        ),
         nextAction:
           'Add the bot to the chat and grant message permission, then retry.',
       };
@@ -218,12 +225,11 @@ export async function verifyTelegramChatAccess(options: {
         timeoutMs,
       );
       if (!getMemberResponse.ok) {
-        const body = await getMemberResponse.text();
         return {
           ok: false,
           chatTitle,
           message: `Telegram getChatMember failed with HTTP ${getMemberResponse.status}.`,
-          nextAction: `Verify the bot is a member/admin in this chat. Response: ${body.slice(0, 160)}`,
+          nextAction: TOKEN_BOUND_HTTP_GUIDANCE,
         };
       }
       const memberPayload = await readTelegramPayload<{
@@ -233,9 +239,10 @@ export async function verifyTelegramChatAccess(options: {
         return {
           ok: false,
           chatTitle,
-          message:
-            memberPayload.description ||
+          message: safeTelegramDescription(
+            memberPayload.description,
             'Telegram could not verify bot membership in this chat.',
+          ),
           nextAction:
             'Ensure the bot has access to this chat and can read/write messages.',
         };
@@ -269,12 +276,11 @@ export async function verifyTelegramChatAccess(options: {
         },
       );
       if (!sendResponse.ok) {
-        const body = await sendResponse.text();
         return {
           ok: false,
           chatTitle,
           message: `Telegram sendMessage failed with HTTP ${sendResponse.status}.`,
-          nextAction: `Make sure the bot can send messages in this chat. Response: ${body.slice(0, 160)}`,
+          nextAction: TOKEN_BOUND_HTTP_GUIDANCE,
         };
       }
       const sendPayload = await readTelegramPayload<{ message_id?: number }>(
@@ -284,9 +290,10 @@ export async function verifyTelegramChatAccess(options: {
         return {
           ok: false,
           chatTitle,
-          message:
-            sendPayload.description ||
+          message: safeTelegramDescription(
+            sendPayload.description,
             'Telegram rejected the setup test message.',
+          ),
           nextAction:
             'Grant the bot permission to post in this chat and retry.',
         };
@@ -301,12 +308,11 @@ export async function verifyTelegramChatAccess(options: {
         ? `Chat access verified for ${chatTitle}; test message sent.`
         : `Chat access verified for ${chatTitle}.`,
     };
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
+  } catch {
     return {
       ok: false,
       message: 'Could not reach Telegram API for chat verification.',
-      nextAction: `Check internet access and retry. Details: ${reason}`,
+      nextAction: TOKEN_BOUND_NETWORK_GUIDANCE,
     };
   }
 }

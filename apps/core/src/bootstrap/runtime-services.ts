@@ -18,6 +18,7 @@ import {
 } from '../runtime/message-loop.js';
 import { writeSchedulerStateFileSafe } from '../runtime/scheduler-state-file.js';
 import { startSchedulerLoop } from '../runtime/task-scheduler.js';
+import { makeThreadQueueKey } from '../runtime/thread-queue-key.js';
 import {
   getAllJobs,
   getRecentJobRuns,
@@ -140,7 +141,12 @@ export function startRuntimeServices(
         groupFolder,
         stopAliasJids,
       ),
-    sendMessage: (jid, rawText) => channelWiring.sendMessage(jid, rawText),
+    sendMessage: (jid, rawText, options) =>
+      channelWiring.sendMessage(jid, rawText, {
+        ...(options?.threadId
+          ? { messageOptions: { threadId: options.threadId } }
+          : {}),
+      }),
     sendStreamingChunk: (jid, rawText, chunkOptions) =>
       channelWiring.sendStreamingChunk(jid, rawText, chunkOptions),
     resetStreaming: (jid) => {
@@ -150,8 +156,13 @@ export function startRuntimeServices(
   });
 
   resolved.startIpcWatcher({
-    sendMessage: (jid, text) =>
-      channelWiring.sendMessage(jid, text, { throwOnMissing: true }),
+    sendMessage: (jid, text, options) =>
+      channelWiring.sendMessage(jid, text, {
+        throwOnMissing: true,
+        ...(options?.threadId
+          ? { messageOptions: { threadId: options.threadId } }
+          : {}),
+      }),
     registeredGroups: () => app.getRegisteredGroups(),
     registerGroup: app.registerGroup,
     syncGroups: async (force: boolean) => {
@@ -178,15 +189,17 @@ export function startRuntimeServices(
   syncSchedulerState();
 
   app.queue.setProcessMessagesFn((chatJid) =>
-    app.processGroupMessages(chatJid),
+    app.processGroupMessages(chatJid, { queued: true }),
   );
 
   const handleActiveControlCommand = async ({
     chatJid,
+    queueJid,
     command,
     message,
   }: {
     chatJid: string;
+    queueJid: string;
     command: { kind: string };
     message: NewMessage;
   }): Promise<boolean> => {
@@ -194,29 +207,29 @@ export function startRuntimeServices(
       return false;
     }
 
-    if (!app.queue.isGroupActive(chatJid)) {
+    if (!app.queue.isGroupActive(queueJid)) {
       return false;
     }
 
-    const stopped = app.queue.stopGroup(chatJid);
+    const stopped = app.queue.stopGroup(queueJid);
     if (!stopped) {
       return false;
     }
-
-    if (command.kind === 'new') {
-      app.clearSessionForChatJid(chatJid);
-    }
-
-    app.setAgentCursor(
-      chatJid,
-      encodeGroupMessageCursor(toGroupMessageCursor(message)),
-    );
-    app.saveState();
 
     const threadId =
       typeof message.thread_id === 'string' && message.thread_id.trim()
         ? message.thread_id.trim()
         : undefined;
+
+    if (command.kind === 'new') {
+      app.clearSessionForChatJid(chatJid, threadId);
+    }
+    app.setAgentCursor(
+      makeThreadQueueKey(chatJid, threadId),
+      encodeGroupMessageCursor(toGroupMessageCursor(message)),
+    );
+    app.saveState();
+
     await channelWiring.sendMessage(
       chatJid,
       command.kind === 'stop'

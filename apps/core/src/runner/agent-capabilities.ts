@@ -2,6 +2,7 @@ export interface AgentCapabilityContext {
   mcpServerPath: string;
   chatJid: string;
   groupFolder: string;
+  threadId?: string;
   isMain: boolean;
   ipcDir?: string;
   ipcAuthToken?: string;
@@ -82,6 +83,7 @@ const myclawMcpProvider: AgentCapabilityProvider = {
         env: {
           MYCLAW_CHAT_JID: ctx.chatJid,
           MYCLAW_GROUP_FOLDER: ctx.groupFolder,
+          MYCLAW_THREAD_ID: ctx.threadId || '',
           MYCLAW_IS_MAIN: ctx.isMain ? '1' : '0',
           ...(ctx.ipcDir ? { MYCLAW_IPC_DIR: ctx.ipcDir } : {}),
           ...(ctx.ipcAuthToken

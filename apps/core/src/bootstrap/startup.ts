@@ -54,12 +54,11 @@ export async function runStartup(
   }
 
   const runtimeSettings = resolved.loadRuntimeSettings(MYCLAW_HOME);
-  if (runtimeSettings.storage.provider === 'postgres') {
+  if (runtimeSettings.storage.provider !== 'sqlite') {
     throw new Error(
-      'storage.provider=postgres is not available in host runtime. Use storage.provider=sqlite.',
+      'storage.provider=postgres is not available in host runtime yet. Use storage.provider=sqlite.',
     );
   }
-
   resolved.initDatabase();
   resolved.logger.info('Database initialized');
   app.loadState();

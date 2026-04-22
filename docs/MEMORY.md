@@ -28,12 +28,14 @@ memory:
     provider: disabled
     model: text-embedding-3-large
   dreaming:
-    enabled: false
+    enabled: true
 ```
+
+Fresh guided setup writes the block above by default: memory on, embeddings off, dreaming on. A raw generated settings file outside guided setup may start with dreaming off until the user explicitly enables it.
 
 ## Storage
 
-- Runtime storage backend in host runtime is `sqlite`.
+- Runtime storage backend is `sqlite`; Postgres is not exposed until runtime persistence is provider-backed end to end.
 - Memory SQLite database path is derived from `memory.root`: `~/myclaw/memory/.cache/memory.db` by default.
 - `memory.root` resolves under the runtime home unless it is absolute.
 - Journal path is `~/myclaw/memory/.journal`.
@@ -48,8 +50,24 @@ memory:
 ## Dreaming
 
 - Optional background memory refinement.
-- Disabled by default.
+- Enabled by default in guided setup; optional and can be disabled with `myclaw memory dreaming off`.
 - Should be used only with persistent memory enabled.
+- When enabled, dream lifecycle metadata (enabled state, schedule, last outcome) is included in the injected continuity brief.
+
+## Injection Model
+
+- Host runtime injects memory/continuity context for every agent run (message turns and scheduler jobs).
+- Injection does not rely on the agent deciding to call `memory_search` first.
+- The injected block is a separate structured JSON message marked as untrusted data-only evidence, not executable instructions.
+- The runner adds a system-level memory boundary policy and denies high-risk tool requests that match suppressed memory-injection patterns.
+- Memory tools remain available for deeper retrieval, explicit saves, and patch operations.
+
+## Scope Defaults
+
+- `user`: personal preferences/corrections for one user.
+- `group`: active channel/chat memory (default).
+- `global`: cross-chat memory; use only with explicit user intent.
+- If a `thread_id` exists, MyClaw treats it as a hard topic boundary for injected memory and filters group/global memory to records saved with that exact `topic_id`/`thread_id`.
 
 ## User Controls
 

@@ -48,7 +48,6 @@ process.stdin.on('end', () => {
         ipcDir: process.env.MYCLAW_IPC_DIR,
         ipcInputDir: process.env.MYCLAW_IPC_INPUT_DIR,
         authTokenPresent: Boolean(process.env.MYCLAW_IPC_AUTH_TOKEN),
-        memoryContextFile: process.env.MYCLAW_IPC_MEMORY_CONTEXT_FILE,
       },
     }, null, 2),
   );
@@ -74,7 +73,6 @@ describe('host child-process runtime smoke', () => {
     const groupDir = path.join(agentRoot, 'main');
     const groupIpcDir = path.join(dataDir, 'ipc', 'main');
     const recordPath = path.join(root, 'child-record.json');
-    const memoryContextFile = path.join(groupIpcDir, 'memory_context.run.json');
     writeHostRunner(runnerDistDir, recordPath);
 
     vi.doMock('@core/core/config.js', async () => {
@@ -161,7 +159,7 @@ describe('host child-process runtime smoke', () => {
         groupFolder: 'main',
         chatJid: 'tg:main',
         isMain: true,
-        memoryContextFile,
+        memoryContextBlock: 'host smoke memory context',
       },
       onProcess,
       onOutput,
@@ -198,8 +196,10 @@ describe('host child-process runtime smoke', () => {
         ipcDir: groupIpcDir,
         ipcInputDir: path.join(groupIpcDir, 'input'),
         authTokenPresent: true,
-        memoryContextFile,
       }),
+    );
+    expect(childRecord.input.memoryContextBlock).toBe(
+      'host smoke memory context',
     );
     expect(fs.existsSync(path.join(groupDir, 'logs'))).toBe(true);
     expect(fs.readdirSync(path.join(groupDir, 'logs')).length).toBeGreaterThan(

@@ -3,7 +3,7 @@
 ## What This Repo Is
 
 MyClaw is a single-process Node.js personal assistant runtime with skill-based channels.
-Messages are ingested from channels, persisted in SQLite, then routed to Codex agents through the host runtime.
+Messages are ingested from channels, persisted in the configured runtime store, then routed to Codex agents through the host runtime.
 
 Primary surfaces:
 
@@ -31,7 +31,7 @@ Important constraints:
 
 - `/new` clears persisted session state but preserves the group model override
 - transcript archive during `/new` is best-effort and must not block reset success
-- durable memory lives under the configured SQLite memory root; do not load `~/myclaw/agents/<folder>/memory/`
+- durable memory lives under the configured memory root; do not load `~/myclaw/agents/<folder>/memory/`
 
 ## Docs Rules
 

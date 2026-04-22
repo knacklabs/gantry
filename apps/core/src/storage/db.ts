@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 
-import { STORAGE_SQLITE_PATH } from '../core/config.js';
+import { STORAGE_PROVIDER, STORAGE_SQLITE_PATH } from '../core/config.js';
 import { nowIso as currentIso } from '../core/datetime.js';
 import {
   decodeGlobalMessageCursor,
@@ -176,6 +176,7 @@ const REQUIRED_SCHEMA_COLUMNS = {
     'requires_trigger',
     'is_main',
   ],
+  sessions: ['scope_key', 'group_folder', 'thread_id', 'session_id'],
 } as const;
 
 function assertTableColumns(
@@ -206,6 +207,17 @@ function assertSchemaCompatibility(database: Database.Database): void {
     'registered_groups',
     REQUIRED_SCHEMA_COLUMNS.registered_groups,
   );
+  assertTableColumns(database, 'sessions', REQUIRED_SCHEMA_COLUMNS.sessions);
+}
+
+export function makeSessionScopeKey(
+  groupFolder: string,
+  threadId?: string | null,
+): string {
+  const normalizedThreadId = threadId?.trim();
+  return normalizedThreadId
+    ? `${groupFolder}::thread:${normalizedThreadId}`
+    : groupFolder;
 }
 
 function createSchema(database: Database.Database): void {
@@ -302,7 +314,9 @@ function createSchema(database: Database.Database): void {
       value TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sessions (
-      group_folder TEXT PRIMARY KEY,
+      scope_key TEXT PRIMARY KEY,
+      group_folder TEXT NOT NULL,
+      thread_id TEXT,
       session_id TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS registered_groups (
@@ -319,6 +333,11 @@ function createSchema(database: Database.Database): void {
 }
 
 export function initDatabase(): void {
+  if (STORAGE_PROVIDER !== 'sqlite') {
+    throw new Error(
+      'storage.provider=postgres is not available in host runtime yet. Use storage.provider=sqlite.',
+    );
+  }
   const dbPath = STORAGE_SQLITE_PATH;
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
@@ -492,36 +511,73 @@ export function getMessagesSince(
   chatJid: string,
   sinceCursor: string,
   limit: number = 200,
+  options: { threadId?: string | null } = {},
 ): NewMessage[] {
   const cursor = decodeGroupMessageCursor(sinceCursor);
+  const hasThreadFilter = Object.prototype.hasOwnProperty.call(
+    options,
+    'threadId',
+  );
+  const threadId = options.threadId?.trim() || null;
   const sql = `
     SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me,
            thread_id,
            reply_to_message_id, reply_to_message_content, reply_to_sender_name
     FROM messages
-    WHERE chat_jid = ?
+    WHERE chat_jid = @chat_jid
       AND (
-        timestamp > ?
-        OR (timestamp = ? AND id > ?)
+        timestamp > @timestamp
+        OR (timestamp = @timestamp AND id > @id)
       )
       AND is_bot_message = 0
       AND content != '' AND content IS NOT NULL
+      ${
+        hasThreadFilter
+          ? threadId
+            ? 'AND thread_id = @thread_id'
+            : "AND (thread_id IS NULL OR TRIM(thread_id) = '')"
+          : ''
+      }
     ORDER BY timestamp ASC, id ASC
-    LIMIT ?
+    LIMIT @limit
   `;
-  const rows = db
-    .prepare(sql)
-    .all(
-      chatJid,
-      cursor.timestamp,
-      cursor.timestamp,
-      cursor.id,
-      limit,
-    ) as Array<NewMessage & { is_from_me?: number | boolean }>;
+  const rows = db.prepare(sql).all({
+    chat_jid: chatJid,
+    timestamp: cursor.timestamp,
+    id: cursor.id,
+    thread_id: threadId,
+    limit,
+  }) as Array<NewMessage & { is_from_me?: number | boolean }>;
   return rows.map((row) => ({
     ...row,
     is_from_me: Boolean(row.is_from_me),
   }));
+}
+
+export function getMessageThreadIds(chatJid: string): Array<string | null> {
+  const rows = db
+    .prepare(
+      `
+      SELECT DISTINCT thread_id
+      FROM messages
+      WHERE chat_jid = ?
+        AND is_bot_message = 0
+        AND content != '' AND content IS NOT NULL
+      ORDER BY thread_id ASC
+    `,
+    )
+    .all(chatJid) as Array<{ thread_id?: string | null }>;
+
+  const seen = new Set<string>();
+  const threads: Array<string | null> = [];
+  for (const row of rows) {
+    const threadId = row.thread_id?.trim() || null;
+    const key = threadId ?? '';
+    if (seen.has(key)) continue;
+    seen.add(key);
+    threads.push(threadId);
+  }
+  return threads;
 }
 
 export function getLastBotMessageCursor(
@@ -1026,30 +1082,50 @@ export function setRouterState(key: string, value: string): void {
 
 // --- Session accessors ---
 
-export function getSession(groupFolder: string): string | undefined {
+export function getSession(
+  groupFolder: string,
+  threadId?: string | null,
+): string | undefined {
   const row = db
-    .prepare('SELECT session_id FROM sessions WHERE group_folder = ?')
-    .get(groupFolder) as { session_id: string } | undefined;
+    .prepare('SELECT session_id FROM sessions WHERE scope_key = ?')
+    .get(makeSessionScopeKey(groupFolder, threadId)) as
+    | { session_id: string }
+    | undefined;
   return row?.session_id;
 }
 
-export function setSession(groupFolder: string, sessionId: string): void {
+export function setSession(
+  groupFolder: string,
+  sessionId: string,
+  threadId?: string | null,
+): void {
+  const normalizedThreadId = threadId?.trim() || null;
   db.prepare(
-    'INSERT OR REPLACE INTO sessions (group_folder, session_id) VALUES (?, ?)',
-  ).run(groupFolder, sessionId);
+    'INSERT OR REPLACE INTO sessions (scope_key, group_folder, thread_id, session_id) VALUES (?, ?, ?, ?)',
+  ).run(
+    makeSessionScopeKey(groupFolder, normalizedThreadId),
+    groupFolder,
+    normalizedThreadId,
+    sessionId,
+  );
 }
 
-export function deleteSession(groupFolder: string): void {
-  db.prepare('DELETE FROM sessions WHERE group_folder = ?').run(groupFolder);
+export function deleteSession(
+  groupFolder: string,
+  threadId?: string | null,
+): void {
+  db.prepare('DELETE FROM sessions WHERE scope_key = ?').run(
+    makeSessionScopeKey(groupFolder, threadId),
+  );
 }
 
 export function getAllSessions(): Record<string, string> {
   const rows = db
-    .prepare('SELECT group_folder, session_id FROM sessions')
-    .all() as Array<{ group_folder: string; session_id: string }>;
+    .prepare('SELECT scope_key, session_id FROM sessions')
+    .all() as Array<{ scope_key: string; session_id: string }>;
   const result: Record<string, string> = {};
   for (const row of rows) {
-    result[row.group_folder] = row.session_id;
+    result[row.scope_key] = row.session_id;
   }
   return result;
 }

@@ -80,14 +80,14 @@ describe('memory status snapshot collection', () => {
     expect(full.mode).toBe('full-mode');
     expect(full.note).toBeNull();
 
-    const odd = deriveMemoryMode({
+    const continuity = deriveMemoryMode({
       ...base,
       embeddingsEnabled: false,
       embeddingProvider: 'disabled',
       dreamingEnabled: true,
     });
-    expect(odd.mode).toBe('odd-combo');
-    expect(odd.note).toContain('dreaming is on but embeddings are off');
+    expect(continuity.mode).toBe('continuity-mode');
+    expect(continuity.note).toContain('default local setup');
   });
 
   it('returns null live stats when no db and no journal are present', () => {

@@ -535,7 +535,7 @@ describe('runtime scheduler integration', () => {
     expect(harness.channel.streaming).toHaveLength(0);
   });
 
-  it('does not inject per-turn memory context files into scheduler runs', async () => {
+  it('injects per-turn memory context blocks into scheduler runs', async () => {
     const harness = await createHermeticRuntimeHarness({
       fakeAgent: { resultText: 'memory-context-result' },
     });
@@ -562,11 +562,15 @@ describe('runtime scheduler integration', () => {
     await harness.runSchedulerOnce();
     await harness.waitFor(() => harness.fakeAgent.invocations.length === 2);
 
-    const contextFiles = harness.fakeAgent.invocations.map(
-      (invocation) => invocation.memoryContextFile,
+    const contextBlocks = harness.fakeAgent.invocations.map(
+      (invocation) => invocation.memoryContextBlock,
     );
-    expect(contextFiles).toHaveLength(2);
-    expect(contextFiles.every((file) => file === undefined)).toBe(true);
+    expect(contextBlocks).toHaveLength(2);
+    expect(
+      contextBlocks.every(
+        (block) => typeof block === 'string' && block.length > 0,
+      ),
+    ).toBe(true);
   });
 
   it('keeps completed one-time jobs until delayed cleanup expires, then removes them', async () => {

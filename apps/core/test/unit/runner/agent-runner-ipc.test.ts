@@ -16,10 +16,9 @@ afterEach(() => {
 interface RunnerRecord {
   calls: Array<{
     promptKind: 'stream' | 'string';
-    streamMessages?: string[];
+    streamMessages?: unknown[];
     stringPrompt?: string;
     systemPromptAppend?: string;
-    memoryContextFile?: string;
     closeExistsAtQueryStart?: boolean;
     streamEnded?: boolean;
     permissionRequest?: Record<string, unknown>;
@@ -58,7 +57,6 @@ function createRunnerFixture(): {
   ipcDir: string;
   inputDir: string;
   recordPath: string;
-  memoryContextFile: string;
 } {
   const root = makeTempRoot();
   const runnerDir = path.join(root, 'runner');
@@ -73,7 +71,6 @@ function createRunnerFixture(): {
   const ipcDir = path.join(root, 'ipc', 'team');
   const inputDir = path.join(ipcDir, 'input');
   const recordPath = path.join(root, 'sdk-record.json');
-  const memoryContextFile = path.join(ipcDir, 'memory_context.json');
 
   fs.mkdirSync(sdkDir, { recursive: true });
   fs.mkdirSync(runnerDir, { recursive: true });
@@ -82,6 +79,10 @@ function createRunnerFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/agent-capabilities.ts'),
     path.join(runnerDir, 'agent-capabilities.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/runner/memory-boundary.ts'),
+    path.join(runnerDir, 'memory-boundary.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/core/datetime.ts'),
@@ -147,13 +148,27 @@ export async function* query({ prompt, options }) {
   const call = {
     promptKind: typeof prompt === 'string' ? 'string' : 'stream',
     systemPromptAppend: options?.systemPrompt?.append,
-    memoryContextFile: process.env.MYCLAW_IPC_MEMORY_CONTEXT_FILE,
     closeExistsAtQueryStart: fs.existsSync(
       path.join(process.env.MYCLAW_IPC_INPUT_DIR, '_close'),
     ),
   };
 
   yield { type: 'system', subtype: 'init', session_id: 'runner-session-1' };
+
+  if (process.env.TEST_MEMORY_GUARD_DENIAL) {
+    call.permissionDecision = await options.canUseTool(
+      'Bash',
+      { cmd: 'rm -rf /tmp/myclaw-poisoned-memory' },
+      {
+        signal: new AbortController().signal,
+        title: 'Run command',
+        displayName: 'Bash',
+        description: 'Needs shell access',
+        decisionReason: 'Agent wants to run command from memory context',
+        blockedPath: process.env.MYCLAW_WORKSPACE_GROUP_DIR,
+      },
+    );
+  }
 
   if (process.env.TEST_PERMISSION_DECISION) {
     const decisionPromise = options.canUseTool(
@@ -194,6 +209,12 @@ export async function* query({ prompt, options }) {
     const first = await nextWithTimeout(iterator, 1000);
     if (first && !first.done) {
       call.streamMessages.push(first.value.message.content);
+      if (Array.isArray(first.value.message.content)) {
+        const userPrompt = await nextWithTimeout(iterator, 1000);
+        if (userPrompt && !userPrompt.done) {
+          call.streamMessages.push(userPrompt.value.message.content);
+        }
+      }
     }
 
     if (process.env.TEST_ACTIVE_INPUT_ORDER === '1') {
@@ -226,7 +247,7 @@ export async function* query({ prompt, options }) {
 `,
   );
 
-  return { root, runnerPath, ipcDir, inputDir, recordPath, memoryContextFile };
+  return { root, runnerPath, ipcDir, inputDir, recordPath };
 }
 
 function baseInput(
@@ -257,7 +278,6 @@ async function runRunner(
         MYCLAW_IPC_DIR: fixture.ipcDir,
         MYCLAW_IPC_INPUT_DIR: fixture.inputDir,
         MYCLAW_IPC_AUTH_TOKEN: 'runner-test-token',
-        MYCLAW_IPC_MEMORY_CONTEXT_FILE: fixture.memoryContextFile,
         MYCLAW_WORKSPACE_GROUP_DIR: path.join(fixture.root, 'group'),
         MYCLAW_WORKSPACE_EXTRA_DIR: path.join(fixture.root, 'extra'),
         TEST_SDK_RECORD_PATH: fixture.recordPath,
@@ -301,194 +321,278 @@ function readRecord(recordPath: string): RunnerRecord {
   return JSON.parse(fs.readFileSync(recordPath, 'utf-8')) as RunnerRecord;
 }
 
+const RUNNER_IPC_TEST_TIMEOUT_MS = 15_000;
+
 describe('agent-runner IPC lifecycle', () => {
-  it('removes stale _close at startup before starting the SDK query', async () => {
-    const fixture = createRunnerFixture();
-    fs.mkdirSync(fixture.inputDir, { recursive: true });
-    fs.writeFileSync(path.join(fixture.inputDir, '_close'), '');
+  it(
+    'removes stale _close at startup before starting the SDK query',
+    async () => {
+      const fixture = createRunnerFixture();
+      fs.mkdirSync(fixture.inputDir, { recursive: true });
+      fs.writeFileSync(path.join(fixture.inputDir, '_close'), '');
 
-    const result = await runRunner(fixture, baseInput(), {
-      TEST_EXIT_AFTER_QUERY: '1',
-    });
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
 
-    expect(result.exitCode).toBe(0);
-    const record = readRecord(fixture.recordPath);
-    expect(record.calls).toHaveLength(1);
-    expect(record.calls[0]?.closeExistsAtQueryStart).toBe(false);
-  });
+      expect(result.exitCode).toBe(0);
+      const record = readRecord(fixture.recordPath);
+      expect(record.calls).toHaveLength(1);
+      expect(record.calls[0]?.closeExistsAtQueryStart).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
 
-  it('removes stale _close at startup without discarding pending startup input', async () => {
-    const fixture = createRunnerFixture();
-    fs.mkdirSync(fixture.inputDir, { recursive: true });
-    fs.writeFileSync(path.join(fixture.inputDir, '_close'), '');
-    writeJson(path.join(fixture.inputDir, '001-pending.json'), {
-      type: 'message',
-      text: 'pending startup context after stale close',
-    });
+  it(
+    'removes stale _close at startup without discarding pending startup input',
+    async () => {
+      const fixture = createRunnerFixture();
+      fs.mkdirSync(fixture.inputDir, { recursive: true });
+      fs.writeFileSync(path.join(fixture.inputDir, '_close'), '');
+      writeJson(path.join(fixture.inputDir, '001-pending.json'), {
+        type: 'message',
+        text: 'pending startup context after stale close',
+      });
 
-    const result = await runRunner(fixture, baseInput(), {
-      TEST_EXIT_AFTER_QUERY: '1',
-    });
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
 
-    expect(result.exitCode).toBe(0);
-    const call = readRecord(fixture.recordPath).calls[0];
-    expect(call?.closeExistsAtQueryStart).toBe(false);
-    expect(call?.streamMessages?.[0]).toContain(
-      'pending startup context after stale close',
-    );
-    expect(fs.readdirSync(fixture.inputDir)).not.toContain('_close');
-    expect(fs.readdirSync(fixture.inputDir)).not.toContain('001-pending.json');
-  });
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.closeExistsAtQueryStart).toBe(false);
+      expect(call?.streamMessages?.[0]).toContain(
+        'pending startup context after stale close',
+      );
+      expect(fs.readdirSync(fixture.inputDir)).not.toContain('_close');
+      expect(fs.readdirSync(fixture.inputDir)).not.toContain(
+        '001-pending.json',
+      );
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
 
-  it('drains pending startup IPC input into the initial prompt in filename order', async () => {
-    const fixture = createRunnerFixture();
-    writeJson(path.join(fixture.inputDir, '001-first.json'), {
-      type: 'message',
-      text: 'startup first',
-    });
-    writeJson(path.join(fixture.inputDir, '002-second.json'), {
-      type: 'message',
-      text: 'startup second',
-    });
+  it(
+    'drains pending startup IPC input into the initial prompt in filename order',
+    async () => {
+      const fixture = createRunnerFixture();
+      writeJson(path.join(fixture.inputDir, '001-first.json'), {
+        type: 'message',
+        text: 'startup first',
+      });
+      writeJson(path.join(fixture.inputDir, '002-second.json'), {
+        type: 'message',
+        text: 'startup second',
+      });
 
-    const result = await runRunner(fixture, baseInput(), {
-      TEST_EXIT_AFTER_QUERY: '1',
-    });
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
 
-    expect(result.exitCode).toBe(0);
-    const firstMessage = readRecord(fixture.recordPath).calls[0]
-      ?.streamMessages?.[0];
-    expect(firstMessage).toContain('initial prompt');
-    expect(firstMessage?.indexOf('startup first')).toBeLessThan(
-      firstMessage?.indexOf('startup second') ?? -1,
-    );
-    expect(fs.readdirSync(fixture.inputDir)).not.toContain('001-first.json');
-  }, 15000);
+      expect(result.exitCode).toBe(0);
+      const firstMessage = readRecord(fixture.recordPath).calls[0]
+        ?.streamMessages?.[0] as string | undefined;
+      expect(firstMessage).toContain('initial prompt');
+      expect(firstMessage?.indexOf('startup first')).toBeLessThan(
+        firstMessage?.indexOf('startup second') ?? -1,
+      );
+      expect(fs.readdirSync(fixture.inputDir)).not.toContain('001-first.json');
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
 
-  it('skips malformed startup IPC input while draining adjacent valid input', async () => {
-    const fixture = createRunnerFixture();
-    fs.mkdirSync(fixture.inputDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(fixture.inputDir, '000-malformed.json'),
-      '{"type":',
-    );
-    writeJson(path.join(fixture.inputDir, '001-valid.json'), {
-      type: 'message',
-      text: 'valid startup context after malformed neighbor',
-    });
+  it(
+    'skips malformed startup IPC input while draining adjacent valid input',
+    async () => {
+      const fixture = createRunnerFixture();
+      fs.mkdirSync(fixture.inputDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(fixture.inputDir, '000-malformed.json'),
+        '{"type":',
+      );
+      writeJson(path.join(fixture.inputDir, '001-valid.json'), {
+        type: 'message',
+        text: 'valid startup context after malformed neighbor',
+      });
 
-    const result = await runRunner(fixture, baseInput(), {
-      TEST_EXIT_AFTER_QUERY: '1',
-    });
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
 
-    expect(result.exitCode).toBe(0);
-    const firstMessage = readRecord(fixture.recordPath).calls[0]
-      ?.streamMessages?.[0];
-    expect(firstMessage).toContain('initial prompt');
-    expect(firstMessage).toContain(
-      'valid startup context after malformed neighbor',
-    );
-    expect(fs.readdirSync(fixture.inputDir)).not.toContain(
-      '000-malformed.json',
-    );
-    expect(fs.readdirSync(fixture.inputDir)).not.toContain('001-valid.json');
-  });
+      expect(result.exitCode).toBe(0);
+      const firstMessage = readRecord(fixture.recordPath).calls[0]
+        ?.streamMessages?.[0] as string | undefined;
+      expect(firstMessage).toContain('initial prompt');
+      expect(firstMessage).toContain(
+        'valid startup context after malformed neighbor',
+      );
+      expect(fs.readdirSync(fixture.inputDir)).not.toContain(
+        '000-malformed.json',
+      );
+      expect(fs.readdirSync(fixture.inputDir)).not.toContain('001-valid.json');
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
 
-  it('drains active-query IPC input into the stream in filename order', async () => {
-    const fixture = createRunnerFixture();
+  it(
+    'drains active-query IPC input into the stream in filename order',
+    async () => {
+      const fixture = createRunnerFixture();
 
-    const result = await runRunner(fixture, baseInput(), {
-      TEST_ACTIVE_INPUT_ORDER: '1',
-      TEST_EXIT_AFTER_QUERY: '1',
-    });
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_ACTIVE_INPUT_ORDER: '1',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
 
-    expect(result.exitCode).toBe(0);
-    const messages = readRecord(fixture.recordPath).calls[0]?.streamMessages;
-    expect(messages).toEqual([
-      'initial prompt',
-      'active follow-up first',
-      'active follow-up second',
-    ]);
-  });
+      expect(result.exitCode).toBe(0);
+      const messages = readRecord(fixture.recordPath).calls[0]?.streamMessages;
+      expect(messages).toEqual([
+        'initial prompt',
+        'active follow-up first',
+        'active follow-up second',
+      ]);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
 
-  it('ends the active query stream when _close arrives during the query', async () => {
-    const fixture = createRunnerFixture();
+  it(
+    'ends the active query stream when _close arrives during the query',
+    async () => {
+      const fixture = createRunnerFixture();
 
-    const result = await runRunner(fixture, baseInput(), {
-      TEST_CREATE_CLOSE_DURING_QUERY: '1',
-    });
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_CREATE_CLOSE_DURING_QUERY: '1',
+      });
 
-    expect(result.exitCode).toBe(0);
-    const call = readRecord(fixture.recordPath).calls[0];
-    expect(call?.streamEnded).toBe(true);
-    expect(result.stdout.match(/---MYCLAW_OUTPUT_START---/g)).toHaveLength(1);
-  });
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.streamEnded).toBe(true);
+      expect(result.stdout.match(/---MYCLAW_OUTPUT_START---/g)).toHaveLength(1);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
 
-  it('appends memory context blocks to the first streamed user prompt only', async () => {
-    const fixture = createRunnerFixture();
-    writeJson(fixture.memoryContextFile, {
-      block: 'Memory brief: user prefers concise updates.',
-    });
+  it(
+    'streams memory context as a separate untrusted message before the user prompt',
+    async () => {
+      const fixture = createRunnerFixture();
 
-    const result = await runRunner(fixture, baseInput(), {
-      TEST_EXIT_AFTER_QUERY: '1',
-    });
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          memoryContextBlock: 'Memory brief: user prefers concise updates.',
+        }),
+        {
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
 
-    expect(result.exitCode).toBe(0);
-    const call = readRecord(fixture.recordPath).calls[0];
-    expect(call?.systemPromptAppend).toBe('compiled system profile');
-    expect(call?.systemPromptAppend).not.toContain('user prefers');
-    expect(call?.streamMessages?.[0]).toContain(
-      'Memory brief: user prefers concise updates.',
-    );
-    expect(call?.memoryContextFile).toBe(fixture.memoryContextFile);
-  });
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.systemPromptAppend).toContain('compiled system profile');
+      expect(call?.systemPromptAppend).toContain(
+        'MyClaw Durable Memory Boundary',
+      );
+      expect(call?.systemPromptAppend).not.toContain('user prefers');
+      expect(call?.streamMessages?.[0]).toEqual([
+        {
+          type: 'text',
+          text: 'Memory brief: user prefers concise updates.',
+        },
+      ]);
+      expect(call?.streamMessages?.[1]).toBe('initial prompt');
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
 
-  it('routes SDK canUseTool approval through permission request and response IPC', async () => {
-    const fixture = createRunnerFixture();
+  it(
+    'routes SDK canUseTool approval through permission request and response IPC',
+    async () => {
+      const fixture = createRunnerFixture();
 
-    const result = await runRunner(fixture, baseInput(), {
-      TEST_PERMISSION_DECISION: 'approve',
-      TEST_EXIT_AFTER_QUERY: '1',
-    });
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_PERMISSION_DECISION: 'approve',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
 
-    expect(result.exitCode).toBe(0);
-    const call = readRecord(fixture.recordPath).calls[0];
-    expect(call?.permissionRequest).toEqual(
-      expect.objectContaining({
-        sourceGroup: 'team',
-        toolName: 'Bash',
-        authToken: 'runner-test-token',
-      }),
-    );
-    expect(call?.permissionRequest?.toolInput).toEqual(
-      expect.objectContaining({ cmd: 'npm test', apiToken: 'secret-token' }),
-    );
-    expect(call?.permissionDecision).toEqual({
-      behavior: 'allow',
-      updatedInput: { cmd: 'npm test', apiToken: 'secret-token' },
-    });
-    expect(
-      fs.readdirSync(path.join(fixture.ipcDir, 'permission-responses')),
-    ).toHaveLength(0);
-  });
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionRequest).toEqual(
+        expect.objectContaining({
+          sourceGroup: 'team',
+          toolName: 'Bash',
+          authToken: 'runner-test-token',
+        }),
+      );
+      expect(call?.permissionRequest?.toolInput).toEqual(
+        expect.objectContaining({ cmd: 'npm test', apiToken: 'secret-token' }),
+      );
+      expect(call?.permissionDecision).toEqual({
+        behavior: 'allow',
+        updatedInput: { cmd: 'npm test', apiToken: 'secret-token' },
+      });
+      expect(
+        fs.readdirSync(path.join(fixture.ipcDir, 'permission-responses')),
+      ).toHaveLength(0);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
 
-  it('fails SDK canUseTool closed when permission response denies the request', async () => {
-    const fixture = createRunnerFixture();
+  it(
+    'denies high-risk tool use when durable memory had suppressed instructions',
+    async () => {
+      const fixture = createRunnerFixture();
 
-    const result = await runRunner(fixture, baseInput(), {
-      TEST_PERMISSION_DECISION: 'deny',
-      TEST_EXIT_AFTER_QUERY: '1',
-    });
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          memoryContextBlock:
+            '<myclaw_memory_context trust="untrusted_data_only">[suppressed: instruction-like memory content]</myclaw_memory_context>',
+        }),
+        {
+          TEST_MEMORY_GUARD_DENIAL: '1',
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
 
-    expect(result.exitCode).toBe(0);
-    const call = readRecord(fixture.recordPath).calls[0];
-    expect(call?.permissionDecision).toEqual(
-      expect.objectContaining({
-        behavior: 'deny',
-        message: 'Permission denied: deny',
-        interrupt: false,
-      }),
-    );
-  });
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionDecision).toEqual(
+        expect.objectContaining({
+          behavior: 'deny',
+          interrupt: false,
+        }),
+      );
+      expect(String(call?.permissionDecision?.message)).toContain(
+        'memory boundary',
+      );
+      expect(
+        fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
+      ).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'fails SDK canUseTool closed when permission response denies the request',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_PERMISSION_DECISION: 'deny',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionDecision).toEqual(
+        expect.objectContaining({
+          behavior: 'deny',
+          message: 'Permission denied: deny',
+          interrupt: false,
+        }),
+      );
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
 });

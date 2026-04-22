@@ -79,7 +79,7 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 | Message Storage    | SQLite (better-sqlite3)                                           | Store messages for polling                           |
 | Runtime Execution  | Host process execution                                            | Agent execution with runtime-home scoped paths       |
 | Agent              | @anthropic-ai/claude-agent-sdk (0.2.97)                           | Run Claude with tools and MCP servers                |
-| Browser Automation | agent-browser + Chromium                                          | Web interaction and screenshots                      |
+| Browser Automation | agent-browser + Chromium                                          | Web interaction and screenshots with explicit CDP port handoff |
 | Runtime            | Node.js 20+                                                       | Host process for routing and scheduling              |
 
 ---
@@ -529,7 +529,7 @@ MyClaw memory uses a dedicated SQLite database derived from `memory.root`.
 
 | Setting                                | Default                  | Description                                                   |
 | -------------------------------------- | ------------------------ | ------------------------------------------------------------- |
-| `storage.provider`                     | `sqlite`                 | Host runtime storage backend (`sqlite` in host runtime)      |
+| `storage.provider`                     | `sqlite`                 | Host runtime storage backend                                 |
 | `storage.sqlite.path`                  | `store/myclaw.db`        | SQLite DB path (runtime-home relative unless absolute)        |
 | `memory.enabled`                       | `true`                   | Enables durable memory                                        |
 | `memory.root`                          | `memory`                 | Memory root path, resolved under runtime home unless absolute |
@@ -557,7 +557,7 @@ Sessions enable conversation continuity - Claude remembers what you talked about
 
 ### How Sessions Work
 
-1. Each group has a session ID stored in SQLite (`sessions` table, keyed by `group_folder`)
+1. Each group has a session ID stored in the runtime database (`sessions` table, keyed by `group_folder`)
 2. Session ID is passed to Claude Agent SDK's `resume` option
 3. Claude continues the conversation with full context
 4. Session transcripts are stored as JSONL files in `data/sessions/{group}/.claude/`
@@ -575,14 +575,14 @@ Sessions enable conversation continuity - Claude remembers what you talked about
 2. Channel receives message (e.g. Baileys for WhatsApp, Bot API for Telegram)
    │
    ▼
-3. Message stored in SQLite (store/myclaw.db by default)
+3. Message stored in the runtime database (SQLite at `store/myclaw.db` by default)
    │
    ▼
-4. Message loop polls SQLite (every 2 seconds)
+4. Message loop polls the runtime database (every 2 seconds)
    │
    ▼
 5. Router checks:
-   ├── Is chat_jid in registered groups (SQLite)? → No: ignore
+   ├── Is chat_jid in registered groups? → No: ignore
    └── Does message match trigger pattern? → No: store but don't process
    │
    ▼
@@ -752,8 +752,8 @@ When MyClaw starts, it:
 
 1. Runs runtime preflight for host execution and emits actionable fix steps on failure
 2. Auto-builds runner artifacts from `apps/core/src/runner` and fails startup if build fails
-3. Initializes the SQLite database (migrates from JSON files if they exist)
-4. Loads state from SQLite (registered groups, sessions, router state)
+3. Initializes the configured runtime database (SQLite by default)
+4. Loads state from runtime storage (registered groups, sessions, router state)
 5. **Connects channels** — loops through registered channels, instantiates those with credentials, calls `connect()` on each
 6. Once at least one channel is connected:
    - Starts the scheduler loop

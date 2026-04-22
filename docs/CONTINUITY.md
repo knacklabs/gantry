@@ -37,6 +37,7 @@ MyClaw currently has these layers:
 
 3. Hook-driven continuity context
    - Session hooks load a concise memory brief at session boundaries.
+   - Host runtime also injects a fresh continuity block for every run.
    - The agent can call memory MCP tools during the run.
    - After successful boundaries, extraction writes durable memories.
 
@@ -59,6 +60,9 @@ Open Commitments
 
 Durable Memory
 - Relevant preferences, decisions, facts, corrections, and constraints.
+
+Dream Lifecycle
+- Whether dreaming is enabled, its schedule, and last sweep outcome.
 
 Relevant Procedures
 - Reusable workflows that fit the current task.

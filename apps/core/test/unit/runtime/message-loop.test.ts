@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 const mockGetNewMessages = vi.fn();
 const mockGetMessagesSince = vi.fn();
+const mockGetMessageThreadIds = vi.fn();
 const mockGetTriggerPattern = vi.fn();
 const mockLoadSenderAllowlist = vi.fn();
 const mockIsSenderExplicitlyAllowed = vi.fn();
@@ -13,6 +14,7 @@ const mockFormatMessages = vi.fn();
 vi.mock('@core/storage/db.js', () => ({
   getNewMessages: (...args: unknown[]) => mockGetNewMessages(...args),
   getMessagesSince: (...args: unknown[]) => mockGetMessagesSince(...args),
+  getMessageThreadIds: (...args: unknown[]) => mockGetMessageThreadIds(...args),
 }));
 vi.mock('@core/core/config.js', () => ({
   getTriggerPattern: (...args: unknown[]) => mockGetTriggerPattern(...args),
@@ -120,6 +122,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGetNewMessages.mockReturnValue({ messages: [], newTimestamp: '' });
   mockGetMessagesSince.mockReturnValue([]);
+  mockGetMessageThreadIds.mockReturnValue([null]);
   mockGetTriggerPattern.mockReturnValue(/@Andy/i);
   mockLoadSenderAllowlist.mockReturnValue({});
   mockIsSenderExplicitlyAllowed.mockReturnValue(false);
@@ -165,6 +168,42 @@ describe('recoverPendingMessages', () => {
     expect(deps.enqueued).toHaveLength(0);
   });
 
+  it('recovers pending thread messages using the thread cursor, not the root cursor', () => {
+    mockGetMessageThreadIds.mockReturnValue([null, 'topic-1']);
+    mockGetMessagesSince.mockImplementation(
+      (_chatJid: string, cursor: string, _limit: number, options: any) => {
+        if (options?.threadId === 'topic-1') {
+          expect(cursor).toBe('');
+          return [
+            {
+              id: 2,
+              chat_jid: 'group@g.us',
+              sender: 'user@s.whatsapp.net',
+              content: 'pending thread message',
+              timestamp: '2024-01-01T00:00:01.000Z',
+              thread_id: 'topic-1',
+              is_from_me: false,
+              message_id: 'msg-2',
+              reply_to_message_id: null,
+              reply_to_content: null,
+              sender_name: 'User',
+            },
+          ];
+        }
+        expect(cursor).toBe('root-cursor');
+        return [];
+      },
+    );
+
+    const deps = makeDeps({
+      getOrRecoverCursor: (queueJid: string) =>
+        queueJid.includes('::thread:') ? '' : 'root-cursor',
+    });
+    recoverPendingMessages(deps);
+
+    expect(deps.enqueued).toEqual(['group@g.us::thread:topic-1']);
+  });
+
   it('checks all registered groups', () => {
     mockGetMessagesSince.mockReturnValue([
       {
@@ -200,6 +239,102 @@ describe('recoverPendingMessages', () => {
 
     recoverPendingMessages(deps);
     expect(deps.enqueued).toEqual(['group1@g.us', 'group2@g.us']);
+  });
+});
+
+describe('thread queue routing', () => {
+  it('enqueues separate queue keys for Slack/Telegram thread messages', async () => {
+    const threadA = {
+      id: 1,
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      content: 'thread A',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      thread_id: 'thread-a',
+      is_from_me: false,
+      message_id: 'msg-1',
+      reply_to_message_id: null,
+      reply_to_content: null,
+      sender_name: 'User',
+    };
+    const threadB = {
+      ...threadA,
+      id: 2,
+      content: 'thread B',
+      timestamp: '2024-01-01T00:00:02.000Z',
+      thread_id: 'thread-b',
+      message_id: 'msg-2',
+    };
+    mockGetNewMessages.mockReturnValueOnce({
+      messages: [threadA, threadB],
+      newTimestamp: '2024-01-01T00:00:02.000Z',
+    });
+    mockGetMessagesSince.mockImplementation(
+      (
+        _chatJid: string,
+        _cursor: string,
+        _limit: number,
+        options?: {
+          threadId?: string | null;
+        },
+      ) => {
+        if (options?.threadId === 'thread-a') return [threadA];
+        if (options?.threadId === 'thread-b') return [threadB];
+        return [];
+      },
+    );
+
+    const enqueued: string[] = [];
+    const deps = makeDeps({
+      queue: {
+        ...makeDeps().queue,
+        sendMessage: () => false,
+        enqueueMessageCheck: (queueJid: string) => enqueued.push(queueJid),
+      },
+    });
+    const { runMessagePollingTick } =
+      await import('@core/runtime/message-loop.js');
+
+    await runMessagePollingTick(deps);
+
+    expect(enqueued).toEqual([
+      'group@g.us::thread:thread-a',
+      'group@g.us::thread:thread-b',
+    ]);
+  });
+
+  it('passes the exact thread queue key to active control commands', async () => {
+    const msg = {
+      id: '1',
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      content: '@Andy /stop',
+      timestamp: '2024-01-01T00:00:01.000Z',
+      thread_id: 'thread-b',
+      is_from_me: false,
+      sender_name: 'User',
+    };
+    mockGetNewMessages.mockReturnValueOnce({
+      messages: [msg],
+      newTimestamp: '2024-01-01T00:00:01.000Z',
+    });
+    mockExtractSessionCommand.mockReturnValue({ kind: 'stop', raw: '/stop' });
+    mockIsSessionCommandAllowed.mockReturnValue(true);
+
+    const handleActiveControlCommand = vi.fn(() => true);
+    const deps = makeDeps({ handleActiveControlCommand });
+    const { runMessagePollingTick } =
+      await import('@core/runtime/message-loop.js');
+
+    await runMessagePollingTick(deps);
+
+    expect(handleActiveControlCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatJid: 'group@g.us',
+        queueJid: 'group@g.us::thread:thread-b',
+      }),
+    );
+    expect(deps.stoppedGroups).toHaveLength(0);
   });
 });
 

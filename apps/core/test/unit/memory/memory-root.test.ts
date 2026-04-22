@@ -118,4 +118,36 @@ describe('MemoryRootService', () => {
     expect(recap?.summary).toContain('New summary.');
     expect(recap?.openLoops).toContain('new loop');
   });
+
+  it('rebuilds the latest recap index when session markdown exists without cache', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-memory-root-'));
+    tempRoots.push(root);
+
+    const service = new MemoryRootService(root);
+    const layout = service.getLayout();
+    service.writeSessionSummary({
+      groupFolder: 'team-cache-miss',
+      sessionId: 's1',
+      cause: 'new-session',
+      title: 'cache miss',
+      markdown: [
+        '## Summary',
+        'Recovered summary.',
+        '',
+        '## Open loops',
+        '- recovered loop',
+      ].join('\n'),
+      timestamp: new Date('2026-04-10T12:00:00.000Z'),
+    });
+    fs.rmSync(path.join(layout.cacheDir, 'latest-session-recaps.json'));
+
+    const freshService = new MemoryRootService(root);
+    const recap = freshService.getLatestSessionRecap('team-cache-miss');
+
+    expect(recap?.summary).toContain('Recovered summary.');
+    expect(recap?.openLoops).toContain('recovered loop');
+    expect(
+      fs.existsSync(path.join(layout.cacheDir, 'latest-session-recaps.json')),
+    ).toBe(true);
+  });
 });

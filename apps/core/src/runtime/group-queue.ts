@@ -1,11 +1,14 @@
 import { ChildProcess } from 'child_process';
-import fs from 'fs';
-import path from 'path';
 
-import { DATA_DIR } from '../core/config.js';
 import { logger } from '../core/logger.js';
+import {
+  writeCloseSignal,
+  writeContinuationInput,
+} from './continuation-input.js';
+import { normalizeThreadQueueId } from './thread-queue-key.js';
 
 type QueueKind = 'message' | 'task';
+type ContinuationOptions = { threadId?: string | null };
 
 interface QueuedTask {
   id: string;
@@ -29,6 +32,7 @@ interface GroupState {
   process: ChildProcess | null;
   containerName: string | null;
   groupFolder: string | null;
+  threadId: string | null;
   retryCount: number;
 }
 
@@ -57,6 +61,7 @@ export class GroupQueue {
         process: null,
         containerName: null,
         groupFolder: null,
+        threadId: null,
         retryCount: 0,
       };
       this.groups.set(groupJid, state);
@@ -184,7 +189,6 @@ export class GroupQueue {
 
     const state = this.getGroup(groupJid);
 
-    // Prevent double-queuing: check both pending and currently-running task
     if (state.runningTaskId === taskId) {
       logger.debug({ groupJid, taskId }, 'Task already running, skipping');
       return;
@@ -213,7 +217,6 @@ export class GroupQueue {
       return;
     }
 
-    // Run immediately
     this.runTask(groupJid, { id: taskId, kind: 'task', groupJid, fn }).catch(
       (err) =>
         logger.error({ groupJid, taskId, err }, 'Unhandled error in runTask'),
@@ -226,11 +229,13 @@ export class GroupQueue {
     containerName: string,
     groupFolder?: string,
     stopAliasJids?: string | string[],
+    threadId?: string | null,
   ): void {
     const state = this.getGroup(groupJid);
     state.process = proc;
     state.containerName = containerName;
     if (groupFolder) state.groupFolder = groupFolder;
+    state.threadId = normalizeThreadQueueId(threadId) || null;
     const aliases = Array.isArray(stopAliasJids)
       ? stopAliasJids
       : stopAliasJids
@@ -251,7 +256,11 @@ export class GroupQueue {
     }
   }
 
-  sendMessage(groupJid: string, text: string): boolean {
+  sendMessage(
+    groupJid: string,
+    text: string,
+    options: ContinuationOptions = {},
+  ) {
     const state = this.getGroup(groupJid);
     if (
       !state.active ||
@@ -260,17 +269,16 @@ export class GroupQueue {
       state.idleWaiting
     )
       return false;
-    const groupFolder = state.groupFolder;
+    const incomingThreadId = normalizeThreadQueueId(options.threadId) || null;
+    if (state.threadId !== incomingThreadId) return false;
     state.idleWaiting = false; // Agent is about to receive work, no longer idle
-    const inputDir = path.join(DATA_DIR, 'ipc', groupFolder, 'input');
     try {
-      fs.mkdirSync(inputDir, { recursive: true });
-      const seq = this.continuationSequence++;
-      const filename = `${Date.now()}-${String(seq).padStart(12, '0')}.json`;
-      const filepath = path.join(inputDir, filename);
-      const tempPath = `${filepath}.tmp`;
-      fs.writeFileSync(tempPath, JSON.stringify({ type: 'message', text }));
-      fs.renameSync(tempPath, filepath);
+      writeContinuationInput(
+        state.groupFolder,
+        text,
+        this.continuationSequence++,
+        incomingThreadId,
+      );
       return true;
     } catch {
       return false;
@@ -280,20 +288,13 @@ export class GroupQueue {
   closeStdin(groupJid: string): void {
     const state = this.getGroup(groupJid);
     if (!state.active || !state.groupFolder) return;
-
-    const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
     try {
-      fs.mkdirSync(inputDir, { recursive: true });
-      fs.writeFileSync(path.join(inputDir, '_close'), '');
+      writeCloseSignal(state.groupFolder, state.threadId);
     } catch {
       // ignore
     }
   }
 
-  /**
-   * Stop the currently active run for a group using SIGTERM only.
-   * Returns true when a live process was signaled, false otherwise.
-   */
   stopGroup(groupJid: string): boolean {
     const targetQueueJids = [groupJid];
     const aliased = this.stopAliases.get(groupJid);
@@ -304,7 +305,6 @@ export class GroupQueue {
       const proc = state?.process;
       if (!state || !state.active || !proc || proc.killed) continue;
 
-      // Ask the runner to close cleanly as well.
       this.closeStdin(targetQueueJid);
 
       const pid = proc.pid;
@@ -406,6 +406,7 @@ export class GroupQueue {
       state.process = null;
       state.containerName = null;
       state.groupFolder = null;
+      state.threadId = null;
       this.activeMessageCount--;
       this.removeStopAliasForQueueJid(groupJid);
       this.drainGroup(groupJid);
@@ -442,6 +443,7 @@ export class GroupQueue {
       state.process = null;
       state.containerName = null;
       state.groupFolder = null;
+      state.threadId = null;
       this.activeTaskCount--;
       this.removeStopAliasForQueueJid(groupJid);
       this.drainGroup(groupJid);
@@ -476,7 +478,6 @@ export class GroupQueue {
 
     const state = this.getGroup(groupJid);
 
-    // Tasks first (they won't be re-discovered from SQLite like messages)
     if (state.pendingTasks.length > 0) {
       if (!this.canStartTaskRun()) {
         this.enqueueWaitingGroup('task', groupJid);
@@ -493,7 +494,6 @@ export class GroupQueue {
       return;
     }
 
-    // Then pending messages
     if (state.pendingMessages) {
       if (!this.canStartMessageRun()) {
         this.enqueueWaitingGroup('message', groupJid);
@@ -511,7 +511,6 @@ export class GroupQueue {
 
     this.cleanupEphemeralGroupIfIdle(groupJid, state);
 
-    // Nothing pending for this group; check if other groups are waiting for a slot
     this.drainWaiting();
   }
 
@@ -556,9 +555,6 @@ export class GroupQueue {
   async shutdown(_gracePeriodMs: number): Promise<void> {
     this.shuttingDown = true;
 
-    // Count active agent runs but don't kill them — they'll finish on their own
-    // via idle timeout or agent timeout. The --rm flag cleans them up on exit.
-    // This prevents WhatsApp reconnection restarts from killing working agents.
     const activeContainers: string[] = [];
     for (const [_jid, state] of this.groups) {
       if (state.process && !state.process.killed && state.containerName) {

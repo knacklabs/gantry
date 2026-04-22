@@ -379,6 +379,44 @@ describe('syncGroupSkills', () => {
     expect(installedSkill).toBe(bundledSkill);
   });
 
+  it('installs bundled skill helper files from the package', async () => {
+    const configRoot = makeTmpRoot(roots);
+    const cwdRoot = makeTmpRoot(roots);
+    originalCwd = process.cwd();
+    process.chdir(cwdRoot);
+
+    vi.doMock('@core/core/config.js', () => ({
+      MYCLAW_HOME: configRoot,
+      DATA_DIR: configRoot,
+    }));
+
+    const { syncGroupSkills } =
+      await import('@core/runtime/agent-spawn-layout.js');
+    syncGroupSkills();
+
+    const installedHelper = fs.readFileSync(
+      path.join(
+        configRoot,
+        '.claude',
+        'skills',
+        'agent-browser',
+        'browser_cdp.py',
+      ),
+      'utf-8',
+    );
+    const bundledHelper = fs.readFileSync(
+      path.join(
+        originalCwd,
+        '.claude',
+        'skills',
+        'agent-browser',
+        'browser_cdp.py',
+      ),
+      'utf-8',
+    );
+    expect(installedHelper).toBe(bundledHelper);
+  });
+
   it('overwrites stale bundled skill content on every sync', async () => {
     const configRoot = makeTmpRoot(roots);
     const cwdRoot = makeTmpRoot(roots);

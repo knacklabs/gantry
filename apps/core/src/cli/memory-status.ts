@@ -19,9 +19,9 @@ import { loadRuntimeSettings } from './runtime-settings.js';
 
 export type MemoryMode =
   | 'keyword-mode'
+  | 'continuity-mode'
   | 'semantic-mode'
-  | 'full-mode'
-  | 'odd-combo';
+  | 'full-mode';
 
 export interface MemoryLiveCounts {
   items: number;
@@ -88,8 +88,8 @@ export function deriveMemoryMode(health: MemoryHealthInspection): {
   }
   if (dreamingOn) {
     return {
-      mode: 'odd-combo',
-      note: 'dreaming is on but embeddings are off - dreaming operates on lexical signal only; enable embeddings for semantic consolidation',
+      mode: 'continuity-mode',
+      note: 'dreaming is on and embeddings are off - this is the default local setup; enable embeddings later for semantic consolidation',
     };
   }
   return {

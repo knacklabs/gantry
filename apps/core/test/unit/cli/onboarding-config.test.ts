@@ -28,7 +28,10 @@ describe('persistOnboardingConfig', () => {
 
     persistOnboardingConfig({
       runtimeHome,
+      storageProvider: 'sqlite',
+      primaryProvider: 'telegram',
       telegramBotToken: 'token',
+      anthropicModel: 'claude-sonnet-4-6',
       credentialMode: 'env-only',
       memoryEnabled: true,
       embeddingsEnabled: false,
@@ -54,7 +57,10 @@ describe('persistOnboardingConfig', () => {
 
     persistOnboardingConfig({
       runtimeHome,
+      storageProvider: 'sqlite',
+      primaryProvider: 'telegram',
       telegramBotToken: 'token',
+      anthropicModel: 'claude-sonnet-4-6',
       credentialMode: 'hybrid',
       onecliUrl: 'http://localhost:10254',
       memoryEnabled: true,
@@ -77,5 +83,84 @@ describe('persistOnboardingConfig', () => {
     expect(settings.memory.embeddings.enabled).toBe(true);
     expect(settings.memory.embeddings.provider).toBe('openai');
     expect(settings.memory.dreaming.enabled).toBe(true);
+  });
+
+  it('removes local Claude credentials in onecli-only mode', () => {
+    const runtimeHome = createRuntimeHome();
+    const envPath = envFilePath(runtimeHome);
+
+    persistOnboardingConfig({
+      runtimeHome,
+      storageProvider: 'sqlite',
+      primaryProvider: 'telegram',
+      telegramBotToken: 'token',
+      claudeOauthToken: 'oauth-secret',
+      anthropicApiKey: 'api-secret',
+      anthropicModel: 'claude-sonnet-4-6',
+      credentialMode: 'onecli-only',
+      onecliUrl: 'http://localhost:10254',
+      memoryEnabled: true,
+      embeddingsEnabled: false,
+      dreamingEnabled: true,
+    });
+
+    const env = readEnvFile(envPath);
+    expect(env.MYCLAW_CREDENTIAL_MODE).toBe('onecli-only');
+    expect(env.ONECLI_URL).toBe('http://localhost:10254');
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  it('does not persist a database URL for sqlite setup', () => {
+    const runtimeHome = createRuntimeHome();
+    const envPath = envFilePath(runtimeHome);
+
+    persistOnboardingConfig({
+      runtimeHome,
+      storageProvider: 'sqlite',
+      primaryProvider: 'slack',
+      slackBotToken: 'xoxb-test',
+      slackAppToken: 'xapp-test',
+      anthropicModel: 'claude-sonnet-4-6',
+      credentialMode: 'env-only',
+      memoryEnabled: true,
+      embeddingsEnabled: false,
+      dreamingEnabled: true,
+    });
+
+    const env = readEnvFile(envPath);
+    expect(env.MYCLAW_DATABASE_URL).toBeUndefined();
+
+    const settings = loadRuntimeSettings(runtimeHome);
+    expect(settings.storage.provider).toBe('sqlite');
+    expect(settings.channels.slack.enabled).toBe(true);
+  });
+
+  it('clears stale database URL and persists sqlite storage', () => {
+    const runtimeHome = createRuntimeHome();
+    const envPath = envFilePath(runtimeHome);
+    fs.writeFileSync(
+      envPath,
+      'MYCLAW_DATABASE_URL=postgresql://user:pass@localhost:5432/myclaw\n',
+      'utf-8',
+    );
+
+    persistOnboardingConfig({
+      runtimeHome,
+      storageProvider: 'sqlite',
+      primaryProvider: 'telegram',
+      telegramBotToken: 'token',
+      anthropicModel: 'claude-sonnet-4-6',
+      credentialMode: 'env-only',
+      memoryEnabled: true,
+      embeddingsEnabled: false,
+      dreamingEnabled: true,
+    });
+
+    const env = readEnvFile(envPath);
+    expect(env.MYCLAW_DATABASE_URL).toBeUndefined();
+
+    const settings = loadRuntimeSettings(runtimeHome);
+    expect(settings.storage.provider).toBe('sqlite');
   });
 });

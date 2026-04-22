@@ -649,6 +649,8 @@ function renderStorageSettingsYaml(
     `  provider: ${storage.provider}`,
     '  sqlite:',
     `    path: ${quoteYamlString(storage.sqlite.path)}`,
+    '  postgres:',
+    `    url_env: ${quoteYamlString(storage.postgres.urlEnv)}`,
     '',
   );
 }
@@ -878,7 +880,7 @@ export function validateRuntimeSettings(
 
     if (settings.storage.provider === 'postgres') {
       details.push(
-        'storage.provider=postgres is not available in host runtime. Use storage.provider=sqlite.',
+        'storage.provider=postgres is not available in host runtime yet. Use storage.provider=sqlite.',
       );
     }
 

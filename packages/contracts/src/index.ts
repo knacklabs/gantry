@@ -14,6 +14,9 @@ export interface MemoryIpcRequest {
   requestId: string;
   action: MemoryIpcAction;
   payload: Record<string, unknown>;
+  context?: {
+    threadId?: string;
+  };
 }
 
 export interface MemoryIpcResponse {

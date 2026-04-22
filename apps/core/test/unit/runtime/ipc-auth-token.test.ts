@@ -16,6 +16,13 @@ describe('ipc auth token', () => {
     expect(validateIpcAuthToken('team-beta', token)).toBe(false);
   });
 
+  it('binds threaded tokens to the exact group and thread', () => {
+    const token = computeIpcAuthToken('team-alpha', 'thread-a');
+    expect(validateIpcAuthToken('team-alpha', token, 'thread-a')).toBe(true);
+    expect(validateIpcAuthToken('team-alpha', token, 'thread-b')).toBe(false);
+    expect(validateIpcAuthToken('team-alpha', token)).toBe(false);
+  });
+
   it('rejects empty or malformed tokens', () => {
     expect(validateIpcAuthToken('team-alpha', '')).toBe(false);
     expect(validateIpcAuthToken('team-alpha', 'not-a-real-token')).toBe(false);

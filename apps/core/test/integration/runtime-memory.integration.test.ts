@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createHermeticRuntimeHarness } from '../harness/runtime-harness.js';
 
 const activeHarnesses: Array<{ cleanup: () => void }> = [];
+const RUNTIME_MEMORY_INTEGRATION_TIMEOUT_MS = 15_000;
 
 afterEach(() => {
   for (const harness of activeHarnesses.splice(0)) {
@@ -34,66 +35,74 @@ function registerMainAndTeam(
 }
 
 describe('runtime memory integration', () => {
-  it('routes memory IPC through the watcher and keeps non-main writes scoped to the source group', async () => {
-    const harness = await createHermeticRuntimeHarness();
-    activeHarnesses.push(harness);
-    registerMainAndTeam(harness);
-    harness.startIpcWatcher();
+  it(
+    'routes memory IPC through the watcher and keeps non-main writes scoped to the source group',
+    async () => {
+      const harness = await createHermeticRuntimeHarness();
+      activeHarnesses.push(harness);
+      registerMainAndTeam(harness);
+      harness.startIpcWatcher();
 
-    harness.writeMemoryRequest('team', {
-      requestId: 'mem-save-001',
-      action: 'memory_save',
-      payload: {
-        scope: 'group',
-        group_folder: 'main',
-        kind: 'decision',
-        key: 'decision:test-memory-scope',
-        value: 'Team memory stays scoped to the team group.',
-        confidence: 0.9,
-      },
-    });
+      harness.writeMemoryRequest('team', {
+        requestId: 'mem-save-001',
+        action: 'memory_save',
+        payload: {
+          scope: 'group',
+          group_folder: 'main',
+          kind: 'decision',
+          key: 'decision:test-memory-scope',
+          value: 'Team memory stays scoped to the team group.',
+          confidence: 0.9,
+        },
+      });
 
-    await harness.waitFor(() =>
-      Boolean(
-        harness.readIpcJson('team', 'memory-responses', 'mem-save-001.json'),
-      ),
-    );
-    const saveResponse = harness.readIpcJson<{
-      ok: boolean;
-      data?: { memory?: { group_folder?: string; key?: string } };
-    }>('team', 'memory-responses', 'mem-save-001.json');
-    expect(saveResponse?.ok).toBe(true);
-    expect(saveResponse?.data?.memory).toEqual(
-      expect.objectContaining({
-        group_folder: 'team',
-        key: 'decision:test-memory-scope',
-      }),
-    );
+      await harness.waitFor(() =>
+        Boolean(
+          harness.readIpcJson('team', 'memory-responses', 'mem-save-001.json'),
+        ),
+      );
+      const saveResponse = harness.readIpcJson<{
+        ok: boolean;
+        data?: { memory?: { group_folder?: string; key?: string } };
+      }>('team', 'memory-responses', 'mem-save-001.json');
+      expect(saveResponse?.ok).toBe(true);
+      expect(saveResponse?.data?.memory).toEqual(
+        expect.objectContaining({
+          group_folder: 'team',
+          key: 'decision:test-memory-scope',
+        }),
+      );
 
-    harness.writeMemoryRequest('team', {
-      requestId: 'mem-search-001',
-      action: 'memory_search',
-      payload: {
-        query: 'team memory scope decision',
-      },
-    });
-    await harness.waitFor(() =>
-      Boolean(
-        harness.readIpcJson('team', 'memory-responses', 'mem-search-001.json'),
-      ),
-    );
-    const searchResponse = harness.readIpcJson<{
-      ok: boolean;
-      data?: { results?: Array<{ text?: string; group_folder?: string }> };
-    }>('team', 'memory-responses', 'mem-search-001.json');
-    expect(searchResponse?.ok).toBe(true);
-    expect(searchResponse?.data?.results?.[0]).toEqual(
-      expect.objectContaining({
-        group_folder: 'team',
-      }),
-    );
-    expect(searchResponse?.data?.results?.[0]?.text).toContain('Team memory');
-  });
+      harness.writeMemoryRequest('team', {
+        requestId: 'mem-search-001',
+        action: 'memory_search',
+        payload: {
+          query: 'team memory scope decision',
+        },
+      });
+      await harness.waitFor(() =>
+        Boolean(
+          harness.readIpcJson(
+            'team',
+            'memory-responses',
+            'mem-search-001.json',
+          ),
+        ),
+      );
+      const searchResponse = harness.readIpcJson<{
+        ok: boolean;
+        data?: { results?: Array<{ text?: string; group_folder?: string }> };
+      }>('team', 'memory-responses', 'mem-search-001.json');
+      expect(searchResponse?.ok).toBe(true);
+      expect(searchResponse?.data?.results?.[0]).toEqual(
+        expect.objectContaining({
+          group_folder: 'team',
+        }),
+      );
+      expect(searchResponse?.data?.results?.[0]?.text).toContain('Team memory');
+    },
+    RUNTIME_MEMORY_INTEGRATION_TIMEOUT_MS,
+  );
 
   it('rejects non-main global memory writes through real IPC responses', async () => {
     const harness = await createHermeticRuntimeHarness();

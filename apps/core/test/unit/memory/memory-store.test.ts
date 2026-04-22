@@ -190,6 +190,7 @@ describe('MemoryStore', () => {
       scope: 'user',
       group_folder: 'team',
       user_id: 'u1',
+      topic_id: 'thread-a',
       kind: 'preference',
       key: 'tone',
       value: 'concise',
@@ -220,6 +221,7 @@ describe('MemoryStore', () => {
         groupFolder: 'team',
         userId: 'u1',
         key: 'tone',
+        topicId: 'different-thread',
       })?.id,
     ).toBe(userItem.id);
     expect(
@@ -2066,6 +2068,7 @@ describe('MemoryStore', () => {
       scope: 'user',
       group_folder: 'team',
       user_id: 'u1',
+      topic_id: 'thread-a',
       kind: 'preference',
       key: 'lang',
       value: 'python',
@@ -2083,7 +2086,13 @@ describe('MemoryStore', () => {
       confidence: 0.8,
     });
 
-    const u1Items = store.listTopItems('user', 'team', 10, 'u1');
+    const u1Items = store.listTopItems(
+      'user',
+      'team',
+      10,
+      'u1',
+      'different-thread',
+    );
     expect(u1Items).toHaveLength(1);
     expect(u1Items[0]!.user_id).toBe('u1');
   });

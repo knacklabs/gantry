@@ -16,6 +16,10 @@ import {
   STORAGE_SQLITE_PATH,
 } from '../core/config.js';
 import { POSTGRES_MIGRATIONS, SQLITE_MIGRATIONS } from './migrations.js';
+import {
+  isLocalPostgresHost,
+  parsePostgresConnectionUrl,
+} from './postgres-url.js';
 import * as pgSchema from './schema/postgres.js';
 import * as sqliteSchema from './schema/sqlite.js';
 
@@ -50,22 +54,8 @@ export function resolveStorageConfigFromRuntime(): ResolvedStorageConfig {
   };
 }
 
-function isLocalPostgresHost(hostname: string): boolean {
-  const normalized = hostname.trim().toLowerCase();
-  return (
-    normalized === 'localhost' ||
-    normalized === '127.0.0.1' ||
-    normalized === '::1'
-  );
-}
-
 function resolvePostgresPoolConfig(url: string): PoolConfig {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error('Invalid postgres connection URL');
-  }
+  const parsed = parsePostgresConnectionUrl(url);
   const sslMode = parsed.searchParams.get('sslmode')?.trim().toLowerCase();
   const isLocal = isLocalPostgresHost(parsed.hostname);
   if (!isLocal) {

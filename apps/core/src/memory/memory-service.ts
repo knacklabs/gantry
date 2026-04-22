@@ -10,6 +10,7 @@ import {
   MEMORY_CONSOLIDATION_CLUSTER_THRESHOLD,
   MEMORY_CONSOLIDATION_MAX_CLUSTERS,
   MEMORY_CONSOLIDATION_MIN_ITEMS,
+  MEMORY_DREAMING_CRON,
   MEMORY_DREAMING_CONFIDENCE_BOOST,
   MEMORY_DREAMING_CONFIDENCE_DECAY,
   MEMORY_DREAMING_DECAY_THRESHOLD,
@@ -57,6 +58,7 @@ import type {
 import { ChunkInsert, MemoryStore } from './memory-store.js';
 import { JournalAppendInput, MemoryJournal } from './memory-journal.js';
 import { MemoryIndexer } from './memory-indexer.js';
+import { MemoryRootService } from './memory-root.js';
 import { fuseSearchResults, mergeSearchResults } from './memory-retrieval.js';
 import { classifySensitiveMemoryMaterial } from './sensitive-material.js';
 import {
@@ -66,6 +68,7 @@ import {
   MemoryScope,
   MemorySearchResult,
   MemoryWriteContext,
+  normalizeMemoryTopicId,
   PatchMemoryInput,
   PatchProcedureInput,
   SaveMemoryInput,
@@ -76,8 +79,8 @@ interface SearchInput {
   query: string;
   groupFolder: string;
   userId?: string;
+  threadId?: string;
   limit?: number;
-  source?: string;
 }
 
 interface TranscriptExtractionInput {
@@ -92,6 +95,7 @@ interface BuildBriefInput {
   groupFolder: string;
   maxItems: number;
   userId?: string;
+  threadId?: string;
 }
 
 interface ArcTurn {
@@ -466,18 +470,20 @@ export class MemoryService {
       logger.warn({ err }, 'memory_reindex_failed');
     }
     const limit = input.limit ?? MEMORY_RETRIEVAL_LIMIT;
+    const topicId = normalizeMemoryTopicId(input.threadId);
     const items = this.store.searchItemsByText(
       input.query,
       input.groupFolder,
       limit,
       input.userId,
+      topicId,
     );
     const lexical = this.store.lexicalSearch(
       input.query,
       input.groupFolder,
       limit * 2,
+      topicId,
     );
-
     let vector: MemorySearchResult[] = [];
     if (this.embeddings.isEnabled()) {
       const queryEmbedding = await this.embeddings.embedOne(input.query);
@@ -485,9 +491,9 @@ export class MemoryService {
         queryEmbedding,
         input.groupFolder,
         limit * 2,
+        topicId,
       );
     }
-
     const snippets = fuseSearchResults(lexical, vector, limit, {
       minScore: MEMORY_RETRIEVAL_MIN_SCORE,
       halfLifeDays: MEMORY_TEMPORAL_DECAY_HALFLIFE_DAYS,
@@ -496,13 +502,7 @@ export class MemoryService {
       vectorWeight: MEMORY_RRF_VECTOR_WEIGHT,
       sourceTypeBoosts: MEMORY_SOURCE_TYPE_BOOSTS,
     });
-    const filteredSnippets = input.source?.trim()
-      ? snippets.filter((item) => item.source_type === input.source)
-      : snippets;
-    const filteredItems = input.source?.trim()
-      ? items.filter((item) => item.source_type === input.source)
-      : items;
-    return mergeSearchResults(filteredItems, filteredSnippets, limit);
+    return mergeSearchResults(items, snippets, limit);
   }
 
   async saveMemory(
@@ -521,6 +521,10 @@ export class MemoryService {
     const confidence = clampConfidence(input.confidence);
     const kind = input.kind || 'fact';
     const source = input.source || 'agent';
+    const topicId =
+      scope === 'user'
+        ? undefined
+        : normalizeMemoryTopicId(input.topic_id || ctx.threadId);
     const actor = this.resolveWriteActor(ctx, source);
     this.assertNoSensitiveMaterialOrThrow({
       groupFolder,
@@ -538,6 +542,7 @@ export class MemoryService {
       groupFolder,
       key: input.key,
       userId: input.user_id || null,
+      topicId: topicId || null,
     });
 
     let embedding =
@@ -568,6 +573,7 @@ export class MemoryService {
             groupFolder,
             key: input.key,
             userId: input.user_id || null,
+            topicId: topicId || null,
           }),
         patch,
       });
@@ -625,6 +631,7 @@ export class MemoryService {
         scope,
         groupFolder,
         userId: input.user_id || null,
+        topicId: topicId || null,
         embedding,
         limit: 3,
       });
@@ -696,6 +703,7 @@ export class MemoryService {
       scope,
       group_folder: groupFolder,
       user_id: input.user_id || null,
+      topic_id: topicId || null,
       kind,
       key: input.key,
       value: input.value,
@@ -834,6 +842,7 @@ export class MemoryService {
     }
     this.enforceScope(scope, ctx);
     const groupFolder = this.resolveTargetGroupFolder(input.group_folder, ctx);
+    const topicId = normalizeMemoryTopicId(input.topic_id || ctx.threadId);
     const actor = this.resolveWriteActor(ctx, input.source || 'agent');
     this.assertNoSensitiveMaterialOrThrow({
       groupFolder,
@@ -848,6 +857,7 @@ export class MemoryService {
     const procedure = this.store.saveProcedure({
       scope,
       group_folder: groupFolder,
+      topic_id: topicId || null,
       title: input.title,
       body: input.body,
       tags: input.tags || [],
@@ -942,6 +952,7 @@ export class MemoryService {
   async buildBrief(input: BuildBriefInput): Promise<string> {
     if (!RUNTIME_MEMORY_ENABLED) return 'No durable memory available yet.';
     const resolvedUserId = input.userId?.trim() || undefined;
+    const topicId = normalizeMemoryTopicId(input.threadId);
     const userScopedItems = resolvedUserId
       ? this.store.listTopItems(
           'user',
@@ -952,8 +963,20 @@ export class MemoryService {
       : [];
     const scoped = dedupeItemsById([
       ...userScopedItems,
-      ...this.store.listTopItems('group', input.groupFolder, input.maxItems),
-      ...this.store.listTopItems('global', input.groupFolder, input.maxItems),
+      ...this.store.listTopItems(
+        'group',
+        input.groupFolder,
+        input.maxItems,
+        undefined,
+        topicId,
+      ),
+      ...this.store.listTopItems(
+        'global',
+        input.groupFolder,
+        input.maxItems,
+        undefined,
+        topicId,
+      ),
     ])
       .sort((a, b) => {
         if (a.is_pinned !== b.is_pinned) {
@@ -967,16 +990,69 @@ export class MemoryService {
         return bLast - aLast;
       })
       .slice(0, input.maxItems);
-    const procedures = this.store.listTopProcedures(input.groupFolder, 5);
-
-    for (const item of scoped) {
-      this.store.touchItem(item.id);
-    }
+    const procedures = this.store.listTopProcedures(
+      input.groupFolder,
+      5,
+      topicId,
+    );
 
     const decisions = scoped.filter((item) => item.kind === 'decision');
     const facts = scoped.filter((item) => item.kind !== 'decision');
+    const latestSessionRecap = topicId
+      ? null
+      : MemoryRootService.getInstance().getLatestSessionRecap(
+          input.groupFolder,
+        );
+    const latestDreamEvent =
+      this.store.getLatestEvent('dream_completed', input.groupFolder) ||
+      this.store.getLatestEvent('dreaming_completed', input.groupFolder);
 
     const lines: string[] = ['## Memory Brief', ''];
+    if (topicId) {
+      lines.push('### Topic Boundary');
+      lines.push(`- thread_id: ${normalizeSingleLine(topicId)}`);
+      lines.push(
+        '- injected memories are limited to records explicitly saved for this thread_id',
+      );
+      lines.push('');
+    }
+    if (latestSessionRecap) {
+      lines.push('### Session Recap');
+      lines.push(
+        `- Summary: ${truncate(normalizeSingleLine(latestSessionRecap.summary), 260)}`,
+      );
+      lines.push(
+        `- Open loops: ${truncate(normalizeSingleLine(latestSessionRecap.openLoops), 260)}`,
+      );
+      lines.push('');
+    }
+
+    lines.push('### Dream Lifecycle');
+    lines.push(
+      `- dreaming_enabled: ${RUNTIME_MEMORY_DREAMING_ENABLED ? 'yes' : 'no'}`,
+    );
+    if (RUNTIME_MEMORY_DREAMING_ENABLED) {
+      lines.push(`- schedule: ${MEMORY_DREAMING_CRON}`);
+    }
+    if (latestDreamEvent) {
+      let summary = 'summary unavailable';
+      try {
+        const payload = JSON.parse(latestDreamEvent.payload_json) as {
+          promotedCount?: number;
+          decayedCount?: number;
+          retiredCount?: number;
+        };
+        summary = `promoted=${payload.promotedCount ?? 0}, decayed=${payload.decayedCount ?? 0}, retired=${payload.retiredCount ?? 0}`;
+      } catch {
+        summary = 'summary unavailable';
+      }
+      lines.push(`- last_run: ${latestDreamEvent.created_at}`);
+      lines.push(`- last_result: ${summary}`);
+    } else {
+      lines.push('- last_run: never');
+    }
+    lines.push('');
+
     if (decisions.length > 0) {
       lines.push('### Active Decisions');
       for (const item of decisions) {
@@ -1509,6 +1585,7 @@ export class MemoryService {
       `scope: ${memory.scope}`,
       `group_folder: ${memory.group_folder}`,
       ...(memory.user_id ? [`user_id: ${memory.user_id}`] : []),
+      ...(memory.topic_id ? [`topic_id: ${memory.topic_id}`] : []),
       `kind: ${memory.kind}`,
       `key: ${yamlSafe(memory.key)}`,
       `source: ${memory.source}`,
@@ -1709,6 +1786,10 @@ function chunkText(text: string, size: number, overlap: number): string[] {
 function truncate(value: string, max: number): string {
   if (value.length <= max) return value;
   return `${value.slice(0, max - 1)}…`;
+}
+
+function normalizeSingleLine(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
 }
 
 function extractUserText(content: unknown): string {

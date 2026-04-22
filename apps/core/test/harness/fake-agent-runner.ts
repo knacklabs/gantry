@@ -5,7 +5,7 @@ export interface FakeAgentInvocation {
   isMain: boolean;
   isScheduledJob: boolean;
   sessionId?: string;
-  memoryContextFile?: string;
+  memoryContextBlock?: string;
   model?: string;
   script?: string;
   input: any;
@@ -46,7 +46,7 @@ export function createFakeAgentRunner(options: FakeAgentRunnerOptions = {}) {
       isMain: input.isMain === true,
       isScheduledJob: input.isScheduledJob === true,
       sessionId: input.sessionId,
-      memoryContextFile: input.memoryContextFile,
+      memoryContextBlock: input.memoryContextBlock,
       model: input.model,
       script: input.script,
       input,

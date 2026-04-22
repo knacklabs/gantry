@@ -4,6 +4,7 @@ import path from 'path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { MemoryRootService } from '@core/memory/memory-root.js';
 import { MemoryService } from '@core/memory/memory-service.js';
 import type { MemoryItem, MemoryProcedure } from '@core/memory/memory-types.js';
 
@@ -14,6 +15,7 @@ function makeItem(overrides: Partial<MemoryItem> = {}): MemoryItem {
     scope: overrides.scope || 'group',
     group_folder: overrides.group_folder || 'team',
     user_id: overrides.user_id ?? null,
+    topic_id: overrides.topic_id ?? null,
     kind: overrides.kind || 'fact',
     key: overrides.key || 'fact:key',
     value: overrides.value || 'value',
@@ -45,6 +47,7 @@ function makeProcedure(
     id: overrides.id || 'proc-1',
     scope: overrides.scope || 'group',
     group_folder: overrides.group_folder || 'team',
+    topic_id: overrides.topic_id ?? null,
     title: overrides.title || 'Deploy',
     body: overrides.body || 'Run build and tests.',
     tags: overrides.tags || [],
@@ -94,6 +97,7 @@ function makeServiceFixture() {
         scope: 'user' | 'group' | 'global';
         group_folder: string;
         user_id: string | null;
+        topic_id?: string | null;
         key: string;
         value: string;
         kind: MemoryItem['kind'];
@@ -110,6 +114,7 @@ function makeServiceFixture() {
           scope: input.scope,
           group_folder: input.group_folder,
           user_id: input.user_id,
+          topic_id: input.topic_id ?? null,
           key: input.key,
           value: input.value,
           kind: input.kind,
@@ -154,9 +159,15 @@ function makeServiceFixture() {
     journal as unknown as ConstructorParameters<typeof MemoryService>[3],
   );
   (
-    service as unknown as { indexer: { indexFile: (p: string) => void } }
+    service as unknown as {
+      indexer: {
+        indexFile: (p: string) => void;
+        reindexStaleFiles: () => void;
+      };
+    }
   ).indexer = {
     indexFile: vi.fn(),
+    reindexStaleFiles: vi.fn(),
   };
 
   return {
@@ -332,7 +343,7 @@ describe('MemoryService boundary extraction', () => {
     expect(fixture.store.pinItem).toHaveBeenCalledWith('pin-1', true);
   });
 
-  it('buildBrief renders decisions, facts, and procedures and touches items', async () => {
+  it('buildBrief renders decisions, facts, and procedures without touching items', async () => {
     const fixture = makeServiceFixture();
     fixture.store.listTopItems
       .mockReturnValueOnce([
@@ -371,8 +382,7 @@ describe('MemoryService boundary extraction', () => {
     expect(brief).toContain('Runtime is Node.js.');
     expect(brief).toContain('### Procedures');
     expect(brief).toContain('**Release**');
-    expect(fixture.store.touchItem).toHaveBeenCalledWith('g1');
-    expect(fixture.store.touchItem).toHaveBeenCalledWith('x1');
+    expect(fixture.store.touchItem).not.toHaveBeenCalled();
   });
 
   it('buildBrief includes user-scoped items only when userId is provided', async () => {
@@ -396,6 +406,170 @@ describe('MemoryService boundary extraction', () => {
     });
 
     expect(brief).toContain('Ravi prefers terse replies.');
+  });
+
+  it('buildBrief filters injected records to the active thread topic', async () => {
+    const fixture = makeServiceFixture();
+    fixture.store.listTopItems.mockReturnValue([]);
+
+    const brief = await fixture.service.buildBrief({
+      groupFolder: 'team',
+      maxItems: 20,
+      userId: 'user-1',
+      threadId: 'thread-a',
+    });
+
+    expect(brief).toContain('### Topic Boundary');
+    expect(brief).toContain('thread_id: thread-a');
+    expect(fixture.store.listTopItems).toHaveBeenNthCalledWith(
+      1,
+      'user',
+      'team',
+      20,
+      'user-1',
+    );
+    expect(fixture.store.listTopItems).toHaveBeenNthCalledWith(
+      2,
+      'group',
+      'team',
+      20,
+      undefined,
+      'thread-a',
+    );
+    expect(fixture.store.listTopItems).toHaveBeenNthCalledWith(
+      3,
+      'global',
+      'team',
+      20,
+      undefined,
+      'thread-a',
+    );
+    expect(fixture.store.listTopProcedures).toHaveBeenCalledWith(
+      'team',
+      5,
+      'thread-a',
+    );
+  });
+
+  it('saveMemory defaults topic_id from write context thread id', async () => {
+    const fixture = makeServiceFixture();
+
+    const saved = await fixture.service.saveMemory(
+      {
+        key: 'decision:ship',
+        value: 'Ship the onboarding fix.',
+      },
+      {
+        isMain: false,
+        groupFolder: 'team',
+        actor: 'mcp-tool',
+        threadId: 't-1',
+      },
+    );
+
+    expect(saved.topic_id).toBe('t-1');
+    expect(fixture.store.saveItem).toHaveBeenCalledWith(
+      expect.objectContaining({ topic_id: 't-1' }),
+    );
+  });
+
+  it('saveMemory keeps user-scoped memories cross-topic', async () => {
+    const fixture = makeServiceFixture();
+
+    const saved = await fixture.service.saveMemory(
+      {
+        scope: 'user',
+        user_id: 'user-1',
+        key: 'preference:style',
+        value: 'Ravi prefers terse replies.',
+      },
+      {
+        isMain: false,
+        groupFolder: 'team',
+        actor: 'mcp-tool',
+        threadId: 't-1',
+      },
+    );
+
+    expect(saved.topic_id).toBeNull();
+    expect(fixture.store.findItemByKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: 'user',
+        userId: 'user-1',
+        topicId: null,
+      }),
+    );
+    expect(fixture.store.saveItem).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'user', topic_id: null }),
+    );
+  });
+
+  it('search passes thread topic boundary into item and chunk retrieval', async () => {
+    const fixture = makeServiceFixture();
+
+    await fixture.service.search({
+      query: 'deployment',
+      groupFolder: 'team',
+      threadId: 'thread-a',
+    });
+
+    expect(fixture.store.searchItemsByText).toHaveBeenCalledWith(
+      'deployment',
+      'team',
+      expect.any(Number),
+      undefined,
+      'thread-a',
+    );
+    expect(fixture.store.lexicalSearch).toHaveBeenCalledWith(
+      'deployment',
+      'team',
+      expect.any(Number),
+      'thread-a',
+    );
+  });
+
+  it('buildBrief includes dream lifecycle details from latest dream event', async () => {
+    const fixture = makeServiceFixture();
+    fixture.store.getLatestEvent.mockReturnValueOnce({
+      event_type: 'dream_completed',
+      entity_type: 'memory_dreaming',
+      entity_id: 'team',
+      payload_json: JSON.stringify({
+        promotedCount: 3,
+        decayedCount: 1,
+        retiredCount: 0,
+      }),
+      created_at: '2026-04-21T00:00:00.000Z',
+    });
+
+    const brief = await fixture.service.buildBrief({
+      groupFolder: 'team',
+      maxItems: 10,
+    });
+
+    expect(brief).toContain('### Dream Lifecycle');
+    expect(brief).toContain('last_run: 2026-04-21T00:00:00.000Z');
+    expect(brief).toContain('promoted=3, decayed=1, retired=0');
+  });
+
+  it('buildBrief includes latest session recap when available', async () => {
+    const fixture = makeServiceFixture();
+    vi.spyOn(MemoryRootService, 'getInstance').mockReturnValue({
+      getLatestSessionRecap: () => ({
+        filePath: '/tmp/session.md',
+        summary: 'Implemented memory injection for every run.',
+        openLoops: 'Validate production gates.',
+      }),
+    } as unknown as MemoryRootService);
+
+    const brief = await fixture.service.buildBrief({
+      groupFolder: 'team',
+      maxItems: 10,
+    });
+
+    expect(brief).toContain('### Session Recap');
+    expect(brief).toContain('Implemented memory injection for every run.');
+    expect(brief).toContain('Validate production gates.');
   });
 
   it('extractFromTranscript saves extracted facts and applies supersedes within scope', async () => {

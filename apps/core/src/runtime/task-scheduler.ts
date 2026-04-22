@@ -32,6 +32,11 @@ import { MemoryService } from '../memory/memory-service.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import { GroupQueue } from './group-queue.js';
 import { AgentOutput, spawnAgent } from './agent-spawn.js';
+import { createInjectedMemoryContextBlock } from './memory-context.js';
+import {
+  notifyLinkedSessions,
+  type SchedulerSendMessage,
+} from './task-scheduler-delivery.js';
 import { validateScheduleConfig } from './task-scheduler-schedule.js';
 import {
   addJobEvent,
@@ -59,7 +64,7 @@ export interface SchedulerDependencies {
     groupFolder: string,
     stopAliasJids?: string[],
   ) => void;
-  sendMessage: (jid: string, text: string) => Promise<void>;
+  sendMessage: SchedulerSendMessage;
   sendStreamingChunk?: (
     jid: string,
     text: string,
@@ -303,27 +308,6 @@ function resolveExecutionContext(
     }
   }
   return null;
-}
-
-async function notifyLinkedSessions(
-  job: Job,
-  text: string,
-  sendMessage: SchedulerDependencies['sendMessage'],
-): Promise<boolean> {
-  const unique = Array.from(new Set(job.linked_sessions));
-  let delivered = false;
-  for (const jid of unique) {
-    try {
-      await sendMessage(jid, text);
-      delivered = true;
-    } catch (err) {
-      logger.warn(
-        { jobId: job.id, jid, err },
-        'Failed to send scheduler status message',
-      );
-    }
-  }
-  return delivered;
 }
 
 function registerSystemJobs(deps: SchedulerDependencies): void {
@@ -619,10 +603,15 @@ async function runJob(
   };
   const deliverMessage = async (text: string): Promise<boolean> => {
     if (!shouldDeliverToChat || !text || isJobDeleted()) return false;
+    const options = currentJob.thread_id
+      ? { threadId: currentJob.thread_id }
+      : undefined;
     let delivered = false;
     for (const jid of linkedSessions) {
       try {
-        await deps.sendMessage(jid, text);
+        await (options
+          ? deps.sendMessage(jid, text, options)
+          : deps.sendMessage(jid, text));
         delivered = true;
       } catch (err) {
         logger.warn(
@@ -709,6 +698,12 @@ async function runJob(
       let bufferedStreamingChars = 0;
       let totalStreamingChars = 0;
       let lastStreamingEventMs = 0;
+      const injectedMemoryContext = await createInjectedMemoryContextBlock({
+        groupFolder: execution.group.folder,
+        chatJid: execution.executionJid,
+        source: 'scheduler',
+        threadId: currentJob.thread_id || undefined,
+      });
       const flushStreamingEvent = (force = false): void => {
         if (bufferedStreamingChars <= 0) return;
         const nowMs = currentTimeMs();
@@ -729,10 +724,12 @@ async function runJob(
             sessionId,
             groupFolder: execution.group.folder,
             chatJid: execution.executionJid,
+            threadId: currentJob.thread_id || undefined,
             isMain,
             isScheduledJob: true,
             assistantName: ASSISTANT_NAME,
             script: currentJob.script || undefined,
+            memoryContextBlock: injectedMemoryContext?.block,
           },
           (proc, containerName) =>
             deps.onProcess(
@@ -1048,22 +1045,15 @@ export async function runSchedulerTick(
 }
 
 export function startSchedulerLoop(deps: SchedulerDependencies): void {
-  if (schedulerRunning) {
-    logger.debug('Scheduler loop already running, skipping duplicate start');
-    return;
-  }
+  if (schedulerRunning) return;
   schedulerRunning = true;
-  logger.info('Scheduler loop started');
-
   const loop = async () => {
     await runSchedulerTick(deps);
     setTimeout(loop, SCHEDULER_POLL_INTERVAL);
   };
-
-  loop();
+  void loop();
 }
 
-/** @internal - for tests only. */
 export function _resetSchedulerLoopForTests(): void {
   schedulerRunning = false;
   schedulerStreamingGenerationCounter = 0;
@@ -1072,9 +1062,7 @@ export function _resetSchedulerLoopForTests(): void {
   memoryMaintenanceQueue = getMemoryMaintenanceQueue();
 }
 
-/** @internal - for tests only. */
-export function _setMemoryMaintenanceQueueForTests(
-  queue: MemoryMaintenanceQueueLike | null,
-): void {
-  memoryMaintenanceQueue = queue ?? getMemoryMaintenanceQueue();
+export function _setMemoryMaintenanceQueueForTests(queue: unknown): void {
+  memoryMaintenanceQueue =
+    (queue as MemoryMaintenanceQueueLike | null) ?? getMemoryMaintenanceQueue();
 }

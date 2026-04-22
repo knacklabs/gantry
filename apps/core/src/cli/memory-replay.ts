@@ -288,6 +288,7 @@ function parseItemPayload(
         ? payload.group_folder
         : fallbackGroup,
     user_id: typeof payload.user_id === 'string' ? payload.user_id : null,
+    topic_id: typeof payload.topic_id === 'string' ? payload.topic_id : null,
     kind,
     key: payload.key,
     value: payload.value,
@@ -378,6 +379,7 @@ function parseProcedurePayload(
       typeof payload.group_folder === 'string' && payload.group_folder.trim()
         ? payload.group_folder
         : fallbackGroup,
+    topic_id: typeof payload.topic_id === 'string' ? payload.topic_id : null,
     title: payload.title,
     body: payload.body,
     tags,
@@ -658,6 +660,7 @@ function applyRecord(args: {
         groupFolder: snapshot.group_folder,
         key: snapshot.key,
         userId: snapshot.user_id,
+        topicId: snapshot.topic_id,
       });
     if (!existing) {
       const saved = store.saveItem({
@@ -665,6 +668,7 @@ function applyRecord(args: {
         scope: snapshot.scope,
         group_folder: snapshot.group_folder,
         user_id: snapshot.user_id,
+        topic_id: snapshot.topic_id ?? null,
         kind: snapshot.kind,
         key: snapshot.key,
         value: snapshot.value,
@@ -785,6 +789,7 @@ function applyRecord(args: {
         id: snapshot.id,
         scope: snapshot.scope,
         group_folder: snapshot.group_folder,
+        topic_id: snapshot.topic_id ?? null,
         title: snapshot.title,
         body: snapshot.body,
         tags: snapshot.tags,

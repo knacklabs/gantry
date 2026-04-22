@@ -423,6 +423,7 @@ export class MemoryIndexer {
         scope: normalizeScope(fm.scope),
         group_folder: groupFolder,
         user_id: typeof fm.user_id === 'string' ? fm.user_id : null,
+        topic_id: typeof fm.topic_id === 'string' ? fm.topic_id : null,
         ...base,
         is_pinned: parseBoolean(fm.pinned, false),
       });

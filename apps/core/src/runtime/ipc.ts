@@ -129,6 +129,67 @@ function sanitizeToolInput(
   return sanitizeToolInputValue(value, 0) as Record<string, unknown>;
 }
 
+interface IpcThreadBinding {
+  authThreadId?: string;
+  payloadThreadId?: string;
+}
+
+function readThreadIdField(value: unknown, label: string): string | undefined {
+  const parsed = toTrimmedString(value, { maxLen: 255, allowEmpty: true });
+  if (parsed === undefined) {
+    throw new Error(`${label} must be a string up to 255 characters`);
+  }
+  return parsed;
+}
+
+function readTrustedThreadBinding(
+  raw: Record<string, unknown>,
+  label: string,
+): IpcThreadBinding {
+  const context = isPlainObject(raw.context) ? raw.context : undefined;
+  const hasContextThreadId =
+    !!context && Object.prototype.hasOwnProperty.call(context, 'threadId');
+  const hasPayloadThreadId = Object.prototype.hasOwnProperty.call(
+    raw,
+    'threadId',
+  );
+  const contextThreadId = hasContextThreadId
+    ? readThreadIdField(context?.threadId, `${label} context.threadId`)
+    : undefined;
+  const payloadThreadId = hasPayloadThreadId
+    ? readThreadIdField(raw.threadId, `${label} threadId`)
+    : undefined;
+
+  if (
+    hasContextThreadId &&
+    hasPayloadThreadId &&
+    contextThreadId !== payloadThreadId
+  ) {
+    throw new Error(`${label} threadId mismatch`);
+  }
+
+  const trustedThreadId = hasContextThreadId
+    ? contextThreadId
+    : payloadThreadId;
+  return {
+    authThreadId: trustedThreadId || undefined,
+    ...(hasPayloadThreadId ? { payloadThreadId } : {}),
+  };
+}
+
+function assertValidIpcAuth(
+  raw: Record<string, unknown>,
+  sourceGroup: string,
+  label: string,
+): IpcThreadBinding {
+  const authToken = toTrimmedString(raw.authToken, { maxLen: 512 }) || '';
+  const binding = readTrustedThreadBinding(raw, label);
+  if (!validateIpcAuthToken(sourceGroup, authToken, binding.authThreadId)) {
+    throw new Error(`Invalid ${label} auth token`);
+  }
+  return binding;
+}
+
 function canProcessIpcFile(sourceGroup: string, kind: string): boolean {
   const now = nowMs();
   const key = `${sourceGroup}:${kind}`;
@@ -309,21 +370,29 @@ interface ParsedIpcMessage {
   chatJid: string;
   text: string;
   sender?: string;
+  threadId?: string;
 }
 
 function parseIpcMessage(raw: unknown, sourceGroup: string): ParsedIpcMessage {
   if (!isPlainObject(raw)) throw new Error('Invalid IPC message payload');
-  const authToken = toTrimmedString(raw.authToken, { maxLen: 512 }) || '';
-  if (!validateIpcAuthToken(sourceGroup, authToken)) {
-    throw new Error('Invalid IPC message auth token');
-  }
+  const { authThreadId: threadId } = assertValidIpcAuth(
+    raw,
+    sourceGroup,
+    'IPC message',
+  );
   const type = toTrimmedString(raw.type, { maxLen: 64 });
   if (type !== 'message') throw new Error('Invalid IPC message type');
   const chatJid = toTrimmedString(raw.chatJid, { maxLen: 255 });
   const text = toTrimmedString(raw.text, { maxLen: 20000 });
   if (!chatJid || !text) throw new Error('Invalid IPC message fields');
   const sender = toTrimmedString(raw.sender, { maxLen: 255 });
-  return { type: 'message', chatJid, text, ...(sender ? { sender } : {}) };
+  return {
+    type: 'message',
+    chatJid,
+    text,
+    ...(sender ? { sender } : {}),
+    ...(threadId ? { threadId } : {}),
+  };
 }
 
 function toScheduleType(
@@ -401,10 +470,7 @@ function parseAgentConfigPayload(
 function parseTaskIpcData(raw: unknown, sourceGroup: string): TaskIpcData {
   if (!isPlainObject(raw)) throw new Error('Invalid IPC task payload');
   assertNoDisallowedTaskFields(raw);
-  const authToken = toTrimmedString(raw.authToken, { maxLen: 512 }) || '';
-  if (!validateIpcAuthToken(sourceGroup, authToken)) {
-    throw new Error('Invalid IPC task auth token');
-  }
+  const threadBinding = assertValidIpcAuth(raw, sourceGroup, 'IPC task');
   const type = toTrimmedString(raw.type, { maxLen: 80 });
   if (!type) throw new Error('IPC task type is required');
   const parsed: TaskIpcData = { type };
@@ -428,10 +494,6 @@ function parseTaskIpcData(raw: unknown, sourceGroup: string): TaskIpcData {
   const deliverTo =
     deliverToArray || (deliverToSingle ? [deliverToSingle] : undefined);
   const groupScope = toTrimmedString(raw.groupScope, { maxLen: 128 });
-  const threadId = toTrimmedString(raw.threadId, {
-    maxLen: 255,
-    allowEmpty: true,
-  });
   const silent = toOptionalBoolean(raw.silent);
   const serialize = toOptionalBoolean(raw.serialize);
   const executionModeRaw = toTrimmedString(raw.executionMode, { maxLen: 32 });
@@ -486,7 +548,12 @@ function parseTaskIpcData(raw: unknown, sourceGroup: string): TaskIpcData {
   if (linkedSessions !== undefined) parsed.linkedSessions = linkedSessions;
   if (deliverTo !== undefined) parsed.deliverTo = deliverTo;
   if (groupScope) parsed.groupScope = groupScope;
-  if (threadId !== undefined) parsed.threadId = threadId || '';
+  if (threadBinding.authThreadId) {
+    parsed.authThreadId = threadBinding.authThreadId;
+  }
+  if (threadBinding.payloadThreadId !== undefined) {
+    parsed.threadId = threadBinding.payloadThreadId;
+  }
   if (silent !== undefined) parsed.silent = silent;
   if (serialize !== undefined) parsed.serialize = serialize;
   if (executionMode !== undefined) parsed.executionMode = executionMode;
@@ -532,12 +599,14 @@ function parseMemoryIpcRequest(
   requestId: string;
   action: MemoryIpcAction;
   payload: Record<string, unknown>;
+  context?: { threadId?: string };
 } {
   if (!isPlainObject(raw)) throw new Error('Invalid memory IPC payload');
-  const authToken = toTrimmedString(raw.authToken, { maxLen: 512 }) || '';
-  if (!validateIpcAuthToken(sourceGroup, authToken)) {
-    throw new Error('Invalid memory IPC auth token');
-  }
+  const { authThreadId: threadId } = assertValidIpcAuth(
+    raw,
+    sourceGroup,
+    'memory IPC',
+  );
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
   const action = toTrimmedString(raw.action, { maxLen: 64 });
   if (!requestId || !action) {
@@ -557,6 +626,7 @@ function parseMemoryIpcRequest(
     requestId,
     action: action as MemoryIpcAction,
     payload,
+    ...(threadId ? { context: { threadId } } : {}),
   };
 }
 
@@ -565,10 +635,7 @@ function parsePermissionIpcRequest(
   sourceGroup: string,
 ): PermissionApprovalRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid permission IPC payload');
-  const authToken = toTrimmedString(raw.authToken, { maxLen: 512 }) || '';
-  if (!validateIpcAuthToken(sourceGroup, authToken)) {
-    throw new Error('Invalid permission IPC auth token');
-  }
+  assertValidIpcAuth(raw, sourceGroup, 'permission IPC');
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
   if (!requestId || !PERMISSION_IPC_REQUEST_ID_PATTERN.test(requestId)) {
     throw new Error('Invalid permission IPC requestId');
@@ -600,10 +667,7 @@ function parseUserQuestionIpcRequest(
   sourceGroup: string,
 ): UserQuestionRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid user question IPC payload');
-  const authToken = toTrimmedString(raw.authToken, { maxLen: 512 }) || '';
-  if (!validateIpcAuthToken(sourceGroup, authToken)) {
-    throw new Error('Invalid user question IPC auth token');
-  }
+  assertValidIpcAuth(raw, sourceGroup, 'user question IPC');
 
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
   if (!requestId || !USER_QUESTION_IPC_REQUEST_ID_PATTERN.test(requestId)) {
@@ -684,10 +748,7 @@ function parseBrowserIpcRequest(
   payload: Record<string, unknown>;
 } {
   if (!isPlainObject(raw)) throw new Error('Invalid browser IPC payload');
-  const authToken = toTrimmedString(raw.authToken, { maxLen: 512 }) || '';
-  if (!validateIpcAuthToken(sourceGroup, authToken)) {
-    throw new Error('Invalid browser IPC auth token');
-  }
+  assertValidIpcAuth(raw, sourceGroup, 'browser IPC');
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
   const action = toTrimmedString(raw.action, { maxLen: 64 });
   if (!requestId || !action) {
@@ -911,7 +972,13 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 isMain ||
                 (targetGroup && targetGroup.folder === sourceGroup)
               ) {
-                await deps.sendMessage(data.chatJid, data.text);
+                if (data.threadId) {
+                  await deps.sendMessage(data.chatJid, data.text, {
+                    threadId: data.threadId,
+                  });
+                } else {
+                  await deps.sendMessage(data.chatJid, data.text);
+                }
                 logger.info(
                   { chatJid: data.chatJid, sourceGroup },
                   'IPC message sent',
@@ -1017,6 +1084,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   requestId: request.requestId,
                   action: request.action,
                   payload: request.payload || {},
+                  ...(request.context ? { context: request.context } : {}),
                 },
                 sourceGroup,
                 isMain,

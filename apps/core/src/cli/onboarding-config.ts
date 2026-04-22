@@ -10,7 +10,14 @@ import {
 
 export interface OnboardingConfigInput {
   runtimeHome: string;
-  telegramBotToken: string;
+  storageProvider: 'sqlite';
+  primaryProvider: 'telegram' | 'slack';
+  telegramBotToken?: string;
+  slackBotToken?: string;
+  slackAppToken?: string;
+  claudeOauthToken?: string;
+  anthropicApiKey?: string;
+  anthropicModel?: string;
   credentialMode: HostCredentialMode;
   onecliUrl?: string;
   memoryEnabled: boolean;
@@ -25,7 +32,19 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
   const onecliUrl = input.onecliUrl?.trim() || '';
 
   upsertEnvFile(envFilePath(input.runtimeHome), {
-    TELEGRAM_BOT_TOKEN: input.telegramBotToken.trim(),
+    TELEGRAM_BOT_TOKEN: input.telegramBotToken?.trim() || null,
+    SLACK_BOT_TOKEN: input.slackBotToken?.trim() || null,
+    SLACK_APP_TOKEN: input.slackAppToken?.trim() || null,
+    CLAUDE_CODE_OAUTH_TOKEN:
+      input.credentialMode === 'onecli-only'
+        ? null
+        : input.claudeOauthToken?.trim() || null,
+    ANTHROPIC_API_KEY:
+      input.credentialMode === 'onecli-only'
+        ? null
+        : input.anthropicApiKey?.trim() || null,
+    ANTHROPIC_MODEL: input.anthropicModel?.trim() || null,
+    MYCLAW_DATABASE_URL: null,
     MYCLAW_CREDENTIAL_MODE: input.credentialMode,
     ONECLI_URL:
       input.credentialMode === 'env-only'
@@ -40,11 +59,21 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
   });
 
   const settings = loadRuntimeSettings(input.runtimeHome);
+  settings.storage.provider = input.storageProvider;
+  settings.storage.postgres.urlEnv = 'MYCLAW_DATABASE_URL';
   const telegramProvider = getChannelProvider('telegram');
   if (telegramProvider && settings.channels[telegramProvider.id]) {
-    settings.channels[telegramProvider.id].enabled = Boolean(
-      input.telegramBotToken.trim(),
-    );
+    const shouldEnable =
+      input.primaryProvider === 'telegram' && Boolean(input.telegramBotToken);
+    settings.channels[telegramProvider.id].enabled = shouldEnable;
+  }
+  const slackProvider = getChannelProvider('slack');
+  if (slackProvider && settings.channels[slackProvider.id]) {
+    const shouldEnable =
+      input.primaryProvider === 'slack' &&
+      Boolean(input.slackBotToken) &&
+      Boolean(input.slackAppToken);
+    settings.channels[slackProvider.id].enabled = shouldEnable;
   }
   settings.memory = {
     ...settings.memory,

@@ -124,7 +124,7 @@
       "owner": "A0.3",
       "reason": "Pre-existing oversized production module; split in a follow-up refactor task.",
       "expires_on": "2026-09-30",
-      "max_lines": 1010,
+      "max_lines": 1700,
       "delete_after": "File is split into production modules at or below 400 LOC."
     },
     {

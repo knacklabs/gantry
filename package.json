@@ -1,5 +1,5 @@
 {
-  "name": "@myclaw/core",
+  "name": "myclaw",
   "version": "1.2.52",
   "description": "Personal AI assistant runtime. Lightweight, secure, customizable.",
   "author": "MyClaw Contributors",
@@ -28,11 +28,13 @@
     "myclaw": "dist/cli/index.js"
   },
   "files": [
+    "index.js",
     "dist/",
     "packages/contracts/dist/",
     "packages/contracts/package.json",
     "!**/*.map",
-    ".claude/skills/*/SKILL.md"
+    ".claude/skills/*/SKILL.md",
+    ".claude/skills/agent-browser/browser_cdp.py"
   ],
   "workspaces": [
     "packages/contracts"

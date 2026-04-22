@@ -12,6 +12,7 @@ describe('agent capability composition', () => {
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:team',
       groupFolder: 'telegram_team',
+      threadId: 'topic-1',
       isMain: false,
       ipcDir: '/tmp/ipc/team',
       ipcAuthToken: 'token',
@@ -29,6 +30,7 @@ describe('agent capability composition', () => {
       env: {
         MYCLAW_CHAT_JID: 'tg:team',
         MYCLAW_GROUP_FOLDER: 'telegram_team',
+        MYCLAW_THREAD_ID: 'topic-1',
         MYCLAW_IS_MAIN: '0',
         MYCLAW_IPC_DIR: '/tmp/ipc/team',
         MYCLAW_IPC_AUTH_TOKEN: 'token',

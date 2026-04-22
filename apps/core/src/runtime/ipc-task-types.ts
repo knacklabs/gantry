@@ -3,6 +3,7 @@ import { IpcDeps } from './ipc-domain-types.js';
 
 export interface TaskIpcData {
   type: string;
+  authThreadId?: string;
   taskId?: string;
   prompt?: string;
   model?: string;

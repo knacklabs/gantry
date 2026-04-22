@@ -476,7 +476,7 @@ memory:
     ).toThrow(/memory\.embeddings\.provider must be disabled or openai/i);
   });
 
-  it('fails validation when storage.provider is postgres', () => {
+  it('rejects validation when storage.provider is postgres', () => {
     const runtimeHome = createRuntimeHome();
     fs.writeFileSync(
       settingsFilePath(runtimeHome),
@@ -517,12 +517,12 @@ memory:
 
     const result = validateRuntimeSettings(runtimeHome);
     expect(result.ok).toBe(false);
-    expect(result.failure?.details.join('\n')).toContain(
-      'storage.provider=postgres is not available in host runtime. Use storage.provider=sqlite.',
+    expect(result.failure?.details.join('\n')).toMatch(
+      /storage\.provider=postgres is not available/i,
     );
   });
 
-  it('still fails validation when postgres storage env key exists in runtime env', () => {
+  it('rejects validation when postgres storage env key exists in runtime env', () => {
     const runtimeHome = createRuntimeHome();
     fs.writeFileSync(
       settingsFilePath(runtimeHome),
@@ -561,13 +561,13 @@ memory:
       'utf-8',
     );
     upsertEnvFile(envFilePath(runtimeHome), {
-      CUSTOM_DB_URL: 'postgres://local/myclaw',
+      CUSTOM_DB_URL: 'postgres://localhost/myclaw',
     });
 
     const result = validateRuntimeSettings(runtimeHome);
     expect(result.ok).toBe(false);
-    expect(result.failure?.details.join('\n')).toContain(
-      'storage.provider=postgres is not available in host runtime. Use storage.provider=sqlite.',
+    expect(result.failure?.details.join('\n')).toMatch(
+      /storage\.provider=postgres is not available/i,
     );
   });
 });

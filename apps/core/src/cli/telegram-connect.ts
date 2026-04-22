@@ -3,6 +3,7 @@ import '../channels/register-builtins.js';
 import { getChannelProvider } from '../channels/provider-registry.js';
 import { upsertEnvFile } from './env-file.js';
 import { envFilePath, ensureRuntimeLayout } from './runtime-home.js';
+import { listTelegramRecentChats } from './telegram-chat-discovery.js';
 import {
   loadRuntimeSettings,
   saveRuntimeSettings,
@@ -14,6 +15,11 @@ import {
   validateTelegramBotToken,
   verifyTelegramChatAccess,
 } from './telegram.js';
+
+type TelegramChatChoice =
+  | { type: 'selected'; chatJid: string }
+  | { type: 'skip' }
+  | { type: 'cancel' };
 
 async function promptTelegramToken(
   defaultValue: string,
@@ -29,11 +35,92 @@ async function promptTelegramToken(
   return token || defaultValue.trim() || null;
 }
 
+async function promptManualTelegramChatId(
+  defaultChatJid = '',
+): Promise<TelegramChatChoice> {
+  const result = await p.text({
+    message: 'Telegram chat ID (optional, e.g. -1001234567890)',
+    placeholder: 'Press Enter to skip registration for now',
+    defaultValue: defaultChatJid.replace(/^tg:/, ''),
+    validate: (value) => {
+      const trimmed = String(value || '').trim();
+      if (!trimmed) return undefined;
+      return normalizeTelegramChatJid(trimmed)
+        ? undefined
+        : 'Use a numeric Telegram chat ID (for example: -1001234567890).';
+    },
+  });
+  if (p.isCancel(result)) return { type: 'cancel' };
+  const normalized = normalizeTelegramChatJid(String(result || '').trim());
+  return normalized
+    ? { type: 'selected', chatJid: normalized }
+    : { type: 'skip' };
+}
+
+async function chooseChatFromDiscovery(
+  token: string,
+): Promise<TelegramChatChoice> {
+  const spinner = p.spinner();
+  spinner.start('Discovering recent Telegram chats...');
+  const discovery = await listTelegramRecentChats({ token, limit: 30 });
+
+  if (!discovery.ok) {
+    spinner.stop('Could not auto-discover chats');
+    p.log.info(discovery.message);
+    if (discovery.nextAction) p.log.info(discovery.nextAction);
+    return promptManualTelegramChatId();
+  }
+
+  if (discovery.chats.length === 0) {
+    spinner.stop('No recent chat found');
+    if (discovery.nextAction) p.log.info(discovery.nextAction);
+    return promptManualTelegramChatId();
+  }
+
+  spinner.stop(`Found ${discovery.chats.length} recent chats.`);
+  const selected = await p.select({
+    message: 'Choose the Telegram chat to register as main',
+    options: [
+      ...discovery.chats.slice(0, 15).map((chat) => ({
+        value: chat.chatJid,
+        label: `${chat.chatTitle} (${chat.chatJid.replace(/^tg:/, '')})`,
+        hint: chat.chatType,
+      })),
+      {
+        value: 'manual',
+        label: 'Enter chat ID manually',
+      },
+      {
+        value: 'skip',
+        label: 'Skip chat registration for now',
+      },
+    ],
+  });
+  if (p.isCancel(selected)) return { type: 'cancel' };
+  if (selected === 'manual') {
+    return promptManualTelegramChatId();
+  }
+  if (selected === 'skip') return { type: 'skip' };
+  const normalized = normalizeTelegramChatJid(String(selected || '').trim());
+  return normalized
+    ? { type: 'selected', chatJid: normalized }
+    : { type: 'skip' };
+}
+
 export async function runTelegramConnectCommand(
   runtimeHome: string,
 ): Promise<number> {
   ensureRuntimeLayout(runtimeHome);
   const env = readTelegramFromRuntimeEnv(runtimeHome);
+  p.note(
+    [
+      'Create the bot first: open Telegram, chat with @BotFather, send /newbot, then copy the returned token.',
+      'For groups: add the bot to the group and send a message there before discovery.',
+      'If MyClaw should see all group messages, make the bot an admin or disable Group Privacy in BotFather with /setprivacy.',
+      'Docs: https://core.telegram.org/bots/faq',
+    ].join('\n'),
+    'Telegram bot setup',
+  );
 
   const tokenInput = await promptTelegramToken(env.token || '');
   if (!tokenInput) {
@@ -49,33 +136,20 @@ export async function runTelegramConnectCommand(
   }
   p.log.success(validation.message);
 
-  const chatIdInput = await p.text({
-    message: 'Telegram chat ID for main group (optional, e.g. -1001234567890)',
-    placeholder: 'Press Enter to skip registration now',
-    validate: (value) => {
-      const trimmed = String(value || '').trim();
-      if (!trimmed) return undefined;
-      return normalizeTelegramChatJid(trimmed)
-        ? undefined
-        : 'Use a numeric Telegram chat ID (for example: -1001234567890).';
-    },
-  });
-
-  if (p.isCancel(chatIdInput)) {
+  const chatChoice = await chooseChatFromDiscovery(tokenInput);
+  if (chatChoice.type === 'cancel') {
     p.outro('Telegram connect cancelled.');
     return 1;
   }
-
-  const normalizedChatJid = normalizeTelegramChatJid(
-    String(chatIdInput || '').trim(),
-  );
+  const normalizedChatJid =
+    chatChoice.type === 'selected' ? chatChoice.chatJid : '';
 
   if (normalizedChatJid) {
     const access = await verifyTelegramChatAccess({
       token: tokenInput,
       chatJid: normalizedChatJid,
       botId: validation.botId,
-      sendTestMessage: true,
+      sendTestMessage: false,
     });
     if (!access.ok) {
       p.log.error(access.message);

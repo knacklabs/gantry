@@ -10,6 +10,7 @@ import {
 } from '../runtime/group-processing.js';
 import { listAvailableGroups } from '../runtime/group-registry.js';
 import { GroupQueue } from '../runtime/group-queue.js';
+import { parseThreadQueueKey } from '../runtime/thread-queue-key.js';
 import {
   registerGroup as registerGroupEntry,
   setGroupModelOverride as setGroupModelOverrideEntry,
@@ -22,6 +23,7 @@ import {
   getAllSessions,
   getLastBotMessageCursor,
   getRouterState,
+  makeSessionScopeKey,
   setRegisteredGroup,
   setRouterState,
   setSession,
@@ -43,8 +45,11 @@ export interface RuntimeApp {
   getAvailableGroups: () => import('../runtime/agent-spawn.js').AvailableGroup[];
   setRegisteredGroupsForTest: (groups: Record<string, RegisteredGroup>) => void;
   ensureOneCLIAgentsForRegisteredGroups: () => void;
-  clearSessionForChatJid: (chatJid: string) => void;
-  processGroupMessages: (chatJid: string) => Promise<boolean>;
+  clearSessionForChatJid: (chatJid: string, threadId?: string | null) => void;
+  processGroupMessages: (
+    chatJid: string,
+    options?: { queued?: boolean },
+  ) => Promise<boolean>;
   getRegisteredGroups: () => Record<string, RegisteredGroup>;
   getLastTimestamp: () => string;
   setLastTimestamp: (timestamp: string) => void;
@@ -122,12 +127,22 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     const existing = lastAgentTimestamp[chatJid];
     if (existing) return existing;
 
-    const botCursor = getLastBotMessageCursor(chatJid);
+    const parsed = parseThreadQueueKey(chatJid);
+    if (parsed.threadId) return '';
+
+    const baseChatJid = parsed.chatJid;
+    const baseExisting = lastAgentTimestamp[baseChatJid];
+    if (baseExisting) {
+      lastAgentTimestamp[chatJid] = baseExisting;
+      return baseExisting;
+    }
+
+    const botCursor = getLastBotMessageCursor(baseChatJid);
     if (botCursor) {
       const encoded = encodeGroupMessageCursor(botCursor);
       logger.info(
         {
-          chatJid,
+          chatJid: baseChatJid,
           recoveredFrom: botCursor.timestamp,
           recoveredFromId: botCursor.id,
         },
@@ -188,11 +203,14 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     }
   }
 
-  function clearSessionForChatJid(chatJid: string): void {
+  function clearSessionForChatJid(
+    chatJid: string,
+    threadId?: string | null,
+  ): void {
     const group = registeredGroups[chatJid];
     if (!group) return;
-    delete sessions[group.folder];
-    deleteSession(group.folder);
+    delete sessions[makeSessionScopeKey(group.folder, threadId)];
+    deleteSession(group.folder, threadId);
   }
 
   const groupProcessor = createGroupProcessor({
@@ -211,14 +229,15 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
         channelRuntime.sendProgressUpdate(chatJid, text, options),
     },
     getGroup: (chatJid) => registeredGroups[chatJid],
-    getSession: (groupFolder) => sessions[groupFolder],
-    setSession: (groupFolder, sessionId) => {
-      sessions[groupFolder] = sessionId;
-      setSession(groupFolder, sessionId);
+    getSession: (groupFolder, threadId) =>
+      sessions[makeSessionScopeKey(groupFolder, threadId)],
+    setSession: (groupFolder, sessionId, threadId) => {
+      sessions[makeSessionScopeKey(groupFolder, threadId)] = sessionId;
+      setSession(groupFolder, sessionId, threadId);
     },
-    clearSession: (groupFolder) => {
-      delete sessions[groupFolder];
-      deleteSession(groupFolder);
+    clearSession: (groupFolder, threadId) => {
+      delete sessions[makeSessionScopeKey(groupFolder, threadId)];
+      deleteSession(groupFolder, threadId);
     },
     getCursor: getOrRecoverCursor,
     setCursor: (chatJid, timestamp) => {
@@ -239,6 +258,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
         containerName,
         groupFolder,
         stopAliasJids,
+        threadId,
       ) =>
         queue.registerProcess(
           groupJid,
@@ -246,6 +266,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
           containerName,
           groupFolder,
           stopAliasJids,
+          threadId,
         ),
     },
     runAgent: options.runAgent,
@@ -263,8 +284,8 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     setRegisteredGroupsForTest,
     ensureOneCLIAgentsForRegisteredGroups,
     clearSessionForChatJid,
-    processGroupMessages: (chatJid) =>
-      groupProcessor.processGroupMessages(chatJid),
+    processGroupMessages: (chatJid, options) =>
+      groupProcessor.processGroupMessages(chatJid, options),
     getRegisteredGroups: () => registeredGroups,
     getLastTimestamp: () => lastTimestamp,
     setLastTimestamp: (timestamp) => {

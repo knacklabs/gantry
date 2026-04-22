@@ -88,6 +88,12 @@ myclaw memory model set <extractor|dreaming|consolidation> <model>
 myclaw memory model profile <cheap|balanced|quality>
 ```
 
+Runtime continuity injection:
+
+- Host runtime injects a memory/continuity block on every run (message turns and scheduler runs).
+- This injection is baseline context. Memory MCP tools are for deeper lookup and explicit writes.
+- Dream lifecycle metadata is part of the injected brief when available.
+
 Memory hooks:
 
 ```bash
@@ -141,6 +147,8 @@ storage:
   provider: sqlite
   sqlite:
     path: store/myclaw.db
+  postgres:
+    url_env: MYCLAW_DATABASE_URL
 
 memory:
   enabled: true
@@ -163,11 +171,16 @@ Rules:
 - At least one channel should be enabled for normal operation.
 - Enabled channels require matching credentials in `.env`.
 - `memory.root` is resolved relative to runtime home unless absolute.
-- `storage.provider` must be `sqlite` in host runtime.
+- `storage.provider` is `sqlite`; `postgres` is not available in the host runtime yet.
 - `memory.embeddings.provider` is `disabled` or `openai`.
 - `memory.embeddings.enabled: true` with `provider: openai` requires `OPENAI_API_KEY`.
 - Sender policy `allow` is `"*"` or a string array.
 - Sender policy `mode` is `trigger` or `drop`.
+- Scope policy for memory writes:
+  - `user`: personal preferences/corrections.
+  - `group`: default active chat/channel memory.
+  - `global`: only explicit cross-chat/org-wide intent.
+  - If `thread_id` exists, treat it as a topic boundary and include a topic marker in keys.
 
 ## .env
 
@@ -233,9 +246,14 @@ When changing credentials:
     myclaw.error.log
   memory/
     .cache/memory.db
+    .journal/
     items/
     procedures/
     sessions/
+    dreams/
+    daily/
+    knowledge/
+    .raw/
   agents/
     <agent-folder>/
   .claude/
@@ -343,6 +361,12 @@ mcp__myclaw__scheduler_update_job(
   execution_mode?: "parallel" | "serialized"
 )
 ```
+
+Thread behavior:
+
+- New scheduler jobs created from a Slack thread or Telegram topic default to that current thread/topic.
+- Scheduler updates do not retarget an existing job unless `thread_id` is explicitly supplied.
+- `thread_id` may only be the current thread/topic for the active agent run; arbitrary cross-thread retargeting is rejected.
 
 Operational controls:
 

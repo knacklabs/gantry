@@ -207,6 +207,79 @@ describe('memory IPC provider integration', () => {
     vi.doUnmock('@core/memory/memory-service.js');
   });
 
+  it('scopes IPC memory_search to trusted thread context', async () => {
+    const search = vi.fn().mockResolvedValue([]);
+    vi.resetModules();
+    vi.doMock('@core/memory/memory-service.js', () => ({
+      MemoryService: {
+        getInstance: () => ({
+          getProviderName: () => 'mock',
+          search,
+        }),
+        closeInstance: () => undefined,
+      },
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-thread-search',
+        action: 'memory_search',
+        payload: { query: 'status', thread_id: 'attacker-thread' },
+        context: { threadId: 'trusted-thread' },
+      },
+      'main-group',
+      true,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(search).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'status',
+        groupFolder: 'main-group',
+        threadId: 'trusted-thread',
+      }),
+    );
+    vi.doUnmock('@core/memory/memory-service.js');
+  });
+
+  it('ignores caller-supplied topic overrides in IPC memory_save payloads', async () => {
+    const saveMemory = vi.fn().mockResolvedValue({ id: 'mem-1' });
+    vi.resetModules();
+    vi.doMock('@core/memory/memory-service.js', () => ({
+      MemoryService: {
+        getInstance: () => ({
+          getProviderName: () => 'mock',
+          saveMemory,
+        }),
+        closeInstance: () => undefined,
+      },
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-thread-save',
+        action: 'memory_save',
+        payload: {
+          key: 'decision:one',
+          value: 'Use the trusted thread.',
+          topic_id: 'attacker-thread',
+        },
+        context: { threadId: 'trusted-thread' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(saveMemory).toHaveBeenCalledWith(
+      expect.objectContaining({ topic_id: 'trusted-thread' }),
+      expect.objectContaining({ threadId: 'trusted-thread' }),
+    );
+    vi.doUnmock('@core/memory/memory-service.js');
+  });
+
   it('memory_search succeeds when embeddings are disabled by default', async () => {
     // Embeddings are disabled by default, so search should stay available even
     // when OPENAI_API_KEY is empty.
@@ -469,6 +542,34 @@ describe('processMemoryRequest additional branches', () => {
     expect(saveProcedure).toHaveBeenCalledWith(
       { title: 'Deploy', body: 'steps...', tags: ['devops'] },
       { isMain: true, groupFolder: 'team', actor: 'mcp-tool' },
+    );
+  });
+
+  it('binds procedure_save topic to trusted thread context', async () => {
+    vi.resetModules();
+    const saveProcedure = vi
+      .fn()
+      .mockReturnValue({ id: 'proc-1', title: 'Deploy' });
+    vi.doMock('@core/memory/memory-service.js', () => ({
+      MemoryService: mockMemoryService({ saveProcedure }),
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-proc-thread-save',
+        action: 'procedure_save',
+        payload: { title: 'Deploy', body: 'steps...', topic_id: 'attacker' },
+        context: { threadId: 'trusted-thread' },
+      },
+      'team',
+      true,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(saveProcedure).toHaveBeenCalledWith(
+      expect.objectContaining({ topic_id: 'trusted-thread' }),
+      expect.objectContaining({ threadId: 'trusted-thread' }),
     );
   });
 

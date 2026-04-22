@@ -9,6 +9,7 @@ import {
 } from '@core/storage/db.js';
 import { decodeGroupMessageCursor } from '@core/core/message-cursor.js';
 import { createRuntimeApp } from '@core/bootstrap/runtime-app.js';
+import { makeThreadQueueKey } from '@core/runtime/thread-queue-key.js';
 
 describe('createRuntimeApp', () => {
   beforeEach(() => {
@@ -64,5 +65,31 @@ describe('createRuntimeApp', () => {
       timestamp,
       id: 'bot-1',
     });
+  });
+
+  it('does not recover a missing thread cursor from the root chat cursor', () => {
+    const timestamp = '2026-01-01T01:02:03.000Z';
+    storeChatMetadata('group@g.us', timestamp, 'Group', 'telegram', true);
+    storeMessage({
+      id: 'bot-1',
+      chat_jid: 'group@g.us',
+      sender: 'assistant',
+      sender_name: 'MyClaw',
+      content: 'MyClaw: hello',
+      timestamp,
+      is_bot_message: true,
+    });
+
+    const app = createRuntimeApp({
+      onecli: {
+        ensureAgent: vi.fn(async () => ({ created: false })),
+      } as any,
+    });
+
+    app.loadState();
+    expect(app.getOrRecoverCursor('group@g.us')).toBeTruthy();
+    expect(
+      app.getOrRecoverCursor(makeThreadQueueKey('group@g.us', 'topic-1')),
+    ).toBe('');
   });
 });

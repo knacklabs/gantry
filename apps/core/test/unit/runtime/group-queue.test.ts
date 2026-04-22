@@ -1016,6 +1016,44 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
   });
 
+  it('sendMessage rejects continuations for a different active thread', async () => {
+    let resolveProcess: () => void;
+
+    const processMessages = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        resolveProcess = resolve;
+      });
+      return true;
+    });
+
+    queue.setProcessMessagesFn(processMessages);
+    queue.enqueueMessageCheck('group1@g.us::thread:thread-a');
+    await vi.advanceTimersByTimeAsync(10);
+
+    queue.registerProcess(
+      'group1@g.us::thread:thread-a',
+      {} as any,
+      'container-1',
+      'test-group',
+      'group1@g.us',
+      'thread-a',
+    );
+
+    expect(
+      queue.sendMessage('group1@g.us::thread:thread-a', 'same thread', {
+        threadId: 'thread-a',
+      }),
+    ).toBe(true);
+    expect(
+      queue.sendMessage('group1@g.us::thread:thread-a', 'other thread', {
+        threadId: 'thread-b',
+      }),
+    ).toBe(false);
+
+    resolveProcess!();
+    await vi.advanceTimersByTimeAsync(10);
+  });
+
   it('[BUG-TEST-002-CONTINUATION-FIFO] same-millisecond continuation IPC filenames preserve FIFO order', async () => {
     const fs = await import('fs');
     let resolveProcess: () => void;

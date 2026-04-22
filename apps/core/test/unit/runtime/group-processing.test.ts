@@ -35,12 +35,14 @@ vi.mock('@core/core/logger.js', () => ({
 const mockRunDreamingSweep = vi.fn();
 const mockGetMemoryStatus = vi.fn();
 const mockSaveProcedure = vi.fn();
+const mockBuildBrief = vi.fn();
 vi.mock('@core/memory/memory-service.js', () => ({
   MemoryService: {
     getInstance: () => ({
       runDreamingSweep: (...args: unknown[]) => mockRunDreamingSweep(...args),
       getStatus: (...args: unknown[]) => mockGetMemoryStatus(...args),
       saveProcedure: (...args: unknown[]) => mockSaveProcedure(...args),
+      buildBrief: (...args: unknown[]) => mockBuildBrief(...args),
     }),
   },
 }));
@@ -227,6 +229,7 @@ function setupHappyPath(
     decayedCount: 0,
     retiredCount: 0,
   });
+  mockBuildBrief.mockResolvedValue('## Memory Brief\n\nNo durable memory.');
   mockGetMemoryStatus.mockResolvedValue({
     items_by_kind: {},
     items_by_scope: {},
@@ -734,7 +737,7 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(deps.clearSession).toHaveBeenCalledWith('test-group');
+      expect(deps.clearSession).toHaveBeenCalledWith('test-group', null);
       expect(mockArchiveSessionTranscript).toHaveBeenCalledWith(
         expect.objectContaining({
           groupFolder: 'test-group',
@@ -770,7 +773,7 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(deps.clearSession).toHaveBeenCalledWith('test-group');
+      expect(deps.clearSession).toHaveBeenCalledWith('test-group', null);
     });
 
     it('clears session on session not found error pattern', async () => {
@@ -799,7 +802,7 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(deps.clearSession).toHaveBeenCalledWith('test-group');
+      expect(deps.clearSession).toHaveBeenCalledWith('test-group', null);
     });
 
     it('does NOT clear session when error is unrelated', async () => {
@@ -883,6 +886,7 @@ describe('createGroupProcessor', () => {
       expect(deps.setSession).toHaveBeenCalledWith(
         'test-group',
         'new-sess-123',
+        null,
       );
     });
 
@@ -914,6 +918,7 @@ describe('createGroupProcessor', () => {
       expect(deps.setSession).toHaveBeenCalledWith(
         'test-group',
         'streamed-sess',
+        null,
       );
     });
   });
@@ -1252,6 +1257,65 @@ describe('createGroupProcessor', () => {
       );
     });
 
+    it('uses thread queue keys to filter retrieval and bind runner context', async () => {
+      const messages = [
+        makeMessage({
+          id: 'msg-thread',
+          timestamp: '1700000001',
+          thread_id: 'thread-a',
+        }),
+      ];
+      const { deps } = setupHappyPath({ messages });
+      (deps.getSession as ReturnType<typeof vi.fn>).mockReturnValue(
+        'sess-thread-a',
+      );
+      const mockProc = {} as ChildProcess;
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: RegisteredGroup,
+          _input: unknown,
+          onProc: (proc: ChildProcess, containerName: string) => void,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          onProc(mockProc, 'test-container');
+          if (onOutput) {
+            await onOutput({ status: 'success', result: 'ok' });
+          }
+          return { status: 'success', result: 'ok' } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us::thread:thread-a');
+
+      expect(mockGetMessagesSince).toHaveBeenCalledWith(
+        'group1@g.us',
+        '0',
+        50,
+        { threadId: 'thread-a' },
+      );
+      expect(deps.queue.registerProcess).toHaveBeenCalledWith(
+        'group1@g.us::thread:thread-a',
+        mockProc,
+        'test-container',
+        'test-group',
+        'group1@g.us',
+        'thread-a',
+      );
+      expect(mockSpawnAgent).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          chatJid: 'group1@g.us',
+          threadId: 'thread-a',
+          sessionId: 'sess-thread-a',
+        }),
+        expect.any(Function),
+        expect.any(Function),
+        undefined,
+      );
+      expect(deps.getSession).toHaveBeenCalledWith('test-group', 'thread-a');
+    });
+
     it('refreshes thread context when a newer message arrives during processing', async () => {
       const initialMessages = [
         makeMessage({
@@ -1313,6 +1377,21 @@ describe('createGroupProcessor', () => {
         'group1@g.us',
         'cursor-ts-123',
         50,
+        undefined,
+      );
+    });
+
+    it('filters to unthreaded messages when invoked by the queue for a base chat', async () => {
+      const { deps } = setupHappyPath();
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us', { queued: true });
+
+      expect(mockGetMessagesSince).toHaveBeenCalledWith(
+        'group1@g.us',
+        '0',
+        50,
+        { threadId: null },
       );
     });
 
@@ -1365,6 +1444,8 @@ describe('createGroupProcessor', () => {
         mockProc,
         'test-container',
         'test-group',
+        undefined,
+        undefined,
       );
     });
   });
@@ -1418,6 +1499,7 @@ describe('createGroupProcessor', () => {
       opts: {
         group?: RegisteredGroup;
         messages?: NewMessage[];
+        queueJid?: string;
       } = {},
     ) {
       const group =
@@ -1442,7 +1524,7 @@ describe('createGroupProcessor', () => {
       );
 
       const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
+      await processGroupMessages(opts.queueJid ?? 'group1@g.us');
 
       return { capturedDeps, deps, channel, group };
     }
@@ -1557,6 +1639,32 @@ describe('createGroupProcessor', () => {
       );
     });
 
+    it('saveProcedure carries active thread scope into memory writes', async () => {
+      const { capturedDeps } = await captureSessionDeps({
+        messages: [
+          makeMessage({
+            id: 'thread-save-procedure',
+            thread_id: 'thread-procedure',
+          }),
+        ],
+        queueJid: 'group1@g.us::thread:thread-procedure',
+      });
+      const saveProcedure = capturedDeps.saveProcedure as (input: {
+        title: string;
+        body: string;
+      }) => Promise<unknown>;
+
+      await saveProcedure({ title: 'Deploy flow', body: '1. Build\n2. Ship' });
+
+      expect(mockSaveProcedure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          topic_id: 'thread-procedure',
+          title: 'Deploy flow',
+        }),
+        expect.objectContaining({ threadId: 'thread-procedure' }),
+      );
+    });
+
     it('archiveCurrentSession archives when session exists', async () => {
       const { capturedDeps, deps } = await captureSessionDeps();
       const archiveCurrentSession =
@@ -1595,8 +1703,8 @@ describe('createGroupProcessor', () => {
 
       clearCurrentSession();
 
-      expect(deps.clearSession).toHaveBeenCalledWith('grp-folder');
-      expect(mockDeleteSession).toHaveBeenCalledWith('grp-folder');
+      expect(deps.clearSession).toHaveBeenCalledWith('grp-folder', undefined);
+      expect(mockDeleteSession).toHaveBeenCalledWith('grp-folder', undefined);
     });
 
     describe('canSenderInteract', () => {

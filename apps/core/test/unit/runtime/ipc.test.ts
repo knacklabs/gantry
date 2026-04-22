@@ -687,6 +687,68 @@ describe('scheduler_update_job', () => {
     // next_run should be recalculated (may differ from previous)
     expect(job!.next_run).toBeTruthy();
   });
+
+  it('blocks cross-thread scheduler updates for thread-bound auth context', async () => {
+    await processTaskIpc(
+      {
+        type: 'scheduler_update_job',
+        jobId: 'upd-job',
+        threadId: 'thread-b',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+    vi.mocked(deps.onSchedulerChanged).mockClear();
+
+    await processTaskIpc(
+      {
+        type: 'scheduler_update_job',
+        jobId: 'upd-job',
+        prompt: 'should not apply',
+        authThreadId: 'thread-a',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+
+    const job = getJobById('upd-job');
+    expect(job!.prompt).toBe('old prompt');
+    expect(job!.thread_id).toBe('thread-b');
+    expect(deps.onSchedulerChanged).not.toHaveBeenCalled();
+  });
+
+  it('allows scheduler updates for matching thread-bound auth context', async () => {
+    await processTaskIpc(
+      {
+        type: 'scheduler_update_job',
+        jobId: 'upd-job',
+        threadId: 'thread-a',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+    vi.mocked(deps.onSchedulerChanged).mockClear();
+
+    await processTaskIpc(
+      {
+        type: 'scheduler_update_job',
+        jobId: 'upd-job',
+        prompt: 'new prompt',
+        authThreadId: 'thread-a',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+
+    const job = getJobById('upd-job');
+    expect(job!.prompt).toBe('new prompt');
+    expect(job!.thread_id).toBe('thread-a');
+    expect(deps.onSchedulerChanged).toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -731,6 +793,34 @@ describe('scheduler_delete_job', () => {
     );
     expect(deps.onSchedulerChanged).not.toHaveBeenCalled();
   });
+
+  it('blocks cross-thread scheduler deletes for thread-bound auth context', async () => {
+    await processTaskIpc(
+      {
+        type: 'scheduler_update_job',
+        jobId: 'del-job',
+        threadId: 'thread-b',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+    vi.mocked(deps.onSchedulerChanged).mockClear();
+
+    await processTaskIpc(
+      {
+        type: 'scheduler_delete_job',
+        jobId: 'del-job',
+        authThreadId: 'thread-a',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+
+    expect(getJobById('del-job')).toBeDefined();
+    expect(deps.onSchedulerChanged).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -773,6 +863,35 @@ describe('scheduler_pause_job', () => {
       true,
       deps,
     );
+    expect(deps.onSchedulerChanged).not.toHaveBeenCalled();
+  });
+
+  it('blocks cross-thread scheduler pause for thread-bound auth context', async () => {
+    await processTaskIpc(
+      {
+        type: 'scheduler_update_job',
+        jobId: 'pause-job',
+        threadId: 'thread-b',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+    vi.mocked(deps.onSchedulerChanged).mockClear();
+
+    await processTaskIpc(
+      {
+        type: 'scheduler_pause_job',
+        jobId: 'pause-job',
+        authThreadId: 'thread-a',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+
+    const job = getJobById('pause-job');
+    expect(job!.status).toBe('active');
     expect(deps.onSchedulerChanged).not.toHaveBeenCalled();
   });
 });
@@ -852,6 +971,41 @@ describe('scheduler_resume_job', () => {
       true,
       deps,
     );
+    expect(deps.onSchedulerChanged).not.toHaveBeenCalled();
+  });
+
+  it('blocks cross-thread scheduler resume for thread-bound auth context', async () => {
+    await processTaskIpc(
+      {
+        type: 'scheduler_update_job',
+        jobId: 'resume-job',
+        threadId: 'thread-b',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+    await processTaskIpc(
+      { type: 'scheduler_pause_job', jobId: 'resume-job' },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+    vi.mocked(deps.onSchedulerChanged).mockClear();
+
+    await processTaskIpc(
+      {
+        type: 'scheduler_resume_job',
+        jobId: 'resume-job',
+        authThreadId: 'thread-a',
+      },
+      'whatsapp_main',
+      true,
+      deps,
+    );
+
+    const job = getJobById('resume-job');
+    expect(job!.status).toBe('paused');
     expect(deps.onSchedulerChanged).not.toHaveBeenCalled();
   });
 });
@@ -1501,6 +1655,13 @@ describe('startIpcWatcher', () => {
   const mockGetServiceStatus = vi.fn();
   const mockStartService = vi.fn();
   const mockStopService = vi.fn();
+  const mockValidateIpcAuthToken = vi.fn();
+  const mockUpsertJob = vi.fn();
+  const mockGetJobById = vi.fn();
+  const mockDeleteJob = vi.fn();
+  const mockUpdateJob = vi.fn();
+  const mockListJobRuns = vi.fn();
+  const mockListDeadLetterRuns = vi.fn();
 
   let capturedSetTimeoutCallback: (() => void) | null = null;
 
@@ -1512,6 +1673,7 @@ describe('startIpcWatcher', () => {
     } = {},
   ) {
     vi.resetModules();
+    mockValidateIpcAuthToken.mockImplementation(() => opts.authValid ?? true);
 
     vi.doMock('fs', () => ({
       default: {
@@ -1583,12 +1745,13 @@ describe('startIpcWatcher', () => {
 
     // Mock the storage db module so processTaskIpc doesn't fail
     vi.doMock('@core/storage/db.js', () => ({
-      upsertJob: vi.fn(() => ({ created: true })),
-      getJobById: vi.fn(),
-      deleteJob: vi.fn(),
-      updateJob: vi.fn(),
-      listJobRuns: vi.fn(),
-      listDeadLetterRuns: vi.fn(),
+      upsertJob: (...args: unknown[]) => mockUpsertJob(...args),
+      getJobById: (...args: unknown[]) => mockGetJobById(...args),
+      deleteJob: (...args: unknown[]) => mockDeleteJob(...args),
+      updateJob: (...args: unknown[]) => mockUpdateJob(...args),
+      listJobRuns: (...args: unknown[]) => mockListJobRuns(...args),
+      listDeadLetterRuns: (...args: unknown[]) =>
+        mockListDeadLetterRuns(...args),
     }));
 
     vi.doMock('@core/platform/group-folder.js', () => ({
@@ -1598,7 +1761,8 @@ describe('startIpcWatcher', () => {
     }));
 
     vi.doMock('@core/runtime/ipc-auth.js', () => ({
-      validateIpcAuthToken: vi.fn(() => opts.authValid ?? true),
+      validateIpcAuthToken: (...args: unknown[]) =>
+        mockValidateIpcAuthToken(...args),
     }));
 
     // Capture setTimeout callback so we can trigger poll cycles manually
@@ -1617,6 +1781,11 @@ describe('startIpcWatcher', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     capturedSetTimeoutCallback = null;
+    mockValidateIpcAuthToken.mockImplementation(() => true);
+    mockUpsertJob.mockReturnValue({ created: true });
+    mockGetJobById.mockReturnValue(undefined);
+    mockListJobRuns.mockReturnValue([]);
+    mockListDeadLetterRuns.mockReturnValue([]);
     mockValidateRuntimePreflight.mockReturnValue({ ok: true });
     mockGetServiceStatus.mockReturnValue({
       kind: 'background',
@@ -2326,6 +2495,237 @@ describe('startIpcWatcher', () => {
     });
 
     expect(sendMessage).toHaveBeenCalledWith('other@g.us', 'Hello self!');
+  });
+
+  it('routes IPC send_message to the authenticated thread', async () => {
+    mockReaddirSync.mockImplementation((dir: string) => {
+      if (dir === '/tmp/test-ipc/ipc') return ['other-group'];
+      if (dir.endsWith('/messages')) return ['msg1.json'];
+      return [];
+    });
+    mockStatSync.mockReturnValue({ isDirectory: () => true });
+    mockExistsSync.mockImplementation((p: string) =>
+      p.endsWith('/messages') ? true : false,
+    );
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        type: 'message',
+        chatJid: 'other@g.us',
+        text: 'Hello topic!',
+        threadId: 'topic-42',
+      }),
+    );
+
+    const sendMessage = vi.fn(async () => {});
+    const mod = await loadIpcModule();
+    const watcherDeps: import('@core/runtime/ipc.js').IpcDeps = {
+      sendMessage,
+      registeredGroups: () => ({
+        'other@g.us': {
+          name: 'Other',
+          folder: 'other-group',
+          trigger: '@Bot',
+          added_at: '2024-01-01',
+        },
+      }),
+      registerGroup: vi.fn(),
+      syncGroups: vi.fn(),
+      getAvailableGroups: vi.fn(() => []),
+      writeGroupsSnapshot: vi.fn(),
+      onSchedulerChanged: vi.fn(),
+    };
+
+    mod.startIpcWatcher(watcherDeps);
+
+    await vi.waitFor(() => {
+      expect(capturedSetTimeoutCallback).not.toBeNull();
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith('other@g.us', 'Hello topic!', {
+      threadId: 'topic-42',
+    });
+  });
+
+  it('rejects IPC task when context threadId and payload threadId differ', async () => {
+    mockReaddirSync.mockImplementation((dir: string) => {
+      if (dir === '/tmp/test-ipc/ipc') return ['whatsapp_main'];
+      if (dir.endsWith('/tasks')) return ['task-thread-mismatch.json'];
+      return [];
+    });
+    mockExistsSync.mockImplementation((p: string) =>
+      p.endsWith('/tasks') ? true : false,
+    );
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        authToken: 'valid-token',
+        context: { threadId: 'topic-a' },
+        threadId: 'topic-b',
+        type: 'scheduler_upsert_job',
+        jobId: 'thread-mismatch-job',
+        name: 'Thread Mismatch',
+        prompt: 'do it',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
+      }),
+    );
+
+    const mod = await loadIpcModule('/tmp/test-ipc');
+    const watcherDeps: import('@core/runtime/ipc.js').IpcDeps = {
+      sendMessage: vi.fn(),
+      registeredGroups: () => ({
+        'main@g.us': {
+          name: 'Main',
+          folder: 'whatsapp_main',
+          trigger: 'always',
+          added_at: '2024-01-01',
+          isMain: true,
+        },
+      }),
+      registerGroup: vi.fn(),
+      syncGroups: vi.fn(),
+      getAvailableGroups: vi.fn(() => []),
+      writeGroupsSnapshot: vi.fn(),
+      onSchedulerChanged: vi.fn(),
+    };
+
+    mod.startIpcWatcher(watcherDeps);
+    await vi.waitFor(() => {
+      expect(capturedSetTimeoutCallback).not.toBeNull();
+    });
+
+    expect(mockValidateIpcAuthToken).not.toHaveBeenCalled();
+    expect(mockUpsertJob).not.toHaveBeenCalled();
+    expect(watcherDeps.onSchedulerChanged).not.toHaveBeenCalled();
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file: 'task-thread-mismatch.json',
+        err: expect.objectContaining({
+          message: 'IPC task threadId mismatch',
+        }),
+      }),
+      'Error processing IPC task',
+    );
+  });
+
+  it('does not use auth context threadId as a scheduler delivery target', async () => {
+    mockReaddirSync.mockImplementation((dir: string) => {
+      if (dir === '/tmp/test-ipc/ipc') return ['whatsapp_main'];
+      if (dir.endsWith('/tasks')) return ['task-thread-context.json'];
+      return [];
+    });
+    mockExistsSync.mockImplementation((p: string) =>
+      p.endsWith('/tasks') ? true : false,
+    );
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        authToken: 'valid-token',
+        context: { threadId: 'topic-42' },
+        type: 'scheduler_upsert_job',
+        jobId: 'thread-context-job',
+        name: 'Thread Context',
+        prompt: 'do it',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
+      }),
+    );
+
+    const mod = await loadIpcModule('/tmp/test-ipc');
+    const watcherDeps: import('@core/runtime/ipc.js').IpcDeps = {
+      sendMessage: vi.fn(),
+      registeredGroups: () => ({
+        'main@g.us': {
+          name: 'Main',
+          folder: 'whatsapp_main',
+          trigger: 'always',
+          added_at: '2024-01-01',
+          isMain: true,
+        },
+      }),
+      registerGroup: vi.fn(),
+      syncGroups: vi.fn(),
+      getAvailableGroups: vi.fn(() => []),
+      writeGroupsSnapshot: vi.fn(),
+      onSchedulerChanged: vi.fn(),
+    };
+
+    mod.startIpcWatcher(watcherDeps);
+    await vi.waitFor(() => {
+      expect(capturedSetTimeoutCallback).not.toBeNull();
+    });
+
+    expect(mockValidateIpcAuthToken).toHaveBeenCalledWith(
+      'whatsapp_main',
+      'valid-token',
+      'topic-42',
+    );
+    expect(mockUpsertJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'thread-context-job',
+        thread_id: null,
+      }),
+    );
+    expect(watcherDeps.onSchedulerChanged).toHaveBeenCalled();
+  });
+
+  it('uses explicit payload threadId for IPC task scheduling when it matches auth context', async () => {
+    mockReaddirSync.mockImplementation((dir: string) => {
+      if (dir === '/tmp/test-ipc/ipc') return ['whatsapp_main'];
+      if (dir.endsWith('/tasks')) return ['task-thread-payload.json'];
+      return [];
+    });
+    mockExistsSync.mockImplementation((p: string) =>
+      p.endsWith('/tasks') ? true : false,
+    );
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        authToken: 'valid-token',
+        context: { threadId: 'topic-42' },
+        threadId: 'topic-42',
+        type: 'scheduler_upsert_job',
+        jobId: 'thread-payload-job',
+        name: 'Thread Payload',
+        prompt: 'do it',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
+      }),
+    );
+
+    const mod = await loadIpcModule('/tmp/test-ipc');
+    const watcherDeps: import('@core/runtime/ipc.js').IpcDeps = {
+      sendMessage: vi.fn(),
+      registeredGroups: () => ({
+        'main@g.us': {
+          name: 'Main',
+          folder: 'whatsapp_main',
+          trigger: 'always',
+          added_at: '2024-01-01',
+          isMain: true,
+        },
+      }),
+      registerGroup: vi.fn(),
+      syncGroups: vi.fn(),
+      getAvailableGroups: vi.fn(() => []),
+      writeGroupsSnapshot: vi.fn(),
+      onSchedulerChanged: vi.fn(),
+    };
+
+    mod.startIpcWatcher(watcherDeps);
+    await vi.waitFor(() => {
+      expect(capturedSetTimeoutCallback).not.toBeNull();
+    });
+
+    expect(mockValidateIpcAuthToken).toHaveBeenCalledWith(
+      'whatsapp_main',
+      'valid-token',
+      'topic-42',
+    );
+    expect(mockUpsertJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'thread-payload-job',
+        thread_id: 'topic-42',
+      }),
+    );
+    expect(watcherDeps.onSchedulerChanged).toHaveBeenCalled();
   });
 
   it('blocks unauthorized IPC message from non-main group to different group', async () => {

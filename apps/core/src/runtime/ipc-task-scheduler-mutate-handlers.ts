@@ -6,6 +6,7 @@ import { logger } from '../core/logger.js';
 import { deleteJob, getJobById, updateJob } from '../storage/db.js';
 import { TaskHandler } from './ipc-task-types.js';
 import {
+  jobBelongsToAuthThread,
   jobBelongsToSourceGroup,
   normalizeIpcExecutionMode,
 } from './ipc-task-shared.js';
@@ -47,6 +48,18 @@ const schedulerUpdateJobHandler: TaskHandler = (context) => {
   if (!jobId) return;
   const job = getJobById(jobId);
   if (!job) return;
+  if (!jobBelongsToAuthThread(job, data.authThreadId)) {
+    logger.warn(
+      {
+        sourceGroup,
+        jobId,
+        jobThreadId: job.thread_id,
+        authThreadId: data.authThreadId,
+      },
+      'Unauthorized scheduler_update_job thread mutation blocked',
+    );
+    return;
+  }
   if (!isMain && !jobBelongsToSourceGroup(job, sourceGroup, registeredGroups)) {
     logger.warn(
       {
@@ -192,6 +205,18 @@ const schedulerDeleteJobHandler: TaskHandler = (context) => {
   if (!jobId) return;
   const job = getJobById(jobId);
   if (!job) return;
+  if (!jobBelongsToAuthThread(job, data.authThreadId)) {
+    logger.warn(
+      {
+        sourceGroup,
+        jobId,
+        jobThreadId: job.thread_id,
+        authThreadId: data.authThreadId,
+      },
+      'Unauthorized scheduler_delete_job thread mutation blocked',
+    );
+    return;
+  }
   if (!isMain && !jobBelongsToSourceGroup(job, sourceGroup, registeredGroups)) {
     logger.warn(
       {
@@ -214,6 +239,18 @@ const schedulerPauseJobHandler: TaskHandler = (context) => {
   if (!jobId) return;
   const job = getJobById(jobId);
   if (!job) return;
+  if (!jobBelongsToAuthThread(job, data.authThreadId)) {
+    logger.warn(
+      {
+        sourceGroup,
+        jobId,
+        jobThreadId: job.thread_id,
+        authThreadId: data.authThreadId,
+      },
+      'Unauthorized scheduler_pause_job thread mutation blocked',
+    );
+    return;
+  }
   if (!isMain && !jobBelongsToSourceGroup(job, sourceGroup, registeredGroups)) {
     logger.warn(
       {
@@ -239,6 +276,18 @@ const schedulerResumeJobHandler: TaskHandler = (context) => {
   if (!jobId) return;
   const job = getJobById(jobId);
   if (!job) return;
+  if (!jobBelongsToAuthThread(job, data.authThreadId)) {
+    logger.warn(
+      {
+        sourceGroup,
+        jobId,
+        jobThreadId: job.thread_id,
+        authThreadId: data.authThreadId,
+      },
+      'Unauthorized scheduler_resume_job thread mutation blocked',
+    );
+    return;
+  }
   if (!isMain && !jobBelongsToSourceGroup(job, sourceGroup, registeredGroups)) {
     logger.warn(
       {

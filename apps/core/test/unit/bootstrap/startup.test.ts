@@ -115,12 +115,13 @@ describe('runStartup', () => {
     expect(warn).toHaveBeenCalledOnce();
   });
 
-  it('fails fast when storage.provider is postgres', async () => {
+  it('rejects postgres storage until runtime persistence is provider-backed', async () => {
+    const initDatabase = vi.fn();
     await expect(
       runStartup(makeApp(), {
         ensureRuntimeLayoutDirectories: vi.fn(),
         ensurePromptProfileBootstrapped: vi.fn(),
-        initDatabase: vi.fn(),
+        initDatabase,
         loadRuntimeSettings: vi.fn(
           () =>
             ({
@@ -132,8 +133,8 @@ describe('runStartup', () => {
         restoreRemoteControl: vi.fn(),
         logger: { info: vi.fn(), warn: vi.fn() },
       }),
-    ).rejects.toThrow(
-      /storage\.provider=postgres is not available in host runtime/i,
-    );
+    ).rejects.toThrow(/storage\.provider=postgres is not available/i);
+
+    expect(initDatabase).not.toHaveBeenCalled();
   });
 });

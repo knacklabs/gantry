@@ -27,17 +27,23 @@ import { fileURLToPath } from 'url';
 import { nowIso, nowMs, sleep } from '../core/datetime.js';
 import { isPlainObject } from '../core/object.js';
 import { composeAgentCapabilities } from './agent-capabilities.js';
+import {
+  composeSystemPromptAppend,
+  denyMemoryBoundaryToolUse,
+} from './memory-boundary.js';
 
 interface AgentRunnerInput {
   prompt: string;
   sessionId?: string;
   groupFolder: string;
   chatJid: string;
+  threadId?: string;
   isMain: boolean;
   isScheduledJob?: boolean;
   assistantName?: string;
   script?: string;
   compiledSystemPrompt?: string;
+  memoryContextBlock?: string;
   thinking?: {
     mode: 'adaptive' | 'enabled' | 'disabled';
     effort?: EffortLevel;
@@ -53,9 +59,14 @@ interface AgentRunnerOutput {
   error?: string;
 }
 
+interface SDKTextBlock {
+  type: 'text';
+  text: string;
+}
+
 interface SDKUserMessage {
   type: 'user';
-  message: { role: 'user'; content: string };
+  message: { role: 'user'; content: string | SDKTextBlock[] };
   parent_tool_use_id: null;
   session_id: string;
 }
@@ -77,8 +88,6 @@ const PERMISSION_REQUEST_TIMEOUT_MS = Math.max(
   10_000,
   parseInt(process.env.MYCLAW_PERMISSION_TIMEOUT_MS || '300000', 10) || 300_000,
 );
-const IPC_MEMORY_CONTEXT_FILE =
-  process.env.MYCLAW_IPC_MEMORY_CONTEXT_FILE?.trim() || '';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
 
@@ -127,10 +136,18 @@ class MessageStream {
   private waiting: (() => void) | null = null;
   private done = false;
 
-  push(text: string): void {
+  pushText(text: string): void {
+    this.pushContent(text);
+  }
+
+  pushMemoryContext(text: string): void {
+    this.pushContent([{ type: 'text', text }]);
+  }
+
+  private pushContent(content: string | SDKTextBlock[]): void {
     this.queue.push({
       type: 'user',
-      message: { role: 'user', content: text },
+      message: { role: 'user', content },
       parent_tool_use_id: null,
       session_id: '',
     });
@@ -348,6 +365,7 @@ async function requestPermissionApproval(options: {
   decisionReason?: string;
   blockedPath?: string;
   toolInput?: unknown;
+  threadId?: string;
 }): Promise<PermissionDecision> {
   try {
     const groupIpcDir = resolveGroupIpcDir(options.groupFolder);
@@ -375,6 +393,7 @@ async function requestPermissionApproval(options: {
       ...(isPlainObject(options.toolInput)
         ? { toolInput: options.toolInput }
         : {}),
+      ...(options.threadId ? { threadId: options.threadId } : {}),
       ...(IPC_AUTH_TOKEN ? { authToken: IPC_AUTH_TOKEN } : {}),
       timestamp: nowIso(),
     };
@@ -456,8 +475,11 @@ async function runQuery(
   closedDuringQuery: boolean;
 }> {
   const stream = new MessageStream();
-  const memoryBlock = readMemoryContextBlock();
-  stream.push(memoryBlock ? `${prompt}\n\n${memoryBlock}` : prompt);
+  const memoryBlock = readMemoryContextBlock(agentInput);
+  if (memoryBlock) {
+    stream.pushMemoryContext(memoryBlock);
+  }
+  stream.pushText(prompt);
 
   // Poll IPC for follow-up messages and _close sentinel during the query
   let ipcPolling = true;
@@ -475,7 +497,7 @@ async function runQuery(
     const messages = drainIpcInput();
     for (const text of messages) {
       log(`Piping IPC message into active query (${text.length} chars)`);
-      stream.push(text);
+      stream.pushText(text);
     }
     setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
   };
@@ -488,7 +510,12 @@ async function runQuery(
   let messageCount = 0;
   let resultCount = 0;
   let sawPartialTextSinceLastResult = false;
-  const systemPrompt = buildSystemPrompt(agentInput.compiledSystemPrompt);
+  const systemPrompt = buildSystemPrompt(
+    composeSystemPromptAppend(
+      agentInput.compiledSystemPrompt,
+      Boolean(memoryBlock),
+    ),
+  );
 
   // Discover additional directories mounted at runtime-specific extra dir.
   // These paths are exposed to the SDK for file access when present.
@@ -510,6 +537,7 @@ async function runQuery(
     mcpServerPath,
     chatJid: agentInput.chatJid,
     groupFolder: agentInput.groupFolder,
+    threadId: agentInput.threadId,
     isMain: agentInput.isMain,
     ipcDir: process.env.MYCLAW_IPC_DIR,
     ipcAuthToken: process.env.MYCLAW_IPC_AUTH_TOKEN,
@@ -534,6 +562,23 @@ async function runQuery(
           return { behavior: 'allow' as const, updatedInput: input };
         }
 
+        const memoryGuardDenial = denyMemoryBoundaryToolUse(
+          toolName,
+          input,
+          permissionOpts,
+          memoryBlock,
+        );
+        if (memoryGuardDenial) {
+          log(
+            `Permission denied by memory boundary guard: ${memoryGuardDenial}`,
+          );
+          return {
+            behavior: 'deny' as const,
+            message: memoryGuardDenial,
+            interrupt: false,
+          };
+        }
+
         if (permissionOpts.signal.aborted) {
           return {
             behavior: 'deny' as const,
@@ -549,6 +594,7 @@ async function runQuery(
           decisionReason: permissionOpts.decisionReason,
           blockedPath: permissionOpts.blockedPath,
           toolInput: input,
+          threadId: agentInput.threadId,
         });
         if (decision.approved) {
           log(
@@ -686,14 +732,11 @@ async function runQuery(
   return { newSessionId, lastAssistantUuid, closedDuringQuery };
 }
 
-function readMemoryContextBlock(): string {
+function readMemoryContextBlock(agentInput: AgentRunnerInput): string {
   try {
-    if (!IPC_MEMORY_CONTEXT_FILE) return '';
-    if (!fs.existsSync(IPC_MEMORY_CONTEXT_FILE)) return '';
-    const parsed = JSON.parse(
-      fs.readFileSync(IPC_MEMORY_CONTEXT_FILE, 'utf-8'),
-    ) as { block?: unknown };
-    return typeof parsed.block === 'string' ? parsed.block.trim() : '';
+    return typeof agentInput.memoryContextBlock === 'string'
+      ? agentInput.memoryContextBlock.trim()
+      : '';
   } catch (err) {
     log(
       `Failed to load memory context block: ${err instanceof Error ? err.message : String(err)}`,

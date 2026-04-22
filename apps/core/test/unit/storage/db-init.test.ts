@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe('storage db initDatabase', () => {
-  it('initializes sqlite runtime store path even when storage provider is postgres', async () => {
+  it('rejects postgres storage until runtime persistence is provider-backed', async () => {
     const runtimeRoot = createTempDir();
     const sqlitePath = path.join(runtimeRoot, 'store', 'postgres-runtime.db');
     vi.doMock('@core/core/config.js', () => ({
@@ -30,9 +30,10 @@ describe('storage db initDatabase', () => {
     }));
 
     const dbModule = await import('@core/storage/db.js');
-    dbModule.initDatabase();
-    expect(fs.existsSync(sqlitePath)).toBe(true);
-    dbModule._closeDatabase();
+    expect(() => dbModule.initDatabase()).toThrow(
+      /storage\.provider=postgres is not available/i,
+    );
+    expect(fs.existsSync(sqlitePath)).toBe(false);
   });
 
   it('initializes sqlite database at storage.sqlite.path', async () => {

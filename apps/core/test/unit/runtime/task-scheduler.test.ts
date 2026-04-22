@@ -33,6 +33,9 @@ const runDreamingSweepMock = vi.fn(async () => ({
   topPromoted: [],
   durationMs: 1,
 }));
+const buildBriefMock = vi.fn(
+  async () => '## Memory Brief\n\nNo durable memory.',
+);
 const runMemoryCleanupInSubprocessMock = vi.hoisted(() =>
   vi.fn(async () => ({
     sweptMirrors: 0,
@@ -61,6 +64,7 @@ vi.mock('@core/memory/memory-service.js', () => ({
   MemoryService: {
     getInstance: () => ({
       runDreamingSweep: runDreamingSweepMock,
+      buildBrief: buildBriefMock,
     }),
   },
 }));
@@ -1193,6 +1197,43 @@ describe('scheduler loop', () => {
       '🔔 Scheduled task: interval test',
     );
     expect(sendMessage).toHaveBeenCalledWith('group@g.us', 'All good');
+  });
+
+  it('routes non-streaming scheduler messages to the job thread', async () => {
+    vi.mocked(spawnAgent).mockResolvedValueOnce({
+      status: 'success',
+      result: 'Thread result',
+      newSessionId: 'session-1',
+    });
+
+    upsertJob({
+      id: 'threaded-notify-job',
+      name: 'threaded notify',
+      prompt: 'do threaded work',
+      schedule_type: 'once',
+      schedule_value: new Date(Date.now() - 60_000).toISOString(),
+      linked_sessions: ['group@g.us'],
+      thread_id: 'topic-42',
+      group_scope: 'main',
+      created_by: 'agent',
+      next_run: new Date(Date.now() - 60_000).toISOString(),
+      status: 'active',
+    });
+
+    const sendMessage = vi.fn(async () => {});
+    startSchedulerLoop(makeDeps({ sendMessage }));
+    await vi.advanceTimersByTimeAsync(20);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      'group@g.us',
+      '🔔 Scheduled task: threaded notify',
+      { threadId: 'topic-42' },
+    );
+    expect(sendMessage).toHaveBeenCalledWith('group@g.us', 'Thread result', {
+      threadId: 'topic-42',
+    });
   });
 
   it('completes once job and sets status to completed (no next_run)', async () => {

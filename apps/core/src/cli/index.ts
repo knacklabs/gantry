@@ -7,7 +7,12 @@ import {
   listChannelProviders,
 } from '../channels/provider-registry.js';
 
-import { formatDoctorReport, runDoctorWithNetwork } from './doctor.js';
+import {
+  formatDoctorReport,
+  hasProcessableGroupForConfiguredChannel,
+  hasRuntimeConfig,
+  runDoctorWithNetwork,
+} from './doctor.js';
 import { runConfigCommand } from './config.js';
 import { runAgentCommand } from './group.js';
 import {
@@ -251,11 +256,14 @@ async function runSetupCommand(
   runtimeHome: string,
   initialStep?:
     | 'welcome'
-    | 'doctor'
     | 'runtime_home'
+    | 'storage'
     | 'prerequisites'
+    | 'channel'
     | 'credentials'
+    | 'model'
     | 'telegram'
+    | 'slack'
     | 'memory'
     | 'embeddings'
     | 'dreaming'
@@ -312,7 +320,9 @@ async function runSetupCommand(
     initialStep: startStep,
   });
   if (result.status === 'completed') {
-    await runStatusCommand(import.meta.url, result.runtimeHome);
+    if (result.startAfterSetup) {
+      return runStartCommand(result.runtimeHome);
+    }
     return 0;
   }
   if (result.status === 'resumed') {
@@ -324,9 +334,16 @@ async function runSetupCommand(
 async function runSmartEntrypoint(runtimeHome: string): Promise<number> {
   const state = readOnboardingState(runtimeHome);
   const validation = validateRuntimePreflight(runtimeHome);
-  const isReady = validation.ok;
+  const isReady =
+    validation.ok &&
+    hasRuntimeConfig(runtimeHome) &&
+    hasProcessableGroupForConfiguredChannel(runtimeHome);
 
-  if (!isReady || state?.status === 'in_progress') {
+  if (state?.status === 'in_progress') {
+    return runSetupCommand(runtimeHome);
+  }
+
+  if (!isReady) {
     return runSetupCommand(runtimeHome);
   }
 
