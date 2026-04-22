@@ -151,9 +151,6 @@ export async function spawnAgent(
     MYCLAW_IPC_AUTH_TOKEN: computeIpcAuthToken(group.folder),
     MYCLAW_PERMISSION_TIMEOUT_MS: String(PERMISSION_APPROVAL_TIMEOUT_MS),
     CLAUDE_CONFIG_DIR: path.join(MYCLAW_HOME, '.claude'),
-    ...(input.memoryContextFile
-      ? { MYCLAW_IPC_MEMORY_CONTEXT_FILE: input.memoryContextFile }
-      : {}),
   };
   // Job-level model overrides group-level model.
   const effectiveModel = input.model || modelConfig.model;

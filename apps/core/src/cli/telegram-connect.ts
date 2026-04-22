@@ -16,6 +16,11 @@ import {
   verifyTelegramChatAccess,
 } from './telegram.js';
 
+type TelegramChatChoice =
+  | { type: 'selected'; chatJid: string }
+  | { type: 'skip' }
+  | { type: 'cancel' };
+
 async function promptTelegramToken(
   defaultValue: string,
 ): Promise<string | null> {
@@ -32,7 +37,7 @@ async function promptTelegramToken(
 
 async function promptManualTelegramChatId(
   defaultChatJid = '',
-): Promise<string | null> {
+): Promise<TelegramChatChoice> {
   const result = await p.text({
     message: 'Telegram chat ID (optional, e.g. -1001234567890)',
     placeholder: 'Press Enter to skip registration for now',
@@ -45,11 +50,16 @@ async function promptManualTelegramChatId(
         : 'Use a numeric Telegram chat ID (for example: -1001234567890).';
     },
   });
-  if (p.isCancel(result)) return null;
-  return normalizeTelegramChatJid(String(result || '').trim());
+  if (p.isCancel(result)) return { type: 'cancel' };
+  const normalized = normalizeTelegramChatJid(String(result || '').trim());
+  return normalized
+    ? { type: 'selected', chatJid: normalized }
+    : { type: 'skip' };
 }
 
-async function chooseChatFromDiscovery(token: string): Promise<string | null> {
+async function chooseChatFromDiscovery(
+  token: string,
+): Promise<TelegramChatChoice> {
   const spinner = p.spinner();
   spinner.start('Discovering recent Telegram chats...');
   const discovery = await listTelegramRecentChats({ token, limit: 30 });
@@ -70,7 +80,7 @@ async function chooseChatFromDiscovery(token: string): Promise<string | null> {
   if (discovery.chats.length === 1) {
     const only = discovery.chats[0];
     spinner.stop(`Auto-selected ${only.chatTitle} (${only.chatJid}).`);
-    return only.chatJid;
+    return { type: 'selected', chatJid: only.chatJid };
   }
 
   spinner.stop(`Found ${discovery.chats.length} recent chats.`);
@@ -92,12 +102,15 @@ async function chooseChatFromDiscovery(token: string): Promise<string | null> {
       },
     ],
   });
-  if (p.isCancel(selected)) return null;
+  if (p.isCancel(selected)) return { type: 'cancel' };
   if (selected === 'manual') {
     return promptManualTelegramChatId();
   }
-  if (selected === 'skip') return null;
-  return normalizeTelegramChatJid(String(selected || '').trim());
+  if (selected === 'skip') return { type: 'skip' };
+  const normalized = normalizeTelegramChatJid(String(selected || '').trim());
+  return normalized
+    ? { type: 'selected', chatJid: normalized }
+    : { type: 'skip' };
 }
 
 export async function runTelegramConnectCommand(
@@ -129,11 +142,13 @@ export async function runTelegramConnectCommand(
   }
   p.log.success(validation.message);
 
-  const normalizedChatJid = await chooseChatFromDiscovery(tokenInput);
-  if (normalizedChatJid === null) {
+  const chatChoice = await chooseChatFromDiscovery(tokenInput);
+  if (chatChoice.type === 'cancel') {
     p.outro('Telegram connect cancelled.');
     return 1;
   }
+  const normalizedChatJid =
+    chatChoice.type === 'selected' ? chatChoice.chatJid : '';
 
   if (normalizedChatJid) {
     const access = await verifyTelegramChatAccess({

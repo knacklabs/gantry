@@ -46,11 +46,25 @@ function encodeEnvValue(value: string): string {
 }
 
 export function writeEnvFile(filePath: string, env: EnvMap): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(dir, 0o700);
+  } catch {
+    // Best effort: some filesystems do not support POSIX modes.
+  }
   const lines = Object.keys(env)
     .sort((a, b) => a.localeCompare(b))
     .map((key) => `${key}=${encodeEnvValue(env[key])}`);
-  fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf-8');
+  fs.writeFileSync(filePath, `${lines.join('\n')}\n`, {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Best effort: some filesystems do not support POSIX modes.
+  }
 }
 
 export function upsertEnvFile(

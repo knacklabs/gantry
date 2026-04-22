@@ -49,7 +49,7 @@ import {
 } from './agent-spawn.js';
 import { archiveSessionTranscript } from '../session/session-transcript-archive.js';
 import { handleSessionCommand } from '../session/session-commands.js';
-import { createInjectedMemoryContextFile } from './memory-context.js';
+import { createInjectedMemoryContextBlock } from './memory-context.js';
 
 const TYPING_HEARTBEAT_INTERVAL_MS = 4_000;
 const ELAPSED_PROGRESS_INTERVAL_MS = 60_000;
@@ -199,7 +199,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
         }
       : undefined;
 
-    const context = await createInjectedMemoryContextFile({
+    const context = await createInjectedMemoryContextBlock({
       groupFolder: group.folder,
       chatJid,
       source: options?.memoryContext?.source || 'message',
@@ -217,7 +217,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
           isMain,
           assistantName: ASSISTANT_NAME,
           thinking: group.agentConfig?.thinking,
-          memoryContextFile: context?.filePath,
+          memoryContextBlock: context?.block,
         },
         (proc, containerName) =>
           deps.queue.registerProcess(
@@ -275,8 +275,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
     } catch (err) {
       logger.error({ group: group.name, err }, 'Agent error');
       return 'error';
-    } finally {
-      context?.cleanup();
     }
   }
 

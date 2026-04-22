@@ -5,6 +5,9 @@ import path from 'path';
 import { describe, expect, it } from 'vitest';
 import { afterEach, vi } from 'vitest';
 
+import { readEnvFile } from '@core/cli/env-file.js';
+import { envFilePath } from '@core/cli/runtime-home.js';
+import { loadRuntimeSettings } from '@core/cli/runtime-settings.js';
 import {
   normalizeTelegramChatJid,
   registerTelegramMainGroup,
@@ -16,6 +19,8 @@ const runtimeHomes: string[] = [];
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.resetModules();
+  vi.unstubAllGlobals();
   while (runtimeHomes.length > 0) {
     const runtimeHome = runtimeHomes.pop();
     if (runtimeHome) fs.rmSync(runtimeHome, { recursive: true, force: true });
@@ -179,6 +184,106 @@ describe('cli telegram helpers', () => {
     expect(result.chats).toHaveLength(2);
     expect(result.chats[0]?.chatJid).toBe('tg:99887766');
     expect(result.chats[1]?.chatJid).toBe('tg:-100123');
+  });
+
+  it('does not leak token-bearing transport details when discovery fails', async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          'request failed for https://api.telegram.org/botsecret-token/getUpdates',
+        ),
+      );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const result = await listTelegramRecentChats({
+      token: 'secret-token',
+      limit: 20,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.nextAction).not.toContain('secret-token');
+    expect(result.nextAction).not.toContain('api.telegram.org/bot');
+  });
+
+  it('does not echo token-bearing HTTP error bodies from discovery', async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          'proxy echoed https://api.telegram.org/botsecret-token/getUpdates',
+          { status: 502 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const result = await listTelegramRecentChats({
+      token: 'secret-token',
+      limit: 20,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.nextAction).not.toContain('secret-token');
+    expect(result.nextAction).not.toContain('api.telegram.org/bot');
+  });
+
+  it('telegram connect saves token when chat registration is skipped', async () => {
+    vi.resetModules();
+    const runtimeHome = makeRuntimeHome();
+    const outro = vi.fn();
+
+    vi.doMock('@clack/prompts', () => ({
+      isCancel: () => false,
+      note: vi.fn(),
+      password: vi.fn(async () => 'telegram-token'),
+      text: vi.fn(async () => ''),
+      outro,
+      log: {
+        success: vi.fn(),
+        info: vi.fn(),
+        error: vi.fn(),
+      },
+      spinner: vi.fn(() => ({
+        start: vi.fn(),
+        stop: vi.fn(),
+      })),
+    }));
+    vi.doMock('@core/cli/telegram-chat-discovery.js', () => ({
+      listTelegramRecentChats: vi.fn(async () => ({
+        ok: true,
+        message: 'No recent chats found in bot updates.',
+        chats: [],
+        nextAction: 'Send a message and retry.',
+      })),
+    }));
+    vi.doMock('@core/cli/telegram.js', () => ({
+      normalizeTelegramChatJid: vi.fn((value: string) =>
+        value.trim() ? `tg:${value.trim()}` : null,
+      ),
+      readTelegramFromRuntimeEnv: vi.fn(() => ({ token: '' })),
+      registerTelegramMainGroup: vi.fn(),
+      validateTelegramBotToken: vi.fn(async () => ({
+        ok: true,
+        message: 'ok',
+        botId: 123,
+      })),
+      verifyTelegramChatAccess: vi.fn(),
+    }));
+
+    const { runTelegramConnectCommand } =
+      await import('@core/cli/telegram-connect.js');
+    const code = await runTelegramConnectCommand(runtimeHome);
+
+    expect(code).toBe(0);
+    expect(readEnvFile(envFilePath(runtimeHome)).TELEGRAM_BOT_TOKEN).toBe(
+      'telegram-token',
+    );
+    expect(loadRuntimeSettings(runtimeHome).channels.telegram.enabled).toBe(
+      true,
+    );
+    expect(outro).toHaveBeenCalledWith(
+      'Telegram token saved. Next: run `myclaw agent add <chat-id> --main --requires-trigger false`.',
+    );
   });
 
   it('seeds CLAUDE.md and SOUL.md when registering the main group', async () => {

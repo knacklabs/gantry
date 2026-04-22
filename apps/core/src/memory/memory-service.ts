@@ -971,10 +971,6 @@ export class MemoryService {
       .slice(0, input.maxItems);
     const procedures = this.store.listTopProcedures(input.groupFolder, 5);
 
-    for (const item of scoped) {
-      this.store.touchItem(item.id);
-    }
-
     const decisions = scoped.filter((item) => item.kind === 'decision');
     const facts = scoped.filter((item) => item.kind !== 'decision');
     const latestSessionRecap =

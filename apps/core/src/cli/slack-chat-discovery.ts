@@ -104,12 +104,12 @@ export async function listSlackRecentChats(options: {
     );
 
     if (!response.ok) {
-      const body = await response.text();
       return {
         ok: false,
         chats: [],
         message: `Slack users.conversations failed with HTTP ${response.status}.`,
-        nextAction: `Check token scopes/network. Response: ${body.slice(0, 160)}`,
+        nextAction:
+          'Check token scopes/network and retry. Raw token-bearing transport details are intentionally not printed.',
       };
     }
 
@@ -172,13 +172,13 @@ export async function listSlackRecentChats(options: {
       chats,
       message: `Discovered ${chats.length} Slack conversation(s).`,
     };
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
+  } catch {
     return {
       ok: false,
       chats: [],
       message: 'Could not reach Slack API for conversation discovery.',
-      nextAction: `Check internet access and retry. Details: ${reason}`,
+      nextAction:
+        'Check internet access and retry. Raw token-bearing transport details are intentionally not printed.',
     };
   }
 }

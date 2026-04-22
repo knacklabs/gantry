@@ -85,6 +85,32 @@ describe('persistOnboardingConfig', () => {
     expect(settings.memory.dreaming.enabled).toBe(true);
   });
 
+  it('removes local Claude credentials in onecli-only mode', () => {
+    const runtimeHome = createRuntimeHome();
+    const envPath = envFilePath(runtimeHome);
+
+    persistOnboardingConfig({
+      runtimeHome,
+      storageProvider: 'sqlite',
+      primaryProvider: 'telegram',
+      telegramBotToken: 'token',
+      claudeOauthToken: 'oauth-secret',
+      anthropicApiKey: 'api-secret',
+      anthropicModel: 'claude-sonnet-4-6',
+      credentialMode: 'onecli-only',
+      onecliUrl: 'http://localhost:10254',
+      memoryEnabled: true,
+      embeddingsEnabled: false,
+      dreamingEnabled: true,
+    });
+
+    const env = readEnvFile(envPath);
+    expect(env.MYCLAW_CREDENTIAL_MODE).toBe('onecli-only');
+    expect(env.ONECLI_URL).toBe('http://localhost:10254');
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
   it('does not persist a database URL for sqlite setup', () => {
     const runtimeHome = createRuntimeHome();
     const envPath = envFilePath(runtimeHome);

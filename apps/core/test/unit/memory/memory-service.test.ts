@@ -333,7 +333,7 @@ describe('MemoryService boundary extraction', () => {
     expect(fixture.store.pinItem).toHaveBeenCalledWith('pin-1', true);
   });
 
-  it('buildBrief renders decisions, facts, and procedures and touches items', async () => {
+  it('buildBrief renders decisions, facts, and procedures without touching items', async () => {
     const fixture = makeServiceFixture();
     fixture.store.listTopItems
       .mockReturnValueOnce([
@@ -372,8 +372,7 @@ describe('MemoryService boundary extraction', () => {
     expect(brief).toContain('Runtime is Node.js.');
     expect(brief).toContain('### Procedures');
     expect(brief).toContain('**Release**');
-    expect(fixture.store.touchItem).toHaveBeenCalledWith('g1');
-    expect(fixture.store.touchItem).toHaveBeenCalledWith('x1');
+    expect(fixture.store.touchItem).not.toHaveBeenCalled();
   });
 
   it('buildBrief includes user-scoped items only when userId is provided', async () => {

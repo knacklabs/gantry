@@ -38,6 +38,7 @@ interface AgentRunnerInput {
   assistantName?: string;
   script?: string;
   compiledSystemPrompt?: string;
+  memoryContextBlock?: string;
   thinking?: {
     mode: 'adaptive' | 'enabled' | 'disabled';
     effort?: EffortLevel;
@@ -77,8 +78,6 @@ const PERMISSION_REQUEST_TIMEOUT_MS = Math.max(
   10_000,
   parseInt(process.env.MYCLAW_PERMISSION_TIMEOUT_MS || '300000', 10) || 300_000,
 );
-const IPC_MEMORY_CONTEXT_FILE =
-  process.env.MYCLAW_IPC_MEMORY_CONTEXT_FILE?.trim() || '';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
 
@@ -456,7 +455,7 @@ async function runQuery(
   closedDuringQuery: boolean;
 }> {
   const stream = new MessageStream();
-  const memoryBlock = readMemoryContextBlock();
+  const memoryBlock = readMemoryContextBlock(agentInput);
   stream.push(memoryBlock ? `${prompt}\n\n${memoryBlock}` : prompt);
 
   // Poll IPC for follow-up messages and _close sentinel during the query
@@ -686,14 +685,11 @@ async function runQuery(
   return { newSessionId, lastAssistantUuid, closedDuringQuery };
 }
 
-function readMemoryContextBlock(): string {
+function readMemoryContextBlock(agentInput: AgentRunnerInput): string {
   try {
-    if (!IPC_MEMORY_CONTEXT_FILE) return '';
-    if (!fs.existsSync(IPC_MEMORY_CONTEXT_FILE)) return '';
-    const parsed = JSON.parse(
-      fs.readFileSync(IPC_MEMORY_CONTEXT_FILE, 'utf-8'),
-    ) as { block?: unknown };
-    return typeof parsed.block === 'string' ? parsed.block.trim() : '';
+    return typeof agentInput.memoryContextBlock === 'string'
+      ? agentInput.memoryContextBlock.trim()
+      : '';
   } catch (err) {
     log(
       `Failed to load memory context block: ${err instanceof Error ? err.message : String(err)}`,

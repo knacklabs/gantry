@@ -41,6 +41,7 @@ describe('cli env-file helpers', () => {
       A: '1',
       B: 'hello world',
     });
+    expect((fs.statSync(envPath).mode & 0o777).toString(8)).toBe('600');
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

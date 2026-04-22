@@ -14,7 +14,7 @@ export interface AgentInput {
   script?: string;
   compiledSystemPrompt?: string;
   thinking?: ThinkingOverride;
-  memoryContextFile?: string;
+  memoryContextBlock?: string;
 }
 
 export interface AgentOutput {

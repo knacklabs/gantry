@@ -138,12 +138,12 @@ export async function listTelegramRecentChats(options: {
       timeoutMs,
     );
     if (!response.ok) {
-      const body = await response.text();
       return {
         ok: false,
         chats: [],
         message: `Telegram getUpdates failed with HTTP ${response.status}.`,
-        nextAction: `Check bot token/network. Response: ${body.slice(0, 160)}`,
+        nextAction:
+          'Check bot token/network and retry. Raw token-bearing transport details are intentionally not printed.',
       };
     }
 
@@ -197,13 +197,13 @@ export async function listTelegramRecentChats(options: {
       chats,
       message: `Discovered ${chats.length} recent Telegram chat(s).`,
     };
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
+  } catch {
     return {
       ok: false,
       chats: [],
       message: 'Could not reach Telegram API for chat discovery.',
-      nextAction: `Check internet access and retry. Details: ${reason}`,
+      nextAction:
+        'Check internet access and retry. Raw token-bearing transport details are intentionally not printed.',
     };
   }
 }

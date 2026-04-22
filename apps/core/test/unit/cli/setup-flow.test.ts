@@ -318,9 +318,8 @@ afterEach(() => {
 describe('runSetupFlow credential step', () => {
   it('enforces strict OneCLI validation for onecli-only mode', async () => {
     const mod = await loadSetupFlowModule({
-      selectQueue: ['api_key', 'onecli-only', 'resume'],
+      selectQueue: ['onecli-only', 'resume'],
       textQueue: ['http://localhost:10254'],
-      passwordQueue: ['sk-ant-test'],
       onecliReject: true,
     });
 
@@ -337,7 +336,7 @@ describe('runSetupFlow credential step', () => {
 
   it('allows hybrid mode to continue when OneCLI validation fails', async () => {
     const mod = await loadSetupFlowModule({
-      selectQueue: ['api_key', 'hybrid', 'continue'],
+      selectQueue: ['hybrid', 'continue', 'api_key'],
       textQueue: ['http://localhost:10254'],
       passwordQueue: ['sk-ant-test'],
       onecliReject: true,
@@ -356,7 +355,7 @@ describe('runSetupFlow credential step', () => {
 
   it('skips OneCLI validation for env-only mode', async () => {
     const mod = await loadSetupFlowModule({
-      selectQueue: ['api_key', 'env-only'],
+      selectQueue: ['env-only', 'api_key'],
       passwordQueue: ['sk-ant-test'],
     });
 
@@ -396,8 +395,8 @@ describe('runSetupFlow credential step', () => {
         'telegram',
         'tg:-1001234567890',
         'next',
-        'oauth',
         'env-only',
+        'oauth',
         'claude-sonnet-4-6',
         'on',
         'off',
@@ -438,9 +437,9 @@ describe('runSetupFlow credential step', () => {
       'Choose the Telegram chat for MyClaw',
       'Choose a name for this Telegram chat in MyClaw (/back, /resume, /cancel)',
       'Use these Telegram settings?',
+      'Credential source mode',
       'How should MyClaw authenticate with Claude?',
       'Paste CLAUDE_CODE_OAUTH_TOKEN (/back, /resume, /cancel)',
-      'Credential source mode',
       'Choose main model',
       'Memory setting',
       'Embeddings setting',

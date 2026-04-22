@@ -237,6 +237,12 @@ function restoreDraft(
     state?.data.credentialMode || env.MYCLAW_CREDENTIAL_MODE,
     savedOnecliUrl,
   );
+  const hasConfiguredChannel = Object.values(settings.channels).some(
+    (channel) => channel.enabled,
+  );
+  const defaultDreamingEnabled = hasConfiguredChannel
+    ? settings.memory.dreaming.enabled
+    : true;
   return {
     runtimeHome,
     storageProvider: 'sqlite',
@@ -258,7 +264,7 @@ function restoreDraft(
     memoryEnabled: state?.data.memoryEnabled ?? settings.memory.enabled,
     embeddingsEnabled:
       state?.data.embeddingsEnabled ?? settings.memory.embeddings.enabled,
-    dreamingEnabled: state?.data.dreamingEnabled ?? true,
+    dreamingEnabled: state?.data.dreamingEnabled ?? defaultDreamingEnabled,
     openAiApiKey: env.OPENAI_API_KEY || '',
     serviceChoice: 'skip',
     startAfterSetup: false,

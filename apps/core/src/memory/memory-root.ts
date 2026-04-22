@@ -29,6 +29,19 @@ export interface LatestSessionRecap {
   openLoops: string;
 }
 
+interface LatestSessionRecapIndex {
+  version: 1;
+  groups: Record<
+    string,
+    {
+      filePath: string;
+      summary: string;
+      openLoops: string;
+      archivedAt: string;
+    }
+  >;
+}
+
 function ensureWithinBase(baseDir: string, resolvedPath: string): void {
   const relative = path.relative(baseDir, resolvedPath);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
@@ -71,6 +84,7 @@ let singleton: MemoryRootService | null = null;
 
 export class MemoryRootService {
   private readonly layout: MemoryLayout;
+  private latestSessionRecapIndex: LatestSessionRecapIndex | null = null;
 
   constructor(rootOverride?: string) {
     const resolvedRoot = path.resolve(rootOverride?.trim() || memoryStorageDir);
@@ -177,17 +191,83 @@ export class MemoryRootService {
       '',
     ].join('\n');
     writeFileAtomic(filePath, content);
+    const recap = this.parseSessionRecapContent(
+      content,
+      filePath,
+      input.groupFolder,
+    );
+    if (recap) {
+      this.updateLatestSessionRecapIndex(input.groupFolder, {
+        ...recap,
+        archivedAt: now.toISOString(),
+      });
+    }
     return filePath;
   }
 
   getLatestSessionRecap(groupFolder: string): LatestSessionRecap | null {
-    const files = this.listMarkdownFiles(this.layout.sessionsDir);
-    const sorted = files.sort((a, b) => b.localeCompare(a));
-    for (const filePath of sorted) {
-      const recap = this.parseSessionRecapFile(filePath, groupFolder);
-      if (recap) return recap;
+    const index = this.readLatestSessionRecapIndex();
+    const entry = index.groups[groupFolder];
+    if (!entry) return null;
+    return {
+      filePath: entry.filePath,
+      summary: entry.summary,
+      openLoops: entry.openLoops,
+    };
+  }
+
+  private getLatestSessionRecapIndexPath(): string {
+    return this.resolveWithinRoot(
+      path.join(this.layout.cacheDir, 'latest-session-recaps.json'),
+    );
+  }
+
+  private readLatestSessionRecapIndex(): LatestSessionRecapIndex {
+    if (this.latestSessionRecapIndex) return this.latestSessionRecapIndex;
+    const indexPath = this.getLatestSessionRecapIndexPath();
+    try {
+      const parsed = JSON.parse(
+        fs.readFileSync(indexPath, 'utf-8'),
+      ) as Partial<LatestSessionRecapIndex>;
+      if (parsed.version !== 1 || !parsed.groups) {
+        this.latestSessionRecapIndex = { version: 1, groups: {} };
+        return this.latestSessionRecapIndex;
+      }
+      this.latestSessionRecapIndex = {
+        version: 1,
+        groups: parsed.groups,
+      };
+      return this.latestSessionRecapIndex;
+    } catch {
+      this.latestSessionRecapIndex = { version: 1, groups: {} };
+      return this.latestSessionRecapIndex;
     }
-    return null;
+  }
+
+  private writeLatestSessionRecapIndex(index: LatestSessionRecapIndex): void {
+    this.latestSessionRecapIndex = index;
+    writeFileAtomic(
+      this.getLatestSessionRecapIndexPath(),
+      `${JSON.stringify(index, null, 2)}\n`,
+    );
+  }
+
+  private updateLatestSessionRecapIndex(
+    groupFolder: string,
+    recap: LatestSessionRecap & { archivedAt: string },
+  ): void {
+    const index = this.readLatestSessionRecapIndex();
+    const existing = index.groups[groupFolder];
+    if (existing && existing.archivedAt > recap.archivedAt) {
+      return;
+    }
+    index.groups[groupFolder] = {
+      filePath: recap.filePath,
+      summary: recap.summary,
+      openLoops: recap.openLoops,
+      archivedAt: recap.archivedAt,
+    };
+    this.writeLatestSessionRecapIndex(index);
   }
 
   private ensureLayout(): void {
@@ -209,43 +289,11 @@ export class MemoryRootService {
     }
   }
 
-  private listMarkdownFiles(root: string): string[] {
-    if (!fs.existsSync(root)) return [];
-    const out: string[] = [];
-    const stack = [root];
-    while (stack.length > 0) {
-      const dir = stack.pop();
-      if (!dir) break;
-      let entries: fs.Dirent[] = [];
-      try {
-        entries = fs.readdirSync(dir, { withFileTypes: true });
-      } catch {
-        continue;
-      }
-      for (const entry of entries) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          stack.push(full);
-          continue;
-        }
-        if (entry.isFile() && entry.name.endsWith('.md')) {
-          out.push(full);
-        }
-      }
-    }
-    return out;
-  }
-
-  private parseSessionRecapFile(
+  private parseSessionRecapContent(
+    content: string,
     filePath: string,
     groupFolder: string,
   ): LatestSessionRecap | null {
-    let content = '';
-    try {
-      content = fs.readFileSync(filePath, 'utf-8');
-    } catch {
-      return null;
-    }
     const normalized = content.replace(/\r\n/g, '\n');
     const groupMatch = normalized.match(/^group_folder:\s*(.+)$/m);
     if (!groupMatch || groupMatch[1]?.trim() !== groupFolder) {

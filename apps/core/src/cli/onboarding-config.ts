@@ -35,8 +35,14 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
     TELEGRAM_BOT_TOKEN: input.telegramBotToken?.trim() || null,
     SLACK_BOT_TOKEN: input.slackBotToken?.trim() || null,
     SLACK_APP_TOKEN: input.slackAppToken?.trim() || null,
-    CLAUDE_CODE_OAUTH_TOKEN: input.claudeOauthToken?.trim() || null,
-    ANTHROPIC_API_KEY: input.anthropicApiKey?.trim() || null,
+    CLAUDE_CODE_OAUTH_TOKEN:
+      input.credentialMode === 'onecli-only'
+        ? null
+        : input.claudeOauthToken?.trim() || null,
+    ANTHROPIC_API_KEY:
+      input.credentialMode === 'onecli-only'
+        ? null
+        : input.anthropicApiKey?.trim() || null,
     ANTHROPIC_MODEL: input.anthropicModel?.trim() || null,
     MYCLAW_DATABASE_URL: null,
     MYCLAW_CREDENTIAL_MODE: input.credentialMode,

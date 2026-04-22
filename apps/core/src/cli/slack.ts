@@ -519,7 +519,13 @@ export async function runSlackConnectCommand(
   }
   p.log.success(appValidation.message);
 
-  const normalizedChatJid = await chooseSlackChatForConnect(botTokenInput);
+  const chatChoice = await chooseSlackChatForConnect(botTokenInput);
+  if (chatChoice.type === 'cancel') {
+    p.outro('Slack connect cancelled.');
+    return 1;
+  }
+  const normalizedChatJid =
+    chatChoice.type === 'selected' ? chatChoice.chatJid : '';
 
   if (normalizedChatJid) {
     const access = await verifySlackChatAccess({

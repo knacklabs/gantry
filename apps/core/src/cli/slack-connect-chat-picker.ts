@@ -14,7 +14,14 @@ function normalizeSlackChatJid(raw: string): string | null {
   return `sl:${channelIdRaw.toUpperCase()}`;
 }
 
-async function promptManualSlackChatId(defaultChatJid = ''): Promise<string> {
+export type SlackChatChoice =
+  | { type: 'selected'; chatJid: string }
+  | { type: 'skip' }
+  | { type: 'cancel' };
+
+async function promptManualSlackChatId(
+  defaultChatJid = '',
+): Promise<SlackChatChoice> {
   const input = await p.text({
     message: 'Slack conversation ID (optional, e.g. C0123456789)',
     placeholder: 'Press Enter to skip registration now',
@@ -27,14 +34,17 @@ async function promptManualSlackChatId(defaultChatJid = ''): Promise<string> {
         : 'Use a valid Slack conversation ID (C..., G..., D...).';
     },
   });
-  if (p.isCancel(input)) return '';
-  return normalizeSlackChatJid(String(input || '').trim()) || '';
+  if (p.isCancel(input)) return { type: 'cancel' };
+  const normalized = normalizeSlackChatJid(String(input || '').trim());
+  return normalized
+    ? { type: 'selected', chatJid: normalized }
+    : { type: 'skip' };
 }
 
 export async function chooseSlackChatForConnect(
   botToken: string,
   defaultChatJid = '',
-): Promise<string> {
+): Promise<SlackChatChoice> {
   const spinner = p.spinner();
   spinner.start('Discovering Slack conversations...');
   const discovery = await listSlackRecentChats({ botToken, limit: 100 });
@@ -54,7 +64,7 @@ export async function chooseSlackChatForConnect(
   if (discovery.chats.length === 1) {
     const only = discovery.chats[0];
     spinner.stop(`Auto-selected ${only.chatTitle} (${only.chatJid}).`);
-    return only.chatJid;
+    return { type: 'selected', chatJid: only.chatJid };
   }
 
   spinner.stop(`Found ${discovery.chats.length} Slack conversations.`);
@@ -70,8 +80,11 @@ export async function chooseSlackChatForConnect(
       { value: 'skip', label: 'Skip registration for now' },
     ],
   });
-  if (p.isCancel(selected)) return '';
+  if (p.isCancel(selected)) return { type: 'cancel' };
   if (selected === 'manual') return promptManualSlackChatId(defaultChatJid);
-  if (selected === 'skip') return '';
-  return normalizeSlackChatJid(String(selected || '').trim()) || '';
+  if (selected === 'skip') return { type: 'skip' };
+  const normalized = normalizeSlackChatJid(String(selected || '').trim());
+  return normalized
+    ? { type: 'selected', chatJid: normalized }
+    : { type: 'skip' };
 }

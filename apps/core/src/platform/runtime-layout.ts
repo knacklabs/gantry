@@ -32,7 +32,12 @@ export function ensureRuntimeLayoutDirectories(runtimeHome: string): void {
     paths.logsDir,
   ];
   for (const dir of dirs) {
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    try {
+      fs.chmodSync(dir, 0o700);
+    } catch {
+      // Best effort: some filesystems do not support POSIX modes.
+    }
   }
   ensureRuntimeClaudeFiles(paths.runtimeHome);
 }

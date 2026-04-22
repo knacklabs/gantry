@@ -179,15 +179,12 @@ export async function runCredentialsStep(
 ): Promise<CredentialStepAction> {
   p.note(
     [
-      'Set Claude auth first, then choose where host-agent credentials come from.',
+      'Choose where host-agent credentials come from.',
       'Default is local .env only (OneCLI disabled).',
-      'You can use only local runtime .env, only OneCLI, or hybrid mode.',
+      'OneCLI-only never prompts for or persists local Claude credentials.',
     ].join('\n'),
     'Agent Credentials',
   );
-
-  const authResult = await promptClaudeAuth(draft);
-  if (authResult) return authResult;
 
   while (true) {
     const modeValue = await p.select({
@@ -232,6 +229,8 @@ export async function runCredentialsStep(
     draft.credentialMode = modeValue as HostCredentialMode;
     if (draft.credentialMode === 'env-only') {
       draft.onecliUrl = '';
+      const authResult = await promptClaudeAuth(draft);
+      if (authResult) return authResult;
       p.note(
         'Credential mode set to env-only. Host agents will read runtime .env only.',
         'Agent Credentials',
@@ -270,6 +269,17 @@ export async function runCredentialsStep(
     );
 
     if (check.ok) {
+      if (draft.credentialMode === 'onecli-only') {
+        draft.claudeOauthToken = '';
+        draft.anthropicApiKey = '';
+        p.note(
+          `${check.message}\nCredential mode set to onecli-only. Local Claude credentials will be removed from runtime .env.`,
+          'Agent Credentials',
+        );
+        return { type: 'next' };
+      }
+      const authResult = await promptClaudeAuth(draft);
+      if (authResult) return authResult;
       p.note(check.message, 'Agent Credentials');
       return { type: 'next' };
     }
@@ -332,6 +342,8 @@ export async function runCredentialsStep(
       continue;
     }
     if (followUp === 'continue' && draft.credentialMode === 'hybrid') {
+      const authResult = await promptClaudeAuth(draft);
+      if (authResult) return authResult;
       return { type: 'next' };
     }
     if (followUp === 'back') return { type: 'back' };

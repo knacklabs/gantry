@@ -240,7 +240,7 @@ describe('runtime hermetic e2e flows', () => {
     ).toBeUndefined();
   });
 
-  it('[BUG-TEST-002-MEMORY-CONTEXT] passes per-turn memory context files through normal agent input', async () => {
+  it('[BUG-TEST-002-MEMORY-CONTEXT] passes bounded per-turn memory context through normal agent input', async () => {
     const harness = await createHermeticRuntimeHarness({
       fakeAgent: { resultText: 'memory-context-reply' },
     });
@@ -263,8 +263,11 @@ describe('runtime hermetic e2e flows', () => {
 
     await harness.app.processGroupMessages('tg:main');
 
-    expect(typeof harness.fakeAgent.invocations[0]?.memoryContextFile).toBe(
+    expect(typeof harness.fakeAgent.invocations[0]?.memoryContextBlock).toBe(
       'string',
+    );
+    expect(harness.fakeAgent.invocations[0]?.memoryContextBlock).toContain(
+      'Runtime Continuity Envelope',
     );
   });
 

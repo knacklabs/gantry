@@ -32,7 +32,7 @@ import { MemoryService } from '../memory/memory-service.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import { GroupQueue } from './group-queue.js';
 import { AgentOutput, spawnAgent } from './agent-spawn.js';
-import { createInjectedMemoryContextFile } from './memory-context.js';
+import { createInjectedMemoryContextBlock } from './memory-context.js';
 import { validateScheduleConfig } from './task-scheduler-schedule.js';
 import {
   addJobEvent,
@@ -710,7 +710,7 @@ async function runJob(
       let bufferedStreamingChars = 0;
       let totalStreamingChars = 0;
       let lastStreamingEventMs = 0;
-      const injectedMemoryContext = await createInjectedMemoryContextFile({
+      const injectedMemoryContext = await createInjectedMemoryContextBlock({
         groupFolder: execution.group.folder,
         chatJid: execution.executionJid,
         source: 'scheduler',
@@ -740,7 +740,7 @@ async function runJob(
             isScheduledJob: true,
             assistantName: ASSISTANT_NAME,
             script: currentJob.script || undefined,
-            memoryContextFile: injectedMemoryContext?.filePath,
+            memoryContextBlock: injectedMemoryContext?.block,
           },
           (proc, containerName) =>
             deps.onProcess(
@@ -795,7 +795,6 @@ async function runJob(
       } catch (err) {
         error = err instanceof Error ? err.message : String(err);
       } finally {
-        injectedMemoryContext?.cleanup();
         await finalizeStreaming();
       }
     }

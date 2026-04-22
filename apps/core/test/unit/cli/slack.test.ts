@@ -11,12 +11,17 @@ import {
   validateSlackBotToken,
   verifySlackChatAccess,
 } from '@core/cli/slack.js';
+import { readEnvFile } from '@core/cli/env-file.js';
+import { envFilePath } from '@core/cli/runtime-home.js';
+import { loadRuntimeSettings } from '@core/cli/runtime-settings.js';
 import { listSlackRecentChats } from '@core/cli/slack-chat-discovery.js';
 
 const runtimeHomes: string[] = [];
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.resetModules();
+  vi.unstubAllGlobals();
   while (runtimeHomes.length > 0) {
     const runtimeHome = runtimeHomes.pop();
     if (runtimeHome) fs.rmSync(runtimeHome, { recursive: true, force: true });
@@ -157,6 +162,108 @@ describe('cli slack helpers', () => {
     expect(result.chats).toHaveLength(2);
     expect(result.chats[0]?.chatJid).toBe('sl:C0123456789');
     expect(result.chats[0]?.chatTitle).toBe('ops-room');
+  });
+
+  it('does not echo token-bearing HTTP error bodies from Slack discovery', async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          'proxy echoed authorization Bearer xoxb-secret-token for users.conversations',
+          { status: 502 },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const result = await listSlackRecentChats({
+      botToken: 'xoxb-secret-token',
+      limit: 20,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.nextAction).not.toContain('xoxb-secret-token');
+    expect(result.nextAction).not.toContain('Bearer');
+  });
+
+  it('does not leak token-bearing Slack transport errors', async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockRejectedValue(
+        new Error('request failed with authorization Bearer xoxb-secret-token'),
+      );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const result = await listSlackRecentChats({
+      botToken: 'xoxb-secret-token',
+      limit: 20,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.nextAction).not.toContain('xoxb-secret-token');
+    expect(result.nextAction).not.toContain('Bearer');
+  });
+
+  it('slack connect cancel after token validation does not persist credentials', async () => {
+    vi.resetModules();
+    const runtimeHome = makeRuntimeHome();
+    const outro = vi.fn();
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            team: 'My Workspace',
+            team_id: 'T123',
+            user_id: 'U123',
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            url: 'wss://example.slack.test/socket',
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.doMock('@clack/prompts', () => ({
+      isCancel: () => false,
+      note: vi.fn(),
+      password: vi
+        .fn()
+        .mockResolvedValueOnce('xoxb-valid-token')
+        .mockResolvedValueOnce('xapp-valid-token'),
+      text: vi.fn(),
+      outro,
+      log: {
+        success: vi.fn(),
+        info: vi.fn(),
+        error: vi.fn(),
+      },
+    }));
+    vi.doMock('@core/cli/slack-connect-chat-picker.js', () => ({
+      chooseSlackChatForConnect: vi.fn(async () => ({ type: 'cancel' })),
+    }));
+
+    const { runSlackConnectCommand } = await import('@core/cli/slack.js');
+    const code = await runSlackConnectCommand(runtimeHome);
+
+    expect(code).toBe(1);
+    const env = readEnvFile(envFilePath(runtimeHome));
+    expect(env.SLACK_BOT_TOKEN).toBeUndefined();
+    expect(env.SLACK_APP_TOKEN).toBeUndefined();
+    expect(loadRuntimeSettings(runtimeHome).channels.slack.enabled).toBe(false);
+    expect(outro).toHaveBeenCalledWith('Slack connect cancelled.');
   });
 
   it('seeds CLAUDE.md and SOUL.md when registering the main group', async () => {
