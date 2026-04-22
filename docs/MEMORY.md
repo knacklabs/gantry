@@ -58,7 +58,8 @@ Fresh guided setup writes the block above by default: memory on, embeddings off,
 
 - Host runtime injects memory/continuity context for every agent run (message turns and scheduler jobs).
 - Injection does not rely on the agent deciding to call `memory_search` first.
-- The injected block is structured JSON marked as untrusted data-only evidence, not executable instructions.
+- The injected block is a separate structured JSON message marked as untrusted data-only evidence, not executable instructions.
+- The runner adds a system-level memory boundary policy and denies high-risk tool requests that match suppressed memory-injection patterns.
 - Memory tools remain available for deeper retrieval, explicit saves, and patch operations.
 
 ## Scope Defaults

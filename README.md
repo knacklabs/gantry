@@ -152,7 +152,7 @@ Continuity is the runtime context that helps the agent pick up where it left off
 
 Embeddings are off by default. Memory search and context injection still work without embeddings; embeddings only improve ranking when enabled.
 
-Host runtime now injects a fresh memory/continuity block for every agent run (message and scheduler), so baseline recall does not depend on the agent deciding to call memory tools first.
+Host runtime now injects a fresh memory/continuity block for every agent run (message and scheduler), so baseline recall does not depend on the agent deciding to call memory tools first. The block is sent as a separate structured untrusted data message, with a system-level boundary policy that forbids treating memory records as instructions or tool-use authority.
 
 Scope defaults:
 

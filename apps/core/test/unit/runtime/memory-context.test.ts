@@ -36,8 +36,10 @@ describe('runtime memory context injection', () => {
       userId: 'user-1',
       threadId: '1710000000.000100',
     });
-    expect(context?.block).toContain('schema');
+    expect(context?.block).toContain('<myclaw_memory_context');
+    expect(context?.block).toContain('myclaw.memory_context.v2');
     expect(context?.block).toContain('untrusted_data_only');
+    expect(context?.block).toContain('"blocked_record_count": 1');
     expect(context?.block).toContain(
       '[suppressed: instruction-like memory content]',
     );

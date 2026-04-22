@@ -27,6 +27,10 @@ import { fileURLToPath } from 'url';
 import { nowIso, nowMs, sleep } from '../core/datetime.js';
 import { isPlainObject } from '../core/object.js';
 import { composeAgentCapabilities } from './agent-capabilities.js';
+import {
+  composeSystemPromptAppend,
+  denyMemoryBoundaryToolUse,
+} from './memory-boundary.js';
 
 interface AgentRunnerInput {
   prompt: string;
@@ -55,9 +59,14 @@ interface AgentRunnerOutput {
   error?: string;
 }
 
+interface SDKTextBlock {
+  type: 'text';
+  text: string;
+}
+
 interface SDKUserMessage {
   type: 'user';
-  message: { role: 'user'; content: string };
+  message: { role: 'user'; content: string | SDKTextBlock[] };
   parent_tool_use_id: null;
   session_id: string;
 }
@@ -127,10 +136,18 @@ class MessageStream {
   private waiting: (() => void) | null = null;
   private done = false;
 
-  push(text: string): void {
+  pushText(text: string): void {
+    this.pushContent(text);
+  }
+
+  pushMemoryContext(text: string): void {
+    this.pushContent([{ type: 'text', text }]);
+  }
+
+  private pushContent(content: string | SDKTextBlock[]): void {
     this.queue.push({
       type: 'user',
-      message: { role: 'user', content: text },
+      message: { role: 'user', content },
       parent_tool_use_id: null,
       session_id: '',
     });
@@ -459,7 +476,10 @@ async function runQuery(
 }> {
   const stream = new MessageStream();
   const memoryBlock = readMemoryContextBlock(agentInput);
-  stream.push(memoryBlock ? `${prompt}\n\n${memoryBlock}` : prompt);
+  if (memoryBlock) {
+    stream.pushMemoryContext(memoryBlock);
+  }
+  stream.pushText(prompt);
 
   // Poll IPC for follow-up messages and _close sentinel during the query
   let ipcPolling = true;
@@ -477,7 +497,7 @@ async function runQuery(
     const messages = drainIpcInput();
     for (const text of messages) {
       log(`Piping IPC message into active query (${text.length} chars)`);
-      stream.push(text);
+      stream.pushText(text);
     }
     setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
   };
@@ -490,7 +510,12 @@ async function runQuery(
   let messageCount = 0;
   let resultCount = 0;
   let sawPartialTextSinceLastResult = false;
-  const systemPrompt = buildSystemPrompt(agentInput.compiledSystemPrompt);
+  const systemPrompt = buildSystemPrompt(
+    composeSystemPromptAppend(
+      agentInput.compiledSystemPrompt,
+      Boolean(memoryBlock),
+    ),
+  );
 
   // Discover additional directories mounted at runtime-specific extra dir.
   // These paths are exposed to the SDK for file access when present.
@@ -535,6 +560,23 @@ async function runQuery(
       canUseTool: async (toolName, input, permissionOpts) => {
         if (capabilities.alwaysAllowedTools.includes(toolName)) {
           return { behavior: 'allow' as const, updatedInput: input };
+        }
+
+        const memoryGuardDenial = denyMemoryBoundaryToolUse(
+          toolName,
+          input,
+          permissionOpts,
+          memoryBlock,
+        );
+        if (memoryGuardDenial) {
+          log(
+            `Permission denied by memory boundary guard: ${memoryGuardDenial}`,
+          );
+          return {
+            behavior: 'deny' as const,
+            message: memoryGuardDenial,
+            interrupt: false,
+          };
         }
 
         if (permissionOpts.signal.aborted) {

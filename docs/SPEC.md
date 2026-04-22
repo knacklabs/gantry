@@ -79,7 +79,7 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 | Message Storage    | SQLite (better-sqlite3)                                           | Store messages for polling                           |
 | Runtime Execution  | Host process execution                                            | Agent execution with runtime-home scoped paths       |
 | Agent              | @anthropic-ai/claude-agent-sdk (0.2.97)                           | Run Claude with tools and MCP servers                |
-| Browser Automation | agent-browser + Chromium                                          | Web interaction and screenshots                      |
+| Browser Automation | agent-browser + Chromium                                          | Web interaction and screenshots with explicit CDP port handoff |
 | Runtime            | Node.js 20+                                                       | Host process for routing and scheduling              |
 
 ---

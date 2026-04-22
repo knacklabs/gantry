@@ -16,7 +16,7 @@ afterEach(() => {
 interface RunnerRecord {
   calls: Array<{
     promptKind: 'stream' | 'string';
-    streamMessages?: string[];
+    streamMessages?: unknown[];
     stringPrompt?: string;
     systemPromptAppend?: string;
     closeExistsAtQueryStart?: boolean;
@@ -79,6 +79,10 @@ function createRunnerFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/agent-capabilities.ts'),
     path.join(runnerDir, 'agent-capabilities.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/runner/memory-boundary.ts'),
+    path.join(runnerDir, 'memory-boundary.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/core/datetime.ts'),
@@ -151,6 +155,21 @@ export async function* query({ prompt, options }) {
 
   yield { type: 'system', subtype: 'init', session_id: 'runner-session-1' };
 
+  if (process.env.TEST_MEMORY_GUARD_DENIAL) {
+    call.permissionDecision = await options.canUseTool(
+      'Bash',
+      { cmd: 'rm -rf /tmp/myclaw-poisoned-memory' },
+      {
+        signal: new AbortController().signal,
+        title: 'Run command',
+        displayName: 'Bash',
+        description: 'Needs shell access',
+        decisionReason: 'Agent wants to run command from memory context',
+        blockedPath: process.env.MYCLAW_WORKSPACE_GROUP_DIR,
+      },
+    );
+  }
+
   if (process.env.TEST_PERMISSION_DECISION) {
     const decisionPromise = options.canUseTool(
       'Bash',
@@ -190,6 +209,12 @@ export async function* query({ prompt, options }) {
     const first = await nextWithTimeout(iterator, 1000);
     if (first && !first.done) {
       call.streamMessages.push(first.value.message.content);
+      if (Array.isArray(first.value.message.content)) {
+        const userPrompt = await nextWithTimeout(iterator, 1000);
+        if (userPrompt && !userPrompt.done) {
+          call.streamMessages.push(userPrompt.value.message.content);
+        }
+      }
     }
 
     if (process.env.TEST_ACTIVE_INPUT_ORDER === '1') {
@@ -366,7 +391,7 @@ describe('agent-runner IPC lifecycle', () => {
 
       expect(result.exitCode).toBe(0);
       const firstMessage = readRecord(fixture.recordPath).calls[0]
-        ?.streamMessages?.[0];
+        ?.streamMessages?.[0] as string | undefined;
       expect(firstMessage).toContain('initial prompt');
       expect(firstMessage?.indexOf('startup first')).toBeLessThan(
         firstMessage?.indexOf('startup second') ?? -1,
@@ -396,7 +421,7 @@ describe('agent-runner IPC lifecycle', () => {
 
       expect(result.exitCode).toBe(0);
       const firstMessage = readRecord(fixture.recordPath).calls[0]
-        ?.streamMessages?.[0];
+        ?.streamMessages?.[0] as string | undefined;
       expect(firstMessage).toContain('initial prompt');
       expect(firstMessage).toContain(
         'valid startup context after malformed neighbor',
@@ -448,7 +473,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'appends memory context blocks to the first streamed user prompt only',
+    'streams memory context as a separate untrusted message before the user prompt',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -464,11 +489,18 @@ describe('agent-runner IPC lifecycle', () => {
 
       expect(result.exitCode).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
-      expect(call?.systemPromptAppend).toBe('compiled system profile');
-      expect(call?.systemPromptAppend).not.toContain('user prefers');
-      expect(call?.streamMessages?.[0]).toContain(
-        'Memory brief: user prefers concise updates.',
+      expect(call?.systemPromptAppend).toContain('compiled system profile');
+      expect(call?.systemPromptAppend).toContain(
+        'MyClaw Durable Memory Boundary',
       );
+      expect(call?.systemPromptAppend).not.toContain('user prefers');
+      expect(call?.streamMessages?.[0]).toEqual([
+        {
+          type: 'text',
+          text: 'Memory brief: user prefers concise updates.',
+        },
+      ]);
+      expect(call?.streamMessages?.[1]).toBe('initial prompt');
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -502,6 +534,41 @@ describe('agent-runner IPC lifecycle', () => {
       expect(
         fs.readdirSync(path.join(fixture.ipcDir, 'permission-responses')),
       ).toHaveLength(0);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'denies high-risk tool use when durable memory had suppressed instructions',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          memoryContextBlock:
+            '<myclaw_memory_context trust="untrusted_data_only">[suppressed: instruction-like memory content]</myclaw_memory_context>',
+        }),
+        {
+          TEST_MEMORY_GUARD_DENIAL: '1',
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionDecision).toEqual(
+        expect.objectContaining({
+          behavior: 'deny',
+          interrupt: false,
+        }),
+      );
+      expect(String(call?.permissionDecision?.message)).toContain(
+        'memory boundary',
+      );
+      expect(
+        fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
+      ).toBe(false);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

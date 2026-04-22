@@ -42,12 +42,11 @@ SKILL=~/myclaw/.claude/skills/agent-browser
 python3 $SKILL/browser_cdp.py status                         # port + tab count
 python3 $SKILL/browser_cdp.py tabs                           # list open tabs
 python3 $SKILL/browser_cdp.py goto https://linkedin.com/...  # navigate + print title/url
-python3 $SKILL/browser_cdp.py eval "document.title"          # run JS, get JSON result
 python3 $SKILL/browser_cdp.py text                           # innerText of body
 python3 $SKILL/browser_cdp.py screenshot page.png            # PNG of viewport
 ```
 
-Port is auto-detected via `MYCLAW_CDP_PORT`, `--port N`, or a scan of 50000–60000.
+Pass the port explicitly with `--port N` or set `MYCLAW_CDP_PORT`. The helper does not scan local ports and does not expose arbitrary JavaScript eval in the npm package.
 
 ## Logging into a site once (LinkedIn, X, etc.)
 
@@ -74,7 +73,7 @@ Cron prompts should:
 | Symptom | Fix |
 |---|---|
 | `running: false` after launch | Check `~/myclaw/logs/myclaw.log` for Chrome spawn errors |
-| Helper says "No CDP port found" | Browser isn't running; call `browser_launch` first |
+| Helper says "No CDP port configured" | Pass `--port <port-from-browser_launch>` or set `MYCLAW_CDP_PORT` |
 | Site shows logged-out view | No session yet — do the one-time headful login above |
 | Stale tab | Use `goto` to navigate the existing page instead of opening new tabs |
 | Profile corrupted | Close browser, delete `~/myclaw/data/browser-profiles/myclaw/user-data`, relaunch, log in again |
@@ -82,4 +81,4 @@ Cron prompts should:
 ## Files bundled by this skill
 
 - `SKILL.md` — this doc
-- `browser_cdp.py` — CDP driver (supports `status`, `tabs`, `goto`, `eval`, `text`, `screenshot`)
+- `browser_cdp.py` — CDP driver (supports `status`, `tabs`, `goto`, `text`, `screenshot`)

@@ -267,7 +267,7 @@ describe('runtime hermetic e2e flows', () => {
       'string',
     );
     expect(harness.fakeAgent.invocations[0]?.memoryContextBlock).toContain(
-      'Runtime Continuity Envelope',
+      '<myclaw_memory_context',
     );
   });
 

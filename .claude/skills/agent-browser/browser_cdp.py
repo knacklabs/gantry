@@ -10,13 +10,11 @@ can navigate, read the DOM, click, and screenshot — reusing the persistent
 Usage:
   python3 browser_cdp.py status
   python3 browser_cdp.py goto https://example.com
-  python3 browser_cdp.py eval "document.title"
   python3 browser_cdp.py text               # innerText of body
   python3 browser_cdp.py screenshot out.png
   python3 browser_cdp.py tabs
 
-The CDP port is read from argv (--port N) or the env var MYCLAW_CDP_PORT, or
-auto-detected by scanning common ports.
+The CDP port is read from argv (--port N) or the env var MYCLAW_CDP_PORT.
 """
 import argparse, asyncio, base64, json, os, sys, urllib.request, urllib.error
 
@@ -32,14 +30,7 @@ def find_port(explicit=None):
     env = os.environ.get("MYCLAW_CDP_PORT")
     if env:
         return int(env)
-    # scan a reasonable range (Chrome usually picks 50000–60000 when random)
-    for p in range(50000, 60000):
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{p}/json/version", timeout=0.1).read()
-            return p
-        except Exception:
-            continue
-    raise RuntimeError("No CDP port found. Launch browser via mcp__myclaw__browser_launch first.")
+    raise RuntimeError("No CDP port configured. Launch browser via mcp__myclaw__browser_launch and pass --port N or set MYCLAW_CDP_PORT.")
 
 
 def get_page_ws(port):
@@ -96,21 +87,6 @@ def cmd_goto(port, url, wait=3):
     asyncio.run(run())
 
 
-def cmd_eval(port, expr):
-    ws_url, _ = get_page_ws(port)
-    async def run():
-        r = await cdp(ws_url, [("Runtime.evaluate", {
-            "expression": f"JSON.stringify(({expr}))",
-            "returnByValue": True,
-        })])
-        val = r[0].get("result", {}).get("result", {}).get("value")
-        try:
-            print(json.dumps(json.loads(val), indent=2))
-        except Exception:
-            print(val)
-    asyncio.run(run())
-
-
 def cmd_text(port):
     ws_url, _ = get_page_ws(port)
     async def run():
@@ -138,7 +114,7 @@ def cmd_screenshot(port, out):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int)
-    ap.add_argument("cmd", choices=["status", "tabs", "goto", "eval", "text", "screenshot"])
+    ap.add_argument("cmd", choices=["status", "tabs", "goto", "text", "screenshot"])
     ap.add_argument("arg", nargs="?")
     args = ap.parse_args()
 
@@ -151,9 +127,6 @@ def main():
     elif args.cmd == "goto":
         if not args.arg: ap.error("goto needs URL")
         cmd_goto(port, args.arg)
-    elif args.cmd == "eval":
-        if not args.arg: ap.error("eval needs expression")
-        cmd_eval(port, args.arg)
     elif args.cmd == "text":
         cmd_text(port)
     elif args.cmd == "screenshot":

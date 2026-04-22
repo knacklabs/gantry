@@ -1,4 +1,5 @@
 import { execFileSync } from 'child_process';
+import fs from 'fs';
 
 import { describe, expect, it } from 'vitest';
 
@@ -40,4 +41,16 @@ describe('package hygiene', () => {
     expect(files).toContain('.claude/skills/commands/SKILL.md');
     expect(files).toContain('.claude/skills/myclaw-admin/SKILL.md');
   }, 30_000);
+
+  it('keeps packaged browser helper constrained to explicit CDP ports and fixed actions', () => {
+    const helper = fs.readFileSync(
+      '.claude/skills/agent-browser/browser_cdp.py',
+      'utf-8',
+    );
+
+    expect(helper).not.toContain('range(50000, 60000)');
+    expect(helper).not.toContain('"eval"');
+    expect(helper).not.toContain('cmd_eval');
+    expect(helper).toContain('MYCLAW_CDP_PORT');
+  });
 });
