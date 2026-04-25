@@ -5,6 +5,7 @@ import { OneCLI } from '@onecli-sh/sdk';
 
 import {
   AGENTS_DIR,
+  DATA_DIR,
   MYCLAW_CREDENTIAL_MODE,
   ONECLI_URL,
 } from '../config/index.js';
@@ -41,6 +42,24 @@ function filterOnecliEnv(
   return env;
 }
 
+function applyOnecliCaCertificate(
+  onecliEnv: Record<string, string>,
+  caCertificate: string | undefined,
+  agentIdentifier: string | undefined,
+): void {
+  if (!caCertificate) return;
+
+  const caDir = path.join(DATA_DIR, 'onecli');
+  const caPath = path.join(caDir, 'gateway-ca.pem');
+  fs.mkdirSync(caDir, { recursive: true });
+  fs.writeFileSync(caPath, caCertificate, { mode: 0o600 });
+  onecliEnv.NODE_EXTRA_CA_CERTS = caPath;
+  logger.info(
+    { agentIdentifier: agentIdentifier || 'default', caPath },
+    'Applied OneCLI CA certificate for host runner',
+  );
+}
+
 export async function getHostRuntimeCredentialEnv(
   agentIdentifier?: string,
 ): Promise<{
@@ -71,13 +90,8 @@ export async function getHostRuntimeCredentialEnv(
   try {
     const config = await onecli.getContainerConfig(agentIdentifier);
     onecliEnv = filterOnecliEnv(config.env || {});
+    applyOnecliCaCertificate(onecliEnv, config.caCertificate, agentIdentifier);
     onecliApplied = true;
-    if (config.caCertificate) {
-      logger.warn(
-        { agentIdentifier: agentIdentifier || 'default' },
-        'Ignored OneCLI CA certificate; broker config cannot modify runner trust roots',
-      );
-    }
   } catch (err) {
     logger.warn(
       { err, agentIdentifier: agentIdentifier || 'default' },

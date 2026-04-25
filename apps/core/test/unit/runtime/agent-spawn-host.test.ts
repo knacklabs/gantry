@@ -5,6 +5,7 @@ const mockMkdirSync = vi.fn();
 const mockWriteFileSync = vi.fn();
 const mockExistsSync = vi.fn();
 const mockLoggerWarn = vi.fn();
+const mockLoggerInfo = vi.fn();
 const mockEnsureGroupIpcLayout = vi.fn();
 const mockEnsureSharedSessionSettings = vi.fn();
 const mockSyncGroupSkills = vi.fn();
@@ -43,7 +44,7 @@ async function loadModule(config: {
   vi.doMock('@core/infrastructure/logging/logger.js', () => ({
     logger: {
       warn: (...args: unknown[]) => mockLoggerWarn(...args),
-      info: vi.fn(),
+      info: (...args: unknown[]) => mockLoggerInfo(...args),
       debug: vi.fn(),
       error: vi.fn(),
     },
@@ -134,7 +135,7 @@ describe('getHostRuntimeCredentialEnv', () => {
     expect(result.env).toEqual({
       ANTHROPIC_BASE_URL: 'https://broker.example.com',
       ANTHROPIC_API_KEY: 'placeholder',
-      HTTPS_PROXY: 'http://x:aoc_123@host.docker.internal:10255',
+      HTTPS_PROXY: 'http://x:aoc_123@127.0.0.1:10255/',
     });
     expect(mockLoggerWarn).toHaveBeenCalledWith(
       {
@@ -158,7 +159,7 @@ describe('getHostRuntimeCredentialEnv', () => {
     );
   });
 
-  it('ignores OneCLI CA certificates instead of modifying runner trust roots', async () => {
+  it('applies OneCLI CA certificates to the host runner trust roots', async () => {
     mockGetContainerConfig.mockResolvedValue({
       env: {
         ANTHROPIC_BASE_URL: 'https://broker.example.com',
@@ -173,11 +174,22 @@ describe('getHostRuntimeCredentialEnv', () => {
     expect(result.onecliApplied).toBe(true);
     expect(result.env).toEqual({
       ANTHROPIC_BASE_URL: 'https://broker.example.com',
+      NODE_EXTRA_CA_CERTS: '/tmp/myclaw-test/data/onecli/gateway-ca.pem',
     });
-    expect(mockWriteFileSync).not.toHaveBeenCalled();
-    expect(mockLoggerWarn).toHaveBeenCalledWith(
-      { agentIdentifier: 'default' },
-      'Ignored OneCLI CA certificate; broker config cannot modify runner trust roots',
+    expect(mockMkdirSync).toHaveBeenCalledWith('/tmp/myclaw-test/data/onecli', {
+      recursive: true,
+    });
+    expect(mockWriteFileSync).toHaveBeenCalledWith(
+      '/tmp/myclaw-test/data/onecli/gateway-ca.pem',
+      'cert-data',
+      { mode: 0o600 },
+    );
+    expect(mockLoggerInfo).toHaveBeenCalledWith(
+      {
+        agentIdentifier: 'default',
+        caPath: '/tmp/myclaw-test/data/onecli/gateway-ca.pem',
+      },
+      'Applied OneCLI CA certificate for host runner',
     );
   });
 

@@ -12,6 +12,7 @@ describe('OneCLI env policy', () => {
         ANTHROPIC_BASE_URL: 'https://broker.example.com',
         ANTHROPIC_MODEL: 'claude-haiku-4-5',
         ANTHROPIC_API_KEY: 'placeholder',
+        CLAUDE_CODE_OAUTH_TOKEN: 'placeholder',
         HTTPS_PROXY: 'http://x:aoc_123@host.docker.internal:10255',
         HTTP_PROXY: 'http://x:aoc_123@host.docker.internal:10255',
         NODE_USE_ENV_PROXY: '1',
@@ -23,8 +24,9 @@ describe('OneCLI env policy', () => {
         ANTHROPIC_BASE_URL: 'https://broker.example.com',
         ANTHROPIC_MODEL: 'claude-haiku-4-5',
         ANTHROPIC_API_KEY: 'placeholder',
-        HTTPS_PROXY: 'http://x:aoc_123@host.docker.internal:10255',
-        HTTP_PROXY: 'http://x:aoc_123@host.docker.internal:10255',
+        CLAUDE_CODE_OAUTH_TOKEN: 'placeholder',
+        HTTPS_PROXY: 'http://x:aoc_123@127.0.0.1:10255/',
+        HTTP_PROXY: 'http://x:aoc_123@127.0.0.1:10255/',
         NODE_USE_ENV_PROXY: '1',
         GIT_TERMINAL_PROMPT: '0',
         GIT_HTTP_PROXY_AUTHMETHOD: 'basic',
@@ -91,6 +93,12 @@ describe('OneCLI env policy', () => {
         ANTHROPIC_API_KEY: 'sk-ant-secret',
       }),
     ).toThrow('forbidden raw credential env key: ANTHROPIC_API_KEY');
+
+    expect(() =>
+      filterTrustedOnecliEnv({
+        CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-secret',
+      }),
+    ).toThrow('forbidden raw credential env key: CLAUDE_CODE_OAUTH_TOKEN');
 
     expect(() =>
       filterTrustedOnecliEnv({

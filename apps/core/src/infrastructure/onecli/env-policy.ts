@@ -38,21 +38,39 @@ const ONECLI_DROPPED_HOST_CA_KEYS = new Set([
   'SSL_CERT_FILE',
 ]);
 
-function isAllowedBrokerProxyValue(key: string, value: string): boolean {
-  if (key === 'NODE_USE_ENV_PROXY') return value === '1';
-  if (key === 'GIT_TERMINAL_PROMPT') return value === '0';
-  if (key === 'GIT_HTTP_PROXY_AUTHMETHOD') return value === 'basic';
+function normalizeAllowedBrokerProxyValue(
+  key: string,
+  value: string,
+): string | null {
+  if (
+    key !== 'HTTP_PROXY' &&
+    key !== 'HTTPS_PROXY' &&
+    key !== 'http_proxy' &&
+    key !== 'https_proxy'
+  ) {
+    return null;
+  }
   try {
     const parsed = new URL(value);
-    return (
-      parsed.protocol === 'http:' &&
-      parsed.hostname === 'host.docker.internal' &&
-      parsed.port === '10255' &&
-      parsed.username === 'x' &&
-      parsed.password.startsWith('aoc_')
-    );
+    if (
+      parsed.protocol !== 'http:' ||
+      parsed.port !== '10255' ||
+      parsed.username !== 'x' ||
+      !parsed.password.startsWith('aoc_')
+    ) {
+      return null;
+    }
+    if (
+      parsed.hostname !== 'host.docker.internal' &&
+      parsed.hostname !== '127.0.0.1' &&
+      parsed.hostname !== 'localhost'
+    ) {
+      return null;
+    }
+    parsed.hostname = '127.0.0.1';
+    return parsed.toString();
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -80,10 +98,46 @@ export function filterTrustedOnecliEnv(
         `OneCLI returned forbidden raw credential env key: ${key}`,
       );
     }
-    if (ONECLI_BROKER_PROXY_ENV_KEYS.has(key)) {
-      if (typeof value === 'string' && isAllowedBrokerProxyValue(key, value)) {
+    if (key === 'CLAUDE_CODE_OAUTH_TOKEN') {
+      if (value === 'placeholder') {
         env[key] = value;
         continue;
+      }
+      throw new Error(
+        `OneCLI returned forbidden raw credential env key: ${key}`,
+      );
+    }
+    if (ONECLI_BROKER_PROXY_ENV_KEYS.has(key)) {
+      if (
+        typeof value === 'string' &&
+        key === 'NODE_USE_ENV_PROXY' &&
+        value === '1'
+      ) {
+        env[key] = value;
+        continue;
+      }
+      if (
+        typeof value === 'string' &&
+        key === 'GIT_TERMINAL_PROMPT' &&
+        value === '0'
+      ) {
+        env[key] = value;
+        continue;
+      }
+      if (
+        typeof value === 'string' &&
+        key === 'GIT_HTTP_PROXY_AUTHMETHOD' &&
+        value === 'basic'
+      ) {
+        env[key] = value;
+        continue;
+      }
+      if (typeof value === 'string') {
+        const normalized = normalizeAllowedBrokerProxyValue(key, value);
+        if (normalized) {
+          env[key] = normalized;
+          continue;
+        }
       }
       throw new Error(
         `OneCLI returned forbidden raw credential env key: ${key}`,

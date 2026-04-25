@@ -391,6 +391,8 @@ describe('agent-runner IPC lifecycle', () => {
         ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
         ANTHROPIC_API_KEY: 'raw-provider-key',
         CLAUDE_CODE_OAUTH_TOKEN: 'raw-oauth-token',
+        HTTPS_PROXY: 'http://x:aoc_123@host.docker.internal:10255',
+        NODE_EXTRA_CA_CERTS: '/tmp/onecli-ca.pem',
         MYCLAW_IPC_AUTH_TOKEN: 'runner-test-token',
         MYCLAW_IPC_RESPONSE_VERIFY_KEY: fixture.responseVerifyKey,
       });
@@ -400,8 +402,33 @@ describe('agent-runner IPC lifecycle', () => {
       expect(sdkEnv.ANTHROPIC_BASE_URL).toBe('https://broker.local/anthropic');
       expect(sdkEnv.ANTHROPIC_API_KEY).toBeUndefined();
       expect(sdkEnv.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+      expect(sdkEnv.HTTPS_PROXY).toBe(
+        'http://x:aoc_123@host.docker.internal:10255',
+      );
+      expect(sdkEnv.NODE_EXTRA_CA_CERTS).toBe('/tmp/onecli-ca.pem');
       expect(sdkEnv.MYCLAW_IPC_AUTH_TOKEN).toBeUndefined();
       expect(sdkEnv.MYCLAW_IPC_RESPONSE_VERIFY_KEY).toBeUndefined();
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'passes broker placeholder auth values into the Agent SDK env',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_EXIT_AFTER_QUERY: '1',
+        ANTHROPIC_API_KEY: 'placeholder',
+        CLAUDE_CODE_OAUTH_TOKEN: 'placeholder',
+        MYCLAW_IPC_AUTH_TOKEN: 'runner-test-token',
+        MYCLAW_IPC_RESPONSE_VERIFY_KEY: fixture.responseVerifyKey,
+      });
+
+      expect(result.exitCode).toBe(0);
+      const sdkEnv = readRecord(fixture.recordPath).calls[0]?.sdkEnv || {};
+      expect(sdkEnv.ANTHROPIC_API_KEY).toBe('placeholder');
+      expect(sdkEnv.CLAUDE_CODE_OAUTH_TOKEN).toBe('placeholder');
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

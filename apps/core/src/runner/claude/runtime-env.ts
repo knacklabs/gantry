@@ -25,6 +25,29 @@ export const PERMISSION_REQUEST_TIMEOUT_MS = Math.max(
 export const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 export const IPC_POLL_MS = 500;
 
+function copyEnv(
+  target: Record<string, string | undefined>,
+  keys: string[],
+): void {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === 'string' && value.length > 0) {
+      target[key] = value;
+    }
+  }
+}
+
+function copyPlaceholderEnv(
+  target: Record<string, string | undefined>,
+  keys: string[],
+): void {
+  for (const key of keys) {
+    if (process.env[key] === 'placeholder') {
+      target[key] = 'placeholder';
+    }
+  }
+}
+
 export function buildSdkEnv(): Record<string, string | undefined> {
   const sdkEnv: Record<string, string | undefined> = {
     PATH: process.env.PATH,
@@ -41,6 +64,17 @@ export function buildSdkEnv(): Record<string, string | undefined> {
     CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
     CLAUDE_CODE_AUTO_COMPACT_WINDOW: '165000',
   };
+  copyPlaceholderEnv(sdkEnv, ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']);
+  copyEnv(sdkEnv, [
+    'HTTP_PROXY',
+    'HTTPS_PROXY',
+    'http_proxy',
+    'https_proxy',
+    'NODE_USE_ENV_PROXY',
+    'NODE_EXTRA_CA_CERTS',
+    'GIT_TERMINAL_PROMPT',
+    'GIT_HTTP_PROXY_AUTHMETHOD',
+  ]);
   delete sdkEnv.MYCLAW_IPC_AUTH_TOKEN;
   delete sdkEnv.MYCLAW_IPC_RESPONSE_VERIFY_KEY;
   return sdkEnv;
