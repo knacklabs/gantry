@@ -2,6 +2,7 @@
   "version": 1,
   "defaultLineBudget": 700,
   "lineBudgets": {
+    "apps/core/src/infrastructure/postgres/schema/canonical-ops-repo.postgres.ts": 950,
     "apps/core/src/infrastructure/postgres/schema/schema.ts": 900
   },
   "layers": {
@@ -12,7 +13,12 @@
     },
     "application": {
       "paths": ["apps/core/src/application"],
-      "allowedImportLayers": ["domain", "application", "shared", "packages/contracts"],
+      "allowedImportLayers": [
+        "domain",
+        "application",
+        "shared",
+        "packages/contracts"
+      ],
       "allowedExternalImports": []
     },
     "runtime": {
@@ -27,8 +33,23 @@
         "apps/core/src/runtime",
         "apps/core/src/session"
       ],
-      "allowedImportLayers": ["domain", "application", "runtime", "shared", "packages/contracts"],
-      "allowedExternalImports": ["node:", "crypto", "fs", "path", "url", "net", "cron-parser", "dayjs"]
+      "allowedImportLayers": [
+        "domain",
+        "application",
+        "runtime",
+        "shared",
+        "packages/contracts"
+      ],
+      "allowedExternalImports": [
+        "node:",
+        "crypto",
+        "fs",
+        "path",
+        "url",
+        "net",
+        "cron-parser",
+        "dayjs"
+      ]
     },
     "adapters": {
       "paths": [
@@ -39,13 +60,32 @@
         "apps/core/src/infrastructure",
         "apps/core/src/runner"
       ],
-      "allowedImportLayers": ["domain", "application", "adapters", "shared", "packages/contracts"],
+      "allowedImportLayers": [
+        "domain",
+        "application",
+        "adapters",
+        "shared",
+        "packages/contracts"
+      ],
       "allowedExternalImports": ["*"]
     },
     "config": {
       "paths": ["apps/core/src/config"],
-      "allowedImportLayers": ["config", "domain", "shared", "packages/contracts"],
-      "allowedExternalImports": ["node:", "fs", "path", "url", "net", "os", "zod"]
+      "allowedImportLayers": [
+        "config",
+        "domain",
+        "shared",
+        "packages/contracts"
+      ],
+      "allowedExternalImports": [
+        "node:",
+        "fs",
+        "path",
+        "url",
+        "net",
+        "os",
+        "zod"
+      ]
     },
     "shared": {
       "paths": ["apps/core/src/shared"],

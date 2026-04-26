@@ -8,7 +8,7 @@ import {
   STORAGE_POSTGRES_URL_ENV,
 } from '../../config/index.js';
 import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
-import { PostgresOpsRepository } from './schema/ops-repo.postgres.js';
+import { PostgresCanonicalOpsRepository } from './schema/canonical-ops-repo.postgres.js';
 import { PostgresControlPlaneRepository } from './schema/control-plane-repo.postgres.js';
 import type { PostgresStorageService } from './storage-service.js';
 
@@ -30,11 +30,8 @@ export function createStorageRuntime(
   config: ResolvedStorageConfig = resolveStorageConfigFromRuntime(),
 ): StorageRuntime {
   const service = createStorageService(config);
-  const ops: OpsRepository = new PostgresOpsRepository(
-    service.pool,
-    service.db,
-  );
-  const control = new PostgresControlPlaneRepository(service.db);
+  const ops: OpsRepository = new PostgresCanonicalOpsRepository(service.pool);
+  const control = new PostgresControlPlaneRepository(service.pool);
   return {
     service,
     ops,

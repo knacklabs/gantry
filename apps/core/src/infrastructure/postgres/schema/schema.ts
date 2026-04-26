@@ -13,6 +13,9 @@ import {
   vector,
 } from 'drizzle-orm/pg-core';
 
+export * from './canonical-schema.js';
+export * from './canonical-runtime-schema.js';
+
 export const storageMetaPostgres = pgTable('storage_meta', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),

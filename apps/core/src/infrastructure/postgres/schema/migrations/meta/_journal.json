@@ -57,6 +57,13 @@
       "when": 1777011000000,
       "tag": "0007_memory_app_grade_rewrite",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777014600000,
+      "tag": "0008_canonical_domain_schema_cutover",
+      "breakpoints": true
     }
   ]
 }
