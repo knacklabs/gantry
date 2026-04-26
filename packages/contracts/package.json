@@ -1,10 +1,13 @@
 {
   "name": "@myclaw/contracts",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Canonical DTO and schema contracts for MyClaw integrations.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist/"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -31,6 +34,11 @@
       "import": "./dist/conversations/index.js",
       "default": "./dist/conversations/index.js"
     },
+    "./contract-primitives": {
+      "types": "./dist/contract-primitives.d.ts",
+      "import": "./dist/contract-primitives.js",
+      "default": "./dist/contract-primitives.js"
+    },
     "./errors": {
       "types": "./dist/errors/index.d.ts",
       "import": "./dist/errors/index.js",
@@ -55,6 +63,11 @@
       "types": "./dist/pagination/index.d.ts",
       "import": "./dist/pagination/index.js",
       "default": "./dist/pagination/index.js"
+    },
+    "./primitives": {
+      "types": "./dist/contract-primitives.d.ts",
+      "import": "./dist/contract-primitives.js",
+      "default": "./dist/contract-primitives.js"
     },
     "./permissions": {
       "types": "./dist/permissions/index.d.ts",

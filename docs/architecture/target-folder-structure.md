@@ -212,8 +212,6 @@ Future refactors should move by capability, not by arbitrary file count.
 - Do not refactor implementation files.
 - Do not move source folders.
 - Do not add compatibility layers for old local state.
-- Do not introduce new public contract schemas.
-- Do not change package exports.
 
 The next implementation phase should use these docs as the decision source
 before moving code.

@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import {
   ContractMetadataSchema,
+  ExternalReferenceSchema,
   IsoDateTimeSchema,
 } from '../contract-primitives.js';
 
@@ -43,7 +44,7 @@ export type ResumeSessionRequest = z.infer<typeof ResumeSessionRequestSchema>;
 
 export const ProviderSessionResponseSchema = z.object({
   id: z.string(),
-  providerRef: ContractMetadataSchema,
+  providerRef: ExternalReferenceSchema,
   status: z.enum(['active', 'inactive', 'expired', 'revoked']),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,

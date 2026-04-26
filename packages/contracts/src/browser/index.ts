@@ -53,6 +53,7 @@ export type BrowserIpcRequest = z.infer<typeof BrowserIpcRequestSchema>;
 export const BrowserIpcResponseSchema = z.object({
   ok: z.boolean(),
   requestId: z.string(),
+  provider: z.string().optional(),
   data: z.unknown().optional(),
   error: z.string().optional(),
 });

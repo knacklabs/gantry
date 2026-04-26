@@ -21,8 +21,8 @@ export const ChannelProviderResponseSchema = z.object({
   id: z.string(),
   displayName: z.string(),
   capabilities: z.array(z.string()),
-  status: z.enum(['available', 'unavailable', 'disabled']).optional(),
-  createdAt: IsoDateTimeSchema.optional(),
+  status: z.enum(['available', 'unavailable', 'disabled']),
+  createdAt: IsoDateTimeSchema,
   metadata: ContractMetadataSchema.optional(),
 });
 export type ChannelProviderResponse = z.infer<

@@ -1,3 +1,4 @@
+export * from './contract-primitives.js';
 export * from './agents/index.js';
 export * from './browser/index.js';
 export * from './channels/index.js';
