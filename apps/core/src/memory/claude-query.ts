@@ -1,14 +1,15 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 import {
+  DATA_DIR,
   getCredentialBrokerRuntimeConfig,
+  getHostCredentialEnv,
   type ClaudeAuthMode,
 } from '../config/index.js';
-import { envConfig } from '../config/env/index.js';
-import {
-  createAgentCredentialBroker,
-  getAgentCredentialInjection,
-} from '../application/credentials/agent-credential-service.js';
+import { resolveExternalCredentialBaseUrl } from '../config/credentials/broker-url-policy.js';
+import { getAgentCredentialInjection } from '../application/credentials/agent-credential-service.js';
+import { createAgentCredentialBroker } from '../adapters/credentials/agent-credential-broker-factory.js';
+import { createExternalAgentCredentialInjection } from '../adapters/llm/external-credential-injection.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 import { AGENT_CREDENTIAL_ENV_KEYS } from '../config/source-classification.js';
 
@@ -101,36 +102,55 @@ function flattenPrompt(opts: ClaudeQueryOpts): string {
 
 async function resolveOnecliMemoryEnv(): Promise<Record<string, string>> {
   const brokerConfig = getCredentialBrokerRuntimeConfig();
-  if (brokerConfig.mode === 'external') {
-    const injection = await getAgentCredentialInjection({
-      mode: brokerConfig.mode,
-      agentIdentifier: 'memory',
-      externalBrokerUrl: brokerConfig.externalBrokerBaseUrl,
-      env: envConfig,
-    });
-    return injection.env;
-  }
-  if (!brokerConfig.onecliUrl.trim()) {
-    throw new Error('OneCLI is not configured for Claude access');
-  }
   const cacheKey = `${brokerConfig.mode}:${brokerConfig.onecliUrl}:${brokerConfig.externalBrokerBaseUrl}`;
   if (memoryCredentialBrokerCacheKey !== cacheKey) {
     memoryCredentialBrokerPromise = undefined;
     memoryCredentialBrokerCacheKey = cacheKey;
   }
+  if (brokerConfig.mode === 'external') {
+    const injection = await getAgentCredentialInjection({
+      mode: 'external',
+      agentIdentifier: 'memory',
+      externalInjection: createExternalAgentCredentialInjection({
+        normalizedBaseUrl: resolveExternalCredentialBaseUrl(
+          brokerConfig.externalBrokerBaseUrl,
+        ),
+        hostCredentialEnv: getHostCredentialEnv(),
+      }),
+    });
+    return injection.env;
+  }
+  if (brokerConfig.mode !== 'onecli') {
+    throw new Error('Credential broker is not configured for Claude access');
+  }
+  if (!brokerConfig.onecliUrl.trim()) {
+    throw new Error('OneCLI is not configured for Claude access');
+  }
   memoryCredentialBrokerPromise ??= createAgentCredentialBroker({
     mode: brokerConfig.mode,
     onecliUrl: brokerConfig.onecliUrl,
-    env: envConfig,
+    dataDir: DATA_DIR,
+  }).catch((error) => {
+    memoryCredentialBrokerPromise = undefined;
+    throw error;
   });
   const injection = await getAgentCredentialInjection({
-    mode: brokerConfig.mode,
+    mode: 'onecli',
     agentIdentifier: 'memory',
-    onecliUrl: brokerConfig.onecliUrl,
-    broker: await memoryCredentialBrokerPromise,
-    env: envConfig,
+    broker: requireOnecliBroker(await memoryCredentialBrokerPromise),
   });
   return injection.env;
+}
+
+function requireOnecliBroker(
+  broker: AgentCredentialBroker | undefined,
+): AgentCredentialBroker {
+  if (!broker) {
+    throw new Error(
+      'Credential broker mode is enabled but no agent credential broker was provided.',
+    );
+  }
+  return broker;
 }
 
 async function runWithOnecli(opts: ClaudeQueryOpts): Promise<string> {

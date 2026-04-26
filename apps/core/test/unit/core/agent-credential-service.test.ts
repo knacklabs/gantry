@@ -47,20 +47,18 @@ afterEach(() => {
 });
 
 describe('agent credential service', () => {
-  it('throws missing ONECLI_URL only when onecli mode is required', async () => {
+  it('requires a broker only when broker mode is enabled', async () => {
     const { getAgentCredentialInjection } = await loadCredentialService();
 
     await expect(
       getAgentCredentialInjection({
         mode: 'onecli',
-        onecliUrl: '',
-      }),
-    ).rejects.toThrow('ONECLI_URL');
+      } as never),
+    ).rejects.toThrow('no agent credential broker was provided');
 
     await expect(
       getAgentCredentialInjection({
         mode: 'none',
-        onecliUrl: '',
       }),
     ).resolves.toEqual({
       env: {},
@@ -71,23 +69,21 @@ describe('agent credential service', () => {
     await expect(
       getAgentCredentialInjection({
         mode: 'external',
-        onecliUrl: '',
-      }),
-    ).rejects.toThrow('credential_broker.external.base_url');
+      } as never),
+    ).rejects.toThrow('no external credential injection was provided');
   });
 
   it('passes safe external broker env to spawned agents', async () => {
-    vi.stubEnv('MYCLAW_CREDENTIAL_MODE', 'external');
-    vi.stubEnv('ANTHROPIC_BASE_URL', 'https://broker.example.com');
-    vi.stubEnv('ANTHROPIC_MODEL', 'claude-test');
-    vi.stubEnv('ANTHROPIC_API_KEY', 'raw-secret');
+    const { createExternalAgentCredentialInjection } =
+      await import('@core/adapters/llm/external-credential-injection.js');
     const { getAgentCredentialInjection } = await loadCredentialService();
 
     await expect(
       getAgentCredentialInjection({
         mode: 'external',
-        onecliUrl: '',
-        externalBrokerUrl: 'https://broker.example.com',
+        externalInjection: createExternalAgentCredentialInjection({
+          normalizedBaseUrl: 'https://broker.example.com',
+        }),
       }),
     ).resolves.toEqual({
       env: {
@@ -98,20 +94,46 @@ describe('agent credential service', () => {
     });
   });
 
-  it('rejects unsafe external broker URLs before injecting agent env', async () => {
-    vi.stubEnv('MYCLAW_CREDENTIAL_MODE', 'external');
-    vi.stubEnv('ANTHROPIC_BASE_URL', 'https://user:pass@broker.example.com');
+  it('preserves safe host env and drops raw agent credentials for external broker env', async () => {
+    const { createExternalAgentCredentialInjection } =
+      await import('@core/adapters/llm/external-credential-injection.js');
+
+    expect(
+      createExternalAgentCredentialInjection({
+        normalizedBaseUrl: 'https://broker.example.com',
+        hostCredentialEnv: {
+          HTTPS_PROXY: 'http://proxy.example.com',
+          ANTHROPIC_API_KEY: 'raw-secret',
+          OPENAI_API_KEY: 'raw-secret',
+        },
+      }),
+    ).toEqual({
+      env: {
+        ANTHROPIC_BASE_URL: 'https://broker.example.com',
+        HTTPS_PROXY: 'http://proxy.example.com',
+      },
+      applied: true,
+      brokerProfile: 'external',
+    });
+  });
+
+  it('uses externally prepared credential injection without reading adapter config', async () => {
     const { getAgentCredentialInjection } = await loadCredentialService();
 
     await expect(
       getAgentCredentialInjection({
         mode: 'external',
-        onecliUrl: '',
-        externalBrokerUrl: 'https://user:pass@broker.example.com',
+        externalInjection: {
+          env: { PROVIDER_BASE_URL: 'https://broker.example.com' },
+          applied: true,
+          brokerProfile: 'external',
+        },
       }),
-    ).rejects.toThrow(
-      'credential_broker.external.base_url must not contain embedded credentials',
-    );
+    ).resolves.toEqual({
+      env: { PROVIDER_BASE_URL: 'https://broker.example.com' },
+      applied: true,
+      brokerProfile: 'external',
+    });
   });
 
   it('keeps broker requests agent-scoped and does not request runtime-owned secrets', async () => {
@@ -185,10 +207,11 @@ describe('agent credential service', () => {
     await expect(
       getAgentCredentialInjection({
         mode: 'onecli',
+        agentIdentifier: 'agent-one',
         broker: unreachableBroker,
       }),
     ).rejects.toThrow(
-      'OneCLI credential mode is enabled but the OneCLI gateway is not reachable.',
+      'Credential broker mode is enabled but the credential broker is not reachable for agent agent-one.',
     );
   });
 
@@ -206,7 +229,7 @@ describe('agent credential service', () => {
         broker,
       }),
     ).rejects.toThrow(
-      'OneCLI credential mode is enabled but the OneCLI gateway is not reachable.',
+      'Credential broker mode is enabled but the credential broker is not reachable.',
     );
   });
 });

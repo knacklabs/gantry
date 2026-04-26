@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+import { ApplicationError } from '../../../application/common/application-error.js';
+import { PauseJobUseCase } from '../../../application/jobs/pause-job-use-case.js';
+import { UpdateJobUseCase } from '../../../application/jobs/update-job-use-case.js';
 import {
   enqueueJobTrigger,
   isSchedulerReady,
@@ -29,6 +32,46 @@ import {
   TRIGGER_RATE_LIMIT_PER_JOB,
 } from '../rate-limit.js';
 import { parseJobRoute, parseTriggerWaitRoute } from '../route-parser.js';
+
+function sendApplicationError(res: ServerResponse, error: unknown): boolean {
+  if (!(error instanceof ApplicationError)) return false;
+  switch (error.code) {
+    case 'NOT_FOUND':
+      sendError(res, 404, 'JOB_NOT_FOUND', error.message);
+      return true;
+    case 'FORBIDDEN':
+      sendError(res, 403, 'FORBIDDEN', error.message);
+      return true;
+    case 'INVALID_REQUEST':
+      sendError(res, 400, 'INVALID_REQUEST', error.message);
+      return true;
+    case 'CONFLICT':
+      sendError(res, 409, 'CONFLICT', error.message);
+      return true;
+    case 'UNAVAILABLE':
+      sendError(res, 503, 'UNAVAILABLE', error.message);
+      return true;
+    case 'NOT_IMPLEMENTED':
+      sendError(res, 501, 'NOT_IMPLEMENTED', error.message);
+      return true;
+  }
+  throw error;
+}
+
+function createUpdateJobUseCase() {
+  return new UpdateJobUseCase({
+    ops: getRuntimeOpsRepository(),
+    scheduler: { requestSchedulerSync },
+    clock: { now: nowIso },
+  });
+}
+
+function createPauseJobUseCase() {
+  return new PauseJobUseCase({
+    ops: getRuntimeOpsRepository(),
+    scheduler: { requestSchedulerSync },
+  });
+}
 
 export async function handleJobRoutes(
   req: IncomingMessage,
@@ -188,84 +231,59 @@ export async function handleJobRoutes(
   if (jobRoute && req.method === 'PATCH' && jobRoute.action === 'get') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
-    const existing = await getRuntimeOpsRepository().getJobById(jobRoute.jobId);
-    if (!existing) {
-      sendError(res, 404, 'JOB_NOT_FOUND', 'Job not found');
-      return true;
-    }
-    if (!jobBelongsToApp(existing, auth.appId)) {
-      sendError(res, 403, 'FORBIDDEN', 'API key cannot access this job');
-      return true;
-    }
     const body = (await readJson(req)) as Record<string, unknown>;
-    const updates: Partial<Job> = {};
-    if (typeof body.name === 'string') updates.name = body.name;
-    if (typeof body.prompt === 'string') updates.prompt = body.prompt;
-    if (
-      body.executionMode === 'serialized' ||
-      body.executionMode === 'parallel'
-    ) {
-      updates.execution_mode = body.executionMode;
+    try {
+      const { job: updated } = await createUpdateJobUseCase().execute({
+        appId: auth.appId,
+        jobId: jobRoute.jobId,
+        patch: {
+          ...(typeof body.name === 'string' ? { name: body.name } : {}),
+          ...(typeof body.prompt === 'string' ? { prompt: body.prompt } : {}),
+          ...(body.executionMode === 'serialized' ||
+          body.executionMode === 'parallel'
+            ? { executionMode: body.executionMode }
+            : {}),
+          ...(typeof body.threadId === 'string'
+            ? { threadId: body.threadId }
+            : {}),
+          ...(body.status === 'active' || body.status === 'paused'
+            ? { status: body.status }
+            : {}),
+        },
+      });
+      sendJson(res, 200, mapManualJobToStored(updated));
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
     }
-    if (typeof body.threadId === 'string') updates.thread_id = body.threadId;
-    if (body.status === 'active' || body.status === 'paused') {
-      updates.status = body.status;
-    }
-    await getRuntimeOpsRepository().updateJob(jobRoute.jobId, updates);
-    requestSchedulerSync(jobRoute.jobId);
-    const updated = await getRuntimeOpsRepository().getJobById(jobRoute.jobId);
-    if (!updated) {
-      sendError(res, 404, 'JOB_NOT_FOUND', 'Job not found');
-      return true;
-    }
-    sendJson(res, 200, mapManualJobToStored(updated));
     return true;
   }
   if (jobRoute?.action === 'pause' && req.method === 'POST') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
-    const job = await getRuntimeOpsRepository().getJobById(jobRoute.jobId);
-    if (!job) {
-      sendError(res, 404, 'JOB_NOT_FOUND', 'Job not found');
-      return true;
+    try {
+      const result = await createPauseJobUseCase().execute({
+        appId: auth.appId,
+        jobId: jobRoute.jobId,
+      });
+      sendJson(res, 200, result);
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
     }
-    if (!jobBelongsToApp(job, auth.appId)) {
-      sendError(res, 403, 'FORBIDDEN', 'API key cannot access this job');
-      return true;
-    }
-    await getRuntimeOpsRepository().updateJob(jobRoute.jobId, {
-      status: 'paused',
-      pause_reason: 'Paused by SDK',
-      next_run: null,
-    });
-    requestSchedulerSync(jobRoute.jobId);
-    sendJson(res, 200, { paused: true });
     return true;
   }
   if (jobRoute?.action === 'resume' && req.method === 'POST') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
-    const job = await getRuntimeOpsRepository().getJobById(jobRoute.jobId);
-    if (!job) {
-      sendError(res, 404, 'JOB_NOT_FOUND', 'Job not found');
-      return true;
+    try {
+      await createUpdateJobUseCase().execute({
+        appId: auth.appId,
+        jobId: jobRoute.jobId,
+        resume: true,
+      });
+      sendJson(res, 200, { resumed: true });
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
     }
-    if (!jobBelongsToApp(job, auth.appId)) {
-      sendError(res, 403, 'FORBIDDEN', 'API key cannot access this job');
-      return true;
-    }
-    await getRuntimeOpsRepository().updateJob(jobRoute.jobId, {
-      status: 'active',
-      pause_reason: null,
-      next_run:
-        job.schedule_type === 'manual'
-          ? null
-          : job.schedule_type === 'once' && job.schedule_value
-            ? job.schedule_value
-            : nowIso(),
-    });
-    requestSchedulerSync(jobRoute.jobId);
-    sendJson(res, 200, { resumed: true });
     return true;
   }
   if (jobRoute?.action === 'trigger' && req.method === 'POST') {
@@ -322,9 +340,10 @@ export async function handleJobRoutes(
       }),
     });
     if (job.status === 'paused' || job.status === 'dead_lettered') {
-      await ops.updateJob(job.id, {
-        status: 'active',
-        pause_reason: null,
+      await createUpdateJobUseCase().execute({
+        appId: auth.appId,
+        jobId: job.id,
+        resume: true,
       });
     }
     try {

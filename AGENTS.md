@@ -57,6 +57,8 @@ Important constraints:
 - MyClaw is early-stage: prefer deleting legacy code over compatibility shims because no users are live yet.
 - Do not add migration compatibility commands, auto-migration flows, cleanup shims, or runtime branches that exist only to support old local state.
 - Remove obsolete code paths in the same change when introducing a breaking replacement.
+- Treat cleanup as part of replacement work: remove obsolete active repositories, schemas, runtime paths, tests, docs, exports, and factory wiring in the same PR, or deliberately retain them with an owner, reason, and removal condition.
+- Before resolving PR review threads or marking cutover work complete, search for old type names, table names, imports, and runtime entrypoints affected by the change. Document any remaining matches and prove they are inactive, historical docs, or intentionally retained exceptions.
 - Do not add test-only or local-checkout branches to production code.
 - Classify every new config value before implementation: non-secret configuration belongs in `settings.yaml`, runtime-owned secrets belong behind `RuntimeSecretProvider`, and agent-accessed credentials belong behind `AgentCredentialBroker`.
 - Wrong-lane credential/config values must fail loudly. Raw model/provider credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `CLAUDE_CODE_OAUTH_TOKEN` must never be accepted from MyClaw `.env` or process env.
@@ -75,6 +77,7 @@ Important constraints:
 - Discover and document exact verification commands before changing implementation behavior.
 - Run the smallest relevant checks after each change.
 - Run full checks at the end of a phase.
+- For replacement or cutover work, include a cleanup verification step that searches for stale active references and records the result before final response or PR handoff.
 - Use [docs/architecture/current-verification-commands.md](docs/architecture/current-verification-commands.md) as the command reference.
 
 ## Codex Harness

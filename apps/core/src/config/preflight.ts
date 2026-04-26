@@ -10,6 +10,7 @@ import {
 } from '../adapters/credentials/onecli/local/persistence.js';
 import { EnvRuntimeSecretProvider } from '../adapters/credentials/env-runtime-secret-provider.js';
 import { inspectRuntimeStorageReadiness } from '../infrastructure/postgres/storage-readiness.js';
+import { validateExternalBrokerUrl } from './credentials/broker-url-policy.js';
 
 export interface RuntimePreflightFailure {
   summary: string;
@@ -70,16 +71,13 @@ export async function validateRuntimePreflightWithStorage(
   const credentialMode = settings.credentialBroker.mode;
   if (credentialMode === 'external') {
     try {
-      const { getAgentCredentialInjection } =
-        await import('../application/credentials/agent-credential-service.js');
-      const injection = await getAgentCredentialInjection({
-        mode: credentialMode,
-        externalBrokerUrl: settings.credentialBroker.external.baseUrl,
-        env: runtimeSecretsSource,
-      });
-      if (!injection.env.ANTHROPIC_BASE_URL) {
+      const validation = validateExternalBrokerUrl(
+        settings.credentialBroker.external.baseUrl,
+        'credential_broker.external.base_url',
+      );
+      if (!validation.ok || !validation.normalizedUrl) {
         throw new Error(
-          'External credential mode is enabled but credential_broker.external.base_url is not configured.',
+          validation.error || 'credential_broker.external.base_url is invalid.',
         );
       }
       return { ok: true };

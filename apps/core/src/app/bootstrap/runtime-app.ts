@@ -3,11 +3,10 @@ import {
   DATA_DIR,
   getCredentialBrokerRuntimeConfig,
 } from '../../config/index.js';
-import { envConfig } from '../../config/env/index.js';
 import {
   createAgentCredentialBroker,
   ensureAgentCredentialBinding,
-} from '../../application/credentials/agent-credential-service.js';
+} from '../../adapters/credentials/agent-credential-broker-factory.js';
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
 import { encodeGroupMessageCursor } from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -108,9 +107,10 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     credentialBrokerPromise ??= createAgentCredentialBroker({
       mode: brokerConfig.mode,
       onecliUrl: brokerConfig.onecliUrl,
-      externalBrokerUrl: brokerConfig.externalBrokerBaseUrl,
-      env: envConfig,
       dataDir: DATA_DIR,
+    }).catch((error) => {
+      credentialBrokerPromise = undefined;
+      throw error;
     });
     return credentialBrokerPromise;
   }
@@ -132,7 +132,6 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
         : await ensureAgentCredentialBinding({
             mode: brokerConfig.mode,
             onecliUrl: brokerConfig.onecliUrl,
-            env: envConfig,
             dataDir: DATA_DIR,
             broker: await getCredentialBroker(),
             agentIdentifier: identifier,
