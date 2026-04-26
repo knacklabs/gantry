@@ -46,6 +46,7 @@ Important constraints:
 
 - MyClaw is early-stage: do not add legacy compatibility layers for breaking changes unless explicitly requested by the user.
 - Prefer clean cutovers over dual-path behavior (no fallback branches, shim flags, or backward-compat code by default).
+- Do not add migration compatibility commands, auto-migration flows, cleanup shims, or runtime branches that exist only to support old local state. If a breaking change requires moving local data or config, document the one-time manual cleanup steps and keep the shipped runtime on the new single path.
 - Remove obsolete code paths in the same change when introducing a breaking replacement.
 - Do not add test-only or local-checkout branches to production code. Keep shipped behavior deterministic for the supported install/runtime path; handle local testing differences manually in local runtime files or inside test harnesses.
 - For every change or feature implementation, own the holistic architecture, not only the literal user request. If the request omits provider boundaries, configuration ownership, onboarding, security, testing, docs, or operational impacts, identify those implications, explain the needed corrections to the user, and implement the coherent architecture rather than waiting for every detail to be enumerated.
@@ -75,6 +76,6 @@ If running full factory mode:
 - Background maintenance timers must be stoppable so tests and CI can exit cleanly.
 - Keep docs concise, non-duplicative, and aligned with the current product behavior.
 - When changing the npm publish surface, update `package.json` publish entries and verify `npm pack --dry-run` does not ship internal scaffolding.
-- We need single cut feature with no support for legacy or backward compatibility, no runtime behavior to handle deleting legacy files. Keep it clean.
+- We need single cut feature with no support for legacy or backward compatibility, no runtime behavior to handle deleting legacy files, and no migration commands for old local state. Keep it clean; any one-time migration is manual and documented.
 - Always follow provider pattern for any external sources.
 - Always follow single responsibility principle applied.
