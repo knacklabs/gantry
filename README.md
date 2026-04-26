@@ -116,8 +116,8 @@ The Compose file hardcodes the local ports, schema names, and non-secret role na
 
 If an older local `.env` still contains settings-owned keys such as
 `MYCLAW_CREDENTIAL_MODE`, `ONECLI_URL`, `ANTHROPIC_MODEL`, or
-`SLACK_PERMISSION_APPROVER_IDS`, run `myclaw config migrate-env` before
-starting the runtime.
+`SLACK_PERMISSION_APPROVER_IDS`, move those values into `settings.yaml` and
+remove them from `.env` before starting the runtime.
 
 For hosted Postgres, use Neon, Supabase, or another provider that supports `vector` and `pg_trgm`, then paste two URLs during setup: one MyClaw-role URL with `sslmode=require`, and one OneCLI-role URL for the same database with `sslmode=require` and `schema=onecli`.
 

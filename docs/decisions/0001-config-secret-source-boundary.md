@@ -47,9 +47,9 @@ broker URLs, model settings such as `ANTHROPIC_MODEL`, or raw model-provider
 credentials must be fixed. Doctor and preflight should report the exact key and
 destination instead of silently ignoring the value.
 
-The supported local cleanup path is `myclaw config migrate-env`. It migrates
-known settings-owned `.env` values into `settings.yaml` and removes raw
-agent-accessed credentials so they can be recreated in the selected broker.
+The supported local cleanup path is manual one-time cutover. Move known
+settings-owned `.env` values into `settings.yaml`, remove raw agent-accessed
+credentials from `.env`, and recreate those credentials in the selected broker.
 
 Future Vault, Kubernetes Secrets, AWS Secrets Manager, GCP Secret Manager, Azure
 Key Vault, or custom providers should be added behind the existing provider

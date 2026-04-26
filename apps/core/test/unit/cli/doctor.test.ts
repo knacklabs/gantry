@@ -226,7 +226,6 @@ describe('doctor', () => {
         'Unset wrong-lane keys from your shell or service environment',
       ),
     });
-    expect(check?.nextAction).not.toContain('myclaw config migrate-env');
   });
 
   it('fails external model access when the broker endpoint URL is unsafe', async () => {

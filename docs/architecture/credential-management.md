@@ -29,9 +29,10 @@ to start MyClaw. Process env may override local `.env` only inside
 runtime-secret resolution; it is not a supported path for broker mode, broker
 URLs, model settings, Slack approvers, or raw provider credentials.
 
-Existing local installs can run `myclaw config migrate-env` once to move legacy
-settings-owned values from `.env` into `settings.yaml` and remove raw
-agent-accessed credentials from the runtime env file.
+Existing local installs must be cleaned up manually as a one-time cutover: move
+settings-owned values from `.env` into `settings.yaml`, remove raw
+agent-accessed credentials from the runtime env file, and recreate those
+credentials in the selected broker.
 
 ## Runtime-Owned Secrets
 

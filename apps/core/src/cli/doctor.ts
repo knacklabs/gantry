@@ -5,7 +5,6 @@ import {
   getChannelProvider,
   listConnectableChannelProviders,
 } from '../channels/provider-registry.js';
-
 import { readEnvFile } from '../config/env/file.js';
 import {
   assertRuntimeEntryExists,
@@ -43,7 +42,6 @@ import { openRuntimeGroupDb } from './runtime-group-db.js';
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
 
 const ONECLI_DOCTOR_TIMEOUT_MS = 3_000;
-
 export interface DoctorCheck {
   id: string;
   title: string;
@@ -325,7 +323,9 @@ export function runDoctor(
   ).violations;
   const allEnvPolicyViolations = envViolations.concat(processViolations);
   const runtimeEnvBoundaryNextActions = [
-    envViolations.length ? 'Run `myclaw config migrate-env`.' : '',
+    envViolations.length
+      ? 'Manually move wrong-lane MyClaw .env values to settings.yaml or the selected credential broker.'
+      : '',
     processViolations.length
       ? 'Unset wrong-lane keys from your shell or service environment.'
       : '',
