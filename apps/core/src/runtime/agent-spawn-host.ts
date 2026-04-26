@@ -3,9 +3,7 @@ import path from 'path';
 
 import {
   AGENTS_DIR,
-  EXTERNAL_BROKER_BASE_URL,
-  MYCLAW_CREDENTIAL_MODE,
-  ONECLI_BROKER_URL,
+  getCredentialBrokerRuntimeConfig,
 } from '../config/index.js';
 import { envConfig } from '../config/env/index.js';
 import { getAgentCredentialInjection } from '../application/credentials/agent-credential-service.js';
@@ -32,11 +30,12 @@ export async function getHostRuntimeCredentialEnv(
   brokerApplied: boolean;
   brokerProfile: CredentialBrokerProfile;
 }> {
+  const brokerConfig = getCredentialBrokerRuntimeConfig();
   const injection = await getAgentCredentialInjection({
-    mode: MYCLAW_CREDENTIAL_MODE,
+    mode: brokerConfig.mode,
     agentIdentifier,
-    onecliUrl: ONECLI_BROKER_URL,
-    externalBrokerUrl: EXTERNAL_BROKER_BASE_URL,
+    onecliUrl: brokerConfig.onecliUrl,
+    externalBrokerUrl: brokerConfig.externalBrokerBaseUrl,
     broker,
     env: envConfig,
   });

@@ -5,7 +5,16 @@ import {
   envFilePath,
   ensureRuntimeLayout,
 } from '../config/settings/runtime-home.js';
-import { classifyConfigKey } from '../config/source-classification.js';
+import {
+  classifyConfigKey,
+  validateRuntimeEnvPolicy,
+} from '../config/source-classification.js';
+import {
+  loadRuntimeSettings,
+  saveRuntimeSettings,
+} from '../config/settings/runtime-settings.js';
+import { parseHostCredentialMode } from '../config/credentials/mode.js';
+import { normalizeClaudeModelSelection } from '../models/claude-model-registry.js';
 
 function usage(): string {
   return [
@@ -14,6 +23,7 @@ function usage(): string {
     '  myclaw config get <KEY> [--raw]',
     '  myclaw config set <KEY> <VALUE>',
     '  myclaw config unset <KEY>',
+    '  myclaw config migrate-env',
   ].join('\n');
 }
 
@@ -159,6 +169,118 @@ function runUnset(runtimeHome: string, args: string[]): number {
   return 0;
 }
 
+function parseIdList(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  return [
+    ...new Set(
+      raw
+        .split(/[,\s]+/)
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0),
+    ),
+  ];
+}
+
+function mergeIdList(existing: string[], incoming: string[]): string[] {
+  return [...new Set([...existing, ...incoming])];
+}
+
+function runMigrateEnv(runtimeHome: string): number {
+  ensureRuntimeLayout(runtimeHome);
+  const envPath = envFilePath(runtimeHome);
+  const env = readEnvFile(envPath);
+  const settings = loadRuntimeSettings(runtimeHome);
+  const removals: Record<string, null> = {};
+  const migrated: string[] = [];
+
+  if (env.MYCLAW_CREDENTIAL_MODE?.trim()) {
+    const parsedMode = parseHostCredentialMode(env.MYCLAW_CREDENTIAL_MODE);
+    if (!parsedMode) {
+      p.log.error(
+        `Invalid MYCLAW_CREDENTIAL_MODE "${env.MYCLAW_CREDENTIAL_MODE}". Expected one of: none, onecli, external. Fix the value before running migrate-env.`,
+      );
+      return 1;
+    }
+    settings.credentialBroker.mode = parsedMode;
+    removals.MYCLAW_CREDENTIAL_MODE = null;
+    migrated.push('MYCLAW_CREDENTIAL_MODE -> credential_broker.mode');
+  }
+  if (env.ONECLI_URL?.trim()) {
+    settings.credentialBroker.onecli.url = env.ONECLI_URL.trim();
+    removals.ONECLI_URL = null;
+    migrated.push('ONECLI_URL -> credential_broker.onecli.url');
+  }
+  if (env.ANTHROPIC_BASE_URL?.trim()) {
+    settings.credentialBroker.external.baseUrl = env.ANTHROPIC_BASE_URL.trim();
+    removals.ANTHROPIC_BASE_URL = null;
+    migrated.push('ANTHROPIC_BASE_URL -> credential_broker.external.base_url');
+  }
+  if (env.ANTHROPIC_MODEL?.trim()) {
+    settings.agent.defaultModel =
+      normalizeClaudeModelSelection(env.ANTHROPIC_MODEL) ||
+      env.ANTHROPIC_MODEL.trim();
+    removals.ANTHROPIC_MODEL = null;
+    migrated.push('ANTHROPIC_MODEL -> agent.default_model');
+  }
+  if (env.SLACK_PERMISSION_APPROVER_IDS?.trim()) {
+    if (settings.channels.slack) {
+      settings.channels.slack.controlAllowlist.default = mergeIdList(
+        settings.channels.slack.controlAllowlist.default,
+        parseIdList(env.SLACK_PERMISSION_APPROVER_IDS),
+      );
+    }
+    removals.SLACK_PERMISSION_APPROVER_IDS = null;
+    migrated.push(
+      'SLACK_PERMISSION_APPROVER_IDS -> channels.slack.control_allowlist.default',
+    );
+  }
+
+  for (const [key, value] of Object.entries(env)) {
+    const classified = classifyConfigKey(key);
+    if (classified?.lane === 'agent-credential' && value.trim()) {
+      removals[key] = null;
+      migrated.push(`${key} removed; configure it in the credential broker`);
+    }
+  }
+
+  const envAfterMigration: Partial<Record<string, string | undefined>> = {
+    ...env,
+  };
+  for (const key of Object.keys(removals)) {
+    envAfterMigration[key] = undefined;
+  }
+  const remainingViolations =
+    validateRuntimeEnvPolicy(envAfterMigration).violations;
+  const unmigratedSettings = remainingViolations.filter(
+    (violation) => violation.lane === 'non-secret-setting',
+  );
+  if (unmigratedSettings.length > 0) {
+    p.log.error(
+      [
+        'migrate-env cannot automatically migrate these settings-owned keys:',
+        ...unmigratedSettings.map(
+          (violation) => `${violation.key} -> ${violation.destination}`,
+        ),
+        'Move them to settings.yaml or remove them from .env, then rerun doctor.',
+      ].join('\n'),
+    );
+    return 1;
+  }
+
+  if (migrated.length === 0) {
+    p.log.success('No wrong-lane .env keys found to migrate.');
+    return 0;
+  }
+
+  saveRuntimeSettings(runtimeHome, settings);
+  upsertEnvFile(envPath, removals);
+  p.log.success(
+    `Migrated ${migrated.length} .env entr${migrated.length === 1 ? 'y' : 'ies'}.`,
+  );
+  for (const entry of migrated) p.log.info(entry);
+  return 0;
+}
+
 export function runConfigCommand(runtimeHome: string, args: string[]): number {
   const [subcommand, ...rest] = args;
 
@@ -178,6 +300,9 @@ export function runConfigCommand(runtimeHome: string, args: string[]): number {
   }
   if (subcommand === 'unset') {
     return runUnset(runtimeHome, rest);
+  }
+  if (subcommand === 'migrate-env') {
+    return runMigrateEnv(runtimeHome);
   }
 
   p.log.error(`Unknown config command: ${subcommand}`);

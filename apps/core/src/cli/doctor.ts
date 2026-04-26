@@ -318,17 +318,31 @@ export function runDoctor(
       nextAction: `Fix ${path.join(runtimeHome, 'settings.yaml')}. Details: ${settingsResult.error}`,
     });
   }
-  const envPolicy = validateRuntimeEnvPolicy(env);
+  const envViolations = validateRuntimeEnvPolicy(env).violations;
+  const processViolations = validateRuntimeEnvPolicy(
+    process.env,
+    'process environment',
+  ).violations;
+  const allEnvPolicyViolations = envViolations.concat(processViolations);
+  const runtimeEnvBoundaryNextActions = [
+    envViolations.length ? 'Run `myclaw config migrate-env`.' : '',
+    processViolations.length
+      ? 'Unset wrong-lane keys from your shell or service environment.'
+      : '',
+    allEnvPolicyViolations.length
+      ? 'Move non-secret settings to settings.yaml and agent credentials to Model Access or the selected credential broker.'
+      : '',
+  ].filter(Boolean);
   add(checks, {
     id: 'runtime-env-boundary',
     title: 'Runtime Env Boundary',
-    status: envPolicy.ok ? 'pass' : 'fail',
-    message: envPolicy.ok
-      ? '.env contains runtime-owned secrets only.'
-      : envPolicy.violations.map((violation) => violation.message).join(' '),
-    nextAction: envPolicy.ok
-      ? undefined
-      : 'Move non-secret settings to settings.yaml and agent credentials to Model Access or the selected credential broker.',
+    status: allEnvPolicyViolations.length === 0 ? 'pass' : 'fail',
+    message: allEnvPolicyViolations.length
+      ? allEnvPolicyViolations.map((violation) => violation.message).join(' ')
+      : '.env and process env contain runtime-owned secrets only.',
+    nextAction: runtimeEnvBoundaryNextActions.length
+      ? runtimeEnvBoundaryNextActions.join(' ')
+      : undefined,
   });
   const onecliUrl = settings?.credentialBroker.onecli.url.trim() || '';
   const credentialMode = settings?.credentialBroker.mode || 'onecli';

@@ -3,10 +3,7 @@ import path from 'path';
 
 import { App } from '@slack/bolt';
 
-import {
-  PERMISSION_APPROVAL_TIMEOUT_MS,
-  SLACK_PERMISSION_APPROVER_IDS,
-} from '../../config/index.js';
+import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   MessageSendOptions,
@@ -396,6 +393,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
 
         this.pendingPermissionPrompts.set(request.requestId, {
           channelId: parsed.channelId,
+          sourceGroup: request.sourceGroup,
           messageTs,
           timer,
           resolve,
@@ -456,6 +454,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           promptText,
           selectedOptionIndexes: new Set<number>(),
           channelId: parsed.channelId,
+          sourceGroup: request.sourceGroup,
           messageTs: '',
           resolve: () => undefined,
           settled: false,

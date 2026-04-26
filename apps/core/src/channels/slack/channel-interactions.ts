@@ -4,8 +4,8 @@ import path from 'path';
 import { App } from '@slack/bolt';
 
 import {
+  getSlackPermissionApproverIds,
   PERMISSION_APPROVAL_TIMEOUT_MS,
-  SLACK_PERMISSION_APPROVER_IDS,
 } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
@@ -129,9 +129,10 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     }
   }
 
-  protected canDecidePermission(userId: string): boolean {
-    if (SLACK_PERMISSION_APPROVER_IDS.size === 0) return false;
-    return SLACK_PERMISSION_APPROVER_IDS.has(userId);
+  protected canDecidePermission(userId: string, sourceGroup: string): boolean {
+    const allowedIds = getSlackPermissionApproverIds(sourceGroup);
+    if (allowedIds.size === 0) return false;
+    return allowedIds.has(userId);
   }
 
   protected formatPermissionPromptText(
@@ -317,7 +318,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       const pending = this.pendingPermissionPrompts.get(payload.requestId);
       if (!pending) return;
 
-      if (!this.canDecidePermission(userId)) {
+      if (!this.canDecidePermission(userId, pending.sourceGroup)) {
         try {
           await this.app?.client.chat.postEphemeral({
             channel: pending.channelId,
@@ -358,7 +359,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
       const userId = body.user?.id || '';
       if (!userId) return;
-      if (!this.canDecidePermission(userId)) {
+      if (!this.canDecidePermission(userId, pending.sourceGroup)) {
         try {
           await this.app?.client.chat.postEphemeral({
             channel: pending.channelId,
@@ -414,7 +415,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
       const userId = body.user?.id || '';
       if (!userId) return;
-      if (!this.canDecidePermission(userId)) {
+      if (!this.canDecidePermission(userId, pending.sourceGroup)) {
         try {
           await this.app?.client.chat.postEphemeral({
             channel: pending.channelId,

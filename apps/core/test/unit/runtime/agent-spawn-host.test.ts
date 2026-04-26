@@ -73,6 +73,11 @@ async function loadModule(config: {
     AGENTS_DIR: config.AGENTS_DIR ?? '/tmp/myclaw-test/agents',
     MYCLAW_HOME: config.MYCLAW_HOME ?? '/tmp/myclaw-test/config',
     MYCLAW_CREDENTIAL_MODE: config.MYCLAW_CREDENTIAL_MODE ?? 'onecli',
+    getCredentialBrokerRuntimeConfig: () => ({
+      mode: config.MYCLAW_CREDENTIAL_MODE ?? 'onecli',
+      onecliUrl: config.ONECLI_URL ?? 'http://localhost:10254',
+      externalBrokerBaseUrl: '',
+    }),
     ONECLI_ALLOWED_ENV_KEYS: ['ANTHROPIC_BASE_URL', 'ANTHROPIC_MODEL'],
   }));
   vi.doMock('@core/config/env/index.js', () => ({

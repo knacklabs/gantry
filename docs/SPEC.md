@@ -297,8 +297,8 @@ export const AGENTS_DIR = path.resolve(MYCLAW_HOME, 'agents');
 export const DATA_DIR = path.resolve(MYCLAW_HOME, 'data');
 
 // Default model selection is non-secret configuration in settings.yaml.
-const runtimeSettings = ensureRuntimeSettings(MYCLAW_HOME);
-export const ANTHROPIC_MODEL = runtimeSettings.agent.defaultModel;
+export const getConfiguredDefaultModel = () =>
+  ensureRuntimeSettings(MYCLAW_HOME).agent.defaultModel;
 export const IPC_POLL_INTERVAL = 1000;
 export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min — keep runtime worker alive after last result
 

@@ -207,6 +207,28 @@ describe('doctor', () => {
     });
   });
 
+  it('reports process env wrong-lane keys in the runtime env boundary check', async () => {
+    const runtimeHome = makeRuntimeHome([
+      'MYCLAW_DATABASE_URL=postgres://myclaw_app:pass@localhost:15432/myclaw',
+    ]);
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-process');
+    const { runDoctor } = await loadDoctor();
+
+    const report = runDoctor(import.meta.url, runtimeHome);
+    const check = report.checks.find(
+      (entry) => entry.id === 'runtime-env-boundary',
+    );
+
+    expect(check).toMatchObject({
+      status: 'fail',
+      message: expect.stringContaining('process environment'),
+      nextAction: expect.stringContaining(
+        'Unset wrong-lane keys from your shell or service environment',
+      ),
+    });
+    expect(check?.nextAction).not.toContain('myclaw config migrate-env');
+  });
+
   it('fails external model access when the broker endpoint URL is unsafe', async () => {
     const runtimeHome = makeRuntimeHome([
       'MYCLAW_DATABASE_URL=postgres://myclaw_app:pass@localhost:15432/myclaw',

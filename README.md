@@ -114,6 +114,11 @@ myclaw setup
 
 The Compose file hardcodes the local ports, schema names, and non-secret role names. `~/myclaw/.env` only needs local passwords, `SECRET_ENCRYPTION_KEY`, and the runtime connection URLs. MyClaw setup does not start Docker or create containers; it asks for `MYCLAW_DATABASE_URL` and `ONECLI_DATABASE_URL`, then writes the non-secret OneCLI gateway URL to `settings.yaml` as `credential_broker.onecli.url`.
 
+If an older local `.env` still contains settings-owned keys such as
+`MYCLAW_CREDENTIAL_MODE`, `ONECLI_URL`, `ANTHROPIC_MODEL`, or
+`SLACK_PERMISSION_APPROVER_IDS`, run `myclaw config migrate-env` before
+starting the runtime.
+
 For hosted Postgres, use Neon, Supabase, or another provider that supports `vector` and `pg_trgm`, then paste two URLs during setup: one MyClaw-role URL with `sslmode=require`, and one OneCLI-role URL for the same database with `sslmode=require` and `schema=onecli`.
 
 ### Channel Setup

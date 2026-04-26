@@ -79,6 +79,35 @@ describe('resolveClaudeAuthState', () => {
     expect(resolveClaudeAuthState().mode).toBe('broker');
   });
 
+  it('reads credential broker settings live after module import', async () => {
+    createRuntimeHome('none');
+    vi.resetModules();
+
+    const { getCredentialBrokerRuntimeConfig, resolveClaudeAuthState } =
+      await import('@core/config/index.js');
+    expect(getCredentialBrokerRuntimeConfig().mode).toBe('none');
+    expect(resolveClaudeAuthState().mode).toBe('none');
+
+    writeCredentialSettings('external', 'https://broker.local/anthropic');
+
+    expect(getCredentialBrokerRuntimeConfig()).toMatchObject({
+      mode: 'external',
+      externalBrokerBaseUrl: 'https://broker.local/anthropic',
+    });
+    expect(resolveClaudeAuthState().mode).toBe('broker');
+  });
+
+  it('does not silently fall back when settings.yaml is malformed', async () => {
+    runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-config-'));
+    fs.writeFileSync(path.join(runtimeRoot, 'settings.yaml'), 'not: [yaml');
+    vi.stubEnv('MYCLAW_HOME', runtimeRoot);
+    vi.resetModules();
+
+    await expect(import('@core/config/index.js')).rejects.toThrow(
+      /Invalid runtime storage settings|settings file is invalid|expected/i,
+    );
+  });
+
   it('uses runtime .env before ambient env for channel credential getters', async () => {
     createRuntimeHome('onecli');
     fs.writeFileSync(
@@ -133,10 +162,10 @@ describe('resolveClaudeAuthState', () => {
     );
     vi.resetModules();
 
-    const { ANTHROPIC_MODEL, STORAGE_POSTGRES_URL } =
+    const { getConfiguredDefaultModel, STORAGE_POSTGRES_URL } =
       await import('@core/config/index.js');
 
-    expect(ANTHROPIC_MODEL).toBe('claude-file-model');
+    expect(getConfiguredDefaultModel()).toBe('claude-file-model');
     expect(STORAGE_POSTGRES_URL).toBe(
       'postgres://file:pass@localhost:15432/myclaw',
     );

@@ -1,5 +1,5 @@
 import {
-  MODEL_EXTRACTOR,
+  getMemoryModelRuntimeConfig,
   MEMORY_EXTRACTOR_MAX_FACTS,
   MEMORY_EXTRACTOR_MIN_CONFIDENCE,
 } from '../config/index.js';
@@ -319,6 +319,7 @@ export class LlmMemoryExtractionProvider implements MemoryExtractionProvider {
   async extractFacts(
     input: ArcExtractionInput,
   ): Promise<ExtractedMemoryFact[]> {
+    const modelExtractor = getMemoryModelRuntimeConfig().extractor;
     const turns = Array.isArray(input.turns) ? input.turns : [];
     if (!turns.length) {
       return [];
@@ -340,7 +341,7 @@ export class LlmMemoryExtractionProvider implements MemoryExtractionProvider {
     if (blockedTurn) {
       logger.warn(
         {
-          model: MODEL_EXTRACTOR,
+          model: modelExtractor,
           trigger: input.trigger,
           reason: blockedTurn.reason || 'potential_sensitive_material',
         },
@@ -357,7 +358,7 @@ export class LlmMemoryExtractionProvider implements MemoryExtractionProvider {
         if (key.blocked || value.blocked) {
           logger.warn(
             {
-              model: MODEL_EXTRACTOR,
+              model: modelExtractor,
               trigger: input.trigger,
               memory_id: item.id,
               key_reason: key.reason || null,
@@ -389,7 +390,7 @@ export class LlmMemoryExtractionProvider implements MemoryExtractionProvider {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const text = await runClaudeQuery({
-          model: MODEL_EXTRACTOR,
+          model: modelExtractor,
           prompt: promptParts.plainPrompt,
           systemPrompt: promptParts.systemPrompt,
           userBlocks: [
@@ -399,7 +400,7 @@ export class LlmMemoryExtractionProvider implements MemoryExtractionProvider {
           onUsage: (nextUsage) => {
             usage = nextUsage;
             input.onUsage?.({
-              model: MODEL_EXTRACTOR,
+              model: modelExtractor,
               ...nextUsage,
             });
           },
@@ -407,7 +408,7 @@ export class LlmMemoryExtractionProvider implements MemoryExtractionProvider {
         if (usage) {
           logger.info(
             {
-              model: MODEL_EXTRACTOR,
+              model: modelExtractor,
               input_tokens: usage.input_tokens,
               output_tokens: usage.output_tokens,
               cache_read_input_tokens: usage.cache_read_input_tokens || 0,
@@ -434,14 +435,14 @@ export class LlmMemoryExtractionProvider implements MemoryExtractionProvider {
         const transient = isTransientExtractorError(err);
         if (attempt === 0 && transient) {
           logger.warn(
-            { err, model: MODEL_EXTRACTOR, retryInMs: EXTRACT_RETRY_DELAY_MS },
+            { err, model: modelExtractor, retryInMs: EXTRACT_RETRY_DELAY_MS },
             'Transient extractor failure; retrying once',
           );
           await sleep(EXTRACT_RETRY_DELAY_MS);
           continue;
         }
         logger.warn(
-          { err, model: MODEL_EXTRACTOR },
+          { err, model: modelExtractor },
           'LLM extraction failed; skipping this boundary extraction',
         );
         return [];

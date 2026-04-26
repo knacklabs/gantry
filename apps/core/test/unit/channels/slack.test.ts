@@ -1,10 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const defaultSlackPermissionApproverIds = vi.hoisted(() => new Set<string>());
+const currentControlAllowlist = vi.hoisted(() => ({
+  current: {
+    default: [] as string[],
+    agents: {} as Record<string, string[]>,
+  },
+}));
+
 vi.mock('@core/config/index.js', () => ({
   PERMISSION_APPROVAL_TIMEOUT_MS: 300000,
   getSlackBotToken: () => process.env.SLACK_BOT_TOKEN || '',
   getSlackAppToken: () => process.env.SLACK_APP_TOKEN || '',
-  SLACK_PERMISSION_APPROVER_IDS: new Set<string>(),
+  getSlackPermissionApproverIds: (sourceGroup?: string) => {
+    const allowlist = currentControlAllowlist.current;
+    const scoped =
+      sourceGroup && allowlist.agents[sourceGroup] !== undefined
+        ? allowlist.agents[sourceGroup]
+        : allowlist.default;
+    return new Set(scoped);
+  },
 }));
 
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
@@ -97,21 +112,33 @@ vi.mock('@slack/bolt', () => ({
   },
 }));
 
-import { SLACK_PERMISSION_APPROVER_IDS } from '@core/config/index.js';
 import { createSlackChannel, SlackChannel } from '@core/channels/slack.js';
 
-function createOpts() {
+function createOpts(
+  controlAllowlist = {
+    default: Array.from(defaultSlackPermissionApproverIds),
+    agents: {} as Record<string, string[]>,
+  },
+) {
+  currentControlAllowlist.current = controlAllowlist;
   return {
     onMessage: vi.fn(),
     onChatMetadata: vi.fn(),
     registeredGroups: vi.fn(() => ({})),
+    runtimeSettings: vi.fn(() => ({
+      channels: {
+        slack: {
+          controlAllowlist,
+        },
+      },
+    })),
   };
 }
 
 describe('Slack channel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    SLACK_PERMISSION_APPROVER_IDS.clear();
+    defaultSlackPermissionApproverIds.clear();
   });
 
   afterEach(() => {
@@ -244,7 +271,7 @@ describe('Slack channel', () => {
   });
 
   it('includes Bash command summary in Slack permission prompts', async () => {
-    SLACK_PERMISSION_APPROVER_IDS.add('U_APPROVER');
+    defaultSlackPermissionApproverIds.add('U_APPROVER');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -333,8 +360,106 @@ describe('Slack channel', () => {
     );
   });
 
+  it('does not let an agent-scoped Slack approver decide another agent request', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts({
+        default: [],
+        agents: {
+          agent_one: ['U_APPROVER'],
+          agent_two: ['U_OTHER'],
+        },
+      }) as any,
+    );
+    await channel.connect();
+
+    const approvalPromise = channel.requestPermissionApproval(
+      'sl:C1234567890',
+      {
+        requestId: 'perm-agent-scope',
+        sourceGroup: 'agent_two',
+        toolName: 'Bash',
+      },
+    );
+
+    const actionHandler = appRef.current.actionHandlers.get(
+      'myclaw_perm_decision',
+    );
+    await actionHandler?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: { user: { id: 'U_APPROVER', name: 'Wrong Agent Approver' } },
+      action: {
+        value: JSON.stringify({
+          requestId: 'perm-agent-scope',
+          decision: 'approve',
+        }),
+      },
+    });
+
+    expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: 'U_APPROVER',
+        text: 'You are not allowed to decide this permission request.',
+      }),
+    );
+
+    await channel.disconnect();
+    await expect(approvalPromise).resolves.toEqual(
+      expect.objectContaining({ approved: false }),
+    );
+  });
+
+  it('uses live Slack approver settings for permission decisions', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts({
+        default: ['U_REVOKED'],
+        agents: {},
+      }) as any,
+    );
+    await channel.connect();
+
+    const approvalPromise = channel.requestPermissionApproval(
+      'sl:C1234567890',
+      {
+        requestId: 'perm-revoked',
+        sourceGroup: 'slack_main',
+        toolName: 'Bash',
+      },
+    );
+    currentControlAllowlist.current = { default: [], agents: {} };
+
+    const actionHandler = appRef.current.actionHandlers.get(
+      'myclaw_perm_decision',
+    );
+    await actionHandler?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: { user: { id: 'U_REVOKED', name: 'Revoked Approver' } },
+      action: {
+        value: JSON.stringify({
+          requestId: 'perm-revoked',
+          decision: 'approve',
+        }),
+      },
+    });
+
+    expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: 'U_REVOKED',
+        text: 'You are not allowed to decide this permission request.',
+      }),
+    );
+
+    await channel.disconnect();
+    await expect(approvalPromise).resolves.toEqual(
+      expect.objectContaining({ approved: false }),
+    );
+  });
+
   it('resolves Slack single-select user question from action callback', async () => {
-    SLACK_PERMISSION_APPROVER_IDS.add('U123');
+    defaultSlackPermissionApproverIds.add('U123');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -393,7 +518,7 @@ describe('Slack channel', () => {
   });
 
   it('blocks unauthorized Slack user-question answers when approvers are configured', async () => {
-    SLACK_PERMISSION_APPROVER_IDS.add('U_APPROVER');
+    defaultSlackPermissionApproverIds.add('U_APPROVER');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -465,7 +590,7 @@ describe('Slack channel', () => {
   });
 
   it('resolves Slack multi-select user question after Done action', async () => {
-    SLACK_PERMISSION_APPROVER_IDS.add('U123');
+    defaultSlackPermissionApproverIds.add('U123');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',
@@ -809,7 +934,7 @@ describe('Slack channel', () => {
 
   it('resolves permission prompt once even if timeout is reached later', async () => {
     vi.useFakeTimers();
-    SLACK_PERMISSION_APPROVER_IDS.add('U_APPROVER');
+    defaultSlackPermissionApproverIds.add('U_APPROVER');
     const channel = new SlackChannel(
       'xoxb-token',
       'xapp-token',

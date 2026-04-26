@@ -3,10 +3,7 @@ import path from 'path';
 
 import { App } from '@slack/bolt';
 
-import {
-  PERMISSION_APPROVAL_TIMEOUT_MS,
-  SLACK_PERMISSION_APPROVER_IDS,
-} from '../../config/index.js';
+import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
   MessageSendOptions,
@@ -50,6 +47,7 @@ export interface ActiveProgressState {
 
 export interface PendingPermissionPrompt {
   channelId: string;
+  sourceGroup: string;
   messageTs: string;
   timer: ReturnType<typeof setTimeout>;
   resolve: (decision: PermissionApprovalDecision) => void;
@@ -63,6 +61,7 @@ export interface PendingUserQuestionState {
   promptText: string;
   selectedOptionIndexes: Set<number>;
   channelId: string;
+  sourceGroup: string;
   messageTs: string;
   timer?: ReturnType<typeof setTimeout>;
   resolve: (selection: {
@@ -99,7 +98,7 @@ export abstract class SlackChannelState {
   protected readonly appToken: string;
   protected readonly opts: Pick<
     ChannelOpts,
-    'onMessage' | 'onChatMetadata' | 'registeredGroups'
+    'onMessage' | 'onChatMetadata' | 'registeredGroups' | 'runtimeSettings'
   >;
   protected botUserId: string | null = null;
   protected userNameCache = new Map<string, string>();
