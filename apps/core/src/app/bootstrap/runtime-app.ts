@@ -108,6 +108,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
       mode: brokerConfig.mode,
       onecliUrl: brokerConfig.onecliUrl,
       dataDir: DATA_DIR,
+    }).catch((error) => {
+      credentialBrokerPromise = undefined;
+      throw error;
     });
     return credentialBrokerPromise;
   }

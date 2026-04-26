@@ -35,17 +35,25 @@ import { parseJobRoute, parseTriggerWaitRoute } from '../route-parser.js';
 
 function sendApplicationError(res: ServerResponse, error: unknown): boolean {
   if (!(error instanceof ApplicationError)) return false;
-  if (error.code === 'NOT_FOUND') {
-    sendError(res, 404, 'JOB_NOT_FOUND', error.message);
-    return true;
-  }
-  if (error.code === 'FORBIDDEN') {
-    sendError(res, 403, 'FORBIDDEN', error.message);
-    return true;
-  }
-  if (error.code === 'INVALID_REQUEST') {
-    sendError(res, 400, 'INVALID_REQUEST', error.message);
-    return true;
+  switch (error.code) {
+    case 'NOT_FOUND':
+      sendError(res, 404, 'JOB_NOT_FOUND', error.message);
+      return true;
+    case 'FORBIDDEN':
+      sendError(res, 403, 'FORBIDDEN', error.message);
+      return true;
+    case 'INVALID_REQUEST':
+      sendError(res, 400, 'INVALID_REQUEST', error.message);
+      return true;
+    case 'CONFLICT':
+      sendError(res, 409, 'CONFLICT', error.message);
+      return true;
+    case 'UNAVAILABLE':
+      sendError(res, 503, 'UNAVAILABLE', error.message);
+      return true;
+    case 'NOT_IMPLEMENTED':
+      sendError(res, 501, 'NOT_IMPLEMENTED', error.message);
+      return true;
   }
   throw error;
 }
@@ -332,9 +340,10 @@ export async function handleJobRoutes(
       }),
     });
     if (job.status === 'paused' || job.status === 'dead_lettered') {
-      await ops.updateJob(job.id, {
-        status: 'active',
-        pause_reason: null,
+      await createUpdateJobUseCase().execute({
+        appId: auth.appId,
+        jobId: job.id,
+        resume: true,
       });
     }
     try {

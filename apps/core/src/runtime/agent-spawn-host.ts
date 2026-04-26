@@ -7,7 +7,7 @@ import {
   getCredentialBrokerRuntimeConfig,
   getHostCredentialEnv,
 } from '../config/index.js';
-import { validateExternalBrokerUrl } from '../config/credentials/broker-url-policy.js';
+import { resolveExternalCredentialBaseUrl } from '../config/credentials/broker-url-policy.js';
 import { getAgentCredentialInjection } from '../application/credentials/agent-credential-service.js';
 import { createAgentCredentialBroker } from '../adapters/credentials/agent-credential-broker-factory.js';
 import { createExternalAgentCredentialInjection } from '../adapters/llm/external-credential-injection.js';
@@ -35,28 +35,28 @@ export async function getHostRuntimeCredentialEnv(
   brokerProfile: CredentialBrokerProfile;
 }> {
   const brokerConfig = getCredentialBrokerRuntimeConfig();
-  const resolvedBroker =
-    broker ??
-    (await createAgentCredentialBroker({
-      mode: brokerConfig.mode,
-      onecliUrl: brokerConfig.onecliUrl,
-      dataDir: DATA_DIR,
-    }));
-  const externalInjection =
+  const injection =
     brokerConfig.mode === 'external'
-      ? createExternalAgentCredentialInjection({
-          normalizedBaseUrl: resolveExternalCredentialBaseUrl(
-            brokerConfig.externalBrokerBaseUrl,
-          ),
-          hostCredentialEnv: getHostCredentialEnv(),
+      ? await getAgentCredentialInjection({
+          mode: 'external',
+          agentIdentifier,
+          externalInjection: createExternalAgentCredentialInjection({
+            normalizedBaseUrl: resolveExternalCredentialBaseUrl(
+              brokerConfig.externalBrokerBaseUrl,
+            ),
+            hostCredentialEnv: getHostCredentialEnv(),
+          }),
         })
-      : undefined;
-  const injection = await getAgentCredentialInjection({
-    mode: brokerConfig.mode,
-    agentIdentifier,
-    broker: resolvedBroker,
-    externalInjection,
-  });
+      : brokerConfig.mode === 'onecli'
+        ? await getAgentCredentialInjection({
+            mode: 'onecli',
+            agentIdentifier,
+            broker: await resolveOnecliBroker(broker, brokerConfig.onecliUrl),
+          })
+        : await getAgentCredentialInjection({
+            mode: 'none',
+            agentIdentifier,
+          });
 
   return {
     env: injection.env,
@@ -65,17 +65,23 @@ export async function getHostRuntimeCredentialEnv(
   };
 }
 
-function resolveExternalCredentialBaseUrl(rawBrokerUrl: string): string {
-  const validation = validateExternalBrokerUrl(
-    rawBrokerUrl,
-    'credential_broker.external.base_url',
-  );
-  if (!validation.ok || !validation.normalizedUrl) {
+async function resolveOnecliBroker(
+  broker: AgentCredentialBroker | undefined,
+  onecliUrl: string,
+): Promise<AgentCredentialBroker> {
+  const resolved =
+    broker ??
+    (await createAgentCredentialBroker({
+      mode: 'onecli',
+      onecliUrl,
+      dataDir: DATA_DIR,
+    }));
+  if (!resolved) {
     throw new Error(
-      validation.error || 'credential_broker.external.base_url is invalid.',
+      'Credential broker mode is enabled but no agent credential broker was provided.',
     );
   }
-  return validation.normalizedUrl;
+  return resolved;
 }
 
 export function prepareHostRuntimeContext(

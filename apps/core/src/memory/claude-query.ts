@@ -6,7 +6,7 @@ import {
   getHostCredentialEnv,
   type ClaudeAuthMode,
 } from '../config/index.js';
-import { validateExternalBrokerUrl } from '../config/credentials/broker-url-policy.js';
+import { resolveExternalCredentialBaseUrl } from '../config/credentials/broker-url-policy.js';
 import { getAgentCredentialInjection } from '../application/credentials/agent-credential-service.js';
 import { createAgentCredentialBroker } from '../adapters/credentials/agent-credential-broker-factory.js';
 import { createExternalAgentCredentialInjection } from '../adapters/llm/external-credential-injection.js';
@@ -102,9 +102,14 @@ function flattenPrompt(opts: ClaudeQueryOpts): string {
 
 async function resolveOnecliMemoryEnv(): Promise<Record<string, string>> {
   const brokerConfig = getCredentialBrokerRuntimeConfig();
+  const cacheKey = `${brokerConfig.mode}:${brokerConfig.onecliUrl}:${brokerConfig.externalBrokerBaseUrl}`;
+  if (memoryCredentialBrokerCacheKey !== cacheKey) {
+    memoryCredentialBrokerPromise = undefined;
+    memoryCredentialBrokerCacheKey = cacheKey;
+  }
   if (brokerConfig.mode === 'external') {
     const injection = await getAgentCredentialInjection({
-      mode: brokerConfig.mode,
+      mode: 'external',
       agentIdentifier: 'memory',
       externalInjection: createExternalAgentCredentialInjection({
         normalizedBaseUrl: resolveExternalCredentialBaseUrl(
@@ -115,38 +120,37 @@ async function resolveOnecliMemoryEnv(): Promise<Record<string, string>> {
     });
     return injection.env;
   }
+  if (brokerConfig.mode !== 'onecli') {
+    throw new Error('Credential broker is not configured for Claude access');
+  }
   if (!brokerConfig.onecliUrl.trim()) {
     throw new Error('OneCLI is not configured for Claude access');
-  }
-  const cacheKey = `${brokerConfig.mode}:${brokerConfig.onecliUrl}:${brokerConfig.externalBrokerBaseUrl}`;
-  if (memoryCredentialBrokerCacheKey !== cacheKey) {
-    memoryCredentialBrokerPromise = undefined;
-    memoryCredentialBrokerCacheKey = cacheKey;
   }
   memoryCredentialBrokerPromise ??= createAgentCredentialBroker({
     mode: brokerConfig.mode,
     onecliUrl: brokerConfig.onecliUrl,
     dataDir: DATA_DIR,
+  }).catch((error) => {
+    memoryCredentialBrokerPromise = undefined;
+    throw error;
   });
   const injection = await getAgentCredentialInjection({
-    mode: brokerConfig.mode,
+    mode: 'onecli',
     agentIdentifier: 'memory',
-    broker: await memoryCredentialBrokerPromise,
+    broker: requireOnecliBroker(await memoryCredentialBrokerPromise),
   });
   return injection.env;
 }
 
-function resolveExternalCredentialBaseUrl(rawBrokerUrl: string): string {
-  const validation = validateExternalBrokerUrl(
-    rawBrokerUrl,
-    'credential_broker.external.base_url',
-  );
-  if (!validation.ok || !validation.normalizedUrl) {
+function requireOnecliBroker(
+  broker: AgentCredentialBroker | undefined,
+): AgentCredentialBroker {
+  if (!broker) {
     throw new Error(
-      validation.error || 'credential_broker.external.base_url is invalid.',
+      'Credential broker mode is enabled but no agent credential broker was provided.',
     );
   }
-  return validation.normalizedUrl;
+  return broker;
 }
 
 async function runWithOnecli(opts: ClaudeQueryOpts): Promise<string> {

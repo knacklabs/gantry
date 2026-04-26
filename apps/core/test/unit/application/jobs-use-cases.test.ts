@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PauseJobUseCase } from '@core/application/jobs/pause-job-use-case.js';
 import { UpdateJobUseCase } from '@core/application/jobs/update-job-use-case.js';
+import { jobBelongsToApp } from '@core/application/jobs/job-access.js';
 import type { OpsRepository } from '@core/domain/repositories/ops-repo.js';
 import type { Job } from '@core/domain/types.js';
 
@@ -52,6 +53,22 @@ function makeOps(
 }
 
 describe('job application use cases', () => {
+  it('parses app-owned job session bindings without accepting malformed IDs', () => {
+    expect(jobBelongsToApp(makeJob(), 'app-one')).toBe(true);
+    expect(
+      jobBelongsToApp(
+        makeJob({ linked_sessions: ['app:app-one:conv:extra'] }),
+        'app-one',
+      ),
+    ).toBe(false);
+    expect(
+      jobBelongsToApp(
+        makeJob({ linked_sessions: ['telegram:chat'] }),
+        'app-one',
+      ),
+    ).toBe(false);
+  });
+
   it('updates mutable job fields and requests scheduler sync', async () => {
     const ops = makeOps(makeJob());
     const scheduler = { requestSchedulerSync: vi.fn() };
@@ -79,6 +96,8 @@ describe('job application use cases', () => {
       execution_mode: 'serialized',
       thread_id: 'thread-1',
       status: 'paused',
+      pause_reason: 'Paused by SDK',
+      next_run: null,
     });
     expect(ops.updateJob).toHaveBeenCalledWith('job-1', {
       name: 'Updated',
@@ -86,8 +105,88 @@ describe('job application use cases', () => {
       execution_mode: 'serialized',
       thread_id: 'thread-1',
       status: 'paused',
+      pause_reason: 'Paused by SDK',
+      next_run: null,
     });
     expect(scheduler.requestSchedulerSync).toHaveBeenCalledWith('job-1');
+  });
+
+  it('applies resume semantics when patching status active', async () => {
+    const ops = makeOps(
+      makeJob({
+        schedule_type: 'interval',
+        schedule_value: '900',
+        status: 'paused',
+        pause_reason: 'maintenance',
+        next_run: null,
+      }),
+    );
+    const scheduler = { requestSchedulerSync: vi.fn() };
+    const useCase = new UpdateJobUseCase({
+      ops: ops as OpsRepository,
+      scheduler,
+      clock: { now: () => '2026-04-24T01:00:00.000Z' },
+    });
+
+    await useCase.execute({
+      appId: 'app-one',
+      jobId: 'job-1',
+      patch: { status: 'active' },
+    });
+
+    expect(ops.updateJob).toHaveBeenCalledWith('job-1', {
+      status: 'active',
+      pause_reason: null,
+      next_run: '2026-04-24T01:00:00.000Z',
+    });
+    expect(scheduler.requestSchedulerSync).toHaveBeenCalledWith('job-1');
+  });
+
+  it('rejects empty mutable strings and no-ops empty patches', async () => {
+    const ops = makeOps(makeJob());
+    const scheduler = { requestSchedulerSync: vi.fn() };
+    const useCase = new UpdateJobUseCase({
+      ops: ops as OpsRepository,
+      scheduler,
+      clock: { now: () => '2026-04-24T01:00:00.000Z' },
+    });
+
+    await expect(
+      useCase.execute({
+        appId: 'app-one',
+        jobId: 'job-1',
+        patch: { name: '   ' },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+
+    await expect(
+      useCase.execute({
+        appId: 'app-one',
+        jobId: 'job-1',
+        patch: {},
+      }),
+    ).resolves.toMatchObject({ job: { id: 'job-1' } });
+    expect(ops.updateJob).not.toHaveBeenCalled();
+    expect(scheduler.requestSchedulerSync).not.toHaveBeenCalled();
+  });
+
+  it('rejects ambiguous resume plus patch updates', async () => {
+    const ops = makeOps(makeJob({ status: 'paused' }));
+    const useCase = new UpdateJobUseCase({
+      ops: ops as OpsRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      clock: { now: () => '2026-04-24T01:00:00.000Z' },
+    });
+
+    await expect(
+      useCase.execute({
+        appId: 'app-one',
+        jobId: 'job-1',
+        resume: true,
+        patch: { status: 'paused' },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
+    expect(ops.updateJob).not.toHaveBeenCalled();
   });
 
   it('computes resume next_run in the application layer', async () => {
@@ -128,7 +227,7 @@ describe('job application use cases', () => {
     });
 
     await expect(
-      useCase.execute({ appId: 'app-one', jobId: 'job-1' }),
+      useCase.execute({ appId: 'app-one', jobId: 'job-1', reason: '' }),
     ).resolves.toEqual({ paused: true });
     expect(ops.updateJob).toHaveBeenCalledWith('job-1', {
       status: 'paused',

@@ -202,6 +202,8 @@ describe('control job trigger', () => {
         execution_mode: 'serialized',
         thread_id: 'thread-1',
         status: 'paused',
+        pause_reason: 'Paused by SDK',
+        next_run: null,
       });
       expect(schedulerMocks.requestSchedulerSync).toHaveBeenCalledWith('job-1');
     } finally {
@@ -282,6 +284,53 @@ describe('control job trigger', () => {
         next_run: '2026-05-01T00:00:00.000Z',
       });
       expect(schedulerMocks.requestSchedulerSync).toHaveBeenCalledWith('job-1');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('resumes paused recurring jobs before manual trigger enqueue', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    mockMutableJob(
+      makeJob({
+        schedule_type: 'interval',
+        schedule_value: '900',
+        status: 'paused',
+        pause_reason: 'maintenance',
+        next_run: null,
+      }),
+    );
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs/job-1/trigger`,
+        'token-jobs',
+        { method: 'POST' },
+      );
+
+      expect(response.status).toBe(202);
+      expect(opsRepo.updateJob).toHaveBeenCalledWith('job-1', {
+        status: 'active',
+        pause_reason: null,
+        next_run: expect.any(String),
+      });
+      expect(schedulerMocks.requestSchedulerSync).toHaveBeenCalledWith('job-1');
+      expect(schedulerMocks.enqueueJobTrigger).toHaveBeenCalledWith(
+        'job-1',
+        'trigger-1',
+      );
     } finally {
       await handle.close();
     }

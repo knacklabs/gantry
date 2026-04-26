@@ -68,3 +68,16 @@ export function validateExternalBrokerUrl(
 ): BrokerUrlValidationResult {
   return validateBrokerUrl(rawUrl, label);
 }
+
+export function resolveExternalCredentialBaseUrl(rawBrokerUrl: string): string {
+  const validation = validateExternalBrokerUrl(
+    rawBrokerUrl,
+    'credential_broker.external.base_url',
+  );
+  if (!validation.ok || !validation.normalizedUrl) {
+    throw new Error(
+      validation.error || 'credential_broker.external.base_url is invalid.',
+    );
+  }
+  return validation.normalizedUrl;
+}

@@ -5,12 +5,21 @@ import type {
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
 import { isCredentialBrokerBoundaryError } from '../../domain/models/credential-errors.js';
 
-export interface AgentCredentialInjectionInput {
-  mode: CredentialBrokerProfile;
-  agentIdentifier?: string;
-  broker?: AgentCredentialBroker;
-  externalInjection?: AgentCredentialInjection;
-}
+export type AgentCredentialInjectionInput =
+  | {
+      mode: 'external';
+      agentIdentifier?: string;
+      externalInjection: AgentCredentialInjection;
+    }
+  | {
+      mode: 'onecli';
+      agentIdentifier?: string;
+      broker: AgentCredentialBroker;
+    }
+  | {
+      mode: 'none';
+      agentIdentifier?: string;
+    };
 
 export async function getAgentCredentialInjection(
   input: AgentCredentialInjectionInput,
@@ -50,8 +59,11 @@ export async function getAgentCredentialInjection(
     if (isCredentialBrokerBoundaryError(err)) {
       throw err;
     }
+    const suffix = input.agentIdentifier
+      ? ` for agent ${input.agentIdentifier}`
+      : '';
     throw new Error(
-      'Credential broker mode is enabled but the credential broker is not reachable.',
+      `Credential broker mode is enabled but the credential broker is not reachable${suffix}.`,
       { cause: err },
     );
   }

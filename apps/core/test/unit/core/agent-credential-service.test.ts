@@ -53,7 +53,7 @@ describe('agent credential service', () => {
     await expect(
       getAgentCredentialInjection({
         mode: 'onecli',
-      }),
+      } as never),
     ).rejects.toThrow('no agent credential broker was provided');
 
     await expect(
@@ -69,7 +69,7 @@ describe('agent credential service', () => {
     await expect(
       getAgentCredentialInjection({
         mode: 'external',
-      }),
+      } as never),
     ).rejects.toThrow('no external credential injection was provided');
   });
 
@@ -94,7 +94,7 @@ describe('agent credential service', () => {
     });
   });
 
-  it('preserves host credential env when preparing external broker env', async () => {
+  it('preserves safe host env and drops raw agent credentials for external broker env', async () => {
     const { createExternalAgentCredentialInjection } =
       await import('@core/adapters/llm/external-credential-injection.js');
 
@@ -103,6 +103,8 @@ describe('agent credential service', () => {
         normalizedBaseUrl: 'https://broker.example.com',
         hostCredentialEnv: {
           HTTPS_PROXY: 'http://proxy.example.com',
+          ANTHROPIC_API_KEY: 'raw-secret',
+          OPENAI_API_KEY: 'raw-secret',
         },
       }),
     ).toEqual({
@@ -205,10 +207,11 @@ describe('agent credential service', () => {
     await expect(
       getAgentCredentialInjection({
         mode: 'onecli',
+        agentIdentifier: 'agent-one',
         broker: unreachableBroker,
       }),
     ).rejects.toThrow(
-      'Credential broker mode is enabled but the credential broker is not reachable.',
+      'Credential broker mode is enabled but the credential broker is not reachable for agent agent-one.',
     );
   });
 

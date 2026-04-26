@@ -5,12 +5,7 @@ import type {
 import type { AgentConfigRepository } from '../../domain/ports/repositories.js';
 import type { IdGenerator } from '../common/id-generator.js';
 
-export interface PublishAgentConfigVersionInput extends Omit<
-  AgentConfigVersion,
-  'id' | 'createdAt'
-> {
-  createdAt: AgentConfigVersion['createdAt'];
-}
+export type PublishAgentConfigVersionInput = Omit<AgentConfigVersion, 'id'>;
 
 export class PublishAgentConfigVersionUseCase {
   constructor(

@@ -15,6 +15,7 @@ export class ReleaseSandboxLeaseUseCase {
     const lease = await this.deps.sandboxes.getSandboxLease(input.leaseId);
     if (!lease)
       throw new ApplicationError('NOT_FOUND', 'Sandbox lease not found');
+    if (lease.status === 'released') return { released: true };
     await this.deps.provider.releaseLease(lease);
     await this.deps.sandboxes.saveSandboxLease({
       ...lease,

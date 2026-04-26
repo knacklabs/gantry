@@ -3,10 +3,12 @@ import { createHash } from 'node:crypto';
 import type { Job, RegisteredGroup } from '../../domain/types.js';
 import type { getRuntimeControlRepository } from '../../infrastructure/postgres/runtime-store.js';
 import { nowIso as runtimeNowIso } from '../../infrastructure/time/datetime.js';
+import { jobBelongsToApp as applicationJobBelongsToApp } from '../../application/jobs/job-access.js';
+import type { IsoTimestamp } from '../../shared/time/primitives.js';
 import type { ApiKeyRecord } from './auth.js';
 
-export function nowIso(): string {
-  return runtimeNowIso();
+export function nowIso(): IsoTimestamp {
+  return runtimeNowIso() as IsoTimestamp;
 }
 
 function sanitizeSegment(value: string): string {
@@ -55,19 +57,7 @@ export function canAccessApp(
 }
 
 export function jobBelongsToApp(job: Job, appId: string): boolean {
-  return (Array.isArray(job.linked_sessions) ? job.linked_sessions : []).some(
-    (chatJid) => {
-      if (!chatJid.startsWith('app:')) return false;
-      const rest = chatJid.slice('app:'.length);
-      const delimiterIndex = rest.indexOf(':');
-      if (delimiterIndex <= 0 || rest.indexOf(':', delimiterIndex + 1) !== -1) {
-        return false;
-      }
-      const jidAppId =
-        delimiterIndex === -1 ? rest : rest.slice(0, delimiterIndex);
-      return jidAppId === appId;
-    },
-  );
+  return applicationJobBelongsToApp(job, appId);
 }
 
 export async function resolveJobAppSession(
