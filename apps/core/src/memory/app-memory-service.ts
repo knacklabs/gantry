@@ -50,6 +50,12 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function conversationIdForChannel(
+  channelId: string | undefined,
+): string | null {
+  return channelId ? `conversation:${channelId}` : null;
+}
+
 function toEvidence(row: MemoryEvidenceRow): MemoryEvidenceRecord {
   return {
     id: row.id,
@@ -229,7 +235,7 @@ export class AppMemoryService {
       subjectType: subject.subjectType,
       subjectId: subjectIdFor(subject),
       userId: subject.userId ?? null,
-      conversationId: subject.channelId ?? null,
+      conversationId: conversationIdForChannel(subject.channelId),
       threadId: subject.threadId ?? null,
       kind: normalizeKind(input.kind),
       key: input.key.trim(),
@@ -597,6 +603,7 @@ export class AppMemoryService {
 }
 
 export const _testAppMemory = {
+  conversationIdForChannel,
   itemMatchesSubjectBoundary,
   sqlThreadIdentityFilter,
   sqlThreadVisibilityFilter,

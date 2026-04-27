@@ -59,7 +59,7 @@ export class PostgresCanonicalMessageRepository {
       const direction =
         msg.is_from_me || msg.is_bot_message ? 'outbound' : 'inbound';
       await tx
-        .insert(pgSchema.canonicalMessagesPostgres)
+        .insert(pgSchema.messagesPostgres)
         .values({
           id: canonicalMessageId,
           appId: CANONICAL_APP_ID,
@@ -77,7 +77,7 @@ export class PostgresCanonicalMessageRepository {
           receivedAt: msg.timestamp,
         })
         .onConflictDoUpdate({
-          target: pgSchema.canonicalMessagesPostgres.id,
+          target: pgSchema.messagesPostgres.id,
           set: {
             externalRefJson: json(msg),
             direction,
@@ -123,7 +123,7 @@ export class PostgresCanonicalMessageRepository {
       ? messageIdFor(input.after.chatJid, input.after.id)
       : '';
     const threadId = input.threadId?.trim() || null;
-    const m = pgSchema.canonicalMessagesPostgres;
+    const m = pgSchema.messagesPostgres;
     const p = pgSchema.messagePartsPostgres;
     const firstPart = this.db
       .select({ payloadJson: p.payloadJson })
@@ -190,7 +190,7 @@ export class PostgresCanonicalMessageRepository {
   }
 
   async listThreadIds(chatJid: string): Promise<Array<string | null>> {
-    const m = pgSchema.canonicalMessagesPostgres;
+    const m = pgSchema.messagesPostgres;
     const rows = await this.db
       .selectDistinct({ thread_id: m.threadId })
       .from(m)
@@ -208,7 +208,7 @@ export class PostgresCanonicalMessageRepository {
   async getLastBotMessageRow(
     chatJid: string,
   ): Promise<CanonicalOpsMessageRow | undefined> {
-    const m = pgSchema.canonicalMessagesPostgres;
+    const m = pgSchema.messagesPostgres;
     const p = pgSchema.messagePartsPostgres;
     const rows = await this.db
       .select({

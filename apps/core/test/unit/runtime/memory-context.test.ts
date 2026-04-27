@@ -49,8 +49,8 @@ describe('runtime memory context injection', () => {
     });
 
     expect(search).toHaveBeenCalledWith({
-      appId: 'personal',
-      agentId: 'team',
+      appId: 'default',
+      agentId: 'agent:team',
       groupId: 'team',
       channelId: 'sl:C0123456789',
       limit: 8,
@@ -84,8 +84,8 @@ describe('runtime memory context injection', () => {
     });
 
     expect(search).toHaveBeenCalledWith({
-      appId: 'personal',
-      agentId: 'enterprise-support',
+      appId: 'default',
+      agentId: 'agent:enterprise-support',
       groupId: 'enterprise-support',
       channelId: 'teams:19:abc@thread.tacv2',
       limit: 8,

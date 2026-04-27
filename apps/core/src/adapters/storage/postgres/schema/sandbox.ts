@@ -1,6 +1,8 @@
 import { pgTable, text, timestamp, integer } from 'drizzle-orm/pg-core';
 
 import { appsPostgres } from './apps.js';
+import { permissionDecisionsPostgres } from './permissions.js';
+import { agentRunsPostgres } from './runs.js';
 
 export const sandboxProfilesPostgres = pgTable('sandbox_profiles', {
   id: text('id').primaryKey(),
@@ -44,8 +46,12 @@ export const sandboxLeasesPostgres = pgTable('sandbox_leases', {
   profileId: text('profile_id')
     .notNull()
     .references(() => sandboxProfilesPostgres.id),
-  runId: text('run_id').notNull(),
-  permissionDecisionId: text('permission_decision_id').notNull(),
+  runId: text('run_id')
+    .notNull()
+    .references(() => agentRunsPostgres.id, { onDelete: 'cascade' }),
+  permissionDecisionId: text('permission_decision_id')
+    .notNull()
+    .references(() => permissionDecisionsPostgres.id),
   status: text('status').notNull(),
   grantedAt: timestamp('granted_at', {
     withTimezone: true,

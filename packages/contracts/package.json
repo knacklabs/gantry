@@ -1,6 +1,6 @@
 {
   "name": "@myclaw/contracts",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "type": "module",
   "description": "Canonical DTO and schema contracts for MyClaw integrations.",
   "main": "dist/index.js",
@@ -103,6 +103,11 @@
       "types": "./dist/tools/index.d.ts",
       "import": "./dist/tools/index.js",
       "default": "./dist/tools/index.js"
+    },
+    "./users": {
+      "types": "./dist/users/index.d.ts",
+      "import": "./dist/users/index.js",
+      "default": "./dist/users/index.js"
     }
   },
   "scripts": {

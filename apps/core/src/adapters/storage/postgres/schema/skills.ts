@@ -32,8 +32,6 @@ export const skillCatalogPostgres = pgTable(
   }),
 );
 
-export const skillCatalogItemsPostgres = skillCatalogPostgres;
-
 export const agentSkillBindingsPostgres = pgTable(
   'agent_skill_bindings',
   {

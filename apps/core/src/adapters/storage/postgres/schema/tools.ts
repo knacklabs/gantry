@@ -33,8 +33,6 @@ export const toolCatalogPostgres = pgTable(
   }),
 );
 
-export const toolCatalogItemsPostgres = toolCatalogPostgres;
-
 export const agentToolBindingsPostgres = pgTable(
   'agent_tool_bindings',
   {

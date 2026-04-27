@@ -8,11 +8,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
-import { appsPostgres, usersPostgres } from './apps.js';
-import {
-  conversationsPostgres,
-  conversationThreadsPostgres,
-} from './conversations.js';
+import { appsPostgres } from './apps.js';
 
 export const memoryItemsPostgres = pgTable(
   'memory_items',
@@ -24,13 +20,9 @@ export const memoryItemsPostgres = pgTable(
     agentId: text('agent_id'),
     subjectType: text('subject_type').notNull(),
     subjectId: text('subject_id').notNull(),
-    userId: text('user_id').references(() => usersPostgres.id),
-    conversationId: text('conversation_id').references(
-      () => conversationsPostgres.id,
-    ),
-    threadId: text('thread_id').references(
-      () => conversationThreadsPostgres.id,
-    ),
+    userId: text('user_id'),
+    conversationId: text('conversation_id'),
+    threadId: text('thread_id'),
     kind: text('kind').notNull(),
     key: text('key').notNull(),
     valueJson: text('value_json').notNull(),

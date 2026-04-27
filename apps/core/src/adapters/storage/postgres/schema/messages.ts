@@ -70,8 +70,6 @@ export const messagesPostgres = pgTable(
   }),
 );
 
-export const canonicalMessagesPostgres = messagesPostgres;
-
 export const messagePartsPostgres = pgTable(
   'message_parts',
   {

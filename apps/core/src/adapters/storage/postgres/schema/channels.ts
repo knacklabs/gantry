@@ -6,6 +6,7 @@ import {
   conversationsPostgres,
   conversationThreadsPostgres,
 } from './conversations.js';
+import { workspaceSnapshotsPostgres } from './sandbox.js';
 
 export const channelProvidersPostgres = pgTable('channel_providers', {
   id: text('id').primaryKey(),
@@ -74,7 +75,9 @@ export const agentChannelBindingsPostgres = pgTable(
     requiresTrigger: boolean('requires_trigger').notNull().default(true),
     isAdminBinding: boolean('is_admin_binding').notNull().default(false),
     memorySubjectJson: text('memory_subject_json').notNull(),
-    workspaceSnapshotId: text('workspace_snapshot_id'),
+    workspaceSnapshotId: text('workspace_snapshot_id').references(
+      () => workspaceSnapshotsPostgres.id,
+    ),
     permissionPolicyIdsJson: text('permission_policy_ids_json')
       .notNull()
       .default('[]'),

@@ -221,8 +221,8 @@ describe('memory IPC provider integration', () => {
     expect(search).toHaveBeenCalledWith(
       expect.objectContaining({
         query: 'status',
-        appId: 'personal',
-        agentId: 'main-group',
+        appId: 'default',
+        agentId: 'agent:main-group',
         groupId: 'main-group',
       }),
     );
@@ -257,7 +257,7 @@ describe('memory IPC provider integration', () => {
     expect(search).toHaveBeenCalledWith(
       expect.objectContaining({
         query: 'status',
-        agentId: 'main-group',
+        agentId: 'agent:main-group',
         groupId: 'main-group',
         threadId: 'trusted-thread',
       }),
@@ -439,8 +439,8 @@ describe('processMemoryRequest additional branches', () => {
     expect(patchMemory).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'mem-1',
-        appId: 'personal',
-        agentId: 'team',
+        appId: 'default',
+        agentId: 'agent:team',
         value: 'updated',
         expectedVersion: 1,
       }),
@@ -475,8 +475,8 @@ describe('processMemoryRequest additional branches', () => {
     // non-main agents cannot override groupFolder
     expect(consolidateGroupMemory).toHaveBeenCalledWith(
       expect.objectContaining({
-        appId: 'personal',
-        agentId: 'team',
+        appId: 'default',
+        agentId: 'agent:team',
         groupId: 'team',
       }),
     );
@@ -503,8 +503,8 @@ describe('processMemoryRequest additional branches', () => {
     expect(response.ok).toBe(true);
     expect(consolidateGroupMemory).toHaveBeenCalledWith(
       expect.objectContaining({
-        appId: 'personal',
-        agentId: 'team',
+        appId: 'default',
+        agentId: 'agent:team',
         groupId: 'team',
       }),
     );
@@ -539,8 +539,8 @@ describe('processMemoryRequest additional branches', () => {
     // non-main: ignores requested group_folder
     expect(runDreamingSweep).toHaveBeenCalledWith(
       expect.objectContaining({
-        appId: 'personal',
-        agentId: 'team',
+        appId: 'default',
+        agentId: 'agent:team',
         groupId: 'team',
       }),
     );
@@ -569,8 +569,8 @@ describe('processMemoryRequest additional branches', () => {
     expect(response.ok).toBe(true);
     expect(runDreamingSweep).toHaveBeenCalledWith(
       expect.objectContaining({
-        appId: 'personal',
-        agentId: 'team',
+        appId: 'default',
+        agentId: 'agent:team',
         groupId: 'team',
       }),
     );
@@ -604,8 +604,8 @@ describe('processMemoryRequest additional branches', () => {
     });
     expect(saveProcedure).toHaveBeenCalledWith(
       expect.objectContaining({
-        appId: 'personal',
-        agentId: 'team',
+        appId: 'default',
+        agentId: 'agent:team',
         groupId: 'team',
         key: 'procedure:Deploy',
         value: 'steps...',
@@ -669,8 +669,8 @@ describe('processMemoryRequest additional branches', () => {
     expect(patchProcedure).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'proc-1',
-        appId: 'personal',
-        agentId: 'team',
+        appId: 'default',
+        agentId: 'agent:team',
         value: 'updated steps',
         expectedVersion: 1,
       }),

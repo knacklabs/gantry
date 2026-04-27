@@ -22,7 +22,7 @@ export type DreamDecisionAction =
   | 'no_op';
 
 export interface MemoryBoundaryContext {
-  /** Application namespace. Personal setup uses "personal"; SDK apps provide their stable app id. */
+  /** Application namespace. Personal setup uses the seeded "default" app; SDK apps provide their stable app id. */
   appId: string;
   /** Agent/runtime owner. For channel agents this is the configured MyClaw agent folder/id. */
   agentId: string;

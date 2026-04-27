@@ -29,8 +29,8 @@ function createServiceMock(): MemoryHookServiceMock {
       {
         item: {
           id: 'mem_1',
-          appId: 'personal',
-          agentId: 'team',
+          appId: 'default',
+          agentId: 'agent:team',
           subjectType: 'group',
           subjectId: 'team',
           kind: 'fact',
@@ -101,8 +101,8 @@ describe('memory-hook command', () => {
       );
       expect(code).toBe(0);
       expect(service.search).toHaveBeenCalledWith({
-        appId: 'personal',
-        agentId: 'team',
+        appId: 'default',
+        agentId: 'agent:team',
         groupId: 'team',
         query: '',
         limit: 20,
@@ -139,8 +139,8 @@ describe('memory-hook command', () => {
       expect(code).toBe(0);
       expect(env.MYCLAW_HOME).toBe(runtimeHome);
       expect(service.search).toHaveBeenCalledWith({
-        appId: 'personal',
-        agentId: groupFolder,
+        appId: 'default',
+        agentId: `agent:${groupFolder}`,
         groupId: groupFolder,
         query: '',
         limit: 20,
@@ -171,8 +171,8 @@ describe('memory-hook command', () => {
 
     expect(code).toBe(0);
     expect(service.recordEvidence).toHaveBeenCalledWith({
-      appId: 'personal',
-      agentId: 'team',
+      appId: 'default',
+      agentId: 'agent:team',
       groupId: 'team',
       userId: undefined,
       sourceType: 'session',
@@ -208,8 +208,8 @@ describe('memory-hook command', () => {
 
     expect(code).toBe(0);
     expect(service.recordEvidence).toHaveBeenCalledWith({
-      appId: 'personal',
-      agentId: 'team',
+      appId: 'default',
+      agentId: 'agent:team',
       groupId: 'team',
       userId: undefined,
       sourceType: 'session',

@@ -70,8 +70,8 @@ export class PostgresCanonicalGraphRepository {
       .insert(pgSchema.appsPostgres)
       .values({
         id: CANONICAL_APP_ID,
-        slug: 'default',
-        name: 'Default App',
+        slug: 'personal',
+        name: 'Default Personal App',
       })
       .onConflictDoNothing();
     await executor

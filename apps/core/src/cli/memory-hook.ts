@@ -1,4 +1,8 @@
 import { logger } from '../infrastructure/logging/logger.js';
+import {
+  DEFAULT_MEMORY_APP_ID,
+  memoryAgentIdForGroupFolder,
+} from '../memory/app-memory-boundaries.js';
 import { AppMemoryService } from '../memory/app-memory-service.js';
 import type { AppMemorySearchResult } from '../memory/memory-types.js';
 import {
@@ -12,7 +16,6 @@ import {
 type ExtractTrigger = 'precompact' | 'session-end';
 const MAX_BRIEF_LINES = 80;
 const MAX_BRIEF_LINE_CHARS = 500;
-const DEFAULT_APP_ID = 'personal';
 
 async function readStdinPayload(): Promise<HookPayload> {
   const chunks: Buffer[] = [];
@@ -230,8 +233,8 @@ export async function runMemoryHookCommand(
           return 0;
         }
         const memories = await service.search({
-          appId: DEFAULT_APP_ID,
-          agentId: groupFolder,
+          appId: DEFAULT_MEMORY_APP_ID,
+          agentId: memoryAgentIdForGroupFolder(groupFolder),
           groupId: groupFolder,
           query: '',
           limit: 20,
@@ -280,8 +283,8 @@ export async function runMemoryHookCommand(
       });
       if (evidence) {
         await service.recordEvidence({
-          appId: DEFAULT_APP_ID,
-          agentId: groupFolder,
+          appId: DEFAULT_MEMORY_APP_ID,
+          agentId: memoryAgentIdForGroupFolder(groupFolder),
           groupId: groupFolder,
           userId: resolveUserId(payload, env),
           sourceType: 'session',

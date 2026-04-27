@@ -7,6 +7,10 @@ import {
   getMemoryMaintenanceQueue,
   type MemoryMaintenanceQueueEnqueueResult,
 } from '../memory/maintenance-queue.js';
+import {
+  DEFAULT_MEMORY_APP_ID,
+  memoryAgentIdForGroupFolder,
+} from '../memory/app-memory-boundaries.js';
 import { AppMemoryService } from '../memory/app-memory-service.js';
 import { nowIso as currentIso } from '../infrastructure/time/datetime.js';
 import {
@@ -110,8 +114,8 @@ export async function handleSystemJob(
       groupFolder,
       async () => {
         await AppMemoryService.getInstance().triggerDreaming({
-          appId: 'personal',
-          agentId: groupFolder,
+          appId: DEFAULT_MEMORY_APP_ID,
+          agentId: memoryAgentIdForGroupFolder(groupFolder),
           subjectType: 'group',
           groupId: groupFolder,
           phase: 'all',

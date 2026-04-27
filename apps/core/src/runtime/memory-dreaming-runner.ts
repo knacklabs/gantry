@@ -1,4 +1,8 @@
 import { getMemoryMaintenanceQueue } from '../memory/maintenance-queue.js';
+import {
+  DEFAULT_MEMORY_APP_ID,
+  memoryAgentIdForGroupFolder,
+} from '../memory/app-memory-boundaries.js';
 import { AppMemoryService } from '../memory/app-memory-service.js';
 
 const memoryMaintenanceQueue = getMemoryMaintenanceQueue();
@@ -8,8 +12,8 @@ export async function runDreamingForGroup(groupFolder: string) {
     groupFolder,
     async () => {
       await AppMemoryService.getInstance().triggerDreaming({
-        appId: 'personal',
-        agentId: groupFolder,
+        appId: DEFAULT_MEMORY_APP_ID,
+        agentId: memoryAgentIdForGroupFolder(groupFolder),
         groupId: groupFolder,
         phase: 'all',
       });

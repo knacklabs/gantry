@@ -40,8 +40,44 @@ describe('Postgres migration journal', () => {
     );
 
     expect(migration).toContain('DROP TABLE IF EXISTS memory_subjects CASCADE');
-    expect(migration).toContain('CREATE TABLE memory_items');
-    expect(migration).toContain('subject_type text NOT NULL');
+    const memoryTable = migration.slice(
+      migration.indexOf('CREATE TABLE memory_items'),
+      migration.indexOf('CREATE UNIQUE INDEX memory_items_active_unique'),
+    );
+
+    expect(memoryTable).toContain('CREATE TABLE memory_items');
+    expect(memoryTable).toContain('subject_type text NOT NULL');
+    expect(memoryTable).toContain('agent_id text');
+    expect(memoryTable).toContain('conversation_id text');
+    expect(memoryTable).not.toContain('agent_id text REFERENCES agents');
+    expect(memoryTable).not.toContain(
+      'conversation_id text REFERENCES channel_conversations',
+    );
+    expect(memoryTable).not.toContain('user_id text REFERENCES users');
     expect(migration).not.toContain('CREATE TABLE memory_subjects');
+  });
+
+  it('keeps canonical schema and destructive migration foreign keys aligned', () => {
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0009_canonical_persistence_adapter_cut.sql',
+      ),
+      'utf8',
+    );
+
+    expect(migration).toContain(
+      'agent_id text REFERENCES agents(id) ON DELETE SET NULL',
+    );
+    expect(migration).toContain(
+      'workspace_snapshot_id text REFERENCES workspace_snapshots(id)',
+    );
+    expect(migration).toContain(
+      'run_id text NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE',
+    );
+    expect(migration).toContain(
+      'permission_decision_id text NOT NULL REFERENCES permission_decisions(id)',
+    );
+    expect(migration).toContain('channel_installation_id text,');
+    expect(migration).toContain('channel_installation_id text NOT NULL,');
   });
 });

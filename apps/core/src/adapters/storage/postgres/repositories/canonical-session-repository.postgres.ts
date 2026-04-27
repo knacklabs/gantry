@@ -61,6 +61,7 @@ export class PostgresCanonicalSessionRepository {
         .select({ id: pgSchema.agentSessionsPostgres.id })
         .from(pgSchema.agentSessionsPostgres)
         .where(eq(pgSchema.agentSessionsPostgres.id, agentSessionId))
+        // Serialize provider-session replacement for this agent session.
         .for('update')
         .limit(1);
       await tx

@@ -1,3 +1,7 @@
+import {
+  DEFAULT_MEMORY_APP_ID,
+  memoryAgentIdForGroupFolder,
+} from '../memory/app-memory-boundaries.js';
 import { AppMemoryService } from '../memory/app-memory-service.js';
 import type { MemoryStatusSnapshot } from '../session/session-commands.js';
 
@@ -6,14 +10,14 @@ export async function getGroupMemoryStatus(
 ): Promise<MemoryStatusSnapshot> {
   const service = AppMemoryService.getInstance();
   const memories = await service.list({
-    appId: 'personal',
-    agentId: groupFolder,
+    appId: DEFAULT_MEMORY_APP_ID,
+    agentId: memoryAgentIdForGroupFolder(groupFolder),
     groupId: groupFolder,
     limit: 100,
   });
   const runs = await service.dreamingStatus({
-    appId: 'personal',
-    agentId: groupFolder,
+    appId: DEFAULT_MEMORY_APP_ID,
+    agentId: memoryAgentIdForGroupFolder(groupFolder),
   });
   return {
     items_by_kind: memories.reduce<Record<string, number>>((acc, item) => {
@@ -49,8 +53,8 @@ export async function saveGroupProcedureMemory(input: {
   body: string;
 }) {
   return AppMemoryService.getInstance().save({
-    appId: 'personal',
-    agentId: input.groupFolder,
+    appId: DEFAULT_MEMORY_APP_ID,
+    agentId: memoryAgentIdForGroupFolder(input.groupFolder),
     groupId: input.groupFolder,
     threadId: input.threadId || undefined,
     subjectType: 'group',

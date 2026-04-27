@@ -42,6 +42,7 @@ We need a single cut to:
 
 - Rollback means restoring an earlier build and restoring old runtime storage files manually from backup.
 - Product code does not include previous-schema DB import, transition readers, or automatic migration routines.
+- Migration `0009_canonical_persistence_adapter_cut` is intentionally destructive and has no down migration; fresh local Postgres bootstrap is the supported path for this clean persistence cut.
 
 ## Supersedes
 

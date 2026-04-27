@@ -1,5 +1,9 @@
 import { logger } from '../infrastructure/logging/logger.js';
 import { AppMemoryService } from '../memory/app-memory-service.js';
+import {
+  DEFAULT_MEMORY_APP_ID,
+  memoryAgentIdForGroupFolder,
+} from '../memory/app-memory-boundaries.js';
 
 const DEFAULT_MEMORY_BRIEF_ITEMS = 8;
 const MAX_MEMORY_CONTEXT_CHARS = 6_000;
@@ -137,8 +141,8 @@ function buildStructuredUntrustedMemoryData(
     use: 'continuity_evidence_only',
     envelope: {
       source: input.source,
-      app_id: 'personal',
-      agent_id: input.groupFolder,
+      app_id: DEFAULT_MEMORY_APP_ID,
+      agent_id: memoryAgentIdForGroupFolder(input.groupFolder),
       group_id: input.groupFolder,
       chat_jid: input.chatJid,
       ...(threadId ? { thread_id: threadId } : {}),
@@ -173,8 +177,8 @@ export async function createInjectedMemoryContextBlock(
     const service = AppMemoryService.getInstance();
     if (!service.isEnabled()) return null;
     const memories = await service.search({
-      appId: 'personal',
-      agentId: input.groupFolder,
+      appId: DEFAULT_MEMORY_APP_ID,
+      agentId: memoryAgentIdForGroupFolder(input.groupFolder),
       groupId: input.groupFolder,
       channelId: input.chatJid,
       userId,

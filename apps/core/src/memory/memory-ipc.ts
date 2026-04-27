@@ -6,6 +6,10 @@ import { signIpcResponsePayload } from '../infrastructure/ipc/response-signing.j
 import { logger } from '../infrastructure/logging/logger.js';
 import { isPlainObject } from '../shared/object.js';
 import { resolveGroupIpcPath } from '../platform/group-folder.js';
+import {
+  DEFAULT_MEMORY_APP_ID,
+  memoryAgentIdForGroupFolder,
+} from './app-memory-boundaries.js';
 import { AppMemoryService } from './app-memory-service.js';
 import {
   PatchMemoryInput,
@@ -263,8 +267,8 @@ export async function processMemoryRequest(
         // cross-group data access from agent processes.
         const results = await memory.search({
           query,
-          appId: 'personal',
-          agentId: sourceGroup,
+          appId: DEFAULT_MEMORY_APP_ID,
+          agentId: memoryAgentIdForGroupFolder(sourceGroup),
           groupId: sourceGroup,
           userId: request.payload.user_id
             ? String(request.payload.user_id)
@@ -289,8 +293,8 @@ export async function processMemoryRequest(
             : {}),
         };
         const saved = await memory.save({
-          appId: 'personal',
-          agentId: sourceGroup,
+          appId: DEFAULT_MEMORY_APP_ID,
+          agentId: memoryAgentIdForGroupFolder(sourceGroup),
           groupId: sourceGroup,
           userId: input.user_id,
           threadId: request.context?.threadId,
@@ -316,8 +320,8 @@ export async function processMemoryRequest(
         const input = parsePatchMemoryInput(request.payload);
         const patched = await memory.patch({
           id: input.id,
-          appId: 'personal',
-          agentId: sourceGroup,
+          appId: DEFAULT_MEMORY_APP_ID,
+          agentId: memoryAgentIdForGroupFolder(sourceGroup),
           groupId: sourceGroup,
           threadId: request.context?.threadId,
           key: input.key,
@@ -337,8 +341,8 @@ export async function processMemoryRequest(
       }
       case 'memory_consolidate': {
         const result = await memory.triggerDreaming({
-          appId: 'personal',
-          agentId: sourceGroup,
+          appId: DEFAULT_MEMORY_APP_ID,
+          agentId: memoryAgentIdForGroupFolder(sourceGroup),
           groupId: sourceGroup,
           phase: 'deep',
           dryRun: false,
@@ -352,8 +356,8 @@ export async function processMemoryRequest(
       }
       case 'memory_dream': {
         const result = await memory.triggerDreaming({
-          appId: 'personal',
-          agentId: sourceGroup,
+          appId: DEFAULT_MEMORY_APP_ID,
+          agentId: memoryAgentIdForGroupFolder(sourceGroup),
           groupId: sourceGroup,
           phase: 'all',
           dryRun: false,
@@ -373,8 +377,8 @@ export async function processMemoryRequest(
             : {}),
         };
         const saved = await memory.save({
-          appId: 'personal',
-          agentId: sourceGroup,
+          appId: DEFAULT_MEMORY_APP_ID,
+          agentId: memoryAgentIdForGroupFolder(sourceGroup),
           groupId: sourceGroup,
           threadId: request.context?.threadId,
           subjectType: subjectTypeFromScope(input.scope),
@@ -399,8 +403,8 @@ export async function processMemoryRequest(
         const input = parsePatchProcedureInput(request.payload);
         const patched = await memory.patch({
           id: input.id,
-          appId: 'personal',
-          agentId: sourceGroup,
+          appId: DEFAULT_MEMORY_APP_ID,
+          agentId: memoryAgentIdForGroupFolder(sourceGroup),
           groupId: sourceGroup,
           threadId: request.context?.threadId,
           key: input.title ? `procedure:${input.title}` : undefined,
