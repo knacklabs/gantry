@@ -40,7 +40,6 @@ import {
   editTelegramMessage,
   escapeTelegramMarkdownV2,
   iterTelegramTextChunks,
-  sendTelegramMessage,
   sendTelegramMessageWithResult,
   telegramThreadOptionsFromString,
 } from './channel-shared.js';
@@ -50,7 +49,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     jid: string,
     text: string,
     options: MessageSendOptions = {},
-  ): Promise<void> {
+  ): Promise<{ externalMessageId?: string }> {
     if (!this.bot) {
       logger.warn('Telegram bot not initialized');
       throw new Error('Telegram bot not initialized');
@@ -63,17 +62,19 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       // Telegram has a 4096 character limit per message. Split on code-point
       // boundaries so emoji/surrogate pairs are not corrupted between chunks.
       let deliveredChunks = 0;
+      let firstMessageId: number | undefined;
       for (const chunk of iterTelegramTextChunks(
         text,
         TELEGRAM_MESSAGE_MAX_LENGTH,
       )) {
         try {
-          await sendTelegramMessage(
+          const messageId = await sendTelegramMessageWithResult(
             this.bot.api,
             numericId,
             chunk,
             sendOptions,
           );
+          firstMessageId ??= messageId;
           deliveredChunks += 1;
         } catch (err) {
           if (deliveredChunks > 0) {
@@ -96,6 +97,9 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         { jid, length: text.length, threadId: options.threadId },
         'Telegram message sent',
       );
+      return firstMessageId !== undefined
+        ? { externalMessageId: String(firstMessageId) }
+        : {};
     } catch (err) {
       logger.error(
         { jid, error: this.sanitizeErrorMessage(err) },

@@ -29,6 +29,11 @@ export function providerIdForJid(jid: string): string {
   return idx > 0 ? jid.slice(0, idx) : 'app';
 }
 
+export function externalConversationIdForJid(jid: string): string {
+  const idx = jid.indexOf(':');
+  return idx > 0 ? jid.slice(idx + 1) : jid;
+}
+
 export function conversationIdForJid(jid: string): string {
   return `conversation:${jid}`;
 }
@@ -141,9 +146,13 @@ export class PostgresCanonicalGraphRepository {
     const title = input.name || jid;
     const now = input.timestamp || currentIso();
     const hasKnownKind = input.isGroup !== undefined && input.isGroup !== null;
+    const externalConversationId = externalConversationIdForJid(jid);
     const externalRefJson = json({
+      kind: 'conversation',
+      value: externalConversationId,
       jid,
       providerId,
+      externalConversationId,
       ...(hasKnownKind ? { isGroup: Boolean(input.isGroup) } : {}),
     });
     await executor
@@ -187,20 +196,117 @@ export class PostgresCanonicalGraphRepository {
     chatJid: string,
     threadId?: string | null,
     executor: CanonicalExecutor = this.db,
+    input: { channel?: string | null } = {},
   ): Promise<string | null> {
     const canonicalThreadId = threadIdFor(chatJid, threadId);
     if (!canonicalThreadId) return null;
-    const conversationId = await this.ensureConversation(chatJid, {}, executor);
+    const conversationId = await this.ensureConversation(
+      chatJid,
+      { channel: input.channel },
+      executor,
+    );
     await executor
       .insert(pgSchema.conversationThreadsPostgres)
       .values({
         id: canonicalThreadId,
         appId: CANONICAL_APP_ID,
         conversationId,
-        externalRefJson: json({ jid: chatJid, threadId }),
+        externalRefJson: json({
+          kind: 'conversation_thread',
+          value: threadId,
+          jid: chatJid,
+          threadId,
+          externalThreadId: threadId,
+        }),
       })
       .onConflictDoNothing();
     return canonicalThreadId;
+  }
+
+  async ensureParticipant(
+    input: {
+      conversationId: string;
+      providerId: string;
+      channelInstallationId: string;
+      externalUserId: string;
+      displayName?: string | null;
+      timestamp?: string | null;
+    },
+    executor: CanonicalExecutor = this.db,
+  ): Promise<string | null> {
+    const externalUserId = input.externalUserId.trim();
+    if (!externalUserId) return null;
+    const safeProvider = input.providerId.replace(/[^a-zA-Z0-9._:-]/g, '_');
+    const safeUser = externalUserId.replace(/[^a-zA-Z0-9._:-]/g, '_');
+    const userId = `user:${CANONICAL_APP_ID}:${safeProvider}:${safeUser}`;
+    const aliasId = `user-alias:${CANONICAL_APP_ID}:${safeProvider}:${input.channelInstallationId}:${safeUser}`;
+    const participantId = `participant:${input.conversationId}:${safeUser}`;
+    const now = input.timestamp || currentIso();
+    const displayName = input.displayName
+      ? `${input.displayName} (${input.providerId}:${externalUserId})`
+      : `${input.providerId}:${externalUserId}`;
+    await executor
+      .insert(pgSchema.usersPostgres)
+      .values({
+        id: userId,
+        appId: CANONICAL_APP_ID,
+        kind: 'human',
+        displayName,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: pgSchema.usersPostgres.id,
+        set: {
+          displayName,
+          updatedAt: now,
+        },
+      });
+    await executor
+      .insert(pgSchema.userAliasesPostgres)
+      .values({
+        id: aliasId,
+        appId: CANONICAL_APP_ID,
+        userId,
+        provider: input.providerId,
+        channelInstallationId: input.channelInstallationId,
+        externalUserId,
+        displayName: input.displayName ?? externalUserId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: pgSchema.userAliasesPostgres.id,
+        set: {
+          userId,
+          displayName: input.displayName ?? externalUserId,
+          updatedAt: now,
+        },
+      });
+    await executor
+      .insert(pgSchema.conversationParticipantsPostgres)
+      .values({
+        id: participantId,
+        appId: CANONICAL_APP_ID,
+        conversationId: input.conversationId,
+        userId,
+        externalUserId,
+        role: 'member',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: pgSchema.conversationParticipantsPostgres.id,
+        set: {
+          userId,
+          externalUserId,
+          status: 'active',
+          updatedAt: now,
+        },
+      });
+    return userId;
   }
 
   async listChats(): Promise<ChatInfo[]> {

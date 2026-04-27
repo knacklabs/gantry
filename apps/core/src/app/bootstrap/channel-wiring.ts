@@ -1,8 +1,11 @@
+import { randomUUID } from 'node:crypto';
+
 import { RuntimeSettings } from '../../config/settings/runtime-settings.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import '../../channels/register-builtins.js';
 import {
   GroupDiscoverySource,
+  MessageDeliveryResult,
   MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
@@ -28,6 +31,7 @@ import {
   asRemoteControlCommand,
   handleRemoteControlCommand,
 } from '../../runtime/remote-control-command.js';
+import { isPartialMessageDeliveryError } from '../../runtime/partial-delivery.js';
 import { getRuntimeOpsRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import { ChannelAdapter } from '../../channels/channel-provider.js';
 import { RuntimeApp } from './runtime-app.js';
@@ -54,6 +58,22 @@ import { createChannelPersistenceHandlers } from './channel-persistence-handlers
 
 export type { ChannelWiring } from './channel-wiring-types.js';
 
+function sanitizeDeliveryError(err: unknown, provider: string): string {
+  const raw =
+    err instanceof Error
+      ? err.message
+      : typeof err === 'string'
+        ? err
+        : String(err);
+  return (
+    raw
+      .replace(/xox[baprs]-[A-Za-z0-9-]+/g, '[REDACTED_SLACK_TOKEN]')
+      .replace(/\b\d{6,}:[A-Za-z0-9_-]{20,}\b/g, '[REDACTED_TELEGRAM_TOKEN]')
+      .slice(0, 500)
+      .trim() || `${provider} delivery failed`
+  );
+}
+
 export function createChannelWiring(
   app: RuntimeApp,
   deps: Partial<ChannelWiringDeps> = {},
@@ -75,6 +95,17 @@ export function createChannelWiring(
   const connectedChannels: ChannelAdapter[] = [];
   const persistenceQueue = new AsyncTaskQueue(4, 5_000);
   const ops = () => resolved.opsRepository ?? getRuntimeOpsRepository();
+  const optionalOps = () => {
+    try {
+      return ops();
+    } catch (err) {
+      resolved.logger.debug(
+        { err },
+        'Runtime storage unavailable; skipping outbound message persistence',
+      );
+      return undefined;
+    }
+  };
 
   const channelOpts = {
     ...createChannelPersistenceHandlers({
@@ -161,11 +192,56 @@ export function createChannelWiring(
       providerForJid(jid)?.id ?? channel.name,
     );
     if (!formatted) return;
-    if (options.messageOptions) {
-      await channel.sendMessage(jid, formatted, options.messageOptions);
-      return;
+    const provider = providerForJid(jid)?.id ?? channel.name;
+    const now = new Date().toISOString();
+    const messageId = `outbound:${randomUUID()}`;
+    const baseMessage = {
+      id: messageId,
+      chat_jid: jid,
+      channel_provider: provider,
+      sender: 'myclaw',
+      sender_name: 'MyClaw',
+      content: formatted,
+      timestamp: now,
+      is_from_me: true,
+      is_bot_message: true,
+      thread_id: options.messageOptions?.threadId,
+    };
+
+    const outboundOps = optionalOps();
+    await outboundOps?.storeMessage({
+      ...baseMessage,
+      delivery_status: 'pending',
+    });
+
+    try {
+      const delivery = options.messageOptions
+        ? await channel.sendMessage(jid, formatted, options.messageOptions)
+        : await channel.sendMessage(jid, formatted);
+      const result = delivery as MessageDeliveryResult | undefined;
+      await outboundOps?.storeMessage({
+        ...baseMessage,
+        external_message_id: result?.externalMessageId,
+        delivery_status: 'sent',
+        delivered_at: new Date().toISOString(),
+      });
+    } catch (err) {
+      const partial = isPartialMessageDeliveryError(err);
+      try {
+        await outboundOps?.storeMessage({
+          ...baseMessage,
+          delivery_status: partial ? 'partially_sent' : 'failed',
+          delivered_at: partial ? new Date().toISOString() : undefined,
+          delivery_error: sanitizeDeliveryError(err, provider),
+        });
+      } catch (persistErr) {
+        resolved.logger.error(
+          { err: persistErr, jid },
+          'Failed to persist outbound delivery failure',
+        );
+      }
+      throw err;
     }
-    await channel.sendMessage(jid, formatted);
   }
 
   async function sendStreamingChunk(

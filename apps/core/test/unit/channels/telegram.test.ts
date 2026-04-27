@@ -1410,7 +1410,7 @@ describe('TelegramChannel', () => {
 
       await expect(
         channel.sendMessage('tg:100200300', 'Will fail'),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ externalMessageId: '987' });
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
     });
 

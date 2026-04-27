@@ -13,6 +13,33 @@ interface ChannelPersistenceHandlerDeps {
   persistenceQueue: AsyncTaskQueue;
 }
 
+async function enqueueAndWait(
+  queue: AsyncTaskQueue,
+  task: () => Promise<void>,
+  onFull: () => void,
+): Promise<void> {
+  let resolveCompletion!: () => void;
+  let rejectCompletion!: (err: unknown) => void;
+  const completion = new Promise<void>((resolve, reject) => {
+    resolveCompletion = resolve;
+    rejectCompletion = reject;
+  });
+  const wrapped = async () => {
+    try {
+      await task();
+      resolveCompletion();
+    } catch (err) {
+      rejectCompletion(err);
+    }
+  };
+  const admitted = queue.enqueue(wrapped);
+  if (!admitted) {
+    onFull();
+    await queue.enqueueWhenAvailable(wrapped);
+  }
+  await completion;
+}
+
 export function createChannelPersistenceHandlers({
   app,
   resolved,
@@ -81,16 +108,15 @@ export function createChannelPersistenceHandlers({
           await ops().storeMessage(msg);
         } catch (err) {
           resolved.logger.error({ err, chatJid }, 'Failed to store message');
+          throw err;
         }
       };
-      const admitted = persistenceQueue.enqueue(persistMessage);
-      if (!admitted) {
+      await enqueueAndWait(persistenceQueue, persistMessage, () =>
         resolved.logger.warn(
           { chatJid, queueSize: persistenceQueue.size() },
           'Persistence queue full; waiting to enqueue message persistence',
-        );
-        await persistenceQueue.enqueueWhenAvailable(persistMessage);
-      }
+        ),
+      );
     },
     onChatMetadata: async (
       chatJid: string,
@@ -113,16 +139,15 @@ export function createChannelPersistenceHandlers({
             { err, chatJid },
             'Failed to store chat metadata',
           );
+          throw err;
         }
       };
-      const admitted = persistenceQueue.enqueue(persistMetadata);
-      if (!admitted) {
+      await enqueueAndWait(persistenceQueue, persistMetadata, () =>
         resolved.logger.warn(
           { chatJid, queueSize: persistenceQueue.size() },
           'Persistence queue full; waiting to enqueue chat metadata persistence',
-        );
-        await persistenceQueue.enqueueWhenAvailable(persistMetadata);
-      }
+        ),
+      );
     },
   };
 }

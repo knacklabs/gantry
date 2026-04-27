@@ -327,11 +327,13 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       await this.opts.onMessage(chatJid, {
         id: msgId,
         chat_jid: chatJid,
+        channel_provider: 'telegram',
         sender,
         sender_name: senderName,
         content,
         timestamp,
         is_from_me: false,
+        external_message_id: msgId,
         thread_id: threadId ? threadId.toString() : undefined,
         reply_to_message_id: replyToMessageId,
         reply_to_message_content: replyToContent,
@@ -372,15 +374,37 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         isGroup,
       );
 
-      const deliver = async (content: string) => {
+      const deliver = async (
+        content: string,
+        attachment?: {
+          kind: 'image' | 'file' | 'audio' | 'video' | 'other';
+          externalId?: string;
+          storageRef?: string;
+        },
+      ) => {
+        const threadId = ctx.message.message_thread_id;
+        const msgId = ctx.message.message_id.toString();
         await this.opts.onMessage(chatJid, {
-          id: ctx.message.message_id.toString(),
+          id: msgId,
           chat_jid: chatJid,
+          channel_provider: 'telegram',
           sender: ctx.from?.id?.toString() || '',
           sender_name: senderName,
           content,
           timestamp,
           is_from_me: false,
+          external_message_id: msgId,
+          thread_id: threadId ? threadId.toString() : undefined,
+          attachments: attachment
+            ? [
+                {
+                  id: `telegram-attachment:${chatJid}:${msgId}`,
+                  kind: attachment.kind,
+                  externalId: attachment.externalId,
+                  storageRef: attachment.storageRef,
+                },
+              ]
+            : undefined,
         });
       };
 
@@ -395,10 +419,25 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           group.folder,
           filename,
         );
+        const kind =
+          placeholder === '[Photo]'
+            ? 'image'
+            : placeholder === '[Video]'
+              ? 'video'
+              : placeholder === '[Voice message]' || placeholder === '[Audio]'
+                ? 'audio'
+                : 'file';
         if (filePath) {
-          await deliver(`${placeholder} (${filePath})${caption}`);
+          await deliver(`${placeholder} (${filePath})${caption}`, {
+            kind,
+            externalId: opts.fileId,
+            storageRef: filePath,
+          });
         } else {
-          await deliver(`${placeholder}${caption}`);
+          await deliver(`${placeholder}${caption}`, {
+            kind,
+            externalId: opts.fileId,
+          });
         }
         return;
       }

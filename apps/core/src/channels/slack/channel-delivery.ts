@@ -63,7 +63,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     jid: string,
     text: string,
     options: MessageSendOptions = {},
-  ): Promise<void> {
+  ): Promise<{ externalMessageId?: string } | void> {
     if (!this.app) return;
     const parsed = this.parseJid(jid);
     if (!parsed) return;
@@ -71,11 +71,12 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     const formatted = formatOutboundForChannel(text, 'slack');
     if (!formatted) return;
 
-    await this.app.client.chat.postMessage({
+    const posted = (await this.app.client.chat.postMessage({
       channel: parsed.channelId,
       text: formatted,
       ...(options.threadId ? { thread_ts: options.threadId } : {}),
-    });
+    })) as { ts?: string };
+    return posted.ts ? { externalMessageId: posted.ts } : {};
   }
 
   async sendStreamingChunk(

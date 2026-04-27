@@ -900,16 +900,23 @@ export class PostgresMessageRepository implements MessageRepository {
           trust: message.trust,
           createdAt: message.createdAt,
           receivedAt: message.receivedAt ?? null,
+          deliveryStatus: message.deliveryStatus ?? null,
+          deliveredAt: message.deliveredAt ?? null,
+          deliveryError: message.deliveryError ?? null,
         })
         .onConflictDoUpdate({
           target: pgSchema.messagesPostgres.id,
           set: {
+            externalMessageId,
             externalRefJson: encodeJsonOrNull(message.externalRef),
             direction: message.direction,
             senderUserId: message.senderUserId ?? null,
             senderDisplayName: message.senderDisplayName ?? null,
             trust: message.trust,
             receivedAt: message.receivedAt ?? null,
+            deliveryStatus: message.deliveryStatus ?? null,
+            deliveredAt: message.deliveredAt ?? null,
+            deliveryError: message.deliveryError ?? null,
           },
         });
 
@@ -1048,6 +1055,9 @@ export class PostgresMessageRepository implements MessageRepository {
       trust: row.trust as Message['trust'],
       createdAt: row.createdAt,
       receivedAt: row.receivedAt ?? undefined,
+      deliveryStatus: row.deliveryStatus ?? undefined,
+      deliveredAt: row.deliveredAt ?? undefined,
+      deliveryError: row.deliveryError ?? undefined,
       parts: parts.map((part) =>
         payloadToMessagePart(part.kind, part.payloadJson),
       ),

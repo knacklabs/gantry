@@ -23,6 +23,9 @@ export interface CanonicalOpsMessageRow {
   trust: string;
   created_at: string;
   received_at: string | null;
+  delivery_status: string | null;
+  delivered_at: string | null;
+  delivery_error: string | null;
   payload_json: string | null;
 }
 
@@ -39,10 +42,13 @@ export class PostgresCanonicalMessageRepository {
 
   async saveMessage(msg: NewMessage): Promise<void> {
     await this.db.transaction(async (tx) => {
+      const channelProvider =
+        msg.channel_provider ?? providerIdForJid(msg.chat_jid);
       const conversationId = await this.graph.ensureConversation(
         msg.chat_jid,
         {
           timestamp: msg.timestamp,
+          channel: channelProvider,
         },
         tx,
       );
@@ -50,14 +56,30 @@ export class PostgresCanonicalMessageRepository {
         msg.chat_jid,
         msg.thread_id,
         tx,
+        { channel: channelProvider },
       );
-      const channelProvider = providerIdForJid(msg.chat_jid);
       const channelInstallationId =
         (await this.graph.getConversationInstallationId(conversationId, tx)) ??
         `channel-installation:${CANONICAL_APP_ID}:${channelProvider}`;
       const canonicalMessageId = messageIdFor(msg.chat_jid, msg.id);
       const direction =
         msg.is_from_me || msg.is_bot_message ? 'outbound' : 'inbound';
+      const externalMessageId =
+        msg.external_message_id ??
+        (direction === 'inbound' ? msg.id || null : null);
+      if (direction === 'inbound') {
+        await this.graph.ensureParticipant(
+          {
+            conversationId,
+            providerId: channelProvider,
+            channelInstallationId,
+            externalUserId: msg.sender,
+            displayName: msg.sender_name,
+            timestamp: msg.timestamp,
+          },
+          tx,
+        );
+      }
       await tx
         .insert(pgSchema.messagesPostgres)
         .values({
@@ -67,7 +89,7 @@ export class PostgresCanonicalMessageRepository {
           channelInstallationId,
           conversationId,
           threadId: canonicalThreadId,
-          externalMessageId: msg.id || null,
+          externalMessageId,
           externalRefJson: json(msg),
           direction,
           senderUserId: msg.sender,
@@ -75,15 +97,22 @@ export class PostgresCanonicalMessageRepository {
           trust: msg.is_bot_message ? 'system' : 'trusted',
           createdAt: msg.timestamp,
           receivedAt: msg.timestamp,
+          deliveryStatus: msg.delivery_status ?? null,
+          deliveredAt: msg.delivered_at ?? null,
+          deliveryError: msg.delivery_error ?? null,
         })
         .onConflictDoUpdate({
           target: pgSchema.messagesPostgres.id,
           set: {
+            externalMessageId,
             externalRefJson: json(msg),
             direction,
             senderUserId: msg.sender,
             senderDisplayName: msg.sender_name,
             trust: msg.is_bot_message ? 'system' : 'trusted',
+            deliveryStatus: msg.delivery_status ?? null,
+            deliveredAt: msg.delivered_at ?? null,
+            deliveryError: msg.delivery_error ?? null,
           },
         });
       await tx
@@ -104,6 +133,32 @@ export class PostgresCanonicalMessageRepository {
             payloadJson: sql`excluded.payload_json`,
           },
         });
+      await tx
+        .delete(pgSchema.messageAttachmentsPostgres)
+        .where(
+          eq(pgSchema.messageAttachmentsPostgres.messageId, canonicalMessageId),
+        );
+      if (msg.attachments && msg.attachments.length > 0) {
+        await tx.insert(pgSchema.messageAttachmentsPostgres).values(
+          msg.attachments.map((attachment, index) => ({
+            id:
+              attachment.id ??
+              `message-attachment:${canonicalMessageId}:${index}`,
+            messageId: canonicalMessageId,
+            kind: attachment.kind,
+            contentType: attachment.contentType ?? null,
+            sizeBytes: attachment.sizeBytes ?? null,
+            externalRefJson: attachment.externalId
+              ? json({
+                  kind: 'message_attachment',
+                  value: attachment.externalId,
+                })
+              : null,
+            storageRef: attachment.storageRef ?? null,
+            trust: msg.is_bot_message ? 'system' : 'trusted',
+          })),
+        );
+      }
     });
   }
 
@@ -170,6 +225,9 @@ export class PostgresCanonicalMessageRepository {
         trust: m.trust,
         created_at: m.createdAt,
         received_at: m.receivedAt,
+        delivery_status: m.deliveryStatus,
+        delivered_at: m.deliveredAt,
+        delivery_error: m.deliveryError,
         payload_json: firstPart.payloadJson,
       })
       .from(m)
@@ -222,6 +280,9 @@ export class PostgresCanonicalMessageRepository {
         trust: m.trust,
         created_at: m.createdAt,
         received_at: m.receivedAt,
+        delivery_status: m.deliveryStatus,
+        delivered_at: m.deliveredAt,
+        delivery_error: m.deliveryError,
         payload_json: p.payloadJson,
       })
       .from(m)

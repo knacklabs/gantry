@@ -104,6 +104,12 @@ export class CanonicalMessageOpsService {
       reply_to_message_id: ref.reply_to_message_id,
       reply_to_message_content: ref.reply_to_message_content,
       reply_to_sender_name: ref.reply_to_sender_name,
+      external_message_id: ref.external_message_id,
+      delivery_status:
+        ref.delivery_status ??
+        (row.delivery_status as NewMessage['delivery_status']),
+      delivered_at: ref.delivered_at ?? row.delivered_at ?? undefined,
+      delivery_error: ref.delivery_error ?? row.delivery_error ?? undefined,
     };
   }
 }

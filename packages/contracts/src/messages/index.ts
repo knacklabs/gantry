@@ -15,6 +15,14 @@ export const MessageDirectionSchema = z.enum([
 ]);
 export type MessageDirection = z.infer<typeof MessageDirectionSchema>;
 
+export const MessageDeliveryStatusSchema = z.enum([
+  'pending',
+  'sent',
+  'failed',
+  'partially_sent',
+]);
+export type MessageDeliveryStatus = z.infer<typeof MessageDeliveryStatusSchema>;
+
 export const MessageTrustSchema = z.enum([
   'trusted',
   'untrusted',
@@ -77,6 +85,9 @@ export const MessageResponseSchema = z.object({
   senderUserId: z.string().nullable().optional(),
   senderDisplayName: z.string().nullable().optional(),
   trust: MessageTrustSchema,
+  deliveryStatus: MessageDeliveryStatusSchema.nullable().optional(),
+  deliveredAt: IsoDateTimeSchema.nullable().optional(),
+  deliveryError: z.string().nullable().optional(),
   parts: z.array(MessagePartSchema),
   attachments: z.array(MessageAttachmentSchema).optional(),
   createdAt: IsoDateTimeSchema,

@@ -652,11 +652,19 @@ export abstract class SlackChannelState {
     }
   }
 
-  protected async enrichMessageText(
+  protected async enrichMessage(
     jid: string,
     event: SlackMessageLike,
-  ): Promise<string> {
+  ): Promise<{
+    text: string;
+    attachments: NonNullable<
+      import('../../domain/types.js').NewMessage['attachments']
+    >;
+  }> {
     const lines: string[] = [];
+    const attachments: NonNullable<
+      import('../../domain/types.js').NewMessage['attachments']
+    > = [];
     const text = typeof event.text === 'string' ? event.text.trim() : '';
     if (text) lines.push(text);
 
@@ -666,10 +674,17 @@ export abstract class SlackChannelState {
         if (!location) continue;
         const label = file.name || file.title || 'attachment';
         lines.push(`Attachment: ${label} (${location})`);
+        attachments.push({
+          id: file.id ? `slack-file:${file.id}` : undefined,
+          kind: file.mimetype?.startsWith('image/') ? 'image' : 'file',
+          contentType: file.mimetype,
+          externalId: file.id,
+          storageRef: location,
+        });
       }
     }
 
-    return lines.join('\n').trim();
+    return { text: lines.join('\n').trim(), attachments };
   }
 
   protected abstract tryNativeStreamStop(

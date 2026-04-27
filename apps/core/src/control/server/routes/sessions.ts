@@ -131,6 +131,7 @@ export async function handleSessionRoutes(
     const message: NewMessage = {
       id: messageId,
       chat_jid: session.chatJid,
+      channel_provider: 'app',
       sender: typeof body.senderId === 'string' ? body.senderId : 'sdk',
       sender_name:
         typeof body.senderName === 'string' ? body.senderName : 'SDK',
@@ -138,6 +139,7 @@ export async function handleSessionRoutes(
       timestamp: now,
       is_from_me: false,
       is_bot_message: false,
+      external_message_id: messageId,
       thread_id: threadId || undefined,
     };
     const ops = getRuntimeOpsRepository();

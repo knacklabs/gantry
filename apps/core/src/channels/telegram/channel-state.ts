@@ -395,7 +395,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     jid: string,
     text: string,
     options?: MessageSendOptions,
-  ): Promise<void>;
+  ): Promise<{ externalMessageId?: string }>;
   abstract sendStreamingChunk(
     jid: string,
     text: string,

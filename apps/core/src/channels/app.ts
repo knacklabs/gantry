@@ -11,7 +11,7 @@ async function emitSessionEvent(
   chatJid: string,
   eventType: string,
   payload: Record<string, unknown>,
-): Promise<boolean> {
+): Promise<{ emitted: boolean; eventId?: number }> {
   const control = getRuntimeControlRepository();
   const session = await control.getAppSessionByChatJid(chatJid);
   if (!session) {
@@ -19,7 +19,7 @@ async function emitSessionEvent(
       { chatJid, eventType },
       'App channel event dropped without session',
     );
-    return false;
+    return { emitted: false };
   }
   const threadId =
     typeof payload.threadId === 'string' ? payload.threadId : null;
@@ -27,7 +27,7 @@ async function emitSessionEvent(
     sessionId: session.sessionId,
     threadId,
   });
-  await control.addControlEvent({
+  const event = await control.addControlEvent({
     eventType,
     payload: JSON.stringify(payload),
     actor: 'agent',
@@ -36,7 +36,7 @@ async function emitSessionEvent(
     responseMode: route?.responseMode ?? session.defaultResponseMode,
     webhookId: route ? route.webhookId : session.defaultWebhookId,
   });
-  return true;
+  return { emitted: true, eventId: event.eventId };
 }
 
 export async function createAppChannel(
@@ -48,11 +48,14 @@ export async function createAppChannel(
     jid: string,
     text: string,
     options?: MessageSendOptions,
-  ): Promise<void> => {
-    await emitSessionEvent(jid, 'session.message.outbound', {
+  ): Promise<{ externalMessageId?: string }> => {
+    const result = await emitSessionEvent(jid, 'session.message.outbound', {
       text,
       threadId: options?.threadId ?? null,
     });
+    return result.eventId !== undefined
+      ? { externalMessageId: String(result.eventId) }
+      : {};
   };
 
   return {
@@ -75,12 +78,13 @@ export async function createAppChannel(
       text: string,
       options?: StreamingChunkOptions,
     ): Promise<boolean> {
-      return emitSessionEvent(jid, 'session.message.streaming', {
+      const result = await emitSessionEvent(jid, 'session.message.streaming', {
         text,
         threadId: options?.threadId ?? null,
         done: options?.done === true,
         generation: options?.generation ?? null,
       });
+      return result.emitted;
     },
     resetStreaming(_jid: string) {},
     async setTyping(jid: string, isTyping: boolean): Promise<void> {

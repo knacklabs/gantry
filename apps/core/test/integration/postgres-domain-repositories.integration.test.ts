@@ -173,6 +173,94 @@ maybeDescribe('Postgres domain repositories', () => {
     ]);
   });
 
+  it('inserts threaded messages idempotently by provider redelivery key', async () => {
+    await repositories.messages.saveMessage({
+      id: 'message:test:thread:first' as MessageId,
+      appId,
+      conversationId,
+      threadId,
+      externalRef: { kind: 'message', value: 'evt-thread-1' },
+      direction: 'inbound',
+      senderUserId: userId,
+      senderDisplayName: 'Ravi',
+      trust: 'trusted',
+      createdAt: '2026-04-27T00:01:10.000Z',
+      receivedAt: '2026-04-27T00:01:11.000Z',
+      parts: [{ kind: 'text', text: 'thread hello' }],
+      attachments: [],
+    });
+    await repositories.messages.saveMessage({
+      id: 'message:test:thread:redelivery' as MessageId,
+      appId,
+      conversationId,
+      threadId,
+      externalRef: { kind: 'message', value: 'evt-thread-1' },
+      direction: 'inbound',
+      senderUserId: userId,
+      senderDisplayName: 'Ravi',
+      trust: 'trusted',
+      createdAt: '2026-04-27T00:01:10.000Z',
+      receivedAt: '2026-04-27T00:01:12.000Z',
+      parts: [{ kind: 'text', text: 'thread redelivered' }],
+      attachments: [],
+    });
+
+    const messages = await repositories.messages.listMessages({
+      conversationId,
+      threadId,
+      limit: 10,
+    });
+    const matching = messages.filter(
+      (message) => message.externalRef?.value === 'evt-thread-1',
+    );
+    expect(matching).toHaveLength(1);
+    expect(matching[0]?.id).toBe('message:test:thread:first');
+    expect(matching[0]?.parts).toEqual([
+      { kind: 'text', text: 'thread redelivered' },
+    ]);
+  });
+
+  it('persists outbound delivery status and provider message id', async () => {
+    const outboundId = 'message:test:outbound' as MessageId;
+    await repositories.messages.saveMessage({
+      id: outboundId,
+      appId,
+      conversationId,
+      threadId,
+      direction: 'outbound',
+      senderDisplayName: 'MyClaw',
+      trust: 'system',
+      createdAt: '2026-04-27T00:01:20.000Z',
+      deliveryStatus: 'pending',
+      parts: [{ kind: 'text', text: 'working' }],
+      attachments: [],
+    });
+    await repositories.messages.saveMessage({
+      id: outboundId,
+      appId,
+      conversationId,
+      threadId,
+      externalRef: { kind: 'message', value: '1710000000.200' },
+      direction: 'outbound',
+      senderDisplayName: 'MyClaw',
+      trust: 'system',
+      createdAt: '2026-04-27T00:01:20.000Z',
+      deliveryStatus: 'sent',
+      deliveredAt: '2026-04-27T00:01:21.000Z',
+      parts: [{ kind: 'text', text: 'working' }],
+      attachments: [],
+    });
+
+    await expect(repositories.messages.getMessage(outboundId)).resolves.toEqual(
+      expect.objectContaining({
+        id: outboundId,
+        externalRef: { kind: 'message', value: '1710000000.200' },
+        deliveryStatus: 'sent',
+        deliveredAt: '2026-04-27T00:01:21.000Z',
+      }),
+    );
+  });
+
   it('handles concurrent message redelivery saves with different ids', async () => {
     await Promise.all([
       repositories.messages.saveMessage({

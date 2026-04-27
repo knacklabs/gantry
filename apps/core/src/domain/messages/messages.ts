@@ -12,6 +12,11 @@ export type ExternalMessageId = BrandedId<'ExternalMessageId'>;
 
 export type MessageDirection = 'inbound' | 'outbound' | 'system' | 'tool';
 export type MessageTrust = 'trusted' | 'untrusted' | 'system';
+export type MessageDeliveryStatus =
+  | 'pending'
+  | 'sent'
+  | 'failed'
+  | 'partially_sent';
 
 export interface Message {
   id: MessageId;
@@ -25,6 +30,9 @@ export interface Message {
   trust: MessageTrust;
   createdAt: IsoTimestamp;
   receivedAt?: IsoTimestamp;
+  deliveryStatus?: MessageDeliveryStatus;
+  deliveredAt?: IsoTimestamp;
+  deliveryError?: string;
   parts: MessagePart[];
   attachments: MessageAttachment[];
 }

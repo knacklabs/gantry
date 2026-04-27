@@ -34,7 +34,7 @@ export class PartialMessageDeliveryError
   }
 }
 
-function isPartialMessageDeliveryError(
+export function isPartialMessageDeliveryError(
   err: unknown,
 ): err is BrandedPartialMessageDeliveryError {
   return (

@@ -56,6 +56,7 @@ export interface RegisteredGroup {
 export interface NewMessage {
   id: string;
   chat_jid: string;
+  channel_provider?: string;
   sender: string;
   sender_name: string;
   content: string;
@@ -66,6 +67,20 @@ export interface NewMessage {
   reply_to_message_id?: string;
   reply_to_message_content?: string;
   reply_to_sender_name?: string;
+  external_message_id?: string;
+  delivery_status?: MessageDeliveryStatus;
+  delivered_at?: string;
+  delivery_error?: string;
+  attachments?: NewMessageAttachment[];
+}
+
+export interface NewMessageAttachment {
+  id?: string;
+  kind: 'image' | 'file' | 'audio' | 'video' | 'other';
+  contentType?: string;
+  sizeBytes?: number;
+  externalId?: string;
+  storageRef?: string;
 }
 
 export type JobScheduleType = 'manual' | 'cron' | 'interval' | 'once';
@@ -199,6 +214,16 @@ export interface MessageSendOptions {
   threadId?: string;
 }
 
+export type MessageDeliveryStatus =
+  | 'pending'
+  | 'sent'
+  | 'failed'
+  | 'partially_sent';
+
+export interface MessageDeliveryResult {
+  externalMessageId?: string;
+}
+
 // Callback type that channels use to deliver inbound messages
 export type OnInboundMessage = (
   chatJid: string,
@@ -206,8 +231,8 @@ export type OnInboundMessage = (
 ) => Promise<void>;
 
 // Callback for chat metadata discovery.
-// name is optional — channels that deliver names inline (Telegram) pass it here;
-// channels that sync names separately (via syncGroups) omit it.
+// name is optional for providers that deliver names inline; channels that sync
+// names separately omit it.
 export type OnChatMetadata = (
   chatJid: string,
   timestamp: string,
@@ -239,7 +264,7 @@ export interface MessageSink {
     jid: string,
     text: string,
     options?: MessageSendOptions,
-  ): Promise<void>;
+  ): Promise<void | MessageDeliveryResult>;
 }
 
 export interface TypingSink {

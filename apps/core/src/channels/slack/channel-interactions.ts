@@ -54,21 +54,25 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       return;
     }
 
-    const content = await this.enrichMessageText(jid, event);
+    const enriched = await this.enrichMessage(jid, event);
+    const content = enriched.text;
     if (!content) return;
 
     const sender = event.user || 'unknown';
     const senderName = await this.resolveUserName(event.user);
 
     await this.opts.onMessage(jid, {
-      id: event.client_msg_id || event.ts,
+      id: event.ts,
       chat_jid: jid,
+      channel_provider: 'slack',
       sender,
       sender_name: senderName,
       content,
       timestamp: new Date(Math.round(Number(event.ts) * 1000)).toISOString(),
       is_from_me: this.botUserId ? sender === this.botUserId : false,
+      external_message_id: event.ts,
       thread_id: event.thread_ts || undefined,
+      attachments: enriched.attachments,
       reply_to_message_id:
         event.thread_ts && event.thread_ts !== event.ts
           ? event.thread_ts
