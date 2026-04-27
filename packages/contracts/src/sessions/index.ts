@@ -6,12 +6,7 @@ import {
   IsoDateTimeSchema,
 } from '../contract-primitives.js';
 
-export const AgentSessionStatusSchema = z.enum([
-  'active',
-  'paused',
-  'completed',
-  'archived',
-]);
+export const AgentSessionStatusSchema = z.enum(['active', 'reset', 'archived']);
 export type AgentSessionStatus = z.infer<typeof AgentSessionStatusSchema>;
 
 export const ResponseModeSchema = z.enum(['sse', 'webhook', 'both', 'none']);
@@ -51,7 +46,7 @@ export const ProviderSessionResponseSchema = z.object({
   workspaceSnapshotId: z.string().nullable().optional(),
   browserProfileId: z.string().nullable().optional(),
   providerRef: ExternalReferenceSchema,
-  status: z.enum(['active', 'inactive', 'expired', 'revoked']),
+  status: z.enum(['active', 'expired', 'reset']),
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
   metadata: ContractMetadataSchema.optional(),

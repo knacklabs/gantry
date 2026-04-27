@@ -6,7 +6,7 @@ import {
   encodeGroupMessageCursor,
 } from '@core/shared/message-cursor.js';
 import type { AgentOutput } from '@core/runtime/agent-spawn-types.js';
-import type { GroupProcessingDeps } from '@core/runtime/group-processing.js';
+import type { GroupProcessingDeps } from '@core/runtime/group-processing-types.js';
 import { PartialMessageDeliveryError } from '@core/runtime/partial-delivery.js';
 
 // ---------------------------------------------------------------------------
@@ -171,6 +171,7 @@ function makeDeps(
     listRecentJobEvents: (...args: unknown[]) =>
       mockListRecentJobEvents(...args),
     getAllChats: vi.fn().mockResolvedValue([]),
+    expireProviderSession: vi.fn(),
   } as unknown as GroupProcessingDeps['opsRepository'];
 
   return {
@@ -179,6 +180,7 @@ function makeDeps(
     getSession: vi.fn().mockReturnValue(undefined),
     setSession: vi.fn(),
     clearSession: vi.fn(),
+    clearCachedSession: vi.fn(),
     getCursor: vi.fn().mockReturnValue('0'),
     setCursor: vi.fn(),
     saveState: vi.fn(),
@@ -745,7 +747,7 @@ describe('createGroupProcessor', () => {
   // =======================================================================
 
   describe('stale session detection', () => {
-    it('clears session when error matches stale-session pattern', async () => {
+    it('expires provider resume metadata without deleting durable session when error matches stale-session pattern', async () => {
       const group = makeGroup({ isMain: true });
       const messages = [makeMessage()];
       const { deps } = setupHappyPath({ group, messages });
@@ -775,7 +777,8 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(deps.clearSession).toHaveBeenCalledWith('test-group', null);
+      expect(deps.clearSession).not.toHaveBeenCalled();
+      expect(deps.clearCachedSession).toHaveBeenCalledWith('test-group', null);
       expect(mockArchiveSessionTranscript).toHaveBeenCalledWith(
         expect.objectContaining({
           groupFolder: 'test-group',
@@ -785,7 +788,7 @@ describe('createGroupProcessor', () => {
       );
     });
 
-    it('clears session on ENOENT .jsonl error pattern', async () => {
+    it('clears only cached session on ENOENT .jsonl error pattern', async () => {
       const group = makeGroup({ isMain: true });
       const messages = [makeMessage()];
       const { deps } = setupHappyPath({ group, messages });
@@ -811,10 +814,11 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(deps.clearSession).toHaveBeenCalledWith('test-group', null);
+      expect(deps.clearSession).not.toHaveBeenCalled();
+      expect(deps.clearCachedSession).toHaveBeenCalledWith('test-group', null);
     });
 
-    it('clears session on session not found error pattern', async () => {
+    it('clears only cached session on session not found error pattern', async () => {
       const group = makeGroup({ isMain: true });
       const messages = [makeMessage()];
       const { deps } = setupHappyPath({ group, messages });
@@ -840,7 +844,8 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(deps.clearSession).toHaveBeenCalledWith('test-group', null);
+      expect(deps.clearSession).not.toHaveBeenCalled();
+      expect(deps.clearCachedSession).toHaveBeenCalledWith('test-group', null);
     });
 
     it('does NOT clear session when error is unrelated', async () => {
@@ -870,6 +875,7 @@ describe('createGroupProcessor', () => {
       await processGroupMessages('group1@g.us');
 
       expect(deps.clearSession).not.toHaveBeenCalled();
+      expect(deps.clearCachedSession).not.toHaveBeenCalled();
       expect(mockArchiveSessionTranscript).not.toHaveBeenCalled();
     });
 
@@ -901,6 +907,76 @@ describe('createGroupProcessor', () => {
 
       // No session to clear — staleSessionId is empty string which is falsy
       expect(deps.clearSession).not.toHaveBeenCalled();
+      expect(deps.clearCachedSession).not.toHaveBeenCalled();
+    });
+
+    it('expires only the resolved provider session and retries stale native resume with DB replay', async () => {
+      const group = makeGroup({ isMain: true });
+      const messages = [makeMessage()];
+      const { deps } = setupHappyPath({ group, messages });
+      const getSessionResume = vi
+        .fn()
+        .mockResolvedValueOnce({
+          agentSessionId: 'agent-session:1',
+          providerSessionId: 'provider-session:1',
+          externalSessionId: 'expired-native-session',
+          mode: 'provider_native',
+        })
+        .mockResolvedValueOnce({
+          agentSessionId: 'agent-session:1',
+          mode: 'db_replay',
+          hydratedContextBlock: '<db replay context>',
+        });
+      (deps.opsRepository as any).getSessionResume = getSessionResume;
+
+      const staleOutput: AgentOutput = {
+        status: 'error',
+        result: null,
+        error: 'session expired-native-session not found',
+      };
+      const recoveredOutput: AgentOutput = {
+        status: 'success',
+        result: 'recovered',
+      };
+      mockSpawnAgent.mockImplementationOnce(
+        async (
+          _group: RegisteredGroup,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({
+            status: 'success',
+            result: null,
+            newSessionId: 'expired-native-session',
+          });
+          return staleOutput;
+        },
+      );
+      mockSpawnAgent.mockResolvedValueOnce(recoveredOutput);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(deps.clearSession).not.toHaveBeenCalled();
+      expect(deps.clearCachedSession).toHaveBeenCalledWith('test-group', null);
+      expect(
+        (deps.opsRepository as any).expireProviderSession,
+      ).toHaveBeenCalledWith({
+        providerSessionId: 'provider-session:1',
+        agentSessionId: 'agent-session:1',
+        externalSessionId: 'expired-native-session',
+      });
+      expect(mockSpawnAgent).toHaveBeenCalledTimes(2);
+      expect(mockSpawnAgent.mock.calls[1][1]).toMatchObject({
+        sessionId: undefined,
+        memoryContextBlock: expect.stringContaining('<db replay context>'),
+      });
+      expect(deps.setSession).not.toHaveBeenCalledWith(
+        'test-group',
+        'expired-native-session',
+        null,
+      );
     });
   });
 

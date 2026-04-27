@@ -19,6 +19,12 @@ npm run test:integration
 npm run test:e2e
 ```
 
+Durable session resume changes should additionally run the focused unit checks:
+
+```bash
+npm run test:unit -- apps/core/test/unit/application/session-resume-use-cases.test.ts apps/core/test/unit/runtime/group-processing.test.ts
+```
+
 ## Default Test And Build
 
 ```bash

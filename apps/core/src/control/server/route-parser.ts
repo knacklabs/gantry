@@ -1,6 +1,6 @@
 export type SessionRoute = {
   sessionId: string;
-  action: 'messages' | 'events' | 'wait';
+  action: 'get' | 'messages' | 'events' | 'wait' | 'runs';
 };
 
 export type JobRoute =
@@ -13,13 +13,19 @@ export type WebhookRoute = {
 };
 
 export function parseSessionRoute(pathname: string): SessionRoute | null {
+  const baseMatch = /^\/v1\/sessions\/([^/]+)$/.exec(pathname);
+  if (baseMatch) {
+    return { sessionId: decodeURIComponent(baseMatch[1]!), action: 'get' };
+  }
   const match = /^\/v1\/sessions\/([^/]+)\/(messages|events|wait)$/.exec(
     pathname,
   );
-  if (!match) return null;
+  const runsMatch = /^\/v1\/sessions\/([^/]+)\/runs$/.exec(pathname);
+  const selected = match ?? runsMatch;
+  if (!selected) return null;
   return {
-    sessionId: decodeURIComponent(match[1]!),
-    action: match[2] as SessionRoute['action'],
+    sessionId: decodeURIComponent(selected[1]!),
+    action: selected[2] as SessionRoute['action'],
   };
 }
 
@@ -48,6 +54,11 @@ export function parseTriggerWaitRoute(pathname: string): string | null {
 
 export function parseRunRoute(pathname: string): string | null {
   const match = /^\/v1\/runs\/([^/]+)$/.exec(pathname);
+  return match ? decodeURIComponent(match[1]!) : null;
+}
+
+export function parseRunEventsRoute(pathname: string): string | null {
+  const match = /^\/v1\/runs\/([^/]+)\/events$/.exec(pathname);
   return match ? decodeURIComponent(match[1]!) : null;
 }
 

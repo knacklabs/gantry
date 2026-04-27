@@ -4,6 +4,7 @@ import {
   createPostgresDomainRepositories,
   type PostgresDomainRepositoryBundle,
 } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
+import { PostgresCanonicalSessionRepository } from '@core/adapters/storage/postgres/repositories/canonical-session-repository.postgres.js';
 import {
   PostgresStorageService,
   quotePostgresIdentifier,
@@ -33,6 +34,7 @@ import type { MessageId } from '@core/domain/messages/messages.js';
 import type { PermissionDecisionId } from '@core/domain/permissions/permissions.js';
 import type {
   AgentSessionId,
+  AgentSessionSummaryId,
   ProviderSessionId,
 } from '@core/domain/sessions/sessions.js';
 
@@ -331,7 +333,11 @@ maybeDescribe('Postgres domain repositories', () => {
       id: 'provider-session:test:older' as ProviderSessionId,
       appId,
       agentSessionId: sessionId,
+      provider: 'anthropic',
+      externalSessionId: 'older',
+      artifactRef: '/tmp/older.jsonl',
       providerRef: { kind: 'provider_session', value: 'anthropic:older' },
+      metadata: { runtime: 'test' },
       status: 'active',
       createdAt: '2026-04-27T00:02:00.000Z',
       updatedAt: '2026-04-27T00:02:00.000Z',
@@ -340,7 +346,11 @@ maybeDescribe('Postgres domain repositories', () => {
       id: 'provider-session:test:newer' as ProviderSessionId,
       appId,
       agentSessionId: sessionId,
+      provider: 'anthropic',
+      externalSessionId: 'newer',
+      artifactRef: '/tmp/newer.jsonl',
       providerRef: { kind: 'provider_session', value: 'anthropic:newer' },
+      metadata: { runtime: 'test' },
       status: 'active',
       createdAt: '2026-04-27T00:03:00.000Z',
       updatedAt: '2026-04-27T00:03:00.000Z',
@@ -353,7 +363,115 @@ maybeDescribe('Postgres domain repositories', () => {
       }),
     ).resolves.toMatchObject({
       id: 'provider-session:test:newer',
+      provider: 'anthropic',
+      externalSessionId: 'newer',
+      artifactRef: '/tmp/newer.jsonl',
       providerRef: { kind: 'provider_session', value: 'anthropic:newer' },
+      metadata: { runtime: 'test' },
+    });
+
+    await repositories.agentSessionSummaries.saveAgentSessionSummary({
+      id: 'agent-session-summary:test:1' as AgentSessionSummaryId,
+      appId,
+      agentSessionId: sessionId,
+      summary: 'Prior work was summarized.',
+      source: 'extractive',
+      fromMessageId: 'message:test:first',
+      toMessageId: 'message:test:thread:first',
+      fromRunId: 'agent-run:test:old',
+      toRunId: 'agent-run:test:new',
+      messageCount: 2,
+      runCount: 1,
+      createdAt: '2026-04-27T00:04:00.000Z',
+    });
+    await expect(
+      repositories.agentSessionSummaries.getLatestAgentSessionSummary(
+        sessionId,
+      ),
+    ).resolves.toMatchObject({
+      summary: 'Prior work was summarized.',
+      source: 'extractive',
+      toMessageId: 'message:test:thread:first',
+    });
+  });
+
+  it('expires provider sessions by scoped row without expiring collisions', async () => {
+    const firstSessionId = 'agent-session:test:expire:first' as AgentSessionId;
+    const secondSessionId =
+      'agent-session:test:expire:second' as AgentSessionId;
+    await repositories.agentSessions.saveAgentSession({
+      id: firstSessionId,
+      appId,
+      agentId,
+      conversationId,
+      threadId,
+      userId: 'user:test:expire:first' as UserId,
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await repositories.agentSessions.saveAgentSession({
+      id: secondSessionId,
+      appId,
+      agentId,
+      conversationId,
+      threadId,
+      userId: 'user:test:expire:second' as UserId,
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await repositories.providerSessions.saveProviderSession({
+      id: 'provider-session:test:expire:first' as ProviderSessionId,
+      appId,
+      agentSessionId: firstSessionId,
+      provider: 'anthropic',
+      externalSessionId: 'shared-external-session',
+      providerRef: {
+        kind: 'provider_session',
+        value: 'anthropic:shared-external-session',
+      },
+      status: 'active',
+      createdAt: '2026-04-27T00:04:10.000Z',
+      updatedAt: '2026-04-27T00:04:10.000Z',
+    });
+    await repositories.providerSessions.saveProviderSession({
+      id: 'provider-session:test:expire:second' as ProviderSessionId,
+      appId,
+      agentSessionId: secondSessionId,
+      provider: 'anthropic',
+      externalSessionId: 'shared-external-session',
+      providerRef: {
+        kind: 'provider_session',
+        value: 'anthropic:shared-external-session',
+      },
+      status: 'active',
+      createdAt: '2026-04-27T00:04:20.000Z',
+      updatedAt: '2026-04-27T00:04:20.000Z',
+    });
+
+    const canonicalSessions = new PostgresCanonicalSessionRepository(
+      service.db,
+    );
+    await canonicalSessions.expireProviderSession({
+      providerSessionId: 'provider-session:test:expire:first',
+    });
+
+    await expect(
+      repositories.providerSessions.getLatestProviderSession({
+        agentSessionId: firstSessionId,
+        provider: 'anthropic',
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      repositories.providerSessions.getLatestProviderSession({
+        agentSessionId: secondSessionId,
+        provider: 'anthropic',
+      }),
+    ).resolves.toMatchObject({
+      id: 'provider-session:test:expire:second',
+      externalSessionId: 'shared-external-session',
+      status: 'active',
     });
   });
 
@@ -411,7 +529,7 @@ maybeDescribe('Postgres domain repositories', () => {
         status: 'active',
         createdAt: now,
         updatedAt: now,
-      }),
+      } as never),
     ).rejects.toThrow('Provider session ref must be prefixed');
   });
 

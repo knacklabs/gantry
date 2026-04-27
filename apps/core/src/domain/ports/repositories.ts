@@ -45,6 +45,8 @@ import type {
 import type {
   AgentSession,
   AgentSessionId,
+  AgentSessionSummary,
+  AgentSessionSummaryId,
   ProviderSession,
   ProviderSessionId,
 } from '../sessions/sessions.js';
@@ -118,6 +120,12 @@ export interface MessageRepository {
     after?: string;
     limit?: number;
   }): Promise<Message[]>;
+  listRecentMessages(input: {
+    conversationId: ConversationId;
+    threadId?: ConversationThreadId;
+    after?: string;
+    limit?: number;
+  }): Promise<Message[]>;
 }
 
 export interface AgentSessionRepository {
@@ -139,6 +147,21 @@ export interface ProviderSessionRepository {
     provider?: string;
   }): Promise<ProviderSession | null>;
   saveProviderSession(session: ProviderSession): Promise<void>;
+  markProviderSessionStatus(
+    id: ProviderSessionId,
+    status: ProviderSession['status'],
+    updatedAt: string,
+  ): Promise<void>;
+}
+
+export interface AgentSessionSummaryRepository {
+  getAgentSessionSummary(
+    id: AgentSessionSummaryId,
+  ): Promise<AgentSessionSummary | null>;
+  getLatestAgentSessionSummary(
+    agentSessionId: AgentSessionId,
+  ): Promise<AgentSessionSummary | null>;
+  saveAgentSessionSummary(summary: AgentSessionSummary): Promise<void>;
 }
 
 export interface AgentRunRepository {
@@ -146,6 +169,10 @@ export interface AgentRunRepository {
   saveAgentRun(run: AgentRun): Promise<void>;
   appendAgentRunEvent(event: AgentRunEvent): Promise<void>;
   listAgentRunEvents(runId: AgentRunId): Promise<AgentRunEvent[]>;
+  listAgentRunsBySession(input: {
+    sessionId: AgentSessionId;
+    limit?: number;
+  }): Promise<AgentRun[]>;
 }
 
 export interface MemoryRepository {

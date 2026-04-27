@@ -97,6 +97,7 @@ export function executeRunnerProcess(
     let parseBuffer = '';
     let parseBufferTruncated = false;
     let newSessionId: string | undefined;
+    let providerArtifactRef: string | undefined;
     let outputChain = Promise.resolve();
     let timedOut = false;
     let hadStreamingOutput = false;
@@ -171,6 +172,9 @@ export function executeRunnerProcess(
             const parsed: AgentOutput = JSON.parse(jsonStr);
             if (parsed.newSessionId) {
               newSessionId = parsed.newSessionId;
+            }
+            if (parsed.providerArtifactRef) {
+              providerArtifactRef = parsed.providerArtifactRef;
             }
             hadStreamingOutput = true;
             resetTimeout();
@@ -252,6 +256,7 @@ export function executeRunnerProcess(
               status: 'success',
               result: null,
               newSessionId,
+              providerArtifactRef,
             });
           });
           return;
@@ -374,6 +379,7 @@ export function executeRunnerProcess(
             status: 'success',
             result: null,
             newSessionId,
+            providerArtifactRef,
           });
         });
         return;

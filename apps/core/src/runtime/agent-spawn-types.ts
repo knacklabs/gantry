@@ -23,6 +23,7 @@ export interface AgentOutput {
   status: 'success' | 'error';
   result: string | null;
   newSessionId?: string;
+  providerArtifactRef?: string;
   error?: string;
 }
 

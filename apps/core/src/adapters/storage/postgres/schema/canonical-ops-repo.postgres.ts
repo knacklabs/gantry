@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 
 import type {
@@ -15,16 +16,26 @@ import type {
 import { PostgresCanonicalBindingRepository } from '../repositories/canonical-binding-repository.postgres.js';
 import {
   type CanonicalDb,
+  DEFAULT_LLM_PROFILE_ID,
   PostgresCanonicalGraphRepository,
+  configVersionIdForAgent,
 } from '../repositories/canonical-graph-repository.postgres.js';
 import { PostgresCanonicalJobRepository } from '../repositories/canonical-job-repository.postgres.js';
 import { PostgresCanonicalMessageRepository } from '../repositories/canonical-message-repository.postgres.js';
 import { PostgresCanonicalRouterStateRepository } from '../repositories/canonical-router-state-repository.postgres.js';
 import { PostgresCanonicalSessionRepository } from '../repositories/canonical-session-repository.postgres.js';
+import { createPostgresDomainRepositories } from '../repositories/domain-repositories.postgres.js';
 import { CanonicalBindingOpsService } from '../services/canonical-binding-ops-service.js';
 import { CanonicalJobOpsService } from '../services/canonical-job-ops-service.js';
 import { CanonicalMessageOpsService } from '../services/canonical-message-ops-service.js';
 import { CanonicalSessionOpsService } from '../services/canonical-session-ops-service.js';
+
+interface SessionRuntimeOptions {
+  recentMessageLimit?: number;
+  summaryAfterMessages?: number;
+  summaryAfterRuns?: number;
+  maxHydratedContextChars?: number;
+}
 
 export class PostgresCanonicalOpsRepository implements OpsRepository {
   private readonly graph: PostgresCanonicalGraphRepository;
@@ -36,22 +47,25 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
 
   constructor(
     private readonly pool: Pool,
-    db: CanonicalDb,
+    private readonly db: CanonicalDb,
+    options: { sessions?: SessionRuntimeOptions } = {},
   ) {
-    this.graph = new PostgresCanonicalGraphRepository(db);
+    this.graph = new PostgresCanonicalGraphRepository(this.db);
     this.messages = new CanonicalMessageOpsService(
-      new PostgresCanonicalMessageRepository(db),
+      new PostgresCanonicalMessageRepository(this.db),
     );
     this.jobs = new CanonicalJobOpsService(
-      new PostgresCanonicalJobRepository(db),
+      new PostgresCanonicalJobRepository(this.db),
     );
     this.sessions = new CanonicalSessionOpsService(
-      new PostgresCanonicalSessionRepository(db),
+      new PostgresCanonicalSessionRepository(this.db),
+      createPostgresDomainRepositories(this.db),
+      options.sessions,
     );
     this.bindings = new CanonicalBindingOpsService(
-      new PostgresCanonicalBindingRepository(db),
+      new PostgresCanonicalBindingRepository(this.db),
     );
-    this.routerState = new PostgresCanonicalRouterStateRepository(db);
+    this.routerState = new PostgresCanonicalRouterStateRepository(this.db);
   }
 
   async close(): Promise<void> {
@@ -217,8 +231,104 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
     groupFolder: string,
     sessionId: string,
     threadId?: string | null,
+    metadata: { chatJid?: string; artifactRef?: string | null } = {},
   ): Promise<void> {
-    await this.sessions.setSession(groupFolder, sessionId, threadId);
+    await this.sessions.setSession(groupFolder, sessionId, threadId, metadata);
+  }
+
+  async getSessionResume(input: {
+    groupFolder: string;
+    chatJid: string;
+    threadId?: string | null;
+  }): Promise<{
+    agentSessionId: string;
+    mode: 'provider_native' | 'db_replay';
+    providerSessionId?: string;
+    externalSessionId?: string;
+    hydratedContextBlock?: string;
+  }> {
+    return this.sessions.getSessionResume(input);
+  }
+
+  async expireProviderSession(input: {
+    providerSessionId?: string;
+    agentSessionId?: string;
+    provider?: string;
+    externalSessionId?: string;
+  }): Promise<void> {
+    await this.sessions.expireProviderSession(input);
+  }
+
+  async checkpointSessionSummary(agentSessionId: string): Promise<void> {
+    await this.sessions.checkpointSessionSummary(agentSessionId);
+  }
+
+  async createSessionAgentRun(input: {
+    agentSessionId: string;
+    cause: 'message' | 'job' | 'control' | 'manual';
+  }): Promise<string | undefined> {
+    const repositories = createPostgresDomainRepositories(this.db);
+    const session = await repositories.agentSessions.getAgentSession(
+      input.agentSessionId as never,
+    );
+    if (!session) return undefined;
+    const runId = `agent-run:${randomUUID()}`;
+    const now = new Date().toISOString();
+    await repositories.agentRuns.saveAgentRun({
+      id: runId,
+      appId: session.appId,
+      agentId: session.agentId,
+      configVersionId: configVersionIdForAgent(session.agentId),
+      sessionId: session.id,
+      conversationId: session.conversationId,
+      threadId: session.threadId,
+      jobId: session.jobId,
+      llmProfileId: DEFAULT_LLM_PROFILE_ID,
+      permissionDecisionIds: [],
+      cause: input.cause,
+      status: 'running',
+      createdAt: now,
+      startedAt: now,
+    } as never);
+    await repositories.agentRuns.appendAgentRunEvent({
+      id: `agent-run-event:${randomUUID()}` as never,
+      appId: session.appId,
+      runId: runId as never,
+      type: 'started',
+      payload: { cause: input.cause },
+      createdAt: now,
+    });
+    return runId;
+  }
+
+  async completeSessionAgentRun(input: {
+    runId: string;
+    status: 'completed' | 'failed' | 'canceled';
+    resultSummary?: string | null;
+    errorSummary?: string | null;
+  }): Promise<void> {
+    const repositories = createPostgresDomainRepositories(this.db);
+    const run = await repositories.agentRuns.getAgentRun(input.runId as never);
+    if (!run) return;
+    const now = new Date().toISOString();
+    await repositories.agentRuns.saveAgentRun({
+      ...run,
+      status: input.status,
+      endedAt: now,
+      resultSummary: input.resultSummary ?? run.resultSummary,
+      errorSummary: input.errorSummary ?? run.errorSummary,
+    });
+    await repositories.agentRuns.appendAgentRunEvent({
+      id: `agent-run-event:${randomUUID()}` as never,
+      appId: run.appId,
+      runId: run.id,
+      type: input.status,
+      payload: {
+        resultSummary: input.resultSummary ?? null,
+        errorSummary: input.errorSummary ?? null,
+      },
+      createdAt: now,
+    });
   }
 
   async deleteSession(

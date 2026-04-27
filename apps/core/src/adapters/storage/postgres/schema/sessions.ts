@@ -1,4 +1,4 @@
-import { index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
 import { agentsPostgres } from './agents.js';
 import { appsPostgres } from './apps.js';
@@ -64,7 +64,7 @@ export const providerSessionsPostgres = pgTable(
       .references(() => agentSessionsPostgres.id, { onDelete: 'cascade' }),
     provider: text('provider').notNull(),
     externalSessionId: text('external_session_id').notNull(),
-    artifactRef: text('artifact_ref').notNull(),
+    artifactRef: text('artifact_ref'),
     sandboxId: text('sandbox_id').references(() => sandboxProfilesPostgres.id),
     workspaceSnapshotId: text('workspace_snapshot_id').references(
       () => workspaceSnapshotsPostgres.id,
@@ -73,6 +73,7 @@ export const providerSessionsPostgres = pgTable(
       () => browserProfilesPostgres.id,
     ),
     providerRefJson: text('provider_ref_json').notNull().default('{}'),
+    metadataJson: text('metadata_json').notNull().default('{}'),
     status: text('status').notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
@@ -85,6 +86,37 @@ export const providerSessionsPostgres = pgTable(
     providerExternalIdx: index('idx_provider_sessions_external').on(
       table.provider,
       table.externalSessionId,
+    ),
+  }),
+);
+
+export const agentSessionSummariesPostgres = pgTable(
+  'agent_session_summaries',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    agentSessionId: text('agent_session_id')
+      .notNull()
+      .references(() => agentSessionsPostgres.id, { onDelete: 'cascade' }),
+    summary: text('summary').notNull(),
+    source: text('source').notNull().default('extractive'),
+    fromMessageId: text('from_message_id'),
+    toMessageId: text('to_message_id'),
+    fromRunId: text('from_run_id'),
+    toRunId: text('to_run_id'),
+    messageCount: integer('message_count').notNull().default(0),
+    runCount: integer('run_count').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    sessionCreatedIdx: index('idx_agent_session_summaries_session_created').on(
+      table.agentSessionId,
+      table.createdAt,
+      table.id,
     ),
   }),
 );

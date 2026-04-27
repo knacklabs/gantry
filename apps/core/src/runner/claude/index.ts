@@ -221,7 +221,12 @@ async function runScheduledQuery(opts: {
     if (queryResult.newSessionId) {
       sessionId = queryResult.newSessionId;
     }
-    writeOutput({ status: 'success', result: null, newSessionId: sessionId });
+    writeOutput({
+      status: 'success',
+      result: null,
+      newSessionId: sessionId,
+      providerArtifactRef: queryResult.providerArtifactRef,
+    });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     log(`Scheduled job error: ${errorMessage}`);
@@ -279,7 +284,12 @@ async function runInteractiveQueryLoop(opts: {
         break;
       }
 
-      writeOutput({ status: 'success', result: null, newSessionId: sessionId });
+      writeOutput({
+        status: 'success',
+        result: null,
+        newSessionId: sessionId,
+        providerArtifactRef: queryResult.providerArtifactRef,
+      });
       log('Query ended, waiting for next IPC message...');
 
       const nextMessage = await waitForIpcMessage();

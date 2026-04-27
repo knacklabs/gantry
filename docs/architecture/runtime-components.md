@@ -85,10 +85,10 @@ sequenceDiagram
 
 1. Channel inbound path: Slack and Telegram adapters send normalized inbound messages through channel wiring. The persistence handlers enforce sender policy, store chat metadata, and insert a durable message.
 2. SDK app inbound path: `sessions.sendMessage()` in the control server maps the SDK session to an `app:` group, inserts the inbound message, appends a `session.message.inbound` control event, stores response routing, and enqueues normal processing.
-3. Durable storage: Postgres is the source of truth for messages and cursors. Runtime memory, jobs, runs, webhooks, control events, and audit data live there too.
+3. Durable storage: Postgres is the source of truth for messages, cursors, canonical `AgentSession` records, optional `ProviderSession` resume metadata, runs, summaries, memory, jobs, webhooks, control events, and audit data.
 4. Polling and recovery: the message loop polls for new messages during normal operation and calls recovery on startup so pending threads are not lost after a restart.
 5. Queueing: `GroupQueue` deduplicates checks per group/thread, limits concurrent containers, retries failed processing, and routes follow-up messages into an active child run when possible.
-6. Agent execution: the group processor builds a prompt from unread messages, session state, job context, and memory context, then starts the child runner.
+6. Agent execution: the group processor resolves or creates the canonical session, chooses provider-native resume when a matching active provider session exists, otherwise hydrates DB replay context from summaries, recent messages, run history, and memory, then starts the child runner.
 7. Streaming and final response: the processor forwards partial output, progress, typing, and final replies through channel wiring. Slack and Telegram send network responses; the app channel records durable control events for `wait()`, `stream()`, webhooks, and replay.
 
 ## Agent Runtime Deep Dive
@@ -98,7 +98,7 @@ The child runner is the only process that calls `@anthropic-ai/claude-agent-sdk`
 Key runner inputs:
 
 - group working directory and allowed additional directories
-- Claude session id for resume
+- Claude session id for provider-native resume, when available
 - prompt profile, system prompt, model, and thinking configuration
 - MCP server command for MyClaw tools
 - IPC request/response directories
@@ -114,6 +114,21 @@ Key runner inputs:
 - `canUseTool`, the permission callback that checks runtime policy before sensitive tools run
 
 The runner emits structured stdout markers back to the host. The group processor treats those markers as implementation signals, not as the public integration stream. SDK consumers should observe durable control events instead.
+
+## Durable Session Resume
+
+`AgentSession` is the runtime continuity record. `ProviderSession` records store
+provider-specific resume metadata such as Claude session ids and optional JSONL
+artifact references. A restart does not depend on Claude local session files:
+the runtime first resolves the deterministic canonical session key, then uses
+provider-native resume only when the current provider has an active provider
+session for that `AgentSession`.
+
+When provider-native resume is not available, the runtime uses DB replay mode.
+Hydration injects an untrusted context block containing the latest extractive
+session summary, recent messages after that checkpoint, relevant memory
+records, and recent run summaries. Summary checkpoint creation is best-effort
+and does not block user replies.
 
 ## Tools And Permissions
 
@@ -224,6 +239,7 @@ Memory injected into a prompt is context, not trusted authority. The agent may u
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Inbound message is stuck               | `apps/core/src/runtime/message-loop.ts`, `apps/core/src/runtime/group-queue.ts`                                                                                                       | Message persisted in Postgres, cursor state, pending recovery, active queue entry, retry count.                                                  |
 | Agent starts but does not answer       | `apps/core/src/runtime/group-processing.ts`, `apps/core/src/runtime/agent-spawn.ts`, `apps/core/src/runner/claude/query-loop.ts`                                                      | Prompt construction, broker-safe child process env, Claude session id, runner stdout markers, final-output handling.                             |
+| Conversation does not resume after restart | `apps/core/src/application/sessions/`, `apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts`, `apps/core/src/runtime/group-processing.ts`          | `agent_sessions` deterministic key, latest active `provider_sessions`, DB replay hydration block, summary checkpoint range, thread id isolation. |
 | Follow-up is ignored                   | `apps/core/src/runtime/continuation-input.ts`, `apps/core/src/runtime/group-queue.ts`                                                                                                 | Whether the active run accepts continuation, queue key, thread key, and stop aliases.                                                            |
 | Permission request hangs or denies     | `apps/core/src/runtime/ipc.ts`, `apps/core/src/runtime/ipc-auth-validation.ts`, `apps/core/src/app/bootstrap/channel-wiring.ts`, `apps/core/src/runner/claude/permission-callback.ts` | IPC auth token, response signing key, request path ownership, main-channel approval surface, allowlists.                                         |
 | SDK wait or stream misses output       | `apps/core/src/control/server/routes/sessions.ts`, `apps/core/src/channels/app.ts`, `apps/core/src/adapters/storage/postgres/schema/control-plane-repo.postgres.ts`                     | App response route, `control_events`, SSE replay cursor, response mode, webhook destination status.                                              |

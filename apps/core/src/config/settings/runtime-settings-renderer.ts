@@ -23,6 +23,11 @@ function renderAgentSettingsYaml(
   lines.push(
     'agent:',
     `  default_model: ${quoteYamlString(agent.defaultModel)}`,
+    '  sessions:',
+    `    recent_message_limit: ${agent.sessions.recentMessageLimit}`,
+    `    summary_after_messages: ${agent.sessions.summaryAfterMessages}`,
+    `    summary_after_runs: ${agent.sessions.summaryAfterRuns}`,
+    `    max_hydrated_context_chars: ${agent.sessions.maxHydratedContextChars}`,
     '',
   );
 }

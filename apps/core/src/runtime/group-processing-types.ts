@@ -11,6 +11,13 @@ import type { OpsRepository } from '../domain/repositories/ops-repo.js';
 import type { AvailableGroup, spawnAgent } from './agent-spawn.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 
+export interface GroupProcessor {
+  processGroupMessages: (
+    chatJid: string,
+    options?: { queued?: boolean },
+  ) => Promise<boolean>;
+}
+
 export interface GroupProcessingDeps {
   channelRuntime: {
     hasChannel: (chatJid: string) => boolean;
@@ -43,8 +50,16 @@ export interface GroupProcessingDeps {
     groupFolder: string,
     sessionId: string,
     threadId?: string | null,
+    metadata?: {
+      chatJid?: string;
+      artifactRef?: string | null;
+    },
   ) => Promise<void> | void;
   clearSession: (
+    groupFolder: string,
+    threadId?: string | null,
+  ) => Promise<void> | void;
+  clearCachedSession?: (
     groupFolder: string,
     threadId?: string | null,
   ) => Promise<void> | void;

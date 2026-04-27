@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { NewMessage } from '../../../domain/types.js';
 import { getRuntimeOpsRepository } from '../../../adapters/storage/postgres/runtime-store.js';
 import { getRuntimeControlRepository } from '../../../adapters/storage/postgres/runtime-store.js';
+import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import { makeThreadQueueKey } from '../../../runtime/thread-queue-key.js';
 import {
@@ -90,6 +91,87 @@ export async function handleSessionRoutes(
   }
 
   const sessionRoute = parseSessionRoute(pathname);
+  if (sessionRoute?.action === 'get' && req.method === 'GET') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
+    if (!auth) return true;
+    const repositories = getRuntimeStorage().repositories;
+    const session = await repositories.agentSessions.getAgentSession(
+      sessionRoute.sessionId as never,
+    );
+    if (!session) {
+      sendError(res, 404, 'SESSION_NOT_FOUND', 'Session not found');
+      return true;
+    }
+    if (!canAccessApp(auth, session.appId)) {
+      sendError(res, 403, 'FORBIDDEN', 'API key cannot access this session');
+      return true;
+    }
+    const providerSession =
+      await repositories.providerSessions.getLatestProviderSession({
+        agentSessionId: session.id,
+      });
+    sendJson(res, 200, {
+      session,
+      providerSession: providerSession
+        ? { ...providerSession, artifactRef: undefined }
+        : null,
+    });
+    return true;
+  }
+
+  if (sessionRoute?.action === 'messages' && req.method === 'GET') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
+    if (!auth) return true;
+    const repositories = getRuntimeStorage().repositories;
+    const session = await repositories.agentSessions.getAgentSession(
+      sessionRoute.sessionId as never,
+    );
+    if (!session) {
+      sendError(res, 404, 'SESSION_NOT_FOUND', 'Session not found');
+      return true;
+    }
+    if (!canAccessApp(auth, session.appId)) {
+      sendError(res, 403, 'FORBIDDEN', 'API key cannot access this session');
+      return true;
+    }
+    if (!session.conversationId) {
+      sendJson(res, 200, { messages: [] });
+      return true;
+    }
+    const limit = parseListLimit(url.searchParams.get('limit'));
+    const messages = await repositories.messages.listRecentMessages({
+      conversationId: session.conversationId,
+      threadId: session.threadId,
+      limit,
+    });
+    sendJson(res, 200, { messages });
+    return true;
+  }
+
+  if (sessionRoute?.action === 'runs' && req.method === 'GET') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
+    if (!auth) return true;
+    const repositories = getRuntimeStorage().repositories;
+    const session = await repositories.agentSessions.getAgentSession(
+      sessionRoute.sessionId as never,
+    );
+    if (!session) {
+      sendError(res, 404, 'SESSION_NOT_FOUND', 'Session not found');
+      return true;
+    }
+    if (!canAccessApp(auth, session.appId)) {
+      sendError(res, 403, 'FORBIDDEN', 'API key cannot access this session');
+      return true;
+    }
+    const limit = parseListLimit(url.searchParams.get('limit'));
+    const runs = await repositories.agentRuns.listAgentRunsBySession({
+      sessionId: session.id,
+      limit,
+    });
+    sendJson(res, 200, { runs });
+    return true;
+  }
+
   if (sessionRoute?.action === 'messages' && req.method === 'POST') {
     const auth = authorizeControlRequest(req, res, ctx.keys, [
       'sessions:write',
@@ -326,4 +408,11 @@ export async function handleSessionRoutes(
   }
 
   return false;
+}
+
+function parseListLimit(raw: string | null): number {
+  if (raw === null || raw === '') return 100;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 100;
+  return Math.min(200, Math.max(1, Math.floor(parsed)));
 }

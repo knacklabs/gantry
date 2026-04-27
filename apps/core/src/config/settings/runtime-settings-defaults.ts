@@ -28,6 +28,10 @@ export const DEFAULT_ONECLI_DATABASE_URL_ENV = 'ONECLI_DATABASE_URL';
 export const DEFAULT_ONECLI_POSTGRES_SCHEMA = 'onecli';
 export const DEFAULT_MEMORY_STORAGE_DIR = 'memory';
 export const DEFAULT_EMBED_MODEL = 'text-embedding-3-large';
+export const DEFAULT_AGENT_SESSION_RECENT_MESSAGE_LIMIT = 20;
+export const DEFAULT_AGENT_SESSION_SUMMARY_AFTER_MESSAGES = 50;
+export const DEFAULT_AGENT_SESSION_SUMMARY_AFTER_RUNS = 10;
+export const DEFAULT_AGENT_SESSION_MAX_HYDRATED_CONTEXT_CHARS = 12_000;
 
 const DEFAULT_MODEL_HAIKU = MEMORY_MODEL_DEFAULTS.extractor;
 const DEFAULT_MODEL_SONNET = MEMORY_MODEL_DEFAULTS.dreaming;
@@ -83,6 +87,12 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
   };
   const agent: RuntimeAgentSettings = {
     defaultModel: '',
+    sessions: {
+      recentMessageLimit: DEFAULT_AGENT_SESSION_RECENT_MESSAGE_LIMIT,
+      summaryAfterMessages: DEFAULT_AGENT_SESSION_SUMMARY_AFTER_MESSAGES,
+      summaryAfterRuns: DEFAULT_AGENT_SESSION_SUMMARY_AFTER_RUNS,
+      maxHydratedContextChars: DEFAULT_AGENT_SESSION_MAX_HYDRATED_CONTEXT_CHARS,
+    },
   };
   const credentialBroker: RuntimeCredentialBrokerSettings = {
     mode: 'onecli',

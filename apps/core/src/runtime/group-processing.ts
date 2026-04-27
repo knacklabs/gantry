@@ -33,12 +33,21 @@ import { archiveSessionTranscript } from '../session/session-transcript-archive.
 import { handleSessionCommand } from '../session/session-commands.js';
 import { createInjectedMemoryContextBlock } from './memory-context.js';
 import type { GroupProcessingDeps } from './group-processing-types.js';
+import type { GroupProcessor } from './group-processing-types.js';
 import {
   getGroupMemoryStatus,
   saveGroupProcedureMemory,
 } from './group-memory-commands.js';
 import { runDreamingForGroup } from './memory-dreaming-runner.js';
 import { sendWithPartialDeliveryGuard } from './partial-delivery.js';
+import {
+  completeFailedRuntimeSessionRun,
+  completeSuccessfulRuntimeSessionRun,
+  expireStaleRuntimeSession,
+  isStaleRuntimeSessionError,
+  joinRuntimeContextBlocks,
+  resolveMemoryUserId,
+} from './session-resume-runtime.js';
 import { firstThreadQueueId, parseThreadQueueKey } from './thread-queue-key.js';
 import { formatElapsed } from './time-format.js';
 
@@ -53,14 +62,9 @@ function nextStreamingGeneration(): number {
   return streamingGenerationCounter;
 }
 
-export type { GroupProcessingDeps } from './group-processing-types.js';
-
-export function createGroupProcessor(deps: GroupProcessingDeps): {
-  processGroupMessages: (
-    chatJid: string,
-    options?: { queued?: boolean },
-  ) => Promise<boolean>;
-} {
+export function createGroupProcessor(
+  deps: GroupProcessingDeps,
+): GroupProcessor {
   const runAgentImpl = deps.runAgent ?? spawnAgent;
   const ops = () => {
     const repository = deps.opsRepository ?? deps.getOpsRepository?.();
@@ -87,14 +91,26 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
   ): Promise<'success' | 'error'> {
     const isMain = group.isMain === true;
     const sessionThreadId = options?.memoryContext?.threadId ?? null;
-    const sessionId = deps.getSession(group.folder, sessionThreadId);
+    const sessionResume = await ops().getSessionResume?.({
+      groupFolder: group.folder,
+      chatJid,
+      threadId: sessionThreadId,
+    });
+    const sessionId =
+      sessionResume?.mode === 'provider_native'
+        ? sessionResume.externalSessionId
+        : deps.getSession(group.folder, sessionThreadId);
 
     let pendingSessionId: string | null = null;
+    let pendingArtifactRef: string | null = null;
 
     const wrappedOnOutput = onOutput
       ? async (output: AgentOutput) => {
           if (output.status !== 'error' && output.newSessionId) {
             pendingSessionId = output.newSessionId;
+          }
+          if (output.status !== 'error' && output.providerArtifactRef) {
+            pendingArtifactRef = output.providerArtifactRef;
           }
           await onOutput(output);
         }
@@ -107,83 +123,133 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       userId: options?.memoryContext?.userId,
       threadId: options?.memoryContext?.threadId,
     });
+    const memoryContextBlock = joinRuntimeContextBlocks(
+      sessionResume?.hydratedContextBlock,
+      context?.block,
+    );
+    const runId = sessionResume?.agentSessionId
+      ? await ops().createSessionAgentRun?.({
+          agentSessionId: sessionResume.agentSessionId,
+          cause:
+            options?.memoryContext?.source === 'command'
+              ? 'control'
+              : 'message',
+        })
+      : undefined;
     try {
       const credentialBroker = await deps.getCredentialBroker?.();
-      const output = await runAgentImpl(
-        group,
-        {
-          prompt,
-          sessionId,
-          groupFolder: group.folder,
-          chatJid,
-          threadId: options?.memoryContext?.threadId,
-          isMain,
-          assistantName: ASSISTANT_NAME,
-          thinking: group.agentConfig?.thinking,
-          memoryContextBlock: context?.block,
-        },
-        (proc, containerName) =>
-          deps.queue.registerProcess(
-            queueJid,
-            proc,
-            containerName,
-            group.folder,
-            queueJid === chatJid ? undefined : chatJid,
-            options?.memoryContext?.threadId,
-          ),
-        wrappedOnOutput,
-        options?.timeoutMs || credentialBroker
-          ? {
-              ...(options?.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
-              ...(credentialBroker ? { credentialBroker } : {}),
-            }
-          : undefined,
-      );
+      const invokeAgent = (input: {
+        sessionId?: string;
+        memoryContextBlock?: string;
+      }) =>
+        runAgentImpl(
+          group,
+          {
+            prompt,
+            sessionId: input.sessionId,
+            groupFolder: group.folder,
+            chatJid,
+            threadId: options?.memoryContext?.threadId,
+            isMain,
+            assistantName: ASSISTANT_NAME,
+            thinking: group.agentConfig?.thinking,
+            memoryContextBlock: input.memoryContextBlock,
+          },
+          (proc, containerName) =>
+            deps.queue.registerProcess(
+              queueJid,
+              proc,
+              containerName,
+              group.folder,
+              queueJid === chatJid ? undefined : chatJid,
+              options?.memoryContext?.threadId,
+            ),
+          wrappedOnOutput,
+          options?.timeoutMs || credentialBroker
+            ? {
+                ...(options?.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+                ...(credentialBroker ? { credentialBroker } : {}),
+              }
+            : undefined,
+        );
+      let output = await invokeAgent({
+        sessionId,
+        memoryContextBlock,
+      });
 
       if (output.status === 'error') {
         const staleSessionId = sessionId || '';
-        const isStaleSession =
-          staleSessionId &&
-          output.error &&
-          /no conversation found|ENOENT.*\.jsonl|session.*not found/i.test(
-            output.error,
-          );
-
-        if (isStaleSession) {
-          logger.warn(
-            {
-              group: group.name,
-              staleSessionId,
-              error: output.error,
-            },
-            'Stale session detected — clearing for next retry',
-          );
-          archiveSessionTranscript({
-            groupFolder: group.folder,
+        if (
+          isStaleRuntimeSessionError({
             sessionId: staleSessionId,
-            assistantName: ASSISTANT_NAME,
-            cause: 'stale-session',
-            errorSummary: output.error,
-            writePlaceholderOnMissing: true,
+            error: output.error,
+          })
+        ) {
+          await expireStaleRuntimeSession({
+            group,
+            deps,
+            ops: ops(),
+            sessionId: staleSessionId,
+            providerSessionId: sessionResume?.providerSessionId,
+            agentSessionId: sessionResume?.agentSessionId,
+            threadId: sessionThreadId,
+            error: output.error,
           });
-          await deps.clearSession(group.folder, sessionThreadId);
+          if (sessionResume?.mode === 'provider_native') {
+            pendingSessionId = null;
+            pendingArtifactRef = null;
+            const replayResume = await ops().getSessionResume?.({
+              groupFolder: group.folder,
+              chatJid,
+              threadId: sessionThreadId,
+            });
+            const replayMemoryContextBlock = joinRuntimeContextBlocks(
+              replayResume?.hydratedContextBlock,
+              context?.block,
+            );
+            output = await invokeAgent({
+              memoryContextBlock: replayMemoryContextBlock,
+            });
+          }
         }
 
-        logger.error(
-          { group: group.name, error: output.error },
-          'Agent runner error',
-        );
-        return 'error';
+        if (output.status === 'error') {
+          logger.error(
+            { group: group.name, error: output.error },
+            'Agent runner error',
+          );
+          await completeFailedRuntimeSessionRun({
+            ops: ops(),
+            runId,
+            errorSummary: output.error ?? 'Agent runner error',
+          });
+          return 'error';
+        }
       }
 
-      const nextSessionId = output.newSessionId || pendingSessionId;
-      if (nextSessionId) {
-        await deps.setSession(group.folder, nextSessionId, sessionThreadId);
-      }
+      await completeSuccessfulRuntimeSessionRun({
+        deps,
+        ops: ops(),
+        group,
+        sessionId: output.newSessionId,
+        pendingSessionId,
+        artifactRef: output.providerArtifactRef,
+        pendingArtifactRef,
+        threadId: sessionThreadId,
+        chatJid,
+        agentSessionId: sessionResume?.agentSessionId,
+        runId,
+        result: output.result,
+      });
 
       return 'success';
     } catch (err) {
       logger.error({ group: group.name, err }, 'Agent error');
+      await completeFailedRuntimeSessionRun({
+        ops: ops(),
+        runId,
+        errorSummary: err instanceof Error ? err.message : String(err),
+      });
       return 'error';
     }
   }
@@ -221,69 +287,37 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       queueThreadId,
       latestMessage.thread_id,
     );
-    const resolveThreadId = async (
-      threadId?: string,
-    ): Promise<string | undefined> => {
-      if (threadId) return threadId;
-      return activeThreadId;
-    };
+    const resolveThreadId = (threadId?: string) => threadId ?? activeThreadId;
     const streamGeneration = nextStreamingGeneration();
-    const buildMessageOptions = async (
-      threadId?: string,
-    ): Promise<{ threadId: string } | undefined> => {
-      const resolved = await resolveThreadId(threadId);
+    const buildMessageOptions = (threadId?: string) => {
+      const resolved = resolveThreadId(threadId);
       return resolved ? { threadId: resolved } : undefined;
     };
-    const buildStreamingOptions = async (args: {
+    const buildStreamingOptions = (args: {
       threadId?: string;
       done?: boolean;
-    }): Promise<{ threadId?: string; done?: boolean; generation: number }> => {
-      const resolvedThread = await resolveThreadId(args.threadId);
-      const base = { generation: streamGeneration } as const;
-      if (resolvedThread && args.done !== undefined) {
-        return { ...base, threadId: resolvedThread, done: args.done };
-      }
-      if (resolvedThread) {
-        return { ...base, threadId: resolvedThread };
-      }
-      if (args.done !== undefined) {
-        return { ...base, done: args.done };
-      }
-      return { ...base };
-    };
+    }) => ({
+      generation: streamGeneration,
+      ...(resolveThreadId(args.threadId)
+        ? { threadId: resolveThreadId(args.threadId) }
+        : {}),
+      ...(args.done !== undefined ? { done: args.done } : {}),
+    });
     const sendMessageToChannel = async (
       text: string,
       options?: MessageSendOptions,
-    ): Promise<void> => {
-      if (options) {
-        await deps.channelRuntime.sendMessage(chatJid, text, options);
-        return;
-      }
-      await deps.channelRuntime.sendMessage(chatJid, text);
-    };
+    ): Promise<void> =>
+      void (await (options
+        ? deps.channelRuntime.sendMessage(chatJid, text, options)
+        : deps.channelRuntime.sendMessage(chatJid, text)));
     const sendProgressToChannel = async (
       text: string,
       options?: ProgressUpdateOptions,
-    ): Promise<void> => {
-      if (options) {
-        await deps.channelRuntime.sendProgressUpdate(chatJid, text, options);
-        return;
-      }
-      await deps.channelRuntime.sendProgressUpdate(chatJid, text);
-    };
-    const resolveMemoryUserId = (): string | undefined => {
-      for (let index = missedMessages.length - 1; index >= 0; index -= 1) {
-        const message = missedMessages[index];
-        if (!message) continue;
-        const sender = message.sender?.trim();
-        if (!sender) continue;
-        if (message.is_from_me) continue;
-        return sender;
-      }
-      const fallbackSender = latestMessage?.sender?.trim();
-      return fallbackSender || undefined;
-    };
-    const memoryUserId = resolveMemoryUserId();
+    ): Promise<void> =>
+      options
+        ? deps.channelRuntime.sendProgressUpdate(chatJid, text, options)
+        : deps.channelRuntime.sendProgressUpdate(chatJid, text);
+    const memoryUserId = resolveMemoryUserId(missedMessages);
 
     const cmdResult = await handleSessionCommand({
       missedMessages,
@@ -293,9 +327,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       timezone: TIMEZONE,
       deps: {
         sendMessage: (text, options) =>
-          buildMessageOptions(options?.threadId).then((messageOptions) =>
-            sendMessageToChannel(text, messageOptions),
-          ),
+          sendMessageToChannel(text, buildMessageOptions(options?.threadId)),
         setTyping: (typing) => deps.channelRuntime.setTyping(chatJid, typing),
         runAgent: (prompt, onOutput, options) =>
           runAgent(group, prompt, chatJid, queueJid, onOutput, {
@@ -564,8 +596,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
           if (result.status === 'success' && !result.result) {
             await finalizeStreamingOutput('success-marker');
             deps.queue.notifyIdle(queueJid);
-            // End the runner loop after a completed query so typing/progress
-            // finalize promptly instead of waiting for idle timeout.
             deps.queue.closeStdin(queueJid);
           }
 

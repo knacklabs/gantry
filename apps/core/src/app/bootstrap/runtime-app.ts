@@ -11,10 +11,8 @@ import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-
 import { encodeGroupMessageCursor } from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { RegisteredGroup, ThinkingOverride } from '../../domain/types.js';
-import {
-  createGroupProcessor,
-  GroupProcessingDeps,
-} from '../../runtime/group-processing.js';
+import { createGroupProcessor } from '../../runtime/group-processing.js';
+import type { GroupProcessingDeps } from '../../runtime/group-processing-types.js';
 import { listAvailableGroups } from '../../runtime/group-registry.js';
 import { GroupQueue } from '../../runtime/group-queue.js';
 import { parseThreadQueueKey } from '../../runtime/thread-queue-key.js';
@@ -327,12 +325,15 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     getGroup: (chatJid) => registeredGroups[chatJid],
     getSession: (groupFolder, threadId) =>
       sessions[makeSessionScopeKey(groupFolder, threadId)],
-    setSession: async (groupFolder, sessionId, threadId) => {
-      await ops().setSession(groupFolder, sessionId, threadId);
+    setSession: async (groupFolder, sessionId, threadId, metadata) => {
+      await ops().setSession(groupFolder, sessionId, threadId, metadata);
       sessions[makeSessionScopeKey(groupFolder, threadId)] = sessionId;
     },
     clearSession: async (groupFolder, threadId) => {
       await ops().deleteSession(groupFolder, threadId);
+      delete sessions[makeSessionScopeKey(groupFolder, threadId)];
+    },
+    clearCachedSession: (groupFolder, threadId) => {
       delete sessions[makeSessionScopeKey(groupFolder, threadId)];
     },
     getCursor: getOrRecoverCursor,

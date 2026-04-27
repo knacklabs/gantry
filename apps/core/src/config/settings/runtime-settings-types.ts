@@ -45,6 +45,12 @@ export interface RuntimeStorageSettings {
 
 export interface RuntimeAgentSettings {
   defaultModel: string;
+  sessions: {
+    recentMessageLimit: number;
+    summaryAfterMessages: number;
+    summaryAfterRuns: number;
+    maxHydratedContextChars: number;
+  };
 }
 
 export type RuntimeCredentialBrokerMode = 'none' | 'onecli' | 'external';

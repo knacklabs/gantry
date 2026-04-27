@@ -116,11 +116,43 @@ export interface OpsRepository {
     groupFolder: string,
     threadId?: string | null,
   ): Promise<string | undefined>;
+  getSessionResume?(input: {
+    groupFolder: string;
+    chatJid: string;
+    threadId?: string | null;
+  }): Promise<{
+    agentSessionId: string;
+    mode: 'provider_native' | 'db_replay';
+    providerSessionId?: string;
+    externalSessionId?: string;
+    hydratedContextBlock?: string;
+  }>;
   setSession(
     groupFolder: string,
     sessionId: string,
     threadId?: string | null,
+    metadata?: {
+      chatJid?: string;
+      artifactRef?: string | null;
+    },
   ): Promise<void>;
+  expireProviderSession?(input: {
+    providerSessionId?: string;
+    agentSessionId?: string;
+    provider?: string;
+    externalSessionId?: string;
+  }): Promise<void>;
+  checkpointSessionSummary?(agentSessionId: string): Promise<void>;
+  createSessionAgentRun?(input: {
+    agentSessionId: string;
+    cause: 'message' | 'job' | 'control' | 'manual';
+  }): Promise<string | undefined>;
+  completeSessionAgentRun?(input: {
+    runId: string;
+    status: 'completed' | 'failed' | 'canceled';
+    resultSummary?: string | null;
+    errorSummary?: string | null;
+  }): Promise<void>;
   deleteSession(groupFolder: string, threadId?: string | null): Promise<void>;
   deleteSessionsByGroupFolder(groupFolder: string): Promise<void>;
   getAllSessions(): Promise<Record<string, string>>;

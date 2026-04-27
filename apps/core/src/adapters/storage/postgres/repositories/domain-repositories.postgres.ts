@@ -51,6 +51,7 @@ import type {
   AgentRepository,
   AgentRunRepository,
   AgentSessionRepository,
+  AgentSessionSummaryRepository,
   AppRepository,
   BrowserProfileRepository,
   ChannelInstallationRepository,
@@ -69,15 +70,17 @@ import type {
   SandboxProfile,
   WorkspaceSnapshot,
 } from '../../../../domain/sandbox/sandbox.js';
-import type {
-  AgentSession,
-  ProviderSession,
-} from '../../../../domain/sessions/sessions.js';
+import type { AgentSession } from '../../../../domain/sessions/sessions.js';
 import type { SkillCatalogItem } from '../../../../domain/skills/skills.js';
 import type { ToolCatalogItem } from '../../../../domain/tools/tools.js';
 import type { ExternalRef } from '../../../../shared/ids/branded-id.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import {
+  PostgresAgentSessionRepository,
+  PostgresAgentSessionSummaryRepository,
+  PostgresProviderSessionRepository,
+} from './session-repositories.postgres.js';
 
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
@@ -88,6 +91,7 @@ export interface PostgresDomainRepositoryBundle {
   messages: MessageRepository;
   agentSessions: AgentSessionRepository;
   providerSessions: ProviderSessionRepository;
+  agentSessionSummaries: AgentSessionSummaryRepository;
   agentRuns: AgentRunRepository;
   memory: MemoryRepository;
   jobs: JobRepository;
@@ -161,16 +165,6 @@ function jsonTextEquals(column: unknown, keys: string[], value: string): SQL {
     keys.map((key) => sql`${column}::jsonb->>${key} = ${value}`),
     sql` OR `,
   )}))`;
-}
-
-function providerFromProviderRef(ref: ExternalRef<'provider_session'>): string {
-  const idx = ref.value.indexOf(':');
-  if (idx <= 0) {
-    throw new Error(
-      `Provider session ref must be prefixed as "<provider>:<external-session-id>"; received ${ref.value}`,
-    );
-  }
-  return ref.value.slice(0, idx);
 }
 
 function toMemorySubjectFields(subject: MemorySubject): {
@@ -1034,6 +1028,86 @@ export class PostgresMessageRepository implements MessageRepository {
     );
   }
 
+  async listRecentMessages(input: {
+    conversationId: Conversation['id'];
+    threadId?: ConversationThread['id'];
+    after?: string;
+    limit?: number;
+  }): Promise<Message[]> {
+    const m = pgSchema.messagesPostgres;
+    let afterFilter: SQL | undefined;
+    if (input.after) {
+      const afterRows = await this.db
+        .select({ createdAt: m.createdAt, id: m.id })
+        .from(m)
+        .where(eq(m.id, input.after))
+        .limit(1);
+      const after = afterRows[0];
+      if (after) {
+        afterFilter = or(
+          gt(m.createdAt, after.createdAt),
+          and(eq(m.createdAt, after.createdAt), gt(m.id, after.id)),
+        );
+      }
+    }
+    const rows = await this.db
+      .select()
+      .from(m)
+      .where(
+        and(
+          eq(m.conversationId, input.conversationId),
+          input.threadId ? eq(m.threadId, input.threadId) : undefined,
+          afterFilter,
+        ),
+      )
+      .orderBy(desc(m.createdAt), desc(m.id))
+      .limit(input.limit ?? 100);
+    const orderedRows = [...rows].reverse();
+    if (orderedRows.length === 0) return [];
+    const ids = orderedRows.map((row) => row.id);
+    const parts = await this.db
+      .select()
+      .from(pgSchema.messagePartsPostgres)
+      .where(inArray(pgSchema.messagePartsPostgres.messageId, ids))
+      .orderBy(
+        asc(pgSchema.messagePartsPostgres.messageId),
+        asc(pgSchema.messagePartsPostgres.ordinal),
+      );
+    const attachments = await this.db
+      .select()
+      .from(pgSchema.messageAttachmentsPostgres)
+      .where(inArray(pgSchema.messageAttachmentsPostgres.messageId, ids))
+      .orderBy(
+        asc(pgSchema.messageAttachmentsPostgres.messageId),
+        asc(pgSchema.messageAttachmentsPostgres.id),
+      );
+    const partsByMessageId = new Map<
+      string,
+      Array<typeof pgSchema.messagePartsPostgres.$inferSelect>
+    >();
+    for (const part of parts) {
+      const existing = partsByMessageId.get(part.messageId) ?? [];
+      existing.push(part);
+      partsByMessageId.set(part.messageId, existing);
+    }
+    const attachmentsByMessageId = new Map<
+      string,
+      Array<typeof pgSchema.messageAttachmentsPostgres.$inferSelect>
+    >();
+    for (const attachment of attachments) {
+      const existing = attachmentsByMessageId.get(attachment.messageId) ?? [];
+      existing.push(attachment);
+      attachmentsByMessageId.set(attachment.messageId, existing);
+    }
+    return orderedRows.map((row) =>
+      this.messageFromRows(
+        row,
+        partsByMessageId.get(row.id) ?? [],
+        attachmentsByMessageId.get(row.id) ?? [],
+      ),
+    );
+  }
+
   private messageFromRows(
     row: typeof pgSchema.messagesPostgres.$inferSelect,
     parts: Array<typeof pgSchema.messagePartsPostgres.$inferSelect>,
@@ -1078,219 +1152,6 @@ export class PostgresMessageRepository implements MessageRepository {
           }) as unknown as MessageAttachment,
       ),
     } as unknown as Message;
-  }
-}
-
-export class PostgresAgentSessionRepository implements AgentSessionRepository {
-  constructor(private readonly db: CanonicalDb) {}
-
-  async getAgentSession(id: AgentSession['id']): Promise<AgentSession | null> {
-    const rows = await this.db
-      .select()
-      .from(pgSchema.agentSessionsPostgres)
-      .where(eq(pgSchema.agentSessionsPostgres.id, id))
-      .limit(1);
-    return rows[0] ? this.sessionFromRow(rows[0]) : null;
-  }
-
-  async getAgentSessionByKey(input: {
-    appId: App['id'];
-    agentId: Agent['id'];
-    conversationId: Conversation['id'];
-    threadId?: ConversationThread['id'];
-    userId?: string;
-  }): Promise<AgentSession | null> {
-    const s = pgSchema.agentSessionsPostgres;
-    const rows = await this.db
-      .select()
-      .from(s)
-      .where(
-        and(
-          eq(s.appId, input.appId),
-          eq(s.agentId, input.agentId),
-          eq(s.conversationId, input.conversationId),
-          input.threadId ? eq(s.threadId, input.threadId) : isNull(s.threadId),
-          input.userId ? eq(s.userId, input.userId) : isNull(s.userId),
-          isNull(s.jobId),
-        ),
-      )
-      .orderBy(desc(s.updatedAt), desc(s.id))
-      .limit(1);
-    return rows[0] ? this.sessionFromRow(rows[0]) : null;
-  }
-
-  async saveAgentSession(session: AgentSession): Promise<void> {
-    try {
-      await this.writeAgentSession(session);
-    } catch (err) {
-      if (!isUniqueViolation(err) || !session.conversationId || session.jobId) {
-        throw err;
-      }
-      const existing = await this.getAgentSessionByKey({
-        appId: session.appId,
-        agentId: session.agentId,
-        conversationId: session.conversationId,
-        threadId: session.threadId,
-        userId: session.userId,
-      });
-      if (!existing) {
-        throw err;
-      }
-      await this.writeAgentSession({ ...session, id: existing.id });
-    }
-  }
-
-  private async writeAgentSession(session: AgentSession): Promise<void> {
-    await this.db
-      .insert(pgSchema.agentSessionsPostgres)
-      .values({
-        id: session.id,
-        appId: session.appId,
-        agentId: session.agentId,
-        conversationId: session.conversationId ?? null,
-        threadId: session.threadId ?? null,
-        jobId: session.jobId ?? null,
-        userId: session.userId ?? null,
-        status: session.status,
-        modelOverride: session.modelOverride ?? null,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        resetAt: session.resetAt ?? null,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.agentSessionsPostgres.id,
-        set: {
-          status: session.status,
-          modelOverride: session.modelOverride ?? null,
-          updatedAt: session.updatedAt,
-          resetAt: session.resetAt ?? null,
-        },
-      });
-  }
-
-  private sessionFromRow(
-    row: typeof pgSchema.agentSessionsPostgres.$inferSelect,
-  ): AgentSession {
-    return {
-      id: row.id,
-      appId: row.appId,
-      agentId: row.agentId,
-      conversationId: row.conversationId ?? undefined,
-      threadId: row.threadId ?? undefined,
-      jobId: row.jobId ?? undefined,
-      userId: row.userId ?? undefined,
-      status: row.status as AgentSession['status'],
-      modelOverride: row.modelOverride ?? undefined,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-      resetAt: row.resetAt ?? undefined,
-    } as AgentSession;
-  }
-}
-
-export class PostgresProviderSessionRepository implements ProviderSessionRepository {
-  constructor(private readonly db: CanonicalDb) {}
-
-  async getProviderSession(
-    id: ProviderSession['id'],
-  ): Promise<ProviderSession | null> {
-    const rows = await this.db
-      .select()
-      .from(pgSchema.providerSessionsPostgres)
-      .where(eq(pgSchema.providerSessionsPostgres.id, id))
-      .limit(1);
-    return rows[0] ? this.providerSessionFromRow(rows[0]) : null;
-  }
-
-  async getLatestProviderSession(input: {
-    agentSessionId: AgentSession['id'];
-    provider?: string;
-  }): Promise<ProviderSession | null> {
-    const ps = pgSchema.providerSessionsPostgres;
-    const rows = await this.db
-      .select()
-      .from(ps)
-      .where(
-        and(
-          eq(ps.agentSessionId, input.agentSessionId),
-          eq(ps.status, 'active'),
-          input.provider ? eq(ps.provider, input.provider) : undefined,
-        ),
-      )
-      .orderBy(desc(ps.updatedAt), desc(ps.createdAt), desc(ps.id))
-      .limit(1);
-    return rows[0] ? this.providerSessionFromRow(rows[0]) : null;
-  }
-
-  async saveProviderSession(session: ProviderSession): Promise<void> {
-    const provider = providerFromProviderRef(session.providerRef);
-    await this.db.transaction(async (tx) => {
-      await tx
-        .insert(pgSchema.providerSessionsPostgres)
-        .values({
-          id: session.id,
-          appId: session.appId,
-          agentSessionId: session.agentSessionId,
-          provider,
-          externalSessionId: session.providerRef.value,
-          artifactRef: session.providerRef.value,
-          providerRefJson: encodeJson(session.providerRef),
-          status: session.status,
-          createdAt: session.createdAt,
-          updatedAt: session.updatedAt,
-        })
-        .onConflictDoUpdate({
-          target: pgSchema.providerSessionsPostgres.id,
-          set: {
-            provider,
-            externalSessionId: session.providerRef.value,
-            artifactRef: session.providerRef.value,
-            providerRefJson: encodeJson(session.providerRef),
-            status: session.status,
-            updatedAt: session.updatedAt,
-          },
-        });
-      await tx
-        .update(pgSchema.agentSessionsPostgres)
-        .set({
-          latestProviderSessionId: session.id,
-          updatedAt: session.updatedAt,
-        })
-        .where(
-          and(
-            eq(pgSchema.agentSessionsPostgres.id, session.agentSessionId),
-            or(
-              isNull(pgSchema.agentSessionsPostgres.latestProviderSessionId),
-              sql`NOT EXISTS (
-                SELECT 1
-                FROM ${pgSchema.providerSessionsPostgres} latest
-                WHERE latest.id = ${pgSchema.agentSessionsPostgres.latestProviderSessionId}
-                  AND latest.updated_at > ${session.updatedAt}
-              )`,
-            ),
-          ),
-        );
-    });
-  }
-
-  private providerSessionFromRow(
-    row: typeof pgSchema.providerSessionsPostgres.$inferSelect,
-  ): ProviderSession {
-    return {
-      id: row.id,
-      appId: row.appId,
-      agentSessionId: row.agentSessionId,
-      providerRef:
-        externalRef(
-          row.providerRefJson,
-          'provider_session',
-          row.externalSessionId,
-        ) ??
-        ({ kind: 'provider_session', value: row.externalSessionId } as const),
-      status: row.status as ProviderSession['status'],
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    } as ProviderSession;
   }
 }
 
@@ -1374,6 +1235,22 @@ export class PostgresAgentRunRepository implements AgentRunRepository {
       payload: parseJson(row.payloadJson, null),
       createdAt: row.createdAt,
     })) as AgentRunEvent[];
+  }
+
+  async listAgentRunsBySession(input: {
+    sessionId: AgentSession['id'];
+    limit?: number;
+  }): Promise<AgentRun[]> {
+    const rows = await this.db
+      .select()
+      .from(pgSchema.agentRunsPostgres)
+      .where(eq(pgSchema.agentRunsPostgres.sessionId, input.sessionId))
+      .orderBy(
+        desc(pgSchema.agentRunsPostgres.createdAt),
+        desc(pgSchema.agentRunsPostgres.id),
+      )
+      .limit(input.limit ?? 100);
+    return rows.map((row) => this.runFromRow(row));
   }
 
   private runFromRow(
@@ -2024,6 +1901,7 @@ export function createPostgresDomainRepositories(
     messages: new PostgresMessageRepository(db),
     agentSessions: new PostgresAgentSessionRepository(db),
     providerSessions: new PostgresProviderSessionRepository(db),
+    agentSessionSummaries: new PostgresAgentSessionSummaryRepository(db),
     agentRuns: new PostgresAgentRunRepository(db),
     memory: new PostgresMemoryRepository(db),
     jobs: new PostgresJobRepository(db),

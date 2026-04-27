@@ -38,6 +38,18 @@ client.sessions.stream(sessionId, { afterEventId?, signal? })
 client.sessions.wait(sessionId, { afterEventId?, timeoutMs? })
 ```
 
+Read-only history endpoints are available over the control API. SDK helpers are
+not exposed for these endpoints yet.
+
+```http
+GET /v1/sessions/:sessionId
+GET /v1/sessions/:sessionId/messages?limit=100
+GET /v1/sessions/:sessionId/runs?limit=100
+```
+
+Responses are scoped by the API key's app access. Session history is backed by
+Postgres `AgentSession`, `Message`, `AgentRun`, and `ProviderSession` records.
+
 ## Jobs
 
 ```ts
@@ -68,6 +80,12 @@ client.jobs.wait(triggerId, timeoutMs?)
 ```ts
 client.runs.list(jobId?)
 client.runs.get(runId)
+```
+
+Read-only run event history is available over the control API:
+
+```http
+GET /v1/runs/:runId/events
 ```
 
 ## Memory

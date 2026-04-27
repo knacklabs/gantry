@@ -85,6 +85,13 @@
       "when": 1777025400000,
       "tag": "0011_message_delivery_status",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1777029000000,
+      "tag": "0012_session_resume_summaries",
+      "breakpoints": true
     }
   ]
 }

@@ -10,6 +10,7 @@ import {
   STORAGE_POSTGRES_SCHEMA,
   STORAGE_POSTGRES_URL,
   STORAGE_POSTGRES_URL_ENV,
+  getRuntimeSettingsForConfig,
 } from '../../../config/index.js';
 import type { OpsRepository } from '../../../domain/repositories/ops-repo.js';
 import { PostgresCanonicalOpsRepository } from './schema/canonical-ops-repo.postgres.js';
@@ -35,9 +36,11 @@ export function createStorageRuntime(
   config: ResolvedStorageConfig = resolveStorageConfigFromRuntime(),
 ): StorageRuntime {
   const service = createStorageService(config);
+  const sessionSettings = getRuntimeSettingsForConfig().agent.sessions;
   const ops: OpsRepository = new PostgresCanonicalOpsRepository(
     service.pool,
     service.db,
+    { sessions: sessionSettings },
   );
   const control = new PostgresControlPlaneRepository(service.pool);
   const repositories = createPostgresDomainRepositories(service.db);

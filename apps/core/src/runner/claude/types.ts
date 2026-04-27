@@ -24,6 +24,7 @@ export interface AgentRunnerOutput {
   status: 'success' | 'error';
   result: string | null;
   newSessionId?: string;
+  providerArtifactRef?: string;
   error?: string;
 }
 

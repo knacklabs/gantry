@@ -7,6 +7,10 @@ import { parseSenderAllowlistConfig } from './sender-allowlist.js';
 import { parseSimpleYamlObject } from './yaml.js';
 import {
   createDefaultChannelSettings,
+  DEFAULT_AGENT_SESSION_MAX_HYDRATED_CONTEXT_CHARS,
+  DEFAULT_AGENT_SESSION_RECENT_MESSAGE_LIMIT,
+  DEFAULT_AGENT_SESSION_SUMMARY_AFTER_MESSAGES,
+  DEFAULT_AGENT_SESSION_SUMMARY_AFTER_RUNS,
   DEFAULT_EMBED_MODEL,
   DEFAULT_ONECLI_URL,
   DEFAULT_ONECLI_DATABASE_URL_ENV,
@@ -73,6 +77,18 @@ function parseBooleanValue(
   if (raw === undefined && fallback !== undefined) return fallback;
   if (typeof raw !== 'boolean') {
     throw new Error(`${pathPrefix} must be true/false`);
+  }
+  return raw;
+}
+
+function parsePositiveIntegerValue(
+  raw: unknown,
+  pathPrefix: string,
+  fallback: number,
+): number {
+  if (raw === undefined) return fallback;
+  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw <= 0) {
+    throw new Error(`${pathPrefix} must be a positive integer`);
   }
   return raw;
 }
@@ -239,16 +255,47 @@ function parseCredentialBrokerSettings(
 
 function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
   if (raw === undefined) {
-    return { defaultModel: '' };
+    return {
+      defaultModel: '',
+      sessions: {
+        recentMessageLimit: DEFAULT_AGENT_SESSION_RECENT_MESSAGE_LIMIT,
+        summaryAfterMessages: DEFAULT_AGENT_SESSION_SUMMARY_AFTER_MESSAGES,
+        summaryAfterRuns: DEFAULT_AGENT_SESSION_SUMMARY_AFTER_RUNS,
+        maxHydratedContextChars:
+          DEFAULT_AGENT_SESSION_MAX_HYDRATED_CONTEXT_CHARS,
+      },
+    };
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw new Error('agent must be a mapping');
   }
   const map = raw as Record<string, unknown>;
   for (const key of Object.keys(map)) {
-    if (key !== 'default_model') {
+    if (key !== 'default_model' && key !== 'sessions') {
       throw new Error(
-        `agent.${key} is not supported. Configure agent.default_model.`,
+        `agent.${key} is not supported. Configure agent.default_model or agent.sessions.*.`,
+      );
+    }
+  }
+  const sessionsRaw = map.sessions;
+  if (
+    sessionsRaw !== undefined &&
+    (typeof sessionsRaw !== 'object' ||
+      sessionsRaw === null ||
+      Array.isArray(sessionsRaw))
+  ) {
+    throw new Error('agent.sessions must be a mapping');
+  }
+  const sessions = (sessionsRaw || {}) as Record<string, unknown>;
+  for (const key of Object.keys(sessions)) {
+    if (
+      key !== 'recent_message_limit' &&
+      key !== 'summary_after_messages' &&
+      key !== 'summary_after_runs' &&
+      key !== 'max_hydrated_context_chars'
+    ) {
+      throw new Error(
+        `agent.sessions.${key} is not supported. Configure recent_message_limit, summary_after_messages, summary_after_runs, or max_hydrated_context_chars.`,
       );
     }
   }
@@ -259,6 +306,28 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
         : typeof map.default_model === 'string'
           ? map.default_model.trim()
           : parseStringValue(map.default_model, 'agent.default_model'),
+    sessions: {
+      recentMessageLimit: parsePositiveIntegerValue(
+        sessions.recent_message_limit,
+        'agent.sessions.recent_message_limit',
+        DEFAULT_AGENT_SESSION_RECENT_MESSAGE_LIMIT,
+      ),
+      summaryAfterMessages: parsePositiveIntegerValue(
+        sessions.summary_after_messages,
+        'agent.sessions.summary_after_messages',
+        DEFAULT_AGENT_SESSION_SUMMARY_AFTER_MESSAGES,
+      ),
+      summaryAfterRuns: parsePositiveIntegerValue(
+        sessions.summary_after_runs,
+        'agent.sessions.summary_after_runs',
+        DEFAULT_AGENT_SESSION_SUMMARY_AFTER_RUNS,
+      ),
+      maxHydratedContextChars: parsePositiveIntegerValue(
+        sessions.max_hydrated_context_chars,
+        'agent.sessions.max_hydrated_context_chars',
+        DEFAULT_AGENT_SESSION_MAX_HYDRATED_CONTEXT_CHARS,
+      ),
+    },
   };
 }
 
