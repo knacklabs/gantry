@@ -23,7 +23,7 @@ import {
 import { makeThreadQueueKey } from '../../runtime/thread-queue-key.js';
 import type { Job } from '../../domain/types.js';
 import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
-import { getRuntimeOpsRepository } from '../../infrastructure/postgres/runtime-store.js';
+import { getRuntimeOpsRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import { ChannelWiring } from './channel-wiring.js';
 import { RuntimeApp } from './runtime-app.js';
 

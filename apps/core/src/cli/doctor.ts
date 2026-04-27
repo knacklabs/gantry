@@ -27,8 +27,8 @@ import {
 } from '../config/settings/runtime-settings.js';
 import { validateTelegramBotToken } from './telegram.js';
 import { inspectMemoryHealth } from './memory-health.js';
-import { validatePostgresConnectionUrl } from '../infrastructure/postgres/url.js';
-import { inspectRuntimeStorageReadiness } from '../infrastructure/postgres/storage-readiness.js';
+import { validatePostgresConnectionUrl } from '../adapters/storage/postgres/url.js';
+import { inspectRuntimeStorageReadiness } from '../adapters/storage/postgres/storage-readiness.js';
 import {
   inspectOnecliPersistenceReadiness,
   ONECLI_SECRET_ENCRYPTION_KEY_ENV,

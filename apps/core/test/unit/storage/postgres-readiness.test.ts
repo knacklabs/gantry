@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { evaluatePostgresStorageCapabilities } from '@core/infrastructure/postgres/readiness.js';
+import { evaluatePostgresStorageCapabilities } from '@core/adapters/storage/postgres/readiness.js';
 
 describe('evaluatePostgresStorageCapabilities', () => {
   it('returns null when all postgres capabilities are present', () => {

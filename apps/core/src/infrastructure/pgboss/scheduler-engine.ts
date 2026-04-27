@@ -7,7 +7,7 @@ import {
 } from '../../config/index.js';
 import { logger } from '../logging/logger.js';
 import type { Job, JobExecutionMode } from '../../domain/types.js';
-import { getRuntimeControlRepository } from '../postgres/runtime-store.js';
+import { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import { acquireRunSlot } from '../../jobs/concurrency.js';
 import { validateScheduleConfig } from '../../jobs/schedule.js';
 import type {

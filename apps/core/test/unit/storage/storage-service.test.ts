@@ -4,7 +4,7 @@ import {
   PostgresStorageService,
   createStorageService,
   postgresMigrationsFolder,
-} from '@core/infrastructure/postgres/storage-service.js';
+} from '@core/adapters/storage/postgres/storage-service.js';
 
 describe('storage-service', () => {
   it('points migrations at the packaged schema migrations directory', () => {

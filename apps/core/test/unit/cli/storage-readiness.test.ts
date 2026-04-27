@@ -4,7 +4,7 @@ import path from 'path';
 
 import { describe, expect, it } from 'vitest';
 
-import { inspectRuntimeStorageReadiness } from '@core/infrastructure/postgres/storage-readiness.js';
+import { inspectRuntimeStorageReadiness } from '@core/adapters/storage/postgres/storage-readiness.js';
 import {
   loadRuntimeSettings,
   saveRuntimeSettings,

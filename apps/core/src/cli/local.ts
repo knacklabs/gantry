@@ -3,7 +3,7 @@ import * as p from '@clack/prompts';
 import { readEnvFile } from '../config/env/file.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
 import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
-import { inspectRuntimeStorageReadiness } from '../infrastructure/postgres/storage-readiness.js';
+import { inspectRuntimeStorageReadiness } from '../adapters/storage/postgres/storage-readiness.js';
 import {
   inspectOnecliPersistenceReadiness,
   ONECLI_DATABASE_URL_ENV,

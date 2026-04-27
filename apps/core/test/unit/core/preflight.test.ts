@@ -103,7 +103,7 @@ afterEach(() => {
 describe('runtime preflight', () => {
   it('passes when storage and OneCLI persistence readiness pass', async () => {
     const runtimeHome = makeRuntimeHome();
-    vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
       inspectRuntimeStorageReadiness: vi.fn(async () => ({
         status: 'pass',
         message: 'Postgres is ready.',
@@ -135,7 +135,7 @@ describe('runtime preflight', () => {
   it('fails on storage readiness before probing OneCLI persistence', async () => {
     const runtimeHome = makeRuntimeHome();
     const inspectOnecliPersistenceReadiness = vi.fn();
-    vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
       inspectRuntimeStorageReadiness: vi.fn(async () => ({
         status: 'fail',
         message: 'pgvector extension is missing.',
@@ -168,7 +168,7 @@ describe('runtime preflight', () => {
 
   it('fails start readiness when OneCLI persistence isolation fails', async () => {
     const runtimeHome = makeRuntimeHome();
-    vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
       inspectRuntimeStorageReadiness: vi.fn(async () => ({
         status: 'pass',
         message: 'Postgres is ready.',
@@ -215,7 +215,7 @@ describe('runtime preflight', () => {
     );
     setCredentialBrokerSettings(runtimeHome, 'none');
     const inspectOnecliPersistenceReadiness = vi.fn();
-    vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
       inspectRuntimeStorageReadiness: vi.fn(async () => ({
         status: 'pass',
         message: 'Postgres is ready.',
@@ -248,7 +248,7 @@ describe('runtime preflight', () => {
       path.join(runtimeHome, '.env'),
       'ANTHROPIC_API_KEY=sk-ant\n',
     );
-    vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
       inspectRuntimeStorageReadiness: vi.fn(async () => ({
         status: 'pass',
         message: 'Postgres is ready.',
@@ -271,7 +271,7 @@ describe('runtime preflight', () => {
       path.join(runtimeHome, '.env'),
       'MYCLAW_CREDENTIAL_MODE=none\n',
     );
-    vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
       inspectRuntimeStorageReadiness: vi.fn(async () => ({
         status: 'pass',
         message: 'Postgres is ready.',
@@ -294,7 +294,7 @@ describe('runtime preflight', () => {
       path.join(runtimeHome, '.env'),
       'ANTHROPIC_MODEL=sonnet\n',
     );
-    vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
       inspectRuntimeStorageReadiness: vi.fn(async () => ({
         status: 'pass',
         message: 'Postgres is ready.',
@@ -330,7 +330,7 @@ describe('runtime preflight', () => {
       'external',
       'https://broker.example.com/anthropic',
     );
-    vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
       inspectRuntimeStorageReadiness: vi.fn(async () => ({
         status: 'pass',
         message: 'Postgres is ready.',
@@ -357,7 +357,7 @@ describe('runtime preflight', () => {
       ].join('\n'),
     );
     setCredentialBrokerSettings(runtimeHome, 'external');
-    vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
       inspectRuntimeStorageReadiness: vi.fn(async () => ({
         status: 'pass',
         message: 'Postgres is ready.',
@@ -388,7 +388,7 @@ describe('runtime preflight', () => {
       'external',
       'https://user:pass@broker.example.com',
     );
-    vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
       inspectRuntimeStorageReadiness: vi.fn(async () => ({
         status: 'pass',
         message: 'Postgres is ready.',
@@ -419,7 +419,7 @@ describe('runtime preflight', () => {
       'external',
       'https://broker.example.com/anthropic',
     );
-    vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
       inspectRuntimeStorageReadiness: vi.fn(async () => ({
         status: 'pass',
         message: 'Postgres is ready.',
@@ -450,7 +450,7 @@ describe('runtime preflight', () => {
       'external',
       'https://broker.example.com/anthropic',
     );
-    vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
       inspectRuntimeStorageReadiness: vi.fn(async () => ({
         status: 'pass',
         message: 'Postgres is ready.',
@@ -488,7 +488,7 @@ describe('runtime preflight', () => {
         ),
     );
     vi.stubEnv('TELEGRAM_BOT_TOKEN', 'process-token');
-    vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
       inspectRuntimeStorageReadiness: vi.fn(async () => ({
         status: 'pass',
         message: 'Postgres is ready.',
@@ -509,7 +509,7 @@ describe('runtime preflight', () => {
       status: 'pass',
       message: 'OneCLI persistence is ready.',
     }));
-    vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
       inspectRuntimeStorageReadiness: vi.fn(async () => ({
         status: 'pass',
         message: 'Postgres is ready.',

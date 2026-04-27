@@ -52,7 +52,7 @@ For targeted checks:
 
 ```bash
 python3 .codex/scripts/check_task_completion.py \
-  --changed-file apps/core/src/infrastructure/postgres/schema/schema.ts
+  --changed-file apps/core/src/adapters/storage/postgres/schema/schema.ts
 ```
 
 ## Hooks

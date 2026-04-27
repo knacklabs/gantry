@@ -8,7 +8,7 @@ import type {
   StreamingChunkOptions,
 } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { getRuntimeControlRepository } from '../infrastructure/postgres/runtime-store.js';
+import { getRuntimeControlRepository } from '../adapters/storage/postgres/runtime-store.js';
 import {
   nowIso as currentIso,
   nowMs as currentTimeMs,

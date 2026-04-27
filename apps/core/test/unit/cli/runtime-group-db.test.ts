@@ -15,7 +15,7 @@ const migrateMock = vi.hoisted(() => vi.fn(async () => {}));
 const closeMock = vi.hoisted(() => vi.fn(async () => {}));
 const groupsStore = vi.hoisted(() => new Map<string, any>());
 
-vi.mock('@core/infrastructure/postgres/factory.js', () => ({
+vi.mock('@core/adapters/storage/postgres/factory.js', () => ({
   createStorageRuntime: createStorageRuntimeMock,
 }));
 

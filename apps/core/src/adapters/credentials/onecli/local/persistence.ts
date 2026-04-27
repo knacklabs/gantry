@@ -5,8 +5,8 @@ import { Pool } from 'pg';
 import {
   parsePostgresConnectionUrl,
   validatePostgresConnectionUrl,
-} from '../../../../infrastructure/postgres/url.js';
-import { quotePostgresIdentifier } from '../../../../infrastructure/postgres/storage-service.js';
+} from '../../../storage/postgres/url.js';
+import { quotePostgresIdentifier } from '../../../storage/postgres/storage-service.js';
 import { redactString } from '../../../../infrastructure/logging/logger.js';
 
 export const ONECLI_DATABASE_URL_ENV = 'ONECLI_DATABASE_URL';

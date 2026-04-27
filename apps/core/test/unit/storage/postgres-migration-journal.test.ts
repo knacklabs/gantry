@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 describe('Postgres migration journal', () => {
   it('applies the memory schema migration on fresh databases', () => {
     const journalPath = path.resolve(
-      'apps/core/src/infrastructure/postgres/schema/migrations/meta/_journal.json',
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
     );
     const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
       entries: Array<{ tag: string }>;
@@ -17,7 +17,7 @@ describe('Postgres migration journal', () => {
 
   it('applies the canonical domain cutover migration', () => {
     const journalPath = path.resolve(
-      'apps/core/src/infrastructure/postgres/schema/migrations/meta/_journal.json',
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
     );
     const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
       entries: Array<{ tag: string }>;
@@ -26,21 +26,22 @@ describe('Postgres migration journal', () => {
     expect(journal.entries.map((entry) => entry.tag)).toContain(
       '0008_canonical_domain_schema_cutover',
     );
+    expect(journal.entries.map((entry) => entry.tag)).toContain(
+      '0009_canonical_persistence_adapter_cut',
+    );
   });
 
-  it('recreates legacy memory tables during the canonical cutover', () => {
+  it('flattens memory subjects during the canonical persistence cut', () => {
     const migration = fs.readFileSync(
       path.resolve(
-        'apps/core/src/infrastructure/postgres/schema/migrations/0008_canonical_domain_schema_cutover.sql',
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0009_canonical_persistence_adapter_cut.sql',
       ),
       'utf8',
     );
 
-    expect(migration).toMatch(
-      /DROP TABLE IF EXISTS memory_items CASCADE;[\s\S]*CREATE TABLE IF NOT EXISTS memory_items/,
-    );
-    expect(migration).toMatch(
-      /DROP TABLE IF EXISTS memory_subjects CASCADE;[\s\S]*CREATE TABLE IF NOT EXISTS memory_subjects/,
-    );
+    expect(migration).toContain('DROP TABLE IF EXISTS memory_subjects CASCADE');
+    expect(migration).toContain('CREATE TABLE memory_items');
+    expect(migration).toContain('subject_type text NOT NULL');
+    expect(migration).not.toContain('CREATE TABLE memory_subjects');
   });
 });

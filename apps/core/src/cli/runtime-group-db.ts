@@ -1,8 +1,8 @@
 import { RegisteredGroup } from '../domain/types.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
-import { createStorageRuntime } from '../infrastructure/postgres/factory.js';
-import type { StorageRuntime } from '../infrastructure/postgres/factory.js';
-import type { ResolvedStorageConfig } from '../infrastructure/postgres/storage-service.js';
+import { createStorageRuntime } from '../adapters/storage/postgres/factory.js';
+import type { StorageRuntime } from '../adapters/storage/postgres/factory.js';
+import type { ResolvedStorageConfig } from '../adapters/storage/postgres/storage-service.js';
 import { readEnvFile } from '../config/env/file.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
 import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';

@@ -3,7 +3,9 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-describe('canonical domain cutover', () => {
+describe('canonical Postgres persistence cut', () => {
+  const adapterRoot = path.resolve('apps/core/src/adapters/storage/postgres');
+
   it('keeps canonical domain source free of provider/runtime imports', () => {
     const root = path.resolve('apps/core/src/domain');
     const files = fs
@@ -22,198 +24,134 @@ describe('canonical domain cutover', () => {
     }
   });
 
-  it('records the destructive schema cutover migration', () => {
+  it('uses the storage adapter path for active Postgres implementation', () => {
+    expect(fs.existsSync(adapterRoot)).toBe(true);
+    expect(
+      fs.existsSync(path.resolve('apps/core/src/infrastructure/postgres')),
+    ).toBe(false);
+  });
+
+  it('splits active schema by canonical responsibility', () => {
+    for (const file of [
+      'apps',
+      'agents',
+      'channels',
+      'conversations',
+      'messages',
+      'sessions',
+      'runs',
+      'jobs',
+      'memory',
+      'permissions',
+      'tools',
+      'skills',
+      'sandbox',
+      'browser',
+      'events',
+      'index',
+    ]) {
+      expect(
+        fs.existsSync(path.join(adapterRoot, 'schema', `${file}.ts`)),
+      ).toBe(true);
+    }
+  });
+
+  it('records the destructive canonical persistence migration', () => {
     const migration = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/infrastructure/postgres/schema/migrations/0008_canonical_domain_schema_cutover.sql',
+      path.join(
+        adapterRoot,
+        'schema/migrations/0009_canonical_persistence_adapter_cut.sql',
       ),
       'utf8',
     );
 
     expect(migration).toContain('DROP TABLE IF EXISTS registered_groups');
-    expect(migration).toContain('CREATE TABLE IF NOT EXISTS apps');
-    expect(migration).toContain(
-      'CREATE TABLE IF NOT EXISTS agent_channel_bindings',
-    );
-    expect(migration).toContain('CREATE TABLE IF NOT EXISTS agent_runs');
+    expect(migration).toContain('CREATE TABLE messages');
+    expect(migration).toContain('CREATE TABLE users');
+    expect(migration).toContain('CREATE TABLE provider_sessions');
+    expect(migration).toContain('CREATE TABLE job_runs');
+    expect(migration).toContain('CREATE TABLE permission_audit_events');
+    expect(migration).toContain('CREATE TABLE agent_tool_bindings');
+    expect(migration).toContain('CREATE TABLE agent_skill_bindings');
   });
 
-  it('lets canonical job updates change running job status and leases', () => {
-    const opsRepo = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/infrastructure/postgres/schema/canonical-ops-repo.postgres.ts',
-      ),
-      'utf8',
-    );
-    const jobService = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/infrastructure/postgres/services/canonical-job-ops-service.ts',
-      ),
-      'utf8',
-    );
-    const jobRepository = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/infrastructure/postgres/repositories/canonical-job-repository.postgres.ts',
-      ),
-      'utf8',
-    );
-    const updateJobSource = jobService.slice(
-      jobService.indexOf('async updateJob'),
-      jobService.indexOf('async deleteJob'),
-    );
-
-    expect(opsRepo).toContain('this.jobs.updateJob');
-    expect(updateJobSource).toContain(
-      'const next = { ...current, ...updates }',
-    );
-    expect(jobRepository).toContain('.update(pgSchema.canonicalJobsPostgres)');
-    expect(jobRepository).toContain('leaseRunId: record.leaseRunId');
-    expect(jobRepository).toContain('leaseExpiresAt: record.leaseExpiresAt');
-    expect(updateJobSource).not.toContain("existing?.status === 'running'");
-  });
-
-  it('keeps canonical runtime tables single-defined in drizzle schema', () => {
+  it('stores message provider redelivery idempotency fields', () => {
     const schema = fs.readFileSync(
-      path.resolve('apps/core/src/infrastructure/postgres/schema/schema.ts'),
+      path.join(adapterRoot, 'schema/messages.ts'),
       'utf8',
     );
-
-    expect(schema).not.toContain("pgTable('jobs'");
-    expect(schema).not.toContain("pgTable('memory_items'");
-    expect(schema).not.toContain("pgTable('memory_subjects'");
-    expect(schema).not.toContain("pgTable('sessions'");
-    expect(schema).not.toContain("pgTable('app_sessions'");
-  });
-
-  it('guards canonical message persistence and polling query shape', () => {
     const migration = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/infrastructure/postgres/schema/migrations/0008_canonical_domain_schema_cutover.sql',
-      ),
-      'utf8',
-    );
-    const opsRepo = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/infrastructure/postgres/schema/canonical-ops-repo.postgres.ts',
-      ),
-      'utf8',
-    );
-    const messageRepository = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/infrastructure/postgres/repositories/canonical-message-repository.postgres.ts',
-      ),
-      'utf8',
-    );
-    const messageService = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/infrastructure/postgres/services/canonical-message-ops-service.ts',
+      path.join(
+        adapterRoot,
+        'schema/migrations/0009_canonical_persistence_adapter_cut.sql',
       ),
       'utf8',
     );
 
-    expect(migration).toContain(
-      'CONSTRAINT message_parts_message_id_ordinal_unique UNIQUE (message_id, ordinal)',
+    expect(schema).toContain("'messages'");
+    expect(schema).toContain("channelProvider: text('channel_provider')");
+    expect(schema).toContain(
+      "channelInstallationId: text('channel_installation_id')",
     );
-    expect(opsRepo).toContain('this.messages.getNewMessages');
-    expect(opsRepo).toContain('this.messages.getMessagesSince');
-    expect(messageRepository).toContain('.onConflictDoUpdate({');
-    expect(messageRepository).toContain(
-      'pgSchema.messagePartsPostgres.ordinal',
-    );
-    expect(messageRepository).toContain('.leftJoinLateral(');
-    expect(messageRepository).toContain('.limit(input.limit ?? 200)');
-    expect(messageService).toContain('decodeGlobalMessageCursor');
-    expect(messageRepository).not.toContain('SELECT m.*, p.payload_json');
-    expect(messageRepository).not.toContain("AND p.kind = 'text'");
+    expect(schema).toContain("externalMessageId: text('external_message_id')");
+    expect(migration).toContain('idx_messages_external_redelivery_unique');
+    expect(migration).toContain('WHERE external_message_id IS NOT NULL');
   });
 
-  it('preserves canonical conversation metadata across message-first writes', () => {
-    const graphRepository = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/infrastructure/postgres/repositories/canonical-graph-repository.postgres.ts',
+  it('keeps sessions provider-neutral and provider resume metadata explicit', () => {
+    const schema = fs.readFileSync(
+      path.join(adapterRoot, 'schema/sessions.ts'),
+      'utf8',
+    );
+    const repository = fs.readFileSync(
+      path.join(
+        adapterRoot,
+        'repositories/canonical-session-repository.postgres.ts',
       ),
       'utf8',
     );
 
-    expect(graphRepository).toContain('const hasKnownKind =');
-    expect(graphRepository).toContain(
-      "...(hasKnownKind ? { kind: input.isGroup ? 'group' : 'direct' } : {})",
+    expect(schema).toContain(
+      "latestProviderSessionId: text('latest_provider_session_id')",
     );
-    expect(graphRepository).toContain(
-      '...(hasKnownKind ? { externalRefJson } : {})',
+    expect(schema).toContain("provider: text('provider').notNull()");
+    expect(schema).toContain(
+      "externalSessionId: text('external_session_id').notNull()",
     );
-    expect(graphRepository).toContain('...(input.name ? { title } : {})');
+    expect(schema).toContain("artifactRef: text('artifact_ref').notNull()");
+    expect(repository).toContain('latestProviderSessionId: input.sessionId');
   });
 
-  it('replaces prior provider session mappings for a session scope', () => {
-    const sessionRepository = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/infrastructure/postgres/repositories/canonical-session-repository.postgres.ts',
-      ),
+  it('flattens canonical memory subject fields onto memory items', () => {
+    const schema = fs.readFileSync(
+      path.join(adapterRoot, 'schema/memory.ts'),
+      'utf8',
+    );
+    const aggregateSchema = fs.readFileSync(
+      path.join(adapterRoot, 'schema/schema.ts'),
       'utf8',
     );
 
-    expect(sessionRepository).toContain('await this.db.transaction');
-    expect(sessionRepository).toContain(".for('update')");
-    expect(sessionRepository).toContain(
-      '.delete(pgSchema.providerSessionsPostgres)',
-    );
-    expect(sessionRepository).toContain(
-      'pgSchema.providerSessionsPostgres.agentSessionId',
-    );
-    expect(sessionRepository).toContain('agentSessionId');
-    expect(sessionRepository).toContain(
-      'ne(pgSchema.providerSessionsPostgres.id, input.sessionId)',
-    );
+    expect(schema).toContain("'memory_items'");
+    expect(schema).toContain("subjectType: text('subject_type').notNull()");
+    expect(schema).toContain("conversationId: text('conversation_id')");
+    expect(aggregateSchema).not.toContain('memorySubjectsPostgres');
   });
 
-  it('keeps memory saves safe after soft delete and concurrent first write', () => {
-    const migration = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/infrastructure/postgres/schema/migrations/0008_canonical_domain_schema_cutover.sql',
-      ),
-      'utf8',
-    );
-    const runtimeSchema = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/infrastructure/postgres/schema/canonical-runtime-schema.ts',
-      ),
-      'utf8',
-    );
-    const memoryService = fs.readFileSync(
-      path.resolve('apps/core/src/memory/app-memory-service.ts'),
+  it('seeds deterministic default runtime rows after migration', () => {
+    const seed = fs.readFileSync(path.join(adapterRoot, 'seeds.ts'), 'utf8');
+    const storage = fs.readFileSync(
+      path.join(adapterRoot, 'storage-service.ts'),
       'utf8',
     );
 
-    expect(migration).not.toContain(
-      'CONSTRAINT memory_items_subject_id_kind_key_unique',
-    );
-    expect(migration).toContain(
-      'CREATE UNIQUE INDEX IF NOT EXISTS memory_items_active_unique',
-    );
-    expect(migration).toContain("WHERE status = 'active'");
-    expect(runtimeSchema).toContain(
-      "uniqueIndex('memory_items_active_unique')",
-    );
-    expect(runtimeSchema).toContain(".where(sql`${table.status} = 'active'`)");
-    expect(memoryService).toContain('.onConflictDoUpdate({');
-    expect(memoryService).toContain('targetWhere: sql`');
-    expect(memoryService).toContain("= 'active'");
-    expect(memoryService).toContain(
-      "if (!row) throw new Error('stale memory patch')",
-    );
-  });
-
-  it('escapes canonical session thread deletion LIKE patterns', () => {
-    const sessionRepository = fs.readFileSync(
-      path.resolve(
-        'apps/core/src/infrastructure/postgres/repositories/canonical-session-repository.postgres.ts',
-      ),
-      'utf8',
-    );
-
-    expect(sessionRepository).toContain('function escapeLikePattern');
-    expect(sessionRepository).toContain("ESCAPE '\\\\'");
-    expect(sessionRepository).not.toContain('${groupFolder}::thread:%');
+    expect(seed).toContain("DEFAULT_APP_ID = 'default'");
+    expect(seed).toContain("DEFAULT_AGENT_ID = 'agent:personal'");
+    expect(seed).toContain("provider: 'anthropic'");
+    expect(seed).toContain('permission-policy:default');
+    expect(seed).toContain('sandbox-profile:local-dev');
+    expect(seed).toContain('tool:memory');
+    expect(seed).toContain('skill:memory');
+    expect(storage).toContain('seedDefaultRuntimeData(this.db)');
   });
 });

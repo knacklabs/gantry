@@ -13,7 +13,7 @@ import { logger } from '../../../infrastructure/logging/logger.js';
 import {
   getRuntimeControlRepository,
   getRuntimeOpsRepository,
-} from '../../../infrastructure/postgres/runtime-store.js';
+} from '../../../adapters/storage/postgres/runtime-store.js';
 import type { Job } from '../../../domain/types.js';
 import {
   encodeTriggerRequester,

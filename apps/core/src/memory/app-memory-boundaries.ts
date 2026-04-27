@@ -1,6 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm';
 
-import * as pgSchema from '../infrastructure/postgres/schema/schema.js';
+import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
 import type {
   MemoryBoundaryContext,
   MemorySubjectType,

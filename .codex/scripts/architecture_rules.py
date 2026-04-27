@@ -10,7 +10,7 @@ from typing import Any
 
 FILE_SIZE_LIMIT = 700
 FILE_SIZE_LIMITS_BY_TARGET = {
-    "apps/core/src/infrastructure/postgres/schema/schema.ts": 900,
+    "apps/core/src/adapters/storage/postgres/schema/schema.ts": 900,
 }
 FILE_SIZE_RULE = "file_line_budget"
 REQUIRED_EXCEPTION_FIELDS = ("file", "rule", "reason", "removeByPhase")

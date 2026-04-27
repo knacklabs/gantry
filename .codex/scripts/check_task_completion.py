@@ -111,7 +111,7 @@ def collect_warnings(changed: list[str]) -> list[str]:
         warnings.append("Changed source/config/harness files but no test or docs files were changed.")
 
     schema_changed = any(
-        starts_with_any(path, ("apps/core/src/infrastructure/postgres/",))
+        starts_with_any(path, ("apps/core/src/adapters/storage/postgres/",))
         and path_has_any(path, ("schema", "migration", "repo", "repository"))
         for path in changed
     )

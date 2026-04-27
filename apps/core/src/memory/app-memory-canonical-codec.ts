@@ -11,7 +11,12 @@ import type {
 export interface CanonicalMemoryItemRow {
   id: string;
   appId: string;
+  agentId: string | null;
+  subjectType: string;
   subjectId: string;
+  userId: string | null;
+  conversationId: string | null;
+  threadId: string | null;
   kind: string;
   key: string;
   valueJson: string;

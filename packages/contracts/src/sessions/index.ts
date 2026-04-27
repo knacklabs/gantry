@@ -44,6 +44,12 @@ export type ResumeSessionRequest = z.infer<typeof ResumeSessionRequestSchema>;
 
 export const ProviderSessionResponseSchema = z.object({
   id: z.string(),
+  provider: z.string().optional(),
+  externalSessionId: z.string().optional(),
+  artifactRef: z.string().optional(),
+  sandboxId: z.string().nullable().optional(),
+  workspaceSnapshotId: z.string().nullable().optional(),
+  browserProfileId: z.string().nullable().optional(),
   providerRef: ExternalReferenceSchema,
   status: z.enum(['active', 'inactive', 'expired', 'revoked']),
   createdAt: IsoDateTimeSchema,
@@ -62,6 +68,7 @@ export const AgentSessionResponseSchema = z.object({
   threadId: z.string().nullable().optional(),
   jobId: z.string().nullable().optional(),
   userId: z.string().nullable().optional(),
+  latestProviderSessionId: z.string().nullable().optional(),
   status: AgentSessionStatusSchema,
   modelOverride: z.string().nullable().optional(),
   providerSessions: z.array(ProviderSessionResponseSchema).optional(),

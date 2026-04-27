@@ -124,7 +124,7 @@ async function loadDoctor(options?: {
     getNodeVersion: vi.fn(() => '25.0.0'),
     hasSystemdUser: vi.fn(() => false),
   }));
-  vi.doMock('@core/infrastructure/postgres/storage-readiness.js', () => ({
+  vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
     inspectRuntimeStorageReadiness: vi.fn(async () => ({
       status: 'pass',
       message: 'Postgres is ready.',

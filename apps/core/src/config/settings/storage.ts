@@ -1,6 +1,6 @@
 import { readRuntimeStorageSettingsSnapshot } from './runtime-settings.js';
 import { runtimeEnvValueDynamic } from '../env/index.js';
-import { validatePostgresConnectionUrl } from '../../infrastructure/postgres/url.js';
+import { validatePostgresConnectionUrl } from '../../adapters/storage/postgres/url.js';
 
 export interface RuntimeStorageConfig {
   postgresUrlEnv: string;

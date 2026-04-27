@@ -7,7 +7,7 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import { ensureRuntimeLayoutDirectories } from '../../platform/runtime-layout.js';
 import { ensurePromptProfileBootstrapped } from '../../runtime/prompt-profile.js';
 import { restoreRemoteControl } from '../../runtime/remote-control.js';
-import { initializeRuntimeStorage } from '../../infrastructure/postgres/runtime-store.js';
+import { initializeRuntimeStorage } from '../../adapters/storage/postgres/runtime-store.js';
 import { RuntimeApp } from './runtime-app.js';
 
 interface StartupDeps {

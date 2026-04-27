@@ -57,7 +57,11 @@ export type CreateJobRequest = z.infer<typeof CreateJobRequestSchema>;
 export const JobResponseSchema = z.object({
   id: z.string(),
   appId: z.string(),
-  agentId: z.string(),
+  agentId: z.string().nullable().optional(),
+  conversationId: z.string().nullable().optional(),
+  threadId: z.string().nullable().optional(),
+  createdByActorId: z.string().optional(),
+  createdBySource: z.string().optional(),
   name: z.string(),
   prompt: z.string(),
   schedule: JobScheduleSchema,

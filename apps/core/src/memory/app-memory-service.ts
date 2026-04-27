@@ -4,9 +4,9 @@ import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import { RUNTIME_MEMORY_ENABLED } from '../config/memory-state.js';
-import { getRuntimeStorage } from '../infrastructure/postgres/runtime-store.js';
-import type { PostgresStorageService } from '../infrastructure/postgres/storage-service.js';
-import * as pgSchema from '../infrastructure/postgres/schema/schema.js';
+import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
+import type { PostgresStorageService } from '../adapters/storage/postgres/storage-service.js';
+import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
 import { classifySensitiveMemoryMaterial } from './sensitive-material.js';
 import { runAppMemoryDreamPass } from './app-memory-dreaming.js';
 import {
@@ -214,7 +214,6 @@ export class AppMemoryService {
       evidenceIds.push(evidence.id);
     }
     const now = nowIso();
-    await this.ensureSubject(subject);
     const existing = await this.findActiveByKey(subject, input.key);
     const nextEvidenceIds = Array.from(
       new Set([
@@ -226,7 +225,12 @@ export class AppMemoryService {
     const nextVersion = existingSource ? existingSource.version + 1 : 1;
     const base = {
       appId: subject.appId,
+      agentId: subject.agentId,
+      subjectType: subject.subjectType,
       subjectId: subjectIdFor(subject),
+      userId: subject.userId ?? null,
+      conversationId: subject.channelId ?? null,
+      threadId: subject.threadId ?? null,
       kind: normalizeKind(input.kind),
       key: input.key.trim(),
       valueJson: JSON.stringify({
@@ -260,6 +264,9 @@ export class AppMemoryService {
       })
       .onConflictDoUpdate({
         target: [
+          pgSchema.memoryItemsPostgres.appId,
+          pgSchema.memoryItemsPostgres.agentId,
+          pgSchema.memoryItemsPostgres.subjectType,
           pgSchema.memoryItemsPostgres.subjectId,
           pgSchema.memoryItemsPostgres.kind,
           pgSchema.memoryItemsPostgres.key,
@@ -438,25 +445,6 @@ export class AppMemoryService {
     return rows.map(toRun);
   }
 
-  private async ensureSubject(subject: NormalizedMemorySubject): Promise<void> {
-    const now = nowIso();
-    await this.db
-      .insert(pgSchema.memorySubjectsPostgres)
-      .values({
-        id: subjectIdFor(subject),
-        appId: subject.appId,
-        kind: subject.subjectType,
-        externalRefJson: JSON.stringify({ subject }),
-        displayName: subject.subjectId,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.memorySubjectsPostgres.id,
-        set: { updatedAt: now },
-      });
-  }
-
   private async findActiveByKey(
     subject: NormalizedMemorySubject,
     key: string,
@@ -468,6 +456,8 @@ export class AppMemoryService {
         and(
           eq(pgSchema.memoryItemsPostgres.status, 'active'),
           eq(pgSchema.memoryItemsPostgres.appId, subject.appId),
+          eq(pgSchema.memoryItemsPostgres.agentId, subject.agentId),
+          eq(pgSchema.memoryItemsPostgres.subjectType, subject.subjectType),
           eq(pgSchema.memoryItemsPostgres.subjectId, subjectIdFor(subject)),
           sql`${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb @> ${JSON.stringify({ subject: { agentId: subject.agentId, subjectType: subject.subjectType, subjectId: subject.subjectId } })}::jsonb`,
           sqlThreadIdentityFilter(

@@ -200,7 +200,7 @@ Future refactors should move by capability, not by arbitrary file count.
 | `channels/`                | Provider-specific channel adapters under `adapters/channels/`; channel-neutral ports and types under `domain` or `application`. |
 | `control/server/`          | Control HTTP adapter under `adapters/control-http/`; route behavior becomes application use cases.                              |
 | `cli/`                     | CLI adapter under `adapters/cli/`; setup and admin operations become application use cases.                                     |
-| `infrastructure/postgres/` | Postgres storage adapter under `adapters/storage/postgres/`.                                                                    |
+| `adapters/storage/postgres/` | Postgres storage adapter implementation.                                                                                      |
 | `runner/claude/`           | Claude/Anthropic LLM adapter under `adapters/llm/anthropic/` or equivalent.                                                     |
 | `runtime/group-*`          | Runtime queues and processors keyed by canonical app, agent, conversation, thread, session, and run context.                    |
 | `platform/group-folder*`   | Workspace projection and snapshot behavior under runtime/application boundaries.                                                |

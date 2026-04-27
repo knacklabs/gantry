@@ -5,7 +5,7 @@ import type {
   StreamingChunkOptions,
 } from '../domain/types.js';
 import type { ChannelAdapter, ChannelOpts } from './channel-provider.js';
-import { getRuntimeControlRepository } from '../infrastructure/postgres/runtime-store.js';
+import { getRuntimeControlRepository } from '../adapters/storage/postgres/runtime-store.js';
 
 async function emitSessionEvent(
   chatJid: string,

@@ -49,7 +49,7 @@
     "build:sdk": "npm run build --workspace @myclaw/sdk",
     "clean": "rm -rf dist packages/contracts/dist packages/sdk/dist",
     "build": "npm run clean && npm run build:contracts && npm run build:sdk && tsc && npm run copy:migrations",
-    "copy:migrations": "mkdir -p dist/infrastructure/postgres/schema && cp -R apps/core/src/infrastructure/postgres/schema/migrations dist/infrastructure/postgres/schema/",
+    "copy:migrations": "mkdir -p dist/adapters/storage/postgres/schema && cp -R apps/core/src/adapters/storage/postgres/schema/migrations dist/adapters/storage/postgres/schema/",
     "start": "node dist/index.js",
     "dev": "tsx apps/core/src/index.ts",
     "cli:dev": "tsx apps/core/src/cli/index.ts",

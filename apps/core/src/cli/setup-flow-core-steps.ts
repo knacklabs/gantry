@@ -4,7 +4,7 @@ import {
   ensureRuntimeWritable,
   resolveRuntimeHome,
 } from '../config/settings/runtime-home.js';
-import { validatePostgresConnectionUrl } from '../infrastructure/postgres/url.js';
+import { validatePostgresConnectionUrl } from '../adapters/storage/postgres/url.js';
 import {
   CLAUDE_MODEL_PINS,
   DEFAULT_SETUP_MODEL,

@@ -5,7 +5,7 @@ import {
   validateOnecliDatabaseUrl,
   validateOnecliSecretEncryptionKey,
 } from '../../adapters/credentials/onecli/local/persistence.js';
-import { validatePostgresConnectionUrl } from '../../infrastructure/postgres/url.js';
+import { validatePostgresConnectionUrl } from '../../adapters/storage/postgres/url.js';
 import { isValidGroupFolder } from '../../platform/group-folder-rules.js';
 import { readEnvFile } from '../env/file.js';
 import { validateOnecliUrl } from '../../adapters/credentials/onecli/policy.js';

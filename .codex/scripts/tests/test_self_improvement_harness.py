@@ -65,7 +65,7 @@ class SelfImprovementHarnessTests(unittest.TestCase):
                     "--source",
                     "unit test",
                     "--applies-to",
-                    "apps/core/src/infrastructure/postgres/**",
+                    "apps/core/src/adapters/storage/postgres/**",
                     "--severity",
                     "critical",
                     "--lessons",
@@ -90,7 +90,7 @@ class SelfImprovementHarnessTests(unittest.TestCase):
                     "--source",
                     "unit test",
                     "--applies-to",
-                    "apps/core/src/infrastructure/postgres/**",
+                    "apps/core/src/adapters/storage/postgres/**",
                     "--severity",
                     "medium",
                     "--lessons",
@@ -139,7 +139,7 @@ class SelfImprovementHarnessTests(unittest.TestCase):
                                 "lesson": "Schema changes need repository tests.",
                                 "source": "docs",
                                 "addedAt": "2026-04-26T00:00:00Z",
-                                "appliesTo": ["apps/core/src/infrastructure/postgres/**"],
+                                "appliesTo": ["apps/core/src/adapters/storage/postgres/**"],
                                 "severity": "medium",
                             }
                         ),
@@ -165,7 +165,7 @@ class SelfImprovementHarnessTests(unittest.TestCase):
                     "--prompt",
                     "update permission handling",
                     "--changed-file",
-                    "apps/core/src/infrastructure/postgres/schema/schema.ts",
+                    "apps/core/src/adapters/storage/postgres/schema/schema.ts",
                     "--lessons",
                     str(lessons),
                 ]
@@ -183,7 +183,7 @@ class SelfImprovementHarnessTests(unittest.TestCase):
                 "--no-architecture",
                 "--json",
                 "--changed-file",
-                "apps/core/src/infrastructure/postgres/schema/schema.ts",
+                "apps/core/src/adapters/storage/postgres/schema/schema.ts",
             ]
         )
 

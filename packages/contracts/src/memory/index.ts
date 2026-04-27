@@ -58,6 +58,12 @@ export type MemorySearchRequest = z.infer<typeof MemorySearchRequestSchema>;
 export const MemoryItemResponseSchema = z.object({
   id: z.string(),
   appId: z.string(),
+  agentId: z.string().nullable().optional(),
+  subjectType: MemorySubjectTypeSchema.optional(),
+  subjectId: z.string().optional(),
+  userId: z.string().nullable().optional(),
+  conversationId: z.string().nullable().optional(),
+  threadId: z.string().nullable().optional(),
   subject: MemorySubjectRefSchema,
   kind: MemoryKindSchema,
   key: z.string(),

@@ -85,7 +85,7 @@ const memoryService = {
   dreamingStatus: vi.fn(async () => []),
 };
 
-vi.mock('@core/infrastructure/postgres/runtime-store.js', () => ({
+vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: () => controlRepo,
   getRuntimeOpsRepository: () => opsRepo,
 }));

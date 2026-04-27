@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { getRuntimeControlRepository } from '../../../infrastructure/postgres/runtime-store.js';
+import { getRuntimeControlRepository } from '../../../adapters/storage/postgres/runtime-store.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,

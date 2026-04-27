@@ -2,8 +2,8 @@
   "version": 1,
   "defaultLineBudget": 700,
   "lineBudgets": {
-    "apps/core/src/infrastructure/postgres/schema/canonical-ops-repo.postgres.ts": 950,
-    "apps/core/src/infrastructure/postgres/schema/schema.ts": 900
+    "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts": 950,
+    "apps/core/src/adapters/storage/postgres/schema/schema.ts": 900
   },
   "layers": {
     "domain": {

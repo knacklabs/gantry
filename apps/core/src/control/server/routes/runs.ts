@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { Job } from '../../../domain/types.js';
-import { getRuntimeOpsRepository } from '../../../infrastructure/postgres/runtime-store.js';
+import { getRuntimeOpsRepository } from '../../../adapters/storage/postgres/runtime-store.js';
 import { jobBelongsToApp } from '../app-identity.js';
 import {
   authorizeControlRequest,

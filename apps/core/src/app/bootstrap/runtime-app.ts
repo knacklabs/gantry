@@ -25,7 +25,7 @@ import {
 } from '../../runtime/group-registry.js';
 import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
 import { makeSessionScopeKey } from '../../domain/repositories/ops-repo.js';
-import { getRuntimeOpsRepository } from '../../infrastructure/postgres/runtime-store.js';
+import { getRuntimeOpsRepository } from '../../adapters/storage/postgres/runtime-store.js';
 
 export interface RuntimeApp {
   queue: GroupQueue;

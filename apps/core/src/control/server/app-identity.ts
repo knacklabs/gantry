@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import type { Job, RegisteredGroup } from '../../domain/types.js';
-import type { getRuntimeControlRepository } from '../../infrastructure/postgres/runtime-store.js';
+import type { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import { nowIso as runtimeNowIso } from '../../infrastructure/time/datetime.js';
 import { jobBelongsToApp as applicationJobBelongsToApp } from '../../application/jobs/job-access.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';

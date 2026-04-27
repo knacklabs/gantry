@@ -1,5 +1,5 @@
 import { logger } from '../infrastructure/logging/logger.js';
-import { getRuntimeOpsRepository } from '../infrastructure/postgres/runtime-store.js';
+import { getRuntimeOpsRepository } from '../adapters/storage/postgres/runtime-store.js';
 import { PgBossSchedulerEngine } from '../infrastructure/pgboss/scheduler-engine.js';
 import { resetSchedulerRunSlots } from './concurrency.js';
 import { sweepCompletedOneTimeJobs } from './cleanup.js';

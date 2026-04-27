@@ -28,7 +28,7 @@ import {
   asRemoteControlCommand,
   handleRemoteControlCommand,
 } from '../../runtime/remote-control-command.js';
-import { getRuntimeOpsRepository } from '../../infrastructure/postgres/runtime-store.js';
+import { getRuntimeOpsRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import { ChannelAdapter } from '../../channels/channel-provider.js';
 import { RuntimeApp } from './runtime-app.js';
 import {

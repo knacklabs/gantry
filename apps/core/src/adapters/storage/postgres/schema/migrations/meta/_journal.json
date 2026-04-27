@@ -1,0 +1,76 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1776886000000,
+      "tag": "0000_initial",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776897000000,
+      "tag": "0001_jobs_status_lease_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776903000000,
+      "tag": "0002_messages_poll_cursor_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776989400000,
+      "tag": "0003_scheduler_constraints_and_timestamps",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777000200000,
+      "tag": "0004_control_plane",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777003800000,
+      "tag": "0005_memory",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777007400000,
+      "tag": "0006_app_response_routes_and_manual_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777011000000,
+      "tag": "0007_memory_app_grade_rewrite",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777014600000,
+      "tag": "0008_canonical_domain_schema_cutover",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777018200000,
+      "tag": "0009_canonical_persistence_adapter_cut",
+      "breakpoints": true
+    }
+  ]
+}

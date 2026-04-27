@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { NewMessage } from '../../../domain/types.js';
-import { getRuntimeOpsRepository } from '../../../infrastructure/postgres/runtime-store.js';
-import { getRuntimeControlRepository } from '../../../infrastructure/postgres/runtime-store.js';
+import { getRuntimeOpsRepository } from '../../../adapters/storage/postgres/runtime-store.js';
+import { getRuntimeControlRepository } from '../../../adapters/storage/postgres/runtime-store.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import { makeThreadQueueKey } from '../../../runtime/thread-queue-key.js';
 import {

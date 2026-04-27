@@ -193,7 +193,7 @@ class CheckArchitectureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))
             write_lines(
-                root / "apps/core/src/infrastructure/postgres/schema/schema.ts",
+                root / "apps/core/src/adapters/storage/postgres/schema/schema.ts",
                 900,
             )
             result = run_architecture_check(root)
@@ -203,13 +203,13 @@ class CheckArchitectureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))
             write_lines(
-                root / "apps/core/src/infrastructure/postgres/schema/schema.ts",
+                root / "apps/core/src/adapters/storage/postgres/schema/schema.ts",
                 901,
             )
             result = run_architecture_check(root)
             self.assertEqual(result.returncode, 1)
             self.assertIn(
-                "apps/core/src/infrastructure/postgres/schema/schema.ts has 901 lines (limit 900)",
+                "apps/core/src/adapters/storage/postgres/schema/schema.ts has 901 lines (limit 900)",
                 result.stdout,
             )
 

@@ -9,7 +9,7 @@ import {
   ONECLI_SECRET_ENCRYPTION_KEY_ENV,
 } from '../adapters/credentials/onecli/local/persistence.js';
 import { EnvRuntimeSecretProvider } from '../adapters/credentials/env-runtime-secret-provider.js';
-import { inspectRuntimeStorageReadiness } from '../infrastructure/postgres/storage-readiness.js';
+import { inspectRuntimeStorageReadiness } from '../adapters/storage/postgres/storage-readiness.js';
 import { validateExternalBrokerUrl } from './credentials/broker-url-policy.js';
 
 export interface RuntimePreflightFailure {

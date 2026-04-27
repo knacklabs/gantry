@@ -6,7 +6,7 @@ const controlRepo = {
   addControlEvent: vi.fn(),
 };
 
-vi.mock('@core/infrastructure/postgres/runtime-store.js', () => ({
+vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: () => controlRepo,
 }));
 

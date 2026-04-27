@@ -1,0 +1,73 @@
+import { sql } from 'drizzle-orm';
+import {
+  doublePrecision,
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
+
+import { appsPostgres, usersPostgres } from './apps.js';
+import {
+  conversationsPostgres,
+  conversationThreadsPostgres,
+} from './conversations.js';
+
+export const memoryItemsPostgres = pgTable(
+  'memory_items',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    agentId: text('agent_id'),
+    subjectType: text('subject_type').notNull(),
+    subjectId: text('subject_id').notNull(),
+    userId: text('user_id').references(() => usersPostgres.id),
+    conversationId: text('conversation_id').references(
+      () => conversationsPostgres.id,
+    ),
+    threadId: text('thread_id').references(
+      () => conversationThreadsPostgres.id,
+    ),
+    kind: text('kind').notNull(),
+    key: text('key').notNull(),
+    valueJson: text('value_json').notNull(),
+    confidence: doublePrecision('confidence').notNull().default(1),
+    sourceRefJson: text('source_ref_json').notNull().default('{}'),
+    status: text('status').notNull().default('active'),
+    lastObservedAt: timestamp('last_observed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+  },
+  (table) => ({
+    activeSubjectKey: uniqueIndex('memory_items_active_unique')
+      .on(
+        table.appId,
+        table.agentId,
+        table.subjectType,
+        table.subjectId,
+        table.kind,
+        table.key,
+      )
+      .where(sql`${table.status} = 'active'`),
+    subjectUpdatedIdx: index('idx_memory_items_subject_updated').on(
+      table.appId,
+      table.agentId,
+      table.subjectType,
+      table.subjectId,
+      table.status,
+      table.updatedAt,
+    ),
+  }),
+);

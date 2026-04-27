@@ -67,8 +67,8 @@ myclaw status
 # Review runtime settings
 cat ~/myclaw/settings.yaml
 
-# Inspect registered groups
-psql "$MYCLAW_DATABASE_URL" -c "SELECT name, folder, trigger_pattern FROM myclaw.registered_groups;"
+# Inspect canonical channel bindings
+psql "$MYCLAW_DATABASE_URL" -c "SELECT display_name, conversation_id, trigger_pattern FROM myclaw.agent_channel_bindings;"
 ```
 
 ## Channel Auth Issues

@@ -3,7 +3,7 @@ import http from 'node:http';
 import https from 'node:https';
 
 import { logger } from '../../infrastructure/logging/logger.js';
-import { getRuntimeControlRepository } from '../../infrastructure/postgres/runtime-store.js';
+import { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import {
   hostnameForNetwork,
   type ResolvedWebhookTarget,
