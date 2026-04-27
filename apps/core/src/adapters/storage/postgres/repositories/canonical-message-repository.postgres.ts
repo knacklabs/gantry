@@ -67,17 +67,19 @@ export class PostgresCanonicalMessageRepository {
       const externalMessageId =
         msg.external_message_id ??
         (direction === 'inbound' ? msg.id || null : null);
-      const senderUserId = await this.graph.ensureParticipant(
-        {
-          conversationId,
-          providerId: channelProvider,
-          channelInstallationId,
-          externalUserId: msg.sender,
-          displayName: msg.sender_name,
-          timestamp: msg.timestamp,
-        },
-        tx,
-      );
+      if (direction === 'inbound') {
+        await this.graph.ensureParticipant(
+          {
+            conversationId,
+            providerId: channelProvider,
+            channelInstallationId,
+            externalUserId: msg.sender,
+            displayName: msg.sender_name,
+            timestamp: msg.timestamp,
+          },
+          tx,
+        );
+      }
       await tx
         .insert(pgSchema.messagesPostgres)
         .values({
@@ -90,7 +92,7 @@ export class PostgresCanonicalMessageRepository {
           externalMessageId,
           externalRefJson: json(msg),
           direction,
-          senderUserId: senderUserId ?? msg.sender,
+          senderUserId: msg.sender,
           senderDisplayName: msg.sender_name,
           trust: msg.is_bot_message ? 'system' : 'trusted',
           createdAt: msg.timestamp,
@@ -105,7 +107,7 @@ export class PostgresCanonicalMessageRepository {
             externalMessageId,
             externalRefJson: json(msg),
             direction,
-            senderUserId: senderUserId ?? msg.sender,
+            senderUserId: msg.sender,
             senderDisplayName: msg.sender_name,
             trust: msg.is_bot_message ? 'system' : 'trusted',
             deliveryStatus: msg.delivery_status ?? null,

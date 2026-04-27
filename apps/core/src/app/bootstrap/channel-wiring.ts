@@ -227,12 +227,19 @@ export function createChannelWiring(
       });
     } catch (err) {
       const partial = isPartialMessageDeliveryError(err);
-      await outboundOps?.storeMessage({
-        ...baseMessage,
-        delivery_status: partial ? 'partially_sent' : 'failed',
-        delivered_at: partial ? new Date().toISOString() : undefined,
-        delivery_error: sanitizeDeliveryError(err, provider),
-      });
+      try {
+        await outboundOps?.storeMessage({
+          ...baseMessage,
+          delivery_status: partial ? 'partially_sent' : 'failed',
+          delivered_at: partial ? new Date().toISOString() : undefined,
+          delivery_error: sanitizeDeliveryError(err, provider),
+        });
+      } catch (persistErr) {
+        resolved.logger.error(
+          { err: persistErr, jid },
+          'Failed to persist outbound delivery failure',
+        );
+      }
       throw err;
     }
   }
