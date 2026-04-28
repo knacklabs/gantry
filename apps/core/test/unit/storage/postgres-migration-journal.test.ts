@@ -29,6 +29,9 @@ describe('Postgres migration journal', () => {
     expect(journal.entries.map((entry) => entry.tag)).toContain(
       '0009_canonical_persistence_adapter_cut',
     );
+    expect(journal.entries.map((entry) => entry.tag)).toContain(
+      '0015_skill_draft_artifacts',
+    );
   });
 
   it('flattens memory subjects during the canonical persistence cut', () => {
@@ -79,5 +82,39 @@ describe('Postgres migration journal', () => {
     );
     expect(migration).toContain('channel_installation_id text,');
     expect(migration).toContain('channel_installation_id text NOT NULL,');
+  });
+
+  it('keeps skill draft persistence indexes aligned with one binding per agent skill', () => {
+    const canonicalMigration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0009_canonical_persistence_adapter_cut.sql',
+      ),
+      'utf8',
+    );
+    const skillMigration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0015_skill_draft_artifacts.sql',
+      ),
+      'utf8',
+    );
+    const repository = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/repositories/skill-repository.postgres.ts',
+      ),
+      'utf8',
+    );
+
+    expect(canonicalMigration).toContain(
+      'ON agent_skill_bindings(app_id, agent_id, skill_id)',
+    );
+    expect(skillMigration).toContain(
+      'ON agent_skill_bindings(app_id, agent_id, skill_id)',
+    );
+    expect(skillMigration).toContain('ADD COLUMN IF NOT EXISTS rejected_by');
+    expect(skillMigration).toContain('ADD COLUMN IF NOT EXISTS rejected_at');
+    expect(skillMigration).toContain(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_catalog_app_hash',
+    );
+    expect(repository).toContain('configVersionId: binding.configVersionId');
   });
 });

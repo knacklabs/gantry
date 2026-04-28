@@ -6,6 +6,8 @@ import type {
   ProviderArtifactStore,
   ProviderSessionArtifactContext,
 } from '../domain/ports/provider-artifact-store.js';
+import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
+import type { SkillCatalogRepository } from '../domain/ports/repositories.js';
 
 export interface AgentInput {
   prompt: string;
@@ -36,6 +38,12 @@ export interface RunAgentOptions {
   credentialBroker?: AgentCredentialBroker;
   providerArtifactStore?: ProviderArtifactStore;
   providerArtifactContext?: ProviderSessionArtifactContext;
+  skillRepository?: SkillCatalogRepository;
+  skillArtifactStore?: SkillArtifactStore;
+  skillContext?: {
+    appId: string;
+    agentId: string;
+  };
 }
 
 export interface HostRuntimeContext {

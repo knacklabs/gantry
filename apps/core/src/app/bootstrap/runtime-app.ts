@@ -25,6 +25,8 @@ import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
 import {
   getRuntimeOpsRepository,
   getRuntimeProviderArtifactStore,
+  getRuntimeSkillArtifactStore,
+  getRuntimeStorage,
 } from '../../adapters/storage/postgres/runtime-store.js';
 
 export interface RuntimeApp {
@@ -70,6 +72,7 @@ export interface RuntimeAppOptions {
   queue?: GroupQueue;
   runAgent?: GroupProcessingDeps['runAgent'];
   providerArtifactStore?: GroupProcessingDeps['getProviderArtifactStore'];
+  skillArtifactStore?: GroupProcessingDeps['getSkillArtifactStore'];
   opsRepository?: OpsRepository;
 }
 
@@ -360,6 +363,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     getCredentialBroker,
     getProviderArtifactStore:
       options.providerArtifactStore ?? getRuntimeProviderArtifactStore,
+    getSkillRepository: () => getRuntimeStorage().repositories.skills,
+    getSkillArtifactStore:
+      options.skillArtifactStore ?? getRuntimeSkillArtifactStore,
   });
 
   return {

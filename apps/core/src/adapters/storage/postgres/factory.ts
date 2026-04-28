@@ -14,8 +14,10 @@ import {
   getRuntimeSettingsForConfig,
 } from '../../../config/index.js';
 import { PostgresProviderArtifactStore } from '../../artifacts/postgres/postgres-provider-artifact-store.js';
+import { LocalSkillArtifactStore } from '../../artifacts/skills/local-skill-artifact-store.js';
 import type { OpsRepository } from '../../../domain/repositories/ops-repo.js';
 import type { ProviderArtifactStore } from '../../../domain/ports/provider-artifact-store.js';
+import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
 import { PostgresCanonicalOpsRepository } from './schema/canonical-ops-repo.postgres.js';
 import { PostgresControlPlaneRepository } from './schema/control-plane-repo.postgres.js';
 import type { PostgresStorageService } from './storage-service.js';
@@ -26,6 +28,7 @@ export interface StorageRuntime {
   control: PostgresControlPlaneRepository;
   repositories: PostgresDomainRepositoryBundle;
   providerArtifacts: ProviderArtifactStore;
+  skillArtifacts: SkillArtifactStore;
 }
 
 export function resolveStorageConfigFromRuntime(): ResolvedStorageConfig {
@@ -52,11 +55,13 @@ export function createStorageRuntime(
     artifactRoot: ARTIFACTS_DIR,
     defaultStorageType: 'local-filesystem',
   });
+  const skillArtifacts = new LocalSkillArtifactStore(ARTIFACTS_DIR);
   return {
     service,
     ops,
     control,
     repositories,
     providerArtifacts,
+    skillArtifacts,
   };
 }

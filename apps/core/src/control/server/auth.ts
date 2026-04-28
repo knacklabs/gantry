@@ -11,6 +11,8 @@ export type Scope =
   | 'conversations:read'
   | 'messages:read'
   | 'agents:admin'
+  | 'skills:read'
+  | 'skills:admin'
   | 'webhooks:read'
   | 'webhooks:write'
   | 'memory:read'
@@ -35,6 +37,8 @@ const ALL_SCOPES: Scope[] = [
   'conversations:read',
   'messages:read',
   'agents:admin',
+  'skills:read',
+  'skills:admin',
   'webhooks:read',
   'webhooks:write',
   'memory:read',

@@ -197,7 +197,9 @@ profile, credential broker needs, and adapter binding.
 
 `SkillCatalogItem` describes a reusable behavior package. It may provide prompt
 sections, tools, workflows, docs, or setup hooks. Attaching a skill to an agent
-requires an `AgentConfigVersion` change.
+requires an approved skill and an agent skill binding. Agent-created
+skills begin as durable draft artifacts with a content hash and storage ref;
+drafts are not runtime inputs until approved.
 
 `PermissionPolicy` groups deterministic rules. It is attached explicitly to an
 app, agent, binding, tool catalog item, job, or sandbox profile.

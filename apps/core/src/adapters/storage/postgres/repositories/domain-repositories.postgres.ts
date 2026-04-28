@@ -71,7 +71,6 @@ import type {
   WorkspaceSnapshot,
 } from '../../../../domain/sandbox/sandbox.js';
 import type { AgentSession } from '../../../../domain/sessions/sessions.js';
-import type { SkillCatalogItem } from '../../../../domain/skills/skills.js';
 import type { ToolCatalogItem } from '../../../../domain/tools/tools.js';
 import type { ExternalRef } from '../../../../shared/ids/branded-id.js';
 import * as pgSchema from '../schema/schema.js';
@@ -81,6 +80,7 @@ import {
   PostgresAgentSessionSummaryRepository,
   PostgresProviderSessionRepository,
 } from './session-repositories.postgres.js';
+import { PostgresSkillCatalogRepository } from './skill-repository.postgres.js';
 
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
@@ -1726,61 +1726,6 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
           permissionPolicyId: item.permissionPolicyId ?? null,
           sandboxProfileId: item.sandboxProfileId ?? null,
           adapterRef: item.adapterRef,
-          updatedAt: item.updatedAt,
-        },
-      });
-  }
-}
-
-export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
-  constructor(private readonly db: CanonicalDb) {}
-
-  async getSkill(id: SkillCatalogItem['id']): Promise<SkillCatalogItem | null> {
-    const rows = await this.db
-      .select()
-      .from(pgSchema.skillCatalogPostgres)
-      .where(eq(pgSchema.skillCatalogPostgres.id, id))
-      .limit(1);
-    const row = rows[0];
-    if (!row) return null;
-    return {
-      id: row.id,
-      appId: row.appId,
-      name: row.name,
-      description: row.description ?? undefined,
-      version: row.version,
-      promptRefs: parseJsonArray(row.promptRefsJson),
-      toolIds: parseJsonArray(row.toolIdsJson),
-      workflowRefs: parseJsonArray(row.workflowRefsJson),
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    } as SkillCatalogItem;
-  }
-
-  async saveSkill(item: SkillCatalogItem): Promise<void> {
-    await this.db
-      .insert(pgSchema.skillCatalogPostgres)
-      .values({
-        id: item.id,
-        appId: item.appId,
-        name: item.name,
-        description: item.description ?? null,
-        version: item.version,
-        promptRefsJson: encodeJson(item.promptRefs),
-        toolIdsJson: encodeJson(item.toolIds),
-        workflowRefsJson: encodeJson(item.workflowRefs),
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.skillCatalogPostgres.id,
-        set: {
-          name: item.name,
-          description: item.description ?? null,
-          version: item.version,
-          promptRefsJson: encodeJson(item.promptRefs),
-          toolIdsJson: encodeJson(item.toolIds),
-          workflowRefsJson: encodeJson(item.workflowRefs),
           updatedAt: item.updatedAt,
         },
       });

@@ -3,7 +3,24 @@ name: agent-browser
 description: Drive the persistent MyClaw Chrome profile (cookies, logins, sessions) via CDP so agents can navigate, read the DOM, click, and screenshot across runs. Use for any browser automation that needs a stable logged-in session — LinkedIn profile verification, X engagement, tender portals, SaaS dashboards. Triggers for "open browser", "navigate to", "check LinkedIn", "screenshot this page", "reuse logged-in session", or any task that needs the shared Chrome with persistent state.
 homepage: https://chromedevtools.github.io/devtools-protocol/
 user_invocable: false
-metadata: {"openclaw":{"emoji":"🌐","os":["darwin","linux"],"requires":{"bins":["python3"],"packages":["websockets"]},"install":[{"id":"pip","kind":"pip","module":"websockets","label":"Install websockets (pip)"}]}}
+metadata:
+  {
+    'openclaw':
+      {
+        'emoji': '🌐',
+        'os': ['darwin', 'linux'],
+        'requires': { 'bins': ['python3'], 'packages': ['websockets'] },
+        'install':
+          [
+            {
+              'id': 'pip',
+              'kind': 'pip',
+              'module': 'websockets',
+              'label': 'Install websockets (pip)',
+            },
+          ],
+      },
+  }
 ---
 
 # Agent Browser — Persistent CDP Session
@@ -35,10 +52,10 @@ Single shared Chrome, single persistent profile, driven over CDP. Same window / 
 
 ## Driving the page
 
-All via `~/myclaw/.claude/skills/agent-browser/browser_cdp.py`:
+All via this skill's bundled `browser_cdp.py` helper:
 
 ```bash
-SKILL=~/myclaw/.claude/skills/agent-browser
+SKILL=<materialized-agent-browser-skill-dir>
 python3 $SKILL/browser_cdp.py status                         # port + tab count
 python3 $SKILL/browser_cdp.py tabs                           # list open tabs
 python3 $SKILL/browser_cdp.py goto https://linkedin.com/...  # navigate + print title/url
@@ -70,13 +87,13 @@ Cron prompts should:
 
 ## Troubleshooting
 
-| Symptom | Fix |
-|---|---|
-| `running: false` after launch | Check `~/myclaw/logs/myclaw.log` for Chrome spawn errors |
-| Helper says "No CDP port configured" | Pass `--port <port-from-browser_launch>` or set `MYCLAW_CDP_PORT` |
-| Site shows logged-out view | No session yet — do the one-time headful login above |
-| Stale tab | Use `goto` to navigate the existing page instead of opening new tabs |
-| Profile corrupted | Close browser, delete `~/myclaw/data/browser-profiles/myclaw/user-data`, relaunch, log in again |
+| Symptom                              | Fix                                                                                             |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `running: false` after launch        | Check `~/myclaw/logs/myclaw.log` for Chrome spawn errors                                        |
+| Helper says "No CDP port configured" | Pass `--port <port-from-browser_launch>` or set `MYCLAW_CDP_PORT`                               |
+| Site shows logged-out view           | No session yet — do the one-time headful login above                                            |
+| Stale tab                            | Use `goto` to navigate the existing page instead of opening new tabs                            |
+| Profile corrupted                    | Close browser, delete `~/myclaw/data/browser-profiles/myclaw/user-data`, relaunch, log in again |
 
 ## Files bundled by this skill
 

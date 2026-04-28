@@ -100,11 +100,17 @@ describe('@myclaw/sdk transport', () => {
       const chunks: Buffer[] = [];
       req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
       req.on('end', () => {
-        const raw = Buffer.concat(chunks).toString('utf8');
+        const body = Buffer.concat(chunks);
+        const raw = body.toString('utf8');
         seen.push({
           method: req.method,
           url: req.url,
-          body: raw ? JSON.parse(raw) : null,
+          body:
+            req.headers['content-type'] === 'application/zip'
+              ? [...body]
+              : raw
+                ? JSON.parse(raw)
+                : null,
         });
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ ok: true, conversations: [], bindings: [] }));
@@ -155,6 +161,22 @@ describe('@myclaw/sdk transport', () => {
     await client.agents.bindings.disable('agent/1', 'conversation/1', {
       threadId: 'thread/1',
     });
+    await client.skillDrafts.upload({
+      agentId: 'agent/1',
+      createdBy: 'admin',
+      zip: new Uint8Array([1, 2, 3]),
+    });
+    await client.skillDrafts.list({ agentId: 'agent/1' });
+    await client.skillDrafts.approve('skill/1', {
+      target: 'local',
+      approvedBy: 'admin',
+    });
+    await client.skillDrafts.reject('skill/2', {
+      rejectedBy: 'admin',
+    });
+    await client.agents.skills.list('agent/1');
+    await client.agents.skills.enable('agent/1', 'skill/1');
+    await client.agents.skills.disable('agent/1', 'skill/1');
 
     expect(seen).toEqual([
       { method: 'GET', url: '/v1/channel-providers', body: null },
@@ -233,6 +255,41 @@ describe('@myclaw/sdk transport', () => {
       {
         method: 'DELETE',
         url: '/v1/agents/agent%2F1/channel-bindings/conversation%2F1?threadId=thread%2F1',
+        body: null,
+      },
+      {
+        method: 'POST',
+        url: '/v1/skills/drafts/upload?agentId=agent%2F1&createdBy=admin',
+        body: [1, 2, 3],
+      },
+      {
+        method: 'GET',
+        url: '/v1/skills/drafts?agentId=agent%2F1',
+        body: null,
+      },
+      {
+        method: 'POST',
+        url: '/v1/skills/drafts/skill%2F1/approve',
+        body: { target: 'local', approvedBy: 'admin' },
+      },
+      {
+        method: 'POST',
+        url: '/v1/skills/drafts/skill%2F2/reject',
+        body: { rejectedBy: 'admin' },
+      },
+      {
+        method: 'GET',
+        url: '/v1/agents/agent%2F1/skills',
+        body: null,
+      },
+      {
+        method: 'PUT',
+        url: '/v1/agents/agent%2F1/skills/skill%2F1',
+        body: {},
+      },
+      {
+        method: 'DELETE',
+        url: '/v1/agents/agent%2F1/skills/skill%2F1',
         body: null,
       },
     ]);

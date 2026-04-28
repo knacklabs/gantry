@@ -7,12 +7,11 @@ import type {
   ChannelInstallationInput,
   ChannelInstallationPatch,
 } from './channel-types.js';
-
+import { createAgentSkillsClient, createSkillDraftsClient } from './skills.js';
 export type JobKind = 'manual' | 'once' | 'recurring';
 export type ResponseMode = 'sse' | 'webhook' | 'both' | 'none';
 export type MemorySubjectType = 'user' | 'group' | 'channel' | 'common';
 export type DreamPhase = 'light' | 'rem' | 'deep' | 'all';
-
 export interface MyClawError extends Error {
   code: string;
   details?: Record<string, unknown> | null;
@@ -21,28 +20,25 @@ export interface MyClawError extends Error {
   restartRequired?: boolean;
   nextAction?: string;
 }
-
 type ClientOptions = {
   apiKey: string;
   baseUrl?: string;
   socketPath?: string;
   timeoutMs?: number;
 };
-
 type RequestOptions = {
   method: string;
   path: string;
   body?: unknown;
+  contentType?: string;
   accept?: string;
   signal?: AbortSignal;
 };
-
 type SseEvent = {
   eventId: number;
   eventType: string;
   payload: unknown;
 };
-
 type MemoryContext = {
   appId?: string;
   agentId?: string;
@@ -51,7 +47,6 @@ type MemoryContext = {
   channelId?: string;
   threadId?: string;
 };
-
 type MemorySaveInput = MemoryContext & {
   subjectType?: MemorySubjectType;
   subjectId?: string;
@@ -73,14 +68,12 @@ type MemorySaveInput = MemoryContext & {
   evidenceIds?: string[];
   actorId?: string;
 };
-
 type MemorySearchInput = MemoryContext & {
   query?: string;
   limit?: number;
   includeCommon?: boolean;
   subjectTypes?: MemorySubjectType[];
 };
-
 type MemoryPatchInput = MemoryContext & {
   expectedVersion?: number;
   key?: string;
@@ -152,16 +145,23 @@ class Transport {
 
   request<T>(options: RequestOptions): Promise<T> {
     const url = new URL(options.path, this.baseUrl);
-    const isHttps = url.protocol === 'https:';
-    const mod = isHttps ? https : http;
+    const mod = url.protocol === 'https:' ? https : http;
     const body =
-      options.body === undefined ? undefined : JSON.stringify(options.body);
+      options.body === undefined
+        ? undefined
+        : options.body instanceof Uint8Array
+          ? options.body
+          : JSON.stringify(options.body);
     const headers: Record<string, string> = {
       authorization: `Bearer ${this.apiKey}`,
       accept: options.accept || 'application/json',
     };
     if (body) {
-      headers['content-type'] = 'application/json';
+      headers['content-type'] =
+        options.contentType ||
+        (options.body instanceof Uint8Array
+          ? 'application/octet-stream'
+          : 'application/json');
     }
     return new Promise<T>((resolve, reject) => {
       const req = mod.request(
@@ -439,6 +439,10 @@ export class MyClawClient {
       }),
   };
 
+  readonly skillDrafts = createSkillDraftsClient({
+    request: (options) => this.transport.request(options),
+  });
+
   readonly channels = {
     providers: {
       list: () =>
@@ -515,6 +519,9 @@ export class MyClawClient {
   };
 
   readonly agents = {
+    skills: createAgentSkillsClient({
+      request: (options) => this.transport.request(options),
+    }),
     bindings: {
       list: (agentId: string) =>
         this.transport.request<{ bindings: unknown[] }>({
@@ -682,9 +689,6 @@ export class MyClawClient {
     },
   };
 }
-
-export function createClient(options: ClientOptions): MyClawClient {
-  return new MyClawClient(options);
-}
-
+export const createClient = (options: ClientOptions): MyClawClient =>
+  new MyClawClient(options);
 export { verifyWebhookSignature } from './webhook-signature.js';

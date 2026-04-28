@@ -11,6 +11,33 @@ createClient({
 })
 ```
 
+## Skills
+
+MyClaw exposes the reviewable lifecycle for agent-created skill drafts. The SDK
+does not expose hosted skill version management; hosted promotion uses the
+Anthropic SDK behind the MyClaw Anthropic adapter and stores only provider refs.
+
+```ts
+client.skillDrafts.upload({
+  agentId?,
+  createdBy?,
+  zip, // Uint8Array containing application/zip bytes
+})
+client.skillDrafts.list({ agentId? })
+client.skillDrafts.approve(skillId, { approvedBy?, target? }) // local | hosted
+client.skillDrafts.reject(skillId, { rejectedBy? })
+
+client.agents.skills.list(agentId)
+client.agents.skills.enable(agentId, skillId)
+client.agents.skills.disable(agentId, skillId)
+```
+
+Drafts are durable across restart because metadata lives in Postgres and file
+bytes live in artifact storage. Draft, rejected, and disabled skills are not
+materialized into per-run `CLAUDE_CONFIG_DIR/skills`. Skill name and
+description are parsed from `SKILL.md`; upload requests only carry context such
+as the proposing agent or creator.
+
 ## Sessions
 
 ```ts
@@ -176,6 +203,22 @@ client.agents.bindings.disable(agentId, conversationId, { threadId? })
 
 Binding writes require `agents:admin`. `disable()` marks the binding disabled;
 it does not delete the row.
+
+## Agent Skill Bindings
+
+```http
+POST   /v1/skills/drafts/upload                  skills:admin
+GET    /v1/skills/drafts                         skills:read
+POST   /v1/skills/drafts/:id/approve             skills:admin
+POST   /v1/skills/drafts/:id/reject              skills:admin
+GET    /v1/agents/:agentId/skills                skills:read
+PUT    /v1/agents/:agentId/skills/:skillId       skills:admin
+DELETE /v1/agents/:agentId/skills/:skillId       skills:admin
+```
+
+An enabled binding only affects runtime when the skill is approved.
+Local approved skills are unpacked into the per-run Claude config; hosted
+approved skills are represented by Anthropic provider refs.
 
 ## Memory
 

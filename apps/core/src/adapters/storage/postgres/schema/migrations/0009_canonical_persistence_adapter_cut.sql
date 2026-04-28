@@ -514,7 +514,7 @@ CREATE TABLE agent_skill_bindings (
 );
 
 CREATE UNIQUE INDEX idx_agent_skill_bindings_unique
-  ON agent_skill_bindings(agent_id, skill_id, config_version_id);
+  ON agent_skill_bindings(app_id, agent_id, skill_id);
 
 CREATE TABLE permission_policies (
   id text PRIMARY KEY,

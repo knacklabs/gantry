@@ -50,7 +50,11 @@ import type {
   ProviderSession,
   ProviderSessionId,
 } from '../sessions/sessions.js';
-import type { SkillCatalogItem, SkillId } from '../skills/skills.js';
+import type {
+  AgentSkillBinding,
+  SkillCatalogItem,
+  SkillId,
+} from '../skills/skills.js';
 import type { ToolCatalogItem, ToolId } from '../tools/tools.js';
 
 export interface AppRepository {
@@ -233,7 +237,27 @@ export interface ToolCatalogRepository {
 
 export interface SkillCatalogRepository {
   getSkill(id: SkillId): Promise<SkillCatalogItem | null>;
+  listSkills(input: {
+    appId: AppId;
+    agentId?: AgentId;
+    statuses?: SkillCatalogItem['status'][];
+  }): Promise<SkillCatalogItem[]>;
   saveSkill(item: SkillCatalogItem): Promise<void>;
+  saveAgentSkillBinding(binding: AgentSkillBinding): Promise<void>;
+  disableAgentSkillBinding(input: {
+    appId: AppId;
+    agentId: AgentId;
+    skillId: SkillId;
+    updatedAt: string;
+  }): Promise<AgentSkillBinding | null>;
+  listAgentSkillBindings(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentSkillBinding[]>;
+  listEnabledSkillsForAgent(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<SkillCatalogItem[]>;
 }
 
 export interface PermissionRepository {

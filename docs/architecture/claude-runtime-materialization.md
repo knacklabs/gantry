@@ -28,8 +28,12 @@ Durable state stays outside Claude runtime files:
 - Postgres owns apps, agents, config versions, tools, skills, memory policy,
   permission policy, sessions, messages, and runs.
 - `ProviderArtifactStore` owns provider continuation and export bytes.
-- Package assets provide bundled compatibility skills until the skill registry
-  becomes DB/artifact backed.
+- `SkillArtifactStore` owns approved or draft local skill source bytes by
+  storage ref; Postgres stores metadata, status, hash, bindings, and provider
+  refs.
+- Package or configured local skill folders provide file-based Claude skills.
+- Hosted Anthropic managed skills are referenced by provider skill ids and are
+  resolved through the Anthropic SDK adapter, not through local files.
 
 The runtime-home Claude directory is not an enterprise runtime source of truth.
 
@@ -47,13 +51,26 @@ settings are not MyClaw policy.
 
 ## Skills
 
-Skills are materialized into the temp `skills/` directory. For this cut, the
-temporary `SkillSource` reads bundled package assets. Prompt 12A can replace
-that source with a DB/artifact-backed `SkillRegistry` without changing Claude
-runtime execution.
+Local Claude skills are files. The materializer copies valid skill folders or
+approved skill artifacts containing `SKILL.md` into the temp `skills/`
+directory for that run, then the Claude Agent SDK loads them from
+`CLAUDE_CONFIG_DIR`.
 
 Durable user-installed files under the runtime-home Claude skills directory are
 not read or copied by enterprise runtime.
+
+Agent-created or admin-uploaded skills enter MyClaw as zip uploads containing
+`SKILL.md`. MyClaw parses display metadata from that file, stores the normalized
+skill files behind a `storageRef`, and records draft lifecycle state in
+Postgres. Drafts survive restart but are not materialized or attached to hosted
+agents until approved. Rejected or disabled skills are retained for history and
+not used at runtime.
+
+Local approval makes the artifact eligible for per-agent binding and per-run
+materialization. Hosted approval uploads the stored files through Anthropic's
+native beta skill APIs behind the Anthropic adapter, then stores only opaque
+provider refs such as Anthropic skill id and version. MyClaw does not recreate
+hosted skill versioning or add a second skill permission prompt.
 
 ## Provider Artifacts
 

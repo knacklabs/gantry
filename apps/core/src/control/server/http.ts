@@ -1,12 +1,48 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+export function readRawBody(
+  req: IncomingMessage,
+  maxBytes: number,
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    const contentLength = parseContentLength(req.headers['content-length']);
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      const error = Object.assign(new Error('Payload too large'), {
+        code: 'PAYLOAD_TOO_LARGE',
+        statusCode: 413,
+      });
+      reject(error);
+      req.destroy();
+      return;
+    }
+    req.on('data', (chunk) => {
+      const buffer = Buffer.from(chunk);
+      totalBytes += buffer.length;
+      if (totalBytes > maxBytes) {
+        const error = Object.assign(new Error('Payload too large'), {
+          code: 'PAYLOAD_TOO_LARGE',
+          statusCode: 413,
+        });
+        reject(error);
+        req.destroy(error);
+        return;
+      }
+      chunks.push(buffer);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
 export function readJson(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const maxBytes = 64 * 1024;
     const chunks: Buffer[] = [];
     let totalBytes = 0;
-    const contentLength = Number(req.headers['content-length'] || 0);
+    const contentLength = parseContentLength(req.headers['content-length']);
     if (Number.isFinite(contentLength) && contentLength > maxBytes) {
       const error = Object.assign(new Error('Payload too large'), {
         code: 'PAYLOAD_TOO_LARGE',
@@ -49,6 +85,11 @@ export function readJson(req: IncomingMessage): Promise<unknown> {
     });
     req.on('error', reject);
   });
+}
+
+function parseContentLength(value: string | string[] | undefined): number {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return Number(raw || 0);
 }
 
 export function sendJson(

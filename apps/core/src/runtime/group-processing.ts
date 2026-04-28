@@ -51,7 +51,6 @@ import {
 } from './session-resume-runtime.js';
 import { firstThreadQueueId, parseThreadQueueKey } from './thread-queue-key.js';
 import { formatElapsed } from './time-format.js';
-
 const TYPING_HEARTBEAT_INTERVAL_MS = 4_000;
 const ELAPSED_PROGRESS_INTERVAL_MS = 60_000;
 const NO_OUTPUT_WARNING_INTERVAL_MS = 180_000;
@@ -130,12 +129,14 @@ export function createGroupProcessor(
         })
       : undefined;
     try {
-      const credentialBroker = await deps.getCredentialBroker?.();
-      const providerArtifactStore = deps.getProviderArtifactStore?.();
+      const credentialBroker = await deps.getCredentialBroker?.(),
+        providerArtifactStore = deps.getProviderArtifactStore?.();
       const runOptions = buildProviderArtifactRunOptions({
         timeoutMs: options?.timeoutMs,
         credentialBroker,
         providerArtifactStore,
+        skillRepository: deps.getSkillRepository?.(),
+        skillArtifactStore: deps.getSkillArtifactStore?.(),
         sessionResume,
       });
       const invokeAgent = (input: {

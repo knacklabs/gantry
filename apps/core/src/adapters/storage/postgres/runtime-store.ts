@@ -1,6 +1,7 @@
 import { createStorageRuntime, type StorageRuntime } from './factory.js';
 import type { OpsRepository } from '../../../domain/repositories/ops-repo.js';
 import type { ProviderArtifactStore } from '../../../domain/ports/provider-artifact-store.js';
+import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
 import { evaluatePostgresStorageCapabilities } from './readiness.js';
 import type { PostgresControlPlaneRepository } from './schema/control-plane-repo.postgres.js';
 
@@ -42,6 +43,10 @@ export function getRuntimeProviderArtifactStore(): ProviderArtifactStore {
   return getRuntimeStorage().providerArtifacts;
 }
 
+export function getRuntimeSkillArtifactStore(): SkillArtifactStore {
+  return getRuntimeStorage().skillArtifacts;
+}
+
 export async function closeRuntimeStorage(): Promise<void> {
   const existing = runtime;
   runtime = null;
@@ -65,5 +70,6 @@ export function _setRuntimeOpsRepositoryForTest(ops: OpsRepository): void {
     control: {} as StorageRuntime['control'],
     repositories: {} as StorageRuntime['repositories'],
     providerArtifacts: {} as StorageRuntime['providerArtifacts'],
+    skillArtifacts: {} as StorageRuntime['skillArtifacts'],
   };
 }

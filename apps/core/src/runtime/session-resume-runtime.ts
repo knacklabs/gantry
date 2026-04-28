@@ -2,6 +2,8 @@ import { ASSISTANT_NAME } from '../config/index.js';
 import type { NewMessage, RegisteredGroup } from '../domain/types.js';
 import type { OpsRepository } from '../domain/repositories/ops-repo.js';
 import type { ProviderArtifactStore } from '../domain/ports/provider-artifact-store.js';
+import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
+import type { SkillCatalogRepository } from '../domain/ports/repositories.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
   archiveProviderSessionTranscript,
@@ -106,6 +108,12 @@ export function buildProviderArtifactRunOptions(input: {
   timeoutMs?: number;
   credentialBroker?: RunAgentOptions['credentialBroker'];
   providerArtifactStore?: ProviderArtifactStore;
+  skillRepository?: SkillCatalogRepository;
+  skillArtifactStore?: SkillArtifactStore;
+  skillContext?: {
+    appId: string;
+    agentId: string;
+  };
   sessionResume?: {
     appId: string;
     agentId: string;
@@ -144,12 +152,29 @@ export function buildProviderArtifactRunOptions(input: {
           },
         }
       : {};
+  const resolvedSkillContext = input.skillContext
+    ? input.skillContext
+    : input.sessionResume
+      ? {
+          appId: input.sessionResume.appId,
+          agentId: input.sessionResume.agentId,
+        }
+      : undefined;
+  const skillOptions =
+    input.skillRepository && input.skillArtifactStore && resolvedSkillContext
+      ? {
+          skillRepository: input.skillRepository,
+          skillArtifactStore: input.skillArtifactStore,
+          skillContext: resolvedSkillContext,
+        }
+      : {};
   const options: RunAgentOptions = {
     ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
     ...(input.credentialBroker
       ? { credentialBroker: input.credentialBroker }
       : {}),
     ...artifactOptions,
+    ...skillOptions,
   };
   return Object.keys(options).length > 0 ? options : undefined;
 }
