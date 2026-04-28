@@ -11,13 +11,13 @@ export type Scope =
   | 'conversations:read'
   | 'messages:read'
   | 'agents:admin'
+  | 'skills:read'
+  | 'skills:admin'
   | 'webhooks:read'
   | 'webhooks:write'
   | 'memory:read'
   | 'memory:write'
-  | 'memory:admin'
-  | 'skills:read'
-  | 'skills:write';
+  | 'memory:admin';
 
 export type ApiKeyRecord = {
   kid: string;
@@ -37,13 +37,13 @@ const ALL_SCOPES: Scope[] = [
   'conversations:read',
   'messages:read',
   'agents:admin',
+  'skills:read',
+  'skills:admin',
   'webhooks:read',
   'webhooks:write',
   'memory:read',
   'memory:write',
   'memory:admin',
-  'skills:read',
-  'skills:write',
 ];
 
 export function isValidControlId(value: string): boolean {

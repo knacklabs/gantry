@@ -10,11 +10,10 @@ List available commands grouped by category with a one-line description for each
 
 ## Steps
 
-1. Check installed skill directories under the runtime skills root (`$AGENT_ROOT/.claude/skills/`, usually `~/myclaw/.claude/skills/`). If unavailable, also check `~/.claude/skills/` for optional user-installed packs.
-2. Print the MyClaw host-managed session commands.
-3. Print bundled MyClaw skills that are actually installed.
-4. Print optional installed skill packs, grouped by category when known.
-5. Format output for the active channel.
+1. Print the MyClaw host-managed session commands.
+2. Print bundled MyClaw skills available in the package/runtime.
+3. Print approved and enabled skill bindings when the control API exposes them.
+4. Format output for the active channel.
 
 ## MyClaw Session Commands
 
@@ -59,6 +58,7 @@ These run on the host machine:
 - `myclaw service stop` -- Stop the background service
 - `myclaw agent list` -- List registered agents/groups
 - `myclaw agent add <jid|chat-id>` -- Register a new agent/group
+- `myclaw skill draft upload <skill.zip>` -- Upload a skill zip as a draft
 - `myclaw config list` -- List runtime config keys with secrets masked
 
 ## gstack (If Installed)

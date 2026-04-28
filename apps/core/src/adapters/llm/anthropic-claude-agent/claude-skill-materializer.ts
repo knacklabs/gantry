@@ -3,18 +3,16 @@ import path from 'path';
 
 import type { AgentId } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
-import type { SkillAssetStore } from '../../../domain/ports/skill-asset-store.js';
+import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '../../../domain/ports/repositories.js';
+import { isSkillMaterializableLocally } from '../../../domain/skills/skills.js';
 
 export interface ClaudeSkillSourceItem {
   id: string;
   name: string;
+  sourceType?: 'bundled' | 'artifact';
   sourceDir?: string;
-  assets?: Array<{
-    path: string;
-    content: Uint8Array;
-    contentHash: string;
-  }>;
+  assets?: Array<{ path: string; content: Uint8Array }>;
   enabled: boolean;
 }
 
@@ -44,6 +42,7 @@ export class BundledClaudeSkillSource implements SkillSource {
         return {
           id: entry.name,
           name: entry.name,
+          sourceType: 'bundled',
           sourceDir,
           enabled: !enabled || enabled.has(entry.name),
         };
@@ -51,42 +50,50 @@ export class BundledClaudeSkillSource implements SkillSource {
   }
 }
 
-export class RegistryClaudeSkillSource implements SkillSource {
+export class ArtifactClaudeSkillSource implements SkillSource {
   constructor(
-    private readonly repository: SkillCatalogRepository,
-    private readonly assetStore: SkillAssetStore,
+    private readonly skills: SkillCatalogRepository,
+    private readonly artifacts: SkillArtifactStore,
     private readonly context: { appId: AppId; agentId: AgentId },
   ) {}
 
   async listSkills(input?: {
     enabledSkillIds?: string[];
   }): Promise<ClaudeSkillSourceItem[]> {
-    const enabled = input?.enabledSkillIds
+    const allowed = input?.enabledSkillIds
       ? new Set(input.enabledSkillIds)
       : undefined;
-    const resolved = await this.repository.resolveEnabledSkillVersionsForAgent(
-      this.context,
-    );
-    const skills: ClaudeSkillSourceItem[] = [];
-    for (const item of resolved) {
-      const id = item.skill.id;
-      if (enabled && !enabled.has(id) && !enabled.has(item.skill.name)) {
+    const enabled = await this.skills.listEnabledSkillsForAgent(this.context);
+    const items: ClaudeSkillSourceItem[] = [];
+    for (const skill of enabled.filter(isSkillMaterializableLocally)) {
+      if (allowed && !allowed.has(skill.id) && !allowed.has(skill.name)) {
         continue;
       }
-      const assets = [];
-      for (const asset of item.assets) {
-        assets.push({
-          path: asset.path,
-          content: await this.assetStore.getAsset(asset.storageRef),
-          contentHash: asset.contentHash,
-        });
-      }
-      skills.push({
-        id,
-        name: item.skill.name,
-        assets,
+      if (!skill.storage) continue;
+      const bundle = await this.artifacts.getSkillArtifact(
+        skill.storage.storageRef,
+      );
+      items.push({
+        id: skill.id,
+        name: skill.name,
+        sourceType: 'artifact',
+        assets: bundle.assets,
         enabled: true,
       });
+    }
+    return items;
+  }
+}
+
+export class CompositeSkillSource implements SkillSource {
+  constructor(private readonly sources: SkillSource[]) {}
+
+  async listSkills(input?: {
+    enabledSkillIds?: string[];
+  }): Promise<ClaudeSkillSourceItem[]> {
+    const skills: ClaudeSkillSourceItem[] = [];
+    for (const source of this.sources) {
+      skills.push(...(await source.listSkills(input)));
     }
     return skills;
   }
@@ -103,11 +110,20 @@ export async function materializeClaudeSkills(input: {
   fs.mkdirSync(input.skillsDir, { recursive: true, mode: 0o700 });
 
   const materialized: ClaudeSkillSourceItem[] = [];
+  const targetDirs = new Set<string>();
   for (const skill of skills) {
     if (!skill.enabled) continue;
-    const targetDir = path.join(input.skillsDir, sanitizeSkillName(skill.name));
+    const targetName = skill.assets
+      ? sanitizeSkillName(skill.id)
+      : sanitizeSkillName(skill.name);
+    if (targetDirs.has(targetName)) continue;
+    targetDirs.add(targetName);
+    const targetDir = path.join(input.skillsDir, targetName);
+    fs.rmSync(targetDir, { recursive: true, force: true });
     if (skill.assets) {
-      if (!skill.assets.some((asset) => asset.path === 'SKILL.md')) continue;
+      if (!isValidAssetSkill(skill.assets)) {
+        continue;
+      }
       writeAssets(skill.assets, targetDir);
     } else if (skill.sourceDir) {
       const sourceDir = path.resolve(skill.sourceDir);
@@ -120,6 +136,18 @@ export async function materializeClaudeSkills(input: {
     materialized.push(skill);
   }
   return materialized;
+}
+
+function isValidAssetSkill(
+  assets: Array<{ path: string; content: Uint8Array }>,
+): boolean {
+  try {
+    return assets.some(
+      (asset) => normalizeAssetPath(asset.path) === 'SKILL.md',
+    );
+  } catch {
+    return false;
+  }
 }
 
 function sanitizeSkillName(value: string): string {
@@ -146,25 +174,29 @@ function copyDirRecursive(src: string, dst: string): void {
 }
 
 function writeAssets(
-  assets: NonNullable<ClaudeSkillSourceItem['assets']>,
+  assets: Array<{ path: string; content: Uint8Array }>,
   targetDir: string,
 ): void {
-  fs.mkdirSync(targetDir, { recursive: true, mode: 0o700 });
+  const root = path.resolve(targetDir);
+  fs.mkdirSync(root, { recursive: true, mode: 0o700 });
   for (const asset of assets) {
-    const normalized = path.posix.normalize(asset.path.replace(/\\/g, '/'));
-    if (
-      !normalized ||
-      normalized === '.' ||
-      normalized.startsWith('../') ||
-      normalized.includes('/../') ||
-      path.posix.isAbsolute(normalized)
-    ) {
-      continue;
-    }
-    const target = path.join(targetDir, normalized);
-    const relative = path.relative(targetDir, target);
-    if (relative.startsWith('..') || path.isAbsolute(relative)) continue;
+    const relative = normalizeAssetPath(asset.path);
+    const target = path.resolve(root, relative);
+    if (target !== root && !target.startsWith(`${root}${path.sep}`)) continue;
     fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
     fs.writeFileSync(target, Buffer.from(asset.content), { mode: 0o600 });
   }
+}
+
+function normalizeAssetPath(value: string): string {
+  const normalized = value.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (
+    !normalized ||
+    path.posix.isAbsolute(normalized) ||
+    normalized.includes('\0') ||
+    normalized.split('/').some((part) => part === '..' || part === '')
+  ) {
+    throw new Error(`Invalid skill asset path: ${value}`);
+  }
+  return normalized;
 }

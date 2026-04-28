@@ -11,6 +11,8 @@ import type { OpsRepository } from '../domain/repositories/ops-repo.js';
 import type { AvailableGroup, spawnAgent } from './agent-spawn.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 import type { ProviderArtifactStore } from '../domain/ports/provider-artifact-store.js';
+import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
+import type { SkillCatalogRepository } from '../domain/ports/repositories.js';
 
 export interface GroupProcessor {
   processGroupMessages: (
@@ -85,6 +87,8 @@ export interface GroupProcessingDeps {
   runAgent?: typeof spawnAgent;
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
   getProviderArtifactStore?: () => ProviderArtifactStore | undefined;
+  getSkillRepository?: () => SkillCatalogRepository | undefined;
+  getSkillArtifactStore?: () => SkillArtifactStore | undefined;
   opsRepository?: OpsRepository;
   getOpsRepository?: () => OpsRepository;
 }

@@ -71,7 +71,6 @@ import type {
   WorkspaceSnapshot,
 } from '../../../../domain/sandbox/sandbox.js';
 import type { AgentSession } from '../../../../domain/sessions/sessions.js';
-import { PostgresSkillCatalogRepository } from './skill-repository.postgres.js';
 import type { ToolCatalogItem } from '../../../../domain/tools/tools.js';
 import type { ExternalRef } from '../../../../shared/ids/branded-id.js';
 import * as pgSchema from '../schema/schema.js';
@@ -81,6 +80,7 @@ import {
   PostgresAgentSessionSummaryRepository,
   PostgresProviderSessionRepository,
 } from './session-repositories.postgres.js';
+import { PostgresSkillCatalogRepository } from './skill-repository.postgres.js';
 
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;

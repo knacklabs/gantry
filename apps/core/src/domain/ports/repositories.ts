@@ -52,13 +52,8 @@ import type {
 } from '../sessions/sessions.js';
 import type {
   AgentSkillBinding,
-  ResolvedAgentSkillVersion,
-  SkillAsset,
   SkillCatalogItem,
   SkillId,
-  SkillRegistryEvent,
-  SkillVersion,
-  SkillVersionId,
 } from '../skills/skills.js';
 import type { ToolCatalogItem, ToolId } from '../tools/tools.js';
 
@@ -241,45 +236,28 @@ export interface ToolCatalogRepository {
 }
 
 export interface SkillCatalogRepository {
-  listSkills(appId: AppId): Promise<SkillCatalogItem[]>;
   getSkill(id: SkillId): Promise<SkillCatalogItem | null>;
+  listSkills(input: {
+    appId: AppId;
+    agentId?: AgentId;
+    statuses?: SkillCatalogItem['status'][];
+  }): Promise<SkillCatalogItem[]>;
   saveSkill(item: SkillCatalogItem): Promise<void>;
-  updateSkill(input: {
-    appId: AppId;
-    id: SkillId;
-    patch: Partial<Pick<SkillCatalogItem, 'name' | 'description' | 'status'>>;
-    updatedAt: string;
-  }): Promise<SkillCatalogItem | null>;
-  saveSkillVersion(version: SkillVersion, assets: SkillAsset[]): Promise<void>;
-  getSkillVersion(id: SkillVersionId): Promise<SkillVersion | null>;
-  listSkillVersions(skillId: SkillId): Promise<SkillVersion[]>;
-  listSkillAssets(skillVersionId: SkillVersionId): Promise<SkillAsset[]>;
-  updateSkillVersionApproval(input: {
-    skillId: SkillId;
-    versionId: SkillVersionId;
-    approvalStatus: SkillVersion['approvalStatus'];
-  }): Promise<SkillVersion | null>;
   saveAgentSkillBinding(binding: AgentSkillBinding): Promise<void>;
-  getAgentSkillBinding(input: {
+  disableAgentSkillBinding(input: {
     appId: AppId;
-    agentId: AgentSkillBinding['agentId'];
+    agentId: AgentId;
     skillId: SkillId;
+    updatedAt: string;
   }): Promise<AgentSkillBinding | null>;
   listAgentSkillBindings(input: {
     appId: AppId;
-    agentId: AgentSkillBinding['agentId'];
+    agentId: AgentId;
   }): Promise<AgentSkillBinding[]>;
-  disableAgentSkillBinding(input: {
+  listEnabledSkillsForAgent(input: {
     appId: AppId;
-    agentId: AgentSkillBinding['agentId'];
-    skillId: SkillId;
-    updatedAt: string;
-  }): Promise<AgentSkillBinding | null>;
-  resolveEnabledSkillVersionsForAgent(input: {
-    appId: AppId;
-    agentId: AgentSkillBinding['agentId'];
-  }): Promise<ResolvedAgentSkillVersion[]>;
-  recordSkillRegistryEvent(event: SkillRegistryEvent): Promise<void>;
+    agentId: AgentId;
+  }): Promise<SkillCatalogItem[]>;
 }
 
 export interface PermissionRepository {

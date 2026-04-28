@@ -237,7 +237,10 @@ npm run test:e2e
 
 ## Shipped Chat Skills
 
-Skills are agent instructions bundled into the npm package and synced into `~/myclaw/.claude/skills/`.
+Skills are agent instructions bundled into the npm package or uploaded as
+reviewable skill zips. Runtime copies approved skills into a temporary per-run
+Claude config directory; runtime-home `.claude/skills` is not the durable source
+of truth.
 
 | Skill          | Purpose                                                               |
 | -------------- | --------------------------------------------------------------------- |
@@ -331,7 +334,8 @@ Examples:
 - "Add a morning greeting flow."
 - "Store weekly conversation summaries."
 
-Reusable guided workflows can be added as skills under `~/myclaw/.claude/skills/`.
+Reusable guided workflows can be uploaded as skill zips with `SKILL.md`, then
+approved and bound to agents.
 
 ## Contributing
 

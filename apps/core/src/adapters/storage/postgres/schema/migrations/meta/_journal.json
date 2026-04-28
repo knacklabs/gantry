@@ -110,8 +110,8 @@
     {
       "idx": 15,
       "version": "7",
-      "when": 1777043400000,
-      "tag": "0015_skill_registry_v1",
+      "when": 1777039800000,
+      "tag": "0015_skill_draft_artifacts",
       "breakpoints": true
     }
   ]

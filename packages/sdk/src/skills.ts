@@ -1,140 +1,87 @@
-type SkillTransport = {
+type TransportLike = {
   request<T>(options: {
     method: string;
     path: string;
     body?: unknown;
+    contentType?: string;
   }): Promise<T>;
 };
 
-type SkillAssetInput = {
-  path: string;
-  contentType?: string;
-  contentBase64: string;
-};
-
-type CreateSkillInput = {
+type UploadSkillDraftInput = {
   appId?: string;
-  name: string;
-  description?: string;
-  source?: 'bundled' | 'admin_uploaded' | 'marketplace' | 'system';
-};
-
-type UpdateSkillInput = {
-  appId?: string;
-  name?: string;
-  description?: string | null;
-  status?: 'active' | 'disabled' | 'deprecated';
-};
-
-type CreateSkillVersionInput = {
-  appId?: string;
-  version?: string;
-  entrypoint?: string;
-  manifestJson?: string;
+  agentId?: string;
   createdBy?: string;
-  assets: SkillAssetInput[];
+  zip: Uint8Array;
 };
 
-export function createAgentSkillsClient(transport: SkillTransport) {
+export function createSkillDraftsClient(transport: TransportLike) {
   return {
-    list: (agentId: string, input: { appId?: string } = {}) => {
+    upload: (input: UploadSkillDraftInput) => {
       const params = new URLSearchParams();
       if (input.appId) params.set('appId', input.appId);
-      return transport.request<{ skills: unknown[] }>({
-        method: 'GET',
-        path: `/v1/agents/${encodeURIComponent(agentId)}/skills${params.toString() ? `?${params}` : ''}`,
+      if (input.agentId) params.set('agentId', input.agentId);
+      if (input.createdBy) params.set('createdBy', input.createdBy);
+      return transport.request<Record<string, unknown>>({
+        method: 'POST',
+        path: `/v1/skills/drafts/upload${params.toString() ? `?${params}` : ''}`,
+        body: input.zip,
+        contentType: 'application/zip',
       });
     },
+    list: (input: { agentId?: string } = {}) => {
+      const params = new URLSearchParams();
+      if (input.agentId) params.set('agentId', input.agentId);
+      return transport.request<{ drafts: unknown[] }>({
+        method: 'GET',
+        path: `/v1/skills/drafts${params.toString() ? `?${params}` : ''}`,
+      });
+    },
+    approve: (
+      skillId: string,
+      input: {
+        appId?: string;
+        approvedBy?: string;
+        target?: 'local' | 'hosted';
+      } = {},
+    ) =>
+      transport.request<Record<string, unknown>>({
+        method: 'POST',
+        path: `/v1/skills/drafts/${encodeURIComponent(skillId)}/approve`,
+        body: input,
+      }),
+    reject: (
+      skillId: string,
+      input: { appId?: string; rejectedBy?: string } = {},
+    ) =>
+      transport.request<Record<string, unknown>>({
+        method: 'POST',
+        path: `/v1/skills/drafts/${encodeURIComponent(skillId)}/reject`,
+        body: input,
+      }),
+  };
+}
+
+export function createAgentSkillsClient(transport: TransportLike) {
+  return {
+    list: (agentId: string) =>
+      transport.request<{ bindings: unknown[] }>({
+        method: 'GET',
+        path: `/v1/agents/${encodeURIComponent(agentId)}/skills`,
+      }),
     enable: (
       agentId: string,
       skillId: string,
-      input: { appId?: string; skillVersionId?: string } = {},
+      input: { appId?: string } = {},
     ) =>
       transport.request<Record<string, unknown>>({
         method: 'PUT',
         path: `/v1/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(skillId)}`,
         body: input,
       }),
-    disable: (
-      agentId: string,
-      skillId: string,
-      input: { appId?: string } = {},
-    ) => {
-      const params = new URLSearchParams();
-      if (input.appId) params.set('appId', input.appId);
-      return transport.request<{ disabled: boolean; binding?: unknown }>({
+    disable: (agentId: string, skillId: string) =>
+      transport.request<{ disabled: boolean; binding?: unknown }>({
         method: 'DELETE',
-        path: `/v1/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(skillId)}${params.toString() ? `?${params}` : ''}`,
-      });
-    },
-  };
-}
-
-export function createSkillsClient(transport: SkillTransport) {
-  return {
-    list: (input: { appId?: string } = {}) => {
-      const params = new URLSearchParams();
-      if (input.appId) params.set('appId', input.appId);
-      return transport.request<{ skills: unknown[] }>({
-        method: 'GET',
-        path: `/v1/skills${params.toString() ? `?${params}` : ''}`,
-      });
-    },
-    create: (input: CreateSkillInput) =>
-      transport.request<Record<string, unknown>>({
-        method: 'POST',
-        path: '/v1/skills',
-        body: input,
+        path: `/v1/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(skillId)}`,
       }),
-    get: (skillId: string, input: { appId?: string } = {}) => {
-      const params = new URLSearchParams();
-      if (input.appId) params.set('appId', input.appId);
-      return transport.request<Record<string, unknown>>({
-        method: 'GET',
-        path: `/v1/skills/${encodeURIComponent(skillId)}${params.toString() ? `?${params}` : ''}`,
-      });
-    },
-    update: (skillId: string, patch: UpdateSkillInput) =>
-      transport.request<Record<string, unknown>>({
-        method: 'PATCH',
-        path: `/v1/skills/${encodeURIComponent(skillId)}`,
-        body: patch,
-      }),
-    versions: {
-      create: (skillId: string, input: CreateSkillVersionInput) =>
-        transport.request<Record<string, unknown>>({
-          method: 'POST',
-          path: `/v1/skills/${encodeURIComponent(skillId)}/versions`,
-          body: input,
-        }),
-      list: (skillId: string, input: { appId?: string } = {}) => {
-        const params = new URLSearchParams();
-        if (input.appId) params.set('appId', input.appId);
-        return transport.request<{ versions: unknown[] }>({
-          method: 'GET',
-          path: `/v1/skills/${encodeURIComponent(skillId)}/versions${params.toString() ? `?${params}` : ''}`,
-        });
-      },
-      approve: (
-        skillId: string,
-        versionId: string,
-        input: { appId?: string } = {},
-      ) =>
-        transport.request<Record<string, unknown>>({
-          method: 'POST',
-          path: `/v1/skills/${encodeURIComponent(skillId)}/versions/${encodeURIComponent(versionId)}/approve`,
-          body: input,
-        }),
-      reject: (
-        skillId: string,
-        versionId: string,
-        input: { appId?: string } = {},
-      ) =>
-        transport.request<Record<string, unknown>>({
-          method: 'POST',
-          path: `/v1/skills/${encodeURIComponent(skillId)}/versions/${encodeURIComponent(versionId)}/reject`,
-          body: input,
-        }),
-    },
   };
 }

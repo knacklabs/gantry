@@ -54,6 +54,7 @@ function usage(): string {
     '  myclaw channel connect <telegram|slack>',
     '  myclaw channel list',
     '  myclaw channel doctor',
+    '  myclaw skill draft upload <skill.zip> [--agent <agentId>] [--created-by <id>]',
     '',
     'Options:',
     '  --runtime-home <path>   Override runtime home (default: ~/myclaw)',
@@ -424,6 +425,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === 'memory') {
     const { runMemoryCommand } = await import('./memory.js');
     return runMemoryCommand(runtimeHome, rest);
+  }
+
+  if (command === 'skill') {
+    const { runSkillCommand } = await import('./skills.js');
+    return runSkillCommand(runtimeHome, rest);
   }
 
   if (command === 'start') {

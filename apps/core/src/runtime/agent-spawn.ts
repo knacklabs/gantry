@@ -22,12 +22,12 @@ import {
   captureClaudeArtifacts,
   materializeClaudeRuntime,
 } from '../adapters/llm/anthropic-claude-agent/claude-config-materializer.js';
-import { RegistryClaudeSkillSource } from '../adapters/llm/anthropic-claude-agent/claude-skill-materializer.js';
-import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
 import {
-  DEFAULT_AGENT_ID,
-  DEFAULT_APP_ID,
-} from '../adapters/storage/postgres/seeds.js';
+  ArtifactClaudeSkillSource,
+  BundledClaudeSkillSource,
+  CompositeSkillSource,
+  type SkillSource,
+} from '../adapters/llm/anthropic-claude-agent/claude-skill-materializer.js';
 import { ensureGroupIpcLayout } from './agent-spawn-layout.js';
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
 import {
@@ -149,24 +149,37 @@ export async function spawnAgent(
     const packageRoot = resolvePackageRootFromSourceDir(
       path.dirname(hostRunnerPath),
     );
+    const skillSources: SkillSource[] = [
+      new BundledClaudeSkillSource(packageRoot),
+    ];
+    if (
+      options?.skillRepository &&
+      options.skillArtifactStore &&
+      options.skillContext?.appId &&
+      options.skillContext.agentId
+    ) {
+      skillSources.push(
+        new ArtifactClaudeSkillSource(
+          options.skillRepository,
+          options.skillArtifactStore,
+          {
+            appId: options.skillContext.appId as never,
+            agentId: options.skillContext.agentId as never,
+          },
+        ),
+      );
+    }
     claudeRuntimeMaterialization = await materializeClaudeRuntime({
       groupDir,
       cliEntryPoint: path.join(packageRoot, 'dist', 'cli', 'index.js'),
       packageRoot,
+      skillSource: new CompositeSkillSource(skillSources),
       sessionId: input.sessionId,
       settings: {
         model: normalizeClaudeModelSelection(input.model || modelConfig.model),
       },
       providerArtifactStore: options?.providerArtifactStore,
       artifactContext: options?.providerArtifactContext,
-      skillSource: new RegistryClaudeSkillSource(
-        getRuntimeStorage().repositories.skills,
-        getRuntimeStorage().skillAssets,
-        {
-          appId: DEFAULT_APP_ID as never,
-          agentId: DEFAULT_AGENT_ID as never,
-        },
-      ),
     });
   } catch (err) {
     return {

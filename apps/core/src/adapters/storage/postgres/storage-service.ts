@@ -9,7 +9,7 @@ import { Pool, type PoolConfig } from 'pg';
 
 import { isLocalPostgresHost, parsePostgresConnectionUrl } from './url.js';
 import * as pgSchema from './schema/schema.js';
-import { seedBundledSkills, seedDefaultRuntimeData } from './seeds.js';
+import { seedDefaultRuntimeData } from './seeds.js';
 
 const storageDir = path.dirname(fileURLToPath(import.meta.url));
 export const postgresMigrationsFolder = path.join(
@@ -38,11 +38,6 @@ export interface ResolvedStorageConfig {
   postgresUrl: string | null;
   postgresUrlEnv: string;
   postgresSchema: string;
-}
-
-export interface SkillSeedOptions {
-  artifactRoot: string;
-  packageRoot: string;
 }
 
 export function quotePostgresIdentifier(identifier: string): string {
@@ -91,7 +86,6 @@ export class PostgresStorageService implements StorageService {
   constructor(
     private readonly url: string,
     private readonly schemaName: string,
-    private readonly skillSeedOptions?: SkillSeedOptions,
   ) {
     this.pool = new Pool(resolvePostgresPoolConfig(url, schemaName));
     this.db = drizzlePg(this.pool, { schema: pgSchema });
@@ -106,13 +100,6 @@ export class PostgresStorageService implements StorageService {
       migrationsSchema: this.schemaName,
     });
     await seedDefaultRuntimeData(this.db);
-    if (this.skillSeedOptions) {
-      await seedBundledSkills({
-        db: this.db,
-        artifactRoot: this.skillSeedOptions.artifactRoot,
-        packageRoot: this.skillSeedOptions.packageRoot,
-      });
-    }
     await this.migratePgBoss();
   }
 
@@ -171,14 +158,9 @@ export class PostgresStorageService implements StorageService {
 
 export function createStorageService(
   config: ResolvedStorageConfig,
-  skillSeedOptions?: SkillSeedOptions,
 ): PostgresStorageService {
   if (!config.postgresUrl?.trim()) {
     throw new Error(`${config.postgresUrlEnv} is required for runtime storage`);
   }
-  return new PostgresStorageService(
-    config.postgresUrl,
-    config.postgresSchema,
-    skillSeedOptions,
-  );
+  return new PostgresStorageService(config.postgresUrl, config.postgresSchema);
 }
