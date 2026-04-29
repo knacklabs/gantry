@@ -11,6 +11,7 @@ import {
   DEFAULT_AGENT_SESSION_RECENT_MESSAGE_LIMIT,
   DEFAULT_AGENT_SESSION_SUMMARY_AFTER_MESSAGES,
   DEFAULT_AGENT_SESSION_SUMMARY_AFTER_RUNS,
+  DEFAULT_AGENT_NAME,
   DEFAULT_EMBED_MODEL,
   DEFAULT_ONECLI_URL,
   DEFAULT_ONECLI_DATABASE_URL_ENV,
@@ -256,6 +257,7 @@ function parseCredentialBrokerSettings(
 function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
   if (raw === undefined) {
     return {
+      name: DEFAULT_AGENT_NAME,
       defaultModel: '',
       sessions: {
         recentMessageLimit: DEFAULT_AGENT_SESSION_RECENT_MESSAGE_LIMIT,
@@ -271,9 +273,9 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
   }
   const map = raw as Record<string, unknown>;
   for (const key of Object.keys(map)) {
-    if (key !== 'default_model' && key !== 'sessions') {
+    if (key !== 'name' && key !== 'default_model' && key !== 'sessions') {
       throw new Error(
-        `agent.${key} is not supported. Configure agent.default_model or agent.sessions.*.`,
+        `agent.${key} is not supported. Configure agent.name, agent.default_model, or agent.sessions.*.`,
       );
     }
   }
@@ -300,6 +302,7 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
     }
   }
   return {
+    name: parseStringValue(map.name, 'agent.name', DEFAULT_AGENT_NAME),
     defaultModel:
       map.default_model === undefined
         ? ''

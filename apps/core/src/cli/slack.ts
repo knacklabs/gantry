@@ -17,6 +17,12 @@ import {
   ensureRuntimeLayout,
 } from '../config/settings/runtime-home.js';
 import {
+  allocateMainAgentFolder,
+  MAIN_AGENT_NAME,
+  defaultTriggerForAgentName,
+  normalizeMainAgentName,
+} from './main-agent.js';
+import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
@@ -51,10 +57,10 @@ function defaultGroupClaudeMarkdown(): string {
     '',
     'You are the assistant for this Slack chat.\nKeep responses clear, short, and useful.',
     '',
-    '## Static Chat Guidance\n\nThis file is for stable, Slack-specific instructions only.\nDynamic task state, open commitments, and remembered facts come from the injected memory/continuity brief.\nDo not duplicate current task progress, raw logs, or remembered facts here.',
+    '## Static Chat Guidance\n\nThis file is for stable, Slack-specific instructions only.\nDynamic task state, open commitments, and remembered facts come from query-retrieved memory context and explicit memory_search calls.\nDo not duplicate current task progress, raw logs, or remembered facts here.',
     '',
     'Rules:',
-    '- Answer directly unless the user asks for detail.\n- Be explicit when an action failed and what to do next.\n- Avoid exposing secrets, tokens, or local machine paths unless requested.\n- When the user says "continue", use the injected memory/continuity brief before guessing.',
+    '- Answer directly unless the user asks for detail.\n- Be explicit when an action failed and what to do next.\n- Avoid exposing secrets, tokens, or local machine paths unless requested.\n- When the user says "continue", call memory_search before guessing.',
     '',
   ].join('\n');
 }
@@ -82,7 +88,7 @@ function defaultSoulMarkdown(agentName: string): string {
     '## Continuity Boundary',
     '- Your personality lives here.',
     '- Durable facts, user preferences, task state, and open commitments do not live here.',
-    '- Use the injected memory/continuity brief for remembered context.',
+    '- Use query-retrieved memory context and memory_search for remembered context.',
     '',
     '## Identity',
     `- **Name:** ${agentName}`,
@@ -387,24 +393,6 @@ export async function verifySlackChatAccess(options: {
   }
 }
 
-function buildGroupFolder(
-  runtimeHome: string,
-  existing: Record<string, { folder: string }>,
-): string {
-  const used = new Set(Object.values(existing).map((group) => group.folder));
-  const hasOnDiskFolder = (folder: string): boolean =>
-    fs.existsSync(path.join(runtimeHome, 'agents', folder));
-
-  if (!used.has('slack_main') && !hasOnDiskFolder('slack_main')) {
-    return 'slack_main';
-  }
-  for (let i = 2; i < 1000; i += 1) {
-    const candidate = `slack_main_${i}`;
-    if (!used.has(candidate) && !hasOnDiskFolder(candidate)) return candidate;
-  }
-  return `slack_main_${Date.now()}`;
-}
-
 export async function registerSlackMainGroup(options: {
   runtimeHome: string;
   chatJid: string;
@@ -416,9 +404,10 @@ export async function registerSlackMainGroup(options: {
     const existing = await db.getAllRegisteredGroups();
     const existingGroup = existing[options.chatJid];
     const folder =
-      existingGroup?.folder || buildGroupFolder(options.runtimeHome, existing);
+      existingGroup?.folder ||
+      allocateMainAgentFolder(options.runtimeHome, existing);
 
-    const groupName = options.displayName.trim() || 'Slack Main';
+    const groupName = normalizeMainAgentName(options.displayName);
 
     const groupDir = path.join(options.runtimeHome, 'agents', folder);
     fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
@@ -435,7 +424,7 @@ export async function registerSlackMainGroup(options: {
     await db.setRegisteredGroup(options.chatJid, {
       name: groupName,
       folder,
-      trigger: '@Andy',
+      trigger: existingGroup?.trigger || defaultTriggerForAgentName(groupName),
       added_at: existingGroup?.added_at || new Date().toISOString(),
       requiresTrigger: false,
       isMain: true,
@@ -548,11 +537,11 @@ export async function runSlackConnectCommand(
     const registered = await registerSlackMainGroup({
       runtimeHome,
       chatJid: normalizedChatJid,
-      displayName: access.chatTitle || 'Slack Main',
+      displayName: loadRuntimeSettings(runtimeHome).agent.name,
     });
 
     p.log.success(
-      `Registered Slack main group ${registered.groupName} (${normalizedChatJid}) in folder ${registered.folder}.`,
+      `Registered ${registered.groupName} for Slack conversation ${normalizedChatJid} in folder ${registered.folder}.`,
     );
   }
 

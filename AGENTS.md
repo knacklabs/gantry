@@ -33,6 +33,7 @@ Use `python3 .codex/scripts/stage_orchestrator.py` to get current phase commands
 
 Important constraints:
 
+- First-run channel setup creates one user-facing main agent named by `settings.yaml agent.name` (default `Main Agent`); Telegram/Slack chat IDs and runtime folders such as `main_agent` are internal routing details, not the agent name.
 - `/new` clears persisted session state but preserves the group model override.
 - Transcript archive during `/new` is best-effort and must not block reset success.
 - Durable memory lives under the configured memory root; do not load `~/myclaw/agents/<folder>/memory/`.
@@ -79,6 +80,8 @@ Important constraints:
 - Discover and document exact verification commands before changing implementation behavior.
 - Run the smallest relevant checks after each change.
 - Run full checks at the end of a phase.
+- Before manual runtime validation against `~/myclaw`, make code/runtime parity explicit: run the current build, stop or restart the service from this checkout, confirm `myclaw status` reports the expected runtime entry/PID, and treat old logs, IPC files, Claude config, SQLite stores, and smoke-test folders as stale unless they were generated after the restart.
+- For local runtime cleanup, archive stale generated state under `~/myclaw/cleanup-archive/<timestamp>/` instead of deleting it. Keep active secrets, `settings.yaml`, Postgres data, OneCLI data, approved artifacts, and the active agent folders unless the user explicitly asks for a fresh database or credential reset.
 - Architecture exceptions must be time-bounded ratchets with max counts; never relax the checker globally to hide new debt.
 - For replacement or cutover work, include a cleanup verification step that searches for stale active references and records the result before final response or PR handoff.
 - Use [docs/architecture/current-verification-commands.md](docs/architecture/current-verification-commands.md) as the command reference.

@@ -39,6 +39,7 @@ const CLASSIFIED_KEYS: Record<string, ClassifiedConfigKey> = {
     'SLACK_PERMISSION_APPROVER_IDS',
     'settings.yaml channels.slack.control_allowlist',
   ),
+  ASSISTANT_NAME: setting('ASSISTANT_NAME', 'settings.yaml agent.name'),
   ANTHROPIC_MODEL: setting(
     'ANTHROPIC_MODEL',
     'settings.yaml agent.default_model',

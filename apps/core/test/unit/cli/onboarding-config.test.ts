@@ -35,6 +35,7 @@ function baseInput(runtimeHome: string) {
     telegramPermissionApproverIds: '123',
     credentialMode: 'onecli' as const,
     onecliUrl: 'http://localhost:10254',
+    agentName: 'Kai',
     anthropicModel: 'sonnet',
     memoryEnabled: true,
     embeddingsEnabled: false,
@@ -84,6 +85,7 @@ describe('onboarding config persistence', () => {
     const settings = loadRuntimeSettingsFromPath(settingsFilePath(runtimeHome));
     expect(settings.credentialBroker.mode).toBe('onecli');
     expect(settings.credentialBroker.onecli.url).toBe('http://localhost:10254');
+    expect(settings.agent.name).toBe('Kai');
     expect(settings.agent.defaultModel).toBe('sonnet');
   });
 

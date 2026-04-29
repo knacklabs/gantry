@@ -14,6 +14,7 @@ export interface BuildMemoryContextInput {
   groupFolder: string;
   chatJid: string;
   source: MemoryContextSource;
+  query?: string;
   userId?: string;
   threadId?: string;
   maxItems?: number;
@@ -125,7 +126,8 @@ function buildStructuredUntrustedMemoryData(
   const userId = normalizeId(input.userId);
   const threadId = normalizeId(input.threadId);
   const mode = inferConversationMode(input.chatJid);
-  const records = (brief.trim() || 'No durable memory available yet.')
+  const records = brief
+    .trim()
     .split('\n')
     .map((line) => sanitizeUntrustedMemoryText(line))
     .filter(Boolean)
@@ -138,9 +140,10 @@ function buildStructuredUntrustedMemoryData(
     schema: 'myclaw.memory_context.v3',
     trust: 'untrusted_data_only',
     provenance: 'durable_memory_store',
-    use: 'continuity_evidence_only',
+    use: 'query_retrieved_memory_evidence_only',
     envelope: {
       source: input.source,
+      retrieval: 'query_scoped',
       app_id: DEFAULT_MEMORY_APP_ID,
       agent_id: memoryAgentIdForGroupFolder(input.groupFolder),
       group_id: input.groupFolder,
@@ -174,6 +177,8 @@ export async function createInjectedMemoryContextBlock(
 ): Promise<PreparedMemoryContext | null> {
   try {
     const userId = normalizeId(input.userId);
+    const query = normalizeId(input.query);
+    if (!query) return null;
     const service = AppMemoryService.getInstance();
     if (!service.isEnabled()) return null;
     const memories = await service.search({
@@ -181,10 +186,12 @@ export async function createInjectedMemoryContextBlock(
       agentId: memoryAgentIdForGroupFolder(input.groupFolder),
       groupId: input.groupFolder,
       channelId: input.chatJid,
+      query,
       userId,
       threadId: normalizeId(input.threadId),
       limit: input.maxItems ?? DEFAULT_MEMORY_BRIEF_ITEMS,
     });
+    if (memories.length === 0) return null;
     const brief = memories
       .map(({ item }) =>
         [`[${item.subjectType}:${item.subjectId}]`, item.key, item.value]

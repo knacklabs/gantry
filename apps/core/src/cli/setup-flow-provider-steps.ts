@@ -12,6 +12,7 @@ import {
   validateTelegramBotToken,
   verifyTelegramChatAccess,
 } from './telegram.js';
+import { MAIN_AGENT_NAME } from './main-agent.js';
 import { listTelegramRecentChats } from './telegram-chat-discovery.js';
 import {
   type FlowAction,
@@ -315,34 +316,11 @@ export async function runTelegramStep(draft: SetupDraft): Promise<FlowAction> {
       return { type: 'cancel' };
     }
     chatCheckSpinner.stop(chatAccess.message);
-    if (
-      !draft.telegramDisplayName ||
-      draft.telegramDisplayName === 'Telegram Main'
-    ) {
-      draft.telegramDisplayName =
-        chatAccess.chatTitle || draft.telegramDisplayName;
-    }
-
-    const defaultGroupName = draft.telegramDisplayName || 'Telegram Main';
-    const groupName = await p.text({
-      message:
-        'Choose a name for this Telegram chat in MyClaw (/back, /resume, /cancel)',
-      defaultValue: defaultGroupName,
-      validate: (value) => {
-        const trimmed = String(value ?? '').trim();
-        if (isInputFlowControl(trimmed)) return undefined;
-        if (!trimmed && defaultGroupName) return undefined;
-        if (!trimmed) return 'Group name is required.';
-        return undefined;
-      },
-    });
-    if (p.isCancel(groupName)) return { type: 'resume' };
-    const groupNameControl = parseInputFlowControl(groupName);
-    if (groupNameControl) return groupNameControl;
-    draft.telegramDisplayName = String(groupName).trim() || defaultGroupName;
+    draft.telegramDisplayName = draft.agentName || MAIN_AGENT_NAME;
 
     p.note(
       [
+        `Agent: ${draft.agentName || MAIN_AGENT_NAME}`,
         `Bot: ${draft.telegramBotUsername ? `@${draft.telegramBotUsername}` : 'Configured'}`,
         `Chat: ${draft.telegramChatJid}`,
         `Session admin: ${
@@ -637,9 +615,7 @@ export async function runSlackStep(draft: SetupDraft): Promise<FlowAction> {
       if (retryChoice === 'resume') return { type: 'resume' };
       return { type: 'cancel' };
     }
-    if (!draft.slackDisplayName || draft.slackDisplayName === 'Slack Main') {
-      draft.slackDisplayName = access.chatTitle || draft.slackDisplayName;
-    }
+    draft.slackDisplayName = MAIN_AGENT_NAME;
 
     const approverInput = await p.text({
       message:
@@ -655,28 +631,10 @@ export async function runSlackStep(draft: SetupDraft): Promise<FlowAction> {
       String(approverInput),
     );
 
-    const defaultGroupName = draft.slackDisplayName || 'Slack Main';
-    const groupName = await p.text({
-      message:
-        'Choose a name for this Slack chat in MyClaw (/back, /resume, /cancel)',
-      defaultValue: defaultGroupName,
-      validate: (value) => {
-        const trimmed = String(value ?? '').trim();
-        if (isInputFlowControl(trimmed)) return undefined;
-        if (!trimmed && defaultGroupName) return undefined;
-        if (!trimmed) return 'Group name is required.';
-        return undefined;
-      },
-    });
-    if (p.isCancel(groupName)) return { type: 'resume' };
-    const groupNameControl = parseInputFlowControl(groupName);
-    if (groupNameControl) return groupNameControl;
-    draft.slackDisplayName = String(groupName).trim() || defaultGroupName;
-
     p.note(
       [
+        `Agent: ${draft.agentName || MAIN_AGENT_NAME}`,
         `Conversation: ${draft.slackChatJid}`,
-        `Name: ${draft.slackDisplayName}`,
         `Permission approvers: ${draft.slackPermissionApproverIds}`,
       ].join('\n'),
       'Slack',

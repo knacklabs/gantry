@@ -1,15 +1,19 @@
 # Agent Continuity
 
-Agent continuity is MyClaw's ability to help the next agent turn understand where the work stands without replaying raw chat history.
+Agent continuity is MyClaw's ability to resume explicit session/current-work
+state without replaying raw chat history.
 
 Continuity is not the same as memory.
 
 - **Memory** stores durable knowledge: facts, preferences, decisions, corrections, constraints, and reusable procedures.
-- **Continuity** turns remembered context into a working brief: what is active, what was decided, what matters now, and what should not be rediscovered.
+- **Query-retrieved memory context** is the bounded memory evidence that matches the current user message or scheduled job prompt.
+- **Continuity** is explicit resume/current-work state, such as provider session resume, current state, open commitments, and recent digest context.
 
 ## Why This Exists
 
-A useful personal assistant should not start from zero after `/new`, compaction, restart, or a scheduled job. It should know enough to continue work safely:
+A useful personal assistant should not lose durable knowledge after `/new`,
+compaction, restart, or a scheduled job. It should retrieve enough relevant
+context to continue work safely when the current request asks for it:
 
 - what the current task is
 - which decisions are already settled
@@ -36,13 +40,16 @@ MyClaw currently has these layers:
    - Postgres full-text search for lexical recall
    - `pgvector` for semantic recall when embeddings are enabled
 
-3. Hook-driven continuity context
-   - Session hooks load a concise memory brief at session boundaries.
-   - Host runtime also injects a fresh continuity block for every run.
+3. Query-scoped memory retrieval
+   - Host runtime uses the current message or scheduled job prompt as the memory retrieval query.
+   - Matching memories are injected as untrusted evidence.
+   - If no memory matches, no memory block is injected.
    - The agent can call memory MCP tools during the run.
    - After successful boundaries, extraction writes durable memories.
 
-This gives the baseline for continuity today: remembered facts and relevant context can be injected into the next run.
+This gives the baseline today: durable facts are available, but a fresh session
+does not silently continue an old chat unless the current user request or
+agent-initiated `memory_search` retrieves relevant context.
 
 ## Target Continuity Model
 
@@ -144,7 +151,7 @@ Current user controls:
 
 - `myclaw status` for runtime state
 - `myclaw doctor` for health checks
-- `/new` to reset session state while preserving memory
+- `/new` to reset provider/session state while preserving memory, approved skills, MCP bindings, model choices, and agent configuration
 - `/compact` to archive the current transcript and continue
 - memory MCP tools available to agents: `memory_search`, `memory_save`, `memory_patch`, `procedure_save`, `procedure_patch`
 
@@ -162,6 +169,7 @@ Planned continuity controls:
 - If memory DB is unavailable, run without memory and report the health issue.
 - If context is stale, regenerate it instead of reusing old IPC files.
 - If a memory candidate contains secrets or raw logs, reject it.
+- If the user says "continue", "resume", or similar after `/new`, the agent should call `memory_search` instead of assuming hidden chat history.
 
 ## Acceptance Criteria
 

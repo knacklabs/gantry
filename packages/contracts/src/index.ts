@@ -13,6 +13,7 @@ export * from './permissions/index.js';
 export * from './runs/index.js';
 export * from './sandbox/index.js';
 export * from './sessions/index.js';
+export * from './settings/index.js';
 export * from './skills/index.js';
 export * from './streaming/index.js';
 export * from './tools/index.js';

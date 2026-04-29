@@ -8,11 +8,27 @@ import type {
   ChannelInstallationPatch,
 } from './channel-types.js';
 import { createAgentSkillsClient, createSkillDraftsClient } from './skills.js';
+import { createSettingsClient } from './settings.js';
+import type {
+  ClientOptions,
+  MemoryContext,
+  MemoryPatchInput,
+  MemorySaveInput,
+  MemorySearchInput,
+  RequestOptions,
+  SseEvent,
+} from './types.js';
+export type {
+  RuntimeSettingsResponse,
+  UpdateRuntimeSettingsRequest,
+  UpdateRuntimeSettingsResponse,
+} from './settings.js';
 import * as mcpServerClients from './mcp-servers.js';
 export type JobKind = 'manual' | 'once' | 'recurring';
 export type ResponseMode = 'sse' | 'webhook' | 'both' | 'none';
 export type MemorySubjectType = 'user' | 'group' | 'channel' | 'common';
 export type DreamPhase = 'light' | 'rem' | 'deep' | 'all';
+
 export interface MyClawError extends Error {
   code: string;
   details?: Record<string, unknown> | null;
@@ -21,69 +37,6 @@ export interface MyClawError extends Error {
   restartRequired?: boolean;
   nextAction?: string;
 }
-type ClientOptions = {
-  apiKey: string;
-  baseUrl?: string;
-  socketPath?: string;
-  timeoutMs?: number;
-};
-type RequestOptions = {
-  method: string;
-  path: string;
-  body?: unknown;
-  contentType?: string;
-  accept?: string;
-  signal?: AbortSignal;
-};
-type SseEvent = {
-  eventId: number;
-  eventType: string;
-  payload: unknown;
-};
-type MemoryContext = {
-  appId?: string;
-  agentId?: string;
-  userId?: string;
-  groupId?: string;
-  channelId?: string;
-  threadId?: string;
-};
-type MemorySaveInput = MemoryContext & {
-  subjectType?: MemorySubjectType;
-  subjectId?: string;
-  visibility?: MemorySubjectType;
-  kind?:
-    | 'preference'
-    | 'decision'
-    | 'fact'
-    | 'correction'
-    | 'constraint'
-    | 'project_fact'
-    | 'reference';
-  key: string;
-  value: string;
-  why?: string;
-  confidence?: number;
-  source?: string;
-  evidenceText?: string;
-  evidenceIds?: string[];
-  actorId?: string;
-};
-type MemorySearchInput = MemoryContext & {
-  query?: string;
-  limit?: number;
-  includeCommon?: boolean;
-  subjectTypes?: MemorySubjectType[];
-};
-type MemoryPatchInput = MemoryContext & {
-  expectedVersion?: number;
-  key?: string;
-  value?: string;
-  why?: string | null;
-  confidence?: number;
-  isPinned?: boolean;
-};
-
 function toError(input: unknown): MyClawError {
   const fallback = new Error('MyClaw request failed') as MyClawError;
   fallback.code = 'UNKNOWN_ERROR';
@@ -295,6 +248,8 @@ export class MyClawClient {
       path: '/v1/doctor',
     });
   }
+
+  readonly settings = createSettingsClient({ request: this.request });
 
   readonly sessions = {
     ensure: (input: {

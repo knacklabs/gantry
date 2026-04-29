@@ -10,7 +10,10 @@ import {
   processMemoryRequest,
   writeMemoryResponse,
 } from '../memory/memory-ipc.js';
-import { getIpcResponseSigningPrivateKey } from './ipc-auth.js';
+import {
+  computeIpcAuthToken,
+  getIpcResponseSigningPrivateKey,
+} from './ipc-auth.js';
 import {
   processBrowserIpcRequest,
   writeBrowserIpcResponse,
@@ -43,7 +46,7 @@ import {
 } from './ipc-parsing.js';
 import { parseTaskIpcData } from './ipc-task-parsing.js';
 import { clearConsumedIpcRequestIds } from './ipc-auth-validation.js';
-import type { RegisteredGroup } from '../domain/types.js';
+import type { RegisteredGroup as RuntimeGroupRecord } from '../domain/types.js';
 
 export type { IpcDeps } from './ipc-domain-types.js';
 export { processTaskIpc } from '../jobs/ipc-handler.js';
@@ -74,12 +77,12 @@ function canProcessIpcFile(sourceGroup: string, kind: string): boolean {
   return true;
 }
 
-export function resolveRegisteredIpcFolders(
-  registeredGroups: Record<string, RegisteredGroup>,
+export function resolveIpcFoldersFromGroups(
+  groupRegistry: Record<string, RuntimeGroupRecord>,
 ): string[] {
   return Array.from(
     new Set(
-      Object.values(registeredGroups)
+      Object.values(groupRegistry)
         .map((group) => group.folder)
         .filter((folder): folder is string => isValidGroupFolder(folder)),
     ),
@@ -177,8 +180,8 @@ export function startIpcWatcher(deps: IpcDeps): void {
 
   const processIpcFiles = async () => {
     if (!ipcWatcherRunning) return;
-    const registeredGroups = deps.registeredGroups();
-    const groupFolders = resolveRegisteredIpcFolders(registeredGroups);
+    const groupRegistry = deps.registeredGroups();
+    const groupFolders = resolveIpcFoldersFromGroups(groupRegistry);
 
     for (const folder of groupFolders) {
       const groupDir = path.join(ipcBaseDir, folder);
@@ -214,9 +217,9 @@ export function startIpcWatcher(deps: IpcDeps): void {
       }
     }
 
-    // Build folder→isMain lookup from registered groups
+    // Build folder→isMain lookup from known group records
     const folderIsMain = new Map<string, boolean>();
-    for (const group of Object.values(registeredGroups)) {
+    for (const group of Object.values(groupRegistry)) {
       if (group.isMain) folderIsMain.set(group.folder, true);
     }
 
@@ -262,7 +265,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
               const rawData = JSON.parse(fs.readFileSync(claimedPath, 'utf-8'));
               const data = parseIpcMessage(rawData, sourceGroup);
               // Authorization: verify this group can send to this chatJid
-              const targetGroup = registeredGroups[data.chatJid];
+              const targetGroup = groupRegistry[data.chatJid];
               if (
                 isMain ||
                 (targetGroup && targetGroup.folder === sourceGroup)
@@ -425,6 +428,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
             const filePath = path.join(browserRequestsDir, file);
             let claimedPath = filePath;
             let requestId: string | undefined;
+            let authThreadId: string | undefined;
             try {
               if (!canProcessIpcFile(sourceGroup, 'browser')) {
                 throw new Error('Browser IPC rate limit exceeded');
@@ -435,6 +439,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
               );
               const request = parseBrowserIpcRequest(rawRequest, sourceGroup);
               requestId = request.requestId;
+              authThreadId = request.threadId;
               const response = await processBrowserIpcRequest(request, {
                 sourceGroup,
                 isMain,
@@ -449,6 +454,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   error: response.error,
                 },
                 getIpcResponseSigningPrivateKey(sourceGroup, request.threadId),
+                computeIpcAuthToken(sourceGroup, request.threadId),
               );
               fs.unlinkSync(claimedPath);
             } catch (err) {
@@ -462,7 +468,8 @@ export function startIpcWatcher(deps: IpcDeps): void {
                       ok: false,
                       error: 'Failed to process browser request',
                     },
-                    getIpcResponseSigningPrivateKey(sourceGroup),
+                    getIpcResponseSigningPrivateKey(sourceGroup, authThreadId),
+                    computeIpcAuthToken(sourceGroup, authThreadId),
                   );
                 } catch (writeErr) {
                   logger.warn(

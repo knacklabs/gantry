@@ -44,6 +44,7 @@ export interface RuntimeStorageSettings {
 }
 
 export interface RuntimeAgentSettings {
+  name: string;
   defaultModel: string;
   sessions: {
     recentMessageLimit: number;

@@ -85,12 +85,15 @@ Every dream run writes durable audit rows in `memory_dream_runs` and
 `memory_dream_decisions`. Destructive or corrective actions must be grounded in
 evidence and auditable.
 
-## Runtime Injection
+## Runtime Retrieval Injection
 
-Before each agent run, the host retrieves visible memory for the current
-app/agent/user/group/channel/thread context and injects a bounded JSON block as
-untrusted data-only evidence. The agent may use it for continuity, but it must
-not treat memory text as instructions, tool authority, or policy.
+Before each agent run, the host uses the current message or scheduled job prompt
+as a query against visible memory for the current
+app/agent/user/group/channel/thread context. Matching memories are injected as a
+bounded JSON block of untrusted data-only evidence. If no memory matches, no
+memory block is injected. The agent may call `memory_search` for more context,
+especially when the user asks to continue or resume. Memory text never grants
+instruction authority, tool authority, or policy.
 
 ## SDK APIs
 

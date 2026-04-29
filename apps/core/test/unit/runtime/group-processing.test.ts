@@ -40,6 +40,7 @@ const mockBuildBrief = vi.fn();
 vi.mock('@core/memory/app-memory-service.js', () => ({
   AppMemoryService: {
     getInstance: () => ({
+      isEnabled: () => true,
       triggerDreaming: (...args: unknown[]) => mockRunDreamingSweep(...args),
       list: (...args: unknown[]) => mockGetMemoryStatus(...args),
       dreamingStatus: vi.fn(async () => []),
@@ -1012,6 +1013,55 @@ describe('createGroupProcessor', () => {
         'test-group',
         'expired-native-session',
         null,
+      );
+    });
+  });
+
+  describe('query-scoped memory context', () => {
+    it('uses the formatted current message batch as the memory retrieval query', async () => {
+      const { deps } = setupHappyPath();
+      mockBuildBrief.mockResolvedValueOnce([
+        {
+          item: {
+            subjectType: 'group',
+            subjectId: 'test-group',
+            key: 'style',
+            value: 'Use concise updates.',
+          },
+        },
+      ]);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(mockBuildBrief).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'default',
+          agentId: 'agent:test-group',
+          groupId: 'test-group',
+          channelId: 'group1@g.us',
+          query: 'formatted prompt',
+          limit: 8,
+        }),
+      );
+      expect(mockSpawnAgent.mock.calls[0][1]).toEqual(
+        expect.objectContaining({
+          memoryContextBlock: expect.stringContaining('Use concise updates.'),
+        }),
+      );
+    });
+
+    it('does not pass an injected memory block when query retrieval has no matches', async () => {
+      const { deps } = setupHappyPath();
+      mockBuildBrief.mockResolvedValueOnce([]);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(mockSpawnAgent.mock.calls[0][1]).toEqual(
+        expect.objectContaining({
+          memoryContextBlock: undefined,
+        }),
       );
     });
   });

@@ -22,6 +22,7 @@ function renderAgentSettingsYaml(
 ): void {
   lines.push(
     'agent:',
+    `  name: ${quoteYamlString(agent.name)}`,
     `  default_model: ${quoteYamlString(agent.defaultModel)}`,
     '  sessions:',
     `    recent_message_limit: ${agent.sessions.recentMessageLimit}`,

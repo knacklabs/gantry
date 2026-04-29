@@ -19,6 +19,7 @@ import {
   validateTelegramBotToken,
   verifyTelegramChatAccess,
 } from './telegram.js';
+import { MAIN_AGENT_NAME } from './main-agent.js';
 
 type TelegramChatChoice =
   | {
@@ -147,7 +148,7 @@ async function chooseChatFromDiscovery(
 
   spinner.stop(`Found ${discovery.chats.length} recent chats.`);
   const selected = await p.select({
-    message: 'Choose the Telegram chat to register as main',
+    message: 'Choose the Telegram chat for the Main Agent',
     options: [
       ...discovery.chats.slice(0, 15).map((chat) => ({
         value: chat.chatJid,
@@ -245,12 +246,12 @@ export async function runTelegramConnectCommand(
     const registered = await registerTelegramMainGroup({
       runtimeHome,
       chatJid: normalizedChatJid,
-      displayName: access.chatTitle || 'Telegram Main',
+      displayName: loadRuntimeSettings(runtimeHome).agent.name,
     });
     registeredFolder = registered.folder;
 
     p.log.success(
-      `Registered Telegram main group ${registered.groupName} (${normalizedChatJid}) in folder ${registered.folder}.`,
+      `Registered ${registered.groupName} for Telegram chat ${normalizedChatJid} in folder ${registered.folder}.`,
     );
   }
 

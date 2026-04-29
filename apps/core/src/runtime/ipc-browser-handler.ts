@@ -3,7 +3,10 @@ import path from 'path';
 
 import { BrowserIpcAction } from '@myclaw/contracts';
 
-import { signIpcResponsePayload } from '../infrastructure/ipc/response-signing.js';
+import {
+  signIpcResponseAuthPayload,
+  signIpcResponsePayload,
+} from '../infrastructure/ipc/response-signing.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
   DEFAULT_BROWSER_PROFILE_NAME,
@@ -160,6 +163,7 @@ export function writeBrowserIpcResponse(
   sourceGroup: string,
   response: { requestId: string; ok: boolean; data?: unknown; error?: string },
   privateKeyPem?: string,
+  responseSigningKey?: string,
 ): void {
   const responseDir = path.join(ipcBaseDir, sourceGroup, 'browser-responses');
   fs.mkdirSync(responseDir, { recursive: true });
@@ -171,7 +175,9 @@ export function writeBrowserIpcResponse(
     ...(response.data !== undefined ? { data: response.data } : {}),
     ...(response.error ? { error: response.error } : {}),
   };
-  const signature = signIpcResponsePayload(privateKeyPem, payload);
+  const signature =
+    signIpcResponseAuthPayload(responseSigningKey, payload) ||
+    signIpcResponsePayload(privateKeyPem, payload);
   if (signature) {
     payload.signature = signature;
   }

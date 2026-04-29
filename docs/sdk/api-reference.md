@@ -11,6 +11,29 @@ createClient({
 })
 ```
 
+## Settings
+
+The typed settings API exposes only allowlisted non-secret runtime settings. It
+does not expose raw `settings.yaml`, channel tokens, database URLs, or arbitrary
+nested patches.
+
+```ts
+client.settings.get()
+client.settings.update({
+  agent?: {
+    name?,
+    defaultModel?,
+  },
+  memory?: {
+    enabled?,
+    dreaming?: { enabled? },
+  },
+})
+```
+
+`PATCH /v1/settings` persists to `settings.yaml`, returns changed field paths,
+and reports `restartRequired`; it does not restart the runtime.
+
 ## Skills
 
 MyClaw exposes the reviewable lifecycle for agent-created skill drafts. The SDK
@@ -216,6 +239,9 @@ client.channels.conversations.messages(conversationId, {
 Control API scopes:
 
 ```http
+GET    /v1/settings                                sessions:read
+PATCH  /v1/settings                                agents:admin
+
 GET    /v1/channel-providers                       channels:read
 POST   /v1/channel-installations                   channels:admin
 GET    /v1/channel-installations                   channels:read

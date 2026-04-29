@@ -63,7 +63,7 @@ export async function chooseSlackChatForConnect(
 
   spinner.stop(`Found ${discovery.chats.length} Slack conversations.`);
   const selected = await p.select({
-    message: 'Choose the Slack conversation to register as main',
+    message: 'Choose the Slack conversation for the Main Agent',
     options: [
       ...discovery.chats.slice(0, 20).map((chat) => ({
         value: chat.chatJid,

@@ -78,6 +78,7 @@ enterprise credential broker, never in MyClaw `.env` or process env.
 | `credential_broker.mode`                       | `settings.yaml`                        |
 | `credential_broker.onecli.url`                 | `settings.yaml`                        |
 | `credential_broker.external.base_url`          | `settings.yaml`                        |
+| `agent.name`                                   | `settings.yaml`                        |
 | `agent.default_model`                          | `settings.yaml`                        |
 | `channels.slack.control_allowlist`             | `settings.yaml`                        |
 | `storage.postgres.url_env`                     | `settings.yaml`                        |

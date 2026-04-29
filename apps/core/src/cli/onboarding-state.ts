@@ -41,6 +41,7 @@ export interface OnboardingData {
   dreamingEnabled?: boolean;
   credentialMode?: HostCredentialMode;
   onecliUrl?: string;
+  agentName?: string;
   selectedModel?: string;
 }
 

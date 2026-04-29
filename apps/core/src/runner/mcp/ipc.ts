@@ -55,10 +55,15 @@ export function hasValidIpcResponseSignature(
   raw: Record<string, unknown>,
   payload: Record<string, unknown>,
 ): boolean {
-  if (!IPC_AUTH_TOKEN || !IPC_RESPONSE_VERIFY_KEY) return false;
+  if (!IPC_AUTH_TOKEN && !IPC_RESPONSE_VERIFY_KEY) return false;
   const signature =
     typeof raw.signature === 'string' ? raw.signature.trim() : '';
-  return verifyIpcResponsePayload(IPC_RESPONSE_VERIFY_KEY, payload, signature);
+  return verifyIpcResponsePayload(
+    IPC_RESPONSE_VERIFY_KEY,
+    IPC_AUTH_TOKEN,
+    payload,
+    signature,
+  );
 }
 
 export function readJsonArraySnapshot(filePath: string): unknown[] {
@@ -202,8 +207,8 @@ export async function requestBrowserAction(
           ...(typeof raw.error === 'string' ? { error: raw.error } : {}),
         };
         const payload: Record<string, unknown> = {
-          ok: data.ok,
           requestId,
+          ok: data.ok,
           ...(Object.prototype.hasOwnProperty.call(data, 'data')
             ? { data: data.data }
             : {}),

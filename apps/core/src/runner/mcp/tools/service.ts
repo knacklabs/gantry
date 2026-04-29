@@ -213,7 +213,7 @@ Use available_groups.json to find the JID for a group. The folder name must be c
       folder: z
         .string()
         .describe('Channel-prefixed folder name (e.g., "telegram_dev-team")'),
-      trigger: z.string().describe('Trigger word (e.g., "@Andy")'),
+      trigger: z.string().describe('Trigger word (e.g., "@Main Agent")'),
       requiresTrigger: z
         .boolean()
         .optional()

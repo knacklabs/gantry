@@ -74,7 +74,7 @@ describe('memory-hook command', () => {
     vi.clearAllMocks();
   });
 
-  it('runs load and returns session-start context output', async () => {
+  it('runs load without broad memory injection because no query is available', async () => {
     const service = createServiceMock();
     const env: NodeJS.ProcessEnv = {
       MYCLAW_GROUP_FOLDER: 'team',
@@ -92,19 +92,12 @@ describe('memory-hook command', () => {
         async () => service,
       );
       expect(code).toBe(0);
-      expect(service.search).toHaveBeenCalledWith({
-        appId: 'default',
-        agentId: 'agent:team',
-        groupId: 'team',
-        query: '',
-        limit: 20,
-        userId: undefined,
-      });
+      expect(service.search).not.toHaveBeenCalled();
       const output = writeSpy.mock.calls
         .map((call) => String(call[0] || ''))
         .join('');
       expect(output).toContain('hookSpecificOutput');
-      expect(output).toContain('brief-content');
+      expect(output).not.toContain('brief-content');
     } finally {
       writeSpy.mockRestore();
     }
@@ -112,7 +105,7 @@ describe('memory-hook command', () => {
 
   it('infers runtime home and group from hook cwd under agents directory', async () => {
     const runtimeHome = createRuntimeHome();
-    const groupFolder = 'telegram_main';
+    const groupFolder = 'main_agent';
     const agentDir = path.join(runtimeHome, 'agents', groupFolder);
     fs.mkdirSync(agentDir, { recursive: true });
     const service = createServiceMock();
@@ -130,14 +123,7 @@ describe('memory-hook command', () => {
       );
       expect(code).toBe(0);
       expect(env.MYCLAW_HOME).toBe(runtimeHome);
-      expect(service.search).toHaveBeenCalledWith({
-        appId: 'default',
-        agentId: `agent:${groupFolder}`,
-        groupId: groupFolder,
-        query: '',
-        limit: 20,
-        userId: undefined,
-      });
+      expect(service.search).not.toHaveBeenCalled();
     } finally {
       writeSpy.mockRestore();
       fs.rmSync(runtimeHome, { recursive: true, force: true });

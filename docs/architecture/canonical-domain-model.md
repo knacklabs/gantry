@@ -151,7 +151,8 @@ Adapters perform provider-specific download and upload.
 `AgentSession` is canonical continuity. It links an agent to an app-level
 context such as a conversation, thread, job, user, or manual control request.
 `/new` clears the canonical session state for the relevant binding while
-preserving the binding's selected model override when policy says so.
+preserving durable memory, approved skills, MCP bindings, selected model
+override, and agent configuration.
 The deterministic session key includes app, agent, conversation, thread, user,
 and job fields so Slack threads, Telegram topics, and Web UI branches do not
 collide inside one conversation.
@@ -163,7 +164,8 @@ Provider sessions are optimizations only. When the current provider matches the
 latest active provider session, the runtime may attempt native resume. When the
 provider session is missing, expired, stale, or from a different provider, the
 runtime resumes from Postgres by replaying the latest session summary plus
-recent messages, memory records, and run summaries.
+recent messages and run summaries. Memory is retrieved separately from the
+current prompt, and no memory block is injected when nothing matches.
 
 `AgentSessionSummary` stores an extractive checkpoint for long conversations.
 It records the summarized message/run range and lets hydration use summary plus

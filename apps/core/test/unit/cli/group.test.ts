@@ -372,7 +372,10 @@ describe('group CLI commands', () => {
     );
     expect(groupPrompt).toContain('## Static Chat Guidance');
     expect(groupPrompt).toContain(
-      'Dynamic task state, open commitments, and remembered facts come from the injected memory/continuity brief.',
+      'Dynamic task state, open commitments, and remembered facts come from query-retrieved memory context and explicit memory_search calls.',
+    );
+    expect(groupPrompt).toContain(
+      'When the user says "continue", call memory_search before guessing.',
     );
   });
 
@@ -400,6 +403,26 @@ describe('group CLI commands', () => {
     const output = infoSpy.mock.calls.at(-1)?.[0] as string;
     expect(output).toContain('Name: Channel Team');
     expect(output).toContain('Trigger: @Kai');
+  });
+
+  it('persists the configurable main agent name', async () => {
+    const { runAgentCommand } = await import('@core/cli/group.js');
+
+    expect(await runAgentCommand(runtimeHome, ['name', 'Kai'])).toBe(0);
+
+    const settings = loadRuntimeSettingsFromPath(settingsFilePath(runtimeHome));
+    expect(settings.agent.name).toBe('Kai');
+  });
+
+  it('uses the configured default trigger for new agents', async () => {
+    const { runAgentCommand } = await import('@core/cli/group.js');
+    const jid = `grp:default-trigger-${Date.now().toString(36)}`;
+
+    expect(
+      await runAgentCommand(runtimeHome, ['add', jid, '--name', 'Defaulted']),
+    ).toBe(0);
+
+    expect(groupsStore.get(jid)?.trigger).toBe('@Main Agent');
   });
 
   it('updates and disables trigger mode', async () => {

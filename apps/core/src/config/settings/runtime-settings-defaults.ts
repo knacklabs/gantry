@@ -28,6 +28,7 @@ export const DEFAULT_ONECLI_DATABASE_URL_ENV = 'ONECLI_DATABASE_URL';
 export const DEFAULT_ONECLI_POSTGRES_SCHEMA = 'onecli';
 export const DEFAULT_MEMORY_STORAGE_DIR = 'memory';
 export const DEFAULT_EMBED_MODEL = 'text-embedding-3-large';
+export const DEFAULT_AGENT_NAME = 'Main Agent';
 export const DEFAULT_AGENT_SESSION_RECENT_MESSAGE_LIMIT = 20;
 export const DEFAULT_AGENT_SESSION_SUMMARY_AFTER_MESSAGES = 50;
 export const DEFAULT_AGENT_SESSION_SUMMARY_AFTER_RUNS = 10;
@@ -86,6 +87,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     },
   };
   const agent: RuntimeAgentSettings = {
+    name: DEFAULT_AGENT_NAME,
     defaultModel: '',
     sessions: {
       recentMessageLimit: DEFAULT_AGENT_SESSION_RECENT_MESSAGE_LIMIT,

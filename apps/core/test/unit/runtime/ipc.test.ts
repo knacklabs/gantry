@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { RegisteredGroup } from '@core/domain/types.js';
-import { resolveRegisteredIpcFolders } from '@core/runtime/ipc.js';
+import { resolveIpcFoldersFromGroups } from '@core/runtime/ipc.js';
 
 function group(folder: string): RegisteredGroup {
   return {
@@ -12,10 +12,10 @@ function group(folder: string): RegisteredGroup {
   };
 }
 
-describe('resolveRegisteredIpcFolders', () => {
+describe('resolveIpcFoldersFromGroups', () => {
   it('returns only valid registered agent folders', () => {
     expect(
-      resolveRegisteredIpcFolders({
+      resolveIpcFoldersFromGroups({
         'tg:1': group('kai_tg_1'),
         'tg:2': group('../escape'),
         'tg:3': group(''),
@@ -26,7 +26,7 @@ describe('resolveRegisteredIpcFolders', () => {
 
   it('deduplicates folders shared by multiple bindings', () => {
     expect(
-      resolveRegisteredIpcFolders({
+      resolveIpcFoldersFromGroups({
         'tg:1': group('kai_tg_1'),
         'tg:2': group('kai_tg_1'),
       }),

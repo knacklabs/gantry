@@ -40,13 +40,13 @@ ACP/ACPS are harness/runtime integration concerns. They are not part of the agen
 | Postgres storage           | `apps/core/src/adapters/storage/postgres/runtime-store.ts`, `apps/core/src/adapters/storage/postgres/factory.ts`, `apps/core/src/adapters/storage/postgres/schema/schema.ts` | Owns first-party runtime tables, readiness checks, repositories, migrations, pgvector, and full-text search columns.                              |
 | Message loop               | `apps/core/src/runtime/message-loop.ts`                                                                                                                                | Polls for new durable messages, recovers pending messages, applies slash/control checks, and enqueues processing.                                 |
 | Queue                      | `apps/core/src/runtime/group-queue.ts`                                                                                                                                 | Maintains per-group/thread work ordering, active process tracking, retry behavior, and continuation input routing.                                |
-| Group processor            | `apps/core/src/runtime/group-processing.ts`                                                                                                                            | Loads unread messages, checks triggers, builds prompts, injects memory context, starts agent runs, and commits cursors/results.                   |
+| Group processor            | `apps/core/src/runtime/group-processing.ts`                                                                                                                            | Loads unread messages, checks triggers, builds prompts, injects query-retrieved memory context when relevant, starts agent runs, and commits cursors/results. |
 | Agent spawn                | `apps/core/src/runtime/agent-spawn.ts`, `apps/core/src/runtime/agent-spawn-process.ts`                                                                                 | Builds the child process environment, group working directory, model config, IPC secrets, MCP server path, and runtime credentials.               |
 | Child runner               | `apps/core/src/runner/claude/index.ts`, `apps/core/src/runner/claude/query-loop.ts`, `apps/core/src/runner/claude/permission-callback.ts`                              | Calls `@anthropic-ai/claude-agent-sdk`, streams follow-up input through `MessageStream`, and mediates tool permission callbacks.                  |
 | Tools and IPC              | `apps/core/src/runner/agent-capabilities.ts`, `apps/core/src/runner/mcp/server.ts`, `apps/core/src/runtime/ipc.ts`, `apps/core/src/runtime/ipc-parsing.ts`             | Defines allowed tools, exposes MyClaw MCP tools, validates signed IPC requests, and writes signed responses.                                      |
 | Control server and SDK     | `apps/core/src/control/server/index.ts`, `apps/core/src/control/server/routes/`, `packages/sdk/src/index.ts`                                                           | Exposes HTTP/SSE control APIs for backend apps; SDK wraps this API for server-side Node consumers.                                                |
 | Scheduler                  | `apps/core/src/jobs/scheduler.ts`, `apps/core/src/jobs/execution.ts`, `apps/core/src/jobs/schedule-math.ts`, `apps/core/src/infrastructure/pgboss/scheduler-engine.ts` | Owns MyClaw job definitions, triggers, runs, events, pg-boss queueing, schedule sync, and dead-letter handling.                                   |
-| Memory and retrieval       | `apps/core/src/runtime/memory-context.ts`, `apps/core/src/memory/app-memory-service.ts`, `apps/core/src/adapters/storage/postgres/schema/schema.ts`, `docs/MEMORY.md`    | Stores app/agent/subject-boundary memory, records evidence and recall events, runs auditable dreaming, and injects bounded context into prompts.  |
+| Memory and retrieval       | `apps/core/src/runtime/memory-context.ts`, `apps/core/src/memory/app-memory-service.ts`, `apps/core/src/adapters/storage/postgres/schema/schema.ts`, `docs/MEMORY.md`    | Stores app/agent/subject-boundary memory, records evidence and recall events, runs auditable dreaming, and injects bounded query-matched context into prompts. |
 
 ## End-to-End Message Flow
 
@@ -71,7 +71,7 @@ sequenceDiagram
   Queue->>Processor: start one active processor
   Processor->>PG: load messages since cursor
   Processor->>Processor: slash command, trigger, and allowlist checks
-  Processor->>Processor: build prompt and memory context
+  Processor->>Processor: build prompt and query-scoped memory context
   Processor->>Spawn: request child agent process
   Spawn->>Runner: start runner with scoped env and IPC secrets
   Runner->>SDK: query() with MessageStream and tool policy
@@ -102,7 +102,8 @@ Key runner inputs:
 - prompt profile, system prompt, model, and thinking configuration
 - MCP server command for MyClaw tools
 - IPC request/response directories
-- HMAC auth token and response signing key scoped to the group/thread
+- HMAC auth token scoped to the group/thread, plus a per-run response signing
+  key for provider callbacks
 - environment values for credentials and browser automation endpoints
 
 `apps/core/src/runner/claude/query-loop.ts` creates a `MessageStream` and passes it to `query()`. The stream lets the host add follow-up user messages to an already-running agent when the queue decides continuation is safe. The same `query()` call receives:
@@ -126,9 +127,10 @@ session for that `AgentSession`.
 
 When provider-native resume is not available, the runtime uses DB replay mode.
 Hydration injects an untrusted context block containing the latest extractive
-session summary, recent messages after that checkpoint, relevant memory
-records, and recent run summaries. Summary checkpoint creation is best-effort
-and does not block user replies.
+session summary, recent messages after that checkpoint, and recent run
+summaries. Runtime memory is retrieved separately using the current prompt as
+the query, and no memory block is injected when nothing matches. Summary
+checkpoint creation is best-effort and does not block user replies.
 
 ## Tools And Permissions
 
@@ -242,6 +244,7 @@ Memory injected into a prompt is context, not trusted authority. The agent may u
 | Conversation does not resume after restart | `apps/core/src/application/sessions/`, `apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts`, `apps/core/src/runtime/group-processing.ts`          | `agent_sessions` deterministic key, latest active `provider_sessions`, DB replay hydration block, summary checkpoint range, thread id isolation. |
 | Follow-up is ignored                   | `apps/core/src/runtime/continuation-input.ts`, `apps/core/src/runtime/group-queue.ts`                                                                                                 | Whether the active run accepts continuation, queue key, thread key, and stop aliases.                                                            |
 | Permission request hangs or denies     | `apps/core/src/runtime/ipc.ts`, `apps/core/src/runtime/ipc-auth-validation.ts`, `apps/core/src/app/bootstrap/channel-wiring.ts`, `apps/core/src/runner/claude/permission-callback.ts` | IPC auth token, response signing key, request path ownership, main-channel approval surface, allowlists.                                         |
+| Browser tool fails with `Invalid browser response signature` | `apps/core/src/runner/mcp/ipc.ts`, `apps/core/src/runtime/ipc-browser-handler.ts`, `apps/core/src/runtime/ipc-auth.ts`                                                                | Stale duplicate MyClaw runtime processes, stable `MYCLAW_IPC_AUTH_SECRET`, request/response payload ordering, group/thread IPC scope.            |
 | SDK wait or stream misses output       | `apps/core/src/control/server/routes/sessions.ts`, `apps/core/src/channels/app.ts`, `apps/core/src/adapters/storage/postgres/schema/control-plane-repo.postgres.ts`                     | App response route, `control_events`, SSE replay cursor, response mode, webhook destination status.                                              |
 | Webhook delivery fails                 | `apps/core/src/control/server/webhook-delivery.ts`, `apps/core/src/control/server/routes/webhooks.ts`, `apps/core/src/adapters/storage/postgres/schema/control-plane-repo.postgres.ts`  | Registered URL, enabled flag, signing secret, retry count, dead-letter state, replay result.                                                     |
 | Scheduled job does not run             | `apps/core/src/jobs/scheduler.ts`, `apps/core/src/jobs/execution.ts`, `apps/core/src/infrastructure/pgboss/scheduler-engine.ts`                                                       | Scheduler readiness, pg-boss connection, schedule sync, due time, pause state, dead-letter queue.                                                |

@@ -375,7 +375,7 @@ describe('cli slack helpers', () => {
     expect(result).toEqual({ type: 'skip' });
     expect(select).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: 'Choose the Slack conversation to register as main',
+        message: 'Choose the Slack conversation for the Main Agent',
         options: expect.arrayContaining([
           expect.objectContaining({ value: 'sl:C0123456789' }),
           expect.objectContaining({ value: 'manual' }),
@@ -462,8 +462,12 @@ describe('cli slack helpers', () => {
     const soul = fs.readFileSync(path.join(groupDir, 'SOUL.md'), 'utf-8');
 
     expect(result.groupName).toBe('Kai Slack');
+    expect(result.folder).toBe('main_agent');
     expect(claude).toContain('Static Chat Guidance');
-    expect(claude).toContain('memory/continuity brief');
+    expect(claude).toContain('query-retrieved memory context');
+    expect(claude).toContain(
+      'When the user says "continue", call memory_search before guessing.',
+    );
     expect(soul).toContain('# Soul - Who You Are');
     expect(soul).toContain('- **Name:** Kai Slack');
     expect(soul).toContain('## Continuity Boundary');

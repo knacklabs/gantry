@@ -109,6 +109,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       groupFolder: group.folder,
       chatJid,
       source: options?.memoryContext?.source || 'message',
+      query: prompt,
       userId: options?.memoryContext?.userId,
       threadId: options?.memoryContext?.threadId,
     });
@@ -172,7 +173,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         sessionId,
         memoryContextBlock,
       });
-
       if (output.status === 'error') {
         const staleSessionId = sessionId || '';
         if (
