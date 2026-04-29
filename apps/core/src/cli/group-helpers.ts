@@ -18,6 +18,7 @@ export function usage(): string {
     'Agent commands:',
     '  myclaw agent list',
     '  myclaw agent info <jid|folder>',
+    '  myclaw agent name <name>',
     '  myclaw agent add <jid|chat-id> [--name <name>] [--folder <folder>] [--trigger <word>] [--main] [--requires-trigger true|false] [--test-message|--no-test-message]',
     '  myclaw agent remove <jid|folder> [--delete-folder] [--yes]',
     '  myclaw agent trigger <jid|folder> <word>',
@@ -91,9 +92,9 @@ function createDefaultGroupClaudeMarkdown(agentName: string): string {
     '',
     'You are the assistant for this chat.\nKeep responses clear, short, and useful.',
     '',
-    '## Static Chat Guidance\n\nThis file is for stable, group-specific instructions only.\nDynamic task state, open commitments, and remembered facts come from the injected memory/continuity brief.\nDo not duplicate current task progress, raw logs, or remembered facts here.',
+    '## Static Chat Guidance\n\nThis file is for stable, group-specific instructions only.\nDynamic task state, open commitments, and remembered facts come from query-retrieved memory context and explicit memory_search calls.\nDo not duplicate current task progress, raw logs, or remembered facts here.',
     '',
-    'Rules:\n- Answer directly unless the user asks for detail.\n- Be explicit when an action failed and what to do next.\n- Never expose secrets or local paths unless explicitly requested.\n- When the user says "continue", use the injected memory/continuity brief before guessing.',
+    'Rules:\n- Answer directly unless the user asks for detail.\n- Be explicit when an action failed and what to do next.\n- Never expose secrets or local paths unless explicitly requested.\n- When the user says "continue", call memory_search before guessing.',
     '',
   ].join('\n');
 }
@@ -121,7 +122,7 @@ function createDefaultSoulMarkdown(agentName: string): string {
     '- Ask before taking external actions (sending messages, posting, pushing code).',
     "- When uncertain, say so. Don't present guesses as facts.",
     '',
-    '## Continuity Boundary\n- Your personality lives here.\n- Durable facts, user preferences, task state, and open commitments do not live here.\n- Use the injected memory/continuity brief for remembered context.',
+    '## Continuity Boundary\n- Your personality lives here.\n- Durable facts, user preferences, task state, and open commitments do not live here.\n- Use query-retrieved memory context and memory_search for remembered context.',
     '',
     '## Identity',
     `- **Name:** ${agentName}`,

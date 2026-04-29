@@ -120,7 +120,7 @@ export interface RunnerProcessSpec {
   command: string;
   args: string[];
   env: NodeJS.ProcessEnv | undefined;
-  onProcess: (proc: ChildProcess, containerName: string) => void;
+  onProcess: (proc: ChildProcess, runHandle: string) => void;
   onOutput?: (output: AgentOutput) => Promise<void>;
   options?: RunAgentOptions;
   runnerLabel: string;

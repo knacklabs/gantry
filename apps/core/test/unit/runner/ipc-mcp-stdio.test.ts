@@ -416,6 +416,50 @@ describe('agent-runner MCP stdio tools', () => {
     expect(Date.parse(task.expiresAt)).toBeGreaterThan(Date.now());
   });
 
+  it('submits agent-created skills as host-reviewed draft tasks', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_skill_draft', {
+      files: [
+        {
+          path: 'SKILL.md',
+          content: [
+            '---',
+            'name: LinkedIn Posting',
+            'description: Draft LinkedIn posts',
+            '---',
+            '# LinkedIn Posting',
+          ].join('\n'),
+        },
+      ],
+      reason: 'Reuse a posting workflow.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'request_skill_draft',
+      targetJid: 'tg:team',
+      chatJid: 'tg:team',
+      payload: {
+        reason: 'Reuse a posting workflow.',
+        files: [
+          expect.objectContaining({
+            path: 'SKILL.md',
+            content: expect.stringContaining('LinkedIn Posting'),
+          }),
+        ],
+      },
+    });
+  });
+
   it('rejects unsigned task responses from the host boundary', async () => {
     const fixture = createMcpFixture();
 

@@ -3,18 +3,18 @@ import path from 'path';
 
 import { BrowserIpcAction } from '@myclaw/contracts';
 
-import { signIpcResponsePayload } from '../infrastructure/ipc/response-signing.js';
+import {
+  signIpcResponseAuthPayload,
+  signIpcResponsePayload,
+} from '../infrastructure/ipc/response-signing.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
   DEFAULT_BROWSER_PROFILE_NAME,
   closeBrowser,
+  ensureBrowserReady,
   getBrowserStatus,
-  launchBrowser,
-} from './browser-manager.js';
-import {
-  createProfile,
-  summarizeBrowserProfileState,
-} from './browser-profiles.js';
+  listBrowserProfiles,
+} from './browser-capability.js';
 import { IpcDomainContext } from './ipc-domain-types.js';
 
 interface BrowserRequest {
@@ -74,29 +74,13 @@ function getProfileNameFromPayload(payload: Record<string, unknown>): string {
 
 const browserActionHandlers: Record<BrowserIpcAction, BrowserActionHandler> = {
   browser_profile_list: async () => {
-    const profile = createProfile(DEFAULT_BROWSER_PROFILE_NAME);
-    const state = summarizeBrowserProfileState(profile);
-    const profiles = [
-      {
-        name: profile.name,
-        created_at: profile.metadata.created_at,
-        last_used: profile.metadata.last_used,
-        cdp_port: profile.metadata.cdp_port,
-        auth_markers: state.authMarkers,
-        has_state: state.hasState,
-      },
-    ];
-    return { ok: true, data: { profiles } };
+    return { ok: true, data: { profiles: await listBrowserProfiles() } };
   },
   browser_launch: async (request) => {
     const profileName = getProfileNameFromPayload(request.payload);
-    const status = await launchBrowser({
+    const status = await ensureBrowserReady({
       profileName,
       headless: toOptionalBoolean(request.payload.headless),
-      cdpPort: toOptionalNumber(request.payload.cdp_port, {
-        min: 1024,
-        max: 65535,
-      }),
       keepAliveMs: toOptionalNumber(request.payload.keep_alive_ms, {
         min: 10_000,
         max: 3_600_000,
@@ -111,7 +95,7 @@ const browserActionHandlers: Record<BrowserIpcAction, BrowserActionHandler> = {
   },
   browser_status: async (request) => {
     const profileName = getProfileNameFromPayload(request.payload);
-    return { ok: true, data: getBrowserStatus(profileName) };
+    return { ok: true, data: await getBrowserStatus(profileName) };
   },
 };
 
@@ -164,6 +148,7 @@ export function writeBrowserIpcResponse(
   sourceGroup: string,
   response: { requestId: string; ok: boolean; data?: unknown; error?: string },
   privateKeyPem?: string,
+  responseSigningKey?: string,
 ): void {
   const responseDir = path.join(ipcBaseDir, sourceGroup, 'browser-responses');
   fs.mkdirSync(responseDir, { recursive: true });
@@ -175,7 +160,9 @@ export function writeBrowserIpcResponse(
     ...(response.data !== undefined ? { data: response.data } : {}),
     ...(response.error ? { error: response.error } : {}),
   };
-  const signature = signIpcResponsePayload(privateKeyPem, payload);
+  const signature =
+    signIpcResponseAuthPayload(responseSigningKey, payload) ||
+    signIpcResponsePayload(privateKeyPem, payload);
   if (signature) {
     payload.signature = signature;
   }

@@ -1,6 +1,6 @@
 export interface AdditionalMount {
   hostPath: string; // Absolute path on host (supports ~ for home)
-  containerPath?: string; // Persisted schema key for the agent workspace path.
+  workspacePath?: string; // Optional path exposed inside the agent workspace.
   readonly?: boolean; // Default: true for safety
 }
 

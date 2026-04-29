@@ -19,7 +19,7 @@ import { filterTrustedOnecliEnv } from './env-policy.js';
 import { validateOnecliUrl } from './policy.js';
 
 type OneCliClient = Pick<OneCLI, 'getContainerConfig' | 'ensureAgent'>;
-type OneCliContainerConfig = Awaited<
+type OneCliAgentRuntimeConfig = Awaited<
   ReturnType<OneCliClient['getContainerConfig']>
 >;
 
@@ -39,11 +39,11 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
   private readonly urlError?: string;
   private readonly configCache = new Map<
     string,
-    { expiresAt: number; config: OneCliContainerConfig }
+    { expiresAt: number; config: OneCliAgentRuntimeConfig }
   >();
   private readonly configInflight = new Map<
     string,
-    Promise<OneCliContainerConfig>
+    Promise<OneCliAgentRuntimeConfig>
   >();
   private readonly caCache = new Map<string, { hash: string; path: string }>();
 
@@ -79,7 +79,7 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
     input: AgentCredentialBrokerInput,
   ): Promise<AgentCredentialInjection> {
     const agentIdentifier = input.binding.agentIdentifier;
-    const config = await this.getContainerConfig(agentIdentifier);
+    const config = await this.getAgentRuntimeConfig(agentIdentifier);
     const { env, droppedKeys } = filterTrustedOnecliEnv(config.env || {});
     if (droppedKeys.length > 0) {
       logger.warn(
@@ -118,7 +118,7 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
     }
     try {
       const binding = input?.binding || { profile: 'onecli' as const };
-      const config = await this.getContainerConfig(binding.agentIdentifier);
+      const config = await this.getAgentRuntimeConfig(binding.agentIdentifier);
       filterTrustedOnecliEnv(config.env || {});
       return {
         status: 'pass',
@@ -175,9 +175,9 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
     );
   }
 
-  private async getContainerConfig(
+  private async getAgentRuntimeConfig(
     agentIdentifier: string | undefined,
-  ): Promise<OneCliContainerConfig> {
+  ): Promise<OneCliAgentRuntimeConfig> {
     if (!this.client) {
       throw new CredentialBrokerConfigError(
         this.urlError ||

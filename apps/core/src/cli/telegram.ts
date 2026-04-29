@@ -12,6 +12,11 @@ import {
   envFilePath,
   ensureRuntimeLayout,
 } from '../config/settings/runtime-home.js';
+import {
+  allocateMainAgentFolder,
+  defaultTriggerForAgentName,
+  normalizeMainAgentName,
+} from './main-agent.js';
 
 export interface TelegramTokenValidation {
   ok: boolean;
@@ -106,24 +111,6 @@ export async function validateTelegramBotToken(
   } finally {
     clearTimeout(timeout);
   }
-}
-
-function buildGroupFolder(
-  runtimeHome: string,
-  existing: Record<string, { folder: string }>,
-): string {
-  const used = new Set(Object.values(existing).map((group) => group.folder));
-  const hasOnDiskFolder = (folder: string): boolean =>
-    fs.existsSync(path.join(runtimeHome, 'agents', folder));
-
-  if (!used.has('telegram_main') && !hasOnDiskFolder('telegram_main')) {
-    return 'telegram_main';
-  }
-  for (let i = 2; i < 1000; i += 1) {
-    const candidate = `telegram_main_${i}`;
-    if (!used.has(candidate) && !hasOnDiskFolder(candidate)) return candidate;
-  }
-  return `telegram_main_${Date.now()}`;
 }
 
 async function readTelegramPayload<T>(
@@ -330,14 +317,14 @@ function defaultGroupClaudeMarkdown(): string {
     '## Static Chat Guidance',
     '',
     'This file is for stable, Telegram-specific instructions only.',
-    'Dynamic task state, open commitments, and remembered facts come from the injected memory/continuity brief.',
+    'Dynamic task state, open commitments, and remembered facts come from query-retrieved memory context and explicit memory_search calls.',
     'Do not duplicate current task progress, raw logs, or remembered facts here.',
     '',
     'Rules:',
     '- Answer directly unless the user asks for detail.',
     '- Be explicit when an action failed and what to do next.',
     '- Avoid exposing secrets, tokens, or local machine paths unless requested.',
-    '- When the user says "continue", use the injected memory/continuity brief before guessing.',
+    '- When the user says "continue", call memory_search before guessing.',
     '',
   ].join('\n');
 }
@@ -365,7 +352,7 @@ function defaultSoulMarkdown(agentName: string): string {
     '## Continuity Boundary',
     '- Your personality lives here.',
     '- Durable facts, user preferences, task state, and open commitments do not live here.',
-    '- Use the injected memory/continuity brief for remembered context.',
+    '- Use query-retrieved memory context and memory_search for remembered context.',
     '',
     '## Identity',
     `- **Name:** ${agentName}`,
@@ -384,14 +371,14 @@ export async function registerTelegramMainGroup(options: {
     const existing = await db.getAllRegisteredGroups();
     const existingGroup = existing[options.chatJid];
     const folder =
-      existingGroup?.folder || buildGroupFolder(options.runtimeHome, existing);
-    const groupName =
-      options.displayName || existingGroup?.name || 'Telegram Main';
+      existingGroup?.folder ||
+      allocateMainAgentFolder(options.runtimeHome, existing);
+    const groupName = normalizeMainAgentName(options.displayName);
 
     await db.setRegisteredGroup(options.chatJid, {
       name: groupName,
       folder,
-      trigger: '@Andy',
+      trigger: existingGroup?.trigger || defaultTriggerForAgentName(groupName),
       added_at: new Date().toISOString(),
       requiresTrigger: false,
       isMain: true,

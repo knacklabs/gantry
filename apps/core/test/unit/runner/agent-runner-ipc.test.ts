@@ -123,6 +123,10 @@ function createRunnerFixture(): {
     path.join(infrastructureTimeDir, 'datetime.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/no-proxy.ts'),
+    path.join(sharedDir, 'no-proxy.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/object.ts'),
     path.join(sharedDir, 'object.ts'),
   );
@@ -427,6 +431,8 @@ describe('agent-runner IPC lifecycle', () => {
         ANTHROPIC_API_KEY: 'raw-provider-key',
         CLAUDE_CODE_OAUTH_TOKEN: 'raw-oauth-token',
         HTTPS_PROXY: 'http://x:aoc_123@host.docker.internal:10255',
+        NO_PROXY: '',
+        no_proxy: '',
         NODE_EXTRA_CA_CERTS: '/tmp/onecli-ca.pem',
         MYCLAW_IPC_AUTH_TOKEN: 'runner-test-token',
         MYCLAW_IPC_RESPONSE_VERIFY_KEY: fixture.responseVerifyKey,
@@ -441,6 +447,8 @@ describe('agent-runner IPC lifecycle', () => {
         'http://x:aoc_123@host.docker.internal:10255',
       );
       expect(sdkEnv.NODE_EXTRA_CA_CERTS).toBe('/tmp/onecli-ca.pem');
+      expect(sdkEnv.NO_PROXY).toBe('127.0.0.1,localhost,::1');
+      expect(sdkEnv.no_proxy).toBe('127.0.0.1,localhost,::1');
       expect(sdkEnv.MYCLAW_IPC_AUTH_TOKEN).toBeUndefined();
       expect(sdkEnv.MYCLAW_IPC_RESPONSE_VERIFY_KEY).toBeUndefined();
       expect(sdkEnv.MYCLAW_MCP_CONFIG_FILE).toBeUndefined();

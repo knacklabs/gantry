@@ -20,6 +20,7 @@ import { SteeringDeliveryGate } from './steering-delivery-gate.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import { requestPermissionApproval } from './permission-callback.js';
+import { protectedCapabilityPreToolUseHook } from './protected-capability-hook.js';
 import {
   discoverAdditionalDirectories,
   IPC_POLL_MS,
@@ -126,6 +127,14 @@ export async function runQuery(
       allowedTools: [...capabilities.allowedTools],
       env: sdkEnv,
       permissionMode: capabilities.permissionMode,
+      hooks: {
+        PreToolUse: [
+          {
+            hooks: [protectedCapabilityPreToolUseHook],
+            timeout: 5,
+          },
+        ],
+      },
       canUseTool: async (toolName, input, permissionOpts) => {
         const protectedCapabilityDenial = denyProtectedCapabilityToolUse(
           toolName,

@@ -37,7 +37,7 @@ describe('package hygiene', () => {
     ).toEqual([]);
   }, 30_000);
 
-  it('ships bundled skills with their required helper files', () => {
+  it('ships only MyClaw-owned bundled skills', () => {
     const raw = execFileSync('npm', ['pack', '--dry-run', '--json'], {
       encoding: 'utf-8',
     });
@@ -45,25 +45,14 @@ describe('package hygiene', () => {
       files: Array<{ path: string }>;
     }>;
     const files = pack.files.map((file) => file.path);
+    const skillFiles = files
+      .filter((file) => file.startsWith('.claude/skills/'))
+      .sort();
 
-    expect(files).toContain('.claude/skills/agent-browser/SKILL.md');
-    expect(files).toContain('.claude/skills/agent-browser/browser_cdp.py');
-    expect(files).toContain('.claude/skills/commands/SKILL.md');
-    expect(files).toContain('.claude/skills/myclaw-admin/SKILL.md');
-  }, 30_000);
-
-  it('keeps packaged browser helper constrained to explicit CDP ports and fixed actions', () => {
-    const helper = fs.readFileSync(
-      '.claude/skills/agent-browser/browser_cdp.py',
-      'utf-8',
-    );
-
-    expect(helper).not.toContain('range(50000, 60000)');
-    expect(helper).not.toContain('"eval"');
-    expect(helper).not.toContain('cmd_eval');
-    expect(helper).toContain('MYCLAW_CDP_PORT');
-    expect(helper).toContain('ProxyHandler({})');
-    expect(helper).toContain('NO_PROXY');
+    expect(skillFiles).toEqual([
+      '.claude/skills/commands/SKILL.md',
+      '.claude/skills/myclaw-admin/SKILL.md',
+    ]);
   });
 
   it('isolates OneCLI SDK imports to credential adapter and CLI setup adapter', () => {

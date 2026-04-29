@@ -5,6 +5,7 @@ import { PassThrough } from 'stream';
 // Sentinel markers must match runtime agent output framing.
 const OUTPUT_START_MARKER = '---MYCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---MYCLAW_OUTPUT_END---';
+const mockLaunchBrowser = vi.hoisted(() => vi.fn());
 
 // Mock config
 vi.mock('@core/config/index.js', () => ({
@@ -90,6 +91,11 @@ vi.mock('@core/platform/group-folder.js', () => ({
   resolveGroupFolderPath: vi.fn(
     (folder: string) => `/tmp/myclaw-test-data/agents/${folder}`,
   ),
+}));
+
+vi.mock('@core/runtime/browser-capability.js', () => ({
+  DEFAULT_BROWSER_PROFILE_NAME: 'myclaw',
+  ensureBrowserReady: (...args: unknown[]) => mockLaunchBrowser(...args),
 }));
 
 // Create a controllable fake ChildProcess
@@ -259,13 +265,31 @@ function emitOutputMarker(
   proc.stdout.push(`${OUTPUT_START_MARKER}\n${json}\n${OUTPUT_END_MARKER}\n`);
 }
 
+function readMcpHandoffConfig(): Record<string, unknown> {
+  const call = vi
+    .mocked(fs.writeFileSync)
+    .mock.calls.find(([filePath]) => String(filePath).match(/mcp-.*\.json$/));
+  if (!call) return {};
+  return JSON.parse(String(call[1])) as Record<string, unknown>;
+}
+
 describe('agent-spawn timeout behavior', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     fakeProc = createFakeProcess();
     vi.mocked(spawn).mockClear();
+    vi.mocked(fs.writeFileSync).mockClear();
     vi.mocked(getEffectiveModelConfig).mockClear();
     mockEnsureGroupIpcLayout.mockClear();
+    mockLaunchBrowser.mockReset();
+    mockLaunchBrowser.mockResolvedValue({
+      profile: 'myclaw',
+      profileName: 'myclaw',
+      running: true,
+      cdpReady: true,
+      cdpUrl: 'http://127.0.0.1:4567',
+      port: 4567,
+    });
   });
 
   afterEach(() => {
@@ -624,6 +648,82 @@ describe('agent-spawn timeout behavior', () => {
     >;
     expect(env.CLAUDE_CONFIG_DIR).toContain('myclaw-claude-config-');
     expect(env.CLAUDE_CONFIG_DIR).not.toBe('/tmp/myclaw-config/.claude');
+  });
+
+  it('launches the headed persistent browser for the main agent and passes CDP endpoint', async () => {
+    const resultPromise = spawnAgent(
+      testGroup,
+      { ...testInput, isMain: true },
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(mockLaunchBrowser).toHaveBeenCalledWith({
+      profileName: 'myclaw',
+      headless: undefined,
+    });
+    expect(env.PLAYWRIGHT_MCP_CDP_ENDPOINT).toBe('http://127.0.0.1:4567');
+    expect(env.MYCLAW_MCP_CONFIG_FILE).toMatch(/mcp-.*\.json$/);
+    expect(env.MYCLAW_MCP_ALLOWED_TOOLS_JSON).toContain(
+      'mcp__agent_browser__*',
+    );
+    expect(env.MYCLAW_MCP_ALWAYS_ALLOWED_TOOLS_JSON).toBe('[]');
+    expect(readMcpHandoffConfig().agent_browser).toMatchObject({
+      command: process.execPath,
+      args: expect.arrayContaining([
+        '--cdp-endpoint',
+        'http://127.0.0.1:4567',
+        '--shared-browser-context',
+      ]),
+      env: {
+        PLAYWRIGHT_MCP_CDP_ENDPOINT: 'http://127.0.0.1:4567',
+        NO_PROXY: '127.0.0.1,localhost,::1',
+        no_proxy: '127.0.0.1,localhost,::1',
+      },
+    });
+    expect(env.NO_PROXY.split(',')).toEqual(
+      expect.arrayContaining(['127.0.0.1', 'localhost', '::1']),
+    );
+    expect(env.no_proxy.split(',')).toEqual(
+      expect.arrayContaining(['127.0.0.1', 'localhost', '::1']),
+    );
+  });
+
+  it('does not auto-launch the browser for non-main agents', async () => {
+    const resultPromise = spawnAgent(testGroup, testInput, () => {});
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(mockLaunchBrowser).not.toHaveBeenCalled();
+    expect(env.PLAYWRIGHT_MCP_CDP_ENDPOINT).toBeUndefined();
+    expect(env.MYCLAW_MCP_CONFIG_FILE).toBeUndefined();
+  });
+
+  it('returns browser startup errors before spawning the runner', async () => {
+    mockLaunchBrowser.mockRejectedValueOnce(new Error('Chrome unavailable'));
+
+    const result = await spawnAgent(
+      testGroup,
+      { ...testInput, isMain: true },
+      () => {},
+    );
+
+    expect(result.status).toBe('error');
+    expect(result.error).toBe('Browser startup failed: Chrome unavailable');
+    expect(vi.mocked(spawn)).not.toHaveBeenCalled();
   });
 
   it('continues without custom system prompt when compileSystemPrompt throws (line 70)', async () => {

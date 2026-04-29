@@ -30,6 +30,14 @@ These are handled by the MyClaw host runtime, not by skill files:
 - `/commands` -- List available commands and installed skill packs
 - `myclaw-admin` -- Runtime administration reference (non-user-invocable)
 
+## Runtime Browser Capability
+
+- `agent-browser` -- Runtime-installed browser action guidance for the Main Agent
+
+MyClaw launches the persistent `myclaw` browser profile headed by default and
+passes its CDP endpoint to the runtime `mcp__agent_browser__*` action tools.
+Users do not install or edit browser skills manually.
+
 ## Built-In Memory Behavior
 
 Memory and continuity are automatic runtime behavior, not slash commands in this release:

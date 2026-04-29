@@ -6,6 +6,70 @@ import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
 
 export function registerServiceTools(server: McpServer): void {
   server.tool(
+    'request_skill_draft',
+    'Submit a proposed Claude skill for same-channel admin review. This creates a draft only; it never approves, binds, or activates the skill.',
+    {
+      files: z
+        .array(
+          z.object({
+            path: z
+              .string()
+              .describe('Skill package-relative path, such as SKILL.md'),
+            content: z.string().describe('UTF-8 file content'),
+            contentType: z.string().optional().describe('Optional MIME type'),
+          }),
+        )
+        .min(1)
+        .max(50)
+        .describe(
+          'Skill files. Must include SKILL.md with name and description frontmatter.',
+        ),
+      reason: z.string().describe('Why this skill is needed'),
+    },
+    async (args) => {
+      const taskId = `request-skill-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+      writeIpcFile(TASKS_DIR, {
+        type: 'request_skill_draft',
+        taskId,
+        targetJid: chatJid,
+        chatJid,
+        authThreadId: threadId,
+        payload: {
+          files: args.files,
+          reason: args.reason,
+        },
+        timestamp: nowIso(),
+      });
+
+      const response = await waitForTaskResponse(taskId, 15_000);
+      if (!response?.ok) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text:
+                response?.error ||
+                'Skill draft request was not recorded by the host.',
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text:
+              response.message ||
+              'Skill draft sent to this chat for approval. It will not be available until approved.',
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
     'request_mcp_server',
     'Request a third-party MCP server capability for admin review. This creates a pending request only; it never approves, binds, or activates the server.',
     {
@@ -149,7 +213,7 @@ Use available_groups.json to find the JID for a group. The folder name must be c
       folder: z
         .string()
         .describe('Channel-prefixed folder name (e.g., "telegram_dev-team")'),
-      trigger: z.string().describe('Trigger word (e.g., "@Andy")'),
+      trigger: z.string().describe('Trigger word (e.g., "@Main Agent")'),
       requiresTrigger: z
         .boolean()
         .optional()

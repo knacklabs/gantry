@@ -58,7 +58,12 @@ export function hasValidIpcResponseSignature(
   if (!IPC_RESPONSE_VERIFY_KEY) return false;
   const signature =
     typeof raw.signature === 'string' ? raw.signature.trim() : '';
-  return verifyIpcResponsePayload(IPC_RESPONSE_VERIFY_KEY, payload, signature);
+  return verifyIpcResponsePayload(
+    IPC_RESPONSE_VERIFY_KEY,
+    IPC_AUTH_TOKEN,
+    payload,
+    signature,
+  );
 }
 
 export function readJsonArraySnapshot(filePath: string): unknown[] {

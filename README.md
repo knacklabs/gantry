@@ -33,7 +33,7 @@ Then follow this order:
 1. Run `myclaw` with no args.
 2. Choose `Use local Postgres URL` if you started the provided Compose stack, or choose hosted/existing Postgres and paste those URLs.
 3. Choose your first channel: `Telegram` or `Slack`.
-4. Follow the in-CLI channel guide, paste channel credentials, and pick a discovered chat/channel (or enter an ID manually).
+4. Follow the in-CLI channel guide, choose the main agent name, paste channel credentials, and pick a discovered chat/channel (or enter an ID manually). This first chat becomes the user-facing main agent; channel IDs and runtime folders stay internal.
 5. Connect Model Access for agent model calls. MyClaw and OneCLI can share one Postgres database with separate schemas; agents never receive the database URLs or raw Claude credentials.
 6. Choose main model (`opus` recommended as the Claude Code alias; `sonnet` or `opusplan` optional).
 7. Confirm memory settings (memory on, embeddings off, dreaming on by default).
@@ -83,6 +83,7 @@ storage:
     schema: myclaw
 
 agent:
+  name: Main Agent
   default_model: opus
 
 credential_broker:
@@ -168,12 +169,13 @@ Memory stores durable knowledge the agent should remember later:
 - constraints
 - reusable procedures
 
-Continuity is the runtime context that helps the agent pick up where it left off:
+Continuity is explicit runtime resume/current-work state. Durable memory is
+separate and is retrieved only when it matches the current query:
 
-- current task state
-- relevant remembered facts
-- prior decisions
-- recent work context
+- provider session resume state
+- query-relevant remembered facts
+- query-relevant prior decisions
+- user/group preferences that match the current request
 - open loops once commitment tracking is enabled
 - dream lifecycle status (enabled/schedule/last run outcome)
 
@@ -278,7 +280,7 @@ Use these as standalone chat messages:
 /model default
 ```
 
-- `/new` resets the current group session and archives the previous transcript.
+- `/new` resets the current provider conversation and archives the previous transcript. It preserves durable memory, approved skills, MCP bindings, model choices, and agent configuration; the next user message starts fresh and drives memory retrieval.
 - `/model <value>` switches the group model override only when validation succeeds. Prefer Claude Code aliases (`sonnet`, `opus`, `opusplan`) so MyClaw tracks current Claude defaults; pin exact model IDs only for advanced rollout control.
 - Human shorthand such as `/model opus-4-7` is normalized to the safe Claude Code `opus` alias. Exact Opus 4.7 model IDs require a recent Claude Code version and account access, so MyClaw does not pin new installs to them by default.
 - Session commands require `is_from_me` or explicit `control_allowlist` membership. `sender_allowlist: "*"` allows interaction; it does not grant admin/session-command rights.

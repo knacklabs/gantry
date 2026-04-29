@@ -1,5 +1,6 @@
 import '../../channels/register-builtins.js';
 
+import { DEFAULT_AGENT_NAME } from '../../shared/default-agent.js';
 import { listChannelProviders } from '../../channels/provider-registry.js';
 import { MEMORY_MODEL_DEFAULTS } from '../../models/claude-model-registry.js';
 import {
@@ -20,6 +21,8 @@ import type {
   RuntimeSettings,
   RuntimeStorageSettings,
 } from './runtime-settings-types.js';
+
+export { DEFAULT_AGENT_NAME } from '../../shared/default-agent.js';
 
 export const DEFAULT_STORAGE_POSTGRES_URL_ENV = 'MYCLAW_DATABASE_URL';
 export const DEFAULT_STORAGE_POSTGRES_SCHEMA = 'myclaw';
@@ -84,6 +87,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     },
   };
   const agent: RuntimeAgentSettings = {
+    name: DEFAULT_AGENT_NAME,
     defaultModel: '',
     sessions: {
       memoryItemLimit: DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT,

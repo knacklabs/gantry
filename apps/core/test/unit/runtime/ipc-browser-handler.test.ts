@@ -4,11 +4,23 @@ import path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@core/runtime/browser-manager.js', () => ({
+vi.mock('@core/runtime/browser-capability.js', () => ({
   DEFAULT_BROWSER_PROFILE_NAME: 'default',
-  launchBrowser: vi.fn(async () => ({ ok: true, status: 'launched' })),
+  ensureBrowserReady: vi.fn(async () => ({ ok: true, status: 'launched' })),
   closeBrowser: vi.fn(async () => ({ ok: true, closed: true })),
   getBrowserStatus: vi.fn(() => ({ running: true })),
+  listBrowserProfiles: vi.fn(async () => [
+    {
+      name: 'default',
+      created_at: '2024-01-01T00:00:00.000Z',
+      last_used: '2024-01-01T00:00:00.000Z',
+      cdp_port: 9222,
+      auth_markers: [],
+      has_state: true,
+      running: false,
+      cdpReady: false,
+    },
+  ]),
 }));
 
 vi.mock('@core/runtime/browser-profiles.js', () => ({
@@ -39,9 +51,10 @@ import {
   writeBrowserIpcResponse,
 } from '@core/runtime/ipc-browser-handler.js';
 import {
+  ensureBrowserReady,
   getBrowserStatus,
-  launchBrowser,
-} from '@core/runtime/browser-manager.js';
+} from '@core/runtime/browser-capability.js';
+import { verifyIpcResponseAuthPayload } from '@core/infrastructure/ipc/response-signing.js';
 
 describe('ipc-browser-handler', () => {
   let tempDir: string;
@@ -77,14 +90,18 @@ describe('ipc-browser-handler', () => {
         payload: {
           profile_name: 'default',
           headless: true,
-          cdp_port: 9222,
         },
       },
       { sourceGroup: 'main', isMain: true },
     );
 
     expect(response.ok).toBe(true);
-    expect(launchBrowser).toHaveBeenCalledTimes(1);
+    expect(ensureBrowserReady).toHaveBeenCalledTimes(1);
+    expect(ensureBrowserReady).toHaveBeenCalledWith({
+      profileName: 'default',
+      headless: true,
+      keepAliveMs: undefined,
+    });
   });
 
   it('returns unsupported error for unknown browser action', async () => {
@@ -125,6 +142,7 @@ describe('ipc-browser-handler', () => {
 
   it('signs browser responses with the MCP client verification shape', () => {
     const keys = createIpcResponseSigningKeyPair();
+
     writeBrowserIpcResponse(
       tempDir,
       'grp',
@@ -154,6 +172,42 @@ describe('ipc-browser-handler', () => {
         keys.publicKeyPem,
         runnerVerificationPayload,
         response.signature,
+      ),
+    ).toBe(true);
+  });
+
+  it('signs browser responses with deterministic IPC auth when provided', () => {
+    writeBrowserIpcResponse(
+      tempDir,
+      'grp',
+      {
+        requestId: 'req-5',
+        ok: true,
+        data: { running: true },
+      },
+      undefined,
+      'thread-ipc-auth-token',
+    );
+
+    const responsePath = path.join(
+      tempDir,
+      'grp',
+      'browser-responses',
+      'req-5.json',
+    );
+    const raw = JSON.parse(fs.readFileSync(responsePath, 'utf-8'));
+    const payload = {
+      ok: true,
+      requestId: 'req-5',
+      data: { running: true },
+    };
+
+    expect(raw.signature).toEqual(expect.any(String));
+    expect(
+      verifyIpcResponseAuthPayload(
+        'thread-ipc-auth-token',
+        payload,
+        raw.signature,
       ),
     ).toBe(true);
   });

@@ -28,7 +28,7 @@ function makeDraft(runtimeHome: string): any {
     selectedModel: 'claude-sonnet-4-6',
     telegramBotToken: 'telegram-token',
     telegramChatJid: 'tg:-100123',
-    telegramDisplayName: 'Telegram Main',
+    telegramDisplayName: 'Main Agent',
     telegramAdminSenderId: '123',
     telegramAdminSenderName: 'Admin',
     telegramPermissionApproverIds: '123',
@@ -36,7 +36,7 @@ function makeDraft(runtimeHome: string): any {
     slackBotToken: '',
     slackAppToken: '',
     slackChatJid: '',
-    slackDisplayName: 'Slack Main',
+    slackDisplayName: 'Main Agent',
     slackPermissionApproverIds: '',
     memoryEnabled: true,
     embeddingsEnabled: false,
@@ -163,8 +163,8 @@ async function loadGroupStep() {
     message: vi.fn(),
   };
   const registerTelegramMainGroup = vi.fn(async () => ({
-    folder: 'telegram_main',
-    groupName: 'Telegram Main',
+    folder: 'main_agent',
+    groupName: 'Main Agent',
   }));
   vi.doMock('@clack/prompts', () => ({
     note: vi.fn(),
@@ -238,7 +238,7 @@ describe('setup group step', () => {
       await import('@core/config/settings/runtime-settings.js');
     const settings = loadRuntimeSettings(runtimeHome);
     expect(
-      settings.channels.telegram.controlAllowlist.agents.telegram_main,
+      settings.channels.telegram.controlAllowlist.agents.main_agent,
     ).toEqual(['123', '456']);
   });
 });

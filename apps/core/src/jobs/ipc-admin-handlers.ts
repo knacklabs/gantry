@@ -1,6 +1,7 @@
 import { MYCLAW_HOME } from '../config/index.js';
 import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
 import { McpServerService } from '../application/mcp/mcp-server-service.js';
+import { SkillDraftService } from '../application/skills/skill-draft-service.js';
 import { nowIso } from '../infrastructure/time/datetime.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
@@ -15,6 +16,7 @@ import {
   restartServiceForRuntimeHome,
   toTrimmedString,
 } from './ipc-shared.js';
+import { parseSkillDraftAssets } from './skill-draft-ipc.js';
 
 const refreshGroupsHandler: TaskHandler = async (context) => {
   const { data, sourceGroup, isMain, deps, registeredGroups } = context;
@@ -261,10 +263,101 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
   }
 };
 
+const requestSkillDraftHandler: TaskHandler = async (context) => {
+  const { data, deps, sourceGroup, sourceGroupJids } = context;
+  const { accept, reject } = createTaskResponder(
+    sourceGroup,
+    data.taskId,
+    data.authThreadId,
+  );
+  const payload = data.payload || {};
+  const reason = toTrimmedString(payload.reason, { maxLen: 2000 });
+  if (!reason) {
+    reject('Missing required field: reason.', 'invalid_request');
+    return;
+  }
+  const requestedTargetJid = toTrimmedString(data.chatJid, { maxLen: 512 });
+  const targetOverride = toTrimmedString(data.targetJid || data.jid, {
+    maxLen: 512,
+  });
+  if (targetOverride && targetOverride !== requestedTargetJid) {
+    reject(
+      'Skill draft requests must use the originating chat as the approval target.',
+      'forbidden',
+    );
+    return;
+  }
+  if (!requestedTargetJid || !sourceGroupJids.includes(requestedTargetJid)) {
+    reject(
+      'Skill draft requests must include the originating chat for this agent.',
+      'forbidden',
+    );
+    return;
+  }
+  if (
+    typeof deps.requestPermissionApproval !== 'function' ||
+    typeof deps.sendMessage !== 'function'
+  ) {
+    reject(
+      'Skill draft requests require a configured approval surface.',
+      'preflight_failed',
+    );
+    return;
+  }
+
+  const parsed = parseSkillDraftAssets(payload.files);
+  if (!parsed.ok) {
+    reject(parsed.error, 'invalid_request');
+    return;
+  }
+
+  const storage = getRuntimeStorage();
+  const service = new SkillDraftService(
+    storage.repositories.skills,
+    storage.skillArtifacts,
+  );
+  try {
+    const draft = await service.importDraft({
+      appId: DEFAULT_MEMORY_APP_ID as never,
+      agentId: memoryAgentIdForGroupFolder(sourceGroup) as never,
+      fallbackName: 'agent-created-skill',
+      createdBy: `agent:${sourceGroup}`,
+      assets: parsed.assets,
+    });
+    startSkillPermissionReview({
+      deps,
+      service,
+      sourceGroup,
+      targetJid: requestedTargetJid,
+      threadId: data.authThreadId,
+      skill: {
+        id: draft.id,
+        name: draft.name,
+        description: draft.description,
+        contentHash: draft.storage?.contentHash,
+      },
+      fileSummaries: parsed.fileSummaries,
+      skillMarkdownPreview: parsed.skillMarkdownPreview,
+      totalSizeBytes: parsed.totalSizeBytes,
+      reason,
+    });
+    accept(
+      `Skill draft ${draft.id} sent to this chat for approval. It will not be available until approved and will activate on the next agent run.`,
+      'skill_request_recorded',
+    );
+  } catch (err) {
+    reject(
+      err instanceof Error ? err.message : 'Skill draft request failed.',
+      'invalid_request',
+    );
+  }
+};
+
 export const adminTaskHandlers: Record<string, TaskHandler> = {
   refresh_groups: refreshGroupsHandler,
   register_agent: registerAgentHandler,
   service_restart: serviceRestartHandler,
+  request_skill_draft: requestSkillDraftHandler,
   request_mcp_server: requestMcpServerHandler,
 };
 
@@ -420,6 +513,109 @@ async function rejectMcpDraftFromPermission(
   await input.deps.sendMessage(
     input.targetJid,
     `Rejected MCP server ${input.server.name}: ${reason || 'not approved'}.`,
+    input.threadId ? { threadId: input.threadId } : undefined,
+  );
+}
+
+function startSkillPermissionReview(input: {
+  deps: Parameters<TaskHandler>[0]['deps'];
+  service: SkillDraftService;
+  sourceGroup: string;
+  targetJid: string;
+  threadId?: string;
+  skill: {
+    id: string;
+    name: string;
+    description?: string;
+    contentHash?: string;
+  };
+  fileSummaries: Array<{
+    path: string;
+    sizeBytes: number;
+    contentHash: string;
+  }>;
+  skillMarkdownPreview: {
+    path: string;
+    content: string;
+    truncated: boolean;
+    contentHash: string;
+  };
+  totalSizeBytes: number;
+  reason: string;
+}): void {
+  void completeSkillPermissionReview(input).catch((err) => {
+    logger.error(
+      { err, skillId: input.skill.id, sourceGroup: input.sourceGroup },
+      'Skill permission review failed',
+    );
+  });
+}
+
+async function completeSkillPermissionReview(
+  input: Parameters<typeof startSkillPermissionReview>[0],
+): Promise<void> {
+  const decision = await input.deps.requestPermissionApproval({
+    requestId: `skill-${globalThis.crypto.randomUUID()}`,
+    sourceGroup: input.sourceGroup,
+    targetJid: input.targetJid,
+    threadId: input.threadId,
+    decisionPolicy: 'same_channel',
+    toolName: 'request_skill_draft',
+    displayName: `Skill: ${input.skill.name}`,
+    title: 'Approve skill for this agent',
+    description:
+      'Only configured approvers can decide this request. Approving installs this skill as an agent capability for future runs only.',
+    decisionReason: input.reason,
+    toolInput: {
+      skillId: input.skill.id,
+      name: input.skill.name,
+      description: input.skill.description,
+      packageContentHash: input.skill.contentHash,
+      skillMarkdownPreview: input.skillMarkdownPreview,
+      files: input.fileSummaries,
+      totalSizeBytes: input.totalSizeBytes,
+      activation: 'next_agent_run',
+    },
+  });
+
+  if (!decision.approved) {
+    await rejectSkillDraftFromPermission(input, decision.reason);
+    return;
+  }
+  if (!decision.decidedBy) {
+    await rejectSkillDraftFromPermission(input, 'missing approving principal');
+    return;
+  }
+
+  await input.service.approveDraft({
+    appId: DEFAULT_MEMORY_APP_ID as never,
+    skillId: input.skill.id as never,
+    approvedBy: decision.decidedBy,
+  });
+  await input.service.bindSkillToAgent({
+    appId: DEFAULT_MEMORY_APP_ID as never,
+    agentId: memoryAgentIdForGroupFolder(input.sourceGroup) as never,
+    skillId: input.skill.id as never,
+  });
+  await input.deps.sendMessage(
+    input.targetJid,
+    `Approved skill ${input.skill.name}. It will be available on the next agent run.`,
+    input.threadId ? { threadId: input.threadId } : undefined,
+  );
+}
+
+async function rejectSkillDraftFromPermission(
+  input: Parameters<typeof startSkillPermissionReview>[0],
+  reason?: string,
+): Promise<void> {
+  await input.service.rejectDraft({
+    appId: DEFAULT_MEMORY_APP_ID as never,
+    skillId: input.skill.id as never,
+    rejectedBy: 'permission_review',
+  });
+  await input.deps.sendMessage(
+    input.targetJid,
+    `Rejected skill ${input.skill.name}: ${reason || 'not approved'}.`,
     input.threadId ? { threadId: input.threadId } : undefined,
   );
 }

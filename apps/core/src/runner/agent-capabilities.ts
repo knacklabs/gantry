@@ -1,3 +1,5 @@
+import { applyLoopbackNoProxyEnv } from '../shared/no-proxy.js';
+
 export interface AgentCapabilityContext {
   mcpServerPath: string;
   chatJid: string;
@@ -81,27 +83,29 @@ const permissionProvider: AgentCapabilityProvider = {
 
 const myclawMcpProvider: AgentCapabilityProvider = {
   id: 'myclaw-mcp',
-  provide: (ctx) => ({
-    mcpServers: {
-      myclaw: {
-        command: 'node',
-        args: [ctx.mcpServerPath],
-        env: {
-          MYCLAW_CHAT_JID: ctx.chatJid,
-          MYCLAW_GROUP_FOLDER: ctx.groupFolder,
-          MYCLAW_THREAD_ID: ctx.threadId || '',
-          MYCLAW_IS_MAIN: ctx.isMain ? '1' : '0',
-          ...(ctx.ipcDir ? { MYCLAW_IPC_DIR: ctx.ipcDir } : {}),
-          ...(ctx.ipcAuthToken
-            ? { MYCLAW_IPC_AUTH_TOKEN: ctx.ipcAuthToken }
-            : {}),
-          ...(ctx.ipcResponseVerifyKey
-            ? { MYCLAW_IPC_RESPONSE_VERIFY_KEY: ctx.ipcResponseVerifyKey }
-            : {}),
+  provide: (ctx) => {
+    const env: Record<string, string> = {
+      MYCLAW_CHAT_JID: ctx.chatJid,
+      MYCLAW_GROUP_FOLDER: ctx.groupFolder,
+      MYCLAW_THREAD_ID: ctx.threadId || '',
+      MYCLAW_IS_MAIN: ctx.isMain ? '1' : '0',
+      ...(ctx.ipcDir ? { MYCLAW_IPC_DIR: ctx.ipcDir } : {}),
+      ...(ctx.ipcAuthToken ? { MYCLAW_IPC_AUTH_TOKEN: ctx.ipcAuthToken } : {}),
+      ...(ctx.ipcResponseVerifyKey
+        ? { MYCLAW_IPC_RESPONSE_VERIFY_KEY: ctx.ipcResponseVerifyKey }
+        : {}),
+    };
+    applyLoopbackNoProxyEnv(env);
+    return {
+      mcpServers: {
+        myclaw: {
+          command: 'node',
+          args: [ctx.mcpServerPath],
+          env,
         },
       },
-    },
-  }),
+    };
+  },
 };
 
 const configuredMcpProvider: AgentCapabilityProvider = {

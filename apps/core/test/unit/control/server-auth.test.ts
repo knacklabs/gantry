@@ -15,10 +15,55 @@ import {
   ConversationThreadListResponseSchema,
   MessageListResponseSchema,
 } from '@myclaw/contracts';
+import {
+  loadRuntimeSettings,
+  saveRuntimeSettings,
+} from '@core/config/settings/runtime-settings.js';
 
-vi.mock('@core/config/index.js', () => ({
-  MYCLAW_HOME: '/tmp/myclaw-control-test-home',
-}));
+vi.mock('@core/config/index.js', async () => {
+  const runtimeHome = '/tmp/myclaw-control-test-home';
+  const settingsModule =
+    await import('@core/config/settings/runtime-settings.js');
+  const toPublic = () => {
+    const settings = settingsModule.loadRuntimeSettings(runtimeHome);
+    return {
+      agent: {
+        name: settings.agent.name,
+        defaultModel: settings.agent.defaultModel,
+      },
+      memory: {
+        enabled: settings.memory.enabled,
+        dreaming: { enabled: settings.memory.dreaming.enabled },
+      },
+    };
+  };
+  return {
+    MYCLAW_HOME: runtimeHome,
+    getPublicRuntimeSettings: toPublic,
+    updatePublicRuntimeSettings: (patch: any) => {
+      const settings = settingsModule.loadRuntimeSettings(runtimeHome);
+      const changed: string[] = [];
+      if (patch.agent?.name !== undefined) {
+        settings.agent.name = patch.agent.name.trim();
+        changed.push('agent.name');
+      }
+      if (patch.agent?.defaultModel !== undefined) {
+        settings.agent.defaultModel = patch.agent.defaultModel.trim();
+        changed.push('agent.defaultModel');
+      }
+      if (patch.memory?.dreaming?.enabled !== undefined) {
+        settings.memory.dreaming.enabled = patch.memory.dreaming.enabled;
+        changed.push('memory.dreaming.enabled');
+      }
+      settingsModule.saveRuntimeSettings(runtimeHome, settings);
+      return {
+        settings: toPublic(),
+        changed,
+        restartRequired: changed.length > 0,
+      };
+    },
+  };
+});
 
 vi.mock('@core/jobs/scheduler.js', () => ({
   enqueueJobTrigger: vi.fn(async () => undefined),
@@ -474,6 +519,211 @@ describe('control server auth key parsing', () => {
 });
 
 describe('control server runtime hardening', () => {
+  it('serves and updates typed runtime settings', async () => {
+    const runtimeHome = '/tmp/myclaw-control-test-home';
+    fs.rmSync(runtimeHome, { recursive: true, force: true });
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'admin-key',
+        scopes: ['sessions:read', 'agents:admin'],
+        appId: 'app-one',
+      },
+    ]);
+
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+        getRuntimeSettings: () => {
+          const settings = loadRuntimeSettings(runtimeHome);
+          return {
+            agent: {
+              name: settings.agent.name,
+              defaultModel: settings.agent.defaultModel,
+            },
+            memory: {
+              enabled: settings.memory.enabled,
+              dreaming: { enabled: settings.memory.dreaming.enabled },
+            },
+          };
+        },
+        updateRuntimeSettings: (patch: any) => {
+          const settings = loadRuntimeSettings(runtimeHome);
+          const changed: string[] = [];
+          if (patch.agent?.name) {
+            settings.agent.name = patch.agent.name;
+            changed.push('agent.name');
+          }
+          if (patch.agent?.defaultModel !== undefined) {
+            settings.agent.defaultModel = patch.agent.defaultModel;
+            changed.push('agent.defaultModel');
+          }
+          if (patch.memory?.dreaming?.enabled !== undefined) {
+            settings.memory.dreaming.enabled = patch.memory.dreaming.enabled;
+            changed.push('memory.dreaming.enabled');
+          }
+          saveRuntimeSettings(runtimeHome, settings);
+          return {
+            settings: {
+              agent: {
+                name: settings.agent.name,
+                defaultModel: settings.agent.defaultModel,
+              },
+              memory: {
+                enabled: settings.memory.enabled,
+                dreaming: { enabled: settings.memory.dreaming.enabled },
+              },
+            },
+            changed,
+            restartRequired: changed.length > 0,
+          };
+        },
+      } as any,
+    });
+    try {
+      const getResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/settings`,
+        'admin-key',
+      );
+      expect(getResponse.status).toBe(200);
+      await expect(getResponse.json()).resolves.toMatchObject({
+        settings: {
+          agent: { name: 'Main Agent', defaultModel: '' },
+          memory: { enabled: true, dreaming: { enabled: false } },
+        },
+      });
+
+      const patchResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/settings`,
+        'admin-key',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            agent: { name: 'Kai', defaultModel: 'sonnet' },
+            memory: { dreaming: { enabled: true } },
+          }),
+        },
+      );
+      expect(patchResponse.status).toBe(200);
+      await expect(patchResponse.json()).resolves.toMatchObject({
+        settings: {
+          agent: { name: 'Kai', defaultModel: 'sonnet' },
+          memory: { enabled: true, dreaming: { enabled: true } },
+        },
+        changed: [
+          'agent.name',
+          'agent.defaultModel',
+          'memory.dreaming.enabled',
+        ],
+        restartRequired: true,
+      });
+
+      const raw = fs.readFileSync(
+        path.join(runtimeHome, 'settings.yaml'),
+        'utf-8',
+      );
+      expect(raw).toContain('name: Kai');
+      expect(raw).toContain('default_model: sonnet');
+
+      const unsupportedResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/settings`,
+        'admin-key',
+        { method: 'POST' },
+      );
+      expect(unsupportedResponse.status).toBe(405);
+      expect(unsupportedResponse.headers.get('allow')).toBe('GET, PATCH');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects arbitrary runtime settings patches', async () => {
+    const runtimeHome = '/tmp/myclaw-control-test-home';
+    fs.rmSync(runtimeHome, { recursive: true, force: true });
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'admin-key',
+        scopes: ['agents:admin'],
+        appId: 'app-one',
+      },
+    ]);
+
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+        getRuntimeSettings: vi.fn(),
+        updateRuntimeSettings: vi.fn(),
+      } as any,
+    });
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/settings`,
+        'admin-key',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            databaseUrl: 'postgres://secret',
+          }),
+        },
+      );
+      expect(response.status).toBe(400);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects blank runtime agent names in typed settings patches', async () => {
+    const runtimeHome = '/tmp/myclaw-control-test-home';
+    fs.rmSync(runtimeHome, { recursive: true, force: true });
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'admin-key',
+        scopes: ['agents:admin'],
+        appId: 'app-one',
+      },
+    ]);
+
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/settings`,
+        'admin-key',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            agent: { name: '   ' },
+          }),
+        },
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: 'INVALID_REQUEST',
+        },
+      });
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('rejects bearer auth when key is not app-bound', async () => {
     const port = await reservePort();
     process.env.MYCLAW_CONTROL_PORT = String(port);

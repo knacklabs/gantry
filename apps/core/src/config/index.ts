@@ -11,15 +11,17 @@ import { parseBooleanEnv } from './env/parse.js';
 import { getMemoryModelConfig } from './memory.js';
 import { getMyclawHome } from '../shared/myclaw-home.js';
 import { resolveRuntimeStorageConfig } from './settings/storage.js';
-import { ensureRuntimeSettings } from './settings/runtime-settings.js';
+import {
+  ensureRuntimeSettings,
+  saveRuntimeSettings,
+} from './settings/runtime-settings.js';
 import { settingsFilePath } from './settings/runtime-home.js';
+import { DEFAULT_AGENT_NAME } from './settings/runtime-settings-defaults.js';
 import type { RuntimeSettings } from './settings/runtime-settings-types.js';
 import { isValidTimezone } from '../shared/timezone.js';
 
 export * from './memory.js';
 
-export const ASSISTANT_NAME =
-  process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
 export const POLL_INTERVAL = 2000;
 
 const MYCLAW_HOME_RAW =
@@ -66,6 +68,91 @@ export function getRuntimeSettingsForConfig(): RuntimeSettings {
     };
     return settings;
   }
+}
+
+export function getConfiguredAgentName(): string {
+  try {
+    return (
+      getRuntimeSettingsForConfig().agent.name.trim() || DEFAULT_AGENT_NAME
+    );
+  } catch {
+    return DEFAULT_AGENT_NAME;
+  }
+}
+
+export const ASSISTANT_NAME = getConfiguredAgentName();
+
+export function getPublicRuntimeSettings() {
+  const settings = getRuntimeSettingsForConfig();
+  return {
+    agent: {
+      name: settings.agent.name,
+      defaultModel: settings.agent.defaultModel,
+    },
+    memory: {
+      enabled: settings.memory.enabled,
+      dreaming: {
+        enabled: settings.memory.dreaming.enabled,
+      },
+    },
+  };
+}
+
+export function updatePublicRuntimeSettings(patch: {
+  agent?: { name?: string; defaultModel?: string };
+  memory?: { enabled?: boolean; dreaming?: { enabled?: boolean } };
+}) {
+  const settings = getRuntimeSettingsForConfig();
+  const nextMemoryEnabled = patch.memory?.enabled ?? settings.memory.enabled;
+  const nextDreamingEnabled =
+    patch.memory?.dreaming?.enabled ?? settings.memory.dreaming.enabled;
+  if (nextDreamingEnabled && !nextMemoryEnabled) {
+    throw Object.assign(
+      new Error('memory.dreaming.enabled requires memory.enabled=true.'),
+      {
+        statusCode: 400,
+        code: 'INVALID_REQUEST',
+      },
+    );
+  }
+  const changed: string[] = [];
+  if (patch.agent?.name !== undefined) {
+    const next = patch.agent.name.trim();
+    if (settings.agent.name !== next) {
+      settings.agent.name = next;
+      changed.push('agent.name');
+    }
+  }
+  if (patch.agent?.defaultModel !== undefined) {
+    const next = patch.agent.defaultModel.trim();
+    if (settings.agent.defaultModel !== next) {
+      settings.agent.defaultModel = next;
+      changed.push('agent.defaultModel');
+    }
+  }
+  if (
+    patch.memory?.enabled !== undefined &&
+    settings.memory.enabled !== patch.memory.enabled
+  ) {
+    settings.memory.enabled = patch.memory.enabled;
+    changed.push('memory.enabled');
+  }
+  if (
+    patch.memory?.dreaming?.enabled !== undefined &&
+    settings.memory.dreaming.enabled !== patch.memory.dreaming.enabled
+  ) {
+    settings.memory.dreaming.enabled = patch.memory.dreaming.enabled;
+    changed.push('memory.dreaming.enabled');
+  }
+  if (changed.length > 0) {
+    saveRuntimeSettings(MYCLAW_HOME, settings);
+    runtimeSettingsCache = undefined;
+  }
+  return {
+    settings: getPublicRuntimeSettings(),
+    changed,
+    restartRequired: changed.length > 0,
+  };
 }
 
 export const STORE_DIR = path.resolve(RUNTIME_ROOT, 'store');

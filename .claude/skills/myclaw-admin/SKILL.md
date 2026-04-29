@@ -368,6 +368,12 @@ Browser:
 - `mcp__myclaw__browser_close`
 - `mcp__myclaw__browser_status`
 
+MyClaw owns only browser lifecycle for the persistent `myclaw` Chrome profile.
+The runtime installs `agent-browser` into the generated per-run Claude config
+and registers `mcp__agent_browser__*` action tools for navigation, click, type,
+wait, snapshot, and screenshot workflows. Do not ask the user to install
+browser skills or edit `.claude/skills` manually.
+
 ## Scheduler Usage
 
 The scheduler supports exactly three schedule types:

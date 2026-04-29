@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { applyLoopbackNoProxyEnv } from '../../shared/no-proxy.js';
 import { log } from './logging.js';
 
 function requirePathEnv(name: string): string {
@@ -74,11 +75,14 @@ export function buildSdkEnv(): Record<string, string | undefined> {
     'HTTPS_PROXY',
     'http_proxy',
     'https_proxy',
+    'NO_PROXY',
+    'no_proxy',
     'NODE_USE_ENV_PROXY',
     'NODE_EXTRA_CA_CERTS',
     'GIT_TERMINAL_PROMPT',
     'GIT_HTTP_PROXY_AUTHMETHOD',
   ]);
+  applyLoopbackNoProxyEnv(sdkEnv);
   delete sdkEnv.MYCLAW_IPC_AUTH_TOKEN;
   delete sdkEnv.MYCLAW_IPC_RESPONSE_VERIFY_KEY;
   delete sdkEnv.MYCLAW_MCP_CONFIG_FILE;

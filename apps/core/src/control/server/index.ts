@@ -2,8 +2,16 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 
+import type {
+  UpdateRuntimeSettingsRequest,
+  UpdateRuntimeSettingsResponse,
+} from '@myclaw/contracts';
 import type { RuntimeApp } from '../../app/bootstrap/runtime-app.js';
-import { MYCLAW_HOME } from '../../config/index.js';
+import {
+  MYCLAW_HOME,
+  getPublicRuntimeSettings,
+  updatePublicRuntimeSettings,
+} from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { canAccessApp, jobBelongsToApp, makeAppGroup } from './app-identity.js';
 import { isValidControlId, parseControlApiKeys } from './auth.js';
@@ -58,13 +66,13 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
 
     try {
       if (await handleSystemRoutes(req, res, ctx, pathname)) return;
-      if (await handleSettingsRoutes(req, res, pathname)) return;
       if (await handleSessionRoutes(req, res, ctx, url, pathname)) return;
       if (await handleChannelControlRoutes(req, res, ctx, url, pathname))
         return;
       if (await handleMemoryRoutes(req, res, ctx, url, pathname)) return;
       if (await handleJobRoutes(req, res, ctx, url, pathname)) return;
       if (await handleRunRoutes(req, res, ctx, url, pathname)) return;
+      if (await handleSettingsRoutes(req, res, ctx, pathname)) return;
       if (await handleSkillRoutes(req, res, ctx, url, pathname)) return;
       if (await handleMcpServerRoutes(req, res, ctx, url, pathname)) return;
       if (await handleWebhookRoutes(req, res, ctx, pathname)) return;
@@ -98,6 +106,12 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
   };
 }
 
+function updateRuntimeSettings(
+  patch: UpdateRuntimeSettingsRequest,
+): UpdateRuntimeSettingsResponse {
+  return updatePublicRuntimeSettings(patch);
+}
+
 export function startControlServer(input: {
   app: RuntimeApp;
 }): ControlServerHandle {
@@ -122,6 +136,8 @@ export function startControlServer(input: {
     maxConcurrentTriggerWaits: 50,
     state,
     triggerRateLimiter: createRateLimiter(),
+    getRuntimeSettings: () => getPublicRuntimeSettings(),
+    updateRuntimeSettings,
   };
 
   const server = http.createServer(createControlRequestHandler(ctx));

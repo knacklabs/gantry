@@ -42,7 +42,7 @@ export interface RuntimeFlowHarness {
       input: Record<string, unknown>,
       onProcess: (
         proc: ChildProcess,
-        containerName: string,
+        runHandle: string,
       ) => void | Promise<void>,
       onOutput?: (output: AgentOutput) => void | Promise<void>,
     ) => Promise<AgentOutput>;

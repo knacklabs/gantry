@@ -37,6 +37,8 @@ describe('agent capability composition', () => {
         MYCLAW_IPC_DIR: '/tmp/ipc/team',
         MYCLAW_IPC_AUTH_TOKEN: 'token',
         MYCLAW_IPC_RESPONSE_VERIFY_KEY: 'verify-key',
+        NO_PROXY: '127.0.0.1,localhost,::1',
+        no_proxy: '127.0.0.1,localhost,::1',
       },
     });
   });
@@ -89,5 +91,29 @@ describe('agent capability composition', () => {
     });
     expect(profile.allowedTools).toContain('mcp__myclaw__*');
     expect(profile.allowedTools).toContain('mcp__github__search_repositories');
+  });
+
+  it('treats runtime-projected MCP servers as configured MCP input', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:team',
+      groupFolder: 'telegram_team',
+      isMain: true,
+      externalMcpServers: {
+        agent_browser: {
+          type: 'stdio',
+          command: '/tmp/playwright-mcp',
+          args: ['--cdp-endpoint', 'http://127.0.0.1:4567'],
+        },
+      },
+      externalMcpAllowedTools: ['mcp__agent_browser__*'],
+    });
+
+    expect(profile.mcpServers.agent_browser).toEqual({
+      type: 'stdio',
+      command: '/tmp/playwright-mcp',
+      args: ['--cdp-endpoint', 'http://127.0.0.1:4567'],
+    });
+    expect(profile.allowedTools).toContain('mcp__agent_browser__*');
   });
 });

@@ -35,11 +35,10 @@ export function registerBrowserTools(server: McpServer): void {
 
   server.tool(
     'browser_launch',
-    'Launch or reuse the shared Chrome browser session (profile: myclaw).',
+    'Launch, recover, or reuse the shared Chrome browser session (profile: myclaw). Optional keep_alive_ms extends the explicit hold.',
     {
       profile_name: z.string().optional().default('myclaw'),
       headless: z.boolean().optional(),
-      cdp_port: z.number().optional(),
       keep_alive_ms: z.number().optional(),
     },
     async (args) => {

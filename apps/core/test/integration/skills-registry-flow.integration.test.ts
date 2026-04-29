@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
 vi.mock('@core/config/index.js', () => ({
   MYCLAW_HOME: '/tmp/myclaw-skills-integration-home',
   ONECLI_ALLOWED_ENV_KEYS: [],
+  MYCLAW_IPC_AUTH_SECRET: 'test-ipc-secret',
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({
@@ -327,6 +328,259 @@ describe('skill registry integration flow', () => {
     } finally {
       await server.close();
     }
+  });
+
+  it('routes agent-created skill drafts through same-channel approval before binding', async () => {
+    const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
+    const sendMessage = vi.fn(async () => undefined);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'Approver',
+      reason: 'approved',
+    }));
+    const deps = {
+      registeredGroups: () => ({
+        'chat-origin': {
+          name: 'Agent One Origin',
+          folder: 'agent:one',
+          jid: 'chat-origin',
+        } as any,
+      }),
+      syncGroups: vi.fn(async () => undefined),
+      getAvailableGroups: vi.fn(async () => []),
+      writeGroupsSnapshot: vi.fn(async () => undefined),
+      sendMessage,
+      requestPermissionApproval,
+      requestUserAnswer: vi.fn(),
+      onSchedulerChanged: vi.fn(),
+      registerGroup: vi.fn(),
+    };
+
+    await processTaskIpc(
+      {
+        type: 'request_skill_draft',
+        taskId: 'request-skill-approve-test',
+        targetJid: 'chat-origin',
+        chatJid: 'chat-origin',
+        authThreadId: 'thread-origin',
+        payload: {
+          reason: 'Reuse a channel-specific posting workflow.',
+          files: [
+            {
+              path: 'SKILL.md',
+              content: [
+                '---',
+                'name: Channel Posting',
+                'description: Drafts channel posts',
+                '---',
+                '# Channel Posting',
+              ].join('\n'),
+            },
+          ],
+        },
+      },
+      'agent:one',
+      false,
+      deps as any,
+    );
+
+    await vi.waitFor(() => {
+      expect(requestPermissionApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceGroup: 'agent:one',
+          targetJid: 'chat-origin',
+          threadId: 'thread-origin',
+          decisionPolicy: 'same_channel',
+          toolName: 'request_skill_draft',
+        }),
+      );
+    });
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolInput: expect.objectContaining({
+          packageContentHash: expect.stringMatching(/^sha256:/),
+          skillMarkdownPreview: expect.objectContaining({
+            path: 'SKILL.md',
+            content: expect.stringContaining('name: Channel Posting'),
+            truncated: false,
+            contentHash: expect.stringMatching(/^sha256:/),
+          }),
+          files: [
+            expect.objectContaining({
+              path: 'SKILL.md',
+              sizeBytes: expect.any(Number),
+              contentHash: expect.stringMatching(/^sha256:/),
+            }),
+          ],
+        }),
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith(
+        'chat-origin',
+        expect.stringContaining('Approved skill Channel Posting'),
+        { threadId: 'thread-origin' },
+      );
+    });
+
+    const approved = [...state.skills.values()].filter(
+      (skill) => skill.status === 'approved',
+    );
+    expect(approved).toHaveLength(1);
+    expect(approved[0]).toMatchObject({
+      agentId: 'agent:one',
+      name: 'Channel Posting',
+      source: 'agent_created',
+      createdBy: 'agent:agent:one',
+    });
+    expect([...state.bindings.values()]).toEqual([
+      expect.objectContaining({
+        appId: 'default',
+        agentId: 'agent:one',
+        skillId: approved[0].id,
+        status: 'active',
+      }),
+    ]);
+  });
+
+  it('rejects agent-created skill drafts when SKILL.md cannot be fully shown for channel approval', async () => {
+    const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'Approver',
+      reason: 'approved',
+    }));
+    const deps = {
+      registeredGroups: () => ({
+        'chat-origin': {
+          name: 'Agent One Origin',
+          folder: 'agent:one',
+          jid: 'chat-origin',
+        } as any,
+      }),
+      syncGroups: vi.fn(async () => undefined),
+      getAvailableGroups: vi.fn(async () => []),
+      writeGroupsSnapshot: vi.fn(async () => undefined),
+      sendMessage: vi.fn(async () => undefined),
+      requestPermissionApproval,
+      requestUserAnswer: vi.fn(),
+      onSchedulerChanged: vi.fn(),
+      registerGroup: vi.fn(),
+    };
+
+    await processTaskIpc(
+      {
+        type: 'request_skill_draft',
+        taskId: 'request-skill-large-md-test',
+        targetJid: 'chat-origin',
+        chatJid: 'chat-origin',
+        authThreadId: 'thread-origin',
+        payload: {
+          reason: 'Test oversized review path.',
+          files: [
+            {
+              path: 'SKILL.md',
+              content: [
+                '---',
+                'name: Oversized Capability',
+                'description: Too large for channel review',
+                '---',
+                '# Oversized Capability',
+                'x'.repeat(4_001),
+              ].join('\n'),
+            },
+          ],
+        },
+      },
+      'agent:one',
+      false,
+      deps as any,
+    );
+
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(state.skills.size).toBe(0);
+    expect(state.bindings.size).toBe(0);
+  });
+
+  it('does not bind agent-created skill drafts when same-channel approval denies', async () => {
+    const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
+    const sendMessage = vi.fn(async () => undefined);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: false,
+      decidedBy: 'Approver',
+      reason: 'not approved',
+    }));
+    const deps = {
+      registeredGroups: () => ({
+        'chat-origin': {
+          name: 'Agent One Origin',
+          folder: 'agent:one',
+          jid: 'chat-origin',
+        } as any,
+      }),
+      syncGroups: vi.fn(async () => undefined),
+      getAvailableGroups: vi.fn(async () => []),
+      writeGroupsSnapshot: vi.fn(async () => undefined),
+      sendMessage,
+      requestPermissionApproval,
+      requestUserAnswer: vi.fn(),
+      onSchedulerChanged: vi.fn(),
+      registerGroup: vi.fn(),
+    };
+
+    await processTaskIpc(
+      {
+        type: 'request_skill_draft',
+        taskId: 'request-skill-deny-test',
+        targetJid: 'chat-origin',
+        chatJid: 'chat-origin',
+        authThreadId: 'thread-origin',
+        payload: {
+          reason: 'Test denied review path.',
+          files: [
+            {
+              path: 'SKILL.md',
+              content: [
+                '---',
+                'name: Denied Capability',
+                'description: Should be rejected',
+                '---',
+                '# Denied Capability',
+              ].join('\n'),
+            },
+          ],
+        },
+      },
+      'agent:one',
+      false,
+      deps as any,
+    );
+
+    await vi.waitFor(() => {
+      expect(requestPermissionApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceGroup: 'agent:one',
+          targetJid: 'chat-origin',
+          threadId: 'thread-origin',
+          decisionPolicy: 'same_channel',
+          toolName: 'request_skill_draft',
+        }),
+      );
+    });
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith(
+        'chat-origin',
+        expect.stringContaining('Rejected skill Denied Capability'),
+        { threadId: 'thread-origin' },
+      );
+    });
+
+    const denied = [...state.skills.values()].filter(
+      (skill) =>
+        skill.name === 'Denied Capability' && skill.status === 'rejected',
+    );
+    expect(denied).toHaveLength(1);
+    expect([...state.bindings.values()]).toEqual([]);
   });
 
   it('handles reserved URL skill ids through approve and binding routes', async () => {

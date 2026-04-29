@@ -37,6 +37,14 @@ Runtime code must also not treat runtime-home Claude settings, local settings,
 or skills directories as enterprise source of truth. `settings.local.json` is a
 Claude-local concept, not MyClaw policy.
 
+Agent-created capability changes must enter through MyClaw-owned draft/request
+flows. The Claude Agent SDK `PreToolUse` hook denies direct writes to skill
+files, MCP configuration, and permission settings so local Claude files cannot
+become hidden durable state. Agents submit skills through
+`mcp__myclaw__request_skill_draft` and MCP servers through
+`mcp__myclaw__request_mcp_server`; both route to same-channel review before
+future-run activation.
+
 MyClaw owns draft artifact durability and local approval state. It does not own
 hosted skill versioning. Hosted Anthropic skills are provider-managed resources
 addressed by opaque provider refs through the Anthropic SDK adapter.

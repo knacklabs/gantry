@@ -2,18 +2,18 @@
 
 ## What This Repo Is
 
-MyClaw is becoming a provider-neutral and channel-neutral agent runtime platform.
-Personal Telegram/WhatsApp usage is one deployment mode; enterprise Slack, Teams, and WebUI integration is another deployment mode.
-The architecture must treat channels, LLM providers, storage, CLI, and control HTTP as replaceable adapters around stable application and domain concepts.
+MyClaw is a provider-neutral and channel-neutral agent runtime platform.
+Personal Telegram/WhatsApp and enterprise Slack, Teams, and WebUI are deployment modes.
+Channels, LLM providers, storage, CLI, and control HTTP are replaceable adapters around stable app concepts.
 
-Primary surfaces today:
+Primary surfaces:
 
-- `apps/core/src/index.ts`: package/runtime entrypoint
-- `apps/core/src/app/bootstrap/runtime-app.ts`: runtime wiring and lifecycle
-- `apps/core/src/runtime/group-queue.ts`: per-group queue and retry behavior
-- `apps/core/src/runtime/agent-spawn.ts`: host execution path
+- `apps/core/src/index.ts`: runtime entrypoint
+- `apps/core/src/app/bootstrap/runtime-app.ts`: lifecycle wiring
+- `apps/core/src/runtime/group-queue.ts`: per-group queue/retry
+- `apps/core/src/runtime/agent-spawn.ts`: host execution
 - `apps/core/src/session/session-commands.ts`: host-managed slash commands
-- `apps/core/src/infrastructure/postgres/schema/`: Postgres persistence for groups, messages, jobs, control events, and memory
+- `apps/core/src/infrastructure/postgres/schema/`: Postgres persistence
 
 ## Mandatory Read Order
 
@@ -33,6 +33,7 @@ Use `python3 .codex/scripts/stage_orchestrator.py` to get current phase commands
 
 Important constraints:
 
+- First-run channel setup creates one user-facing main agent named by `settings.yaml agent.name`; chat IDs and `main_agent` are internal routing.
 - `/new` clears persisted session state but preserves the group model override.
 - Transcript archive during `/new` is best-effort and must not block reset success.
 - Durable memory lives under the configured memory root; do not load `~/myclaw/agents/<folder>/memory/`.
@@ -71,7 +72,7 @@ Important constraints:
 - Do not reintroduce legacy branding in active docs or instructions.
 - Avoid fork/upstream framing in active guidance. Prefer neutral repo, branch, or shared-remote wording.
 - Prefer local repo docs over speculative external docs links unless the external target is verified current.
-- For every major architectural change, update `docs/architecture/` or `docs/decisions/`.
+- For major arch changes, update `docs/architecture/` or `docs/decisions/`.
 - When docs policy changes, update this file in the same PR.
 
 ## Verification Rules
@@ -79,6 +80,8 @@ Important constraints:
 - Discover and document exact verification commands before changing implementation behavior.
 - Run the smallest relevant checks after each change.
 - Run full checks at the end of a phase.
+- Before validating `~/myclaw`, build/restart from this checkout, confirm `myclaw status`, and treat older generated logs/state as stale.
+- Archive stale generated state under `~/myclaw/cleanup-archive/<timestamp>/`; keep secrets, settings, Postgres, OneCLI data, artifacts, and active agent folders unless reset is requested.
 - Architecture exceptions must be time-bounded ratchets with max counts; never relax the checker globally to hide new debt.
 - For replacement or cutover work, include a cleanup verification step that searches for stale active references and records the result before final response or PR handoff.
 - Use [docs/architecture/current-verification-commands.md](docs/architecture/current-verification-commands.md) as the command reference.
@@ -94,7 +97,7 @@ Important constraints:
 - Do not read production secrets.
 - Do not run destructive filesystem or database commands.
 - Do not modify files outside this repository.
-- Do not track generated artifacts from local runs or hooks, including `__pycache__`, `*.pyc`, coverage output, validation reports, active `.factory/` run artifacts, or package tarballs.
+- Do not track generated run/hook artifacts: `__pycache__`, `*.pyc`, coverage, validation reports, active `.factory/`, or tarballs.
 - Background maintenance timers must be stoppable so tests and CI can exit cleanly.
 
 ## Hard Gates

@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import {
+  DEFAULT_AGENT_ID,
+  DEFAULT_LLM_PROFILE_ID,
+} from '@core/adapters/storage/postgres/seeds.js';
+import type { AgentRunId } from '@core/domain/events/events.js';
+import { makeSessionScopeKey } from '@core/domain/repositories/ops-repo.js';
 import type { ProviderSessionId } from '@core/domain/sessions/sessions.js';
 
 import {
@@ -214,6 +220,59 @@ maybeDescribe('Postgres memory continuity', () => {
     expect(resumed).not.toHaveProperty('providerSessionId');
     expect(resumed).not.toHaveProperty('externalSessionId');
     expect(resumed).not.toHaveProperty('latestArtifactId');
+  });
+
+  it('clears scoped session state even when run history references the session', async () => {
+    const groupFolder = 'group-session-delete-with-run';
+    const chatJid = 'tg:group-session-delete-with-run';
+    const sessionId = 'provider-session:test:delete-with-run';
+    const runId = 'agent-run:test:delete-with-session' as AgentRunId;
+
+    await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
+      chatJid,
+      latestArtifactId: 'provider-session-artifact:test:delete-with-run',
+    });
+    const resume = await runtime.canonicalSessionRepository.getSessionResume({
+      groupFolder,
+      chatJid,
+      threadId: null,
+      scopeKey: makeSessionScopeKey(groupFolder, null),
+    });
+
+    await runtime.repositories.agentRuns.saveAgentRun({
+      id: runId,
+      appId: resume.appId as never,
+      agentId: resume.agentId as never,
+      configVersionId: `config:${DEFAULT_AGENT_ID}:1` as never,
+      sessionId: resume.agentSessionId as never,
+      llmProfileId: DEFAULT_LLM_PROFILE_ID as never,
+      permissionDecisionIds: [],
+      cause: 'message',
+      status: 'completed',
+      createdAt: '2026-04-28T00:00:00.000Z',
+      startedAt: '2026-04-28T00:00:01.000Z',
+      endedAt: '2026-04-28T00:00:02.000Z',
+    });
+
+    await runtime.sessionOps.deleteSession(groupFolder, null);
+
+    await expect(
+      runtime.repositories.providerSessions.getProviderSession(
+        sessionId as ProviderSessionId,
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      runtime.repositories.agentRuns.getAgentRun(runId),
+    ).resolves.toMatchObject({ sessionId: undefined });
+
+    const restarted = await runtime.sessionOps.getSessionResume({
+      groupFolder,
+      chatJid,
+      threadId: null,
+    });
+    expect(restarted.mode).toBe('db_replay');
+    expect(restarted.externalSessionId).toBeUndefined();
+    expect(restarted.latestArtifactId).toBeUndefined();
   });
 
   it('keeps session state isolated across independent test schemas', async () => {

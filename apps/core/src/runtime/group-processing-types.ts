@@ -74,7 +74,7 @@ export interface GroupProcessingDeps {
     registerProcess: (
       groupJid: string,
       proc: ChildProcess,
-      containerName: string,
+      runHandle: string,
       groupFolder?: string,
       stopAliasJids?: string | string[],
       threadId?: string | null,

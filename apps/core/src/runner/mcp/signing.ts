@@ -1,4 +1,9 @@
-import { createHmac, randomUUID, verify as cryptoVerify } from 'crypto';
+import {
+  createHmac,
+  randomUUID,
+  timingSafeEqual,
+  verify as cryptoVerify,
+} from 'crypto';
 
 export function signIpcRequestPayload(
   requestSigningKey: string | undefined,
@@ -30,20 +35,34 @@ export function createSignedIpcRequestEnvelope(
 
 export function verifyIpcResponsePayload(
   publicKeyPem: string | undefined,
+  responseSigningKey: string | undefined,
   payload: Record<string, unknown>,
   signature: string | undefined,
 ): boolean {
   const key = publicKeyPem?.trim();
   const sig = signature?.trim();
-  if (!key || !sig) return false;
-  try {
-    return cryptoVerify(
-      null,
-      Buffer.from(JSON.stringify(payload)),
-      key,
-      Buffer.from(sig, 'base64'),
-    );
-  } catch {
-    return false;
+  if (!sig) return false;
+  if (key) {
+    try {
+      if (
+        cryptoVerify(
+          null,
+          Buffer.from(JSON.stringify(payload)),
+          key,
+          Buffer.from(sig, 'base64'),
+        )
+      ) {
+        return true;
+      }
+    } catch {
+      // Fall through to deterministic IPC auth response signatures.
+    }
   }
+  const hmacKey = responseSigningKey?.trim();
+  if (!hmacKey) return false;
+  const expected = createHmac('sha256', hmacKey)
+    .update(Buffer.from(JSON.stringify(payload)))
+    .digest('hex');
+  if (sig.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
 }

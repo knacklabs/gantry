@@ -69,7 +69,10 @@ describe('PromptProfileService', () => {
       'Do not save raw chat logs, terminal output, temporary task progress',
     );
     expect(shared).toContain(
-      'When the user says "continue", resume from continuity first',
+      'When the user says "continue", "resume", or similar, call memory_search',
+    );
+    expect(shared).toContain(
+      'absence means no relevant memory was auto-retrieved',
     );
     expect(fs.existsSync(path.join(configDir, 'CLAUDE.md'))).toBe(false);
     expect(fs.existsSync(path.join(configDir, 'SOUL.md'))).toBe(false);

@@ -7,10 +7,15 @@ import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-st
 import type { SkillCatalogRepository } from '../../../domain/ports/repositories.js';
 import { isSkillMaterializableLocally } from '../../../domain/skills/skills.js';
 
+export {
+  BROWSER_ACTION_MCP_SERVER_NAME,
+  createBrowserActionMcpServerConfig,
+} from '../../browser/action-mcp.js';
+
 export interface ClaudeSkillSourceItem {
   id: string;
   name: string;
-  sourceType?: 'bundled' | 'artifact';
+  sourceType?: 'bundled' | 'artifact' | 'runtime';
   sourceDir?: string;
   assets?: Array<{ path: string; content: Uint8Array }>;
   enabled: boolean;
@@ -82,6 +87,59 @@ export class ArtifactClaudeSkillSource implements SkillSource {
       });
     }
     return items;
+  }
+}
+
+export const RUNTIME_AGENT_BROWSER_SKILL_ID = 'agent-browser';
+export const RUNTIME_AGENT_BROWSER_SKILL_VERSION = 'myclaw-runtime-v1';
+
+const RUNTIME_AGENT_BROWSER_SKILL = `---
+name: agent-browser
+description: Use the MyClaw-managed persistent browser profile for web tasks that require navigation, login state, cookies, or browser actions.
+---
+
+# Agent Browser
+
+Use this skill when a task needs a real browser session.
+
+MyClaw owns the persistent browser lifecycle and profile:
+
+- Use \`mcp__myclaw__browser_status\` to inspect the shared \`myclaw\` profile.
+- Use \`mcp__myclaw__browser_launch\` to launch or reuse it. The default launch is headed and cookie-preserving.
+- Use the runtime \`mcp__agent_browser__*\` browser action tools to navigate, click, type, wait, snapshot, or screenshot. MyClaw attaches them to \`PLAYWRIGHT_MCP_CDP_ENDPOINT\`.
+- Do not install browser skills or edit user \`.claude/skills\` paths.
+
+If a site requires login, launch the headed browser and ask the user to complete authentication in that persistent profile. Do not scrape credentials or bypass normal site authentication.
+`;
+
+export class RuntimeInstalledAgentBrowserSkillSource implements SkillSource {
+  async listSkills(input?: {
+    enabledSkillIds?: string[];
+  }): Promise<ClaudeSkillSourceItem[]> {
+    const enabled = input?.enabledSkillIds
+      ? input.enabledSkillIds.includes(RUNTIME_AGENT_BROWSER_SKILL_ID)
+      : true;
+    return [
+      {
+        id: RUNTIME_AGENT_BROWSER_SKILL_ID,
+        name: RUNTIME_AGENT_BROWSER_SKILL_ID,
+        sourceType: 'runtime',
+        enabled,
+        assets: [
+          {
+            path: 'SKILL.md',
+            content: Buffer.from(RUNTIME_AGENT_BROWSER_SKILL, 'utf-8'),
+          },
+          {
+            path: 'VERSION',
+            content: Buffer.from(
+              `${RUNTIME_AGENT_BROWSER_SKILL_VERSION}\n`,
+              'utf-8',
+            ),
+          },
+        ],
+      },
+    ];
   }
 }
 

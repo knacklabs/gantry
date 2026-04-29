@@ -175,12 +175,12 @@ export async function startRuntimeServices(
   await resolved.startSchedulerLoop({
     registeredGroups: () => app.getRegisteredGroups(),
     queue: app.queue,
-    onProcess: (groupJid, proc, containerName, folder, stopAliasJids) =>
+    onProcess: (groupJid, proc, runHandle, groupFolder, stopAliasJids) =>
       app.queue.registerProcess(
         groupJid,
         proc,
-        containerName,
-        folder,
+        runHandle,
+        groupFolder,
         stopAliasJids,
       ),
     sendMessage: (jid, rawText, options) =>

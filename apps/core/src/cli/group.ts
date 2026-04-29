@@ -11,6 +11,12 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
+import {
+  defaultTriggerForAgentName,
+  displayAgentName,
+  mainAgentNameFromSettings,
+  normalizeMainAgentName,
+} from './main-agent.js';
 import { RuntimeGroupDb } from './runtime-group-db.js';
 import { verifyTelegramChatAccess } from './telegram.js';
 import {
@@ -67,6 +73,8 @@ async function runList(runtimeHome: string): Promise<number> {
       return 0;
     }
 
+    const settings = loadRuntimeSettings(runtimeHome);
+    const mainAgentName = mainAgentNameFromSettings(settings);
     const lines = [
       'Registered agents:',
       '',
@@ -77,7 +85,7 @@ async function runList(runtimeHome: string): Promise<number> {
       lines.push(
         [
           entry.jid,
-          entry.group.name,
+          displayAgentName(entry.group, mainAgentName),
           entry.group.folder,
           entry.group.trigger,
           entry.group.isMain ? 'yes' : 'no',
@@ -132,13 +140,15 @@ async function runInfo(
     }
 
     const found = resolved.found;
+    const settings = loadRuntimeSettings(runtimeHome);
+    const mainAgentName = mainAgentNameFromSettings(settings);
     const lines = [
       `JID: ${found.jid}`,
-      `Name: ${found.group.name}`,
+      `Name: ${displayAgentName(found.group, mainAgentName)}`,
       `Folder: ${found.group.folder}`,
       `Trigger: ${found.group.trigger}`,
       `Requires Trigger: ${found.group.requiresTrigger === false ? 'no' : 'yes'}`,
-      `Main Group: ${found.group.isMain ? 'yes' : 'no'}`,
+      `Main Agent: ${found.group.isMain ? 'yes' : 'no'}`,
       `Added At: ${found.group.added_at}`,
     ];
     console.log(lines.join('\n'));
@@ -243,13 +253,17 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
       return 1;
     }
 
+    const settings = loadRuntimeSettings(runtimeHome);
     const requiresTrigger =
       parsed.requiresTrigger ?? (parsed.isMain ? false : true);
+    const defaultTrigger = defaultTriggerForAgentName(
+      mainAgentNameFromSettings(settings),
+    );
 
     const record: RegisteredGroup = {
       name: displayName,
       folder: groupFolder,
-      trigger: (parsed.trigger || '@Andy').trim() || '@Andy',
+      trigger: (parsed.trigger || defaultTrigger).trim() || defaultTrigger,
       added_at: new Date().toISOString(),
       requiresTrigger,
       isMain: parsed.isMain || false,
@@ -283,12 +297,36 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
     p.log.success(
       `Added agent ${displayName} (${normalized}) in folder ${groupFolder}.`,
     );
-    if (chatProbeMessage) {
-      p.log.info(chatProbeMessage);
-    }
+    if (chatProbeMessage) p.log.info(chatProbeMessage);
     return 0;
   } finally {
     await db?.close();
+  }
+}
+
+async function runName(runtimeHome: string, args: string[]): Promise<number> {
+  const nextName = normalizeMainAgentName(args.join(' '));
+  if (nextName.length > 80) {
+    p.log.error('Main agent name must be 80 characters or fewer.');
+    return 1;
+  }
+  try {
+    const settings = loadRuntimeSettings(runtimeHome);
+    const previous = mainAgentNameFromSettings(settings);
+    settings.agent.name = nextName;
+    saveRuntimeSettings(runtimeHome, settings);
+    p.log.success(
+      `Main agent name updated from "${previous}" to "${nextName}".`,
+    );
+    p.log.info(
+      'Restart MyClaw for all running processes to pick up the new identity.',
+    );
+    return 0;
+  } catch (err) {
+    p.log.error(
+      `Could not update main agent name: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return 1;
   }
 }
 
@@ -629,40 +667,28 @@ export async function runAgentCommand(
     console.log(usage());
     return subcommand ? 0 : 1;
   }
-
-  if (subcommand === 'list') {
-    return runList(runtimeHome);
+  switch (subcommand) {
+    case 'list':
+      return runList(runtimeHome);
+    case 'info':
+      return runInfo(runtimeHome, rest[0]);
+    case 'add':
+      return runAdd(runtimeHome, rest);
+    case 'name':
+      return runName(runtimeHome, rest);
+    case 'remove':
+      return runRemove(runtimeHome, rest);
+    case 'trigger':
+      return runTrigger(runtimeHome, rest);
+    case 'policy':
+      return runPolicy(runtimeHome, rest);
+    case 'policy-default':
+      return runPolicyDefault(runtimeHome, rest);
+    case 'policy-show':
+      return runPolicyShow(runtimeHome, rest);
+    default:
+      p.log.error(`Unknown agent command: ${subcommand}`);
+      console.log(usage());
+      return 1;
   }
-
-  if (subcommand === 'info') {
-    return runInfo(runtimeHome, rest[0]);
-  }
-
-  if (subcommand === 'add') {
-    return runAdd(runtimeHome, rest);
-  }
-
-  if (subcommand === 'remove') {
-    return runRemove(runtimeHome, rest);
-  }
-
-  if (subcommand === 'trigger') {
-    return runTrigger(runtimeHome, rest);
-  }
-
-  if (subcommand === 'policy') {
-    return runPolicy(runtimeHome, rest);
-  }
-
-  if (subcommand === 'policy-default') {
-    return runPolicyDefault(runtimeHome, rest);
-  }
-
-  if (subcommand === 'policy-show') {
-    return runPolicyShow(runtimeHome, rest);
-  }
-
-  p.log.error(`Unknown agent command: ${subcommand}`);
-  console.log(usage());
-  return 1;
 }

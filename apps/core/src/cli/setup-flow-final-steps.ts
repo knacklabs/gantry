@@ -44,10 +44,10 @@ export async function runMemoryStep(draft: SetupDraft): Promise<FlowAction> {
   p.note(
     [
       'Memory stores durable facts, preferences, decisions, corrections, constraints, and procedures.',
-      'Continuity uses that memory context to help agents resume current work and open loops instead of starting cold.',
+      'Current messages retrieve matching memory; agents can call memory_search when they need more context.',
       'Default is enabled.',
     ].join('\n'),
-    'Memory and continuity',
+    'Memory',
   );
   const value = await p.select({
     message: 'Memory setting',
@@ -265,6 +265,7 @@ export async function runConfigStep(draft: SetupDraft): Promise<FlowAction> {
       slackPermissionApproverIds: draft.slackPermissionApproverIds,
       credentialMode: draft.credentialMode,
       onecliUrl: draft.onecliUrl || undefined,
+      agentName: draft.agentName,
       memoryEnabled: draft.memoryEnabled,
       embeddingsEnabled: draft.embeddingsEnabled,
       dreamingEnabled: draft.dreamingEnabled,
@@ -290,14 +291,14 @@ export async function runGroupStep(draft: SetupDraft): Promise<FlowAction> {
       const result = await registerSlackMainGroup({
         runtimeHome: draft.runtimeHome,
         chatJid: draft.slackChatJid,
-        displayName: draft.slackDisplayName,
+        displayName: draft.agentName,
       });
       spinner.stop(`Registered ${result.groupName} (${result.folder})`);
     } else {
       const result = await registerTelegramMainGroup({
         runtimeHome: draft.runtimeHome,
         chatJid: draft.telegramChatJid,
-        displayName: draft.telegramDisplayName,
+        displayName: draft.agentName,
       });
       const approverIds = parseTelegramApproverIds(
         draft.telegramPermissionApproverIds || draft.telegramAdminSenderId,

@@ -36,6 +36,7 @@ export interface OnboardingConfigInput {
   anthropicModel?: string;
   credentialMode: HostCredentialMode;
   onecliUrl?: string;
+  agentName?: string;
   memoryEnabled: boolean;
   embeddingsEnabled: boolean;
   dreamingEnabled: boolean;
@@ -97,6 +98,9 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
   });
 
   const settings = loadRuntimeSettings(input.runtimeHome);
+  if (input.agentName?.trim()) {
+    settings.agent.name = input.agentName.trim();
+  }
   settings.storage.postgres.urlEnv = 'MYCLAW_DATABASE_URL';
   settings.storage.postgres.schema = input.postgresSchema?.trim() || 'myclaw';
   settings.agent.defaultModel =

@@ -540,7 +540,7 @@ describe('cli telegram helpers', () => {
     expect(code).toBe(0);
     expect(select).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: 'Choose the Telegram chat to register as main',
+        message: 'Choose the Telegram chat for the Main Agent',
         options: expect.arrayContaining([
           expect.objectContaining({ value: 'tg:-100123' }),
           expect.objectContaining({ value: 'manual' }),
@@ -597,8 +597,8 @@ describe('cli telegram helpers', () => {
       }),
       readTelegramFromRuntimeEnv: vi.fn(() => ({ token: '' })),
       registerTelegramMainGroup: vi.fn(async () => ({
-        groupName: 'Ops Room',
-        folder: 'telegram_main',
+        groupName: 'Main Agent',
+        folder: 'main_agent',
       })),
       validateTelegramBotToken: vi.fn(async () => ({
         ok: true,
@@ -621,7 +621,7 @@ describe('cli telegram helpers', () => {
     expect(settings.channels.telegram.enabled).toBe(true);
     expect(settings.channels.telegram.senderAllowlist.default.allow).toBe('*');
     expect(
-      settings.channels.telegram.controlAllowlist.agents.telegram_main,
+      settings.channels.telegram.controlAllowlist.agents.main_agent,
     ).toEqual(['5759865942']);
     expect(text).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -682,8 +682,8 @@ describe('cli telegram helpers', () => {
       }),
       readTelegramFromRuntimeEnv: vi.fn(() => ({ token: '' })),
       registerTelegramMainGroup: vi.fn(async () => ({
-        groupName: 'Ops Room',
-        folder: 'telegram_main',
+        groupName: 'Main Agent',
+        folder: 'main_agent',
       })),
       validateTelegramBotToken: vi.fn(async () => ({
         ok: true,
@@ -704,7 +704,7 @@ describe('cli telegram helpers', () => {
     expect(code).toBe(0);
     expect(
       loadRuntimeSettings(runtimeHome).channels.telegram.controlAllowlist.agents
-        .telegram_main,
+        .main_agent,
     ).toEqual(['5759865942']);
     expect(text).toHaveBeenNthCalledWith(
       1,
@@ -735,8 +735,12 @@ describe('cli telegram helpers', () => {
     const soul = fs.readFileSync(path.join(groupDir, 'SOUL.md'), 'utf-8');
 
     expect(result.groupName).toBe('Kai Telegram');
+    expect(result.folder).toBe('main_agent');
     expect(claude).toContain('Static Chat Guidance');
-    expect(claude).toContain('memory/continuity brief');
+    expect(claude).toContain('query-retrieved memory context');
+    expect(claude).toContain(
+      'When the user says "continue", call memory_search before guessing.',
+    );
     expect(soul).toContain('# Soul - Who You Are');
     expect(soul).toContain('- **Name:** Kai Telegram');
     expect(soul).toContain('## Continuity Boundary');

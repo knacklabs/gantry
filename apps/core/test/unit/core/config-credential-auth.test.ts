@@ -170,4 +170,54 @@ describe('resolveClaudeAuthState', () => {
       'postgres://file:pass@localhost:15432/myclaw',
     );
   });
+
+  it('updates public runtime settings and persists typed changes', async () => {
+    createRuntimeHome('onecli');
+    vi.resetModules();
+
+    const { getPublicRuntimeSettings, updatePublicRuntimeSettings } =
+      await import('@core/config/index.js');
+
+    expect(getPublicRuntimeSettings()).toMatchObject({
+      agent: { name: 'Main Agent', defaultModel: '' },
+      memory: { enabled: true, dreaming: { enabled: false } },
+    });
+
+    const result = updatePublicRuntimeSettings({
+      agent: { name: '  Kai  ', defaultModel: ' sonnet ' },
+      memory: { dreaming: { enabled: true } },
+    });
+
+    expect(result).toMatchObject({
+      settings: {
+        agent: { name: 'Kai', defaultModel: 'sonnet' },
+        memory: { enabled: true, dreaming: { enabled: true } },
+      },
+      changed: ['agent.name', 'agent.defaultModel', 'memory.dreaming.enabled'],
+      restartRequired: true,
+    });
+
+    const raw = fs.readFileSync(
+      path.join(runtimeRoot, 'settings.yaml'),
+      'utf-8',
+    );
+    expect(raw).toContain('name: Kai');
+    expect(raw).toContain('default_model: sonnet');
+    expect(raw).toContain('enabled: false');
+  });
+
+  it('returns no-op metadata when a typed settings patch is unchanged', async () => {
+    createRuntimeHome('onecli');
+    vi.resetModules();
+
+    const { updatePublicRuntimeSettings } =
+      await import('@core/config/index.js');
+    const result = updatePublicRuntimeSettings({
+      agent: { name: 'Main Agent', defaultModel: '' },
+      memory: { enabled: true, dreaming: { enabled: false } },
+    });
+
+    expect(result.changed).toEqual([]);
+    expect(result.restartRequired).toBe(false);
+  });
 });

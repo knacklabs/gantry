@@ -27,19 +27,20 @@ import { materializeClaudeRuntime } from '../adapters/llm/anthropic-claude-agent
 import {
   ArtifactClaudeSkillSource,
   BundledClaudeSkillSource,
+  BROWSER_ACTION_MCP_SERVER_NAME,
   CompositeSkillSource,
+  RuntimeInstalledAgentBrowserSkillSource,
+  createBrowserActionMcpServerConfig,
   type SkillSource,
 } from '../adapters/llm/anthropic-claude-agent/claude-skill-materializer.js';
 import { ensureGroupIpcLayout } from './agent-spawn-layout.js';
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
-import {
-  DEFAULT_BROWSER_PROFILE_NAME,
-  listActiveBrowserSessions,
-} from './browser-manager.js';
 import { createIpcAuthEnvelope } from './ipc-auth.js';
 import { getContinuationInputDir } from './continuation-input.js';
 import { getPromptProfileService } from './prompt-profile.js';
 import { executeRunnerProcess } from './agent-spawn-process.js';
+import { applyLoopbackNoProxyEnv } from '../shared/no-proxy.js';
+import { createAgentBrowserRunWiring } from './agent-browser-run-wiring.js';
 import {
   AgentInput,
   AgentOutput,
@@ -70,6 +71,8 @@ const SAFE_HOST_ENV_KEYS = [
   'COLORTERM',
   'NO_COLOR',
   'FORCE_COLOR',
+  'NO_PROXY',
+  'no_proxy',
 ] as const;
 
 function pickSafeHostEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -86,7 +89,7 @@ function pickSafeHostEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 export async function spawnAgent(
   group: RegisteredGroup,
   input: AgentInput,
-  onProcess: (proc: ChildProcess, containerName: string) => void,
+  onProcess: (proc: ChildProcess, runHandle: string) => void,
   onOutput?: (output: AgentOutput) => Promise<void>,
   options?: RunAgentOptions,
 ): Promise<AgentOutput> {
@@ -127,6 +130,16 @@ export async function spawnAgent(
     agentIdentifier,
     options?.credentialBroker,
   );
+  const browserWiring = createAgentBrowserRunWiring(
+    {
+      isMain: input.isMain,
+    },
+    {
+      browserSkillSource: new RuntimeInstalledAgentBrowserSkillSource(),
+      actionMcpServerName: BROWSER_ACTION_MCP_SERVER_NAME,
+      createActionMcpServerConfig: createBrowserActionMcpServerConfig,
+    },
+  );
   const mcpCapabilities =
     options?.mcpServerRepository &&
     options.mcpContext?.appId &&
@@ -165,6 +178,7 @@ export async function spawnAgent(
     const skillSources: SkillSource[] = [
       new BundledClaudeSkillSource(packageRoot),
     ];
+    skillSources.push(...browserWiring.skillSources);
     if (
       options?.skillRepository &&
       options.skillArtifactStore &&
@@ -198,10 +212,6 @@ export async function spawnAgent(
       error: `Claude runtime materialization failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  const mcpConfigPath =
-    mcpCapabilities.length > 0
-      ? writeRunnerMcpConfigFile(hostRuntime.groupIpcDir, mcpCapabilities)
-      : undefined;
 
   const command = process.execPath;
   const args = [hostRunnerPath];
@@ -227,22 +237,8 @@ export async function spawnAgent(
     MYCLAW_THREAD_ID: input.threadId || '',
     MYCLAW_PERMISSION_TIMEOUT_MS: String(PERMISSION_APPROVAL_TIMEOUT_MS),
     CLAUDE_CONFIG_DIR: claudeRuntimeMaterialization.claudeConfigDir,
-    ...(mcpConfigPath
-      ? {
-          MYCLAW_MCP_CONFIG_FILE: mcpConfigPath,
-          MYCLAW_MCP_ALLOWED_TOOLS_JSON: JSON.stringify(
-            mcpCapabilities.flatMap(
-              (capability) => capability.allowedToolNames,
-            ),
-          ),
-          MYCLAW_MCP_ALWAYS_ALLOWED_TOOLS_JSON: JSON.stringify(
-            mcpCapabilities.flatMap(
-              (capability) => capability.autoApproveToolNames,
-            ),
-          ),
-        }
-      : {}),
   };
+  applyLoopbackNoProxyEnv(env);
   // Job-level model overrides group-level model.
   const effectiveModel = normalizeClaudeModelSelection(
     input.model || modelConfig.model,
@@ -251,14 +247,38 @@ export async function spawnAgent(
   if (effectiveModel) {
     env.ANTHROPIC_MODEL = effectiveModel;
   }
-  const activeBrowserSession = listActiveBrowserSessions().find(
-    (session) =>
-      session.profileName === DEFAULT_BROWSER_PROFILE_NAME &&
-      session.running &&
-      typeof session.port === 'number',
-  );
-  if (activeBrowserSession?.port) {
-    env.PLAYWRIGHT_MCP_CDP_ENDPOINT = `http://127.0.0.1:${activeBrowserSession.port}`;
+  let browserRuntimeDetails: readonly string[] = [];
+  let allMcpCapabilities: MaterializedMcpCapability[] = [...mcpCapabilities];
+  try {
+    const browserProjection = await browserWiring.activate();
+    Object.assign(env, browserProjection.env);
+    browserRuntimeDetails = browserProjection.runtimeDetails;
+    allMcpCapabilities = [
+      ...allMcpCapabilities,
+      ...browserProjection.mcpCapabilities,
+    ];
+  } catch (err) {
+    claudeRuntimeMaterialization.cleanup();
+    return {
+      status: 'error',
+      result: null,
+      error: `Browser startup failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  const mcpConfigPath =
+    allMcpCapabilities.length > 0
+      ? writeRunnerMcpConfigFile(hostRuntime.groupIpcDir, allMcpCapabilities)
+      : undefined;
+  if (mcpConfigPath) {
+    env.MYCLAW_MCP_CONFIG_FILE = mcpConfigPath;
+    env.MYCLAW_MCP_ALLOWED_TOOLS_JSON = JSON.stringify(
+      allMcpCapabilities.flatMap((capability) => capability.allowedToolNames),
+    );
+    env.MYCLAW_MCP_ALWAYS_ALLOWED_TOOLS_JSON = JSON.stringify(
+      allMcpCapabilities.flatMap(
+        (capability) => capability.autoApproveToolNames,
+      ),
+    );
   }
 
   const runtimeDetails = [
@@ -267,8 +287,9 @@ export async function spawnAgent(
     `ipcInput=${ipcInputDir}`,
     `broker=${hostCredentials.brokerProfile}`,
     `brokerApplied=${hostCredentials.brokerApplied}`,
-    `mcpServers=${mcpCapabilities.map((capability) => capability.name).join(',') || '(none)'}`,
+    `mcpServers=${allMcpCapabilities.map((capability) => capability.name).join(',') || '(none)'}`,
     `runner=${hostRunnerPath}`,
+    ...browserRuntimeDetails,
   ];
 
   logger.debug(

@@ -81,6 +81,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
   ): Promise<'success' | 'error'> {
     const isMain = group.isMain === true;
     const sessionThreadId = options?.memoryContext?.threadId ?? null;
+    let streamedResult = '';
     const turnContext = await ops().getAgentTurnContext?.({
       groupFolder: group.folder,
       chatJid,
@@ -107,7 +108,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           await onOutput(output);
         }
       : undefined;
-    let streamedResult = '';
     const memoryContextBlock = turnContext?.memoryContextBlock;
     const runId = turnContext?.agentSessionId
       ? await ops().createSessionAgentRun?.({
@@ -143,11 +143,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             thinking: group.agentConfig?.thinking,
             memoryContextBlock: input.memoryContextBlock,
           },
-          (proc, containerName) =>
+          (proc, runHandle) =>
             deps.queue.registerProcess(
               queueJid,
               proc,
-              containerName,
+              runHandle,
               group.folder,
               queueJid === chatJid ? undefined : chatJid,
               options?.memoryContext?.threadId,
@@ -158,7 +158,6 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       const output = await invokeAgent({
         memoryContextBlock,
       });
-
       if (output.status === 'error') {
         logger.error(
           { group: group.name, error: output.error },

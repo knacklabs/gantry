@@ -1,4 +1,4 @@
-import { closeAllBrowsers } from '../../runtime/browser-manager.js';
+import { closeAllBrowsers } from '../../runtime/browser-capability.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 
 interface ShutdownDeps {

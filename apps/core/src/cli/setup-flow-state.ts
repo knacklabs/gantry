@@ -17,6 +17,7 @@ import {
 } from '../models/claude-model-registry.js';
 import { writeOnboardingState } from './onboarding-state.js';
 import type { OnboardingState, OnboardingStep } from './onboarding-state.js';
+import { MAIN_AGENT_NAME } from './main-agent.js';
 
 export const FULL_SEQUENCE: OnboardingStep[] = [
   'welcome',
@@ -50,6 +51,7 @@ export interface SetupDraft {
   primaryProvider: 'telegram' | 'slack';
   credentialMode: HostCredentialMode;
   onecliUrl: string;
+  agentName: string;
   selectedModel: string;
   telegramBotToken: string;
   telegramChatJid: string;
@@ -120,6 +122,7 @@ export function updateStateData(
     slackPermissionApproverIds: draft.slackPermissionApproverIds || undefined,
     credentialMode: draft.credentialMode,
     onecliUrl: draft.onecliUrl || undefined,
+    agentName: draft.agentName,
     selectedModel: draft.selectedModel || undefined,
     memoryEnabled: draft.memoryEnabled,
     embeddingsEnabled: draft.embeddingsEnabled,
@@ -153,6 +156,7 @@ export function updateDraftFromState(
     state.data.credentialMode || draft.credentialMode,
   );
   draft.onecliUrl = state.data.onecliUrl || draft.onecliUrl;
+  draft.agentName = state.data.agentName || draft.agentName;
   draft.selectedModel = state.data.selectedModel || draft.selectedModel;
   draft.memoryEnabled = state.data.memoryEnabled ?? draft.memoryEnabled;
   draft.embeddingsEnabled =
@@ -225,13 +229,14 @@ export function restoreDraft(
     primaryProvider,
     credentialMode,
     onecliUrl: settings.credentialBroker.onecli.url || '',
+    agentName: state?.data.agentName || settings.agent.name || MAIN_AGENT_NAME,
     selectedModel:
       normalizeClaudeModelSelection(
         state?.data.selectedModel || settings.agent.defaultModel,
       ) || DEFAULT_SETUP_MODEL,
     telegramBotToken: env.TELEGRAM_BOT_TOKEN || '',
     telegramChatJid: '',
-    telegramDisplayName: 'Telegram Main',
+    telegramDisplayName: settings.agent.name || MAIN_AGENT_NAME,
     telegramAdminSenderId: '',
     telegramAdminSenderName: '',
     telegramPermissionApproverIds: '',
@@ -239,7 +244,7 @@ export function restoreDraft(
     slackBotToken: env.SLACK_BOT_TOKEN || '',
     slackAppToken: env.SLACK_APP_TOKEN || '',
     slackChatJid: '',
-    slackDisplayName: 'Slack Main',
+    slackDisplayName: settings.agent.name || MAIN_AGENT_NAME,
     slackPermissionApproverIds:
       settings.channels.slack?.controlAllowlist.default.join(',') || '',
     memoryEnabled: state?.data.memoryEnabled ?? settings.memory.enabled,

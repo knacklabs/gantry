@@ -20,18 +20,18 @@ interface QueuedTask {
 
 const MAX_RETRIES = 5;
 const BASE_RETRY_MS = 5000;
-const MAX_MESSAGE_CONTAINERS = 3;
-const MAX_JOB_CONTAINERS = 4;
+const MAX_MESSAGE_RUNS = 3;
+const MAX_JOB_RUNS = 4;
 
 interface GroupState {
   active: boolean;
   idleWaiting: boolean;
-  isTaskContainer: boolean;
+  isTaskRun: boolean;
   runningTaskId: string | null;
   pendingMessages: boolean;
   pendingTasks: QueuedTask[];
   process: ChildProcess | null;
-  containerName: string | null;
+  runHandle: string | null;
   groupFolder: string | null;
   threadId: string | null;
   retryCount: number;
@@ -56,12 +56,12 @@ export class GroupQueue {
       state = {
         active: false,
         idleWaiting: false,
-        isTaskContainer: false,
+        isTaskRun: false,
         runningTaskId: null,
         pendingMessages: false,
         pendingTasks: [],
         process: null,
-        containerName: null,
+        runHandle: null,
         groupFolder: null,
         threadId: null,
         retryCount: 0,
@@ -76,11 +76,11 @@ export class GroupQueue {
   }
 
   private canStartMessageRun(): boolean {
-    return this.activeMessageCount < MAX_MESSAGE_CONTAINERS;
+    return this.activeMessageCount < MAX_MESSAGE_RUNS;
   }
 
   private canStartTaskRun(): boolean {
-    return this.activeTaskCount < MAX_JOB_CONTAINERS;
+    return this.activeTaskCount < MAX_JOB_RUNS;
   }
 
   private addStopAlias(aliasJid: string, queueJid: string): void {
@@ -249,14 +249,14 @@ export class GroupQueue {
   registerProcess(
     groupJid: string,
     proc: ChildProcess,
-    containerName: string,
+    runHandle: string,
     groupFolder?: string,
     stopAliasJids?: string | string[],
     threadId?: string | null,
   ): void {
     const state = this.getGroup(groupJid);
     state.process = proc;
-    state.containerName = containerName;
+    state.runHandle = runHandle;
     if (groupFolder) state.groupFolder = groupFolder;
     state.threadId = normalizeThreadQueueId(threadId) || null;
     const aliases = Array.isArray(stopAliasJids)
@@ -268,7 +268,7 @@ export class GroupQueue {
   }
 
   /**
-   * Mark the container as idle-waiting (finished work, waiting for IPC input).
+   * Mark the agent run as idle-waiting (finished work, waiting for IPC input).
    * If tasks are pending, preempt the idle agent run immediately.
    */
   notifyIdle(groupJid: string): void {
@@ -285,7 +285,12 @@ export class GroupQueue {
     options: ContinuationOptions = {},
   ) {
     const state = this.getGroup(groupJid);
-    if (!state.active || !state.groupFolder || state.isTaskContainer)
+    if (
+      !state.active ||
+      !state.groupFolder ||
+      state.isTaskRun ||
+      state.idleWaiting
+    )
       return false;
     const incomingThreadId = normalizeThreadQueueId(options.threadId) || null;
     if (state.threadId !== incomingThreadId) return false;
@@ -342,7 +347,7 @@ export class GroupQueue {
     for (const targetQueueJid of targetQueueJids) {
       const state = this.groups.get(targetQueueJid);
       if (!state) continue;
-      if (state.active && !state.isTaskContainer) {
+      if (state.active && !state.isTaskRun) {
         return true;
       }
     }
@@ -356,7 +361,7 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
     state.active = true;
     state.idleWaiting = false;
-    state.isTaskContainer = false;
+    state.isTaskRun = false;
     state.pendingMessages = false;
     this.activeMessageCount++;
 
@@ -385,7 +390,7 @@ export class GroupQueue {
     } finally {
       state.active = false;
       state.process = null;
-      state.containerName = null;
+      state.runHandle = null;
       state.groupFolder = null;
       state.threadId = null;
       this.activeMessageCount--;
@@ -398,7 +403,7 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
     state.active = true;
     state.idleWaiting = false;
-    state.isTaskContainer = true;
+    state.isTaskRun = true;
     state.runningTaskId = task.id;
     this.activeTaskCount++;
 
@@ -419,10 +424,10 @@ export class GroupQueue {
       logger.error({ groupJid, taskId: task.id, err }, 'Error running task');
     } finally {
       state.active = false;
-      state.isTaskContainer = false;
+      state.isTaskRun = false;
       state.runningTaskId = null;
       state.process = null;
-      state.containerName = null;
+      state.runHandle = null;
       state.groupFolder = null;
       state.threadId = null;
       this.activeTaskCount--;
@@ -544,10 +549,10 @@ export class GroupQueue {
   async shutdown(gracePeriodMs: number): Promise<void> {
     this.shuttingDown = true;
 
-    const activeContainers: string[] = [];
+    const detachedRuns: string[] = [];
     for (const [_jid, state] of this.groups) {
-      if (state.process && !state.process.killed && state.containerName) {
-        activeContainers.push(state.containerName);
+      if (state.process && !state.process.killed && state.runHandle) {
+        detachedRuns.push(state.runHandle);
       }
     }
 
@@ -555,7 +560,7 @@ export class GroupQueue {
       {
         activeMessageCount: this.activeMessageCount,
         activeTaskCount: this.activeTaskCount,
-        detachedContainers: activeContainers,
+        detachedRuns,
       },
       'GroupQueue shutting down (agent runs detached, not killed)',
     );

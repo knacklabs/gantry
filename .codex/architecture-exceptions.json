@@ -1344,21 +1344,21 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/runtime/browser-manager.ts",
+    "file": "apps/core/src/runtime/browser-capability.ts",
     "rule": "direct_risky_execution",
     "reason": "Baseline host-execution debt pending sandbox adapter cutover; capped so new direct execution calls fail.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/runtime/browser-manager.ts",
+    "file": "apps/core/src/runtime/browser-capability.ts",
     "rule": "forbidden_external_import_by_layer",
     "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/runtime/browser-manager.ts",
+    "file": "apps/core/src/runtime/browser-capability.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",

@@ -32,6 +32,9 @@ describe('Postgres migration journal', () => {
     expect(journal.entries.map((entry) => entry.tag)).toContain(
       '0015_skill_draft_artifacts',
     );
+    expect(journal.entries.map((entry) => entry.tag)).toContain(
+      '0017_agent_run_session_delete_policy',
+    );
   });
 
   it('keeps runtime event exchange after the shipped session delete policy migration', () => {
@@ -96,10 +99,25 @@ describe('Postgres migration journal', () => {
       'run_id text NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE',
     );
     expect(migration).toContain(
+      'session_id text REFERENCES agent_sessions(id) ON DELETE SET NULL',
+    );
+    expect(migration).toContain(
       'permission_decision_id text NOT NULL REFERENCES permission_decisions(id)',
     );
     expect(migration).toContain('channel_installation_id text,');
     expect(migration).toContain('channel_installation_id text NOT NULL,');
+
+    const sessionDeletePolicyMigration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0017_agent_run_session_delete_policy.sql',
+      ),
+      'utf8',
+    );
+    expect(sessionDeletePolicyMigration).toContain('FOREIGN KEY (session_id)');
+    expect(sessionDeletePolicyMigration).toContain(
+      'REFERENCES agent_sessions(id)',
+    );
+    expect(sessionDeletePolicyMigration).toContain('ON DELETE SET NULL');
   });
 
   it('keeps skill draft persistence indexes aligned with one binding per agent skill', () => {

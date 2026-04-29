@@ -6,7 +6,23 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const tempRoots: string[] = [];
 
-afterEach(() => {
+async function removeTempRoot(root: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      fs.rmSync(root, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error
+          ? String((error as { code?: string }).code)
+          : '';
+      if (code !== 'ENOTEMPTY' || attempt === 4) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+}
+
+afterEach(async () => {
   vi.doUnmock('@core/config/index.js');
   vi.doUnmock('@core/infrastructure/logging/logger.js');
   vi.doUnmock('@core/runtime/agent-spawn-host.js');
@@ -16,7 +32,7 @@ afterEach(() => {
   vi.resetModules();
 
   for (const root of tempRoots.splice(0)) {
-    fs.rmSync(root, { recursive: true, force: true });
+    await removeTempRoot(root);
   }
 });
 

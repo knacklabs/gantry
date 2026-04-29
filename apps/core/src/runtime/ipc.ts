@@ -10,7 +10,10 @@ import {
   processMemoryRequest,
   writeMemoryResponse,
 } from '../memory/memory-ipc.js';
-import { getIpcResponseSigningPrivateKey } from './ipc-auth.js';
+import {
+  computeIpcAuthToken,
+  getIpcResponseSigningPrivateKey,
+} from './ipc-auth.js';
 import {
   processBrowserIpcRequest,
   writeBrowserIpcResponse,
@@ -43,6 +46,7 @@ import {
 } from './ipc-parsing.js';
 import { parseTaskIpcData } from './ipc-task-parsing.js';
 import { clearConsumedIpcRequestIds } from './ipc-auth-validation.js';
+import type { RegisteredGroup as RuntimeGroupRecord } from '../domain/types.js';
 
 export type { IpcDeps } from './ipc-domain-types.js';
 export { processTaskIpc } from '../jobs/ipc-handler.js';
@@ -71,6 +75,26 @@ function canProcessIpcFile(sourceGroup: string, kind: string): boolean {
   }
   state.count += 1;
   return true;
+}
+
+export function resolveIpcFoldersFromGroups(
+  groupRegistry: Record<string, RuntimeGroupRecord>,
+): string[] {
+  return Array.from(
+    new Set(
+      Object.values(groupRegistry)
+        .map((group) => group.folder)
+        .filter((folder): folder is string => isValidGroupFolder(folder)),
+    ),
+  );
+}
+
+export function isTrustedRegisteredIpcFolder(
+  ipcBaseDir: string,
+  folder: string,
+): boolean {
+  const groupDir = path.join(ipcBaseDir, folder);
+  return !fs.existsSync(groupDir) || isTrustedDirectory(groupDir);
 }
 
 function releaseIpcRootLock(): void {
@@ -164,31 +188,26 @@ export function startIpcWatcher(deps: IpcDeps): void {
 
   const processIpcFiles = async () => {
     if (!ipcWatcherRunning) return;
-    const registeredGroups = deps.registeredGroups();
-    const allowedFolders = new Set(
-      Object.values(registeredGroups)
-        .map((group) => group.folder)
-        .filter((folder): folder is string => isValidGroupFolder(folder)),
+    const groupRegistry = deps.registeredGroups();
+    const groupFolders = resolveIpcFoldersFromGroups(groupRegistry).filter(
+      (folder) => {
+        if (isTrustedRegisteredIpcFolder(ipcBaseDir, folder)) return true;
+        initializedLayoutFolders.delete(folder);
+        logger.warn(
+          { sourceGroup: folder },
+          'Skipping IPC processing for untrusted registered group directory',
+        );
+        return false;
+      },
     );
 
-    for (const folder of allowedFolders) {
-      const groupDir = path.join(ipcBaseDir, folder);
+    for (const folder of groupFolders) {
       if (
         initializedLayoutFolders.has(folder) &&
         hasCompleteTrustedGroupIpcLayout(ipcBaseDir, folder)
       ) {
         continue;
       }
-
-      if (fs.existsSync(groupDir) && !isTrustedDirectory(groupDir)) {
-        initializedLayoutFolders.delete(folder);
-        logger.warn(
-          { sourceGroup: folder },
-          'Skipping IPC layout pre-create for untrusted registered group directory',
-        );
-        continue;
-      }
-
       try {
         ensureGroupIpcLayout(ipcBaseDir, folder);
         if (hasCompleteTrustedGroupIpcLayout(ipcBaseDir, folder)) {
@@ -205,39 +224,9 @@ export function startIpcWatcher(deps: IpcDeps): void {
       }
     }
 
-    // Scan group IPC directories (identity determined by directory)
-    let discoveredGroupFolders: string[];
-    try {
-      discoveredGroupFolders = fs.readdirSync(ipcBaseDir).filter((f) => {
-        if (f === 'errors' || f === '.lock') return false;
-        const groupPath = path.join(ipcBaseDir, f);
-        const trusted = isTrustedDirectory(groupPath);
-        if (!trusted && fs.existsSync(groupPath)) {
-          logger.warn(
-            { sourceGroup: f },
-            'Ignoring untrusted IPC directory (not a regular directory or symlink)',
-          );
-        }
-        return trusted;
-      });
-    } catch (err) {
-      logger.error({ err }, 'Error reading IPC base directory');
-      scheduleNextPoll();
-      return;
-    }
-
-    const groupFolders: string[] = [];
-    for (const folder of discoveredGroupFolders) {
-      if (allowedFolders.size > 0 && !allowedFolders.has(folder)) {
-        logger.warn({ sourceGroup: folder }, 'Ignoring unknown IPC directory');
-        continue;
-      }
-      groupFolders.push(folder);
-    }
-
-    // Build folder→isMain lookup from registered groups
+    // Build folder→isMain lookup from known group records
     const folderIsMain = new Map<string, boolean>();
-    for (const group of Object.values(registeredGroups)) {
+    for (const group of Object.values(groupRegistry)) {
       if (group.isMain) folderIsMain.set(group.folder, true);
     }
 
@@ -283,7 +272,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
               const rawData = JSON.parse(fs.readFileSync(claimedPath, 'utf-8'));
               const data = parseIpcMessage(rawData, sourceGroup);
               // Authorization: verify this group can send to this chatJid
-              const targetGroup = registeredGroups[data.chatJid];
+              const targetGroup = groupRegistry[data.chatJid];
               if (
                 isMain ||
                 (targetGroup && targetGroup.folder === sourceGroup)
@@ -446,6 +435,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
             const filePath = path.join(browserRequestsDir, file);
             let claimedPath = filePath;
             let requestId: string | undefined;
+            let authThreadId: string | undefined;
             try {
               if (!canProcessIpcFile(sourceGroup, 'browser')) {
                 throw new Error('Browser IPC rate limit exceeded');
@@ -456,6 +446,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
               );
               const request = parseBrowserIpcRequest(rawRequest, sourceGroup);
               requestId = request.requestId;
+              authThreadId = request.threadId;
               const response = await processBrowserIpcRequest(request, {
                 sourceGroup,
                 isMain,
@@ -470,6 +461,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   error: response.error,
                 },
                 getIpcResponseSigningPrivateKey(sourceGroup, request.threadId),
+                computeIpcAuthToken(sourceGroup, request.threadId),
               );
               fs.unlinkSync(claimedPath);
             } catch (err) {
@@ -483,7 +475,8 @@ export function startIpcWatcher(deps: IpcDeps): void {
                       ok: false,
                       error: 'Failed to process browser request',
                     },
-                    getIpcResponseSigningPrivateKey(sourceGroup),
+                    getIpcResponseSigningPrivateKey(sourceGroup, authThreadId),
+                    computeIpcAuthToken(sourceGroup, authThreadId),
                   );
                 } catch (writeErr) {
                   logger.warn(

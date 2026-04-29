@@ -7,6 +7,7 @@ import { parseSenderAllowlistConfig } from './sender-allowlist.js';
 import { parseSimpleYamlObject } from './yaml.js';
 import {
   createDefaultChannelSettings,
+  DEFAULT_AGENT_NAME,
   DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS,
   DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT,
   DEFAULT_EMBED_MODEL,
@@ -254,6 +255,7 @@ function parseCredentialBrokerSettings(
 function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
   if (raw === undefined) {
     return {
+      name: DEFAULT_AGENT_NAME,
       defaultModel: '',
       sessions: {
         memoryItemLimit: DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT,
@@ -266,9 +268,9 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
   }
   const map = raw as Record<string, unknown>;
   for (const key of Object.keys(map)) {
-    if (key !== 'default_model' && key !== 'sessions') {
+    if (key !== 'name' && key !== 'default_model' && key !== 'sessions') {
       throw new Error(
-        `agent.${key} is not supported. Configure agent.default_model or agent.sessions.*.`,
+        `agent.${key} is not supported. Configure agent.name, agent.default_model, or agent.sessions.*.`,
       );
     }
   }
@@ -290,6 +292,7 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
     }
   }
   return {
+    name: parseStringValue(map.name, 'agent.name', DEFAULT_AGENT_NAME),
     defaultModel:
       map.default_model === undefined
         ? ''
