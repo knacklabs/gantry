@@ -1,3 +1,5 @@
+import http from 'http';
+
 export interface BrowserToolResponse {
   ok?: boolean;
   error?: string;
@@ -23,18 +25,31 @@ function extractBrowserPort(data: unknown): number | undefined {
 }
 
 async function isCdpEndpointReachable(port: number): Promise<boolean> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1_000);
-  try {
-    const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
-      signal: controller.signal,
+  return new Promise((resolve) => {
+    const request = http.get(
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/json/version',
+        timeout: 1_000,
+      },
+      (response) => {
+        response.resume();
+        resolve(
+          typeof response.statusCode === 'number' &&
+            response.statusCode >= 200 &&
+            response.statusCode < 300,
+        );
+      },
+    );
+    request.once('timeout', () => {
+      request.destroy();
+      resolve(false);
     });
-    return response.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timeout);
-  }
+    request.once('error', () => {
+      resolve(false);
+    });
+  });
 }
 
 export async function validateBrowserCdpResponse(
