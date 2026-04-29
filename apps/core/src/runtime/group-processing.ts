@@ -201,6 +201,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       );
 
       if (output.status === 'error') {
+        // Preserve session continuity even on error — if the runner already
+        // produced output and established a session, save it so the next
+        // message resumes rather than starting blank.
+        const survivingSessionId = pendingSessionId || output.newSessionId;
+        if (survivingSessionId) {
+          deps.setSession(group.folder, survivingSessionId);
+        }
+
         const staleSessionId = sessionId || '';
         const isStaleSession =
           staleSessionId &&
@@ -461,21 +469,21 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
     const startedAt = Date.now();
     let lastAgentProgressAt = startedAt;
     let lastNoOutputWarningAt = 0;
-    let lastElapsedProgressAt = 0;
+    let lastElapsedProgressAt = startedAt;
     let typingHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let progressTimer: ReturnType<typeof setInterval> | null = null;
+    // Save the options used for the initial ack so we reuse the same key
+    // (threadId) when cleaning up — mismatched keys leave a stale activeProgress
+    // entry that silently blocks acknowledgments on subsequent messages.
+    let initialProgressOptions: { threadId?: string } | undefined;
     if (channel.sendProgressUpdate) {
       try {
-        const progressOptions = buildMessageOptions();
-        if (progressOptions) {
-          await channel.sendProgressUpdate(
-            chatJid,
-            'Working on it...',
-            progressOptions,
-          );
-        } else {
-          await channel.sendProgressUpdate(chatJid, 'Working on it...');
-        }
+        initialProgressOptions = buildMessageOptions() ?? {};
+        await channel.sendProgressUpdate(
+          chatJid,
+          'Working on it...',
+          initialProgressOptions,
+        );
         logger.info({ group: group.name }, 'Sent initial acknowledgment');
       } catch (err) {
         logger.warn(
@@ -564,6 +572,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
     }, 5_000);
     let hadError = false;
     let outputSentToUser = false;
+    let progressDoneSent = false;
     let collectedOutput = '';
     const supportsStreamingChunks =
       typeof channel.sendStreamingChunk === 'function';
@@ -618,6 +627,24 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
               }
               outputSentToUser = true;
               collectedOutput += `${text}\n`;
+
+              // Stop the progress timer and mark done as soon as output is
+              // sent. The runner may stay alive for follow-up turns, but the
+              // user already has the answer so "Still working" must stop.
+              if (progressTimer) {
+                clearInterval(progressTimer);
+                progressTimer = null;
+              }
+              if (channel.sendProgressUpdate && !progressDoneSent) {
+                progressDoneSent = true;
+                const elapsed = formatElapsed(Date.now() - startedAt);
+                channel
+                  .sendProgressUpdate(chatJid, `Done in ${elapsed}.`, {
+                    ...initialProgressOptions,
+                    done: true,
+                  })
+                  .catch(() => undefined);
+              }
             }
             resetIdleTimer();
           }
@@ -646,22 +673,16 @@ export function createGroupProcessor(deps: GroupProcessingDeps): {
       if (typingHeartbeatTimer) clearInterval(typingHeartbeatTimer);
       if (progressTimer) clearInterval(progressTimer);
       const elapsed = formatElapsed(Date.now() - startedAt);
-      if (channel.sendProgressUpdate) {
+      if (channel.sendProgressUpdate && !progressDoneSent) {
         const finalStatus =
           output === 'error' || hadError
             ? `Failed after ${elapsed}.`
             : `Done in ${elapsed}.`;
         try {
-          const finalProgressOptions = buildStreamingOptions({ done: true });
-          if (finalProgressOptions) {
-            await channel.sendProgressUpdate(
-              chatJid,
-              finalStatus,
-              finalProgressOptions,
-            );
-          } else {
-            await channel.sendProgressUpdate(chatJid, finalStatus);
-          }
+          await channel.sendProgressUpdate(chatJid, finalStatus, {
+            ...initialProgressOptions,
+            done: true,
+          });
         } catch (err) {
           logger.debug(
             { err, group: group.name },

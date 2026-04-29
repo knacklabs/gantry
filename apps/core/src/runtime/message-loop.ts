@@ -135,9 +135,9 @@ export async function startMessagePollingLoop(
           const formatted = formatMessages(messagesToSend, TIMEZONE);
 
           if (deps.queue.sendMessage(chatJid, formatted)) {
-            logger.debug(
+            logger.info(
               { chatJid, count: messagesToSend.length },
-              'Piped messages to active container',
+              'Piped follow-up to active agent',
             );
             deps.setAgentCursor(
               chatJid,
@@ -150,25 +150,38 @@ export async function startMessagePollingLoop(
                 logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
               );
             if (channel.sendProgressUpdate) {
-              const progressPromise = activeThreadId
-                ? channel.sendProgressUpdate(
+              const progressOpts = activeThreadId
+                ? { threadId: activeThreadId }
+                : {};
+              channel
+                .sendProgressUpdate(
                     chatJid,
-                    'Still working on it, got your follow-up.',
-                    { threadId: activeThreadId },
+                    'Working on it...',
+                    progressOpts,
                   )
-                : channel.sendProgressUpdate(
-                    chatJid,
-                    'Still working on it, got your follow-up.',
-                  );
-              progressPromise.catch((err: unknown) =>
-                logger.warn(
-                  { chatJid, err },
-                  'Failed to send follow-up progress update',
-                ),
-              );
+                .catch((err: unknown) =>
+                  logger.warn(
+                    { chatJid, err },
+                    'Failed to send follow-up progress update',
+                  ),
+                );
             }
           } else {
+            logger.info({ chatJid }, 'Message queued — acknowledging immediately');
             deps.queue.enqueueMessageCheck(chatJid);
+            if (channel.sendProgressUpdate) {
+              const progressOpts = activeThreadId
+                ? { threadId: activeThreadId }
+                : {};
+              channel
+                .sendProgressUpdate(chatJid, 'Working on it...', progressOpts)
+                .catch((err: unknown) =>
+                  logger.warn(
+                    { chatJid, err },
+                    'Failed to send queued message acknowledgment',
+                  ),
+                );
+            }
           }
         }
       }

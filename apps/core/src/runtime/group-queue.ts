@@ -273,6 +273,12 @@ export class GroupQueue {
       const tempPath = `${filepath}.tmp`;
       fs.writeFileSync(tempPath, JSON.stringify({ type: 'message', text }));
       fs.renameSync(tempPath, filepath);
+      // Mark pending so drainGroup schedules a follow-up check when this
+      // session ends. If the active session processes the IPC file, the
+      // follow-up run finds no new messages and exits cleanly. If the session
+      // finishes before reading the IPC file, the follow-up run will process
+      // the message via the normal cursor-based path.
+      state.pendingMessages = true;
       return true;
     } catch {
       return false;

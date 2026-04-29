@@ -1,8 +1,11 @@
+import fs from 'fs';
+import path from 'path';
+
 import {
   RuntimeSettings,
   loadRuntimeSettings,
 } from '../cli/runtime-settings.js';
-import { AGENT_ROOT } from '../core/config.js';
+import { AGENT_ROOT, DATA_DIR } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import { ensureRuntimeLayoutDirectories } from '../platform/runtime-layout.js';
 import { ensurePromptProfileBootstrapped } from '../runtime/prompt-profile.js';
@@ -12,6 +15,25 @@ import { restoreRemoteControl } from '../runtime/remote-control.js';
 import { runRuntimeStartupPreflight } from '../runtime/runtime-diagnostics.js';
 import { initDatabase } from '../storage/db.js';
 import { RuntimeApp } from './runtime-app.js';
+
+function signalOrphanedRunnersToExit(): void {
+  const ipcRoot = path.join(DATA_DIR, 'ipc');
+  try {
+    if (!fs.existsSync(ipcRoot)) return;
+    for (const group of fs.readdirSync(ipcRoot)) {
+      const inputDir = path.join(ipcRoot, group, 'input');
+      try {
+        fs.mkdirSync(inputDir, { recursive: true });
+        fs.writeFileSync(path.join(inputDir, '_close'), '');
+      } catch {
+        // best-effort
+      }
+    }
+    logger.info('Signaled orphaned agent runners to exit');
+  } catch {
+    // best-effort
+  }
+}
 
 interface StartupDeps {
   ensureRuntimeLayoutDirectories: typeof ensureRuntimeLayoutDirectories;
@@ -52,6 +74,7 @@ export async function runStartup(
     ...deps,
   };
 
+  signalOrphanedRunnersToExit();
   resolved.ensureRuntimeLayoutDirectories(AGENT_ROOT);
   try {
     resolved.ensurePromptProfileBootstrapped();

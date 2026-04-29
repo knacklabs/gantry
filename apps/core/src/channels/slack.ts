@@ -1523,13 +1523,33 @@ export class SlackChannel implements Channel {
           settled: false,
         };
 
-        const sent = (await this.app.client.chat.postMessage({
-          channel: parsed.channelId,
-          text: promptText,
-          blocks: this.buildUserQuestionBlocks(pendingState) as any,
-        })) as { ts?: string };
+        let sent: { ts?: string } | undefined;
+        try {
+          sent = (await this.app.client.chat.postMessage({
+            channel: parsed.channelId,
+            text: promptText,
+            blocks: this.buildUserQuestionBlocks(pendingState) as any,
+          })) as { ts?: string };
+        } catch (apiErr) {
+          logger.warn(
+            { requestId: request.requestId, questionIndex: i, err: apiErr },
+            'Slack user question blocks postMessage failed; retrying with plain text',
+          );
+          try {
+            sent = (await this.app.client.chat.postMessage({
+              channel: parsed.channelId,
+              text: promptText,
+            })) as { ts?: string };
+          } catch (fallbackErr) {
+            logger.error(
+              { requestId: request.requestId, questionIndex: i, err: fallbackErr },
+              'Slack user question plain text fallback also failed; skipping question',
+            );
+            continue;
+          }
+        }
 
-        const messageTs = sent.ts;
+        const messageTs = sent?.ts;
         if (!messageTs) {
           logger.warn(
             { requestId: request.requestId, questionIndex: i },

@@ -605,7 +605,7 @@ server.tool(
 
 server.tool(
   'scheduler_upsert_job',
-  'Create or update a scheduler job. Idempotent by job ID.',
+  'Create or update a recurring scheduler job. Idempotent by job ID. Results are always delivered back to this channel. Put any task recipient (email, person, etc.) in the prompt.',
   {
     job_id: z.string().optional(),
     name: z.string(),
@@ -614,7 +614,6 @@ server.tool(
     schedule_type: z.enum(['cron', 'interval', 'once', 'manual']),
     schedule_value: z.string().default(''),
     linked_sessions: z.array(z.string()).optional(),
-    deliver_to: z.array(z.string()).optional(),
     thread_id: z.string().optional(),
     silent: z.boolean().optional(),
     cleanup_after_ms: z.number().optional(),
@@ -669,7 +668,7 @@ server.tool(
       schedule_type: args.schedule_type,
       schedule_value: args.schedule_value,
       linkedSessions: args.linked_sessions,
-      deliverTo: args.deliver_to,
+      deliverTo: [chatJid],
       threadId: args.thread_id,
       silent: args.silent,
       cleanupAfterMs: args.cleanup_after_ms,
@@ -697,14 +696,13 @@ server.tool(
 
 server.tool(
   'scheduler_once',
-  'Schedule a one-time task and deliver the result back to chat.',
+  'Schedule a one-time task. The result is always delivered back to this channel. Put the task recipient (email address, person name, etc.) in the prompt, not here.',
   {
     name: z.string(),
     prompt: z.string(),
     run_at: z
       .string()
       .describe('ISO timestamp, e.g. 2026-04-14T15:00:00+05:30'),
-    deliver_to: z.array(z.string()).optional(),
     thread_id: z.string().optional(),
     cleanup_after_ms: z.number().default(86_400_000),
     timeout_ms: z.number().default(300_000),
@@ -732,10 +730,7 @@ server.tool(
       prompt: args.prompt,
       model: args.model,
       run_at: runAtDate.toISOString(),
-      deliverTo:
-        args.deliver_to && args.deliver_to.length > 0
-          ? args.deliver_to
-          : [chatJid],
+      deliverTo: [chatJid],
       threadId: args.thread_id,
       groupScope: args.group_scope ?? groupFolder,
       silent: args.silent,
@@ -824,7 +819,6 @@ server.tool(
     schedule_type: z.enum(['cron', 'interval', 'once', 'manual']).optional(),
     schedule_value: z.string().optional(),
     linked_sessions: z.array(z.string()).optional(),
-    deliver_to: z.array(z.string()).optional(),
     thread_id: z.string().optional(),
     silent: z.boolean().optional(),
     cleanup_after_ms: z.number().optional(),
@@ -850,7 +844,7 @@ server.tool(
       schedule_type: args.schedule_type,
       schedule_value: args.schedule_value,
       linkedSessions: args.linked_sessions,
-      deliverTo: args.deliver_to,
+      deliverTo: [chatJid],
       threadId: args.thread_id,
       silent: args.silent,
       cleanupAfterMs: args.cleanup_after_ms,

@@ -96,6 +96,9 @@ const ipcRateLimitState = new Map<
   { windowStart: number; count: number }
 >();
 const warnedUnknownIpcFolders = new Set<string>();
+// Track user-question requests that are currently being resolved asynchronously
+// so the IPC polling loop does not re-claim the same file on the next tick.
+const inFlightUserQuestions = new Set<string>();
 
 function normalizeIpcExecutionMode(
   executionMode: unknown,
@@ -1390,13 +1393,22 @@ export function startIpcWatcher(deps: IpcDeps): void {
         );
       }
 
-      // Process AskUserQuestion request/response IPC for this group
+      // Process AskUserQuestion request/response IPC for this group.
+      // User-question requests can wait for interactive user input (up to
+      // PERMISSION_APPROVAL_TIMEOUT_MS). Awaiting them inline would block the
+      // entire IPC polling loop, stalling all other IPC processing. Instead,
+      // claim and start each request asynchronously (fire-and-forget) and
+      // track in-flight requests to avoid re-claiming on the next poll tick.
       try {
         if (isTrustedDirectory(userQuestionRequestsDir)) {
           const questionFiles = fs
             .readdirSync(userQuestionRequestsDir)
             .filter((f) => f.endsWith('.json'));
           for (const file of questionFiles) {
+            // Skip files already being resolved asynchronously.
+            const inFlightKey = `${sourceGroup}:${file}`;
+            if (inFlightUserQuestions.has(inFlightKey)) continue;
+
             const filePath = path.join(userQuestionRequestsDir, file);
             let claimedPath = filePath;
             let requestId: string | undefined;
@@ -1413,18 +1425,59 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 sourceGroup,
               );
               requestId = request.requestId;
-              const response = deps.requestUserAnswer
-                ? await deps.requestUserAnswer(request)
-                : {
-                    requestId,
-                    answers: {},
-                  };
-              writeUserQuestionIpcResponse(ipcBaseDir, sourceGroup, {
-                requestId,
-                answers: response.answers || {},
-                answeredBy: response.answeredBy,
-              });
-              fs.unlinkSync(claimedPath);
+
+              // Mark in-flight before launching the async handler so the next
+              // poll tick skips this file (it's already been claimed/renamed).
+              inFlightUserQuestions.add(inFlightKey);
+              const capturedClaimedPath = claimedPath;
+              const capturedRequestId = requestId;
+
+              // Fire-and-forget: resolve the user question without blocking
+              // the IPC poll loop.
+              (async () => {
+                try {
+                  const response = deps.requestUserAnswer
+                    ? await deps.requestUserAnswer(request)
+                    : {
+                        requestId: capturedRequestId,
+                        answers: {},
+                      };
+                  writeUserQuestionIpcResponse(ipcBaseDir, sourceGroup, {
+                    requestId: capturedRequestId,
+                    answers: response.answers || {},
+                    answeredBy: response.answeredBy,
+                  });
+                  try {
+                    fs.unlinkSync(capturedClaimedPath);
+                  } catch {
+                    // already cleaned up
+                  }
+                } catch (err) {
+                  try {
+                    writeUserQuestionIpcResponse(ipcBaseDir, sourceGroup, {
+                      requestId: capturedRequestId,
+                      answers: {},
+                    });
+                  } catch (writeErr) {
+                    logger.warn(
+                      { sourceGroup, requestId: capturedRequestId, err: writeErr },
+                      'Failed to write user question IPC fallback response',
+                    );
+                  }
+                  logger.error(
+                    { file, sourceGroup, err },
+                    'Error processing user question IPC request',
+                  );
+                  archiveIpcErrorFile(
+                    ipcBaseDir,
+                    sourceGroup,
+                    file,
+                    capturedClaimedPath,
+                  );
+                } finally {
+                  inFlightUserQuestions.delete(inFlightKey);
+                }
+              })();
             } catch (err) {
               if (requestId) {
                 try {
@@ -1444,6 +1497,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 'Error processing user question IPC request',
               );
               archiveIpcErrorFile(ipcBaseDir, sourceGroup, file, claimedPath);
+              inFlightUserQuestions.delete(inFlightKey);
             }
           }
         } else if (fs.existsSync(userQuestionRequestsDir)) {
@@ -1569,14 +1623,24 @@ export async function processTaskIpc(
       }
 
       if (!isMain) {
-        const unauthorized = linkedSessions.some((jid) => {
+        // Filter to only sessions that belong to this agent's own group.
+        // Non-main agents often pass email addresses or display names instead
+        // of JIDs — these are invalid but shouldn't block the whole schedule.
+        const authorized = linkedSessions.filter((jid) => {
           const group = registeredGroups[jid];
-          return !group || group.folder !== sourceGroup;
+          return group && group.folder === sourceGroup;
         });
-        if (unauthorized) {
+        if (authorized.length < linkedSessions.length) {
           logger.warn(
-            { sourceGroup, linkedSessions },
-            'Unauthorized linked sessions in scheduler_once',
+            { sourceGroup, linkedSessions, authorized },
+            'scheduler_once: some linked sessions are not registered to this group — using own channel',
+          );
+        }
+        linkedSessions = authorized.length > 0 ? authorized : sourceGroupJids;
+        if (linkedSessions.length === 0) {
+          logger.warn(
+            { sourceGroup },
+            'scheduler_once: no valid delivery sessions found',
           );
           break;
         }
