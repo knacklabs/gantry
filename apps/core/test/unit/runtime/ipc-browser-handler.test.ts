@@ -22,10 +22,18 @@ vi.mock('@core/runtime/browser-profiles.js', () => ({
       auth_markers: [],
     },
   })),
+  summarizeBrowserProfileState: vi.fn(() => ({
+    hasState: false,
+    authMarkers: [],
+  })),
 }));
 
 import { BrowserIpcAction } from '@myclaw/contracts';
 
+import {
+  createIpcResponseSigningKeyPair,
+  verifyIpcResponsePayload,
+} from '@core/infrastructure/ipc/response-signing.js';
 import {
   processBrowserIpcRequest,
   writeBrowserIpcResponse,
@@ -113,5 +121,40 @@ describe('ipc-browser-handler', () => {
       data: { running: true },
     });
     expect(getBrowserStatus).not.toHaveBeenCalled();
+  });
+
+  it('signs browser responses with the MCP client verification shape', () => {
+    const keys = createIpcResponseSigningKeyPair();
+    writeBrowserIpcResponse(
+      tempDir,
+      'grp',
+      {
+        requestId: 'req-5',
+        ok: true,
+        data: { running: true },
+      },
+      keys.privateKeyPem,
+    );
+
+    const responsePath = path.join(
+      tempDir,
+      'grp',
+      'browser-responses',
+      'req-5.json',
+    );
+    const response = JSON.parse(fs.readFileSync(responsePath, 'utf-8'));
+    const runnerVerificationPayload = {
+      ok: true,
+      requestId: 'req-5',
+      data: { running: true },
+    };
+
+    expect(
+      verifyIpcResponsePayload(
+        keys.publicKeyPem,
+        runnerVerificationPayload,
+        response.signature,
+      ),
+    ).toBe(true);
   });
 });

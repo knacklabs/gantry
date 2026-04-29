@@ -1,55 +1,32 @@
 import { makeSessionScopeKey } from '../../../../domain/repositories/ops-repo.js';
 import type {
-  AgentRunRepository,
   AgentSessionRepository,
-  AgentSessionSummaryRepository,
   MemoryRepository,
-  MessageRepository,
 } from '../../../../domain/ports/repositories.js';
 import { HydrateAgentContextService } from '../../../../application/sessions/hydrate-agent-context-service.js';
-import { SessionSummaryCheckpointService } from '../../../../application/sessions/session-summary-checkpoint-service.js';
 import type { PostgresCanonicalSessionRepository } from '../repositories/canonical-session-repository.postgres.js';
 
 export class CanonicalSessionOpsService {
   private readonly hydrateService?: HydrateAgentContextService;
-  private readonly checkpointService?: SessionSummaryCheckpointService;
 
   constructor(
     private readonly repository: PostgresCanonicalSessionRepository,
     repositories?: {
       agentSessions: AgentSessionRepository;
-      messages: MessageRepository;
       memory: MemoryRepository;
-      agentSessionSummaries: AgentSessionSummaryRepository;
-      agentRuns: AgentRunRepository;
     },
     options: {
-      recentMessageLimit?: number;
-      summaryAfterMessages?: number;
-      summaryAfterRuns?: number;
-      maxHydratedContextChars?: number;
+      memoryItemLimit?: number;
+      maxMemoryContextChars?: number;
     } = {},
   ) {
     if (repositories) {
       this.hydrateService = new HydrateAgentContextService(
         repositories.agentSessions,
-        repositories.messages,
         repositories.memory,
-        repositories.agentSessionSummaries,
-        repositories.agentRuns,
         {
-          recentMessageLimit: options.recentMessageLimit,
-          maxChars: options.maxHydratedContextChars,
-        },
-      );
-      this.checkpointService = new SessionSummaryCheckpointService(
-        repositories.agentSessions,
-        repositories.messages,
-        repositories.agentRuns,
-        repositories.agentSessionSummaries,
-        {
-          summaryAfterMessages: options.summaryAfterMessages ?? 50,
-          summaryAfterRuns: options.summaryAfterRuns ?? 10,
+          memoryItemLimit: options.memoryItemLimit,
+          maxChars: options.maxMemoryContextChars,
         },
       );
     }
@@ -74,7 +51,7 @@ export class CanonicalSessionOpsService {
     });
   }
 
-  async getSessionResume(input: {
+  async getAgentTurnContext(input: {
     groupFolder: string;
     chatJid: string;
     threadId?: string | null;
@@ -82,32 +59,20 @@ export class CanonicalSessionOpsService {
     appId: string;
     agentId: string;
     agentSessionId: string;
-    mode: 'provider_native' | 'db_replay';
-    provider?: string;
-    providerSessionId?: string;
-    externalSessionId?: string;
-    latestArtifactId?: string;
-    hydratedContextBlock?: string;
+    memoryContextBlock?: string;
   }> {
-    const resume = await this.repository.getSessionResume({
+    const context = await this.repository.getAgentTurnContext({
       groupFolder: input.groupFolder,
       chatJid: input.chatJid,
       threadId: input.threadId,
       scopeKey: makeSessionScopeKey(input.groupFolder, input.threadId),
     });
-    if (resume.externalSessionId && resume.latestArtifactId) {
-      return { ...resume, mode: 'provider_native' };
-    }
     const hydrated = await this.hydrateService?.hydrate({
-      sessionId: resume.agentSessionId as never,
+      sessionId: context.agentSessionId as never,
     });
     return {
-      ...resume,
-      mode: 'db_replay',
-      providerSessionId: undefined,
-      externalSessionId: undefined,
-      latestArtifactId: undefined,
-      hydratedContextBlock: hydrated?.block,
+      ...context,
+      memoryContextBlock: hydrated?.block || undefined,
     };
   }
 
@@ -118,12 +83,6 @@ export class CanonicalSessionOpsService {
     externalSessionId?: string;
   }): Promise<void> {
     await this.repository.expireProviderSession(input);
-  }
-
-  async checkpointSessionSummary(agentSessionId: string): Promise<void> {
-    await this.checkpointService?.checkpoint({
-      sessionId: agentSessionId as never,
-    });
   }
 
   async deleteSession(

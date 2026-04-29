@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { makeSessionScopeKey } from '@core/domain/repositories/ops-repo.js';
 import type { ProviderSessionId } from '@core/domain/sessions/sessions.js';
 
 import {
@@ -11,7 +10,7 @@ import {
 
 const maybeDescribe = hasPostgresIntegrationDatabase ? describe : describe.skip;
 
-maybeDescribe('Postgres session continuity', () => {
+maybeDescribe('Postgres memory continuity', () => {
   let runtime: PostgresIntegrationRuntime;
 
   beforeAll(async () => {
@@ -24,7 +23,7 @@ maybeDescribe('Postgres session continuity', () => {
     await runtime.cleanup();
   });
 
-  it('switches between db replay and provider-native resume based on latest artifact metadata', async () => {
+  it('returns canonical MyClaw turn context even when provider artifact metadata exists', async () => {
     const groupFolder = 'group-session-mode';
     const chatJid = 'tg:group-session-mode';
     const sessionId = 'provider-session:test:mode';
@@ -33,33 +32,31 @@ maybeDescribe('Postgres session continuity', () => {
       chatJid,
     });
 
-    const withoutArtifact = await runtime.sessionOps.getSessionResume({
+    const withoutArtifact = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
       chatJid,
       threadId: null,
     });
-    expect(withoutArtifact.mode).toBe('db_replay');
-    expect(withoutArtifact.providerSessionId).toBeUndefined();
-    expect(withoutArtifact.externalSessionId).toBeUndefined();
-    expect(withoutArtifact.latestArtifactId).toBeUndefined();
+    expect(withoutArtifact).toMatchObject({
+      appId: expect.any(String),
+      agentId: expect.any(String),
+      agentSessionId: expect.any(String),
+    });
 
     await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
       chatJid,
       latestArtifactId: 'provider-session-artifact:test:mode',
     });
 
-    const withArtifact = await runtime.sessionOps.getSessionResume({
+    const withArtifact = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
       chatJid,
       threadId: null,
     });
-    expect(withArtifact.mode).toBe('provider_native');
-    expect(withArtifact.providerSessionId).toBe(sessionId);
-    expect(withArtifact.externalSessionId).toBe(sessionId);
-    expect(withArtifact.latestArtifactId).toBe(
-      'provider-session-artifact:test:mode',
-    );
     expect(withArtifact.agentSessionId).toBe(withoutArtifact.agentSessionId);
+    expect(withArtifact).not.toHaveProperty('providerSessionId');
+    expect(withArtifact).not.toHaveProperty('externalSessionId');
+    expect(withArtifact).not.toHaveProperty('latestArtifactId');
   });
 
   it('replaces provider session per scope without clobbering a thread scope', async () => {
@@ -95,30 +92,20 @@ maybeDescribe('Postgres session continuity', () => {
       },
     );
 
-    const rootResume = await runtime.sessionOps.getSessionResume({
+    const rootResume = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
       chatJid,
       threadId: null,
     });
-    const threadResume = await runtime.sessionOps.getSessionResume({
+    const threadResume = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
       chatJid,
       threadId,
     });
 
-    expect(rootResume.mode).toBe('provider_native');
-    expect(rootResume.externalSessionId).toBe('provider-session:test:root:v2');
-    expect(rootResume.latestArtifactId).toBe(
-      'provider-session-artifact:test:root:v2',
-    );
-    expect(threadResume.mode).toBe('provider_native');
-    expect(threadResume.externalSessionId).toBe(
-      'provider-session:test:thread:v1',
-    );
-    expect(threadResume.latestArtifactId).toBe(
-      'provider-session-artifact:test:thread:v1',
-    );
     expect(rootResume.agentSessionId).not.toBe(threadResume.agentSessionId);
+    expect(rootResume).not.toHaveProperty('externalSessionId');
+    expect(threadResume).not.toHaveProperty('externalSessionId');
 
     await expect(
       runtime.repositories.providerSessions.getProviderSession(
@@ -170,7 +157,7 @@ maybeDescribe('Postgres session continuity', () => {
     ).rejects.toThrow(/Invalid provider session id/);
   });
 
-  it('falls back to db replay after expiring the scoped provider session', async () => {
+  it('keeps canonical turn context stable after expiring provider session metadata', async () => {
     const groupFolder = 'group-session-expiry';
     const chatJid = 'tg:group-session-expiry';
     const sessionId = 'provider-session:test:expire';
@@ -181,33 +168,28 @@ maybeDescribe('Postgres session continuity', () => {
       latestArtifactId,
     });
 
-    const scopeKey = makeSessionScopeKey(groupFolder, null);
-    const rawResume = await runtime.canonicalSessionRepository.getSessionResume(
-      {
-        groupFolder,
-        chatJid,
-        threadId: null,
-        scopeKey,
-      },
-    );
-    expect(rawResume.providerSessionId).toBe(sessionId);
-
-    await runtime.sessionOps.expireProviderSession({
-      providerSessionId: rawResume.providerSessionId,
-      agentSessionId: rawResume.agentSessionId,
-      provider: rawResume.provider,
-      externalSessionId: rawResume.externalSessionId,
-    });
-
-    const resumed = await runtime.sessionOps.getSessionResume({
+    const before = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
       chatJid,
       threadId: null,
     });
-    expect(resumed.mode).toBe('db_replay');
-    expect(resumed.providerSessionId).toBeUndefined();
-    expect(resumed.externalSessionId).toBeUndefined();
-    expect(resumed.latestArtifactId).toBeUndefined();
+
+    await runtime.sessionOps.expireProviderSession({
+      providerSessionId: sessionId,
+      agentSessionId: before.agentSessionId,
+      provider: 'anthropic',
+      externalSessionId: sessionId,
+    });
+
+    const resumed = await runtime.sessionOps.getAgentTurnContext({
+      groupFolder,
+      chatJid,
+      threadId: null,
+    });
+    expect(resumed.agentSessionId).toBe(before.agentSessionId);
+    expect(resumed).not.toHaveProperty('providerSessionId');
+    expect(resumed).not.toHaveProperty('externalSessionId');
+    expect(resumed).not.toHaveProperty('latestArtifactId');
   });
 
   it('keeps session state isolated across independent test schemas', async () => {
@@ -229,24 +211,22 @@ maybeDescribe('Postgres session continuity', () => {
       });
 
       await expect(
-        runtime.sessionOps.getSessionResume({
+        runtime.sessionOps.getAgentTurnContext({
           groupFolder,
           chatJid,
           threadId: null,
         }),
       ).resolves.toMatchObject({
-        mode: 'provider_native',
-        latestArtifactId: 'provider-session-artifact:test:isolation:primary',
+        agentSessionId: expect.stringContaining('group-session-isolation'),
       });
       await expect(
-        isolated.sessionOps.getSessionResume({
+        isolated.sessionOps.getAgentTurnContext({
           groupFolder,
           chatJid,
           threadId: null,
         }),
       ).resolves.toMatchObject({
-        mode: 'provider_native',
-        latestArtifactId: 'provider-session-artifact:test:isolation:isolated',
+        agentSessionId: expect.stringContaining('group-session-isolation'),
       });
     } finally {
       await isolated.cleanup();

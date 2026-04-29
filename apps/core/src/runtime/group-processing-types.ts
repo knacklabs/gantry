@@ -10,7 +10,6 @@ import type {
 import type { OpsRepository } from '../domain/repositories/ops-repo.js';
 import type { AvailableGroup, spawnAgent } from './agent-spawn.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
-import type { ProviderArtifactStore } from '../domain/ports/provider-artifact-store.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
 import type {
   McpServerRepository,
@@ -18,6 +17,7 @@ import type {
 } from '../domain/ports/repositories.js';
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import type { RemoteMcpDnsValidationCache } from '../application/mcp/mcp-server-policy.js';
+import type { SessionMemoryCollector } from '../domain/ports/session-memory-collector.js';
 
 export interface GroupProcessor {
   processGroupMessages: (
@@ -50,15 +50,6 @@ export interface GroupProcessingDeps {
     ) => Promise<void>;
   };
   getGroup: (chatJid: string) => RegisteredGroup | undefined;
-  setSession: (
-    groupFolder: string,
-    sessionId: string,
-    threadId?: string | null,
-    metadata?: {
-      chatJid?: string;
-      latestArtifactId?: string | null;
-    },
-  ) => Promise<void> | void;
   clearSession: (
     groupFolder: string,
     threadId?: string | null,
@@ -91,12 +82,12 @@ export interface GroupProcessingDeps {
   };
   runAgent?: typeof spawnAgent;
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
-  getProviderArtifactStore?: () => ProviderArtifactStore | undefined;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
   getMcpHostnameLookup?: () => HostnameLookup | undefined;
   getMcpDnsValidationCache?: () => RemoteMcpDnsValidationCache | undefined;
   getSkillArtifactStore?: () => SkillArtifactStore | undefined;
+  collectSessionMemory?: SessionMemoryCollector;
   opsRepository?: OpsRepository;
   getOpsRepository?: () => OpsRepository;
 }

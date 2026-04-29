@@ -3,12 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-import type {
-  ProviderArtifactStore,
-  ProviderSessionArtifactContext,
-} from '../../../domain/ports/provider-artifact-store.js';
-import { assertSafeProviderSessionId } from '../../../domain/sessions/provider-session-id.js';
-import type { ProviderSessionArtifact } from '../../../domain/sessions/provider-session-artifact.js';
 import { getClaudeProjectDirName } from '../../../shared/myclaw-home.js';
 import type {
   RuntimeMaterialization,
@@ -36,21 +30,12 @@ export interface ClaudeRuntimeMaterializationInput {
   groupDir: string;
   cliEntryPoint: string;
   packageRoot: string;
-  sessionId?: string;
   runId?: string;
   baseTempDir?: string;
   cleanupPolicy?: RuntimeMaterializationCleanupPolicy;
   settings?: Omit<ClaudeSettingsRenderInput, 'cliEntryPoint'>;
   skillSource?: SkillSource;
   enabledSkillIds?: string[];
-  providerArtifactStore?: ProviderArtifactStore;
-  artifactContext?: ProviderSessionArtifactContext;
-}
-
-function asText(content: Uint8Array | string): string {
-  return typeof content === 'string'
-    ? content
-    : Buffer.from(content).toString('utf-8');
 }
 
 export async function materializeClaudeRuntime(
@@ -88,12 +73,6 @@ export async function materializeClaudeRuntime(
       skillsDir,
       enabledSkillIds: input.enabledSkillIds,
     });
-    await restoreClaudeProviderArtifact({
-      sessionId: input.sessionId,
-      providerArtifactStore: input.providerArtifactStore,
-      artifactContext: input.artifactContext,
-      projectDir,
-    });
   } catch (err) {
     if (ownsBaseTempDir) {
       fs.rmSync(baseTempDir, { recursive: true, force: true });
@@ -115,113 +94,4 @@ export async function materializeClaudeRuntime(
       }
     },
   };
-}
-
-async function restoreClaudeProviderArtifact(input: {
-  sessionId?: string;
-  providerArtifactStore?: ProviderArtifactStore;
-  artifactContext?: ProviderSessionArtifactContext;
-  projectDir: string;
-}): Promise<void> {
-  const latest = await resolveLatestClaudeArtifact(input);
-  if (!latest || !input.providerArtifactStore || !input.sessionId) return;
-  assertSafeProviderSessionId(input.sessionId);
-  const restored = await input.providerArtifactStore.getArtifact(latest);
-  fs.writeFileSync(
-    path.join(input.projectDir, `${input.sessionId}.jsonl`),
-    asText(restored),
-    { mode: 0o600 },
-  );
-}
-
-async function resolveLatestClaudeArtifact(input: {
-  sessionId?: string;
-  providerArtifactStore?: ProviderArtifactStore;
-  artifactContext?: ProviderSessionArtifactContext;
-}): Promise<ProviderSessionArtifact | undefined> {
-  if (
-    !input.sessionId ||
-    !input.providerArtifactStore ||
-    !input.artifactContext
-  ) {
-    return undefined;
-  }
-  if (input.artifactContext.providerSessionId) {
-    return input.providerArtifactStore.getLatestArtifact({
-      appId: input.artifactContext.appId as never,
-      agentId: input.artifactContext.agentId as never,
-      agentSessionId: input.artifactContext.agentSessionId as never,
-      providerSessionId: input.artifactContext.providerSessionId as never,
-      provider: input.artifactContext.provider ?? 'anthropic',
-      artifactKind: 'claude-jsonl',
-    });
-  }
-  return input.providerArtifactStore.getLatestArtifact({
-    appId: input.artifactContext.appId as never,
-    agentId: input.artifactContext.agentId as never,
-    agentSessionId: input.artifactContext.agentSessionId as never,
-    provider: input.artifactContext.provider ?? 'anthropic',
-    artifactKind: 'claude-jsonl',
-  });
-}
-
-export async function captureClaudeArtifacts(input: {
-  providerArtifactStore?: ProviderArtifactStore;
-  artifactContext?: ProviderSessionArtifactContext;
-  providerSessionId?: string;
-  sessionId?: string;
-  projectDir: string;
-}): Promise<{ latestArtifactId?: string }> {
-  if (
-    !input.providerArtifactStore ||
-    !input.artifactContext ||
-    !input.providerSessionId ||
-    !input.sessionId
-  ) {
-    return {};
-  }
-
-  assertSafeProviderSessionId(input.sessionId);
-  assertSafeProviderSessionId(input.providerSessionId);
-  const transcriptPath = path.join(
-    input.projectDir,
-    `${input.sessionId}.jsonl`,
-  );
-  if (!fs.existsSync(transcriptPath)) return {};
-  const provider = input.artifactContext.provider ?? 'anthropic';
-
-  const artifact = await input.providerArtifactStore.putArtifact({
-    appId: input.artifactContext.appId as never,
-    agentId: input.artifactContext.agentId as never,
-    agentSessionId: input.artifactContext.agentSessionId as never,
-    providerSessionId: input.providerSessionId as never,
-    provider,
-    artifactKind: 'claude-jsonl',
-    content: fs.readFileSync(transcriptPath),
-    contentType: 'application/x-jsonlines',
-    metadata: {
-      externalSessionId: input.sessionId,
-      source: 'claude-sdk',
-    },
-  });
-
-  const indexPath = path.join(input.projectDir, 'sessions-index.json');
-  if (fs.existsSync(indexPath)) {
-    await input.providerArtifactStore.putArtifact({
-      appId: input.artifactContext.appId as never,
-      agentId: input.artifactContext.agentId as never,
-      agentSessionId: input.artifactContext.agentSessionId as never,
-      providerSessionId: input.providerSessionId as never,
-      provider,
-      artifactKind: 'claude-session-index',
-      content: fs.readFileSync(indexPath),
-      contentType: 'application/json',
-      metadata: {
-        externalSessionId: input.sessionId,
-        source: 'claude-sdk',
-      },
-    });
-  }
-
-  return { latestArtifactId: artifact.id };
 }

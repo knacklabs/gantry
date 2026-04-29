@@ -156,18 +156,15 @@ The deterministic session key includes app, agent, conversation, thread, user,
 and job fields so Slack threads, Telegram topics, and Web UI branches do not
 collide inside one conversation.
 
-`ProviderSession` stores provider-specific resume state for an `AgentSession`.
-Claude session id is one provider session field. Other providers may use a
-thread id, response id, transcript pointer, or no provider resume token.
-Provider sessions are optimizations only. When the current provider matches the
-latest active provider session, the runtime may attempt native resume. When the
-provider session is missing, expired, stale, or from a different provider, the
-runtime resumes from Postgres by replaying the latest session summary plus
-recent messages, memory records, and run summaries.
+`ProviderSession` stores provider-specific diagnostic or export state for an
+`AgentSession`. Claude session ids, response ids, and transcript pointers are
+not MyClaw runtime continuation handles. Active chat continuation uses the live
+provider stream while it is running; fresh runs restore durable MyClaw memory
+only.
 
-`AgentSessionSummary` stores an extractive checkpoint for long conversations.
-It records the summarized message/run range and lets hydration use summary plus
-last N messages instead of replaying the full conversation on every run.
+`AgentSessionSummary` is historical/observability state when present. It is not
+injected into runtime prompts and is not a replacement for provider-owned
+context-window compaction.
 
 `AgentRun` is one execution attempt. It has a cause, app, agent, config version,
 session, conversation/thread context, permission context, sandbox lease,

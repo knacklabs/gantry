@@ -23,10 +23,7 @@ import {
   McpServerService,
   type MaterializedMcpCapability,
 } from '../application/mcp/mcp-server-service.js';
-import {
-  captureClaudeArtifacts,
-  materializeClaudeRuntime,
-} from '../adapters/llm/anthropic-claude-agent/claude-config-materializer.js';
+import { materializeClaudeRuntime } from '../adapters/llm/anthropic-claude-agent/claude-config-materializer.js';
 import {
   ArtifactClaudeSkillSource,
   BundledClaudeSkillSource,
@@ -190,12 +187,9 @@ export async function spawnAgent(
       cliEntryPoint: path.join(packageRoot, 'dist', 'cli', 'index.js'),
       packageRoot,
       skillSource: new CompositeSkillSource(skillSources),
-      sessionId: input.sessionId,
       settings: {
         model: normalizeClaudeModelSelection(input.model || modelConfig.model),
       },
-      providerArtifactStore: options?.providerArtifactStore,
-      artifactContext: options?.providerArtifactContext,
     });
   } catch (err) {
     return {
@@ -319,22 +313,6 @@ export async function spawnAgent(
       logsDir,
       runtimeDetails,
     });
-    if (output.status === 'success') {
-      const sessionId = output.newSessionId || input.sessionId;
-      const providerSessionId =
-        options?.providerArtifactContext?.providerSessionId || sessionId;
-      const captured = await captureClaudeArtifacts({
-        providerArtifactStore: options?.providerArtifactStore,
-        artifactContext: options?.providerArtifactContext,
-        providerSessionId,
-        sessionId,
-        projectDir: claudeRuntimeMaterialization.projectDir,
-      });
-      return {
-        ...output,
-        providerArtifactId: captured.latestArtifactId,
-      };
-    }
     return output;
   } finally {
     cleanupRunnerMcpConfigFile(mcpConfigPath);

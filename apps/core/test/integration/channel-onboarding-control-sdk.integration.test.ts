@@ -18,6 +18,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock('@core/config/index.js', () => ({
   MYCLAW_HOME: '/tmp/myclaw-channel-integration-home',
+  ONECLI_ALLOWED_ENV_KEYS: [],
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({

@@ -25,6 +25,7 @@ export interface AgentRunnerOutput {
   result: string | null;
   newSessionId?: string;
   providerArtifactId?: string;
+  compactBoundary?: boolean;
   error?: string;
 }
 
@@ -34,7 +35,7 @@ export interface PermissionDecision {
   reason?: string;
 }
 
-export type SessionSlashKind = 'compact' | 'model';
+export type SessionSlashKind = 'model';
 
 export interface SessionSlashCommand {
   command: string;

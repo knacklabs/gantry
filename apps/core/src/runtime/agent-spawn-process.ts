@@ -29,7 +29,7 @@ const STREAM_PARSE_BUFFER_LIMIT = Math.max(AGENT_MAX_OUTPUT_SIZE * 4, 131_072);
 function sanitizeLogText(value: string, maxChars = 4000): string {
   let text = redactString(value);
   for (const pattern of SENSITIVE_TEXT_PATTERNS) {
-    text = text.replace(pattern, (match, p1) => {
+    text = text.replace(pattern, (_match, p1) => {
       if (typeof p1 === 'string' && p1.length > 0) {
         return `${p1}=[REDACTED]`;
       }
@@ -300,7 +300,7 @@ export function executeRunnerProcess(
           logLines.push(
             `=== Input Summary ===`,
             `Prompt length: ${input.prompt.length} chars`,
-            `Session ID: ${input.sessionId || 'new'}`,
+            `SDK session persistence: disabled`,
             `Chat JID: ${input.chatJid}`,
             `Group Folder: ${input.groupFolder}`,
             '',
@@ -309,7 +309,7 @@ export function executeRunnerProcess(
           logLines.push(
             `=== Input Summary ===`,
             `Prompt length: ${input.prompt.length} chars`,
-            `Session ID: ${input.sessionId || 'new'}`,
+            `SDK session persistence: disabled`,
             ``,
           );
         }
@@ -330,7 +330,7 @@ export function executeRunnerProcess(
         logLines.push(
           `=== Input Summary ===`,
           `Prompt length: ${input.prompt.length} chars`,
-          `Session ID: ${input.sessionId || 'new'}`,
+          `SDK session persistence: disabled`,
           ``,
           `=== Runtime Details ===`,
           runtimeDetails.join('\n'),

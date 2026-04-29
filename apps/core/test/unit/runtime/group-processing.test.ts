@@ -64,7 +64,6 @@ vi.mock('@core/platform/sender-allowlist.js', () => ({
   loadSenderAllowlist: (...args: unknown[]) => mockLoadSenderAllowlist(...args),
 }));
 
-const mockDeleteSession = vi.fn();
 const mockGetAllJobs = vi.fn();
 const mockGetMessagesSince = vi.fn();
 const mockGetRecentJobRuns = vi.fn();
@@ -82,12 +81,6 @@ vi.mock('@core/runtime/agent-spawn.js', () => ({
   writeJobEventsSnapshot: (...args: unknown[]) =>
     mockWriteJobEventsSnapshot(...args),
   writeGroupsSnapshot: (...args: unknown[]) => mockWriteGroupsSnapshot(...args),
-}));
-
-const mockArchiveProviderSessionTranscript = vi.fn();
-vi.mock('@core/session/session-transcript-archive.js', () => ({
-  archiveProviderSessionTranscript: (...args: unknown[]) =>
-    mockArchiveProviderSessionTranscript(...args),
 }));
 
 const mockHandleSessionCommand = vi.fn();
@@ -172,18 +165,19 @@ function makeDeps(
       mockListRecentJobEvents(...args),
     getAllChats: vi.fn().mockResolvedValue([]),
     expireProviderSession: vi.fn(),
+    setSession: vi.fn(),
   } as unknown as GroupProcessingDeps['opsRepository'];
 
   return {
     channelRuntime: makeChannel(),
     getGroup: vi.fn().mockReturnValue(undefined),
-    setSession: vi.fn(),
     clearSession: vi.fn(),
     getCursor: vi.fn().mockReturnValue('0'),
     setCursor: vi.fn(),
     saveState: vi.fn(),
     setGroupModelOverride: vi.fn(),
     setGroupThinkingOverride: vi.fn(),
+    collectSessionMemory: vi.fn().mockResolvedValue({ saved: 0 }),
     getAvailableGroups: vi.fn().mockReturnValue([]),
     getRegisteredJids: vi.fn().mockReturnValue(new Set<string>()),
     opsRepository,
@@ -542,7 +536,7 @@ describe('createGroupProcessor', () => {
       ]);
     });
 
-    it('notifies idle and requests stdin close on final success marker from onOutput callback', async () => {
+    it('notifies idle without closing stdin on final success marker from onOutput callback', async () => {
       const { deps } = setupHappyPath();
       mockSpawnAgent.mockImplementation(
         async (
@@ -561,7 +555,7 @@ describe('createGroupProcessor', () => {
       await processGroupMessages('group1@g.us');
 
       expect(deps.queue.notifyIdle).toHaveBeenCalledWith('group1@g.us');
-      expect(deps.queue.closeStdin).toHaveBeenCalledWith('group1@g.us');
+      expect(deps.queue.closeStdin).not.toHaveBeenCalled();
     });
 
     it('does not write scheduler snapshots on the message hot path', async () => {
@@ -741,323 +735,36 @@ describe('createGroupProcessor', () => {
   });
 
   // =======================================================================
-  // Stale session detection
+  // Postgres-authoritative session context
   // =======================================================================
 
-  describe('stale session detection', () => {
-    it('expires provider resume metadata without deleting durable session when error matches stale-session pattern', async () => {
-      const group = makeGroup({ isMain: true });
-      const messages = [makeMessage()];
-      const { deps } = setupHappyPath({ group, messages });
-      (deps as any).getProviderArtifactStore = vi.fn().mockReturnValue({});
-      (deps.opsRepository as any).getSessionResume = vi.fn().mockResolvedValue({
-        appId: 'app:test',
-        agentId: 'agent:test',
-        agentSessionId: 'agent-session:1',
-        externalSessionId: 'old-session-id',
-        latestArtifactId: 'artifact:old-session',
-        mode: 'provider_native',
-      });
-
-      const errorOutput: AgentOutput = {
-        status: 'error',
-        result: null,
-        error: 'no conversation found for session abc123',
-      };
-      mockSpawnAgent.mockImplementation(
-        async (
-          _group: RegisteredGroup,
-          _input: unknown,
-          _onProc: unknown,
-          onOutput?: (output: AgentOutput) => Promise<void>,
-        ) => {
-          if (onOutput) await onOutput(errorOutput);
-          return errorOutput;
-        },
-      );
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
-
-      expect(deps.clearSession).not.toHaveBeenCalled();
-      expect(
-        (deps.opsRepository as any).expireProviderSession,
-      ).toHaveBeenCalledWith({
-        providerSessionId: undefined,
-        agentSessionId: 'agent-session:1',
-        externalSessionId: 'old-session-id',
-      });
-      expect(mockArchiveProviderSessionTranscript).not.toHaveBeenCalled();
-    });
-
-    it('expires provider resume metadata on ENOENT .jsonl error pattern', async () => {
-      const group = makeGroup({ isMain: true });
-      const messages = [makeMessage()];
-      const { deps } = setupHappyPath({ group, messages });
-      (deps as any).getProviderArtifactStore = vi.fn().mockReturnValue({});
-      (deps.opsRepository as any).getSessionResume = vi.fn().mockResolvedValue({
-        appId: 'app:test',
-        agentId: 'agent:test',
-        agentSessionId: 'agent-session:1',
-        externalSessionId: 'sess-1',
-        latestArtifactId: 'artifact:sess-1',
-        mode: 'provider_native',
-      });
-
-      const errorOutput: AgentOutput = {
-        status: 'error',
-        result: null,
-        error: 'ENOENT: no such file /tmp/session.jsonl',
-      };
-      mockSpawnAgent.mockImplementation(
-        async (
-          _group: RegisteredGroup,
-          _input: unknown,
-          _onProc: unknown,
-          onOutput?: (output: AgentOutput) => Promise<void>,
-        ) => {
-          if (onOutput) await onOutput(errorOutput);
-          return errorOutput;
-        },
-      );
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
-
-      expect(deps.clearSession).not.toHaveBeenCalled();
-      expect(
-        (deps.opsRepository as any).expireProviderSession,
-      ).toHaveBeenCalledWith({
-        providerSessionId: undefined,
-        agentSessionId: 'agent-session:1',
-        externalSessionId: 'sess-1',
-      });
-    });
-
-    it('expires provider resume metadata on session not found error pattern', async () => {
-      const group = makeGroup({ isMain: true });
-      const messages = [makeMessage()];
-      const { deps } = setupHappyPath({ group, messages });
-      (deps as any).getProviderArtifactStore = vi.fn().mockReturnValue({});
-      (deps.opsRepository as any).getSessionResume = vi.fn().mockResolvedValue({
-        appId: 'app:test',
-        agentId: 'agent:test',
-        agentSessionId: 'agent-session:1',
-        externalSessionId: 'sess-2',
-        latestArtifactId: 'artifact:sess-2',
-        mode: 'provider_native',
-      });
-
-      const errorOutput: AgentOutput = {
-        status: 'error',
-        result: null,
-        error: 'session xyz not found',
-      };
-      mockSpawnAgent.mockImplementation(
-        async (
-          _group: RegisteredGroup,
-          _input: unknown,
-          _onProc: unknown,
-          onOutput?: (output: AgentOutput) => Promise<void>,
-        ) => {
-          if (onOutput) await onOutput(errorOutput);
-          return errorOutput;
-        },
-      );
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
-
-      expect(deps.clearSession).not.toHaveBeenCalled();
-      expect(
-        (deps.opsRepository as any).expireProviderSession,
-      ).toHaveBeenCalledWith({
-        providerSessionId: undefined,
-        agentSessionId: 'agent-session:1',
-        externalSessionId: 'sess-2',
-      });
-    });
-
-    it('does not expire provider resume metadata when error is unrelated', async () => {
-      const group = makeGroup({ isMain: true });
-      const messages = [makeMessage()];
-      const { deps } = setupHappyPath({ group, messages });
-
-      const errorOutput: AgentOutput = {
-        status: 'error',
-        result: null,
-        error: 'timeout waiting for response',
-      };
-      mockSpawnAgent.mockImplementation(
-        async (
-          _group: RegisteredGroup,
-          _input: unknown,
-          _onProc: unknown,
-          onOutput?: (output: AgentOutput) => Promise<void>,
-        ) => {
-          if (onOutput) await onOutput(errorOutput);
-          return errorOutput;
-        },
-      );
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
-
-      expect(deps.clearSession).not.toHaveBeenCalled();
-      expect(
-        (deps.opsRepository as any).expireProviderSession,
-      ).not.toHaveBeenCalled();
-      expect(mockArchiveProviderSessionTranscript).not.toHaveBeenCalled();
-    });
-
-    it('does not expire provider resume metadata when no native session was attempted', async () => {
-      const group = makeGroup({ isMain: true });
-      const messages = [makeMessage()];
-      const { deps } = setupHappyPath({ group, messages });
-
-      const errorOutput: AgentOutput = {
-        status: 'error',
-        result: null,
-        error: 'no conversation found',
-      };
-      mockSpawnAgent.mockImplementation(
-        async (
-          _group: RegisteredGroup,
-          _input: unknown,
-          _onProc: unknown,
-          onOutput?: (output: AgentOutput) => Promise<void>,
-        ) => {
-          if (onOutput) await onOutput(errorOutput);
-          return errorOutput;
-        },
-      );
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
-
-      expect(deps.clearSession).not.toHaveBeenCalled();
-      expect(
-        (deps.opsRepository as any).expireProviderSession,
-      ).not.toHaveBeenCalled();
-    });
-
-    it('expires only the resolved provider session and retries stale native resume with DB replay', async () => {
-      const group = makeGroup({ isMain: true });
-      const messages = [makeMessage()];
-      const { deps } = setupHappyPath({ group, messages });
-      (deps as any).getProviderArtifactStore = vi.fn().mockReturnValue({});
-      const getSessionResume = vi
-        .fn()
-        .mockResolvedValueOnce({
-          appId: 'app:test',
-          agentId: 'agent:test',
-          agentSessionId: 'agent-session:1',
-          providerSessionId: 'provider-session:1',
-          externalSessionId: 'expired-native-session',
-          latestArtifactId: 'artifact:expired-native-session',
-          mode: 'provider_native',
-        })
-        .mockResolvedValueOnce({
-          appId: 'app:test',
-          agentId: 'agent:test',
-          agentSessionId: 'agent-session:1',
-          mode: 'db_replay',
-          hydratedContextBlock: '<db replay context>',
-        });
-      (deps.opsRepository as any).getSessionResume = getSessionResume;
-
-      const staleOutput: AgentOutput = {
-        status: 'error',
-        result: null,
-        error: 'session expired-native-session not found',
-      };
-      const recoveredOutput: AgentOutput = {
-        status: 'success',
-        result: 'recovered',
-      };
-      mockSpawnAgent.mockImplementationOnce(
-        async (
-          _group: RegisteredGroup,
-          _input: unknown,
-          _onProc: unknown,
-          onOutput?: (output: AgentOutput) => Promise<void>,
-        ) => {
-          await onOutput?.({
-            status: 'success',
-            result: null,
-            newSessionId: 'expired-native-session',
-          });
-          return staleOutput;
-        },
-      );
-      mockSpawnAgent.mockResolvedValueOnce(recoveredOutput);
-
-      const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
-
-      expect(deps.clearSession).not.toHaveBeenCalled();
-      expect(
-        (deps.opsRepository as any).expireProviderSession,
-      ).toHaveBeenCalledWith({
-        providerSessionId: 'provider-session:1',
-        agentSessionId: 'agent-session:1',
-        externalSessionId: 'expired-native-session',
-      });
-      expect(mockSpawnAgent).toHaveBeenCalledTimes(2);
-      expect(mockSpawnAgent.mock.calls[1][1]).toMatchObject({
-        sessionId: undefined,
-        memoryContextBlock: expect.stringContaining('<db replay context>'),
-      });
-      expect(deps.setSession).not.toHaveBeenCalledWith(
-        'test-group',
-        'expired-native-session',
-        null,
-      );
-    });
-  });
-
-  // =======================================================================
-  // newSessionId propagation
-  // =======================================================================
-
-  describe('session ID propagation', () => {
-    it('does not pass cached session id when provider artifact metadata is missing', async () => {
+  describe('Postgres-authoritative session context', () => {
+    it('passes hydrated context without provider session ids or artifact options', async () => {
       const group = makeGroup({ isMain: true });
       const { deps } = setupHappyPath({ group });
-      const providerArtifactStore = {};
-      (deps as any).getProviderArtifactStore = vi
+      (deps.opsRepository as any).getAgentTurnContext = vi
         .fn()
-        .mockReturnValue(providerArtifactStore);
-      (deps.opsRepository as any).getSessionResume = vi.fn().mockResolvedValue({
-        appId: 'app:test',
-        agentId: 'agent:test',
-        agentSessionId: 'agent-session:1',
-        providerSessionId: 'provider-session:1',
-        externalSessionId: 'cached-stale-session',
-        mode: 'db_replay',
-        hydratedContextBlock: '<db replay context>',
-      });
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+          memoryContextBlock:
+            '<myclaw_memory_context>memory</myclaw_memory_context>',
+        });
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
+      expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
       expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
-        sessionId: undefined,
-        memoryContextBlock: expect.stringContaining('<db replay context>'),
+        memoryContextBlock: expect.stringContaining(
+          '<myclaw_memory_context>memory</myclaw_memory_context>',
+        ),
       });
-      expect(mockSpawnAgent.mock.calls[0][4]).toMatchObject({
-        providerArtifactStore,
-        providerArtifactContext: {
-          appId: 'app:test',
-          agentId: 'agent:test',
-          agentSessionId: 'agent-session:1',
-          providerSessionId: undefined,
-          latestArtifactId: undefined,
-        },
-      });
+      expect(mockSpawnAgent.mock.calls[0][4]).toBeUndefined();
     });
 
-    it('sets new session ID from agent output', async () => {
+    it('does not persist SDK session ids from final agent output', async () => {
       const agentOutput: AgentOutput = {
         status: 'success',
         result: 'response',
@@ -1069,15 +776,10 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(deps.setSession).toHaveBeenCalledWith(
-        'test-group',
-        'new-sess-123',
-        null,
-        { chatJid: 'group1@g.us' },
-      );
+      expect(deps.opsRepository.setSession).not.toHaveBeenCalled();
     });
 
-    it('sets session ID from onOutput callback when newSessionId present', async () => {
+    it('does not persist SDK session ids from streamed output', async () => {
       const group = makeGroup({ isMain: true });
       const { deps } = setupHappyPath({ group });
 
@@ -1102,12 +804,7 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(deps.setSession).toHaveBeenCalledWith(
-        'test-group',
-        'streamed-sess',
-        null,
-        { chatJid: 'group1@g.us' },
-      );
+      expect(deps.opsRepository.setSession).not.toHaveBeenCalled();
     });
   });
 
@@ -1324,6 +1021,62 @@ describe('createGroupProcessor', () => {
       );
     });
 
+    it('persists delivered streaming output as canonical assistant context', async () => {
+      const streamingChannel = makeChannel({
+        sendStreamingChunk: vi.fn().mockResolvedValue(true),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = streamingChannel;
+      (deps.opsRepository as any).storeMessage = vi
+        .fn()
+        .mockResolvedValue(undefined);
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+          memoryContextBlock:
+            '<myclaw_memory_context>memory</myclaw_memory_context>',
+        });
+      (deps.opsRepository as any).createSessionAgentRun = vi
+        .fn()
+        .mockResolvedValue('run-1');
+      (deps.opsRepository as any).completeSessionAgentRun = vi.fn();
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: RegisteredGroup,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: 'stream text' });
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(deps.opsRepository.storeMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chat_jid: 'group1@g.us',
+          sender: 'myclaw',
+          sender_name: 'MyClaw',
+          content: 'stream text',
+          is_from_me: true,
+          is_bot_message: true,
+          delivery_status: 'sent',
+        }),
+      );
+      expect(deps.opsRepository.completeSessionAgentRun).toHaveBeenCalledWith({
+        runId: 'run-1',
+        status: 'completed',
+        resultSummary: 'stream text',
+      });
+    });
+
     it('resets channel streaming state before running a new cycle', async () => {
       const resetStreaming = vi.fn();
       const streamingChannel = makeChannel({
@@ -1492,12 +1245,12 @@ describe('createGroupProcessor', () => {
         expect.objectContaining({
           chatJid: 'group1@g.us',
           threadId: 'thread-a',
-          sessionId: undefined,
         }),
         expect.any(Function),
         expect.any(Function),
         undefined,
       );
+      expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
     });
 
     it('keeps the run thread stable without per-output storage refreshes', async () => {
@@ -1639,7 +1392,6 @@ describe('createGroupProcessor', () => {
         group,
         expect.objectContaining({
           prompt: 'formatted prompt',
-          sessionId: undefined,
           groupFolder: 'my-group',
           chatJid: 'group1@g.us',
           isMain: true,
@@ -1650,6 +1402,7 @@ describe('createGroupProcessor', () => {
         expect.any(Function), // onOutput
         undefined, // options
       );
+      expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
     });
   });
 
@@ -1852,51 +1605,61 @@ describe('createGroupProcessor', () => {
       );
     });
 
-    it('archiveCurrentSession archives when session exists', async () => {
+    it('archiveCurrentSession does not archive provider transcripts', async () => {
       const { capturedDeps, deps } = await captureSessionDeps();
-      const archiveCurrentSession =
-        capturedDeps.archiveCurrentSession as () => Promise<void>;
-      const providerArtifactStore = {};
-      (deps as any).getProviderArtifactStore = vi
+      const archiveCurrentSession = capturedDeps.archiveCurrentSession as (
+        cause?: 'new-session' | 'manual-compact',
+      ) => Promise<void>;
+      (deps.opsRepository as any).getAgentTurnContext = vi
         .fn()
-        .mockReturnValue(providerArtifactStore);
-      (deps.opsRepository as any).getSessionResume = vi.fn().mockResolvedValue({
-        appId: 'app:test',
-        agentId: 'agent:test',
-        agentSessionId: 'agent-session:test',
-        providerSessionId: 'provider-session:test',
-        externalSessionId: 'sess-to-archive',
-      });
-
-      await archiveCurrentSession();
-
-      expect(mockArchiveProviderSessionTranscript).toHaveBeenCalledWith(
-        expect.objectContaining({
-          providerArtifactStore,
+        .mockResolvedValue({
           appId: 'app:test',
           agentId: 'agent:test',
           agentSessionId: 'agent-session:test',
-          providerSessionId: 'provider-session:test',
-          sessionId: 'sess-to-archive',
-          assistantName: 'Andy',
-          cause: 'new-session',
-        }),
-      );
+        });
+
+      await archiveCurrentSession('new-session');
+
+      expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalled();
+      expect(deps.collectSessionMemory).toHaveBeenCalledWith({
+        agentSessionId: 'agent-session:test',
+        trigger: 'session-end',
+      });
+    });
+
+    it('archiveCurrentSession collects precompact memory without checkpointing summary for /compact', async () => {
+      const { capturedDeps, deps } = await captureSessionDeps();
+      const archiveCurrentSession = capturedDeps.archiveCurrentSession as (
+        cause?: 'new-session' | 'manual-compact',
+      ) => Promise<void>;
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:test',
+        });
+
+      await archiveCurrentSession('manual-compact');
+
+      expect(deps.collectSessionMemory).toHaveBeenCalledWith({
+        agentSessionId: 'agent-session:test',
+        trigger: 'precompact',
+      });
     });
 
     it('archiveCurrentSession does nothing when no session', async () => {
       const { capturedDeps, deps } = await captureSessionDeps();
       const archiveCurrentSession =
         capturedDeps.archiveCurrentSession as () => Promise<void>;
-      (deps.opsRepository as any).getSessionResume = vi.fn().mockResolvedValue({
-        appId: 'app:test',
-        agentId: 'agent:test',
-        agentSessionId: 'agent-session:test',
-      });
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue(undefined);
 
       await archiveCurrentSession();
 
-      expect(mockArchiveProviderSessionTranscript).not.toHaveBeenCalled();
+      expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalled();
+      expect(deps.collectSessionMemory).not.toHaveBeenCalled();
     });
 
     it('clearCurrentSession clears session and deletes from DB', async () => {
@@ -2044,6 +1807,59 @@ describe('createGroupProcessor', () => {
         undefined,
       );
     });
+
+    it('runAgent collects memory when SDK auto-compacts', async () => {
+      const group = makeGroup({ isMain: true, folder: 'grp-folder' });
+      const channel = makeChannel();
+      const messages = [makeMessage()];
+      const deps = makeDeps({
+        channelRuntime: channel,
+        getGroup: vi.fn().mockReturnValue(group),
+      });
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:test',
+        });
+      mockGetMessagesSince.mockReturnValue(messages);
+      mockGetAllJobs.mockReturnValue([]);
+      mockGetRecentJobRuns.mockReturnValue([]);
+      mockLoadSenderAllowlist.mockReturnValue({});
+
+      let capturedRunAgent: (
+        prompt: string,
+        onOutput?: (output: AgentOutput) => Promise<void>,
+      ) => Promise<'success' | 'error'>;
+      mockHandleSessionCommand.mockImplementation(
+        async (arg: { deps: Record<string, unknown> }) => {
+          capturedRunAgent = arg.deps.runAgent as typeof capturedRunAgent;
+          return { handled: true, success: true };
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      mockSpawnAgent.mockImplementation(
+        async (_group, _input, _register, onOutput) => {
+          await onOutput?.({
+            status: 'success',
+            result: null,
+            compactBoundary: true,
+          });
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      await capturedRunAgent!('test prompt', vi.fn());
+
+      expect(deps.collectSessionMemory).toHaveBeenCalledWith({
+        agentSessionId: 'agent-session:test',
+        trigger: 'precompact',
+      });
+    });
   });
 
   // =========================================================================
@@ -2052,10 +1868,6 @@ describe('createGroupProcessor', () => {
 
   describe('stale session set from errored agent run', () => {
     it('should not set session ID when agent returns error status', async () => {
-      // Bug: group-processing.ts lines 163-166 call deps.setSession(newSessionId)
-      // BEFORE checking output.status === 'error' at line 167.
-      // This means a session ID from a failed run gets persisted,
-      // potentially pointing to a broken/incomplete session.
       const group = makeGroup({ isMain: true });
       const channel = makeChannel();
       const messages = [makeMessage()];
@@ -2094,21 +1906,12 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      // Session should NOT be set from a failed agent run.
-      // If this fails, it means broken session IDs leak into state.
-      expect(deps.setSession).not.toHaveBeenCalledWith(
-        'test-group',
-        'broken-session-123',
-      );
+      expect(deps.opsRepository.setSession).not.toHaveBeenCalled();
     });
   });
 
   describe('double setSession from streamed + final output', () => {
-    it('should only call setSession once per agent run', async () => {
-      // Bug: wrappedOnOutput (line 133) and the post-spawnAgent block (line 163)
-      // both check output.newSessionId and call deps.setSession.
-      // When onOutput is provided and spawnAgent returns the same newSessionId,
-      // setSession is called twice — redundant at best, confusing at worst.
+    it('should not persist SDK session IDs from streamed or final output', async () => {
       const group = makeGroup({ isMain: true });
       const channel = makeChannel();
       const messages = [makeMessage()];
@@ -2145,11 +1948,7 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      // setSession should be called exactly once, not twice
-      const setSessionCalls = (
-        deps.setSession as ReturnType<typeof vi.fn>
-      ).mock.calls.filter((call: unknown[]) => call[1] === 'session-42');
-      expect(setSessionCalls).toHaveLength(1);
+      expect(deps.opsRepository.setSession).not.toHaveBeenCalled();
     });
   });
 });

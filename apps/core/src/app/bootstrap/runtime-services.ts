@@ -25,8 +25,10 @@ import { makeThreadQueueKey } from '../../runtime/thread-queue-key.js';
 import type { Job } from '../../domain/types.js';
 import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
 import { getRuntimeOpsRepository } from '../../adapters/storage/postgres/runtime-store.js';
+import type { SessionMemoryCollector } from '../../domain/ports/session-memory-collector.js';
 import { ChannelWiring } from './channel-wiring.js';
 import { RuntimeApp } from './runtime-app.js';
+import { collectDurableMemoryAtSessionBoundary } from '../../memory/app-memory-service.js';
 
 interface RuntimeServicesDeps {
   startSchedulerLoop: typeof startSchedulerLoop;
@@ -40,6 +42,7 @@ interface RuntimeServicesDeps {
   startMessagePollingLoop: typeof startMessagePollingLoop;
   logger: Pick<typeof logger, 'info' | 'warn' | 'fatal'>;
   mcpHostnameLookup?: HostnameLookup;
+  collectSessionMemory: SessionMemoryCollector;
   exit: (code: number) => never;
 }
 
@@ -62,6 +65,7 @@ function makeDefaultDeps(
     recoverPendingMessages,
     startMessagePollingLoop,
     logger,
+    collectSessionMemory: collectDurableMemoryAtSessionBoundary,
     exit: (code: number) => process.exit(code),
   };
 }
@@ -171,12 +175,12 @@ export async function startRuntimeServices(
   await resolved.startSchedulerLoop({
     registeredGroups: () => app.getRegisteredGroups(),
     queue: app.queue,
-    onProcess: (groupJid, proc, containerName, groupFolder, stopAliasJids) =>
+    onProcess: (groupJid, proc, containerName, folder, stopAliasJids) =>
       app.queue.registerProcess(
         groupJid,
         proc,
         containerName,
-        groupFolder,
+        folder,
         stopAliasJids,
       ),
     sendMessage: (jid, rawText, options) =>
@@ -192,6 +196,7 @@ export async function startRuntimeServices(
     },
     onSchedulerChanged,
     opsRepository: resolved.opsRepository,
+    collectSessionMemory: resolved.collectSessionMemory,
   });
 
   resolved.startIpcWatcher({
@@ -208,14 +213,9 @@ export async function startRuntimeServices(
       await channelWiring.syncGroups(force);
     },
     getAvailableGroups: app.getAvailableGroups,
-    writeGroupsSnapshot: (
-      groupFolder,
-      isMain,
-      availableGroups,
-      registeredJids,
-    ) =>
+    writeGroupsSnapshot: (folder, isMain, availableGroups, registeredJids) =>
       resolved.writeGroupsSnapshot(
-        groupFolder,
+        folder,
         isMain,
         availableGroups,
         registeredJids,
@@ -236,15 +236,21 @@ export async function startRuntimeServices(
   const handleActiveControlCommand = async ({
     chatJid,
     queueJid,
+    group,
     command,
     message,
   }: {
     chatJid: string;
     queueJid: string;
+    group: { folder: string };
     command: { kind: string };
     message: NewMessage;
   }): Promise<boolean> => {
-    if (command.kind !== 'stop' && command.kind !== 'new') {
+    if (
+      command.kind !== 'stop' &&
+      command.kind !== 'new' &&
+      command.kind !== 'compact'
+    ) {
       return false;
     }
 
@@ -257,7 +263,41 @@ export async function startRuntimeServices(
         ? message.thread_id.trim()
         : undefined;
 
+    if (command.kind === 'compact') {
+      const sent = app.queue.sendMessage(queueJid, '/compact', { threadId });
+      if (!sent) return false;
+      app.setAgentCursor(
+        makeThreadQueueKey(chatJid, threadId),
+        encodeGroupMessageCursor(toGroupMessageCursor(message)),
+      );
+      await app.saveState();
+      await channelWiring.sendMessage(
+        chatJid,
+        'Compacting current session.',
+        threadId ? { messageOptions: { threadId } } : undefined,
+      );
+      return true;
+    }
+
     if (command.kind === 'new') {
+      try {
+        const turnContext = await resolved.opsRepository.getAgentTurnContext?.({
+          groupFolder: group.folder,
+          chatJid,
+          threadId,
+        });
+        if (turnContext?.agentSessionId) {
+          await resolved.collectSessionMemory({
+            agentSessionId: turnContext.agentSessionId,
+            trigger: 'session-end',
+          });
+        }
+      } catch (err) {
+        resolved.logger.warn(
+          { err, chatJid, threadId },
+          'Failed to collect active session memory for /new; continuing with reset',
+        );
+      }
       try {
         await app.clearSessionForChatJid(chatJid, threadId);
       } catch (err) {

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   ASSISTANT_NAME,
   getDefaultModelConfig,
@@ -13,6 +15,7 @@ import {
 import { logger } from '../infrastructure/logging/logger.js';
 import {
   MessageSendOptions,
+  NewMessage,
   ProgressUpdateOptions,
   RegisteredGroup,
 } from '../domain/types.js';
@@ -28,11 +31,7 @@ import {
 } from '../platform/sender-allowlist.js';
 import { AgentOutput, spawnAgent } from './agent-spawn.js';
 import { handleSessionCommand } from '../session/session-commands.js';
-import { createInjectedMemoryContextBlock } from './memory-context.js';
-import type {
-  GroupProcessingDeps,
-  GroupProcessor,
-} from './group-processing-types.js';
+import type { GroupProcessingDeps } from './group-processing-types.js';
 import {
   getGroupMemoryStatus,
   saveGroupProcedureMemory,
@@ -41,12 +40,9 @@ import { runDreamingForGroup } from './memory-dreaming-runner.js';
 import { sendWithPartialDeliveryGuard } from './partial-delivery.js';
 import {
   archiveCurrentRuntimeSession,
-  buildProviderArtifactRunOptions,
+  buildRuntimeRunOptions,
   completeFailedRuntimeSessionRun,
   completeSuccessfulRuntimeSessionRun,
-  expireStaleRuntimeSession,
-  isStaleRuntimeSessionError,
-  joinRuntimeContextBlocks,
   resolveMemoryUserId,
 } from './session-resume-runtime.js';
 import { firstThreadQueueId, parseThreadQueueKey } from './thread-queue-key.js';
@@ -59,6 +55,7 @@ const NO_VISIBLE_OUTPUT_FALLBACK_MESSAGE =
 let streamingGenerationCounter = 0;
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const runAgentImpl = deps.runAgent ?? spawnAgent;
+  const collectSessionMemory = deps.collectSessionMemory;
   const ops = () => {
     const repository = deps.opsRepository ?? deps.getOpsRepository?.();
     if (!repository) {
@@ -83,42 +80,49 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
   ): Promise<'success' | 'error'> {
     const isMain = group.isMain === true;
     const sessionThreadId = options?.memoryContext?.threadId ?? null;
-    const sessionResume = await ops().getSessionResume?.({
+    const turnContext = await ops().getAgentTurnContext?.({
       groupFolder: group.folder,
       chatJid,
       threadId: sessionThreadId,
     });
-    const sessionId =
-      sessionResume?.mode === 'provider_native'
-        ? sessionResume.externalSessionId
-        : undefined;
-    let pendingSessionId: string | null = null;
-    let pendingLatestArtifactId: string | null = null;
     const wrappedOnOutput = onOutput
       ? async (output: AgentOutput) => {
-          if (output.status !== 'error' && output.newSessionId) {
-            pendingSessionId = output.newSessionId;
+          if (output.status !== 'error' && output.result) {
+            streamedResult += String(output.result);
           }
-          if (output.status !== 'error' && output.providerArtifactId) {
-            pendingLatestArtifactId = output.providerArtifactId;
+          if (
+            output.compactBoundary &&
+            turnContext?.agentSessionId &&
+            collectSessionMemory
+          ) {
+            try {
+              const result = await collectSessionMemory({
+                agentSessionId: turnContext.agentSessionId,
+                trigger: 'precompact',
+              });
+              logger.info(
+                {
+                  group: group.name,
+                  agentSessionId: turnContext.agentSessionId,
+                  saved: result?.saved ?? 0,
+                },
+                'Collected durable memory at SDK compact boundary',
+              );
+            } catch (err) {
+              logger.warn(
+                { group: group.name, err },
+                'Failed to collect durable memory at SDK compact boundary',
+              );
+            }
           }
           await onOutput(output);
         }
       : undefined;
-    const context = await createInjectedMemoryContextBlock({
-      groupFolder: group.folder,
-      chatJid,
-      source: options?.memoryContext?.source || 'message',
-      userId: options?.memoryContext?.userId,
-      threadId: options?.memoryContext?.threadId,
-    });
-    const memoryContextBlock = joinRuntimeContextBlocks(
-      sessionResume?.hydratedContextBlock,
-      context?.block,
-    );
-    const runId = sessionResume?.agentSessionId
+    let streamedResult = '';
+    const memoryContextBlock = turnContext?.memoryContextBlock;
+    const runId = turnContext?.agentSessionId
       ? await ops().createSessionAgentRun?.({
-          agentSessionId: sessionResume.agentSessionId,
+          agentSessionId: turnContext.agentSessionId,
           cause:
             options?.memoryContext?.source === 'command'
               ? 'control'
@@ -126,28 +130,22 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         })
       : undefined;
     try {
-      const credentialBroker = await deps.getCredentialBroker?.(),
-        providerArtifactStore = deps.getProviderArtifactStore?.();
-      const runOptions = buildProviderArtifactRunOptions({
+      const credentialBroker = await deps.getCredentialBroker?.();
+      const runOptions = buildRuntimeRunOptions({
         timeoutMs: options?.timeoutMs,
         credentialBroker,
-        providerArtifactStore,
         skillRepository: deps.getSkillRepository?.(),
         skillArtifactStore: deps.getSkillArtifactStore?.(),
         mcpServerRepository: deps.getMcpServerRepository?.(),
         mcpHostnameLookup: deps.getMcpHostnameLookup?.(),
         mcpDnsValidationCache: deps.getMcpDnsValidationCache?.(),
-        sessionResume,
+        turnContext,
       });
-      const invokeAgent = (input: {
-        sessionId?: string;
-        memoryContextBlock?: string;
-      }) =>
+      const invokeAgent = (input: { memoryContextBlock?: string }) =>
         runAgentImpl(
           group,
           {
             prompt,
-            sessionId: input.sessionId,
             groupFolder: group.folder,
             chatJid,
             threadId: options?.memoryContext?.threadId,
@@ -168,78 +166,29 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           wrappedOnOutput,
           runOptions,
         );
-      let output = await invokeAgent({
-        sessionId,
+      const output = await invokeAgent({
         memoryContextBlock,
       });
 
       if (output.status === 'error') {
-        const staleSessionId = sessionId || '';
-        if (
-          isStaleRuntimeSessionError({
-            sessionId: staleSessionId,
-            error: output.error,
-          })
-        ) {
-          await expireStaleRuntimeSession({
-            group,
-            deps,
-            ops: ops(),
-            sessionId: staleSessionId,
-            providerSessionId: sessionResume?.providerSessionId,
-            provider: sessionResume?.provider,
-            agentSessionId: sessionResume?.agentSessionId,
-            appId: sessionResume?.appId,
-            agentId: sessionResume?.agentId,
-            providerArtifactStore,
-            threadId: sessionThreadId,
-            error: output.error,
-          });
-          if (sessionResume?.mode === 'provider_native') {
-            pendingSessionId = null;
-            pendingLatestArtifactId = null;
-            const replayResume = await ops().getSessionResume?.({
-              groupFolder: group.folder,
-              chatJid,
-              threadId: sessionThreadId,
-            });
-            const replayMemoryContextBlock = joinRuntimeContextBlocks(
-              replayResume?.hydratedContextBlock,
-              context?.block,
-            );
-            output = await invokeAgent({
-              memoryContextBlock: replayMemoryContextBlock,
-            });
-          }
-        }
-
-        if (output.status === 'error') {
-          logger.error(
-            { group: group.name, error: output.error },
-            'Agent runner error',
-          );
-          await completeFailedRuntimeSessionRun({
-            ops: ops(),
-            runId,
-            errorSummary: output.error ?? 'Agent runner error',
-          });
-          return 'error';
-        }
+        logger.error(
+          { group: group.name, error: output.error },
+          'Agent runner error',
+        );
+        await completeFailedRuntimeSessionRun({
+          ops: ops(),
+          runId,
+          errorSummary: output.error ?? 'Agent runner error',
+        });
+        return 'error';
       }
 
       await completeSuccessfulRuntimeSessionRun({
-        deps,
         ops: ops(),
         group,
-        sessionId: output.newSessionId,
-        pendingSessionId,
-        latestArtifactId: output.providerArtifactId,
-        pendingLatestArtifactId,
-        threadId: sessionThreadId,
-        chatJid,
-        agentSessionId: sessionResume?.agentSessionId,
+        agentSessionId: turnContext?.agentSessionId,
         runId,
-        result: output.result,
+        result: output.result ?? (streamedResult.trim() || null),
       });
 
       return 'success';
@@ -361,12 +310,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           deps.setGroupThinkingOverride(chatJid, value),
         archiveCurrentSession: async (cause = 'new-session') => {
           await archiveCurrentRuntimeSession({
-            deps,
             ops: ops(),
             group,
             chatJid,
             threadId: activeThreadId ?? null,
             cause,
+            ...(collectSessionMemory
+              ? { collectMemory: collectSessionMemory }
+              : {}),
           });
         },
         clearCurrentSession: () =>
@@ -530,6 +481,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let hadError = false;
     let outputSentToUser = false;
     let collectedOutput = '';
+    let streamedOutputDelivered = false;
     let sawRawOutput = false;
     const supportsStreamingChunks =
       deps.channelRuntime.supportsStreaming(chatJid);
@@ -580,6 +532,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
                   raw,
                   await buildStreamingOptions({}),
                 );
+                if (delivered) streamedOutputDelivered = true;
               } else {
                 const messageOptions = await buildMessageOptions();
                 delivered = await sendWithPartialDeliveryGuard(
@@ -596,7 +549,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           if (result.status === 'success' && !result.result) {
             await finalizeStreamingOutput('success-marker');
             deps.queue.notifyIdle(queueJid);
-            deps.queue.closeStdin(queueJid);
+            resetIdleTimer();
           }
 
           if (result.status === 'error') {
@@ -653,6 +606,33 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         'Agent error, rolled back message cursor for retry',
       );
       return false;
+    }
+
+    if (streamedOutputDelivered) {
+      const transcriptText = collectedOutput.trim();
+      if (transcriptText) {
+        const transcriptMessage: NewMessage = {
+          id: `streamed-outbound:${randomUUID()}`,
+          chat_jid: chatJid,
+          sender: 'myclaw',
+          sender_name: 'MyClaw',
+          content: transcriptText,
+          timestamp: new Date().toISOString(),
+          is_from_me: true,
+          is_bot_message: true,
+          thread_id: activeThreadId,
+          delivery_status: 'sent',
+          delivered_at: new Date().toISOString(),
+        };
+        await ops()
+          .storeMessage(transcriptMessage)
+          .catch((err: unknown) =>
+            logger.warn(
+              { err, group: group.name },
+              'Failed to persist streamed assistant transcript',
+            ),
+          );
+      }
     }
 
     if (!outputSentToUser) {

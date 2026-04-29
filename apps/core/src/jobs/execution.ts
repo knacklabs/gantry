@@ -24,7 +24,14 @@ import {
 } from '../infrastructure/time/datetime.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import { AgentOutput, spawnAgent } from '../runtime/agent-spawn.js';
-import { createInjectedMemoryContextBlock } from '../runtime/memory-context.js';
+import {
+  completeFailedRuntimeSessionRun,
+  completeSuccessfulRuntimeSessionRun,
+} from '../runtime/session-resume-runtime.js';
+import {
+  collectJobCompactBoundaryMemory,
+  collectJobCompletionMemory,
+} from './compact-memory.js';
 import { notifyLinkedSessions } from './delivery.js';
 import { normalizeCleanupAfterMs } from './cleanup.js';
 import {
@@ -34,22 +41,20 @@ import {
 import { computeNextJobRun } from './schedule-math.js';
 import { formatRunStatusMessage } from './status-formatting.js';
 import { handleSystemJob, MEMORY_DREAM_SYSTEM_PROMPT } from './system-jobs.js';
+import { runtimeEventTypeForRunStatus } from './run-status-event.js';
 import type {
+  JobTurnContext,
   SchedulerDependencies,
   SchedulerDispatchPayload,
 } from './types.js';
 
 const JOB_DELETION_CHECK_INTERVAL_MS = 1_000;
 let schedulerStreamingGenerationCounter = 0;
-
 export function resetSchedulerExecutionStateForTests(): void {
   schedulerStreamingGenerationCounter = 0;
 }
-
-function nextSchedulerStreamingGeneration(): number {
-  return ++schedulerStreamingGenerationCounter;
-}
-
+const nextSchedulerStreamingGeneration = (): number =>
+  ++schedulerStreamingGenerationCounter;
 export async function runJob(
   job: Job,
   deps: SchedulerDependencies,
@@ -115,9 +120,7 @@ export async function runJob(
     requireNextRun:
       currentJob.schedule_type !== 'manual' && !dispatch?.triggerId,
   });
-  if (!claimed) {
-    return;
-  }
+  if (!claimed) return;
   let boundTriggerId: string | undefined;
   let eventAppSession:
     | Awaited<ReturnType<typeof resolveAppSessionForJob>>
@@ -151,7 +154,7 @@ export async function runJob(
         webhookId: eventAppSession?.defaultWebhookId,
       });
     }
-  } catch {}
+  } catch {} // eslint-disable-line no-empty
   let jobDeletedDuringRun = false;
   let lastJobDeletionCheckAt = 0;
   let firstDeliveryDeletionCheckDone = false;
@@ -228,7 +231,6 @@ export async function runJob(
   let result: string | null = null;
   let error: string | null = null;
   let collectedResult = '';
-  let pendingSessionId: string | undefined;
   try {
     const groupDir = resolveGroupFolderPath(execution.group.folder);
     fs.mkdirSync(groupDir, { recursive: true });
@@ -236,7 +238,6 @@ export async function runJob(
     error = err instanceof Error ? err.message : String(err);
   }
 
-  const sessionId = currentJob.session_id || undefined;
   const isMain = execution.group.isMain === true;
   const linkedSessions = Array.from(new Set(currentJob.linked_sessions));
   const shouldDeliverToChat = !currentJob.silent && linkedSessions.length > 0;
@@ -363,12 +364,8 @@ export async function runJob(
       let bufferedStreamingChars = 0;
       let totalStreamingChars = 0;
       let lastStreamingEventMs = 0;
-      const injectedMemoryContext = await createInjectedMemoryContextBlock({
-        groupFolder: execution.group.folder,
-        chatJid: execution.executionJid,
-        source: 'scheduler',
-        threadId: currentJob.thread_id || undefined,
-      });
+      let turnContext: JobTurnContext | undefined;
+      let agentRunId: string | undefined;
       const flushStreamingEvent = (force = false): void => {
         if (bufferedStreamingChars <= 0) return;
         const nowMs = currentTimeMs();
@@ -381,12 +378,22 @@ export async function runJob(
         lastStreamingEventMs = nowMs;
       };
       try {
+        turnContext = await deps.opsRepository.getAgentTurnContext?.({
+          groupFolder: execution.group.folder,
+          chatJid: execution.executionJid,
+          threadId: currentJob.thread_id ?? null,
+        });
+        agentRunId = turnContext?.agentSessionId
+          ? await deps.opsRepository.createSessionAgentRun?.({
+              agentSessionId: turnContext.agentSessionId,
+              cause: 'job',
+            })
+          : undefined;
         const output = await runAgentImpl(
           execution.group,
           {
             prompt: currentJob.prompt,
             model: currentJob.model || undefined,
-            sessionId,
             groupFolder: execution.group.folder,
             chatJid: execution.executionJid,
             threadId: currentJob.thread_id || undefined,
@@ -394,7 +401,7 @@ export async function runJob(
             isScheduledJob: true,
             assistantName: ASSISTANT_NAME,
             script: currentJob.script || undefined,
-            memoryContextBlock: injectedMemoryContext?.block,
+            memoryContextBlock: turnContext?.memoryContextBlock,
           },
           (proc, containerName) =>
             deps.onProcess(
@@ -405,6 +412,13 @@ export async function runJob(
               execution.stopAliasJids,
             ),
           async (streamedOutput: AgentOutput) => {
+            await collectJobCompactBoundaryMemory({
+              compactBoundary: streamedOutput.compactBoundary,
+              agentSessionId: turnContext?.agentSessionId,
+              collectMemory: deps.collectSessionMemory,
+              logger,
+              context: { jobId: currentJob.id, runId },
+            });
             if (streamedOutput.result) {
               result = streamedOutput.result;
               collectedResult += streamedOutput.result;
@@ -430,12 +444,37 @@ export async function runJob(
 
         if (output.status === 'error') {
           error = output.error || 'Unknown error';
+          await completeFailedRuntimeSessionRun({
+            ops: deps.opsRepository,
+            runId: agentRunId,
+            errorSummary: error,
+          });
         } else if (output.result) {
           result = output.result;
           if (!collectedResult) collectedResult = output.result;
         }
-        if (output.newSessionId && !(await isJobDeleted(true))) {
-          pendingSessionId = output.newSessionId;
+        if (!error) {
+          await completeSuccessfulRuntimeSessionRun({
+            ops: deps.opsRepository,
+            group: execution.group,
+            agentSessionId: turnContext?.agentSessionId,
+            runId: agentRunId,
+            result: output.result,
+          });
+          await collectJobCompletionMemory({
+            agentSessionId: turnContext?.agentSessionId,
+            collectMemory: deps.collectSessionMemory,
+            prompt: currentJob.prompt,
+            result: result || collectedResult || output.result,
+            logger,
+            context: { jobId: currentJob.id, runId },
+          });
+        } else if (output.status !== 'error') {
+          await completeFailedRuntimeSessionRun({
+            ops: deps.opsRepository,
+            runId: agentRunId,
+            errorSummary: error,
+          });
         }
 
         if (!error) {
@@ -448,6 +487,11 @@ export async function runJob(
         }
       } catch (err) {
         error = err instanceof Error ? err.message : String(err);
+        await completeFailedRuntimeSessionRun({
+          ops: deps.opsRepository,
+          runId: agentRunId,
+          errorSummary: error,
+        });
       } finally {
         await finalizeStreaming();
       }
@@ -483,7 +527,6 @@ export async function runJob(
         pause_reason: null,
         lease_run_id: null,
         lease_expires_at: null,
-        ...(pendingSessionId ? { session_id: pendingSessionId } : {}),
       });
     } else {
       const exceededRetry = retryCount > currentJob.max_retries;
@@ -501,7 +544,6 @@ export async function runJob(
           pause_reason: pauseReason,
           lease_run_id: null,
           lease_expires_at: null,
-          ...(pendingSessionId ? { session_id: pendingSessionId } : {}),
         });
       } else {
         const baseBackoff = Math.max(0, currentJob.retry_backoff_ms || 0);
@@ -521,7 +563,6 @@ export async function runJob(
           pause_reason: null,
           lease_run_id: null,
           lease_expires_at: null,
-          ...(pendingSessionId ? { session_id: pendingSessionId } : {}),
         });
       }
     }
@@ -537,7 +578,6 @@ export async function runJob(
       pause_reason: null,
       lease_run_id: null,
       lease_expires_at: null,
-      ...(pendingSessionId ? { session_id: pendingSessionId } : {}),
     });
   }
 
@@ -644,7 +684,7 @@ export async function runJob(
         webhookId: eventAppSession?.defaultWebhookId,
       });
     }
-  } catch {}
+  } catch {} // eslint-disable-line no-empty
   deps.onSchedulerChanged?.(currentJob.id);
 
   if (
@@ -655,20 +695,5 @@ export async function runJob(
   ) {
     await deps.opsRepository.deleteJob(currentJob.id);
     deps.onSchedulerChanged?.(currentJob.id);
-  }
-}
-
-function runtimeEventTypeForRunStatus(
-  status: 'completed' | 'failed' | 'timeout' | 'dead_lettered',
-): RuntimeEventType {
-  switch (status) {
-    case 'completed':
-      return RUNTIME_EVENT_TYPES.RUN_COMPLETED;
-    case 'failed':
-      return RUNTIME_EVENT_TYPES.RUN_FAILED;
-    case 'timeout':
-      return RUNTIME_EVENT_TYPES.RUN_TIMEOUT;
-    case 'dead_lettered':
-      return RUNTIME_EVENT_TYPES.RUN_DEAD_LETTERED;
   }
 }

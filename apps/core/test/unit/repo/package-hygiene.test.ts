@@ -62,6 +62,8 @@ describe('package hygiene', () => {
     expect(helper).not.toContain('"eval"');
     expect(helper).not.toContain('cmd_eval');
     expect(helper).toContain('MYCLAW_CDP_PORT');
+    expect(helper).toContain('ProxyHandler({})');
+    expect(helper).toContain('NO_PROXY');
   });
 
   it('isolates OneCLI SDK imports to credential adapter and CLI setup adapter', () => {

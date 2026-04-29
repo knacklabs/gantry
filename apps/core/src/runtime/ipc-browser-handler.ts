@@ -11,7 +11,10 @@ import {
   getBrowserStatus,
   launchBrowser,
 } from './browser-manager.js';
-import { createProfile } from './browser-profiles.js';
+import {
+  createProfile,
+  summarizeBrowserProfileState,
+} from './browser-profiles.js';
 import { IpcDomainContext } from './ipc-domain-types.js';
 
 interface BrowserRequest {
@@ -72,14 +75,15 @@ function getProfileNameFromPayload(payload: Record<string, unknown>): string {
 const browserActionHandlers: Record<BrowserIpcAction, BrowserActionHandler> = {
   browser_profile_list: async () => {
     const profile = createProfile(DEFAULT_BROWSER_PROFILE_NAME);
+    const state = summarizeBrowserProfileState(profile);
     const profiles = [
       {
         name: profile.name,
         created_at: profile.metadata.created_at,
         last_used: profile.metadata.last_used,
         cdp_port: profile.metadata.cdp_port,
-        auth_markers: profile.metadata.auth_markers || [],
-        has_state: fs.existsSync(profile.statePath),
+        auth_markers: state.authMarkers,
+        has_state: state.hasState,
       },
     ];
     return { ok: true, data: { profiles } };
@@ -166,8 +170,8 @@ export function writeBrowserIpcResponse(
   const responsePath = path.join(responseDir, `${response.requestId}.json`);
   const tmpPath = `${responsePath}.tmp`;
   const payload: Record<string, unknown> = {
-    requestId: response.requestId,
     ok: response.ok,
+    requestId: response.requestId,
     ...(response.data !== undefined ? { data: response.data } : {}),
     ...(response.error ? { error: response.error } : {}),
   };

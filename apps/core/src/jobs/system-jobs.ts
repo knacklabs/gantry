@@ -89,7 +89,7 @@ export async function registerSystemJobs(
         schedule_type: 'cron',
         schedule_value: MEMORY_DREAMING_CRON,
         linked_sessions: linkedSessions,
-        session_id: existing?.session_id ?? null,
+        session_id: null,
         group_scope: groupFolder,
         created_by: 'agent',
         status: desiredStatus,

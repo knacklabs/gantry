@@ -1,5 +1,6 @@
 import { Bot } from 'grammy';
 import { ChannelAdapter, ChannelOpts } from '../channel-provider.js';
+import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
@@ -34,6 +35,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   protected draftStreamApi: TelegramStreamApi | null = null;
   protected isStopping = false;
   protected pollingRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  protected pollingLease: RuntimeLease | null = null;
   protected opts: ChannelOpts;
   protected botToken: string;
   protected pendingPermissionPrompts = new Map<

@@ -33,10 +33,8 @@ import { CanonicalMessageOpsService } from '../services/canonical-message-ops-se
 import { CanonicalSessionOpsService } from '../services/canonical-session-ops-service.js';
 
 interface SessionRuntimeOptions {
-  recentMessageLimit?: number;
-  summaryAfterMessages?: number;
-  summaryAfterRuns?: number;
-  maxHydratedContextChars?: number;
+  memoryItemLimit?: number;
+  maxMemoryContextChars?: number;
 }
 
 interface RuntimeEventPublisher {
@@ -241,7 +239,7 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
     await this.sessions.setSession(groupFolder, sessionId, threadId, metadata);
   }
 
-  async getSessionResume(input: {
+  async getAgentTurnContext(input: {
     groupFolder: string;
     chatJid: string;
     threadId?: string | null;
@@ -249,14 +247,9 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
     appId: string;
     agentId: string;
     agentSessionId: string;
-    mode: 'provider_native' | 'db_replay';
-    provider?: string;
-    providerSessionId?: string;
-    externalSessionId?: string;
-    latestArtifactId?: string;
-    hydratedContextBlock?: string;
+    memoryContextBlock?: string;
   }> {
-    return this.sessions.getSessionResume(input);
+    return this.sessions.getAgentTurnContext(input);
   }
 
   async expireProviderSession(input: {
@@ -266,10 +259,6 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
     externalSessionId?: string;
   }): Promise<void> {
     await this.sessions.expireProviderSession(input);
-  }
-
-  async checkpointSessionSummary(agentSessionId: string): Promise<void> {
-    await this.sessions.checkpointSessionSummary(agentSessionId);
   }
 
   async createSessionAgentRun(input: {

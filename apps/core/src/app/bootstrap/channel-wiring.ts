@@ -32,7 +32,10 @@ import {
   handleRemoteControlCommand,
 } from '../../runtime/remote-control-command.js';
 import { isPartialMessageDeliveryError } from '../../runtime/partial-delivery.js';
-import { getRuntimeOpsRepository } from '../../adapters/storage/postgres/runtime-store.js';
+import {
+  getRuntimeOpsRepository,
+  tryAcquireRuntimeAdvisoryLease,
+} from '../../adapters/storage/postgres/runtime-store.js';
 import { ChannelAdapter } from '../../channels/channel-provider.js';
 import { RuntimeApp } from './runtime-app.js';
 import {
@@ -45,7 +48,6 @@ import {
   asUserQuestionSurface,
 } from './channel-capability-ports.js';
 import {
-  ChannelProvider,
   listChannelProviders,
   providerForJid,
 } from '../../channels/provider-registry.js';
@@ -117,6 +119,9 @@ export function createChannelWiring(
     }),
     registeredGroups: () => app.getRegisteredGroups(),
     runtimeSettings: () => currentRuntimeSettings,
+    runtimeLease: {
+      tryAcquire: tryAcquireRuntimeAdvisoryLease,
+    },
   };
   let currentRuntimeSettings: RuntimeSettings;
 

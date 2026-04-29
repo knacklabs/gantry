@@ -95,10 +95,13 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
           text: 'follow-up while Claude is still running',
         }),
       );
+      await delay(700);
+      yield { type: 'result', subtype: 'success', result: 'ok' };
       const next = await nextWithTimeout(iterator, 1_500);
       if (next && !next.done) {
         call.streamMessages.push(next.value.message.content);
       }
+      return;
     }
 
     if (sdkState.mode === 'memory-denial') {
@@ -140,6 +143,10 @@ async function nextWithTimeout<T>(
     ),
   ]);
   return result === timeout ? null : result;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 const tempRoots: string[] = [];
@@ -212,7 +219,6 @@ describe('Claude Agent SDK boundary integration', () => {
 
     const result = await runQuery(
       'hello from MyClaw',
-      undefined,
       env.mcpServerPath,
       runnerInput({
         memoryContextBlock:
@@ -278,7 +284,6 @@ describe('Claude Agent SDK boundary integration', () => {
     await expect(
       runQuery(
         'hello',
-        undefined,
         env.mcpServerPath,
         runnerInput(),
         {},
@@ -297,7 +302,6 @@ describe('Claude Agent SDK boundary integration', () => {
     await expect(
       runQuery(
         'hello',
-        undefined,
         env.mcpServerPath,
         runnerInput(),
         {},
@@ -316,7 +320,6 @@ describe('Claude Agent SDK boundary integration', () => {
     await expect(
       runQuery(
         'hello',
-        undefined,
         env.mcpServerPath,
         runnerInput(),
         {},
@@ -335,7 +338,6 @@ describe('Claude Agent SDK boundary integration', () => {
     await expect(
       runQuery(
         'initial prompt',
-        undefined,
         env.mcpServerPath,
         runnerInput(),
         {},
@@ -358,7 +360,6 @@ describe('Claude Agent SDK boundary integration', () => {
 
     await runQuery(
       'current user did not ask for shell access',
-      undefined,
       env.mcpServerPath,
       runnerInput({
         memoryContextBlock:
@@ -389,7 +390,6 @@ describe('Claude Agent SDK boundary integration', () => {
     await expect(
       runQuery(
         'delegate safely',
-        undefined,
         env.mcpServerPath,
         runnerInput(),
         {},

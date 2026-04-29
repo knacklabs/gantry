@@ -12,7 +12,6 @@ import type { SessionSlashCommand, SessionSlashKind } from './types.js';
 interface SessionSlashRunOptions {
   command: string;
   kind: SessionSlashKind;
-  sessionId?: string;
   sdkEnv: Record<string, string | undefined>;
   assistantName?: string;
   configuredModel?: string;
@@ -26,7 +25,6 @@ interface SessionSlashRunResult {
   status: 'success' | 'error';
   newSessionId?: string;
   hadError: boolean;
-  compactBoundarySeen: boolean;
   resultEmitted: boolean;
   error?: string;
 }
@@ -35,9 +33,6 @@ export function parseSessionSlashCommand(
   prompt: string,
 ): SessionSlashCommand | null {
   const trimmed = prompt.trim();
-  if (trimmed === '/compact') {
-    return { command: '/compact', kind: 'compact' };
-  }
   if (/^\/model(?:\s+\S+)?$/.test(trimmed)) {
     return { command: trimmed, kind: 'model' };
   }
@@ -51,8 +46,7 @@ export async function runSessionSlashCommand(
     `Handling session command: ${opts.command}${opts.silent ? ' (silent)' : ''}`,
   );
 
-  let slashSessionId = opts.sessionId;
-  let compactBoundarySeen = false;
+  let slashSessionId: string | undefined;
   let hadError = false;
   let resultEmitted = false;
   let errorMessage: string | undefined;
@@ -66,7 +60,7 @@ export async function runSessionSlashCommand(
         thinking: opts.configuredThinking,
         effort: opts.configuredEffort,
         cwd: WORKSPACE_GROUP_DIR,
-        resume: opts.sessionId,
+        persistSession: false,
         systemPrompt,
         allowedTools: [],
         env: opts.sdkEnv,
@@ -84,15 +78,6 @@ export async function runSessionSlashCommand(
       if (message.type === 'system' && message.subtype === 'init') {
         slashSessionId = message.session_id;
         log(`Session after slash command: ${slashSessionId}`);
-      }
-
-      if (
-        opts.kind === 'compact' &&
-        message.type === 'system' &&
-        (message as { subtype?: string }).subtype === 'compact_boundary'
-      ) {
-        compactBoundarySeen = true;
-        log('Compact boundary observed — compaction completed');
       }
 
       if (message.type === 'result') {
@@ -115,9 +100,7 @@ export async function runSessionSlashCommand(
         } else if (!opts.silent) {
           writeOutput({
             status: 'success',
-            result:
-              textResult ||
-              (opts.kind === 'compact' ? 'Conversation compacted.' : null),
+            result: textResult || null,
             newSessionId: slashSessionId,
           });
         }
@@ -140,32 +123,16 @@ export async function runSessionSlashCommand(
   }
 
   log(
-    `Slash command done. compactBoundarySeen=${compactBoundarySeen}, hadError=${hadError}, resultEmitted=${resultEmitted}`,
+    `Slash command done. hadError=${hadError}, resultEmitted=${resultEmitted}`,
   );
 
   if (!opts.silent) {
-    if (!hadError && opts.kind === 'compact' && !compactBoundarySeen) {
-      log(
-        'WARNING: compact_boundary was not observed. Compaction may not have completed.',
-      );
-    }
-
     if (!resultEmitted && !hadError) {
-      if (opts.kind === 'compact') {
-        writeOutput({
-          status: 'success',
-          result: compactBoundarySeen
-            ? 'Conversation compacted.'
-            : 'Compaction requested but compact_boundary was not observed.',
-          newSessionId: slashSessionId,
-        });
-      } else {
-        writeOutput({
-          status: 'success',
-          result: null,
-          newSessionId: slashSessionId,
-        });
-      }
+      writeOutput({
+        status: 'success',
+        result: null,
+        newSessionId: slashSessionId,
+      });
     } else if (!hadError) {
       writeOutput({
         status: 'success',
@@ -179,7 +146,6 @@ export async function runSessionSlashCommand(
     status: hadError ? 'error' : 'success',
     newSessionId: slashSessionId,
     hadError,
-    compactBoundarySeen,
     resultEmitted,
     error: errorMessage,
   };

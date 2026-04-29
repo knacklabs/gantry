@@ -10,7 +10,7 @@ run. The directory contains:
 
 - `settings.json` rendered by MyClaw
 - `skills/` materialized from the active skill source
-- `projects/<project>/` used only to restore and capture provider session files
+- `projects/<project>/` as an SDK scratch directory for the current run
 
 The temp directory is removed after the run unless explicit debug retention is
 enabled by the caller.
@@ -27,7 +27,7 @@ Durable state stays outside Claude runtime files:
 
 - Postgres owns apps, agents, config versions, tools, skills, memory policy,
   permission policy, sessions, messages, and runs.
-- `ProviderArtifactStore` owns provider continuation and export bytes.
+- `ProviderArtifactStore` owns explicit provider export/debug bytes only.
 - `SkillArtifactStore` owns approved or draft local skill source bytes by
   storage ref; Postgres stores metadata, status, hash, bindings, and provider
   refs.
@@ -43,8 +43,13 @@ The runtime-home Claude directory is not an enterprise runtime source of truth.
 ## Settings
 
 `settings.json` is rendered from canonical runtime inputs such as effective
-agent config, LLM/provider profile, runtime settings, memory behavior, and hook
-commands. It must not contain raw provider secrets.
+agent config, LLM/provider profile, runtime settings, and provider-safe
+adapter options. It must not contain raw provider secrets.
+
+The materialized Claude settings do not install memory hooks. Fresh runs receive
+only durable MyClaw memory as an untrusted first user-message prefix; active
+chat continuity comes from the live SDK streaming-input session. Claude hook
+output and provider JSONL transcripts are not runtime state.
 
 Claude settings are not permission policy. Host-side `PermissionPolicyService`
 and sandbox policy remain authoritative for tool execution.
@@ -130,7 +135,7 @@ arbitrary broker environment keys.
 
 ## Provider Artifacts
 
-Before provider-native resume, MyClaw restores the latest `claude-jsonl`
-artifact into the temp project directory. After the run, updated JSONL and
-session indexes are captured through `ProviderArtifactStore`, then temp files
-are removed.
+Claude JSONL/session files are not runtime continuation state. MyClaw does not
+restore provider transcript artifacts before a run and does not capture SDK
+session files after a run. Session continuity comes from canonical Postgres
+messages, runs, summaries, and memory.

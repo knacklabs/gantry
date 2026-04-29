@@ -5,6 +5,7 @@ import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-st
 import { evaluatePostgresStorageCapabilities } from './readiness.js';
 import type { PostgresControlPlaneRepository } from './schema/control-plane-repo.postgres.js';
 import type { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
+import type { RuntimeLease } from '../../../domain/ports/runtime-lease.js';
 
 let runtime: StorageRuntime | null = null;
 
@@ -42,6 +43,41 @@ export function getRuntimeControlRepository(): PostgresControlPlaneRepository {
 
 export function getRuntimeEventExchange(): RuntimeEventExchange {
   return getRuntimeStorage().runtimeEvents;
+}
+
+export async function tryAcquireRuntimeAdvisoryLease(
+  key: string,
+): Promise<RuntimeLease | undefined> {
+  const client = await getRuntimeStorage().service.pool.connect();
+  let released = false;
+  try {
+    const result = await client.query<{ acquired: boolean }>(
+      'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired',
+      [key],
+    );
+    if (!result.rows[0]?.acquired) {
+      client.release();
+      released = true;
+      return undefined;
+    }
+    return {
+      release: async () => {
+        if (released) return;
+        released = true;
+        try {
+          await client.query(
+            'SELECT pg_advisory_unlock(hashtextextended($1, 0))',
+            [key],
+          );
+        } finally {
+          client.release();
+        }
+      },
+    };
+  } catch (err) {
+    if (!released) client.release(err instanceof Error ? err : undefined);
+    throw err;
+  }
 }
 
 export function getRuntimeProviderArtifactStore(): ProviderArtifactStore {

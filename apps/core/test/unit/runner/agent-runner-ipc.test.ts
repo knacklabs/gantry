@@ -26,6 +26,9 @@ interface RunnerRecord {
     permissionDecision?: Record<string, unknown>;
     sdkEnv?: Record<string, string>;
     mcpServers?: Record<string, unknown>;
+    persistSession?: boolean;
+    resume?: unknown;
+    resumeSessionAt?: unknown;
   }>;
 }
 
@@ -191,6 +194,9 @@ export async function* query({ prompt, options }) {
     promptKind: typeof prompt === 'string' ? 'string' : 'stream',
     sdkEnv: options?.env,
     mcpServers: options?.mcpServers,
+    persistSession: options?.persistSession,
+    resume: options?.resume,
+    resumeSessionAt: options?.resumeSessionAt,
     systemPromptAppend: options?.systemPrompt?.append,
     closeExistsAtQueryStart: fs.existsSync(
       path.join(process.env.MYCLAW_IPC_INPUT_DIR, '_close'),
@@ -274,12 +280,21 @@ export async function* query({ prompt, options }) {
     if (process.env.TEST_ACTIVE_INPUT_ORDER === '1') {
       writeInput('001-active-first.json', 'active follow-up first');
       writeInput('002-active-second.json', 'active follow-up second');
+      await delay(700);
+      yield { type: 'result', subtype: 'success', result: 'runner-ok' };
       for (let i = 0; i < 2; i += 1) {
         const next = await nextWithTimeout(iterator, 1500);
         if (next && !next.done) {
           call.streamMessages.push(next.value.message.content);
         }
       }
+      appendRecord(call);
+      if (process.env.TEST_EXIT_AFTER_QUERY === '1') {
+        setTimeout(() => {
+          fs.writeFileSync(path.join(process.env.MYCLAW_IPC_INPUT_DIR, '_close'), '');
+        }, 20);
+      }
+      return;
     }
 
     if (process.env.TEST_CREATE_CLOSE_DURING_QUERY === '1') {
@@ -290,6 +305,9 @@ export async function* query({ prompt, options }) {
   }
 
   appendRecord(call);
+  if (process.env.TEST_COMPACT_BOUNDARY === '1') {
+    yield { type: 'system', subtype: 'compact_boundary', uuid: 'compact-1' };
+  }
   yield { type: 'result', subtype: 'success', result: 'runner-ok' };
 
   if (process.env.TEST_EXIT_AFTER_QUERY === '1') {
@@ -520,7 +538,6 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.streamMessages?.[0]).toContain(
         'pending startup context after stale close',
       );
-      expect(fs.readdirSync(fixture.inputDir)).not.toContain('_close');
       expect(fs.readdirSync(fixture.inputDir)).not.toContain(
         '001-pending.json',
       );
@@ -553,6 +570,65 @@ describe('agent-runner IPC lifecycle', () => {
         firstMessage?.indexOf('startup second') ?? -1,
       );
       expect(fs.readdirSync(fixture.inputDir)).not.toContain('001-first.json');
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'disables SDK session persistence and resume options',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({ sessionId: 'legacy-sdk-session' }),
+        {
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.persistSession).toBe(false);
+      expect(call?.resume).toBeUndefined();
+      expect(call?.resumeSessionAt).toBeUndefined();
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'routes /compact through the live streaming SDK session without persistence or resume',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({ prompt: '/compact' }),
+      );
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.promptKind).toBe('stream');
+      expect(call?.streamMessages?.[0]).toBe('/compact');
+      expect(call?.persistSession).toBe(false);
+      expect(call?.resume).toBeUndefined();
+      expect(call?.resumeSessionAt).toBeUndefined();
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'emits compact boundary markers for host memory extraction',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_COMPACT_BOUNDARY: '1',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('"compactBoundary":true');
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

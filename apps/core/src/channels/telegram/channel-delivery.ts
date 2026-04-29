@@ -542,6 +542,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       this.bot.stop();
       this.bot = null;
       this.draftStreamApi = null;
+      await this.releasePollingLease();
       logger.info('Telegram bot stopped');
     }
   }

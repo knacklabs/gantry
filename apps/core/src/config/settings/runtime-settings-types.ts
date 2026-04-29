@@ -46,10 +46,8 @@ export interface RuntimeStorageSettings {
 export interface RuntimeAgentSettings {
   defaultModel: string;
   sessions: {
-    recentMessageLimit: number;
-    summaryAfterMessages: number;
-    summaryAfterRuns: number;
-    maxHydratedContextChars: number;
+    memoryItemLimit: number;
+    maxMemoryContextChars: number;
   };
 }
 

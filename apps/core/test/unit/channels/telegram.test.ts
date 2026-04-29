@@ -1276,11 +1276,11 @@ describe('TelegramChannel', () => {
         const startPollingSpy = vi.spyOn(channel as any, 'startPolling');
 
         (channel as any).startPolling();
-        await vi.runAllTicks();
-        await Promise.resolve();
-        expect(logger.error).toHaveBeenCalledWith(
-          { err: expect.any(Error) },
-          'Telegram polling failed',
+        await vi.waitFor(() =>
+          expect(logger.error).toHaveBeenCalledWith(
+            { err: expect.any(Error) },
+            'Telegram polling failed',
+          ),
         );
 
         // Execute the scheduled retry callback to cover timer callback path.

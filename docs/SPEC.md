@@ -409,19 +409,24 @@ Prompt profile files are static guidance, not memory dumps:
 | **Soul**           | `agents/{group}/SOUL.md`   | Agent personality, voice, and boundaries                        |
 | **Group context**  | `agents/{group}/CLAUDE.md` | Stable group-specific guidance                                  |
 
-Dynamic facts, current task state, open loops, and raw transcripts must not be written into these files. Durable facts go through structured memory. Current task state belongs to continuity context.
+Dynamic facts, open loops, and raw transcripts must not be written into these
+files. Durable facts go through structured memory. Active task state stays in
+the live SDK streaming session while the runner is alive.
 
 ### Continuity Context
 
-Continuity is the runtime context that helps the agent resume current work:
+Continuity is the runtime behavior that helps the agent resume current work:
 
-- current relevant memory
+- live SDK streaming context for active chat turns
+- current relevant durable memory
 - prior decisions
 - user/group preferences
-- recent work context
 - open loops when commitment tracking is enabled
 
-Before an agent run, the host builds a memory/continuity context block and passes it to the agent runner. The agent runner appends it to the prompt so the model can use remembered context without treating prompt profile files as mutable memory.
+Before a fresh agent run, the host builds a memory-only context block and passes
+it to the agent runner. Follow-up chat messages are then piped into the same
+live SDK stream until `/new`, stop, shutdown, or idle expiry. Postgres messages,
+run summaries, and session summaries are not replayed into every prompt.
 
 See [CONTINUITY.md](CONTINUITY.md) for the continuity model.
 
@@ -494,7 +499,9 @@ candidates, durable items, recall events, and dream decisions in Postgres.
 
 #### Reflection (Auto-Capture)
 
-After each successful agent turn, the system extracts durable memory statements from the conversation:
+At session boundaries, the system extracts durable memory statements from the
+conversation. `/new` uses a `session-end` trigger, while manual `/compact` and
+observed SDK auto-compaction boundaries use a `precompact` trigger:
 
 - Uses a provider interface; the default extractor is rule-based and can be replaced without changing storage or recall.
 - Detects preferences, decisions, facts, corrections, and constraints.
@@ -512,9 +519,9 @@ MyClaw memory uses Postgres tables in the configured runtime schema.
 - Vector search: `pgvector` when embeddings are enabled
 - Lexical search: Postgres full-text search
 
-Provider continuation and transcript export artifacts are stored through
-`ProviderArtifactStore`; they are not the memory store or canonical message
-history.
+Provider transcript export artifacts may be stored through
+`ProviderArtifactStore` for explicit debugging/export workflows; they are not
+the memory store, canonical message history, or runtime continuation state.
 
 ### Memory Configuration Reference
 
@@ -542,15 +549,18 @@ history.
 
 ## Session Management
 
-Sessions enable conversation continuity - Claude remembers what you talked about.
+Sessions enable conversation continuity from MyClaw-owned Postgres state.
 
 ### How Sessions Work
 
-1. Each group has a session ID stored in the runtime database (`sessions` table, keyed by `group_folder`)
-2. Session ID is passed to Claude Agent SDK's `resume` option
-3. Claude continues the conversation with full context
-4. Claude JSONL is captured through `ProviderArtifactStore` as provider
-   continuation state; canonical messages remain in Postgres.
+1. Each app/agent/conversation/thread scope resolves to a canonical
+   `AgentSession` in Postgres.
+2. Runtime hydrates only scoped durable memory for a fresh runner or scheduled
+   job.
+3. Claude Agent SDK runs are ephemeral with `persistSession: false`; MyClaw does
+   not pass SDK `resume`, `resumeSessionAt`, or `continue` handles.
+4. Active chat follow-ups are streamed into the same live SDK query. Provider
+   transcript exports may exist for debugging, but they are not runtime state.
 
 ---
 
@@ -583,19 +593,19 @@ Sessions enable conversation continuity - Claude remembers what you talked about
 7. Group processor catches up conversation:
    ├── Fetch all messages since last agent interaction
    ├── Format with timestamp and sender name
-   ├── Add job/session context when present
-   └── Build prompt with memory and continuity context
+   ├── Add job metadata when present
+   └── Build prompt with durable memory context only
    │
    ▼
 8. Agent spawn starts the child runner:
    ├── cwd: agents/{group-name}/
    ├── prompt: conversation history + current message
-   ├── resume: session_id (for continuity)
+   ├── persistSession: false
    └── mcpServers: myclaw (runtime tools over IPC)
    │
    ▼
 9. Child runner invokes Claude Agent SDK:
-   ├── Uses injected prompt profile and memory/continuity context
+   ├── Uses injected prompt profile and durable memory context
    ├── Uses MessageStream for safe follow-up input
    └── Requests host permission for policy-gated tools
    │
@@ -606,7 +616,7 @@ Sessions enable conversation continuity - Claude remembers what you talked about
 11. Slack/Telegram send network responses; the app channel writes durable control events
    │
    ▼
-12. Runtime advances cursor and saves the resumed Claude session ID
+12. Runtime advances cursor and stores MyClaw-owned run/session events in Postgres
 ```
 
 ### Trigger Word Matching
@@ -887,13 +897,12 @@ chmod 700 ~/myclaw/agents ~/myclaw/data
 
 ### Common Issues
 
-| Issue                              | Cause                             | Solution                                                           |
-| ---------------------------------- | --------------------------------- | ------------------------------------------------------------------ |
-| No response to messages            | Service not running               | Run `myclaw status` and check the service line                     |
-| Startup fails at runtime preflight | Host runtime prerequisites failed | Run `npm run build` and re-check runtime diagnostics               |
-| Session not continuing             | Session state not persisted       | Run `myclaw status` and verify Postgres runtime storage readiness  |
-| Session not continuing             | Provider artifact unavailable     | Verify `ProviderArtifactStore` health and latest artifact metadata |
-| "No groups registered"             | Haven't added groups              | Register a channel group with the current channel setup flow       |
+| Issue                              | Cause                             | Solution                                                          |
+| ---------------------------------- | --------------------------------- | ----------------------------------------------------------------- |
+| No response to messages            | Service not running               | Run `myclaw status` and check the service line                    |
+| Startup fails at runtime preflight | Host runtime prerequisites failed | Run `npm run build` and re-check runtime diagnostics              |
+| Session not continuing             | Session state not persisted       | Run `myclaw status` and verify Postgres runtime storage readiness |
+| "No groups registered"             | Haven't added groups              | Register a channel group with the current channel setup flow      |
 
 ### Log Location
 

@@ -4,9 +4,9 @@ import net from 'net';
 
 import { logger } from '../infrastructure/logging/logger.js';
 import {
+  buildChromeLaunchArgs,
   CHROME_PATH,
   DEFAULT_BROWSER_KEEPALIVE_MS,
-  DEFAULT_CHROME_ARGS,
 } from './browser-config.js';
 import {
   BrowserProfileLock,
@@ -198,35 +198,42 @@ export async function launchBrowser(
   opts: LaunchBrowserOptions = {},
 ): Promise<BrowserSessionStatus> {
   const profileName = resolveProfileName(opts.profileName);
-  const existing = sessions.get(profileName);
-  if (existing && isChromeAlive(existing)) {
-    touchSession(existing);
-    return {
-      profileName,
-      running: true,
-      port: existing.port,
-      targetId: existing.targetId,
-      lastUsedAt: new Date(existing.lastUsedAt).toISOString(),
-    };
-  }
-
-  if (existing) {
-    await closeBrowser(profileName).catch(() => undefined);
-  }
-
   const profile = createProfile(profileName);
   const lock = await acquireProfileLock(profileName);
   let chromeProcess: ChildProcess | undefined;
 
   try {
+    const existing = sessions.get(profileName);
+    if (existing && isChromeAlive(existing)) {
+      lock.release();
+      touchSession(existing);
+      return {
+        profileName,
+        running: true,
+        port: existing.port,
+        targetId: existing.targetId,
+        lastUsedAt: new Date(existing.lastUsedAt).toISOString(),
+      };
+    }
+
+    if (existing) {
+      sessions.delete(profileName);
+      if (existing.keepAliveTimer) clearTimeout(existing.keepAliveTimer);
+      try {
+        process.kill(existing.pid);
+      } catch {
+        // ignore stale process cleanup failures
+      }
+      existing.lock.release();
+    }
+
     cleanupChromeSingletonArtifacts(profile.userDataDir);
     const port = opts.cdpPort ?? (await getFreePort());
-    const chromeFlags = [
-      ...DEFAULT_CHROME_ARGS,
-      ...(opts.headless === false ? [] : ['--headless=new']),
-      `--user-data-dir=${profile.userDataDir}`,
-      `--remote-debugging-port=${port}`,
-    ];
+    const chromeFlags = buildChromeLaunchArgs({
+      userDataDir: profile.userDataDir,
+      port,
+      headless: opts.headless,
+    });
 
     chromeProcess = spawn(findChrome(), chromeFlags, {
       detached: true,

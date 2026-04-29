@@ -1,7 +1,5 @@
-import { ASSISTANT_NAME } from '../config/index.js';
 import type { NewMessage, RegisteredGroup } from '../domain/types.js';
 import type { OpsRepository } from '../domain/repositories/ops-repo.js';
-import type { ProviderArtifactStore } from '../domain/ports/provider-artifact-store.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
 import type {
   McpServerRepository,
@@ -9,111 +7,57 @@ import type {
 } from '../domain/ports/repositories.js';
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import type { RemoteMcpDnsValidationCache } from '../application/mcp/mcp-server-policy.js';
-import { assertSafeProviderSessionId } from '../domain/sessions/provider-session-id.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import {
-  archiveProviderSessionTranscript,
-  type SessionArchiveCause,
-} from '../session/session-transcript-archive.js';
-import type { GroupProcessingDeps } from './group-processing-types.js';
 import type { RunAgentOptions } from './agent-spawn-types.js';
-
-export async function expireStaleRuntimeSession(input: {
-  group: RegisteredGroup;
-  deps: GroupProcessingDeps;
-  ops: OpsRepository;
-  sessionId: string;
-  providerSessionId?: string;
-  provider?: string;
-  agentSessionId?: string;
-  appId?: string;
-  agentId?: string;
-  providerArtifactStore?: ProviderArtifactStore;
-  threadId: string | null;
-  error?: string;
-}): Promise<void> {
-  logger.warn(
-    {
-      group: input.group.name,
-      staleSessionId: input.sessionId,
-      error: input.error,
-    },
-    'Stale provider session detected; expiring provider resume metadata',
-  );
-  if (!input.providerArtifactStore) {
-    logger.warn(
-      { group: input.group.name, sessionId: input.sessionId },
-      'Skipped stale session archive because ProviderArtifactStore is unavailable',
-    );
-  } else if (
-    input.providerSessionId &&
-    input.agentSessionId &&
-    input.appId &&
-    input.agentId
-  ) {
-    await archiveProviderSessionTranscript({
-      providerArtifactStore: input.providerArtifactStore,
-      appId: input.appId,
-      agentId: input.agentId,
-      agentSessionId: input.agentSessionId,
-      providerSessionId: input.providerSessionId,
-      provider: input.provider,
-      sessionId: input.sessionId,
-      assistantName: ASSISTANT_NAME,
-      cause: 'stale-session',
-      errorSummary: input.error,
-      writePlaceholderOnMissing: true,
-    });
-  }
-  await input.ops.expireProviderSession?.({
-    providerSessionId: input.providerSessionId,
-    agentSessionId: input.agentSessionId,
-    externalSessionId: input.sessionId,
-  });
-}
+import type { SessionMemoryCollector } from '../domain/ports/session-memory-collector.js';
 
 export async function archiveCurrentRuntimeSession(input: {
-  deps: GroupProcessingDeps;
   ops: OpsRepository;
   group: RegisteredGroup;
   chatJid: string;
   threadId: string | null;
-  cause?: SessionArchiveCause;
+  cause?: 'new-session' | 'manual-compact';
+  collectMemory?: SessionMemoryCollector;
 }): Promise<void> {
-  const providerArtifactStore = input.deps.getProviderArtifactStore?.();
-  const resume = await input.ops.getSessionResume?.({
+  const turnContext = await input.ops.getAgentTurnContext?.({
     groupFolder: input.group.folder,
     chatJid: input.chatJid,
     threadId: input.threadId,
   });
-  if (
-    providerArtifactStore &&
-    resume?.providerSessionId &&
-    resume.externalSessionId
-  ) {
-    await archiveProviderSessionTranscript({
-      providerArtifactStore,
-      appId: resume.appId,
-      agentId: resume.agentId,
-      agentSessionId: resume.agentSessionId,
-      providerSessionId: resume.providerSessionId,
-      provider: resume.provider,
-      sessionId: resume.externalSessionId,
-      assistantName: ASSISTANT_NAME,
-      cause: input.cause ?? 'new-session',
-    });
-    return;
+  const collectMemory = input.collectMemory;
+  if (turnContext?.agentSessionId && collectMemory) {
+    const trigger =
+      input.cause === 'manual-compact' ? 'precompact' : 'session-end';
+    try {
+      const result = await collectMemory({
+        agentSessionId: turnContext.agentSessionId,
+        trigger,
+      });
+      logger.info(
+        {
+          group: input.group.name,
+          agentSessionId: turnContext.agentSessionId,
+          trigger,
+          saved: result?.saved ?? 0,
+        },
+        'Collected durable memory at session boundary',
+      );
+    } catch (err) {
+      logger.warn(
+        { group: input.group.name, err, trigger },
+        'Failed to collect durable memory at session boundary',
+      );
+    }
   }
   logger.info(
-    { group: input.group.name, providerSessionId: resume?.providerSessionId },
-    'Skipped session archive because no provider artifact is available',
+    { group: input.group.name, agentSessionId: turnContext?.agentSessionId },
+    'Archived MyClaw session boundary memory; provider transcripts are not runtime state',
   );
 }
 
-export function buildProviderArtifactRunOptions(input: {
+export function buildRuntimeRunOptions(input: {
   timeoutMs?: number;
   credentialBroker?: RunAgentOptions['credentialBroker'];
-  providerArtifactStore?: ProviderArtifactStore;
   skillRepository?: SkillCatalogRepository;
   skillArtifactStore?: SkillArtifactStore;
   mcpServerRepository?: McpServerRepository;
@@ -123,50 +67,18 @@ export function buildProviderArtifactRunOptions(input: {
     appId: string;
     agentId: string;
   };
-  sessionResume?: {
+  turnContext?: {
     appId: string;
     agentId: string;
     agentSessionId: string;
-    mode?: 'provider_native' | 'db_replay';
-    providerSessionId?: string;
-    provider?: string;
-    latestArtifactId?: string;
   };
 }): RunAgentOptions | undefined {
-  if (
-    input.sessionResume?.mode === 'provider_native' &&
-    !input.providerArtifactStore
-  ) {
-    throw new Error(
-      'ProviderArtifactStore is required for provider-native resume',
-    );
-  }
-  const artifactOptions =
-    input.providerArtifactStore && input.sessionResume
-      ? {
-          providerArtifactStore: input.providerArtifactStore,
-          providerArtifactContext: {
-            appId: input.sessionResume.appId,
-            agentId: input.sessionResume.agentId,
-            agentSessionId: input.sessionResume.agentSessionId,
-            provider: input.sessionResume.provider,
-            providerSessionId:
-              input.sessionResume.mode === 'provider_native'
-                ? input.sessionResume.providerSessionId
-                : undefined,
-            latestArtifactId:
-              input.sessionResume.mode === 'provider_native'
-                ? input.sessionResume.latestArtifactId
-                : undefined,
-          },
-        }
-      : {};
   const resolvedSkillContext = input.skillContext
     ? input.skillContext
-    : input.sessionResume
+    : input.turnContext
       ? {
-          appId: input.sessionResume.appId,
-          agentId: input.sessionResume.agentId,
+          appId: input.turnContext.appId,
+          agentId: input.turnContext.agentId,
         }
       : undefined;
   const skillOptions =
@@ -191,82 +103,19 @@ export function buildProviderArtifactRunOptions(input: {
     ...(input.credentialBroker
       ? { credentialBroker: input.credentialBroker }
       : {}),
-    ...artifactOptions,
     ...skillOptions,
     ...mcpOptions,
   };
   return Object.keys(options).length > 0 ? options : undefined;
 }
 
-export function isStaleRuntimeSessionError(input: {
-  sessionId?: string | null;
-  error?: string;
-}): boolean {
-  return Boolean(
-    input.sessionId &&
-    input.error &&
-    /no conversation found|ENOENT.*\.jsonl|session.*not found|claude runtime materialization failed/i.test(
-      input.error,
-    ),
-  );
-}
-
-export async function persistRuntimeProviderSession(input: {
-  deps: GroupProcessingDeps;
-  group: RegisteredGroup;
-  sessionId: string;
-  threadId: string | null;
-  chatJid: string;
-  latestArtifactId?: string | null;
-}): Promise<void> {
-  assertSafeProviderSessionId(input.sessionId);
-  if (input.latestArtifactId) {
-    await input.deps.setSession(
-      input.group.folder,
-      input.sessionId,
-      input.threadId,
-      {
-        chatJid: input.chatJid,
-        latestArtifactId: input.latestArtifactId,
-      },
-    );
-    return;
-  }
-  await input.deps.setSession(
-    input.group.folder,
-    input.sessionId,
-    input.threadId,
-    { chatJid: input.chatJid },
-  );
-}
-
 export async function completeSuccessfulRuntimeSessionRun(input: {
-  deps: GroupProcessingDeps;
   ops: OpsRepository;
   group: RegisteredGroup;
-  sessionId?: string | null;
-  pendingSessionId?: string | null;
-  latestArtifactId?: string | null;
-  pendingLatestArtifactId?: string | null;
-  threadId: string | null;
-  chatJid: string;
   agentSessionId?: string;
   runId?: string;
   result?: string | null;
 }): Promise<void> {
-  const nextSessionId = input.sessionId || input.pendingSessionId;
-  const latestArtifactId =
-    input.latestArtifactId || input.pendingLatestArtifactId;
-  if (nextSessionId) {
-    await persistRuntimeProviderSession({
-      deps: input.deps,
-      group: input.group,
-      sessionId: nextSessionId,
-      threadId: input.threadId,
-      chatJid: input.chatJid,
-      latestArtifactId,
-    });
-  }
   if (input.runId) {
     await input.ops.completeSessionAgentRun?.({
       runId: input.runId,
@@ -275,14 +124,10 @@ export async function completeSuccessfulRuntimeSessionRun(input: {
     });
   }
   if (input.agentSessionId) {
-    void input.ops
-      .checkpointSessionSummary?.(input.agentSessionId)
-      .catch((err: unknown) => {
-        logger.warn(
-          { group: input.group.name, err },
-          'Failed to checkpoint session summary',
-        );
-      });
+    logger.debug(
+      { group: input.group.name, agentSessionId: input.agentSessionId },
+      'Completed runtime session run without Postgres prompt replay',
+    );
   }
 }
 

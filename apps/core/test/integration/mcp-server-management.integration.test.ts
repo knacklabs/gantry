@@ -179,6 +179,7 @@ vi.mock('@core/config/index.js', () => ({
   MYCLAW_HOME: '/tmp/myclaw-mcp-integration-home',
   DATA_DIR: '/tmp/myclaw-mcp-integration-home/data',
   MYCLAW_IPC_AUTH_SECRET: 'test-ipc-secret',
+  ONECLI_ALLOWED_ENV_KEYS: [],
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({

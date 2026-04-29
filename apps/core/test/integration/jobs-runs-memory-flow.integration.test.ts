@@ -161,6 +161,41 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     expect(harness.channel.resets).toEqual(['tg:scheduler']);
   });
 
+  it('does not use or update job session_id as an SDK session handle', async () => {
+    const harness = createRuntimeFlowHarness({
+      runnerResult: {
+        status: 'success',
+        result: 'job completed with ephemeral sdk session',
+        newSessionId: 'sdk-session-ignored',
+      },
+    });
+    const job = makeJob('job:integration:canonical-session', {
+      session_id: 'control-session-correlation-only',
+    });
+    await runtime.ops.upsertJob(job);
+
+    await runJob(
+      await runtime.ops.getJobById(job.id).then((saved) => saved!),
+      {
+        registeredGroups: () => ({ 'tg:scheduler': makeRegisteredGroup() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: harness.channel.sendMessage,
+        sendStreamingChunk: harness.channel.sendStreamingChunk,
+        resetStreaming: harness.channel.resetStreaming,
+        opsRepository: runtime.ops,
+        runAgent: harness.runner.runAgent as never,
+      },
+      'tg:scheduler',
+      'serialized',
+    );
+
+    expect(harness.runner.calls[0]?.input).not.toHaveProperty('sessionId');
+    await expect(runtime.ops.getJobById(job.id)).resolves.toMatchObject({
+      session_id: 'control-session-correlation-only',
+    });
+  });
+
   it('persists failed scheduler runs without leaving a running lease', async () => {
     const harness = createRuntimeFlowHarness({
       runnerResult: {

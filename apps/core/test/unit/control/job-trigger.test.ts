@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@core/config/index.js', () => ({
   MYCLAW_HOME: '/tmp/myclaw-control-test-home',
+  ONECLI_ALLOWED_ENV_KEYS: [],
 }));
 
 const schedulerMocks = vi.hoisted(() => ({

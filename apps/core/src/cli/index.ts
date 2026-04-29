@@ -379,11 +379,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const [command, ...rest] = parsed.command;
   const subcommand = rest[0];
 
-  if (command === 'memory-hook') {
-    const { runMemoryHookCommand } = await import('./memory-hook.js');
-    return runMemoryHookCommand(rest);
-  }
-
   // Allow `myclaw doctor` to run even when settings.yaml is malformed so it can
   // report actionable recovery guidance instead of failing at top-level parse.
   if (

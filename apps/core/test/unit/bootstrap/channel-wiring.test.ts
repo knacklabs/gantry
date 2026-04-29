@@ -499,6 +499,41 @@ describe('createChannelWiring', () => {
     expect(outbound.sendMessage).toHaveBeenCalledWith('tg:-123', '**done**');
   });
 
+  it('keeps streaming chunks transport-only so the processor persists one final transcript', async () => {
+    const app = makeApp();
+    const storeMessage = vi.fn(async () => {});
+    const streamSink = vi.fn(async () => true);
+    const outbound = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:123'),
+      sendStreamingChunk: streamSink,
+    });
+
+    const wiring = createChannelWiring(app, {
+      channelProviders: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => outbound),
+        ),
+      ],
+      opsRepository: { storeMessage } as any,
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    const ok = await wiring.sendStreamingChunk('tg:123', 'chunk', {
+      threadId: 'thread-1',
+    });
+
+    expect(ok).toBe(true);
+    expect(streamSink).toHaveBeenCalledWith(
+      'tg:123',
+      'chunk',
+      expect.objectContaining({ threadId: 'thread-1' }),
+    );
+    expect(storeMessage).not.toHaveBeenCalled();
+  });
+
   it('flushes done=true streaming callbacks even when visible text is empty', async () => {
     const app = makeApp();
     const streamSink = vi.fn(async () => true);

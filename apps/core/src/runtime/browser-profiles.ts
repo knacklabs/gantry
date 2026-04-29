@@ -21,6 +21,11 @@ export interface BrowserProfile {
   metadata: BrowserProfileMetadata;
 }
 
+export interface BrowserProfileStateSummary {
+  hasState: boolean;
+  authMarkers: string[];
+}
+
 export interface BrowserProfileLock {
   name: string;
   lockPath: string;
@@ -55,6 +60,86 @@ function getProfileDir(name: string): string {
 
 function getProfileMetadataPath(name: string): string {
   return path.join(getProfileDir(name), 'profile.json');
+}
+
+const AUTH_MARKER_DOMAINS = [
+  'linkedin.com',
+  'x.com',
+  'twitter.com',
+  'google.com',
+  'github.com',
+] as const;
+
+function chromeCookieDbPaths(userDataDir: string): string[] {
+  return [
+    path.join(userDataDir, 'Default', 'Cookies'),
+    path.join(userDataDir, 'Default', 'Network', 'Cookies'),
+    path.join(userDataDir, 'Profile 1', 'Cookies'),
+    path.join(userDataDir, 'Profile 1', 'Network', 'Cookies'),
+  ];
+}
+
+function hasNonEmptyPath(targetPath: string): boolean {
+  try {
+    const stat = fs.statSync(targetPath);
+    if (stat.isFile()) return stat.size > 0;
+    if (!stat.isDirectory()) return false;
+    return fs.readdirSync(targetPath).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function readSmallFileLowercase(targetPath: string): string {
+  try {
+    const stat = fs.statSync(targetPath);
+    if (!stat.isFile() || stat.size <= 0) return '';
+    const maxBytes = 10 * 1024 * 1024;
+    const fd = fs.openSync(targetPath, 'r');
+    try {
+      const length = Math.min(stat.size, maxBytes);
+      const buffer = Buffer.alloc(length);
+      fs.readSync(fd, buffer, 0, length, 0);
+      return buffer.toString('latin1').toLowerCase();
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return '';
+  }
+}
+
+function detectChromeAuthMarkers(userDataDir: string): string[] {
+  const detected = new Set<string>();
+  for (const cookiePath of chromeCookieDbPaths(userDataDir)) {
+    const body = readSmallFileLowercase(cookiePath);
+    if (!body) continue;
+    for (const domain of AUTH_MARKER_DOMAINS) {
+      if (body.includes(domain)) detected.add(domain);
+    }
+  }
+  return [...detected].sort();
+}
+
+export function summarizeBrowserProfileState(
+  profile: Pick<BrowserProfile, 'userDataDir' | 'statePath' | 'metadata'>,
+): BrowserProfileStateSummary {
+  const metadataMarkers = profile.metadata.auth_markers || [];
+  const detectedMarkers = detectChromeAuthMarkers(profile.userDataDir);
+  const markerSet = new Set([...metadataMarkers, ...detectedMarkers]);
+  const hasChromeState =
+    chromeCookieDbPaths(profile.userDataDir).some(hasNonEmptyPath) ||
+    hasNonEmptyPath(
+      path.join(profile.userDataDir, 'Default', 'Local Storage', 'leveldb'),
+    ) ||
+    hasNonEmptyPath(
+      path.join(profile.userDataDir, 'Default', 'Session Storage'),
+    );
+
+  return {
+    hasState: fs.existsSync(profile.statePath) || hasChromeState,
+    authMarkers: [...markerSet].sort(),
+  };
 }
 
 function readMetadata(name: string): BrowserProfileMetadata {

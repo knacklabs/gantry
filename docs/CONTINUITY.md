@@ -36,11 +36,11 @@ MyClaw currently has these layers:
    - Postgres full-text search for lexical recall
    - `pgvector` for semantic recall when embeddings are enabled
 
-3. Hook-driven continuity context
-   - Session hooks load a concise memory brief at session boundaries.
-   - Host runtime also injects a fresh continuity block for every run.
+3. Host-driven continuity context
+   - Host runtime injects a fresh continuity block for every run.
    - The agent can call memory MCP tools during the run.
-   - After successful boundaries, extraction writes durable memories.
+   - `/new`, manual `/compact`, and observed SDK auto-compaction boundaries run
+     durable memory extraction.
 
 This gives the baseline for continuity today: remembered facts and relevant context can be injected into the next run.
 
@@ -145,7 +145,8 @@ Current user controls:
 - `myclaw status` for runtime state
 - `myclaw doctor` for health checks
 - `/new` to reset session state while preserving memory
-- `/compact` to archive the current transcript and continue
+- `/compact` to ask the Claude Agent SDK to compact active context and collect
+  durable memory at the compact boundary
 - memory MCP tools available to agents: `memory_search`, `memory_save`, `memory_patch`, `procedure_save`, `procedure_patch`
 
 Planned continuity controls:

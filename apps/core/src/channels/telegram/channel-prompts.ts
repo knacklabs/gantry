@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { createHash } from 'crypto';
 import https from 'https';
 import path from 'path';
 
@@ -330,6 +331,22 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
 
   protected startPolling(): void {
     if (!this.bot || this.isStopping) return;
+    void this.startPollingWithLease();
+  }
+
+  private async startPollingWithLease(): Promise<void> {
+    if (!this.bot || this.isStopping || this.pollingLease) return;
+    const leaseKey = `telegram:poll:${createHash('sha256').update(this.botToken).digest('hex').slice(0, 24)}`;
+    const lease = await this.opts.runtimeLease?.tryAcquire(leaseKey);
+    if (!lease && this.opts.runtimeLease) {
+      logger.warn(
+        { leaseKey },
+        'Telegram polling lease is held by another runtime; skipping poller start',
+      );
+      this.schedulePollingRetry();
+      return;
+    }
+    this.pollingLease = lease ?? null;
 
     Promise.resolve(
       this.bot.start({
@@ -349,15 +366,23 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
       }),
     )
       .then(() => {
+        void this.releasePollingLease();
         if (this.isStopping) return;
         logger.warn('Telegram polling stopped unexpectedly');
         this.schedulePollingRetry();
       })
       .catch((err) => {
+        void this.releasePollingLease();
         if (this.isStopping) return;
         logger.error({ err }, 'Telegram polling failed');
         this.schedulePollingRetry();
       });
+  }
+
+  protected async releasePollingLease(): Promise<void> {
+    const lease = this.pollingLease;
+    this.pollingLease = null;
+    await lease?.release();
   }
 
   /**

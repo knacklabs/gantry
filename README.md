@@ -179,7 +179,12 @@ Continuity is the runtime context that helps the agent pick up where it left off
 
 Embeddings are off by default. Memory search and context injection still work without embeddings; embeddings only improve ranking when enabled.
 
-Host runtime now injects a fresh memory/continuity block for every agent run (message and scheduler), so baseline recall does not depend on the agent deciding to call memory tools first. The block is sent as a separate structured untrusted data message, with a system-level boundary policy that forbids treating memory records as instructions or tool-use authority.
+Host runtime injects a memory-only block when a fresh chat runner or scheduled
+job starts. Follow-up chat messages continue through the same live Claude SDK
+stream while the runner is alive, so MyClaw does not replay summaries, recent
+messages, or recent run summaries into every prompt. The memory block is sent
+as structured untrusted data with a system-level boundary policy that forbids
+treating memory records as instructions or tool-use authority.
 
 Memory boundaries:
 

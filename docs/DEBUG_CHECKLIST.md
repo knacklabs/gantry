@@ -23,16 +23,17 @@ grep 'groupCount' logs/myclaw.log | tail -3
 myclaw status
 ```
 
-## Session Transcript Branching
+## Session Transcript Inspection
 
 ```bash
-# Check provider artifact metadata in Postgres, then restore the artifact
-# through ProviderArtifactStore into a temp run directory before inspection.
+# Provider transcript exports are debugging artifacts only.
+# Runtime continuation comes from canonical Postgres sessions, messages,
+# summaries, runs, and memory.
 
-# Check parentUuid branching in an exported/restored provider artifact
+# Check parentUuid branching in an exported provider artifact
 python3 -c "
 import json
-lines = open('/tmp/myclaw-restored-provider-artifact/<session>.jsonl').read().strip().split('\n')
+lines = open('/tmp/myclaw-exported-provider-artifact/<session>.jsonl').read().strip().split('\n')
 for i, line in enumerate(lines):
   try:
     d = json.loads(line)

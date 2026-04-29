@@ -219,7 +219,7 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
       schedule_type: scheduleType,
       schedule_value: scheduleValue,
       linked_sessions: linkedSessions,
-      session_id: existingJob?.session_id ?? null,
+      session_id: null,
       thread_id: authThreadId ?? payloadThreadId ?? null,
       group_scope: groupScope,
       created_by: data.createdBy === 'human' ? 'human' : 'agent',
