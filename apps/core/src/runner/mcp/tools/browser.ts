@@ -1,7 +1,12 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { validateBrowserCdpResponse } from '../browser-cdp-health.js';
 import { formatBrowserToolResponse } from '../formatting.js';
 import { requestBrowserAction } from '../ipc.js';
+
+function formatBrowserFailure(action: string, error?: string): string {
+  return `Browser ${action} failed: ${error || 'unknown error'}`;
+}
 
 export function registerBrowserTools(server: McpServer): void {
   server.tool(
@@ -15,7 +20,7 @@ export function registerBrowserTools(server: McpServer): void {
           content: [
             {
               type: 'text' as const,
-              text: `Browser profile list failed: ${response.error || 'unknown error'}`,
+              text: formatBrowserFailure('profile list', response.error),
             },
           ],
           isError: true,
@@ -39,13 +44,15 @@ export function registerBrowserTools(server: McpServer): void {
       keep_alive_ms: z.number().optional(),
     },
     async (args) => {
-      const response = await requestBrowserAction('browser_launch', args);
+      const response = await validateBrowserCdpResponse(
+        await requestBrowserAction('browser_launch', args),
+      );
       if (!response.ok) {
         return {
           content: [
             {
               type: 'text' as const,
-              text: `Browser launch failed: ${response.error || 'unknown error'}`,
+              text: formatBrowserFailure('launch', response.error),
             },
           ],
           isError: true,
@@ -72,7 +79,7 @@ export function registerBrowserTools(server: McpServer): void {
           content: [
             {
               type: 'text' as const,
-              text: `Browser close failed: ${response.error || 'unknown error'}`,
+              text: formatBrowserFailure('close', response.error),
             },
           ],
           isError: true,
@@ -93,13 +100,15 @@ export function registerBrowserTools(server: McpServer): void {
       profile_name: z.string().optional().default('myclaw'),
     },
     async (args) => {
-      const response = await requestBrowserAction('browser_status', args);
+      const response = await validateBrowserCdpResponse(
+        await requestBrowserAction('browser_status', args),
+      );
       if (!response.ok) {
         return {
           content: [
             {
               type: 'text' as const,
-              text: `Browser status failed: ${response.error || 'unknown error'}`,
+              text: formatBrowserFailure('status', response.error),
             },
           ],
           isError: true,
