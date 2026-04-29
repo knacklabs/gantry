@@ -41,8 +41,10 @@ const controlRepo = {
     defaultResponseMode: 'sse',
     defaultWebhookId: null,
   })),
-  addControlEvent: vi.fn(async () => ({ eventId: 1 })),
   markTriggerCompleted: vi.fn(async () => undefined),
+};
+const runtimeEvents = {
+  publish: vi.fn(async () => ({ eventId: 1 })),
 };
 
 const opsRepo = {
@@ -52,6 +54,7 @@ const opsRepo = {
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: () => controlRepo,
+  getRuntimeEventExchange: () => runtimeEvents,
   getRuntimeOpsRepository: () => opsRepo,
 }));
 

@@ -24,7 +24,7 @@ App
     AgentSession
       ProviderSession
     AgentRun
-      AgentRunEvent
+      RuntimeEvent
     MemorySubject
     Job
     ToolCatalogItem
@@ -68,7 +68,7 @@ Identity rules:
 | `AgentSession`        | Domain                   | Canonical continuity state for an agent in an app, conversation, thread, job, or run context. It survives provider swaps.                                                          |
 | `ProviderSession`     | Adapter                  | A provider-specific resume token or transcript pointer, such as a Claude session id. It is attached to an `AgentSession`.                                                          |
 | `AgentRun`            | Domain/application       | One execution attempt by an agent for a message, job, control request, or manual trigger.                                                                                          |
-| `AgentRunEvent`       | Domain/application       | A durable event emitted during a run: queued, started, model event, tool request, permission decision, output chunk, completed, failed, or canceled.                               |
+| `RuntimeEvent`        | Application/storage      | The durable observable runtime stream for run, job, session, SSE/wait, SDK listing, and webhook delivery events. Audit records remain in their owning modules.                    |
 | `MemorySubject`       | Domain                   | A memory boundary for app, agent, user, group/team, conversation, thread, or common shared memory.                                                                                 |
 | `Job`                 | Domain/application       | Scheduled, recurring, or manual work that creates agent runs under explicit app, agent, session, and permission context.                                                           |
 | `ToolCatalogItem`     | Domain catalog           | A tool capability exposed to agents with name, input contract, risk classification, permission requirements, and adapter binding.                                                  |
@@ -173,9 +173,11 @@ last N messages instead of replaying the full conversation on every run.
 session, conversation/thread context, permission context, sandbox lease,
 workspace snapshot, provider profile, status, timestamps, and result summary.
 
-`AgentRunEvent` is the observable event stream for a run. SDK streams, Web UI,
-webhooks, channel progress, audit trails, and debugging should read run events
-instead of scraping provider stdout.
+`RuntimeEvent` is the observable runtime delivery stream for SDK event listing,
+SSE/wait, webhook projection, run events, job events, and app-channel
+session/control output. Run-event responses are projections filtered from
+runtime events instead of a separately owned `AgentRunEvent` stream. Audit
+histories remain in their owned modules.
 
 ### Memory And Jobs
 
@@ -275,7 +277,7 @@ These mappings describe current code so future refactors know what to replace:
 | Claude session id                  | `ProviderSession` attached to `AgentSession`                                                |
 | Group queue key                    | Queue key derived from canonical app, agent, conversation, thread, session, and run context |
 | Host runner process                | Runtime execution adapter governed by `SandboxProfile` and `SandboxLease`                   |
-| Control events                     | `AgentRunEvent` plus API-visible event projections                                          |
+| Control events                     | `RuntimeEvent` records projected to SDK lists, SSE/wait, run/job event views, and webhooks  |
 
 ## Adapter Boundaries
 
@@ -292,7 +294,7 @@ LLM provider adapters:
 
 - resolve `LlmProfile` to concrete model/provider calls
 - create and update `ProviderSession`
-- translate provider stream events into `AgentRunEvent`
+- translate provider stream events into `RuntimeEvent` records through the exchange
 - keep provider SDK types out of domain and application services
 
 Storage adapters:

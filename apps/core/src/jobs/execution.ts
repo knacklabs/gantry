@@ -8,7 +8,15 @@ import type {
   StreamingChunkOptions,
 } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { getRuntimeControlRepository } from '../adapters/storage/postgres/runtime-store.js';
+import {
+  getRuntimeControlRepository,
+  getRuntimeEventExchange,
+} from '../adapters/storage/postgres/runtime-store.js';
+import { resolveJobRuntimeAppId } from '../application/jobs/job-access.js';
+import {
+  RUNTIME_EVENT_TYPES,
+  type RuntimeEventType,
+} from '../domain/events/runtime-event-types.js';
 import {
   nowIso as currentIso,
   nowMs as currentTimeMs,
@@ -32,6 +40,7 @@ import type {
 } from './types.js';
 
 const JOB_DELETION_CHECK_INTERVAL_MS = 1_000;
+const DEFAULT_RUNTIME_APP_ID = 'default';
 let schedulerStreamingGenerationCounter = 0;
 
 export function resetSchedulerExecutionStateForTests(): void {
@@ -95,6 +104,10 @@ export async function runJob(
       ? 'serialized'
       : 'parallel';
   const leaseExpiresAt = toIso(currentTimeMs() + timeoutMs + 30_000);
+  const runtimeAppId = resolveJobRuntimeAppId(
+    currentJob,
+    DEFAULT_RUNTIME_APP_ID,
+  );
 
   const claimed = await deps.opsRepository.claimDueJobRunStart({
     jobId: currentJob.id,
@@ -123,18 +136,19 @@ export async function runJob(
       (boundTrigger
         ? await resolveAppSessionForTrigger(boundTrigger.requestedBy)
         : undefined) ?? (await resolveAppSessionForJob());
-    await control.addControlEvent({
-      eventType: 'job.run.started',
-      payload: JSON.stringify({
+    await getRuntimeEventExchange().publish({
+      appId: (eventAppSession?.appId ?? runtimeAppId) as never,
+      eventType: RUNTIME_EVENT_TYPES.JOB_RUN_STARTED,
+      payload: {
         jobId: currentJob.id,
         runId,
         scheduledFor,
-      }),
+      },
       actor: 'scheduler',
-      sessionId: eventAppSession?.sessionId ?? null,
-      jobId: currentJob.id,
-      runId,
-      triggerId: boundTrigger?.triggerId ?? null,
+      sessionId: eventAppSession?.sessionId as never,
+      jobId: currentJob.id as never,
+      runId: runId as never,
+      triggerId: boundTrigger?.triggerId,
       responseMode: eventAppSession?.defaultResponseMode,
       webhookId: eventAppSession?.defaultWebhookId,
     });
@@ -179,17 +193,23 @@ export async function runJob(
     return isJobDeleted(force);
   };
   const emitJobEvent = async (
-    eventType: string,
+    eventType: RuntimeEventType,
     payload: Record<string, unknown> | null,
   ): Promise<void> => {
     if (await isJobDeleted(true)) return;
     try {
-      await deps.opsRepository.addJobEvent({
-        job_id: currentJob.id,
-        run_id: runId,
-        event_type: eventType,
-        payload: payload ? JSON.stringify(payload) : null,
-        created_at: currentIso(),
+      const appSession = eventAppSession ?? (await resolveAppSessionForJob());
+      await getRuntimeEventExchange().publish({
+        appId: (appSession?.appId ?? runtimeAppId) as never,
+        eventType,
+        payload,
+        actor: 'scheduler',
+        sessionId: appSession?.sessionId as never,
+        jobId: currentJob.id as never,
+        runId: runId as never,
+        triggerId: boundTriggerId,
+        responseMode: appSession?.defaultResponseMode,
+        webhookId: appSession?.defaultWebhookId,
       });
     } catch (err) {
       logger.warn(
@@ -198,7 +218,7 @@ export async function runJob(
       );
     }
   };
-  await emitJobEvent('job.started', {
+  await emitJobEvent(RUNTIME_EVENT_TYPES.JOB_STARTED, {
     queue_jid: queueJid,
     execution_mode: executionMode,
     scheduled_for: scheduledFor,
@@ -352,7 +372,7 @@ export async function runJob(
         if (bufferedStreamingChars <= 0) return;
         const nowMs = currentTimeMs();
         if (!force && nowMs - lastStreamingEventMs < 1000) return;
-        void emitJobEvent('job.streaming', {
+        void emitJobEvent(RUNTIME_EVENT_TYPES.JOB_STREAMING, {
           buffered_chars: bufferedStreamingChars,
           total_chars: totalStreamingChars,
         });
@@ -528,7 +548,7 @@ export async function runJob(
     error ? error.slice(0, 500) : null,
   );
 
-  await emitJobEvent(`run_${runStatus}`, {
+  await emitJobEvent(runtimeEventTypeForRunStatus(runStatus), {
     next_run: nextRun,
     retry_count: retryCount,
     pause_reason: pauseReason,
@@ -578,7 +598,9 @@ export async function runJob(
     await deps.opsRepository.markJobRunNotified(runId);
   }
   await emitJobEvent(
-    runStatus === 'completed' ? 'job.completed' : 'job.failed',
+    runStatus === 'completed'
+      ? RUNTIME_EVENT_TYPES.JOB_COMPLETED
+      : RUNTIME_EVENT_TYPES.JOB_FAILED,
     {
       status: runStatus,
       next_run: nextRun,
@@ -597,21 +619,24 @@ export async function runJob(
         runStatus === 'completed' ? 'completed' : 'failed',
       );
     }
-    await control.addControlEvent({
+    await getRuntimeEventExchange().publish({
+      appId: (eventAppSession?.appId ?? runtimeAppId) as never,
       eventType:
-        runStatus === 'completed' ? 'job.run.completed' : 'job.run.failed',
-      payload: JSON.stringify({
+        runStatus === 'completed'
+          ? RUNTIME_EVENT_TYPES.JOB_RUN_COMPLETED
+          : RUNTIME_EVENT_TYPES.JOB_RUN_FAILED,
+      payload: {
         jobId: currentJob.id,
         runId,
         status: runStatus,
         summary,
         nextRun,
-      }),
+      },
       actor: 'scheduler',
-      sessionId: eventAppSession?.sessionId ?? null,
-      jobId: currentJob.id,
-      runId,
-      triggerId: boundTriggerId ?? null,
+      sessionId: eventAppSession?.sessionId as never,
+      jobId: currentJob.id as never,
+      runId: runId as never,
+      triggerId: boundTriggerId,
       responseMode: eventAppSession?.defaultResponseMode,
       webhookId: eventAppSession?.defaultWebhookId,
     });
@@ -626,5 +651,20 @@ export async function runJob(
   ) {
     await deps.opsRepository.deleteJob(currentJob.id);
     deps.onSchedulerChanged?.(currentJob.id);
+  }
+}
+
+function runtimeEventTypeForRunStatus(
+  status: 'completed' | 'failed' | 'timeout' | 'dead_lettered',
+): RuntimeEventType {
+  switch (status) {
+    case 'completed':
+      return RUNTIME_EVENT_TYPES.RUN_COMPLETED;
+    case 'failed':
+      return RUNTIME_EVENT_TYPES.RUN_FAILED;
+    case 'timeout':
+      return RUNTIME_EVENT_TYPES.RUN_TIMEOUT;
+    case 'dead_lettered':
+      return RUNTIME_EVENT_TYPES.RUN_DEAD_LETTERED;
   }
 }

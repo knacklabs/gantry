@@ -4,6 +4,7 @@ import type { ProviderArtifactStore } from '../../../domain/ports/provider-artif
 import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
 import { evaluatePostgresStorageCapabilities } from './readiness.js';
 import type { PostgresControlPlaneRepository } from './schema/control-plane-repo.postgres.js';
+import type { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
 
 let runtime: StorageRuntime | null = null;
 
@@ -39,6 +40,10 @@ export function getRuntimeControlRepository(): PostgresControlPlaneRepository {
   return getRuntimeStorage().control;
 }
 
+export function getRuntimeEventExchange(): RuntimeEventExchange {
+  return getRuntimeStorage().runtimeEvents;
+}
+
 export function getRuntimeProviderArtifactStore(): ProviderArtifactStore {
   return getRuntimeStorage().providerArtifacts;
 }
@@ -50,6 +55,7 @@ export function getRuntimeSkillArtifactStore(): SkillArtifactStore {
 export async function closeRuntimeStorage(): Promise<void> {
   const existing = runtime;
   runtime = null;
+  await existing?.runtimeEventNotifier.close();
   await existing?.service.close();
 }
 
@@ -69,6 +75,10 @@ export function _setRuntimeOpsRepositoryForTest(ops: OpsRepository): void {
     ops,
     control: {} as StorageRuntime['control'],
     repositories: {} as StorageRuntime['repositories'],
+    runtimeEvents: {} as StorageRuntime['runtimeEvents'],
+    runtimeEventNotifier: {
+      close: async () => {},
+    } as StorageRuntime['runtimeEventNotifier'],
     providerArtifacts: {} as StorageRuntime['providerArtifacts'],
     skillArtifacts: {} as StorageRuntime['skillArtifacts'],
   };

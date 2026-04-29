@@ -27,10 +27,7 @@ import type {
   Conversation,
   ConversationThread,
 } from '../../../../domain/conversation/conversation.js';
-import type {
-  AgentRun,
-  AgentRunEvent,
-} from '../../../../domain/events/events.js';
+import type { AgentRun } from '../../../../domain/events/events.js';
 import type { Job, JobTrigger } from '../../../../domain/jobs/jobs.js';
 import type {
   MemoryItem,
@@ -62,6 +59,7 @@ import type {
   McpServerRepository,
   PermissionRepository,
   ProviderSessionRepository,
+  RuntimeEventRepository,
   SandboxRepository,
   SkillCatalogRepository,
   ToolCatalogRepository,
@@ -83,6 +81,7 @@ import {
 } from './session-repositories.postgres.js';
 import { PostgresMcpServerRepository } from './mcp-server-repository.postgres.js';
 import { PostgresSkillCatalogRepository } from './skill-repository.postgres.js';
+import { PostgresRuntimeEventRepository } from './runtime-event-repository.postgres.js';
 
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
@@ -95,6 +94,7 @@ export interface PostgresDomainRepositoryBundle {
   providerSessions: ProviderSessionRepository;
   agentSessionSummaries: AgentSessionSummaryRepository;
   agentRuns: AgentRunRepository;
+  runtimeEvents: RuntimeEventRepository;
   memory: MemoryRepository;
   jobs: JobRepository;
   tools: ToolCatalogRepository;
@@ -1373,36 +1373,6 @@ export class PostgresAgentRunRepository implements AgentRunRepository {
       });
   }
 
-  async appendAgentRunEvent(event: AgentRunEvent): Promise<void> {
-    await this.db.insert(pgSchema.agentRunEventsPostgres).values({
-      id: event.id,
-      appId: event.appId,
-      runId: event.runId,
-      type: event.type,
-      payloadJson: encodeJson(event.payload),
-      createdAt: event.createdAt,
-    });
-  }
-
-  async listAgentRunEvents(runId: AgentRun['id']): Promise<AgentRunEvent[]> {
-    const rows = await this.db
-      .select()
-      .from(pgSchema.agentRunEventsPostgres)
-      .where(eq(pgSchema.agentRunEventsPostgres.runId, runId))
-      .orderBy(
-        asc(pgSchema.agentRunEventsPostgres.createdAt),
-        asc(pgSchema.agentRunEventsPostgres.id),
-      );
-    return rows.map((row) => ({
-      id: row.id,
-      appId: row.appId,
-      runId: row.runId,
-      type: row.type as AgentRunEvent['type'],
-      payload: parseJson(row.payloadJson, null),
-      createdAt: row.createdAt,
-    })) as AgentRunEvent[];
-  }
-
   async listAgentRunsBySession(input: {
     sessionId: AgentSession['id'];
     limit?: number;
@@ -2014,6 +1984,7 @@ export function createPostgresDomainRepositories(
     providerSessions: new PostgresProviderSessionRepository(db),
     agentSessionSummaries: new PostgresAgentSessionSummaryRepository(db),
     agentRuns: new PostgresAgentRunRepository(db),
+    runtimeEvents: new PostgresRuntimeEventRepository(db),
     memory: new PostgresMemoryRepository(db),
     jobs: new PostgresJobRepository(db),
     tools: new PostgresToolCatalogRepository(db),

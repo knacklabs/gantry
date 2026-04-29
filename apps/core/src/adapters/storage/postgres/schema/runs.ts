@@ -1,4 +1,4 @@
-import { index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
 import {
   agentConfigVersionsPostgres,
@@ -50,29 +50,3 @@ export const agentRunsPostgres = pgTable('agent_runs', {
   resultSummary: text('result_summary'),
   errorSummary: text('error_summary'),
 });
-
-export const agentRunEventsPostgres = pgTable(
-  'agent_run_events',
-  {
-    id: text('id').primaryKey(),
-    appId: text('app_id')
-      .notNull()
-      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
-    runId: text('run_id')
-      .notNull()
-      .references(() => agentRunsPostgres.id, { onDelete: 'cascade' }),
-    type: text('type').notNull(),
-    payloadJson: text('payload_json').notNull(),
-    createdAt: timestamp('created_at', {
-      withTimezone: true,
-      mode: 'string',
-    }).notNull(),
-  },
-  (table) => ({
-    runCursorIdx: index('idx_agent_run_events_run_cursor').on(
-      table.runId,
-      table.createdAt,
-      table.id,
-    ),
-  }),
-);

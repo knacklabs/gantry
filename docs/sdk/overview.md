@@ -40,7 +40,7 @@ uses `sessions:read` and `sessions:write`; job dashboards add `jobs:read` and
 3. MyClaw persists the inbound message to the runtime store.
 4. The message enters the normal group queue.
 5. The agent runs through the normal host runtime.
-6. Outbound replies/progress/streaming are emitted as durable `control_events`.
+6. Outbound replies/progress/streaming are emitted as durable `RuntimeEvent` records in `runtime_events`.
 7. The app consumes those events through `sessions.wait()`, `sessions.stream()`, or signed webhooks.
 
 ```mermaid
@@ -54,11 +54,11 @@ sequenceDiagram
 
   App->>SDK: sessions.sendMessage()
   SDK->>Control: POST /v1/sessions/:id/messages
-  Control->>Store: persist inbound message + control event
+  Control->>Store: persist inbound message + runtime event
   Control->>Queue: enqueue message check
   Queue->>Agent: run agent normally
   Agent->>Control: outbound reply via app channel
-  Control->>Store: append control event
+  Control->>Store: append runtime event
   Store-->>SDK: SSE / wait / webhook delivery
 ```
 

@@ -21,12 +21,17 @@ import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-st
 import { PostgresCanonicalOpsRepository } from './schema/canonical-ops-repo.postgres.js';
 import { PostgresControlPlaneRepository } from './schema/control-plane-repo.postgres.js';
 import type { PostgresStorageService } from './storage-service.js';
+import { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
+import { PostgresRuntimeEventNotifier } from './runtime-event-notifier.postgres.js';
+import { PostgresRuntimeEventWebhookProjector } from './runtime-event-webhook-projector.postgres.js';
 
 export interface StorageRuntime {
   service: PostgresStorageService;
   ops: OpsRepository;
   control: PostgresControlPlaneRepository;
   repositories: PostgresDomainRepositoryBundle;
+  runtimeEvents: RuntimeEventExchange;
+  runtimeEventNotifier: PostgresRuntimeEventNotifier;
   providerArtifacts: ProviderArtifactStore;
   skillArtifacts: SkillArtifactStore;
 }
@@ -44,13 +49,22 @@ export function createStorageRuntime(
 ): StorageRuntime {
   const service = createStorageService(config);
   const sessionSettings = getRuntimeSettingsForConfig().agent.sessions;
+  const control = new PostgresControlPlaneRepository(service.pool);
+  const repositories = createPostgresDomainRepositories(service.db);
+  const runtimeEventNotifier = new PostgresRuntimeEventNotifier(service.pool);
+  const runtimeEvents = new RuntimeEventExchange(
+    repositories.runtimeEvents,
+    runtimeEventNotifier,
+    [new PostgresRuntimeEventWebhookProjector(control)],
+  );
   const ops: OpsRepository = new PostgresCanonicalOpsRepository(
     service.pool,
     service.db,
-    { sessions: sessionSettings },
+    {
+      runtimeEvents,
+      sessions: sessionSettings,
+    },
   );
-  const control = new PostgresControlPlaneRepository(service.pool);
-  const repositories = createPostgresDomainRepositories(service.db);
   const providerArtifacts = new PostgresProviderArtifactStore(service.db, {
     artifactRoot: ARTIFACTS_DIR,
     defaultStorageType: 'local-filesystem',
@@ -61,6 +75,8 @@ export function createStorageRuntime(
     ops,
     control,
     repositories,
+    runtimeEvents,
+    runtimeEventNotifier,
     providerArtifacts,
     skillArtifacts,
   };

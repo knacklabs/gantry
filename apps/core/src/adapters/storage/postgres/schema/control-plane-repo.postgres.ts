@@ -118,44 +118,6 @@ export class PostgresControlPlaneRepository {
     return rows.rows[0] ? mapSession(rows.rows[0]) : undefined;
   }
 
-  async addControlEvent(input: {
-    eventType: string;
-    payload: string;
-    actor?: string;
-    sessionId?: string | null;
-    jobId?: string | null;
-    runId?: string | null;
-    triggerId?: string | null;
-    correlationId?: string | null;
-    responseMode?: ControlResponseMode;
-    webhookId?: string | null;
-  }): Promise<ControlEventRecord> {
-    const rows = await this.pool.query<CanonicalControlRow>(
-      `INSERT INTO control_http_events
-         (event_type, payload, actor, session_id, job_id, run_id, trigger_id, correlation_id, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING *`,
-      [
-        input.eventType,
-        input.payload,
-        input.actor ?? 'runtime',
-        input.sessionId ?? null,
-        input.jobId ?? null,
-        input.runId ?? null,
-        input.triggerId ?? null,
-        input.correlationId ?? null,
-        currentIso(),
-      ],
-    );
-    const event = mapEvent(rows.rows[0]!);
-    const mode = input.responseMode ?? 'sse';
-    const webhookId = input.webhookId ?? null;
-    if ((mode === 'webhook' || mode === 'both') && webhookId) {
-      await this.enqueueWebhookDelivery(event.eventId, webhookId);
-    }
-    return event;
-  }
-
   async upsertAppResponseRoute(input: {
     sessionId: string;
     threadId?: string | null;
@@ -196,29 +158,6 @@ export class PostgresControlPlaneRepository {
       [input.sessionId, input.threadId?.trim() || ''],
     );
     return rows.rows[0] ? mapRoute(rows.rows[0]) : undefined;
-  }
-
-  async listSessionEvents(input: {
-    sessionId: string;
-    afterEventId?: number;
-    limit?: number;
-  }): Promise<ControlEventRecord[]> {
-    const rows = await this.pool.query<CanonicalControlRow>(
-      `SELECT * FROM control_http_events
-       WHERE session_id = $1 AND event_id > $2
-       ORDER BY event_id ASC
-       LIMIT $3`,
-      [input.sessionId, input.afterEventId ?? 0, input.limit ?? 100],
-    );
-    return rows.rows.map(mapEvent);
-  }
-
-  async listRecentEventsForRun(runId: string): Promise<ControlEventRecord[]> {
-    const rows = await this.pool.query<CanonicalControlRow>(
-      `SELECT * FROM control_http_events WHERE run_id = $1 ORDER BY event_id ASC`,
-      [runId],
-    );
-    return rows.rows.map(mapEvent);
   }
 
   async registerWebhook(input: {
@@ -415,22 +354,22 @@ export class PostgresControlPlaneRepository {
       [webhookIds],
     );
     const eventRows = await db.query<CanonicalControlRow>(
-      `SELECT * FROM control_http_events WHERE event_id = ANY($1::int[])`,
+      `SELECT
+         event_id,
+         event_type,
+         session_id,
+         job_id,
+         run_id,
+         trigger_id,
+         correlation_id,
+         actor,
+         payload_json AS payload,
+         created_at,
+         app_id
+       FROM runtime_events
+       WHERE event_id = ANY($1::int[])`,
       [eventIds],
     );
-    const sessionIds = [
-      ...new Set(
-        eventRows.rows.map((row) => text(row.session_id)).filter(Boolean),
-      ),
-    ];
-    const sessionRows =
-      sessionIds.length > 0
-        ? await db.query<CanonicalControlRow>(
-            `SELECT session_id, app_id FROM control_http_sessions
-             WHERE session_id = ANY($1::text[])`,
-            [sessionIds],
-          )
-        : { rows: [] };
     const webhooks = new Map(
       webhookRows.rows.map((row) => [
         String(row.webhook_id),
@@ -440,21 +379,16 @@ export class PostgresControlPlaneRepository {
     const events = new Map(
       eventRows.rows.map((row) => [Number(row.event_id), mapEvent(row)]),
     );
-    const sessionApps = new Map(
-      sessionRows.rows.map((row) => [
-        String(row.session_id),
-        String(row.app_id),
-      ]),
-    );
     return claimed.map((delivery) => {
       const event = events.get(delivery.eventId) ?? null;
+      const eventRow = eventRows.rows.find(
+        (row) => Number(row.event_id) === delivery.eventId,
+      );
       return {
         ...delivery,
         webhook: webhooks.get(delivery.webhookId) ?? null,
         event,
-        sessionAppId: event?.sessionId
-          ? (sessionApps.get(event.sessionId) ?? null)
-          : null,
+        sessionAppId: eventRow ? String(eventRow.app_id) : null,
       };
     });
   }
@@ -623,13 +557,5 @@ export class PostgresControlPlaneRepository {
       [triggerId],
     );
     return rows.rows[0] ? mapTrigger(rows.rows[0]) : undefined;
-  }
-
-  async getEventById(eventId: number): Promise<ControlEventRecord | undefined> {
-    const rows = await this.pool.query<CanonicalControlRow>(
-      `SELECT * FROM control_http_events WHERE event_id = $1 LIMIT 1`,
-      [eventId],
-    );
-    return rows.rows[0] ? mapEvent(rows.rows[0]) : undefined;
   }
 }

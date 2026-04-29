@@ -20,7 +20,13 @@ import type {
   ExternalConversationId,
   UserId,
 } from '../conversation/conversation.js';
-import type { AgentRun, AgentRunEvent, AgentRunId } from '../events/events.js';
+import type {
+  AgentRun,
+  AgentRunId,
+  RuntimeEvent,
+  RuntimeEventFilter,
+  RuntimeEventPublishInput,
+} from '../events/events.js';
 import type { Job, JobId, JobTrigger } from '../jobs/jobs.js';
 import type {
   MemoryItem,
@@ -215,12 +221,15 @@ export interface AgentSessionSummaryRepository {
 export interface AgentRunRepository {
   getAgentRun(id: AgentRunId): Promise<AgentRun | null>;
   saveAgentRun(run: AgentRun): Promise<void>;
-  appendAgentRunEvent(event: AgentRunEvent): Promise<void>;
-  listAgentRunEvents(runId: AgentRunId): Promise<AgentRunEvent[]>;
   listAgentRunsBySession(input: {
     sessionId: AgentSessionId;
     limit?: number;
   }): Promise<AgentRun[]>;
+}
+
+export interface RuntimeEventRepository {
+  appendRuntimeEvent(input: RuntimeEventPublishInput): Promise<RuntimeEvent>;
+  listRuntimeEvents(filter: RuntimeEventFilter): Promise<RuntimeEvent[]>;
 }
 
 export interface MemoryRepository {

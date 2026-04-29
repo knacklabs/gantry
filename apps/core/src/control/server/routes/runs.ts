@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { Job } from '../../../domain/types.js';
 import { getRuntimeOpsRepository } from '../../../adapters/storage/postgres/runtime-store.js';
-import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
+import { getRuntimeEventExchange } from '../../../adapters/storage/postgres/runtime-store.js';
 import { jobBelongsToApp } from '../app-identity.js';
 import {
   authorizeControlRequest,
@@ -43,18 +43,32 @@ export async function handleRunRoutes(
   if (runEventsId && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
-    const repositories = getRuntimeStorage().repositories;
-    const run = await repositories.agentRuns.getAgentRun(runEventsId as never);
+    const ops = getRuntimeOpsRepository();
+    const run = await ops.getJobRunById(runEventsId);
     if (!run) {
       sendError(res, 404, 'RUN_NOT_FOUND', 'Run not found');
       return true;
     }
-    if (!canAccessRunApp(run.appId, auth.appId)) {
+    const job = await ops.getJobById(run.job_id);
+    if (!job || !jobBelongsToApp(job, auth.appId)) {
       sendError(res, 403, 'FORBIDDEN', 'API key cannot access this run');
       return true;
     }
-    const events = await repositories.agentRuns.listAgentRunEvents(run.id);
-    sendJson(res, 200, { events });
+    const events = await getRuntimeEventExchange().list({
+      appId: auth.appId as never,
+      runId: run.run_id as never,
+      limit: 100,
+    });
+    sendJson(res, 200, {
+      events: events.map((event) => ({
+        id: String(event.eventId),
+        appId: event.appId,
+        runId: event.runId,
+        type: event.eventType,
+        payload: event.payload,
+        createdAt: event.createdAt,
+      })),
+    });
     return true;
   }
 
@@ -77,8 +91,4 @@ export async function handleRunRoutes(
   }
 
   return false;
-}
-
-function canAccessRunApp(runAppId: string, authAppId?: string): boolean {
-  return !authAppId || authAppId === '*' || authAppId === runAppId;
 }

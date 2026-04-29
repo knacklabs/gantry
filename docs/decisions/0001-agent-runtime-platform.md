@@ -45,7 +45,7 @@ App
     AgentSession
       ProviderSession
     AgentRun
-      AgentRunEvent
+      RuntimeEvent
     MemorySubject
     Job
     PermissionPolicy

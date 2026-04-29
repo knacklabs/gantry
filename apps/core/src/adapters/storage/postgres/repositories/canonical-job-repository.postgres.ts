@@ -1,6 +1,7 @@
-import { and, desc, eq, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 
 import type { JobRun } from '../../../../domain/repositories/domain-types.js';
+import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { nowIso as currentIso } from '../../../../infrastructure/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import {
@@ -69,11 +70,28 @@ export interface CanonicalRunRecord {
 
 export interface CanonicalJobEventRecord {
   id: string;
+  appId: string;
   runId: string;
+  jobId: string;
   type: string;
   payloadJson: string;
   createdAt: string;
 }
+
+const CANONICAL_JOB_EVENT_TYPES = [
+  RUNTIME_EVENT_TYPES.JOB_TRIGGERED,
+  RUNTIME_EVENT_TYPES.JOB_RUN_STARTED,
+  RUNTIME_EVENT_TYPES.JOB_STARTED,
+  RUNTIME_EVENT_TYPES.JOB_STREAMING,
+  RUNTIME_EVENT_TYPES.RUN_COMPLETED,
+  RUNTIME_EVENT_TYPES.RUN_FAILED,
+  RUNTIME_EVENT_TYPES.RUN_TIMEOUT,
+  RUNTIME_EVENT_TYPES.RUN_DEAD_LETTERED,
+  RUNTIME_EVENT_TYPES.JOB_COMPLETED,
+  RUNTIME_EVENT_TYPES.JOB_FAILED,
+  RUNTIME_EVENT_TYPES.JOB_RUN_COMPLETED,
+  RUNTIME_EVENT_TYPES.JOB_RUN_FAILED,
+] as const;
 
 export class PostgresCanonicalJobRepository {
   private readonly graph: PostgresCanonicalGraphRepository;
@@ -296,6 +314,18 @@ export class PostgresCanonicalJobRepository {
       .limit(limit);
   }
 
+  async findRuntimeEventAppIdForRun(
+    runId: string,
+  ): Promise<string | undefined> {
+    const rows = await this.db
+      .select({ appId: pgSchema.runtimeEventsPostgres.appId })
+      .from(pgSchema.runtimeEventsPostgres)
+      .where(eq(pgSchema.runtimeEventsPostgres.runId, runId))
+      .orderBy(desc(pgSchema.runtimeEventsPostgres.eventId))
+      .limit(1);
+    return rows[0]?.appId;
+  }
+
   async insertEvent(event: {
     id: string;
     runId: string;
@@ -303,11 +333,13 @@ export class PostgresCanonicalJobRepository {
     payloadJson: string;
     createdAt: string;
   }): Promise<void> {
-    await this.db.insert(pgSchema.agentRunEventsPostgres).values({
-      id: event.id,
+    const payload = parseJson<{ job_id?: string }>(event.payloadJson, {});
+    await this.db.insert(pgSchema.runtimeEventsPostgres).values({
       appId: CANONICAL_APP_ID,
       runId: event.runId,
-      type: event.type,
+      jobId: payload.job_id ?? null,
+      eventType: event.type,
+      actor: 'runtime',
       payloadJson: event.payloadJson,
       createdAt: event.createdAt,
     });
@@ -315,27 +347,51 @@ export class PostgresCanonicalJobRepository {
 
   async listEvents(
     limit = 200,
-    filters?: { runId?: string; eventType?: string },
+    filters?: {
+      appId?: string;
+      jobId?: string;
+      runId?: string;
+      eventType?: string;
+    },
   ): Promise<CanonicalJobEventRecord[]> {
     const query = this.db
       .select()
-      .from(pgSchema.agentRunEventsPostgres)
+      .from(pgSchema.runtimeEventsPostgres)
       .$dynamic();
     const clauses = [
+      eq(
+        pgSchema.runtimeEventsPostgres.appId,
+        filters?.appId ?? CANONICAL_APP_ID,
+      ),
       filters?.runId
-        ? eq(pgSchema.agentRunEventsPostgres.runId, filters.runId)
+        ? eq(pgSchema.runtimeEventsPostgres.runId, filters.runId)
+        : undefined,
+      filters?.jobId
+        ? eq(pgSchema.runtimeEventsPostgres.jobId, filters.jobId)
         : undefined,
       filters?.eventType
-        ? eq(pgSchema.agentRunEventsPostgres.type, filters.eventType)
-        : undefined,
+        ? eq(
+            pgSchema.runtimeEventsPostgres.eventType,
+            filters.eventType as never,
+          )
+        : inArray(
+            pgSchema.runtimeEventsPostgres.eventType,
+            CANONICAL_JOB_EVENT_TYPES,
+          ),
     ].filter(Boolean);
     const filtered = clauses.length > 0 ? query.where(and(...clauses)) : query;
-    return filtered
-      .orderBy(
-        desc(pgSchema.agentRunEventsPostgres.createdAt),
-        desc(pgSchema.agentRunEventsPostgres.id),
-      )
+    const rows = await filtered
+      .orderBy(desc(pgSchema.runtimeEventsPostgres.eventId))
       .limit(limit);
+    return rows.map((row) => ({
+      id: String(row.eventId),
+      appId: row.appId,
+      runId: row.runId ?? '',
+      jobId: row.jobId ?? '',
+      type: row.eventType,
+      payloadJson: row.payloadJson,
+      createdAt: row.createdAt,
+    }));
   }
 
   private async ensureJobRunGraph(

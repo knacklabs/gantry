@@ -15,6 +15,19 @@ export function jobBelongsToApp(job: Job, appId: string): boolean {
   );
 }
 
+export function resolveJobRuntimeAppId(job: Job, fallback = 'default'): string {
+  const appJid = (
+    Array.isArray(job.linked_sessions) ? job.linked_sessions : []
+  ).find((chatJid) => chatJid.startsWith('app:'));
+  if (!appJid) return fallback;
+  const rest = appJid.slice('app:'.length);
+  const delimiterIndex = rest.indexOf(':');
+  if (delimiterIndex <= 0 || rest.indexOf(':', delimiterIndex + 1) !== -1) {
+    return fallback;
+  }
+  return rest.slice(0, delimiterIndex) || fallback;
+}
+
 export function assertJobBelongsToApp(job: Job, appId: string): void {
   if (!jobBelongsToApp(job, appId)) {
     throw new ApplicationError('FORBIDDEN', 'API key cannot access this job');

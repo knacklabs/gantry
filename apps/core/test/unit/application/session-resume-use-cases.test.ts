@@ -228,8 +228,6 @@ describe('durable session resume use cases', () => {
     const runs: AgentRunRepository = {
       getAgentRun: async () => null,
       saveAgentRun: async () => {},
-      appendAgentRunEvent: async () => {},
-      listAgentRunEvents: async () => [],
       listAgentRunsBySession: async () => [],
     };
 
@@ -285,8 +283,6 @@ describe('durable session resume use cases', () => {
     const runs: AgentRunRepository = {
       getAgentRun: async () => null,
       saveAgentRun: async () => {},
-      appendAgentRunEvent: async () => {},
-      listAgentRunEvents: async () => [],
       listAgentRunsBySession: async () => [],
     };
 

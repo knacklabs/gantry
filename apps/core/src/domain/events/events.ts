@@ -18,9 +18,65 @@ import type {
 import type { AgentSessionId } from '../sessions/sessions.js';
 import type { BrandedId } from '../../shared/ids/branded-id.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
+import type { RuntimeEventType } from './runtime-event-types.js';
 
 export type AgentRunId = BrandedId<'AgentRunId'>;
 export type AgentRunEventId = BrandedId<'AgentRunEventId'>;
+export type RuntimeEventId = number & {
+  readonly __brand: 'RuntimeEventId';
+};
+
+export type RuntimeResponseMode = 'sse' | 'webhook' | 'both' | 'none';
+
+export interface RuntimeEvent {
+  eventId: RuntimeEventId;
+  appId: AppId;
+  agentId?: AgentId;
+  sessionId?: AgentSessionId;
+  runId?: AgentRunId;
+  jobId?: JobId;
+  triggerId?: string;
+  conversationId?: ConversationId;
+  threadId?: ConversationThreadId;
+  eventType: RuntimeEventType;
+  actor: string;
+  correlationId?: string;
+  responseMode?: RuntimeResponseMode;
+  webhookId?: string;
+  payload: unknown;
+  createdAt: IsoTimestamp;
+}
+
+export interface RuntimeEventPublishInput {
+  appId: AppId;
+  agentId?: AgentId;
+  sessionId?: AgentSessionId;
+  runId?: AgentRunId;
+  jobId?: JobId;
+  triggerId?: string;
+  conversationId?: ConversationId;
+  threadId?: ConversationThreadId;
+  eventType: RuntimeEventType;
+  actor: string;
+  correlationId?: string | null;
+  responseMode?: RuntimeResponseMode | null;
+  webhookId?: string | null;
+  payload: unknown;
+  createdAt?: IsoTimestamp;
+}
+
+export interface RuntimeEventFilter {
+  appId: AppId;
+  afterEventId?: RuntimeEventId;
+  sessionId?: AgentSessionId;
+  runId?: AgentRunId;
+  jobId?: JobId;
+  triggerId?: string;
+  conversationId?: ConversationId;
+  threadId?: ConversationThreadId;
+  eventTypes?: RuntimeEventType[];
+  limit?: number;
+}
 
 export interface AgentRun {
   id: AgentRunId;

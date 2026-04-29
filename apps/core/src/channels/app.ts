@@ -4,12 +4,19 @@ import type {
   ProgressUpdateOptions,
   StreamingChunkOptions,
 } from '../domain/types.js';
+import {
+  RUNTIME_EVENT_TYPES,
+  type RuntimeEventType,
+} from '../domain/events/runtime-event-types.js';
 import type { ChannelAdapter, ChannelOpts } from './channel-provider.js';
-import { getRuntimeControlRepository } from '../adapters/storage/postgres/runtime-store.js';
+import {
+  getRuntimeControlRepository,
+  getRuntimeEventExchange,
+} from '../adapters/storage/postgres/runtime-store.js';
 
 async function emitSessionEvent(
   chatJid: string,
-  eventType: string,
+  eventType: RuntimeEventType,
   payload: Record<string, unknown>,
 ): Promise<{ emitted: boolean; eventId?: number }> {
   const control = getRuntimeControlRepository();
@@ -27,11 +34,12 @@ async function emitSessionEvent(
     sessionId: session.sessionId,
     threadId,
   });
-  const event = await control.addControlEvent({
+  const event = await getRuntimeEventExchange().publish({
+    appId: session.appId as never,
     eventType,
-    payload: JSON.stringify(payload),
+    payload,
     actor: 'agent',
-    sessionId: session.sessionId,
+    sessionId: session.sessionId as never,
     correlationId: route?.correlationId ?? null,
     responseMode: route?.responseMode ?? session.defaultResponseMode,
     webhookId: route ? route.webhookId : session.defaultWebhookId,
@@ -49,10 +57,14 @@ export async function createAppChannel(
     text: string,
     options?: MessageSendOptions,
   ): Promise<{ externalMessageId?: string }> => {
-    const result = await emitSessionEvent(jid, 'session.message.outbound', {
-      text,
-      threadId: options?.threadId ?? null,
-    });
+    const result = await emitSessionEvent(
+      jid,
+      RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+      {
+        text,
+        threadId: options?.threadId ?? null,
+      },
+    );
     return result.eventId !== undefined
       ? { externalMessageId: String(result.eventId) }
       : {};
@@ -78,24 +90,30 @@ export async function createAppChannel(
       text: string,
       options?: StreamingChunkOptions,
     ): Promise<boolean> {
-      const result = await emitSessionEvent(jid, 'session.message.streaming', {
-        text,
-        threadId: options?.threadId ?? null,
-        done: options?.done === true,
-        generation: options?.generation ?? null,
-      });
+      const result = await emitSessionEvent(
+        jid,
+        RUNTIME_EVENT_TYPES.SESSION_MESSAGE_STREAMING,
+        {
+          text,
+          threadId: options?.threadId ?? null,
+          done: options?.done === true,
+          generation: options?.generation ?? null,
+        },
+      );
       return result.emitted;
     },
     resetStreaming(_jid: string) {},
     async setTyping(jid: string, isTyping: boolean): Promise<void> {
-      await emitSessionEvent(jid, 'session.typing', { isTyping });
+      await emitSessionEvent(jid, RUNTIME_EVENT_TYPES.SESSION_TYPING, {
+        isTyping,
+      });
     },
     async sendProgressUpdate(
       jid: string,
       text: string,
       options?: ProgressUpdateOptions,
     ): Promise<void> {
-      await emitSessionEvent(jid, 'session.progress', {
+      await emitSessionEvent(jid, RUNTIME_EVENT_TYPES.SESSION_PROGRESS, {
         text,
         threadId: options?.threadId ?? null,
         done: options?.done === true,

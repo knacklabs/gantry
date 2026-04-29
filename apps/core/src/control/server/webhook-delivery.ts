@@ -71,7 +71,7 @@ export async function deliverWebhookDelivery(
     );
     return;
   }
-  if (event.sessionId && delivery.sessionAppId !== webhook.appId) {
+  if (delivery.sessionAppId !== webhook.appId) {
     await control.markWebhookDeliveryDead(
       delivery.deliveryId,
       'Webhook registration does not belong to event app',
