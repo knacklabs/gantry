@@ -10,7 +10,11 @@ import {
 } from '../agent-capabilities.js';
 import { denyMemoryBoundaryToolUse } from '../memory-boundary.js';
 import { MessageStream } from './message-stream.js';
-import { drainIpcInput, shouldClose } from './ipc-input.js';
+import {
+  drainInteractionBoundaries,
+  drainIpcInput,
+  shouldClose,
+} from './ipc-input.js';
 import { SteeringDeliveryGate } from './steering-delivery-gate.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
@@ -50,9 +54,20 @@ export async function runQuery(
     log(`Piping IPC message at turn boundary (${text.length} chars)`);
     stream.pushContent(text);
   });
-  const pollIpcDuringQuery = () => {
-    if (!enableIpcFollowups) return;
+  const emitInteractionBoundary = () => {
+    writeOutput({
+      status: 'success',
+      result: null,
+      newSessionId,
+      interactionBoundary: 'user_interaction',
+    });
+  };
+  const pollRuntimeSignalsDuringQuery = () => {
     if (!ipcPolling) return;
+    const interactionBoundaries = drainInteractionBoundaries();
+    for (let i = 0; i < interactionBoundaries; i += 1) {
+      emitInteractionBoundary();
+    }
     if (shouldClose()) {
       log('Close sentinel detected during query, ending stream');
       closedDuringQuery = true;
@@ -61,20 +76,20 @@ export async function runQuery(
       ipcPolling = false;
       return;
     }
-    const messages = drainIpcInput();
-    for (const text of messages) {
-      const delivery = steeringGate.accept(text);
-      if (delivery === 'buffered') {
-        log(
-          `Buffering IPC message until query turn boundary (${text.length} chars)`,
-        );
+    if (enableIpcFollowups) {
+      const messages = drainIpcInput();
+      for (const text of messages) {
+        const delivery = steeringGate.accept(text);
+        if (delivery === 'buffered') {
+          log(
+            `Buffering IPC message until query turn boundary (${text.length} chars)`,
+          );
+        }
       }
     }
-    setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
+    setTimeout(pollRuntimeSignalsDuringQuery, IPC_POLL_MS);
   };
-  if (enableIpcFollowups) {
-    setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
-  }
+  setTimeout(pollRuntimeSignalsDuringQuery, IPC_POLL_MS);
 
   let newSessionId: string | undefined;
   let lastAssistantUuid: string | undefined;
@@ -138,6 +153,7 @@ export async function runQuery(
             message: 'Permission request aborted',
           };
         }
+        emitInteractionBoundary();
         const decision = await requestPermissionApproval({
           groupFolder: agentInput.groupFolder,
           toolName,

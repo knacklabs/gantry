@@ -142,6 +142,24 @@ async function waitForQuestionRequest(ipcDir) {
   throw new Error('timed out waiting for user question request');
 }
 
+async function waitForInteractionBoundary(ipcDir) {
+  const boundaryDir = path.join(ipcDir, 'interaction-boundaries');
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(boundaryDir)) {
+      const files = fs.readdirSync(boundaryDir).filter((file) => file.endsWith('.json'));
+      if (files.length > 0) {
+        const filePath = path.join(boundaryDir, files[0]);
+        const body = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        fs.unlinkSync(filePath);
+        return { filePath, body };
+      }
+    }
+    await delay(25);
+  }
+  throw new Error('timed out waiting for interaction boundary');
+}
+
 async function waitForTaskRequest(ipcDir) {
   const requestDir = path.join(ipcDir, 'tasks');
   const deadline = Date.now() + 1000;
@@ -176,8 +194,10 @@ export class McpServer {
     const ipcDir = process.env.MYCLAW_IPC_DIR;
 
     let observedRequest;
+    let observedBoundary;
     if (process.env.TEST_MCP_ANSWER_QUESTION === '1') {
       void (async () => {
+        observedBoundary = await waitForInteractionBoundary(ipcDir);
         observedRequest = await waitForQuestionRequest(ipcDir);
         const responseDir = path.join(ipcDir, 'user-answers');
         fs.mkdirSync(responseDir, { recursive: true });
@@ -236,6 +256,7 @@ export class McpServer {
         {
           result,
           observedRequest: observedRequest?.body,
+          observedBoundary: observedBoundary?.body,
           responseFiles: fs.existsSync(path.join(ipcDir, 'user-answers'))
             ? fs.readdirSync(path.join(ipcDir, 'user-answers'))
             : [],
@@ -346,6 +367,12 @@ describe('agent-runner MCP stdio tools', () => {
       expect.objectContaining({
         sourceGroup: 'team',
         signature: expect.any(String),
+      }),
+    );
+    expect(record.observedBoundary).toEqual(
+      expect.objectContaining({
+        type: 'user_interaction',
+        tool: 'ask_user_question',
       }),
     );
     expect(record.result.content[0].text).toContain(

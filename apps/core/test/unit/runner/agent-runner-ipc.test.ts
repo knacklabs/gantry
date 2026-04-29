@@ -297,6 +297,16 @@ export async function* query({ prompt, options }) {
       return;
     }
 
+    if (process.env.TEST_INTERACTION_BOUNDARY_FILE === '1') {
+      const boundaryDir = path.join(process.env.MYCLAW_IPC_DIR, 'interaction-boundaries');
+      fs.mkdirSync(boundaryDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(boundaryDir, 'boundary-1.json'),
+        JSON.stringify({ type: 'user_interaction', tool: 'ask_user_question' }),
+      );
+      await delay(700);
+    }
+
     if (process.env.TEST_CREATE_CLOSE_DURING_QUERY === '1') {
       fs.writeFileSync(path.join(process.env.MYCLAW_IPC_INPUT_DIR, '_close'), '');
       const closed = await nextWithTimeout(iterator, 1500);
@@ -705,6 +715,27 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
+    'emits a user interaction boundary from MCP side-channel files',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_INTERACTION_BOUNDARY_FILE: '1',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(
+        '"interactionBoundary":"user_interaction"',
+      );
+      expect(
+        fs.readdirSync(path.join(fixture.ipcDir, 'interaction-boundaries')),
+      ).toHaveLength(0);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
     'bundles memory context with the first user prompt so it cannot produce a standalone reply',
     async () => {
       const fixture = createRunnerFixture();
@@ -752,6 +783,9 @@ describe('agent-runner IPC lifecycle', () => {
       });
 
       expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(
+        '"interactionBoundary":"user_interaction"',
+      );
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.permissionRequest).toEqual(
         expect.objectContaining({

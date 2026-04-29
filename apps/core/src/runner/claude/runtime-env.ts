@@ -15,6 +15,10 @@ export const WORKSPACE_GROUP_DIR = requirePathEnv('MYCLAW_WORKSPACE_GROUP_DIR');
 export const WORKSPACE_EXTRA_DIR = requirePathEnv('MYCLAW_WORKSPACE_EXTRA_DIR');
 export const IPC_BASE_DIR = requirePathEnv('MYCLAW_IPC_DIR');
 export const IPC_INPUT_DIR = requirePathEnv('MYCLAW_IPC_INPUT_DIR');
+export const IPC_INTERACTION_BOUNDARY_DIR = path.join(
+  IPC_BASE_DIR,
+  'interaction-boundaries',
+);
 export const IPC_AUTH_TOKEN = process.env.MYCLAW_IPC_AUTH_TOKEN || '';
 export const IPC_RESPONSE_VERIFY_KEY =
   process.env.MYCLAW_IPC_RESPONSE_VERIFY_KEY || '';

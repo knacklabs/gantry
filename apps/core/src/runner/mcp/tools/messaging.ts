@@ -19,6 +19,7 @@ const USER_QUESTION_TIMEOUT_MS = 5 * 60 * 1000;
 const USER_QUESTION_POLL_INTERVAL_MS = 100;
 const USER_QUESTION_MAX_ANSWER_LENGTH = 500;
 const USER_QUESTION_MAX_ANSWERED_BY_LENGTH = 120;
+const INTERACTION_BOUNDARY_WAIT_MS = 2_000;
 
 async function sleepWithAbort(
   ms: number,
@@ -41,6 +42,40 @@ async function sleepWithAbort(
     };
     signal.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+async function requestUserInteractionBoundary(
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const boundaryDir = path.join(IPC_DIR, 'interaction-boundaries');
+  fs.mkdirSync(boundaryDir, { recursive: true });
+  const boundaryPath = path.join(boundaryDir, `${requestId}.json`);
+  const tmpPath = `${boundaryPath}.tmp`;
+  fs.writeFileSync(
+    tmpPath,
+    JSON.stringify(
+      {
+        type: 'user_interaction',
+        requestId,
+        tool: 'ask_user_question',
+        timestamp: nowIso(),
+      },
+      null,
+      2,
+    ),
+  );
+  fs.renameSync(tmpPath, boundaryPath);
+
+  const deadline = nowMs() + INTERACTION_BOUNDARY_WAIT_MS;
+  while (nowMs() < deadline) {
+    if (!fs.existsSync(boundaryPath)) return;
+    const aborted = await sleepWithAbort(
+      USER_QUESTION_POLL_INTERVAL_MS,
+      signal,
+    );
+    if (aborted) return;
+  }
 }
 
 export function registerMessagingTools(server: McpServer): void {
@@ -132,6 +167,8 @@ export function registerMessagingTools(server: McpServer): void {
         `${requestId}.json`,
       );
       const tmpPath = `${requestPath}.tmp`;
+
+      await requestUserInteractionBoundary(requestId, context?.signal);
 
       const payload = {
         requestId,

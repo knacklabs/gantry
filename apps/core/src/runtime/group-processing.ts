@@ -488,7 +488,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let streamFinalized = false;
     let streamHasContent = false;
     const finalizeStreamingOutput = async (
-      reason: 'success-marker' | 'error-marker' | 'turn-complete',
+      reason:
+        | 'success-marker'
+        | 'error-marker'
+        | 'turn-complete'
+        | 'interaction-boundary',
     ) => {
       if (!supportsStreamingChunks || streamFinalized) return;
       if (!streamHasContent) return;
@@ -505,6 +509,11 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           'Failed to finalize streaming output',
         );
       }
+    };
+    const startNextStreamingMessage = () => {
+      streamGeneration = streamingGenerationCounter += 1;
+      streamFinalized = false;
+      streamHasContent = false;
     };
     let output: 'success' | 'error' = 'error';
     try {
@@ -549,16 +558,21 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             resetIdleTimer();
           }
 
+          if (result.interactionBoundary) {
+            await finalizeStreamingOutput('interaction-boundary');
+            startNextStreamingMessage();
+            resetIdleTimer();
+          }
+
           const isTurnCompleteMarker =
             result.status === 'success' &&
             !result.result &&
-            !result.compactBoundary;
+            !result.compactBoundary &&
+            !result.interactionBoundary;
           if (isTurnCompleteMarker) {
             await finalizeStreamingOutput('success-marker');
             deps.queue.notifyIdle(queueJid);
-            streamGeneration = streamingGenerationCounter += 1;
-            streamFinalized = false;
-            streamHasContent = false;
+            startNextStreamingMessage();
             resetIdleTimer();
           }
 

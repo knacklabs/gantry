@@ -30,6 +30,7 @@ export interface AgentOutput {
   newSessionId?: string;
   providerArtifactId?: string;
   compactBoundary?: boolean;
+  interactionBoundary?: 'user_interaction';
   error?: string;
 }
 

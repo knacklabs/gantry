@@ -26,6 +26,7 @@ export interface AgentRunnerOutput {
   newSessionId?: string;
   providerArtifactId?: string;
   compactBoundary?: boolean;
+  interactionBoundary?: 'user_interaction';
   error?: string;
 }
 

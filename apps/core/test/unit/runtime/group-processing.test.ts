@@ -1114,6 +1114,65 @@ describe('createGroupProcessor', () => {
       expect(deps.queue.notifyIdle).not.toHaveBeenCalled();
     });
 
+    it('splits streaming messages around user interaction boundaries', async () => {
+      const streamingChannel = makeChannel({
+        sendStreamingChunk: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = streamingChannel;
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: RegisteredGroup,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: 'before approval' });
+          await onOutput?.({
+            status: 'success',
+            result: null,
+            interactionBoundary: 'user_interaction',
+          });
+          await onOutput?.({ status: 'success', result: 'after approval' });
+          await onOutput?.({ status: 'success', result: null });
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      const calls = (
+        streamingChannel.sendStreamingChunk as ReturnType<typeof vi.fn>
+      ).mock.calls;
+      expect(calls).toHaveLength(4);
+      const beforeGeneration = calls[0]?.[2]?.generation;
+      const afterGeneration = calls[2]?.[2]?.generation;
+      expect(afterGeneration).toBeGreaterThan(beforeGeneration);
+      expect(calls[0]).toEqual([
+        'group1@g.us',
+        'before approval',
+        expect.objectContaining({ generation: beforeGeneration }),
+      ]);
+      expect(calls[1]).toEqual([
+        'group1@g.us',
+        '',
+        expect.objectContaining({ done: true, generation: beforeGeneration }),
+      ]);
+      expect(calls[2]).toEqual([
+        'group1@g.us',
+        'after approval',
+        expect.objectContaining({ generation: afterGeneration }),
+      ]);
+      expect(calls[3]).toEqual([
+        'group1@g.us',
+        '',
+        expect.objectContaining({ done: true, generation: afterGeneration }),
+      ]);
+      expect(deps.queue.notifyIdle).toHaveBeenCalledTimes(1);
+    });
+
     it('persists delivered streaming output as canonical assistant context', async () => {
       const streamingChannel = makeChannel({
         sendStreamingChunk: vi.fn().mockResolvedValue(true),
