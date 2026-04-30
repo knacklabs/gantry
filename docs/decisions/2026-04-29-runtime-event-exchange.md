@@ -36,8 +36,8 @@ route, repository, application-use-case, or test-harness dependencies after the
 cutover. Historical migration files may retain old table names as history.
 
 Webhook delivery state remains a delivery-history table, but delivery rows must
-reference `runtime_events.event_id`. Webhook projection observes published
-runtime events and creates one delivery row per matching event/webhook policy.
+reference `runtime_events.event_id`. The Postgres append path creates matching
+webhook delivery rows in the same transaction as the runtime event.
 
 ## Event Taxonomy
 

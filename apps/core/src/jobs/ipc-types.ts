@@ -30,6 +30,7 @@ export interface TaskIpcData {
   runId?: string;
   eventType?: string;
   sinceId?: number;
+  since?: string;
   limit?: number;
   groupFolder?: string;
   chatJid?: string;

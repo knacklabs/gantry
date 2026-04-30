@@ -10,6 +10,7 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm';
+import type { Pool } from 'pg';
 
 import type {
   Agent,
@@ -1974,6 +1975,7 @@ export class PostgresBrowserProfileRepository implements BrowserProfileRepositor
 
 export function createPostgresDomainRepositories(
   db: CanonicalDb,
+  pool?: Pool,
 ): PostgresDomainRepositoryBundle {
   return {
     apps: new PostgresAppRepository(db),
@@ -1986,7 +1988,7 @@ export function createPostgresDomainRepositories(
     providerSessions: new PostgresProviderSessionRepository(db),
     agentSessionSummaries: new PostgresAgentSessionSummaryRepository(db),
     agentRuns: new PostgresAgentRunRepository(db),
-    runtimeEvents: new PostgresRuntimeEventRepository(db),
+    runtimeEvents: new PostgresRuntimeEventRepository(db, pool),
     memory: new PostgresMemoryRepository(db),
     jobs: new PostgresJobRepository(db),
     tools: new PostgresToolCatalogRepository(db),

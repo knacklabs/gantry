@@ -320,13 +320,6 @@ approved. The built-in `myclaw` MCP server is internal and is not managed by
 these routes. Conversation or thread scoped MCP bindings are not part of this
 API version.
 
-## Removed In This Release
-
-`GET /v1/settings`, `PATCH /v1/settings`, `client.settings.get()`, and
-`client.settings.update()` were removed with the Runtime Event Exchange cutover.
-The route now returns `410 SETTINGS_API_REMOVED`. Configure runtime settings
-through `settings.yaml` and app/channel/agent admin routes.
-
 ## Memory
 
 Memory APIs are app-bound by the API key. Pass stable `appId`, `agentId`,

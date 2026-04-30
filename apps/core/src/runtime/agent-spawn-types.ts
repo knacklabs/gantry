@@ -65,55 +65,6 @@ export interface AvailableGroup {
   isRegistered: boolean;
 }
 
-export interface JobSnapshotRow {
-  id: string;
-  name: string;
-  prompt: string;
-  model?: string | null;
-  script?: string | null;
-  schedule_type: string;
-  schedule_value: string;
-  status: string;
-  group_scope: string;
-  linked_sessions: string[];
-  thread_id?: string | null;
-  next_run: string | null;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-  silent?: boolean;
-  cleanup_after_ms?: number;
-  timeout_ms: number;
-  max_retries: number;
-  retry_backoff_ms: number;
-  max_consecutive_failures: number;
-  consecutive_failures: number;
-  execution_mode: string;
-  pause_reason: string | null;
-}
-
-export interface JobRunSnapshotRow {
-  run_id: string;
-  job_id: string;
-  scheduled_for: string;
-  started_at: string;
-  ended_at: string | null;
-  status: string;
-  result_summary: string | null;
-  error_summary: string | null;
-  retry_count: number;
-  notified_at: string | null;
-}
-
-export interface JobEventSnapshotRow {
-  id: number;
-  job_id: string;
-  run_id: string | null;
-  event_type: string;
-  payload: string | null;
-  created_at: string;
-}
-
 export interface RunnerProcessSpec {
   group: RegisteredGroup;
   input: AgentInput;

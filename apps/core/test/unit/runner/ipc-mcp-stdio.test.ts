@@ -233,6 +233,9 @@ export class McpServer {
           taskId,
           ok: true,
           message: 'Scheduler task confirmed.',
+          ...(process.env.TEST_MCP_TASK_RESPONSE_DATA
+            ? { data: JSON.parse(process.env.TEST_MCP_TASK_RESPONSE_DATA) }
+            : {}),
         };
     const signature = signPayload(responsePayload);
         fs.writeFileSync(
@@ -481,6 +484,41 @@ describe('agent-runner MCP stdio tools', () => {
     expect(record.result.content[0].text).toContain(
       'Invalid task response signature',
     );
+  });
+
+  it('reads scheduler jobs from signed IPC data responses', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'scheduler_list_jobs',
+      {
+        statuses: ['active'],
+        group_scope: 'team',
+      },
+      {
+        TEST_MCP_TASK_RESPONSE_DATA: JSON.stringify({
+          jobs: [{ id: 'job-1', status: 'active', group_scope: 'team' }],
+        }),
+      },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.content[0].text).toContain('"id": "job-1"');
+
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'scheduler_list_jobs',
+      statuses: ['active'],
+      groupScope: 'team',
+    });
   });
 
   it('rejects scheduler upsert thread targets outside the current runtime thread', async () => {

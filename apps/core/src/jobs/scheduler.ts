@@ -5,6 +5,7 @@ import { resetSchedulerRunSlots } from './concurrency.js';
 import { sweepCompletedOneTimeJobs } from './cleanup.js';
 import { resetSchedulerExecutionStateForTests, runJob } from './execution.js';
 import { computeNextJobRun } from './schedule-math.js';
+import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 import {
   _setMemoryMaintenanceQueueForTests,
   registerSystemJobs,
@@ -20,6 +21,7 @@ let schedulerRunning = false;
 
 export type { SchedulerDependencies, SchedulerDispatchPayload };
 export { computeNextJobRun, registerSystemJobs, runJob };
+export { runtimeJobSchedulePlanner };
 export { sweepCompletedOneTimeJobs };
 export { _setMemoryMaintenanceQueueForTests };
 

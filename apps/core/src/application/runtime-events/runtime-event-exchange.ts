@@ -12,10 +12,6 @@ export interface RuntimeEventNotifier {
   subscribe(listener: () => void, filter?: RuntimeEventFilter): () => void;
 }
 
-export interface RuntimeEventProjection {
-  project(event: RuntimeEvent): Promise<void>;
-}
-
 export interface RuntimeEventSubscription {
   next(options?: { timeoutMs?: number }): Promise<RuntimeEvent[]>;
   close(): void;
@@ -25,14 +21,10 @@ export class RuntimeEventExchange {
   constructor(
     private readonly repository: RuntimeEventRepository,
     private readonly notifier: RuntimeEventNotifier,
-    private readonly projections: RuntimeEventProjection[] = [],
   ) {}
 
   async publish(input: RuntimeEventPublishInput): Promise<RuntimeEvent> {
     const event = await this.repository.appendRuntimeEvent(input);
-    for (const projection of this.projections) {
-      await projection.project(event);
-    }
     await this.notifier.notify(event);
     return event;
   }

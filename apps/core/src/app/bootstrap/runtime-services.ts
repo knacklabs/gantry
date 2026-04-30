@@ -6,12 +6,7 @@ import {
 import { logger } from '../../infrastructure/logging/logger.js';
 import type { NewMessage } from '../../domain/types.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
-import {
-  writeJobEventsSnapshot,
-  writeJobRunsSnapshot,
-  writeJobsSnapshot,
-  writeGroupsSnapshot,
-} from '../../runtime/agent-spawn.js';
+import { writeGroupsSnapshot } from '../../runtime/agent-spawn.js';
 import { startIpcWatcher } from '../../runtime/ipc.js';
 import {
   recoverPendingMessages,
@@ -22,7 +17,6 @@ import {
   startSchedulerLoop,
 } from '../../jobs/scheduler.js';
 import { makeThreadQueueKey } from '../../runtime/thread-queue-key.js';
-import type { Job } from '../../domain/types.js';
 import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
 import { getRuntimeOpsRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import type { SessionMemoryCollector } from '../../domain/ports/session-memory-collector.js';
@@ -33,9 +27,6 @@ import { collectDurableMemoryAtSessionBoundary } from '../../memory/app-memory-s
 interface RuntimeServicesDeps {
   startSchedulerLoop: typeof startSchedulerLoop;
   startIpcWatcher: typeof startIpcWatcher;
-  writeJobsSnapshot: typeof writeJobsSnapshot;
-  writeJobRunsSnapshot: typeof writeJobRunsSnapshot;
-  writeJobEventsSnapshot: typeof writeJobEventsSnapshot;
   writeGroupsSnapshot: typeof writeGroupsSnapshot;
   opsRepository: OpsRepository;
   recoverPendingMessages: typeof recoverPendingMessages;
@@ -57,9 +48,6 @@ function makeDefaultDeps(
   return {
     startSchedulerLoop,
     startIpcWatcher,
-    writeJobsSnapshot,
-    writeJobRunsSnapshot,
-    writeJobEventsSnapshot,
     writeGroupsSnapshot,
     opsRepository: injectedOpsRepository ?? getRuntimeOpsRepository(),
     recoverPendingMessages,
@@ -70,36 +58,7 @@ function makeDefaultDeps(
   };
 }
 
-function mapJobRowsForSnapshot(jobs: Job[]) {
-  return jobs.map((job) => ({
-    id: job.id,
-    name: job.name,
-    prompt: job.prompt,
-    model: job.model || null,
-    script: job.script || undefined,
-    schedule_type: job.schedule_type,
-    schedule_value: job.schedule_value,
-    status: job.status,
-    group_scope: job.group_scope,
-    linked_sessions: job.linked_sessions,
-    thread_id: job.thread_id,
-    next_run: job.next_run,
-    created_by: job.created_by,
-    created_at: job.created_at,
-    updated_at: job.updated_at,
-    silent: job.silent,
-    cleanup_after_ms: job.cleanup_after_ms,
-    timeout_ms: job.timeout_ms,
-    max_retries: job.max_retries,
-    retry_backoff_ms: job.retry_backoff_ms,
-    max_consecutive_failures: job.max_consecutive_failures,
-    consecutive_failures: job.consecutive_failures,
-    execution_mode: job.execution_mode,
-    pause_reason: job.pause_reason,
-  }));
-}
-
-function createSchedulerStateSync(
+function createGroupSnapshotSync(
   app: RuntimeApp,
   deps: RuntimeServicesDeps,
 ): () => void {
@@ -109,25 +68,16 @@ function createSchedulerStateSync(
   const runSync = async () => {
     do {
       syncDirty = false;
-      const [jobs, runs, events] = await Promise.all([
-        deps.opsRepository.getAllJobs(),
-        deps.opsRepository.getRecentJobRuns(500),
-        deps.opsRepository.listRecentJobEvents(1000),
-      ]);
       const [registeredGroups, availableGroups] = [
         app.getRegisteredGroups(),
         await app.getAvailableGroups(),
       ];
 
-      const jobRows = mapJobRowsForSnapshot(jobs);
       const registeredJids = new Set(Object.keys(registeredGroups));
       await Promise.all(
         Object.values(registeredGroups).flatMap((group) => {
           const isMain = group.isMain === true;
           return [
-            deps.writeJobsSnapshot(group.folder, isMain, jobRows),
-            deps.writeJobRunsSnapshot(group.folder, isMain, runs, jobRows),
-            deps.writeJobEventsSnapshot(group.folder, isMain, events, jobRows),
             deps.writeGroupsSnapshot(
               group.folder,
               isMain,
@@ -147,7 +97,7 @@ function createSchedulerStateSync(
     }
     syncInFlight = runSync()
       .catch((err) =>
-        deps.logger.warn({ err }, 'Failed to write scheduler snapshots'),
+        deps.logger.warn({ err }, 'Failed to write group snapshots'),
       )
       .finally(() => {
         syncInFlight = undefined;
@@ -165,10 +115,9 @@ export async function startRuntimeServices(
   };
 
   const { app, channelWiring } = options;
-  const syncSchedulerState = createSchedulerStateSync(app, resolved);
+  const syncGroupSnapshots = createGroupSnapshotSync(app, resolved);
 
   const onSchedulerChanged = (jobId?: string) => {
-    syncSchedulerState();
     requestSchedulerSync(jobId);
   };
 
@@ -227,7 +176,7 @@ export async function startRuntimeServices(
     mcpHostnameLookup: resolved.mcpHostnameLookup,
   });
 
-  syncSchedulerState();
+  syncGroupSnapshots();
 
   app.queue.setProcessMessagesFn((chatJid) =>
     app.processGroupMessages(chatJid, { queued: true }),

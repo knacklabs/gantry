@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { _setRuntimeStorageForTest } from '@core/adapters/storage/postgres/runtime-store.js';
-import { CreateJobUseCase } from '@core/application/jobs/create-job-use-case.js';
 import { _resetSchedulerLoopForTests, runJob } from '@core/jobs/scheduler.js';
 import { AppMemoryService } from '@core/memory/app-memory-service.js';
 import {
@@ -82,13 +81,12 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     const schedulerSyncs: string[] = [];
     const job = makeJob('job:integration:success');
 
-    const created = await new CreateJobUseCase({
-      ops: runtime.ops,
-      scheduler: {
-        requestSchedulerSync: (jobId) => schedulerSyncs.push(jobId),
-      },
-    }).execute({ job });
-    expect(created).toEqual({ jobId: job.id, created: true });
+    const created = await runtime.ops.upsertJob(job);
+    schedulerSyncs.push(job.id);
+    expect({ jobId: job.id, created: created.created }).toEqual({
+      jobId: job.id,
+      created: true,
+    });
     expect(schedulerSyncs).toEqual([job.id]);
 
     await AppMemoryService.getInstance().save({
@@ -206,10 +204,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     const job = makeJob('job:integration:failure', {
       prompt: 'Fail this scheduled task',
     });
-    await new CreateJobUseCase({
-      ops: runtime.ops,
-      scheduler: { requestSchedulerSync: () => {} },
-    }).execute({ job });
+    await runtime.ops.upsertJob(job);
 
     await runJob(
       await runtime.ops.getJobById(job.id).then((saved) => saved!),
@@ -258,10 +253,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
       max_consecutive_failures: 1,
       silent: true,
     });
-    await new CreateJobUseCase({
-      ops: runtime.ops,
-      scheduler: { requestSchedulerSync: () => {} },
-    }).execute({ job });
+    await runtime.ops.upsertJob(job);
 
     await runJob(
       await runtime.ops.getJobById(job.id).then((saved) => saved!),

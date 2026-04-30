@@ -23,7 +23,6 @@ import { PostgresControlPlaneRepository } from './schema/control-plane-repo.post
 import type { PostgresStorageService } from './storage-service.js';
 import { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
 import { PostgresRuntimeEventNotifier } from './runtime-event-notifier.postgres.js';
-import { PostgresRuntimeEventWebhookProjector } from './runtime-event-webhook-projector.postgres.js';
 
 export interface StorageRuntime {
   service: PostgresStorageService;
@@ -50,12 +49,14 @@ export function createStorageRuntime(
   const service = createStorageService(config);
   const sessionSettings = getRuntimeSettingsForConfig().agent.sessions;
   const control = new PostgresControlPlaneRepository(service.pool);
-  const repositories = createPostgresDomainRepositories(service.db);
+  const repositories = createPostgresDomainRepositories(
+    service.db,
+    service.pool,
+  );
   const runtimeEventNotifier = new PostgresRuntimeEventNotifier(service.pool);
   const runtimeEvents = new RuntimeEventExchange(
     repositories.runtimeEvents,
     runtimeEventNotifier,
-    [new PostgresRuntimeEventWebhookProjector(control)],
   );
   const ops: OpsRepository = new PostgresCanonicalOpsRepository(
     service.pool,

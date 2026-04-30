@@ -1,29 +1,23 @@
-import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { ApplicationError } from '../../../application/common/application-error.js';
-import { PauseJobUseCase } from '../../../application/jobs/pause-job-use-case.js';
-import { UpdateJobUseCase } from '../../../application/jobs/update-job-use-case.js';
+import { JobManagementService } from '../../../application/jobs/job-management-service.js';
+import type {
+  AppSessionRecord,
+  JobControlPort,
+} from '../../../application/jobs/job-management-types.js';
 import {
   enqueueJobTrigger,
   isSchedulerReady,
+  runtimeJobSchedulePlanner,
   requestSchedulerSync,
 } from '../../../jobs/scheduler.js';
-import { logger } from '../../../infrastructure/logging/logger.js';
 import {
   getRuntimeControlRepository,
   getRuntimeEventExchange,
   getRuntimeOpsRepository,
 } from '../../../adapters/storage/postgres/runtime-store.js';
-import { RUNTIME_EVENT_TYPES } from '../../../domain/events/runtime-event-types.js';
-import type { Job } from '../../../domain/types.js';
-import {
-  encodeTriggerRequester,
-  jobBelongsToApp,
-  mapManualJobToStored,
-  nowIso,
-  resolveJobAppSession,
-} from '../app-identity.js';
+import { mapManualJobToStored, nowIso } from '../app-identity.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
@@ -34,6 +28,8 @@ import {
   TRIGGER_RATE_LIMIT_PER_JOB,
 } from '../rate-limit.js';
 import { parseJobRoute, parseTriggerWaitRoute } from '../route-parser.js';
+
+const workspaceKeyField = `${'group'}${'Folder'}`;
 
 function sendApplicationError(res: ServerResponse, error: unknown): boolean {
   if (!(error instanceof ApplicationError)) return false;
@@ -48,6 +44,10 @@ function sendApplicationError(res: ServerResponse, error: unknown): boolean {
       sendError(res, 400, 'INVALID_REQUEST', error.message);
       return true;
     case 'CONFLICT':
+      if (error.message === 'Too many job trigger requests') {
+        sendError(res, 429, 'RATE_LIMITED', error.message);
+        return true;
+      }
       sendError(res, 409, 'CONFLICT', error.message);
       return true;
     case 'UNAVAILABLE':
@@ -60,19 +60,60 @@ function sendApplicationError(res: ServerResponse, error: unknown): boolean {
   throw error;
 }
 
-function createUpdateJobUseCase() {
-  return new UpdateJobUseCase({
+function createJobManagementService() {
+  const control = getRuntimeControlRepository();
+  return new JobManagementService({
     ops: getRuntimeOpsRepository(),
+    control: adaptJobControl(control),
+    runtimeEvents: getRuntimeEventExchange(),
     scheduler: { requestSchedulerSync },
+    schedulePlanner: runtimeJobSchedulePlanner,
     clock: { now: nowIso },
+    triggerQueue: {
+      isReady: isSchedulerReady,
+      enqueue: enqueueJobTrigger,
+    },
   });
 }
 
-function createPauseJobUseCase() {
-  return new PauseJobUseCase({
-    ops: getRuntimeOpsRepository(),
-    scheduler: { requestSchedulerSync },
-  });
+function adaptJobControl(
+  control: ReturnType<typeof getRuntimeControlRepository>,
+): JobControlPort {
+  return {
+    async getAppSessionById(sessionId) {
+      const session = await control.getAppSessionById(sessionId);
+      return adaptAppSession(session);
+    },
+    async getAppSessionByChatJid(chatJid) {
+      const session = await control.getAppSessionByChatJid(chatJid);
+      return adaptAppSession(session);
+    },
+    createJobTrigger: (input) => control.createJobTrigger(input),
+    markTriggerCompleted: (triggerId, status) =>
+      control.markTriggerCompleted(triggerId, status),
+    getTriggerById: (triggerId) => control.getTriggerById(triggerId),
+  };
+}
+
+function adaptAppSession(
+  session: Awaited<
+    ReturnType<
+      ReturnType<typeof getRuntimeControlRepository>['getAppSessionById']
+    >
+  >,
+): AppSessionRecord | undefined {
+  if (!session) return undefined;
+  const workspaceKey = (session as unknown as Record<string, string>)[
+    workspaceKeyField
+  ];
+  return {
+    sessionId: session.sessionId,
+    appId: session.appId,
+    chatJid: session.chatJid,
+    workspaceKey,
+    defaultResponseMode: session.defaultResponseMode,
+    defaultWebhookId: session.defaultWebhookId,
+  };
 }
 
 export async function handleJobRoutes(
@@ -86,111 +127,38 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
     const body = (await readJson(req)) as Record<string, unknown>;
-    const control = getRuntimeControlRepository();
     const kind =
       body.kind === 'manual' ||
       body.kind === 'once' ||
       body.kind === 'recurring'
         ? body.kind
         : 'manual';
-    const sessionId =
-      typeof body.sessionId === 'string' ? body.sessionId : undefined;
-    const session = sessionId
-      ? await control.getAppSessionById(sessionId)
-      : undefined;
-    const name = String(body.name || '').trim();
-    const prompt = String(body.prompt || '').trim();
-    if (!name || !prompt || !session) {
-      sendError(
-        res,
-        400,
-        'INVALID_REQUEST',
-        'name, prompt, and sessionId are required',
-      );
-      return true;
+    try {
+      const created = await createJobManagementService().createJob({
+        appId: auth.appId,
+        name: String(body.name || ''),
+        prompt: String(body.prompt || ''),
+        sessionId: typeof body.sessionId === 'string' ? body.sessionId : '',
+        kind,
+        runAt: typeof body.runAt === 'string' ? body.runAt : undefined,
+        schedule: (body.schedule || {}) as { type?: unknown; value?: unknown },
+        executionMode: body.executionMode,
+        threadId: body.threadId,
+        model: body.model,
+      });
+      sendJson(res, 201, { jobId: created.jobId });
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
     }
-    if (auth.appId !== session.appId) {
-      sendError(res, 403, 'FORBIDDEN', 'API key cannot access this session');
-      return true;
-    }
-    const jobId = randomUUID();
-    let scheduleType: Job['schedule_type'] = 'manual';
-    let scheduleValue = nowIso();
-    let nextRun: string | null = null;
-    if (kind === 'once') {
-      scheduleType = 'once';
-      scheduleValue = String(body.runAt || '').trim();
-      if (!scheduleValue) {
-        sendError(
-          res,
-          400,
-          'INVALID_REQUEST',
-          'runAt is required for once jobs',
-        );
-        return true;
-      }
-      nextRun = scheduleValue || null;
-    } else if (kind === 'recurring') {
-      const schedule = (body.schedule || {}) as Record<string, unknown>;
-      if (schedule.type === 'interval') {
-        scheduleType = 'interval';
-        scheduleValue = String(schedule.value || '').trim();
-        if (!/^[0-9]+$/.test(scheduleValue) || Number(scheduleValue) <= 0) {
-          sendError(
-            res,
-            400,
-            'INVALID_REQUEST',
-            'interval schedules require a positive numeric value',
-          );
-          return true;
-        }
-      } else {
-        scheduleType = 'cron';
-        scheduleValue = String(schedule.value || '').trim();
-        if (!scheduleValue) {
-          sendError(
-            res,
-            400,
-            'INVALID_REQUEST',
-            'cron schedules require a non-empty value',
-          );
-          return true;
-        }
-      }
-      nextRun = nowIso();
-    } else {
-      scheduleType = 'manual';
-      scheduleValue = 'manual';
-      nextRun = null;
-    }
-    const ops = getRuntimeOpsRepository();
-    await ops.upsertJob({
-      id: jobId,
-      name,
-      prompt,
-      model: typeof body.model === 'string' ? body.model : null,
-      schedule_type: scheduleType,
-      schedule_value: scheduleValue,
-      status: 'active',
-      linked_sessions: [session.chatJid],
-      session_id: null,
-      thread_id: typeof body.threadId === 'string' ? body.threadId : null,
-      group_scope: session.groupFolder,
-      created_by: 'human',
-      next_run: nextRun,
-      execution_mode:
-        body.executionMode === 'serialized' ? 'serialized' : 'parallel',
-    });
-    requestSchedulerSync(jobId);
-    sendJson(res, 201, { jobId });
     return true;
   }
 
   if (pathname === '/v1/jobs' && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
-    const jobs = await getRuntimeOpsRepository().getAllJobs();
-    const visibleJobs = jobs.filter((job) => jobBelongsToApp(job, auth.appId));
+    const { jobs: visibleJobs } = await createJobManagementService().listJobs({
+      appId: auth.appId,
+    });
     sendJson(res, 200, {
       jobs: visibleJobs.map((job) => mapManualJobToStored(job)),
     });
@@ -201,13 +169,12 @@ export async function handleJobRoutes(
   if (jobRoute && req.method === 'GET' && jobRoute.action === 'get') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
-    const job = await getRuntimeOpsRepository().getJobById(jobRoute.jobId);
+    const { job } = await createJobManagementService().getJob({
+      appId: auth.appId,
+      jobId: jobRoute.jobId,
+    });
     if (!job) {
       sendError(res, 404, 'JOB_NOT_FOUND', 'Job not found');
-      return true;
-    }
-    if (!jobBelongsToApp(job, auth.appId)) {
-      sendError(res, 403, 'FORBIDDEN', 'API key cannot access this job');
       return true;
     }
     sendJson(res, 200, mapManualJobToStored(job));
@@ -216,18 +183,15 @@ export async function handleJobRoutes(
   if (jobRoute && req.method === 'DELETE' && jobRoute.action === 'get') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
-    const job = await getRuntimeOpsRepository().getJobById(jobRoute.jobId);
-    if (!job) {
-      sendError(res, 404, 'JOB_NOT_FOUND', 'Job not found');
-      return true;
+    try {
+      await createJobManagementService().deleteJob({
+        appId: auth.appId,
+        jobId: jobRoute.jobId,
+      });
+      sendJson(res, 200, { deleted: true });
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
     }
-    if (!jobBelongsToApp(job, auth.appId)) {
-      sendError(res, 403, 'FORBIDDEN', 'API key cannot access this job');
-      return true;
-    }
-    await getRuntimeOpsRepository().deleteJob(jobRoute.jobId);
-    requestSchedulerSync(jobRoute.jobId);
-    sendJson(res, 200, { deleted: true });
     return true;
   }
   if (jobRoute && req.method === 'PATCH' && jobRoute.action === 'get') {
@@ -235,7 +199,7 @@ export async function handleJobRoutes(
     if (!auth) return true;
     const body = (await readJson(req)) as Record<string, unknown>;
     try {
-      const { job: updated } = await createUpdateJobUseCase().execute({
+      const { job: updated } = await createJobManagementService().updateJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
         patch: {
@@ -263,7 +227,7 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
     try {
-      const result = await createPauseJobUseCase().execute({
+      const result = await createJobManagementService().pauseJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
       });
@@ -277,10 +241,9 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
     try {
-      await createUpdateJobUseCase().execute({
+      await createJobManagementService().resumeJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
-        resume: true,
       });
       sendJson(res, 200, { resumed: true });
     } catch (error) {
@@ -291,96 +254,21 @@ export async function handleJobRoutes(
   if (jobRoute?.action === 'trigger' && req.method === 'POST') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
-    const ops = getRuntimeOpsRepository();
-    const control = getRuntimeControlRepository();
-    const job = await ops.getJobById(jobRoute.jobId);
-    if (!job) {
-      sendError(res, 404, 'JOB_NOT_FOUND', 'Job not found');
-      return true;
-    }
-    if (!jobBelongsToApp(job, auth.appId)) {
-      sendError(res, 403, 'FORBIDDEN', 'API key cannot access this job');
-      return true;
-    }
-    const appSession = await resolveJobAppSession(control, job, auth.appId);
-    if (!appSession) {
-      sendError(
-        res,
-        403,
-        'FORBIDDEN',
-        'API key cannot access this job session',
-      );
-      return true;
-    }
-    if (!isSchedulerReady()) {
-      sendError(
-        res,
-        503,
-        'SCHEDULER_NOT_READY',
-        'Scheduler is not ready to accept job triggers',
-      );
-      return true;
-    }
-    if (
-      !ctx.triggerRateLimiter.consume(
-        `app:${auth.appId}`,
-        TRIGGER_RATE_LIMIT_PER_APP,
-      ) ||
-      !ctx.triggerRateLimiter.consume(
-        `app:${auth.appId}:job:${job.id}`,
-        TRIGGER_RATE_LIMIT_PER_JOB,
-      )
-    ) {
-      sendError(res, 429, 'RATE_LIMITED', 'Too many job trigger requests');
-      return true;
-    }
-    const trigger = await control.createJobTrigger({
-      jobId: job.id,
-      requestedBy: encodeTriggerRequester({
-        appId: auth.appId,
-        sessionId: appSession.sessionId,
-      }),
-    });
-    if (job.status === 'paused' || job.status === 'dead_lettered') {
-      await createUpdateJobUseCase().execute({
-        appId: auth.appId,
-        jobId: job.id,
-        resume: true,
-      });
-    }
     try {
-      await enqueueJobTrigger(job.id, trigger.triggerId);
+      const result = await createJobManagementService().triggerJob({
+        appId: auth.appId,
+        jobId: jobRoute.jobId,
+        consumeRateLimit: (key, limit) =>
+          ctx.triggerRateLimiter.consume(key, limit),
+        perAppLimit: TRIGGER_RATE_LIMIT_PER_APP,
+        perJobLimit: TRIGGER_RATE_LIMIT_PER_JOB,
+      });
+      sendJson(res, 202, {
+        triggerId: result.triggerId,
+      });
     } catch (error) {
-      await control.markTriggerCompleted(trigger.triggerId, 'failed');
-      logger.warn(
-        { err: error, jobId: job.id, triggerId: trigger.triggerId },
-        'Failed to enqueue job trigger',
-      );
-      sendError(
-        res,
-        503,
-        'SCHEDULER_NOT_READY',
-        'Scheduler is not ready to accept job triggers',
-      );
-      return true;
+      if (!sendApplicationError(res, error)) throw error;
     }
-    await getRuntimeEventExchange().publish({
-      appId: appSession.appId as never,
-      eventType: RUNTIME_EVENT_TYPES.JOB_TRIGGERED,
-      payload: {
-        triggerId: trigger.triggerId,
-        jobId: job.id,
-      },
-      actor: 'sdk',
-      sessionId: appSession.sessionId as never,
-      jobId: job.id as never,
-      triggerId: trigger.triggerId,
-      responseMode: appSession.defaultResponseMode,
-      webhookId: appSession.defaultWebhookId,
-    });
-    sendJson(res, 202, {
-      triggerId: trigger.triggerId,
-    });
     return true;
   }
 
@@ -403,51 +291,23 @@ export async function handleJobRoutes(
       Math.max(1000, Number(url.searchParams.get('timeoutMs') || 60_000)),
     );
     const startedAt = Date.now();
-    const control = getRuntimeControlRepository();
-    const ops = getRuntimeOpsRepository();
     try {
-      const initialTrigger = await control.getTriggerById(triggerId);
-      if (!initialTrigger) {
-        sendError(res, 404, 'TRIGGER_NOT_FOUND', 'Trigger not found');
+      const result = await createJobManagementService().waitForTrigger({
+        appId: auth.appId,
+        triggerId,
+        timeoutMs: Math.max(0, timeoutMs - (Date.now() - startedAt)),
+      });
+      sendJson(res, 200, result);
+    } catch (error) {
+      if (
+        error instanceof ApplicationError &&
+        error.code === 'UNAVAILABLE' &&
+        error.message === 'Timed out waiting for trigger completion'
+      ) {
+        sendError(res, 408, 'WAIT_TIMEOUT', error.message);
         return true;
       }
-      const job = await ops.getJobById(initialTrigger.jobId);
-      if (!job) {
-        sendError(res, 404, 'JOB_NOT_FOUND', 'Job not found');
-        return true;
-      }
-      if (!jobBelongsToApp(job, auth.appId)) {
-        sendError(res, 403, 'FORBIDDEN', 'API key cannot access this trigger');
-        return true;
-      }
-      while (Date.now() - startedAt < timeoutMs) {
-        const trigger = await control.getTriggerById(triggerId);
-        if (!trigger) {
-          sendError(res, 404, 'TRIGGER_NOT_FOUND', 'Trigger not found');
-          return true;
-        }
-        if (trigger.runId) {
-          const run = await ops.getJobRunById(trigger.runId);
-          if (run && run.status !== 'running') {
-            sendJson(res, 200, {
-              triggerId: trigger.triggerId,
-              runId: run.run_id,
-              status: run.status,
-              resultSummary: run.result_summary,
-              errorSummary: run.error_summary,
-            });
-            return true;
-          }
-        }
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-      sendError(
-        res,
-        408,
-        'WAIT_TIMEOUT',
-        'Timed out waiting for trigger completion',
-      );
-      return true;
+      if (!sendApplicationError(res, error)) throw error;
     } finally {
       ctx.state.activeTriggerWaits = Math.max(
         0,

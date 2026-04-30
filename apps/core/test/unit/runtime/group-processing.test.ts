@@ -69,17 +69,9 @@ const mockGetMessagesSince = vi.fn();
 const mockGetRecentJobRuns = vi.fn();
 const mockListRecentJobEvents = vi.fn();
 const mockSpawnAgent = vi.fn();
-const mockWriteJobRunsSnapshot = vi.fn();
-const mockWriteJobsSnapshot = vi.fn();
-const mockWriteJobEventsSnapshot = vi.fn();
 const mockWriteGroupsSnapshot = vi.fn();
 vi.mock('@core/runtime/agent-spawn.js', () => ({
   spawnAgent: (...args: unknown[]) => mockSpawnAgent(...args),
-  writeJobRunsSnapshot: (...args: unknown[]) =>
-    mockWriteJobRunsSnapshot(...args),
-  writeJobsSnapshot: (...args: unknown[]) => mockWriteJobsSnapshot(...args),
-  writeJobEventsSnapshot: (...args: unknown[]) =>
-    mockWriteJobEventsSnapshot(...args),
   writeGroupsSnapshot: (...args: unknown[]) => mockWriteGroupsSnapshot(...args),
 }));
 
@@ -663,7 +655,7 @@ describe('createGroupProcessor', () => {
       ).toEqual(['group1@g.us', false]);
     });
 
-    it('does not write scheduler snapshots on the message hot path', async () => {
+    it('does not write group capability snapshots on the message hot path', async () => {
       const { deps } = setupHappyPath();
       mockGetAllJobs.mockReturnValue([]);
 
@@ -673,8 +665,6 @@ describe('createGroupProcessor', () => {
       expect(mockGetAllJobs).not.toHaveBeenCalled();
       expect(mockGetRecentJobRuns).not.toHaveBeenCalled();
       expect(mockListRecentJobEvents).not.toHaveBeenCalled();
-      expect(mockWriteJobsSnapshot).not.toHaveBeenCalled();
-      expect(mockWriteJobRunsSnapshot).not.toHaveBeenCalled();
       expect(mockWriteGroupsSnapshot).not.toHaveBeenCalled();
     });
   });

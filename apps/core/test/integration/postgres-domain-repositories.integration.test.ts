@@ -62,7 +62,7 @@ maybeDescribe('Postgres domain repositories', () => {
       schemaName,
     );
     await service.migrate();
-    repositories = createPostgresDomainRepositories(service.db);
+    repositories = createPostgresDomainRepositories(service.db, service.pool);
 
     await repositories.channelInstallations.saveChannelInstallation({
       id: installationId,

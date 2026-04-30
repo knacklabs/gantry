@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { PauseJobUseCase } from '@core/application/jobs/pause-job-use-case.js';
-import { UpdateJobUseCase } from '@core/application/jobs/update-job-use-case.js';
+import { JobManagementService } from '@core/application/jobs/job-management-service.js';
 import { jobBelongsToApp } from '@core/application/jobs/job-access.js';
 import type { OpsRepository } from '@core/domain/repositories/ops-repo.js';
 import type { Job } from '@core/domain/types.js';
+import { runtimeJobSchedulePlanner } from '@core/jobs/job-schedule-planner.js';
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -72,13 +72,14 @@ describe('job application use cases', () => {
   it('updates mutable job fields and requests scheduler sync', async () => {
     const ops = makeOps(makeJob());
     const scheduler = { requestSchedulerSync: vi.fn() };
-    const useCase = new UpdateJobUseCase({
+    const service = new JobManagementService({
       ops: ops as OpsRepository,
       scheduler,
+      schedulePlanner: runtimeJobSchedulePlanner,
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
     });
 
-    const result = await useCase.execute({
+    const result = await service.updateJob({
       appId: 'app-one',
       jobId: 'job-1',
       patch: {
@@ -122,13 +123,14 @@ describe('job application use cases', () => {
       }),
     );
     const scheduler = { requestSchedulerSync: vi.fn() };
-    const useCase = new UpdateJobUseCase({
+    const service = new JobManagementService({
       ops: ops as OpsRepository,
       scheduler,
+      schedulePlanner: runtimeJobSchedulePlanner,
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
     });
 
-    await useCase.execute({
+    await service.updateJob({
       appId: 'app-one',
       jobId: 'job-1',
       patch: { status: 'active' },
@@ -145,14 +147,15 @@ describe('job application use cases', () => {
   it('rejects empty mutable strings and no-ops empty patches', async () => {
     const ops = makeOps(makeJob());
     const scheduler = { requestSchedulerSync: vi.fn() };
-    const useCase = new UpdateJobUseCase({
+    const service = new JobManagementService({
       ops: ops as OpsRepository,
       scheduler,
+      schedulePlanner: runtimeJobSchedulePlanner,
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
     });
 
     await expect(
-      useCase.execute({
+      service.updateJob({
         appId: 'app-one',
         jobId: 'job-1',
         patch: { name: '   ' },
@@ -160,7 +163,7 @@ describe('job application use cases', () => {
     ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
 
     await expect(
-      useCase.execute({
+      service.updateJob({
         appId: 'app-one',
         jobId: 'job-1',
         patch: {},
@@ -168,25 +171,6 @@ describe('job application use cases', () => {
     ).resolves.toMatchObject({ job: { id: 'job-1' } });
     expect(ops.updateJob).not.toHaveBeenCalled();
     expect(scheduler.requestSchedulerSync).not.toHaveBeenCalled();
-  });
-
-  it('rejects ambiguous resume plus patch updates', async () => {
-    const ops = makeOps(makeJob({ status: 'paused' }));
-    const useCase = new UpdateJobUseCase({
-      ops: ops as OpsRepository,
-      scheduler: { requestSchedulerSync: vi.fn() },
-      clock: { now: () => '2026-04-24T01:00:00.000Z' },
-    });
-
-    await expect(
-      useCase.execute({
-        appId: 'app-one',
-        jobId: 'job-1',
-        resume: true,
-        patch: { status: 'paused' },
-      }),
-    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
-    expect(ops.updateJob).not.toHaveBeenCalled();
   });
 
   it('computes resume next_run in the application layer', async () => {
@@ -199,16 +183,16 @@ describe('job application use cases', () => {
       }),
     );
     const scheduler = { requestSchedulerSync: vi.fn() };
-    const useCase = new UpdateJobUseCase({
+    const service = new JobManagementService({
       ops: ops as OpsRepository,
       scheduler,
+      schedulePlanner: runtimeJobSchedulePlanner,
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
     });
 
-    await useCase.execute({
+    await service.resumeJob({
       appId: 'app-one',
       jobId: 'job-1',
-      resume: true,
     });
 
     expect(ops.updateJob).toHaveBeenCalledWith('job-1', {
@@ -221,13 +205,14 @@ describe('job application use cases', () => {
   it('pauses jobs without route-owned mutation logic', async () => {
     const ops = makeOps(makeJob());
     const scheduler = { requestSchedulerSync: vi.fn() };
-    const useCase = new PauseJobUseCase({
+    const service = new JobManagementService({
       ops: ops as OpsRepository,
       scheduler,
+      schedulePlanner: runtimeJobSchedulePlanner,
     });
 
     await expect(
-      useCase.execute({ appId: 'app-one', jobId: 'job-1', reason: '' }),
+      service.pauseJob({ appId: 'app-one', jobId: 'job-1', reason: '' }),
     ).resolves.toEqual({ paused: true });
     expect(ops.updateJob).toHaveBeenCalledWith('job-1', {
       status: 'paused',
@@ -239,13 +224,14 @@ describe('job application use cases', () => {
 
   it('rejects cross-app job access', async () => {
     const ops = makeOps(makeJob());
-    const useCase = new PauseJobUseCase({
+    const service = new JobManagementService({
       ops: ops as OpsRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
     });
 
     await expect(
-      useCase.execute({ appId: 'other-app', jobId: 'job-1' }),
+      service.pauseJob({ appId: 'other-app', jobId: 'job-1' }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(ops.updateJob).not.toHaveBeenCalled();
   });

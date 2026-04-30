@@ -105,7 +105,6 @@ export interface OpsRepository {
   getJobRunById(runId: string): Promise<JobRun | undefined>;
   listJobRuns(jobId?: string, limit?: number): Promise<JobRun[]>;
   listDeadLetterRuns(limit?: number): Promise<JobRun[]>;
-  addJobEvent(event: Omit<JobEvent, 'id'>): Promise<void>;
   listRecentJobEvents(
     limit?: number,
     filters?: { job_id?: string; run_id?: string; event_type?: string },

@@ -3,12 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { resolveGroupIpcPath } from '../platform/group-folder.js';
-import {
-  AvailableGroup,
-  JobEventSnapshotRow,
-  JobRunSnapshotRow,
-  JobSnapshotRow,
-} from './agent-spawn-types.js';
+import { AvailableGroup } from './agent-spawn-types.js';
 
 const MAX_SNAPSHOT_DIGEST_CACHE_ENTRIES = 512;
 const snapshotContentDigestCache = new Map<string, string>();
@@ -65,72 +60,6 @@ async function writeSnapshotJson(file: string, value: unknown): Promise<void> {
 
 export function clearSnapshotWriteCacheForTests(): void {
   snapshotContentDigestCache.clear();
-}
-
-export async function writeJobsSnapshot(
-  groupFolder: string,
-  isMain: boolean,
-  jobs: JobSnapshotRow[],
-): Promise<void> {
-  const groupIpcDir = resolveGroupIpcPath(groupFolder);
-  const filtered = isMain
-    ? jobs
-    : jobs.filter((job) => job.group_scope === groupFolder);
-
-  const file = path.join(groupIpcDir, 'current_jobs.json');
-  await writeSnapshotJson(file, filtered);
-}
-
-export async function writeJobRunsSnapshot(
-  groupFolder: string,
-  isMain: boolean,
-  runs: JobRunSnapshotRow[],
-  jobs: JobSnapshotRow[],
-): Promise<void> {
-  const groupIpcDir = resolveGroupIpcPath(groupFolder);
-
-  let allowedJobIds: Set<string> | null = null;
-  if (!isMain) {
-    allowedJobIds = new Set(
-      jobs
-        .filter((job) => job.group_scope === groupFolder)
-        .map((job) => job.id),
-    );
-  }
-
-  const filtered =
-    isMain || !allowedJobIds
-      ? runs
-      : runs.filter((run) => allowedJobIds.has(run.job_id));
-
-  const file = path.join(groupIpcDir, 'current_job_runs.json');
-  await writeSnapshotJson(file, filtered);
-}
-
-export async function writeJobEventsSnapshot(
-  groupFolder: string,
-  isMain: boolean,
-  events: JobEventSnapshotRow[],
-  jobs: JobSnapshotRow[],
-): Promise<void> {
-  const groupIpcDir = resolveGroupIpcPath(groupFolder);
-
-  let allowedJobIds: Set<string> | null = null;
-  if (!isMain) {
-    allowedJobIds = new Set(
-      jobs
-        .filter((job) => job.group_scope === groupFolder)
-        .map((job) => job.id),
-    );
-  }
-
-  const filtered =
-    isMain || !allowedJobIds
-      ? events
-      : events.filter((event) => allowedJobIds.has(event.job_id));
-
-  const file = path.join(groupIpcDir, 'current_job_events.json');
-  await writeSnapshotJson(file, filtered);
 }
 
 export async function writeGroupsSnapshot(

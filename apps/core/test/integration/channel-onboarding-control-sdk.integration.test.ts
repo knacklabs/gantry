@@ -24,6 +24,23 @@ vi.mock('@core/config/index.js', () => ({
 vi.mock('@core/jobs/scheduler.js', () => ({
   enqueueJobTrigger: vi.fn(async () => undefined),
   isSchedulerReady: vi.fn(() => true),
+  runtimeJobSchedulePlanner: {
+    createManualJobId: () => 'job-test',
+    createJobId: () => 'job-test',
+    planAppSchedule: () => ({
+      scheduleType: 'manual',
+      scheduleValue: 'manual',
+      nextRun: null,
+    }),
+    planInitial: () => ({ nextRun: '2026-04-24T01:00:00.000Z' }),
+    planResume: ({ job, clock }) =>
+      job.next_run ??
+      (job.schedule_type === 'manual'
+        ? null
+        : job.schedule_type === 'once'
+          ? job.schedule_value
+          : clock.now()),
+  },
   requestSchedulerSync: vi.fn(),
 }));
 

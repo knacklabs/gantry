@@ -64,42 +64,6 @@ describe('startRuntimeServices', () => {
     const app = makeApp();
     const channelWiring = makeChannelWiring();
 
-    const jobs = [
-      {
-        id: 'job-1',
-        name: 'Job 1',
-        prompt: 'Do thing',
-        model: '',
-        script: '',
-        schedule_type: 'interval',
-        schedule_value: '',
-        status: 'active',
-        group_scope: 'tg:main',
-        linked_sessions: [],
-        thread_id: null,
-        next_run: null,
-        created_by: 'human',
-        created_at: '2026-01-01T00:00:00.000Z',
-        updated_at: '2026-01-01T00:00:00.000Z',
-        silent: false,
-        cleanup_after_ms: 0,
-        timeout_ms: 1000,
-        max_retries: 0,
-        retry_backoff_ms: 0,
-        max_consecutive_failures: 0,
-        consecutive_failures: 0,
-        execution_mode: 'parallel',
-        pause_reason: null,
-      },
-    ] as any;
-
-    const writeJobsSnapshot = vi.fn((_folder, _isMain, rows) => {
-      order.push('writeJobsSnapshot');
-      expect(rows[0].model).toBeNull();
-      expect(rows[0].script).toBeUndefined();
-      expect(rows[0].pause_reason).toBeNull();
-    });
-
     await startRuntimeServices(
       {
         app,
@@ -112,19 +76,10 @@ describe('startRuntimeServices', () => {
         startIpcWatcher: vi.fn(() => {
           order.push('startIpcWatcher');
         }) as any,
-        writeJobsSnapshot: writeJobsSnapshot as any,
-        writeJobRunsSnapshot: vi.fn(() => {
-          order.push('writeJobRunsSnapshot');
+        writeGroupsSnapshot: vi.fn(() => {
+          order.push('writeGroupsSnapshot');
         }) as any,
-        writeJobEventsSnapshot: vi.fn(() => {
-          order.push('writeJobEventsSnapshot');
-        }) as any,
-        writeGroupsSnapshot: vi.fn() as any,
-        opsRepository: {
-          getAllJobs: vi.fn(async () => jobs),
-          getRecentJobRuns: vi.fn(async () => []),
-          listRecentJobEvents: vi.fn(async () => []),
-        } as any,
+        opsRepository: {} as any,
         recoverPendingMessages: vi.fn(() => {
           order.push('recoverPendingMessages');
         }) as any,
@@ -151,9 +106,7 @@ describe('startRuntimeServices', () => {
       'recoverPendingMessages',
       'runtime-ready-log',
       'startMessagePollingLoop',
-      'writeJobsSnapshot',
-      'writeJobRunsSnapshot',
-      'writeJobEventsSnapshot',
+      'writeGroupsSnapshot',
     ]);
 
     expect((app.queue.setProcessMessagesFn as any).mock.calls).toHaveLength(1);
@@ -177,15 +130,8 @@ describe('startRuntimeServices', () => {
       {
         startSchedulerLoop: vi.fn() as any,
         startIpcWatcher: vi.fn() as any,
-        writeJobsSnapshot: vi.fn() as any,
-        writeJobRunsSnapshot: vi.fn() as any,
-        writeJobEventsSnapshot: vi.fn() as any,
         writeGroupsSnapshot: vi.fn() as any,
-        opsRepository: {
-          getAllJobs: vi.fn(async () => []),
-          getRecentJobRuns: vi.fn(async () => []),
-          listRecentJobEvents: vi.fn(async () => []),
-        } as any,
+        opsRepository: {} as any,
         recoverPendingMessages: vi.fn() as any,
         startMessagePollingLoop: vi.fn((deps) => {
           capturedDeps = deps;
@@ -236,22 +182,13 @@ describe('startRuntimeServices', () => {
     );
   });
 
-  it('coalesces overlapping scheduler snapshot refreshes', async () => {
+  it('does not refresh job snapshots on scheduler changes', async () => {
     let schedulerDeps:
       | import('@core/jobs/scheduler.js').SchedulerDependencies
       | undefined;
-    let releaseFirstRead: (() => void) | undefined;
     const app = makeApp();
     const channelWiring = makeChannelWiring();
-    const getAllJobs = vi
-      .fn()
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            releaseFirstRead = () => resolve([]);
-          }),
-      )
-      .mockResolvedValue([]);
+    const writeGroupsSnapshot = vi.fn();
 
     await startRuntimeServices(
       {
@@ -263,15 +200,8 @@ describe('startRuntimeServices', () => {
           schedulerDeps = deps;
         }) as any,
         startIpcWatcher: vi.fn() as any,
-        writeJobsSnapshot: vi.fn() as any,
-        writeJobRunsSnapshot: vi.fn() as any,
-        writeJobEventsSnapshot: vi.fn() as any,
-        writeGroupsSnapshot: vi.fn() as any,
-        opsRepository: {
-          getAllJobs,
-          getRecentJobRuns: vi.fn(async () => []),
-          listRecentJobEvents: vi.fn(async () => []),
-        } as any,
+        writeGroupsSnapshot,
+        opsRepository: {} as any,
         recoverPendingMessages: vi.fn() as any,
         startMessagePollingLoop: vi.fn(
           () => new Promise<never>(() => {}),
@@ -290,12 +220,7 @@ describe('startRuntimeServices', () => {
     schedulerDeps?.onSchedulerChanged?.();
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(getAllJobs).toHaveBeenCalledTimes(1);
-    releaseFirstRead?.();
-    await new Promise((resolve) => setImmediate(resolve));
-    await new Promise((resolve) => setImmediate(resolve));
-
-    expect(getAllJobs).toHaveBeenCalledTimes(2);
+    expect(writeGroupsSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it('clears only the originating thread session for active /new commands', async () => {
@@ -316,15 +241,8 @@ describe('startRuntimeServices', () => {
       {
         startSchedulerLoop: vi.fn() as any,
         startIpcWatcher: vi.fn() as any,
-        writeJobsSnapshot: vi.fn() as any,
-        writeJobRunsSnapshot: vi.fn() as any,
-        writeJobEventsSnapshot: vi.fn() as any,
         writeGroupsSnapshot: vi.fn() as any,
-        opsRepository: {
-          getAllJobs: vi.fn(async () => []),
-          getRecentJobRuns: vi.fn(async () => []),
-          listRecentJobEvents: vi.fn(async () => []),
-        } as any,
+        opsRepository: {} as any,
         recoverPendingMessages: vi.fn() as any,
         startMessagePollingLoop: vi.fn((deps) => {
           capturedDeps = deps;

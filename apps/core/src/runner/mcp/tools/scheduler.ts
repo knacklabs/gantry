@@ -1,5 +1,4 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import path from 'path';
 import { z } from 'zod';
 import { CronExpressionParser } from 'cron-parser';
 import {
@@ -8,18 +7,63 @@ import {
   parseIso,
   sleep,
 } from '../../../infrastructure/time/datetime.js';
-import { IPC_DIR, TASKS_DIR } from '../context.js';
+import { TASKS_DIR } from '../context.js';
 import { formatTaskFailureLines } from '../formatting.js';
 import {
-  readJsonArraySnapshot,
   waitForTaskResponse,
   writeIpcFile,
+  type TaskResponseEnvelope,
 } from '../ipc.js';
 import {
-  filterSchedulerEvents,
   normalizeExecutionMode,
   resolveSchedulerThreadArg,
 } from '../scheduler-utils.js';
+
+async function requestSchedulerData(
+  type: string,
+  payload: Record<string, unknown>,
+  timeoutMs = 20_000,
+): Promise<TaskResponseEnvelope | null> {
+  const taskId = `${type.replace(/_/g, '-')}-${nowMs()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+  writeIpcFile(TASKS_DIR, {
+    type,
+    taskId,
+    ...payload,
+    timestamp: nowIso(),
+  });
+  return waitForTaskResponse(taskId, timeoutMs);
+}
+
+function taskError(response: TaskResponseEnvelope | null, fallback: string) {
+  if (!response) {
+    return {
+      content: [{ type: 'text' as const, text: `${fallback} timed out.` }],
+      isError: true,
+    };
+  }
+  if (!response.ok) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: formatTaskFailureLines(response, fallback).join('\n'),
+        },
+      ],
+      isError: true,
+    };
+  }
+  return null;
+}
+
+function dataRecord(response: TaskResponseEnvelope): Record<string, unknown> {
+  return typeof response.data === 'object' &&
+    response.data !== null &&
+    !Array.isArray(response.data)
+    ? (response.data as Record<string, unknown>)
+    : {};
+}
 
 export function registerSchedulerTools(server: McpServer): void {
   server.tool(
@@ -159,20 +203,15 @@ export function registerSchedulerTools(server: McpServer): void {
 
   server.tool(
     'scheduler_get_job',
-    'Get one scheduler job by ID from host snapshots.',
+    'Get one scheduler job by ID from the host scheduler.',
     { job_id: z.string() },
     async (args) => {
-      const jobs = readJsonArraySnapshot(
-        path.join(IPC_DIR, 'current_jobs.json'),
-      );
-      const job =
-        jobs.find(
-          (item) =>
-            typeof item === 'object' &&
-            item !== null &&
-            'id' in item &&
-            (item as { id?: string }).id === args.job_id,
-        ) || null;
+      const response = await requestSchedulerData('scheduler_get_job', {
+        jobId: args.job_id,
+      });
+      const error = taskError(response, 'Scheduler get job failed.');
+      if (error) return error;
+      const job = dataRecord(response!).job ?? null;
       return {
         content: [
           {
@@ -186,28 +225,23 @@ export function registerSchedulerTools(server: McpServer): void {
 
   server.tool(
     'scheduler_list_jobs',
-    'List scheduler jobs from host snapshots.',
+    'List scheduler jobs from the host scheduler.',
     {
       statuses: z.array(z.string()).optional(),
       group_scope: z.string().optional(),
     },
     async (args) => {
-      const jobs = readJsonArraySnapshot(
-        path.join(IPC_DIR, 'current_jobs.json'),
-      );
-      const filtered = jobs.filter((item) => {
-        if (typeof item !== 'object' || item === null) return false;
-        const row = item as { status?: string; group_scope?: string };
-        if (args.statuses && args.statuses.length > 0) {
-          if (!row.status || !args.statuses.includes(row.status)) return false;
-        }
-        if (args.group_scope && row.group_scope !== args.group_scope)
-          return false;
-        return true;
+      const response = await requestSchedulerData('scheduler_list_jobs', {
+        statuses: args.statuses,
+        groupScope: args.group_scope,
       });
+      const error = taskError(response, 'Scheduler list jobs failed.');
+      if (error) return error;
+      const jobs = dataRecord(response!).jobs;
+      const result = Array.isArray(jobs) ? jobs : [];
       return {
         content: [
-          { type: 'text' as const, text: JSON.stringify(filtered, null, 2) },
+          { type: 'text' as const, text: JSON.stringify(result, null, 2) },
         ],
       };
     },
@@ -460,25 +494,23 @@ export function registerSchedulerTools(server: McpServer): void {
 
   server.tool(
     'scheduler_list_runs',
-    'List job runs from host snapshots.',
+    'List job runs from the host scheduler.',
     {
       job_id: z.string().optional(),
       limit: z.number().optional(),
     },
     async (args) => {
-      const runs = readJsonArraySnapshot(
-        path.join(IPC_DIR, 'current_job_runs.json'),
-      );
-      const filtered = runs
-        .filter((item) => {
-          if (typeof item !== 'object' || item === null) return false;
-          if (!args.job_id) return true;
-          return (item as { job_id?: string }).job_id === args.job_id;
-        })
-        .slice(0, args.limit ?? 50);
+      const response = await requestSchedulerData('scheduler_list_runs', {
+        jobId: args.job_id,
+        limit: args.limit,
+      });
+      const error = taskError(response, 'Scheduler list runs failed.');
+      if (error) return error;
+      const runs = dataRecord(response!).runs;
+      const result = Array.isArray(runs) ? runs : [];
       return {
         content: [
-          { type: 'text' as const, text: JSON.stringify(filtered, null, 2) },
+          { type: 'text' as const, text: JSON.stringify(result, null, 2) },
         ],
       };
     },
@@ -486,7 +518,7 @@ export function registerSchedulerTools(server: McpServer): void {
 
   server.tool(
     'scheduler_list_events',
-    'List scheduler lifecycle events from host snapshots.',
+    'List scheduler lifecycle events from the host scheduler.',
     {
       job_id: z.string().optional(),
       run_id: z.string().optional(),
@@ -496,25 +528,21 @@ export function registerSchedulerTools(server: McpServer): void {
       limit: z.number().optional(),
     },
     async (args) => {
-      const events = readJsonArraySnapshot(
-        path.join(IPC_DIR, 'current_job_events.json'),
-      );
-      const filtered = filterSchedulerEvents(events, args).slice(
-        0,
-        args.limit ?? 100,
-      );
-      writeIpcFile(TASKS_DIR, {
-        type: 'scheduler_list_events',
+      const response = await requestSchedulerData('scheduler_list_events', {
         jobId: args.job_id,
         runId: args.run_id,
         eventType: args.event_type,
         sinceId: args.since_id,
+        since: args.since,
         limit: args.limit,
-        timestamp: nowIso(),
       });
+      const error = taskError(response, 'Scheduler list events failed.');
+      if (error) return error;
+      const events = dataRecord(response!).events;
+      const result = Array.isArray(events) ? events : [];
       return {
         content: [
-          { type: 'text' as const, text: JSON.stringify(filtered, null, 2) },
+          { type: 'text' as const, text: JSON.stringify(result, null, 2) },
         ],
       };
     },
@@ -522,7 +550,7 @@ export function registerSchedulerTools(server: McpServer): void {
 
   server.tool(
     'scheduler_wait_for_events',
-    'Wait for scheduler lifecycle events to arrive in host snapshots.',
+    'Wait for scheduler lifecycle events from the host scheduler.',
     {
       job_id: z.string().optional(),
       run_id: z.string().optional(),
@@ -540,25 +568,28 @@ export function registerSchedulerTools(server: McpServer): void {
       const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
       const deadline = nowMs() + timeoutMs;
       while (nowMs() < deadline) {
-        const events = readJsonArraySnapshot(
-          path.join(IPC_DIR, 'current_job_events.json'),
-        );
-        const filtered = filterSchedulerEvents(events, args).slice(0, limit);
-        if (filtered.length > 0) {
-          writeIpcFile(TASKS_DIR, {
-            type: 'scheduler_wait_for_events',
+        const response = await requestSchedulerData(
+          'scheduler_list_events',
+          {
             jobId: args.job_id,
             runId: args.run_id,
             eventType: args.event_type,
             sinceId: args.since_id,
+            since: args.since,
             limit,
-            timestamp: nowIso(),
-          });
+          },
+          5_000,
+        );
+        const error = taskError(response, 'Scheduler wait for events failed.');
+        if (error) return error;
+        const events = dataRecord(response!).events;
+        const result = Array.isArray(events) ? events : [];
+        if (result.length > 0) {
           return {
             content: [
               {
                 type: 'text' as const,
-                text: JSON.stringify(filtered, null, 2),
+                text: JSON.stringify(result, null, 2),
               },
             ],
           };
@@ -573,22 +604,19 @@ export function registerSchedulerTools(server: McpServer): void {
 
   server.tool(
     'scheduler_get_dead_letter',
-    'List dead-lettered job runs from host snapshots.',
+    'List dead-lettered job runs from the host scheduler.',
     { limit: z.number().optional() },
     async (args) => {
-      const runs = readJsonArraySnapshot(
-        path.join(IPC_DIR, 'current_job_runs.json'),
-      )
-        .filter(
-          (item) =>
-            typeof item === 'object' &&
-            item !== null &&
-            (item as { status?: string }).status === 'dead_lettered',
-        )
-        .slice(0, args.limit ?? 50);
+      const response = await requestSchedulerData('scheduler_get_dead_letter', {
+        limit: args.limit,
+      });
+      const error = taskError(response, 'Scheduler dead letter query failed.');
+      if (error) return error;
+      const runs = dataRecord(response!).deadLetterRuns;
+      const result = Array.isArray(runs) ? runs : [];
       return {
         content: [
-          { type: 'text' as const, text: JSON.stringify(runs, null, 2) },
+          { type: 'text' as const, text: JSON.stringify(result, null, 2) },
         ],
       };
     },

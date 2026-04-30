@@ -1,127 +1,200 @@
+import { ApplicationError } from '../application/common/application-error.js';
+import { JobManagementService } from '../application/jobs/job-management-service.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { TaskHandler } from './ipc-types.js';
+import type { ConversationBinding } from '../application/jobs/job-management-types.js';
+import { TaskContext, TaskHandler } from './ipc-types.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
+import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 
-const DEFAULT_RUN_LIMIT = 50;
-const DEFAULT_EVENT_LIMIT = 200;
-const DEFAULT_DEAD_LETTER_LIMIT = 50;
-const MAX_QUERY_LIMIT = 1_000;
-
-function resolveLimit(raw: unknown, fallback: number): number {
-  if (typeof raw !== 'number' || !Number.isFinite(raw)) return fallback;
-  const normalized = Math.floor(raw);
-  if (normalized <= 0) return fallback;
-  return Math.min(normalized, MAX_QUERY_LIMIT);
+function makeJobService(context: TaskContext): JobManagementService {
+  return new JobManagementService({
+    ops: context.deps.opsRepository,
+    scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
+    schedulePlanner: runtimeJobSchedulePlanner,
+  });
 }
 
-const schedulerListRunsHandler: TaskHandler = async ({
-  data,
-  sourceGroup,
-  deps,
-}) => {
-  const { accept, reject } = createTaskResponder(
+function accessFromContext(context: TaskContext) {
+  const bindingKey = `${'registered'}${'Groups'}` as keyof TaskContext;
+  return {
+    sourceGroup: context.sourceGroup,
+    isMain: context.isMain,
+    conversationBindings: context[bindingKey] as Record<
+      string,
+      ConversationBinding
+    >,
+    sourceGroupJids: context.sourceGroupJids,
+    authThreadId: context.data.authThreadId,
+  };
+}
+
+function mapApplicationError(error: unknown): {
+  message: string;
+  code: string;
+} {
+  if (error instanceof ApplicationError) {
+    return {
+      message: error.message,
+      code:
+        error.code === 'NOT_FOUND'
+          ? 'not_found'
+          : error.code === 'FORBIDDEN'
+            ? 'forbidden'
+            : error.code === 'INVALID_REQUEST'
+              ? 'invalid_request'
+              : 'internal_error',
+    };
+  }
+  return {
+    message:
+      error instanceof Error
+        ? error.message
+        : 'Failed to query scheduler jobs.',
+    code: 'internal_error',
+  };
+}
+
+const schedulerGetJobHandler: TaskHandler = async (context) => {
+  const { data, sourceGroup } = context;
+  const { acceptData, reject } = createTaskResponder(
     sourceGroup,
     data.taskId,
     data.authThreadId,
   );
-  const limit = resolveLimit(data.limit, DEFAULT_RUN_LIMIT);
   const jobId = toTrimmedString(data.jobId, { maxLen: 128 });
+  if (!jobId) {
+    reject('scheduler_get_job requires jobId.', 'invalid_request');
+    return;
+  }
   try {
-    const runs = await deps.opsRepository.listJobRuns(
-      jobId || undefined,
-      limit,
+    const result = await makeJobService(context).getJob({
+      jobId,
+      access: accessFromContext(context),
+    });
+    acceptData(
+      result.job ? `Loaded scheduler job (${jobId}).` : 'Job not found.',
+      result,
     );
-    accept(`Listed ${runs.length} scheduler run(s).`);
   } catch (err) {
-    logger.error(
-      { err, sourceGroup, limit, jobId: jobId || undefined },
-      'scheduler_list_runs failed unexpectedly',
-    );
-    reject(
-      err instanceof Error ? err.message : 'Failed to list scheduler runs.',
-      'internal_error',
-    );
+    const mapped = mapApplicationError(err);
+    logger.error({ err, sourceGroup, jobId }, 'scheduler_get_job failed');
+    reject(mapped.message, mapped.code);
   }
 };
 
-const schedulerListEventsHandler: TaskHandler = async ({
-  data,
-  sourceGroup,
-  deps,
-}) => {
-  const { accept, reject } = createTaskResponder(
+const schedulerListJobsHandler: TaskHandler = async (context) => {
+  const { data, sourceGroup } = context;
+  const { acceptData, reject } = createTaskResponder(
     sourceGroup,
     data.taskId,
     data.authThreadId,
   );
-  const limit = resolveLimit(data.limit, DEFAULT_EVENT_LIMIT);
+  try {
+    const result = await makeJobService(context).listJobs({
+      access: accessFromContext(context),
+      statuses: Array.isArray(data.statuses) ? data.statuses : undefined,
+      groupScope:
+        toTrimmedString(data.groupScope, { maxLen: 128 }) || undefined,
+    });
+    acceptData(`Listed ${result.jobs.length} scheduler job(s).`, result);
+  } catch (err) {
+    const mapped = mapApplicationError(err);
+    logger.error({ err, sourceGroup }, 'scheduler_list_jobs failed');
+    reject(mapped.message, mapped.code);
+  }
+};
+
+const schedulerListRunsHandler: TaskHandler = async (context) => {
+  const { data, sourceGroup } = context;
+  const { acceptData, reject } = createTaskResponder(
+    sourceGroup,
+    data.taskId,
+    data.authThreadId,
+  );
+  const jobId = toTrimmedString(data.jobId, { maxLen: 128 });
+  try {
+    const result = await makeJobService(context).listJobRuns({
+      access: accessFromContext(context),
+      jobId: jobId || undefined,
+      limit: data.limit,
+    });
+    acceptData(`Listed ${result.runs.length} scheduler run(s).`, result);
+  } catch (err) {
+    const mapped = mapApplicationError(err);
+    logger.error(
+      { err, sourceGroup, jobId: jobId || undefined },
+      'scheduler_list_runs failed unexpectedly',
+    );
+    reject(mapped.message, mapped.code);
+  }
+};
+
+const schedulerListEventsHandler: TaskHandler = async (context) => {
+  const { data, sourceGroup } = context;
+  const { acceptData, reject } = createTaskResponder(
+    sourceGroup,
+    data.taskId,
+    data.authThreadId,
+  );
   const jobId = toTrimmedString(data.jobId, { maxLen: 128 });
   const runId = toTrimmedString(data.runId, { maxLen: 128 });
   const eventType = toTrimmedString(data.eventType, { maxLen: 128 });
-  const sinceId =
-    typeof data.sinceId === 'number' && Number.isFinite(data.sinceId)
-      ? Math.max(0, Math.floor(data.sinceId))
-      : undefined;
   try {
-    const events = await deps.opsRepository.listRecentJobEvents(limit, {
-      job_id: jobId || undefined,
-      run_id: runId || undefined,
-      event_type: eventType || undefined,
+    const result = await makeJobService(context).listJobEvents({
+      access: accessFromContext(context),
+      jobId: jobId || undefined,
+      runId: runId || undefined,
+      eventType: eventType || undefined,
+      since: toTrimmedString(data.since, { maxLen: 128 }) || undefined,
+      sinceId:
+        typeof data.sinceId === 'number' && Number.isFinite(data.sinceId)
+          ? Math.max(0, Math.floor(data.sinceId))
+          : undefined,
+      limit: data.limit,
     });
-    const visibleEvents =
-      sinceId !== undefined
-        ? events.filter((event) => event.id > sinceId)
-        : events;
-    accept(`Listed ${visibleEvents.length} scheduler event(s).`);
+    acceptData(`Listed ${result.events.length} scheduler event(s).`, result);
   } catch (err) {
+    const mapped = mapApplicationError(err);
     logger.error(
       {
         err,
         sourceGroup,
-        limit,
         jobId: jobId || undefined,
         runId: runId || undefined,
         eventType: eventType || undefined,
-        sinceId,
       },
       'scheduler_list_events failed unexpectedly',
     );
-    reject(
-      err instanceof Error ? err.message : 'Failed to list scheduler events.',
-      'internal_error',
-    );
+    reject(mapped.message, mapped.code);
   }
 };
 
-const schedulerGetDeadLetterHandler: TaskHandler = async ({
-  data,
-  sourceGroup,
-  deps,
-}) => {
-  const { accept, reject } = createTaskResponder(
+const schedulerGetDeadLetterHandler: TaskHandler = async (context) => {
+  const { data, sourceGroup } = context;
+  const { acceptData, reject } = createTaskResponder(
     sourceGroup,
     data.taskId,
     data.authThreadId,
   );
-  const limit = resolveLimit(data.limit, DEFAULT_DEAD_LETTER_LIMIT);
   try {
-    const runs = await deps.opsRepository.listDeadLetterRuns(limit);
-    accept(`Listed ${runs.length} dead-letter run(s).`);
+    const result = await makeJobService(context).listDeadLetterRuns({
+      access: accessFromContext(context),
+      limit: data.limit,
+    });
+    acceptData(
+      `Listed ${result.deadLetterRuns.length} dead-letter run(s).`,
+      result,
+    );
   } catch (err) {
-    logger.error(
-      { err, sourceGroup, limit },
-      'scheduler_get_dead_letter failed unexpectedly',
-    );
-    reject(
-      err instanceof Error
-        ? err.message
-        : 'Failed to list dead-letter scheduler runs.',
-      'internal_error',
-    );
+    const mapped = mapApplicationError(err);
+    logger.error({ err, sourceGroup }, 'scheduler_get_dead_letter failed');
+    reject(mapped.message, mapped.code);
   }
 };
 
 export const schedulerQueryTaskHandlers: Record<string, TaskHandler> = {
+  scheduler_get_job: schedulerGetJobHandler,
+  scheduler_list_jobs: schedulerListJobsHandler,
   scheduler_list_runs: schedulerListRunsHandler,
   scheduler_list_events: schedulerListEventsHandler,
   scheduler_wait_for_events: schedulerListEventsHandler,

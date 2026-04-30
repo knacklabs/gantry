@@ -25,6 +25,38 @@ export type {
 } from './settings.js';
 import * as mcpServerClients from './mcp-servers.js';
 export type JobKind = 'manual' | 'once' | 'recurring';
+export type JobExecutionMode = 'parallel' | 'serialized';
+export type JobStatus =
+  | 'active'
+  | 'paused'
+  | 'running'
+  | 'completed'
+  | 'dead_lettered';
+export interface JobRecord {
+  jobId: string;
+  name: string;
+  prompt: string;
+  kind: JobKind;
+  status: JobStatus;
+  schedule:
+    | null
+    | { type: 'once'; runAt: string }
+    | { type: 'cron' | 'interval'; value: string };
+  linkedSessions: string[];
+  nextRun: string | null;
+  lastRun: string | null;
+  executionMode: JobExecutionMode;
+  threadId: string | null;
+  groupScope: string;
+  sessionId: string | null;
+}
+export interface JobTriggerWaitResult {
+  triggerId: string;
+  runId: string;
+  status: string;
+  resultSummary: string | null;
+  errorSummary: string | null;
+}
 export type ResponseMode = 'sse' | 'webhook' | 'both' | 'none';
 export type MemorySubjectType = 'user' | 'group' | 'channel' | 'common';
 export type DreamPhase = 'light' | 'rem' | 'deep' | 'all';
@@ -337,17 +369,17 @@ export class MyClawClient {
         body: input,
       }),
     list: () =>
-      this.transport.request<{ jobs: unknown[] }>({
+      this.transport.request<{ jobs: JobRecord[] }>({
         method: 'GET',
         path: '/v1/jobs',
       }),
     get: (jobId: string) =>
-      this.transport.request<Record<string, unknown>>({
+      this.transport.request<JobRecord>({
         method: 'GET',
         path: `/v1/jobs/${encodeURIComponent(jobId)}`,
       }),
     update: (jobId: string, patch: Record<string, unknown>) =>
-      this.transport.request<Record<string, unknown>>({
+      this.transport.request<JobRecord>({
         method: 'PATCH',
         path: `/v1/jobs/${encodeURIComponent(jobId)}`,
         body: patch,
@@ -373,13 +405,7 @@ export class MyClawClient {
         path: `/v1/jobs/${encodeURIComponent(jobId)}/trigger`,
       }),
     wait: (triggerId: string, timeoutMs?: number) =>
-      this.transport.request<{
-        triggerId: string;
-        runId: string;
-        status: string;
-        resultSummary: string | null;
-        errorSummary: string | null;
-      }>({
+      this.transport.request<JobTriggerWaitResult>({
         method: 'GET',
         path: `/v1/triggers/${encodeURIComponent(triggerId)}/wait?timeoutMs=${timeoutMs || 60_000}`,
       }),

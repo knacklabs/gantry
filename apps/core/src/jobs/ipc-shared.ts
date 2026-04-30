@@ -1,12 +1,11 @@
 import fs from 'fs';
 import path from 'path';
-import { createHash } from 'crypto';
 
 import { DATA_DIR } from '../config/index.js';
 import { nowIso } from '../infrastructure/time/datetime.js';
 import { writeFileAtomic } from '../infrastructure/filesystem/paths.js';
 import { signIpcResponsePayload } from '../infrastructure/ipc/response-signing.js';
-import { JobExecutionMode, RegisteredGroup } from '../domain/types.js';
+import { JobExecutionMode } from '../domain/types.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import {
   getServiceStatus,
@@ -32,49 +31,6 @@ export function normalizeIpcExecutionMode(
   return fallback;
 }
 
-export function jobBelongsToSourceGroup(
-  job: { group_scope: string; linked_sessions: string[] },
-  sourceGroup: string,
-  registeredGroups: Record<string, RegisteredGroup>,
-): boolean {
-  if (job.group_scope !== sourceGroup) return false;
-  return job.linked_sessions.every((jid) => {
-    const group = registeredGroups[jid];
-    return !!group && group.folder === sourceGroup;
-  });
-}
-
-export function jobBelongsToAuthThread(
-  job: { thread_id: string | null },
-  authThreadId?: string,
-): boolean {
-  if (!authThreadId) return (job.thread_id || null) === null;
-  return (job.thread_id || null) === authThreadId;
-}
-
-export function generateJobId(params: {
-  name: string;
-  prompt: string;
-  scheduleType: string;
-  scheduleValue: string;
-  groupScope: string;
-}): string {
-  const base = JSON.stringify({
-    name: params.name,
-    prompt: params.prompt,
-    scheduleType: params.scheduleType,
-    scheduleValue: params.scheduleValue,
-    groupScope: params.groupScope,
-  });
-  const hash = createHash('sha256').update(base).digest('hex').slice(0, 12);
-  const slug = params.name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
-  return `job-${slug || 'scheduled'}-${hash}`;
-}
-
 function writeJsonAtomic(filePath: string, value: unknown): void {
   writeFileAtomic(filePath, JSON.stringify(value, null, 2));
 }
@@ -88,6 +44,7 @@ export function writeTaskIpcResponse(
     message?: string;
     error?: string;
     details?: string[];
+    data?: unknown;
   },
   authThreadId?: string,
 ): void {
@@ -118,6 +75,12 @@ export function createTaskResponder(
   authThreadId?: string,
 ): {
   accept: (message: string, code?: string, details?: string[]) => void;
+  acceptData: (
+    message: string,
+    data: unknown,
+    code?: string,
+    details?: string[],
+  ) => void;
   reject: (error: string, code?: string, details?: string[]) => void;
 } {
   const taskId = toTrimmedString(taskIdRaw, { maxLen: 128 });
@@ -130,6 +93,25 @@ export function createTaskResponder(
           ok: true,
           ...(code ? { code } : {}),
           message,
+          ...(details && details.length > 0 ? { details } : {}),
+        },
+        authThreadId,
+      );
+    },
+    acceptData: (
+      message: string,
+      data: unknown,
+      code?: string,
+      details?: string[],
+    ) => {
+      writeTaskIpcResponse(
+        sourceGroup,
+        taskId,
+        {
+          ok: true,
+          ...(code ? { code } : {}),
+          message,
+          data,
           ...(details && details.length > 0 ? { details } : {}),
         },
         authThreadId,

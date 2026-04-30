@@ -201,29 +201,6 @@ export class CanonicalJobOpsService {
     return rows.map((row) => this.mapRun(row));
   }
 
-  async addJobEvent(event: Omit<JobEvent, 'id'>): Promise<void> {
-    const runId = event.run_id || `run:${event.job_id}`;
-    await this.repository.insertRun({
-      run_id: runId,
-      job_id: event.job_id,
-      scheduled_for: event.created_at,
-      started_at: event.created_at,
-      ended_at: null,
-      status: 'running',
-      result_summary: null,
-      error_summary: null,
-      retry_count: 0,
-      notified_at: null,
-    });
-    await this.repository.insertEvent({
-      id: randomUUID(),
-      runId,
-      type: event.event_type,
-      payloadJson: json(event),
-      createdAt: event.created_at,
-    });
-  }
-
   async listRecentJobEvents(
     limit = 200,
     filters?: { job_id?: string; run_id?: string; event_type?: string },

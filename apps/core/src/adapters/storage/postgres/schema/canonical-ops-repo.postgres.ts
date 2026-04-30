@@ -66,7 +66,7 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
     );
     this.sessions = new CanonicalSessionOpsService(
       new PostgresCanonicalSessionRepository(this.db),
-      createPostgresDomainRepositories(this.db),
+      createPostgresDomainRepositories(this.db, this.pool),
       this.options.sessions,
     );
     this.bindings = new CanonicalBindingOpsService(
@@ -208,10 +208,6 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
     return this.jobs.listDeadLetterRuns(limit);
   }
 
-  async addJobEvent(event: Omit<JobEvent, 'id'>): Promise<void> {
-    await this.jobs.addJobEvent(event);
-  }
-
   async listRecentJobEvents(
     limit = 200,
     filters?: { job_id?: string; run_id?: string; event_type?: string },
@@ -265,7 +261,7 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
     agentSessionId: string;
     cause: 'message' | 'job' | 'control' | 'manual';
   }): Promise<string | undefined> {
-    const repositories = createPostgresDomainRepositories(this.db);
+    const repositories = createPostgresDomainRepositories(this.db, this.pool);
     const session = await repositories.agentSessions.getAgentSession(
       input.agentSessionId as never,
     );
@@ -306,7 +302,7 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
     resultSummary?: string | null;
     errorSummary?: string | null;
   }): Promise<void> {
-    const repositories = createPostgresDomainRepositories(this.db);
+    const repositories = createPostgresDomainRepositories(this.db, this.pool);
     const run = await repositories.agentRuns.getAgentRun(input.runId as never);
     if (!run) return;
     const now = new Date().toISOString();

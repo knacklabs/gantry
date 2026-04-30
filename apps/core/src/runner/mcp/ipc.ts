@@ -66,12 +66,6 @@ export function hasValidIpcResponseSignature(
   );
 }
 
-export function readJsonArraySnapshot(filePath: string): unknown[] {
-  if (!fs.existsSync(filePath)) return [];
-  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-  return Array.isArray(parsed) ? parsed : [];
-}
-
 export async function requestMemoryAction(
   action: MemoryIpcAction,
   payload: Record<string, unknown>,
@@ -242,6 +236,7 @@ export interface TaskResponseEnvelope {
   message?: string;
   error?: string;
   details?: string[];
+  data?: unknown;
   timestamp?: string;
 }
 
@@ -269,6 +264,9 @@ function parseTaskResponseEnvelope(
       ...(typeof row.message === 'string' ? { message: row.message } : {}),
       ...(typeof row.error === 'string' ? { error: row.error } : {}),
       ...(details ? { details } : {}),
+      ...(Object.prototype.hasOwnProperty.call(row, 'data')
+        ? { data: row.data }
+        : {}),
       ...(typeof row.timestamp === 'string'
         ? { timestamp: row.timestamp }
         : {}),
