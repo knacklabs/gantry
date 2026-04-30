@@ -26,7 +26,9 @@ describe('OnecliAgentCredentialBroker', () => {
     getContainerConfig.mockResolvedValue({
       env: {
         ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
-        HTTPS_PROXY: 'http://x:aoc_123@host.docker.internal:10255',
+        HTTPS_PROXY:
+          'http://x:aoc_104f2fa6600ede448b527c267a13d6a0db0dad62b3f9ca087446cc8e15acd697@host.docker.internal:10255',
+        GIT_TERMINAL_PROMPT: '0',
         NODE_EXTRA_CA_CERTS: '/container/ca.pem',
       },
       caCertificate: 'cert-data',
@@ -57,11 +59,13 @@ describe('OnecliAgentCredentialBroker', () => {
       brokerProfile: 'onecli',
       env: {
         ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
-        HTTPS_PROXY: 'http://x:aoc_123@127.0.0.1:10255/',
+        HTTPS_PROXY:
+          'http://x:aoc_104f2fa6600ede448b527c267a13d6a0db0dad62b3f9ca087446cc8e15acd697@127.0.0.1:10255/',
         NODE_EXTRA_CA_CERTS: caPath,
       },
       proxy: {
-        https: 'http://x:aoc_123@127.0.0.1:10255/',
+        https:
+          'http://x:aoc_104f2fa6600ede448b527c267a13d6a0db0dad62b3f9ca087446cc8e15acd697@127.0.0.1:10255/',
       },
       certificates: {
         nodeExtraCaCertsPath: caPath,
@@ -204,5 +208,25 @@ describe('OnecliAgentCredentialBroker', () => {
     await expect(
       broker.getInjection({ binding: { profile: 'onecli' } }),
     ).rejects.toThrow(/MYCLAW_DATABASE_URL/);
+  });
+
+  it('fails closed when OneCLI returns a non-local model proxy env', async () => {
+    getContainerConfig.mockResolvedValue({
+      env: {
+        ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
+        HTTPS_PROXY: 'http://proxy.example.com:8080',
+      },
+    });
+
+    const { OnecliAgentCredentialBroker } =
+      await import('@core/adapters/credentials/onecli/broker.js');
+    const broker = new OnecliAgentCredentialBroker({
+      onecliUrl: 'http://localhost:10254',
+      dataDir: os.tmpdir(),
+    });
+
+    await expect(
+      broker.getInjection({ binding: { profile: 'onecli' } }),
+    ).rejects.toThrow(/forbidden raw credential env value.*HTTPS_PROXY/);
   });
 });

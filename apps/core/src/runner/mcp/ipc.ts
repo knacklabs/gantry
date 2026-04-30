@@ -55,7 +55,7 @@ export function hasValidIpcResponseSignature(
   raw: Record<string, unknown>,
   payload: Record<string, unknown>,
 ): boolean {
-  if (!IPC_AUTH_TOKEN && !IPC_RESPONSE_VERIFY_KEY) return false;
+  if (!IPC_RESPONSE_VERIFY_KEY) return false;
   const signature =
     typeof raw.signature === 'string' ? raw.signature.trim() : '';
   return verifyIpcResponsePayload(
@@ -207,8 +207,8 @@ export async function requestBrowserAction(
           ...(typeof raw.error === 'string' ? { error: raw.error } : {}),
         };
         const payload: Record<string, unknown> = {
-          requestId,
           ok: data.ok,
+          requestId,
           ...(Object.prototype.hasOwnProperty.call(data, 'data')
             ? { data: data.data }
             : {}),

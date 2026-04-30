@@ -38,6 +38,7 @@ describe('ensureGroupIpcLayout', () => {
       'browser-requests',
       'browser-responses',
       'input',
+      'interaction-boundaries',
       'memory-requests',
       'memory-responses',
       'messages',

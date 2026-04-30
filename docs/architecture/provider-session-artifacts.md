@@ -1,8 +1,8 @@
 # Provider Session Artifacts
 
-Provider session artifacts are provider-owned continuation files attached to a
+Provider session artifacts are provider-owned export/debug files attached to a
 canonical `AgentSession` and `ProviderSession`. They are not canonical
-conversation history.
+conversation history and are not runtime continuation state.
 
 Canonical MyClaw state remains in Postgres:
 
@@ -11,9 +11,9 @@ Canonical MyClaw state remains in Postgres:
 - agent runs and run events
 - summaries, memory, jobs, permissions, and control events
 
-Provider artifacts hold provider-specific bytes that may help a provider resume
-native state. For the Claude adapter this includes JSONL transcripts and
-session indexes.
+Provider artifacts hold provider-specific bytes for explicit export,
+inspection, or debugging. Claude JSONL transcripts and session indexes may be
+stored as artifacts, but the runtime does not replay them.
 
 ## Artifact Store Contract
 
@@ -35,30 +35,18 @@ Supported storage types:
 - `object-store`: future S3/R2/GCS/MinIO-style storage
 
 Every artifact records ownership, storage location, hash, size, creation time,
-and metadata in Postgres. The active provider session points at its latest
-artifact id.
+and metadata in Postgres. Provider latest artifact pointers are metadata only.
 
-## Claude Resume Flow
+## Claude Runtime Flow
 
-Before Claude native resume, MyClaw requires an active provider session with a
-latest artifact id. The Claude runtime materializer then loads the latest
-`claude-jsonl` artifact for that provider session, verifies hash and size, and
-materializes it into a temporary `CLAUDE_CONFIG_DIR`.
+Claude runs use a temporary `CLAUDE_CONFIG_DIR` containing generated
+`settings.json`, materialized `skills/`, and an SDK project scratch directory.
+MyClaw does not restore `claude-jsonl` artifacts before a run, does not pass SDK
+`resume`, and does not capture SDK session files after a run.
 
-After the run, MyClaw captures updated Claude JSONL and session index files from
-that temporary directory, stores them through `ProviderArtifactStore`, updates
-the provider session latest artifact pointer, and removes the temporary
-directory.
-
-The same temp directory also contains generated `settings.json` and
-materialized `skills/`. Those files are generated compatibility inputs for
-Claude and are not provider artifacts.
-
-If no artifact exists, MyClaw does not pass a stale Claude session id to the
-SDK; it uses DB replay hydration from canonical messages, runs, and memory. If
-the artifact is corrupt, native provider resume metadata is expired and DB
-replay is used. If the artifact store itself is not available for a
-provider-native resume, the run fails loudly.
+Session continuity uses a live SDK streaming-input query while the runner is
+alive. Cold starts hydrate durable MyClaw memory only; canonical messages, runs,
+and summaries are audit/observability state and are not replayed into prompts.
 
 ## Local Filesystem Backend
 
@@ -79,5 +67,5 @@ root mounted everywhere or an `object-store` adapter.
 ## Transcript Export
 
 Markdown transcript exports are explicit artifacts with kind
-`transcript-export`. They are generated from stored provider artifacts and are
-not hidden durable runtime state under `data/session-archives`.
+`transcript-export`. They are not hidden durable runtime state under
+`data/session-archives`.

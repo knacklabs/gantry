@@ -13,6 +13,7 @@ import type {
   JobUpsertInput,
   OpsRepository,
 } from '../../../../domain/repositories/ops-repo.js';
+import type { RuntimeEventPublishInput } from '../../../../domain/events/events.js';
 import { PostgresCanonicalBindingRepository } from '../repositories/canonical-binding-repository.postgres.js';
 import {
   type CanonicalDb,
@@ -25,16 +26,19 @@ import { PostgresCanonicalMessageRepository } from '../repositories/canonical-me
 import { PostgresCanonicalRouterStateRepository } from '../repositories/canonical-router-state-repository.postgres.js';
 import { PostgresCanonicalSessionRepository } from '../repositories/canonical-session-repository.postgres.js';
 import { createPostgresDomainRepositories } from '../repositories/domain-repositories.postgres.js';
+import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
 import { CanonicalBindingOpsService } from '../services/canonical-binding-ops-service.js';
 import { CanonicalJobOpsService } from '../services/canonical-job-ops-service.js';
 import { CanonicalMessageOpsService } from '../services/canonical-message-ops-service.js';
 import { CanonicalSessionOpsService } from '../services/canonical-session-ops-service.js';
 
 interface SessionRuntimeOptions {
-  recentMessageLimit?: number;
-  summaryAfterMessages?: number;
-  summaryAfterRuns?: number;
-  maxHydratedContextChars?: number;
+  memoryItemLimit?: number;
+  maxMemoryContextChars?: number;
+}
+
+interface RuntimeEventPublisher {
+  publish(input: RuntimeEventPublishInput): Promise<unknown>;
 }
 
 export class PostgresCanonicalOpsRepository implements OpsRepository {
@@ -48,7 +52,10 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
   constructor(
     private readonly pool: Pool,
     private readonly db: CanonicalDb,
-    options: { sessions?: SessionRuntimeOptions } = {},
+    private readonly options: {
+      runtimeEvents: RuntimeEventPublisher;
+      sessions?: SessionRuntimeOptions;
+    },
   ) {
     this.graph = new PostgresCanonicalGraphRepository(this.db);
     this.messages = new CanonicalMessageOpsService(
@@ -60,7 +67,7 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
     this.sessions = new CanonicalSessionOpsService(
       new PostgresCanonicalSessionRepository(this.db),
       createPostgresDomainRepositories(this.db),
-      options.sessions,
+      this.options.sessions,
     );
     this.bindings = new CanonicalBindingOpsService(
       new PostgresCanonicalBindingRepository(this.db),
@@ -232,7 +239,7 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
     await this.sessions.setSession(groupFolder, sessionId, threadId, metadata);
   }
 
-  async getSessionResume(input: {
+  async getAgentTurnContext(input: {
     groupFolder: string;
     chatJid: string;
     threadId?: string | null;
@@ -240,14 +247,9 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
     appId: string;
     agentId: string;
     agentSessionId: string;
-    mode: 'provider_native' | 'db_replay';
-    provider?: string;
-    providerSessionId?: string;
-    externalSessionId?: string;
-    latestArtifactId?: string;
-    hydratedContextBlock?: string;
+    memoryContextBlock?: string;
   }> {
-    return this.sessions.getSessionResume(input);
+    return this.sessions.getAgentTurnContext(input);
   }
 
   async expireProviderSession(input: {
@@ -257,10 +259,6 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
     externalSessionId?: string;
   }): Promise<void> {
     await this.sessions.expireProviderSession(input);
-  }
-
-  async checkpointSessionSummary(agentSessionId: string): Promise<void> {
-    await this.sessions.checkpointSessionSummary(agentSessionId);
   }
 
   async createSessionAgentRun(input: {
@@ -290,11 +288,12 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
       createdAt: now,
       startedAt: now,
     } as never);
-    await repositories.agentRuns.appendAgentRunEvent({
-      id: `agent-run-event:${randomUUID()}` as never,
+    await this.options.runtimeEvents.publish({
       appId: session.appId,
       runId: runId as never,
-      type: 'started',
+      sessionId: session.id,
+      eventType: RUNTIME_EVENT_TYPES.RUN_STARTED,
+      actor: 'runtime',
       payload: { cause: input.cause },
       createdAt: now,
     });
@@ -318,11 +317,17 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
       resultSummary: input.resultSummary ?? run.resultSummary,
       errorSummary: input.errorSummary ?? run.errorSummary,
     });
-    await repositories.agentRuns.appendAgentRunEvent({
-      id: `agent-run-event:${randomUUID()}` as never,
+    await this.options.runtimeEvents.publish({
       appId: run.appId,
       runId: run.id,
-      type: input.status,
+      sessionId: run.sessionId,
+      eventType:
+        input.status === 'completed'
+          ? RUNTIME_EVENT_TYPES.RUN_COMPLETED
+          : input.status === 'failed'
+            ? RUNTIME_EVENT_TYPES.RUN_FAILED
+            : RUNTIME_EVENT_TYPES.RUN_CANCELED,
+      actor: 'runtime',
       payload: {
         resultSummary: input.resultSummary ?? null,
         errorSummary: input.errorSummary ?? null,

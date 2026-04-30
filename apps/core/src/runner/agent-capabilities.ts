@@ -64,11 +64,7 @@ const DEFAULT_ALLOWED_TOOLS = [
   'mcp__myclaw__*',
 ] as const;
 
-const ALWAYS_ALLOWED_TOOLS = [
-  'Config',
-  'EnterWorktree',
-  'ExitWorktree',
-] as const;
+const ALWAYS_ALLOWED_TOOLS = ['EnterWorktree', 'ExitWorktree'] as const;
 
 const sdkToolsProvider: AgentCapabilityProvider = {
   id: 'sdk-tools',

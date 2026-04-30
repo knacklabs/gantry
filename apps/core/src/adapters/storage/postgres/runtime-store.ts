@@ -4,6 +4,8 @@ import type { ProviderArtifactStore } from '../../../domain/ports/provider-artif
 import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
 import { evaluatePostgresStorageCapabilities } from './readiness.js';
 import type { PostgresControlPlaneRepository } from './schema/control-plane-repo.postgres.js';
+import type { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
+import type { RuntimeLease } from '../../../domain/ports/runtime-lease.js';
 
 let runtime: StorageRuntime | null = null;
 
@@ -39,6 +41,66 @@ export function getRuntimeControlRepository(): PostgresControlPlaneRepository {
   return getRuntimeStorage().control;
 }
 
+export function getRuntimeEventExchange(): RuntimeEventExchange {
+  return getRuntimeStorage().runtimeEvents;
+}
+
+export async function tryAcquireRuntimeAdvisoryLease(
+  key: string,
+): Promise<RuntimeLease | undefined> {
+  const client = await getRuntimeStorage().service.pool.connect();
+  let released = false;
+  try {
+    const result = await client.query<{ acquired: boolean }>(
+      'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS acquired',
+      [key],
+    );
+    if (!result.rows[0]?.acquired) {
+      client.release();
+      released = true;
+      return undefined;
+    }
+    const lostHandlers = new Set<(err: Error) => void>();
+    const notifyLost = (err: Error) => {
+      if (released) return;
+      released = true;
+      for (const handler of [...lostHandlers]) handler(err);
+      client.removeListener('error', notifyLost);
+      client.removeListener('end', notifyEnd);
+      try {
+        client.release(err);
+      } catch {}
+    };
+    const notifyEnd = () => {
+      notifyLost(new Error(`Runtime advisory lease connection ended: ${key}`));
+    };
+    client.once('error', notifyLost);
+    client.once('end', notifyEnd);
+    return {
+      onLost: (handler) => {
+        lostHandlers.add(handler);
+      },
+      release: async () => {
+        if (released) return;
+        released = true;
+        client.removeListener('error', notifyLost);
+        client.removeListener('end', notifyEnd);
+        try {
+          await client.query(
+            'SELECT pg_advisory_unlock(hashtextextended($1, 0))',
+            [key],
+          );
+        } finally {
+          client.release();
+        }
+      },
+    };
+  } catch (err) {
+    if (!released) client.release(err instanceof Error ? err : undefined);
+    throw err;
+  }
+}
+
 export function getRuntimeProviderArtifactStore(): ProviderArtifactStore {
   return getRuntimeStorage().providerArtifacts;
 }
@@ -50,6 +112,7 @@ export function getRuntimeSkillArtifactStore(): SkillArtifactStore {
 export async function closeRuntimeStorage(): Promise<void> {
   const existing = runtime;
   runtime = null;
+  await existing?.runtimeEventNotifier.close();
   await existing?.service.close();
 }
 
@@ -69,6 +132,10 @@ export function _setRuntimeOpsRepositoryForTest(ops: OpsRepository): void {
     ops,
     control: {} as StorageRuntime['control'],
     repositories: {} as StorageRuntime['repositories'],
+    runtimeEvents: {} as StorageRuntime['runtimeEvents'],
+    runtimeEventNotifier: {
+      close: async () => {},
+    } as StorageRuntime['runtimeEventNotifier'],
     providerArtifacts: {} as StorageRuntime['providerArtifacts'],
     skillArtifacts: {} as StorageRuntime['skillArtifacts'],
   };

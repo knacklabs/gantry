@@ -13,11 +13,8 @@ describe('OneCLI env policy', () => {
         ANTHROPIC_MODEL: 'claude-haiku-4-5',
         ANTHROPIC_API_KEY: 'placeholder',
         CLAUDE_CODE_OAUTH_TOKEN: 'placeholder',
-        HTTPS_PROXY: 'http://x:aoc_123@host.docker.internal:10255',
-        HTTP_PROXY: 'http://x:aoc_123@host.docker.internal:10255',
+        HTTPS_PROXY: 'http://127.0.0.1:10255',
         NODE_USE_ENV_PROXY: '1',
-        GIT_TERMINAL_PROMPT: '0',
-        GIT_HTTP_PROXY_AUTHMETHOD: 'basic',
       }),
     ).toEqual({
       env: {
@@ -25,11 +22,8 @@ describe('OneCLI env policy', () => {
         ANTHROPIC_MODEL: 'claude-haiku-4-5',
         ANTHROPIC_API_KEY: 'placeholder',
         CLAUDE_CODE_OAUTH_TOKEN: 'placeholder',
-        HTTPS_PROXY: 'http://x:aoc_123@127.0.0.1:10255/',
-        HTTP_PROXY: 'http://x:aoc_123@127.0.0.1:10255/',
+        HTTPS_PROXY: 'http://127.0.0.1:10255/',
         NODE_USE_ENV_PROXY: '1',
-        GIT_TERMINAL_PROMPT: '0',
-        GIT_HTTP_PROXY_AUTHMETHOD: 'basic',
       },
       droppedKeys: [],
     });
@@ -87,7 +81,7 @@ describe('OneCLI env policy', () => {
     }
   });
 
-  it('rejects real provider keys and unexpected proxy values', () => {
+  it('rejects real provider keys', () => {
     expect(() =>
       filterTrustedOnecliEnv({
         ANTHROPIC_API_KEY: 'sk-ant-secret',
@@ -99,12 +93,31 @@ describe('OneCLI env policy', () => {
         CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat-secret',
       }),
     ).toThrow('forbidden raw credential env key: CLAUDE_CODE_OAUTH_TOKEN');
+  });
 
-    expect(() =>
+  it('allows only local model proxy env and rejects tool proxy controls', () => {
+    expect(
       filterTrustedOnecliEnv({
-        HTTPS_PROXY: 'http://proxy.example.com:8080',
+        HTTPS_PROXY: 'http://localhost:10255',
+        HTTP_PROXY: 'http://127.0.0.1:10255',
+        https_proxy: 'http://[::1]:10255',
+        http_proxy:
+          'http://x:aoc_104f2fa6600ede448b527c267a13d6a0db0dad62b3f9ca087446cc8e15acd697@host.docker.internal:10255',
+        NODE_USE_ENV_PROXY: 'true',
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_HTTP_PROXY_AUTHMETHOD: 'basic',
       }),
-    ).toThrow('forbidden raw credential env key: HTTPS_PROXY');
+    ).toEqual({
+      env: {
+        HTTPS_PROXY: 'http://localhost:10255/',
+        HTTP_PROXY: 'http://127.0.0.1:10255/',
+        https_proxy: 'http://[::1]:10255/',
+        http_proxy:
+          'http://x:aoc_104f2fa6600ede448b527c267a13d6a0db0dad62b3f9ca087446cc8e15acd697@127.0.0.1:10255/',
+        NODE_USE_ENV_PROXY: 'true',
+      },
+      droppedKeys: ['GIT_TERMINAL_PROMPT', 'GIT_HTTP_PROXY_AUTHMETHOD'],
+    });
   });
 
   it('rejects secret-bearing values in allowed URL env keys', () => {
@@ -154,13 +167,14 @@ describe('OneCLI env policy', () => {
     }
   });
 
-  it('rejects proxy values outside the OneCLI broker boundary', () => {
+  it('rejects non-local or credential-bearing model proxy values', () => {
     for (const value of [
       'https://x:aoc_123@127.0.0.1:10255',
       'http://x:aoc_123@127.0.0.1:10256',
       'http://user:aoc_123@127.0.0.1:10255',
       'http://x:not-aoc@127.0.0.1:10255',
       'http://x:aoc_123@proxy.example.com:10255',
+      'http://proxy.example.com:8080',
       'http://x:aoc_123@127.0.0.1:10255/path',
       'http://x:aoc_123@127.0.0.1:10255/?token=sk-ant-raw-provider-token',
       'http://x:aoc_123@127.0.0.1:10255/#token',
@@ -169,7 +183,13 @@ describe('OneCLI env policy', () => {
         filterTrustedOnecliEnv({
           HTTPS_PROXY: value,
         }),
-      ).toThrow('forbidden raw credential env key: HTTPS_PROXY');
+      ).toThrow('forbidden raw credential env value for key: HTTPS_PROXY');
     }
+
+    expect(() =>
+      filterTrustedOnecliEnv({
+        NODE_USE_ENV_PROXY: 'maybe',
+      }),
+    ).toThrow('forbidden raw credential env value for key: NODE_USE_ENV_PROXY');
   });
 });

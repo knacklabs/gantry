@@ -127,6 +127,13 @@
       "when": 1777047000000,
       "tag": "0017_agent_run_session_delete_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1777050600000,
+      "tag": "0018_runtime_event_exchange",
+      "breakpoints": true
     }
   ]
 }

@@ -112,7 +112,7 @@ export interface OpsRepository {
   ): Promise<JobEvent[]>;
   getRouterState(key: string): Promise<string | undefined>;
   setRouterState(key: string, value: string): Promise<void>;
-  getSessionResume?(input: {
+  getAgentTurnContext?(input: {
     groupFolder: string;
     chatJid: string;
     threadId?: string | null;
@@ -120,12 +120,7 @@ export interface OpsRepository {
     appId: string;
     agentId: string;
     agentSessionId: string;
-    mode: 'provider_native' | 'db_replay';
-    provider?: string;
-    providerSessionId?: string;
-    externalSessionId?: string;
-    latestArtifactId?: string;
-    hydratedContextBlock?: string;
+    memoryContextBlock?: string;
   }>;
   setSession(
     groupFolder: string,
@@ -142,7 +137,6 @@ export interface OpsRepository {
     provider?: string;
     externalSessionId?: string;
   }): Promise<void>;
-  checkpointSessionSummary?(agentSessionId: string): Promise<void>;
   createSessionAgentRun?(input: {
     agentSessionId: string;
     cause: 'message' | 'job' | 'control' | 'manual';

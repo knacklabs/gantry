@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { Job } from '../../../domain/types.js';
 import { getRuntimeOpsRepository } from '../../../adapters/storage/postgres/runtime-store.js';
-import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
+import { getRuntimeEventExchange } from '../../../adapters/storage/postgres/runtime-store.js';
 import { jobBelongsToApp } from '../app-identity.js';
 import {
   authorizeControlRequest,
@@ -10,6 +10,7 @@ import {
 } from '../handler-context.js';
 import { sendError, sendJson } from '../http.js';
 import { parseRunEventsRoute, parseRunRoute } from '../route-parser.js';
+import { projectRuntimeEventToRunEvent } from '../run-event-projection.js';
 
 export async function handleRunRoutes(
   req: IncomingMessage,
@@ -43,18 +44,27 @@ export async function handleRunRoutes(
   if (runEventsId && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
-    const repositories = getRuntimeStorage().repositories;
-    const run = await repositories.agentRuns.getAgentRun(runEventsId as never);
+    const ops = getRuntimeOpsRepository();
+    const run = await ops.getJobRunById(runEventsId);
     if (!run) {
       sendError(res, 404, 'RUN_NOT_FOUND', 'Run not found');
       return true;
     }
-    if (!canAccessRunApp(run.appId, auth.appId)) {
+    const job = await ops.getJobById(run.job_id);
+    if (!job || !jobBelongsToApp(job, auth.appId)) {
       sendError(res, 403, 'FORBIDDEN', 'API key cannot access this run');
       return true;
     }
-    const events = await repositories.agentRuns.listAgentRunEvents(run.id);
-    sendJson(res, 200, { events });
+    const events = await getRuntimeEventExchange().list({
+      appId: auth.appId as never,
+      runId: run.run_id as never,
+      limit: 100,
+    });
+    sendJson(res, 200, {
+      events: events.map((event) =>
+        projectRuntimeEventToRunEvent(event, run.run_id),
+      ),
+    });
     return true;
   }
 
@@ -77,8 +87,4 @@ export async function handleRunRoutes(
   }
 
   return false;
-}
-
-function canAccessRunApp(runAppId: string, authAppId?: string): boolean {
-  return !authAppId || authAppId === '*' || authAppId === runAppId;
 }

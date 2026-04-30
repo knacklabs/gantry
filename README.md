@@ -58,6 +58,9 @@ myclaw channel connect telegram
 myclaw channel connect slack
 myclaw channel list
 myclaw channel doctor
+myclaw agent list
+myclaw agent add <jid|chat-id> [--name <name>] [--main]
+myclaw service install|start|stop|restart
 ```
 
 Defaults in v1:
@@ -120,6 +123,12 @@ If an older local `.env` still contains settings-owned keys such as
 `SLACK_PERMISSION_APPROVER_IDS`, move those values into `settings.yaml` and
 remove them from `.env` before starting the runtime.
 
+MyClaw intentionally does not expose a destructive database-reset command in
+the runtime CLI. If you need to start over during development, stop MyClaw,
+reset your local Postgres outside the agent-facing CLI, then run
+`myclaw channel connect telegram` or `myclaw channel connect slack` to
+re-register chats.
+
 For hosted Postgres, use Neon, Supabase, or another provider that supports `vector` and `pg_trgm`, then paste two URLs during setup: one MyClaw-role URL with `sslmode=require`, and one OneCLI-role URL for the same database with `sslmode=require` and `schema=onecli`.
 
 ### Channel Setup
@@ -181,12 +190,12 @@ separate and is retrieved only when it matches the current query:
 
 Embeddings are off by default. Memory search and context injection still work without embeddings; embeddings only improve ranking when enabled.
 
-Host runtime uses the current message or scheduled job prompt as the memory
-retrieval query. Matching memories are injected as a bounded structured
-untrusted data message. If nothing matches, no memory block is injected; the
-agent can still call `memory_search` when the user asks to continue or more
-context is needed. Memory records never grant instruction authority or tool-use
-authority.
+Host runtime injects a memory-only block when a fresh chat runner or scheduled
+job starts. Follow-up chat messages continue through the same live Claude SDK
+stream while the runner is alive, so MyClaw does not replay summaries, recent
+messages, or recent run summaries into every prompt. The memory block is sent
+as structured untrusted data with a system-level boundary policy that forbids
+treating memory records as instructions or tool-use authority.
 
 Memory boundaries:
 

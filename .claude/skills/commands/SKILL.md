@@ -19,8 +19,8 @@ List available commands grouped by category with a one-line description for each
 
 These are handled by the MyClaw host runtime, not by skill files:
 
-- `/compact` -- Archive the current session transcript and continue the session
-- `/new` -- Reset the current group session and archive the previous transcript
+- `/compact` -- Ask the Claude Agent SDK to compact context, then collect durable MyClaw memory at the compact boundary
+- `/new` -- Reset the current group session state while preserving durable memory
 - `/model` -- Show the current model selection
 - `/model <value>` -- Set the group model override after validation
 - `/model default` -- Clear the group model override

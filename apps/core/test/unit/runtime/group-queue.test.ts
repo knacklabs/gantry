@@ -354,7 +354,7 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
   });
 
-  it('does not pipe follow-up messages into an idle-waiting run', async () => {
+  it('pipes follow-up messages into an idle-waiting live run', async () => {
     const fs = await import('fs');
     let resolveProcess: () => void;
 
@@ -373,21 +373,21 @@ describe('GroupQueue', () => {
     // Run becomes idle
     queue.notifyIdle('group1@g.us');
 
-    // A new user message should not be piped into an idle agent run.
-    // The host should instead spin down this runner and process in a fresh turn.
+    // A new user message continues the live SDK stream after the prior turn.
     const piped = queue.sendMessage('group1@g.us', 'hello');
-    expect(piped).toBe(false);
+    expect(piped).toBe(true);
 
-    // enqueueMessageCheck on an idle active agent run should preempt via _close.
+    // enqueueMessageCheck while active records pending work without closing the
+    // stream; task runs still preempt when the live run is idle again.
     const writeFileSync = vi.mocked(fs.default.writeFileSync);
     writeFileSync.mockClear();
+    queue.notifyIdle('group1@g.us');
     queue.enqueueMessageCheck('group1@g.us');
     const closeFromPendingMessage = writeFileSync.mock.calls.filter(
       (call) => typeof call[0] === 'string' && call[0].endsWith('_close'),
     );
-    expect(closeFromPendingMessage).toHaveLength(1);
+    expect(closeFromPendingMessage).toHaveLength(0);
 
-    // A task enqueued after that should not add a duplicate _close write.
     writeFileSync.mockClear();
     const taskFn = vi.fn(async () => {});
     queue.enqueueTask('group1@g.us', 'task-1', taskFn);
@@ -400,7 +400,7 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
   });
 
-  it('sendMessage returns false when agent run is active but idle-waiting', async () => {
+  it('sendMessage resumes an idle-waiting live message run', async () => {
     let resolveProcess: () => void;
 
     const processMessages = vi.fn(async () => {
@@ -417,13 +417,13 @@ describe('GroupQueue', () => {
     queue.notifyIdle('group1@g.us');
 
     const result = queue.sendMessage('group1@g.us', 'hello');
-    expect(result).toBe(false);
+    expect(result).toBe(true);
 
     resolveProcess!();
     await vi.advanceTimersByTimeAsync(10);
   });
 
-  it('task enqueue after idle preemption does not issue duplicate close writes', async () => {
+  it('task enqueue after queued idle messages preempts with a single close write', async () => {
     const fs = await import('fs');
     let resolveProcess: () => void;
 
@@ -446,7 +446,7 @@ describe('GroupQueue', () => {
     const firstCloseWrites = writeFileSync.mock.calls.filter(
       (call) => typeof call[0] === 'string' && call[0].endsWith('_close'),
     );
-    expect(firstCloseWrites).toHaveLength(1);
+    expect(firstCloseWrites).toHaveLength(0);
 
     writeFileSync.mockClear();
     const taskFn = vi.fn(async () => {});

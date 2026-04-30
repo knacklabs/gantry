@@ -1,5 +1,5 @@
 -- Canonical Postgres persistence adapter cut.
--- This is a destructive early-stage schema cut with no old local-state import.
+-- This is a destructive early-stage schema cut with no unsupported local-state import.
 
 DROP TABLE IF EXISTS control_http_webhook_deliveries CASCADE;
 DROP TABLE IF EXISTS control_http_webhooks CASCADE;

@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { getRuntimeControlRepository } from '../../../adapters/storage/postgres/runtime-store.js';
+import {
+  getRuntimeControlRepository,
+  getRuntimeEventExchange,
+} from '../../../adapters/storage/postgres/runtime-store.js';
+import { RUNTIME_EVENT_TYPES } from '../../../domain/events/runtime-event-types.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
@@ -174,9 +178,10 @@ export async function handleWebhookRoutes(
       sendError(res, 404, 'WEBHOOK_NOT_FOUND', 'Webhook not found');
       return true;
     }
-    const event = await control.addControlEvent({
-      eventType: 'webhook.test',
-      payload: JSON.stringify({ ok: true, webhookId: webhook.webhookId }),
+    const event = await getRuntimeEventExchange().publish({
+      appId: auth.appId as never,
+      eventType: RUNTIME_EVENT_TYPES.WEBHOOK_TEST,
+      payload: { ok: true, webhookId: webhook.webhookId },
       actor: 'sdk',
       responseMode: 'webhook',
       webhookId: webhook.webhookId,

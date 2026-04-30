@@ -1,6 +1,6 @@
 -- Canonical domain schema single cut.
--- This migration intentionally removes legacy runtime identity tables and does
--- not preserve prior local state.
+-- This migration intentionally removes obsolete runtime identity tables and does
+-- not preserve unsupported local state.
 
 DROP TABLE IF EXISTS webhook_deliveries CASCADE;
 DROP TABLE IF EXISTS webhook_registrations CASCADE;

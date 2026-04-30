@@ -8,6 +8,7 @@ import type {
 import type { JobUpsertInput } from '../../../../domain/repositories/ops-repo.js';
 import { nowIso as currentIso } from '../../../../infrastructure/time/datetime.js';
 import {
+  CANONICAL_APP_ID,
   agentIdForFolder,
   json,
   parseJson,
@@ -21,6 +22,19 @@ import type {
 } from '../repositories/canonical-job-repository.postgres.js';
 
 type JobRecordSource = Omit<JobUpsertInput, 'id'> | JobUpsertInput | Job;
+
+function resolveJobRuntimeAppId(job: Job, fallback = CANONICAL_APP_ID): string {
+  const appJid = (
+    Array.isArray(job.linked_sessions) ? job.linked_sessions : []
+  ).find((chatJid) => chatJid.startsWith('app:'));
+  if (!appJid) return fallback;
+  const rest = appJid.slice('app:'.length);
+  const delimiterIndex = rest.indexOf(':');
+  if (delimiterIndex <= 0 || rest.indexOf(':', delimiterIndex + 1) !== -1) {
+    return fallback;
+  }
+  return rest.slice(0, delimiterIndex) || fallback;
+}
 
 export class CanonicalJobOpsService {
   constructor(private readonly repository: PostgresCanonicalJobRepository) {}
@@ -214,13 +228,38 @@ export class CanonicalJobOpsService {
     limit = 200,
     filters?: { job_id?: string; run_id?: string; event_type?: string },
   ): Promise<JobEvent[]> {
+    const appId = await this.resolveEventQueryAppId(filters);
     const rows = await this.repository.listEvents(limit, {
+      appId,
+      jobId: filters?.job_id,
       runId: filters?.run_id,
       eventType: filters?.event_type,
     });
-    return rows
-      .map((row, index) => this.mapEvent(row, index, filters?.job_id))
-      .filter((event) => !filters?.job_id || event.job_id === filters.job_id);
+    return rows.map((row, index) => this.mapEvent(row, index, filters?.job_id));
+  }
+
+  private async resolveEventQueryAppId(filters?: {
+    job_id?: string;
+    run_id?: string;
+  }): Promise<string> {
+    if (filters?.run_id) {
+      const eventAppId = await this.repository.findRuntimeEventAppIdForRun(
+        filters.run_id,
+      );
+      if (eventAppId) return eventAppId;
+    }
+
+    const jobId =
+      filters?.job_id ??
+      (filters?.run_id
+        ? (await this.repository.findRunById(filters.run_id))?.jobId
+        : undefined);
+    if (!jobId) return CANONICAL_APP_ID;
+
+    const jobRecord = await this.repository.findJobById(jobId);
+    return jobRecord
+      ? resolveJobRuntimeAppId(this.rowToJob(jobRecord))
+      : CANONICAL_APP_ID;
   }
 
   private rowToJob(row: CanonicalJobRecord): Job {
@@ -329,8 +368,8 @@ export class CanonicalJobOpsService {
   ): JobEvent {
     const payload = parseJson<Partial<JobEvent>>(row.payloadJson, {});
     return {
-      id: index + 1,
-      job_id: payload.job_id || fallbackJobId || '',
+      id: Number(row.id) || index + 1,
+      job_id: row.jobId || payload.job_id || fallbackJobId || '',
       run_id: row.runId,
       event_type: row.type,
       payload: payload.payload ?? row.payloadJson,

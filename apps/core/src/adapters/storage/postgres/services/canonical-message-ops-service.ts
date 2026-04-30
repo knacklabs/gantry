@@ -10,6 +10,10 @@ import type {
   PostgresCanonicalMessageRepository,
 } from '../repositories/canonical-message-repository.postgres.js';
 
+function hasCursorBoundary(cursor: { timestamp: string }): boolean {
+  return cursor.timestamp.trim().length > 0;
+}
+
 function parseJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== 'string' || value.length === 0) return fallback;
   try {
@@ -36,7 +40,7 @@ export class CanonicalMessageOpsService {
     const cursor = decodeGlobalMessageCursor(lastCursor);
     const rows = await this.repository.listInboundMessages({
       jids,
-      after: cursor,
+      after: hasCursorBoundary(cursor) ? cursor : undefined,
       limit,
     });
     const messages = rows.map((row) => this.mapMessage(row)).slice(0, limit);
@@ -62,7 +66,9 @@ export class CanonicalMessageOpsService {
     );
     const rows = await this.repository.listInboundMessages({
       jids: [chatJid],
-      after: { timestamp: cursor.timestamp, chatJid, id: cursor.id },
+      after: hasCursorBoundary(cursor)
+        ? { timestamp: cursor.timestamp, chatJid, id: cursor.id }
+        : undefined,
       threadId: options.threadId ?? null,
       hasThreadFilter,
       limit,

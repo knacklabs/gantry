@@ -25,10 +25,10 @@ import {
 import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
 import {
   getRuntimeOpsRepository,
-  getRuntimeProviderArtifactStore,
   getRuntimeSkillArtifactStore,
   getRuntimeStorage,
 } from '../../adapters/storage/postgres/runtime-store.js';
+import { collectDurableMemoryAtSessionBoundary } from '../../memory/app-memory-service.js';
 
 export interface RuntimeApp {
   queue: GroupQueue;
@@ -72,9 +72,9 @@ export interface RuntimeAppOptions {
   }) => Promise<{ created?: boolean } | undefined>;
   queue?: GroupQueue;
   runAgent?: GroupProcessingDeps['runAgent'];
-  providerArtifactStore?: GroupProcessingDeps['getProviderArtifactStore'];
   skillArtifactStore?: GroupProcessingDeps['getSkillArtifactStore'];
   mcpHostnameLookup?: GroupProcessingDeps['getMcpHostnameLookup'];
+  collectSessionMemory?: GroupProcessingDeps['collectSessionMemory'];
   opsRepository?: OpsRepository;
 }
 
@@ -324,9 +324,6 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
         channelRuntime.sendProgressUpdate(chatJid, text, options),
     },
     getGroup: (chatJid) => registeredGroups[chatJid],
-    setSession: async (groupFolder, sessionId, threadId, metadata) => {
-      await ops().setSession(groupFolder, sessionId, threadId, metadata);
-    },
     clearSession: async (groupFolder, threadId) => {
       await ops().deleteSession(groupFolder, threadId);
     },
@@ -364,14 +361,14 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     },
     runAgent: options.runAgent,
     getCredentialBroker,
-    getProviderArtifactStore:
-      options.providerArtifactStore ?? getRuntimeProviderArtifactStore,
     getSkillRepository: () => getRuntimeStorage().repositories.skills,
     getMcpServerRepository: () => getRuntimeStorage().repositories.mcpServers,
     getMcpHostnameLookup: options.mcpHostnameLookup,
     getMcpDnsValidationCache: () => mcpDnsValidationCache,
     getSkillArtifactStore:
       options.skillArtifactStore ?? getRuntimeSkillArtifactStore,
+    collectSessionMemory:
+      options.collectSessionMemory ?? collectDurableMemoryAtSessionBoundary,
   });
 
   return {

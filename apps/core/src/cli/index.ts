@@ -54,6 +54,8 @@ function usage(): string {
     '  myclaw channel connect <telegram|slack>',
     '  myclaw channel list',
     '  myclaw channel doctor',
+    '  myclaw agent list|info|add|remove|trigger|policy',
+    '  myclaw service install|start|stop|restart',
     '  myclaw skill draft upload <skill.zip> [--agent <agentId>] [--created-by <id>]',
     '  myclaw mcp draft|list|approve|reject|test|disable|bind|unbind|agent',
     '',
@@ -378,11 +380,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const runtimeHome = resolveRuntimeHome(parsed.runtimeHomeArg);
   const [command, ...rest] = parsed.command;
   const subcommand = rest[0];
-
-  if (command === 'memory-hook') {
-    const { runMemoryHookCommand } = await import('./memory-hook.js');
-    return runMemoryHookCommand(rest);
-  }
 
   // Allow `myclaw doctor` to run even when settings.yaml is malformed so it can
   // report actionable recovery guidance instead of failing at top-level parse.

@@ -108,6 +108,7 @@ export abstract class SlackChannelState {
   protected streamGenerationByJid = new Map<string, number>();
   protected sealedStreamGenerationByJid = new Map<string, number>();
   protected activeProgress = new Map<string, ActiveProgressState>();
+  protected progressStateLoaded = false;
   protected pendingPermissionPrompts = new Map<
     string,
     PendingPermissionPrompt

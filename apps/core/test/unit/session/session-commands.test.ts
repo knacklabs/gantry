@@ -282,6 +282,7 @@ describe('handleSessionCommand', () => {
     );
     expect(deps.archiveCurrentSession).toHaveBeenCalledWith('manual-compact');
     expect(deps.onSessionArchived).toHaveBeenCalledWith('manual-compact');
+    expect(deps.sendMessage).toHaveBeenCalledWith('Compacted current session.');
     expect(deps.advanceCursor).toHaveBeenCalledWith(
       expect.objectContaining({ timestamp: '100' }),
     );
@@ -549,7 +550,6 @@ describe('handleSessionCommand', () => {
     });
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.formatMessages).toHaveBeenCalledWith([msgs[0]], 'UTC');
-    // Two runAgent calls: pre-compact + /compact
     expect(deps.runAgent).toHaveBeenCalledTimes(2);
     expect(deps.runAgent).toHaveBeenCalledWith(
       '<formatted>',
@@ -559,6 +559,7 @@ describe('handleSessionCommand', () => {
       '/compact',
       expect.any(Function),
     );
+    expect(deps.archiveCurrentSession).toHaveBeenCalledWith('manual-compact');
   });
 
   it('allows is_from_me sender in non-main group', async () => {
@@ -576,6 +577,7 @@ describe('handleSessionCommand', () => {
       '/compact',
       expect.any(Function),
     );
+    expect(deps.archiveCurrentSession).toHaveBeenCalledWith('manual-compact');
   });
 
   it('allows is_from_me sender for /new in non-main group', async () => {
@@ -610,31 +612,6 @@ describe('handleSessionCommand', () => {
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Session commands require admin access.',
     );
-  });
-
-  it('reports failure when command-stage runAgent returns error without streamed status', async () => {
-    // runAgent resolves 'error' but callback never gets status: 'error'
-    const deps = makeDeps({
-      runAgent: vi.fn().mockImplementation(async (_prompt, onOutput) => {
-        await onOutput({ status: 'success', result: null });
-        return 'error';
-      }),
-    });
-    const result = await handleSessionCommand({
-      missedMessages: [makeMsg('/compact')],
-      isMainGroup: true,
-      groupName: 'test',
-      triggerPattern: trigger,
-      timezone: 'UTC',
-      deps,
-    });
-    expect(result).toEqual({ handled: true, success: true });
-    expect(deps.sendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('failed'),
-    );
-    expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
-    expect(deps.onSessionArchived).not.toHaveBeenCalled();
-    expect(deps.setGroupModelOverride).not.toHaveBeenCalled();
   });
 
   it('returns success:false on pre-compact failure with no output', async () => {
@@ -1220,11 +1197,28 @@ describe('handleSessionCommand', () => {
     );
   });
 
-  it('handles command-stage error flagged via callback hadCmdError', async () => {
-    // Covers hadCmdError=true from callback, cmdOutput='success'
+  it('reports /compact failure when SDK compact fails', async () => {
+    const deps = makeDeps({
+      runAgent: vi.fn().mockResolvedValue('error'),
+    });
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/compact')],
+      isMainGroup: true,
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    expect(result).toEqual({ handled: true, success: false });
+    expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
+    expect(deps.sendMessage).toHaveBeenCalledWith('/compact failed.');
+    expect(deps.advanceCursor).not.toHaveBeenCalled();
+  });
+
+  it('reports /compact failure when SDK compact output is an error', async () => {
     const deps = makeDeps({
       runAgent: vi.fn().mockImplementation(async (_prompt, onOutput) => {
-        await onOutput({ status: 'error', result: 'oops' });
+        await onOutput({ status: 'error', result: 'too large' });
         return 'success';
       }),
     });
@@ -1236,76 +1230,31 @@ describe('handleSessionCommand', () => {
       timezone: 'UTC',
       deps,
     });
-    expect(result).toEqual({ handled: true, success: true });
+    expect(result).toEqual({ handled: true, success: false });
+    expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
+    expect(deps.sendMessage).toHaveBeenCalledWith('/compact failed. too large');
+    expect(deps.advanceCursor).not.toHaveBeenCalled();
+  });
+
+  it('reports /compact failure when memory collection fails', async () => {
+    const deps = makeDeps({
+      archiveCurrentSession: vi
+        .fn()
+        .mockRejectedValue(new Error('memory collection failed')),
+    });
+    const result = await handleSessionCommand({
+      missedMessages: [makeMsg('/compact')],
+      isMainGroup: true,
+      groupName: 'test',
+      triggerPattern: trigger,
+      timezone: 'UTC',
+      deps,
+    });
+    expect(result).toEqual({ handled: true, success: false });
     expect(deps.sendMessage).toHaveBeenCalledWith(
-      '/compact failed. The session is unchanged.',
+      '/compact failed. Memory collection failed.',
     );
-  });
-
-  it('sends command output text to group when command succeeds', async () => {
-    // Covers the text output path in the command-stage runAgent callback
-    const deps = makeDeps({
-      runAgent: vi.fn().mockImplementation(async (_prompt, onOutput) => {
-        await onOutput({ status: 'success', result: 'Compacted successfully' });
-        await onOutput({ status: 'success', result: null });
-        return 'success';
-      }),
-    });
-    const result = await handleSessionCommand({
-      missedMessages: [makeMsg('/compact')],
-      isMainGroup: true,
-      groupName: 'test',
-      triggerPattern: trigger,
-      timezone: 'UTC',
-      deps,
-    });
-    expect(result).toEqual({ handled: true, success: true });
-    expect(deps.sendMessage).toHaveBeenCalledWith('Compacted successfully');
-  });
-
-  it('strips <internal> tags from agent result text', async () => {
-    // Covers resultToText with <internal>...</internal> content
-    const deps = makeDeps({
-      runAgent: vi.fn().mockImplementation(async (_prompt, onOutput) => {
-        await onOutput({
-          status: 'success',
-          result: 'visible<internal>secret stuff</internal> text',
-        });
-        await onOutput({ status: 'success', result: null });
-        return 'success';
-      }),
-    });
-    const result = await handleSessionCommand({
-      missedMessages: [makeMsg('/compact')],
-      isMainGroup: true,
-      groupName: 'test',
-      triggerPattern: trigger,
-      timezone: 'UTC',
-      deps,
-    });
-    expect(result).toEqual({ handled: true, success: true });
-    expect(deps.sendMessage).toHaveBeenCalledWith('visible text');
-  });
-
-  it('handles agent result that is an object', async () => {
-    // Covers resultToText with object result (JSON.stringify path)
-    const deps = makeDeps({
-      runAgent: vi.fn().mockImplementation(async (_prompt, onOutput) => {
-        await onOutput({ status: 'success', result: { message: 'done' } });
-        await onOutput({ status: 'success', result: null });
-        return 'success';
-      }),
-    });
-    const result = await handleSessionCommand({
-      missedMessages: [makeMsg('/compact')],
-      isMainGroup: true,
-      groupName: 'test',
-      triggerPattern: trigger,
-      timezone: 'UTC',
-      deps,
-    });
-    expect(result).toEqual({ handled: true, success: true });
-    expect(deps.sendMessage).toHaveBeenCalledWith('{"message":"done"}');
+    expect(deps.advanceCursor).not.toHaveBeenCalled();
   });
 
   it('truncates long model validation error messages', async () => {

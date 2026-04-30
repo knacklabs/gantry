@@ -90,8 +90,8 @@ describe('runner MCP browser IPC signature verification', () => {
     );
 
     const payload = {
-      requestId,
       ok: true,
+      requestId,
       data: { running: true },
     };
     const signature = signPayload(responseSigningKey, payload);
@@ -127,8 +127,8 @@ describe('runner MCP browser IPC signature verification', () => {
     );
 
     const payload = {
-      requestId,
       ok: true,
+      requestId,
       data: { running: true },
     };
     const signature = signPayloadWithAuthToken('mcp-test-auth-token', payload);

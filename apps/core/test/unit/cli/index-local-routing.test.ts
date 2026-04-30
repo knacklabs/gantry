@@ -17,6 +17,7 @@ afterEach(() => {
   vi.resetModules();
   vi.doUnmock('@core/infrastructure/service/manager.js');
   vi.doUnmock('@core/config/settings/runtime-settings.js');
+  vi.doUnmock('@core/adapters/storage/postgres/storage-service.js');
   vi.doUnmock('@core/cli/channel.js');
   vi.doUnmock('@core/cli/local.js');
   vi.doUnmock('@clack/prompts');

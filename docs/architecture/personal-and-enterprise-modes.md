@@ -16,7 +16,7 @@ Both modes use:
 - `Conversation` and `ConversationThread` for communication
 - `User`, `Message`, `MessagePart`, and `MessageAttachment` for normalized
   events
-- `AgentSession`, `ProviderSession`, `AgentRun`, and `AgentRunEvent` for
+- `AgentSession`, `ProviderSession`, `AgentRun`, and `RuntimeEvent` for
   continuity and execution
 - `MemorySubject` for memory boundaries
 - `Job` for scheduled and manual work
@@ -76,7 +76,7 @@ surfaces:
 - explicit users, roles, app scopes, and policy-managed admin actions
 - enterprise credential brokers or secret managers behind the same ports
 - deployment-specific sandbox providers
-- audit, event, and webhook integrations based on `AgentRunEvent`
+- audit, event, and webhook integrations based on `RuntimeEvent` projections
 
 Enterprise applications should integrate through the SDK, control API, Web UI,
 and channel installations. They must not import runtime internals from
@@ -153,9 +153,9 @@ The platform must be able to support:
 - Gemini through a Gemini adapter
 - local or enterprise-hosted models through future adapters
 
-Provider adapters resolve `LlmProfile`, manage `ProviderSession`, and emit
-canonical `AgentRunEvent` records. The domain and application layers should not
-know provider SDK types.
+Provider adapters resolve `LlmProfile`, manage `ProviderSession`, and publish
+observable `RuntimeEvent` records through the runtime exchange. The domain and
+application layers should not know provider SDK types.
 
 ## Mode Comparison
 

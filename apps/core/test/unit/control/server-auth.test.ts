@@ -105,7 +105,6 @@ const controlRepo = {
   deleteWebhook: vi.fn(async () => undefined),
   getWebhookById: vi.fn(async () => null),
   getAppSessionById: vi.fn(async () => null),
-  addControlEvent: vi.fn(async () => ({ eventId: 1001 })),
   upsertAppResponseRoute: vi.fn(async () => undefined),
   replayWebhookDeadLetters: vi.fn(async () => 0),
   purgeWebhookDeadLetters: vi.fn(async () => 0),
@@ -117,6 +116,13 @@ const controlRepo = {
 const opsRepo = {
   storeChatMetadata: vi.fn(async () => undefined),
   storeMessage: vi.fn(async () => undefined),
+  getJobRunById: vi.fn(async () => undefined),
+  getJobById: vi.fn(async () => undefined),
+};
+const runtimeEvents = {
+  publish: vi.fn(async () => ({ eventId: 1001 })),
+  list: vi.fn(async () => []),
+  subscribe: vi.fn(),
 };
 
 const domainRepositories = {
@@ -181,6 +187,7 @@ const memoryService = {
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: () => controlRepo,
+  getRuntimeEventExchange: () => runtimeEvents,
   getRuntimeOpsRepository: () => opsRepo,
   getRuntimeStorage: () => ({
     repositories: domainRepositories,
@@ -278,7 +285,7 @@ beforeEach(() => {
   controlRepo.listWebhooks.mockResolvedValue([]);
   controlRepo.getWebhookById.mockResolvedValue(null);
   controlRepo.getAppSessionById.mockResolvedValue(null);
-  controlRepo.addControlEvent.mockResolvedValue({ eventId: 1001 });
+  runtimeEvents.publish.mockResolvedValue({ eventId: 1001 });
   controlRepo.upsertAppResponseRoute.mockResolvedValue(undefined);
   controlRepo.replayWebhookDeadLetters.mockResolvedValue(0);
   controlRepo.purgeWebhookDeadLetters.mockResolvedValue(0);
@@ -287,6 +294,10 @@ beforeEach(() => {
   controlRepo.markWebhookDeliveryDead.mockResolvedValue(undefined);
   opsRepo.storeChatMetadata.mockResolvedValue(undefined);
   opsRepo.storeMessage.mockResolvedValue(undefined);
+  opsRepo.getJobRunById.mockResolvedValue(undefined);
+  opsRepo.getJobById.mockResolvedValue(undefined);
+  runtimeEvents.list.mockResolvedValue([]);
+  runtimeEvents.subscribe.mockReset();
   domainRepositories.agents.getAgent.mockResolvedValue({
     id: 'agent-1',
     appId: 'app-one',
@@ -2050,7 +2061,7 @@ describe('control server runtime hardening', () => {
         'app-one',
       );
       expect(opsRepo.storeMessage).not.toHaveBeenCalled();
-      expect(controlRepo.addControlEvent).not.toHaveBeenCalled();
+      expect(runtimeEvents.publish).not.toHaveBeenCalled();
     } finally {
       await handle.close();
     }
@@ -2132,7 +2143,7 @@ describe('control server runtime hardening', () => {
         webhookId: null,
         correlationId: 'corr-1',
       });
-      expect(controlRepo.addControlEvent).toHaveBeenCalledWith(
+      expect(runtimeEvents.publish).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'session.message.inbound',
           actor: 'sdk',
@@ -2143,6 +2154,189 @@ describe('control server runtime hardening', () => {
       );
       expect(app.queue.enqueueMessageCheck).toHaveBeenCalledWith(
         'app:app-one:conv-1::thread:thread-1',
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('waits over the full session cursor while returning only visible events', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-wait',
+        scopes: ['sessions:read'],
+        appId: 'app-one',
+      },
+    ]);
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      groupFolder: 'app_app_one_conv_1',
+      title: 'Conversation',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    const subscription = {
+      next: vi.fn(async () => [
+        {
+          eventId: 10,
+          appId: 'app-one',
+          sessionId: 'session-1',
+          eventType: 'session.progress',
+          payload: { stage: 'thinking' },
+          createdAt: new Date(10).toISOString(),
+        },
+        {
+          eventId: 11,
+          appId: 'app-one',
+          sessionId: 'session-1',
+          eventType: 'session.message.outbound',
+          payload: { text: 'done' },
+          createdAt: new Date(11).toISOString(),
+        },
+        {
+          eventId: 12,
+          appId: 'app-one',
+          sessionId: 'session-1',
+          eventType: 'session.typing',
+          payload: { typing: false },
+          createdAt: new Date(12).toISOString(),
+        },
+      ]),
+      close: vi.fn(),
+    };
+    runtimeEvents.subscribe.mockReturnValue(subscription);
+    const handle = startControlServer({
+      app: { registerGroup: vi.fn(), queue: { enqueueMessageCheck: vi.fn() } },
+    } as any);
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/sessions/session-1/wait?afterEventId=9&timeoutMs=1000`,
+        'token-wait',
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        eventId: 11,
+        eventType: 'session.message.outbound',
+        payload: { text: 'done' },
+        afterEventId: 11,
+      });
+      expect(runtimeEvents.subscribe).toHaveBeenCalledWith(
+        expect.not.objectContaining({ eventTypes: expect.anything() }),
+      );
+      expect(subscription.close).toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('lists run events using the authenticated app scope', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-run-events',
+        scopes: ['jobs:read'],
+        appId: 'app-one',
+      },
+    ]);
+    opsRepo.getJobRunById.mockResolvedValue({
+      run_id: 'run-1',
+      job_id: 'job-1',
+      scheduled_for: new Date(0).toISOString(),
+      started_at: new Date(0).toISOString(),
+      ended_at: null,
+      status: 'running',
+      result_summary: null,
+      error_summary: null,
+      retry_count: 0,
+      notified_at: null,
+    });
+    opsRepo.getJobById.mockResolvedValue({
+      id: 'job-1',
+      name: 'Job',
+      prompt: 'Run this',
+      model: null,
+      script: null,
+      schedule_type: 'manual',
+      schedule_value: 'manual',
+      status: 'active',
+      linked_sessions: ['app:app-two:conv-2', 'app:app-one:conv-1'],
+      session_id: null,
+      thread_id: null,
+      group_scope: 'app_app_one_conv_1',
+      created_by: 'human',
+      created_at: new Date(0).toISOString(),
+      updated_at: new Date(0).toISOString(),
+      next_run: null,
+      last_run: null,
+      execution_mode: 'parallel',
+      lease_run_id: null,
+      lease_expires_at: null,
+      consecutive_failures: 0,
+      max_retries: 3,
+      retry_backoff_ms: 1000,
+    });
+    runtimeEvents.list.mockResolvedValue([
+      {
+        eventId: 501,
+        appId: 'app-one',
+        runId: 'run-1',
+        eventType: 'job.streaming',
+        payload: { text: 'chunk' },
+        createdAt: new Date(0).toISOString(),
+      },
+      {
+        eventId: 502,
+        appId: 'app-one',
+        runId: 'run-1',
+        eventType: 'run.completed',
+        payload: { summary: 'done' },
+        createdAt: new Date(1).toISOString(),
+      },
+    ]);
+    const handle = startControlServer({
+      app: { registerGroup: vi.fn(), queue: { enqueueMessageCheck: vi.fn() } },
+    } as any);
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/runs/run-1/events`,
+        'token-run-events',
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        events: [
+          {
+            id: '501',
+            appId: 'app-one',
+            runId: 'run-1',
+            type: 'output_chunk',
+            metadata: { runtimeEventType: 'job.streaming' },
+          },
+          {
+            id: '502',
+            appId: 'app-one',
+            runId: 'run-1',
+            type: 'completed',
+            metadata: { runtimeEventType: 'run.completed' },
+          },
+        ],
+      });
+      expect(runtimeEvents.list).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'app-one',
+          runId: 'run-1',
+        }),
       );
     } finally {
       await handle.close();
@@ -2180,7 +2374,7 @@ describe('control server runtime hardening', () => {
         'webhook-foreign',
         'app-one',
       );
-      expect(controlRepo.addControlEvent).not.toHaveBeenCalled();
+      expect(runtimeEvents.publish).not.toHaveBeenCalled();
     } finally {
       await handle.close();
     }
@@ -2330,7 +2524,7 @@ describe('control server runtime hardening', () => {
       await _testControlServer.deliverWebhookDelivery({
         deliveryId: 'delivery-1',
         attemptCount: 0,
-        sessionAppId: 'app-one',
+        eventAppId: 'app-one',
         webhook: {
           webhookId: 'webhook-1',
           appId: 'app-one',
@@ -2370,7 +2564,7 @@ describe('control server runtime hardening', () => {
     await _testControlServer.deliverWebhookDelivery({
       deliveryId: 'delivery-mismatch',
       attemptCount: 0,
-      sessionAppId: 'app-two',
+      eventAppId: 'app-two',
       webhook: {
         webhookId: 'webhook-1',
         appId: 'app-one',
@@ -2416,7 +2610,7 @@ describe('control server runtime hardening', () => {
       await _testControlServer.deliverWebhookDelivery({
         deliveryId: 'delivery-retry',
         attemptCount: 1,
-        sessionAppId: 'app-one',
+        eventAppId: 'app-one',
         webhook: {
           webhookId: 'webhook-1',
           appId: 'app-one',

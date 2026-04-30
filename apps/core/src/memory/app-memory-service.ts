@@ -7,12 +7,15 @@ import { RUNTIME_MEMORY_ENABLED } from '../config/memory-state.js';
 import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
 import type { PostgresStorageService } from '../adapters/storage/postgres/storage-service.js';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
+import type { SessionMemoryCollector } from '../domain/ports/session-memory-collector.js';
 import { classifySensitiveMemoryMaterial } from './sensitive-material.js';
 import { runAppMemoryDreamPass } from './app-memory-dreaming.js';
 import {
   normalizeSubject,
   visibleSubjectFilters,
 } from './app-memory-boundaries.js';
+import { collectDurableMemoryFromRepositories } from './boundary-extraction-core.js';
+import { createLlmMemoryExtractionProvider } from './extractor-llm.js';
 import {
   type CanonicalMemoryItemRow,
   clampConfidence,
@@ -601,6 +604,18 @@ export class AppMemoryService {
     );
   }
 }
+
+export const collectDurableMemoryAtSessionBoundary: SessionMemoryCollector =
+  async (input) => {
+    const { repositories } = getRuntimeStorage();
+    const extractor = createLlmMemoryExtractionProvider();
+    return collectDurableMemoryFromRepositories({
+      ...input,
+      repositories,
+      extractFacts: (extractInput) => extractor.extractFacts(extractInput),
+      additionalTurns: input.additionalTurns,
+    });
+  };
 
 export const _testAppMemory = {
   conversationIdForChannel,

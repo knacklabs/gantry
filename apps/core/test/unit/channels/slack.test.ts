@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'fs';
 
 const defaultSlackPermissionApproverIds = vi.hoisted(() => new Set<string>());
 const currentControlAllowlist = vi.hoisted(() => ({
@@ -136,12 +137,18 @@ function createOpts(
 }
 
 describe('Slack channel', () => {
+  let savedMyclawHome: string | undefined;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    savedMyclawHome = process.env.MYCLAW_HOME;
+    delete process.env.MYCLAW_HOME;
     defaultSlackPermissionApproverIds.clear();
   });
 
   afterEach(() => {
+    if (savedMyclawHome === undefined) delete process.env.MYCLAW_HOME;
+    else process.env.MYCLAW_HOME = savedMyclawHome;
     vi.restoreAllMocks();
   });
 
@@ -249,6 +256,96 @@ describe('Slack channel', () => {
         thread_ts: '1710000000.000111',
       }),
     );
+  });
+
+  it('does not create Slack progress for replace-only updates without existing state', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 1s.', {
+      done: true,
+      replaceOnly: true,
+      threadId: '1710000000.000111',
+    });
+
+    expect(appRef.current.client.apiCall).not.toHaveBeenCalledWith(
+      'assistant.threads.setStatus',
+      expect.anything(),
+    );
+    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+  });
+
+  it('edits and clears existing Slack progress for replace-only done', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    await channel.sendProgressUpdate('sl:C1234567890', 'Working on it...');
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 1s.', {
+      done: true,
+      replaceOnly: true,
+    });
+    expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      ts: '1710000000.100200',
+      text: 'Done in 1s.',
+    });
+    appRef.current.client.chat.postMessage.mockClear();
+    appRef.current.client.chat.update.mockClear();
+
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 2s.', {
+      done: true,
+      replaceOnly: true,
+    });
+
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('restores Slack progress handles after process restart', async () => {
+    const runtimeHome = fs.mkdtempSync('/tmp/myclaw-slack-progress-');
+    const savedHome = process.env.MYCLAW_HOME;
+    process.env.MYCLAW_HOME = runtimeHome;
+    try {
+      const first = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await first.connect();
+      await first.sendProgressUpdate('sl:C1234567890', 'Working on it...');
+
+      const second = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts() as any,
+      );
+      await second.connect();
+      appRef.current.client.chat.postMessage.mockClear();
+      await second.sendProgressUpdate('sl:C1234567890', 'Done in 1s.', {
+        done: true,
+        replaceOnly: true,
+      });
+
+      expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+      expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+        channel: 'C1234567890',
+        ts: '1710000000.100200',
+        text: 'Done in 1s.',
+      });
+    } finally {
+      if (savedHome === undefined) delete process.env.MYCLAW_HOME;
+      else process.env.MYCLAW_HOME = savedHome;
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
   });
 
   it('publishes Slack App Home without extra CTA buttons', async () => {

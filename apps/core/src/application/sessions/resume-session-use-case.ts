@@ -14,21 +14,6 @@ export class ResumeSessionUseCase {
   async execute(input: { sessionId: AgentSessionId; provider: string }) {
     const session = await this.sessions.getAgentSession(input.sessionId);
     if (!session) throw new ApplicationError('NOT_FOUND', 'Session not found');
-    const providerSession =
-      session.status === 'active'
-        ? await this.providerSessions.getLatestProviderSession({
-            agentSessionId: session.id,
-            provider: input.provider,
-          })
-        : null;
-    if (
-      providerSession &&
-      providerSession.status === 'active' &&
-      providerSession.provider === input.provider &&
-      providerSession.latestArtifactId
-    ) {
-      return { mode: 'provider_native' as const, session, providerSession };
-    }
-    return { mode: 'db_replay' as const, session, providerSession: null };
+    return { session, providerSession: null };
   }
 }

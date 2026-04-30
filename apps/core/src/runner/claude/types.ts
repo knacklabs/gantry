@@ -24,7 +24,8 @@ export interface AgentRunnerOutput {
   status: 'success' | 'error';
   result: string | null;
   newSessionId?: string;
-  providerArtifactId?: string;
+  compactBoundary?: boolean;
+  interactionBoundary?: 'user_interaction';
   error?: string;
 }
 
@@ -34,9 +35,7 @@ export interface PermissionDecision {
   reason?: string;
 }
 
-export type SessionSlashKind = 'compact' | 'model';
-
 export interface SessionSlashCommand {
   command: string;
-  kind: SessionSlashKind;
+  kind: 'model';
 }

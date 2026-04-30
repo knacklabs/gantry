@@ -210,6 +210,7 @@ export interface StreamingChunkOptions {
 export interface ProgressUpdateOptions {
   threadId?: string;
   done?: boolean;
+  replaceOnly?: boolean;
 }
 
 export interface MessageSendOptions {

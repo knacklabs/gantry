@@ -105,8 +105,9 @@ Use this skill when a task needs a real browser session.
 MyClaw owns the persistent browser lifecycle and profile:
 
 - Use \`mcp__myclaw__browser_status\` to inspect the shared \`myclaw\` profile.
-- Use \`mcp__myclaw__browser_launch\` to launch or reuse it. The default launch is headed and cookie-preserving.
-- Use the runtime \`mcp__agent_browser__*\` browser action tools to navigate, click, type, wait, snapshot, or screenshot. MyClaw attaches them to \`PLAYWRIGHT_MCP_CDP_ENDPOINT\`.
+- Use \`mcp__myclaw__browser_launch\` to launch or reuse it only when the user task needs a real browser. The default launch is headed and cookie-preserving.
+- If the runtime \`mcp__agent_browser__*\` browser action tools are available, use them to navigate, click, type, wait, snapshot, or screenshot. MyClaw attaches them only when the shared browser is already running at agent startup.
+- If browser action tools are not available, launch the browser with \`mcp__myclaw__browser_launch\`, explain that browser actions will attach on the next run, and ask the user to continue.
 - Do not install browser skills or edit user \`.claude/skills\` paths.
 
 If a site requires login, launch the headed browser and ask the user to complete authentication in that persistent profile. Do not scrape credentials or bypass normal site authentication.

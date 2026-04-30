@@ -37,6 +37,24 @@ describe('Postgres migration journal', () => {
     );
   });
 
+  it('keeps runtime event exchange after the shipped session delete policy migration', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const sessionDeletePolicy = journal.entries.find(
+      (entry) => entry.tag === '0017_agent_run_session_delete_policy',
+    );
+    const runtimeExchange = journal.entries.find(
+      (entry) => entry.tag === '0018_runtime_event_exchange',
+    );
+
+    expect(sessionDeletePolicy).toMatchObject({ idx: 17 });
+    expect(runtimeExchange).toMatchObject({ idx: 18 });
+  });
+
   it('flattens memory subjects during the canonical persistence cut', () => {
     const migration = fs.readFileSync(
       path.resolve(

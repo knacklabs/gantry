@@ -45,7 +45,9 @@ export async function validateRuntimePreflightWithStorage(
     return base;
   }
 
-  const storageReadiness = await inspectRuntimeStorageReadiness(runtimeHome);
+  const storageReadiness = await inspectRuntimeStorageReadiness(runtimeHome, {
+    migrate: true,
+  });
   if (storageReadiness.status === 'fail') {
     return {
       ok: false,
@@ -100,7 +102,7 @@ export async function validateRuntimePreflightWithStorage(
     return { ok: true };
   }
   const onecliPostgres = settings.credentialBroker.onecli.postgres;
-  const postgres = settings.storage.postgres;
+  const myclawPostgres = settings.storage.postgres;
   const onecliReadiness = await inspectOnecliPersistenceReadiness({
     postgresUrl:
       runtimeSecrets.getOptionalSecret({ env: onecliPostgres.urlEnv }) || '',
@@ -110,8 +112,8 @@ export async function validateRuntimePreflightWithStorage(
         env: ONECLI_SECRET_ENCRYPTION_KEY_ENV,
       }) || '',
     myclawPostgresUrl:
-      runtimeSecrets.getOptionalSecret({ env: postgres.urlEnv }) || '',
-    myclawSchema: postgres.schema,
+      runtimeSecrets.getOptionalSecret({ env: myclawPostgres.urlEnv }) || '',
+    myclawSchema: myclawPostgres.schema,
   });
   if (onecliReadiness.status !== 'fail') {
     return { ok: true };

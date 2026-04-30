@@ -252,7 +252,7 @@ export function installService(
       return {
         ok: true,
         kind,
-        message: `Installed launchd service at ${launchdPlistPath()}.`,
+        message: `Installed launchd service at ${launchdPlistPath()}. It is not started; run \`myclaw service start\` or \`myclaw restart\`.`,
       };
     }
 

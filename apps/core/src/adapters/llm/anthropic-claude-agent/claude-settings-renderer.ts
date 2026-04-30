@@ -1,5 +1,3 @@
-import path from 'path';
-
 import type {
   AgentConfigVersion,
   LlmProfile,
@@ -33,65 +31,6 @@ export interface ClaudeSettings {
   model: string;
   autoMemoryEnabled: boolean;
   hooks: Record<string, unknown[]>;
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function buildHookCommand(cliEntryPoint: string, command: string): string {
-  return `${shellQuote(process.execPath)} ${shellQuote(path.resolve(cliEntryPoint))} ${command}`;
-}
-
-function buildMemoryHookSettings(
-  cliEntryPoint: string,
-): Record<string, unknown[]> {
-  return {
-    SessionStart: [
-      {
-        matcher: 'startup|resume|compact',
-        hooks: [
-          {
-            type: 'command',
-            command: buildHookCommand(cliEntryPoint, 'memory-hook load'),
-            timeout: 10,
-          },
-        ],
-      },
-    ],
-    PreCompact: [
-      {
-        matcher: '*',
-        hooks: [
-          {
-            type: 'command',
-            command: buildHookCommand(
-              cliEntryPoint,
-              'memory-hook extract --trigger=precompact',
-            ),
-            timeout: 120,
-            async: true,
-          },
-        ],
-      },
-    ],
-    SessionEnd: [
-      {
-        matcher: 'clear|resume|logout|other',
-        hooks: [
-          {
-            type: 'command',
-            command: buildHookCommand(
-              cliEntryPoint,
-              'memory-hook extract --trigger=session-end',
-            ),
-            timeout: 120,
-            async: true,
-          },
-        ],
-      },
-    ],
-  };
 }
 
 function assertNoRawSecrets(value: unknown, pathParts: string[] = []): void {
@@ -131,7 +70,7 @@ export function renderClaudeSettings(
     availableModels: CLAUDE_RUNTIME_ALLOWED_MODELS,
     model: String(model),
     autoMemoryEnabled: false,
-    hooks: buildMemoryHookSettings(input.cliEntryPoint),
+    hooks: {},
   };
 }
 

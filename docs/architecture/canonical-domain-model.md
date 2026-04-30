@@ -3,7 +3,7 @@
 This document defines the product vocabulary MyClaw code should converge on.
 It is intentionally provider-neutral and channel-neutral. Current
 implementation names such as registered group, group folder, main group, JID,
-and Claude session id are legacy implementation details unless they are
+and Claude session id are implementation details unless they are
 explicitly mapped to one of the concepts below.
 
 ## Model Summary
@@ -24,7 +24,7 @@ App
     AgentSession
       ProviderSession
     AgentRun
-      AgentRunEvent
+      RuntimeEvent
     MemorySubject
     Job
     ToolCatalogItem
@@ -68,7 +68,7 @@ Identity rules:
 | `AgentSession`        | Domain                   | Canonical continuity state for an agent in an app, conversation, thread, job, or run context. It survives provider swaps.                                                          |
 | `ProviderSession`     | Adapter                  | A provider-specific resume token or transcript pointer, such as a Claude session id. It is attached to an `AgentSession`.                                                          |
 | `AgentRun`            | Domain/application       | One execution attempt by an agent for a message, job, control request, or manual trigger.                                                                                          |
-| `AgentRunEvent`       | Domain/application       | A durable event emitted during a run: queued, started, model event, tool request, permission decision, output chunk, completed, failed, or canceled.                               |
+| `RuntimeEvent`        | Application/storage      | The durable observable runtime stream for run, job, session, SSE/wait, SDK listing, and webhook delivery events. Audit records remain in their owning modules.                     |
 | `MemorySubject`       | Domain                   | A memory boundary for app, agent, user, group/team, conversation, thread, or common shared memory.                                                                                 |
 | `Job`                 | Domain/application       | Scheduled, recurring, or manual work that creates agent runs under explicit app, agent, session, and permission context.                                                           |
 | `ToolCatalogItem`     | Domain catalog           | A tool capability exposed to agents with name, input contract, risk classification, permission requirements, and adapter binding.                                                  |
@@ -151,33 +151,30 @@ Adapters perform provider-specific download and upload.
 `AgentSession` is canonical continuity. It links an agent to an app-level
 context such as a conversation, thread, job, user, or manual control request.
 `/new` clears the canonical session state for the relevant binding while
-preserving durable memory, approved skills, MCP bindings, selected model
-override, and agent configuration.
+preserving the binding's selected model override when policy says so.
 The deterministic session key includes app, agent, conversation, thread, user,
 and job fields so Slack threads, Telegram topics, and Web UI branches do not
 collide inside one conversation.
 
-`ProviderSession` stores provider-specific resume state for an `AgentSession`.
-Claude session id is one provider session field. Other providers may use a
-thread id, response id, transcript pointer, or no provider resume token.
-Provider sessions are optimizations only. When the current provider matches the
-latest active provider session, the runtime may attempt native resume. When the
-provider session is missing, expired, stale, or from a different provider, the
-runtime resumes from Postgres by replaying the latest session summary plus
-recent messages and run summaries. Memory is retrieved separately from the
-current prompt, and no memory block is injected when nothing matches.
+`ProviderSession` stores provider-specific diagnostic or export state for an
+`AgentSession`. Claude session ids, response ids, and transcript pointers are
+not MyClaw runtime continuation handles. Active chat continuation uses the live
+provider stream while it is running; fresh runs restore durable MyClaw memory
+only.
 
-`AgentSessionSummary` stores an extractive checkpoint for long conversations.
-It records the summarized message/run range and lets hydration use summary plus
-last N messages instead of replaying the full conversation on every run.
+`AgentSessionSummary` is historical/observability state when present. It is not
+injected into runtime prompts and is not a replacement for provider-owned
+context-window compaction.
 
 `AgentRun` is one execution attempt. It has a cause, app, agent, config version,
 session, conversation/thread context, permission context, sandbox lease,
 workspace snapshot, provider profile, status, timestamps, and result summary.
 
-`AgentRunEvent` is the observable event stream for a run. SDK streams, Web UI,
-webhooks, channel progress, audit trails, and debugging should read run events
-instead of scraping provider stdout.
+`RuntimeEvent` is the observable runtime delivery stream for SDK event listing,
+SSE/wait, webhook projection, run events, job events, and app-channel
+session/control output. Run-event responses are projections filtered from
+runtime events instead of a separately owned `AgentRunEvent` stream. Audit
+histories remain in their owned modules.
 
 ### Memory And Jobs
 
@@ -277,7 +274,7 @@ These mappings describe current code so future refactors know what to replace:
 | Claude session id                  | `ProviderSession` attached to `AgentSession`                                                |
 | Group queue key                    | Queue key derived from canonical app, agent, conversation, thread, session, and run context |
 | Host runner process                | Runtime execution adapter governed by `SandboxProfile` and `SandboxLease`                   |
-| Control events                     | `AgentRunEvent` plus API-visible event projections                                          |
+| Control events                     | `RuntimeEvent` records projected to SDK lists, SSE/wait, run/job event views, and webhooks  |
 
 ## Adapter Boundaries
 
@@ -294,7 +291,7 @@ LLM provider adapters:
 
 - resolve `LlmProfile` to concrete model/provider calls
 - create and update `ProviderSession`
-- translate provider stream events into `AgentRunEvent`
+- translate provider stream events into `RuntimeEvent` records through the exchange
 - keep provider SDK types out of domain and application services
 
 Storage adapters:
@@ -321,5 +318,5 @@ Future implementation phases should remove or replace:
 - CLI-owned business logic
 - control routes directly mutating persistence
 
-Do not add compatibility shims for old local state unless a later decision
+Do not add compatibility shims for unsupported local state unless a later decision
 explicitly approves them.

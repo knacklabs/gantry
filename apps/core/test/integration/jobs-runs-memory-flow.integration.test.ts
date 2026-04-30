@@ -153,12 +153,47 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     });
     const eventTypes = events.map((event) => event.event_type);
     expect(eventTypes).toEqual(
-      expect.arrayContaining(['job.started', 'run_completed', 'job.completed']),
+      expect.arrayContaining(['job.started', 'run.completed', 'job.completed']),
     );
     expect(harness.channel.sent.map((sent) => sent.threadId)).toContain(
       job.thread_id,
     );
     expect(harness.channel.resets).toEqual(['tg:scheduler']);
+  });
+
+  it('does not use or update job session_id as an SDK session handle', async () => {
+    const harness = createRuntimeFlowHarness({
+      runnerResult: {
+        status: 'success',
+        result: 'job completed with ephemeral sdk session',
+        newSessionId: 'sdk-session-ignored',
+      },
+    });
+    const job = makeJob('job:integration:canonical-session', {
+      session_id: 'control-session-correlation-only',
+    });
+    await runtime.ops.upsertJob(job);
+
+    await runJob(
+      await runtime.ops.getJobById(job.id).then((saved) => saved!),
+      {
+        registeredGroups: () => ({ 'tg:scheduler': makeRegisteredGroup() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: harness.channel.sendMessage,
+        sendStreamingChunk: harness.channel.sendStreamingChunk,
+        resetStreaming: harness.channel.resetStreaming,
+        opsRepository: runtime.ops,
+        runAgent: harness.runner.runAgent as never,
+      },
+      'tg:scheduler',
+      'serialized',
+    );
+
+    expect(harness.runner.calls[0]?.input).not.toHaveProperty('sessionId');
+    await expect(runtime.ops.getJobById(job.id)).resolves.toMatchObject({
+      session_id: 'control-session-correlation-only',
+    });
   });
 
   it('persists failed scheduler runs without leaving a running lease', async () => {
@@ -204,7 +239,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
       job_id: job.id,
     });
     expect(events.map((event) => event.event_type)).toEqual(
-      expect.arrayContaining(['job.started', 'run_failed', 'job.failed']),
+      expect.arrayContaining(['job.started', 'run.failed', 'job.failed']),
     );
   });
 
@@ -264,7 +299,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     expect(events.map((event) => event.event_type)).toEqual(
       expect.arrayContaining([
         'job.started',
-        'run_dead_lettered',
+        'run.dead_lettered',
         'job.failed',
       ]),
     );

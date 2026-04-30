@@ -81,23 +81,25 @@ export function writeLaunchdPlist(
 </plist>
 `;
   fs.writeFileSync(target, plist, 'utf-8');
-
-  tryExec('launchctl', ['bootout', `gui/${uid}`, target]);
-  const loaded = tryExec('launchctl', ['bootstrap', `gui/${uid}`, target]);
-  if (!loaded.ok && !loaded.stderr.includes('already bootstrapped')) {
-    throw new Error(
-      loaded.stderr || loaded.stdout || 'launchctl bootstrap failed',
-    );
-  }
 }
 
 export function startLaunchdService(): void {
   const uid = process.getuid?.() || 0;
-  const result = tryExec('launchctl', [
-    'kickstart',
-    '-k',
-    `gui/${uid}/${SERVICE_LABEL}`,
-  ]);
+  const target = launchdPlistPath();
+  if (!fs.existsSync(target)) {
+    throw new Error('launchd plist is missing. Run `myclaw service install`.');
+  }
+  const serviceTarget = `gui/${uid}/${SERVICE_LABEL}`;
+  const status = tryExec('launchctl', ['print', serviceTarget]);
+  if (!status.ok) {
+    const loaded = tryExec('launchctl', ['bootstrap', `gui/${uid}`, target]);
+    if (!loaded.ok && !loaded.stderr.includes('already bootstrapped')) {
+      throw new Error(
+        loaded.stderr || loaded.stdout || 'launchctl bootstrap failed',
+      );
+    }
+  }
+  const result = tryExec('launchctl', ['kickstart', '-k', serviceTarget]);
   if (!result.ok) {
     throw new Error(
       result.stderr || result.stdout || 'launchctl kickstart failed',

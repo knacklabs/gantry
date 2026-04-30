@@ -26,10 +26,8 @@ import type {
   ConversationThreadId,
   UserId,
 } from '@core/domain/conversation/conversation.js';
-import type {
-  AgentRunEventId,
-  AgentRunId,
-} from '@core/domain/events/events.js';
+import type { AgentRunId } from '@core/domain/events/events.js';
+import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import type { MessageId } from '@core/domain/messages/messages.js';
 import type { PermissionDecisionId } from '@core/domain/permissions/permissions.js';
 import type {
@@ -584,28 +582,28 @@ maybeDescribe('Postgres domain repositories', () => {
       startedAt: '2026-04-27T00:04:01.000Z',
     });
 
-    await repositories.agentRuns.appendAgentRunEvent({
-      id: 'agent-run-event:test:2' as AgentRunEventId,
+    await repositories.runtimeEvents.appendRuntimeEvent({
       appId,
       runId,
-      type: 'output_chunk',
+      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_STREAMING,
+      actor: 'runtime',
       payload: { text: 'second' },
       createdAt: '2026-04-27T00:04:03.000Z',
     });
-    await repositories.agentRuns.appendAgentRunEvent({
-      id: 'agent-run-event:test:1' as AgentRunEventId,
+    await repositories.runtimeEvents.appendRuntimeEvent({
       appId,
       runId,
-      type: 'started',
+      eventType: RUNTIME_EVENT_TYPES.RUN_STARTED,
+      actor: 'runtime',
       payload: { text: 'first' },
       createdAt: '2026-04-27T00:04:02.000Z',
     });
 
     await expect(
-      repositories.agentRuns.listAgentRunEvents(runId),
+      repositories.runtimeEvents.listRuntimeEvents({ appId, runId }),
     ).resolves.toEqual([
-      expect.objectContaining({ id: 'agent-run-event:test:1' }),
-      expect.objectContaining({ id: 'agent-run-event:test:2' }),
+      expect.objectContaining({ payload: { text: 'second' } }),
+      expect.objectContaining({ payload: { text: 'first' } }),
     ]);
   });
 

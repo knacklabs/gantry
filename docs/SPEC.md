@@ -63,7 +63,7 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 │  │    • Bash (host-executed runtime scope)                        │    │
 │  │    • Read, Write, Edit, Glob, Grep (file operations)           │    │
 │  │    • WebSearch, WebFetch (internet access)                     │    │
-│  │    • Runtime-installed browser action skills/tools             │    │
+│  │    • agent-browser (browser automation)                        │    │
 │  │    • mcp__myclaw__* (scheduler tools via IPC)                │    │
 │  │                                                                │    │
 │  └──────────────────────────────────────────────────────────────┘    │
@@ -73,18 +73,14 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 
 ### Technology Stack
 
-| Component          | Technology                                                        | Purpose                                                      |
-| ------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------ |
-| Channel System     | Provider registry (`apps/core/src/channels/provider-registry.ts`) | Channels are looked up by provider id and JID prefix         |
-| Message Storage    | Postgres with Drizzle                                             | Store messages, jobs, events, memory, and runtime state      |
-| Runtime Execution  | Host process execution                                            | Agent execution with runtime-home scoped paths               |
-| Agent              | @anthropic-ai/claude-agent-sdk                                    | Run Claude with tools and MCP servers                        |
-| Browser Capability | MyClaw browser broker + runtime-installed action tooling          | Persistent browser lifecycle, profile state, and CDP handoff |
-| Runtime            | Node.js 25+                                                       | Host process for routing and pg-boss job execution           |
-
-Browser lifecycle, runtime skill materialization, persistent profile behavior,
-and action MCP handoff are documented in
-[docs/architecture/browser-capability.md](docs/architecture/browser-capability.md).
+| Component          | Technology                                                        | Purpose                                                        |
+| ------------------ | ----------------------------------------------------------------- | -------------------------------------------------------------- |
+| Channel System     | Provider registry (`apps/core/src/channels/provider-registry.ts`) | Channels are looked up by provider id and JID prefix           |
+| Message Storage    | Postgres with Drizzle                                             | Store messages, jobs, events, memory, and runtime state        |
+| Runtime Execution  | Host process execution                                            | Agent execution with runtime-home scoped paths                 |
+| Agent              | @anthropic-ai/claude-agent-sdk                                    | Run Claude with tools and MCP servers                          |
+| Browser Automation | agent-browser + Chromium                                          | Web interaction and screenshots with explicit CDP port handoff |
+| Runtime            | Node.js 25+                                                       | Host process for routing and pg-boss job execution             |
 
 ---
 
@@ -291,6 +287,7 @@ import path from 'path';
 import { getMyclawHome } from './myclaw-home.js';
 import { ensureRuntimeSettings } from './settings/runtime-settings.js';
 
+export const ASSISTANT_NAME = process.env.ASSISTANT_NAME || 'Andy';
 export const POLL_INTERVAL = 2000;
 
 // Paths are absolute and resolve from the configured runtime home.
@@ -298,15 +295,13 @@ const MYCLAW_HOME = getMyclawHome(process.env.MYCLAW_HOME);
 export const AGENTS_DIR = path.resolve(MYCLAW_HOME, 'agents');
 export const DATA_DIR = path.resolve(MYCLAW_HOME, 'data');
 
-// Main identity and default model selection are non-secret settings.yaml values.
-export const getConfiguredAgentName = () =>
-  ensureRuntimeSettings(MYCLAW_HOME).agent.name;
+// Default model selection is non-secret configuration in settings.yaml.
 export const getConfiguredDefaultModel = () =>
   ensureRuntimeSettings(MYCLAW_HOME).agent.defaultModel;
 export const IPC_POLL_INTERVAL = 1000;
 export const IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT || '1800000', 10); // 30min — keep runtime worker alive after last result
 
-export const DEFAULT_TRIGGER = `@${getConfiguredAgentName()}`;
+export const TRIGGER_PATTERN = new RegExp(`^@${ASSISTANT_NAME}\\b`, 'i');
 ```
 
 **Note:** Paths must be absolute for runtime path validation and scoped mounts.
@@ -319,7 +314,7 @@ Groups can have additional directories exposed to the agent workspace through th
 setRegisteredGroup('telegram:dev-team', {
   name: 'Dev Team',
   folder: 'telegram_dev-team',
-  trigger: DEFAULT_TRIGGER,
+  trigger: '@Andy',
   added_at: new Date().toISOString(),
   agentConfig: {
     model: 'opus',
@@ -370,18 +365,21 @@ different Postgres users.
 
 The runner receives only broker-safe model endpoint settings from the selected
 broker. Raw provider tokens and runtime-owned database URLs are not forwarded to
-tools, the child runner, or the Agent SDK environment. Broker-provided proxy and
-CA certificate references are allowed only after adapter policy filtering.
+tools, the child runner, or the Agent SDK environment. Runner-wide proxy
+environment variables are not accepted from OneCLI because they affect Bash,
+hooks, MCP stdio servers, skills, monitors, and other tools. Provider access is
+projected through explicit model endpoint settings such as `ANTHROPIC_BASE_URL`
+and adapter-materialized CA certificate references.
 If `.env` or process env contains raw agent credentials such as
 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`,
 doctor/preflight reports a wrong-lane configuration error.
 
 ### Changing the Assistant Name
 
-Set `agent.name` in `settings.yaml` or use `myclaw agent name`:
+Set the `ASSISTANT_NAME` environment variable:
 
 ```bash
-myclaw agent name "Main Agent"
+ASSISTANT_NAME=Bot npm start
 ```
 
 Or edit the default in `apps/core/src/config/index.ts`. This changes:
@@ -402,8 +400,7 @@ Files with `{{PLACEHOLDER}}` values need to be configured:
 
 ## Memory System
 
-MyClaw separates static prompt profile files from structured memory,
-query-retrieved memory context, and runtime continuity state.
+MyClaw separates static prompt profile files from structured memory and runtime continuity context.
 
 ### Prompt Profile Layer
 
@@ -415,23 +412,24 @@ Prompt profile files are static guidance, not memory dumps:
 | **Soul**           | `agents/{group}/SOUL.md`   | Agent personality, voice, and boundaries                        |
 | **Group context**  | `agents/{group}/CLAUDE.md` | Stable group-specific guidance                                  |
 
-Dynamic facts, current task state, open loops, and raw transcripts must not be written into these files. Durable facts go through structured memory. Current task state belongs to explicit continuity/current-state tracking.
+Dynamic facts, open loops, and raw transcripts must not be written into these
+files. Durable facts go through structured memory. Active task state stays in
+the live SDK streaming session while the runner is alive.
 
-### Query-Retrieved Memory Context
+### Continuity Context
 
-Memory context is retrieved from the current message or scheduled job prompt:
+Continuity is the runtime behavior that helps the agent resume current work:
 
-- matching durable memories
-- matching prior decisions
-- matching user/group preferences
-- matching facts and constraints
-- matching procedures or references
+- live SDK streaming context for active chat turns
+- current relevant durable memory
+- prior decisions
+- user/group preferences
+- open loops when commitment tracking is enabled
 
-Before an agent run, the host builds a query-scoped memory context block only
-when retrieval finds matching memory. The agent runner appends it to the prompt
-as untrusted evidence. If no memory matches, no block is injected; the agent can
-call `memory_search` when the user asks to continue or when more context is
-needed.
+Before a fresh agent run, the host builds a memory-only context block and passes
+it to the agent runner. Follow-up chat messages are then piped into the same
+live SDK stream until `/new`, stop, shutdown, or idle expiry. Postgres messages,
+run summaries, and session summaries are not replayed into every prompt.
 
 See [CONTINUITY.md](CONTINUITY.md) for the continuity model.
 
@@ -504,7 +502,9 @@ candidates, durable items, recall events, and dream decisions in Postgres.
 
 #### Reflection (Auto-Capture)
 
-After each successful agent turn, the system extracts durable memory statements from the conversation:
+At session boundaries, the system extracts durable memory statements from the
+conversation. `/new` uses a `session-end` trigger, while manual `/compact` and
+observed SDK auto-compaction boundaries use a `precompact` trigger:
 
 - Uses a provider interface; the default extractor is rule-based and can be replaced without changing storage or recall.
 - Detects preferences, decisions, facts, corrections, and constraints.
@@ -522,9 +522,9 @@ MyClaw memory uses Postgres tables in the configured runtime schema.
 - Vector search: `pgvector` when embeddings are enabled
 - Lexical search: Postgres full-text search
 
-Provider continuation and transcript export artifacts are stored through
-`ProviderArtifactStore`; they are not the memory store or canonical message
-history.
+Provider transcript export artifacts may be stored through
+`ProviderArtifactStore` for explicit debugging/export workflows; they are not
+the memory store, canonical message history, or runtime continuation state.
 
 ### Memory Configuration Reference
 
@@ -552,17 +552,18 @@ history.
 
 ## Session Management
 
-Sessions enable provider-native conversation continuity. `/new` clears this
-provider conversation state for the chat/thread while preserving durable memory,
-skills, MCP bindings, model choices, and agent configuration.
+Sessions enable conversation continuity from MyClaw-owned Postgres state.
 
 ### How Sessions Work
 
-1. Each group has a session ID stored in the runtime database (`sessions` table, keyed by `group_folder`)
-2. Session ID is passed to Claude Agent SDK's `resume` option
-3. Claude continues the conversation with full context
-4. Claude JSONL is captured through `ProviderArtifactStore` as provider
-   continuation state; canonical messages remain in Postgres.
+1. Each app/agent/conversation/thread scope resolves to a canonical
+   `AgentSession` in Postgres.
+2. Runtime hydrates only scoped durable memory for a fresh runner or scheduled
+   job.
+3. Claude Agent SDK runs are ephemeral with `persistSession: false`; MyClaw does
+   not pass SDK `resume`, `resumeSessionAt`, or `continue` handles.
+4. Active chat follow-ups are streamed into the same live SDK query. Provider
+   transcript exports may exist for debugging, but they are not runtime state.
 
 ---
 
@@ -595,19 +596,19 @@ skills, MCP bindings, model choices, and agent configuration.
 7. Group processor catches up conversation:
    ├── Fetch all messages since last agent interaction
    ├── Format with timestamp and sender name
-   ├── Add job/session context when present
-   └── Build prompt and query-retrieved memory context when matching memory exists
+   ├── Add job metadata when present
+   └── Build prompt with durable memory context only
    │
    ▼
 8. Agent spawn starts the child runner:
    ├── cwd: agents/{group-name}/
    ├── prompt: conversation history + current message
-   ├── resume: session_id (for continuity)
+   ├── persistSession: false
    └── mcpServers: myclaw (runtime tools over IPC)
    │
    ▼
 9. Child runner invokes Claude Agent SDK:
-   ├── Uses injected prompt profile and query-retrieved memory context
+   ├── Uses injected prompt profile and durable memory context
    ├── Uses MessageStream for safe follow-up input
    └── Requests host permission for policy-gated tools
    │
@@ -618,17 +619,16 @@ skills, MCP bindings, model choices, and agent configuration.
 11. Slack/Telegram send network responses; the app channel writes durable control events
    │
    ▼
-12. Runtime advances cursor and saves the resumed Claude session ID
+12. Runtime advances cursor and stores MyClaw-owned run/session events in Postgres
 ```
 
 ### Trigger Word Matching
 
-Messages must start with the trigger pattern. The default trigger is derived
-from `agent.name` in `settings.yaml`:
+Messages must start with the trigger pattern (default: `@Andy`):
 
-- `@Main Agent what's the weather?` → ✅ Triggers Claude
-- `@main agent help me` → ✅ Triggers (case insensitive)
-- `Hey @Main Agent` → ❌ Ignored (trigger not at start)
+- `@Andy what's the weather?` → ✅ Triggers Claude
+- `@andy help me` → ✅ Triggers (case insensitive)
+- `Hey @Andy` → ❌ Ignored (trigger not at start)
 - `What's up?` → ❌ Ignored (no trigger)
 
 ### Conversation Catch-Up
@@ -638,7 +638,7 @@ When a triggered message arrives, the agent receives all messages since its last
 ```
 [Jan 31 2:32 PM] John: hey everyone, should we do pizza tonight?
 [Jan 31 2:33 PM] Sarah: sounds good to me
-[Jan 31 2:35 PM] John: @Main Agent what toppings do you recommend?
+[Jan 31 2:35 PM] John: @Andy what toppings do you recommend?
 ```
 
 This allows the agent to understand the conversation context even if it wasn't mentioned in every message.
@@ -649,18 +649,18 @@ This allows the agent to understand the conversation context even if it wasn't m
 
 ### Commands Available in Any Group
 
-| Command                | Example                           | Effect         |
-| ---------------------- | --------------------------------- | -------------- |
-| `@Assistant [message]` | `@Main Agent what's the weather?` | Talk to Claude |
+| Command                | Example                     | Effect         |
+| ---------------------- | --------------------------- | -------------- |
+| `@Assistant [message]` | `@Andy what's the weather?` | Talk to Claude |
 
 ### Commands Available in Main Channel Only
 
-| Command                          | Example                                   | Effect                 |
-| -------------------------------- | ----------------------------------------- | ---------------------- |
-| `@Assistant add group "Name"`    | `@Main Agent add group "Family Chat"`     | Register a new group   |
-| `@Assistant remove group "Name"` | `@Main Agent remove group "Work Team"`    | Unregister a group     |
-| `@Assistant list groups`         | `@Main Agent list groups`                 | Show registered groups |
-| `@Assistant remember [fact]`     | `@Main Agent remember I prefer dark mode` | Add to global memory   |
+| Command                          | Example                             | Effect                 |
+| -------------------------------- | ----------------------------------- | ---------------------- |
+| `@Assistant add group "Name"`    | `@Andy add group "Family Chat"`     | Register a new group   |
+| `@Assistant remove group "Name"` | `@Andy remove group "Work Team"`    | Unregister a group     |
+| `@Assistant list groups`         | `@Andy list groups`                 | Show registered groups |
+| `@Assistant remember [fact]`     | `@Andy remember I prefer dark mode` | Add to global memory   |
 
 ---
 
@@ -686,7 +686,7 @@ MyClaw has a built-in scheduler that runs jobs as full agents in their group's c
 ### Creating a Job
 
 ```
-User: @Main Agent remind me every Monday at 9am to review the weekly metrics
+User: @Andy remind me every Monday at 9am to review the weekly metrics
 
 Claude: [calls mcp__myclaw__scheduler_upsert_job]
         {
@@ -703,7 +703,7 @@ Claude: Done! I'll remind you every Monday at 9am.
 ### One-Time Jobs
 
 ```
-User: @Main Agent at 5pm today, send me a summary of today's emails
+User: @Andy at 5pm today, send me a summary of today's emails
 
 Claude: [calls mcp__myclaw__scheduler_upsert_job]
         {
@@ -719,15 +719,15 @@ Claude: [calls mcp__myclaw__scheduler_upsert_job]
 
 From any group:
 
-- `@Main Agent list my scheduled jobs` - View jobs for this group
-- `@Main Agent pause job [id]` - Pause a job
-- `@Main Agent resume job [id]` - Resume a paused job
-- `@Main Agent delete job [id]` - Delete a job
+- `@Andy list my scheduled jobs` - View jobs for this group
+- `@Andy pause job [id]` - Pause a job
+- `@Andy resume job [id]` - Resume a paused job
+- `@Andy delete job [id]` - Delete a job
 
 From main channel:
 
-- `@Main Agent list all jobs` - View jobs from all groups
-- `@Main Agent schedule job for "Family Chat": [prompt]` - Schedule for another group
+- `@Andy list all jobs` - View jobs from all groups
+- `@Andy schedule job for "Family Chat": [prompt]` - Schedule for another group
 
 ---
 
@@ -900,13 +900,12 @@ chmod 700 ~/myclaw/agents ~/myclaw/data
 
 ### Common Issues
 
-| Issue                              | Cause                             | Solution                                                           |
-| ---------------------------------- | --------------------------------- | ------------------------------------------------------------------ |
-| No response to messages            | Service not running               | Run `myclaw status` and check the service line                     |
-| Startup fails at runtime preflight | Host runtime prerequisites failed | Run `npm run build` and re-check runtime diagnostics               |
-| Session not continuing             | Session state not persisted       | Run `myclaw status` and verify Postgres runtime storage readiness  |
-| Session not continuing             | Provider artifact unavailable     | Verify `ProviderArtifactStore` health and latest artifact metadata |
-| "No groups registered"             | Haven't added groups              | Register a channel group with the current channel setup flow       |
+| Issue                              | Cause                             | Solution                                                          |
+| ---------------------------------- | --------------------------------- | ----------------------------------------------------------------- |
+| No response to messages            | Service not running               | Run `myclaw status` and check the service line                    |
+| Startup fails at runtime preflight | Host runtime prerequisites failed | Run `npm run build` and re-check runtime diagnostics              |
+| Session not continuing             | Session state not persisted       | Run `myclaw status` and verify Postgres runtime storage readiness |
+| "No groups registered"             | Haven't added groups              | Register a channel group with the current channel setup flow      |
 
 ### Log Location
 

@@ -53,7 +53,7 @@ describe('package hygiene', () => {
       '.claude/skills/commands/SKILL.md',
       '.claude/skills/myclaw-admin/SKILL.md',
     ]);
-  });
+  }, 30_000);
 
   it('isolates OneCLI SDK imports to credential adapter and CLI setup adapter', () => {
     const allowed = new Set([

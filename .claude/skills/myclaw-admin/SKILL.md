@@ -113,18 +113,17 @@ Runtime continuity injection:
 - This injection is baseline context. Memory MCP tools are for deeper lookup and explicit writes.
 - Dream lifecycle metadata is part of the injected brief when available.
 
-Memory hooks:
+Runtime memory:
 
-```bash
-myclaw memory-hook load
-myclaw memory-hook extract --trigger=<precompact|session-end>
-```
+- Host runtime injects durable MyClaw memory context at live session or job
+  start. It does not replay Postgres transcripts as automatic prompt context.
+- Do not configure Claude memory hooks for runtime continuity; provider hook
+  output and JSONL transcripts are not MyClaw session state.
 
 Runtime Claude settings and skills are generated into a temporary per-run
 `CLAUDE_CONFIG_DIR`. Runtime-home `.claude/skills` is not the skill source of
 truth. Do not install separate global Claude hooks for MyClaw memory. Generated
-hook commands call the installed MyClaw CLI through
-`npx --yes myclaw@<installed-version>`.
+runtime settings do not install memory hooks.
 
 Global options:
 

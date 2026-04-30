@@ -1,0 +1,141 @@
+import type {
+  RuntimeEvent,
+  RuntimeEventFilter,
+  RuntimeEventId,
+  RuntimeEventPublishInput,
+} from '../../domain/events/events.js';
+import type { RuntimeEventRepository } from '../../domain/ports/repositories.js';
+import { runtimeEventMatchesFilter } from '../../domain/events/runtime-event-filter.js';
+
+export interface RuntimeEventNotifier {
+  notify(event: RuntimeEvent): Promise<void>;
+  subscribe(listener: () => void, filter?: RuntimeEventFilter): () => void;
+}
+
+export interface RuntimeEventProjection {
+  project(event: RuntimeEvent): Promise<void>;
+}
+
+export interface RuntimeEventSubscription {
+  next(options?: { timeoutMs?: number }): Promise<RuntimeEvent[]>;
+  close(): void;
+}
+
+export class RuntimeEventExchange {
+  constructor(
+    private readonly repository: RuntimeEventRepository,
+    private readonly notifier: RuntimeEventNotifier,
+    private readonly projections: RuntimeEventProjection[] = [],
+  ) {}
+
+  async publish(input: RuntimeEventPublishInput): Promise<RuntimeEvent> {
+    const event = await this.repository.appendRuntimeEvent(input);
+    for (const projection of this.projections) {
+      await projection.project(event);
+    }
+    await this.notifier.notify(event);
+    return event;
+  }
+
+  list(filter: RuntimeEventFilter): Promise<RuntimeEvent[]> {
+    return this.repository.listRuntimeEvents(filter);
+  }
+
+  subscribe(filter: RuntimeEventFilter): RuntimeEventSubscription {
+    return new DurableRuntimeEventSubscription(
+      this.repository,
+      this.notifier,
+      filter,
+    );
+  }
+}
+
+const MAX_SUBSCRIPTION_WAKE_WAIT_MS = 15_000;
+
+class DurableRuntimeEventSubscription implements RuntimeEventSubscription {
+  private closed = false;
+  private cursor: RuntimeEventId | undefined;
+  private wakeup: (() => void) | null = null;
+  private readonly unsubscribe: () => void;
+
+  constructor(
+    private readonly repository: RuntimeEventRepository,
+    notifier: RuntimeEventNotifier,
+    private readonly filter: RuntimeEventFilter,
+  ) {
+    this.cursor = filter.afterEventId;
+    this.unsubscribe = notifier.subscribe(() => {
+      this.wakeup?.();
+      this.wakeup = null;
+    }, filter);
+  }
+
+  async next(options: { timeoutMs?: number } = {}): Promise<RuntimeEvent[]> {
+    if (this.closed) return [];
+    const timeoutMs = Math.max(0, options.timeoutMs ?? 30_000);
+    const deadline = Date.now() + timeoutMs;
+
+    while (!this.closed) {
+      const events = await this.repository.listRuntimeEvents({
+        ...this.filter,
+        afterEventId: this.cursor,
+      });
+      if (events.length > 0) {
+        this.cursor = events[events.length - 1]!.eventId;
+        return events;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return [];
+      await this.waitForWakeup(
+        Math.min(remaining, MAX_SUBSCRIPTION_WAKE_WAIT_MS),
+      );
+    }
+    return [];
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.unsubscribe();
+    this.wakeup?.();
+    this.wakeup = null;
+  }
+
+  private waitForWakeup(timeoutMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        if (this.wakeup === resolve) {
+          this.wakeup = null;
+        }
+        resolve();
+      }, timeoutMs);
+      this.wakeup = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
+  }
+}
+
+export class InMemoryRuntimeEventNotifier implements RuntimeEventNotifier {
+  private readonly listeners = new Map<
+    () => void,
+    RuntimeEventFilter | undefined
+  >();
+  readonly notifiedEvents: RuntimeEvent[] = [];
+
+  async notify(event: RuntimeEvent): Promise<void> {
+    this.notifiedEvents.push(event);
+    for (const [listener, filter] of [...this.listeners]) {
+      if (filter && !runtimeEventMatchesFilter(event, filter)) continue;
+      listener();
+    }
+  }
+
+  subscribe(listener: () => void, filter?: RuntimeEventFilter): () => void {
+    this.listeners.set(listener, filter);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+}

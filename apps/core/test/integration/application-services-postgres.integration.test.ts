@@ -7,7 +7,6 @@ import { UpdateAgentConfigUseCase } from '@core/application/agents/update-agent-
 import { SaveMemoryUseCase } from '@core/application/memory/save-memory-use-case.js';
 import { RecordPermissionDecisionUseCase } from '@core/application/permissions/record-permission-decision-use-case.js';
 import { StartAgentRunUseCase } from '@core/application/runs/start-agent-run-use-case.js';
-import { AppendAgentRunEventUseCase } from '@core/application/runs/append-agent-run-event-use-case.js';
 import { CreateSandboxLeaseUseCase } from '@core/application/sandbox/create-sandbox-lease-use-case.js';
 import {
   DEFAULT_APP_ID,
@@ -15,6 +14,7 @@ import {
 } from '@core/adapters/storage/postgres/seeds.js';
 import type { AppId } from '@core/domain/app/app.js';
 import type { AgentId } from '@core/domain/agent/agent.js';
+import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -157,25 +157,22 @@ maybeDescribe('application services with Postgres repositories', () => {
     await new StartAgentRunUseCase(runtime.repositories.agentRuns).execute({
       run,
     });
-    await new AppendAgentRunEventUseCase(
-      runtime.repositories.agentRuns,
-    ).execute({
-      event: {
-        id: 'agent-run-event:integration:1' as never,
-        appId,
-        runId: 'agent-run:integration:1' as never,
-        type: 'status',
-        payload: { status: 'running' },
-        createdAt: now,
-      },
+    await runtime.repositories.runtimeEvents.appendRuntimeEvent({
+      appId,
+      runId: 'agent-run:integration:1' as never,
+      eventType: RUNTIME_EVENT_TYPES.RUN_STARTED,
+      actor: 'runtime',
+      payload: { status: 'running' },
+      createdAt: now,
     });
     await expect(
-      runtime.repositories.agentRuns.listAgentRunEvents(
-        'agent-run:integration:1' as never,
-      ),
+      runtime.repositories.runtimeEvents.listRuntimeEvents({
+        appId,
+        runId: 'agent-run:integration:1' as never,
+      }),
     ).resolves.toEqual([
       expect.objectContaining({
-        id: 'agent-run-event:integration:1',
+        eventType: RUNTIME_EVENT_TYPES.RUN_STARTED,
         payload: { status: 'running' },
       }),
     ]);

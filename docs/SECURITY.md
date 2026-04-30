@@ -45,12 +45,12 @@ private_key, .secret
 
 ### 3. Session Isolation
 
-Each group has isolated provider session artifacts behind `ProviderArtifactStore`:
+Each group has isolated canonical session state in Postgres:
 
 - groups cannot read other groups' conversation history
-- Claude JSONL is provider continuation state, not canonical history
-- cross-group data leakage is blocked by artifact ownership, path validation,
-  and authorization checks
+- provider transcript exports are debugging artifacts, not continuation state
+- cross-group data leakage is blocked by canonical session scoping, path
+  validation, and authorization checks
 
 ### 4. IPC Authorization
 

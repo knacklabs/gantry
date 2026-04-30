@@ -12,6 +12,10 @@ export interface RuntimeStorageReadiness {
   nextAction?: string;
 }
 
+export interface RuntimeStorageReadinessOptions {
+  migrate?: boolean;
+}
+
 function defaultPostgresNextAction(): string {
   return [
     'Use the provided docker-compose.yml, a locally installed Postgres, or a hosted Postgres endpoint with pgvector + pg_trgm + pg-boss initialized.',
@@ -21,6 +25,7 @@ function defaultPostgresNextAction(): string {
 
 export async function inspectRuntimeStorageReadiness(
   runtimeHome: string,
+  options: RuntimeStorageReadinessOptions = {},
 ): Promise<RuntimeStorageReadiness> {
   let settings;
   try {
@@ -69,6 +74,9 @@ export async function inspectRuntimeStorageReadiness(
   }
 
   try {
+    if (options.migrate) {
+      await service.migrate();
+    }
     const capabilities = await service.healthCheck();
     const failure = evaluatePostgresStorageCapabilities(capabilities);
     if (!failure) {

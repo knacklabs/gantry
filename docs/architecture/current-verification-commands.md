@@ -69,6 +69,6 @@ python3 .codex/scripts/verify.py --print-only
 
 ## Missing Or Currently Failing Commands
 
-As of 2026-04-27, `python3 .codex/scripts/check_architecture.py` still reports existing layer-boundary, provider-specific string, old runtime term, empty-folder, and wrapper-only issues across the runtime, CLI, channel, and legacy workspace projection surfaces. The canonical Postgres cut adds the storage adapter under `apps/core/src/adapters/storage/postgres/`, but does not complete the broader runtime/domain terminology refactor from `RegisteredGroup` and `groupFolder` to canonical conversation/workspace concepts.
+As of 2026-04-27, `python3 .codex/scripts/check_architecture.py` still reports existing layer-boundary, provider-specific string, old runtime term, empty-folder, and wrapper-only issues across the runtime, CLI, channel, and obsolete workspace projection surfaces. The canonical Postgres cut adds the storage adapter under `apps/core/src/adapters/storage/postgres/`, but does not complete the broader runtime/domain terminology refactor from `RegisteredGroup` and `groupFolder` to canonical conversation/workspace concepts.
 
 For this persistence cut, treat remaining matches for old table names in earlier migration files as historical migration context. Active Postgres schema and repository tables must use the canonical table names from migration `0009_canonical_persistence_adapter_cut`.

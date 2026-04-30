@@ -86,6 +86,7 @@ export function mapRoute(row: CanonicalControlRow): AppResponseRouteRecord {
 export function mapEvent(row: CanonicalControlRow): ControlEventRecord {
   return {
     eventId: Number(row.event_id),
+    appId: String(row.app_id),
     eventType: String(row.event_type),
     sessionId: text(row.session_id),
     jobId: text(row.job_id),

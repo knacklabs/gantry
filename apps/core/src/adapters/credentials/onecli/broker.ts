@@ -91,15 +91,16 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
       );
     }
     this.applyCaCertificate(env, config.caCertificate, agentIdentifier);
+    const httpProxy = env.HTTP_PROXY || env.http_proxy;
+    const httpsProxy = env.HTTPS_PROXY || env.https_proxy;
 
     return {
       env,
       applied: true,
       brokerProfile: 'onecli',
-      proxy: {
-        http: env.HTTP_PROXY || env.http_proxy,
-        https: env.HTTPS_PROXY || env.https_proxy,
-      },
+      ...(httpProxy || httpsProxy
+        ? { proxy: { http: httpProxy, https: httpsProxy } }
+        : {}),
       certificates: {
         nodeExtraCaCertsPath: env.NODE_EXTRA_CA_CERTS,
       },

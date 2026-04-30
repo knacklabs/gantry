@@ -27,7 +27,13 @@ export interface MemoryItem {
   appId: AppId;
   agentId?: AgentId;
   subject: MemorySubject;
-  kind: 'fact' | 'preference' | 'decision' | 'procedure' | 'correction';
+  kind:
+    | 'fact'
+    | 'preference'
+    | 'decision'
+    | 'procedure'
+    | 'correction'
+    | 'constraint';
   key: string;
   value: string;
   source: string;

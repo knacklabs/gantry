@@ -4,12 +4,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { ProviderArtifactStore } from '@core/domain/ports/provider-artifact-store.js';
-import type { ProviderSessionArtifact } from '@core/domain/sessions/provider-session-artifact.js';
-import {
-  captureClaudeArtifacts,
-  materializeClaudeRuntime,
-} from '@core/adapters/llm/anthropic-claude-agent/claude-config-materializer.js';
+import { materializeClaudeRuntime } from '@core/adapters/llm/anthropic-claude-agent/claude-config-materializer.js';
 import {
   ArtifactClaudeSkillSource,
   RuntimeInstalledAgentBrowserSkillSource,
@@ -19,73 +14,6 @@ import {
 import type { SkillArtifactStore } from '@core/domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '@core/domain/ports/repositories.js';
 import type { SkillCatalogItem } from '@core/domain/skills/skills.js';
-
-const context = {
-  appId: 'default',
-  agentId: 'agent:test',
-  agentSessionId: 'agent-session:test',
-  providerSessionId: 'provider-session:test',
-};
-
-function createFakeStore(seed?: {
-  artifact?: ProviderSessionArtifact;
-  content?: string;
-}): ProviderArtifactStore & {
-  puts: Array<{
-    artifactKind: string;
-    provider: string;
-    content: string;
-    metadata?: Record<string, unknown>;
-  }>;
-  latestQueries: Parameters<ProviderArtifactStore['getLatestArtifact']>;
-} {
-  const puts: Array<{
-    artifactKind: string;
-    provider: string;
-    content: string;
-    metadata?: Record<string, unknown>;
-  }> = [];
-  const latestQueries: Parameters<ProviderArtifactStore['getLatestArtifact']> =
-    [];
-  return {
-    puts,
-    latestQueries,
-    putArtifact: async (input) => {
-      const content =
-        typeof input.content === 'string'
-          ? input.content
-          : Buffer.from(input.content).toString('utf-8');
-      puts.push({
-        artifactKind: input.artifactKind,
-        provider: input.provider,
-        content,
-        metadata: input.metadata,
-      });
-      return {
-        id: `artifact:${puts.length}` as never,
-        appId: input.appId,
-        agentId: input.agentId,
-        agentSessionId: input.agentSessionId,
-        providerSessionId: input.providerSessionId,
-        provider: input.provider,
-        artifactKind: input.artifactKind,
-        storageType: input.storageType ?? 'local-filesystem',
-        storageRef: `ref:${puts.length}`,
-        contentHash: 'sha256:test',
-        sizeBytes: content.length,
-        createdAt: input.createdAt ?? '2026-04-27T00:00:00.000Z',
-        metadata: input.metadata ?? {},
-      };
-    },
-    getArtifact: async () => seed?.content ?? '',
-    getLatestArtifact: async (input) => {
-      latestQueries.push(input);
-      return seed?.artifact;
-    },
-    listArtifacts: async () => (seed?.artifact ? [seed.artifact] : []),
-    markDeleted: async () => {},
-  };
-}
 
 function createSkillSource(root: string): SkillSource {
   const enabledDir = path.join(root, 'enabled-skill');
@@ -123,34 +51,14 @@ describe('Claude config materializer', () => {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  it('creates per-run Claude config, settings, skills, and restored provider artifact', async () => {
-    const artifact = {
-      id: 'artifact:jsonl' as never,
-      appId: 'default' as never,
-      agentId: 'agent:test' as never,
-      agentSessionId: 'agent-session:test' as never,
-      providerSessionId: 'provider-session:test' as never,
-      provider: 'anthropic',
-      artifactKind: 'claude-jsonl',
-      storageType: 'local-filesystem',
-      storageRef: 'artifact.jsonl',
-      contentHash: 'sha256:test',
-      sizeBytes: 2,
-      createdAt: '2026-04-27T00:00:00.000Z',
-      metadata: {},
-    } satisfies ProviderSessionArtifact;
-    const store = createFakeStore({ artifact, content: '{"type":"user"}\n' });
-
+  it('creates per-run Claude config, settings, and skills without restoring provider artifacts', async () => {
     const materialization = await materializeClaudeRuntime({
       baseTempDir: path.join(tempRoot, 'run'),
       groupDir: path.join(tempRoot, 'agents', 'test'),
       cliEntryPoint: path.join(tempRoot, 'dist', 'cli', 'index.js'),
       packageRoot: tempRoot,
-      sessionId: 'claude-session-1',
       settings: { model: 'sonnet' },
       skillSource: createSkillSource(tempRoot),
-      providerArtifactStore: store,
-      artifactContext: { ...context, provider: 'anthropic' },
     });
 
     expect(materialization.claudeConfigDir).toContain(tempRoot);
@@ -165,64 +73,10 @@ describe('Claude config materializer', () => {
     expect(
       fs.existsSync(path.join(materialization.skillsDir, 'disabled-skill')),
     ).toBe(false);
-    expect(
-      fs.readFileSync(
-        path.join(materialization.projectDir, 'claude-session-1.jsonl'),
-        'utf-8',
-      ),
-    ).toContain('"type":"user"');
-    expect(store.latestQueries[0]).toMatchObject({
-      appId: 'default',
-      agentId: 'agent:test',
-      agentSessionId: 'agent-session:test',
-      providerSessionId: 'provider-session:test',
-      provider: 'anthropic',
-    });
+    expect(fs.readdirSync(materialization.projectDir)).toEqual([]);
 
     materialization.cleanup();
     expect(fs.existsSync(materialization.baseTempDir)).toBe(false);
-  });
-
-  it('rejects unsafe provider session ids before restoring or capturing files', async () => {
-    const artifact = {
-      id: 'artifact:jsonl' as never,
-      appId: 'default' as never,
-      agentId: 'agent:test' as never,
-      agentSessionId: 'agent-session:test' as never,
-      providerSessionId: 'provider-session:test' as never,
-      provider: 'anthropic',
-      artifactKind: 'claude-jsonl',
-      storageType: 'local-filesystem',
-      storageRef: 'artifact.jsonl',
-      contentHash: 'sha256:test',
-      sizeBytes: 2,
-      createdAt: '2026-04-27T00:00:00.000Z',
-      metadata: {},
-    } satisfies ProviderSessionArtifact;
-    const store = createFakeStore({ artifact, content: '{"type":"user"}\n' });
-
-    await expect(
-      materializeClaudeRuntime({
-        baseTempDir: path.join(tempRoot, 'run'),
-        groupDir: path.join(tempRoot, 'agents', 'test'),
-        cliEntryPoint: path.join(tempRoot, 'dist', 'cli', 'index.js'),
-        packageRoot: tempRoot,
-        sessionId: '../escape',
-        skillSource: { listSkills: async () => [] },
-        providerArtifactStore: store,
-        artifactContext: { ...context, provider: 'anthropic' },
-      }),
-    ).rejects.toThrow(/Invalid provider session id/);
-
-    await expect(
-      captureClaudeArtifacts({
-        providerArtifactStore: store,
-        artifactContext: { ...context, provider: 'anthropic' },
-        providerSessionId: 'provider-session:test',
-        sessionId: 'bad/session',
-        projectDir: tempRoot,
-      }),
-    ).rejects.toThrow(/Invalid provider session id/);
   });
 
   it('materializes approved artifact skills and skips invalid artifact paths', async () => {
@@ -286,7 +140,9 @@ describe('Claude config materializer', () => {
       path.join(skillsDir, 'agent-browser', 'SKILL.md'),
       'utf-8',
     );
-    expect(skillText).toContain('PLAYWRIGHT_MCP_CDP_ENDPOINT');
+    expect(skillText).toContain(
+      'MyClaw attaches them only when the shared browser is already running at agent startup.',
+    );
     expect(skillText).toContain('Do not install browser skills');
     expect(fs.existsSync(path.join(tempRoot, '.claude', 'skills'))).toBe(false);
   });
@@ -405,7 +261,9 @@ describe('Claude config materializer', () => {
       'utf-8',
     );
     expect(settingsText).toContain('"model": "opus"');
-    expect(settingsText).toContain("' memory-hook load");
+    expect(settingsText).toContain('"hooks": {}');
+    expect(settingsText).not.toContain('memory-hook load');
+    expect(settingsText).not.toContain('memory-hook extract');
     expect(settingsText).not.toContain('ANTHROPIC_API_KEY');
     expect(settingsText).not.toContain('secret');
   });
@@ -428,36 +286,6 @@ describe('Claude config materializer', () => {
     expect(
       fs.existsSync(path.join(tempRoot, 'run', 'claude', 'settings.json')),
     ).toBe(false);
-  });
-
-  it('captures updated Claude JSONL and session index through the artifact store', async () => {
-    const store = createFakeStore();
-    const projectDir = path.join(tempRoot, 'projects', 'test');
-    fs.mkdirSync(projectDir, { recursive: true });
-    fs.writeFileSync(path.join(projectDir, 'claude-session-1.jsonl'), '{}\n');
-    fs.writeFileSync(
-      path.join(projectDir, 'sessions-index.json'),
-      '{"entries":[]}',
-    );
-
-    const captured = await captureClaudeArtifacts({
-      providerArtifactStore: store,
-      artifactContext: { ...context, provider: 'anthropic' },
-      providerSessionId: 'provider-session:test',
-      sessionId: 'claude-session-1',
-      projectDir,
-    });
-
-    expect(captured.latestArtifactId).toBe('artifact:1');
-    expect(store.puts.map((put) => put.artifactKind)).toEqual([
-      'claude-jsonl',
-      'claude-session-index',
-    ]);
-    expect(store.puts.map((put) => put.provider)).toEqual([
-      'anthropic',
-      'anthropic',
-    ]);
-    expect(store.puts[0]?.metadata?.externalSessionId).toBe('claude-session-1');
   });
 
   it('skips invalid skill folders and symlinked skill content', async () => {

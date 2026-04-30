@@ -198,6 +198,78 @@ describe('service manager background start', () => {
     expect(plist).not.toContain('--local-services-start');
     expect(plist).not.toContain('&quot;');
     expect(plist).not.toContain('<key>AGENT_ROOT</key>');
+    expect(outcome.message).toContain('It is not started');
+    expect(tryExecMock).not.toHaveBeenCalledWith(
+      'launchctl',
+      expect.arrayContaining(['bootstrap']),
+    );
+    expect(tryExecMock).not.toHaveBeenCalledWith(
+      'launchctl',
+      expect.arrayContaining(['kickstart']),
+    );
+  });
+
+  it('bootstraps and kickstarts launchd service on start', async () => {
+    const runtimeHome = createRuntimeHome();
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-home-'));
+    const tryExecMock = vi.fn((command: string, args: string[]) => {
+      if (command === 'launchctl' && args[0] === 'print') {
+        return { ok: false, stdout: '', stderr: 'not loaded' };
+      }
+      return { ok: true, stdout: '', stderr: '' };
+    });
+    const mod = await loadServiceManagerWithMocks(vi.fn(), tryExecMock, {
+      platform: 'macos',
+      homeDir,
+      runtimeHome,
+    });
+
+    const installOutcome = mod.installService(import.meta.url, runtimeHome);
+    const startOutcome = mod.startService(runtimeHome);
+
+    expect(installOutcome.ok).toBe(true);
+    expect(startOutcome.ok).toBe(true);
+    expect(tryExecMock).toHaveBeenCalledWith('launchctl', [
+      'bootstrap',
+      expect.stringMatching(/^gui\//),
+      path.join(homeDir, 'Library', 'LaunchAgents', 'com.myclaw.plist'),
+    ]);
+    expect(tryExecMock).toHaveBeenCalledWith('launchctl', [
+      'kickstart',
+      '-k',
+      expect.stringMatching(/^gui\/\d+\/com\.myclaw$/),
+    ]);
+  });
+
+  it('kickstarts loaded launchd service without bootstrapping again', async () => {
+    const runtimeHome = createRuntimeHome();
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-home-'));
+    const tryExecMock = vi.fn((command: string, args: string[]) => {
+      if (command === 'launchctl' && args[0] === 'print') {
+        return { ok: true, stdout: '\tstate = running\n', stderr: '' };
+      }
+      return { ok: true, stdout: '', stderr: '' };
+    });
+    const mod = await loadServiceManagerWithMocks(vi.fn(), tryExecMock, {
+      platform: 'macos',
+      homeDir,
+      runtimeHome,
+    });
+
+    const installOutcome = mod.installService(import.meta.url, runtimeHome);
+    const startOutcome = mod.startService(runtimeHome);
+
+    expect(installOutcome.ok).toBe(true);
+    expect(startOutcome.ok).toBe(true);
+    expect(tryExecMock).not.toHaveBeenCalledWith(
+      'launchctl',
+      expect.arrayContaining(['bootstrap']),
+    );
+    expect(tryExecMock).toHaveBeenCalledWith('launchctl', [
+      'kickstart',
+      '-k',
+      expect.stringMatching(/^gui\/\d+\/com\.myclaw$/),
+    ]);
   });
 
   it('reports launchd running state with pid', async () => {

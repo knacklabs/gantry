@@ -14,12 +14,14 @@ import {
   TypingSink,
 } from '../domain/types.js';
 import type { RuntimeSettings } from '../config/settings/runtime-settings.js';
+import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
 
 export interface ChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
   runtimeSettings?: () => RuntimeSettings;
+  runtimeLease?: RuntimeLeasePort;
 }
 
 export type MaybePromise<T> = T | Promise<T>;

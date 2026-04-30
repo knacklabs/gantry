@@ -161,7 +161,7 @@ describe('canonical Postgres persistence cut', () => {
     expect(schema).toContain("latestArtifactId: text('latest_artifact_id')");
     expect(schema).toContain("metadataJson: text('metadata_json')");
     expect(schema).toContain('agentSessionSummariesPostgres');
-    expect(repository).toContain('latestProviderSessionId: input.sessionId');
+    expect(repository).toContain('latestProviderSessionId: sessionId');
   });
 
   it('flattens canonical memory subject fields onto memory items', () => {

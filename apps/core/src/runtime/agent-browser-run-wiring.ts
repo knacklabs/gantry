@@ -1,7 +1,7 @@
 import type { MaterializedMcpCapability } from '../application/mcp/mcp-server-service.js';
 import {
   DEFAULT_BROWSER_PROFILE_NAME,
-  ensureBrowserReady,
+  getBrowserStatus,
 } from './browser-capability.js';
 import { applyLoopbackNoProxyEnv } from '../shared/no-proxy.js';
 
@@ -19,7 +19,6 @@ export interface AgentBrowserRunWiring<SkillSourceT> {
 export function createAgentBrowserRunWiring<SkillSourceT>(
   input: {
     isMain: boolean;
-    headless?: boolean;
   },
   adapters: {
     browserSkillSource: SkillSourceT;
@@ -43,10 +42,29 @@ export function createAgentBrowserRunWiring<SkillSourceT>(
   return {
     skillSources: [adapters.browserSkillSource],
     activate: async () => {
-      const session = await ensureBrowserReady({
-        profileName: DEFAULT_BROWSER_PROFILE_NAME,
-        headless: input.headless,
-      });
+      let session: Awaited<ReturnType<typeof getBrowserStatus>>;
+      try {
+        session = await getBrowserStatus(DEFAULT_BROWSER_PROFILE_NAME);
+      } catch (err) {
+        return {
+          env: {},
+          mcpCapabilities: [],
+          runtimeDetails: [
+            `browserProfile=${DEFAULT_BROWSER_PROFILE_NAME}`,
+            `browserStatus=unavailable:${err instanceof Error ? err.message : String(err)}`,
+          ],
+        };
+      }
+      if (!session.running || !session.cdpReady || !session.port) {
+        return {
+          env: {},
+          mcpCapabilities: [],
+          runtimeDetails: [
+            `browserProfile=${DEFAULT_BROWSER_PROFILE_NAME}`,
+            'browserStatus=stopped',
+          ],
+        };
+      }
       const cdpEndpoint = `http://127.0.0.1:${session.port}`;
       const env: Record<string, string> = {
         PLAYWRIGHT_MCP_CDP_ENDPOINT: cdpEndpoint,
@@ -67,7 +85,7 @@ export function createAgentBrowserRunWiring<SkillSourceT>(
         runtimeDetails: [
           `browserProfile=${DEFAULT_BROWSER_PROFILE_NAME}`,
           `browserCdp=${cdpEndpoint}`,
-          `browserHeadless=${input.headless === true}`,
+          `browserHeadless=${session.headless === true}`,
         ],
       };
     },

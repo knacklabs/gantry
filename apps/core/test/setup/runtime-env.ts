@@ -1,6 +1,9 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { execFileSync } from 'child_process';
+
+import { afterAll } from 'vitest';
 
 const runtimeHome = path.join(
   os.tmpdir(),
@@ -60,3 +63,47 @@ fs.mkdirSync(path.join(runtimeHome, 'memory'), { recursive: true });
 fs.writeFileSync(settingsPath, settingsYaml, 'utf-8');
 
 process.env.MYCLAW_HOME = runtimeHome;
+
+function listOwnedBrowserPids(): number[] {
+  if (process.platform === 'win32') return [];
+  let output = '';
+  try {
+    output = execFileSync('ps', ['-ax', '-o', 'pid=,command='], {
+      encoding: 'utf-8',
+    });
+  } catch {
+    return [];
+  }
+
+  return output
+    .split('\n')
+    .flatMap((line) => {
+      const match = line.trim().match(/^(\d+)\s+(.+)$/);
+      if (!match) return [];
+      const command = match[2];
+      if (!/chrom(e|ium)|Google Chrome/i.test(command)) return [];
+      if (!command.includes('--remote-debugging-port')) return [];
+      if (
+        !command.includes(runtimeHome) &&
+        !command.includes('myclaw-browser-')
+      ) {
+        return [];
+      }
+      return [Number(match[1])];
+    })
+    .filter((pid) => Number.isInteger(pid) && pid > 0);
+}
+
+function cleanupOwnedBrowsers(): void {
+  for (const pid of listOwnedBrowserPids()) {
+    try {
+      process.kill(pid, 'SIGTERM');
+    } catch {
+      // Browser already exited.
+    }
+  }
+}
+
+afterAll(() => {
+  cleanupOwnedBrowsers();
+});

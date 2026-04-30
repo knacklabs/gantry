@@ -6,7 +6,7 @@ MyClaw browser support has two separate responsibilities:
 - Runtime-installed browser action tooling owns browser actions.
 
 This keeps MyClaw from becoming a browser automation framework while still
-giving the Main Agent a ready, persistent browser by default.
+giving the Main Agent a persistent browser capability on demand.
 
 ## End-To-End Flow
 
@@ -22,25 +22,29 @@ sequenceDiagram
   User->>Host: Message for Main Agent
   Host->>Mat: Generate per-run CLAUDE_CONFIG_DIR
   Mat->>Mat: Materialize runtime agent-browser skill
-  Host->>Browser: Ensure headed myclaw profile is running
-  Browser-->>Host: CDP endpoint and profile metadata
-  Host->>Runner: Spawn with PLAYWRIGHT_MCP_CDP_ENDPOINT
-  Host->>Runner: Pass MCP handoff for agent_browser
-  Runner->>Action: Start package-managed browser action MCP
-  Action->>Browser: Attach through CDP endpoint
-  Runner-->>User: Agent can request browser lifecycle and action tools
+  Host->>Browser: Check existing myclaw profile status
+  Browser-->>Host: Existing CDP endpoint, or stopped
+  alt browser is already running and CDP-ready
+    Host->>Runner: Spawn with PLAYWRIGHT_MCP_CDP_ENDPOINT
+    Host->>Runner: Pass MCP handoff for agent_browser
+    Runner->>Action: Start package-managed browser action MCP
+    Action->>Browser: Attach through CDP endpoint
+  else browser is stopped
+    Host->>Runner: Spawn without browser action MCP
+  end
+  Runner-->>User: Agent can request browser lifecycle tools; action tools attach when a browser was already running
 ```
 
-The default path is automatic for the Main Agent. Users do not install a
-browser skill, copy files into `.claude/skills`, or configure Playwright
-manually.
+The default path is lazy for the Main Agent. A normal first chat does not launch
+Chrome. Users do not install a browser skill, copy files into `.claude/skills`,
+or configure Playwright manually.
 
 ## Runtime Responsibilities
 
 The host browser capability owns:
 
 - the persistent `myclaw` browser profile
-- headed local Chrome launch by default
+- headed local Chrome launch when the lifecycle tool requests it
 - CI-like headless default when no explicit mode is provided
 - CDP readiness checks
 - profile lock acquisition and stale lock recovery
@@ -67,16 +71,21 @@ capability:
 
 - MyClaw materializes a small `agent-browser` skill into the generated per-run
   Claude config.
-- MyClaw registers the package-managed `agent_browser` MCP server in the runner
-  MCP handoff file.
-- MyClaw passes `PLAYWRIGHT_MCP_CDP_ENDPOINT` so the action MCP attaches to the
-  already-running persistent Chrome profile.
+- When a healthy browser is already running at agent startup, MyClaw registers
+  the package-managed `agent_browser` MCP server in the runner MCP handoff file.
+- In that case, MyClaw passes `PLAYWRIGHT_MCP_CDP_ENDPOINT` so the action MCP
+  attaches to the already-running persistent Chrome profile.
 - The action MCP owns workflows such as navigate, click, type, wait, snapshot,
   and screenshot.
 
 The `@playwright/mcp` package is pinned in `package.json` so the installed
 action behavior is reproducible. MyClaw should not vendor or reimplement those
 action tools inside the lifecycle MCP.
+
+If the agent launches the browser during a run, the lifecycle request succeeds
+immediately but the `agent_browser` action MCP is not retroactively added to
+that already-started Claude SDK query. Browser action tools attach on the next
+agent run after the persistent browser is running.
 
 ## Persistent Profile State
 
@@ -106,7 +115,8 @@ process.
 The default browser launch is headed for local user sessions. If a site needs
 authentication:
 
-1. The agent launches or reuses the persistent `myclaw` profile.
+1. The agent launches or reuses the persistent `myclaw` profile through the
+   lifecycle tool.
 2. The user completes login in the visible Chrome window.
 3. Cookies remain in that profile for later runs and restarts.
 4. Future browser action tools attach to the same profile through CDP.
@@ -120,15 +130,19 @@ Browser lifecycle tools and browser action tools go through the existing Claude
 Agent SDK permission path and MyClaw channel approval surface. MyClaw does not
 add a separate browser-specific permission system.
 
-The Main Agent receives the browser action MCP as an allowed MCP capability, but
-auto-approval remains empty. Risky actions continue to be evaluated by the
-existing `canUseTool` and channel approval flow.
+When an existing browser is attached at startup, the Main Agent receives the
+browser action MCP as an allowed MCP capability, but auto-approval remains
+empty. Risky actions continue to be evaluated by the existing `canUseTool` and
+channel approval flow.
 
 ## Proxy Boundary
 
-Provider credential brokers may inject proxy environment variables into the
-runner so provider SDK calls work. Browser loopback traffic must not go through
-those proxies.
+Provider credential brokers may inject local provider-only proxy environment
+for model access when the selected broker requires it. Those proxy values are
+passed to the Claude SDK process with `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` so
+Bash, hooks, MCP stdio servers, skills, monitors, and browser tooling do not
+inherit model credential transport. Tool/API proxy credentials require explicit
+capability projections rather than ambient process environment.
 
 MyClaw sets loopback bypass values in both host-projected browser env and the
 runner env:

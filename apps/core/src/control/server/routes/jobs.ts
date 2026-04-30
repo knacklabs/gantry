@@ -12,8 +12,10 @@ import {
 import { logger } from '../../../infrastructure/logging/logger.js';
 import {
   getRuntimeControlRepository,
+  getRuntimeEventExchange,
   getRuntimeOpsRepository,
 } from '../../../adapters/storage/postgres/runtime-store.js';
+import { RUNTIME_EVENT_TYPES } from '../../../domain/events/runtime-event-types.js';
 import type { Job } from '../../../domain/types.js';
 import {
   encodeTriggerRequester,
@@ -362,15 +364,16 @@ export async function handleJobRoutes(
       );
       return true;
     }
-    await control.addControlEvent({
-      eventType: 'job.triggered',
-      payload: JSON.stringify({
+    await getRuntimeEventExchange().publish({
+      appId: appSession.appId as never,
+      eventType: RUNTIME_EVENT_TYPES.JOB_TRIGGERED,
+      payload: {
         triggerId: trigger.triggerId,
         jobId: job.id,
-      }),
+      },
       actor: 'sdk',
-      sessionId: appSession.sessionId,
-      jobId: job.id,
+      sessionId: appSession.sessionId as never,
+      jobId: job.id as never,
       triggerId: trigger.triggerId,
       responseMode: appSession.defaultResponseMode,
       webhookId: appSession.defaultWebhookId,

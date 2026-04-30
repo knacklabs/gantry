@@ -25,10 +25,8 @@ function renderAgentSettingsYaml(
     `  name: ${quoteYamlString(agent.name)}`,
     `  default_model: ${quoteYamlString(agent.defaultModel)}`,
     '  sessions:',
-    `    recent_message_limit: ${agent.sessions.recentMessageLimit}`,
-    `    summary_after_messages: ${agent.sessions.summaryAfterMessages}`,
-    `    summary_after_runs: ${agent.sessions.summaryAfterRuns}`,
-    `    max_hydrated_context_chars: ${agent.sessions.maxHydratedContextChars}`,
+    `    memory_item_limit: ${agent.sessions.memoryItemLimit}`,
+    `    max_memory_context_chars: ${agent.sessions.maxMemoryContextChars}`,
     '',
   );
 }

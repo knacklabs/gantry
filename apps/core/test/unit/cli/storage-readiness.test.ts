@@ -2,13 +2,19 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { inspectRuntimeStorageReadiness } from '@core/adapters/storage/postgres/storage-readiness.js';
 import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.resetModules();
+  vi.doUnmock('@core/adapters/storage/postgres/storage-service.js');
+});
 
 function createRuntimeHome(): string {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-storage-ready-'));
@@ -30,5 +36,40 @@ describe('inspectRuntimeStorageReadiness', () => {
     expect(result.status).toBe('fail');
     expect(result.message).toContain('MYCLAW_DATABASE_URL is required');
     expect(result.nextAction).toContain('docker-compose.yml');
+  });
+
+  it('runs migrations before health checks when requested', async () => {
+    const runtimeHome = createRuntimeHome();
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.storage.postgres.urlEnv = 'MYCLAW_DATABASE_URL';
+    settings.storage.postgres.schema = 'myclaw';
+    saveRuntimeSettings(runtimeHome, settings);
+    fs.writeFileSync(
+      path.join(runtimeHome, '.env'),
+      'MYCLAW_DATABASE_URL=postgres://myclaw_app:pass@localhost:5432/myclaw\n',
+    );
+    const migrate = vi.fn().mockResolvedValue(undefined);
+    const healthCheck = vi.fn().mockResolvedValue({
+      lexicalSearch: true,
+      vectorSearch: true,
+      textSearch: true,
+      jobQueue: true,
+    });
+    const close = vi.fn().mockResolvedValue(undefined);
+    vi.doMock('@core/adapters/storage/postgres/storage-service.js', () => ({
+      createStorageService: vi.fn(() => ({
+        migrate,
+        healthCheck,
+        close,
+      })),
+    }));
+    const { inspectRuntimeStorageReadiness: inspectWithMock } =
+      await import('@core/adapters/storage/postgres/storage-readiness.js');
+
+    const result = await inspectWithMock(runtimeHome, { migrate: true });
+
+    expect(result.status).toBe('pass');
+    expect(migrate).toHaveBeenCalledBefore(healthCheck);
+    expect(close).toHaveBeenCalled();
   });
 });

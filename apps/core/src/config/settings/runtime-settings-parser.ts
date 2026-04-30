@@ -7,11 +7,9 @@ import { parseSenderAllowlistConfig } from './sender-allowlist.js';
 import { parseSimpleYamlObject } from './yaml.js';
 import {
   createDefaultChannelSettings,
-  DEFAULT_AGENT_SESSION_MAX_HYDRATED_CONTEXT_CHARS,
-  DEFAULT_AGENT_SESSION_RECENT_MESSAGE_LIMIT,
-  DEFAULT_AGENT_SESSION_SUMMARY_AFTER_MESSAGES,
-  DEFAULT_AGENT_SESSION_SUMMARY_AFTER_RUNS,
   DEFAULT_AGENT_NAME,
+  DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS,
+  DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT,
   DEFAULT_EMBED_MODEL,
   DEFAULT_ONECLI_URL,
   DEFAULT_ONECLI_DATABASE_URL_ENV,
@@ -260,11 +258,8 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
       name: DEFAULT_AGENT_NAME,
       defaultModel: '',
       sessions: {
-        recentMessageLimit: DEFAULT_AGENT_SESSION_RECENT_MESSAGE_LIMIT,
-        summaryAfterMessages: DEFAULT_AGENT_SESSION_SUMMARY_AFTER_MESSAGES,
-        summaryAfterRuns: DEFAULT_AGENT_SESSION_SUMMARY_AFTER_RUNS,
-        maxHydratedContextChars:
-          DEFAULT_AGENT_SESSION_MAX_HYDRATED_CONTEXT_CHARS,
+        memoryItemLimit: DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT,
+        maxMemoryContextChars: DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS,
       },
     };
   }
@@ -290,14 +285,9 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
   }
   const sessions = (sessionsRaw || {}) as Record<string, unknown>;
   for (const key of Object.keys(sessions)) {
-    if (
-      key !== 'recent_message_limit' &&
-      key !== 'summary_after_messages' &&
-      key !== 'summary_after_runs' &&
-      key !== 'max_hydrated_context_chars'
-    ) {
+    if (key !== 'memory_item_limit' && key !== 'max_memory_context_chars') {
       throw new Error(
-        `agent.sessions.${key} is not supported. Configure recent_message_limit, summary_after_messages, summary_after_runs, or max_hydrated_context_chars.`,
+        `agent.sessions.${key} is not supported. Configure memory_item_limit or max_memory_context_chars.`,
       );
     }
   }
@@ -310,25 +300,15 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
           ? map.default_model.trim()
           : parseStringValue(map.default_model, 'agent.default_model'),
     sessions: {
-      recentMessageLimit: parsePositiveIntegerValue(
-        sessions.recent_message_limit,
-        'agent.sessions.recent_message_limit',
-        DEFAULT_AGENT_SESSION_RECENT_MESSAGE_LIMIT,
+      memoryItemLimit: parsePositiveIntegerValue(
+        sessions.memory_item_limit,
+        'agent.sessions.memory_item_limit',
+        DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT,
       ),
-      summaryAfterMessages: parsePositiveIntegerValue(
-        sessions.summary_after_messages,
-        'agent.sessions.summary_after_messages',
-        DEFAULT_AGENT_SESSION_SUMMARY_AFTER_MESSAGES,
-      ),
-      summaryAfterRuns: parsePositiveIntegerValue(
-        sessions.summary_after_runs,
-        'agent.sessions.summary_after_runs',
-        DEFAULT_AGENT_SESSION_SUMMARY_AFTER_RUNS,
-      ),
-      maxHydratedContextChars: parsePositiveIntegerValue(
-        sessions.max_hydrated_context_chars,
-        'agent.sessions.max_hydrated_context_chars',
-        DEFAULT_AGENT_SESSION_MAX_HYDRATED_CONTEXT_CHARS,
+      maxMemoryContextChars: parsePositiveIntegerValue(
+        sessions.max_memory_context_chars,
+        'agent.sessions.max_memory_context_chars',
+        DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS,
       ),
     },
   };

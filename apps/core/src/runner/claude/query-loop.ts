@@ -9,8 +9,14 @@ import {
   type McpServerConfig,
 } from '../agent-capabilities.js';
 import { denyMemoryBoundaryToolUse } from '../memory-boundary.js';
+import { denyProtectedCapabilityToolUse } from './protected-capability-guard.js';
 import { MessageStream } from './message-stream.js';
-import { drainIpcInput, shouldClose } from './ipc-input.js';
+import {
+  drainInteractionBoundaries,
+  drainIpcInput,
+  shouldClose,
+} from './ipc-input.js';
+import { SteeringDeliveryGate } from './steering-delivery-gate.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import { requestPermissionApproval } from './permission-callback.js';
@@ -28,14 +34,12 @@ import type { AgentRunnerInput } from './types.js';
 
 export async function runQuery(
   prompt: string,
-  sessionId: string | undefined,
   mcpServerPath: string,
   agentInput: AgentRunnerInput,
   sdkEnv: Record<string, string | undefined>,
   configuredModel: string | undefined,
   queryThinking: ThinkingConfig | undefined,
   queryEffort: EffortLevel | undefined,
-  resumeAt?: string,
   enableIpcFollowups = true,
 ): Promise<{
   newSessionId?: string;
@@ -48,26 +52,46 @@ export async function runQuery(
 
   let ipcPolling = true;
   let closedDuringQuery = false;
-  const pollIpcDuringQuery = () => {
-    if (!enableIpcFollowups) return;
+  const steeringGate = new SteeringDeliveryGate((text) => {
+    log(`Piping IPC message at turn boundary (${text.length} chars)`);
+    stream.pushContent(text);
+  });
+  const emitInteractionBoundary = () => {
+    writeOutput({
+      status: 'success',
+      result: null,
+      newSessionId,
+      interactionBoundary: 'user_interaction',
+    });
+  };
+  const pollRuntimeSignalsDuringQuery = () => {
     if (!ipcPolling) return;
+    const interactionBoundaries = drainInteractionBoundaries();
+    for (let i = 0; i < interactionBoundaries; i += 1) {
+      emitInteractionBoundary();
+    }
     if (shouldClose()) {
       log('Close sentinel detected during query, ending stream');
       closedDuringQuery = true;
+      steeringGate.close();
       stream.end();
       ipcPolling = false;
       return;
     }
-    const messages = drainIpcInput();
-    for (const text of messages) {
-      log(`Piping IPC message into active query (${text.length} chars)`);
-      stream.pushContent(text);
+    if (enableIpcFollowups) {
+      const messages = drainIpcInput();
+      for (const text of messages) {
+        const delivery = steeringGate.accept(text);
+        if (delivery === 'buffered') {
+          log(
+            `Buffering IPC message until query turn boundary (${text.length} chars)`,
+          );
+        }
+      }
     }
-    setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
+    setTimeout(pollRuntimeSignalsDuringQuery, IPC_POLL_MS);
   };
-  if (enableIpcFollowups) {
-    setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
-  }
+  setTimeout(pollRuntimeSignalsDuringQuery, IPC_POLL_MS);
 
   let newSessionId: string | undefined;
   let lastAssistantUuid: string | undefined;
@@ -98,8 +122,7 @@ export async function runQuery(
       effort: queryEffort,
       cwd: WORKSPACE_GROUP_DIR,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
-      resume: sessionId,
-      resumeSessionAt: resumeAt,
+      persistSession: false,
       systemPrompt,
       allowedTools: [...capabilities.allowedTools],
       env: sdkEnv,
@@ -113,6 +136,22 @@ export async function runQuery(
         ],
       },
       canUseTool: async (toolName, input, permissionOpts) => {
+        const protectedCapabilityDenial = denyProtectedCapabilityToolUse(
+          toolName,
+          input,
+          permissionOpts,
+        );
+        if (protectedCapabilityDenial) {
+          log(
+            `Permission denied by protected capability guard: ${protectedCapabilityDenial}`,
+          );
+          return {
+            behavior: 'deny' as const,
+            message: protectedCapabilityDenial,
+            interrupt: false,
+          };
+        }
+
         if (capabilities.alwaysAllowedTools.includes(toolName)) {
           return { behavior: 'allow' as const, updatedInput: input };
         }
@@ -140,6 +179,7 @@ export async function runQuery(
             message: 'Permission request aborted',
           };
         }
+        emitInteractionBoundary();
         const decision = await requestPermissionApproval({
           groupFolder: agentInput.groupFolder,
           toolName,
@@ -185,6 +225,19 @@ export async function runQuery(
       newSessionId = message.session_id;
       assertRequiredMcpServerReady(message);
       log(`Session initialized: ${newSessionId}`);
+    }
+
+    if (
+      message.type === 'system' &&
+      (message as { subtype?: string }).subtype === 'compact_boundary'
+    ) {
+      log('SDK compact boundary observed');
+      writeOutput({
+        status: 'success',
+        result: null,
+        newSessionId,
+        compactBoundary: true,
+      });
     }
 
     if (
@@ -237,10 +290,12 @@ export async function runQuery(
         newSessionId,
       });
       sawPartialTextSinceLastResult = false;
+      steeringGate.markTurnBoundary();
     }
   }
 
   ipcPolling = false;
+  steeringGate.close();
   log(
     `Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`,
   );

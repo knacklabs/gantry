@@ -15,6 +15,7 @@ export const IPC_GROUP_SUBDIRS = [
   'browser-responses',
   'permission-requests',
   'permission-responses',
+  'interaction-boundaries',
   'user-questions',
   'user-answers',
   'task-responses',

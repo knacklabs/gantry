@@ -47,10 +47,8 @@ export interface RuntimeAgentSettings {
   name: string;
   defaultModel: string;
   sessions: {
-    recentMessageLimit: number;
-    summaryAfterMessages: number;
-    summaryAfterRuns: number;
-    maxHydratedContextChars: number;
+    memoryItemLimit: number;
+    maxMemoryContextChars: number;
   };
 }
 

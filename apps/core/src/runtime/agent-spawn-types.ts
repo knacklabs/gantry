@@ -2,10 +2,6 @@ import { ChildProcess } from 'child_process';
 
 import { RegisteredGroup, ThinkingOverride } from '../domain/types.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
-import type {
-  ProviderArtifactStore,
-  ProviderSessionArtifactContext,
-} from '../domain/ports/provider-artifact-store.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '../domain/ports/repositories.js';
 import type { McpServerRepository } from '../domain/ports/repositories.js';
@@ -32,15 +28,14 @@ export interface AgentOutput {
   status: 'success' | 'error';
   result: string | null;
   newSessionId?: string;
-  providerArtifactId?: string;
+  compactBoundary?: boolean;
+  interactionBoundary?: 'user_interaction';
   error?: string;
 }
 
 export interface RunAgentOptions {
   timeoutMs?: number;
   credentialBroker?: AgentCredentialBroker;
-  providerArtifactStore?: ProviderArtifactStore;
-  providerArtifactContext?: ProviderSessionArtifactContext;
   skillRepository?: SkillCatalogRepository;
   skillArtifactStore?: SkillArtifactStore;
   skillContext?: {

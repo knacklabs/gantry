@@ -16,7 +16,7 @@
 import {
   drainIpcInput,
   prepareInteractiveIpcInputDir,
-  waitForIpcMessage,
+  shouldClose,
 } from './ipc-input.js';
 import { readStdin } from './input.js';
 import { log } from './logging.js';
@@ -63,7 +63,6 @@ async function main(): Promise<void> {
   }
   log(`Configured thinking: ${configuredThinking.description}`);
 
-  let sessionId = agentInput.sessionId;
   if (!agentInput.isScheduledJob) {
     prepareInteractiveIpcInputDir();
   }
@@ -72,41 +71,10 @@ async function main(): Promise<void> {
   const compiledSystemPrompt = agentInput.compiledSystemPrompt?.trim();
   const sessionSlashCommand = parseSessionSlashCommand(prompt);
 
-  if (sessionId && configuredModel.model && !sessionSlashCommand) {
-    const preflight = await runSessionSlashCommand({
-      command: `/model ${configuredModel.model}`,
-      kind: 'model',
-      sessionId,
-      sdkEnv,
-      assistantName: agentInput.assistantName,
-      configuredModel: configuredModel.model,
-      configuredThinking: configuredThinking.thinking,
-      configuredEffort: configuredThinking.effort,
-      systemPromptAppend: compiledSystemPrompt,
-      silent: true,
-    });
-
-    sessionId = preflight.newSessionId || sessionId;
-
-    if (preflight.status === 'error') {
-      const errorDetail = preflight.error || 'unknown error';
-      const message = `Failed to re-apply configured model "${configuredModel.model}" on resumed session: ${errorDetail}`;
-      log(message);
-      writeOutput({
-        status: 'error',
-        result: null,
-        newSessionId: sessionId,
-        error: message,
-      });
-      process.exit(1);
-    }
-  }
-
   if (sessionSlashCommand) {
     const slashResult = await runSessionSlashCommand({
       command: sessionSlashCommand.command,
       kind: sessionSlashCommand.kind,
-      sessionId,
       sdkEnv,
       assistantName: agentInput.assistantName,
       configuredModel: configuredModel.model,
@@ -130,7 +98,6 @@ async function main(): Promise<void> {
   if (agentInput.isScheduledJob) {
     await runScheduledQuery({
       prompt,
-      sessionId,
       mcpServerPath,
       agentInput,
       sdkEnv,
@@ -143,7 +110,6 @@ async function main(): Promise<void> {
 
   await runInteractiveQueryLoop({
     prompt,
-    sessionId,
     mcpServerPath,
     agentInput,
     sdkEnv,
@@ -195,36 +161,33 @@ async function runScheduledScript(
 
 async function runScheduledQuery(opts: {
   prompt: string;
-  sessionId?: string;
   mcpServerPath: string;
   agentInput: AgentRunnerInput;
   sdkEnv: Record<string, string | undefined>;
   configuredModel?: string;
-  configuredThinking?: Parameters<typeof runQuery>[6];
-  configuredEffort?: Parameters<typeof runQuery>[7];
+  configuredThinking?: Parameters<typeof runQuery>[5];
+  configuredEffort?: Parameters<typeof runQuery>[6];
 }): Promise<void> {
-  let sessionId = opts.sessionId;
-  log(`Starting one-shot scheduled query (session: ${sessionId || 'new'})...`);
+  let diagnosticSessionId: string | undefined;
+  log('Starting one-shot scheduled query with ephemeral SDK session...');
   try {
     const queryResult = await runQuery(
       opts.prompt,
-      sessionId,
       opts.mcpServerPath,
       opts.agentInput,
       opts.sdkEnv,
       opts.configuredModel,
       opts.configuredThinking,
       opts.configuredEffort,
-      undefined,
       false,
     );
     if (queryResult.newSessionId) {
-      sessionId = queryResult.newSessionId;
+      diagnosticSessionId = queryResult.newSessionId;
     }
     writeOutput({
       status: 'success',
       result: null,
-      newSessionId: sessionId,
+      newSessionId: diagnosticSessionId,
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -232,7 +195,7 @@ async function runScheduledQuery(opts: {
     writeOutput({
       status: 'error',
       result: null,
-      newSessionId: sessionId,
+      newSessionId: diagnosticSessionId,
       error: errorMessage,
     });
     process.exit(1);
@@ -241,71 +204,47 @@ async function runScheduledQuery(opts: {
 
 async function runInteractiveQueryLoop(opts: {
   prompt: string;
-  sessionId?: string;
   mcpServerPath: string;
   agentInput: AgentRunnerInput;
   sdkEnv: Record<string, string | undefined>;
   configuredModel?: string;
-  configuredThinking?: Parameters<typeof runQuery>[6];
-  configuredEffort?: Parameters<typeof runQuery>[7];
+  configuredThinking?: Parameters<typeof runQuery>[5];
+  configuredEffort?: Parameters<typeof runQuery>[6];
 }): Promise<void> {
-  let prompt = opts.prompt;
-  let sessionId = opts.sessionId;
-  let resumeAt: string | undefined;
+  let diagnosticSessionId: string | undefined;
 
   try {
-    while (true) {
-      log(
-        `Starting query (session: ${sessionId || 'new'}, resumeAt: ${resumeAt || 'latest'})...`,
-      );
-
-      const queryResult = await runQuery(
-        prompt,
-        sessionId,
-        opts.mcpServerPath,
-        opts.agentInput,
-        opts.sdkEnv,
-        opts.configuredModel,
-        opts.configuredThinking,
-        opts.configuredEffort,
-        resumeAt,
-        true,
-      );
-      if (queryResult.newSessionId) {
-        sessionId = queryResult.newSessionId;
-      }
-      if (queryResult.lastAssistantUuid) {
-        resumeAt = queryResult.lastAssistantUuid;
-      }
-
-      if (queryResult.closedDuringQuery) {
-        log('Close sentinel consumed during query, exiting');
-        break;
-      }
-
-      writeOutput({
-        status: 'success',
-        result: null,
-        newSessionId: sessionId,
-      });
-      log('Query ended, waiting for next IPC message...');
-
-      const nextMessage = await waitForIpcMessage();
-      if (nextMessage === null) {
-        log('Close sentinel received, exiting');
-        break;
-      }
-
-      log(`Got new message (${nextMessage.length} chars), starting new query`);
-      prompt = nextMessage;
+    log('Starting live streaming query with ephemeral SDK session...');
+    const queryResult = await runQuery(
+      opts.prompt,
+      opts.mcpServerPath,
+      opts.agentInput,
+      opts.sdkEnv,
+      opts.configuredModel,
+      opts.configuredThinking,
+      opts.configuredEffort,
+      true,
+    );
+    if (queryResult.newSessionId) {
+      diagnosticSessionId = queryResult.newSessionId;
     }
+    if (queryResult.closedDuringQuery) {
+      log('Close sentinel consumed during query, exiting');
+      return;
+    }
+    shouldClose();
+    writeOutput({
+      status: 'success',
+      result: null,
+      newSessionId: diagnosticSessionId,
+    });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     log(`Agent error: ${errorMessage}`);
     writeOutput({
       status: 'error',
       result: null,
-      newSessionId: sessionId,
+      newSessionId: diagnosticSessionId,
       error: errorMessage,
     });
     process.exit(1);

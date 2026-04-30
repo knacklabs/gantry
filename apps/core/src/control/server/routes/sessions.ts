@@ -4,7 +4,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { NewMessage } from '../../../domain/types.js';
 import { getRuntimeOpsRepository } from '../../../adapters/storage/postgres/runtime-store.js';
 import { getRuntimeControlRepository } from '../../../adapters/storage/postgres/runtime-store.js';
+import { getRuntimeEventExchange } from '../../../adapters/storage/postgres/runtime-store.js';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
+import type { RuntimeEvent } from '../../../domain/events/events.js';
+import { RUNTIME_EVENT_TYPES } from '../../../domain/events/runtime-event-types.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import { makeThreadQueueKey } from '../../../runtime/thread-queue-key.js';
 import {
@@ -254,15 +257,16 @@ export async function handleSessionRoutes(
       webhookId,
       correlationId,
     });
-    const accepted = await control.addControlEvent({
-      eventType: 'session.message.inbound',
-      payload: JSON.stringify({
+    const accepted = await getRuntimeEventExchange().publish({
+      appId: session.appId as never,
+      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_INBOUND,
+      payload: {
         messageId,
         text,
         threadId: threadId || null,
-      }),
+      },
       actor: 'sdk',
-      sessionId: session.sessionId,
+      sessionId: session.sessionId as never,
       correlationId,
       responseMode,
       webhookId,
@@ -283,6 +287,7 @@ export async function handleSessionRoutes(
     if (!auth) return true;
     const afterEventId = Number(url.searchParams.get('afterEventId') || 0);
     const control = getRuntimeControlRepository();
+    const runtimeEvents = getRuntimeEventExchange();
     const session = await control.getAppSessionById(sessionRoute.sessionId);
     if (!session) {
       sendError(res, 404, 'SESSION_NOT_FOUND', 'Session not found');
@@ -292,9 +297,10 @@ export async function handleSessionRoutes(
       sendError(res, 403, 'FORBIDDEN', 'API key cannot access this session');
       return true;
     }
-    const events = await control.listSessionEvents({
-      sessionId: session.sessionId,
-      afterEventId: afterEventId > 0 ? afterEventId : undefined,
+    const events = await runtimeEvents.list({
+      appId: session.appId as never,
+      sessionId: session.sessionId as never,
+      afterEventId: afterEventId > 0 ? (afterEventId as never) : undefined,
       limit: 100,
     });
     if (req.headers.accept?.includes('text/event-stream')) {
@@ -314,38 +320,39 @@ export async function handleSessionRoutes(
       res.setHeader('connection', 'keep-alive');
       const initial = events.length > 0 ? events : [];
       for (const event of initial) {
-        res.write(`id: ${event.eventId}\n`);
-        res.write(`event: ${event.eventType}\n`);
-        res.write(`data: ${event.payload}\n\n`);
+        writeSseEvent(res, event);
       }
-      let lastEventId = initial[initial.length - 1]?.eventId ?? afterEventId;
-      let pollInFlight = false;
-      const interval = setInterval(async () => {
-        if (pollInFlight) return;
-        pollInFlight = true;
-        try {
-          const next = await control.listSessionEvents({
-            sessionId: session.sessionId,
-            afterEventId: lastEventId > 0 ? lastEventId : undefined,
-            limit: 100,
-          });
-          for (const event of next) {
-            lastEventId = event.eventId;
-            res.write(`id: ${event.eventId}\n`);
-            res.write(`event: ${event.eventType}\n`);
-            res.write(`data: ${event.payload}\n\n`);
+      let lastEventId = initial[initial.length - 1]?.eventId;
+      const subscription = runtimeEvents.subscribe({
+        appId: session.appId as never,
+        sessionId: session.sessionId as never,
+        afterEventId:
+          lastEventId ??
+          (afterEventId > 0 ? (afterEventId as never) : undefined),
+        limit: 100,
+      });
+      let closed = false;
+      const pump = async () => {
+        while (!closed) {
+          try {
+            const next = await subscription.next({ timeoutMs: 30_000 });
+            for (const event of next) {
+              lastEventId = event.eventId;
+              writeSseEvent(res, event);
+            }
+          } catch (error) {
+            logger.warn(
+              { err: error, sessionId: session.sessionId },
+              'Failed streaming runtime events',
+            );
+            await delay(1000);
           }
-        } catch (error) {
-          logger.warn(
-            { err: error, sessionId: session.sessionId },
-            'Failed polling control events',
-          );
-        } finally {
-          pollInFlight = false;
         }
-      }, 1000);
+      };
+      void pump();
       req.on('close', () => {
-        clearInterval(interval);
+        closed = true;
+        subscription.close();
         ctx.state.activeStreams = Math.max(0, ctx.state.activeStreams - 1);
       });
       return true;
@@ -354,7 +361,7 @@ export async function handleSessionRoutes(
       events: events.map((event) => ({
         eventId: event.eventId,
         eventType: event.eventType,
-        payload: JSON.parse(event.payload),
+        payload: event.payload,
         createdAt: event.createdAt,
       })),
     });
@@ -365,6 +372,7 @@ export async function handleSessionRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['sessions:read']);
     if (!auth) return true;
     const control = getRuntimeControlRepository();
+    const runtimeEvents = getRuntimeEventExchange();
     const session = await control.getAppSessionById(sessionRoute.sessionId);
     if (!session) {
       sendError(res, 404, 'SESSION_NOT_FOUND', 'Session not found');
@@ -385,34 +393,31 @@ export async function handleSessionRoutes(
       Math.max(1000, Number(url.searchParams.get('timeoutMs') || 60_000)),
     );
     const startedAt = Date.now();
-    let cursor = afterEventId;
+    const subscription = runtimeEvents.subscribe({
+      appId: session.appId as never,
+      sessionId: session.sessionId as never,
+      afterEventId: afterEventId > 0 ? (afterEventId as never) : undefined,
+      limit: 100,
+    });
     try {
       while (Date.now() - startedAt < timeoutMs) {
-        const events = await control.listSessionEvents({
-          sessionId: session.sessionId,
-          afterEventId: cursor > 0 ? cursor : undefined,
-          limit: 100,
-        });
-        if (events.length > 0) {
-          cursor = events[events.length - 1]!.eventId;
-        }
-        const visible = events.find(
-          (event) =>
-            event.eventType === 'session.message.outbound' ||
-            event.eventType === 'session.message.streaming',
-        );
+        const remaining = timeoutMs - (Date.now() - startedAt);
+        const events = await subscription.next({ timeoutMs: remaining });
+        const visible = events.find(isVisibleWaitEvent);
         if (visible) {
           sendJson(res, 200, {
             eventId: visible.eventId,
             eventType: visible.eventType,
-            payload: JSON.parse(visible.payload),
+            payload: visible.payload,
             createdAt: visible.createdAt,
+            afterEventId: visible.eventId,
           });
           return true;
         }
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     } finally {
+      subscription.close();
       ctx.state.activeWaits = Math.max(0, ctx.state.activeWaits - 1);
     }
     sendError(res, 408, 'WAIT_TIMEOUT', 'Timed out waiting for session event');
@@ -420,6 +425,27 @@ export async function handleSessionRoutes(
   }
 
   return false;
+}
+
+function writeSseEvent(res: ServerResponse, event: RuntimeEvent): void {
+  res.write(`id: ${event.eventId}\n`);
+  res.write(`event: ${sanitizeSseEventType(event.eventType)}\n`);
+  res.write(`data: ${JSON.stringify(event.payload)}\n\n`);
+}
+
+function sanitizeSseEventType(eventType: string): string {
+  return /^[a-z0-9._-]+$/.test(eventType) ? eventType : 'runtime_event';
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isVisibleWaitEvent(event: RuntimeEvent): boolean {
+  return (
+    event.eventType === RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND ||
+    event.eventType === RUNTIME_EVENT_TYPES.SESSION_MESSAGE_STREAMING
+  );
 }
 
 function parseListLimit(raw: string | null): number {

@@ -4,6 +4,7 @@ import { log } from './logging.js';
 import {
   IPC_INPUT_CLOSE_SENTINEL,
   IPC_INPUT_DIR,
+  IPC_INTERACTION_BOUNDARY_DIR,
   IPC_POLL_MS,
 } from './runtime-env.js';
 
@@ -60,6 +61,32 @@ export function drainIpcInput(): string[] {
   } catch (err) {
     log(`IPC drain error: ${err instanceof Error ? err.message : String(err)}`);
     return [];
+  }
+}
+
+export function drainInteractionBoundaries(): number {
+  try {
+    fs.mkdirSync(IPC_INTERACTION_BOUNDARY_DIR, { recursive: true });
+    const files = fs
+      .readdirSync(IPC_INTERACTION_BOUNDARY_DIR)
+      .filter((f) => f.endsWith('.json'))
+      .sort();
+
+    for (const file of files) {
+      try {
+        fs.unlinkSync(path.join(IPC_INTERACTION_BOUNDARY_DIR, file));
+      } catch (err) {
+        log(
+          `Failed to consume interaction boundary ${file}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return files.length;
+  } catch (err) {
+    log(
+      `Interaction boundary drain error: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return 0;
   }
 }
 

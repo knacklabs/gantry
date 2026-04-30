@@ -23,8 +23,9 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).toContain('mcp__myclaw__*');
     expect(profile.permissionMode).toBe('default');
     expect(profile.alwaysAllowedTools).toEqual(
-      expect.arrayContaining(['Config', 'EnterWorktree', 'ExitWorktree']),
+      expect.arrayContaining(['EnterWorktree', 'ExitWorktree']),
     );
+    expect(profile.alwaysAllowedTools).not.toContain('Config');
     expect(profile.mcpServers.myclaw).toEqual({
       command: 'node',
       args: ['/tmp/ipc-mcp-stdio.js'],

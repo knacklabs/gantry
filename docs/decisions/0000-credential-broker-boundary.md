@@ -60,4 +60,8 @@ Agent-accessed credentials include:
 - tool and API credentials the agent is authorized to use
 
 The broker returns only a safe injection contract for the runner, such as
-provider base URLs, broker proxy URLs, and certificate file paths.
+provider base URLs, local provider-only proxy endpoints, and certificate file
+paths. Model proxy transport is passed only to the Claude SDK process, with SDK
+subprocess environment scrubbing enabled so general-purpose tools do not inherit
+it. Future tool/API credential lanes must be modeled as explicit capability
+projections instead of ambient process environment.

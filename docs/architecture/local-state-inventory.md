@@ -26,16 +26,16 @@ This inventory classifies local filesystem state by durability.
 - Build, test, coverage, and generated verification artifacts.
 
 Temporary state may be deleted without losing canonical conversation history or
-provider continuation artifacts.
+MyClaw-owned durable state. Active provider continuation is live-process only;
+provider artifacts are export/debug data, not resume inputs.
 
-## Legacy Local State
+## Unsupported Local State
 
-Older code may have left Claude JSONL under runtime-local `.claude` or
-`data/sessions/<group>/.claude` paths. These paths are no longer the durable
-source of truth. The provider artifact store is the supported continuation
-boundary.
+Claude JSONL under runtime-local `.claude` or
+`data/sessions/<group>/.claude` paths is unsupported runtime state. These paths
+are not durable truth and are not a continuation mechanism.
 
-Older code may also have generated runtime-home Claude settings and skills.
-Enterprise runtime no longer reads those paths as configuration or skill truth.
+Runtime-home Claude settings and skills are also unsupported as MyClaw
+configuration or skill truth.
 
-No automatic migration is provided for old local Claude files.
+No automatic migration is provided for unsupported local Claude files.

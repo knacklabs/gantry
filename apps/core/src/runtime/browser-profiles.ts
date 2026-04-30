@@ -1,15 +1,19 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 
 import { DATA_DIR } from '../config/index.js';
 
 const PROFILE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const PROFILE_LOCK_STALE_MS = 10 * 60 * 1000;
+const PROFILE_LOCK_HEARTBEAT_MS = 30_000;
+const PROFILE_AUTH_SCAN_MAX_BYTES = 10 * 1024 * 1024;
 
 export interface BrowserProfileMetadata {
   created_at: string;
   last_used: string;
   cdp_port?: number;
+  chrome_pid?: number;
   auth_markers?: string[];
 }
 
@@ -19,6 +23,11 @@ export interface BrowserProfile {
   userDataDir: string;
   statePath: string;
   metadata: BrowserProfileMetadata;
+}
+
+export interface BrowserProfileStateSummary {
+  hasState: boolean;
+  authMarkers: string[];
 }
 
 export interface BrowserProfileLock {
@@ -57,6 +66,85 @@ function getProfileMetadataPath(name: string): string {
   return path.join(getProfileDir(name), 'profile.json');
 }
 
+const AUTH_MARKER_DOMAINS = [
+  'linkedin.com',
+  'x.com',
+  'twitter.com',
+  'google.com',
+  'github.com',
+] as const;
+
+function chromeCookieDbPaths(userDataDir: string): string[] {
+  return [
+    path.join(userDataDir, 'Default', 'Cookies'),
+    path.join(userDataDir, 'Default', 'Network', 'Cookies'),
+    path.join(userDataDir, 'Profile 1', 'Cookies'),
+    path.join(userDataDir, 'Profile 1', 'Network', 'Cookies'),
+  ];
+}
+
+function hasNonEmptyPath(targetPath: string): boolean {
+  try {
+    const stat = fs.statSync(targetPath);
+    if (stat.isFile()) return stat.size > 0;
+    if (!stat.isDirectory()) return false;
+    return fs.readdirSync(targetPath).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function readSmallFileLowercase(targetPath: string): string {
+  try {
+    const stat = fs.statSync(targetPath);
+    if (!stat.isFile() || stat.size <= 0) return '';
+    const fd = fs.openSync(targetPath, 'r');
+    try {
+      const length = Math.min(stat.size, PROFILE_AUTH_SCAN_MAX_BYTES);
+      const buffer = Buffer.alloc(length);
+      fs.readSync(fd, buffer, 0, length, 0);
+      return buffer.toString('latin1').toLowerCase();
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return '';
+  }
+}
+
+function detectChromeAuthMarkers(userDataDir: string): string[] {
+  const detected = new Set<string>();
+  for (const cookiePath of chromeCookieDbPaths(userDataDir)) {
+    const body = readSmallFileLowercase(cookiePath);
+    if (!body) continue;
+    for (const domain of AUTH_MARKER_DOMAINS) {
+      if (body.includes(domain)) detected.add(domain);
+    }
+  }
+  return [...detected].sort();
+}
+
+export function summarizeBrowserProfileState(
+  profile: Pick<BrowserProfile, 'userDataDir' | 'statePath' | 'metadata'>,
+): BrowserProfileStateSummary {
+  const metadataMarkers = profile.metadata.auth_markers || [];
+  const detectedMarkers = detectChromeAuthMarkers(profile.userDataDir);
+  const markerSet = new Set([...metadataMarkers, ...detectedMarkers]);
+  const hasChromeState =
+    chromeCookieDbPaths(profile.userDataDir).some(hasNonEmptyPath) ||
+    hasNonEmptyPath(
+      path.join(profile.userDataDir, 'Default', 'Local Storage', 'leveldb'),
+    ) ||
+    hasNonEmptyPath(
+      path.join(profile.userDataDir, 'Default', 'Session Storage'),
+    );
+
+  return {
+    hasState: fs.existsSync(profile.statePath) || hasChromeState,
+    authMarkers: [...markerSet].sort(),
+  };
+}
+
 function readMetadata(name: string): BrowserProfileMetadata {
   const profileDir = getProfileDir(name);
   const metadataPath = getProfileMetadataPath(name);
@@ -83,6 +171,11 @@ function readMetadata(name: string): BrowserProfileMetadata {
       typeof parsed.cdp_port === 'number' && Number.isFinite(parsed.cdp_port)
         ? Math.round(parsed.cdp_port)
         : undefined;
+    const chromePid =
+      typeof parsed.chrome_pid === 'number' &&
+      Number.isFinite(parsed.chrome_pid)
+        ? Math.round(parsed.chrome_pid)
+        : undefined;
     const authMarkers = Array.isArray(parsed.auth_markers)
       ? parsed.auth_markers
           .filter((item): item is string => typeof item === 'string')
@@ -92,6 +185,7 @@ function readMetadata(name: string): BrowserProfileMetadata {
       created_at: createdAt,
       last_used: lastUsed,
       ...(cdpPort !== undefined ? { cdp_port: cdpPort } : {}),
+      ...(chromePid !== undefined ? { chrome_pid: chromePid } : {}),
       auth_markers: authMarkers,
     };
   } catch {
@@ -111,6 +205,9 @@ function writeMetadata(name: string, metadata: BrowserProfileMetadata): void {
   };
   if (metadata.cdp_port !== undefined) {
     payload.cdp_port = metadata.cdp_port;
+  }
+  if (metadata.chrome_pid !== undefined) {
+    payload.chrome_pid = metadata.chrome_pid;
   }
   fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2));
   fs.renameSync(tmpPath, metadataPath);
@@ -215,6 +312,9 @@ export function updateProfileMetadata(
   if (patch.cdp_port === undefined && 'cdp_port' in patch) {
     delete (merged as { cdp_port?: number }).cdp_port;
   }
+  if (patch.chrome_pid === undefined && 'chrome_pid' in patch) {
+    delete (merged as { chrome_pid?: number }).chrome_pid;
+  }
   writeMetadata(normalized, merged);
   return merged;
 }
@@ -245,26 +345,30 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isPidRunning(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
+function readLockFile(lockPath: string): { pid?: number; token?: string } {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(lockPath, 'utf-8')) as Record<
+      string,
+      unknown
+    >;
+    const pid =
+      typeof parsed.pid === 'number' && Number.isFinite(parsed.pid)
+        ? Math.round(parsed.pid)
+        : undefined;
+    const token = typeof parsed.token === 'string' ? parsed.token : undefined;
+    return { pid, token };
+  } catch {
+    return {};
+  }
+}
+
+function isPidAlive(pid: number | undefined): boolean {
+  if (!pid || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
   } catch {
     return false;
-  }
-}
-
-function readLockHolderPid(lockPath: string): number | undefined {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(lockPath, 'utf-8')) as Record<
-      string,
-      unknown
-    > | null;
-    const pid = parsed && typeof parsed.pid === 'number' ? parsed.pid : NaN;
-    return Number.isInteger(pid) && pid > 0 ? pid : undefined;
-  } catch {
-    return undefined;
   }
 }
 
@@ -279,26 +383,44 @@ export async function acquireProfileLock(
   const started = Date.now();
 
   while (Date.now() - started < timeoutMs) {
+    const token = randomUUID();
     try {
       const fd = fs.openSync(lockPath, 'wx', 0o600);
       fs.writeFileSync(
         fd,
         JSON.stringify({
           pid: process.pid,
+          token,
           created_at: new Date().toISOString(),
         }),
       );
       fs.closeSync(fd);
 
       let released = false;
+      const heartbeat = setInterval(() => {
+        try {
+          const current = readLockFile(lockPath);
+          if (current.token === token) {
+            const now = new Date();
+            fs.utimesSync(lockPath, now, now);
+          }
+        } catch {
+          // Best effort heartbeat; release/token checks still protect takeover.
+        }
+      }, PROFILE_LOCK_HEARTBEAT_MS);
+      heartbeat.unref?.();
       return {
         name: normalized,
         lockPath,
         release: () => {
           if (released) return;
           released = true;
+          clearInterval(heartbeat);
           try {
-            fs.rmSync(lockPath, { force: true });
+            const current = readLockFile(lockPath);
+            if (current.token === token) {
+              fs.rmSync(lockPath, { force: true });
+            }
           } catch {
             // ignore
           }
@@ -313,10 +435,11 @@ export async function acquireProfileLock(
 
       try {
         const stat = fs.statSync(lockPath);
-        const holderPid = readLockHolderPid(lockPath);
+        const existing = readLockFile(lockPath);
         if (
-          (holderPid !== undefined && !isPidRunning(holderPid)) ||
-          Date.now() - stat.mtimeMs > PROFILE_LOCK_STALE_MS
+          !isPidAlive(existing.pid) ||
+          (existing.pid === undefined &&
+            Date.now() - stat.mtimeMs > PROFILE_LOCK_STALE_MS)
         ) {
           fs.rmSync(lockPath, { force: true });
           continue;

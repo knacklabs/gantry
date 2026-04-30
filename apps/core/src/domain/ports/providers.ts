@@ -26,11 +26,6 @@ export interface AgentRuntimeProvider {
   }): AsyncIterable<AgentRunEvent>;
 }
 
-export interface EventBus {
-  publish(event: AgentRunEvent): Promise<void>;
-  subscribe(input: { runId?: string }): AsyncIterable<AgentRunEvent>;
-}
-
 export interface CredentialStore {
   resolveRuntimeSecret(ref: string): Promise<string>;
   resolveAgentCredential(ref: string): Promise<Record<string, string>>;

@@ -1,10 +1,10 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 
-const mockEnsureBrowserReady = vi.hoisted(() => vi.fn());
+const mockGetBrowserStatus = vi.hoisted(() => vi.fn());
 
 vi.mock('@core/runtime/browser-capability.js', () => ({
   DEFAULT_BROWSER_PROFILE_NAME: 'myclaw',
-  ensureBrowserReady: (...args: unknown[]) => mockEnsureBrowserReady(...args),
+  getBrowserStatus: (...args: unknown[]) => mockGetBrowserStatus(...args),
 }));
 
 import { createAgentBrowserRunWiring } from '@core/runtime/agent-browser-run-wiring.js';
@@ -40,13 +40,12 @@ const adapters = {
 
 describe('agent browser run wiring', () => {
   beforeEach(() => {
-    mockEnsureBrowserReady.mockReset();
-    mockEnsureBrowserReady.mockResolvedValue({
+    mockGetBrowserStatus.mockReset();
+    mockGetBrowserStatus.mockResolvedValue({
       profile: 'myclaw',
       profileName: 'myclaw',
-      running: true,
-      cdpReady: true,
-      port: 4567,
+      running: false,
+      cdpReady: false,
     });
   });
 
@@ -60,7 +59,7 @@ describe('agent browser run wiring', () => {
       mcpCapabilities: [],
       runtimeDetails: [],
     });
-    expect(mockEnsureBrowserReady).not.toHaveBeenCalled();
+    expect(mockGetBrowserStatus).not.toHaveBeenCalled();
   });
 
   it('exposes the runtime-installed browser skill for the main agent', async () => {
@@ -76,15 +75,34 @@ describe('agent browser run wiring', () => {
     ]);
   });
 
-  it('launches headed Chrome and returns browser action MCP projection', async () => {
+  it('does not launch Chrome or attach action MCP when the browser is stopped', async () => {
     const wiring = createAgentBrowserRunWiring({ isMain: true }, adapters);
 
     const projection = await wiring.activate();
 
-    expect(mockEnsureBrowserReady).toHaveBeenCalledWith({
+    expect(mockGetBrowserStatus).toHaveBeenCalledWith('myclaw');
+    expect(projection.env).toEqual({});
+    expect(projection.mcpCapabilities).toEqual([]);
+    expect(projection.runtimeDetails).toEqual([
+      'browserProfile=myclaw',
+      'browserStatus=stopped',
+    ]);
+  });
+
+  it('returns browser action MCP projection when the browser is already running', async () => {
+    mockGetBrowserStatus.mockResolvedValueOnce({
+      profile: 'myclaw',
       profileName: 'myclaw',
-      headless: undefined,
+      running: true,
+      cdpReady: true,
+      port: 4567,
+      headless: false,
     });
+    const wiring = createAgentBrowserRunWiring({ isMain: true }, adapters);
+
+    const projection = await wiring.activate();
+
+    expect(mockGetBrowserStatus).toHaveBeenCalledWith('myclaw');
     expect(projection.env).toMatchObject({
       PLAYWRIGHT_MCP_CDP_ENDPOINT: 'http://127.0.0.1:4567',
       NO_PROXY: '127.0.0.1,localhost,::1',
@@ -119,20 +137,17 @@ describe('agent browser run wiring', () => {
     );
   });
 
-  it('passes explicit headless mode only when requested', async () => {
-    const wiring = createAgentBrowserRunWiring(
-      {
-        isMain: true,
-        headless: true,
-      },
-      adapters,
-    );
+  it('does not fail a normal run when browser status is unavailable', async () => {
+    mockGetBrowserStatus.mockRejectedValueOnce(new Error('status unavailable'));
+    const wiring = createAgentBrowserRunWiring({ isMain: true }, adapters);
 
-    await wiring.activate();
+    const projection = await wiring.activate();
 
-    expect(mockEnsureBrowserReady).toHaveBeenCalledWith({
-      profileName: 'myclaw',
-      headless: true,
-    });
+    expect(projection.env).toEqual({});
+    expect(projection.mcpCapabilities).toEqual([]);
+    expect(projection.runtimeDetails).toEqual([
+      'browserProfile=myclaw',
+      'browserStatus=unavailable:status unavailable',
+    ]);
   });
 });

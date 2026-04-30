@@ -1,19 +1,15 @@
 # Agent Continuity
 
-Agent continuity is MyClaw's ability to resume explicit session/current-work
-state without replaying raw chat history.
+Agent continuity is MyClaw's ability to help the next agent turn understand where the work stands without replaying raw chat history.
 
 Continuity is not the same as memory.
 
 - **Memory** stores durable knowledge: facts, preferences, decisions, corrections, constraints, and reusable procedures.
-- **Query-retrieved memory context** is the bounded memory evidence that matches the current user message or scheduled job prompt.
-- **Continuity** is explicit resume/current-work state, such as provider session resume, current state, open commitments, and recent digest context.
+- **Continuity** turns remembered context into a working brief: what is active, what was decided, what matters now, and what should not be rediscovered.
 
 ## Why This Exists
 
-A useful personal assistant should not lose durable knowledge after `/new`,
-compaction, restart, or a scheduled job. It should retrieve enough relevant
-context to continue work safely when the current request asks for it:
+A useful personal assistant should not start from zero after `/new`, compaction, restart, or a scheduled job. It should know enough to continue work safely:
 
 - what the current task is
 - which decisions are already settled
@@ -40,16 +36,13 @@ MyClaw currently has these layers:
    - Postgres full-text search for lexical recall
    - `pgvector` for semantic recall when embeddings are enabled
 
-3. Query-scoped memory retrieval
-   - Host runtime uses the current message or scheduled job prompt as the memory retrieval query.
-   - Matching memories are injected as untrusted evidence.
-   - If no memory matches, no memory block is injected.
+3. Host-driven continuity context
+   - Host runtime injects a fresh continuity block for every run.
    - The agent can call memory MCP tools during the run.
-   - After successful boundaries, extraction writes durable memories.
+   - `/new`, manual `/compact`, and observed SDK auto-compaction boundaries run
+     durable memory extraction.
 
-This gives the baseline today: durable facts are available, but a fresh session
-does not silently continue an old chat unless the current user request or
-agent-initiated `memory_search` retrieves relevant context.
+This gives the baseline for continuity today: remembered facts and relevant context can be injected into the next run.
 
 ## Target Continuity Model
 
@@ -151,8 +144,9 @@ Current user controls:
 
 - `myclaw status` for runtime state
 - `myclaw doctor` for health checks
-- `/new` to reset provider/session state while preserving memory, approved skills, MCP bindings, model choices, and agent configuration
-- `/compact` to archive the current transcript and continue
+- `/new` to reset session state while preserving memory
+- `/compact` to ask the Claude Agent SDK to compact active context and collect
+  durable memory at the compact boundary
 - memory MCP tools available to agents: `memory_search`, `memory_save`, `memory_patch`, `procedure_save`, `procedure_patch`
 
 Planned continuity controls:
@@ -169,7 +163,6 @@ Planned continuity controls:
 - If memory DB is unavailable, run without memory and report the health issue.
 - If context is stale, regenerate it instead of reusing old IPC files.
 - If a memory candidate contains secrets or raw logs, reject it.
-- If the user says "continue", "resume", or similar after `/new`, the agent should call `memory_search` instead of assuming hidden chat history.
 
 ## Acceptance Criteria
 

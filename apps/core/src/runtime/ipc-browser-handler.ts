@@ -155,8 +155,8 @@ export function writeBrowserIpcResponse(
   const responsePath = path.join(responseDir, `${response.requestId}.json`);
   const tmpPath = `${responsePath}.tmp`;
   const payload: Record<string, unknown> = {
-    requestId: response.requestId,
     ok: response.ok,
+    requestId: response.requestId,
     ...(response.data !== undefined ? { data: response.data } : {}),
     ...(response.error ? { error: response.error } : {}),
   };

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@core/config/index.js', () => ({
   MYCLAW_HOME: '/tmp/myclaw-control-test-home',
+  ONECLI_ALLOWED_ENV_KEYS: [],
 }));
 
 const schedulerMocks = vi.hoisted(() => ({
@@ -41,8 +42,10 @@ const controlRepo = {
     defaultResponseMode: 'sse',
     defaultWebhookId: null,
   })),
-  addControlEvent: vi.fn(async () => ({ eventId: 1 })),
   markTriggerCompleted: vi.fn(async () => undefined),
+};
+const runtimeEvents = {
+  publish: vi.fn(async () => ({ eventId: 1 })),
 };
 
 const opsRepo = {
@@ -52,6 +55,7 @@ const opsRepo = {
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: () => controlRepo,
+  getRuntimeEventExchange: () => runtimeEvents,
   getRuntimeOpsRepository: () => opsRepo,
 }));
 

@@ -67,14 +67,6 @@ export function normalizeSubject(
   };
 }
 
-export function toLegacyScope(
-  subjectType: MemorySubjectType,
-): 'user' | 'group' | 'global' {
-  if (subjectType === 'common') return 'global';
-  if (subjectType === 'user') return 'user';
-  return 'group';
-}
-
 function subjectFilterSql(
   i: typeof pgSchema.memoryItemsPostgres,
   subject: Pick<

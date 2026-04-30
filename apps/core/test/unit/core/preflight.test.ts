@@ -103,11 +103,12 @@ afterEach(() => {
 describe('runtime preflight', () => {
   it('passes when storage and OneCLI persistence readiness pass', async () => {
     const runtimeHome = makeRuntimeHome();
+    const inspectRuntimeStorageReadiness = vi.fn(async () => ({
+      status: 'pass',
+      message: 'Postgres is ready.',
+    }));
     vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
-      inspectRuntimeStorageReadiness: vi.fn(async () => ({
-        status: 'pass',
-        message: 'Postgres is ready.',
-      })),
+      inspectRuntimeStorageReadiness,
     }));
     vi.doMock(
       '@core/adapters/credentials/onecli/local/persistence.js',
@@ -130,6 +131,9 @@ describe('runtime preflight', () => {
     const result = await validateRuntimePreflightWithStorage(runtimeHome);
 
     expect(result).toEqual({ ok: true });
+    expect(inspectRuntimeStorageReadiness).toHaveBeenCalledWith(runtimeHome, {
+      migrate: true,
+    });
   });
 
   it('fails on storage readiness before probing OneCLI persistence', async () => {

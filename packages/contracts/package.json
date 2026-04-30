@@ -1,6 +1,6 @@
 {
   "name": "@myclaw/contracts",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "type": "module",
   "description": "Canonical DTO and schema contracts for MyClaw integrations.",
   "main": "dist/index.js",

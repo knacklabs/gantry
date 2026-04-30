@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { createHash } from 'crypto';
 import https from 'https';
 import path from 'path';
 
@@ -29,6 +30,8 @@ import { AsyncTaskQueue } from '../../app/bootstrap/async-task-queue.js';
 import { writeTelegramFetchResponseToFile } from '../telegram-file-download.js';
 
 import { TelegramChannelState } from './channel-state.js';
+
+const TELEGRAM_POLL_LEASE_HASH_CHARS = 24;
 import {
   PendingUserQuestionState,
   TELEGRAM_INLINE_BUTTON_TEXT_MAX_BYTES,
@@ -330,6 +333,44 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
 
   protected startPolling(): void {
     if (!this.bot || this.isStopping) return;
+    void this.startPollingWithLease();
+  }
+
+  private async startPollingWithLease(): Promise<void> {
+    if (!this.bot || this.isStopping || this.pollingLease) return;
+    if (!this.botToken.trim()) {
+      logger.error('Telegram polling cannot start without a bot token');
+      return;
+    }
+    const leaseKey = `telegram:poll:${createHash('sha256').update(this.botToken).digest('hex').slice(0, TELEGRAM_POLL_LEASE_HASH_CHARS)}`;
+    const lease = await this.opts.runtimeLease?.tryAcquire(leaseKey);
+    if (!lease && this.opts.runtimeLease) {
+      logger.warn(
+        { leaseKey },
+        'Telegram polling lease is held by another runtime; skipping poller start',
+      );
+      this.schedulePollingRetry();
+      return;
+    }
+    this.pollingLease = lease ?? null;
+    lease?.onLost?.((err) => {
+      if (this.pollingLease !== lease) return;
+      this.pollingLease = null;
+      if (this.isStopping) return;
+      logger.warn(
+        { err, leaseKey },
+        'Telegram polling lease connection was lost; scheduling retry',
+      );
+      this.schedulePollingRetry();
+    });
+
+    if (this.isTelegramBotRunning()) {
+      logger.info(
+        { leaseKey },
+        'Telegram poller already running; retaining polling lease',
+      );
+      return;
+    }
 
     Promise.resolve(
       this.bot.start({
@@ -349,15 +390,34 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
       }),
     )
       .then(() => {
+        if (this.isTelegramBotRunning()) {
+          logger.info(
+            { leaseKey },
+            'Telegram poller remains active after duplicate start; retaining polling lease',
+          );
+          return;
+        }
+        void this.releasePollingLease();
         if (this.isStopping) return;
         logger.warn('Telegram polling stopped unexpectedly');
         this.schedulePollingRetry();
       })
       .catch((err) => {
+        void this.releasePollingLease();
         if (this.isStopping) return;
         logger.error({ err }, 'Telegram polling failed');
         this.schedulePollingRetry();
       });
+  }
+
+  protected async releasePollingLease(): Promise<void> {
+    const lease = this.pollingLease;
+    this.pollingLease = null;
+    await lease?.release();
+  }
+
+  private isTelegramBotRunning(): boolean {
+    return this.bot?.isRunning?.() ?? false;
   }
 
   /**

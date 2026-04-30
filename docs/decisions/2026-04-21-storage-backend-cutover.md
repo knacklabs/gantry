@@ -36,7 +36,7 @@ We need a single cut to:
 - Runtime requires Postgres through `MYCLAW_DATABASE_URL`.
 - Health/diagnostics report Postgres capabilities explicitly.
 - Local Dockerized Postgres is documented for development.
-- Memory state lives in Postgres. Provider continuation files and transcript
+- Memory and session continuity state live in Postgres. Provider transcript
   exports live behind `ProviderArtifactStore`; local filesystem artifact storage
   is supported only through that adapter boundary.
 

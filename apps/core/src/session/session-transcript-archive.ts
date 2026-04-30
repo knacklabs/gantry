@@ -5,7 +5,6 @@ import { logger } from '../infrastructure/logging/logger.js';
 export type SessionArchiveCause =
   | 'new-session'
   | 'manual-compact'
-  | 'auto-compact'
   | 'stale-session'
   | 'abandoned-session';
 

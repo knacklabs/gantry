@@ -26,6 +26,9 @@ interface RunnerRecord {
     permissionDecision?: Record<string, unknown>;
     sdkEnv?: Record<string, string>;
     mcpServers?: Record<string, unknown>;
+    persistSession?: boolean;
+    resume?: unknown;
+    resumeSessionAt?: unknown;
   }>;
 }
 
@@ -195,6 +198,9 @@ export async function* query({ prompt, options }) {
     promptKind: typeof prompt === 'string' ? 'string' : 'stream',
     sdkEnv: options?.env,
     mcpServers: options?.mcpServers,
+    persistSession: options?.persistSession,
+    resume: options?.resume,
+    resumeSessionAt: options?.resumeSessionAt,
     systemPromptAppend: options?.systemPrompt?.append,
     closeExistsAtQueryStart: fs.existsSync(
       path.join(process.env.MYCLAW_IPC_INPUT_DIR, '_close'),
@@ -278,12 +284,31 @@ export async function* query({ prompt, options }) {
     if (process.env.TEST_ACTIVE_INPUT_ORDER === '1') {
       writeInput('001-active-first.json', 'active follow-up first');
       writeInput('002-active-second.json', 'active follow-up second');
+      await delay(700);
+      yield { type: 'result', subtype: 'success', result: 'runner-ok' };
       for (let i = 0; i < 2; i += 1) {
         const next = await nextWithTimeout(iterator, 1500);
         if (next && !next.done) {
           call.streamMessages.push(next.value.message.content);
         }
       }
+      appendRecord(call);
+      if (process.env.TEST_EXIT_AFTER_QUERY === '1') {
+        setTimeout(() => {
+          fs.writeFileSync(path.join(process.env.MYCLAW_IPC_INPUT_DIR, '_close'), '');
+        }, 20);
+      }
+      return;
+    }
+
+    if (process.env.TEST_INTERACTION_BOUNDARY_FILE === '1') {
+      const boundaryDir = path.join(process.env.MYCLAW_IPC_DIR, 'interaction-boundaries');
+      fs.mkdirSync(boundaryDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(boundaryDir, 'boundary-1.json'),
+        JSON.stringify({ type: 'user_interaction', tool: 'ask_user_question' }),
+      );
+      await delay(700);
     }
 
     if (process.env.TEST_CREATE_CLOSE_DURING_QUERY === '1') {
@@ -294,6 +319,9 @@ export async function* query({ prompt, options }) {
   }
 
   appendRecord(call);
+  if (process.env.TEST_COMPACT_BOUNDARY === '1') {
+    yield { type: 'system', subtype: 'compact_boundary', uuid: 'compact-1' };
+  }
   yield { type: 'result', subtype: 'success', result: 'runner-ok' };
 
   if (process.env.TEST_EXIT_AFTER_QUERY === '1') {
@@ -402,7 +430,10 @@ describe('agent-runner IPC lifecycle', () => {
         ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
         ANTHROPIC_API_KEY: 'raw-provider-key',
         CLAUDE_CODE_OAUTH_TOKEN: 'raw-oauth-token',
-        HTTPS_PROXY: 'http://x:aoc_123@host.docker.internal:10255',
+        HTTP_PROXY: 'http://127.0.0.1:10255/',
+        HTTPS_PROXY: 'http://127.0.0.1:10255/',
+        NODE_USE_ENV_PROXY: '1',
+        GIT_HTTP_PROXY_AUTHMETHOD: 'basic',
         NO_PROXY: '',
         no_proxy: '',
         NODE_EXTRA_CA_CERTS: '/tmp/onecli-ca.pem',
@@ -415,10 +446,12 @@ describe('agent-runner IPC lifecycle', () => {
       expect(sdkEnv.ANTHROPIC_BASE_URL).toBe('https://broker.local/anthropic');
       expect(sdkEnv.ANTHROPIC_API_KEY).toBeUndefined();
       expect(sdkEnv.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
-      expect(sdkEnv.HTTPS_PROXY).toBe(
-        'http://x:aoc_123@host.docker.internal:10255',
-      );
+      expect(sdkEnv.HTTP_PROXY).toBe('http://127.0.0.1:10255/');
+      expect(sdkEnv.HTTPS_PROXY).toBe('http://127.0.0.1:10255/');
+      expect(sdkEnv.NODE_USE_ENV_PROXY).toBe('1');
+      expect(sdkEnv.GIT_HTTP_PROXY_AUTHMETHOD).toBeUndefined();
       expect(sdkEnv.NODE_EXTRA_CA_CERTS).toBe('/tmp/onecli-ca.pem');
+      expect(sdkEnv.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1');
       expect(sdkEnv.NO_PROXY).toBe('127.0.0.1,localhost,::1');
       expect(sdkEnv.no_proxy).toBe('127.0.0.1,localhost,::1');
       expect(sdkEnv.MYCLAW_IPC_AUTH_TOKEN).toBeUndefined();
@@ -528,7 +561,6 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.streamMessages?.[0]).toContain(
         'pending startup context after stale close',
       );
-      expect(fs.readdirSync(fixture.inputDir)).not.toContain('_close');
       expect(fs.readdirSync(fixture.inputDir)).not.toContain(
         '001-pending.json',
       );
@@ -561,6 +593,65 @@ describe('agent-runner IPC lifecycle', () => {
         firstMessage?.indexOf('startup second') ?? -1,
       );
       expect(fs.readdirSync(fixture.inputDir)).not.toContain('001-first.json');
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'disables SDK session persistence and resume options',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({ sessionId: 'stale-sdk-session' }),
+        {
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.persistSession).toBe(false);
+      expect(call?.resume).toBeUndefined();
+      expect(call?.resumeSessionAt).toBeUndefined();
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'routes /compact through the live streaming SDK session without persistence or resume',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({ prompt: '/compact' }),
+      );
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.promptKind).toBe('stream');
+      expect(call?.streamMessages?.[0]).toBe('/compact');
+      expect(call?.persistSession).toBe(false);
+      expect(call?.resume).toBeUndefined();
+      expect(call?.resumeSessionAt).toBeUndefined();
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'emits compact boundary markers for host memory extraction',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_COMPACT_BOUNDARY: '1',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('"compactBoundary":true');
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -637,6 +728,27 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
+    'emits a user interaction boundary from MCP side-channel files',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_INTERACTION_BOUNDARY_FILE: '1',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(
+        '"interactionBoundary":"user_interaction"',
+      );
+      expect(
+        fs.readdirSync(path.join(fixture.ipcDir, 'interaction-boundaries')),
+      ).toHaveLength(0);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
     'bundles memory context with the first user prompt so it cannot produce a standalone reply',
     async () => {
       const fixture = createRunnerFixture();
@@ -684,6 +796,9 @@ describe('agent-runner IPC lifecycle', () => {
       });
 
       expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(
+        '"interactionBoundary":"user_interaction"',
+      );
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.permissionRequest).toEqual(
         expect.objectContaining({

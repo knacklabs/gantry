@@ -16,6 +16,10 @@ export const WORKSPACE_GROUP_DIR = requirePathEnv('MYCLAW_WORKSPACE_GROUP_DIR');
 export const WORKSPACE_EXTRA_DIR = requirePathEnv('MYCLAW_WORKSPACE_EXTRA_DIR');
 export const IPC_BASE_DIR = requirePathEnv('MYCLAW_IPC_DIR');
 export const IPC_INPUT_DIR = requirePathEnv('MYCLAW_IPC_INPUT_DIR');
+export const IPC_INTERACTION_BOUNDARY_DIR = path.join(
+  IPC_BASE_DIR,
+  'interaction-boundaries',
+);
 export const IPC_AUTH_TOKEN = process.env.MYCLAW_IPC_AUTH_TOKEN || '';
 export const IPC_RESPONSE_VERIFY_KEY =
   process.env.MYCLAW_IPC_RESPONSE_VERIFY_KEY || '';
@@ -49,6 +53,29 @@ function copyPlaceholderEnv(
   }
 }
 
+const MODEL_PROXY_ENV_KEYS = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'NODE_USE_ENV_PROXY',
+] as const;
+
+const NON_MODEL_PROXY_ENV_KEYS = [
+  'ALL_PROXY',
+  'all_proxy',
+  'GIT_HTTP_PROXY_AUTHMETHOD',
+  'GIT_TERMINAL_PROMPT',
+] as const;
+
+function stripNonModelProxyEnv(
+  target: Record<string, string | undefined>,
+): void {
+  for (const key of NON_MODEL_PROXY_ENV_KEYS) {
+    target[key] = undefined;
+  }
+}
+
 export function buildSdkEnv(): Record<string, string | undefined> {
   const sdkEnv: Record<string, string | undefined> = {
     PATH: process.env.PATH,
@@ -64,20 +91,16 @@ export function buildSdkEnv(): Record<string, string | undefined> {
     ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
     CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
     CLAUDE_CODE_AUTO_COMPACT_WINDOW: '165000',
+    CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1',
   };
   copyPlaceholderEnv(sdkEnv, ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']);
   copyEnv(sdkEnv, [
-    'HTTP_PROXY',
-    'HTTPS_PROXY',
-    'http_proxy',
-    'https_proxy',
     'NO_PROXY',
     'no_proxy',
-    'NODE_USE_ENV_PROXY',
     'NODE_EXTRA_CA_CERTS',
-    'GIT_TERMINAL_PROMPT',
-    'GIT_HTTP_PROXY_AUTHMETHOD',
+    ...MODEL_PROXY_ENV_KEYS,
   ]);
+  stripNonModelProxyEnv(sdkEnv);
   applyLoopbackNoProxyEnv(sdkEnv);
   delete sdkEnv.MYCLAW_IPC_AUTH_TOKEN;
   delete sdkEnv.MYCLAW_IPC_RESPONSE_VERIFY_KEY;

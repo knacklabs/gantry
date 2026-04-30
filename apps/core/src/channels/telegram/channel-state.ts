@@ -1,5 +1,6 @@
 import { Bot } from 'grammy';
 import { ChannelAdapter, ChannelOpts } from '../channel-provider.js';
+import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
@@ -26,6 +27,11 @@ import {
   editTelegramMessage,
 } from './channel-shared.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import {
+  channelProgressStateFilePath,
+  readProgressStateEntries,
+  writeProgressStateEntries,
+} from '../progress-state-file.js';
 
 export abstract class TelegramChannelState implements ChannelAdapter {
   name = 'telegram';
@@ -34,6 +40,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   protected draftStreamApi: TelegramStreamApi | null = null;
   protected isStopping = false;
   protected pollingRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  protected pollingLease: RuntimeLease | null = null;
   protected opts: ChannelOpts;
   protected botToken: string;
   protected pendingPermissionPrompts = new Map<
@@ -53,6 +60,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   protected streamGenerationByJid = new Map<string, number>();
   protected sealedStreamGenerationByJid = new Map<string, number>();
   protected activeProgressMessages = new Map<string, ActiveProgressState>();
+  private progressStateLoaded = false;
   protected mediaIngestionQueue = new AsyncTaskQueue(
     TELEGRAM_MEDIA_DOWNLOAD_CONCURRENCY,
     TELEGRAM_MEDIA_DOWNLOAD_QUEUE_MAX,
@@ -99,6 +107,35 @@ export abstract class TelegramChannelState implements ChannelAdapter {
 
   protected buildDraftStreamKey(jid: string, threadId?: string): string {
     return `${jid}:${threadId || ''}`;
+  }
+
+  protected loadPersistedProgressMessages(): void {
+    if (this.progressStateLoaded) return;
+    this.progressStateLoaded = true;
+    const entries = readProgressStateEntries(
+      this.progressStateFilePath(),
+      'Telegram',
+    ) as unknown as Array<[string, ActiveProgressState]>;
+    for (const [key, state] of entries) {
+      if (
+        typeof state.chatId === 'string' &&
+        typeof state.lastText === 'string'
+      ) {
+        this.activeProgressMessages.set(key, state);
+      }
+    }
+  }
+
+  protected persistProgressMessages(): void {
+    writeProgressStateEntries(
+      this.progressStateFilePath(),
+      'Telegram',
+      this.activeProgressMessages.entries(),
+    );
+  }
+
+  private progressStateFilePath(): string | null {
+    return channelProgressStateFilePath('telegram', this.botToken);
   }
 
   protected clearStreamingStateForJid(jid: string): void {

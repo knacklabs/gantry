@@ -15,6 +15,7 @@ export interface AppSessionRecord {
 
 export interface ControlEventRecord {
   eventId: number;
+  appId: string;
   eventType: string;
   sessionId: string | null;
   jobId: string | null;
@@ -77,5 +78,5 @@ export interface ClaimedWebhookDeliveryRecord extends WebhookDeliveryRecord {
       })
     | null;
   event: ControlEventRecord | null;
-  sessionAppId: string | null;
+  eventAppId: string | null;
 }

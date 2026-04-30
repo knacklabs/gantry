@@ -421,6 +421,37 @@ export async function handleSessionCommand(opts: {
     }
   }
 
+  if (command.kind === 'compact') {
+    let compactError: string | undefined;
+    const compactResult = await deps.runAgent('/compact', async (result) => {
+      if (result.status !== 'error') return;
+      compactError =
+        resultToText(result.result) || 'Provider compact command failed.';
+    });
+
+    if (compactResult === 'error' || compactError) {
+      const suffix = compactError ? ` ${sanitizeErrorText(compactError)}` : '';
+      await deps.sendMessage(`/compact failed.${suffix}`);
+      return { handled: true, success: false };
+    }
+
+    try {
+      await deps.archiveCurrentSession('manual-compact');
+      await deps.onSessionArchived?.('manual-compact');
+    } catch (err) {
+      logger.error(
+        { group: groupName, err },
+        'Failed to collect durable memory after SDK compact',
+      );
+      await deps.sendMessage('/compact failed. Memory collection failed.');
+      return { handled: true, success: false };
+    }
+
+    deps.advanceCursor(cmdMsg);
+    await deps.sendMessage('Compacted current session.');
+    return { handled: true, success: true };
+  }
+
   if (command.kind === 'memory_status') {
     deps.advanceCursor(cmdMsg);
     if (!deps.getMemoryStatus) {
@@ -632,36 +663,6 @@ export async function handleSessionCommand(opts: {
     return { handled: true, success: true };
   }
 
-  // Forward the literal slash command as the prompt (no XML formatting)
-  await deps.setTyping(true);
-
-  let hadCmdError = false;
-  const cmdOutput = await deps.runAgent(command.raw, async (result) => {
-    if (result.status === 'error') hadCmdError = true;
-    const text = resultToText(result.result);
-    if (text) await deps.sendMessage(text);
-  });
-
-  // Advance cursor to the command — messages AFTER it remain pending for next poll.
-  deps.advanceCursor(cmdMsg);
-  await deps.setTyping(false);
-
-  if (cmdOutput === 'error' || hadCmdError) {
-    await deps.sendMessage(`${command.raw} failed. The session is unchanged.`);
-    return { handled: true, success: true };
-  }
-
-  if (command.kind === 'compact') {
-    try {
-      await deps.archiveCurrentSession('manual-compact');
-      await deps.onSessionArchived?.('manual-compact');
-    } catch (err) {
-      logger.warn(
-        { group: groupName, err },
-        'Session archive failed during /compact; continuing',
-      );
-    }
-  }
-
-  return { handled: true, success: true };
+  const _exhaustive: never = command;
+  return _exhaustive;
 }

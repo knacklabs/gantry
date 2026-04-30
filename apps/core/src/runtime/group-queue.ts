@@ -164,9 +164,6 @@ export class GroupQueue {
 
     if (state.active) {
       state.pendingMessages = true;
-      if (state.idleWaiting) {
-        this.closeStdin(groupJid);
-      }
       logger.debug({ groupJid }, 'Agent run active, message queued');
       return;
     }
@@ -288,13 +285,7 @@ export class GroupQueue {
     options: ContinuationOptions = {},
   ) {
     const state = this.getGroup(groupJid);
-    if (
-      !state.active ||
-      !state.groupFolder ||
-      state.isTaskRun ||
-      state.idleWaiting
-    )
-      return false;
+    if (!state.active || !state.groupFolder || state.isTaskRun) return false;
     const incomingThreadId = normalizeThreadQueueId(options.threadId) || null;
     if (state.threadId !== incomingThreadId) return false;
     state.idleWaiting = false; // Agent is about to receive work, no longer idle

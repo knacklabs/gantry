@@ -36,7 +36,7 @@ MyClaw is moving from a personal Anthropic/Claude SDK assistant toward a persona
 
 ## Clean-Cut Refactor Policy
 
-- Prefer deleting legacy provider/channel code over adding shims because there are no live users yet.
-- Do not add fallback runtime branches, migration commands, or compatibility cleanup flows for old local state unless explicitly approved.
+- Prefer deleting obsolete provider/channel code over adding shims because there are no live users yet.
+- Do not add fallback runtime branches, migration commands, or compatibility cleanup flows for unsupported local state unless explicitly approved.
 - If a breaking change requires manual local cleanup, document the one-time step in the relevant architecture or decision doc and keep shipped runtime behavior single-path.
 - Update `docs/architecture/` or `docs/decisions/` for every major boundary change.
