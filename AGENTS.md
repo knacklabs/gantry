@@ -105,3 +105,7 @@ Important constraints:
 Before merge or release: `npm run build`, `npm test`, `python3 .codex/scripts/verify.py`, and `python3 .codex/scripts/validate_artifacts.py --allow-missing-run`.
 
 Full factory mode also requires `python3 .codex/scripts/validate_work.py`, required decomposition/testing/review artifacts, and `python3 .codex/scripts/pr_ready.py`.
+
+## Important
+- Add or Update AGENTS.md in respective folder with the learnings and corrections
+
