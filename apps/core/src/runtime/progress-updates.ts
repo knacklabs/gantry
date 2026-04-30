@@ -1,5 +1,22 @@
 import type { ProgressUpdateOptions } from '../domain/types.js';
 
+export function buildDoneProgressOptions(
+  threadId?: string,
+  replaceOnly?: boolean,
+): ProgressUpdateOptions {
+  return {
+    ...(threadId ? { threadId } : {}),
+    done: true,
+    ...(replaceOnly ? { replaceOnly: true } : {}),
+  };
+}
+
+export function buildReplaceOnlyProgressOptions(
+  threadId?: string,
+): ProgressUpdateOptions {
+  return { ...(threadId ? { threadId } : {}), replaceOnly: true };
+}
+
 export async function sendFinalProgressUpdate(args: {
   enabled: boolean;
   failed: boolean;

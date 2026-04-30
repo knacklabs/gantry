@@ -273,8 +273,12 @@ async function triggerCallbackQuery(ctx: {
 const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('TelegramChannel', () => {
+  let savedMyclawHome: string | undefined;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    savedMyclawHome = process.env.MYCLAW_HOME;
+    delete process.env.MYCLAW_HOME;
 
     // Mock fs operations used by downloadFile
     vi.spyOn(fs.promises, 'mkdir').mockResolvedValue(undefined as any);
@@ -291,6 +295,8 @@ describe('TelegramChannel', () => {
   });
 
   afterEach(() => {
+    if (savedMyclawHome === undefined) delete process.env.MYCLAW_HOME;
+    else process.env.MYCLAW_HOME = savedMyclawHome;
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -1705,6 +1711,79 @@ describe('TelegramChannel', () => {
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
       expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
+    });
+
+    it('does not create a progress message for replace-only updates', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Done in 1s.', {
+        done: true,
+        replaceOnly: true,
+      });
+
+      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
+    });
+
+    it('edits and clears an existing progress message for replace-only done', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...');
+      await channel.sendProgressUpdate('tg:100200300', 'Done in 1s.', {
+        done: true,
+        replaceOnly: true,
+      });
+      expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+        '100200300',
+        987,
+        'Done in 1s.',
+        expect.objectContaining({ parse_mode: 'MarkdownV2' }),
+      );
+      currentBot().api.sendMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Done in 2s.', {
+        done: true,
+        replaceOnly: true,
+      });
+
+      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
+    });
+
+    it('restores progress handles after process restart', async () => {
+      const runtimeHome = fs.mkdtempSync('/tmp/myclaw-tg-progress-');
+      const savedHome = process.env.MYCLAW_HOME;
+      process.env.MYCLAW_HOME = runtimeHome;
+      try {
+        const first = new TelegramChannel('test-token', createTestOpts());
+        await first.connect();
+        await first.sendProgressUpdate('tg:100200300', 'Working on it...');
+
+        const second = new TelegramChannel('test-token', createTestOpts());
+        await second.connect();
+        currentBot().api.sendMessage.mockClear();
+        await second.sendProgressUpdate('tg:100200300', 'Done in 1s.', {
+          done: true,
+          replaceOnly: true,
+        });
+
+        expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+        expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
+          '100200300',
+          987,
+          'Done in 1s.',
+          expect.objectContaining({ parse_mode: 'MarkdownV2' }),
+        );
+      } finally {
+        if (savedHome === undefined) delete process.env.MYCLAW_HOME;
+        else process.env.MYCLAW_HOME = savedHome;
+        fs.rmSync(runtimeHome, { recursive: true, force: true });
+      }
     });
 
     it('falls back to a new progress message when edit fails', async () => {

@@ -365,8 +365,11 @@ different Postgres users.
 
 The runner receives only broker-safe model endpoint settings from the selected
 broker. Raw provider tokens and runtime-owned database URLs are not forwarded to
-tools, the child runner, or the Agent SDK environment. Broker-provided proxy and
-CA certificate references are allowed only after adapter policy filtering.
+tools, the child runner, or the Agent SDK environment. Runner-wide proxy
+environment variables are not accepted from OneCLI because they affect Bash,
+hooks, MCP stdio servers, skills, monitors, and other tools. Provider access is
+projected through explicit model endpoint settings such as `ANTHROPIC_BASE_URL`
+and adapter-materialized CA certificate references.
 If `.env` or process env contains raw agent credentials such as
 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`,
 doctor/preflight reports a wrong-lane configuration error.

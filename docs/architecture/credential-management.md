@@ -15,8 +15,10 @@ MyClaw uses three source lanes:
   database URLs, channel bot tokens, webhook/control secrets, and OneCLI
   persistence secrets.
 - `AgentCredentialBroker` resolves agent-accessed credentials. It may return
-  only broker-safe injection values such as provider base URLs, proxy
-  references, and certificate file paths.
+  only broker-safe injection values such as provider base URLs, local
+  provider-only proxy endpoints, and certificate file paths. Tool/API
+  credentials must not be represented as ambient runner-wide process
+  environment.
 
 There is no global `.env > broker` precedence. Precedence is lane-specific:
 settings choose behavior, runtime secret providers resolve runtime secrets, and
@@ -64,8 +66,10 @@ the action. They include LLM provider access and tool or API credentials.
 
 Agents do not receive raw secret values from MyClaw. Runtime code requests an
 `AgentCredentialInjection` from `AgentCredentialBroker`; the returned injection
-contains only broker-safe environment values, proxy references, and certificate
-references.
+contains only broker-safe environment values and certificate references for the
+provider credential lane. Today that lane is model/provider access. Future
+tool/API credential lanes must be explicit capability projections rather than
+runner-wide process environment.
 
 Raw provider credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and
 `CLAUDE_CODE_OAUTH_TOKEN` must be configured through OneCLI or the selected
@@ -123,6 +127,15 @@ The adapter owns:
 - broker-safe environment filtering
 - OneCLI CA certificate materialization for host runners
 - local OneCLI persistence readiness checks
+
+OneCLI may return local provider proxy variables such as `HTTP_PROXY`,
+`HTTPS_PROXY`, and `NODE_USE_ENV_PROXY` for the model credential lane. MyClaw
+accepts only OneCLI-shaped local HTTP proxy endpoints, normalizes Docker-only
+loopback aliases such as `host.docker.internal` to `127.0.0.1` for host
+runners, and passes the result to the Claude SDK process. The Claude SDK runner sets
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` so provider credentials remain with the
+Claude process and are stripped from Bash, hooks, and MCP stdio subprocesses.
+Git/tool-specific proxy controls remain forbidden in the broker lane.
 
 The runtime calls the application credential service and receives a generic
 `AgentCredentialInjection`; it does not instantiate OneCLI.

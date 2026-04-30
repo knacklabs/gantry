@@ -354,7 +354,7 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
   });
 
-  it('does not pipe follow-up messages into an idle-waiting run', async () => {
+  it('pipes follow-up messages into an idle-waiting live run', async () => {
     const fs = await import('fs');
     let resolveProcess: () => void;
 
@@ -373,14 +373,15 @@ describe('GroupQueue', () => {
     // Run becomes idle
     queue.notifyIdle('group1@g.us');
 
-    // A new user message starts a fresh user-visible turn after idle.
+    // A new user message continues the live SDK stream after the prior turn.
     const piped = queue.sendMessage('group1@g.us', 'hello');
-    expect(piped).toBe(false);
+    expect(piped).toBe(true);
 
     // enqueueMessageCheck while active records pending work without closing the
-    // idle stream; task runs still preempt at the idle boundary.
+    // stream; task runs still preempt when the live run is idle again.
     const writeFileSync = vi.mocked(fs.default.writeFileSync);
     writeFileSync.mockClear();
+    queue.notifyIdle('group1@g.us');
     queue.enqueueMessageCheck('group1@g.us');
     const closeFromPendingMessage = writeFileSync.mock.calls.filter(
       (call) => typeof call[0] === 'string' && call[0].endsWith('_close'),
@@ -399,7 +400,7 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
   });
 
-  it('sendMessage returns false when a message run is idle-waiting', async () => {
+  it('sendMessage resumes an idle-waiting live message run', async () => {
     let resolveProcess: () => void;
 
     const processMessages = vi.fn(async () => {
@@ -416,7 +417,7 @@ describe('GroupQueue', () => {
     queue.notifyIdle('group1@g.us');
 
     const result = queue.sendMessage('group1@g.us', 'hello');
-    expect(result).toBe(false);
+    expect(result).toBe(true);
 
     resolveProcess!();
     await vi.advanceTimersByTimeAsync(10);

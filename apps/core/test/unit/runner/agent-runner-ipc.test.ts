@@ -430,7 +430,10 @@ describe('agent-runner IPC lifecycle', () => {
         ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
         ANTHROPIC_API_KEY: 'raw-provider-key',
         CLAUDE_CODE_OAUTH_TOKEN: 'raw-oauth-token',
-        HTTPS_PROXY: 'http://x:aoc_123@host.docker.internal:10255',
+        HTTP_PROXY: 'http://127.0.0.1:10255/',
+        HTTPS_PROXY: 'http://127.0.0.1:10255/',
+        NODE_USE_ENV_PROXY: '1',
+        GIT_HTTP_PROXY_AUTHMETHOD: 'basic',
         NO_PROXY: '',
         no_proxy: '',
         NODE_EXTRA_CA_CERTS: '/tmp/onecli-ca.pem',
@@ -443,10 +446,12 @@ describe('agent-runner IPC lifecycle', () => {
       expect(sdkEnv.ANTHROPIC_BASE_URL).toBe('https://broker.local/anthropic');
       expect(sdkEnv.ANTHROPIC_API_KEY).toBeUndefined();
       expect(sdkEnv.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
-      expect(sdkEnv.HTTPS_PROXY).toBe(
-        'http://x:aoc_123@host.docker.internal:10255',
-      );
+      expect(sdkEnv.HTTP_PROXY).toBe('http://127.0.0.1:10255/');
+      expect(sdkEnv.HTTPS_PROXY).toBe('http://127.0.0.1:10255/');
+      expect(sdkEnv.NODE_USE_ENV_PROXY).toBe('1');
+      expect(sdkEnv.GIT_HTTP_PROXY_AUTHMETHOD).toBeUndefined();
       expect(sdkEnv.NODE_EXTRA_CA_CERTS).toBe('/tmp/onecli-ca.pem');
+      expect(sdkEnv.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1');
       expect(sdkEnv.NO_PROXY).toBe('127.0.0.1,localhost,::1');
       expect(sdkEnv.no_proxy).toBe('127.0.0.1,localhost,::1');
       expect(sdkEnv.MYCLAW_IPC_AUTH_TOKEN).toBeUndefined();

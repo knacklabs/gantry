@@ -23,7 +23,11 @@ import {
   createSerializedAgentOutputCallbacks,
   isAgentTurnCompleteMarker,
 } from './agent-output-callbacks.js';
-import { sendFinalProgressUpdate } from './progress-updates.js';
+import {
+  buildDoneProgressOptions,
+  buildReplaceOnlyProgressOptions,
+  sendFinalProgressUpdate,
+} from './progress-updates.js';
 import { createStreamingOutputState } from './streaming-output-state.js';
 import {
   formatMessages,
@@ -407,7 +411,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       }, IDLE_TIMEOUT);
     };
 
-    await deps.channelRuntime.setTyping(chatJid, true);
+    let typingActive = false;
+    const setTypingState = async (isTyping: boolean) => {
+      typingActive = isTyping;
+      await deps.channelRuntime.setTyping(chatJid, isTyping);
+    };
+    await setTypingState(true);
     const startedAt = Date.now();
     let lastAgentProgressAt = startedAt;
     let lastNoOutputWarningAt = 0;
@@ -415,6 +424,21 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let typingHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let progressTimer: ReturnType<typeof setInterval> | null = null;
     const supportsProgress = deps.channelRuntime.supportsProgress(chatJid);
+    const sendDoneProgress = (failed: boolean) =>
+      sendFinalProgressUpdate({
+        enabled: supportsProgress,
+        failed,
+        elapsed: formatElapsed(Date.now() - startedAt),
+        options: buildDoneProgressOptions(activeThreadId, true),
+        send: sendProgressToChannel,
+      });
+    const sendWaitingProgress = () =>
+      supportsProgress
+        ? sendProgressToChannel(
+            'Waiting for your input.',
+            buildReplaceOnlyProgressOptions(activeThreadId),
+          ).catch(() => undefined)
+        : Promise.resolve();
     if (supportsProgress) {
       try {
         const progressOptions = await buildMessageOptions();
@@ -427,6 +451,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       }
     }
     typingHeartbeatTimer = setInterval(() => {
+      if (!typingActive) return;
       void deps.channelRuntime
         .setTyping(chatJid, true)
         .catch((err) =>
@@ -438,7 +463,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     }, TYPING_HEARTBEAT_INTERVAL_MS);
     progressTimer = setInterval(() => {
       void (async () => {
-        if (!supportsProgress) return;
+        if (!supportsProgress || !typingActive) return;
         const now = Date.now();
         const elapsedMs = now - startedAt;
         if (now - lastElapsedProgressAt >= ELAPSED_PROGRESS_INTERVAL_MS) {
@@ -511,6 +536,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const handleAgentOutput = async (result: AgentOutput) => {
       lastAgentProgressAt = Date.now();
       if (result.result) {
+        if (!typingActive) {
+          await setTypingState(true);
+        }
         const raw =
           typeof result.result === 'string'
             ? result.result
@@ -546,6 +574,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         pendingIdleBoundary = true;
         await finalizeStreamingOutput('interaction-boundary');
         startNextStreamingMessage();
+        await sendWaitingProgress();
+        await setTypingState(false);
         resetIdleTimer();
       }
 
@@ -553,12 +583,16 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         await finalizeStreamingOutput('success-marker');
         notifyTurnIdle();
         startNextStreamingMessage();
+        await sendDoneProgress(false);
+        await setTypingState(false);
         resetIdleTimer();
       }
 
       if (result.status === 'error') {
         hadError = true;
         await finalizeStreamingOutput('error-marker');
+        await sendDoneProgress(true);
+        await setTypingState(false);
       }
     };
     const outputCallbacks = createSerializedAgentOutputCallbacks({
@@ -599,14 +633,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       }
       if (typingHeartbeatTimer) clearInterval(typingHeartbeatTimer);
       if (progressTimer) clearInterval(progressTimer);
-      await sendFinalProgressUpdate({
-        enabled: supportsProgress,
-        failed: output === 'error' || hadError,
-        elapsed: formatElapsed(Date.now() - startedAt),
-        options: await buildStreamingOptions({ done: true }),
-        send: sendProgressToChannel,
-      });
-      await deps.channelRuntime.setTyping(chatJid, false);
+      await sendDoneProgress(output === 'error' || hadError);
+      await setTypingState(false);
       if (idleTimer) clearTimeout(idleTimer);
     }
 

@@ -572,6 +572,46 @@ describe('createGroupProcessor', () => {
       expect(deps.queue.closeStdin).not.toHaveBeenCalled();
     });
 
+    it('clears typing at a live stream turn boundary before the runner exits', async () => {
+      const liveRun = deferred<AgentOutput>();
+      const typingStopped = deferred();
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+        setTyping: vi.fn(async (_chatJid: string, isTyping: boolean) => {
+          if (!isTyping) typingStopped.resolve();
+        }),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = channel;
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: RegisteredGroup,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: 'partial reply' });
+          await onOutput?.({ status: 'success', result: null });
+          return liveRun.promise;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const processing = processGroupMessages('group1@g.us');
+      await typingStopped.promise;
+
+      expect(deps.queue.notifyIdle).toHaveBeenCalledWith('group1@g.us');
+      expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', false);
+      expect(channel.sendProgressUpdate).toHaveBeenCalledWith(
+        'group1@g.us',
+        expect.stringMatching(/^Done in /),
+        { done: true, replaceOnly: true },
+      );
+
+      liveRun.resolve({ status: 'success', result: null });
+      await processing;
+    });
+
     it('drains unawaited output callbacks before clearing typing and marking idle', async () => {
       const sendStarted = deferred();
       const sendReleased = deferred();
@@ -1182,6 +1222,7 @@ describe('createGroupProcessor', () => {
     it('splits streaming messages around user interaction boundaries', async () => {
       const streamingChannel = makeChannel({
         sendStreamingChunk: vi.fn().mockResolvedValue(undefined),
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
       });
       const { deps } = setupHappyPath();
       deps.channelRuntime = streamingChannel;
@@ -1225,6 +1266,11 @@ describe('createGroupProcessor', () => {
         '',
         expect.objectContaining({ done: true, generation: beforeGeneration }),
       ]);
+      expect(streamingChannel.sendProgressUpdate).toHaveBeenCalledWith(
+        'group1@g.us',
+        'Waiting for your input.',
+        { replaceOnly: true },
+      );
       expect(calls[2]).toEqual([
         'group1@g.us',
         'after approval',

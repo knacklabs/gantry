@@ -126,9 +126,12 @@ existing `canUseTool` and channel approval flow.
 
 ## Proxy Boundary
 
-Provider credential brokers may inject proxy environment variables into the
-runner so provider SDK calls work. Browser loopback traffic must not go through
-those proxies.
+Provider credential brokers may inject local provider-only proxy environment
+for model access when the selected broker requires it. Those proxy values are
+passed to the Claude SDK process with `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` so
+Bash, hooks, MCP stdio servers, skills, monitors, and browser tooling do not
+inherit model credential transport. Tool/API proxy credentials require explicit
+capability projections rather than ambient process environment.
 
 MyClaw sets loopback bypass values in both host-projected browser env and the
 runner env:

@@ -142,12 +142,35 @@ describe('getHostRuntimeCredentialEnv', () => {
     );
   });
 
-  it('allows OneCLI broker proxy env and drops host CA env keys', async () => {
+  it('returns OneCLI local model proxy env', async () => {
     mockGetContainerConfig.mockResolvedValue({
       env: {
         ANTHROPIC_BASE_URL: 'https://broker.example.com',
         ANTHROPIC_API_KEY: 'placeholder',
-        HTTPS_PROXY: 'http://x:aoc_123@host.docker.internal:10255',
+        HTTPS_PROXY:
+          'http://x:aoc_104f2fa6600ede448b527c267a13d6a0db0dad62b3f9ca087446cc8e15acd697@host.docker.internal:10255',
+        NODE_USE_ENV_PROXY: '1',
+        GIT_TERMINAL_PROMPT: '0',
+      },
+    });
+    const mod = await loadModule({});
+
+    const result = await mod.getHostRuntimeCredentialEnv();
+
+    expect(result.env).toEqual({
+      ANTHROPIC_BASE_URL: 'https://broker.example.com',
+      ANTHROPIC_API_KEY: 'placeholder',
+      HTTPS_PROXY:
+        'http://x:aoc_104f2fa6600ede448b527c267a13d6a0db0dad62b3f9ca087446cc8e15acd697@127.0.0.1:10255/',
+      NODE_USE_ENV_PROXY: '1',
+    });
+  });
+
+  it('drops host CA env keys from broker env', async () => {
+    mockGetContainerConfig.mockResolvedValue({
+      env: {
+        ANTHROPIC_BASE_URL: 'https://broker.example.com',
+        ANTHROPIC_API_KEY: 'placeholder',
         NODE_EXTRA_CA_CERTS: '/tmp/onecli-gateway-ca.pem',
       },
     });
@@ -158,7 +181,6 @@ describe('getHostRuntimeCredentialEnv', () => {
     expect(result.env).toEqual({
       ANTHROPIC_BASE_URL: 'https://broker.example.com',
       ANTHROPIC_API_KEY: 'placeholder',
-      HTTPS_PROXY: 'http://x:aoc_123@127.0.0.1:10255/',
     });
     expect(mockLoggerWarn).toHaveBeenCalledWith(
       {

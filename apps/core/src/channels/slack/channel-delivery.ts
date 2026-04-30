@@ -20,10 +20,16 @@ import {
 } from '../../messaging/router.js';
 import { resolveGroupFolderPath } from '../../platform/group-folder.js';
 import { ChannelOpts } from '../channel-provider.js';
+import {
+  channelProgressStateFilePath,
+  readProgressStateEntries,
+  writeProgressStateEntries,
+} from '../progress-state-file.js';
 
 import { SlackChannelInteractions } from './channel-interactions.js';
 import {
   SLACK_STREAM_UPDATE_INTERVAL_MS,
+  ActiveProgressState,
   PendingUserQuestionState,
 } from './channel-state.js';
 
@@ -241,7 +247,18 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     if (!parsed) return;
 
     const trimmed = text.trim();
-    if (!trimmed) return;
+    const key = this.progressKey(jid, options.threadId);
+    this.loadPersistedProgress();
+    if (!trimmed) {
+      if (options.done) {
+        this.activeProgress.delete(key);
+        this.persistProgress();
+      }
+      return;
+    }
+
+    const existing = this.activeProgress.get(key);
+    if (!existing && options.replaceOnly) return;
 
     if (options.threadId) {
       try {
@@ -254,9 +271,6 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         // Optional surface; fall through to message-based progress.
       }
     }
-
-    const key = this.progressKey(jid, options.threadId);
-    const existing = this.activeProgress.get(key);
 
     if (!existing) {
       const sent = (await this.app.client.chat.postMessage({
@@ -272,12 +286,16 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           messageTs: sent.ts,
           lastText: trimmed,
         });
+        this.persistProgress();
       }
       return;
     }
 
     if (existing.lastText === trimmed) {
-      if (options.done) this.activeProgress.delete(key);
+      if (options.done) {
+        this.activeProgress.delete(key);
+        this.persistProgress();
+      }
       return;
     }
 
@@ -302,6 +320,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     } else {
       this.activeProgress.set(key, existing);
     }
+    this.persistProgress();
   }
 
   async requestPermissionApproval(
@@ -412,6 +431,31 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         reason: 'Failed to send approval prompt to Slack',
       };
     }
+  }
+
+  private loadPersistedProgress(): void {
+    if (this.progressStateLoaded) return;
+    this.progressStateLoaded = true;
+    const entries = readProgressStateEntries(
+      channelProgressStateFilePath('slack', this.botToken),
+      'Slack',
+    ) as unknown as Array<[string, ActiveProgressState]>;
+    for (const [key, state] of entries) {
+      if (
+        typeof state.channelId === 'string' &&
+        typeof state.lastText === 'string'
+      ) {
+        this.activeProgress.set(key, state);
+      }
+    }
+  }
+
+  private persistProgress(): void {
+    writeProgressStateEntries(
+      channelProgressStateFilePath('slack', this.botToken),
+      'Slack',
+      this.activeProgress.entries(),
+    );
   }
 
   async requestUserAnswer(

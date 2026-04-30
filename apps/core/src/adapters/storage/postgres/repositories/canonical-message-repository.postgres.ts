@@ -171,12 +171,11 @@ export class PostgresCanonicalMessageRepository {
   }): Promise<CanonicalOpsMessageRow[]> {
     const jids = input.jids;
     if (jids.length === 0) return [];
-    const afterConversationId = input.after
-      ? conversationIdForJid(input.after.chatJid)
+    const after = input.after?.timestamp.trim() ? input.after : undefined;
+    const afterConversationId = after
+      ? conversationIdForJid(after.chatJid)
       : '';
-    const afterMessageId = input.after
-      ? messageIdFor(input.after.chatJid, input.after.id)
-      : '';
+    const afterMessageId = after ? messageIdFor(after.chatJid, after.id) : '';
     const threadId = input.threadId?.trim() || null;
     const m = pgSchema.messagesPostgres;
     const p = pgSchema.messagePartsPostgres;
@@ -190,11 +189,11 @@ export class PostgresCanonicalMessageRepository {
       )
       .limit(1)
       .as('first_part');
-    const afterFilter = input.after
+    const afterFilter = after
       ? or(
-          gt(m.createdAt, input.after.timestamp),
+          gt(m.createdAt, after.timestamp),
           and(
-            eq(m.createdAt, input.after.timestamp),
+            eq(m.createdAt, after.timestamp),
             or(
               gt(m.conversationId, afterConversationId),
               and(
