@@ -10,7 +10,7 @@ import {
   type PostgresDomainRepositoryBundle,
 } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
 import { PostgresCanonicalOpsRepository } from '@core/adapters/storage/postgres/schema/canonical-ops-repo.postgres.js';
-import { PostgresControlPlaneRepository } from '@core/adapters/storage/postgres/schema/control-plane-repo.postgres.js';
+import { PostgresControlPlaneRepository } from '@core/adapters/storage/postgres/repositories/control-plane-repository.postgres.js';
 import { PostgresCanonicalSessionRepository } from '@core/adapters/storage/postgres/repositories/canonical-session-repository.postgres.js';
 import { RuntimeEventExchange } from '@core/application/runtime-events/runtime-event-exchange.js';
 import { PostgresRuntimeEventNotifier } from '@core/adapters/storage/postgres/runtime-event-notifier.postgres.js';
@@ -65,7 +65,7 @@ export async function createPostgresIntegrationRuntime(options?: {
     service.db,
     service.pool,
   );
-  const control = new PostgresControlPlaneRepository(service.pool);
+  const control = new PostgresControlPlaneRepository(service.db);
   const runtimeEventNotifier = new PostgresRuntimeEventNotifier(service.pool);
   const runtimeEvents = new RuntimeEventExchange(
     repositories.runtimeEvents,

@@ -1,68 +1,102 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { PostgresRuntimeEventRepository } from '@core/adapters/storage/postgres/repositories/runtime-event-repository.postgres.js';
+import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 
-class FakeRuntimeEventClient {
-  readonly queries: string[] = [];
+class FakeDrizzleDb {
+  readonly operations: string[] = [];
   failDeliveryInsert = false;
-  readonly release = vi.fn();
 
-  async query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }> {
-    this.queries.push(sql);
-    if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
-      return { rows: [] };
+  async transaction<T>(fn: (tx: this) => Promise<T>): Promise<T> {
+    this.operations.push('transaction:begin');
+    try {
+      const result = await fn(this);
+      this.operations.push('transaction:commit');
+      return result;
+    } catch (err) {
+      this.operations.push('transaction:rollback');
+      throw err;
     }
-    if (sql.includes('INSERT INTO runtime_events')) {
-      return {
-        rows: [
-          {
-            eventId: 42,
-            appId: params?.[0],
-            agentId: null,
-            sessionId: params?.[2],
-            runId: null,
-            jobId: null,
-            triggerId: null,
-            conversationId: null,
-            threadId: null,
-            eventType: params?.[8],
-            actor: params?.[9],
-            correlationId: null,
-            responseMode: params?.[11],
-            webhookId: params?.[12],
-            payloadJson: params?.[13],
-            createdAt: params?.[14],
+  }
+
+  insert(table: unknown) {
+    const db = this;
+    return {
+      values(value: Record<string, unknown>) {
+        if (table === pgSchema.runtimeEventsPostgres) {
+          db.operations.push('insert:runtime_events');
+          return {
+            async returning() {
+              return [
+                {
+                  eventId: 42,
+                  appId: value.appId,
+                  agentId: null,
+                  sessionId: value.sessionId,
+                  runId: null,
+                  jobId: null,
+                  triggerId: null,
+                  conversationId: null,
+                  threadId: null,
+                  eventType: value.eventType,
+                  actor: value.actor,
+                  correlationId: null,
+                  responseMode: value.responseMode,
+                  webhookId: value.webhookId,
+                  payloadJson: value.payloadJson,
+                  createdAt: value.createdAt,
+                },
+              ];
+            },
+          };
+        }
+        if (table === pgSchema.controlHttpWebhookDeliveriesPostgres) {
+          db.operations.push('insert:webhook_delivery');
+          return {
+            onConflictDoNothing() {
+              if (db.failDeliveryInsert) {
+                throw new Error('delivery insert failed');
+              }
+              return Promise.resolve();
+            },
+          };
+        }
+        throw new Error('Unexpected insert table');
+      },
+    };
+  }
+
+  select() {
+    const db = this;
+    return {
+      from(table: unknown) {
+        if (table !== pgSchema.controlHttpWebhooksPostgres) {
+          throw new Error('Unexpected select table');
+        }
+        db.operations.push('select:webhook');
+        return {
+          where() {
+            return {
+              async limit() {
+                return [{ webhookId: 'webhook:test' }];
+              },
+            };
           },
-        ],
-      };
-    }
-    if (sql.includes('FROM control_http_webhooks')) {
-      return { rows: [{ webhook_id: params?.[0] }] };
-    }
-    if (sql.includes('INSERT INTO control_http_webhook_deliveries')) {
-      if (this.failDeliveryInsert) {
-        throw new Error('delivery insert failed');
-      }
-      return { rows: [] };
-    }
-    throw new Error(`Unexpected query: ${sql}`);
+        };
+      },
+    };
   }
 }
 
-function createRepository(client: FakeRuntimeEventClient) {
-  return new PostgresRuntimeEventRepository(
-    {} as never,
-    {
-      connect: vi.fn(async () => client),
-    } as never,
-  );
+function createRepository(db: FakeDrizzleDb) {
+  return new PostgresRuntimeEventRepository(db as never);
 }
 
 describe('PostgresRuntimeEventRepository', () => {
   it('commits the runtime event and webhook delivery in one transaction', async () => {
-    const client = new FakeRuntimeEventClient();
-    const repository = createRepository(client);
+    const db = new FakeDrizzleDb();
+    const repository = createRepository(db);
 
     await expect(
       repository.appendRuntimeEvent({
@@ -82,20 +116,19 @@ describe('PostgresRuntimeEventRepository', () => {
       payload: { text: 'done' },
     });
 
-    expect(client.queries).toEqual([
-      'BEGIN',
-      expect.stringContaining('INSERT INTO runtime_events'),
-      expect.stringContaining('FROM control_http_webhooks'),
-      expect.stringContaining('INSERT INTO control_http_webhook_deliveries'),
-      'COMMIT',
+    expect(db.operations).toEqual([
+      'transaction:begin',
+      'insert:runtime_events',
+      'select:webhook',
+      'insert:webhook_delivery',
+      'transaction:commit',
     ]);
-    expect(client.release).toHaveBeenCalledTimes(1);
   });
 
   it('rolls back the runtime event when webhook delivery enqueue fails', async () => {
-    const client = new FakeRuntimeEventClient();
-    client.failDeliveryInsert = true;
-    const repository = createRepository(client);
+    const db = new FakeDrizzleDb();
+    db.failDeliveryInsert = true;
+    const repository = createRepository(db);
 
     await expect(
       repository.appendRuntimeEvent({
@@ -108,14 +141,12 @@ describe('PostgresRuntimeEventRepository', () => {
       }),
     ).rejects.toThrow('delivery insert failed');
 
-    expect(client.queries).toEqual([
-      'BEGIN',
-      expect.stringContaining('INSERT INTO runtime_events'),
-      expect.stringContaining('FROM control_http_webhooks'),
-      expect.stringContaining('INSERT INTO control_http_webhook_deliveries'),
-      'ROLLBACK',
+    expect(db.operations).toEqual([
+      'transaction:begin',
+      'insert:runtime_events',
+      'select:webhook',
+      'insert:webhook_delivery',
+      'transaction:rollback',
     ]);
-    expect(client.queries).not.toContain('COMMIT');
-    expect(client.release).toHaveBeenCalledTimes(1);
   });
 });

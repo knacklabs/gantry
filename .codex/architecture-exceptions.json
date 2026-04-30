@@ -91,7 +91,7 @@
     "maxOccurrences": 1
   },
   {
-    "file": "apps/core/src/adapters/storage/postgres/schema/control-plane-repo.postgres.ts",
+    "file": "apps/core/src/adapters/storage/postgres/repositories/control-plane-repository.postgres.ts",
     "rule": "old_term_groupFolder",
     "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
     "removeByPhase": "canonical-boundary-cleanup-phase",

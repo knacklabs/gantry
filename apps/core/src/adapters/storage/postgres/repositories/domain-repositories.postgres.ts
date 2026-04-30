@@ -1988,7 +1988,7 @@ export function createPostgresDomainRepositories(
     providerSessions: new PostgresProviderSessionRepository(db),
     agentSessionSummaries: new PostgresAgentSessionSummaryRepository(db),
     agentRuns: new PostgresAgentRunRepository(db),
-    runtimeEvents: new PostgresRuntimeEventRepository(db, pool),
+    runtimeEvents: new PostgresRuntimeEventRepository(db),
     memory: new PostgresMemoryRepository(db),
     jobs: new PostgresJobRepository(db),
     tools: new PostgresToolCatalogRepository(db),

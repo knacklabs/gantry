@@ -19,7 +19,7 @@ import type { OpsRepository } from '../../../domain/repositories/ops-repo.js';
 import type { ProviderArtifactStore } from '../../../domain/ports/provider-artifact-store.js';
 import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
 import { PostgresCanonicalOpsRepository } from './schema/canonical-ops-repo.postgres.js';
-import { PostgresControlPlaneRepository } from './schema/control-plane-repo.postgres.js';
+import { PostgresControlPlaneRepository } from './repositories/control-plane-repository.postgres.js';
 import type { PostgresStorageService } from './storage-service.js';
 import { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
 import { PostgresRuntimeEventNotifier } from './runtime-event-notifier.postgres.js';
@@ -48,7 +48,7 @@ export function createStorageRuntime(
 ): StorageRuntime {
   const service = createStorageService(config);
   const sessionSettings = getRuntimeSettingsForConfig().agent.sessions;
-  const control = new PostgresControlPlaneRepository(service.pool);
+  const control = new PostgresControlPlaneRepository(service.db);
   const repositories = createPostgresDomainRepositories(
     service.db,
     service.pool,

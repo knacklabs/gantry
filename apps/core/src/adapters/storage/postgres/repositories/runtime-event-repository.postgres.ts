@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
 import { and, asc, eq, gt, inArray, type SQL } from 'drizzle-orm';
-import type { Pool, PoolClient } from 'pg';
 
 import type {
   RuntimeEvent,
@@ -11,7 +10,10 @@ import type {
 import type { RuntimeEventRepository } from '../../../../domain/ports/repositories.js';
 import { logger } from '../../../../infrastructure/logging/logger.js';
 import * as pgSchema from '../schema/schema.js';
-import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import type {
+  CanonicalDb,
+  CanonicalExecutor,
+} from './canonical-graph-repository.postgres.js';
 
 type RuntimeEventRow = typeof pgSchema.runtimeEventsPostgres.$inferSelect;
 
@@ -47,39 +49,24 @@ function currentIso(): string {
   return new Date().toISOString();
 }
 
-const RUNTIME_EVENT_RETURNING_SQL = `
-  event_id AS "eventId",
-  app_id AS "appId",
-  agent_id AS "agentId",
-  session_id AS "sessionId",
-  run_id AS "runId",
-  job_id AS "jobId",
-  trigger_id AS "triggerId",
-  conversation_id AS "conversationId",
-  thread_id AS "threadId",
-  event_type AS "eventType",
-  actor,
-  correlation_id AS "correlationId",
-  response_mode AS "responseMode",
-  webhook_id AS "webhookId",
-  payload_json AS "payloadJson",
-  created_at AS "createdAt"
-`;
-
 export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
-  constructor(
-    private readonly db: CanonicalDb,
-    private readonly pool?: Pool,
-  ) {}
+  constructor(private readonly db: CanonicalDb) {}
 
   async appendRuntimeEvent(
     input: RuntimeEventPublishInput,
   ): Promise<RuntimeEvent> {
-    if (this.pool) {
-      return this.appendRuntimeEventAtomically(input);
-    }
+    return this.db.transaction(async (tx) => {
+      const event = await this.insertRuntimeEvent(tx, input);
+      await this.enqueueWebhookDeliveryIfNeeded(tx, event);
+      return event;
+    });
+  }
 
-    const rows = await this.db
+  private async insertRuntimeEvent(
+    db: CanonicalExecutor,
+    input: RuntimeEventPublishInput,
+  ): Promise<RuntimeEvent> {
+    const rows = await db
       .insert(pgSchema.runtimeEventsPostgres)
       .values({
         appId: input.appId,
@@ -102,66 +89,8 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
     return this.eventFromRow(rows[0]!);
   }
 
-  private async appendRuntimeEventAtomically(
-    input: RuntimeEventPublishInput,
-  ): Promise<RuntimeEvent> {
-    const client = await this.pool!.connect();
-    try {
-      await client.query('BEGIN');
-      const event = await this.insertRuntimeEvent(client, input);
-      await this.enqueueWebhookDeliveryIfNeeded(client, event);
-      await client.query('COMMIT');
-      return event;
-    } catch (err) {
-      try {
-        await client.query('ROLLBACK');
-      } catch (rollbackErr) {
-        logger.warn(
-          { err: rollbackErr },
-          'Failed to roll back runtime event append transaction',
-        );
-      }
-      throw err;
-    } finally {
-      client.release();
-    }
-  }
-
-  private async insertRuntimeEvent(
-    client: PoolClient,
-    input: RuntimeEventPublishInput,
-  ): Promise<RuntimeEvent> {
-    const rows = await client.query<RuntimeEventRow>(
-      `INSERT INTO runtime_events
-         (app_id, agent_id, session_id, run_id, job_id, trigger_id,
-          conversation_id, thread_id, event_type, actor, correlation_id,
-          response_mode, webhook_id, payload_json, created_at)
-       VALUES
-         ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-       RETURNING ${RUNTIME_EVENT_RETURNING_SQL}`,
-      [
-        input.appId,
-        input.agentId ?? null,
-        input.sessionId ?? null,
-        input.runId ?? null,
-        input.jobId ?? null,
-        input.triggerId ?? null,
-        input.conversationId ?? null,
-        input.threadId ?? null,
-        input.eventType,
-        input.actor,
-        input.correlationId ?? null,
-        input.responseMode ?? null,
-        input.webhookId ?? null,
-        encodeJson(input.payload),
-        input.createdAt ?? currentIso(),
-      ],
-    );
-    return this.eventFromRow(rows.rows[0]!);
-  }
-
   private async enqueueWebhookDeliveryIfNeeded(
-    client: PoolClient,
+    db: CanonicalExecutor,
     event: RuntimeEvent,
   ): Promise<void> {
     if (
@@ -171,23 +100,37 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       return;
     }
 
-    const webhook = await client.query<{ webhook_id: string }>(
-      `SELECT webhook_id
-       FROM control_http_webhooks
-       WHERE webhook_id = $1 AND app_id = $2
-       LIMIT 1`,
-      [event.webhookId, event.appId],
-    );
-    if (!webhook.rows[0]) return;
+    const webhook = await db
+      .select({ webhookId: pgSchema.controlHttpWebhooksPostgres.webhookId })
+      .from(pgSchema.controlHttpWebhooksPostgres)
+      .where(
+        and(
+          eq(pgSchema.controlHttpWebhooksPostgres.webhookId, event.webhookId),
+          eq(pgSchema.controlHttpWebhooksPostgres.appId, event.appId),
+        ),
+      )
+      .limit(1);
+    if (!webhook[0]) return;
 
-    await client.query(
-      `INSERT INTO control_http_webhook_deliveries
-         (delivery_id, webhook_id, event_id, status, attempt_count,
-          next_attempt_at, created_at, updated_at)
-       VALUES ($1, $2, $3, 'pending', 0, $4, $4, $4)
-       ON CONFLICT (webhook_id, event_id) DO NOTHING`,
-      [randomUUID(), event.webhookId, event.eventId, currentIso()],
-    );
+    const now = currentIso();
+    await db
+      .insert(pgSchema.controlHttpWebhookDeliveriesPostgres)
+      .values({
+        deliveryId: randomUUID(),
+        webhookId: event.webhookId,
+        eventId: event.eventId,
+        status: 'pending',
+        attemptCount: 0,
+        nextAttemptAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing({
+        target: [
+          pgSchema.controlHttpWebhookDeliveriesPostgres.webhookId,
+          pgSchema.controlHttpWebhookDeliveriesPostgres.eventId,
+        ],
+      });
   }
 
   async listRuntimeEvents(filter: RuntimeEventFilter): Promise<RuntimeEvent[]> {

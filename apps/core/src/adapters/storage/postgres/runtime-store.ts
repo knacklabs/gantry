@@ -3,7 +3,7 @@ import type { OpsRepository } from '../../../domain/repositories/ops-repo.js';
 import type { ProviderArtifactStore } from '../../../domain/ports/provider-artifact-store.js';
 import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
 import { evaluatePostgresStorageCapabilities } from './readiness.js';
-import type { PostgresControlPlaneRepository } from './schema/control-plane-repo.postgres.js';
+import type { PostgresControlPlaneRepository } from './repositories/control-plane-repository.postgres.js';
 import type { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
 import type { RuntimeLease } from '../../../domain/ports/runtime-lease.js';
 
