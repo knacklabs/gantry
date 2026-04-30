@@ -1,11 +1,16 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { ApplicationError } from '../../../application/common/application-error.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
 } from '../handler-context.js';
-import { readJson, readRawBody, sendError, sendJson } from '../http.js';
+import {
+  readJson,
+  readRawBody,
+  sendApplicationError,
+  sendError,
+  sendJson,
+} from '../http.js';
 import {
   createExternalIngressModule,
   invokeExternalIngressForControl,
@@ -77,6 +82,20 @@ export async function handleExternalIngressRoutes(
     ]);
     if (!auth) return true;
     const body = (await readJson(req)) as Record<string, unknown>;
+    const patch = {
+      ...(typeof body.name === 'string' ? { name: body.name } : {}),
+      ...(typeof body.enabled === 'boolean' ? { enabled: body.enabled } : {}),
+      ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
+    };
+    if (Object.keys(patch).length === 0) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        'PATCH body must include name, enabled, or metadata',
+      );
+      return true;
+    }
     try {
       sendJson(
         res,
@@ -84,13 +103,7 @@ export async function handleExternalIngressRoutes(
         await createExternalIngressModule(ctx).update({
           appId: auth.appId,
           ingressId: route.ingressId,
-          patch: {
-            ...(typeof body.name === 'string' ? { name: body.name } : {}),
-            ...(typeof body.enabled === 'boolean'
-              ? { enabled: body.enabled }
-              : {}),
-            ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
-          },
+          patch,
         }),
       );
     } catch (error) {
@@ -104,11 +117,15 @@ export async function handleExternalIngressRoutes(
       'ingresses:write',
     ]);
     if (!auth) return true;
-    await createExternalIngressModule(ctx).delete({
-      appId: auth.appId,
-      ingressId: route.ingressId,
-    });
-    sendJson(res, 200, { deleted: true });
+    try {
+      await createExternalIngressModule(ctx).delete({
+        appId: auth.appId,
+        ingressId: route.ingressId,
+      });
+      sendJson(res, 200, { deleted: true });
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
     return true;
   }
 
@@ -133,17 +150,18 @@ export async function handleExternalIngressRoutes(
   }
 
   if (route.action === 'invoke' && req.method === 'POST') {
-    const rawBody = (await readRawBody(req, MAX_INGRESS_BODY_BYTES)).toString(
-      'utf8',
-    );
+    const headers = readSignatureHeaders(req, res);
+    if (!headers) return true;
+    const rawBody = await readIngressRawBody(req, res);
+    if (rawBody === null) return true;
     try {
       const result = await invokeExternalIngressForControl(ctx, {
         ingressId: route.ingressId,
         method: req.method,
         path: pathname,
-        timestamp: header(req, 'x-myclaw-ingress-timestamp'),
-        nonce: header(req, 'x-myclaw-ingress-nonce'),
-        signature: header(req, 'x-myclaw-ingress-signature'),
+        timestamp: headers.timestamp,
+        nonce: headers.nonce,
+        signature: headers.signature,
         rawBody,
       });
       sendJson(res, 202, result);
@@ -154,17 +172,18 @@ export async function handleExternalIngressRoutes(
   }
 
   if (route.action === 'wait' && req.method === 'POST') {
-    const rawBody = (await readRawBody(req, MAX_INGRESS_BODY_BYTES)).toString(
-      'utf8',
-    );
+    const headers = readSignatureHeaders(req, res);
+    if (!headers) return true;
+    const rawBody = await readIngressRawBody(req, res);
+    if (rawBody === null) return true;
     try {
       const result = await createExternalIngressModule(ctx).signedWait({
         ingressId: route.ingressId,
         method: req.method,
         path: pathname,
-        timestamp: header(req, 'x-myclaw-ingress-timestamp'),
-        nonce: header(req, 'x-myclaw-ingress-nonce'),
-        signature: header(req, 'x-myclaw-ingress-signature'),
+        timestamp: headers.timestamp,
+        nonce: headers.nonce,
+        signature: headers.signature,
         rawBody,
       });
       sendJson(res, 200, result);
@@ -175,6 +194,26 @@ export async function handleExternalIngressRoutes(
   }
 
   return false;
+}
+
+async function readIngressRawBody(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<string | null> {
+  try {
+    return (await readRawBody(req, MAX_INGRESS_BODY_BYTES)).toString('utf8');
+  } catch (error) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'statusCode' in error &&
+      error.statusCode === 413
+    ) {
+      sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload too large');
+      return null;
+    }
+    throw error;
+  }
 }
 
 function parseIngressRoute(pathname: string): {
@@ -195,33 +234,34 @@ function parseIngressRoute(pathname: string): {
   return { ingressId: decodeURIComponent(baseMatch[1]!), action: 'get' };
 }
 
-function header(req: IncomingMessage, name: string): string {
-  const value = req.headers[name];
-  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
+function readSignatureHeaders(
+  req: IncomingMessage,
+  res: ServerResponse,
+): { timestamp: string; nonce: string; signature: string } | null {
+  const timestamp = header(req, 'x-myclaw-ingress-timestamp');
+  const nonce = header(req, 'x-myclaw-ingress-nonce');
+  const signature = header(req, 'x-myclaw-ingress-signature');
+  const missing = [
+    ['x-myclaw-ingress-timestamp', timestamp],
+    ['x-myclaw-ingress-nonce', nonce],
+    ['x-myclaw-ingress-signature', signature],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+  if (missing.length > 0) {
+    sendError(
+      res,
+      400,
+      'INVALID_REQUEST',
+      `Missing required ingress signature header: ${missing.join(', ')}`,
+    );
+    return null;
+  }
+  return { timestamp, nonce, signature };
 }
 
-function sendApplicationError(res: ServerResponse, error: unknown): boolean {
-  if (!(error instanceof ApplicationError)) return false;
-  switch (error.code) {
-    case 'NOT_FOUND':
-      sendError(res, 404, 'NOT_FOUND', error.message);
-      return true;
-    case 'FORBIDDEN':
-      sendError(res, 403, 'FORBIDDEN', error.message);
-      return true;
-    case 'INVALID_REQUEST':
-      sendError(res, 400, 'INVALID_REQUEST', error.message);
-      return true;
-    case 'CONFLICT':
-      sendError(res, 409, 'CONFLICT', error.message);
-      return true;
-    case 'RATE_LIMITED':
-      sendError(res, 429, 'RATE_LIMITED', error.message);
-      return true;
-    case 'SCHEDULER_NOT_READY':
-      sendError(res, 503, 'SCHEDULER_NOT_READY', error.message);
-      return true;
-    default:
-      throw error;
-  }
+function header(req: IncomingMessage, name: string): string {
+  const value = req.headers[name];
+  const raw = Array.isArray(value) ? (value[0] ?? '') : (value ?? '');
+  return raw.trim();
 }

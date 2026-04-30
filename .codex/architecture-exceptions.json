@@ -686,6 +686,13 @@
     "maxViolations": 1
   },
   {
+    "file": "apps/core/src/control/server/session-control-port.ts",
+    "rule": "old_term_groupFolder",
+    "reason": "RuntimeControlRepository still accepts groupFolder until the canonical workspace-folder storage rename lands; capped so this bridge cannot hide new debt.",
+    "removeByPhase": "canonical-storage-workspace-rename",
+    "maxOccurrences": 1
+  },
+  {
     "file": "apps/core/src/control/server/routes/memory.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",

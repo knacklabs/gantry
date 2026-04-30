@@ -16,6 +16,10 @@
 - Run `npm run test:integration:postgres` for DB-backed feature work. A plain `npm run test:integration` is allowed to skip those suites when the local Postgres test URL is absent.
 - Claude Agent SDK boundary tests must stay hermetic: mock the SDK provider, assert generated options at the adapter boundary, and never require real Anthropic auth.
 - Control HTTP route changes must have route-level coverage for encoded ids, app ownership checks, and pre-mutation authorization.
+- External ingress `session_message` dispatch must register the session group before enqueueing message checks; ingress and control adapters should share the same session interaction intent.
+- External ingress target policy must mirror dispatch precedence: when `sessionId` is present, authorize only against `sessionIds`; use `conversationIds` only when no `sessionId` was supplied.
+- SSE route writes that wait for backpressure must also unblock on response close/error and release subscriptions/active counters.
+- Periodic external ingress retention and recovery sweeps must be bounded per timer tick; do not delete or update an unbounded backlog in one maintenance pass.
 - MCP server changes must keep third-party servers behind approved Postgres definitions and agent bindings. Do not load `.mcp.json`, Claude user/project settings, raw stdio commands, or raw credential env as product truth.
 - Third-party MCP materialization must fail closed for non-HTTPS/private/local URLs, remote hosts that resolve to private/link-local/loopback/multicast/metadata ranges, unsandboxed stdio templates, and non-broker credential refs.
 - Treat MCP `allowedToolPatterns` as an enforced allowlist, not metadata. Auto-approved MCP tools must remain a subset of the allowed tools, and same-channel rebinds must preserve any existing admin permission policies unless an admin explicitly replaces them.

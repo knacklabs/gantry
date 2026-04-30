@@ -263,8 +263,11 @@ export class PostgresControlPlaneRepository {
     return this.externalIngress.update(ingressId, appId, patch);
   }
 
-  async deleteExternalIngress(ingressId: string, appId: string): Promise<void> {
-    await this.externalIngress.delete(ingressId, appId);
+  async deleteExternalIngress(
+    ingressId: string,
+    appId: string,
+  ): Promise<boolean> {
+    return this.externalIngress.delete(ingressId, appId);
   }
 
   async reserveExternalIngressNonce(input: {
@@ -294,6 +297,14 @@ export class PostgresControlPlaneRepository {
     expiresAt: string;
   }) {
     return this.externalIngress.createInvocation(input);
+  }
+
+  async getExternalIngressInvocationByIdempotencyKey(input: {
+    appId: string;
+    ingressId: string;
+    idempotencyKey: string;
+  }) {
+    return this.externalIngress.getInvocationByIdempotencyKey(input);
   }
 
   async updateExternalIngressInvocation(input: {

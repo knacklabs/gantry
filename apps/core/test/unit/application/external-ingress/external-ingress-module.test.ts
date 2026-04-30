@@ -95,16 +95,26 @@ function makeModule(overrides?: {
     updateExternalIngress: vi.fn(),
     deleteExternalIngress: vi.fn(),
     reserveExternalIngressNonce: vi.fn(async () => ({ ok: true as const })),
+    getExternalIngressInvocationByIdempotencyKey: vi.fn(async () => undefined),
     createExternalIngressInvocation: vi.fn(async (input) => ({
       created: true,
-      row: { invocationId: input.invocationId, status: 'pending' },
+      row: {
+        invocationId: input.invocationId,
+        status: 'pending',
+        bodyHash: input.bodyHash,
+        response: null,
+        error: null,
+        updatedAt: input.now,
+      },
     })),
     updateExternalIngressInvocation: vi.fn(async () => undefined),
     getExternalIngressInvocation: vi.fn(async () => ({
       invocationId: 'invocation-1',
       status: 'completed',
+      bodyHash: 'hash',
       response: { ok: true },
       error: null,
+      updatedAt: '2026-04-30T00:00:00.000Z',
     })),
     ...overrides?.control,
   };
@@ -113,6 +123,17 @@ function makeModule(overrides?: {
     ensureSession: vi.fn(async () => ({
       session: {
         sessionId: 'session-1',
+      },
+      registerGroup: {
+        chatJid: 'app:app-one:conv-1',
+        group: {
+          name: 'app-one:conv-1',
+          folder: 'app_conv_1',
+          trigger: '',
+          added_at: '2026-04-30T00:00:00.000Z',
+          requiresTrigger: false,
+          isMain: false,
+        },
       },
     })),
     acceptMessage: vi.fn(async () => ({
@@ -156,6 +177,7 @@ type ExternalIngressControl = {
   updateExternalIngress: ReturnType<typeof vi.fn>;
   deleteExternalIngress: ReturnType<typeof vi.fn>;
   reserveExternalIngressNonce: ReturnType<typeof vi.fn>;
+  getExternalIngressInvocationByIdempotencyKey: ReturnType<typeof vi.fn>;
   createExternalIngressInvocation: ReturnType<typeof vi.fn>;
   updateExternalIngressInvocation: ReturnType<typeof vi.fn>;
   getExternalIngressInvocation: ReturnType<typeof vi.fn>;
@@ -172,6 +194,122 @@ type ExternalIngressJobs = {
 };
 
 describe('ExternalIngressModule', () => {
+  it('rejects disabled ingresses before nonce reservation', async () => {
+    const { module, control, sessions } = makeModule({
+      control: {
+        getExternalIngressById: vi.fn(async () => ({
+          ingressId: 'ingress-1',
+          appId: 'app-one',
+          name: 'main',
+          secret: 'secret-1',
+          enabled: false,
+          metadata: {},
+          createdAt: '2026-04-30T00:00:00.000Z',
+          updatedAt: '2026-04-30T00:00:00.000Z',
+        })),
+      },
+    });
+    const rawBody = JSON.stringify({
+      target: { kind: 'job_trigger', jobId: 'job-1' },
+    });
+    const request = signedInvokeInput({ secret: 'secret-1', rawBody });
+
+    await expect(module.invoke(request)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Ingress is disabled',
+    });
+    expect(control.reserveExternalIngressNonce).not.toHaveBeenCalled();
+    expect(sessions.ensureSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects stale signatures before nonce reservation', async () => {
+    const { module, control } = makeModule();
+    const rawBody = JSON.stringify({
+      target: { kind: 'job_trigger', jobId: 'job-1' },
+    });
+    const request = signedInvokeInput({
+      secret: 'secret-1',
+      rawBody,
+      timestamp: String(Date.now() - 10 * 60_000),
+    });
+
+    await expect(module.invoke(request)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Invalid external ingress signature',
+    });
+    expect(control.reserveExternalIngressNonce).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid signatures before nonce reservation', async () => {
+    const { module, control } = makeModule();
+    const rawBody = JSON.stringify({
+      target: { kind: 'job_trigger', jobId: 'job-1' },
+    });
+    const request = signedInvokeInput({ secret: 'secret-1', rawBody });
+
+    await expect(
+      module.invoke({ ...request, signature: 'bad-signature' }),
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Invalid external ingress signature',
+    });
+    expect(control.reserveExternalIngressNonce).not.toHaveBeenCalled();
+  });
+
+  it('rejects nonce replays before invocation insert', async () => {
+    const { module, control } = makeModule({
+      control: {
+        reserveExternalIngressNonce: vi.fn(async () => ({
+          ok: false as const,
+          code: 'NONCE_REPLAY',
+        })),
+      },
+    });
+    const rawBody = JSON.stringify({
+      target: { kind: 'job_trigger', jobId: 'job-1' },
+    });
+    const request = signedInvokeInput({ secret: 'secret-1', rawBody });
+
+    await expect(module.invoke(request)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'External ingress nonce replay',
+    });
+    expect(control.createExternalIngressInvocation).not.toHaveBeenCalled();
+  });
+
+  it('rejects duplicate active invocations for the same idempotency key', async () => {
+    const { module, control } = makeModule({
+      control: {
+        getExternalIngressInvocationByIdempotencyKey: vi.fn(async () => ({
+          invocationId: 'invocation-existing',
+          status: 'pending',
+          bodyHash: signatureCrypto.sha256(
+            JSON.stringify({
+              target: { kind: 'job_trigger', jobId: 'job-1' },
+              idempotencyKey: 'idem-active',
+            }),
+          ),
+          response: null,
+          error: null,
+          updatedAt: '2026-04-30T00:00:00.000Z',
+        })),
+      },
+    });
+    const rawBody = JSON.stringify({
+      target: { kind: 'job_trigger', jobId: 'job-1' },
+      idempotencyKey: 'idem-active',
+    });
+    const request = signedInvokeInput({ secret: 'secret-1', rawBody });
+
+    await expect(module.invoke(request)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'Duplicate active external ingress invocation',
+    });
+    expect(control.reserveExternalIngressNonce).not.toHaveBeenCalled();
+    expect(control.createExternalIngressInvocation).not.toHaveBeenCalled();
+    expect(control.updateExternalIngressInvocation).not.toHaveBeenCalled();
+  });
+
   it('rejects requests whose payload appId does not match ingress app scope', async () => {
     const { module, control, sessions } = makeModule();
     const rawBody = JSON.stringify({
@@ -198,9 +336,24 @@ describe('ExternalIngressModule', () => {
   it('reuses completed invocations for idempotent retries', async () => {
     const { module, control, sessions, jobs } = makeModule({
       control: {
-        createExternalIngressInvocation: vi.fn(async () => ({
-          created: false,
-          row: { invocationId: 'invocation-existing', status: 'completed' },
+        getExternalIngressInvocationByIdempotencyKey: vi.fn(async () => ({
+          invocationId: 'invocation-existing',
+          status: 'completed',
+          bodyHash: signatureCrypto.sha256(
+            JSON.stringify({
+              target: {
+                kind: 'job_trigger',
+                jobId: 'job-1',
+              },
+            }),
+          ),
+          response: {
+            targetKind: 'job_trigger',
+            jobId: 'job-1',
+            triggerId: 'trigger-1',
+          },
+          error: null,
+          updatedAt: '2026-04-30T00:00:00.000Z',
         })),
       },
     });
@@ -219,10 +372,50 @@ describe('ExternalIngressModule', () => {
     await expect(module.invoke(request)).resolves.toEqual({
       invocationId: 'invocation-existing',
       duplicate: true,
+      status: 'completed',
+      targetKind: 'job_trigger',
+      jobId: 'job-1',
+      triggerId: 'trigger-1',
     });
+    expect(control.reserveExternalIngressNonce).not.toHaveBeenCalled();
+    expect(control.createExternalIngressInvocation).not.toHaveBeenCalled();
     expect(sessions.ensureSession).not.toHaveBeenCalled();
     expect(jobs.triggerJob).not.toHaveBeenCalled();
     expect(control.updateExternalIngressInvocation).not.toHaveBeenCalled();
+  });
+
+  it('rejects idempotency key reuse with a different body hash', async () => {
+    const { module, control, jobs } = makeModule({
+      control: {
+        getExternalIngressInvocationByIdempotencyKey: vi.fn(async () => ({
+          invocationId: 'invocation-existing',
+          status: 'completed',
+          bodyHash: 'different-body-hash',
+          response: { targetKind: 'job_trigger' },
+          error: null,
+          updatedAt: '2026-04-30T00:00:00.000Z',
+        })),
+      },
+    });
+    const rawBody = JSON.stringify({
+      target: {
+        kind: 'job_trigger',
+        jobId: 'job-1',
+      },
+      idempotencyKey: 'idem-reused',
+    });
+    const request = signedInvokeInput({
+      secret: 'secret-1',
+      rawBody,
+      nonce: 'nonce-reused',
+    });
+
+    await expect(module.invoke(request)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'Idempotency key reused with different request body',
+    });
+    expect(control.reserveExternalIngressNonce).not.toHaveBeenCalled();
+    expect(jobs.triggerJob).not.toHaveBeenCalled();
   });
 
   it('ensures a session then accepts message for session_message targets', async () => {
@@ -257,6 +450,12 @@ describe('ExternalIngressModule', () => {
         chatJid: 'app:app-one:conv-1',
         threadId: null,
         queueKey: 'app:app-one:conv-1',
+      },
+      registerGroup: {
+        chatJid: 'app:app-one:conv-1',
+        group: expect.objectContaining({
+          folder: 'app_conv_1',
+        }),
       },
     });
     expect(sessions.ensureSession).toHaveBeenCalledWith({
@@ -307,6 +506,69 @@ describe('ExternalIngressModule', () => {
       message: 'Ingress is not allowed to invoke this session target',
     });
     expect(sessions.ensureSession).not.toHaveBeenCalled();
+  });
+
+  it('requires allowed sessionId when a sessionId is explicitly supplied', async () => {
+    const { module, sessions } = makeModule({
+      metadata: {
+        targetPolicy: {
+          allowedTargetKinds: ['session_message'],
+          conversationIds: ['conv-1'],
+          sessionIds: ['session-allowed'],
+        },
+      },
+    });
+    const rawBody = JSON.stringify({
+      target: {
+        kind: 'session_message',
+        sessionId: 'session-off-policy',
+        conversationId: 'conv-1',
+        message: 'launch now',
+      },
+    });
+    const request = signedInvokeInput({
+      secret: 'secret-1',
+      rawBody,
+      nonce: 'nonce-session-policy',
+    });
+
+    await expect(module.invoke(request)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Ingress is not allowed to invoke this session target',
+    });
+    expect(sessions.acceptMessage).not.toHaveBeenCalled();
+  });
+
+  it('marks invocations failed when dispatch throws', async () => {
+    const dispatchError = new Error('dispatch failed');
+    const { module, control } = makeModule({
+      sessions: {
+        acceptMessage: vi.fn(async () => {
+          throw dispatchError;
+        }),
+      },
+    });
+    const rawBody = JSON.stringify({
+      target: {
+        kind: 'session_message',
+        sessionId: 'session-1',
+        message: 'launch now',
+      },
+    });
+    const request = signedInvokeInput({
+      secret: 'secret-1',
+      rawBody,
+      nonce: 'nonce-dispatch-fail',
+    });
+
+    await expect(module.invoke(request)).rejects.toThrow('dispatch failed');
+    expect(control.updateExternalIngressInvocation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        invocationId: 'invocation-new',
+        status: 'failed',
+        error: 'dispatch failed',
+      }),
+    );
   });
 
   it('uses ingressId when reading signed wait invocations', async () => {

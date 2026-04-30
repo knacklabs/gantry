@@ -104,6 +104,32 @@ describe('external ingress signature helpers', () => {
     ).toBe(false);
   });
 
+  it('rejects non-numeric timestamps', () => {
+    const signature = signExternalIngressRequest({
+      crypto: cryptoPort,
+      secret: 'secret',
+      method: 'POST',
+      path: '/v1/external-ingress/invoke',
+      timestamp: 'not-a-number',
+      nonce: 'nonce-1',
+      rawBody: '{}',
+    }).signature;
+
+    expect(
+      verifyExternalIngressRequestSignature({
+        crypto: cryptoPort,
+        secret: 'secret',
+        method: 'POST',
+        path: '/v1/external-ingress/invoke',
+        timestamp: 'not-a-number',
+        nonce: 'nonce-1',
+        rawBody: '{}',
+        signature,
+        nowMs: Date.now(),
+      }),
+    ).toBe(false);
+  });
+
   it('canonicalizes method casing and emits a body hash', () => {
     const bodyHash = cryptoPort.sha256('{"ok":true}');
     const payload = buildExternalIngressSignaturePayload({

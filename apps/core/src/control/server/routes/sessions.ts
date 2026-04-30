@@ -1,6 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { ApplicationError } from '../../../application/common/application-error.js';
 import type { RuntimeEvent } from '../../../domain/events/events.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import { resolveAppScopeAppId } from '../app-identity.js';
@@ -9,7 +8,12 @@ import {
   authorizeControlRequest,
   type ControlRouteContext,
 } from '../handler-context.js';
-import { readJson, sendError, sendJson } from '../http.js';
+import {
+  readJson,
+  sendApplicationError as sendApplicationErrorResponse,
+  sendError,
+  sendJson,
+} from '../http.js';
 import { parseSessionRoute } from '../route-parser.js';
 import {
   acceptMessageForControl,
@@ -19,30 +23,11 @@ import {
 } from '../session-interaction-adapter.js';
 
 function sendApplicationError(res: ServerResponse, error: unknown): boolean {
-  if (!(error instanceof ApplicationError)) return false;
-  switch (error.code) {
-    case 'NOT_FOUND':
-      sendError(
-        res,
-        404,
-        error.message === 'Webhook not found'
-          ? 'WEBHOOK_NOT_FOUND'
-          : 'SESSION_NOT_FOUND',
-        error.message,
-      );
-      return true;
-    case 'FORBIDDEN':
-      sendError(res, 403, 'FORBIDDEN', error.message);
-      return true;
-    case 'INVALID_REQUEST':
-      sendError(res, 400, 'INVALID_REQUEST', error.message);
-      return true;
-    case 'WAIT_TIMEOUT':
-      sendError(res, 408, 'WAIT_TIMEOUT', error.message);
-      return true;
-    default:
-      throw error;
-  }
+  const notFoundCode =
+    error instanceof Error && error.message === 'Webhook not found'
+      ? 'WEBHOOK_NOT_FOUND'
+      : 'SESSION_NOT_FOUND';
+  return sendApplicationErrorResponse(res, error, { NOT_FOUND: notFoundCode });
 }
 
 export async function handleSessionRoutes(
@@ -210,7 +195,20 @@ export async function handleSessionRoutes(
       }
       const initial = events.length > 0 ? events : [];
       let lastEventId = initial[initial.length - 1]?.eventId;
-      let subscription: SessionEventSubscription;
+      let closed = req.destroyed || res.destroyed;
+      let streamActive = false;
+      let subscription: SessionEventSubscription | undefined;
+      const cleanup = () => {
+        if (closed && !streamActive && !subscription) return;
+        closed = true;
+        subscription?.close();
+        if (streamActive) {
+          streamActive = false;
+          ctx.state.activeStreams = Math.max(0, ctx.state.activeStreams - 1);
+        }
+      };
+      req.once('close', cleanup);
+      res.once('close', cleanup);
       try {
         subscription = await module.subscribeEvents({
           appId: auth.appId,
@@ -222,24 +220,29 @@ export async function handleSessionRoutes(
         if (sendApplicationError(res, error)) return true;
         throw error;
       }
+      if (closed || req.destroyed || res.destroyed) {
+        cleanup();
+        return true;
+      }
       ctx.state.activeStreams += 1;
+      streamActive = true;
       res.statusCode = 200;
       res.setHeader('content-type', 'text/event-stream');
       res.setHeader('cache-control', 'no-cache');
       res.setHeader('connection', 'keep-alive');
       for (const event of initial) {
-        writeSseEvent(res, event);
+        await writeSseEvent(res, event, () => closed);
       }
-      let closed = false;
       const pump = async () => {
         while (!closed) {
           try {
             const next = await subscription.next({ timeoutMs: 30_000 });
             for (const event of next) {
               lastEventId = event.eventId;
-              writeSseEvent(res, event);
+              await writeSseEvent(res, event, () => closed);
             }
           } catch (error) {
+            if (closed) return;
             logger.warn(
               { err: error, sessionId: sessionRoute.sessionId },
               'Failed streaming runtime events',
@@ -249,11 +252,6 @@ export async function handleSessionRoutes(
         }
       };
       void pump();
-      req.on('close', () => {
-        closed = true;
-        subscription.close();
-        ctx.state.activeStreams = Math.max(0, ctx.state.activeStreams - 1);
-      });
       return true;
     }
     sendJson(res, 200, {
@@ -308,10 +306,35 @@ export async function handleSessionRoutes(
   return false;
 }
 
-function writeSseEvent(res: ServerResponse, event: RuntimeEvent): void {
-  res.write(`id: ${event.eventId}\n`);
-  res.write(`event: ${sanitizeSseEventType(event.eventType)}\n`);
-  res.write(`data: ${JSON.stringify(event.payload)}\n\n`);
+async function writeSseEvent(
+  res: ServerResponse,
+  event: RuntimeEvent,
+  isClosed: () => boolean = () => false,
+): Promise<void> {
+  if (isClosed() || res.destroyed) return;
+  const chunk = [
+    `id: ${event.eventId}`,
+    `event: ${sanitizeSseEventType(event.eventType)}`,
+    `data: ${JSON.stringify(event.payload)}`,
+    '',
+    '',
+  ].join('\n');
+  if (res.write(chunk)) return;
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      res.off('drain', finish);
+      res.off('close', finish);
+      res.off('error', finish);
+      resolve();
+    };
+    res.once('drain', finish);
+    res.once('close', finish);
+    res.once('error', finish);
+    if (isClosed() || res.destroyed) finish();
+  });
 }
 
 function sanitizeSseEventType(eventType: string): string {
@@ -328,3 +351,7 @@ function parseListLimit(raw: string | null): number {
   if (!Number.isFinite(parsed)) return 100;
   return Math.min(200, Math.max(1, Math.floor(parsed)));
 }
+
+export const _testSessionRoutes = {
+  writeSseEvent,
+};

@@ -12,11 +12,11 @@ export function adaptSessionControlPort(
         appId: input.appId,
         conversationId: input.conversationId,
         chatJid: input.chatJid,
-        ['group' + 'Folder']: input.folder,
+        groupFolder: input.folder,
         title: input.title,
         defaultResponseMode: input.defaultResponseMode,
         defaultWebhookId: input.defaultWebhookId,
-      } as never);
+      });
     },
     getAppSessionById: (sessionId) => control.getAppSessionById(sessionId),
     getAppSessionByChatJid: (chatJid) =>

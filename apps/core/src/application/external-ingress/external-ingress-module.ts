@@ -5,6 +5,15 @@ import {
   type ExternalIngressSignaturePort,
   verifyExternalIngressRequestSignature,
 } from './signature.js';
+import {
+  assertTargetAllowed,
+  type IngressTarget,
+  readOptionalString,
+  readString,
+  readTemplate,
+  readVariables,
+  renderTemplate,
+} from './target-policy.js';
 
 type ExternalIngressRecord = {
   ingressId: string;
@@ -40,7 +49,7 @@ type ExternalIngressControlPort = {
       metadata?: unknown;
     },
   ): Promise<ExternalIngressRecord | undefined>;
-  deleteExternalIngress(ingressId: string, appId: string): Promise<void>;
+  deleteExternalIngress(ingressId: string, appId: string): Promise<boolean>;
   reserveExternalIngressNonce(input: {
     appId: string;
     ingressId: string;
@@ -65,8 +74,13 @@ type ExternalIngressControlPort = {
     expiresAt: string;
   }): Promise<{
     created: boolean;
-    row: { invocationId: string; status: string };
+    row?: ExternalIngressInvocationRecord;
   }>;
+  getExternalIngressInvocationByIdempotencyKey(input: {
+    appId: string;
+    ingressId: string;
+    idempotencyKey: string;
+  }): Promise<ExternalIngressInvocationRecord | undefined>;
   updateExternalIngressInvocation(input: {
     invocationId: string;
     status: string;
@@ -87,6 +101,15 @@ type ExternalIngressControlPort = {
       }
     | undefined
   >;
+};
+
+type ExternalIngressInvocationRecord = {
+  invocationId: string;
+  status: string;
+  bodyHash: string;
+  response: unknown;
+  error: string | null;
+  updatedAt: string;
 };
 
 export class ExternalIngressModule {
@@ -165,7 +188,11 @@ export class ExternalIngressModule {
   }
 
   async delete(input: { appId: string; ingressId: string }) {
-    await this.deps.control.deleteExternalIngress(input.ingressId, input.appId);
+    const deleted = await this.deps.control.deleteExternalIngress(
+      input.ingressId,
+      input.appId,
+    );
+    if (!deleted) throw new ApplicationError('NOT_FOUND', 'Ingress not found');
     return { deleted: true };
   }
 
@@ -212,8 +239,29 @@ export class ExternalIngressModule {
         'Request appId does not match ingress app scope',
       );
     }
-    const now = this.deps.now();
     const timestampMs = Number(input.timestamp);
+    const now = this.deps.now();
+    const idempotencyKey =
+      typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim()
+        ? body.idempotencyKey.trim()
+        : input.nonce;
+    const bodyHash = this.deps.signatureCrypto.sha256(input.rawBody);
+    const existing =
+      await this.deps.control.getExternalIngressInvocationByIdempotencyKey({
+        appId: ingress.appId,
+        ingressId: ingress.ingressId,
+        idempotencyKey,
+      });
+    if (existing) {
+      assertSameIdempotencyBody(existing, bodyHash);
+      if (existing.status === 'pending') {
+        throw new ApplicationError(
+          'CONFLICT',
+          'Duplicate active external ingress invocation',
+        );
+      }
+      return duplicateInvocationResponse(existing);
+    }
     const nonceExpiry = new Date(timestampMs + 5 * 60_000).toISOString();
     const nonce = await this.deps.control.reserveExternalIngressNonce({
       appId: ingress.appId,
@@ -226,11 +274,6 @@ export class ExternalIngressModule {
       throw new ApplicationError('CONFLICT', 'External ingress nonce replay');
     }
     const invocationId = this.deps.createInvocationId();
-    const idempotencyKey =
-      typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim()
-        ? body.idempotencyKey.trim()
-        : input.nonce;
-    const bodyHash = this.deps.signatureCrypto.sha256(input.rawBody);
     const invocation = await this.deps.control.createExternalIngressInvocation({
       invocationId,
       appId: ingress.appId,
@@ -247,6 +290,15 @@ export class ExternalIngressModule {
       now,
       expiresAt: addDaysIso(now, 30),
     });
+    if (!invocation.row) {
+      throw new ApplicationError(
+        'CONFLICT',
+        'External ingress invocation conflict; retry request',
+      );
+    }
+    if (!invocation.created) {
+      assertSameIdempotencyBody(invocation.row, bodyHash);
+    }
     if (!invocation.created && invocation.row.status === 'pending') {
       throw new ApplicationError(
         'CONFLICT',
@@ -254,10 +306,7 @@ export class ExternalIngressModule {
       );
     }
     if (!invocation.created) {
-      return {
-        invocationId: invocation.row.invocationId,
-        duplicate: true,
-      };
+      return duplicateInvocationResponse(invocation.row);
     }
     try {
       const result = await this.dispatchTarget({
@@ -274,12 +323,7 @@ export class ExternalIngressModule {
       });
       return { invocationId, duplicate: false, ...result };
     } catch (error) {
-      await this.deps.control.updateExternalIngressInvocation({
-        invocationId,
-        status: 'failed',
-        error: error instanceof Error ? error.message : 'Invocation failed',
-        now: this.deps.now(),
-      });
+      await this.markInvocationFailed(invocationId, error);
       throw error;
     }
   }
@@ -371,6 +415,11 @@ export class ExternalIngressModule {
   private async invokeSessionMessage(appId: string, target: IngressTarget) {
     const message = readString(target, 'message');
     let sessionId = readOptionalString(target, 'sessionId');
+    let registerGroup:
+      | Awaited<
+          ReturnType<SessionInteractionModule['ensureSession']>
+        >['registerGroup']
+      | undefined;
     if (!sessionId) {
       const conversationId = readString(target, 'conversationId');
       const ensured = await this.deps.sessions.ensureSession({
@@ -379,6 +428,7 @@ export class ExternalIngressModule {
         title: readOptionalString(target, 'title'),
       });
       sessionId = ensured.session.sessionId;
+      registerGroup = ensured.registerGroup;
     }
     const accepted = await this.deps.sessions.acceptMessage({
       appId,
@@ -402,6 +452,7 @@ export class ExternalIngressModule {
         sessionId,
         afterEventId: accepted.acceptedEventId,
       },
+      ...(registerGroup ? { registerGroup } : {}),
       enqueue: accepted.enqueue,
     };
   }
@@ -465,9 +516,24 @@ export class ExternalIngressModule {
       wait: { kind: 'trigger', triggerId: trigger.triggerId },
     };
   }
-}
 
-type IngressTarget = Record<string, unknown> & { kind: string };
+  private async markInvocationFailed(
+    invocationId: string,
+    error: unknown,
+  ): Promise<void> {
+    try {
+      await this.deps.control.updateExternalIngressInvocation({
+        invocationId,
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Invocation failed',
+        now: this.deps.now(),
+      });
+    } catch {
+      // Dispatch errors should stay visible to the caller even if the
+      // best-effort failure status update races with shutdown or deletion.
+    }
+  }
+}
 
 function publicIngress(ingress: ExternalIngressRecord) {
   return {
@@ -509,151 +575,32 @@ function addDaysIso(value: string, days: number): string {
   return new Date(base + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
-function assertTargetAllowed(metadata: unknown, target: IngressTarget): void {
-  const policy = readTargetPolicy(metadata);
-  if (!allows(policy.targetKinds, target.kind)) {
+function assertSameIdempotencyBody(
+  invocation: ExternalIngressInvocationRecord,
+  bodyHash: string,
+): void {
+  if (invocation.bodyHash !== bodyHash) {
     throw new ApplicationError(
-      'FORBIDDEN',
-      `Ingress is not allowed to invoke target kind: ${target.kind}`,
-    );
-  }
-  if (target.kind === 'session_message') {
-    const sessionId = readOptionalString(target, 'sessionId');
-    if (sessionId && allows(policy.sessionIds, sessionId)) return;
-    const conversationId = readOptionalString(target, 'conversationId');
-    if (conversationId && allows(policy.conversationIds, conversationId)) {
-      return;
-    }
-    throw new ApplicationError(
-      'FORBIDDEN',
-      'Ingress is not allowed to invoke this session target',
-    );
-  }
-  if (target.kind === 'job_trigger') {
-    const jobId = readOptionalString(target, 'jobId');
-    if (jobId && allows(policy.jobIds, jobId)) return;
-    throw new ApplicationError(
-      'FORBIDDEN',
-      'Ingress is not allowed to trigger this job',
-    );
-  }
-  if (target.kind === 'job_template') {
-    const templateId = readOptionalString(target, 'templateId');
-    if (templateId && allows(policy.templateIds, templateId)) return;
-    throw new ApplicationError(
-      'FORBIDDEN',
-      'Ingress is not allowed to invoke this job template',
+      'CONFLICT',
+      'Idempotency key reused with different request body',
     );
   }
 }
 
-function readTargetPolicy(metadata: unknown): {
-  targetKinds: Set<string>;
-  sessionIds: Set<string>;
-  conversationIds: Set<string>;
-  jobIds: Set<string>;
-  templateIds: Set<string>;
-} {
-  const root =
-    metadata && typeof metadata === 'object' && !Array.isArray(metadata)
-      ? (metadata as Record<string, unknown>)
-      : {};
-  const policy =
-    root.targetPolicy &&
-    typeof root.targetPolicy === 'object' &&
-    !Array.isArray(root.targetPolicy)
-      ? (root.targetPolicy as Record<string, unknown>)
+function duplicateInvocationResponse(
+  invocation: ExternalIngressInvocationRecord,
+) {
+  const response =
+    invocation.response &&
+    typeof invocation.response === 'object' &&
+    !Array.isArray(invocation.response)
+      ? (invocation.response as Record<string, unknown>)
       : {};
   return {
-    targetKinds: readPolicySet(policy.allowedTargetKinds),
-    sessionIds: readPolicySet(policy.sessionIds),
-    conversationIds: readPolicySet(policy.conversationIds),
-    jobIds: readPolicySet(policy.jobIds),
-    templateIds: readPolicySet(policy.templateIds),
+    invocationId: invocation.invocationId,
+    duplicate: true,
+    status: invocation.status,
+    ...response,
+    ...(invocation.error ? { error: invocation.error } : {}),
   };
-}
-
-function readPolicySet(value: unknown): Set<string> {
-  if (!Array.isArray(value)) return new Set();
-  return new Set(
-    value
-      .filter((item): item is string => typeof item === 'string')
-      .map((item) => item.trim())
-      .filter(Boolean),
-  );
-}
-
-function allows(allowed: Set<string>, value: string): boolean {
-  return allowed.has('*') || allowed.has(value);
-}
-
-function readString(record: Record<string, unknown>, key: string): string {
-  const value = record[key];
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new ApplicationError('INVALID_REQUEST', `${key} is required`);
-  }
-  return value.trim();
-}
-
-function readOptionalString(
-  record: Record<string, unknown>,
-  key: string,
-): string | null {
-  const value = record[key];
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function readVariables(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const variables: Record<string, string> = {};
-  for (const [key, raw] of Object.entries(value)) {
-    if (typeof raw === 'string' || typeof raw === 'number') {
-      variables[key] = String(raw);
-    }
-  }
-  return variables;
-}
-
-function readTemplate(
-  metadata: unknown,
-  templateId: string,
-): {
-  name: string;
-  prompt: string;
-  sessionId: string;
-  allowedVariables?: string[];
-} {
-  const root =
-    metadata && typeof metadata === 'object' && !Array.isArray(metadata)
-      ? (metadata as Record<string, unknown>)
-      : {};
-  const templates =
-    root.templates && typeof root.templates === 'object'
-      ? (root.templates as Record<string, unknown>)
-      : {};
-  const template = templates[templateId];
-  if (!template || typeof template !== 'object' || Array.isArray(template)) {
-    throw new ApplicationError('NOT_FOUND', 'Job template not found');
-  }
-  const record = template as Record<string, unknown>;
-  const allowed = Array.isArray(record.allowedVariables)
-    ? record.allowedVariables.filter(
-        (value): value is string => typeof value === 'string',
-      )
-    : [];
-  return {
-    name: readString(record, 'name'),
-    prompt: readString(record, 'prompt'),
-    sessionId: readString(record, 'sessionId'),
-    allowedVariables: allowed,
-  };
-}
-
-function renderTemplate(
-  prompt: string,
-  variables: Record<string, string>,
-): string {
-  return prompt.replace(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g, (_match, key) => {
-    return variables[String(key)] ?? '';
-  });
 }

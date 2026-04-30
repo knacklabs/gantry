@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+import { ApplicationError } from '../../application/common/application-error.js';
+
 export function readRawBody(
   req: IncomingMessage,
   maxBytes: number,
@@ -118,4 +120,80 @@ export function sendError(
       requestId: randomUUID(),
     },
   });
+}
+
+export function sendApplicationError(
+  res: ServerResponse,
+  error: unknown,
+  overrides?: Partial<Record<ApplicationError['code'], string>>,
+): boolean {
+  if (!(error instanceof ApplicationError)) return false;
+  switch (error.code) {
+    case 'NOT_FOUND':
+      sendError(res, 404, overrides?.NOT_FOUND ?? 'NOT_FOUND', error.message);
+      return true;
+    case 'TRIGGER_NOT_FOUND':
+      sendError(
+        res,
+        404,
+        overrides?.TRIGGER_NOT_FOUND ?? 'TRIGGER_NOT_FOUND',
+        error.message,
+      );
+      return true;
+    case 'FORBIDDEN':
+      sendError(res, 403, overrides?.FORBIDDEN ?? 'FORBIDDEN', error.message);
+      return true;
+    case 'INVALID_REQUEST':
+    case 'INVALID_SCHEDULE':
+      sendError(
+        res,
+        400,
+        overrides?.[error.code] ?? 'INVALID_REQUEST',
+        error.message,
+      );
+      return true;
+    case 'CONFLICT':
+      sendError(res, 409, overrides?.CONFLICT ?? 'CONFLICT', error.message);
+      return true;
+    case 'RATE_LIMITED':
+      sendError(
+        res,
+        429,
+        overrides?.RATE_LIMITED ?? 'RATE_LIMITED',
+        error.message,
+      );
+      return true;
+    case 'WAIT_TIMEOUT':
+      sendError(
+        res,
+        408,
+        overrides?.WAIT_TIMEOUT ?? 'WAIT_TIMEOUT',
+        error.message,
+      );
+      return true;
+    case 'SCHEDULER_NOT_READY':
+      sendError(
+        res,
+        503,
+        overrides?.SCHEDULER_NOT_READY ?? 'SCHEDULER_NOT_READY',
+        error.message,
+      );
+      return true;
+    case 'UNAVAILABLE':
+      sendError(
+        res,
+        503,
+        overrides?.UNAVAILABLE ?? 'UNAVAILABLE',
+        error.message,
+      );
+      return true;
+    case 'NOT_IMPLEMENTED':
+      sendError(
+        res,
+        501,
+        overrides?.NOT_IMPLEMENTED ?? 'NOT_IMPLEMENTED',
+        error.message,
+      );
+      return true;
+  }
 }

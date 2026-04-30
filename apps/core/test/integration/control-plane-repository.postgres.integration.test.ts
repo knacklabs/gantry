@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { inArray } from 'drizzle-orm';
+import { and, count, eq, inArray, like } from 'drizzle-orm';
 import * as pgSchema from '@core/adapters/storage/postgres/schema/schema.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import type { JobUpsertInput } from '@core/domain/repositories/ops-repo.js';
@@ -409,7 +409,14 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
     });
     expect(created).toEqual({
       created: true,
-      row: { invocationId: 'invocation:control-repo:a', status: 'pending' },
+      row: {
+        invocationId: 'invocation:control-repo:a',
+        status: 'pending',
+        bodyHash: 'hash',
+        response: null,
+        error: null,
+        updatedAt: expect.any(String),
+      },
     });
     await expect(
       runtime.control.createExternalIngressInvocation({
@@ -430,7 +437,42 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
       }),
     ).resolves.toEqual({
       created: false,
-      row: { invocationId: 'invocation:control-repo:a', status: 'pending' },
+      row: {
+        invocationId: 'invocation:control-repo:a',
+        status: 'pending',
+        bodyHash: 'hash',
+        response: null,
+        error: null,
+        updatedAt: expect.any(String),
+      },
+    });
+    await expect(
+      runtime.control.createExternalIngressInvocation({
+        invocationId: 'invocation:control-repo:exact-retry',
+        appId: 'default',
+        ingressId: ingress.ingressId,
+        idempotencyKey: 'idem-control-repo',
+        nonce: 'nonce-control-repo',
+        requestMethod: 'POST',
+        requestPath: `/v1/ingresses/${ingress.ingressId}/invoke`,
+        requestTimestamp: now,
+        bodyHash: 'hash',
+        requestBody: '{"target":{"kind":"session_message"}}',
+        signature: 'signature',
+        status: 'pending',
+        now,
+        expiresAt: '2026-05-30T00:00:00.000Z',
+      }),
+    ).resolves.toEqual({
+      created: false,
+      row: {
+        invocationId: 'invocation:control-repo:a',
+        status: 'pending',
+        bodyHash: 'hash',
+        response: null,
+        error: null,
+        updatedAt: expect.any(String),
+      },
     });
 
     await runtime.control.updateExternalIngressInvocation({
@@ -458,7 +500,14 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
       }),
     ).resolves.toEqual({
       created: false,
-      row: { invocationId: 'invocation:control-repo:a', status: 'completed' },
+      row: {
+        invocationId: 'invocation:control-repo:a',
+        status: 'completed',
+        bodyHash: 'hash',
+        response: { ok: true },
+        error: null,
+        updatedAt: expect.any(String),
+      },
     });
     await expect(
       runtime.control.getExternalIngressInvocation(
@@ -479,41 +528,145 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
       ),
     ).resolves.toBeUndefined();
 
-    await runtime.control.createExternalIngressInvocation({
-      invocationId: 'invocation:control-repo:expired',
-      appId: 'default',
-      ingressId: ingress.ingressId,
-      idempotencyKey: 'idem-expired-control-repo',
-      nonce: 'nonce-expired-control-repo',
-      requestMethod: 'POST',
-      requestPath: `/v1/ingresses/${ingress.ingressId}/invoke`,
-      requestTimestamp: now,
-      bodyHash: 'hash',
-      requestBody: '{}',
-      signature: 'signature',
-      status: 'completed',
-      now,
-      expiresAt: '2026-04-29T00:00:00.000Z',
+    const stalePendingRecoveryCap = 1000;
+    const deleteBatchSize = 1000;
+    const deleteBatchCapPerSweep = 10;
+    const expiredDeleteCap = deleteBatchSize * deleteBatchCapPerSweep;
+    const stalePendingRows = Array.from(
+      { length: stalePendingRecoveryCap + 1 },
+      (_, index) => ({
+        invocationId: `invocation:control-repo:stale:${index}`,
+        appId: 'default',
+        ingressId: ingress.ingressId,
+        idempotencyKey: `idem-stale-control-repo:${index}`,
+        nonce: `nonce-stale-control-repo:${index}`,
+        requestMethod: 'POST',
+        requestPath: `/v1/ingresses/${ingress.ingressId}/invoke`,
+        requestTimestamp: now,
+        bodyHash: 'hash',
+        requestBody: '{}',
+        signature: 'signature',
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: '2026-05-30T00:00:00.000Z',
+      }),
+    );
+    const expiredInvocationRows = Array.from(
+      { length: expiredDeleteCap + 1 },
+      (_, index) => ({
+        invocationId: `invocation:control-repo:expired-bulk:${index}`,
+        appId: 'default',
+        ingressId: ingress.ingressId,
+        idempotencyKey: `idem-expired-control-repo:${index}`,
+        nonce: `nonce-expired-control-repo:${index}`,
+        requestMethod: 'POST',
+        requestPath: `/v1/ingresses/${ingress.ingressId}/invoke`,
+        requestTimestamp: now,
+        bodyHash: 'hash',
+        requestBody: '{}',
+        signature: 'signature',
+        status: 'completed',
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: '2026-04-29T00:00:00.000Z',
+      }),
+    );
+    const expiredNonceRows = Array.from(
+      { length: expiredDeleteCap + 1 },
+      (_, index) => ({
+        appId: 'default',
+        ingressId: ingress.ingressId,
+        nonce: `nonce-expired-control-repo-bulk:${index}`,
+        createdAt: now,
+        expiresAt: '2026-04-29T00:00:00.000Z',
+      }),
+    );
+    await insertInChunks(stalePendingRows, 250, async (chunk) => {
+      await runtime.service.db
+        .insert(pgSchema.externalIngressInvocationsPostgres)
+        .values(chunk);
     });
-    await runtime.control.reserveExternalIngressNonce({
-      appId: 'default',
-      ingressId: ingress.ingressId,
-      nonce: 'nonce-expired-control-repo',
-      now,
-      expiresAt: '2026-04-29T00:00:00.000Z',
+    await insertInChunks(expiredInvocationRows, 250, async (chunk) => {
+      await runtime.service.db
+        .insert(pgSchema.externalIngressInvocationsPostgres)
+        .values(chunk);
+    });
+    await insertInChunks(expiredNonceRows, 500, async (chunk) => {
+      await runtime.service.db
+        .insert(pgSchema.externalIngressNoncesPostgres)
+        .values(chunk);
+    });
+    const sweep = await runtime.control.sweepExpiredExternalIngressState({
+      now: '2026-04-30T00:06:00.000Z',
+    });
+    expect(sweep).toMatchObject({
+      stalePendingFailed: stalePendingRecoveryCap,
+      noncesDeleted: expiredDeleteCap,
+      invocationsDeleted: expiredDeleteCap,
     });
     await expect(
-      runtime.control.sweepExpiredExternalIngressState({ now }),
-    ).resolves.toMatchObject({
-      noncesDeleted: expect.any(Number),
-      invocationsDeleted: expect.any(Number),
+      countExternalIngressRows({
+        runtime,
+        table: 'invocations',
+        idLike: 'invocation:control-repo:stale:%',
+        status: 'pending',
+      }),
+    ).resolves.toBe(1);
+    const remainingExpiredBulkInvocations = await countExternalIngressRows({
+      runtime,
+      table: 'invocations',
+      idLike: 'invocation:control-repo:expired-bulk:%',
     });
-    await expect(
-      runtime.control.getExternalIngressInvocation(
-        'invocation:control-repo:expired',
-        'default',
-        ingress.ingressId,
-      ),
-    ).resolves.toBeUndefined();
+    expect(remainingExpiredBulkInvocations).toBeGreaterThan(0);
+    expect(remainingExpiredBulkInvocations).toBeLessThanOrEqual(2);
+    const remainingExpiredBulkNonces = await countExternalIngressRows({
+      runtime,
+      table: 'nonces',
+      idLike: 'nonce-expired-control-repo-bulk:%',
+    });
+    expect(remainingExpiredBulkNonces).toBeGreaterThan(0);
+    expect(remainingExpiredBulkNonces).toBeLessThanOrEqual(2);
   });
 });
+
+async function insertInChunks<T>(
+  rows: T[],
+  chunkSize: number,
+  writeChunk: (chunk: T[]) => Promise<void>,
+): Promise<void> {
+  for (let start = 0; start < rows.length; start += chunkSize) {
+    await writeChunk(rows.slice(start, start + chunkSize));
+  }
+}
+
+async function countExternalIngressRows(input: {
+  runtime: PostgresIntegrationRuntime;
+  table: 'invocations' | 'nonces';
+  idLike: string;
+  status?: string;
+}): Promise<number> {
+  if (input.table === 'nonces') {
+    const rows = await input.runtime.service.db
+      .select({ value: count() })
+      .from(pgSchema.externalIngressNoncesPostgres)
+      .where(like(pgSchema.externalIngressNoncesPostgres.nonce, input.idLike));
+    return rows[0]?.value ?? 0;
+  }
+  const conditions = [
+    like(
+      pgSchema.externalIngressInvocationsPostgres.invocationId,
+      input.idLike,
+    ),
+  ];
+  if (input.status) {
+    conditions.push(
+      eq(pgSchema.externalIngressInvocationsPostgres.status, input.status),
+    );
+  }
+  const rows = await input.runtime.service.db
+    .select({ value: count() })
+    .from(pgSchema.externalIngressInvocationsPostgres)
+    .where(and(...conditions));
+  return rows[0]?.value ?? 0;
+}

@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, desc, eq, lt } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 
 import { nowIso as currentIso } from '../../../../infrastructure/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import { ensureControlGraph } from './control-plane-graph.postgres.js';
+
+const EXTERNAL_INGRESS_SWEEP_BATCH_SIZE = 1000;
+const EXTERNAL_INGRESS_SWEEP_MAX_DELETE_BATCHES = 10;
 
 export class PostgresExternalIngressRepository {
   constructor(private readonly db: CanonicalDb) {}
@@ -98,8 +101,8 @@ export class PostgresExternalIngressRepository {
     return rows[0] ? mapExternalIngress(rows[0]) : undefined;
   }
 
-  async delete(ingressId: string, appId: string): Promise<void> {
-    await this.db
+  async delete(ingressId: string, appId: string): Promise<boolean> {
+    const result = await this.db
       .delete(pgSchema.externalIngressesPostgres)
       .where(
         and(
@@ -107,6 +110,7 @@ export class PostgresExternalIngressRepository {
           eq(pgSchema.externalIngressesPostgres.appId, appId),
         ),
       );
+    return Number(result.rowCount ?? 0) > 0;
   }
 
   async reserveNonce(input: {
@@ -171,12 +175,67 @@ export class PostgresExternalIngressRepository {
       .returning({
         invocationId: pgSchema.externalIngressInvocationsPostgres.invocationId,
         status: pgSchema.externalIngressInvocationsPostgres.status,
+        bodyHash: pgSchema.externalIngressInvocationsPostgres.bodyHash,
+        responseJson: pgSchema.externalIngressInvocationsPostgres.responseJson,
+        error: pgSchema.externalIngressInvocationsPostgres.error,
+        updatedAt: pgSchema.externalIngressInvocationsPostgres.updatedAt,
       });
-    if (rows[0]) return { created: true as const, row: rows[0] };
-    const existing = await this.db
+    if (rows[0]) {
+      return { created: true as const, row: mapInvocationRow(rows[0]) };
+    }
+    const existing = await this.getInvocationByIdempotencyKey({
+      appId: input.appId,
+      ingressId: input.ingressId,
+      idempotencyKey: input.idempotencyKey,
+    });
+    if (existing) return { created: false as const, row: existing };
+    const retried = await this.db
+      .insert(pgSchema.externalIngressInvocationsPostgres)
+      .values({
+        invocationId: input.invocationId,
+        appId: input.appId,
+        ingressId: input.ingressId,
+        idempotencyKey: input.idempotencyKey,
+        nonce: input.nonce,
+        requestMethod: input.requestMethod,
+        requestPath: input.requestPath,
+        requestTimestamp: input.requestTimestamp,
+        bodyHash: input.bodyHash,
+        requestBody: input.requestBody,
+        signature: input.signature,
+        status: input.status,
+        createdAt: input.now,
+        updatedAt: input.now,
+        expiresAt: input.expiresAt,
+      })
+      .onConflictDoNothing()
+      .returning({
+        invocationId: pgSchema.externalIngressInvocationsPostgres.invocationId,
+        status: pgSchema.externalIngressInvocationsPostgres.status,
+        bodyHash: pgSchema.externalIngressInvocationsPostgres.bodyHash,
+        responseJson: pgSchema.externalIngressInvocationsPostgres.responseJson,
+        error: pgSchema.externalIngressInvocationsPostgres.error,
+        updatedAt: pgSchema.externalIngressInvocationsPostgres.updatedAt,
+      });
+    return {
+      created: !!retried[0],
+      row: retried[0] ? mapInvocationRow(retried[0]) : undefined,
+    };
+  }
+
+  async getInvocationByIdempotencyKey(input: {
+    appId: string;
+    ingressId: string;
+    idempotencyKey: string;
+  }) {
+    const rows = await this.db
       .select({
         invocationId: pgSchema.externalIngressInvocationsPostgres.invocationId,
         status: pgSchema.externalIngressInvocationsPostgres.status,
+        bodyHash: pgSchema.externalIngressInvocationsPostgres.bodyHash,
+        responseJson: pgSchema.externalIngressInvocationsPostgres.responseJson,
+        error: pgSchema.externalIngressInvocationsPostgres.error,
+        updatedAt: pgSchema.externalIngressInvocationsPostgres.updatedAt,
       })
       .from(pgSchema.externalIngressInvocationsPostgres)
       .where(
@@ -193,7 +252,7 @@ export class PostgresExternalIngressRepository {
         ),
       )
       .limit(1);
-    return { created: false as const, row: existing[0]! };
+    return rows[0] ? mapInvocationRow(rows[0]) : undefined;
   }
 
   async updateInvocation(input: {
@@ -231,6 +290,7 @@ export class PostgresExternalIngressRepository {
         idempotencyKey:
           pgSchema.externalIngressInvocationsPostgres.idempotencyKey,
         status: pgSchema.externalIngressInvocationsPostgres.status,
+        bodyHash: pgSchema.externalIngressInvocationsPostgres.bodyHash,
         responseJson: pgSchema.externalIngressInvocationsPostgres.responseJson,
         error: pgSchema.externalIngressInvocationsPostgres.error,
         createdAt: pgSchema.externalIngressInvocationsPostgres.createdAt,
@@ -256,6 +316,7 @@ export class PostgresExternalIngressRepository {
       ingressId: row.ingressId,
       idempotencyKey: row.idempotencyKey,
       status: row.status,
+      bodyHash: row.bodyHash,
       response: parseJson(row.responseJson, null),
       error: row.error,
       createdAt: row.createdAt,
@@ -266,18 +327,39 @@ export class PostgresExternalIngressRepository {
   async sweepExpiredState(input: { now: string }): Promise<{
     noncesDeleted: number;
     invocationsDeleted: number;
+    stalePendingFailed: number;
   }> {
-    const nonceResult = await this.db
-      .delete(pgSchema.externalIngressNoncesPostgres)
-      .where(lt(pgSchema.externalIngressNoncesPostgres.expiresAt, input.now));
-    const invocationResult = await this.db
-      .delete(pgSchema.externalIngressInvocationsPostgres)
-      .where(
-        lt(pgSchema.externalIngressInvocationsPostgres.expiresAt, input.now),
-      );
+    const staleBefore = new Date(Date.parse(input.now) - 5 * 60_000);
+    const stalePendingResult = await this.db
+      .update(pgSchema.externalIngressInvocationsPostgres)
+      .set({
+        status: 'failed',
+        error:
+          'Invocation did not reach a terminal state before recovery timeout',
+        updatedAt: input.now,
+      }).where(sql`
+        ctid IN (
+          SELECT ctid
+          FROM ${pgSchema.externalIngressInvocationsPostgres}
+          WHERE ${pgSchema.externalIngressInvocationsPostgres.status} = 'pending'
+            AND ${pgSchema.externalIngressInvocationsPostgres.updatedAt} < ${staleBefore.toISOString()}
+          LIMIT ${EXTERNAL_INGRESS_SWEEP_BATCH_SIZE}
+        )
+      `);
+    const noncesDeleted = await deleteExpiredInBatches(
+      this.db,
+      pgSchema.externalIngressNoncesPostgres,
+      input.now,
+    );
+    const invocationsDeleted = await deleteExpiredInBatches(
+      this.db,
+      pgSchema.externalIngressInvocationsPostgres,
+      input.now,
+    );
     return {
-      noncesDeleted: Number(nonceResult.rowCount ?? 0),
-      invocationsDeleted: Number(invocationResult.rowCount ?? 0),
+      noncesDeleted,
+      invocationsDeleted,
+      stalePendingFailed: Number(stalePendingResult.rowCount ?? 0),
     };
   }
 }
@@ -311,4 +393,50 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function mapInvocationRow(row: {
+  invocationId: string;
+  status: string;
+  bodyHash: string;
+  responseJson: string | null;
+  error: string | null;
+  updatedAt: string;
+}) {
+  return {
+    invocationId: row.invocationId,
+    status: row.status,
+    bodyHash: row.bodyHash,
+    response: parseJson(row.responseJson, null),
+    error: row.error,
+    updatedAt: row.updatedAt,
+  };
+}
+
+async function deleteExpiredInBatches(
+  db: CanonicalDb,
+  table:
+    | typeof pgSchema.externalIngressNoncesPostgres
+    | typeof pgSchema.externalIngressInvocationsPostgres,
+  now: string,
+): Promise<number> {
+  let total = 0;
+  for (
+    let batch = 0;
+    batch < EXTERNAL_INGRESS_SWEEP_MAX_DELETE_BATCHES;
+    batch += 1
+  ) {
+    const result = await db.delete(table).where(sql`
+      ctid IN (
+        SELECT ctid
+        FROM ${table}
+        WHERE ${table.expiresAt} < ${now}
+        LIMIT ${EXTERNAL_INGRESS_SWEEP_BATCH_SIZE}
+      )
+    `);
+    const deleted = Number(result.rowCount ?? 0);
+    total += deleted;
+    if (deleted < EXTERNAL_INGRESS_SWEEP_BATCH_SIZE) return total;
+  }
+  return total;
 }

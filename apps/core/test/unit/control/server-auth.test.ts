@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,6 +21,7 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
+import { signExternalIngressRequest } from '@core/application/external-ingress/signature.js';
 
 vi.mock('@core/config/index.js', async () => {
   const runtimeHome = '/tmp/myclaw-control-test-home';
@@ -128,6 +131,54 @@ const controlRepo = {
   markWebhookDeliveryDelivered: vi.fn(async () => undefined),
   markWebhookDeliveryRetry: vi.fn(async () => undefined),
   markWebhookDeliveryDead: vi.fn(async () => undefined),
+  createExternalIngress: vi.fn(),
+  listExternalIngresses: vi.fn(async () => []),
+  getExternalIngressById: vi.fn(async () => ({
+    ingressId: 'ingress-1',
+    appId: 'app-one',
+    name: 'ingress-main',
+    secret: 'ingress-secret',
+    enabled: true,
+    metadata: {
+      targetPolicy: {
+        allowedTargetKinds: ['session_message', 'job_trigger'],
+        conversationIds: ['conv-1'],
+        sessionIds: ['session-1'],
+        jobIds: ['job-1'],
+      },
+    },
+    createdAt: '2026-04-24T00:00:00.000Z',
+    updatedAt: '2026-04-24T00:00:00.000Z',
+  })),
+  updateExternalIngress: vi.fn(),
+  deleteExternalIngress: vi.fn(async () => true),
+  reserveExternalIngressNonce: vi.fn(async () => ({ ok: true as const })),
+  getExternalIngressInvocationByIdempotencyKey: vi.fn(async () => undefined),
+  createExternalIngressInvocation: vi.fn(async (input: any) => ({
+    created: true,
+    row: {
+      invocationId: input.invocationId,
+      status: 'pending',
+      bodyHash: input.bodyHash,
+      response: null,
+      error: null,
+      updatedAt: input.now,
+    },
+  })),
+  updateExternalIngressInvocation: vi.fn(async () => undefined),
+  getExternalIngressInvocation: vi.fn(async () => ({
+    invocationId: 'invocation-1',
+    status: 'completed',
+    bodyHash: 'hash',
+    response: { ok: true },
+    error: null,
+    updatedAt: '2026-04-24T00:00:00.000Z',
+  })),
+  sweepExpiredExternalIngressState: vi.fn(async () => ({
+    noncesDeleted: 0,
+    invocationsDeleted: 0,
+    stalePendingFailed: 0,
+  })),
 };
 
 const opsRepo = {
@@ -202,6 +253,20 @@ const memoryService = {
   dreamingStatus: vi.fn(async () => []),
 };
 
+const ingressSignatureCrypto = {
+  sha256: (input: string) => createHash('sha256').update(input).digest('hex'),
+  hmacSha256: (secret: string, payload: string) =>
+    createHmac('sha256', secret).update(payload).digest('hex'),
+  constantTimeEqual: (left: string, right: string) => {
+    const leftBuffer = Buffer.from(left);
+    const rightBuffer = Buffer.from(right);
+    return (
+      leftBuffer.length === rightBuffer.length &&
+      timingSafeEqual(leftBuffer, rightBuffer)
+    );
+  },
+};
+
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: () => controlRepo,
   getRuntimeEventExchange: () => runtimeEvents,
@@ -221,6 +286,7 @@ import {
   _testControlServer,
   startControlServer,
 } from '@core/control/server/index.js';
+import { _testSessionRoutes } from '@core/control/server/routes/sessions.js';
 
 async function reservePort(): Promise<number> {
   return await new Promise<number>((resolve, reject) => {
@@ -295,6 +361,31 @@ async function requestWithRetry(
     : new Error('Control server did not start in time');
 }
 
+function signIngressRequest(input: {
+  ingressId: string;
+  secret?: string;
+  nonce?: string;
+  timestamp?: string;
+  path?: string;
+  rawBody: string;
+  method?: string;
+}) {
+  const method = input.method ?? 'POST';
+  const timestamp = input.timestamp ?? String(Date.now());
+  const nonce = input.nonce ?? 'nonce-1';
+  const path = input.path ?? `/v1/ingresses/${input.ingressId}/invoke`;
+  const signature = signExternalIngressRequest({
+    crypto: ingressSignatureCrypto,
+    secret: input.secret ?? 'ingress-secret',
+    method,
+    path,
+    timestamp,
+    nonce,
+    rawBody: input.rawBody,
+  }).signature;
+  return { method, timestamp, nonce, signature };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   controlRepo.listDueWebhookDeliveries.mockResolvedValue([]);
@@ -309,6 +400,55 @@ beforeEach(() => {
   controlRepo.markWebhookDeliveryDelivered.mockResolvedValue(undefined);
   controlRepo.markWebhookDeliveryRetry.mockResolvedValue(undefined);
   controlRepo.markWebhookDeliveryDead.mockResolvedValue(undefined);
+  controlRepo.listExternalIngresses.mockResolvedValue([]);
+  controlRepo.getExternalIngressById.mockResolvedValue({
+    ingressId: 'ingress-1',
+    appId: 'app-one',
+    name: 'ingress-main',
+    secret: 'ingress-secret',
+    enabled: true,
+    metadata: {
+      targetPolicy: {
+        allowedTargetKinds: ['session_message', 'job_trigger'],
+        conversationIds: ['conv-1'],
+        sessionIds: ['session-1'],
+        jobIds: ['job-1'],
+      },
+    },
+    createdAt: '2026-04-24T00:00:00.000Z',
+    updatedAt: '2026-04-24T00:00:00.000Z',
+  });
+  controlRepo.reserveExternalIngressNonce.mockResolvedValue({ ok: true });
+  controlRepo.getExternalIngressInvocationByIdempotencyKey.mockResolvedValue(
+    undefined,
+  );
+  controlRepo.createExternalIngressInvocation.mockImplementation(
+    async (input: any) => ({
+      created: true,
+      row: {
+        invocationId: input.invocationId,
+        status: 'pending',
+        bodyHash: input.bodyHash,
+        response: null,
+        error: null,
+        updatedAt: input.now,
+      },
+    }),
+  );
+  controlRepo.updateExternalIngressInvocation.mockResolvedValue(undefined);
+  controlRepo.getExternalIngressInvocation.mockResolvedValue({
+    invocationId: 'invocation-1',
+    status: 'completed',
+    bodyHash: 'hash',
+    response: { ok: true },
+    error: null,
+    updatedAt: '2026-04-24T00:00:00.000Z',
+  });
+  controlRepo.sweepExpiredExternalIngressState.mockResolvedValue({
+    noncesDeleted: 0,
+    invocationsDeleted: 0,
+    stalePendingFailed: 0,
+  });
   opsRepo.storeChatMetadata.mockResolvedValue(undefined);
   opsRepo.storeMessage.mockResolvedValue(undefined);
   opsRepo.getJobRunById.mockResolvedValue(undefined);
@@ -899,6 +1039,243 @@ describe('control server runtime hardening', () => {
           name: 'app-one:conv-implicit',
         }),
       );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('unblocks SSE event writes when the client closes during backpressure', async () => {
+    const response = new EventEmitter() as EventEmitter & {
+      destroyed: boolean;
+      write: ReturnType<typeof vi.fn>;
+      off: EventEmitter['off'];
+      once: EventEmitter['once'];
+    };
+    response.destroyed = false;
+    response.write = vi.fn(() => false);
+    let closed = false;
+    let settled = false;
+
+    const write = _testSessionRoutes
+      .writeSseEvent(
+        response as never,
+        {
+          eventId: 1,
+          appId: 'app-one',
+          sessionId: 'session-1',
+          eventType: 'session.message',
+          payload: { ok: true },
+          createdAt: '2026-04-30T00:00:00.000Z',
+        },
+        () => closed,
+      )
+      .then(() => {
+        settled = true;
+      });
+
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    closed = true;
+    response.destroyed = true;
+    response.emit('close');
+
+    await write;
+    expect(settled).toBe(true);
+    expect(response.listenerCount('drain')).toBe(0);
+    expect(response.listenerCount('close')).toBe(0);
+    expect(response.listenerCount('error')).toBe(0);
+  });
+
+  it('unblocks SSE event writes when the response errors during backpressure', async () => {
+    const response = new EventEmitter() as EventEmitter & {
+      destroyed: boolean;
+      write: ReturnType<typeof vi.fn>;
+      off: EventEmitter['off'];
+      once: EventEmitter['once'];
+    };
+    response.destroyed = false;
+    response.write = vi.fn(() => false);
+    let closed = false;
+    let settled = false;
+
+    const write = _testSessionRoutes
+      .writeSseEvent(
+        response as never,
+        {
+          eventId: 2,
+          appId: 'app-one',
+          sessionId: 'session-1',
+          eventType: 'session.message',
+          payload: { ok: true },
+          createdAt: '2026-04-30T00:00:00.000Z',
+        },
+        () => closed,
+      )
+      .then(() => {
+        settled = true;
+      });
+
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    closed = true;
+    response.destroyed = true;
+    response.emit('error', new Error('socket reset'));
+
+    await write;
+    expect(settled).toBe(true);
+    expect(response.listenerCount('drain')).toBe(0);
+    expect(response.listenerCount('close')).toBe(0);
+    expect(response.listenerCount('error')).toBe(0);
+  });
+
+  it('accepts signed external ingress session messages and registers before enqueue', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    const app = {
+      registerGroup: vi.fn(async () => undefined),
+      queue: { enqueueMessageCheck: vi.fn() },
+    };
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      workspaceKey: 'app_conv_1',
+      title: null,
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    const handle = startControlServer({ app: app as any });
+    const path = '/v1/ingresses/ingress-1/invoke';
+    const rawBody = JSON.stringify({
+      target: {
+        kind: 'session_message',
+        conversationId: 'conv-1',
+        message: 'solve captcha',
+      },
+      idempotencyKey: 'idem-ingress-session',
+    });
+    const signed = signIngressRequest({
+      ingressId: 'ingress-1',
+      path,
+      rawBody,
+      nonce: 'nonce-ingress-session',
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}${path}`,
+        '',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-myclaw-ingress-timestamp': signed.timestamp,
+            'x-myclaw-ingress-nonce': signed.nonce,
+            'x-myclaw-ingress-signature': signed.signature,
+          },
+          body: rawBody,
+        },
+      );
+
+      expect(response.status).toBe(202);
+      await expect(response.json()).resolves.toMatchObject({
+        duplicate: false,
+        targetKind: 'session_message',
+        sessionId: 'session-1',
+      });
+      expect(app.registerGroup).toHaveBeenCalledWith(
+        'app:app-one:conv-1',
+        expect.objectContaining({
+          name: 'app-one:conv-1',
+        }),
+      );
+      expect(app.queue.enqueueMessageCheck).toHaveBeenCalledWith(
+        'app:app-one:conv-1',
+      );
+      expect(app.registerGroup.mock.invocationCallOrder[0]).toBeLessThan(
+        app.queue.enqueueMessageCheck.mock.invocationCallOrder[0],
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects missing external ingress signature headers before lookup', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/ingresses/ingress-1/invoke`,
+        '',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            target: { kind: 'job_trigger', jobId: 'job-1' },
+          }),
+        },
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: 'INVALID_REQUEST',
+        },
+      });
+      expect(controlRepo.getExternalIngressById).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects tampered external ingress signatures before nonce reservation', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+    const path = '/v1/ingresses/ingress-1/invoke';
+    const rawBody = JSON.stringify({
+      target: { kind: 'job_trigger', jobId: 'job-1' },
+    });
+    const signed = signIngressRequest({
+      ingressId: 'ingress-1',
+      path,
+      rawBody,
+      nonce: 'nonce-tampered',
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}${path}`,
+        '',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-myclaw-ingress-timestamp': signed.timestamp,
+            'x-myclaw-ingress-nonce': signed.nonce,
+            'x-myclaw-ingress-signature': 'bad-signature',
+          },
+          body: rawBody,
+        },
+      );
+
+      expect(response.status).toBe(403);
+      expect(controlRepo.reserveExternalIngressNonce).not.toHaveBeenCalled();
     } finally {
       await handle.close();
     }
@@ -2297,6 +2674,341 @@ describe('control server runtime hardening', () => {
         expect.not.objectContaining({ eventTypes: expect.anything() }),
       );
       expect(subscription.close).toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects signed wait requests with missing required signature headers before ingress lookup', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    const handle = startControlServer({
+      app: { registerGroup: vi.fn(), queue: { enqueueMessageCheck: vi.fn() } },
+    } as any);
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/ingresses/ingress-1/wait`,
+        'token-any',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ invocationId: 'invocation-1' }),
+        },
+      );
+      expect(response.status).toBe(400);
+      expect(controlRepo.getExternalIngressById).not.toHaveBeenCalled();
+      expect(controlRepo.reserveExternalIngressNonce).not.toHaveBeenCalled();
+      expect(controlRepo.getExternalIngressInvocation).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects ingress invokes for disabled ingresses', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    controlRepo.getExternalIngressById.mockResolvedValue({
+      ingressId: 'ingress-1',
+      appId: 'app-one',
+      name: 'ingress-main',
+      secret: 'ingress-secret',
+      enabled: false,
+      metadata: {},
+      createdAt: '2026-04-24T00:00:00.000Z',
+      updatedAt: '2026-04-24T00:00:00.000Z',
+    });
+    const pathName = '/v1/ingresses/ingress-1/invoke';
+    const rawBody = JSON.stringify({
+      target: { kind: 'session_message', sessionId: 'session-1', message: 'x' },
+    });
+    const signed = signIngressRequest({
+      ingressId: 'ingress-1',
+      path: pathName,
+      rawBody,
+    });
+    const handle = startControlServer({
+      app: { registerGroup: vi.fn(), queue: { enqueueMessageCheck: vi.fn() } },
+    } as any);
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}${pathName}`,
+        'token-any',
+        {
+          method: signed.method,
+          headers: {
+            'content-type': 'application/json',
+            'x-myclaw-ingress-timestamp': signed.timestamp,
+            'x-myclaw-ingress-nonce': signed.nonce,
+            'x-myclaw-ingress-signature': signed.signature,
+          },
+          body: rawBody,
+        },
+      );
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: 'FORBIDDEN', message: 'Ingress is disabled' },
+      });
+      expect(controlRepo.reserveExternalIngressNonce).not.toHaveBeenCalled();
+      expect(
+        controlRepo.createExternalIngressInvocation,
+      ).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects stale or malformed ingress signatures', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    const pathName = '/v1/ingresses/ingress-1/invoke';
+    const rawBody = JSON.stringify({
+      target: { kind: 'session_message', sessionId: 'session-1', message: 'x' },
+    });
+    const stale = signIngressRequest({
+      ingressId: 'ingress-1',
+      path: pathName,
+      rawBody,
+      timestamp: String(Date.now() - 10 * 60_000),
+      nonce: 'nonce-stale',
+    });
+    const handle = startControlServer({
+      app: { registerGroup: vi.fn(), queue: { enqueueMessageCheck: vi.fn() } },
+    } as any);
+
+    try {
+      const staleResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}${pathName}`,
+        'token-any',
+        {
+          method: stale.method,
+          headers: {
+            'content-type': 'application/json',
+            'x-myclaw-ingress-timestamp': stale.timestamp,
+            'x-myclaw-ingress-nonce': stale.nonce,
+            'x-myclaw-ingress-signature': stale.signature,
+          },
+          body: rawBody,
+        },
+      );
+      expect(staleResponse.status).toBe(403);
+      await expect(staleResponse.json()).resolves.toMatchObject({
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Invalid external ingress signature',
+        },
+      });
+      expect(controlRepo.reserveExternalIngressNonce).not.toHaveBeenCalled();
+
+      const badResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}${pathName}`,
+        'token-any',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-myclaw-ingress-timestamp': String(Date.now()),
+            'x-myclaw-ingress-nonce': 'nonce-bad-sig',
+            'x-myclaw-ingress-signature': 'bad-signature',
+          },
+          body: rawBody,
+        },
+      );
+      expect(badResponse.status).toBe(403);
+      await expect(badResponse.json()).resolves.toMatchObject({
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Invalid external ingress signature',
+        },
+      });
+      expect(controlRepo.reserveExternalIngressNonce).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('returns conflict for nonce replays and duplicate active invocations', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    const pathName = '/v1/ingresses/ingress-1/invoke';
+    const rawBody = JSON.stringify({
+      idempotencyKey: 'idem-conflict',
+      target: { kind: 'session_message', sessionId: 'session-1', message: 'x' },
+    });
+    const signed = signIngressRequest({
+      ingressId: 'ingress-1',
+      path: pathName,
+      rawBody,
+      nonce: 'nonce-conflict',
+    });
+    const handle = startControlServer({
+      app: { registerGroup: vi.fn(), queue: { enqueueMessageCheck: vi.fn() } },
+    } as any);
+
+    try {
+      controlRepo.reserveExternalIngressNonce.mockResolvedValueOnce({
+        ok: false,
+        code: 'NONCE_REPLAY',
+      });
+      const nonceReplayResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}${pathName}`,
+        'token-any',
+        {
+          method: signed.method,
+          headers: {
+            'content-type': 'application/json',
+            'x-myclaw-ingress-timestamp': signed.timestamp,
+            'x-myclaw-ingress-nonce': signed.nonce,
+            'x-myclaw-ingress-signature': signed.signature,
+          },
+          body: rawBody,
+        },
+      );
+      expect(nonceReplayResponse.status).toBe(409);
+      await expect(nonceReplayResponse.json()).resolves.toMatchObject({
+        error: { code: 'CONFLICT', message: 'External ingress nonce replay' },
+      });
+      expect(
+        controlRepo.createExternalIngressInvocation,
+      ).not.toHaveBeenCalled();
+
+      controlRepo.getExternalIngressInvocationByIdempotencyKey.mockResolvedValueOnce(
+        {
+          invocationId: 'invocation-active',
+          status: 'pending',
+          bodyHash: ingressSignatureCrypto.sha256(rawBody),
+          response: null,
+          error: null,
+          updatedAt: '2026-04-24T00:00:00.000Z',
+        },
+      );
+      const duplicatePendingResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}${pathName}`,
+        'token-any',
+        {
+          method: signed.method,
+          headers: {
+            'content-type': 'application/json',
+            'x-myclaw-ingress-timestamp': signed.timestamp,
+            'x-myclaw-ingress-nonce': 'nonce-duplicate-active',
+            'x-myclaw-ingress-signature': signIngressRequest({
+              ingressId: 'ingress-1',
+              path: pathName,
+              rawBody,
+              nonce: 'nonce-duplicate-active',
+              timestamp: signed.timestamp,
+            }).signature,
+          },
+          body: rawBody,
+        },
+      );
+      expect(duplicatePendingResponse.status).toBe(409);
+      await expect(duplicatePendingResponse.json()).resolves.toMatchObject({
+        error: {
+          code: 'CONFLICT',
+          message: 'Duplicate active external ingress invocation',
+        },
+      });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('reuses prior invocation for exact retries with same nonce and idempotency key', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    const app = {
+      registerGroup: vi.fn(),
+      queue: { enqueueMessageCheck: vi.fn() },
+    };
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      groupFolder: 'app_app_one_conv_1',
+      title: null,
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    const pathName = '/v1/ingresses/ingress-1/invoke';
+    const rawBody = JSON.stringify({
+      idempotencyKey: 'idem-exact-retry',
+      target: { kind: 'session_message', sessionId: 'session-1', message: 'x' },
+    });
+    const signed = signIngressRequest({
+      ingressId: 'ingress-1',
+      path: pathName,
+      rawBody,
+      nonce: 'nonce-exact-retry',
+    });
+    controlRepo.reserveExternalIngressNonce
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: false, code: 'NONCE_REPLAY' });
+    controlRepo.getExternalIngressInvocationByIdempotencyKey
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        invocationId: 'invocation-first',
+        status: 'completed',
+        bodyHash: ingressSignatureCrypto.sha256(rawBody),
+        response: {
+          targetKind: 'session_message',
+          sessionId: 'session-1',
+        },
+        error: null,
+        updatedAt: '2026-04-24T00:00:01.000Z',
+      });
+    controlRepo.createExternalIngressInvocation.mockResolvedValueOnce({
+      created: true,
+      row: {
+        invocationId: 'invocation-first',
+        status: 'pending',
+        bodyHash: ingressSignatureCrypto.sha256(rawBody),
+        response: null,
+        error: null,
+        updatedAt: '2026-04-24T00:00:00.000Z',
+      },
+    });
+    const handle = startControlServer({ app: app as any });
+
+    try {
+      const first = await requestWithRetry(
+        `http://127.0.0.1:${port}${pathName}`,
+        'token-any',
+        {
+          method: signed.method,
+          headers: {
+            'content-type': 'application/json',
+            'x-myclaw-ingress-timestamp': signed.timestamp,
+            'x-myclaw-ingress-nonce': signed.nonce,
+            'x-myclaw-ingress-signature': signed.signature,
+          },
+          body: rawBody,
+        },
+      );
+      expect(first.status).toBe(202);
+
+      const second = await requestWithRetry(
+        `http://127.0.0.1:${port}${pathName}`,
+        'token-any',
+        {
+          method: signed.method,
+          headers: {
+            'content-type': 'application/json',
+            'x-myclaw-ingress-timestamp': signed.timestamp,
+            'x-myclaw-ingress-nonce': signed.nonce,
+            'x-myclaw-ingress-signature': signed.signature,
+          },
+          body: rawBody,
+        },
+      );
+      expect(second.status).toBe(202);
+      await expect(second.json()).resolves.toMatchObject({
+        invocationId: 'invocation-first',
+        duplicate: true,
+      });
+      expect(app.queue.enqueueMessageCheck).toHaveBeenCalledTimes(1);
     } finally {
       await handle.close();
     }

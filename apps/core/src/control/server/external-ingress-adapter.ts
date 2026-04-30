@@ -57,6 +57,19 @@ export async function invokeExternalIngressForControl(
 ): Promise<Awaited<ReturnType<ExternalIngressModule['invoke']>>> {
   const result = await createExternalIngressModule(ctx).invoke(input);
   if (
+    'registerGroup' in result &&
+    result.registerGroup &&
+    typeof result.registerGroup === 'object' &&
+    'chatJid' in result.registerGroup &&
+    typeof result.registerGroup.chatJid === 'string' &&
+    'group' in result.registerGroup
+  ) {
+    await ctx.app.registerGroup(
+      result.registerGroup.chatJid,
+      result.registerGroup.group as never,
+    );
+  }
+  if (
     'enqueue' in result &&
     result.enqueue &&
     typeof result.enqueue === 'object' &&
