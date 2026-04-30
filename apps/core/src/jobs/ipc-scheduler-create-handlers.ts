@@ -1,9 +1,9 @@
-import { ApplicationError } from '../application/common/application-error.js';
 import { JobManagementService } from '../application/jobs/job-management-service.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { TaskHandler, TaskContext } from './ipc-types.js';
 import { invalidateSystemJobRegistrationSignature } from './system-registration-cache.js';
 import { createTaskResponder } from './ipc-shared.js';
+import { mapApplicationError } from './ipc-application-error.js';
 import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 
 function makeJobService(context: TaskContext): JobManagementService {
@@ -12,34 +12,6 @@ function makeJobService(context: TaskContext): JobManagementService {
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
   });
-}
-
-function mapApplicationError(error: unknown): {
-  message: string;
-  code: string;
-} {
-  if (error instanceof ApplicationError) {
-    return {
-      message: error.message,
-      code:
-        error.code === 'NOT_FOUND'
-          ? 'not_found'
-          : error.code === 'FORBIDDEN'
-            ? 'forbidden'
-            : error.code === 'INVALID_REQUEST'
-              ? 'invalid_request'
-              : error.code === 'UNAVAILABLE'
-                ? 'unavailable'
-                : 'internal_error',
-    };
-  }
-  return {
-    message:
-      error instanceof Error
-        ? error.message
-        : 'Failed to upsert scheduler job.',
-    code: 'internal_error',
-  };
 }
 
 const schedulerUpsertJobHandler: TaskHandler = async (context) => {
@@ -104,7 +76,7 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
         : `Scheduler job updated (${result.jobId}).`,
     );
   } catch (err) {
-    const mapped = mapApplicationError(err);
+    const mapped = mapApplicationError(err, 'Failed to upsert scheduler job.');
     logger.error({ err, sourceGroup }, 'scheduler_upsert_job failed');
     reject(mapped.message, mapped.code);
   }

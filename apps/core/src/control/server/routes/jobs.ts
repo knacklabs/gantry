@@ -29,25 +29,32 @@ import {
 } from '../rate-limit.js';
 import { parseJobRoute, parseTriggerWaitRoute } from '../route-parser.js';
 
-const workspaceKeyField = `${'group'}${'Folder'}`;
-
 function sendApplicationError(res: ServerResponse, error: unknown): boolean {
   if (!(error instanceof ApplicationError)) return false;
   switch (error.code) {
+    case 'TRIGGER_NOT_FOUND':
+      sendError(res, 404, 'TRIGGER_NOT_FOUND', error.message);
+      return true;
     case 'NOT_FOUND':
       sendError(res, 404, 'JOB_NOT_FOUND', error.message);
       return true;
     case 'FORBIDDEN':
       sendError(res, 403, 'FORBIDDEN', error.message);
       return true;
+    case 'INVALID_SCHEDULE':
     case 'INVALID_REQUEST':
       sendError(res, 400, 'INVALID_REQUEST', error.message);
       return true;
+    case 'RATE_LIMITED':
+      sendError(res, 429, 'RATE_LIMITED', error.message);
+      return true;
+    case 'WAIT_TIMEOUT':
+      sendError(res, 408, 'WAIT_TIMEOUT', error.message);
+      return true;
+    case 'SCHEDULER_NOT_READY':
+      sendError(res, 503, 'SCHEDULER_NOT_READY', error.message);
+      return true;
     case 'CONFLICT':
-      if (error.message === 'Too many job trigger requests') {
-        sendError(res, 429, 'RATE_LIMITED', error.message);
-        return true;
-      }
       sendError(res, 409, 'CONFLICT', error.message);
       return true;
     case 'UNAVAILABLE':
@@ -103,14 +110,11 @@ function adaptAppSession(
   >,
 ): AppSessionRecord | undefined {
   if (!session) return undefined;
-  const workspaceKey = (session as unknown as Record<string, string>)[
-    workspaceKeyField
-  ];
   return {
     sessionId: session.sessionId,
     appId: session.appId,
     chatJid: session.chatJid,
-    workspaceKey,
+    workspaceKey: session.workspaceKey,
     defaultResponseMode: session.defaultResponseMode,
     defaultWebhookId: session.defaultWebhookId,
   };
@@ -299,14 +303,6 @@ export async function handleJobRoutes(
       });
       sendJson(res, 200, result);
     } catch (error) {
-      if (
-        error instanceof ApplicationError &&
-        error.code === 'UNAVAILABLE' &&
-        error.message === 'Timed out waiting for trigger completion'
-      ) {
-        sendError(res, 408, 'WAIT_TIMEOUT', error.message);
-        return true;
-      }
       if (!sendApplicationError(res, error)) throw error;
     } finally {
       ctx.state.activeTriggerWaits = Math.max(
@@ -314,6 +310,7 @@ export async function handleJobRoutes(
         ctx.state.activeTriggerWaits - 1,
       );
     }
+    return true;
   }
 
   return false;

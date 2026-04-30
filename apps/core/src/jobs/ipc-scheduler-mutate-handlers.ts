@@ -1,4 +1,3 @@
-import { ApplicationError } from '../application/common/application-error.js';
 import { JobManagementService } from '../application/jobs/job-management-service.js';
 import type { JobExecutionMode, JobScheduleType } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
@@ -8,6 +7,7 @@ import {
   normalizeIpcExecutionMode,
   toTrimmedString,
 } from './ipc-shared.js';
+import { mapApplicationError } from './ipc-application-error.js';
 import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 import { invalidateSystemJobRegistrationSignature } from './system-registration-cache.js';
 
@@ -26,34 +26,6 @@ function accessFromContext(context: TaskContext) {
     conversationBindings: context.registeredGroups,
     sourceGroupJids: context.sourceGroupJids,
     authThreadId: context.data.authThreadId,
-  };
-}
-
-function mapApplicationError(error: unknown): {
-  message: string;
-  code: string;
-} {
-  if (error instanceof ApplicationError) {
-    return {
-      message: error.message,
-      code:
-        error.code === 'NOT_FOUND'
-          ? 'not_found'
-          : error.code === 'FORBIDDEN'
-            ? 'forbidden'
-            : error.code === 'INVALID_REQUEST'
-              ? 'invalid_request'
-              : error.code === 'UNAVAILABLE'
-                ? 'unavailable'
-                : 'internal_error',
-    };
-  }
-  return {
-    message:
-      error instanceof Error
-        ? error.message
-        : 'Failed to mutate scheduler job.',
-    code: 'internal_error',
   };
 }
 
@@ -143,7 +115,7 @@ const schedulerUpdateJobHandler: TaskHandler = async (context) => {
     invalidateSystemJobRegistrationSignature(context.deps.opsRepository);
     accept(`Scheduler job updated (${jobId}).`);
   } catch (err) {
-    const mapped = mapApplicationError(err);
+    const mapped = mapApplicationError(err, 'Failed to mutate scheduler job.');
     logger.error(
       { err, sourceGroup, jobId },
       'scheduler_update_job failed unexpectedly',
@@ -172,7 +144,7 @@ const schedulerDeleteJobHandler: TaskHandler = async (context) => {
     invalidateSystemJobRegistrationSignature(context.deps.opsRepository);
     accept(`Scheduler job deleted (${jobId}).`);
   } catch (err) {
-    const mapped = mapApplicationError(err);
+    const mapped = mapApplicationError(err, 'Failed to mutate scheduler job.');
     logger.error(
       { err, sourceGroup, jobId },
       'scheduler_delete_job failed unexpectedly',
@@ -202,7 +174,7 @@ const schedulerPauseJobHandler: TaskHandler = async (context) => {
     invalidateSystemJobRegistrationSignature(context.deps.opsRepository);
     accept(`Scheduler job paused (${jobId}).`);
   } catch (err) {
-    const mapped = mapApplicationError(err);
+    const mapped = mapApplicationError(err, 'Failed to mutate scheduler job.');
     logger.error(
       { err, sourceGroup, jobId },
       'scheduler_pause_job failed unexpectedly',
@@ -231,7 +203,7 @@ const schedulerResumeJobHandler: TaskHandler = async (context) => {
     invalidateSystemJobRegistrationSignature(context.deps.opsRepository);
     accept(`Scheduler job resumed (${jobId}).`);
   } catch (err) {
-    const mapped = mapApplicationError(err);
+    const mapped = mapApplicationError(err, 'Failed to mutate scheduler job.');
     logger.error(
       { err, sourceGroup, jobId },
       'scheduler_resume_job failed unexpectedly',

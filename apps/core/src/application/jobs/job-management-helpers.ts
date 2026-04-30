@@ -21,7 +21,7 @@ export function normalizeScheduleType(raw: unknown): JobScheduleType {
   ) {
     return raw;
   }
-  throw new ApplicationError('INVALID_REQUEST', 'Unsupported schedule type.');
+  throw new ApplicationError('INVALID_SCHEDULE', 'Unsupported schedule type.');
 }
 
 export function normalizeExecutionMode(
@@ -105,7 +105,7 @@ export function buildJobUpdates(
     const nextRun = planner.planResume({ job: merged, clock });
     if (nextRun === undefined) {
       throw new ApplicationError(
-        'INVALID_REQUEST',
+        'INVALID_SCHEDULE',
         'Cannot resume scheduler job due to invalid schedule.',
       );
     }

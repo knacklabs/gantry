@@ -54,6 +54,7 @@ function controlConversationId(appId: string, externalConversationId: string) {
 export function mapSession(row: CanonicalControlRow): AppSessionRecord {
   const external = parseJsonObject(row.external_ref_json);
   const agentId = String(row.agent_id);
+  const workspaceKey = text(external.groupFolder) ?? folderFromAgentId(agentId);
   return {
     sessionId: String(row.session_id),
     appId: String(row.app_id),
@@ -62,7 +63,8 @@ export function mapSession(row: CanonicalControlRow): AppSessionRecord {
       text(external.chatJid) ??
       text(external.externalConversationRef) ??
       String(row.external_conversation_id),
-    groupFolder: text(external.groupFolder) ?? folderFromAgentId(agentId),
+    groupFolder: workspaceKey,
+    workspaceKey,
     title: text(external.title),
     defaultResponseMode:
       (row.default_response_mode as ControlResponseMode | null) ?? 'sse',

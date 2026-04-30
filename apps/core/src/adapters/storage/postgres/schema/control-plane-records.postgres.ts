@@ -6,6 +6,7 @@ export interface AppSessionRecord {
   conversationId: string;
   chatJid: string;
   groupFolder: string;
+  workspaceKey: string;
   title: string | null;
   defaultResponseMode: ControlResponseMode;
   defaultWebhookId: string | null;

@@ -1,10 +1,15 @@
 export type ApplicationErrorCode =
   | 'FORBIDDEN'
+  | 'INVALID_SCHEDULE'
   | 'INVALID_REQUEST'
   | 'NOT_FOUND'
   | 'NOT_IMPLEMENTED'
   | 'CONFLICT'
-  | 'UNAVAILABLE';
+  | 'RATE_LIMITED'
+  | 'SCHEDULER_NOT_READY'
+  | 'TRIGGER_NOT_FOUND'
+  | 'UNAVAILABLE'
+  | 'WAIT_TIMEOUT';
 
 export class ApplicationError extends Error {
   constructor(

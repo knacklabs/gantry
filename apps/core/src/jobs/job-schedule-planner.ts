@@ -36,7 +36,7 @@ export const runtimeJobSchedulePlanner: JobSchedulePlanner = {
       const scheduleValue = String(input.runAt || '').trim();
       if (!scheduleValue) {
         throw new ApplicationError(
-          'INVALID_REQUEST',
+          'INVALID_SCHEDULE',
           'runAt is required for once jobs',
         );
       }
@@ -48,7 +48,7 @@ export const runtimeJobSchedulePlanner: JobSchedulePlanner = {
         const ms = Number(scheduleValue);
         if (!/^[0-9]+$/.test(scheduleValue) || ms <= 0) {
           throw new ApplicationError(
-            'INVALID_REQUEST',
+            'INVALID_SCHEDULE',
             'interval schedules require a positive numeric value',
           );
         }
@@ -57,7 +57,7 @@ export const runtimeJobSchedulePlanner: JobSchedulePlanner = {
       const scheduleValue = String(input.schedule?.value || '').trim();
       if (!scheduleValue) {
         throw new ApplicationError(
-          'INVALID_REQUEST',
+          'INVALID_SCHEDULE',
           'cron schedules require a non-empty value',
         );
       }
@@ -75,7 +75,7 @@ export const runtimeJobSchedulePlanner: JobSchedulePlanner = {
       });
       if (validationError) {
         throw new ApplicationError(
-          'INVALID_REQUEST',
+          'INVALID_SCHEDULE',
           'Invalid cron expression for scheduler job.',
         );
       }
@@ -94,7 +94,7 @@ export const runtimeJobSchedulePlanner: JobSchedulePlanner = {
       const ms = parseInt(scheduleValue, 10);
       if (Number.isNaN(ms) || ms <= 0) {
         throw new ApplicationError(
-          'INVALID_REQUEST',
+          'INVALID_SCHEDULE',
           'Invalid interval milliseconds for scheduler job.',
         );
       }
@@ -103,7 +103,7 @@ export const runtimeJobSchedulePlanner: JobSchedulePlanner = {
     const date = Date.parse(scheduleValue);
     if (!Number.isFinite(date)) {
       throw new ApplicationError(
-        'INVALID_REQUEST',
+        'INVALID_SCHEDULE',
         'Invalid once timestamp for scheduler job.',
       );
     }

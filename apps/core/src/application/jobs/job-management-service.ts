@@ -128,7 +128,7 @@ export class JobManagementService {
     const scheduleType = normalizeScheduleType(input.scheduleType);
     if (scheduleType === 'manual') {
       throw new ApplicationError(
-        'INVALID_REQUEST',
+        'INVALID_SCHEDULE',
         'Unsupported schedule type.',
       );
     }
@@ -308,7 +308,7 @@ export class JobManagementService {
       });
       this.deps.scheduler.requestSchedulerSync(job.id);
       throw new ApplicationError(
-        'INVALID_REQUEST',
+        'INVALID_SCHEDULE',
         'Cannot resume scheduler job due to invalid schedule.',
       );
     }
@@ -343,7 +343,7 @@ export class JobManagementService {
     }
     if (!triggerQueue.isReady()) {
       throw new ApplicationError(
-        'UNAVAILABLE',
+        'SCHEDULER_NOT_READY',
         'Scheduler is not ready to accept job triggers',
       );
     }
@@ -355,7 +355,10 @@ export class JobManagementService {
           input.perJobLimit,
         ))
     ) {
-      throw new ApplicationError('CONFLICT', 'Too many job trigger requests');
+      throw new ApplicationError(
+        'RATE_LIMITED',
+        'Too many job trigger requests',
+      );
     }
 
     const trigger = await control.createJobTrigger({
@@ -366,14 +369,19 @@ export class JobManagementService {
       }),
     });
     if (job.status === 'paused' || job.status === 'dead_lettered') {
-      await this.resumeJob({ appId: input.appId, jobId: job.id });
+      try {
+        await this.resumeJob({ appId: input.appId, jobId: job.id });
+      } catch (err) {
+        await control.markTriggerCompleted(trigger.triggerId, 'failed');
+        throw err;
+      }
     }
     try {
       await triggerQueue.enqueue(job.id, trigger.triggerId);
     } catch (err) {
       await control.markTriggerCompleted(trigger.triggerId, 'failed');
       throw new ApplicationError(
-        'UNAVAILABLE',
+        'SCHEDULER_NOT_READY',
         err instanceof Error
           ? err.message
           : 'Scheduler is not ready to accept job triggers',
@@ -410,7 +418,7 @@ export class JobManagementService {
     const control = this.requireControl();
     const initialTrigger = await control.getTriggerById(input.triggerId);
     if (!initialTrigger) {
-      throw new ApplicationError('NOT_FOUND', 'Trigger not found');
+      throw new ApplicationError('TRIGGER_NOT_FOUND', 'Trigger not found');
     }
     const job = await this.requireJob(initialTrigger.jobId);
     assertJobBelongsToApp(job, input.appId);
@@ -418,7 +426,7 @@ export class JobManagementService {
     while (Date.now() - startedAt < input.timeoutMs) {
       const trigger = await control.getTriggerById(input.triggerId);
       if (!trigger)
-        throw new ApplicationError('NOT_FOUND', 'Trigger not found');
+        throw new ApplicationError('TRIGGER_NOT_FOUND', 'Trigger not found');
       if (trigger.runId) {
         const run = await this.deps.ops.getJobRunById(trigger.runId);
         if (run && run.status !== 'running') {
@@ -434,7 +442,7 @@ export class JobManagementService {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     throw new ApplicationError(
-      'UNAVAILABLE',
+      'WAIT_TIMEOUT',
       'Timed out waiting for trigger completion',
     );
   }
@@ -445,16 +453,18 @@ export class JobManagementService {
     jobId?: string;
     limit?: number;
   }): Promise<{ runs: JobRun[] }> {
-    if (input.jobId)
+    if (input.jobId) {
       await this.getJob({
         jobId: input.jobId,
         appId: input.appId,
         access: input.access,
       });
+    }
     const runs = await this.deps.ops.listJobRuns(
       input.jobId,
       resolveLimit(input.limit, DEFAULT_RUN_LIMIT),
     );
+    if (input.jobId) return { runs };
     if (!input.appId && !input.access) return { runs };
     const visible = await this.filterRunsByVisibleJobs(runs, input);
     return { runs: visible };
@@ -470,12 +480,13 @@ export class JobManagementService {
     since?: string;
     limit?: number;
   }): Promise<{ events: JobEvent[] }> {
-    if (input.jobId)
+    if (input.jobId) {
       await this.getJob({
         jobId: input.jobId,
         appId: input.appId,
         access: input.access,
       });
+    }
     const events = await this.deps.ops.listRecentJobEvents(
       resolveLimit(input.limit, DEFAULT_EVENT_LIMIT),
       {
@@ -496,6 +507,7 @@ export class JobManagementService {
           return !Number.isFinite(created) || created > sinceTimestamp;
         });
     if (!input.appId && !input.access) return { events: timeFiltered };
+    if (input.jobId) return { events: timeFiltered };
     const visibleJobs = await this.visibleJobIds(input);
     return {
       events: timeFiltered.filter((event) => visibleJobs.has(event.job_id)),

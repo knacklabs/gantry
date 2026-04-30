@@ -1,8 +1,7 @@
-import { ApplicationError } from '../application/common/application-error.js';
 import { JobManagementService } from '../application/jobs/job-management-service.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import type { ConversationBinding } from '../application/jobs/job-management-types.js';
 import { TaskContext, TaskHandler } from './ipc-types.js';
+import { mapApplicationError } from './ipc-application-error.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 
@@ -15,42 +14,12 @@ function makeJobService(context: TaskContext): JobManagementService {
 }
 
 function accessFromContext(context: TaskContext) {
-  const bindingKey = `${'registered'}${'Groups'}` as keyof TaskContext;
   return {
     sourceGroup: context.sourceGroup,
     isMain: context.isMain,
-    conversationBindings: context[bindingKey] as Record<
-      string,
-      ConversationBinding
-    >,
+    conversationBindings: context.registeredGroups,
     sourceGroupJids: context.sourceGroupJids,
     authThreadId: context.data.authThreadId,
-  };
-}
-
-function mapApplicationError(error: unknown): {
-  message: string;
-  code: string;
-} {
-  if (error instanceof ApplicationError) {
-    return {
-      message: error.message,
-      code:
-        error.code === 'NOT_FOUND'
-          ? 'not_found'
-          : error.code === 'FORBIDDEN'
-            ? 'forbidden'
-            : error.code === 'INVALID_REQUEST'
-              ? 'invalid_request'
-              : 'internal_error',
-    };
-  }
-  return {
-    message:
-      error instanceof Error
-        ? error.message
-        : 'Failed to query scheduler jobs.',
-    code: 'internal_error',
   };
 }
 
@@ -76,7 +45,7 @@ const schedulerGetJobHandler: TaskHandler = async (context) => {
       result,
     );
   } catch (err) {
-    const mapped = mapApplicationError(err);
+    const mapped = mapApplicationError(err, 'Failed to query scheduler jobs.');
     logger.error({ err, sourceGroup, jobId }, 'scheduler_get_job failed');
     reject(mapped.message, mapped.code);
   }
@@ -98,7 +67,7 @@ const schedulerListJobsHandler: TaskHandler = async (context) => {
     });
     acceptData(`Listed ${result.jobs.length} scheduler job(s).`, result);
   } catch (err) {
-    const mapped = mapApplicationError(err);
+    const mapped = mapApplicationError(err, 'Failed to query scheduler jobs.');
     logger.error({ err, sourceGroup }, 'scheduler_list_jobs failed');
     reject(mapped.message, mapped.code);
   }
@@ -120,7 +89,7 @@ const schedulerListRunsHandler: TaskHandler = async (context) => {
     });
     acceptData(`Listed ${result.runs.length} scheduler run(s).`, result);
   } catch (err) {
-    const mapped = mapApplicationError(err);
+    const mapped = mapApplicationError(err, 'Failed to query scheduler jobs.');
     logger.error(
       { err, sourceGroup, jobId: jobId || undefined },
       'scheduler_list_runs failed unexpectedly',
@@ -154,7 +123,7 @@ const schedulerListEventsHandler: TaskHandler = async (context) => {
     });
     acceptData(`Listed ${result.events.length} scheduler event(s).`, result);
   } catch (err) {
-    const mapped = mapApplicationError(err);
+    const mapped = mapApplicationError(err, 'Failed to query scheduler jobs.');
     logger.error(
       {
         err,
@@ -186,7 +155,7 @@ const schedulerGetDeadLetterHandler: TaskHandler = async (context) => {
       result,
     );
   } catch (err) {
-    const mapped = mapApplicationError(err);
+    const mapped = mapApplicationError(err, 'Failed to query scheduler jobs.');
     logger.error({ err, sourceGroup }, 'scheduler_get_dead_letter failed');
     reject(mapped.message, mapped.code);
   }
