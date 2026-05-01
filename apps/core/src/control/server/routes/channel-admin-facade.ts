@@ -1,6 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+import {
+  BindChannelAgentsRequestSchema,
+  CreateChannelRequestSchema,
+  CreateChannelSessionRequestSchema,
+  UpdateChannelControlAllowlistRequestSchema,
+  UpdateChannelRequestSchema,
+} from '@myclaw/contracts';
+
 import { AgentChannelBindingControlService } from '../../../application/channels/channel-control-use-cases.js';
 import { ChannelAdministrationService } from '../../../application/channels/channel-administration-service.js';
 import { ApplicationError } from '../../../application/common/application-error.js';
@@ -55,21 +63,14 @@ export async function handleChannelAdminFacadeRoutes(
       'channels:admin',
     ]);
     if (!auth) return true;
-    const body = (await readJson(req)) as Record<string, unknown>;
-    const channelInstallationId = String(
-      body.channelInstallationId || '',
-    ).trim() as ChannelInstallationId;
-    const externalId = String(body.externalId || '').trim();
-    const title = String(body.title || body.label || '').trim();
-    if (!channelInstallationId || !externalId || !title) {
-      sendError(
-        res,
-        400,
-        'INVALID_REQUEST',
-        'channelInstallationId, externalId, and title are required',
-      );
+    const parsed = CreateChannelRequestSchema.safeParse(await readJson(req));
+    if (!parsed.success) {
+      sendError(res, 400, 'INVALID_REQUEST', 'Invalid channel');
       return true;
     }
+    const channelInstallationId = parsed.data
+      .channelInstallationId as ChannelInstallationId;
+    const title = (parsed.data.title ?? parsed.data.label ?? '').trim();
     const repositories = getRuntimeStorage().repositories;
     const installation =
       await repositories.channelInstallations.getChannelInstallation(
@@ -86,15 +87,9 @@ export async function handleChannelAdminFacadeRoutes(
       channelInstallationId,
       externalRef: {
         kind: 'conversation',
-        value: externalId,
+        value: parsed.data.externalId,
       } as ExternalRef<'conversation'>,
-      kind:
-        body.kind === 'direct' ||
-        body.kind === 'group' ||
-        body.kind === 'service' ||
-        body.kind === 'web'
-          ? body.kind
-          : 'channel',
+      kind: parsed.data.kind ?? 'channel',
       title,
       status: 'active',
       createdAt: now,
@@ -138,16 +133,15 @@ export async function handleChannelAdminFacadeRoutes(
       sendError(res, 404, 'NOT_FOUND', 'Channel not found');
       return true;
     }
-    const body = (await readJson(req)) as Record<string, unknown>;
+    const parsed = UpdateChannelRequestSchema.safeParse(await readJson(req));
+    if (!parsed.success) {
+      sendError(res, 400, 'INVALID_REQUEST', 'Invalid channel update');
+      return true;
+    }
     const updated = {
       ...channel,
-      title: typeof body.title === 'string' ? body.title.trim() : channel.title,
-      status:
-        body.status === 'active' ||
-        body.status === 'archived' ||
-        body.status === 'disabled'
-          ? body.status
-          : channel.status,
+      title: parsed.data.title ?? channel.title,
+      status: parsed.data.status ?? channel.status,
       updatedAt: nowIso(),
     };
     await repositories.conversations.saveConversation(updated);
@@ -165,9 +159,10 @@ export async function handleChannelAdminFacadeRoutes(
       return true;
     }
     const [bindings, sessions, adminSummary] = await Promise.all([
-      repositories.channelInstallations.listAgentChannelBindings(
-        auth.appId as AppId,
-      ),
+      repositories.channelInstallations.listAgentChannelBindingsByConversation({
+        appId: auth.appId as AppId,
+        conversationId: channel.id,
+      }),
       repositories.conversations.listThreads(channel.id),
       administrationService().getAdminSummary({
         appId: auth.appId as AppId,
@@ -176,9 +171,7 @@ export async function handleChannelAdminFacadeRoutes(
     ]);
     sendJson(res, 200, {
       channel: conversationToResponse(channel),
-      agents: bindings
-        .filter((binding) => binding.conversationId === channel.id)
-        .map(bindingToResponse),
+      agents: bindings.map(bindingToResponse),
       sessions: sessions.map(threadToResponse),
       controlAllowlist: adminSummary.controlAllowlist,
     });
@@ -188,29 +181,28 @@ export async function handleChannelAdminFacadeRoutes(
   if (action === 'agents' && req.method === 'PUT') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
     if (!auth) return true;
-    const body = (await readJson(req)) as Record<string, unknown>;
-    const agentIds = Array.isArray(body.agentIds)
-      ? body.agentIds.filter((id): id is string => typeof id === 'string')
-      : [];
-    if (!agentIds.length) {
-      sendError(res, 400, 'INVALID_REQUEST', 'agentIds is required');
+    const parsed = BindChannelAgentsRequestSchema.safeParse(
+      await readJson(req),
+    );
+    if (!parsed.success) {
+      sendError(res, 400, 'INVALID_REQUEST', 'Invalid channel agent bindings');
       return true;
     }
-    const defaultAgentId =
-      typeof body.defaultAgentId === 'string'
-        ? body.defaultAgentId
-        : agentIds[0];
+    const agentIds = parsed.data.agentIds;
+    const defaultAgentId = parsed.data.defaultAgentId ?? agentIds[0];
     try {
       const channel = await services().conversations.get({
         appId: auth.appId as AppId,
         conversationId: channelId,
       });
       const repositories = getRuntimeStorage().repositories;
-      const existing = (
-        await repositories.channelInstallations.listAgentChannelBindings(
-          auth.appId as AppId,
-        )
-      ).filter((binding) => binding.conversationId === channel.id);
+      const existing =
+        await repositories.channelInstallations.listAgentChannelBindingsByConversation(
+          {
+            appId: auth.appId as AppId,
+            conversationId: channel.id,
+          },
+        );
       const selected = new Set(agentIds);
       await Promise.all(
         existing
@@ -227,11 +219,10 @@ export async function handleChannelAdminFacadeRoutes(
             }),
           ),
       );
-      const bindings = [];
-      for (const agentId of agentIds) {
-        const isDefault = agentId === defaultAgentId;
-        bindings.push(
-          await services().bindings.enable({
+      const bindings = await Promise.all(
+        agentIds.map((agentId) => {
+          const isDefault = agentId === defaultAgentId;
+          return services().bindings.enable({
             appId: auth.appId as AppId,
             agentId: agentId as AgentId,
             conversationId: channel.id,
@@ -241,9 +232,9 @@ export async function handleChannelAdminFacadeRoutes(
               displayName: channel.title ?? channel.id,
               status: 'active',
             },
-          }),
-        );
-      }
+          });
+        }),
+      );
       sendJson(res, 200, { bindings: bindings.map(bindingToResponse) });
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
@@ -256,7 +247,13 @@ export async function handleChannelAdminFacadeRoutes(
       'sessions:write',
     ]);
     if (!auth) return true;
-    const body = (await readJson(req)) as Record<string, unknown>;
+    const parsed = CreateChannelSessionRequestSchema.safeParse(
+      await readJson(req),
+    );
+    if (!parsed.success) {
+      sendError(res, 400, 'INVALID_REQUEST', 'Invalid channel session');
+      return true;
+    }
     const repositories = getRuntimeStorage().repositories;
     const channel = await repositories.conversations.getConversation(channelId);
     if (!channel || channel.appId !== auth.appId) {
@@ -268,14 +265,13 @@ export async function handleChannelAdminFacadeRoutes(
       id: `session:${randomUUID()}` as ConversationThreadId,
       appId: auth.appId as AppId,
       conversationId: channel.id,
-      externalRef:
-        typeof body.externalThreadId === 'string' && body.externalThreadId
-          ? ({
-              kind: 'conversation_thread',
-              value: body.externalThreadId,
-            } as ExternalRef<'conversation_thread'>)
-          : undefined,
-      title: typeof body.title === 'string' ? body.title : undefined,
+      externalRef: parsed.data.externalThreadId
+        ? ({
+            kind: 'conversation_thread',
+            value: parsed.data.externalThreadId,
+          } as ExternalRef<'conversation_thread'>)
+        : undefined,
+      title: parsed.data.title,
       status: 'active',
       createdAt: now,
       updatedAt: now,
@@ -290,16 +286,19 @@ export async function handleChannelAdminFacadeRoutes(
       'channels:admin',
     ]);
     if (!auth) return true;
-    const body = (await readJson(req)) as Record<string, unknown>;
-    const userIds = Array.isArray(body.userIds)
-      ? body.userIds.filter((id): id is string => typeof id === 'string')
-      : [];
+    const parsed = UpdateChannelControlAllowlistRequestSchema.safeParse(
+      await readJson(req),
+    );
+    if (!parsed.success) {
+      sendError(res, 400, 'INVALID_REQUEST', 'Invalid control allowlist');
+      return true;
+    }
     try {
       const controlAllowlist =
         await administrationService().replaceControlAllowlist({
           appId: auth.appId as AppId,
           conversationId: channelId,
-          userIds,
+          userIds: parsed.data.userIds,
           updatedAt: nowIso(),
         });
       sendJson(res, 200, { controlAllowlist });

@@ -135,6 +135,28 @@ describe('channel CLI command', () => {
     expect(error).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
   });
 
+  it('prints Teams in channel connect usage', async () => {
+    const { error } = mockClack();
+    mockProviders();
+    vi.doMock('@core/config/settings/runtime-settings.js', () => ({
+      ensureRuntimeSettings: vi.fn(),
+    }));
+    vi.doMock('@core/config/env/file.js', () => ({ readEnvFile: vi.fn() }));
+    vi.doMock('@core/config/settings/runtime-home.js', () => ({
+      envFilePath: (runtimeHome: string) => `${runtimeHome}/.env`,
+    }));
+
+    const { runChannelCommand } = await import('@core/cli/channel.js');
+    const code = await runChannelCommand(import.meta.url, '/tmp/myclaw', [
+      'connect',
+    ]);
+
+    expect(code).toBe(1);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('myclaw channel connect <telegram|slack|teams>'),
+    );
+  });
+
   it('fails connect for unknown providers', async () => {
     const { error } = mockClack();
     mockProviders();

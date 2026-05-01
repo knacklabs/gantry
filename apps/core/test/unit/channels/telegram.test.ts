@@ -1166,6 +1166,43 @@ describe('TelegramChannel', () => {
       expect(opts.onMessage).not.toHaveBeenCalled();
     });
 
+    it('registers first private-DM media routes before delivery', async () => {
+      const ensureMessageRoute = vi.fn(async () => undefined);
+      const opts = createTestOpts({
+        ensureMessageRoute,
+        registeredGroups: vi.fn(() => ({})),
+      });
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const ctx = createMediaCtx({
+        chatId: 999999,
+        chatType: 'private',
+        extra: { photo: [{ file_id: 'photo_id', width: 800 }] },
+      });
+      await triggerMediaMessage('message:photo', ctx);
+      await flushPromises();
+
+      expect(ensureMessageRoute).toHaveBeenCalledWith(
+        'tg:999999',
+        expect.objectContaining({
+          chat_jid: 'tg:999999',
+          channel_provider: 'telegram',
+          sender: '99001',
+          content: '[Photo]',
+        }),
+      );
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'tg:999999',
+        expect.objectContaining({
+          chat_jid: 'tg:999999',
+          channel_provider: 'telegram',
+          content: '[Photo]',
+        }),
+      );
+      expect(currentBot().api.getFile).not.toHaveBeenCalled();
+    });
+
     it('stores document with fallback name when filename missing', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);

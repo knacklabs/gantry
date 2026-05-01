@@ -28,5 +28,6 @@
 - Resolved third-party MCP credentials must not be serialized into long-lived process env; use a private per-run handoff and keep SDK tool env sanitized.
 - Host runner sync code must work with npm workspace hoisting and installed package layouts; do not assume `packages/agent-runner/node_modules` exists.
 - Files under `apps/core/src/app/bootstrap/` own composition and wiring only; runtime behavior must live in `runtime/`, `jobs/`, `session/`, `platform/`, `messaging/`, `memory/`, or infrastructure modules.
+- Channel provider catalog flags must match executable behavior: do not advertise `install` or `discover` unless the CLI/control path can actually perform setup or discovery, and document any remaining runtime adapter seam explicitly.
 - Keep the architecture simple, do not over complicate
 - Search Anthropic SDK in node modules and do not reinvent what already exists.

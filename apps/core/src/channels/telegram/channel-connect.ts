@@ -314,8 +314,6 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         isGroup,
       );
 
-      // Only registered groups/channels can route group messages. Private
-      // chats may be registered centrally through agent-owned DM access.
       const group = this.opts.registeredGroups()[chatJid];
       if (!group && isGroup) {
         logger.debug(
@@ -366,7 +364,31 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         isGroup,
       );
 
-      const group = this.opts.registeredGroups()[chatJid];
+      const routeGroups = this.opts.registeredGroups;
+      let groups = routeGroups();
+      if (!isGroup && !groups[chatJid]) {
+        await this.opts.ensureMessageRoute?.(chatJid, {
+          id: ctx.message.message_id.toString(),
+          chat_jid: chatJid,
+          channel_provider: 'telegram',
+          sender: ctx.from?.id?.toString() || '',
+          sender_name:
+            ctx.from?.first_name ||
+            ctx.from?.username ||
+            ctx.from?.id?.toString() ||
+            'Unknown',
+          content: placeholder,
+          timestamp,
+          is_from_me: false,
+          external_message_id: ctx.message.message_id.toString(),
+          thread_id: ctx.message.message_thread_id
+            ? ctx.message.message_thread_id.toString()
+            : undefined,
+        });
+        groups = routeGroups();
+      }
+
+      const group = groups[chatJid];
       if (!group && isGroup) return;
 
       const senderName =

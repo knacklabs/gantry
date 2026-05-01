@@ -138,13 +138,17 @@ Telegram details:
 
 ## Teams
 
-Teams is a first-class channel target. Teams renderers use Adaptive Cards and
-`Action.Execute` for approvals and prompts. Single-select uses action buttons.
-Multi-select uses `Input.ChoiceSet` plus `Done`. Details and files use card
-updates, show-card sections, or dialogs where needed. Final decisions update
-the original card using Teams activity update. Unauthorized users receive
-targeted/private feedback where Teams supports it; otherwise MyClaw sends a
-non-sensitive denial update.
+Teams is a first-class channel target in the channel model. Current support
+includes Microsoft Graph setup/discovery, `teams:` conversation ids, normalized
+inbound/outbound adapter shapes, and Adaptive Card approval scaffolding behind
+the `TeamsSdkClient` seam. A concrete live Bot Framework transport is still a
+future adapter. Teams renderers use Adaptive Cards and `Action.Execute` for
+approvals and prompts. Single-select uses action buttons. Multi-select uses
+`Input.ChoiceSet` plus `Done`. Details and files use card updates, show-card
+sections, or dialogs where needed. Final decisions update the original card
+using Teams activity update. Unauthorized users receive targeted/private
+feedback where Teams supports it; otherwise MyClaw sends a non-sensitive denial
+update.
 
 Teams details:
 

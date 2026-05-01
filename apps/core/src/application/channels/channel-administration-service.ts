@@ -68,6 +68,12 @@ export class ChannelAdministrationService {
     updatedAt: string;
   }): Promise<{ userIds: string[] }> {
     const { conversation, installation } = await this.requireChannel(input);
+    if (conversation.kind === 'direct') {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Channel control allowlist is not supported for direct conversations',
+      );
+    }
     const userIds = normalizeUserIds(input.userIds);
     const invalidShape = userIds.filter((id) => !isValidExternalUserId(id));
     if (invalidShape.length > 0) {

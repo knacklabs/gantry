@@ -567,6 +567,13 @@
     "maxViolations": 2
   },
   {
+    "file": "apps/core/src/cli/teams.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Teams setup follows the existing CLI setup adapter pattern for env/settings persistence while the Graph discovery seam lives under channels; capped so additional config imports fail until the boundary slice extracts setup persistence.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 3
+  },
+  {
     "file": "apps/core/src/config/index.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",

@@ -51,13 +51,12 @@ export class SkillDraftService {
       skillId,
       bundle: { assets: input.assets },
     });
-    if (!input.agentId) {
-      const existing = await this.findExistingSkillByContentHash({
-        appId: input.appId,
-        contentHash: stored.contentHash,
-      });
-      if (existing) return existing;
-    }
+    const existing = await this.findExistingSkillByContentHash({
+      appId: input.appId,
+      agentId: input.agentId,
+      contentHash: stored.contentHash,
+    });
+    if (existing) return existing;
     const metadata = resolveSkillMetadata({
       assets: input.assets,
       name: input.name,
@@ -224,6 +223,7 @@ export class SkillDraftService {
 
   private async findExistingSkillByContentHash(input: {
     appId: AppId;
+    agentId?: AgentId;
     contentHash: string;
   }): Promise<SkillCatalogItem | null> {
     const existing = await this.skills.listSkills({
@@ -232,7 +232,9 @@ export class SkillDraftService {
     });
     return (
       existing.find(
-        (skill) => skill.storage?.contentHash === input.contentHash,
+        (skill) =>
+          skill.storage?.contentHash === input.contentHash &&
+          (input.agentId ? skill.agentId === input.agentId : true),
       ) ?? null
     );
   }

@@ -168,10 +168,7 @@ export async function handleAgentRoutes(
     const updated: Agent = {
       ...agent,
       name: parsed.data.name?.trim() ?? agent.name,
-      status:
-        parsed.data.status === 'disabled' || parsed.data.status === 'active'
-          ? parsed.data.status
-          : agent.status,
+      status: parsed.data.status ?? agent.status,
       updatedAt: new Date().toISOString(),
     };
     await repository.saveAgent(updated);

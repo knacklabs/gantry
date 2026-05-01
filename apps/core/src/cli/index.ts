@@ -51,7 +51,7 @@ function usage(): string {
     '  myclaw restart',
     '  myclaw logs',
     '  myclaw local setup|start|stop|status|logs|doctor',
-    '  myclaw channel connect <telegram|slack>',
+    '  myclaw channel connect <telegram|slack|teams>',
     '  myclaw channel list|info|control-allowlist',
     '  myclaw channel doctor',
     '  myclaw agent list|info|add|remove|trigger|dm-access|policy',

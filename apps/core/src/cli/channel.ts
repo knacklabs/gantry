@@ -16,7 +16,7 @@ import type { DoctorReport } from './doctor.js';
 function usage(): string {
   return [
     'Usage:',
-    '  myclaw channel connect <telegram|slack>',
+    '  myclaw channel connect <telegram|slack|teams>',
     '  myclaw channel list',
     '  myclaw channel info <channelId>',
     '  myclaw channel control-allowlist <channelId> [--allow <userId,userId>]',
@@ -49,6 +49,7 @@ function scopeChannelDoctorReport(report: DoctorReport): DoctorReport {
       'telegram-token',
       'telegram-token-api',
       'slack-tokens',
+      'teams-credentials',
     ].includes(check.id),
   );
   const checks = channelChecks.length > 0 ? channelChecks : report.checks;

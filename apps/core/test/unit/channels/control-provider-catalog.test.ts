@@ -18,6 +18,18 @@ const mocks = vi.hoisted(() => ({
       },
     ],
   })),
+  listTeamsChannels: vi.fn(async () => ({
+    ok: true,
+    channels: [
+      {
+        chatJid: 'teams:19:general@thread.tacv2',
+        chatTitle: 'Engineering / General',
+        teamId: 'team-1',
+        channelId: '19:general@thread.tacv2',
+        channelType: 'standard',
+      },
+    ],
+  })),
 }));
 
 vi.mock('@core/cli/telegram-chat-discovery.js', () => ({
@@ -55,9 +67,18 @@ function secrets(values: Record<string, string>): RuntimeSecretProvider {
   };
 }
 
+function teamsDiscoveryClient() {
+  return {
+    validateCredentials: vi.fn(),
+    verifyChannel: vi.fn(),
+    listChannels: mocks.listTeamsChannels,
+  };
+}
+
 describe('RuntimeSecretConversationDiscovery', () => {
   beforeEach(() => {
     mocks.listTelegramRecentChats.mockClear();
+    mocks.listTeamsChannels.mockClear();
   });
 
   it('does not fall back to preferred host env names when refs are empty', async () => {
@@ -93,6 +114,78 @@ describe('RuntimeSecretConversationDiscovery', () => {
       token: 'ref-token',
       limit: 10,
     });
+  });
+
+  it('discovers Teams channels from referenced runtime secrets', async () => {
+    const discovery = new RuntimeSecretConversationDiscovery(
+      secrets({
+        TEAMS_CLIENT_ID: 'client-id',
+        TEAMS_CLIENT_SECRET: 'client-secret',
+        TEAMS_TENANT_ID: 'tenant-id',
+      }),
+      teamsDiscoveryClient(),
+    );
+    const teamsInstallation = {
+      ...installation([
+        'TEAMS_CLIENT_ID',
+        'TEAMS_CLIENT_SECRET',
+        'TEAMS_TENANT_ID',
+      ]),
+      providerId: 'teams' as never,
+      label: 'Teams',
+    } as ChannelInstallation;
+
+    await expect(
+      discovery.discover({
+        installation: teamsInstallation,
+        limit: 10,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        externalId: 'teams:19:general@thread.tacv2',
+        title: 'Engineering / General',
+        kind: 'channel',
+        externalRef: {
+          kind: 'conversation',
+          value: 'teams:19:general@thread.tacv2',
+        },
+      }),
+    ]);
+    expect(mocks.listTeamsChannels).toHaveBeenCalledWith({
+      credentials: {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      limit: 10,
+    });
+  });
+
+  it('fails Teams discovery when required runtime secret refs are missing', async () => {
+    const discovery = new RuntimeSecretConversationDiscovery(
+      secrets({
+        TEAMS_CLIENT_ID: 'client-id',
+        TEAMS_CLIENT_SECRET: 'client-secret',
+        TEAMS_TENANT_ID: 'tenant-id',
+      }),
+      teamsDiscoveryClient(),
+    );
+    const teamsInstallation = {
+      ...installation(['TEAMS_CLIENT_ID', 'TEAMS_TENANT_ID']),
+      providerId: 'teams' as never,
+      label: 'Teams',
+    } as ChannelInstallation;
+
+    await expect(
+      discovery.discover({
+        installation: teamsInstallation,
+        limit: 10,
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'Channel installation does not reference TEAMS_CLIENT_SECRET',
+    });
+    expect(mocks.listTeamsChannels).not.toHaveBeenCalled();
   });
 });
 

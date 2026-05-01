@@ -7,9 +7,15 @@ import { ApplicationError } from '../../../application/common/application-error.
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import type { AgentId } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
-import type { McpServerDefinition } from '../../../domain/mcp/mcp-servers.js';
-import type { SkillCatalogItem } from '../../../domain/skills/skills.js';
-import type { ToolCatalogItem } from '../../../domain/tools/tools.js';
+import type {
+  McpServerDefinition,
+  McpServerId,
+} from '../../../domain/mcp/mcp-servers.js';
+import type {
+  SkillCatalogItem,
+  SkillId,
+} from '../../../domain/skills/skills.js';
+import type { ToolCatalogItem, ToolId } from '../../../domain/tools/tools.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
@@ -72,9 +78,13 @@ export async function handleCapabilityCatalogRoutes(
       const capabilities = await service().replaceCapabilities({
         appId: auth.appId as AppId,
         agentId: decodeURIComponent(agentCapabilityMatch[1]) as AgentId,
-        selectedToolIds: parsed.data.selectedToolIds as never,
-        selectedSkillIds: parsed.data.selectedSkillIds as never,
-        selectedMcpServerIds: parsed.data.selectedMcpServerIds as never,
+        selectedToolIds: parsed.data.selectedToolIds.map((id) => id as ToolId),
+        selectedSkillIds: parsed.data.selectedSkillIds.map(
+          (id) => id as SkillId,
+        ),
+        selectedMcpServerIds: parsed.data.selectedMcpServerIds.map(
+          (id) => id as McpServerId,
+        ),
       });
       sendJson(res, 200, capabilitiesToResponse(capabilities));
     } catch (error) {

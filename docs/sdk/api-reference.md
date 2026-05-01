@@ -442,10 +442,13 @@ members. Agent DM access remains independent and may include non-members; those
 users are not approvers unless they are also set as the agent's provider DM
 admin.
 
-`teams` is a first-class built-in channel provider with Microsoft Teams app auth
-through `RuntimeSecretProvider`, `teams:` conversation ids, `teams_` agent
-folders, and Adaptive Card approval flows. `whatsapp` is still returned as an
-unavailable placeholder until its adapter is implemented.
+`teams` is a built-in channel provider for setup and discovery with Microsoft
+Teams app auth through `RuntimeSecretProvider`, Microsoft Graph channel
+discovery, `teams:` conversation ids, and `teams_` agent folders. Runtime send
+and receive still depend on a concrete `TeamsSdkClient` adapter; this checkout
+includes tested normalization and Adaptive Card approval scaffolding. `whatsapp`
+is still returned as an unavailable placeholder until its adapter is
+implemented.
 
 ## Agent Channel Bindings
 

@@ -7,12 +7,7 @@ import {
   RuntimeLimitSchema,
 } from '../contract-primitives.js';
 
-export const AgentStatusSchema = z.enum([
-  'active',
-  'inactive',
-  'archived',
-  'disabled',
-]);
+export const AgentStatusSchema = z.enum(['active', 'disabled']);
 export type AgentStatus = z.infer<typeof AgentStatusSchema>;
 
 export const CreateAgentRequestSchema = z.object({

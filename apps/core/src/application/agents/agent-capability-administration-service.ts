@@ -104,7 +104,13 @@ export class AgentCapabilityAdministrationService {
     selectedSkillIds: SkillId[];
     selectedMcpServerIds: McpServerId[];
   }): Promise<AgentCapabilitiesView> {
-    await this.requireAgent(input.appId, input.agentId);
+    const agent = await this.requireAgent(input.appId, input.agentId);
+    if (agent.status !== 'active') {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        `Agent is not active: ${input.agentId}`,
+      );
+    }
     const now = this.clock.now();
     const selectedToolIds = unique(input.selectedToolIds);
     const selectedSkillIds = unique(input.selectedSkillIds);
@@ -126,107 +132,112 @@ export class AgentCapabilityAdministrationService {
       }),
     ]);
 
+    const toolBindingMap = new Map(
+      toolBindings.map((binding) => [binding.toolId, binding]),
+    );
     const toolSelection = new Set(selectedToolIds);
-    await Promise.all(
-      toolBindings
+    const nextToolBindings: AgentToolBinding[] = [
+      ...toolBindings
         .filter(
           (binding) =>
             binding.status === 'active' && !toolSelection.has(binding.toolId),
         )
-        .map((binding) =>
-          this.repositories.tools.disableAgentToolBinding({
-            appId: input.appId,
-            agentId: input.agentId,
-            toolId: binding.toolId,
-            updatedAt: now,
-          }),
-        ),
-    );
-    for (const toolId of selectedToolIds) {
-      const existing = toolBindings.find(
-        (binding) => binding.toolId === toolId,
-      );
-      await this.repositories.tools.saveAgentToolBinding({
-        id: `agent-tool-binding:${input.agentId}:${toolId}` as AgentToolBinding['id'],
-        appId: input.appId,
-        agentId: input.agentId,
-        toolId,
-        configVersionId: existing?.configVersionId,
-        status: 'active',
-        createdAt: existing?.createdAt ?? now,
-        updatedAt: now,
-      });
-    }
+        .map((binding) => ({
+          ...binding,
+          status: 'disabled' as const,
+          updatedAt: now,
+        })),
+      ...selectedToolIds.map((toolId) => {
+        const existing = toolBindingMap.get(toolId);
+        return {
+          id: `agent-tool-binding:${input.agentId}:${toolId}` as AgentToolBinding['id'],
+          appId: input.appId,
+          agentId: input.agentId,
+          toolId,
+          configVersionId: existing?.configVersionId,
+          status: 'active' as const,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+        };
+      }),
+    ];
 
+    const skillBindingMap = new Map(
+      skillBindings.map((binding) => [binding.skillId, binding]),
+    );
     const skillSelection = new Set(selectedSkillIds);
-    await Promise.all(
-      skillBindings
+    const nextSkillBindings: AgentSkillBinding[] = [
+      ...skillBindings
         .filter(
           (binding) =>
             binding.status === 'active' && !skillSelection.has(binding.skillId),
         )
-        .map((binding) =>
-          this.repositories.skills.disableAgentSkillBinding({
-            appId: input.appId,
-            agentId: input.agentId,
-            skillId: binding.skillId,
-            updatedAt: now,
-          }),
-        ),
-    );
-    for (const skillId of selectedSkillIds) {
-      const existing = skillBindings.find(
-        (binding) => binding.skillId === skillId,
-      );
-      await this.repositories.skills.saveAgentSkillBinding({
-        id: `agent-skill-binding:${input.agentId}:${skillId}` as AgentSkillBinding['id'],
-        appId: input.appId,
-        agentId: input.agentId,
-        skillId,
-        configVersionId: existing?.configVersionId,
-        status: 'active',
-        createdAt: existing?.createdAt ?? now,
-        updatedAt: now,
-      });
-    }
+        .map((binding) => ({
+          ...binding,
+          status: 'disabled' as const,
+          updatedAt: now,
+        })),
+      ...selectedSkillIds.map((skillId) => {
+        const existing = skillBindingMap.get(skillId);
+        return {
+          id: `agent-skill-binding:${input.agentId}:${skillId}` as AgentSkillBinding['id'],
+          appId: input.appId,
+          agentId: input.agentId,
+          skillId,
+          configVersionId: existing?.configVersionId,
+          status: 'active' as const,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+        };
+      }),
+    ];
 
+    const mcpBindingMap = new Map(
+      mcpBindings.map((binding) => [binding.serverId, binding]),
+    );
     const mcpSelection = new Set(selectedMcpServerIds);
-    await Promise.all(
-      mcpBindings
+    const nextMcpBindings: AgentMcpServerBinding[] = [
+      ...mcpBindings
         .filter(
           (binding) =>
             binding.status === 'active' && !mcpSelection.has(binding.serverId),
         )
-        .map((binding) =>
-          this.repositories.mcpServers.disableAgentBinding({
+        .map((binding) => ({
+          ...binding,
+          status: 'disabled' as const,
+          updatedAt: now,
+        })),
+      ...selectedMcpServerIds.flatMap((serverId) => {
+        const server = mcpMap.get(serverId);
+        if (!server?.latestApprovedVersionId) return [];
+        const existing = mcpBindingMap.get(serverId);
+        return [
+          {
+            id: `agent-mcp-binding:${input.agentId}:${serverId}` as AgentMcpServerBinding['id'],
             appId: input.appId,
             agentId: input.agentId,
-            serverId: binding.serverId,
+            serverId,
+            versionId: server.latestApprovedVersionId,
+            status: 'active' as const,
+            required: existing?.required ?? false,
+            permissionPolicyIds: existing?.permissionPolicyIds ?? [],
+            conversationId: existing?.conversationId,
+            threadId: existing?.threadId,
+            createdAt: existing?.createdAt ?? now,
             updatedAt: now,
-          }),
-        ),
-    );
-    for (const serverId of selectedMcpServerIds) {
-      const server = mcpMap.get(serverId);
-      if (!server?.latestApprovedVersionId) continue;
-      const existing = mcpBindings.find(
-        (binding) => binding.serverId === serverId,
-      );
-      await this.repositories.mcpServers.saveAgentBinding({
-        id: `agent-mcp-binding:${input.agentId}:${serverId}` as AgentMcpServerBinding['id'],
-        appId: input.appId,
-        agentId: input.agentId,
-        serverId,
-        versionId: server.latestApprovedVersionId,
-        status: 'active',
-        required: existing?.required ?? false,
-        permissionPolicyIds: existing?.permissionPolicyIds ?? [],
-        conversationId: existing?.conversationId,
-        threadId: existing?.threadId,
-        createdAt: existing?.createdAt ?? now,
-        updatedAt: now,
-      });
-    }
+          },
+        ];
+      }),
+    ];
+
+    await this.repositories.agents.replaceAgentCapabilityBindings({
+      appId: input.appId,
+      agentId: input.agentId,
+      toolBindings: nextToolBindings,
+      skillBindings: nextSkillBindings,
+      mcpBindings: nextMcpBindings,
+      updatedAt: now,
+    });
 
     return {
       agentId: input.agentId,
@@ -237,11 +248,12 @@ export class AgentCapabilityAdministrationService {
     };
   }
 
-  private async requireAgent(appId: AppId, agentId: AgentId): Promise<void> {
+  private async requireAgent(appId: AppId, agentId: AgentId) {
     const agent = await this.repositories.agents.getAgent(agentId);
     if (!agent || agent.appId !== appId) {
       throw new ApplicationError('NOT_FOUND', `Agent not found: ${agentId}`);
     }
+    return agent;
   }
 
   private async requireSelectableTools(
@@ -249,19 +261,21 @@ export class AgentCapabilityAdministrationService {
     toolIds: ToolId[],
   ): Promise<Map<ToolId, ToolCatalogItem>> {
     const tools = new Map<ToolId, ToolCatalogItem>();
-    for (const toolId of toolIds) {
-      const tool = await this.repositories.tools.getTool(toolId);
-      if (!tool || tool.appId !== appId) {
-        throw new ApplicationError('NOT_FOUND', `Tool not found: ${toolId}`);
-      }
-      if (tool.status !== 'active' || !tool.selectable) {
-        throw new ApplicationError(
-          'INVALID_REQUEST',
-          `Tool is not selectable: ${toolId}`,
-        );
-      }
-      tools.set(toolId, tool);
-    }
+    await Promise.all(
+      toolIds.map(async (toolId) => {
+        const tool = await this.repositories.tools.getTool(toolId);
+        if (!tool || tool.appId !== appId) {
+          throw new ApplicationError('NOT_FOUND', `Tool not found: ${toolId}`);
+        }
+        if (tool.status !== 'active' || !tool.selectable) {
+          throw new ApplicationError(
+            'INVALID_REQUEST',
+            `Tool is not selectable: ${toolId}`,
+          );
+        }
+        tools.set(toolId, tool);
+      }),
+    );
     return tools;
   }
 
@@ -270,19 +284,24 @@ export class AgentCapabilityAdministrationService {
     skillIds: SkillId[],
   ): Promise<Map<SkillId, SkillCatalogItem>> {
     const skills = new Map<SkillId, SkillCatalogItem>();
-    for (const skillId of skillIds) {
-      const skill = await this.repositories.skills.getSkill(skillId);
-      if (!skill || skill.appId !== appId) {
-        throw new ApplicationError('NOT_FOUND', `Skill not found: ${skillId}`);
-      }
-      if (!isSkillUsableForBinding(skill)) {
-        throw new ApplicationError(
-          'INVALID_REQUEST',
-          `Skill is not approved: ${skillId}`,
-        );
-      }
-      skills.set(skillId, skill);
-    }
+    await Promise.all(
+      skillIds.map(async (skillId) => {
+        const skill = await this.repositories.skills.getSkill(skillId);
+        if (!skill || skill.appId !== appId) {
+          throw new ApplicationError(
+            'NOT_FOUND',
+            `Skill not found: ${skillId}`,
+          );
+        }
+        if (!isSkillUsableForBinding(skill)) {
+          throw new ApplicationError(
+            'INVALID_REQUEST',
+            `Skill is not approved: ${skillId}`,
+          );
+        }
+        skills.set(skillId, skill);
+      }),
+    );
     return skills;
   }
 
@@ -291,22 +310,24 @@ export class AgentCapabilityAdministrationService {
     serverIds: McpServerId[],
   ): Promise<Map<McpServerId, McpServerDefinition>> {
     const servers = new Map<McpServerId, McpServerDefinition>();
-    for (const serverId of serverIds) {
-      const server = await this.repositories.mcpServers.getServer(serverId);
-      if (!server || server.appId !== appId) {
-        throw new ApplicationError(
-          'NOT_FOUND',
-          `MCP server not found: ${serverId}`,
-        );
-      }
-      if (!isMcpServerApproved(server)) {
-        throw new ApplicationError(
-          'INVALID_REQUEST',
-          `MCP server is not approved: ${serverId}`,
-        );
-      }
-      servers.set(serverId, server);
-    }
+    await Promise.all(
+      serverIds.map(async (serverId) => {
+        const server = await this.repositories.mcpServers.getServer(serverId);
+        if (!server || server.appId !== appId) {
+          throw new ApplicationError(
+            'NOT_FOUND',
+            `MCP server not found: ${serverId}`,
+          );
+        }
+        if (!isMcpServerApproved(server)) {
+          throw new ApplicationError(
+            'INVALID_REQUEST',
+            `MCP server is not approved: ${serverId}`,
+          );
+        }
+        servers.set(serverId, server);
+      }),
+    );
     return servers;
   }
 }

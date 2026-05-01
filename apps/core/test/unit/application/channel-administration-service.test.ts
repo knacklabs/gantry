@@ -11,6 +11,7 @@ function makeService(options?: {
   validUserIds?: string[];
   participantUserIds?: string[];
   providerId?: string;
+  conversationKind?: 'group' | 'channel' | 'direct';
 }) {
   const installation = {
     id: 'installation-1',
@@ -28,7 +29,7 @@ function makeService(options?: {
     appId: 'default',
     channelInstallationId: 'installation-1',
     externalRef: { kind: 'conversation', value: 'tg:-100123' },
-    kind: 'group',
+    kind: options?.conversationKind ?? 'group',
     title: 'Team',
     status: 'active',
     createdAt: iso,
@@ -171,6 +172,26 @@ describe('ChannelAdministrationService', () => {
     expect(
       repositories.conversations.listParticipantExternalUserIds,
     ).toHaveBeenCalledWith('channel-1');
+    expect(
+      repositories.conversations.replaceChannelControlApprovers,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('rejects control allowlist updates for direct conversations', async () => {
+    const { service, repositories } = makeService({
+      providerId: 'slack',
+      conversationKind: 'direct',
+      validUserIds: ['U123'],
+    });
+
+    await expect(
+      service.replaceControlAllowlist({
+        appId: 'default' as never,
+        conversationId: 'channel-1' as never,
+        userIds: ['U123'],
+        updatedAt: iso,
+      }),
+    ).rejects.toThrow(/direct/i);
     expect(
       repositories.conversations.replaceChannelControlApprovers,
     ).not.toHaveBeenCalled();

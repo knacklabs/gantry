@@ -6,6 +6,7 @@ import {
   MessageSink,
   OnInboundMessage,
   OnChatMetadata,
+  NewMessage,
   PlanReviewSurface,
   ProgressSink,
   PermissionApprovalRequest,
@@ -20,6 +21,10 @@ import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provi
 
 export interface ChannelOpts {
   onMessage: OnInboundMessage;
+  ensureMessageRoute?: (
+    chatJid: string,
+    message: NewMessage,
+  ) => Promise<boolean>;
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
   runtimeSettings?: () => RuntimeSettings;

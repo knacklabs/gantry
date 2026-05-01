@@ -105,6 +105,14 @@ export interface AgentRepository {
     approverEntries: Array<{ providerId: string; externalUserId: string }>;
     updatedAt: string;
   }): Promise<{ access: AgentDmAccess[]; approvers: AgentDmApprover[] }>;
+  replaceAgentCapabilityBindings(input: {
+    appId: AppId;
+    agentId: AgentId;
+    toolBindings: AgentToolBinding[];
+    skillBindings: AgentSkillBinding[];
+    mcpBindings: AgentMcpServerBinding[];
+    updatedAt: string;
+  }): Promise<void>;
   findAgentsByDmAccess(input: {
     appId: AppId;
     providerId: string;
@@ -178,6 +186,10 @@ export interface ChannelInstallationRepository {
     appId: AppId,
     agentId?: AgentId,
   ): Promise<AgentChannelBinding[]>;
+  listAgentChannelBindingsByConversation(input: {
+    appId: AppId;
+    conversationId: ConversationId;
+  }): Promise<AgentChannelBinding[]>;
 }
 
 export interface ConversationRepository {

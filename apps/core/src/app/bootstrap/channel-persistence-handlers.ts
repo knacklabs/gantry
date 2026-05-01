@@ -9,14 +9,13 @@ import type { RuntimeApp } from './runtime-app.js';
 import type { AsyncTaskQueue } from './async-task-queue.js';
 import type { ChannelWiringDeps } from './channel-wiring-types.js';
 
-const DEFAULT_APP_ID = 'default' as AppId;
-
 interface ChannelPersistenceHandlerDeps {
   app: RuntimeApp;
   resolved: ChannelWiringDeps;
   ops: () => OpsRepository;
   findBoundChannel: (jid: string) => ChannelAdapter | undefined;
   persistenceQueue: AsyncTaskQueue;
+  appId: AppId;
   dmAccess?: {
     resolveDmAgent(input: {
       appId: AppId;
@@ -68,6 +67,7 @@ export function createChannelPersistenceHandlers({
   ops,
   findBoundChannel,
   persistenceQueue,
+  appId,
   dmAccess,
   saveDmAgentChannelBinding,
 }: ChannelPersistenceHandlerDeps) {
@@ -91,7 +91,7 @@ export function createChannelPersistenceHandlers({
     if (!dmAccess || !saveDmAgentChannelBinding) return false;
 
     const resolution = await dmAccess.resolveDmAgent({
-      appId: DEFAULT_APP_ID,
+      appId,
       providerId,
       externalUserId,
     });
@@ -145,6 +145,7 @@ export function createChannelPersistenceHandlers({
   };
 
   return {
+    ensureMessageRoute: ensureDmAgentRegistration,
     onMessage: async (chatJid: string, msg: NewMessage) => {
       const trimmed = msg.content.trim();
       const canRoute = await ensureDmAgentRegistration(chatJid, msg);

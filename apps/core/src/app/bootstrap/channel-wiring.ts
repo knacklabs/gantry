@@ -92,6 +92,7 @@ export function createChannelWiring(
   deps: Partial<ChannelWiringDeps> = {},
 ): ChannelWiring {
   const resolved: ChannelWiringDeps = {
+    appId: 'default' as AppId,
     channelProviders: listChannelProviders(),
     loadSenderAllowlist,
     loadSenderControlAllowlist,
@@ -128,6 +129,7 @@ export function createChannelWiring(
       ops,
       findBoundChannel,
       persistenceQueue,
+      appId: resolved.appId,
       dmAccess: new AgentDmAccessAdministrationService({
         agents: getRuntimeStorage().repositories.agents,
         channelInstallations:
@@ -158,7 +160,7 @@ export function createChannelWiring(
       `channel-installation:default:${input.providerId}` as ChannelInstallationId;
     await repositories.channelInstallations.saveAgentChannelBinding({
       id: `agent-dm-binding:${safeIdPart(input.agent.id)}:${safeIdPart(input.chatJid)}` as AgentChannelBinding['id'],
-      appId: 'default' as AppId,
+      appId: resolved.appId,
       agentId: input.agent.id as AgentId,
       channelInstallationId,
       conversationId,
@@ -170,7 +172,7 @@ export function createChannelWiring(
       memoryScope: 'conversation',
       memorySubject: {
         kind: 'conversation',
-        appId: 'default' as AppId,
+        appId: resolved.appId,
         conversationId,
       } as MemorySubject,
       permissionPolicyIds: [],
@@ -456,7 +458,7 @@ export function createChannelWiring(
         channelInstallations: repositories.channelInstallations,
         conversations: repositories.conversations,
       }).isDmApproverAllowed({
-        appId: 'default' as AppId,
+        appId: resolved.appId,
         providerId: input.providerId,
         channelJid: input.channelJid,
         userId: input.userId,
@@ -469,7 +471,7 @@ export function createChannelWiring(
       });
       return await service
         .isControlApproverAllowed({
-          appId: 'default' as AppId,
+          appId: resolved.appId,
           providerId: input.providerId as never,
           channelJid: input.channelJid,
           userId: input.userId,

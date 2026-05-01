@@ -214,6 +214,7 @@ const domainRepositories = {
     })),
     replaceAgentDmApprovers: vi.fn(async () => []),
     findAgentsByDmAccess: vi.fn(async () => []),
+    replaceAgentCapabilityBindings: vi.fn(async () => undefined),
   },
   channelInstallations: {
     listChannelInstallations: vi.fn(async () => []),
@@ -226,6 +227,7 @@ const domainRepositories = {
     getAgentChannelBinding: vi.fn(async () => null),
     isAgentEnabledInConversation: vi.fn(async () => false),
     listAgentChannelBindings: vi.fn(async () => []),
+    listAgentChannelBindingsByConversation: vi.fn(async () => []),
   },
   conversations: {
     listConversations: vi.fn(async () => []),
@@ -489,6 +491,9 @@ beforeEach(() => {
   });
   domainRepositories.agents.replaceAgentDmApprovers.mockResolvedValue([]);
   domainRepositories.agents.findAgentsByDmAccess.mockResolvedValue([]);
+  domainRepositories.agents.replaceAgentCapabilityBindings.mockResolvedValue(
+    undefined,
+  );
   domainRepositories.channelInstallations.listChannelInstallations.mockResolvedValue(
     [],
   );
@@ -517,6 +522,9 @@ beforeEach(() => {
     false,
   );
   domainRepositories.channelInstallations.listAgentChannelBindings.mockResolvedValue(
+    [],
+  );
+  domainRepositories.channelInstallations.listAgentChannelBindingsByConversation.mockResolvedValue(
     [],
   );
   domainRepositories.conversations.listConversations.mockResolvedValue([]);
@@ -563,6 +571,12 @@ afterEach(() => {
 });
 
 describe('control server auth key parsing', () => {
+  it('returns no keys when MYCLAW_CONTROL_API_KEYS_JSON is malformed', () => {
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = '{"kid":"broken"';
+
+    expect(_testControlServer.parseControlApiKeys()).toEqual([]);
+  });
+
   it('filters out JSON keys that are not app-bound', () => {
     process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
       {

@@ -190,6 +190,29 @@ function createState() {
           createdAt: now,
           updatedAt: now,
         }),
+        replaceAgentCapabilityBindings: async (input: any) => {
+          for (const binding of input.toolBindings) {
+            const index = toolBindings.findIndex(
+              (item) => item.id === binding.id,
+            );
+            if (index >= 0) toolBindings[index] = binding;
+            else toolBindings.push(binding);
+          }
+          for (const binding of input.skillBindings) {
+            const index = skillBindings.findIndex(
+              (item) => item.id === binding.id,
+            );
+            if (index >= 0) skillBindings[index] = binding;
+            else skillBindings.push(binding);
+          }
+          for (const binding of input.mcpBindings) {
+            const index = mcpBindings.findIndex(
+              (item) => item.id === binding.id,
+            );
+            if (index >= 0) mcpBindings[index] = binding;
+            else mcpBindings.push(binding);
+          }
+        },
       },
       tools: {
         getTool: async (id: string) => tools.get(id) ?? null,

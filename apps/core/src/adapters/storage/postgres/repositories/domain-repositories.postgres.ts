@@ -702,6 +702,26 @@ export class PostgresChannelInstallationRepository implements ChannelInstallatio
     return rows.map((row) => this.bindingFromRow(row));
   }
 
+  async listAgentChannelBindingsByConversation(input: {
+    appId: App['id'];
+    conversationId: Conversation['id'];
+  }): Promise<AgentChannelBinding[]> {
+    const rows = await this.db
+      .select()
+      .from(pgSchema.agentChannelBindingsPostgres)
+      .where(
+        and(
+          eq(pgSchema.agentChannelBindingsPostgres.appId, input.appId),
+          eq(
+            pgSchema.agentChannelBindingsPostgres.conversationId,
+            input.conversationId,
+          ),
+        ),
+      )
+      .orderBy(asc(pgSchema.agentChannelBindingsPostgres.createdAt));
+    return rows.map((row) => this.bindingFromRow(row));
+  }
+
   private bindingFromRow(
     row: typeof pgSchema.agentChannelBindingsPostgres.$inferSelect,
   ): AgentChannelBinding {
