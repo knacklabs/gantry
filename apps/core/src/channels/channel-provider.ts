@@ -8,6 +8,7 @@ import {
   OnChatMetadata,
   PlanReviewSurface,
   ProgressSink,
+  PermissionApprovalRequest,
   RegisteredGroup,
   StreamingSink,
   StreamingStateSink,
@@ -24,6 +25,13 @@ export interface ChannelOpts {
   runtimeSettings?: () => RuntimeSettings;
   runtimeLease?: RuntimeLeasePort;
   runtimeSecrets?: RuntimeSecretProvider;
+  isControlApproverAllowed?: (input: {
+    providerId: string;
+    channelJid: string;
+    userId: string;
+    sourceGroup: string;
+    decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
+  }) => Promise<boolean>;
 }
 
 export type MaybePromise<T> = T | Promise<T>;

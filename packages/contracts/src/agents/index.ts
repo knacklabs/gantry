@@ -80,3 +80,50 @@ export const AgentConfigVersionResponseSchema = z.object({
 export type AgentConfigVersionResponse = z.infer<
   typeof AgentConfigVersionResponseSchema
 >;
+
+export const AgentCapabilitiesRequestSchema = z.object({
+  selectedToolIds: z.array(z.string()),
+  selectedSkillIds: z.array(z.string()),
+  selectedMcpServerIds: z.array(z.string()),
+});
+export type AgentCapabilitiesRequest = z.infer<
+  typeof AgentCapabilitiesRequestSchema
+>;
+
+export const AgentCapabilitiesResponseSchema = z.object({
+  agentId: z.string(),
+  selectedToolIds: z.array(z.string()),
+  selectedSkillIds: z.array(z.string()),
+  selectedMcpServerIds: z.array(z.string()),
+  updatedAt: IsoDateTimeSchema,
+});
+export type AgentCapabilitiesResponse = z.infer<
+  typeof AgentCapabilitiesResponseSchema
+>;
+
+export const AgentDmAccessEntrySchema = z.object({
+  provider: z.string().min(1),
+  userIds: z.array(z.string().min(1)),
+  adminUserId: z.string().min(1).optional(),
+});
+export type AgentDmAccessEntry = z.infer<typeof AgentDmAccessEntrySchema>;
+
+export const AgentDmAccessRequestSchema = z.object({
+  entries: z.array(AgentDmAccessEntrySchema),
+});
+export type AgentDmAccessRequest = z.infer<typeof AgentDmAccessRequestSchema>;
+
+export const AgentDmAccessResponseSchema = z.object({
+  agentId: z.string(),
+  dmAccess: z.object({
+    entries: z.array(AgentDmAccessEntrySchema),
+  }),
+  updatedAt: IsoDateTimeSchema,
+});
+export type AgentDmAccessResponse = z.infer<typeof AgentDmAccessResponseSchema>;
+
+export const AgentAdminResponseSchema = z.object({
+  agent: AgentResponseSchema,
+  dmAccess: AgentDmAccessResponseSchema.shape.dmAccess,
+});
+export type AgentAdminResponse = z.infer<typeof AgentAdminResponseSchema>;

@@ -125,7 +125,7 @@ through `mcp__myclaw__request_mcp_server`, same-channel review, binding, and
 next-run materialization.
 
 Same-channel MCP prompts are only a delivery surface. The deciding user must
-still be in the configured channel control allowlist for that agent. Normal chat
+still be in the Channel control allowlist for the origin Channel. Normal chat
 participants cannot grant persistent capabilities. The runner includes the
 origin chat JID/thread in IPC, and the host rejects the draft before review if
 that chat is not registered to the requesting agent folder or if the request

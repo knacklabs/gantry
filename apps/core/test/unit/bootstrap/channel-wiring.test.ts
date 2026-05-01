@@ -9,6 +9,33 @@ vi.mock('@core/platform/sender-allowlist.js', () => ({
   shouldLogDenied: vi.fn(() => false),
 }));
 
+const runtimeStoreMock = vi.hoisted(() => ({
+  opsRepository: {
+    storeMessage: vi.fn(async () => undefined),
+    storeChatMetadata: vi.fn(async () => undefined),
+  },
+  repositories: {
+    agents: {
+      findAgentsByDmAccess: vi.fn(async () => []),
+      listAgentDmApprovers: vi.fn(async () => []),
+    },
+    channelInstallations: {
+      saveAgentChannelBinding: vi.fn(async () => undefined),
+      listAgentChannelBindings: vi.fn(async () => []),
+    },
+    conversations: {
+      getConversation: vi.fn(async () => null),
+      listChannelControlApprovers: vi.fn(async () => []),
+    },
+  },
+}));
+
+vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  getRuntimeStorage: () => ({ repositories: runtimeStoreMock.repositories }),
+  getRuntimeOpsRepository: () => runtimeStoreMock.opsRepository,
+  tryAcquireRuntimeAdvisoryLease: vi.fn(async () => true),
+}));
+
 import { RuntimeSettings } from '@core/config/settings/runtime-settings.js';
 import { ChannelAdapter } from '@core/channels/channel-provider.js';
 import { ChannelProvider } from '@core/channels/provider-registry.js';
@@ -70,7 +97,9 @@ function makeApp(registeredGroups: Record<string, any> = {}): RuntimeApp {
     loadState: vi.fn(),
     saveState: vi.fn(),
     getOrRecoverCursor: vi.fn(),
-    registerGroup: vi.fn(),
+    registerGroup: vi.fn(async (jid: string, group: any) => {
+      registeredGroups[jid] = group;
+    }),
     setGroupModelOverride: vi.fn(),
     setGroupThinkingOverride: vi.fn(),
     getAvailableGroups: vi.fn(() => []),
@@ -82,6 +111,34 @@ function makeApp(registeredGroups: Record<string, any> = {}): RuntimeApp {
     setLastTimestamp: vi.fn(),
     setAgentCursor: vi.fn(),
     setChannelRuntime: vi.fn(),
+  };
+}
+
+function dmAccessTestDeps() {
+  return {
+    dmAccess: {
+      resolveDmAgent: async (input: any) => {
+        const agents =
+          await runtimeStoreMock.repositories.agents.findAgentsByDmAccess(
+            input,
+          );
+        if (agents.length === 0) return { status: 'none' as const };
+        if (agents.length === 1) {
+          return { status: 'single' as const, agent: agents[0] };
+        }
+        return { status: 'ambiguous' as const, agents };
+      },
+    },
+    saveDmAgentChannelBinding: async (input: any) => {
+      await runtimeStoreMock.repositories.channelInstallations.saveAgentChannelBinding(
+        {
+          agentId: input.agent.id,
+          channelInstallationId: `channel-installation:default:${input.providerId}`,
+          conversationId: `conversation:${input.chatJid}`,
+          triggerMode: 'always',
+        },
+      );
+    },
   };
 }
 
@@ -318,7 +375,7 @@ describe('createChannelWiring', () => {
         },
         opsRepository: { storeMessage } as any,
       },
-      ops: () => ({ storeMessage }) as any,
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
       findBoundChannel: vi.fn(),
       persistenceQueue,
     });
@@ -610,6 +667,140 @@ describe('createChannelWiring', () => {
     });
   });
 
+  it('authorizes direct DM approval with the agent DM admin before channel allowlists', async () => {
+    const app = makeApp({
+      'sl:D123': { name: 'Agent One DM', folder: 'agent_one_dm' },
+    });
+    let isControlApproverAllowed:
+      | ((input: {
+          providerId: string;
+          channelJid: string;
+          userId: string;
+          sourceGroup: string;
+        }) => Promise<boolean>)
+      | undefined;
+    runtimeStoreMock.repositories.conversations.getConversation.mockResolvedValue(
+      {
+        id: 'conversation:sl:D123',
+        appId: 'default',
+        providerId: 'slack',
+        kind: 'direct',
+      },
+    );
+    runtimeStoreMock.repositories.channelInstallations.listAgentChannelBindings.mockResolvedValue(
+      [
+        {
+          agentId: 'agent:one',
+          conversationId: 'conversation:sl:D123',
+          status: 'active',
+        },
+      ],
+    );
+    runtimeStoreMock.repositories.agents.listAgentDmApprovers.mockResolvedValue(
+      [
+        {
+          id: 'dm-admin:slack',
+          appId: 'default',
+          agentId: 'agent:one',
+          providerId: 'slack',
+          externalUserId: 'UADMIN',
+          createdAt: '2026-05-01T00:00:00.000Z',
+          updatedAt: '2026-05-01T00:00:00.000Z',
+        },
+      ],
+    );
+
+    const wiring = createChannelWiring(app, {
+      channelProviders: [
+        makeProvider('slack', (opts: any) => {
+          isControlApproverAllowed = opts.isControlApproverAllowed;
+          return makeChannel({
+            name: 'slack',
+            ownsJid: vi.fn((jid: string) => jid.startsWith('sl:')),
+          });
+        }),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    await expect(
+      isControlApproverAllowed?.({
+        providerId: 'slack',
+        channelJid: 'sl:D123',
+        userId: 'UADMIN',
+        sourceGroup: 'sl:D123',
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      isControlApproverAllowed?.({
+        providerId: 'slack',
+        channelJid: 'sl:D123',
+        userId: 'U1',
+        sourceGroup: 'sl:D123',
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it('falls back to settings control approvers for legacy setup allowlists', async () => {
+    const app = makeApp({
+      'sl:C123': { name: 'Team', folder: 'team' },
+    });
+    let isControlApproverAllowed:
+      | ((input: {
+          providerId: string;
+          channelJid: string;
+          userId: string;
+          sourceGroup: string;
+        }) => Promise<boolean>)
+      | undefined;
+    runtimeStoreMock.repositories.conversations.getConversation.mockResolvedValue(
+      {
+        id: 'conversation:sl:C123',
+        appId: 'default',
+        providerId: 'slack',
+        kind: 'channel',
+      },
+    );
+    runtimeStoreMock.repositories.conversations.listChannelControlApprovers.mockResolvedValue(
+      [],
+    );
+    const legacyControlAllowed = vi.fn(() => true);
+
+    const wiring = createChannelWiring(app, {
+      channelProviders: [
+        makeProvider('slack', (opts: any) => {
+          isControlApproverAllowed = opts.isControlApproverAllowed;
+          return makeChannel({
+            name: 'slack',
+            ownsJid: vi.fn((jid: string) => jid.startsWith('sl:')),
+          });
+        }),
+      ],
+      loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+      isSenderControlAllowed: legacyControlAllowed,
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    await expect(
+      isControlApproverAllowed?.({
+        providerId: 'slack',
+        channelJid: 'sl:C123',
+        userId: 'UADMIN',
+        sourceGroup: 'team',
+      }),
+    ).resolves.toBe(true);
+    expect(legacyControlAllowed).toHaveBeenCalledWith(
+      'sl:C123',
+      'UADMIN',
+      {},
+      'team',
+    );
+  });
+
   it('routes targeted user questions to the originating channel', async () => {
     const app = makeApp({
       'tg:main': { name: 'Main', folder: 'main', isMain: true },
@@ -695,5 +886,367 @@ describe('createChannelWiring', () => {
     });
 
     expect(response).toEqual({ requestId: 'q-1', answers: {} });
+  });
+});
+
+describe('createChannelPersistenceHandlers agent DM access', () => {
+  it('registers an unregistered direct conversation for the single allowed agent', async () => {
+    const registeredGroups: Record<string, any> = {};
+    const app = makeApp(registeredGroups);
+    const storeMessage = vi.fn(async () => undefined);
+    runtimeStoreMock.repositories.agents.findAgentsByDmAccess.mockResolvedValueOnce(
+      [
+        {
+          id: 'agent:one',
+          appId: 'default',
+          name: 'Agent One',
+          status: 'active',
+          createdAt: '2026-05-01T00:00:00.000Z',
+          updatedAt: '2026-05-01T00:00:00.000Z',
+        },
+      ],
+    );
+
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        channelProviders: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 5_000),
+      ...dmAccessTestDeps(),
+    });
+
+    await handlers.onChatMetadata(
+      'sl:D123',
+      '2026-05-01T00:00:00.000Z',
+      'User',
+      'slack',
+      false,
+    );
+    const msg = {
+      id: 'm1',
+      chat_jid: 'sl:D123',
+      channel_provider: 'slack',
+      sender: 'U123',
+      sender_name: 'User',
+      content: 'hello',
+      timestamp: '2026-05-01T00:00:01.000Z',
+    };
+    await handlers.onMessage('sl:D123', msg);
+
+    expect(app.registerGroup).toHaveBeenCalledWith(
+      'sl:D123',
+      expect.objectContaining({
+        name: 'Agent One DM',
+        requiresTrigger: false,
+      }),
+    );
+    expect(
+      runtimeStoreMock.repositories.channelInstallations
+        .saveAgentChannelBinding,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'agent:one',
+        channelInstallationId: 'channel-installation:default:slack',
+        conversationId: 'conversation:sl:D123',
+        triggerMode: 'always',
+      }),
+    );
+    expect(storeMessage).toHaveBeenCalledWith(msg);
+  });
+
+  it('uses a distinct runtime folder for each allowed direct conversation', async () => {
+    const registeredGroups: Record<string, any> = {};
+    const app = makeApp(registeredGroups);
+    const storeMessage = vi.fn(async () => undefined);
+    runtimeStoreMock.repositories.agents.findAgentsByDmAccess.mockResolvedValue(
+      [
+        {
+          id: 'agent:one',
+          appId: 'default',
+          name: 'Agent One',
+          status: 'active',
+          createdAt: '2026-05-01T00:00:00.000Z',
+          updatedAt: '2026-05-01T00:00:00.000Z',
+        },
+      ],
+    );
+
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        channelProviders: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 5_000),
+      ...dmAccessTestDeps(),
+    });
+
+    await handlers.onChatMetadata(
+      'sl:D1',
+      '2026-05-01T00:00:00.000Z',
+      'A',
+      'slack',
+      false,
+    );
+    await handlers.onChatMetadata(
+      'sl:D2',
+      '2026-05-01T00:00:00.000Z',
+      'B',
+      'slack',
+      false,
+    );
+    await handlers.onMessage('sl:D1', {
+      id: 'm1',
+      chat_jid: 'sl:D1',
+      channel_provider: 'slack',
+      sender: 'U1',
+      sender_name: 'A',
+      content: 'hello',
+      timestamp: '2026-05-01T00:00:01.000Z',
+    });
+    await handlers.onMessage('sl:D2', {
+      id: 'm2',
+      chat_jid: 'sl:D2',
+      channel_provider: 'slack',
+      sender: 'U2',
+      sender_name: 'B',
+      content: 'hello',
+      timestamp: '2026-05-01T00:00:02.000Z',
+    });
+
+    expect(registeredGroups['sl:D1']?.folder).toMatch(/^dm_slack_/);
+    expect(registeredGroups['sl:D2']?.folder).toMatch(/^dm_slack_/);
+    expect(registeredGroups['sl:D1']?.folder).not.toBe(
+      registeredGroups['sl:D2']?.folder,
+    );
+  });
+
+  it('drops registered direct conversations after DM access is revoked', async () => {
+    const registeredGroups: Record<string, any> = {
+      'sl:D123': {
+        name: 'Agent One DM',
+        folder: 'dm_slack_previous',
+        trigger: '@Agent One',
+        added_at: '2026-05-01T00:00:00.000Z',
+        requiresTrigger: false,
+      },
+    };
+    const app = makeApp(registeredGroups);
+    const storeMessage = vi.fn(async () => undefined);
+    runtimeStoreMock.repositories.agents.findAgentsByDmAccess.mockReset();
+    runtimeStoreMock.repositories.agents.findAgentsByDmAccess.mockResolvedValue(
+      [],
+    );
+
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        channelProviders: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 5_000),
+      ...dmAccessTestDeps(),
+    });
+
+    await handlers.onMessage('sl:D123', {
+      id: 'm-revoked',
+      chat_jid: 'sl:D123',
+      channel_provider: 'slack',
+      sender: 'U123',
+      sender_name: 'User',
+      content: 'still here',
+      timestamp: '2026-05-01T00:00:01.000Z',
+    });
+
+    expect(storeMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not register unregistered group conversations through DM access', async () => {
+    const app = makeApp({});
+    const storeMessage = vi.fn(async () => undefined);
+    runtimeStoreMock.repositories.agents.findAgentsByDmAccess.mockClear();
+
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        channelProviders: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 5_000),
+      ...dmAccessTestDeps(),
+    });
+
+    await handlers.onChatMetadata(
+      'sl:C123',
+      '2026-05-01T00:00:00.000Z',
+      'Channel',
+      'slack',
+      true,
+    );
+    await handlers.onMessage('sl:C123', {
+      id: 'm2',
+      chat_jid: 'sl:C123',
+      channel_provider: 'slack',
+      sender: 'U123',
+      sender_name: 'User',
+      content: 'hello',
+      timestamp: '2026-05-01T00:00:01.000Z',
+    });
+
+    expect(app.registerGroup).not.toHaveBeenCalled();
+    expect(
+      runtimeStoreMock.repositories.agents.findAgentsByDmAccess,
+    ).not.toHaveBeenCalled();
+    expect(storeMessage).not.toHaveBeenCalled();
+  });
+
+  it('drops unregistered direct conversations when DM access is ambiguous', async () => {
+    const app = makeApp({});
+    const storeMessage = vi.fn(async () => undefined);
+    runtimeStoreMock.repositories.channelInstallations.saveAgentChannelBinding.mockClear();
+    runtimeStoreMock.repositories.agents.findAgentsByDmAccess.mockResolvedValueOnce(
+      [
+        {
+          id: 'agent:one',
+          appId: 'default',
+          name: 'Agent One',
+          status: 'active',
+          createdAt: '2026-05-01T00:00:00.000Z',
+          updatedAt: '2026-05-01T00:00:00.000Z',
+        },
+        {
+          id: 'agent:two',
+          appId: 'default',
+          name: 'Agent Two',
+          status: 'active',
+          createdAt: '2026-05-01T00:00:00.000Z',
+          updatedAt: '2026-05-01T00:00:00.000Z',
+        },
+      ],
+    );
+
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        channelProviders: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 5_000),
+      ...dmAccessTestDeps(),
+    });
+
+    await handlers.onChatMetadata(
+      'sl:D999',
+      '2026-05-01T00:00:00.000Z',
+      'User',
+      'slack',
+      false,
+    );
+    await handlers.onMessage('sl:D999', {
+      id: 'm3',
+      chat_jid: 'sl:D999',
+      channel_provider: 'slack',
+      sender: 'U999',
+      sender_name: 'User',
+      content: 'hello',
+      timestamp: '2026-05-01T00:00:01.000Z',
+    });
+
+    expect(
+      runtimeStoreMock.repositories.agents.findAgentsByDmAccess,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'slack',
+        externalUserId: 'U999',
+      }),
+    );
+    expect(app.registerGroup).not.toHaveBeenCalled();
+    expect(
+      runtimeStoreMock.repositories.channelInstallations
+        .saveAgentChannelBinding,
+    ).not.toHaveBeenCalled();
+    expect(storeMessage).not.toHaveBeenCalled();
   });
 });

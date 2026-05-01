@@ -210,6 +210,147 @@ describe('TeamsChannel adapter scaffold', () => {
     expect(sdkClient.stop).toHaveBeenCalled();
   });
 
+  it('sends Teams approval cards and accepts Action.Execute decisions from channel control approvers', async () => {
+    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
+      undefined;
+    const isControlApproverAllowed = vi.fn(async () => true);
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async (input) => {
+        startInput = input;
+      }),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'teams-card-1',
+      })),
+    };
+    const opts = {
+      ...makeOpts(),
+      isControlApproverAllowed,
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      opts,
+      sdkClient,
+    );
+    await channel.connect();
+
+    const approvalPromise = channel.requestPermissionApproval(
+      'teams:19:abc@thread.v2',
+      {
+        requestId: 'perm-teams-1',
+        sourceGroup: 'teams_engineering',
+        decisionPolicy: 'same_channel',
+        toolName: 'Bash',
+        threadId: 'root-message',
+      },
+    );
+
+    expect(sdkClient.sendAdaptiveCard).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: '19:abc@thread.v2',
+        threadId: 'root-message',
+      }),
+    );
+    await Promise.resolve();
+
+    await startInput?.onMessage({
+      conversationId: '19:abc@thread.v2',
+      from: { id: 'teams-user-1', name: 'Team Admin' },
+      value: {
+        action: 'permission_decision',
+        requestId: 'perm-teams-1',
+        decision: 'approve',
+      },
+    });
+
+    await expect(approvalPromise).resolves.toEqual(
+      expect.objectContaining({
+        approved: true,
+        decidedBy: 'Team Admin',
+      }),
+    );
+    expect(isControlApproverAllowed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'teams',
+        channelJid: 'teams:19:abc@thread.v2',
+        userId: 'teams-user-1',
+      }),
+    );
+  });
+
+  it('keeps pending Teams permission prompts unresolved when decision user is unauthorized', async () => {
+    let startInput: Parameters<TeamsSdkClient['start']>[0] | undefined =
+      undefined;
+    const isControlApproverAllowed = vi.fn(async () => false);
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async (input) => {
+        startInput = input;
+      }),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({})),
+      sendAdaptiveCard: vi.fn(async () => ({
+        externalMessageId: 'teams-card-2',
+      })),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      {
+        ...makeOpts(),
+        isControlApproverAllowed,
+      },
+      sdkClient,
+    );
+    await channel.connect();
+
+    const approvalPromise = channel.requestPermissionApproval(
+      'teams:19:abc@thread.v2',
+      {
+        requestId: 'perm-teams-unauthorized',
+        sourceGroup: 'teams_engineering',
+        decisionPolicy: 'same_channel',
+        toolName: 'Bash',
+      },
+    );
+    await Promise.resolve();
+
+    await startInput?.onMessage({
+      conversationId: '19:abc@thread.v2',
+      from: { id: 'teams-user-2', name: 'Viewer' },
+      value: {
+        data: {
+          action: 'permission_decision',
+          requestId: 'perm-teams-unauthorized',
+          decision: 'approve',
+        },
+      },
+    });
+
+    let settled = false;
+    void approvalPromise.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    await channel.disconnect();
+    await expect(approvalPromise).resolves.toEqual(
+      expect.objectContaining({
+        approved: false,
+        decidedBy: 'system',
+        reason: 'Teams channel disconnected',
+      }),
+    );
+  });
+
   it('creates a channel only when runtime secrets and an SDK client are supplied', () => {
     const sdkClient: TeamsSdkClient = {
       start: vi.fn(async () => {}),

@@ -32,12 +32,23 @@ import {
 } from '../../runtime/remote-control-command.js';
 import { isPartialMessageDeliveryError } from '../../runtime/partial-delivery.js';
 import {
+  getRuntimeStorage,
   getRuntimeOpsRepository,
   tryAcquireRuntimeAdvisoryLease,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { ChannelAdapter } from '../../channels/channel-provider.js';
 import { EnvRuntimeSecretProvider } from '../../adapters/credentials/env-runtime-secret-provider.js';
 import { RuntimeApp } from './runtime-app.js';
+import { ChannelAdministrationService } from '../../application/channels/channel-administration-service.js';
+import { AgentDmAccessAdministrationService } from '../../application/agents/agent-dm-access-administration-service.js';
+import type { Agent, AgentId } from '../../domain/agent/agent.js';
+import type { AppId } from '../../domain/app/app.js';
+import type {
+  AgentChannelBinding,
+  ChannelInstallationId,
+} from '../../domain/channel/channel.js';
+import type { ConversationId } from '../../domain/conversation/conversation.js';
+import type { MemorySubject } from '../../domain/memory/memory.js';
 import {
   asGroupDiscoverySource,
   asPermissionApprovalSurface,
@@ -117,6 +128,13 @@ export function createChannelWiring(
       ops,
       findBoundChannel,
       persistenceQueue,
+      dmAccess: new AgentDmAccessAdministrationService({
+        agents: getRuntimeStorage().repositories.agents,
+        channelInstallations:
+          getRuntimeStorage().repositories.channelInstallations,
+        conversations: getRuntimeStorage().repositories.conversations,
+      }),
+      saveDmAgentChannelBinding,
     }),
     registeredGroups: () => app.getRegisteredGroups(),
     runtimeSettings: () => currentRuntimeSettings,
@@ -124,8 +142,49 @@ export function createChannelWiring(
       tryAcquire: tryAcquireRuntimeAdvisoryLease,
     },
     runtimeSecrets: resolved.runtimeSecrets,
+    isControlApproverAllowed: authorizeChannelControlApprover,
   };
   let currentRuntimeSettings: RuntimeSettings;
+
+  async function saveDmAgentChannelBinding(input: {
+    agent: Agent;
+    chatJid: string;
+    providerId: string;
+  }): Promise<void> {
+    const repositories = getRuntimeStorage().repositories;
+    const now = new Date().toISOString();
+    const conversationId = `conversation:${input.chatJid}` as ConversationId;
+    const channelInstallationId =
+      `channel-installation:default:${input.providerId}` as ChannelInstallationId;
+    await repositories.channelInstallations.saveAgentChannelBinding({
+      id: `agent-dm-binding:${safeIdPart(input.agent.id)}:${safeIdPart(input.chatJid)}` as AgentChannelBinding['id'],
+      appId: 'default' as AppId,
+      agentId: input.agent.id as AgentId,
+      channelInstallationId,
+      conversationId,
+      displayName: `${input.agent.name} DM`,
+      status: 'active',
+      triggerMode: 'always',
+      requiresTrigger: false,
+      isAdminBinding: false,
+      memoryScope: 'conversation',
+      memorySubject: {
+        kind: 'conversation',
+        appId: 'default' as AppId,
+        conversationId,
+      } as MemorySubject,
+      permissionPolicyIds: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  function safeIdPart(value: string): string {
+    return value
+      .trim()
+      .replace(/[^a-zA-Z0-9._:@-]/g, '_')
+      .slice(0, 96);
+  }
 
   function findBoundChannel(jid: string): ChannelAdapter | undefined {
     return findChannel(connectedChannels, jid);
@@ -378,6 +437,60 @@ export function createChannelWiring(
       approved: false,
       reason: 'No main channel supports interactive permission approvals',
     };
+  }
+
+  async function authorizeChannelControlApprover(input: {
+    providerId: string;
+    channelJid: string;
+    userId: string;
+    sourceGroup: string;
+    decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
+  }): Promise<boolean> {
+    if (input.decisionPolicy && input.decisionPolicy !== 'same_channel') {
+      return false;
+    }
+    try {
+      const repositories = getRuntimeStorage().repositories;
+      const dmApprover = await new AgentDmAccessAdministrationService({
+        agents: repositories.agents,
+        channelInstallations: repositories.channelInstallations,
+        conversations: repositories.conversations,
+      }).isDmApproverAllowed({
+        appId: 'default' as AppId,
+        providerId: input.providerId,
+        channelJid: input.channelJid,
+        userId: input.userId,
+      });
+      if (dmApprover !== null) return dmApprover;
+
+      const service = new ChannelAdministrationService({
+        channelInstallations: repositories.channelInstallations,
+        conversations: repositories.conversations,
+      });
+      return await service
+        .isControlApproverAllowed({
+          appId: 'default' as AppId,
+          providerId: input.providerId as never,
+          channelJid: input.channelJid,
+          userId: input.userId,
+        })
+        .then((allowed) => {
+          if (allowed) return true;
+          const legacyAllowlist = resolved.loadSenderControlAllowlist();
+          return resolved.isSenderControlAllowed(
+            input.channelJid,
+            input.userId,
+            legacyAllowlist,
+            input.sourceGroup,
+          );
+        });
+    } catch (err) {
+      resolved.logger.warn(
+        { err, providerId: input.providerId, sourceGroup: input.sourceGroup },
+        'Channel control approver lookup failed',
+      );
+      return false;
+    }
   }
 
   async function requestUserAnswer(

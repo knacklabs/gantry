@@ -1,9 +1,15 @@
+import { createHash } from 'node:crypto';
+
 import type { ChannelAdapter } from '../../channels/channel-provider.js';
-import type { NewMessage } from '../../domain/types.js';
+import type { RegisteredGroup, NewMessage } from '../../domain/types.js';
 import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
+import type { Agent } from '../../domain/agent/agent.js';
+import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeApp } from './runtime-app.js';
 import type { AsyncTaskQueue } from './async-task-queue.js';
 import type { ChannelWiringDeps } from './channel-wiring-types.js';
+
+const DEFAULT_APP_ID = 'default' as AppId;
 
 interface ChannelPersistenceHandlerDeps {
   app: RuntimeApp;
@@ -11,6 +17,22 @@ interface ChannelPersistenceHandlerDeps {
   ops: () => OpsRepository;
   findBoundChannel: (jid: string) => ChannelAdapter | undefined;
   persistenceQueue: AsyncTaskQueue;
+  dmAccess?: {
+    resolveDmAgent(input: {
+      appId: AppId;
+      providerId: string;
+      externalUserId: string;
+    }): Promise<
+      | { status: 'none' }
+      | { status: 'single'; agent: Agent }
+      | { status: 'ambiguous'; agents: Agent[] }
+    >;
+  };
+  saveDmAgentChannelBinding?: (input: {
+    agent: Agent;
+    chatJid: string;
+    providerId: string;
+  }) => Promise<void>;
 }
 
 async function enqueueAndWait(
@@ -46,24 +68,101 @@ export function createChannelPersistenceHandlers({
   ops,
   findBoundChannel,
   persistenceQueue,
+  dmAccess,
+  saveDmAgentChannelBinding,
 }: ChannelPersistenceHandlerDeps) {
+  const chatIsGroup = new Map<string, boolean>();
+
+  const ensureDmAgentRegistration = async (
+    chatJid: string,
+    msg: NewMessage,
+  ): Promise<boolean> => {
+    const groupsByChat = app.getRegisteredGroups();
+    const existingGroup = groupsByChat[chatJid];
+    if (msg.is_from_me || msg.is_bot_message) return Boolean(existingGroup);
+    const isKnownDirect =
+      chatIsGroup.get(chatJid) === false ||
+      existingGroup?.folder.startsWith('dm_') === true;
+    if (!isKnownDirect) return Boolean(existingGroup);
+
+    const providerId = providerIdForMessage(chatJid, msg);
+    const externalUserId = msg.sender.trim();
+    if (!providerId || !externalUserId) return false;
+    if (!dmAccess || !saveDmAgentChannelBinding) return false;
+
+    const resolution = await dmAccess.resolveDmAgent({
+      appId: DEFAULT_APP_ID,
+      providerId,
+      externalUserId,
+    });
+
+    if (resolution.status === 'none') {
+      resolved.logger.debug(
+        { chatJid, providerId, externalUserId },
+        'Dropping direct message without active agent DM access',
+      );
+      return false;
+    }
+    if (resolution.status === 'ambiguous') {
+      resolved.logger.warn(
+        {
+          chatJid,
+          providerId,
+          externalUserId,
+          agentIds: resolution.agents.map((agent) => agent.id),
+        },
+        'Dropping direct message because DM access matches multiple agents',
+      );
+      return false;
+    }
+
+    const group = dmAgentGroup(providerId, resolution.agent, chatJid);
+    if (existingGroup?.folder === group.folder) return true;
+    if (existingGroup) {
+      resolved.logger.info(
+        {
+          chatJid,
+          providerId,
+          externalUserId,
+          previousFolder: existingGroup.folder,
+          nextFolder: group.folder,
+          agentId: resolution.agent.id,
+        },
+        'Refreshing direct conversation registration from agent DM access',
+      );
+    }
+    await saveDmAgentChannelBinding({
+      agent: resolution.agent,
+      chatJid,
+      providerId,
+    });
+    await app.registerGroup(chatJid, group);
+    resolved.logger.info(
+      { chatJid, providerId, externalUserId, agentId: resolution.agent.id },
+      'Registered direct conversation from agent DM access',
+    );
+    return true;
+  };
+
   return {
     onMessage: async (chatJid: string, msg: NewMessage) => {
       const trimmed = msg.content.trim();
-      const registeredGroups = app.getRegisteredGroups();
-      if (!msg.is_from_me && !msg.is_bot_message && registeredGroups[chatJid]) {
+      const canRoute = await ensureDmAgentRegistration(chatJid, msg);
+      if (!canRoute) return;
+      const groupsByChat = app.getRegisteredGroups();
+      if (!msg.is_from_me && !msg.is_bot_message && groupsByChat[chatJid]) {
         const cfg = resolved.loadSenderAllowlist();
         if (
           resolved.shouldDropMessage(
             chatJid,
             cfg,
-            registeredGroups[chatJid]?.folder,
+            groupsByChat[chatJid]?.folder,
           ) &&
           !resolved.isSenderAllowed(
             chatJid,
             msg.sender,
             cfg,
-            registeredGroups[chatJid]?.folder,
+            groupsByChat[chatJid]?.folder,
           )
         ) {
           if (resolved.shouldLogDenied(chatJid, cfg)) {
@@ -91,7 +190,7 @@ export function createChannelPersistenceHandlers({
                 chatJid,
                 candidateMsg.sender,
                 allowlistCfg,
-                registeredGroups[chatJid]?.folder,
+                groupsByChat[chatJid]?.folder,
               ),
           );
         } catch (err) {
@@ -125,6 +224,7 @@ export function createChannelPersistenceHandlers({
       channel?: string,
       isGroup?: boolean,
     ) => {
+      if (isGroup !== undefined) chatIsGroup.set(chatJid, Boolean(isGroup));
       const persistMetadata = async () => {
         try {
           await ops().storeChatMetadata(
@@ -150,4 +250,44 @@ export function createChannelPersistenceHandlers({
       );
     },
   };
+}
+
+function providerIdForMessage(chatJid: string, msg: NewMessage): string {
+  if (msg.channel_provider?.trim()) return msg.channel_provider.trim();
+  const idx = chatJid.indexOf(':');
+  return idx > 0 ? chatJid.slice(0, idx) : 'app';
+}
+
+function dmAgentGroup(
+  providerId: string,
+  agent: Agent,
+  chatJid: string,
+): RegisteredGroup {
+  return {
+    name: `${agent.name} DM`,
+    folder: agentDmFolder(providerId, agent.id, chatJid),
+    trigger: `@${agent.name}`,
+    added_at: new Date().toISOString(),
+    requiresTrigger: false,
+    isMain: false,
+  };
+}
+
+function agentDmFolder(
+  providerId: string,
+  agentId: string,
+  chatJid: string,
+): string {
+  const hash = createHash('sha256')
+    .update(`${providerId}:${agentId}:${chatJid}`)
+    .digest('hex')
+    .slice(0, 16);
+  return `dm_${safeIdPart(providerId)}_${hash}`;
+}
+
+function safeIdPart(value: string): string {
+  return value
+    .trim()
+    .replace(/[^a-zA-Z0-9._:@-]/g, '_')
+    .slice(0, 96);
 }

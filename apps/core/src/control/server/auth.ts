@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { isValidControlId } from '../../application/app-scope/control-id.js';
+import { envValueDynamic } from '../../config/env/index.js';
 
 export type Scope =
   | 'sessions:read'
@@ -57,9 +58,9 @@ const ALL_SCOPES: Scope[] = [
 export { isValidControlId };
 
 export function parseControlApiKeys(): ApiKeyRecord[] {
-  const rawJson = process.env.MYCLAW_CONTROL_API_KEYS_JSON?.trim();
-  const rawSingle = process.env.MYCLAW_CONTROL_API_KEY?.trim();
-  const singleAppId = process.env.MYCLAW_CONTROL_APP_ID?.trim() || '';
+  const rawJson = envValueDynamic('MYCLAW_CONTROL_API_KEYS_JSON');
+  const rawSingle = envValueDynamic('MYCLAW_CONTROL_API_KEY');
+  const singleAppId = envValueDynamic('MYCLAW_CONTROL_APP_ID');
   if (rawJson) {
     const parsed = JSON.parse(rawJson) as Array<{
       kid?: string;

@@ -17,33 +17,68 @@ browser tools, channel tools, and channel bindings have separate schemas and
 validation rules. They share lifecycle, policy, audit, and config-version
 activation, but they are not collapsed into one untyped blob.
 
+## Administration Model
+
+The deterministic ownership rule is:
+
+- Agents own `selectedToolIds`, `selectedSkillIds`, and
+  `selectedMcpServerIds`, plus provider-neutral DM access entries and one
+  optional DM approval admin per provider.
+- Channels own bound agents, default/routing metadata, sessions, and control
+  approver allowlists.
+- Agent DM access is separate from channel membership and channel control
+  approvers. It can name provider user ids from Slack, Teams, Telegram, Web,
+  or local surfaces. DM access does not grant approval rights by itself.
+- Agent DM admins are separate from DM access users. A provider-specific DM
+  admin can approve permission prompts only for that agent's direct/private DM
+  sessions on that provider.
+- Control approvers are separate from DM access. They must be verifiable
+  members of the Channel and apply to every agent bound to that Channel.
+
+There is no channel-scoped tool selection field and no separate browser
+capability list. Browser is a normal catalog tool. Channel-provider flags
+describe adapter support; they are metadata, not authorization.
+
+API, CLI, and MCP are adapters over the same application services:
+
+- Public control API is for owner/admin automation and Web/SDK admin UX.
+- CLI is for local/admin setup, provider connect/validate, service
+  start/stop/restart/logs, doctor commands, and local imports.
+- MyClaw MCP tools are for agent-requested reviewed changes and safe runtime
+  interactions. They create reviewable requests rendered through
+  `InteractionDescriptor`.
+
+Skills, MCP servers, and tools are central catalog objects. V1 does not version
+skills; approved catalog items are disabled and replaced rather than edited in
+place.
+
 ## Tool Matrix
 
-| Tool | Use | Never use for |
-| --- | --- | --- |
-| `send_message` | Progress updates or direct channel messages while the agent is still running. | Persistent capability changes. |
-| `ask_user_question` | Structured choices with content, options, single-select, multi-select, preview/details, and channel-native buttons. | Open-ended chat or approval of persistent capabilities. |
-| `request_skill_install` | Provider-backed skill installs such as `clawhub:<slug>@<version>`. | Downloading or installing the skill directly. |
-| `request_skill_proposal` | Agent-created or modified `SKILL.md` bundles for review. | Writing directly to `.claude/skills`, `.agents/skills`, or agent-local `skills/`. |
-| `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies needed by a reviewed skill. | Running dependency commands from the agent. |
-| `request_mcp_server` | Third-party MCP server drafts with transport, origin, allowed tool patterns, credential needs, and reason. | Editing `.mcp.json` or Claude `mcpServers`. |
-| `request_tool_enable` | SDK or host tools such as `Bash`, `Write`, `Edit`, browser tools, scheduler tools, memory tools, or service tools. | Changing permission settings directly. |
-| `request_channel_tool_enable` | Channel-specific capabilities such as Teams proactive messaging, Slack file access, or Telegram file download behavior. | Treating a channel SDK permission as already approved. |
-| `service_restart` | Main/admin agent restart after approved config or capability changes that require host restart. | Restarting to activate unapproved changes. |
-| `register_agent` | Main/admin agent binding of a new channel conversation to an agent. | Letting a normal agent bind arbitrary chats. |
+| Tool                               | Use                                                                                                                     | Never use for                                                                     |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `send_message`                     | Progress updates or direct channel messages while the agent is still running.                                           | Persistent capability changes.                                                    |
+| `ask_user_question`                | Structured choices with content, options, single-select, multi-select, preview/details, and channel-native buttons.     | Open-ended chat or approval of persistent capabilities.                           |
+| `request_skill_install`            | Provider-backed skill installs such as `clawhub:<slug>@<version>`.                                                      | Downloading or installing the skill directly.                                     |
+| `request_skill_proposal`           | Agent-created or modified `SKILL.md` bundles for review.                                                                | Writing directly to `.claude/skills`, `.agents/skills`, or agent-local `skills/`. |
+| `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies needed by a reviewed skill.                                                 | Running dependency commands from the agent.                                       |
+| `request_mcp_server`               | Third-party MCP server drafts with transport, origin, allowed tool patterns, credential needs, and reason.              | Editing `.mcp.json` or Claude `mcpServers`.                                       |
+| `request_tool_enable`              | SDK or host tools such as `Bash`, `Write`, `Edit`, browser tools, scheduler tools, memory tools, or service tools.      | Changing permission settings directly.                                            |
+| `request_channel_tool_enable`      | Channel-specific capabilities such as Teams proactive messaging, Slack file access, or Telegram file download behavior. | Treating a channel SDK permission as already approved.                            |
+| `service_restart`                  | Main/admin agent restart after approved config or capability changes that require host restart.                         | Restarting to activate unapproved changes.                                        |
+| `register_agent`                   | Main/admin agent binding of a new channel conversation to an agent.                                                     | Letting a normal agent bind arbitrary chats.                                      |
 
 ## Capability Types
 
-| Type | Durable truth | Runtime projection |
-| --- | --- | --- |
-| Skill | Skill catalog row, readable files, provider ref, hash, binding. | Per-run Claude `skills/<slug>/...` folder and `Skill` tool exposure. |
-| Skill dependency | Dependency spec, approval decision, execution result, audit. | Optional per-skill tools directory or approved host package; never direct agent shell. |
-| Third-party MCP | Definition, reviewed version, credential refs, allowed tool patterns, binding. | SDK `mcpServers` plus exact allowed MCP tool names. |
-| SDK tool | Tool catalog entry, risk, permission policy, sandbox profile, binding. | Exact SDK tool name in `allowedTools` and `canUseTool` policy gate. |
-| Host tool | Built-in MyClaw MCP tool entry, risk, binding, audit behavior. | Exact `mcp__myclaw__<tool>` name. |
-| Browser tool | Browser lifecycle/action capability and sandbox policy. | Browser lifecycle MCP tools and optional action MCP server on next run. |
-| Channel tool | Provider capability enum, scopes, affected conversations, binding. | Provider adapter enables only the named Slack/Telegram/Teams/Web capability. |
-| Channel binding | Agent-to-conversation/thread binding and control policy. | Message routing, trigger handling, and same-channel approval target. |
+| Type             | Durable truth                                                                  | Runtime projection                                                                     |
+| ---------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| Skill            | Skill catalog row, readable files, provider ref, hash, binding.                | Per-run Claude `skills/<slug>/...` folder and `Skill` tool exposure.                   |
+| Skill dependency | Dependency spec, approval decision, execution result, audit.                   | Optional per-skill tools directory or approved host package; never direct agent shell. |
+| Third-party MCP  | Definition, reviewed version, credential refs, allowed tool patterns, binding. | SDK `mcpServers` plus exact allowed MCP tool names.                                    |
+| SDK tool         | Tool catalog entry, risk, permission policy, sandbox profile, binding.         | Exact SDK tool name in `allowedTools` and `canUseTool` policy gate.                    |
+| Host tool        | Built-in MyClaw MCP tool entry, risk, binding, audit behavior.                 | Exact `mcp__myclaw__<tool>` name.                                                      |
+| Browser tool     | Browser lifecycle/action capability and sandbox policy.                        | Browser lifecycle MCP tools and optional action MCP server on next run.                |
+| Channel tool     | Provider capability enum, scopes, affected conversations, binding.             | Provider adapter enables only the named Slack/Telegram/Teams/Web capability.           |
+| Channel binding  | Agent-to-conversation/thread binding and control policy.                       | Message routing, trigger handling, and same-channel approval target.                   |
 
 ## Durable Model
 

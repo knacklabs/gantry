@@ -24,6 +24,7 @@ export function usage(): string {
     '  myclaw agent remove <jid|folder> [--delete-folder] [--yes]',
     '  myclaw agent trigger <jid|folder> <word>',
     '  myclaw agent trigger <jid|folder> --off',
+    '  myclaw agent dm-access <agentId> [--provider <provider> --allow <userId,userId> --admin <userId>]',
     '  myclaw agent policy <jid|folder> --allow <"*"|id1,id2> [--mode trigger|drop]',
     '  myclaw agent policy <jid|folder> --clear',
     `  myclaw agent policy-default --channel ${channels} --allow <"*"|id1,id2> [--mode trigger|drop]`,

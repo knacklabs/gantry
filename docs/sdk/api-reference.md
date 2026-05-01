@@ -11,6 +11,24 @@ createClient({
 })
 ```
 
+## Local Service Transport
+
+The Control API is part of the main MyClaw runtime process. On macOS, the
+`launchctl` service starts that runtime, so the API comes up with the same
+LaunchAgent.
+
+Control API settings are read from process env and from `~/myclaw/.env`:
+
+```env
+MYCLAW_CONTROL_API_KEY=dev-key
+MYCLAW_CONTROL_APP_ID=default
+MYCLAW_CONTROL_PORT=8787
+```
+
+`MYCLAW_CONTROL_PORT` is optional. Without it, the local SDK and CLI use the
+Unix socket at `~/myclaw/run/control.sock`. Do not put control API secrets in
+the launchd plist; keep the plist limited to `MYCLAW_HOME`, `HOME`, and `PATH`.
+
 ## Settings
 
 The typed settings API exposes only allowlisted non-secret runtime settings. It
@@ -39,6 +57,40 @@ and reports `restartRequired`; it does not restart the runtime.
 Agents and SDK clients must use MyClaw request surfaces for capability changes.
 Do not edit generated Claude config, `.mcp.json`, `.claude/skills`, settings, or
 permission files directly.
+
+Owner/admin automation uses the reduced public API:
+
+```http
+GET    /v1/agents
+POST   /v1/agents
+GET    /v1/agents/:agentId
+PATCH  /v1/agents/:agentId
+GET    /v1/agents/:agentId/admin
+PUT    /v1/agents/:agentId/dm-access
+GET    /v1/agents/:agentId/capabilities
+PUT    /v1/agents/:agentId/capabilities
+
+GET    /v1/capability-catalog
+
+GET    /v1/channels
+POST   /v1/channels
+GET    /v1/channels/:channelId
+PATCH  /v1/channels/:channelId
+GET    /v1/channels/:channelId/admin
+PUT    /v1/channels/:channelId/agents
+POST   /v1/channels/:channelId/sessions
+PUT    /v1/channels/:channelId/control-allowlist
+```
+
+Agents own exactly `selectedToolIds`, `selectedSkillIds`, and
+`selectedMcpServerIds`, plus provider-neutral DM access and one optional DM
+approval admin per provider. Channels own bound agents, sessions, and control
+approvers. DM access, DM admins, and control approvers are separate; DM admins
+approve only direct/private DM permission prompts for that agent/provider, while
+control approvers must be members of the Channel. There is no channel-scoped
+tool selection field, and Browser is one normal catalog tool.
+Agent-requested changes use MyClaw MCP request tools, not public API request
+approval endpoints.
 
 Agent-facing tools:
 
@@ -289,9 +341,10 @@ GET /v1/runs/:runId/events
 
 ## Channels
 
-Channel installation APIs are app-bound by the API key. Channel credentials are
-stored as `runtimeSecretRefs`; raw tokens and secrets are rejected by the
-control API.
+Channel APIs are app-bound by the API key. Channel credentials are stored as
+`runtimeSecretRefs`; raw tokens and secrets are rejected by the control API.
+Use `Channel` for Slack channels, Teams channels, and Telegram groups. Slack
+and Teams threads plus Telegram forum topics are sessions under a channel.
 
 ```ts
 client.channels.providers.list()
@@ -338,6 +391,17 @@ Control API scopes:
 GET    /v1/settings                                sessions:read
 PATCH  /v1/settings                                agents:admin
 
+GET    /v1/agents                                  agents:admin
+POST   /v1/agents                                  agents:admin
+GET    /v1/agents/:id                              agents:admin
+PATCH  /v1/agents/:id                              agents:admin
+GET    /v1/agents/:id/admin                        agents:admin
+PUT    /v1/agents/:id/dm-access                    agents:admin
+GET    /v1/agents/:id/capabilities                 agents:admin
+PUT    /v1/agents/:id/capabilities                 agents:admin
+
+GET    /v1/capability-catalog                      agents:admin
+
 GET    /v1/channel-providers                       channels:read
 POST   /v1/channel-installations                   channels:admin
 GET    /v1/channel-installations                   channels:read
@@ -350,7 +414,33 @@ GET    /v1/conversations                           conversations:read
 GET    /v1/conversations/:id                       conversations:read
 GET    /v1/conversations/:id/threads               conversations:read
 GET    /v1/conversations/:id/messages              messages:read
+
+GET    /v1/channels                                channels:read
+POST   /v1/channels                                channels:admin
+GET    /v1/channels/:id                            channels:read
+PATCH  /v1/channels/:id                            channels:admin
+GET    /v1/channels/:id/admin                      channels:read
+PUT    /v1/channels/:id/agents                     agents:admin
+POST   /v1/channels/:id/sessions                   sessions:write
+PUT    /v1/channels/:id/control-allowlist          channels:admin
 ```
+
+`GET /v1/agents/:id/admin` returns Agent admin state, including
+provider-neutral `dmAccess`. `PUT /v1/agents/:id/dm-access` replaces DM access
+with
+`{ "entries": [{ "provider": "slack", "userIds": ["U123"], "adminUserId": "UADMIN" }] }`.
+`adminUserId` is optional and names the single provider-specific user allowed
+to approve permission prompts for that agent's direct/private DM sessions.
+
+`GET /v1/channels/:id/admin` returns Channel admin state, including
+`controlAllowlist`. `PUT /v1/channels/:id/control-allowlist` replaces the
+Channel approver list with `{ "userIds": ["..."] }` and fails with
+`INVALID_CONTROL_ALLOWLIST` when any user cannot be verified as a member of the
+Channel. Slack, Telegram, Teams, and App/Web channels use the same API shape;
+Teams validation uses Microsoft Graph membership for chat or team-channel
+members. Agent DM access remains independent and may include non-members; those
+users are not approvers unless they are also set as the agent's provider DM
+admin.
 
 `teams` is a first-class built-in channel provider with Microsoft Teams app auth
 through `RuntimeSecretProvider`, `teams:` conversation ids, `teams_` agent
@@ -383,6 +473,10 @@ it does not delete the row.
 
 ## Agent Skill Bindings
 
+Prefer `PUT /v1/agents/:agentId/capabilities` for deterministic replacement of
+all selected skills together with tools and MCP servers. The routes below remain
+specialized skill draft/file lifecycle routes.
+
 ```http
 POST   /v1/skills/drafts/upload                  skills:admin
 GET    /v1/skills/drafts                         skills:read
@@ -402,6 +496,10 @@ Local approved skills are unpacked into the per-run Claude config; hosted
 approved skills are represented by Anthropic provider refs.
 
 ## Agent MCP Server Bindings
+
+Prefer `PUT /v1/agents/:agentId/capabilities` for deterministic replacement of
+selected MCP servers together with tools and skills. The routes below remain
+specialized MCP draft, validation, and disable lifecycle routes.
 
 ```http
 POST   /v1/mcp-servers/drafts                    mcp:admin

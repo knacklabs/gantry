@@ -60,19 +60,30 @@ myclaw channel list
 myclaw channel doctor
 ```
 
-Agent registration and policy:
+Agent, channel, session, and DM administration:
 
 ```bash
 myclaw agent list
-myclaw agent info <jid|folder>
-myclaw agent add <jid|chat-id> [--name <name>] [--folder <folder>] [--trigger <word>] [--main] [--requires-trigger true|false] [--test-message|--no-test-message]
-myclaw agent remove <jid|folder> [--delete-folder] [--yes]
-myclaw agent trigger <jid|folder> <word>
-myclaw agent trigger <jid|folder> --off
-myclaw agent policy <jid|folder> --allow <"*"|id1,id2> [--mode trigger|drop]
-myclaw agent policy <jid|folder> --clear
-myclaw agent policy-default --channel <telegram|slack|teams> --allow <"*"|id1,id2> [--mode trigger|drop]
-myclaw agent policy-show [--channel <telegram|slack|teams>]
+myclaw agent info <agentId>
+myclaw agent create --name <name>
+myclaw agent edit <agentId> [--name <name>] [--disabled|--active]
+myclaw agent capabilities <agentId> --tools <ids> --skills <ids> --mcp <ids>
+myclaw agent dm-access <agentId> --provider <provider> --allow <userId,userId> --admin <userId>
+myclaw agent audit <agentId>
+
+myclaw channel onboard <slack|teams|telegram> --external-id <id> --title <name>
+myclaw channel list
+myclaw channel info <channelId>
+myclaw channel agents <channelId> --agents <agentId,agentId> [--default <agentId>]
+myclaw channel control-allowlist <channelId> --allow <userId,userId>
+myclaw channel archive <channelId>
+myclaw channel doctor <channelId>
+
+myclaw session create <channelId> [--external-thread-id <id>] [--title <name>]
+myclaw session list <channelId>
+myclaw session info <sessionId>
+myclaw session archive <sessionId>
+myclaw session test <sessionId>
 ```
 
 Skill drafts:
@@ -84,7 +95,30 @@ myclaw skill draft upload <skill.zip> [--agent <agentId>] [--created-by <id>]
 Uploaded skill zips must contain `SKILL.md`. MyClaw parses skill metadata from
 that file, stores the files in artifact storage, and records draft lifecycle
 state in Postgres. Drafts are not active until approved and bound through the
-control API or channel approval flow.
+AgentAdministration service or channel approval flow.
+
+Administration source of truth:
+
+- `AgentAdministration` replaces an agent's selected tools, skills, and MCP
+  servers together. Do not manage a separate channel tool list.
+- `CapabilityCatalog` lists central Tool, Skill, and MCP Server catalog items.
+  Browser is a normal tool catalog item.
+- `Channel` is the public term for Slack channels, Teams channels, and Telegram
+  groups. Slack/Teams threads and Telegram topics are Sessions under a Channel.
+- Agent DM access is a provider-neutral allowlist; do not mix it with channel
+  membership, channel control approvers, or agent capabilities. Each agent can
+  set one DM approval admin per provider; DM access users are not approvers
+  unless explicitly configured as that provider admin.
+- Channel control allowlist is separate from DM access. It is per Channel,
+  applies to all agents bound there, and approvers must be verified Channel
+  members before save.
+- CLI calls application services directly for local/admin operations. Public
+  API is for owner/admin automation. MyClaw MCP request tools are for
+  agent-requested reviewed changes.
+- Use `myclaw agent dm-access <agentId> --provider <provider> --allow <ids> --admin <userId>`
+  to replace provider-specific DM access and the direct/private DM approval
+  admin for an agent. Use channel `control-allowlist` only for group/channel
+  permission approvers.
 
 Config file editing through `.env`:
 
@@ -134,18 +168,18 @@ audit, a new config version, and next-run activation.
 
 Use these MyClaw tools for capability work:
 
-| Tool | Use |
-| --- | --- |
-| `send_message` | Progress updates or direct channel messages while the agent is still running. |
-| `ask_user_question` | Structured choices only; supports content, options, single-select, multi-select, preview/details, and channel-native buttons. |
-| `request_skill_install` | Provider-backed skill installs such as `clawhub:<slug>@<version>`. |
-| `request_skill_proposal` | Agent-created or modified skill file bundles for review. |
-| `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies required by a skill; never run those commands directly. |
-| `request_mcp_server` | Third-party MCP server requests with transport, origin, tool patterns, credentials, and reason. |
-| `request_tool_enable` | SDK tools or host tools such as `Bash`, `Write`, `Edit`, browser tools, scheduler tools, memory tools, or service tools. |
-| `request_channel_tool_enable` | Channel-specific tools or channel capabilities such as Teams proactive messaging, Slack file access, or Telegram file download behavior. |
-| `service_restart` | Main/admin agent only, after approved config or capability changes when host restart is needed. |
-| `register_agent` | Main/admin agent only, for binding a new channel conversation to an agent. |
+| Tool                               | Use                                                                                                                                      |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `send_message`                     | Progress updates or direct channel messages while the agent is still running.                                                            |
+| `ask_user_question`                | Structured choices only; supports content, options, single-select, multi-select, preview/details, and channel-native buttons.            |
+| `request_skill_install`            | Provider-backed skill installs such as `clawhub:<slug>@<version>`.                                                                       |
+| `request_skill_proposal`           | Agent-created or modified skill file bundles for review.                                                                                 |
+| `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies required by a skill; never run those commands directly.                                      |
+| `request_mcp_server`               | Third-party MCP server requests with transport, origin, tool patterns, credentials, and reason.                                          |
+| `request_tool_enable`              | SDK tools or host tools such as `Bash`, `Write`, `Edit`, browser tools, scheduler tools, memory tools, or service tools.                 |
+| `request_channel_tool_enable`      | Channel-specific tools or channel capabilities such as Teams proactive messaging, Slack file access, or Telegram file download behavior. |
+| `service_restart`                  | Main/admin agent only, after approved config or capability changes when host restart is needed.                                          |
+| `register_agent`                   | Main/admin agent only, for binding a new channel conversation to an agent.                                                               |
 
 Same-channel review is a delivery and origin constraint, not a shortcut around
 authorization. The host verifies that the origin chat belongs to the requesting
@@ -487,7 +521,7 @@ mcp__myclaw__scheduler_upsert_job(
   thread_id?: string,
   silent?: boolean,
   cleanup_after_ms?: number,
-  group_scope?: string,
+  channel_scope?: string,
   timeout_ms?: number,
   max_retries?: number,
   retry_backoff_ms?: number,
@@ -511,7 +545,7 @@ mcp__myclaw__scheduler_update_job(
   thread_id?: string,
   silent?: boolean,
   cleanup_after_ms?: number,
-  group_scope?: string,
+  channel_scope?: string,
   timeout_ms?: number,
   max_retries?: number,
   retry_backoff_ms?: number,
@@ -533,7 +567,7 @@ mcp__myclaw__scheduler_pause_job(job_id: string)
 mcp__myclaw__scheduler_resume_job(job_id: string)
 mcp__myclaw__scheduler_delete_job(job_id: string)
 mcp__myclaw__scheduler_get_job(job_id: string)
-mcp__myclaw__scheduler_list_jobs(statuses?: string[], group_scope?: string)
+mcp__myclaw__scheduler_list_jobs(statuses?: string[], channel_scope?: string)
 mcp__myclaw__scheduler_list_runs(job_id?: string, limit?: number)
 mcp__myclaw__scheduler_list_events(job_id?: string, run_id?: string, event_type?: string, since_id?: number, since?: string, limit?: number)
 mcp__myclaw__scheduler_wait_for_events(job_id?: string, run_id?: string, event_type?: string, since_id?: number, since?: string, limit?: number, timeout_ms?: number)
@@ -545,24 +579,25 @@ converts them into its internal IPC request shape.
 
 ## Common Workflows
 
-Add a Telegram agent:
+Onboard a Telegram channel and bind an agent:
 
 ```bash
-myclaw agent add tg:-1001234567890 --name "Team Chat" --folder telegram_team-chat --trigger "@Kai" --main --requires-trigger false
+myclaw channel onboard telegram --external-id -1001234567890 --title "Team Chat"
+myclaw channel agents <channelId> --agents <agentId> --default <agentId>
 myclaw service restart
 ```
 
-Disable trigger requirement for an agent:
+Set agent DM allowlist and DM approval admin:
 
 ```bash
-myclaw agent trigger telegram_team-chat --off
+myclaw agent dm-access <agentId> --provider telegram --allow 5759865942,123456789 --admin 5759865942
 myclaw service restart
 ```
 
-Restrict an agent to specific senders:
+Set channel control approvers:
 
 ```bash
-myclaw agent policy telegram_team-chat --allow 5759865942,123456789 --mode trigger
+myclaw channel control-allowlist <channelId> --allow 5759865942,123456789
 myclaw service restart
 ```
 
@@ -570,7 +605,8 @@ Enable Telegram:
 
 ```bash
 myclaw channel connect telegram
-myclaw agent add <chat-id> --main --requires-trigger false
+myclaw channel onboard telegram --external-id <chat-id> --title <name>
+myclaw channel agents <channelId> --agents <agentId> --default <agentId>
 myclaw service restart
 ```
 
@@ -578,7 +614,8 @@ Enable Slack:
 
 ```bash
 myclaw channel connect slack
-myclaw agent add sl:<channel-id> --main --requires-trigger false
+myclaw channel onboard slack --external-id <channel-id> --title <name>
+myclaw channel agents <channelId> --agents <agentId> --default <agentId>
 myclaw service restart
 ```
 
@@ -586,7 +623,8 @@ Enable Teams:
 
 ```bash
 myclaw channel connect teams
-myclaw agent add teams:<conversation-id> --main --requires-trigger false
+myclaw channel onboard teams --external-id <conversation-id> --title <name>
+myclaw channel agents <channelId> --agents <agentId> --default <agentId>
 myclaw service restart
 ```
 
@@ -594,8 +632,8 @@ Teams setup notes:
 
 - Teams credentials are runtime secrets resolved through `RuntimeSecretProvider`
   and must not be passed to agent runners.
-- Teams conversations use `teams:` JIDs and `teams_` agent folders.
-- Teams channel or group approvals must preserve tenant, conversation, and
+- Teams conversations use `teams:` provider conversation ids as channel metadata.
+- Teams channel approvals must preserve tenant, conversation, and
   reply-chain/thread identity for same-channel checks.
 - Teams approval cards use Adaptive Card `Action.Execute`; do not ask the agent
   to call Microsoft Graph or Teams SDK APIs directly for capability approval.
@@ -650,7 +688,7 @@ If messages are not processed:
 4. Check that the channel is enabled in `settings.yaml`.
 5. Check that matching credentials exist in `.env`.
 6. Check `myclaw agent list`.
-7. Check `myclaw agent policy-show`.
+7. Check `myclaw channel info <channelId>`, `myclaw agent dm-access <agentId>`, and `myclaw channel control-allowlist <channelId>`.
 8. Restart with `myclaw service restart`.
 
 If scheduler jobs do not run:

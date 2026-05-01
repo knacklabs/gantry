@@ -2,6 +2,7 @@ import type { ChannelAdapter, ChannelOpts } from './channel-provider.js';
 import type {
   MessageSendOptions,
   NewMessage,
+  PermissionApprovalDecision,
   PermissionApprovalRequest,
 } from '../domain/types.js';
 import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provider.js';
@@ -23,6 +24,8 @@ export interface TeamsInboundMessage {
   conversationId: string;
   id?: string;
   text?: string;
+  name?: string;
+  value?: unknown;
   from?: {
     id?: string;
     name?: string;
@@ -66,10 +69,22 @@ export interface TeamsSdkClient {
   ): Promise<TeamsSdkSendResult>;
 }
 
+interface PendingTeamsPermissionPrompt {
+  conversationId: string;
+  sourceGroup: string;
+  decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
+  threadId?: string;
+  timer: ReturnType<typeof setTimeout>;
+  resolve: (decision: PermissionApprovalDecision) => void;
+  settled: boolean;
+}
+
 export interface TeamsChannelDependencies {
   sdkClient?: TeamsSdkClient;
   credentials?: TeamsChannelCredentials;
 }
+
+const TEAMS_PERMISSION_APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface TeamsAdaptiveCardAction {
   type: 'Action.Execute';
@@ -228,10 +243,17 @@ export class TeamsChannel implements ChannelAdapter {
   name = 'teams';
 
   private connected = false;
+  private readonly pendingPermissionPrompts = new Map<
+    string,
+    PendingTeamsPermissionPrompt
+  >();
 
   constructor(
     private readonly credentials: TeamsChannelCredentials,
-    private readonly opts: Pick<ChannelOpts, 'onMessage' | 'onChatMetadata'>,
+    private readonly opts: Pick<
+      ChannelOpts,
+      'onMessage' | 'onChatMetadata' | 'isControlApproverAllowed'
+    >,
     private readonly sdkClient: TeamsSdkClient,
   ) {}
 
@@ -251,6 +273,13 @@ export class TeamsChannel implements ChannelAdapter {
   async disconnect(): Promise<void> {
     if (!this.connected) return;
     await this.sdkClient.stop();
+    for (const requestId of this.pendingPermissionPrompts.keys()) {
+      await this.resolvePermissionPrompt(requestId, {
+        approved: false,
+        decidedBy: 'system',
+        reason: 'Teams channel disconnected',
+      });
+    }
     this.connected = false;
   }
 
@@ -280,6 +309,10 @@ export class TeamsChannel implements ChannelAdapter {
     const timestamp = message.timestamp || new Date().toISOString();
     const sender = message.senderId || message.from?.id || 'unknown';
     const senderName = message.senderName || message.from?.name || sender;
+    if (await this.handlePermissionDecision(message, jid, sender, senderName)) {
+      return;
+    }
+
     const content = message.text?.trim() || '';
     if (!content) return;
 
@@ -307,6 +340,168 @@ export class TeamsChannel implements ChannelAdapter {
     };
     await this.opts.onMessage(jid, normalized);
   }
+
+  async requestPermissionApproval(
+    jid: string,
+    request: PermissionApprovalRequest,
+  ): Promise<PermissionApprovalDecision> {
+    if (!this.connected) {
+      return { approved: false, reason: 'Teams channel is not connected' };
+    }
+    const conversationId = teamsConversationIdFromJid(jid);
+    if (!conversationId) {
+      return { approved: false, reason: 'Invalid Teams JID' };
+    }
+    if (!this.sdkClient.sendAdaptiveCard) {
+      return {
+        approved: false,
+        reason: 'Teams SDK client cannot send Adaptive Cards',
+      };
+    }
+    if (this.pendingPermissionPrompts.has(request.requestId)) {
+      return {
+        approved: false,
+        reason: `Duplicate pending request: ${request.requestId}`,
+      };
+    }
+
+    const approvalRequest = { ...request, targetJid: request.targetJid ?? jid };
+    try {
+      await this.sdkClient.sendAdaptiveCard({
+        conversationId,
+        card: buildTeamsApprovalAdaptiveCard(approvalRequest),
+        ...(request.threadId ? { threadId: request.threadId } : {}),
+      });
+      return await new Promise<PermissionApprovalDecision>((resolve) => {
+        const timer = setTimeout(() => {
+          void this.resolvePermissionPrompt(request.requestId, {
+            approved: false,
+            decidedBy: 'system',
+            reason: 'timed out',
+          });
+        }, TEAMS_PERMISSION_APPROVAL_TIMEOUT_MS);
+        this.pendingPermissionPrompts.set(request.requestId, {
+          conversationId,
+          sourceGroup: request.sourceGroup,
+          decisionPolicy: request.decisionPolicy,
+          threadId: request.threadId,
+          timer,
+          resolve,
+          settled: false,
+        });
+      });
+    } catch (err) {
+      logger.error(
+        { jid, requestId: request.requestId, err },
+        'Failed to send Teams permission prompt',
+      );
+      return {
+        approved: false,
+        reason: 'Failed to send approval prompt to Teams',
+      };
+    }
+  }
+
+  private async handlePermissionDecision(
+    message: TeamsInboundMessage,
+    jid: string,
+    userId: string,
+    userName: string,
+  ): Promise<boolean> {
+    const decisionPayload = readTeamsPermissionDecision(message.value);
+    if (!decisionPayload) return false;
+    const pending = this.pendingPermissionPrompts.get(
+      decisionPayload.requestId,
+    );
+    if (!pending || pending.settled) return true;
+    const conversationId = teamsConversationIdFromJid(jid);
+    if (!conversationId || conversationId !== pending.conversationId) {
+      logger.warn(
+        { requestId: decisionPayload.requestId, jid },
+        'Teams permission decision denied: wrong channel',
+      );
+      return true;
+    }
+    const authorized = await this.canDecidePermission(
+      userId,
+      pending.sourceGroup,
+      pending.decisionPolicy,
+      jid,
+    );
+    if (!authorized) {
+      logger.warn(
+        { requestId: decisionPayload.requestId, userId, jid },
+        'Teams permission decision denied: user is not a control approver',
+      );
+      return true;
+    }
+    await this.resolvePermissionPrompt(decisionPayload.requestId, {
+      approved: decisionPayload.decision === 'approve',
+      decidedBy: userName,
+      reason:
+        decisionPayload.decision === 'approve'
+          ? 'approved via Teams'
+          : 'denied via Teams',
+    });
+    return true;
+  }
+
+  private async canDecidePermission(
+    userId: string,
+    sourceGroup: string,
+    decisionPolicy: PermissionApprovalRequest['decisionPolicy'] | undefined,
+    channelJid: string,
+  ): Promise<boolean> {
+    if (decisionPolicy && decisionPolicy !== 'same_channel') return false;
+    if (!this.opts.isControlApproverAllowed) return false;
+    return this.opts.isControlApproverAllowed({
+      providerId: 'teams',
+      channelJid,
+      userId,
+      sourceGroup,
+      decisionPolicy,
+    });
+  }
+
+  private async resolvePermissionPrompt(
+    requestId: string,
+    decision: PermissionApprovalDecision,
+  ): Promise<void> {
+    const pending = this.pendingPermissionPrompts.get(requestId);
+    if (!pending || pending.settled) return;
+    pending.settled = true;
+    this.pendingPermissionPrompts.delete(requestId);
+    clearTimeout(pending.timer);
+    pending.resolve(decision);
+  }
+}
+
+function readTeamsPermissionDecision(value: unknown): {
+  requestId: string;
+  decision: 'approve' | 'deny';
+} | null {
+  if (!value || typeof value !== 'object') return null;
+  const payload = value as {
+    action?: unknown;
+    requestId?: unknown;
+    decision?: unknown;
+    data?: unknown;
+  };
+  const candidate =
+    payload.action === 'permission_decision'
+      ? payload
+      : payload.data && typeof payload.data === 'object'
+        ? (payload.data as typeof payload)
+        : null;
+  if (!candidate || candidate.action !== 'permission_decision') return null;
+  if (typeof candidate.requestId !== 'string') return null;
+  if (candidate.decision !== 'approve' && candidate.decision !== 'deny') {
+    return null;
+  }
+  return {
+    requestId: candidate.requestId,
+    decision: candidate.decision,
+  };
 }
 
 export function createTeamsChannel(

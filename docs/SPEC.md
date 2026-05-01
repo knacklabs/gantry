@@ -791,6 +791,13 @@ On macOS this is written into `com.myclaw.plist` through a shell command. On
 Linux systemd it is represented as `ExecStartPre`. The fallback script performs
 the same prestart step before launching the runtime.
 
+The Control API starts inside this same runtime process. Runtime control
+settings such as `MYCLAW_CONTROL_API_KEY`, `MYCLAW_CONTROL_API_KEYS_JSON`,
+`MYCLAW_CONTROL_APP_ID`, `MYCLAW_CONTROL_PORT`, and
+`MYCLAW_CONTROL_SOCKET_PATH` are read from process env or `~/myclaw/.env`. The
+launchd plist should not contain control API secrets; it only needs enough
+environment to find the runtime home and executable path.
+
 **launchd shape:**
 
 ```xml

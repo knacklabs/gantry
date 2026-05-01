@@ -176,3 +176,30 @@ export const AgentChannelBindingListResponseSchema = z.object({
 export type AgentChannelBindingListResponse = z.infer<
   typeof AgentChannelBindingListResponseSchema
 >;
+
+export const ChannelUserAllowlistSchema = z.object({
+  userIds: z.array(z.string()),
+});
+export type ChannelUserAllowlist = z.infer<typeof ChannelUserAllowlistSchema>;
+
+export const ChannelAdminResponseSchema = z.object({
+  channel: z.unknown(),
+  agents: z.array(AgentChannelBindingResponseSchema),
+  sessions: z.array(z.unknown()),
+  controlAllowlist: ChannelUserAllowlistSchema,
+});
+export type ChannelAdminResponse = z.infer<typeof ChannelAdminResponseSchema>;
+
+export const UpdateChannelControlAllowlistRequestSchema = z.object({
+  userIds: z.array(z.string()),
+});
+export type UpdateChannelControlAllowlistRequest = z.infer<
+  typeof UpdateChannelControlAllowlistRequestSchema
+>;
+
+export const UpdateChannelControlAllowlistResponseSchema = z.object({
+  controlAllowlist: ChannelUserAllowlistSchema,
+});
+export type UpdateChannelControlAllowlistResponse = z.infer<
+  typeof UpdateChannelControlAllowlistResponseSchema
+>;

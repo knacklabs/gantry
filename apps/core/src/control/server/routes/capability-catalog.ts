@@ -1,0 +1,202 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+import { AgentCapabilitiesRequestSchema } from '@myclaw/contracts';
+
+import { AgentCapabilityAdministrationService } from '../../../application/agents/agent-capability-administration-service.js';
+import { ApplicationError } from '../../../application/common/application-error.js';
+import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
+import type { AgentId } from '../../../domain/agent/agent.js';
+import type { AppId } from '../../../domain/app/app.js';
+import type { McpServerDefinition } from '../../../domain/mcp/mcp-servers.js';
+import type { SkillCatalogItem } from '../../../domain/skills/skills.js';
+import type { ToolCatalogItem } from '../../../domain/tools/tools.js';
+import {
+  authorizeControlRequest,
+  type ControlRouteContext,
+} from '../handler-context.js';
+import { readJson, sendError, sendJson } from '../http.js';
+
+function service(): AgentCapabilityAdministrationService {
+  return new AgentCapabilityAdministrationService(
+    getRuntimeStorage().repositories,
+  );
+}
+
+export async function handleCapabilityCatalogRoutes(
+  req: IncomingMessage,
+  res: ServerResponse,
+  ctx: ControlRouteContext,
+  pathname: string,
+): Promise<boolean> {
+  if (pathname === '/v1/capability-catalog' && req.method === 'GET') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    if (!auth) return true;
+    const catalog = await service().listCatalog(auth.appId as AppId);
+    sendJson(res, 200, {
+      tools: catalog.tools.map(toolToResponse),
+      skills: catalog.skills.map(skillToResponse),
+      mcpServers: catalog.mcpServers.map(mcpServerToResponse),
+    });
+    return true;
+  }
+
+  const agentCapabilityMatch = pathname.match(
+    /^\/v1\/agents\/([^/]+)\/capabilities$/,
+  );
+  if (agentCapabilityMatch && req.method === 'GET') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    if (!auth) return true;
+    try {
+      const capabilities = await service().getCapabilities({
+        appId: auth.appId as AppId,
+        agentId: decodeURIComponent(agentCapabilityMatch[1]) as AgentId,
+      });
+      sendJson(res, 200, capabilitiesToResponse(capabilities));
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
+
+  if (agentCapabilityMatch && req.method === 'PUT') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    if (!auth) return true;
+    const parsed = AgentCapabilitiesRequestSchema.safeParse(
+      await readJson(req),
+    );
+    if (!parsed.success) {
+      sendError(res, 400, 'INVALID_REQUEST', 'Invalid agent capabilities');
+      return true;
+    }
+    try {
+      const capabilities = await service().replaceCapabilities({
+        appId: auth.appId as AppId,
+        agentId: decodeURIComponent(agentCapabilityMatch[1]) as AgentId,
+        selectedToolIds: parsed.data.selectedToolIds as never,
+        selectedSkillIds: parsed.data.selectedSkillIds as never,
+        selectedMcpServerIds: parsed.data.selectedMcpServerIds as never,
+      });
+      sendJson(res, 200, capabilitiesToResponse(capabilities));
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+function capabilitiesToResponse(input: {
+  agentId: string;
+  selectedToolIds: string[];
+  selectedSkillIds: string[];
+  selectedMcpServerIds: string[];
+  updatedAt: string;
+}) {
+  return input;
+}
+
+function toolToResponse(tool: ToolCatalogItem) {
+  return {
+    id: tool.id,
+    appId: tool.appId,
+    name: tool.name,
+    kind: tool.kind,
+    provider: tool.provider,
+    providerToolName: tool.providerToolName,
+    displayName: tool.displayName,
+    description: tool.description,
+    category: tool.category,
+    inputSchema: toSchemaDescriptor(tool.inputSchema),
+    outputSchema: tool.outputSchema
+      ? toSchemaDescriptor(tool.outputSchema)
+      : undefined,
+    risk: tool.risk,
+    selectable: tool.selectable,
+    status: tool.status,
+    permissionPolicyId: tool.permissionPolicyId,
+    sandboxProfileId: tool.sandboxProfileId,
+    adapterRef: tool.adapterRef,
+    createdAt: tool.createdAt,
+    updatedAt: tool.updatedAt,
+  };
+}
+
+function skillToResponse(skill: SkillCatalogItem) {
+  return {
+    id: skill.id,
+    appId: skill.appId,
+    agentId: skill.agentId,
+    name: skill.name,
+    description: skill.description,
+    version: skill.version,
+    source: skill.source,
+    status: skill.status,
+    promptRefs: skill.promptRefs,
+    toolIds: skill.toolIds,
+    workflowRefs: skill.workflowRefs,
+    storage: skill.storage,
+    providerRef: skill.providerRef,
+    createdBy: skill.createdBy,
+    approvedBy: skill.approvedBy,
+    approvedAt: skill.approvedAt,
+    rejectedBy: skill.rejectedBy,
+    rejectedAt: skill.rejectedAt,
+    createdAt: skill.createdAt,
+    updatedAt: skill.updatedAt,
+  };
+}
+
+function mcpServerToResponse(server: McpServerDefinition) {
+  return {
+    id: server.id,
+    appId: server.appId,
+    name: server.name,
+    displayName: server.displayName,
+    description: server.description,
+    status: server.status,
+    createdSource: server.createdSource,
+    riskClass: server.riskClass,
+    requestedBy: server.requestedBy,
+    requestedReason: server.requestedReason,
+    latestApprovedVersionId: server.latestApprovedVersionId,
+    createdAt: server.createdAt,
+    updatedAt: server.updatedAt,
+    approvedBy: server.approvedBy,
+    approvedAt: server.approvedAt,
+    rejectedBy: server.rejectedBy,
+    rejectedAt: server.rejectedAt,
+    disabledBy: server.disabledBy,
+    disabledAt: server.disabledAt,
+  };
+}
+
+function toSchemaDescriptor(value: unknown) {
+  if (
+    value &&
+    typeof value === 'object' &&
+    'format' in value &&
+    'schema' in value
+  ) {
+    return value;
+  }
+  return {
+    format: 'unknown',
+    schema:
+      value && typeof value === 'object' && !Array.isArray(value) ? value : {},
+  };
+}
+
+function sendApplicationError(res: ServerResponse, error: unknown): boolean {
+  if (!(error instanceof ApplicationError)) return false;
+  const statusByCode: Record<string, number> = {
+    NOT_FOUND: 404,
+    FORBIDDEN: 403,
+    INVALID_REQUEST: 400,
+    CONFLICT: 409,
+    UNAVAILABLE: 503,
+    NOT_IMPLEMENTED: 501,
+  };
+  sendError(res, statusByCode[error.code] ?? 400, error.code, error.message);
+  return true;
+}

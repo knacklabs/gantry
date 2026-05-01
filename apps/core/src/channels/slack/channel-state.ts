@@ -99,7 +99,11 @@ export abstract class SlackChannelState {
   protected readonly appToken: string;
   protected readonly opts: Pick<
     ChannelOpts,
-    'onMessage' | 'onChatMetadata' | 'registeredGroups' | 'runtimeSettings'
+    | 'onMessage'
+    | 'onChatMetadata'
+    | 'registeredGroups'
+    | 'runtimeSettings'
+    | 'isControlApproverAllowed'
   >;
   protected botUserId: string | null = null;
   protected userNameCache = new Map<string, string>();

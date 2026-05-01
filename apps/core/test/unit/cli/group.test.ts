@@ -347,6 +347,113 @@ describe('group CLI commands', () => {
     );
   });
 
+  it('replaces one provider in agent-owned DM access', async () => {
+    vi.resetModules();
+    const replaceAgentDmAccessPolicy = vi.fn(async (input: any) => ({
+      access: input.accessEntries.map((entry: any) => ({
+        id: `dm:${entry.providerId}:${entry.externalUserId}`,
+        appId: input.appId,
+        agentId: input.agentId,
+        providerId: entry.providerId,
+        externalUserId: entry.externalUserId,
+        createdAt: input.updatedAt,
+        updatedAt: input.updatedAt,
+      })),
+      approvers: input.approverEntries.map((entry: any) => ({
+        id: `dm-admin:${entry.providerId}`,
+        appId: input.appId,
+        agentId: input.agentId,
+        providerId: entry.providerId,
+        externalUserId: entry.externalUserId,
+        createdAt: input.updatedAt,
+        updatedAt: input.updatedAt,
+      })),
+    }));
+    vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+      getRuntimeStorage: () => ({
+        repositories: {
+          agents: {
+            getAgent: vi.fn(async () => ({
+              id: 'agent:one',
+              appId: 'default',
+              name: 'One',
+              status: 'active',
+              createdAt: '2026-05-01T00:00:00.000Z',
+              updatedAt: '2026-05-01T00:00:00.000Z',
+            })),
+            listAgentDmAccess: vi.fn(async () => [
+              {
+                id: 'dm:slack:U0',
+                appId: 'default',
+                agentId: 'agent:one',
+                providerId: 'slack',
+                externalUserId: 'U0',
+                createdAt: '2026-05-01T00:00:00.000Z',
+                updatedAt: '2026-05-01T00:00:00.000Z',
+              },
+              {
+                id: 'dm:telegram:123',
+                appId: 'default',
+                agentId: 'agent:one',
+                providerId: 'telegram',
+                externalUserId: '123',
+                createdAt: '2026-05-01T00:00:00.000Z',
+                updatedAt: '2026-05-01T00:00:00.000Z',
+              },
+            ]),
+            listAgentDmApprovers: vi.fn(async () => [
+              {
+                id: 'dm-admin:telegram',
+                appId: 'default',
+                agentId: 'agent:one',
+                providerId: 'telegram',
+                externalUserId: '999',
+                createdAt: '2026-05-01T00:00:00.000Z',
+                updatedAt: '2026-05-01T00:00:00.000Z',
+              },
+            ]),
+            replaceAgentDmAccess: vi.fn(async () => []),
+            replaceAgentDmApprovers: vi.fn(async () => []),
+            replaceAgentDmAccessPolicy,
+            findAgentsByDmAccess: vi.fn(async () => []),
+          },
+        },
+      }),
+    }));
+    const { runAgentCommand } = await import('@core/cli/group.js');
+
+    expect(
+      await runAgentCommand(runtimeHome, [
+        'dm-access',
+        'agent:one',
+        '--provider',
+        'slack',
+        '--allow',
+        'U1,U2',
+        '--admin',
+        'UADMIN',
+      ]),
+    ).toBe(0);
+
+    expect(replaceAgentDmAccessPolicy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accessEntries: [
+          { providerId: 'slack', externalUserId: 'U1' },
+          { providerId: 'slack', externalUserId: 'U2' },
+          { providerId: 'telegram', externalUserId: '123' },
+        ],
+      }),
+    );
+    expect(replaceAgentDmAccessPolicy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approverEntries: [
+          { providerId: 'slack', externalUserId: 'UADMIN' },
+          { providerId: 'telegram', externalUserId: '999' },
+        ],
+      }),
+    );
+  });
+
   it('seeds SOUL.md when adding an agent', async () => {
     const { runAgentCommand } = await import('@core/cli/group.js');
     const jid = `dc:soul-seed-${Date.now().toString(36)}`;

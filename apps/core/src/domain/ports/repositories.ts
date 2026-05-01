@@ -2,12 +2,15 @@ import type {
   Agent,
   AgentConfigVersion,
   AgentConfigVersionId,
+  AgentDmAccess,
+  AgentDmApprover,
   AgentId,
 } from '../agent/agent.js';
 import type { App, AppId } from '../app/app.js';
 import type { BrowserProfile, BrowserProfileId } from '../browser/browser.js';
 import type {
   AgentChannelBinding,
+  ChannelControlApprover,
   ChannelInstallation,
   ChannelInstallationId,
   ChannelProviderId,
@@ -70,7 +73,11 @@ import type {
   SkillCatalogItem,
   SkillId,
 } from '../skills/skills.js';
-import type { ToolCatalogItem, ToolId } from '../tools/tools.js';
+import type {
+  AgentToolBinding,
+  ToolCatalogItem,
+  ToolId,
+} from '../tools/tools.js';
 
 export interface AppRepository {
   getApp(id: AppId): Promise<App | null>;
@@ -81,6 +88,38 @@ export interface AgentRepository {
   getAgent(id: AgentId): Promise<Agent | null>;
   listAgents(appId: AppId): Promise<Agent[]>;
   saveAgent(agent: Agent): Promise<void>;
+  listAgentDmAccess(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentDmAccess[]>;
+  replaceAgentDmAccess(input: {
+    appId: AppId;
+    agentId: AgentId;
+    entries: Array<{ providerId: string; externalUserId: string }>;
+    updatedAt: string;
+  }): Promise<AgentDmAccess[]>;
+  replaceAgentDmAccessPolicy(input: {
+    appId: AppId;
+    agentId: AgentId;
+    accessEntries: Array<{ providerId: string; externalUserId: string }>;
+    approverEntries: Array<{ providerId: string; externalUserId: string }>;
+    updatedAt: string;
+  }): Promise<{ access: AgentDmAccess[]; approvers: AgentDmApprover[] }>;
+  findAgentsByDmAccess(input: {
+    appId: AppId;
+    providerId: string;
+    externalUserId: string;
+  }): Promise<Agent[]>;
+  listAgentDmApprovers(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentDmApprover[]>;
+  replaceAgentDmApprovers(input: {
+    appId: AppId;
+    agentId: AgentId;
+    entries: Array<{ providerId: string; externalUserId: string }>;
+    updatedAt: string;
+  }): Promise<AgentDmApprover[]>;
 }
 
 export interface AgentConfigRepository {
@@ -153,6 +192,10 @@ export interface ConversationRepository {
     channelInstallationId: ChannelInstallationId;
     externalConversationId: ExternalConversationId | string;
   }): Promise<Conversation | null>;
+  findConversationByExternalValue(input: {
+    appId: AppId;
+    externalConversationId: ExternalConversationId | string;
+  }): Promise<Conversation | null>;
   getThread(id: ConversationThreadId): Promise<ConversationThread | null>;
   getThreadByExternalRef(input: {
     appId: AppId;
@@ -163,6 +206,18 @@ export interface ConversationRepository {
   saveConversation(conversation: Conversation): Promise<void>;
   saveThread(thread: ConversationThread): Promise<void>;
   listThreads(conversationId: ConversationId): Promise<ConversationThread[]>;
+  listParticipantExternalUserIds(
+    conversationId: ConversationId,
+  ): Promise<string[]>;
+  listChannelControlApprovers(
+    conversationId: ConversationId,
+  ): Promise<ChannelControlApprover[]>;
+  replaceChannelControlApprovers(input: {
+    appId: AppId;
+    conversationId: ConversationId;
+    externalUserIds: string[];
+    updatedAt: string;
+  }): Promise<ChannelControlApprover[]>;
 }
 
 export interface MessageRepository {
@@ -250,7 +305,22 @@ export interface JobRepository {
 
 export interface ToolCatalogRepository {
   getTool(id: ToolId): Promise<ToolCatalogItem | null>;
+  listTools(input: {
+    appId: AppId;
+    statuses?: ToolCatalogItem['status'][];
+  }): Promise<ToolCatalogItem[]>;
   saveTool(item: ToolCatalogItem): Promise<void>;
+  saveAgentToolBinding(binding: AgentToolBinding): Promise<void>;
+  disableAgentToolBinding(input: {
+    appId: AppId;
+    agentId: AgentId;
+    toolId: ToolId;
+    updatedAt: string;
+  }): Promise<AgentToolBinding | null>;
+  listAgentToolBindings(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentToolBinding[]>;
 }
 
 export interface SkillCatalogRepository {

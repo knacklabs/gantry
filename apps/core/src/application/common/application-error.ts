@@ -2,6 +2,7 @@ export type ApplicationErrorCode =
   | 'FORBIDDEN'
   | 'INVALID_SCHEDULE'
   | 'INVALID_REQUEST'
+  | 'INVALID_CONTROL_ALLOWLIST'
   | 'NOT_FOUND'
   | 'NOT_IMPLEMENTED'
   | 'CONFLICT'

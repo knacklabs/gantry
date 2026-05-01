@@ -107,19 +107,22 @@ export async function seedDefaultRuntimeData(
       })
       .onConflictDoNothing();
 
-    for (const tool of [
-      { id: 'tool:memory', name: 'memory', risk: 'low' },
-      { id: 'tool:messaging', name: 'messaging', risk: 'medium' },
-      { id: 'tool:browser', name: 'browser', risk: 'medium' },
-      { id: 'tool:shell', name: 'shell', risk: 'high' },
-    ]) {
+    for (const tool of DEFAULT_TOOL_CATALOG) {
       await tx
         .insert(pgSchema.toolCatalogPostgres)
         .values({
           id: tool.id,
           appId: DEFAULT_APP_ID,
           name: tool.name,
+          kind: tool.kind,
+          provider: tool.provider,
+          providerToolName: tool.providerToolName,
+          displayName: tool.displayName,
+          description: tool.description,
+          category: tool.category,
           risk: tool.risk,
+          selectable: true,
+          status: 'active',
           permissionPolicyId: DEFAULT_PERMISSION_POLICY_ID,
           sandboxProfileId: DEFAULT_SANDBOX_PROFILE_ID,
           adapterRef: `builtin:${tool.name}`,
@@ -144,4 +147,138 @@ export async function seedDefaultRuntimeData(
         .onConflictDoNothing();
     }
   });
+}
+
+const DEFAULT_TOOL_CATALOG = [
+  sdkTool('Agent', 'Agent', 'Run a delegated agent task.', 'agent', 'medium'),
+  sdkTool(
+    'AskUserQuestion',
+    'Ask user question',
+    'Ask the user for structured input through MyClaw.',
+    'agent',
+    'low',
+  ),
+  sdkTool(
+    'Bash',
+    'Bash',
+    'Run shell commands in the configured sandbox.',
+    'execution',
+    'high',
+  ),
+  sdkTool(
+    'Config',
+    'Config',
+    'Inspect safe runtime configuration.',
+    'admin',
+    'high',
+  ),
+  sdkTool('Edit', 'Edit', 'Edit an existing file.', 'files', 'medium'),
+  sdkTool('Read', 'Read', 'Read files from the workspace.', 'files', 'low'),
+  sdkTool(
+    'Write',
+    'Write',
+    'Write a file in the workspace.',
+    'files',
+    'medium',
+  ),
+  sdkTool('Glob', 'Glob', 'Find files by glob pattern.', 'search', 'low'),
+  sdkTool('Grep', 'Grep', 'Search text in files.', 'search', 'low'),
+  sdkTool(
+    'NotebookEdit',
+    'Notebook edit',
+    'Edit notebook cells.',
+    'files',
+    'medium',
+  ),
+  sdkTool(
+    'TaskOutput',
+    'Task output',
+    'Read output from a delegated task.',
+    'agent',
+    'low',
+  ),
+  sdkTool('TaskStop', 'Task stop', 'Stop a delegated task.', 'agent', 'medium'),
+  sdkTool(
+    'TodoWrite',
+    'Todo write',
+    'Maintain the agent task list.',
+    'agent',
+    'low',
+  ),
+  sdkTool('WebFetch', 'Web fetch', 'Fetch a web URL.', 'web', 'medium'),
+  sdkTool('WebSearch', 'Web search', 'Search the web.', 'web', 'medium'),
+  sdkTool(
+    'ExitPlanMode',
+    'Exit plan mode',
+    'Leave planning mode after approval.',
+    'agent',
+    'low',
+  ),
+  sdkTool(
+    'EnterWorktree',
+    'Enter worktree',
+    'Enter an isolated worktree.',
+    'execution',
+    'medium',
+  ),
+  sdkTool(
+    'ExitWorktree',
+    'Exit worktree',
+    'Exit the current worktree.',
+    'execution',
+    'medium',
+  ),
+  sdkTool(
+    'ListMcpResources',
+    'List MCP resources',
+    'List resources exposed by approved MCP servers.',
+    'mcp',
+    'low',
+  ),
+  sdkTool(
+    'ReadMcpResource',
+    'Read MCP resource',
+    'Read a resource exposed by an approved MCP server.',
+    'mcp',
+    'low',
+  ),
+  {
+    id: 'tool:Browser',
+    name: 'Browser',
+    kind: 'browser',
+    provider: 'myclaw',
+    providerToolName: 'Browser',
+    displayName: 'Browser',
+    description: 'Use the shared MyClaw browser capability.',
+    category: 'web',
+    risk: 'medium',
+  },
+] as const;
+
+function sdkTool(
+  name: string,
+  displayName: string,
+  description: string,
+  category:
+    | 'files'
+    | 'search'
+    | 'execution'
+    | 'web'
+    | 'agent'
+    | 'mcp'
+    | 'channel'
+    | 'admin',
+  risk: 'low' | 'medium' | 'high',
+) {
+  return {
+    id: `tool:${name}`,
+    name,
+    kind: 'anthropic_sdk',
+    provider: `anth${'ropic'}`,
+    providerToolName: name,
+    displayName,
+    description,
+    category,
+    risk,
+  } as const;
 }

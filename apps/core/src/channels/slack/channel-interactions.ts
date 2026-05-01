@@ -46,7 +46,8 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     );
 
     const group = this.opts.registeredGroups()[jid];
-    if (!group) {
+    const isGroupConversation = this.isLikelyGroupConversation(event.channel);
+    if (!group && isGroupConversation) {
       logger.debug(
         { jid, chatName },
         'Message from unregistered Slack conversation',
@@ -133,12 +134,22 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     }
   }
 
-  protected canDecidePermission(
+  protected async canDecidePermission(
     userId: string,
     sourceGroup: string,
     decisionPolicy?: PermissionApprovalRequest['decisionPolicy'],
-  ): boolean {
+    channelId?: string,
+  ): Promise<boolean> {
     if (decisionPolicy && decisionPolicy !== 'same_channel') return false;
+    if (this.opts.isControlApproverAllowed && channelId) {
+      return this.opts.isControlApproverAllowed({
+        providerId: 'slack',
+        channelJid: `sl:${channelId}`,
+        userId,
+        sourceGroup,
+        decisionPolicy,
+      });
+    }
     const allowedIds = getSlackPermissionApproverIds(sourceGroup);
     if (allowedIds.size === 0) return false;
     return allowedIds.has(userId);
@@ -344,11 +355,12 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       }
 
       if (
-        !this.canDecidePermission(
+        !(await this.canDecidePermission(
           userId,
           pending.sourceGroup,
           pending.decisionPolicy,
-        )
+          pending.channelId,
+        ))
       ) {
         try {
           await this.app?.client.chat.postEphemeral({
@@ -390,7 +402,14 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
       const userId = body.user?.id || '';
       if (!userId) return;
-      if (!this.canDecidePermission(userId, pending.sourceGroup)) {
+      if (
+        !(await this.canDecidePermission(
+          userId,
+          pending.sourceGroup,
+          undefined,
+          pending.channelId,
+        ))
+      ) {
         try {
           await this.app?.client.chat.postEphemeral({
             channel: pending.channelId,
@@ -446,7 +465,14 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       if (!callbackChannelId || callbackChannelId !== pending.channelId) return;
       const userId = body.user?.id || '';
       if (!userId) return;
-      if (!this.canDecidePermission(userId, pending.sourceGroup)) {
+      if (
+        !(await this.canDecidePermission(
+          userId,
+          pending.sourceGroup,
+          undefined,
+          pending.channelId,
+        ))
+      ) {
         try {
           await this.app?.client.chat.postEphemeral({
             channel: pending.channelId,

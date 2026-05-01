@@ -11,20 +11,26 @@ message, and session concepts. Messages route to the Claude Agent SDK via host
 runtime processes. Agent-visible capabilities are approved, audited, bound to
 an agent, and activated on the next run.
 
+Agents own selected tools, skills, MCP servers, and provider-neutral DM access.
+Each agent can also name one DM approval admin per provider; DM users are not
+admins unless explicitly set as that provider's admin. Channels own bound
+agents, sessions, and control approver allowlists. Browser is one normal
+catalog tool; do not add a separate channel-tool or browser selection list.
+
 ## Key Files
 
-| File                                             | Purpose                                                    |
-| ------------------------------------------------ | ---------------------------------------------------------- |
-| `apps/core/src/index.ts`                         | Orchestrator: state, message loop, agent invocation        |
-| `apps/core/src/channels/provider-registry.ts`    | Channel provider registry                                  |
-| `apps/core/src/runtime/ipc.ts`                   | IPC watcher and task processing                            |
-| `apps/core/src/messaging/router.ts`              | Message formatting and outbound routing                    |
-| `apps/core/src/config/index.ts`                   | Trigger pattern, paths, intervals                          |
-| `apps/core/src/jobs/scheduler.ts`        | Scheduler domain execution                                 |
-| `apps/core/src/infrastructure/pgboss/scheduler-engine.ts` | Postgres-backed pg-boss queue adapter                      |
-| `apps/core/src/infrastructure/postgres/schema/`                | Postgres schema, migrations, and repositories              |
-| `~/myclaw/agents/{name}/CLAUDE.md`               | Runtime per-agent prompt guidance                          |
-| Provider artifact store                          | Claude provider continuation and transcript export bytes   |
+| File                                                      | Purpose                                                  |
+| --------------------------------------------------------- | -------------------------------------------------------- |
+| `apps/core/src/index.ts`                                  | Orchestrator: state, message loop, agent invocation      |
+| `apps/core/src/channels/provider-registry.ts`             | Channel provider registry                                |
+| `apps/core/src/runtime/ipc.ts`                            | IPC watcher and task processing                          |
+| `apps/core/src/messaging/router.ts`                       | Message formatting and outbound routing                  |
+| `apps/core/src/config/index.ts`                           | Trigger pattern, paths, intervals                        |
+| `apps/core/src/jobs/scheduler.ts`                         | Scheduler domain execution                               |
+| `apps/core/src/infrastructure/pgboss/scheduler-engine.ts` | Postgres-backed pg-boss queue adapter                    |
+| `apps/core/src/infrastructure/postgres/schema/`           | Postgres schema, migrations, and repositories            |
+| `~/myclaw/agents/{name}/CLAUDE.md`                        | Runtime per-agent prompt guidance                        |
+| Provider artifact store                                   | Claude provider continuation and transcript export bytes |
 
 ## Secrets / Credentials / Proxy (OneCLI)
 
@@ -37,21 +43,27 @@ install commands, edit `.claude/skills`, edit `.mcp.json`, edit settings, or
 change Claude permission config. Use MyClaw request tools so changes can be
 reviewed, audited, versioned, and activated on the next run.
 
-| Tool | When to use |
-| --- | --- |
-| `send_message` | Progress updates or direct channel messages while still running. |
-| `ask_user_question` | Structured choices with options, single-select, multi-select, preview/details, and channel-native buttons. |
-| `request_skill_install` | Install a provider skill such as `clawhub:<slug>@<version>`. |
-| `request_skill_proposal` | Propose an agent-created or modified skill bundle for review. |
-| `request_skill_dependency_install` | Ask for npm, brew, go, uv, or download dependencies needed by a skill. |
-| `request_mcp_server` | Request a third-party MCP server with transport, origin, tool patterns, credentials, and reason. |
-| `request_tool_enable` | Request SDK or host tools such as `Bash`, `Write`, `Edit`, browser, scheduler, memory, or service tools. |
-| `request_channel_tool_enable` | Request channel capabilities such as Teams proactive messaging, Slack file access, or Telegram file download behavior. |
-| `service_restart` | Main/admin agent only, after an approved change requires host restart. |
-| `register_agent` | Main/admin agent only, to bind a new channel conversation to an agent. |
+| Tool                               | When to use                                                                                                            |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `send_message`                     | Progress updates or direct channel messages while still running.                                                       |
+| `ask_user_question`                | Structured choices with options, single-select, multi-select, preview/details, and channel-native buttons.             |
+| `request_skill_install`            | Install a provider skill such as `clawhub:<slug>@<version>`.                                                           |
+| `request_skill_proposal`           | Propose an agent-created or modified skill bundle for review.                                                          |
+| `request_skill_dependency_install` | Ask for npm, brew, go, uv, or download dependencies needed by a skill.                                                 |
+| `request_mcp_server`               | Request a third-party MCP server with transport, origin, tool patterns, credentials, and reason.                       |
+| `request_tool_enable`              | Request SDK or host tools such as `Bash`, `Write`, `Edit`, browser, scheduler, memory, or service tools.               |
+| `request_channel_tool_enable`      | Request channel capabilities such as Teams proactive messaging, Slack file access, or Telegram file download behavior. |
+| `service_restart`                  | Main/admin agent only, after an approved change requires host restart.                                                 |
+| `register_agent`                   | Main/admin agent only, to bind a new channel conversation to an agent.                                                 |
 
-Same-channel approval verifies the origin chat and control allowlist; it does
-not let a normal participant approve persistent capability changes.
+Same-channel approval verifies the origin chat and Channel control allowlist;
+control approvers must be members of that Channel. Direct/private DM approval
+uses the bound agent's provider-specific DM admin. Agent DM access is separate,
+provider-neutral, and does not grant approval rights by itself.
+
+Admin boundary: use the public control API for owner/admin automation, the
+local CLI for setup, provider validation, service control, logs, and doctor
+commands, and MyClaw MCP tools only for agent-requested reviewed changes.
 
 ## Contributing
 
