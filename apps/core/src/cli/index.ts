@@ -55,6 +55,7 @@ function usage(): string {
     '  myclaw channel list|info|control-allowlist',
     '  myclaw channel doctor',
     '  myclaw agent list|info|add|remove|trigger|dm-access|policy',
+    '  myclaw model list|set-default|doctor',
     '  myclaw service install|start|stop|restart',
     '  myclaw skill draft upload <skill.zip> [--agent <agentId>] [--created-by <id>]',
     '  myclaw mcp draft|list|approve|reject|test|disable|bind|unbind|agent',
@@ -423,6 +424,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === 'memory') {
     const { runMemoryCommand } = await import('./memory.js');
     return runMemoryCommand(runtimeHome, rest);
+  }
+
+  if (command === 'model') {
+    const { runModelCommand } = await import('./model.js');
+    return runModelCommand(runtimeHome, rest);
   }
 
   if (command === 'skill') {

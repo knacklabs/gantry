@@ -5,10 +5,18 @@ import type {
   ThinkingOverride,
 } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { normalizeClaudeModelSelection } from '../models/claude-model-registry.js';
+import {
+  findModelByRunnerModel,
+  formatModelDisplay,
+  resolveModelSelection,
+  type ModelDefaultAliases,
+} from '../shared/model-catalog.js';
+import type { RuntimeModelStatusSnapshot } from '../runtime/model-status-store.js';
 import {
   describeThinking,
   formatCurrentModel,
+  formatModelsList,
+  formatModelStatus,
   formatMemoryStatus,
 } from './session-command-format.js';
 
@@ -18,6 +26,8 @@ export type SessionCommand =
   | { kind: 'stop'; raw: '/stop' }
   | { kind: 'dream'; raw: '/dream' }
   | { kind: 'memory_status'; raw: '/memory-status' }
+  | { kind: 'models_list'; raw: '/models' }
+  | { kind: 'status'; raw: '/status' }
   | { kind: 'save_procedure'; raw: string; title: string; body?: string }
   | { kind: 'model_show'; raw: '/model' }
   | { kind: 'model_set'; raw: string; value: string }
@@ -121,6 +131,8 @@ export function extractSessionCommand(
   if (text === '/memory-status') {
     return { kind: 'memory_status', raw: '/memory-status' };
   }
+  if (text === '/models') return { kind: 'models_list', raw: '/models' };
+  if (text === '/status') return { kind: 'status', raw: '/status' };
   if (text === '/model') return { kind: 'model_show', raw: '/model' };
 
   const saveProcedureMatch = text.match(
@@ -139,9 +151,9 @@ export function extractSessionCommand(
     }
   }
 
-  const modelMatch = text.match(/^\/model\s+(\S+)$/);
+  const modelMatch = text.match(/^\/model\s+(.+)$/);
   if (modelMatch) {
-    const value = normalizeClaudeModelSelection(modelMatch[1]) || modelMatch[1];
+    const value = modelMatch[1].trim();
     if (value === 'default') {
       return { kind: 'model_default', raw: '/model default' };
     }
@@ -188,8 +200,10 @@ export interface SessionCommandDeps {
   advanceCursor: (message: Pick<NewMessage, 'timestamp' | 'id'>) => void;
   formatMessages: (msgs: NewMessage[], timezone: string) => string;
   getDefaultModel: () => string | undefined;
+  getJobModelDefaults?: () => ModelDefaultAliases;
   getGroupModelOverride: () => string | undefined;
   setGroupModelOverride: (value: string | undefined) => Promise<void> | void;
+  getModelStatus?: () => RuntimeModelStatusSnapshot | undefined;
   getGroupThinkingOverride: () => ThinkingOverride | undefined;
   setGroupThinkingOverride: (
     value: ThinkingOverride | undefined,
@@ -214,7 +228,6 @@ export interface SessionCommandDeps {
   canSenderInteract: (msg: NewMessage) => boolean;
 }
 
-const MODEL_VALIDATION_TIMEOUT_MS = 90_000;
 const MAX_MODEL_ERROR_MESSAGE_CHARS = 240;
 
 function resultToText(result: string | object | null | undefined): string {
@@ -542,6 +555,29 @@ export async function handleSessionCommand(opts: {
     return { handled: true, success: true };
   }
 
+  if (command.kind === 'models_list') {
+    deps.advanceCursor(cmdMsg);
+    await deps.sendMessage(
+      formatModelsList({
+        chat: defaultModel,
+        ...(deps.getJobModelDefaults?.() ?? {}),
+      }),
+    );
+    return { handled: true, success: true };
+  }
+
+  if (command.kind === 'status') {
+    deps.advanceCursor(cmdMsg);
+    await deps.sendMessage(
+      formatModelStatus(deps.getModelStatus?.(), {
+        currentModel: groupOverrideModel,
+        defaultModel,
+        source: groupOverrideModel ? 'session override' : 'chat default',
+      }),
+    );
+    return { handled: true, success: true };
+  }
+
   if (command.kind === 'thinking_show') {
     const message = groupThinkingOverride
       ? `Current thinking: ${describeThinking(groupThinkingOverride)} (group override).`
@@ -552,47 +588,30 @@ export async function handleSessionCommand(opts: {
   }
 
   if (command.kind === 'model_set') {
-    let modelValidationFailed = false;
-    let modelValidationError: string | null = null;
-    const validateResult = await deps.runAgent(
-      command.raw,
-      async (result) => {
-        if (result.status === 'error') {
-          modelValidationFailed = true;
-        }
-        const text = sanitizeErrorText(resultToText(result.result));
-        if (text && modelValidationError === null) {
-          modelValidationError = text;
-        }
-      },
-      { timeoutMs: MODEL_VALIDATION_TIMEOUT_MS },
-    );
-
-    if (validateResult === 'error' || modelValidationFailed) {
+    const resolved = resolveModelSelection(command.value);
+    if (!resolved.ok) {
       deps.advanceCursor(cmdMsg);
-      await deps.sendMessage(
-        modelValidationError
-          ? `Failed to set model: ${modelValidationError}`
-          : `Failed to set model to ${command.value}. Override unchanged.`,
-      );
+      await deps.sendMessage(resolved.message);
       return { handled: true, success: true };
     }
 
     try {
-      await deps.setGroupModelOverride(command.value);
+      await deps.setGroupModelOverride(resolved.alias);
     } catch (err) {
       logger.error(
-        { group: groupName, err, model: command.value },
+        { group: groupName, err, model: resolved.alias },
         'Failed to persist /model override',
       );
       await deps.sendMessage(
-        `Failed to set model to ${command.value}. Override unchanged.`,
+        `Failed to set model to ${resolved.alias}. Override unchanged.`,
       );
       return { handled: true, success: false };
     }
 
     deps.advanceCursor(cmdMsg);
-    await deps.sendMessage(`Model set to ${command.value} for this group.`);
+    await deps.sendMessage(
+      `Using ${findModelByRunnerModel(resolved.runnerModel)?.displayName ?? resolved.alias} for this session.`,
+    );
     return { handled: true, success: true };
   }
 
@@ -612,8 +631,9 @@ export async function handleSessionCommand(opts: {
 
     deps.advanceCursor(cmdMsg);
     if (defaultModel) {
+      const defaultEntry = findModelByRunnerModel(defaultModel);
       await deps.sendMessage(
-        `Model override cleared. Using default model: ${defaultModel}.`,
+        `Model override cleared. Using default model: ${defaultEntry ? formatModelDisplay(defaultEntry) : defaultModel}.`,
       );
     } else {
       await deps.sendMessage(

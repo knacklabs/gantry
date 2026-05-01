@@ -12,6 +12,8 @@ import {
   runtimeJobSchedulePlanner,
   requestSchedulerSync,
 } from '../../../jobs/scheduler.js';
+import { getDefaultModelConfig } from '../../../config/index.js';
+import { resolveModelSelection } from '../../../shared/model-catalog.js';
 import {
   getRuntimeControlRepository,
   getRuntimeEventExchange,
@@ -126,6 +128,35 @@ function adaptAppSession(
   };
 }
 
+function modelPreviewFor(input: {
+  explicitAlias?: string;
+  kind: 'manual' | 'once' | 'recurring';
+}) {
+  const modelKind = input.kind === 'recurring' ? 'recurringJob' : 'oneTimeJob';
+  const defaultConfig = getDefaultModelConfig(modelKind);
+  const selected = input.explicitAlias || defaultConfig.model;
+  const resolved = selected ? resolveModelSelection(selected) : undefined;
+  if (!resolved?.ok) {
+    return {
+      modelAlias: input.explicitAlias ?? null,
+      modelSource: input.explicitAlias ? 'explicit' : defaultConfig.source,
+      model: null,
+    };
+  }
+  return {
+    modelAlias: resolved.alias,
+    modelSource: input.explicitAlias ? 'explicit' : defaultConfig.source,
+    model: {
+      displayName: resolved.entry.displayName,
+      provider: resolved.entry.providerLabel,
+      contextWindowTokens: resolved.entry.contextWindowTokens,
+      maxOutputTokens: resolved.entry.maxOutputTokens,
+      cachePolicy: resolved.entry.cacheMode,
+      modelProfileId: resolved.entry.id,
+    },
+  };
+}
+
 export async function handleJobRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -143,6 +174,15 @@ export async function handleJobRoutes(
       body.kind === 'recurring'
         ? body.kind
         : 'manual';
+    if (body.model !== undefined) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        'Use modelAlias or modelProfileId; raw model is not accepted.',
+      );
+      return true;
+    }
     try {
       const created = await createJobManagementService().createJob({
         appId: auth.appId,
@@ -154,9 +194,18 @@ export async function handleJobRoutes(
         schedule: (body.schedule || {}) as { type?: unknown; value?: unknown },
         executionMode: body.executionMode,
         threadId: body.threadId,
-        model: body.model,
+        modelAlias: body.modelAlias,
+        modelProfileId: body.modelProfileId,
+        dryRun: body.dryRun,
       });
-      sendJson(res, 201, { jobId: created.jobId });
+      sendJson(res, body.dryRun === true ? 200 : 201, {
+        jobId: created.jobId,
+        dryRun: body.dryRun === true,
+        ...modelPreviewFor({
+          explicitAlias: created.modelAlias,
+          kind,
+        }),
+      });
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
     }
@@ -212,6 +261,16 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
     const body = (await readJson(req)) as Record<string, unknown>;
+    if (body.model !== undefined) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        'Use modelAlias or modelProfileId; raw model is not accepted.',
+      );
+      return true;
+    }
+    const requestedModel = body.modelAlias ?? body.modelProfileId;
     try {
       const { job: updated } = await createJobManagementService().updateJob({
         appId: auth.appId,
@@ -225,6 +284,9 @@ export async function handleJobRoutes(
             : {}),
           ...(typeof body.threadId === 'string'
             ? { threadId: body.threadId }
+            : {}),
+          ...(typeof requestedModel === 'string'
+            ? { model: requestedModel }
             : {}),
           ...(body.status === 'active' || body.status === 'paused'
             ? { status: body.status }

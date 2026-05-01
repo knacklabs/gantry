@@ -6,6 +6,11 @@ import { invalidateSystemJobRegistrationSignature } from './system-registration-
 import { createTaskResponder } from './ipc-shared.js';
 import { mapApplicationError } from './ipc-application-error.js';
 import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
+import { getDefaultModelConfig } from '../config/index.js';
+import {
+  findModelByRunnerModel,
+  resolveModelSelection,
+} from '../shared/model-catalog.js';
 
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
@@ -68,7 +73,8 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
       jobId: data.jobId,
       name: data.name || '',
       prompt: data.prompt || '',
-      model: data.model || null,
+      modelAlias: data.modelAlias || null,
+      modelProfileId: data.modelProfileId || null,
       scheduleType: normalizedScheduleType,
       scheduleValue: data.scheduleValue || '',
       linkedSessions: data.linkedSessions,
@@ -91,10 +97,26 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
       'Job upserted via IPC',
     );
     invalidateSystemJobRegistrationSignature(context.deps.opsRepository);
+    const defaultModel =
+      normalizedScheduleType === 'once'
+        ? getDefaultModelConfig('oneTimeJob')
+        : getDefaultModelConfig('recurringJob');
+    const selectedModel = result.modelAlias || defaultModel.model;
+    const catalogModel = selectedModel
+      ? resolveModelSelection(selectedModel)
+      : undefined;
+    const resolvedModel =
+      (catalogModel?.ok ? catalogModel.entry : undefined) ??
+      findModelByRunnerModel(result.modelAlias);
+    const modelText = resolvedModel
+      ? ` Model: ${resolvedModel.displayName} (${result.modelAlias ? 'explicit' : defaultModel.source}); cache: ${resolvedModel.cacheMode}; context: ${resolvedModel.contextWindowTokens} tokens.`
+      : result.modelAlias
+        ? ` Model: ${result.modelAlias}.`
+        : ' Model: agent default for this job type.';
     accept(
-      result.created
+      (result.created
         ? `Scheduler job created (${result.jobId}).`
-        : `Scheduler job updated (${result.jobId}).`,
+        : `Scheduler job updated (${result.jobId}).`) + modelText,
     );
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to upsert scheduler job.');

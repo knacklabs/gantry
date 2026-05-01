@@ -1,7 +1,6 @@
 import { randomUUID } from 'crypto';
 import fs from 'fs';
-
-import { ASSISTANT_NAME } from '../config/index.js';
+import { ASSISTANT_NAME, getEffectiveModelConfig } from '../config/index.js';
 import type {
   Job,
   JobExecutionMode,
@@ -34,20 +33,27 @@ import {
 } from './compact-memory.js';
 import { notifyLinkedSessions } from './delivery.js';
 import { normalizeCleanupAfterMs } from './cleanup.js';
-import {
-  parseTriggerRequesterSessionId,
-  resolveExecutionContext,
-} from './execution-context.js';
+import { resolveExecutionContext } from './execution-context.js';
 import { computeNextJobRun } from './schedule-math.js';
 import { formatRunStatusMessage } from './status-formatting.js';
 import { handleSystemJob, MEMORY_DREAM_SYSTEM_PROMPT } from './system-jobs.js';
 import { runtimeEventTypeForRunStatus } from './run-status-event.js';
+import {
+  jobCompletedModelPayload,
+  jobStartedModelPayload,
+  resolveJobModel,
+  type NormalizedModelUsage,
+} from './model-resolution.js';
+import {
+  resolveAppSessionForJob,
+  resolveAppSessionForTrigger,
+  type SchedulerEventAppSession,
+} from './app-session-resolution.js';
 import type {
   JobTurnContext,
   SchedulerDependencies,
   SchedulerDispatchPayload,
 } from './types.js';
-
 const JOB_DELETION_CHECK_INTERVAL_MS = 1_000;
 let schedulerStreamingGenerationCounter = 0;
 export function resetSchedulerExecutionStateForTests(): void {
@@ -67,24 +73,6 @@ export async function runJob(
   if (!currentJob || currentJob.status !== 'active') {
     return;
   }
-
-  const resolveAppSessionForJob = async () => {
-    const control = getRuntimeControlRepository();
-    if (currentJob.session_id) {
-      const session = await control.getAppSessionById(currentJob.session_id);
-      if (session) return session;
-    }
-    const appJid = currentJob.linked_sessions.find((jid) =>
-      jid.startsWith('app:'),
-    );
-    return appJid ? control.getAppSessionByChatJid(appJid) : undefined;
-  };
-
-  const resolveAppSessionForTrigger = async (requestedBy: string) => {
-    const sessionId = parseTriggerRequesterSessionId(requestedBy);
-    if (!sessionId) return undefined;
-    return getRuntimeControlRepository().getAppSessionById(sessionId);
-  };
 
   const groups = deps.registeredGroups();
   const execution = resolveExecutionContext(currentJob, groups);
@@ -109,6 +97,13 @@ export async function runJob(
       : 'parallel';
   const leaseExpiresAt = toIso(currentTimeMs() + timeoutMs + 30_000);
   const runtimeAppId = resolveJobRuntimeAppId(currentJob);
+  const resolvedModel = resolveJobModel(
+    currentJob,
+    getEffectiveModelConfig(
+      undefined,
+      currentJob.schedule_type === 'once' ? 'oneTimeJob' : 'recurringJob',
+    ),
+  );
 
   const claimed = await deps.opsRepository.claimDueJobRunStart({
     jobId: currentJob.id,
@@ -122,9 +117,7 @@ export async function runJob(
   });
   if (!claimed) return;
   let boundTriggerId: string | undefined;
-  let eventAppSession:
-    | Awaited<ReturnType<typeof resolveAppSessionForJob>>
-    | undefined;
+  let eventAppSession: SchedulerEventAppSession;
   try {
     const control = getRuntimeControlRepository();
     const boundTrigger = dispatch?.triggerId
@@ -133,8 +126,8 @@ export async function runJob(
     boundTriggerId = boundTrigger?.triggerId;
     eventAppSession =
       (boundTrigger
-        ? await resolveAppSessionForTrigger(boundTrigger.requestedBy)
-        : undefined) ?? (await resolveAppSessionForJob());
+        ? await resolveAppSessionForTrigger(boundTrigger.requestedBy, control)
+        : undefined) ?? (await resolveAppSessionForJob(currentJob, control));
     const startEventAppId = eventAppSession?.appId ?? runtimeAppId;
     if (startEventAppId) {
       await getRuntimeEventExchange().publish({
@@ -200,7 +193,9 @@ export async function runJob(
   ): Promise<void> => {
     if (await isJobDeleted(true)) return;
     try {
-      const appSession = eventAppSession ?? (await resolveAppSessionForJob());
+      const control = getRuntimeControlRepository();
+      const appSession =
+        eventAppSession ?? (await resolveAppSessionForJob(currentJob, control));
       const eventAppId = appSession?.appId ?? runtimeAppId;
       if (!eventAppId) return;
       await getRuntimeEventExchange().publish({
@@ -227,10 +222,12 @@ export async function runJob(
     execution_mode: executionMode,
     scheduled_for: scheduledFor,
     timeout_ms: timeoutMs,
+    ...jobStartedModelPayload(resolvedModel),
   });
   let result: string | null = null;
   let error: string | null = null;
   let collectedResult = '';
+  let latestUsage: NormalizedModelUsage | undefined;
   try {
     const groupDir = resolveGroupFolderPath(execution.group.folder);
     fs.mkdirSync(groupDir, { recursive: true });
@@ -393,7 +390,7 @@ export async function runJob(
           execution.group,
           {
             prompt: currentJob.prompt,
-            model: currentJob.model || undefined,
+            model: resolvedModel.selectedModel,
             groupFolder: execution.group.folder,
             chatJid: execution.executionJid,
             threadId: currentJob.thread_id || undefined,
@@ -412,6 +409,7 @@ export async function runJob(
               execution.stopAliasJids,
             ),
           async (streamedOutput: AgentOutput) => {
+            if (streamedOutput.usage) latestUsage = streamedOutput.usage;
             await collectCompactBoundaryMemory({
               compactBoundary: streamedOutput.compactBoundary,
               agentSessionId: turnContext?.agentSessionId,
@@ -649,11 +647,13 @@ export async function runJob(
       pause_reason: pauseReason,
       notified,
       summary,
+      ...jobCompletedModelPayload(resolvedModel, latestUsage),
     },
   );
   try {
     const control = getRuntimeControlRepository();
-    eventAppSession = eventAppSession ?? (await resolveAppSessionForJob());
+    eventAppSession =
+      eventAppSession ?? (await resolveAppSessionForJob(currentJob, control));
     if (boundTriggerId) {
       await control.markTriggerCompleted(
         boundTriggerId,

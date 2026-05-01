@@ -295,7 +295,7 @@ const MYCLAW_HOME = getMyclawHome(process.env.MYCLAW_HOME);
 export const AGENTS_DIR = path.resolve(MYCLAW_HOME, 'agents');
 export const DATA_DIR = path.resolve(MYCLAW_HOME, 'data');
 
-// Default model selection is non-secret configuration in settings.yaml.
+// Default model aliases are non-secret configuration in settings.yaml.
 export const getConfiguredDefaultModel = () =>
   ensureRuntimeSettings(MYCLAW_HOME).agent.defaultModel;
 export const IPC_POLL_INTERVAL = 1000;
@@ -333,12 +333,20 @@ Folder names follow the convention `{channel}_{group-name}` (e.g., `slack_engine
 
 Additional mounts appear under `/workspace/extra/` in the runtime workspace.
 
-Model precedence is:
+Interactive model precedence is:
 
 1. `group.agentConfig.model`
 2. `agent.default_model` in `settings.yaml`
+3. system default `opus`
 
-Use `/model` in a group session to switch the live model (`/model`, `/model <alias-or-name>`, `/model default`).
+Job model precedence is:
+
+1. explicit job `modelAlias` or `modelProfileId`
+2. `agent.one_time_job_default_model` or `agent.recurring_job_default_model`
+3. `agent.default_model`
+4. system default `opus`
+
+Use `/model` in a group session to switch the live model (`/model`, `/model <alias>`, `/model default`). Use `/models` to list supported aliases and `/status` to inspect the current model, context window, token usage, cache read/write tokens, cache state, and cost when the provider reports it.
 
 ### Claude Authentication
 
@@ -533,6 +541,8 @@ the memory store, canonical message history, or runtime continuation state.
 | `storage.postgres.url_env`                  | `MYCLAW_DATABASE_URL`    | Env key for Postgres connection URL                         |
 | `storage.postgres.schema`                   | `myclaw`                 | Postgres schema name                                        |
 | `agent.default_model`                       | empty                    | Default Claude Code model alias/name                        |
+| `agent.one_time_job_default_model`          | empty                    | One-time/manual job model alias; inherits `agent.default_model` |
+| `agent.recurring_job_default_model`         | empty                    | Cron/interval job model alias; inherits `agent.default_model` |
 | `credential_broker.mode`                    | `onecli`                 | Agent credential broker mode (`onecli`, `external`, `none`) |
 | `credential_broker.onecli.url`              | `http://localhost:10254` | OneCLI gateway URL                                          |
 | `credential_broker.onecli.postgres.url_env` | `ONECLI_DATABASE_URL`    | Env key for the OneCLI Postgres URL with `schema=onecli`    |

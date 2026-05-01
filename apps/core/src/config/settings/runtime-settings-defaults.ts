@@ -89,6 +89,8 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
   const agent: RuntimeAgentSettings = {
     name: DEFAULT_AGENT_NAME,
     defaultModel: '',
+    oneTimeJobDefaultModel: '',
+    recurringJobDefaultModel: '',
     sessions: {
       memoryItemLimit: DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT,
       maxMemoryContextChars: DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS,

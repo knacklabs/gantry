@@ -6,6 +6,7 @@ import {
   MAX_MESSAGES_PER_PROMPT,
   TIMEZONE,
 } from '../config/index.js';
+import { findModelByRunnerModel } from '../shared/model-catalog.js';
 import {
   encodeGroupMessageCursor,
   toGroupMessageCursor,
@@ -57,6 +58,10 @@ import {
 } from './session-resume-runtime.js';
 import { firstThreadQueueId, parseThreadQueueKey } from './thread-queue-key.js';
 import { formatElapsed } from './time-format.js';
+import {
+  getRuntimeModelStatus,
+  updateRuntimeModelStatus,
+} from './model-status-store.js';
 const TYPING_HEARTBEAT_INTERVAL_MS = 4_000;
 const ELAPSED_PROGRESS_INTERVAL_MS = 60_000;
 const NO_OUTPUT_WARNING_INTERVAL_MS = 180_000;
@@ -113,6 +118,20 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     };
     const wrappedOnOutput = onOutput
       ? async (output: AgentOutput) => {
+          if (output.usage) {
+            const selectedModel =
+              group.agentConfig?.model ?? getDefaultModelConfig().model;
+            updateRuntimeModelStatus({
+              scopeKey: group.folder,
+              threadId: sessionThreadId,
+              selectionSource: group.agentConfig?.model
+                ? 'session override'
+                : 'chat default',
+              modelAlias: selectedModel,
+              model: findModelByRunnerModel(selectedModel),
+              usage: output.usage,
+            });
+          }
           if (output.status !== 'error' && output.newSessionId) {
             latestProviderSessionId = output.newSessionId;
             await persistProviderSessionId(output.newSessionId);
@@ -338,9 +357,18 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         },
         formatMessages,
         getDefaultModel: () => getDefaultModelConfig().model,
+        getJobModelDefaults: () => ({
+          oneTime: getDefaultModelConfig('oneTimeJob').model,
+          recurring: getDefaultModelConfig('recurringJob').model,
+        }),
         getGroupModelOverride: () => group.agentConfig?.model,
         setGroupModelOverride: async (value) =>
           deps.setGroupModelOverride(chatJid, value),
+        getModelStatus: () =>
+          getRuntimeModelStatus({
+            scopeKey: group.folder,
+            threadId: activeThreadId,
+          }),
         getGroupThinkingOverride: () => group.agentConfig?.thinking,
         setGroupThinkingOverride: async (value) =>
           deps.setGroupThinkingOverride(chatJid, value),

@@ -89,10 +89,14 @@ export function buildSdkEnv(): Record<string, string | undefined> {
     TZ: process.env.TZ,
     ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
     ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
+    ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
     CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
     CLAUDE_CODE_AUTO_COMPACT_WINDOW: '165000',
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1',
   };
+  if (process.env.ANTHROPIC_API_KEY === '') {
+    sdkEnv.ANTHROPIC_API_KEY = '';
+  }
   copyPlaceholderEnv(sdkEnv, ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']);
   copyEnv(sdkEnv, [
     'NO_PROXY',

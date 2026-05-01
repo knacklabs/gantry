@@ -1,7 +1,7 @@
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import { ApplicationError } from '../common/application-error.js';
 import type { Clock } from '../common/clock.js';
-import { assertJobBelongsToApp, jobBelongsToApp } from './job-access.js';
+import { assertJobBelongsToApp } from './job-access.js';
 import {
   assertSchedulerJobAccess,
   canAccessSchedulerJob,
@@ -30,6 +30,10 @@ import type {
   SchedulerJobAccess,
   JobUpdatePatch,
 } from './job-management-types.js';
+import {
+  resolveOptionalJobModel,
+  resolveRequestedJobModel,
+} from './job-model-selection.js';
 
 const DEFAULT_RUN_LIMIT = 50;
 const DEFAULT_EVENT_LIMIT = 200;
@@ -49,8 +53,10 @@ export class JobManagementService {
     schedule?: { type?: unknown; value?: unknown };
     executionMode?: unknown;
     threadId?: unknown;
-    model?: unknown;
-  }): Promise<{ jobId: string; created: boolean }> {
+    modelAlias?: unknown;
+    modelProfileId?: unknown;
+    dryRun?: unknown;
+  }): Promise<{ jobId: string; created: boolean; modelAlias?: string }> {
     const control = this.requireControl();
     const session = await control.getAppSessionById(input.sessionId);
     if (!input.name.trim() || !input.prompt.trim() || !session) {
@@ -72,12 +78,19 @@ export class JobManagementService {
       runAt: input.runAt,
       schedule: input.schedule,
     });
+    const modelAlias = resolveRequestedJobModel(
+      input.modelAlias,
+      input.modelProfileId,
+    );
     const jobId = this.deps.schedulePlanner.createManualJobId();
+    if (input.dryRun === true) {
+      return { jobId, created: false, modelAlias };
+    }
     const result = await this.deps.ops.upsertJob({
       id: jobId,
       name: input.name.trim(),
       prompt: input.prompt.trim(),
-      model: typeof input.model === 'string' ? input.model : null,
+      model: modelAlias ?? null,
       script: null,
       schedule_type: schedule.scheduleType,
       schedule_value: schedule.scheduleValue,
@@ -92,7 +105,7 @@ export class JobManagementService {
         input.executionMode === 'serialized' ? 'serialized' : 'parallel',
     });
     this.deps.scheduler.requestSchedulerSync(jobId);
-    return { jobId, created: result.created };
+    return { jobId, created: result.created, modelAlias };
   }
 
   async upsertJobFromIpc(input: {
@@ -100,7 +113,8 @@ export class JobManagementService {
     jobId?: string;
     name: string;
     prompt: string;
-    model?: string | null;
+    modelAlias?: string | null;
+    modelProfileId?: string | null;
     scheduleType: unknown;
     scheduleValue: string;
     linkedSessions?: string[];
@@ -116,7 +130,7 @@ export class JobManagementService {
     serialize?: unknown;
     groupScope?: string;
     createdBy?: 'agent' | 'human';
-  }): Promise<{ jobId: string; created: boolean }> {
+  }): Promise<{ jobId: string; created: boolean; modelAlias?: string }> {
     const access = input.access;
     const name = input.name.trim();
     const prompt = input.prompt.trim();
@@ -143,6 +157,10 @@ export class JobManagementService {
       scheduleType,
       scheduleValue: input.scheduleValue,
     });
+    const modelAlias = resolveRequestedJobModel(
+      input.modelAlias,
+      input.modelProfileId,
+    );
     const groupScope = (input.groupScope || access.sourceGroup).trim();
     if (!access.isMain && groupScope !== access.sourceGroup) {
       throw new ApplicationError(
@@ -182,7 +200,7 @@ export class JobManagementService {
       id,
       name,
       prompt,
-      model: input.model || null,
+      model: modelAlias ?? null,
       script: null,
       schedule_type: scheduleType,
       schedule_value: input.scheduleValue.trim(),
@@ -206,7 +224,7 @@ export class JobManagementService {
     };
     const result = await this.deps.ops.upsertJob(job);
     this.deps.scheduler.requestSchedulerSync(id);
-    return { jobId: id, created: result.created };
+    return { jobId: id, created: result.created, modelAlias };
   }
 
   async listJobs(input: {
@@ -257,9 +275,13 @@ export class JobManagementService {
   }): Promise<{ job: Job }> {
     const job = await this.requireJob(input.jobId);
     this.assertAccess(job, input);
+    const patch = { ...input.patch };
+    if (typeof patch.model === 'string') {
+      patch.model = resolveOptionalJobModel(patch.model);
+    }
     const updates = buildJobUpdates(
       job,
-      input.patch,
+      patch,
       this.deps.schedulePlanner,
       this.clock(),
     );

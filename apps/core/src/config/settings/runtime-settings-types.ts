@@ -46,6 +46,8 @@ export interface RuntimeStorageSettings {
 export interface RuntimeAgentSettings {
   name: string;
   defaultModel: string;
+  oneTimeJobDefaultModel: string;
+  recurringJobDefaultModel: string;
   sessions: {
     memoryItemLimit: number;
     maxMemoryContextChars: number;

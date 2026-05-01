@@ -1,4 +1,13 @@
 import type { ThinkingOverride } from '../domain/types.js';
+import {
+  findModelByRunnerModel,
+  formatModelCatalog,
+  formatModelDisplay,
+  formatTokenCount,
+  type ModelDefaultAliases,
+  type NormalizedModelUsage,
+} from '../shared/model-catalog.js';
+import type { RuntimeModelStatusSnapshot } from '../runtime/model-status-store.js';
 
 interface MemoryStatusSnapshotLike {
   items_by_kind: Record<string, number>;
@@ -60,9 +69,72 @@ export function formatCurrentModel(
   defaultModel: string | undefined,
   groupOverrideModel: string | undefined,
 ): string {
+  const overrideEntry = findModelByRunnerModel(groupOverrideModel);
   if (groupOverrideModel) {
-    return `Current model: ${groupOverrideModel} (group override).`;
+    return `Current model: ${overrideEntry ? formatModelDisplay(overrideEntry) : groupOverrideModel} (session override).`;
   }
+  const defaultEntry = findModelByRunnerModel(defaultModel);
+  if (defaultEntry)
+    return `Current model: ${formatModelDisplay(defaultEntry)} (chat default).`;
   if (defaultModel) return `Current model: ${defaultModel} (default).`;
   return 'Current model: CLI default (no explicit override).';
+}
+
+export function formatModelsList(defaults: ModelDefaultAliases = {}): string {
+  return formatModelCatalog(defaults);
+}
+
+function formatUsageLine(
+  label: string,
+  usage: NormalizedModelUsage | undefined,
+): string {
+  if (!usage) {
+    return `${label}: input unknown, output unknown, cache read unknown, cache write unknown`;
+  }
+  const cost =
+    typeof usage.estimatedCostUsd === 'number'
+      ? `, estimated cost $${usage.estimatedCostUsd.toFixed(4)}`
+      : '';
+  return (
+    `${label}: input ${usage.inputTokens}, output ${usage.outputTokens}, ` +
+    `cache read ${usage.cacheReadTokens}, cache write ${usage.cacheWriteTokens}, ` +
+    `cache ${usage.cacheStatus}${cost}`
+  );
+}
+
+export function formatModelStatus(
+  snapshot: RuntimeModelStatusSnapshot | undefined,
+  fallback: {
+    currentModel?: string;
+    defaultModel?: string;
+    source: string;
+  },
+): string {
+  const entry =
+    snapshot?.model ??
+    findModelByRunnerModel(fallback.currentModel) ??
+    findModelByRunnerModel(fallback.defaultModel);
+  const modelText = entry
+    ? formatModelDisplay(entry)
+    : fallback.currentModel || fallback.defaultModel || 'CLI default';
+  const lines = [
+    'Model status',
+    `Using ${modelText} (${snapshot?.selectionSource || fallback.source}).`,
+  ];
+  if (entry) {
+    lines.push(
+      `Context window: ${formatTokenCount(entry.contextWindowTokens)} tokens`,
+      `Max output: ${formatTokenCount(entry.maxOutputTokens)} tokens`,
+      `Cache: ${entry.cacheMode}`,
+    );
+  } else {
+    lines.push(
+      'Context window: unknown',
+      'Max output: unknown',
+      'Cache: unknown',
+    );
+  }
+  lines.push(formatUsageLine('Current turn tokens', snapshot?.lastUsage));
+  lines.push(formatUsageLine('Session tokens', snapshot?.cumulativeUsage));
+  return lines.join('\n');
 }

@@ -257,6 +257,8 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
     return {
       name: DEFAULT_AGENT_NAME,
       defaultModel: '',
+      oneTimeJobDefaultModel: '',
+      recurringJobDefaultModel: '',
       sessions: {
         memoryItemLimit: DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT,
         maxMemoryContextChars: DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS,
@@ -268,9 +270,15 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
   }
   const map = raw as Record<string, unknown>;
   for (const key of Object.keys(map)) {
-    if (key !== 'name' && key !== 'default_model' && key !== 'sessions') {
+    if (
+      key !== 'name' &&
+      key !== 'default_model' &&
+      key !== 'one_time_job_default_model' &&
+      key !== 'recurring_job_default_model' &&
+      key !== 'sessions'
+    ) {
       throw new Error(
-        `agent.${key} is not supported. Configure agent.name, agent.default_model, or agent.sessions.*.`,
+        `agent.${key} is not supported. Configure agent.name, agent.default_model, agent.one_time_job_default_model, agent.recurring_job_default_model, or agent.sessions.*.`,
       );
     }
   }
@@ -299,6 +307,24 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
         : typeof map.default_model === 'string'
           ? map.default_model.trim()
           : parseStringValue(map.default_model, 'agent.default_model'),
+    oneTimeJobDefaultModel:
+      map.one_time_job_default_model === undefined
+        ? ''
+        : typeof map.one_time_job_default_model === 'string'
+          ? map.one_time_job_default_model.trim()
+          : parseStringValue(
+              map.one_time_job_default_model,
+              'agent.one_time_job_default_model',
+            ),
+    recurringJobDefaultModel:
+      map.recurring_job_default_model === undefined
+        ? ''
+        : typeof map.recurring_job_default_model === 'string'
+          ? map.recurring_job_default_model.trim()
+          : parseStringValue(
+              map.recurring_job_default_model,
+              'agent.recurring_job_default_model',
+            ),
     sessions: {
       memoryItemLimit: parsePositiveIntegerValue(
         sessions.memory_item_limit,

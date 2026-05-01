@@ -134,6 +134,7 @@ import fs from 'fs';
 import type { RegisteredGroup } from '@core/domain/types.js';
 import { getPromptProfileService } from '@core/runtime/prompt-profile.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
+import { getHostRuntimeCredentialEnv } from '@core/runtime/agent-spawn-host.js';
 import type {
   AgentMcpServerBinding,
   MaterializedMcpServer,
@@ -280,6 +281,11 @@ describe('agent-spawn timeout behavior', () => {
     vi.mocked(spawn).mockClear();
     vi.mocked(fs.writeFileSync).mockClear();
     vi.mocked(getEffectiveModelConfig).mockClear();
+    vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValue({
+      env: {},
+      brokerApplied: false,
+      brokerProfile: 'none',
+    });
     mockEnsureGroupIpcLayout.mockClear();
     mockGetBrowserStatus.mockReset();
     mockGetBrowserStatus.mockResolvedValue({
@@ -394,7 +400,10 @@ describe('agent-spawn timeout behavior', () => {
     await vi.advanceTimersByTimeAsync(10);
     await resultPromise;
 
-    expect(vi.mocked(getEffectiveModelConfig)).toHaveBeenCalledWith('opus');
+    expect(vi.mocked(getEffectiveModelConfig)).toHaveBeenCalledWith(
+      'opus',
+      'interactive',
+    );
     const spawnCalls = vi.mocked(spawn).mock.calls;
     expect(spawnCalls.length).toBeGreaterThan(0);
     // Host mode passes model via env, not args
@@ -402,7 +411,7 @@ describe('agent-spawn timeout behavior', () => {
       string,
       string
     >;
-    expect(env.ANTHROPIC_MODEL).toBe('opus');
+    expect(env.ANTHROPIC_MODEL).toBe('claude-opus-4-7');
   });
 
   it('prefers job-level model override over group model', async () => {
@@ -416,7 +425,7 @@ describe('agent-spawn timeout behavior', () => {
     };
     const inputWithJobModel = {
       ...testInput,
-      model: 'claude-sonnet-4-6',
+      model: 'sonnet',
     };
 
     const resultPromise = spawnAgent(
@@ -436,6 +445,45 @@ describe('agent-spawn timeout behavior', () => {
       string
     >;
     expect(env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6');
+  });
+
+  it('projects OpenRouter models through Anthropic SDK env only when broker supplies a token', async () => {
+    vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValueOnce({
+      env: { ANTHROPIC_AUTH_TOKEN: 'broker-token' },
+      brokerApplied: true,
+      brokerProfile: 'external',
+    });
+    const resultPromise = spawnAgent(
+      testGroup,
+      { ...testInput, model: 'kimi 2.6' },
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const spawnCalls = vi.mocked(spawn).mock.calls;
+    const env = spawnCalls[spawnCalls.length - 1][2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.ANTHROPIC_MODEL).toBe('moonshotai/kimi-k2.6');
+    expect(env.ANTHROPIC_BASE_URL).toBe('https://openrouter.ai/api');
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('broker-token');
+    expect(env.ANTHROPIC_API_KEY).toBe('');
+  });
+
+  it('rejects OpenRouter models when the credential broker cannot provide a token', async () => {
+    const result = await spawnAgent(
+      testGroup,
+      { ...testInput, model: 'kimi' },
+      () => {},
+    );
+
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('requires an OpenRouter credential');
+    expect(spawn).not.toHaveBeenCalled();
   });
 
   it('passes compiled system prompt through runner stdin for normal message runs', async () => {

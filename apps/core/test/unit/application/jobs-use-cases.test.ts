@@ -127,6 +127,37 @@ describe('job application use cases', () => {
     expect(scheduler.requestSchedulerSync).toHaveBeenCalledWith('job-1');
   });
 
+  it('validates job model updates through catalog aliases', async () => {
+    const ops = makeOps(makeJob());
+    const scheduler = { requestSchedulerSync: vi.fn() };
+    const service = new JobManagementService({
+      ops: ops as OpsRepository,
+      scheduler,
+      schedulePlanner: runtimeJobSchedulePlanner,
+      clock: { now: () => '2026-04-24T01:00:00.000Z' },
+    });
+
+    await service.updateJob({
+      appId: 'app-one',
+      jobId: 'job-1',
+      patch: { model: 'kimi 2.6' },
+    });
+
+    expect(ops.updateJob).toHaveBeenCalledWith('job-1', { model: 'kimi' });
+
+    await expect(
+      service.updateJob({
+        appId: 'app-one',
+        jobId: 'job-1',
+        patch: { model: 'moonshotai/kimi-k2.6' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message:
+        'Provider model ID "moonshotai/kimi-k2.6" is not accepted here. Use a model alias from /models.',
+    });
+  });
+
   it('applies resume semantics when patching status active', async () => {
     const ops = makeOps(
       makeJob({
@@ -437,6 +468,39 @@ describe('job application use cases', () => {
         scheduleValue: '0',
       }),
     ).rejects.toMatchObject({ code: 'INVALID_SCHEDULE' });
+    expect(ops.upsertJob).not.toHaveBeenCalled();
+  });
+
+  it('rejects ambiguous IPC scheduler model selectors', async () => {
+    const ops = {
+      getJobById: vi.fn(),
+      upsertJob: vi.fn(),
+    };
+    const service = new JobManagementService({
+      ops: ops as unknown as OpsRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+    });
+
+    await expect(
+      service.upsertJobFromIpc({
+        access: {
+          sourceGroup: 'team',
+          isMain: true,
+          conversationBindings: {},
+          sourceGroupJids: ['tg:team'],
+        },
+        name: 'Ambiguous model',
+        prompt: 'Run',
+        modelAlias: 'kimi',
+        modelProfileId: 'openrouter:kimi-k2.6',
+        scheduleType: 'once',
+        scheduleValue: '2026-05-01T12:00:00.000Z',
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'Use either modelAlias or modelProfileId, not both.',
+    });
     expect(ops.upsertJob).not.toHaveBeenCalled();
   });
 

@@ -6,7 +6,8 @@ export interface TaskIpcData {
   authThreadId?: string;
   taskId?: string;
   prompt?: string;
-  model?: string;
+  modelAlias?: string;
+  modelProfileId?: string;
   name?: string;
   scheduleType?: string;
   scheduleValue?: string;

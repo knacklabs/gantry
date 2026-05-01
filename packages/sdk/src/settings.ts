@@ -11,6 +11,8 @@ export type RuntimeSettingsResponse = {
     agent: {
       name: string;
       defaultModel: string;
+      oneTimeJobDefaultModel: string;
+      recurringJobDefaultModel: string;
     };
     memory: {
       enabled: boolean;
@@ -25,6 +27,8 @@ export type UpdateRuntimeSettingsRequest = {
   agent?: {
     name?: string;
     defaultModel?: string;
+    oneTimeJobDefaultModel?: string;
+    recurringJobDefaultModel?: string;
   };
   memory?: {
     enabled?: boolean;

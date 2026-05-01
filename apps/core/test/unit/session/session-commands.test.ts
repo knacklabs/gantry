@@ -47,11 +47,25 @@ describe('extractSessionCommand', () => {
     });
   });
 
-  it('normalizes /model shorthand before validation', () => {
+  it('leaves /model shorthand for catalog resolution', () => {
     expect(extractSessionCommand('/model opus-4-7', trigger)).toEqual({
       kind: 'model_set',
-      raw: '/model opus',
-      value: 'opus',
+      raw: '/model opus-4-7',
+      value: 'opus-4-7',
+    });
+  });
+
+  it('detects /models', () => {
+    expect(extractSessionCommand('/models', trigger)).toEqual({
+      kind: 'models_list',
+      raw: '/models',
+    });
+  });
+
+  it('detects /status', () => {
+    expect(extractSessionCommand('/status', trigger)).toEqual({
+      kind: 'status',
+      raw: '/status',
     });
   });
 
@@ -121,8 +135,12 @@ describe('extractSessionCommand', () => {
     });
   });
 
-  it('rejects /model with multiple values', () => {
-    expect(extractSessionCommand('/model opus extra', trigger)).toBeNull();
+  it('accepts multi-word model aliases', () => {
+    expect(extractSessionCommand('/model kimi 2.6', trigger)).toEqual({
+      kind: 'model_set',
+      raw: '/model kimi 2.6',
+      value: 'kimi 2.6',
+    });
   });
 
   it('rejects malformed /model variants', () => {
@@ -705,7 +723,7 @@ describe('handleSessionCommand', () => {
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Current model: claude-opus-4-7 (group override).',
+      'Current model: Opus 4.7 (Anthropic) (session override).',
     );
   });
 
@@ -725,7 +743,7 @@ describe('handleSessionCommand', () => {
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Current model: claude-sonnet-4-6 (default).',
+      'Current model: Sonnet 4.6 (Anthropic) (chat default).',
     );
   });
 
@@ -891,14 +909,10 @@ describe('handleSessionCommand', () => {
     });
 
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.runAgent).toHaveBeenCalledWith(
-      '/model opus',
-      expect.any(Function),
-      { timeoutMs: 90_000 },
-    );
+    expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.setGroupModelOverride).toHaveBeenCalledWith('opus');
     expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Model set to opus for this group.',
+      'Using Opus 4.7 for this session.',
     );
   });
 
@@ -919,7 +933,7 @@ describe('handleSessionCommand', () => {
     });
 
     expect(result).toEqual({ handled: true, success: false });
-    expect(deps.runAgent).toHaveBeenCalled();
+    expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.advanceCursor).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Failed to set model to opus. Override unchanged.',
@@ -927,9 +941,7 @@ describe('handleSessionCommand', () => {
   });
 
   it('does not persist /model override when validation fails', async () => {
-    const deps = makeDeps({
-      runAgent: vi.fn().mockResolvedValue('error'),
-    });
+    const deps = makeDeps();
     const result = await handleSessionCommand({
       missedMessages: [makeMsg('/model opuus')],
       isMainGroup: true,
@@ -940,14 +952,10 @@ describe('handleSessionCommand', () => {
     });
 
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.runAgent).toHaveBeenCalledWith(
-      '/model opuus',
-      expect.any(Function),
-      { timeoutMs: 90_000 },
-    );
+    expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.setGroupModelOverride).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Failed to set model to opuus. Override unchanged.',
+      'Unknown model "opuus". Did you mean "opus"? Use /models to view supported models.',
     );
   });
 
@@ -968,7 +976,7 @@ describe('handleSessionCommand', () => {
     expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.setGroupModelOverride).toHaveBeenCalledWith(undefined);
     expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Model override cleared. Using default model: claude-opus-4-7.',
+      'Model override cleared. Using default model: Opus 4.7 (Anthropic).',
     );
   });
 
@@ -1018,16 +1026,8 @@ describe('handleSessionCommand', () => {
     );
   });
 
-  it('sanitizes model validation errors before replying', async () => {
-    const deps = makeDeps({
-      runAgent: vi.fn().mockImplementation(async (_prompt, onOutput) => {
-        await onOutput({
-          status: 'error',
-          result: '\u001b[31mInvalid model\u001b[0m\nPlease try again',
-        });
-        return 'error';
-      }),
-    });
+  it('rejects unknown model aliases before spawning the runner', async () => {
+    const deps = makeDeps();
     const result = await handleSessionCommand({
       missedMessages: [makeMsg('/model bad-model')],
       isMainGroup: true,
@@ -1038,8 +1038,9 @@ describe('handleSessionCommand', () => {
     });
 
     expect(result).toEqual({ handled: true, success: true });
+    expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Failed to set model: Invalid model Please try again',
+      'Unknown model "bad-model". Use /models to view supported models.',
     );
     expect(deps.setGroupModelOverride).not.toHaveBeenCalled();
   });
@@ -1174,16 +1175,10 @@ describe('handleSessionCommand', () => {
     expect(onSessionArchived).toHaveBeenCalledTimes(1);
   });
 
-  it('handles /model set when validation callback reports error with text', async () => {
-    // Covers modelValidationFailed branch (error from callback, not return value)
-    const deps = makeDeps({
-      runAgent: vi.fn().mockImplementation(async (_prompt, onOutput) => {
-        await onOutput({ status: 'error', result: 'Model not found' });
-        return 'success'; // return success but callback set error
-      }),
-    });
+  it('rejects raw provider model IDs through the catalog resolver', async () => {
+    const deps = makeDeps();
     const result = await handleSessionCommand({
-      missedMessages: [makeMsg('/model invalid-model')],
+      missedMessages: [makeMsg('/model claude-opus-4-7')],
       isMainGroup: true,
       groupName: 'test',
       triggerPattern: trigger,
@@ -1191,9 +1186,10 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
+    expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.setGroupModelOverride).not.toHaveBeenCalled();
     expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Failed to set model: Model not found',
+      'Provider model ID "claude-opus-4-7" is not accepted here. Use a model alias from /models.',
     );
   });
 
@@ -1257,17 +1253,10 @@ describe('handleSessionCommand', () => {
     expect(deps.advanceCursor).not.toHaveBeenCalled();
   });
 
-  it('truncates long model validation error messages', async () => {
-    // Covers sanitizeErrorText truncation branch (line 180)
-    const longError = 'E'.repeat(300);
-    const deps = makeDeps({
-      runAgent: vi.fn().mockImplementation(async (_prompt, onOutput) => {
-        await onOutput({ status: 'error', result: longError });
-        return 'error';
-      }),
-    });
+  it('accepts forgiving multi-word aliases at runtime', async () => {
+    const deps = makeDeps();
     const result = await handleSessionCommand({
-      missedMessages: [makeMsg('/model bad')],
+      missedMessages: [makeMsg('/model kimi 2.6')],
       isMainGroup: true,
       groupName: 'test',
       triggerPattern: trigger,
@@ -1275,14 +1264,11 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
-    // Error should be truncated to 240 chars (239 + ellipsis)
-    const sentMsg = (deps.sendMessage as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as string;
-    expect(sentMsg).toContain('Failed to set model:');
-    // The sanitized error portion should be at most 240 chars
-    const errorPart = sentMsg.replace('Failed to set model: ', '');
-    expect(errorPart.length).toBeLessThanOrEqual(240);
-    expect(errorPart).toMatch(/…$/);
+    expect(deps.runAgent).not.toHaveBeenCalled();
+    expect(deps.setGroupModelOverride).toHaveBeenCalledWith('kimi');
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      'Using Kimi K2.6 for this session.',
+    );
   });
 
   it('closes stdin on pre-command success with null result', async () => {
@@ -1344,16 +1330,15 @@ describe('handleSessionCommand', () => {
     );
   });
 
-  it('/model set validation callback with empty result text does not set modelValidationError', async () => {
-    // Covers branch: text is falsy in model validation callback (line 343)
+  it('lists curated models with default badges', async () => {
     const deps = makeDeps({
-      runAgent: vi.fn().mockImplementation(async (_prompt, onOutput) => {
-        await onOutput({ status: 'error', result: null }); // empty text
-        return 'error';
-      }),
+      getDefaultModel: vi.fn().mockReturnValue('opus'),
+      getJobModelDefaults: vi
+        .fn()
+        .mockReturnValue({ oneTime: 'sonnet', recurring: 'kimi' }),
     });
     const result = await handleSessionCommand({
-      missedMessages: [makeMsg('/model bad')],
+      missedMessages: [makeMsg('/models')],
       isMainGroup: true,
       groupName: 'test',
       triggerPattern: trigger,
@@ -1361,23 +1346,53 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
-    // No modelValidationError text, so falls back to generic message
-    expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Failed to set model to bad. Override unchanged.',
-    );
+    const sentMsg = (deps.sendMessage as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as string;
+    expect(sentMsg).toContain('Supported models');
+    expect(sentMsg).toContain('Opus 4.7');
+    expect(sentMsg).toContain('Kimi K2.6');
+    expect(sentMsg).toContain('chat default');
+    expect(sentMsg).toContain('one-time default');
+    expect(sentMsg).toContain('recurring default');
   });
 
-  it('/model set validation callback ignores second error text (modelValidationError already set)', async () => {
-    // Covers branch: modelValidationError !== null (second callback) — line 343 false branch
+  it('shows /status with model and cache token accounting', async () => {
     const deps = makeDeps({
-      runAgent: vi.fn().mockImplementation(async (_prompt, onOutput) => {
-        await onOutput({ status: 'error', result: 'First error' });
-        await onOutput({ status: 'error', result: 'Second error' });
-        return 'error';
+      getGroupModelOverride: vi.fn().mockReturnValue('sonnet'),
+      getModelStatus: vi.fn().mockReturnValue({
+        groupFolder: 'test',
+        selectionSource: 'session override',
+        modelAlias: 'sonnet',
+        lastUsage: {
+          model: 'sonnet',
+          provider: 'anthropic',
+          inputTokens: 100,
+          outputTokens: 20,
+          cacheReadTokens: 40,
+          cacheWriteTokens: 10,
+          totalBillableInputTokens: 60,
+          estimatedCostUsd: 0.002,
+          cacheProvider: 'anthropic',
+          cacheStatus: 'partial',
+          at: '2026-05-01T00:00:00.000Z',
+        },
+        cumulativeUsage: {
+          model: 'sonnet',
+          provider: 'anthropic',
+          inputTokens: 300,
+          outputTokens: 60,
+          cacheReadTokens: 80,
+          cacheWriteTokens: 10,
+          totalBillableInputTokens: 220,
+          estimatedCostUsd: 0.006,
+          cacheProvider: 'anthropic',
+          cacheStatus: 'partial',
+          at: '2026-05-01T00:00:00.000Z',
+        },
       }),
     });
     const result = await handleSessionCommand({
-      missedMessages: [makeMsg('/model bad')],
+      missedMessages: [makeMsg('/status')],
       isMainGroup: true,
       groupName: 'test',
       triggerPattern: trigger,
@@ -1385,22 +1400,19 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
-    // Only first error should be used
-    expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Failed to set model: First error',
-    );
+    const sentMsg = (deps.sendMessage as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as string;
+    expect(sentMsg).toContain('Model status');
+    expect(sentMsg).toContain('Sonnet 4.6');
+    expect(sentMsg).toContain('cache read 40');
+    expect(sentMsg).toContain('cache write 10');
+    expect(sentMsg).toContain('estimated cost $0.0020');
   });
 
-  it('/model set validation success callback with non-error status does not set modelValidationFailed', async () => {
-    // Covers branch: result.status !== 'error' in model validation callback (line 339 false)
-    const deps = makeDeps({
-      runAgent: vi.fn().mockImplementation(async (_prompt, onOutput) => {
-        await onOutput({ status: 'success', result: 'model set ok' });
-        return 'success';
-      }),
-    });
+  it('accepts versioned aliases and stores the recommended alias', async () => {
+    const deps = makeDeps();
     const result = await handleSessionCommand({
-      missedMessages: [makeMsg('/model opus')],
+      missedMessages: [makeMsg('/model sonnet 4.6')],
       isMainGroup: true,
       groupName: 'test',
       triggerPattern: trigger,
@@ -1408,9 +1420,10 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.setGroupModelOverride).toHaveBeenCalledWith('opus');
+    expect(deps.runAgent).not.toHaveBeenCalled();
+    expect(deps.setGroupModelOverride).toHaveBeenCalledWith('sonnet');
     expect(deps.sendMessage).toHaveBeenCalledWith(
-      'Model set to opus for this group.',
+      'Using Sonnet 4.6 for this session.',
     );
   });
 });

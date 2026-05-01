@@ -47,6 +47,9 @@ function toScheduleType(
 const DISALLOWED_TASK_FIELDS = [
   'task_id',
   'job_id',
+  'model',
+  'model_alias',
+  'model_profile_id',
   'schedule_type',
   'schedule_value',
   'context_mode',
@@ -118,7 +121,8 @@ export function parseTaskIpcData(
   const parsed: TaskIpcData = { type };
   const taskId = toTrimmedString(raw.taskId, { maxLen: 128 });
   const prompt = toTrimmedString(raw.prompt, { maxLen: 20000 });
-  const model = toTrimmedString(raw.model, { maxLen: 120 });
+  const modelAlias = toTrimmedString(raw.modelAlias, { maxLen: 120 });
+  const modelProfileId = toTrimmedString(raw.modelProfileId, { maxLen: 160 });
   const scheduleType = toScheduleType(raw.scheduleType);
   const scheduleValue = toTrimmedString(raw.scheduleValue, {
     maxLen: 1024,
@@ -181,8 +185,8 @@ export function parseTaskIpcData(
 
   if (taskId) parsed.taskId = taskId;
   if (prompt !== undefined) parsed.prompt = prompt;
-  if (model !== undefined)
-    parsed.model = normalizeClaudeModelSelection(model) || model;
+  if (modelAlias !== undefined) parsed.modelAlias = modelAlias;
+  if (modelProfileId !== undefined) parsed.modelProfileId = modelProfileId;
   if (scheduleType !== undefined) parsed.scheduleType = scheduleType;
   if (scheduleValue !== undefined) parsed.scheduleValue = scheduleValue;
   if (contextMode) parsed.contextMode = contextMode;

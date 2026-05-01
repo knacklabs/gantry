@@ -134,6 +134,10 @@ function createRunnerFixture(): {
     path.resolve('apps/core/src/models/claude-model-registry.ts'),
     path.join(modelsDir, 'claude-model-registry.ts'),
   );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/model-catalog.ts'),
+    path.join(sharedDir, 'model-catalog.ts'),
+  );
   symlinkPackage(root, 'dayjs', 'node_modules/dayjs');
   fs.writeFileSync(
     path.join(sdkDir, 'package.json'),

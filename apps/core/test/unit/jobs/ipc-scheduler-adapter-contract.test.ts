@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   },
   jobService: {
     upsertJobFromIpc: vi.fn(),
+    updateJob: vi.fn(),
     resumeJob: vi.fn(),
   },
 }));
@@ -91,6 +92,41 @@ describe('scheduler IPC adapter contracts', () => {
       'invalid_schedule',
     );
     expect(mocks.jobService.upsertJobFromIpc).not.toHaveBeenCalled();
+  });
+
+  it('resolves scheduler update models through catalog aliases', async () => {
+    await schedulerMutateTaskHandlers.scheduler_update_job(
+      makeContext({
+        type: 'scheduler_update_job',
+        jobId: 'job-1',
+        modelAlias: 'kimi 2.6',
+      }),
+    );
+
+    expect(mocks.jobService.updateJob).toHaveBeenCalledWith({
+      jobId: 'job-1',
+      access: expect.any(Object),
+      patch: { model: 'kimi' },
+    });
+    expect(mocks.responder.accept).toHaveBeenCalledWith(
+      'Scheduler job updated (job-1).',
+    );
+  });
+
+  it('rejects raw provider IDs for scheduler update models', async () => {
+    await schedulerMutateTaskHandlers.scheduler_update_job(
+      makeContext({
+        type: 'scheduler_update_job',
+        jobId: 'job-1',
+        modelAlias: 'moonshotai/kimi-k2.6',
+      }),
+    );
+
+    expect(mocks.responder.reject).toHaveBeenCalledWith(
+      'Provider model ID "moonshotai/kimi-k2.6" is not accepted here. Use a model alias from /models.',
+      'invalid_model',
+    );
+    expect(mocks.jobService.updateJob).not.toHaveBeenCalled();
   });
 
   it('preserves dead-letter resume details when the pause reason is available', async () => {

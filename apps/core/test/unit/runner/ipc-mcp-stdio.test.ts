@@ -66,6 +66,7 @@ function createMcpFixture(): {
   const runnerDir = path.join(root, 'runner');
   const runnerMcpDir = path.join(runnerDir, 'mcp');
   const infrastructureTimeDir = path.join(root, 'infrastructure', 'time');
+  const sharedDir = path.join(root, 'shared');
   const serverPath = path.join(runnerMcpDir, 'stdio.ts');
   const ipcDir = path.join(root, 'ipc', 'team');
   const resultPath = path.join(root, 'mcp-result.json');
@@ -80,12 +81,17 @@ function createMcpFixture(): {
   fs.mkdirSync(runnerDir, { recursive: true });
   fs.mkdirSync(runnerMcpDir, { recursive: true });
   fs.mkdirSync(infrastructureTimeDir, { recursive: true });
+  fs.mkdirSync(sharedDir, { recursive: true });
   fs.mkdirSync(sdkServerDir, { recursive: true });
   fs.writeFileSync(
     path.join(root, 'package.json'),
     JSON.stringify({ type: 'module' }),
   );
   copyDirectory(path.resolve('apps/core/src/runner/mcp'), runnerMcpDir);
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/model-catalog.ts'),
+    path.join(sharedDir, 'model-catalog.ts'),
+  );
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/memory-timeouts.ts'),
     path.join(runnerDir, 'memory-timeouts.ts'),
@@ -397,6 +403,7 @@ describe('agent-runner MCP stdio tools', () => {
       {
         name: 'Daily review',
         prompt: 'Review memory',
+        model_alias: 'kimi 2.6',
         schedule_type: 'interval',
         schedule_value: '60000',
       },
@@ -412,6 +419,7 @@ describe('agent-runner MCP stdio tools', () => {
         'utf-8',
       ),
     );
+    expect(task.modelAlias).toBe('kimi 2.6');
     expect(task.threadId).toBe('trusted-thread');
     expect(task.context.threadId).toBe('trusted-thread');
     expect(task.requestId).toEqual(expect.any(String));
@@ -697,6 +705,7 @@ describe('agent-runner MCP stdio tools', () => {
       {
         job_id: 'job-1',
         prompt: 'Updated prompt',
+        model_alias: 'sonnet',
       },
       { MYCLAW_THREAD_ID: 'trusted-thread' },
     );
@@ -710,6 +719,7 @@ describe('agent-runner MCP stdio tools', () => {
         'utf-8',
       ),
     );
+    expect(task.modelAlias).toBe('sonnet');
     expect(task.context.threadId).toBe('trusted-thread');
     expect(task.threadId).toBeUndefined();
   });

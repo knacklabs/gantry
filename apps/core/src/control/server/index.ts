@@ -30,6 +30,7 @@ import { handleExternalIngressRoutes } from './routes/external-ingress.js';
 import { handleJobRoutes } from './routes/jobs.js';
 import { handleMemoryRoutes } from './routes/memory.js';
 import { handleMcpServerRoutes } from './routes/mcp-servers.js';
+import { handleModelRoutes } from './routes/models.js';
 import { handleRunRoutes } from './routes/runs.js';
 import { handleSessionRoutes } from './routes/sessions.js';
 import { handleSettingsRoutes } from './routes/settings.js';
@@ -77,6 +78,7 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
       if (await handleChannelControlRoutes(req, res, ctx, url, pathname))
         return;
       if (await handleMemoryRoutes(req, res, ctx, url, pathname)) return;
+      if (await handleModelRoutes(req, res, ctx, pathname)) return;
       if (await handleJobRoutes(req, res, ctx, url, pathname)) return;
       if (await handleExternalIngressRoutes(req, res, ctx, pathname)) return;
       if (await handleRunRoutes(req, res, ctx, url, pathname)) return;
@@ -155,9 +157,16 @@ export function startControlServer(input: {
     logger.info({ port }, 'Control server listening on TCP');
   } else {
     fs.mkdirSync(path.dirname(socketPath), { recursive: true });
-    try {
-      fs.unlinkSync(socketPath);
-    } catch {}
+    if (fs.existsSync(socketPath)) {
+      try {
+        fs.unlinkSync(socketPath);
+      } catch (error) {
+        logger.warn(
+          { err: error, socketPath },
+          'Failed to remove stale control socket before listen',
+        );
+      }
+    }
     server.listen(socketPath, () => applyControlSocketMode(socketPath, server));
     logger.info({ socketPath }, 'Control server listening on unix socket');
   }
@@ -204,9 +213,16 @@ export function startControlServer(input: {
         });
       });
       if (port === 0) {
-        try {
-          fs.unlinkSync(socketPath);
-        } catch {}
+        if (fs.existsSync(socketPath)) {
+          try {
+            fs.unlinkSync(socketPath);
+          } catch (error) {
+            logger.warn(
+              { err: error, socketPath },
+              'Failed to remove control socket during close',
+            );
+          }
+        }
       }
     },
   };

@@ -31,6 +31,11 @@ import {
   readMemoryContextBlock,
 } from './system-prompt.js';
 import type { AgentRunnerInput } from './types.js';
+import {
+  findModelByRunnerModel,
+  normalizeModelUsage,
+} from '../../shared/model-catalog.js';
+import { validateAgentToolInput } from './agent-model-selection.js';
 
 export async function runQuery(
   prompt: string,
@@ -100,6 +105,7 @@ export async function runQuery(
   let sawPartialTextSinceLastResult = false;
   const systemPrompt = buildRunnerSystemPrompt(agentInput, memoryBlock);
   const extraDirs = discoverAdditionalDirectories();
+  const currentModel = findModelByRunnerModel(configuredModel);
   const capabilities = composeAgentCapabilities({
     mcpServerPath,
     chatJid: agentInput.chatJid,
@@ -140,6 +146,18 @@ export async function runQuery(
         ],
       },
       canUseTool: async (toolName, input, permissionOpts) => {
+        if (toolName === 'Agent') {
+          const modelDenial = validateAgentToolInput(input, currentModel);
+          if (modelDenial) {
+            log(`Permission denied by model catalog guard: ${modelDenial}`);
+            return {
+              behavior: 'deny' as const,
+              message: modelDenial,
+              interrupt: false,
+            };
+          }
+        }
+
         const protectedCapabilityDenial = denyProtectedCapabilityToolUse(
           toolName,
           input,
@@ -286,6 +304,18 @@ export async function runQuery(
         `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`,
       );
       logUsage(message);
+      const usage = normalizeModelUsage({
+        message,
+        fallbackModel: configuredModel,
+      });
+      if (usage) {
+        writeOutput({
+          status: 'success',
+          result: null,
+          newSessionId,
+          usage,
+        });
+      }
 
       writeOutput({
         status: 'success',

@@ -1,5 +1,10 @@
+import {
+  resolveModelSelection,
+  resolveRunnerModel,
+} from '../shared/model-catalog.js';
+
 export const CLAUDE_MODEL_PINS = {
-  opus: 'claude-opus-4-6',
+  opus: 'claude-opus-4-7',
   sonnet: 'claude-sonnet-4-6',
   haiku: 'claude-haiku-4-5-20251001',
 } as const;
@@ -37,42 +42,26 @@ export const CLAUDE_CODE_MODEL_PIN_ENV_KEYS = [
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
 ] as const;
 
-const MODEL_SHORTHANDS: Record<string, string> = {
-  'opus-4-7': 'opus',
-  'opus-4.7': 'opus',
-  'claude-opus-4.7': 'opus',
-  'opus-4-6': CLAUDE_MODEL_PINS.opus,
-  'opus-4.6': CLAUDE_MODEL_PINS.opus,
-  'claude-opus-4.6': CLAUDE_MODEL_PINS.opus,
-  'sonnet-4-6': CLAUDE_MODEL_PINS.sonnet,
-  'sonnet-4.6': CLAUDE_MODEL_PINS.sonnet,
-  'claude-sonnet-4.6': CLAUDE_MODEL_PINS.sonnet,
-  'haiku-4-5': CLAUDE_MODEL_PINS.haiku,
-  'haiku-4.5': CLAUDE_MODEL_PINS.haiku,
-  'claude-haiku-4.5': CLAUDE_MODEL_PINS.haiku,
-  'haiku-4-5-20251001': CLAUDE_MODEL_PINS.haiku,
-};
-
 export function normalizeClaudeModelSelection(
   value?: string | null,
 ): string | undefined {
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
 
-  const normalized = trimmed.toLowerCase();
-  if (normalized in MODEL_SHORTHANDS) {
-    return MODEL_SHORTHANDS[normalized];
-  }
+  const runnerModel = resolveRunnerModel(trimmed);
+  if (runnerModel) return runnerModel;
 
   const allowedAlias = CLAUDE_CODE_MODEL_ALIASES.find(
-    (alias) => alias.toLowerCase() === normalized,
+    (alias) => alias.toLowerCase() === trimmed.toLowerCase(),
   );
   if (allowedAlias) return allowedAlias;
 
-  const pinnedModel = CLAUDE_CODE_PINNED_MODELS.find(
-    (model) => model.toLowerCase() === normalized,
-  );
-  if (pinnedModel) return pinnedModel;
+  return undefined;
+}
 
-  return trimmed;
+export function normalizeSupportedModelAlias(
+  value?: string | null,
+): string | undefined {
+  const resolved = resolveModelSelection(value);
+  return resolved.ok ? resolved.alias : undefined;
 }

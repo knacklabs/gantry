@@ -63,6 +63,8 @@ Important constraints:
 - Before resolving PR review threads or marking cutover complete, search for old type names, table names, imports, and entrypoints; document why any matches remain.
 - Do not add test-only or local-checkout branches to production code.
 - Classify every new config value first: non-secrets in `settings.yaml`, runtime secrets behind `RuntimeSecretProvider`, and agent credentials behind `AgentCredentialBroker`.
+- Model selection must go through the provider-neutral catalog and friendly aliases. Do not accept raw provider model IDs at user/API/job/MCP boundaries unless they are registered aliases; job defaults inherit interactive defaults before falling back to system `opus`.
+- Native Agent subagents inherit the parent run model by default. Any subagent model override must resolve through the same catalog and stay on the parent provider backend; use a separate session or job for cross-provider delegation.
 - Wrong-lane config must fail loudly. Raw provider credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `CLAUDE_CODE_OAUTH_TOKEN` must never be accepted from MyClaw `.env` or process env.
 - Agent-requested third-party MCP servers use same-channel approval until real admin RBAC exists. Host must verify the origin chat belongs to the requesting agent; approval only decides that pending draft, binds only that agent, and activates next run.
 - Treat third-party MCP servers as approved agent capabilities. Durable MCP truth belongs in Postgres definitions, versions, bindings, credential refs, and audit events; Claude SDK `mcpServers` is only a per-run adapter projection.

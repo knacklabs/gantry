@@ -130,6 +130,25 @@ export async function seedDefaultRuntimeData(
         .onConflictDoNothing();
     }
 
+    await tx
+      .insert(pgSchema.agentToolBindingsPostgres)
+      .values({
+        id: `agent-tool-binding:${DEFAULT_AGENT_ID}:tool:Agent`,
+        appId: DEFAULT_APP_ID,
+        agentId: DEFAULT_AGENT_ID,
+        toolId: 'tool:Agent',
+        configVersionId,
+        status: 'active',
+      })
+      .onConflictDoUpdate({
+        target: pgSchema.agentToolBindingsPostgres.id,
+        set: {
+          configVersionId,
+          status: 'active',
+          updatedAt: sql`now()`,
+        },
+      });
+
     for (const skill of [
       { id: 'skill:memory', name: 'memory' },
       { id: 'skill:scheduler', name: 'scheduler' },

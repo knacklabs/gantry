@@ -4,8 +4,8 @@ import fs from 'fs';
 import {
   CLAUDE_CODE_MODEL_PIN_ENV,
   CLAUDE_CODE_MODEL_PIN_ENV_KEYS,
-  normalizeClaudeModelSelection,
 } from '../models/claude-model-registry.js';
+import { resolveModelAlias } from '../shared/model-catalog.js';
 import { envConfig, envValue, runtimeEnvValue } from './env/index.js';
 import { parseBooleanEnv } from './env/parse.js';
 import { getMemoryModelConfig } from './memory.js';
@@ -88,6 +88,8 @@ export function getPublicRuntimeSettings() {
     agent: {
       name: settings.agent.name,
       defaultModel: settings.agent.defaultModel,
+      oneTimeJobDefaultModel: settings.agent.oneTimeJobDefaultModel,
+      recurringJobDefaultModel: settings.agent.recurringJobDefaultModel,
     },
     memory: {
       enabled: settings.memory.enabled,
@@ -99,7 +101,12 @@ export function getPublicRuntimeSettings() {
 }
 
 export function updatePublicRuntimeSettings(patch: {
-  agent?: { name?: string; defaultModel?: string };
+  agent?: {
+    name?: string;
+    defaultModel?: string;
+    oneTimeJobDefaultModel?: string;
+    recurringJobDefaultModel?: string;
+  };
   memory?: { enabled?: boolean; dreaming?: { enabled?: boolean } };
 }) {
   const settings = getRuntimeSettingsForConfig();
@@ -128,6 +135,20 @@ export function updatePublicRuntimeSettings(patch: {
     if (settings.agent.defaultModel !== next) {
       settings.agent.defaultModel = next;
       changed.push('agent.defaultModel');
+    }
+  }
+  if (patch.agent?.oneTimeJobDefaultModel !== undefined) {
+    const next = patch.agent.oneTimeJobDefaultModel.trim();
+    if (settings.agent.oneTimeJobDefaultModel !== next) {
+      settings.agent.oneTimeJobDefaultModel = next;
+      changed.push('agent.oneTimeJobDefaultModel');
+    }
+  }
+  if (patch.agent?.recurringJobDefaultModel !== undefined) {
+    const next = patch.agent.recurringJobDefaultModel.trim();
+    if (settings.agent.recurringJobDefaultModel !== next) {
+      settings.agent.recurringJobDefaultModel = next;
+      changed.push('agent.recurringJobDefaultModel');
     }
   }
   if (
@@ -218,7 +239,7 @@ export function getCredentialBrokerRuntimeConfig(): {
 
 export const ONECLI_DATABASE_URL = envValue('ONECLI_DATABASE_URL');
 export const ONECLI_SECRET_ENCRYPTION_KEY = envValue('SECRET_ENCRYPTION_KEY');
-const normModel = normalizeClaudeModelSelection;
+const normModel = resolveModelAlias;
 export function getConfiguredDefaultModel(): string {
   return normModel(getRuntimeSettingsForConfig().agent.defaultModel) || '';
 }
@@ -235,6 +256,8 @@ export const LOG_LEVEL = envValue('LOG_LEVEL') || 'info';
 export const HOST_CREDENTIAL_ENV_KEYS = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_MODEL',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_API_KEY',
   ...CLAUDE_CODE_MODEL_PIN_ENV_KEYS,
 ] as const;
 export const ONECLI_ALLOWED_ENV_KEYS = [...HOST_CREDENTIAL_ENV_KEYS] as const;
@@ -295,26 +318,62 @@ export function getMemoryModelRuntimeConfig(): ReturnType<
   return getMemoryModelConfig(getConfiguredDefaultModel());
 }
 
-export type DefaultModelSource = 'settings.yaml agent.default_model' | 'unset';
+export type DefaultModelSource =
+  | 'settings.yaml agent.default_model'
+  | 'system default';
 export type EffectiveModelSource =
   | 'group.agentConfig.model'
+  | 'job.model'
+  | 'settings.yaml agent.one_time_job_default_model'
+  | 'settings.yaml agent.recurring_job_default_model'
   | DefaultModelSource;
 
-export function getDefaultModelConfig(): {
-  model?: string;
-  source: DefaultModelSource;
-} {
-  const configuredModel = getConfiguredDefaultModel();
+export type ModelUseKind = 'interactive' | 'oneTimeJob' | 'recurringJob';
+
+export function getDefaultModelConfig(kind: ModelUseKind = 'interactive'):
+  | {
+      model?: string;
+      source: DefaultModelSource;
+    }
+  | {
+      model?: string;
+      source:
+        | 'settings.yaml agent.one_time_job_default_model'
+        | 'settings.yaml agent.recurring_job_default_model';
+    } {
+  const settings = getRuntimeSettingsForConfig();
+  if (kind === 'oneTimeJob') {
+    const oneTimeModel = normModel(settings.agent.oneTimeJobDefaultModel);
+    if (oneTimeModel) {
+      return {
+        model: oneTimeModel,
+        source: 'settings.yaml agent.one_time_job_default_model',
+      };
+    }
+  }
+  if (kind === 'recurringJob') {
+    const recurringModel = normModel(settings.agent.recurringJobDefaultModel);
+    if (recurringModel) {
+      return {
+        model: recurringModel,
+        source: 'settings.yaml agent.recurring_job_default_model',
+      };
+    }
+  }
+  const configuredModel = normModel(settings.agent.defaultModel) || '';
   if (configuredModel) {
     return {
       model: configuredModel,
       source: 'settings.yaml agent.default_model',
     };
   }
-  return { source: 'unset' };
+  return { model: 'opus', source: 'system default' };
 }
 
-export function getEffectiveModelConfig(groupModel?: string): {
+export function getEffectiveModelConfig(
+  groupModel?: string,
+  kind: ModelUseKind = 'interactive',
+): {
   model?: string;
   source: EffectiveModelSource;
 } {
@@ -325,7 +384,7 @@ export function getEffectiveModelConfig(groupModel?: string): {
       source: 'group.agentConfig.model',
     };
   }
-  return getDefaultModelConfig();
+  return getDefaultModelConfig(kind);
 }
 
 export const MAX_MESSAGES_PER_PROMPT = Math.max(

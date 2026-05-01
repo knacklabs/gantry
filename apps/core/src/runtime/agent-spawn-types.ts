@@ -7,6 +7,7 @@ import type { SkillCatalogRepository } from '../domain/ports/repositories.js';
 import type { McpServerRepository } from '../domain/ports/repositories.js';
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import type { RemoteMcpDnsValidationCache } from '../application/mcp/mcp-server-policy.js';
+import type { NormalizedModelUsage } from '../shared/model-catalog.js';
 
 export interface AgentInput {
   prompt: string;
@@ -30,6 +31,7 @@ export interface AgentOutput {
   newSessionId?: string;
   compactBoundary?: boolean;
   interactionBoundary?: 'user_interaction';
+  usage?: NormalizedModelUsage;
   error?: string;
 }
 

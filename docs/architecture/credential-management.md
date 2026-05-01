@@ -84,6 +84,8 @@ enterprise credential broker, never in MyClaw `.env` or process env.
 | `credential_broker.external.base_url`          | `settings.yaml`                        |
 | `agent.name`                                   | `settings.yaml`                        |
 | `agent.default_model`                          | `settings.yaml`                        |
+| `agent.one_time_job_default_model`             | `settings.yaml`                        |
+| `agent.recurring_job_default_model`            | `settings.yaml`                        |
 | Legacy `channels.*.control_allowlist` sender-control config | `settings.yaml`                        |
 | Channel permission approvers                   | Postgres Channel control allowlist      |
 | `storage.postgres.url_env`                     | `settings.yaml`                        |
@@ -91,13 +93,18 @@ enterprise credential broker, never in MyClaw `.env` or process env.
 | `TELEGRAM_BOT_TOKEN`                           | `RuntimeSecretProvider` / local `.env` |
 | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`           | `RuntimeSecretProvider` / local `.env` |
 | `ONECLI_DATABASE_URL`, `SECRET_ENCRYPTION_KEY` | `RuntimeSecretProvider` / local `.env` |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`          | `AgentCredentialBroker`                |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY` | `AgentCredentialBroker`                |
 | `CLAUDE_CODE_OAUTH_TOKEN`                      | `AgentCredentialBroker`                |
 
-Model env keys such as `ANTHROPIC_MODEL` and `ANTHROPIC_DEFAULT_*_MODEL` are
-non-secret settings, but MyClaw runtime config does not accept them from
-runtime `.env`; use `agent.default_model` for the default agent model and group
-`/model` overrides for per-group model selection.
+Model env keys such as `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL`, and
+`ANTHROPIC_DEFAULT_*_MODEL` are child-process adapter projections. MyClaw
+runtime config does not accept them from runtime `.env`; use
+`agent.default_model`, `agent.one_time_job_default_model`,
+`agent.recurring_job_default_model`, and group `/model` overrides for model
+selection. OpenRouter's Anthropic SDK route is projected only by the runtime
+adapter for cataloged OpenRouter models, with `ANTHROPIC_AUTH_TOKEN` supplied by
+`AgentCredentialBroker` and `ANTHROPIC_API_KEY` intentionally blank for that
+child process.
 
 ## Broker Profiles
 

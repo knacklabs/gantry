@@ -35,7 +35,7 @@ Then follow this order:
 3. Choose your first channel: `Telegram` or `Slack`.
 4. Follow the in-CLI channel guide, choose the main agent name, paste channel credentials, and pick a discovered chat/channel (or enter an ID manually). This first chat becomes the user-facing main agent; channel IDs and runtime folders stay internal.
 5. Connect Model Access for agent model calls. MyClaw and OneCLI can share one Postgres database with separate schemas; agents never receive the database URLs or raw Claude credentials.
-6. Choose main model (`opus` recommended as the Claude Code alias; `sonnet` or `opusplan` optional).
+6. Choose main model by friendly alias (`opus` recommended; `sonnet`, `haiku`, or broker-backed `kimi` optional).
 7. Confirm memory settings (memory on, embeddings off, dreaming on by default).
 8. Choose whether to install/start a background service.
 9. Review the final summary and choose `Create Runtime`; before this point Back, Resume Later, and Cancel are transactional.
@@ -54,6 +54,9 @@ myclaw stop
 myclaw restart
 myclaw logs
 myclaw local setup|start|stop|status|logs|doctor
+myclaw model list
+myclaw model set-default chat|one-time|recurring <alias>
+myclaw model doctor
 myclaw channel connect telegram
 myclaw channel connect slack
 myclaw channel connect teams
@@ -89,6 +92,8 @@ storage:
 agent:
   name: Main Agent
   default_model: opus
+  one_time_job_default_model: ""
+  recurring_job_default_model: ""
 
 credential_broker:
   mode: onecli
@@ -315,6 +320,8 @@ Session commands are handled by the host runtime, not bundled skills:
 /new
 /model
 /model <value>
+/models
+/status
 /model default
 ```
 
@@ -330,25 +337,30 @@ Use these as standalone chat messages:
 /model
 /model opus
 /model sonnet
-/model opusplan
+/model kimi 2.6
+/models
+/status
 /model default
 ```
 
 - `/new` resets the current provider conversation and archives the previous transcript. It preserves durable memory, approved skills, MCP bindings, model choices, and agent configuration; the next user message starts fresh and drives memory retrieval.
-- `/model <value>` switches the group model override only when validation succeeds. Prefer Claude Code aliases (`sonnet`, `opus`, `opusplan`) so MyClaw tracks current Claude defaults; pin exact model IDs only for advanced rollout control.
-- Human shorthand such as `/model opus-4-7` is normalized to the safe Claude Code `opus` alias. Exact Opus 4.7 model IDs require a recent Claude Code version and account access, so MyClaw does not pin new installs to them by default.
+- `/models` lists the curated model catalog with aliases, provider label, context window, cache support, and default badges.
+- `/model <value>` switches the group model override through the catalog. Friendly aliases are case/punctuation-insensitive; raw provider model IDs are rejected.
+- `/status` shows the current model source, context window, max output, current/cumulative input/output/cache tokens, cache hit state, and estimated cost when reported.
 - Session commands require `is_from_me` or explicit `control_allowlist` membership. `sender_allowlist: "*"` allows interaction; it does not grant admin/session-command rights.
 
-## Claude Model Policy
+## Model Policy
 
-MyClaw setup uses Claude Code aliases for user choices and does not pin those aliases by default:
+MyClaw uses a provider-neutral catalog. Normal users choose aliases; provider slugs are adapter details.
 
-- Default session model: `opus`
-- Allowed Claude Code choices: `sonnet`, `opus`, `haiku`, `best`, `opusplan`, `sonnet[1m]`, `opus[1m]`
-- Memory LLM API defaults: extractor `claude-haiku-4-5-20251001`, dreaming `claude-sonnet-4-6`, consolidation `claude-sonnet-4-6`
+- Default session model: `opus` (Opus 4.7)
+- Anthropic choices: `opus`, `opus-4.6`, `sonnet`, `haiku`
+- OpenRouter choices: `kimi` / `kimi 2.6` for Kimi K2.6
+- Job defaults: `agent.one_time_job_default_model` and `agent.recurring_job_default_model` inherit `agent.default_model` when empty
+- Memory LLM API defaults: extractor Haiku 4.5, dreaming Sonnet 4.6, consolidation Sonnet 4.6
 - The generated Claude settings JSON includes `model`, `availableModels`, and memory hooks.
 
-The allowed model list is centralized in `apps/core/src/models/claude-model-registry.ts`. Keep Claude Code interactive defaults alias-first; only add exact model IDs when they are broadly supported and tested across Claude Code versions.
+The model catalog is centralized in `apps/core/src/shared/model-catalog.ts`. OpenRouter uses the Anthropic SDK route at `https://openrouter.ai/api`; its API key must come from `AgentCredentialBroker` as child-process `ANTHROPIC_AUTH_TOKEN`, with `ANTHROPIC_API_KEY` explicitly blank for that run.
 
 ## Project Layout
 

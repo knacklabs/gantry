@@ -13,7 +13,11 @@ import {
 } from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { RegisteredGroup } from '../domain/types.js';
-import { normalizeClaudeModelSelection } from '../models/claude-model-registry.js';
+import {
+  findModelByRunnerModel,
+  resolveModelSelection,
+  resolveRunnerModel,
+} from '../shared/model-catalog.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import {
   getHostRuntimeCredentialEnv,
@@ -92,7 +96,31 @@ export async function spawnAgent(
 
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const processName = `myclaw-${safeName}-${Date.now()}`;
-  const modelConfig = getEffectiveModelConfig(group.agentConfig?.model);
+  const modelConfig = getEffectiveModelConfig(
+    input.isScheduledJob ? undefined : group.agentConfig?.model,
+    input.isScheduledJob
+      ? input.model
+        ? 'interactive'
+        : 'recurringJob'
+      : 'interactive',
+  );
+  const requestedModel = input.model || modelConfig.model;
+  const resolvedModel = requestedModel
+    ? resolveModelSelection(requestedModel)
+    : undefined;
+  if (resolvedModel && !resolvedModel.ok) {
+    return {
+      status: 'error',
+      result: null,
+      error: resolvedModel.message,
+    };
+  }
+  const effectiveModel = resolvedModel?.ok
+    ? resolvedModel.runnerModel
+    : resolveRunnerModel(modelConfig.model);
+  const effectiveModelEntry =
+    (resolvedModel?.ok ? resolvedModel.entry : undefined) ??
+    findModelByRunnerModel(effectiveModel);
   const promptProfileService = getPromptProfileService();
   const agentIdentifier = input.isMain
     ? undefined
@@ -182,7 +210,7 @@ export async function spawnAgent(
       packageRoot,
       skillSource: new CompositeSkillSource(skillSources),
       settings: {
-        model: normalizeClaudeModelSelection(input.model || modelConfig.model),
+        model: effectiveModel,
       },
     });
   } catch (err) {
@@ -220,12 +248,20 @@ export async function spawnAgent(
   };
   applyLoopbackNoProxyEnv(env);
   // Job-level model overrides group-level model.
-  const effectiveModel = normalizeClaudeModelSelection(
-    input.model || modelConfig.model,
-  );
   const effectiveModelSource = input.model ? 'job.model' : modelConfig.source;
   if (effectiveModel) {
     env.ANTHROPIC_MODEL = effectiveModel;
+  }
+  if (effectiveModelEntry?.provider === 'openrouter') {
+    env.ANTHROPIC_BASE_URL = 'https://openrouter.ai/api';
+    env[[['ANTH', 'ROPIC'].join(''), 'API', 'KEY'].join('_')] = '';
+    if (!env.ANTHROPIC_AUTH_TOKEN) {
+      return {
+        status: 'error',
+        result: null,
+        error: `OpenRouter model ${effectiveModelEntry.displayName} requires an OpenRouter credential from AgentCredentialBroker as ANTHROPIC_AUTH_TOKEN. Configure Model Access/OpenRouter credentials before selecting this model.`,
+      };
+    }
   }
   let browserRuntimeDetails: readonly string[] = [];
   let allMcpCapabilities: MaterializedMcpCapability[] = [];

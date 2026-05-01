@@ -19,6 +19,22 @@ describe('runtime settings', () => {
     expect(parsed.agent.name).toBe('Kai');
   });
 
+  it('defaults, renders, and parses job model defaults', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agent.defaultModel = 'sonnet';
+    settings.agent.oneTimeJobDefaultModel = 'kimi';
+    settings.agent.recurringJobDefaultModel = 'opus-4.6';
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('one_time_job_default_model: kimi');
+    expect(yaml).toContain('recurring_job_default_model: opus-4.6');
+
+    const parsed = parseRuntimeSettings(yaml);
+    expect(parsed.agent.defaultModel).toBe('sonnet');
+    expect(parsed.agent.oneTimeJobDefaultModel).toBe('kimi');
+    expect(parsed.agent.recurringJobDefaultModel).toBe('opus-4.6');
+  });
+
   it('rejects unsupported agent settings keys', () => {
     const settings = createDefaultRuntimeSettings();
     const yaml = renderRuntimeSettingsYaml(settings).replace(

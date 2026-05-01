@@ -33,6 +33,8 @@ vi.mock('@core/config/index.js', async () => {
       agent: {
         name: settings.agent.name,
         defaultModel: settings.agent.defaultModel,
+        oneTimeJobDefaultModel: settings.agent.oneTimeJobDefaultModel,
+        recurringJobDefaultModel: settings.agent.recurringJobDefaultModel,
       },
       memory: {
         enabled: settings.memory.enabled,
@@ -53,6 +55,16 @@ vi.mock('@core/config/index.js', async () => {
       if (patch.agent?.defaultModel !== undefined) {
         settings.agent.defaultModel = patch.agent.defaultModel.trim();
         changed.push('agent.defaultModel');
+      }
+      if (patch.agent?.oneTimeJobDefaultModel !== undefined) {
+        settings.agent.oneTimeJobDefaultModel =
+          patch.agent.oneTimeJobDefaultModel.trim();
+        changed.push('agent.oneTimeJobDefaultModel');
+      }
+      if (patch.agent?.recurringJobDefaultModel !== undefined) {
+        settings.agent.recurringJobDefaultModel =
+          patch.agent.recurringJobDefaultModel.trim();
+        changed.push('agent.recurringJobDefaultModel');
       }
       if (patch.memory?.dreaming?.enabled !== undefined) {
         settings.memory.dreaming.enabled = patch.memory.dreaming.enabled;
@@ -749,6 +761,8 @@ describe('control server runtime hardening', () => {
             agent: {
               name: settings.agent.name,
               defaultModel: settings.agent.defaultModel,
+              oneTimeJobDefaultModel: settings.agent.oneTimeJobDefaultModel,
+              recurringJobDefaultModel: settings.agent.recurringJobDefaultModel,
             },
             memory: {
               enabled: settings.memory.enabled,
@@ -767,6 +781,16 @@ describe('control server runtime hardening', () => {
             settings.agent.defaultModel = patch.agent.defaultModel;
             changed.push('agent.defaultModel');
           }
+          if (patch.agent?.oneTimeJobDefaultModel !== undefined) {
+            settings.agent.oneTimeJobDefaultModel =
+              patch.agent.oneTimeJobDefaultModel;
+            changed.push('agent.oneTimeJobDefaultModel');
+          }
+          if (patch.agent?.recurringJobDefaultModel !== undefined) {
+            settings.agent.recurringJobDefaultModel =
+              patch.agent.recurringJobDefaultModel;
+            changed.push('agent.recurringJobDefaultModel');
+          }
           if (patch.memory?.dreaming?.enabled !== undefined) {
             settings.memory.dreaming.enabled = patch.memory.dreaming.enabled;
             changed.push('memory.dreaming.enabled');
@@ -777,6 +801,9 @@ describe('control server runtime hardening', () => {
               agent: {
                 name: settings.agent.name,
                 defaultModel: settings.agent.defaultModel,
+                oneTimeJobDefaultModel: settings.agent.oneTimeJobDefaultModel,
+                recurringJobDefaultModel:
+                  settings.agent.recurringJobDefaultModel,
               },
               memory: {
                 enabled: settings.memory.enabled,
@@ -842,6 +869,47 @@ describe('control server runtime hardening', () => {
       );
       expect(unsupportedResponse.status).toBe(405);
       expect(unsupportedResponse.headers.get('allow')).toBe('GET, PATCH');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('serves model catalog without exposing provider slugs', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'read-key',
+        scopes: ['sessions:read'],
+        appId: 'app-one',
+      },
+    ]);
+
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/models`,
+        'read-key',
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.models).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            displayName: 'Kimi K2.6',
+            aliases: expect.arrayContaining(['kimi', 'kimi-k2.6']),
+            provider: 'OpenRouter',
+            modelProfileId: 'openrouter:kimi-k2.6',
+          }),
+        ]),
+      );
+      expect(JSON.stringify(body)).not.toContain('moonshotai/kimi-k2.6');
     } finally {
       await handle.close();
     }

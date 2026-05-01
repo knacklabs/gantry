@@ -142,7 +142,7 @@ describe('resolveClaudeAuthState', () => {
         .readFileSync(settingsPath, 'utf-8')
         .replace(
           'agent:\n  default_model: ""',
-          'agent:\n  default_model: claude-file-model',
+          'agent:\n  default_model: sonnet',
         ),
       'utf-8',
     );
@@ -165,7 +165,7 @@ describe('resolveClaudeAuthState', () => {
     const { getConfiguredDefaultModel, STORAGE_POSTGRES_URL } =
       await import('@core/config/index.js');
 
-    expect(getConfiguredDefaultModel()).toBe('claude-file-model');
+    expect(getConfiguredDefaultModel()).toBe('sonnet');
     expect(STORAGE_POSTGRES_URL).toBe(
       'postgres://file:pass@localhost:15432/myclaw',
     );

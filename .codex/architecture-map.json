@@ -115,6 +115,7 @@
     "apps/core/src/runner/claude",
     "apps/core/src/runner/mcp",
     "apps/core/src/memory/claude-query.ts",
+    "apps/core/src/shared/model-catalog.ts",
     "apps/core/src/models/claude-model-registry.ts"
   ],
   "providerImportSpecifiers": [

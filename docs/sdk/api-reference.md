@@ -313,7 +313,9 @@ client.jobs.create({
   schedule?, // recurring
   executionMode?, // parallel | serialized
   threadId?,
-  model?,
+  modelAlias?,    // friendly catalog alias, e.g. opus, sonnet, kimi
+  modelProfileId?,
+  dryRun?,        // preview resolved model/cache/provider without scheduling
 })
 
 client.jobs.list()
@@ -325,6 +327,10 @@ client.jobs.resume(jobId)
 client.jobs.trigger(jobId)
 client.jobs.wait(triggerId, timeoutMs?)
 ```
+
+Use `client.models.list()` to inspect supported model aliases, context windows,
+cache policy, and provider labels. API job creation rejects raw provider model
+IDs unless they are registered catalog aliases.
 
 ## Runs
 
@@ -390,6 +396,7 @@ Control API scopes:
 ```http
 GET    /v1/settings                                sessions:read
 PATCH  /v1/settings                                agents:admin
+GET    /v1/models                                  sessions:read
 
 GET    /v1/agents                                  agents:admin
 POST   /v1/agents                                  agents:admin

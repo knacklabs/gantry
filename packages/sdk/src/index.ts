@@ -25,39 +25,23 @@ export type {
   UpdateRuntimeSettingsResponse,
 } from './settings.js';
 import * as mcpServerClients from './mcp-servers.js';
-export type JobKind = 'manual' | 'once' | 'recurring';
-export type JobExecutionMode = 'parallel' | 'serialized';
-export type JobStatus =
-  | 'active'
-  | 'paused'
-  | 'running'
-  | 'completed'
-  | 'dead_lettered';
-export interface JobRecord {
-  jobId: string;
-  name: string;
-  prompt: string;
-  kind: JobKind;
-  status: JobStatus;
-  schedule:
-    | null
-    | { type: 'once'; runAt: string }
-    | { type: 'cron' | 'interval'; value: string };
-  linkedSessions: string[];
-  nextRun: string | null;
-  lastRun: string | null;
-  executionMode: JobExecutionMode;
-  threadId: string | null;
-  groupScope: string;
-  sessionId: string | null;
-}
-export interface JobTriggerWaitResult {
-  triggerId: string;
-  runId: string;
-  status: string;
-  resultSummary: string | null;
-  errorSummary: string | null;
-}
+import type {
+  CreateJobInput,
+  CreateJobResponse,
+  JobRecord,
+  JobTriggerWaitResult,
+  ModelRecord,
+} from './job-model-types.js';
+export type {
+  CreateJobInput,
+  CreateJobResponse,
+  JobExecutionMode,
+  JobKind,
+  JobRecord,
+  JobStatus,
+  JobTriggerWaitResult,
+  ModelRecord,
+} from './job-model-types.js';
 export type ResponseMode = 'sse' | 'webhook' | 'both' | 'none';
 export type MemorySubjectType = 'user' | 'group' | 'channel' | 'common';
 export type DreamPhase = 'light' | 'rem' | 'deep' | 'all';
@@ -355,18 +339,8 @@ export class MyClawClient {
   };
 
   readonly jobs = {
-    create: (input: {
-      name: string;
-      prompt: string;
-      sessionId: string;
-      kind?: JobKind;
-      runAt?: string;
-      schedule?: { type: 'cron' | 'interval'; value: string };
-      executionMode?: 'parallel' | 'serialized';
-      threadId?: string;
-      model?: string;
-    }) =>
-      this.transport.request<{ jobId: string }>({
+    create: (input: CreateJobInput) =>
+      this.transport.request<CreateJobResponse>({
         method: 'POST',
         path: '/v1/jobs',
         body: input,
@@ -411,6 +385,14 @@ export class MyClawClient {
       this.transport.request<JobTriggerWaitResult>({
         method: 'GET',
         path: `/v1/triggers/${encodeURIComponent(triggerId)}/wait?timeoutMs=${timeoutMs || 60_000}`,
+      }),
+  };
+
+  readonly models = {
+    list: () =>
+      this.transport.request<{ models: ModelRecord[] }>({
+        method: 'GET',
+        path: '/v1/models',
       }),
   };
 

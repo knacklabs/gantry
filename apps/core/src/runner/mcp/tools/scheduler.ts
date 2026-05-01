@@ -18,6 +18,7 @@ import {
   normalizeExecutionMode,
   resolveSchedulerThreadArg,
 } from '../scheduler-utils.js';
+import { formatModelCatalog } from '../../../shared/model-catalog.js';
 
 async function requestSchedulerData(
   type: string,
@@ -67,13 +68,23 @@ function dataRecord(response: TaskResponseEnvelope): Record<string, unknown> {
 
 export function registerSchedulerTools(server: McpServer): void {
   server.tool(
+    'scheduler_list_models',
+    'List supported model aliases for one-time and recurring scheduler jobs.',
+    {},
+    async () => ({
+      content: [{ type: 'text' as const, text: formatModelCatalog() }],
+    }),
+  );
+
+  server.tool(
     'scheduler_upsert_job',
     'Create or update a scheduler job. Idempotent by job ID.',
     {
       job_id: z.string().optional(),
       name: z.string(),
       prompt: z.string(),
-      model: z.string().optional(),
+      model_alias: z.string().optional(),
+      model_profile_id: z.string().optional(),
       schedule_type: z.enum(['cron', 'interval', 'once']),
       schedule_value: z.string().default(''),
       linked_sessions: z.array(z.string()).optional(),
@@ -140,7 +151,8 @@ export function registerSchedulerTools(server: McpServer): void {
         jobId: args.job_id,
         name: args.name,
         prompt: args.prompt,
-        model: args.model,
+        modelAlias: args.model_alias,
+        modelProfileId: args.model_profile_id,
         scheduleType: args.schedule_type,
         scheduleValue: args.schedule_value,
         linkedSessions: args.linked_sessions,
@@ -254,7 +266,8 @@ export function registerSchedulerTools(server: McpServer): void {
       job_id: z.string(),
       name: z.string().optional(),
       prompt: z.string().optional(),
-      model: z.string().optional(),
+      model_alias: z.string().optional(),
+      model_profile_id: z.string().optional(),
       schedule_type: z.enum(['cron', 'interval', 'once']).optional(),
       schedule_value: z.string().optional(),
       linked_sessions: z.array(z.string()).optional(),
@@ -289,7 +302,8 @@ export function registerSchedulerTools(server: McpServer): void {
         jobId: args.job_id,
         name: args.name,
         prompt: args.prompt,
-        model: args.model,
+        modelAlias: args.model_alias,
+        modelProfileId: args.model_profile_id,
         scheduleType: args.schedule_type,
         scheduleValue: args.schedule_value,
         linkedSessions: args.linked_sessions,

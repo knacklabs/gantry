@@ -143,6 +143,7 @@ export function mapManualJobToStored(job: Job): Record<string, unknown> {
     nextRun: job.next_run,
     lastRun: job.last_run,
     executionMode: job.execution_mode,
+    modelAlias: job.model ?? null,
     threadId: job.thread_id,
     groupScope: job.group_scope,
     sessionId: job.session_id,

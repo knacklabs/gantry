@@ -24,6 +24,8 @@ function renderAgentSettingsYaml(
     'agent:',
     `  name: ${quoteYamlString(agent.name)}`,
     `  default_model: ${quoteYamlString(agent.defaultModel)}`,
+    `  one_time_job_default_model: ${quoteYamlString(agent.oneTimeJobDefaultModel)}`,
+    `  recurring_job_default_model: ${quoteYamlString(agent.recurringJobDefaultModel)}`,
     '  sessions:',
     `    memory_item_limit: ${agent.sessions.memoryItemLimit}`,
     `    max_memory_context_chars: ${agent.sessions.maxMemoryContextChars}`,

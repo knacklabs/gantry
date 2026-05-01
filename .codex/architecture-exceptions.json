@@ -441,6 +441,13 @@
     "maxViolations": 2
   },
   {
+    "file": "apps/core/src/cli/model.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Local CLI model-default administration follows existing CLI settings-persistence adapters; capped so additional config imports fail until CLI settings writes are ported.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 1
+  },
+  {
     "file": "apps/core/src/cli/memory-status.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -1690,13 +1697,6 @@
     "file": "apps/core/src/session/session-commands.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/session/session-commands.ts",
-    "rule": "provider_specific_path",
-    "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 1
   },

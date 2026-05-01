@@ -6,6 +6,8 @@ export const RuntimeSettingsPublicSchema = z
       .object({
         name: z.string(),
         defaultModel: z.string(),
+        oneTimeJobDefaultModel: z.string(),
+        recurringJobDefaultModel: z.string(),
       })
       .strict(),
     memory: z
@@ -37,6 +39,8 @@ export const UpdateRuntimeSettingsRequestSchema = z
       .object({
         name: z.string().trim().min(1).max(80).optional(),
         defaultModel: z.string().optional(),
+        oneTimeJobDefaultModel: z.string().optional(),
+        recurringJobDefaultModel: z.string().optional(),
       })
       .strict()
       .optional(),
