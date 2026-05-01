@@ -419,10 +419,10 @@ describe('agent-runner MCP stdio tools', () => {
     expect(Date.parse(task.expiresAt)).toBeGreaterThan(Date.now());
   });
 
-  it('submits agent-created skills as host-reviewed draft tasks', async () => {
+  it('submits agent-created skills as host-reviewed proposal tasks', async () => {
     const fixture = createMcpFixture();
 
-    const result = await runMcpFixture(fixture, 'request_skill_draft', {
+    const result = await runMcpFixture(fixture, 'request_skill_proposal', {
       files: [
         {
           path: 'SKILL.md',
@@ -448,7 +448,7 @@ describe('agent-runner MCP stdio tools', () => {
       ),
     );
     expect(task).toMatchObject({
-      type: 'request_skill_draft',
+      type: 'request_skill_proposal',
       targetJid: 'tg:team',
       chatJid: 'tg:team',
       payload: {
@@ -462,6 +462,146 @@ describe('agent-runner MCP stdio tools', () => {
       },
     });
   });
+
+  it('submits skill proposals through the documented request tool name', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_skill_proposal', {
+      files: [
+        {
+          path: 'SKILL.md',
+          content: [
+            '---',
+            'name: Proposal Skill',
+            'description: Proposed skill bundle',
+            '---',
+            '# Proposal Skill',
+          ].join('\n'),
+        },
+      ],
+      reason: 'Review a proposed workflow.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'request_skill_proposal',
+      targetJid: 'tg:team',
+      chatJid: 'tg:team',
+      payload: {
+        reason: 'Review a proposed workflow.',
+        files: [
+          expect.objectContaining({
+            path: 'SKILL.md',
+            content: expect.stringContaining('Proposal Skill'),
+          }),
+        ],
+      },
+    });
+  });
+
+  it.each([
+    [
+      'request_skill_install',
+      {
+        spec: 'clawhub:release-notes@1.0.0',
+        provider: 'clawhub',
+        slug: 'release-notes',
+        version: '1.0.0',
+        reason: 'Reuse a reviewed release workflow.',
+      },
+      {
+        spec: 'clawhub:release-notes@1.0.0',
+        provider: 'clawhub',
+        slug: 'release-notes',
+        version: '1.0.0',
+        reason: 'Reuse a reviewed release workflow.',
+      },
+    ],
+    [
+      'request_skill_dependency_install',
+      {
+        ecosystem: 'npm',
+        packages: ['tsx'],
+        commandArgv: ['npm', 'install', 'tsx'],
+        skillName: 'Release Notes',
+        reason: 'The reviewed skill needs tsx.',
+      },
+      {
+        ecosystem: 'npm',
+        packages: ['tsx'],
+        commandArgv: ['npm', 'install', 'tsx'],
+        skillName: 'Release Notes',
+        reason: 'The reviewed skill needs tsx.',
+      },
+    ],
+    [
+      'request_tool_enable',
+      {
+        toolName: 'Bash',
+        toolNames: ['Read'],
+        toolCategory: 'sdk',
+        permissionPolicy: 'prompt',
+        sandboxProfile: 'workspace-write',
+        reason: 'Run project tests and inspect files.',
+      },
+      {
+        toolName: 'Bash',
+        toolNames: ['Read'],
+        toolCategory: 'sdk',
+        permissionPolicy: 'prompt',
+        sandboxProfile: 'workspace-write',
+        reason: 'Run project tests and inspect files.',
+      },
+    ],
+    [
+      'request_channel_tool_enable',
+      {
+        channelTool: 'slack_file_access',
+        channelProvider: 'slack',
+        requiredScopes: ['files:read'],
+        affectedConversations: ['C123'],
+        reason: 'Read files shared in the active channel.',
+      },
+      {
+        channelTool: 'slack_file_access',
+        channelProvider: 'slack',
+        requiredScopes: ['files:read'],
+        affectedConversations: ['C123'],
+        reason: 'Read files shared in the active channel.',
+      },
+    ],
+  ])(
+    'submits %s as a host-reviewed capability task',
+    async (toolName, args, payload) => {
+      const fixture = createMcpFixture();
+
+      const result = await runMcpFixture(fixture, toolName, args);
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+      expect(taskFiles).toHaveLength(1);
+      const task = JSON.parse(
+        fs.readFileSync(
+          path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+          'utf-8',
+        ),
+      );
+      expect(task).toMatchObject({
+        type: toolName,
+        targetJid: 'tg:team',
+        chatJid: 'tg:team',
+        payload,
+      });
+    },
+  );
 
   it('rejects unsigned task responses from the host boundary', async () => {
     const fixture = createMcpFixture();

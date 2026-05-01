@@ -81,17 +81,19 @@ not read or copied by enterprise runtime.
 
 Agent-created or admin-uploaded skills enter MyClaw as zip uploads containing
 `SKILL.md`. MyClaw parses display metadata from that file, stores the normalized
-skill files behind a `storageRef`, and records draft lifecycle state in
-Postgres. Drafts survive restart but are not materialized or attached to hosted
-agents until approved. Rejected or disabled skills are retained for history and
-not used at runtime.
+skill files as readable folders, and records draft lifecycle state in Postgres.
+Pending drafts use `skill-drafts/<request-id>/<skill-slug>/...`; approved local
+skills use `skills/<skill-slug>/...`. Drafts survive restart but are not
+materialized or attached to hosted agents until approved. Rejected or disabled
+skills are retained for history and not used at runtime.
 
 The Claude Agent SDK `PreToolUse` hook blocks direct agent edits to skill
 capability files such as `SKILL.md`, runtime-home `.claude/skills`, and
 agent-local `skills/` folders. Agents must use
-`mcp__myclaw__request_skill_draft`, and admins/users can use the zip draft
-upload API, so the change is reviewed and persisted outside temporary Claude
-config.
+`mcp__myclaw__request_skill_install` for provider-backed imports or
+`mcp__myclaw__request_skill_proposal` for skill file bundles. Admins/users can
+also use the zip draft upload API. All paths review and persist the change
+outside temporary Claude config before next-run activation.
 
 Local approval makes the artifact eligible for per-agent binding and per-run
 materialization. Hosted approval uploads the stored files through Anthropic's

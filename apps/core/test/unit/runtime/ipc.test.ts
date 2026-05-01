@@ -8,6 +8,7 @@ import type { RegisteredGroup } from '@core/domain/types.js';
 import {
   isTrustedRegisteredIpcFolder,
   resolveIpcFoldersFromGroups,
+  resolveIpcTargetJidForSourceGroup,
 } from '@core/runtime/ipc.js';
 
 function group(folder: string): RegisteredGroup {
@@ -38,6 +39,31 @@ describe('resolveIpcFoldersFromGroups', () => {
         'tg:2': group('kai_tg_1'),
       }),
     ).toEqual(['kai_tg_1']);
+  });
+});
+
+describe('resolveIpcTargetJidForSourceGroup', () => {
+  it('maps an agent folder back to its registered channel JID', () => {
+    expect(
+      resolveIpcTargetJidForSourceGroup(
+        {
+          'tg:-100123': group('kai_tg_100123'),
+          'tg:5759865942': { ...group('main_agent'), isMain: true },
+        },
+        'kai_tg_100123',
+      ),
+    ).toBe('tg:-100123');
+  });
+
+  it('returns undefined when the IPC source folder is not registered', () => {
+    expect(
+      resolveIpcTargetJidForSourceGroup(
+        {
+          'tg:5759865942': { ...group('main_agent'), isMain: true },
+        },
+        'unknown_agent',
+      ),
+    ).toBeUndefined();
   });
 });
 

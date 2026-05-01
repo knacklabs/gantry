@@ -536,7 +536,7 @@ describe('agent-spawn timeout behavior', () => {
     }
   });
 
-  it('hands resolved MCP config to the runner through a private file, not raw env JSON', async () => {
+  it('does not expose approved third-party MCP servers through direct SDK MCP config', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     const rmSyncSpy = vi.spyOn(fs, 'rmSync');
     const { getHostRuntimeCredentialEnv } =
@@ -581,16 +581,13 @@ describe('agent-spawn timeout behavior', () => {
       string
     >;
     expect(env.MYCLAW_MCP_SERVERS_JSON).toBeUndefined();
-    expect(env.MYCLAW_MCP_CONFIG_FILE).toMatch(/mcp-.*\.json$/);
-    expect(env.MYCLAW_MCP_ALLOWED_TOOLS_JSON).toContain(
-      'mcp__github__search_repositories',
+    expect(env.MYCLAW_MCP_CONFIG_FILE).toBeUndefined();
+    expect(env.MYCLAW_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
+    expect(env.MYCLAW_MCP_ALWAYS_ALLOWED_TOOLS_JSON).toBeUndefined();
+    expect(rmSyncSpy).not.toHaveBeenCalledWith(
+      expect.stringMatching(/mcp-.*\.json$/),
+      expect.anything(),
     );
-    expect(env.MYCLAW_MCP_ALWAYS_ALLOWED_TOOLS_JSON).toContain(
-      'mcp__github__search_repositories',
-    );
-    expect(rmSyncSpy).toHaveBeenCalledWith(env.MYCLAW_MCP_CONFIG_FILE, {
-      force: true,
-    });
     expect(repository.auditEvents).toEqual([]);
   });
 
@@ -633,7 +630,7 @@ describe('agent-spawn timeout behavior', () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
   });
 
-  it('points Claude SDK session files at a temporary config directory', async () => {
+  it('points Claude SDK session files at a stable per-agent config directory', async () => {
     const resultPromise = spawnAgent(testGroup, testInput, () => {});
     await vi.advanceTimersByTimeAsync(10);
     fakeProc.emit('close', 0);
@@ -644,7 +641,9 @@ describe('agent-spawn timeout behavior', () => {
       string,
       string
     >;
-    expect(env.CLAUDE_CONFIG_DIR).toContain('myclaw-claude-config-');
+    expect(env.CLAUDE_CONFIG_DIR).toContain(
+      '/tmp/myclaw-test-data/agents/test-group/.claude-runtime/claude',
+    );
     expect(env.CLAUDE_CONFIG_DIR).not.toBe('/tmp/myclaw-config/.claude');
   });
 

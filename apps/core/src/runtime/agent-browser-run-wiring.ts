@@ -77,6 +77,8 @@ export function createAgentBrowserRunWiring<SkillSourceT>(
           {
             name: adapters.actionMcpServerName,
             config: adapters.createActionMcpServerConfig(cdpEndpoint),
+            allowedToolPatterns: ['*'],
+            autoApproveToolPatterns: [],
             allowedToolNames: [`mcp__${adapters.actionMcpServerName}__*`],
             autoApproveToolNames: [],
             required: false,

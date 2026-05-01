@@ -135,6 +135,18 @@ describe('registerGroup', () => {
       '/resolved/test-group/CLAUDE.md',
       expect.stringContaining('assistant for this chat'),
     );
+    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+      '/resolved/test-group/CLAUDE.md',
+      expect.stringContaining(
+        'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, request_tool_enable, or request_channel_tool_enable for capability changes.',
+      ),
+    );
+    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+      '/resolved/test-group/CLAUDE.md',
+      expect.stringContaining(
+        'Main/admin agents may use service_restart after approved changes and register_agent for channel binding.',
+      ),
+    );
   });
 
   it('uses provided assistant name in default CLAUDE.md', async () => {

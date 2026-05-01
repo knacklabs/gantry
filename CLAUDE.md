@@ -4,7 +4,12 @@ Personal AI assistant runtime. See [README.md](README.md) for philosophy and set
 
 ## Quick Context
 
-Single Node.js process with skill-based channel provider system. Built-in providers (Telegram, Slack) are registered through `apps/core/src/channels/register-builtins.ts`; additional providers can be added through skills. Messages route to the Claude Agent SDK via host runtime processes. Each group has isolated filesystem and memory boundaries.
+Single Node.js process with a provider-neutral and channel-neutral capability
+system. Built-in providers (Telegram, Slack, Teams, and Web/API targets) are
+registered as adapters around canonical app, agent, conversation, thread,
+message, and session concepts. Messages route to the Claude Agent SDK via host
+runtime processes. Agent-visible capabilities are approved, audited, bound to
+an agent, and activated on the next run.
 
 ## Key Files
 
@@ -25,23 +30,28 @@ Single Node.js process with skill-based channel provider system. Built-in provid
 
 API keys, secret keys, OAuth tokens, and auth credentials are managed by the OneCLI gateway and runtime environment controls. Run `onecli --help`.
 
-## Skills
+## Capability Rules
 
-Four types of skills exist in MyClaw. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full taxonomy and guidelines.
+Do not install or mutate capabilities directly. Agents must not run dependency
+install commands, edit `.claude/skills`, edit `.mcp.json`, edit settings, or
+change Claude permission config. Use MyClaw request tools so changes can be
+reviewed, audited, versioned, and activated on the next run.
 
-- **Feature skills** — merge a `skill/*` branch to add capabilities (e.g. `/add-telegram`, `/add-slack`)
-- **Utility skills** — ship code files alongside SKILL.md (e.g. `/claw`)
-- **Operational skills** — instruction-only workflows, always on `main` (e.g. `/setup`, `/debug`)
-- **Custom skills** — registered through the skill registry/artifact source; runtime-home Claude skill folders are not runtime truth
+| Tool | When to use |
+| --- | --- |
+| `send_message` | Progress updates or direct channel messages while still running. |
+| `ask_user_question` | Structured choices with options, single-select, multi-select, preview/details, and channel-native buttons. |
+| `request_skill_install` | Install a provider skill such as `clawhub:<slug>@<version>`. |
+| `request_skill_proposal` | Propose an agent-created or modified skill bundle for review. |
+| `request_skill_dependency_install` | Ask for npm, brew, go, uv, or download dependencies needed by a skill. |
+| `request_mcp_server` | Request a third-party MCP server with transport, origin, tool patterns, credentials, and reason. |
+| `request_tool_enable` | Request SDK or host tools such as `Bash`, `Write`, `Edit`, browser, scheduler, memory, or service tools. |
+| `request_channel_tool_enable` | Request channel capabilities such as Teams proactive messaging, Slack file access, or Telegram file download behavior. |
+| `service_restart` | Main/admin agent only, after an approved change requires host restart. |
+| `register_agent` | Main/admin agent only, to bind a new channel conversation to an agent. |
 
-| Skill            | When to Use                                                     |
-| ---------------- | --------------------------------------------------------------- |
-| `/commands`      | List all available slash commands with descriptions             |
-| `/setup`         | First-time installation, authentication, service configuration  |
-| `/customize`     | Adding channels, integrations, changing behavior                |
-| `/debug`         | Runtime issues, logs, troubleshooting                           |
-| `/update-myclaw` | Bring MyClaw updates into a customized install                  |
-| `/init-onecli`   | Install OneCLI Agent Vault and migrate `.env` credentials to it |
+Same-channel approval verifies the origin chat and control allowlist; it does
+not let a normal participant approve persistent capability changes.
 
 ## Contributing
 

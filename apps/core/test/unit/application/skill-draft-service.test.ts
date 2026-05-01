@@ -342,6 +342,29 @@ describe('SkillDraftService', () => {
     expect(second.name).toBe('first-name');
   });
 
+  it('creates separate agent-originated drafts even when content hashes match', async () => {
+    const { service } = createService();
+
+    const first = await service.importDraft({
+      appId: 'app:one' as never,
+      agentId: 'agent:one' as never,
+      name: 'first-name',
+      createdBy: 'agent:one',
+      assets: [asset],
+    });
+    const second = await service.importDraft({
+      appId: 'app:one' as never,
+      agentId: 'agent:two' as never,
+      name: 'second-name',
+      createdBy: 'agent:two',
+      assets: [asset],
+    });
+
+    expect(second.id).not.toBe(first.id);
+    expect(second.agentId).toBe('agent:two');
+    expect(second.name).toBe('second-name');
+  });
+
   it('uses the hosted publisher and stores Anthropic refs on hosted approval', async () => {
     const publisher: HostedSkillPublisher = {
       publishSkill: async () => ({

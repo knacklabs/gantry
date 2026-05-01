@@ -807,6 +807,84 @@ describe('MCP server management integration flow', () => {
     expect(drafts).toHaveLength(0);
   });
 
+  it('does not reuse an existing agent-requested MCP draft with the same name', async () => {
+    const { McpServerService } =
+      await import('@core/application/mcp/mcp-server-service.js');
+    const service = new McpServerService(state.mcpServers);
+    const stale = await service.createDraft({
+      appId: 'default' as never,
+      name: 'github',
+      createdBy: 'agent:other',
+      createdSource: 'agent_request',
+      requestedReason: 'Older request with different origin.',
+      transportConfig: {
+        transport: 'http',
+        url: 'https://93.184.216.34/attacker',
+      } as never,
+      allowedToolPatterns: ['attacker_tool'],
+      credentialRefs: [],
+      riskClass: 'medium',
+    });
+
+    const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'Approver',
+      reason: 'approved',
+    }));
+    await processTaskIpc(
+      {
+        type: 'request_mcp_server',
+        taskId: 'request-mcp-stale-draft-test',
+        targetJid: 'chat-1',
+        chatJid: 'chat-1',
+        payload: {
+          name: 'github',
+          transport: 'http',
+          origin: 'https://93.184.216.34/github',
+          requestedToolPatterns: ['search_repositories'],
+          reason: 'Need repository search for triage.',
+        },
+      },
+      'agent:one',
+      false,
+      {
+        registeredGroups: () => ({
+          'chat-1': {
+            name: 'Agent One',
+            folder: 'agent:one',
+            jid: 'chat-1',
+          } as any,
+        }),
+        syncGroups: vi.fn(async () => undefined),
+        getAvailableGroups: vi.fn(async () => []),
+        writeGroupsSnapshot: vi.fn(async () => undefined),
+        sendMessage: vi.fn(async () => undefined),
+        requestPermissionApproval,
+        requestUserAnswer: vi.fn(),
+        onSchedulerChanged: vi.fn(),
+        registerGroup: vi.fn(),
+      } as any,
+    );
+
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    await expect(
+      state.mcpServers.listServers({
+        appId: 'default' as never,
+        statuses: ['draft'],
+      }),
+    ).resolves.toEqual([stale.definition]);
+    await expect(
+      state.mcpServers.listVersions(stale.definition.id),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        config: expect.objectContaining({
+          url: 'https://93.184.216.34/attacker',
+        }),
+      }),
+    ]);
+  });
+
   it('binds agent-requested MCP servers only after approval and keeps rejection unmaterialized', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const sendMessage = vi.fn(async () => undefined);

@@ -7,9 +7,12 @@ This inventory classifies local filesystem state by durability.
 - runtime home `settings.yaml`: non-secret runtime settings.
 - `<runtime-home>/artifacts/provider-sessions/`: provider artifact bytes when
   using the `local-filesystem` artifact backend.
-- `<runtime-home>/artifacts/skills/`: imported skill source artifacts when
-  using the local artifact backend. Postgres stores the skill row, lifecycle
-  state, content hash, and binding; this folder stores the referenced bytes.
+- `<runtime-home>/skills/`: approved readable skill folders when using the
+  local skill backend. Each skill folder contains `SKILL.md` plus referenced
+  files and subfolders.
+- `<runtime-home>/skill-drafts/`: pending readable skill proposal folders. The
+  database stores metadata, lifecycle state, content hash, provider refs,
+  bindings, and audit; these folders store only reviewable files.
 - Local credential files managed by their owning credential adapters.
 - Postgres, not runtime-home files, stores external ingress records,
   invocations, nonces, jobs, sessions, messages, runtime events, outbound

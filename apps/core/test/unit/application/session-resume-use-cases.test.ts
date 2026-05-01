@@ -107,7 +107,7 @@ describe('durable session resume use cases', () => {
     expect(repos.sessions.size).toBe(1);
   });
 
-  it('returns the canonical session even when provider artifacts exist', async () => {
+  it('returns the canonical session with active provider resume metadata', async () => {
     const repos = makeRepos();
     const session = makeSession();
     await repos.sessionRepo.saveAgentSession(session);
@@ -135,7 +135,10 @@ describe('durable session resume use cases', () => {
       useCase.execute({ sessionId: session.id, provider: 'anthropic' }),
     ).resolves.toMatchObject({
       session: { id: session.id },
-      providerSession: null,
+      providerSession: {
+        id: 'provider-session:test',
+        externalSessionId: 'claude-session-1',
+      },
     });
   });
 
@@ -156,7 +159,7 @@ describe('durable session resume use cases', () => {
     });
   });
 
-  it('ignores provider sessions without artifacts', async () => {
+  it('returns provider sessions even without artifacts', async () => {
     const repos = makeRepos();
     const session = makeSession();
     await repos.sessionRepo.saveAgentSession(session);
@@ -183,7 +186,10 @@ describe('durable session resume use cases', () => {
       useCase.execute({ sessionId: session.id, provider: 'anthropic' }),
     ).resolves.toMatchObject({
       session: { id: session.id },
-      providerSession: null,
+      providerSession: {
+        id: 'provider-session:test',
+        externalSessionId: 'claude-session-1',
+      },
     });
   });
 

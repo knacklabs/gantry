@@ -214,7 +214,9 @@ async function runInteractiveQueryLoop(opts: {
   let diagnosticSessionId: string | undefined;
 
   try {
-    log('Starting live streaming query with ephemeral SDK session...');
+    log(
+      `Starting live streaming query with ${opts.agentInput.sessionId ? `resumed SDK session ${opts.agentInput.sessionId}` : 'new persistent SDK session'}...`,
+    );
     const queryResult = await runQuery(
       opts.prompt,
       opts.mcpServerPath,

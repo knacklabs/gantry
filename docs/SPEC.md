@@ -59,12 +59,12 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 │  │    • temp CLAUDE_CONFIG_DIR for settings, skills, artifacts     │    │
 │  │    • Additional dirs → /workspace/extra/*                      │    │
 │  │                                                                │    │
-│  │  Tools (all groups):                                           │    │
-│  │    • Bash (host-executed runtime scope)                        │    │
-│  │    • Read, Write, Edit, Glob, Grep (file operations)           │    │
-│  │    • WebSearch, WebFetch (internet access)                     │    │
-│  │    • agent-browser (browser automation)                        │    │
-│  │    • mcp__myclaw__* (scheduler tools via IPC)                │    │
+│  │  Default tools (all groups):                                   │    │
+│  │    • Read, Glob, Grep, WebSearch, WebFetch                     │    │
+│  │    • Task, ToolSearch, Skill, worktree lifecycle               │    │
+│  │    • Exact mcp__myclaw__send_message / ask_user_question       │    │
+│  │    • Exact capability request tools via MyClaw MCP             │    │
+│  │    • Optional tools only after approved next-run binding       │    │
 │  │                                                                │    │
 │  └──────────────────────────────────────────────────────────────┘    │
 │                                                                       │

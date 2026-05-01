@@ -56,6 +56,7 @@ myclaw logs
 myclaw local setup|start|stop|status|logs|doctor
 myclaw channel connect telegram
 myclaw channel connect slack
+myclaw channel connect teams
 myclaw channel list
 myclaw channel doctor
 myclaw agent list
@@ -133,11 +134,12 @@ For hosted Postgres, use Neon, Supabase, or another provider that supports `vect
 
 ### Channel Setup
 
-MyClaw supports multiple channels. You can connect Telegram and/or Slack:
+MyClaw supports multiple channels. You can connect Telegram, Slack, or Teams:
 
 ```bash
 myclaw channel connect telegram
 myclaw channel connect slack
+myclaw channel connect teams
 ```
 
 Notes:
@@ -149,6 +151,32 @@ Notes:
 - `myclaw channel connect slack` auto-discovers accessible conversations and can register one directly.
 - Slack tool permission approvals are deny-by-default until approvers are listed in `channels.slack.control_allowlist` in `settings.yaml`. Guided setup asks for comma-separated Slack member IDs like `U0123456789`; these users can approve tool permissions and answer interactive prompts.
 - Slack UX uses native Slack surfaces (threads, streaming updates, actions).
+- Teams uses Microsoft Teams app auth through `RuntimeSecretProvider`, `teams:`
+  conversation IDs, and Adaptive Card `Action.Execute` approval flows.
+
+### Capability Management
+
+Skills, MCP servers, SDK tools, host tools, browser tools, and channel-native
+tools are approved agent capabilities. Agents must not run dependency install
+commands, edit `.claude/skills`, edit `.mcp.json`, edit settings, or mutate
+generated Claude config directly. They use MyClaw request tools instead:
+
+- `send_message`
+- `ask_user_question`
+- `request_skill_install`
+- `request_skill_proposal`
+- `request_skill_dependency_install`
+- `request_mcp_server`
+- `request_tool_enable`
+- `request_channel_tool_enable`
+- `service_restart`
+- `register_agent`
+
+Capability changes are request, review, approval or denial, durable audit, new
+config version, and next-run activation. Skill source is stored as readable
+skill folders with `SKILL.md` plus supporting files; Postgres stores metadata,
+source, hash, provider refs, binding, and audit records. ClawHub is the default
+provider-backed skill source, but provider verification never bypasses approval.
 
 ## Philosophy
 

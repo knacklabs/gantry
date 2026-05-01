@@ -59,6 +59,9 @@ export class CanonicalSessionOpsService {
     appId: string;
     agentId: string;
     agentSessionId: string;
+    providerSessionId?: string;
+    externalSessionId?: string;
+    latestArtifactId?: string | null;
     memoryContextBlock?: string;
   }> {
     const context = await this.repository.getAgentTurnContext({

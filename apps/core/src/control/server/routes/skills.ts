@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { createHash } from 'node:crypto';
 
 import {
   ApproveSkillDraftRequestSchema,
@@ -170,6 +171,68 @@ export async function handleSkillRoutes(
     return true;
   }
 
+  const skillFilesMatch = pathname.match(
+    /^\/v1\/skills\/([^/]+)\/files(?:\/(.+))?$/,
+  );
+  if (skillFilesMatch && req.method === 'GET') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['skills:read']);
+    if (!auth) return true;
+    try {
+      const runtime = getRuntimeStorage();
+      const skill = await new SkillDraftService(
+        runtime.repositories.skills,
+        runtime.skillArtifacts,
+      ).requireSkill(
+        auth.appId as AppId,
+        decodeURIComponent(skillFilesMatch[1]) as SkillId,
+      );
+      if (!skill.storage) {
+        sendError(
+          res,
+          404,
+          'NOT_FOUND',
+          'Skill does not have readable local files',
+        );
+        return true;
+      }
+      const bundle = await runtime.skillArtifacts.getSkillArtifact(
+        skill.storage.storageRef,
+      );
+      const requestedPath = skillFilesMatch[2]
+        ? normalizeRequestedSkillFilePath(
+            decodeURIComponent(skillFilesMatch[2]),
+          )
+        : undefined;
+      if (!requestedPath) {
+        sendJson(res, 200, {
+          skill: skillToResponse(skill),
+          files: bundle.assets.map(skillAssetToFileResponse),
+        });
+        return true;
+      }
+      const asset = bundle.assets.find((item) => item.path === requestedPath);
+      if (!asset) {
+        sendError(res, 404, 'NOT_FOUND', 'Skill file not found');
+        return true;
+      }
+      sendJson(res, 200, {
+        file: {
+          ...skillAssetToFileResponse(asset),
+          encoding: 'utf-8',
+          content: Buffer.from(asset.content).toString('utf-8'),
+        },
+      });
+    } catch (error) {
+      sendError(
+        res,
+        400,
+        'INVALID_REQUEST',
+        error instanceof Error ? error.message : 'Skill file lookup failed',
+      );
+    }
+    return true;
+  }
+
   const agentSkillMatch = pathname.match(
     /^\/v1\/agents\/([^/]+)\/skills\/([^/]+)$/,
   );
@@ -317,4 +380,31 @@ function bindingToResponse(
     createdAt: binding.createdAt,
     updatedAt: binding.updatedAt,
   };
+}
+
+function skillAssetToFileResponse(asset: {
+  path: string;
+  contentType?: string;
+  content: Uint8Array;
+}): Record<string, unknown> {
+  const content = Buffer.from(asset.content);
+  return {
+    path: asset.path,
+    contentType: asset.contentType,
+    sizeBytes: content.byteLength,
+    contentHash: `sha256:${createHash('sha256').update(content).digest('hex')}`,
+  };
+}
+
+function normalizeRequestedSkillFilePath(value: string): string {
+  const normalized = value.replace(/\\/g, '/').replace(/^\/+/, '');
+  const parts = normalized.split('/');
+  if (
+    !normalized ||
+    normalized.includes('\0') ||
+    parts.some((part) => part === '' || part === '.' || part === '..')
+  ) {
+    throw new Error(`Invalid skill file path: ${value}`);
+  }
+  return parts.join('/');
 }

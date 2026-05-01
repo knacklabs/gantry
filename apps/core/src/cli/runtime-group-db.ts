@@ -1,4 +1,4 @@
-import { RegisteredGroup } from '../domain/types.js';
+import { NewMessage, RegisteredGroup } from '../domain/types.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import { createStorageRuntime } from '../adapters/storage/postgres/factory.js';
 import type { StorageRuntime } from '../adapters/storage/postgres/factory.js';
@@ -10,6 +10,11 @@ import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
 export interface RuntimeGroupDb {
   countRegisteredGroupsByJidPrefix(jidPrefix: string): Promise<number>;
   getAllRegisteredGroups(): Promise<Record<string, RegisteredGroup>>;
+  getMessagesSince(
+    chatJid: string,
+    sinceCursor: string,
+    limit?: number,
+  ): Promise<NewMessage[]>;
   setRegisteredGroup(jid: string, group: RegisteredGroup): Promise<void>;
   deleteRegisteredGroup(jid: string): Promise<void>;
   deleteSession(groupFolder: string): Promise<void>;
@@ -44,6 +49,14 @@ function createProviderRuntimeGroupDb(runtime: StorageRuntime): RuntimeGroupDb {
 
     async getAllRegisteredGroups(): Promise<Record<string, RegisteredGroup>> {
       return runtime.ops.getAllRegisteredGroups();
+    },
+
+    async getMessagesSince(
+      chatJid: string,
+      sinceCursor: string,
+      limit?: number,
+    ): Promise<NewMessage[]> {
+      return runtime.ops.getMessagesSince(chatJid, sinceCursor, limit);
     },
 
     async setRegisteredGroup(

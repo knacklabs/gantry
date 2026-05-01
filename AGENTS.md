@@ -37,6 +37,7 @@ Important constraints:
 - `/new` clears persisted session state but preserves the group model override.
 - Transcript archive during `/new` is best-effort and must not block reset success.
 - Durable memory lives under the configured memory root; do not load `~/myclaw/agents/<folder>/memory/`.
+- Live channel turns must persist the provider SDK session ID as soon as the runner streams it. Do not wait for runner shutdown; launchd restarts can kill an active run before final completion.
 
 ## Architecture Rules
 
@@ -65,6 +66,10 @@ Important constraints:
 - Wrong-lane config must fail loudly. Raw provider credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `CLAUDE_CODE_OAUTH_TOKEN` must never be accepted from MyClaw `.env` or process env.
 - Agent-requested third-party MCP servers use same-channel approval until real admin RBAC exists. Host must verify the origin chat belongs to the requesting agent; approval only decides that pending draft, binds only that agent, and activates next run.
 - Treat third-party MCP servers as approved agent capabilities. Durable MCP truth belongs in Postgres definitions, versions, bindings, credential refs, and audit events; Claude SDK `mcpServers` is only a per-run adapter projection.
+- Use typed capability catalogs for skills, MCP servers, SDK tools, host tools, browser tools, channel tools, and channel bindings; provider or channel flags are metadata, not authorization.
+- Render approvals, questions, files, dependencies, audit summaries, and final decisions through a channel-neutral `InteractionDescriptor` before Slack, Telegram, Teams, or Web/API adapters format them.
+- Teams is a first-class channel. Use `teams:` conversation IDs, Teams runtime secrets through `RuntimeSecretProvider`, and Adaptive Card `Action.Execute` approval flows.
+- Agents must use `send_message`, `ask_user_question`, `request_skill_install`, `request_skill_proposal`, `request_skill_dependency_install`, `request_mcp_server`, `request_tool_enable`, `request_channel_tool_enable`, `service_restart`, and `register_agent` instead of direct installs or config edits.
 
 ## Docs Rules
 
@@ -108,4 +113,3 @@ Full factory mode also requires `python3 .codex/scripts/validate_work.py`, requi
 
 ## Important
 - Add or Update AGENTS.md in respective folder with the learnings and corrections
-

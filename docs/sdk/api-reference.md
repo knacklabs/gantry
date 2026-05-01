@@ -34,6 +34,30 @@ client.settings.update({
 `PATCH /v1/settings` persists to `settings.yaml`, returns changed field paths,
 and reports `restartRequired`; it does not restart the runtime.
 
+## Capability Requests
+
+Agents and SDK clients must use MyClaw request surfaces for capability changes.
+Do not edit generated Claude config, `.mcp.json`, `.claude/skills`, settings, or
+permission files directly.
+
+Agent-facing tools:
+
+- `send_message`: progress updates or direct channel messages while the agent is still running.
+- `ask_user_question`: structured choices with options, single-select, multi-select, preview/details, and channel-native buttons.
+- `request_skill_install`: provider skill install requests such as `clawhub:<slug>@<version>`.
+- `request_skill_proposal`: agent-created or modified skill file bundles for review.
+- `request_skill_dependency_install`: dependency requests for npm, brew, go, uv, or downloads required by a skill.
+- `request_mcp_server`: third-party MCP server requests with transport, origin, tool patterns, credential needs, and reason.
+- `request_tool_enable`: SDK or host tool requests such as `Bash`, `Write`, `Edit`, browser tools, scheduler tools, memory tools, and service tools.
+- `request_channel_tool_enable`: channel capability requests such as Teams proactive messaging, Slack file access, or Telegram file download behavior.
+- `service_restart`: main/admin agent restart after approved changes that require host restart.
+- `register_agent`: main/admin agent binding of a channel conversation to an agent.
+
+Every persistent capability change follows request, validation, review, approve
+or deny, durable audit, new config version, and next-run activation. Same-channel
+review binds the request to the originating chat or thread; it does not bypass
+the configured control allowlist.
+
 ## Skills
 
 MyClaw exposes the reviewable lifecycle for agent-created skill drafts. The SDK
@@ -46,9 +70,18 @@ client.skillDrafts.upload({
   createdBy?,
   zip, // Uint8Array containing application/zip bytes
 })
+client.skillProviders.search({ provider: 'clawhub', query?, limit? })
+client.skillProviders.import({
+  ref: 'clawhub:<slug>@<version>',
+  agentId?,
+  requestedBy?,
+})
 client.skillDrafts.list({ agentId? })
 client.skillDrafts.approve(skillId, { approvedBy?, target? }) // local | hosted
 client.skillDrafts.reject(skillId, { rejectedBy? })
+
+client.skills.files.list(skillId)
+client.skills.files.get(skillId, path)
 
 client.agents.skills.list(agentId)
 client.agents.skills.enable(agentId, skillId)
@@ -56,10 +89,14 @@ client.agents.skills.disable(agentId, skillId)
 ```
 
 Drafts are durable across restart because metadata lives in Postgres and file
-bytes live in artifact storage. Draft, rejected, and disabled skills are not
-materialized into per-run `CLAUDE_CONFIG_DIR/skills`. Skill name and
-description are parsed from `SKILL.md`; upload requests only carry context such
-as the proposing agent or creator.
+bytes live as readable skill folders (`skills/<skill-slug>/...` or
+`skill-drafts/<request-id>/<skill-slug>/...`) in the selected file/object
+backend. The database stores metadata, source, hashes, provider refs, bindings,
+and audit only. Draft, rejected, and disabled skills are not materialized into
+per-run `CLAUDE_CONFIG_DIR/skills`. Skill name and description are parsed from
+`SKILL.md`; upload requests only carry context such as the proposing agent or
+creator. Provider imports, including ClawHub, still create reviewable drafts;
+provider verification improves review context but does not bypass approval.
 
 ## MCP Servers
 
@@ -315,8 +352,10 @@ GET    /v1/conversations/:id/threads               conversations:read
 GET    /v1/conversations/:id/messages              messages:read
 ```
 
-`teams` and `whatsapp` are returned as unavailable placeholders until their
-adapters are implemented.
+`teams` is a first-class built-in channel provider with Microsoft Teams app auth
+through `RuntimeSecretProvider`, `teams:` conversation ids, `teams_` agent
+folders, and Adaptive Card approval flows. `whatsapp` is still returned as an
+unavailable placeholder until its adapter is implemented.
 
 ## Agent Channel Bindings
 
@@ -349,6 +388,10 @@ POST   /v1/skills/drafts/upload                  skills:admin
 GET    /v1/skills/drafts                         skills:read
 POST   /v1/skills/drafts/:id/approve             skills:admin
 POST   /v1/skills/drafts/:id/reject              skills:admin
+GET    /v1/skills/:skillId/files                 skills:read
+GET    /v1/skills/:skillId/files/:path           skills:read
+GET    /v1/skill-providers/clawhub/search        skills:read
+POST   /v1/skill-providers/clawhub/import        skills:admin
 GET    /v1/agents/:agentId/skills                skills:read
 PUT    /v1/agents/:agentId/skills/:skillId       skills:admin
 DELETE /v1/agents/:agentId/skills/:skillId       skills:admin

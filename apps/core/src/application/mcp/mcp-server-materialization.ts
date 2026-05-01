@@ -18,6 +18,8 @@ export type SdkMcpServerConfig =
 export interface MaterializedMcpCapability {
   name: string;
   config: SdkMcpServerConfig;
+  allowedToolPatterns: string[];
+  autoApproveToolPatterns: string[];
   allowedToolNames: string[];
   autoApproveToolNames: string[];
   required: boolean;
@@ -54,6 +56,8 @@ export function materializeMcpRecord(
         url: config.url!,
         ...(Object.keys(headers).length > 0 ? { headers } : {}),
       },
+      allowedToolPatterns,
+      autoApproveToolPatterns: record.version.autoApproveToolPatterns,
       allowedToolNames,
       autoApproveToolNames,
       required: record.binding.required,
@@ -73,6 +77,8 @@ export function materializeMcpRecord(
       args: [...template.args, ...(config.args ?? [])],
       ...(Object.keys(env).length > 0 ? { env } : {}),
     },
+    allowedToolPatterns,
+    autoApproveToolPatterns: record.version.autoApproveToolPatterns,
     allowedToolNames,
     autoApproveToolNames,
     required: record.binding.required,

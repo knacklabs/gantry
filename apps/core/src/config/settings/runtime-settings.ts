@@ -82,6 +82,14 @@ export function addControlSenderForAgent(
   return addControlSenderToChannel(channel, trimmedFolder, trimmedSender);
 }
 
+export function inferRecoverableMainAgentJid(
+  runtimeSettings: RuntimeSettings,
+): string | null {
+  const telegram = runtimeSettings.channels.telegram;
+  if (!telegram?.enabled) return null;
+  return null;
+}
+
 export function loadRuntimeSettingsFromPath(filePath: string): RuntimeSettings {
   const raw = fs.readFileSync(filePath, 'utf-8');
   return parseRuntimeSettings(raw);

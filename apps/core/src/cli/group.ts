@@ -36,17 +36,21 @@ import {
   normalizeGroupAddSelector,
   pruneAgentSenderPolicyOverride,
   resolveGroupSelector,
+  seedTelegramControlApproverForAgent,
   usage,
 } from './group-helpers.js';
 import { printPolicyChannel } from './group-policy-format.js';
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 async function runList(runtimeHome: string): Promise<number> {
   let db: RuntimeGroupDb | null = null;
   try {
     db = await loadDatabase(runtimeHome);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    p.log.error(`Could not open runtime database: ${message}`);
+    p.log.error(`Could not open runtime database: ${errorMessage(err)}`);
     return 1;
   }
 
@@ -55,9 +59,8 @@ async function runList(runtimeHome: string): Promise<number> {
     try {
       groups = listGroupsWithJid(await db.getAllRegisteredGroups());
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       p.log.error(
-        `Could not read registered groups from database. The DB may be corrupted. Details: ${message}`,
+        `Could not read registered groups from database. The DB may be corrupted. Details: ${errorMessage(err)}`,
       );
       return 1;
     }
@@ -114,8 +117,7 @@ async function runInfo(
   try {
     db = await loadDatabase(runtimeHome);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    p.log.error(`Could not open runtime database: ${message}`);
+    p.log.error(`Could not open runtime database: ${errorMessage(err)}`);
     return 1;
   }
 
@@ -124,8 +126,7 @@ async function runInfo(
     try {
       groups = await db.getAllRegisteredGroups();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      p.log.error(`Could not read groups from database: ${message}`);
+      p.log.error(`Could not read groups from database: ${errorMessage(err)}`);
       return 1;
     }
 
@@ -175,8 +176,7 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
   try {
     db = await loadDatabase(runtimeHome);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    p.log.error(`Could not open runtime database: ${message}`);
+    p.log.error(`Could not open runtime database: ${errorMessage(err)}`);
     return 1;
   }
 
@@ -185,8 +185,7 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
     try {
       groups = await db.getAllRegisteredGroups();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      p.log.error(`Could not read groups from database: ${message}`);
+      p.log.error(`Could not read groups from database: ${errorMessage(err)}`);
       return 1;
     }
 
@@ -238,7 +237,7 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
       displayName = normalized;
     }
 
-    const groupFolder = allocateGroupFolder({
+    const agentFolder = allocateGroupFolder({
       runtimeHome,
       groups,
       preferredFolder: parsed.folder,
@@ -246,10 +245,9 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
     });
 
     try {
-      ensureGroupFiles(runtimeHome, groupFolder, displayName);
+      ensureGroupFiles(runtimeHome, agentFolder, displayName);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      p.log.error(`Could not create group folder: ${message}`);
+      p.log.error(`Could not create group folder: ${errorMessage(err)}`);
       return 1;
     }
 
@@ -262,7 +260,7 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
 
     const record: RegisteredGroup = {
       name: displayName,
-      folder: groupFolder,
+      folder: agentFolder,
       trigger: (parsed.trigger || defaultTrigger).trim() || defaultTrigger,
       added_at: new Date().toISOString(),
       requiresTrigger,
@@ -280,8 +278,25 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
         }
       }
       await db.setRegisteredGroup(normalized, record);
+      try {
+        const seededApprover = await seedTelegramControlApproverForAgent({
+          runtimeHome,
+          db,
+          chatJid: normalized,
+          agentFolder,
+        });
+        if (seededApprover) {
+          p.log.info(
+            `Enabled permission approvals for Telegram sender ${seededApprover} in ${agentFolder}.`,
+          );
+        }
+      } catch (err) {
+        p.log.warn(
+          `Agent was added, but Telegram permission approver seeding failed: ${errorMessage(err)}`,
+        );
+      }
     } catch (err) {
-      const groupDir = path.join(runtimeHome, 'agents', groupFolder);
+      const groupDir = path.join(runtimeHome, 'agents', agentFolder);
       if (fs.existsSync(groupDir)) {
         try {
           fs.rmSync(groupDir, { recursive: true, force: true });
@@ -289,13 +304,12 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
           // Best effort rollback; keep the original database error.
         }
       }
-      const message = err instanceof Error ? err.message : String(err);
-      p.log.error(`Could not save agent in database: ${message}`);
+      p.log.error(`Could not save agent in database: ${errorMessage(err)}`);
       return 1;
     }
 
     p.log.success(
-      `Added agent ${displayName} (${normalized}) in folder ${groupFolder}.`,
+      `Added agent ${displayName} (${normalized}) in folder ${agentFolder}.`,
     );
     if (chatProbeMessage) p.log.info(chatProbeMessage);
     return 0;
@@ -341,8 +355,7 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
   try {
     db = await loadDatabase(runtimeHome);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    p.log.error(`Could not open runtime database: ${message}`);
+    p.log.error(`Could not open runtime database: ${errorMessage(err)}`);
     return 1;
   }
 
@@ -351,8 +364,7 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
     try {
       groups = await db.getAllRegisteredGroups();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      p.log.error(`Could not read groups from database: ${message}`);
+      p.log.error(`Could not read groups from database: ${errorMessage(err)}`);
       return 1;
     }
 
@@ -399,8 +411,7 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       await db.deleteRegisteredGroup(found.jid);
       await db.deleteSession(found.group.folder);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      p.log.error(`Could not remove agent from database: ${message}`);
+      p.log.error(`Could not remove agent from database: ${errorMessage(err)}`);
       return 1;
     }
 
@@ -426,9 +437,8 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
           fs.rmSync(folderPath, { recursive: true, force: false });
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
         p.log.warn(
-          `Agent removed from database, but folder cleanup failed: ${folderPath}. Details: ${message}`,
+          `Agent removed from database, but folder cleanup failed: ${folderPath}. Details: ${errorMessage(err)}`,
         );
         return 1;
       }
@@ -460,8 +470,7 @@ async function runTrigger(
   try {
     db = await loadDatabase(runtimeHome);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    p.log.error(`Could not open runtime database: ${message}`);
+    p.log.error(`Could not open runtime database: ${errorMessage(err)}`);
     return 1;
   }
 
@@ -470,8 +479,7 @@ async function runTrigger(
     try {
       groups = await db.getAllRegisteredGroups();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      p.log.error(`Could not read groups from database: ${message}`);
+      p.log.error(`Could not read groups from database: ${errorMessage(err)}`);
       return 1;
     }
 
@@ -503,8 +511,7 @@ async function runTrigger(
     try {
       await db.setRegisteredGroup(found.jid, nextGroup);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      p.log.error(`Could not update trigger settings: ${message}`);
+      p.log.error(`Could not update trigger settings: ${errorMessage(err)}`);
       return 1;
     }
 
@@ -535,8 +542,7 @@ async function runPolicy(runtimeHome: string, args: string[]): Promise<number> {
   try {
     db = await loadDatabase(runtimeHome);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    p.log.error(`Could not open runtime database: ${message}`);
+    p.log.error(`Could not open runtime database: ${errorMessage(err)}`);
     return 1;
   }
 
@@ -585,8 +591,7 @@ async function runPolicy(runtimeHome: string, args: string[]): Promise<number> {
     );
     return 0;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    p.log.error(`Could not update sender policy: ${message}`);
+    p.log.error(`Could not update sender policy: ${errorMessage(err)}`);
     return 1;
   } finally {
     await db?.close();
@@ -620,8 +625,7 @@ async function runPolicyDefault(
     p.log.success(`Updated default sender policy for ${channel} channel.`);
     return 0;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    p.log.error(`Could not update default sender policy: ${message}`);
+    p.log.error(`Could not update default sender policy: ${errorMessage(err)}`);
     return 1;
   }
 }
@@ -651,8 +655,7 @@ async function runPolicyShow(
     }
     return 0;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    p.log.error(`Could not read sender policies: ${message}`);
+    p.log.error(`Could not read sender policies: ${errorMessage(err)}`);
     return 1;
   }
 }

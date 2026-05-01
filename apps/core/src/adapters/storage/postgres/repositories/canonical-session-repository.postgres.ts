@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, or, sql } from 'drizzle-orm';
 
 import * as pgSchema from '../schema/schema.js';
 import {
@@ -34,12 +34,41 @@ export class PostgresCanonicalSessionRepository {
     appId: string;
     agentId: string;
     agentSessionId: string;
+    providerSessionId?: string;
+    externalSessionId?: string;
+    latestArtifactId?: string | null;
   }> {
     const ensured = await this.ensureAgentSession(input);
+    const [providerSession] = await this.db
+      .select({
+        id: pgSchema.providerSessionsPostgres.id,
+        externalSessionId: pgSchema.providerSessionsPostgres.externalSessionId,
+        latestArtifactId: pgSchema.providerSessionsPostgres.latestArtifactId,
+      })
+      .from(pgSchema.providerSessionsPostgres)
+      .where(
+        and(
+          eq(
+            pgSchema.providerSessionsPostgres.agentSessionId,
+            ensured.agentSessionId,
+          ),
+          eq(pgSchema.providerSessionsPostgres.provider, PROVIDER),
+          eq(pgSchema.providerSessionsPostgres.status, 'active'),
+        ),
+      )
+      .orderBy(desc(pgSchema.providerSessionsPostgres.updatedAt))
+      .limit(1);
     return {
       appId: CANONICAL_APP_ID,
       agentId: ensured.agentId,
       agentSessionId: ensured.agentSessionId,
+      ...(providerSession
+        ? {
+            providerSessionId: providerSession.id,
+            externalSessionId: providerSession.externalSessionId,
+            latestArtifactId: providerSession.latestArtifactId,
+          }
+        : {}),
     };
   }
 

@@ -122,7 +122,11 @@ export async function runQuery(
       effort: queryEffort,
       cwd: WORKSPACE_GROUP_DIR,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
-      persistSession: false,
+      persistSession: !agentInput.isScheduledJob,
+      resume:
+        !agentInput.isScheduledJob && agentInput.sessionId
+          ? agentInput.sessionId
+          : undefined,
       systemPrompt,
       allowedTools: [...capabilities.allowedTools],
       env: sdkEnv,

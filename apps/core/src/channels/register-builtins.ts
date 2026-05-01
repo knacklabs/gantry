@@ -21,6 +21,13 @@ async function createSlackBuiltInChannel(
   return mod.createSlackChannel(opts);
 }
 
+async function createTeamsBuiltInChannel(
+  opts: ChannelOpts,
+): Promise<ReturnType<(typeof import('./teams.js'))['createTeamsChannel']>> {
+  const mod = await import('./teams.js');
+  return mod.createTeamsChannel(opts);
+}
+
 async function createAppBuiltInChannel(
   opts: ChannelOpts,
 ): Promise<import('./channel-provider.js').ChannelAdapter | null> {
@@ -49,6 +56,12 @@ async function runTelegramSetup(runtimeHome: string): Promise<number> {
 async function runSlackSetup(runtimeHome: string): Promise<number> {
   const mod = await import('../cli/slack.js');
   return await mod.runSlackConnectCommand(runtimeHome);
+}
+
+async function runTeamsSetup(): Promise<void> {
+  throw new Error(
+    'Teams interactive setup is not implemented yet. Create a Teams channel installation with TEAMS_CLIENT_ID, TEAMS_CLIENT_SECRET, and TEAMS_TENANT_ID runtime secret refs.',
+  );
 }
 
 function isChannelEnabled(
@@ -92,6 +105,22 @@ const slackProvider: ChannelProvider = {
   },
 };
 
+const teamsProvider: ChannelProvider = {
+  id: 'teams',
+  label: 'Teams',
+  jidPrefix: 'teams:',
+  folderPrefix: 'teams_',
+  isGroupJid: (jid: string) => jid.startsWith('teams:'),
+  formatting: 'markdown-native',
+  isEnabled: (settings) => isChannelEnabled(settings, 'teams'),
+  create: createTeamsBuiltInChannel,
+  setup: {
+    envKeys: ['TEAMS_CLIENT_ID', 'TEAMS_CLIENT_SECRET', 'TEAMS_TENANT_ID'],
+    describe: () => 'Microsoft Teams app auth',
+    run: runTeamsSetup,
+  },
+};
+
 const appProvider: ChannelProvider = {
   id: 'app',
   label: 'App',
@@ -111,4 +140,5 @@ const appProvider: ChannelProvider = {
 
 registerChannelProvider(appProvider);
 registerChannelProvider(slackProvider);
+registerChannelProvider(teamsProvider);
 registerChannelProvider(telegramProvider);

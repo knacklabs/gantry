@@ -79,6 +79,42 @@ describe('Claude config materializer', () => {
     expect(fs.existsSync(materialization.baseTempDir)).toBe(false);
   });
 
+  it('cleans stale skills while preserving provider session project files', async () => {
+    const baseTempDir = path.join(tempRoot, 'persistent-run');
+    const groupDir = path.join(tempRoot, 'agents', 'test');
+    const staleSkillDir = path.join(baseTempDir, 'claude', 'skills', 'stale');
+    fs.mkdirSync(staleSkillDir, { recursive: true });
+    fs.writeFileSync(path.join(staleSkillDir, 'SKILL.md'), '# Stale');
+
+    const first = await materializeClaudeRuntime({
+      baseTempDir,
+      cleanupPolicy: 'keep',
+      groupDir,
+      cliEntryPoint: path.join(tempRoot, 'dist', 'cli', 'index.js'),
+      packageRoot: tempRoot,
+      skillSource: createSkillSource(tempRoot),
+    });
+    fs.mkdirSync(first.projectDir, { recursive: true });
+    const transcriptPath = path.join(first.projectDir, 'session.jsonl');
+    fs.writeFileSync(transcriptPath, '{}\n');
+    first.cleanup();
+
+    const second = await materializeClaudeRuntime({
+      baseTempDir,
+      cleanupPolicy: 'keep',
+      groupDir,
+      cliEntryPoint: path.join(tempRoot, 'dist', 'cli', 'index.js'),
+      packageRoot: tempRoot,
+      skillSource: createSkillSource(tempRoot),
+    });
+
+    expect(fs.existsSync(path.join(second.skillsDir, 'stale'))).toBe(false);
+    expect(fs.existsSync(path.join(second.skillsDir, 'enabled-skill'))).toBe(
+      true,
+    );
+    expect(fs.existsSync(transcriptPath)).toBe(true);
+  });
+
   it('materializes approved artifact skills and skips invalid artifact paths', async () => {
     const skillsDir = path.join(tempRoot, 'skills');
     await materializeClaudeSkills({

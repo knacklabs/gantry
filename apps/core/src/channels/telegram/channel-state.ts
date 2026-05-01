@@ -41,6 +41,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   protected isStopping = false;
   protected pollingRetryTimer: ReturnType<typeof setTimeout> | null = null;
   protected pollingLease: RuntimeLease | null = null;
+  protected pollingStartInFlight = false;
   protected opts: ChannelOpts;
   protected botToken: string;
   protected pendingPermissionPrompts = new Map<
@@ -326,6 +327,10 @@ export abstract class TelegramChannelState implements ChannelAdapter {
             if (messageId) {
               state.messageId = messageId;
               delivered = true;
+              logger.info(
+                { jid, messageId, length: headText.length },
+                'Telegram group stream message sent',
+              );
             }
           }
         } else if (options.done) {
@@ -337,6 +342,10 @@ export abstract class TelegramChannelState implements ChannelAdapter {
             headText,
           );
           delivered = true;
+          logger.info(
+            { jid, messageId: state.messageId, length: headText.length },
+            'Telegram group stream message finalized',
+          );
         } else {
           // Intermediate edits — plain text, single API call, no fallback cascade
           try {
@@ -346,6 +355,10 @@ export abstract class TelegramChannelState implements ChannelAdapter {
               headText,
             );
             delivered = true;
+            logger.debug(
+              { jid, messageId: state.messageId, length: headText.length },
+              'Telegram group stream message updated',
+            );
           } catch (err) {
             const msg = this.sanitizeErrorMessage(err);
             if (!/message is not modified/i.test(msg)) {

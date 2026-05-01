@@ -1,5 +1,6 @@
 import {
   RuntimeSettings,
+  inferRecoverableMainAgentJid,
   loadRuntimeSettings,
 } from '../../config/settings/runtime-settings.js';
 import { MYCLAW_HOME } from '../../config/index.js';
@@ -14,6 +15,7 @@ interface StartupDeps {
   ensureRuntimeLayoutDirectories: typeof ensureRuntimeLayoutDirectories;
   ensurePromptProfileBootstrapped: typeof ensurePromptProfileBootstrapped;
   initializeRuntimeStorage: typeof initializeRuntimeStorage;
+  inferRecoverableMainAgentJid: typeof inferRecoverableMainAgentJid;
   loadRuntimeSettings: typeof loadRuntimeSettings;
   restoreRemoteControl: typeof restoreRemoteControl;
   logger: Pick<typeof logger, 'info' | 'warn'>;
@@ -24,12 +26,15 @@ export interface StartupResult {
 }
 
 const STARTUP_CREDENTIAL_BINDING_TIMEOUT_MS = 3_000;
+const MAIN_AGENT_FOLDER = 'main_agent';
+const INTERNAL_MAIN_AGENT_JID = 'app:main';
 
 function makeDefaultDeps(): StartupDeps {
   return {
     ensureRuntimeLayoutDirectories,
     ensurePromptProfileBootstrapped,
     initializeRuntimeStorage,
+    inferRecoverableMainAgentJid,
     loadRuntimeSettings,
     restoreRemoteControl,
     logger,
@@ -59,6 +64,12 @@ export async function runStartup(
   await resolved.initializeRuntimeStorage();
   resolved.logger.info('Database initialized');
   await app.loadState();
+  await ensureFreshRuntimeHasMainAgent(
+    app,
+    runtimeSettings,
+    resolved.inferRecoverableMainAgentJid,
+    resolved.logger,
+  );
   await waitForCredentialBindings(app, resolved.logger);
 
   resolved.restoreRemoteControl();
@@ -66,6 +77,40 @@ export async function runStartup(
   return {
     runtimeSettings,
   };
+}
+
+async function ensureFreshRuntimeHasMainAgent(
+  app: RuntimeApp,
+  runtimeSettings: RuntimeSettings,
+  inferMainJid: typeof inferRecoverableMainAgentJid,
+  logger: StartupDeps['logger'],
+): Promise<void> {
+  const bindings = app.getRegisteredGroups();
+  if (Object.values(bindings).some((group) => group.isMain === true)) {
+    return;
+  }
+
+  const targetJid = inferMainJid(runtimeSettings);
+  if (!targetJid && Object.keys(bindings).length > 0) return;
+
+  const jid = targetJid || INTERNAL_MAIN_AGENT_JID;
+  if (bindings[jid]) return;
+
+  const agentName = runtimeSettings.agent?.name?.trim() || 'Main Agent';
+  const binding = {
+    name: agentName,
+    folder: MAIN_AGENT_FOLDER,
+    trigger: `@${agentName}`,
+    added_at: new Date().toISOString(),
+    requiresTrigger: false,
+    isMain: true,
+  };
+
+  await app.registerGroup(jid, binding);
+  logger.info(
+    { jid, folder: MAIN_AGENT_FOLDER },
+    'Registered default main agent for fresh runtime',
+  );
 }
 
 async function waitForCredentialBindings(

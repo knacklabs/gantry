@@ -77,6 +77,50 @@ function canProcessIpcFile(sourceGroup: string, kind: string): boolean {
   return true;
 }
 
+function isLongRunningTask(type: string): boolean {
+  return type === 'mcp_call_tool' || type === 'mcp_list_tools';
+}
+
+async function processLongRunningTaskIpc(input: {
+  data: ReturnType<typeof parseTaskIpcData>;
+  sourceGroup: string;
+  isMain: boolean;
+  deps: IpcDeps;
+  ipcBaseDir: string;
+  file: string;
+  claimedPath: string;
+}): Promise<void> {
+  try {
+    await processTaskIpc(
+      input.data,
+      input.sourceGroup,
+      input.isMain,
+      input.deps,
+    );
+    fs.unlinkSync(input.claimedPath);
+  } catch (err) {
+    writeTaskIpcResponse(
+      input.sourceGroup,
+      input.data.taskId,
+      {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      },
+      input.data.authThreadId,
+    );
+    logger.error(
+      { file: input.file, sourceGroup: input.sourceGroup, err },
+      'Error processing long-running IPC task',
+    );
+    archiveIpcErrorFile(
+      input.ipcBaseDir,
+      input.sourceGroup,
+      input.file,
+      input.claimedPath,
+    );
+  }
+}
+
 export function resolveIpcFoldersFromGroups(
   groupRegistry: Record<string, RuntimeGroupRecord>,
 ): string[] {
@@ -87,6 +131,16 @@ export function resolveIpcFoldersFromGroups(
         .filter((folder): folder is string => isValidGroupFolder(folder)),
     ),
   );
+}
+
+export function resolveIpcTargetJidForSourceGroup(
+  groupRegistry: Record<string, RuntimeGroupRecord>,
+  sourceGroup: string,
+): string | undefined {
+  for (const [jid, group] of Object.entries(groupRegistry)) {
+    if (group.folder === sourceGroup) return jid;
+  }
+  return undefined;
 }
 
 export function isTrustedRegisteredIpcFolder(
@@ -226,8 +280,13 @@ export function startIpcWatcher(deps: IpcDeps): void {
 
     // Build folder→isMain lookup from known group records
     const folderIsMain = new Map<string, boolean>();
+    const folderTargetJid = new Map<string, string>();
     for (const group of Object.values(groupRegistry)) {
       if (group.isMain) folderIsMain.set(group.folder, true);
+    }
+    for (const [jid, group] of Object.entries(groupRegistry)) {
+      if (!folderTargetJid.has(group.folder))
+        folderTargetJid.set(group.folder, jid);
     }
 
     for (const sourceGroup of groupFolders) {
@@ -321,7 +380,9 @@ export function startIpcWatcher(deps: IpcDeps): void {
         if (isTrustedDirectory(tasksDir)) {
           const taskFiles = fs
             .readdirSync(tasksDir)
-            .filter((f) => f.endsWith('.json'));
+            .filter(
+              (f) => f.endsWith('.json') && !f.startsWith('.processing-'),
+            );
           for (const file of taskFiles) {
             const filePath = path.join(tasksDir, file);
             let claimedPath = filePath;
@@ -334,6 +395,18 @@ export function startIpcWatcher(deps: IpcDeps): void {
               rawTaskData = JSON.parse(fs.readFileSync(claimedPath, 'utf-8'));
               const data = parseTaskIpcData(rawTaskData, sourceGroup);
               // Pass source group identity to processTaskIpc for authorization
+              if (isLongRunningTask(data.type)) {
+                void processLongRunningTaskIpc({
+                  data,
+                  sourceGroup,
+                  isMain,
+                  deps,
+                  ipcBaseDir,
+                  file,
+                  claimedPath,
+                });
+                continue;
+              }
               await processTaskIpc(data, sourceGroup, isMain, deps);
               fs.unlinkSync(claimedPath);
             } catch (err) {
@@ -527,6 +600,8 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 rawRequest,
                 sourceGroup,
               );
+              request.targetJid =
+                request.targetJid || folderTargetJid.get(sourceGroup);
               requestId = request.requestId;
               const decision = await processPermissionIpcRequest(request, {
                 requestPermissionApproval: deps.requestPermissionApproval,
@@ -605,6 +680,8 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 rawRequest,
                 sourceGroup,
               );
+              request.targetJid =
+                request.targetJid || folderTargetJid.get(sourceGroup);
               requestId = request.requestId;
               const response = await processUserQuestionIpcRequest(request, {
                 requestUserAnswer: deps.requestUserAnswer,

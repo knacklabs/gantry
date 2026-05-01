@@ -237,10 +237,23 @@ export async function runTelegramStep(draft: SetupDraft): Promise<FlowAction> {
       if (selected === 'resume') return { type: 'resume' };
       if (selected === 'cancel') return { type: 'cancel' };
       normalizedJid = normalizeTelegramChatJid(String(selected)) || '';
-      draft.telegramAdminSenderId = '';
-      draft.telegramAdminSenderName = '';
-      const adminAction = await promptTelegramAdminSenderIdForManualChat(draft);
-      if (adminAction.type !== 'next') return adminAction;
+      const selectedChat = discovered.chats.find(
+        (chat) => chat.chatJid === normalizedJid,
+      );
+      if (selectedChat?.chatType === 'private') {
+        draft.telegramAdminSenderId =
+          /^tg:(\d+)$/.exec(selectedChat.chatJid)?.[1] || '';
+        draft.telegramAdminSenderName =
+          selectedChat.lastSenderName || draft.telegramAdminSenderId;
+      } else {
+        draft.telegramAdminSenderId = '';
+        draft.telegramAdminSenderName = '';
+      }
+      if (!draft.telegramAdminSenderId) {
+        const adminAction =
+          await promptTelegramAdminSenderIdForManualChat(draft);
+        if (adminAction.type !== 'next') return adminAction;
+      }
       const approverAction = await promptTelegramPermissionApproverIds(draft);
       if (approverAction.type !== 'next') return approverAction;
     } else {

@@ -131,11 +131,17 @@ Tool access has two layers:
 - Claude Agent SDK tools declared in `agent-capabilities.ts`
 - MyClaw MCP tools served over stdio by `apps/core/src/runner/mcp/server.ts`
 
-The allowed SDK tool list includes file/search/edit/shell/web/task/team/config tools plus `mcp__myclaw__*`. A small set of tools is always allowed because it is required for runner operation. Other tool calls pass through `canUseTool`.
+The default SDK tool list is intentionally narrow: read/search/web/task/skill
+tools plus exact MyClaw request tools. Dangerous tools such as `Bash`, `Write`,
+`Edit`, config mutation, and wildcard `mcp__myclaw__*` are not defaults. A small
+set of worktree lifecycle tools is always allowed because it is required for
+runner operation. Other tool calls pass through `canUseTool` and host policy.
 
 MyClaw MCP tools are grouped by capability:
 
 - messaging and user interaction: send a message, ask a question
+- capability requests: skill install/proposal/dependency install, MCP server,
+  SDK or host tool enablement, and channel tool enablement
 - scheduler: create, inspect, mutate, pause, resume, list, and wait for jobs, runs, events, and dead letters
 - memory: search, save, and patch memory or procedures
 - browser: list profiles, launch, close, and inspect browser status

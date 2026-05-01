@@ -39,11 +39,8 @@ export interface AgentCapabilityProvider {
   provide: (ctx: AgentCapabilityContext) => Partial<AgentCapabilityProfile>;
 }
 
-const DEFAULT_ALLOWED_TOOLS = [
-  'Bash',
+const SAFE_NATIVE_ALLOWED_TOOLS = [
   'Read',
-  'Write',
-  'Edit',
   'Glob',
   'Grep',
   'WebSearch',
@@ -51,20 +48,34 @@ const DEFAULT_ALLOWED_TOOLS = [
   'Task',
   'TaskOutput',
   'TaskStop',
-  'TeamCreate',
-  'TeamDelete',
-  'SendMessage',
-  'TodoWrite',
   'ToolSearch',
   'Skill',
-  'NotebookEdit',
-  'Config',
   'EnterWorktree',
   'ExitWorktree',
-  'mcp__myclaw__*',
+] as const;
+
+const MYCLAW_MCP_ALLOWED_TOOLS = [
+  'mcp__myclaw__send_message',
+  'mcp__myclaw__ask_user_question',
+  'mcp__myclaw__request_skill_install',
+  'mcp__myclaw__request_skill_proposal',
+  'mcp__myclaw__request_skill_dependency_install',
+  'mcp__myclaw__request_mcp_server',
+  'mcp__myclaw__request_tool_enable',
+  'mcp__myclaw__request_channel_tool_enable',
+  'mcp__myclaw__mcp_list_tools',
+  'mcp__myclaw__mcp_call_tool',
+  'mcp__myclaw__service_restart',
+  'mcp__myclaw__register_agent',
+] as const;
+
+const DEFAULT_ALLOWED_TOOLS = [
+  ...SAFE_NATIVE_ALLOWED_TOOLS,
+  ...MYCLAW_MCP_ALLOWED_TOOLS,
 ] as const;
 
 const ALWAYS_ALLOWED_TOOLS = ['EnterWorktree', 'ExitWorktree'] as const;
+const DIRECT_RUNTIME_MCP_SERVER_NAMES = new Set(['agent_browser']);
 
 const sdkToolsProvider: AgentCapabilityProvider = {
   id: 'sdk-tools',
@@ -110,11 +121,27 @@ const myclawMcpProvider: AgentCapabilityProvider = {
 
 const configuredMcpProvider: AgentCapabilityProvider = {
   id: 'configured-mcp',
-  provide: (ctx) => ({
-    allowedTools: ctx.externalMcpAllowedTools ?? [],
-    alwaysAllowedTools: ctx.externalMcpAlwaysAllowedTools ?? [],
-    mcpServers: ctx.externalMcpServers ?? {},
-  }),
+  provide: (ctx) => {
+    const mcpServers = Object.fromEntries(
+      Object.entries(ctx.externalMcpServers ?? {}).filter(([name]) =>
+        DIRECT_RUNTIME_MCP_SERVER_NAMES.has(name),
+      ),
+    );
+    const allowedServerPrefixes = Object.keys(mcpServers).map(
+      (name) => `mcp__${name}__`,
+    );
+    const isDirectRuntimeTool = (tool: string) =>
+      allowedServerPrefixes.some((prefix) => tool.startsWith(prefix));
+    return {
+      allowedTools: (ctx.externalMcpAllowedTools ?? []).filter(
+        isDirectRuntimeTool,
+      ),
+      alwaysAllowedTools: (ctx.externalMcpAlwaysAllowedTools ?? []).filter(
+        isDirectRuntimeTool,
+      ),
+      mcpServers,
+    };
+  },
 };
 
 export const BUILTIN_AGENT_CAPABILITY_PROVIDERS: readonly AgentCapabilityProvider[] =

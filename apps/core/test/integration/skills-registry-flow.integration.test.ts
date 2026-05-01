@@ -161,6 +161,40 @@ describe('skill registry integration flow', () => {
     vi.clearAllMocks();
   });
 
+  function createCapabilityReviewDeps(options?: {
+    decision?: { approved: boolean; decidedBy?: string; reason?: string };
+    groups?: Record<string, any>;
+  }) {
+    const sendMessage = vi.fn(async () => undefined);
+    const requestPermissionApproval = vi.fn(
+      async () =>
+        options?.decision ?? {
+          approved: true,
+          decidedBy: 'Approver',
+          reason: 'approved',
+        },
+    );
+    const deps = {
+      registeredGroups: () =>
+        options?.groups ?? {
+          'chat-origin': {
+            name: 'Agent One Origin',
+            folder: 'agent:one',
+            jid: 'chat-origin',
+          } as any,
+        },
+      syncGroups: vi.fn(async () => undefined),
+      getAvailableGroups: vi.fn(async () => []),
+      writeGroupsSnapshot: vi.fn(async () => undefined),
+      sendMessage,
+      requestPermissionApproval,
+      requestUserAnswer: vi.fn(),
+      onSchedulerChanged: vi.fn(),
+      registerGroup: vi.fn(),
+    };
+    return { deps, sendMessage, requestPermissionApproval };
+  }
+
   it('uploads, deduplicates, approves, binds, resolves, and disables a local skill through control SDK and services', async () => {
     const server = await startTestControlServer({
       token: 'token-skills',
@@ -347,7 +381,206 @@ describe('skill registry integration flow', () => {
     }
   });
 
-  it('routes agent-created skill drafts through same-channel approval before binding', async () => {
+  it.each([
+    [
+      'request_skill_install',
+      {
+        spec: 'clawhub:release-notes@1.0.0',
+        provider: 'clawhub',
+        slug: 'release-notes',
+        version: '1.0.0',
+        publisher: 'ClawHub',
+        reason: 'Reuse a reviewed release workflow.',
+      },
+      {
+        spec: 'clawhub:release-notes@1.0.0',
+        provider: 'clawhub',
+        slug: 'release-notes',
+        version: '1.0.0',
+        effect: 'review_only_no_direct_install',
+      },
+    ],
+    [
+      'request_skill_dependency_install',
+      {
+        ecosystem: 'npm',
+        packages: ['tsx'],
+        commandArgv: ['npm', 'install', 'tsx'],
+        skillName: 'Release Notes',
+        reason: 'The reviewed skill needs tsx.',
+      },
+      {
+        ecosystem: 'npm',
+        packages: ['tsx'],
+        commandArgv: ['npm', 'install', 'tsx'],
+        skillName: 'Release Notes',
+        effect: 'review_only_no_command_execution',
+      },
+    ],
+    [
+      'request_tool_enable',
+      {
+        toolName: 'Bash',
+        toolNames: ['Read'],
+        toolCategory: 'sdk',
+        permissionPolicy: 'prompt',
+        sandboxProfile: 'workspace-write',
+        reason: 'Run project tests and inspect files.',
+      },
+      {
+        toolNames: ['Bash', 'Read'],
+        toolCategory: 'sdk',
+        permissionPolicy: 'prompt',
+        sandboxProfile: 'workspace-write',
+        effect: 'review_only_no_permission_change',
+      },
+    ],
+    [
+      'request_channel_tool_enable',
+      {
+        channelTool: 'slack_file_access',
+        channelProvider: 'slack',
+        requiredScopes: ['files:read'],
+        affectedConversations: ['C123'],
+        reason: 'Read files shared in the active channel.',
+      },
+      {
+        channelTool: 'slack_file_access',
+        channelProvider: 'slack',
+        requiredScopes: ['files:read'],
+        affectedConversations: ['C123'],
+        effect: 'review_only_no_channel_permission_change',
+      },
+    ],
+  ])(
+    'routes %s through same-channel permission review without binding',
+    async (type, payload, expectedToolInput) => {
+      const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
+      const { deps, sendMessage, requestPermissionApproval } =
+        createCapabilityReviewDeps();
+
+      await processTaskIpc(
+        {
+          type,
+          taskId: `${type}-approve-test`,
+          targetJid: 'chat-origin',
+          chatJid: 'chat-origin',
+          authThreadId: 'thread-origin',
+          payload,
+        },
+        'agent:one',
+        false,
+        deps as any,
+      );
+
+      await vi.waitFor(() => {
+        expect(requestPermissionApproval).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sourceGroup: 'agent:one',
+            targetJid: 'chat-origin',
+            threadId: 'thread-origin',
+            decisionPolicy: 'same_channel',
+            toolName: type,
+            toolInput: expect.objectContaining(expectedToolInput),
+          }),
+        );
+      });
+      await vi.waitFor(() => {
+        expect(sendMessage).toHaveBeenCalledWith(
+          'chat-origin',
+          expect.stringContaining('Approved'),
+          { threadId: 'thread-origin' },
+        );
+      });
+      expect([...state.skills.values()]).toEqual([]);
+      expect([...state.bindings.values()]).toEqual([]);
+    },
+  );
+
+  it('sends denial messages for request-only capability reviews without enabling tools', async () => {
+    const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
+    const { deps, sendMessage, requestPermissionApproval } =
+      createCapabilityReviewDeps({
+        decision: {
+          approved: false,
+          decidedBy: 'Approver',
+          reason: 'too broad',
+        },
+      });
+
+    await processTaskIpc(
+      {
+        type: 'request_tool_enable',
+        taskId: 'request-tool-deny-test',
+        targetJid: 'chat-origin',
+        chatJid: 'chat-origin',
+        authThreadId: 'thread-origin',
+        payload: {
+          toolName: 'Bash',
+          reason: 'Run arbitrary commands.',
+        },
+      },
+      'agent:one',
+      false,
+      deps as any,
+    );
+
+    await vi.waitFor(() => {
+      expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
+    });
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith(
+        'chat-origin',
+        expect.stringContaining('Rejected Tool enable: Bash: too broad'),
+        { threadId: 'thread-origin' },
+      );
+    });
+    expect([...state.skills.values()]).toEqual([]);
+    expect([...state.bindings.values()]).toEqual([]);
+  });
+
+  it('rejects request-only capability approval target overrides', async () => {
+    const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
+    const { deps, sendMessage, requestPermissionApproval } =
+      createCapabilityReviewDeps({
+        groups: {
+          'chat-origin': {
+            name: 'Agent One Origin',
+            folder: 'agent:one',
+            jid: 'chat-origin',
+          } as any,
+          'chat-admin-dm': {
+            name: 'Agent One Admin DM',
+            folder: 'agent:one',
+            jid: 'chat-admin-dm',
+          } as any,
+        },
+      });
+
+    await processTaskIpc(
+      {
+        type: 'request_channel_tool_enable',
+        taskId: 'request-channel-tool-forum-shopping-test',
+        chatJid: 'chat-origin',
+        targetJid: 'chat-admin-dm',
+        payload: {
+          channelTool: 'slack_file_access',
+          channelProvider: 'slack',
+          reason: 'Try routing review to another bound chat.',
+        },
+      },
+      'agent:one',
+      false,
+      deps as any,
+    );
+
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect([...state.skills.values()]).toEqual([]);
+    expect([...state.bindings.values()]).toEqual([]);
+  });
+
+  it('routes agent-created skill proposals through same-channel approval before binding', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const sendMessage = vi.fn(async () => undefined);
     const requestPermissionApproval = vi.fn(async () => ({
@@ -375,7 +608,7 @@ describe('skill registry integration flow', () => {
 
     await processTaskIpc(
       {
-        type: 'request_skill_draft',
+        type: 'request_skill_proposal',
         taskId: 'request-skill-approve-test',
         targetJid: 'chat-origin',
         chatJid: 'chat-origin',
@@ -408,7 +641,7 @@ describe('skill registry integration flow', () => {
           targetJid: 'chat-origin',
           threadId: 'thread-origin',
           decisionPolicy: 'same_channel',
-          toolName: 'request_skill_draft',
+          toolName: 'request_skill_proposal',
         }),
       );
     });
@@ -487,7 +720,7 @@ describe('skill registry integration flow', () => {
 
     await processTaskIpc(
       {
-        type: 'request_skill_draft',
+        type: 'request_skill_proposal',
         taskId: 'request-skill-large-md-test',
         targetJid: 'chat-origin',
         chatJid: 'chat-origin',
@@ -519,7 +752,7 @@ describe('skill registry integration flow', () => {
     expect(state.bindings.size).toBe(0);
   });
 
-  it('does not bind agent-created skill drafts when same-channel approval denies', async () => {
+  it('does not bind agent-created skill proposals when same-channel approval denies', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const sendMessage = vi.fn(async () => undefined);
     const requestPermissionApproval = vi.fn(async () => ({
@@ -547,7 +780,7 @@ describe('skill registry integration flow', () => {
 
     await processTaskIpc(
       {
-        type: 'request_skill_draft',
+        type: 'request_skill_proposal',
         taskId: 'request-skill-deny-test',
         targetJid: 'chat-origin',
         chatJid: 'chat-origin',
@@ -580,7 +813,7 @@ describe('skill registry integration flow', () => {
           targetJid: 'chat-origin',
           threadId: 'thread-origin',
           decisionPolicy: 'same_channel',
-          toolName: 'request_skill_draft',
+          toolName: 'request_skill_proposal',
         }),
       );
     });

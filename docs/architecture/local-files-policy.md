@@ -8,9 +8,10 @@ Local files are allowed only when their durability is explicit.
 - Provider artifact bytes under `<runtime-home>/artifacts/` when the
   `local-filesystem` backend is selected for single-node or shared-volume
   deployments.
-- Skill source artifact bytes under `<runtime-home>/artifacts/skills/` when
-  agent-created or admin-uploaded skill zips become drafts. Postgres owns the
-  metadata, status, hash, storage ref, and bindings.
+- Readable skill source folders under `<runtime-home>/skills/<skill-slug>/`
+  after approval and `<runtime-home>/skill-drafts/<request-id>/<skill-slug>/`
+  while pending. Postgres owns metadata, status, hash, provider ref, audit, and
+  bindings; the folders own only non-secret reviewable files.
 - Credential adapter files owned by their credential adapter.
 
 ## Temporary

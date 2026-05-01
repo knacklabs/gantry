@@ -57,6 +57,7 @@ export async function materializeClaudeRuntime(
 
   try {
     fs.mkdirSync(projectDir, { recursive: true, mode: 0o700 });
+    fs.rmSync(skillsDir, { recursive: true, force: true });
     fs.writeFileSync(
       path.join(claudeConfigDir, 'settings.json'),
       stringifyClaudeSettings(

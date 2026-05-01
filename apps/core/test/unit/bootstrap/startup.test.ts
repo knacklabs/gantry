@@ -18,7 +18,16 @@ function makeApp(overrides: Partial<RuntimeApp> = {}): RuntimeApp {
     ensureCredentialBindingsForRegisteredGroups: vi.fn(async () => {}),
     clearSessionForChatJid: vi.fn(async () => {}),
     processGroupMessages: vi.fn(),
-    getRegisteredGroups: vi.fn(() => ({})),
+    getRegisteredGroups: vi.fn(() => ({
+      'app:main': {
+        name: 'Main Agent',
+        folder: 'main_agent',
+        trigger: '@Main Agent',
+        added_at: '2026-01-01T00:00:00.000Z',
+        requiresTrigger: false,
+        isMain: true,
+      },
+    })),
     getLastTimestamp: vi.fn(() => ''),
     setLastTimestamp: vi.fn(),
     setAgentCursor: vi.fn(),
@@ -121,6 +130,94 @@ describe('runStartup', () => {
 
     expect(order).toEqual(['layout', 'init-storage', 'restore-remote-control']);
     expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it('creates an internal main agent for a fresh runtime with no registered groups', async () => {
+    const groups: Record<string, any> = {};
+    const app = makeApp({
+      getRegisteredGroups: vi.fn(() => groups),
+      registerGroup: vi.fn(async (jid, group) => {
+        groups[jid] = group;
+      }),
+    });
+
+    await runStartup(app, {
+      ensureRuntimeLayoutDirectories: vi.fn(),
+      ensurePromptProfileBootstrapped: vi.fn(),
+      initializeRuntimeStorage: vi.fn(async () => ({}) as any),
+      loadRuntimeSettings: vi.fn(
+        () =>
+          ({
+            channels: {},
+            agent: { name: 'Main Agent' },
+            storage: {
+              postgres: { urlEnv: 'MYCLAW_DATABASE_URL', schema: 'myclaw' },
+            },
+            memory: {},
+          }) as any,
+      ),
+      restoreRemoteControl: vi.fn(),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(app.registerGroup).toHaveBeenCalledWith(
+      'app:main',
+      expect.objectContaining({
+        name: 'Main Agent',
+        folder: 'main_agent',
+        trigger: '@Main Agent',
+        requiresTrigger: false,
+        isMain: true,
+      }),
+    );
+  });
+
+  it('does not treat Telegram approver IDs as recoverable chat bindings on startup', async () => {
+    const groups: Record<string, any> = {};
+    const app = makeApp({
+      getRegisteredGroups: vi.fn(() => groups),
+      registerGroup: vi.fn(async (jid, group) => {
+        groups[jid] = group;
+      }),
+    });
+
+    await runStartup(app, {
+      ensureRuntimeLayoutDirectories: vi.fn(),
+      ensurePromptProfileBootstrapped: vi.fn(),
+      initializeRuntimeStorage: vi.fn(async () => ({}) as any),
+      loadRuntimeSettings: vi.fn(
+        () =>
+          ({
+            channels: {
+              telegram: {
+                enabled: true,
+                controlAllowlist: {
+                  default: [],
+                  agents: { main_agent: ['5759865942'] },
+                },
+              },
+            },
+            agent: { name: 'Ravi Agent' },
+            storage: {
+              postgres: { urlEnv: 'MYCLAW_DATABASE_URL', schema: 'myclaw' },
+            },
+            memory: {},
+          }) as any,
+      ),
+      restoreRemoteControl: vi.fn(),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(app.registerGroup).toHaveBeenCalledWith(
+      'app:main',
+      expect.objectContaining({
+        name: 'Ravi Agent',
+        folder: 'main_agent',
+        trigger: '@Ravi Agent',
+        requiresTrigger: false,
+        isMain: true,
+      }),
+    );
   });
 
   it('waits for credential bindings before restoring remote control', async () => {

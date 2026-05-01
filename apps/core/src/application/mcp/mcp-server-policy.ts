@@ -22,6 +22,7 @@ export const STDIO_TEMPLATE_COMMANDS: Record<
 
 const METADATA_HOSTNAMES = new Set(['metadata.google.internal', 'metadata']);
 const BROKER_CREDENTIAL_REF_PATTERN = /^[A-Z][A-Z0-9_]*_REF$/;
+const MCP_CREDENTIAL_TARGET_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,127}$/;
 const NPM_PACKAGE_SPEC_PATTERN =
   /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@[a-z0-9._~^*+-][a-z0-9._~^*+-]*)?$/;
 
@@ -210,6 +211,12 @@ export function validateCredentialRefs(refs: McpCredentialRef[]): void {
       throw new ApplicationError(
         'INVALID_REQUEST',
         `MCP credential ref must be a broker-scoped reference ending in _REF: ${ref.name}`,
+      );
+    }
+    if (!MCP_CREDENTIAL_TARGET_KEY_PATTERN.test(ref.key)) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        `Invalid MCP credential target key: ${ref.key}`,
       );
     }
     const key = `${ref.target}:${ref.key}`;

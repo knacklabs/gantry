@@ -172,7 +172,15 @@ async function chooseChatFromDiscovery(
   if (selected === 'skip') return { type: 'skip' };
   const normalized = normalizeTelegramChatJid(String(selected || '').trim());
   if (!normalized) return { type: 'skip' };
-  const adminSenderId = await promptManualTelegramAdminSenderId();
+  const selectedChat = discovery.chats.find(
+    (chat) => chat.chatJid === normalized,
+  );
+  const discoveredSender =
+    selectedChat?.chatType === 'private'
+      ? /^tg:(\d+)$/.exec(selectedChat.chatJid)?.[1]
+      : undefined;
+  const adminSenderId =
+    discoveredSender || (await promptManualTelegramAdminSenderId());
   if (adminSenderId === null) return { type: 'cancel' };
   return adminSenderId
     ? { type: 'selected', chatJid: normalized, adminSenderId }

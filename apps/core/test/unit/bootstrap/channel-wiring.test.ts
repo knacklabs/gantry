@@ -610,6 +610,55 @@ describe('createChannelWiring', () => {
     });
   });
 
+  it('routes targeted user questions to the originating channel', async () => {
+    const app = makeApp({
+      'tg:main': { name: 'Main', folder: 'main', isMain: true },
+      'tg:group': { name: 'Group', folder: 'group' },
+    });
+
+    const requestUserAnswer = vi.fn(async () => ({
+      requestId: 'q-1',
+      answers: { Choice: 'A' },
+      answeredBy: '5759865942',
+    }));
+    const questionChannel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:group'),
+      requestUserAnswer,
+    });
+    const wiring = createChannelWiring(app, {
+      channelProviders: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => questionChannel),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    const response = await wiring.requestUserAnswer({
+      requestId: 'q-1',
+      sourceGroup: 'group',
+      targetJid: 'tg:group',
+      questions: [],
+    });
+
+    expect(response).toEqual({
+      requestId: 'q-1',
+      answers: { Choice: 'A' },
+      answeredBy: '5759865942',
+    });
+    expect(requestUserAnswer).toHaveBeenCalledWith(
+      'tg:group',
+      expect.objectContaining({
+        requestId: 'q-1',
+        sourceGroup: 'group',
+        targetJid: 'tg:group',
+      }),
+    );
+  });
+
   it('returns empty answers when user-question flow fails', async () => {
     const app = makeApp({
       'tg:main': { name: 'Main', folder: 'main', isMain: true },

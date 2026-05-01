@@ -681,7 +681,8 @@ describe('startMessagePollingLoop', () => {
 
     expect(sendProgressUpdateMock).toHaveBeenCalledWith(
       'group@g.us',
-      'Still working on it, got your follow-up.',
+      'Got your follow-up.',
+      { replaceOnly: true },
     );
   });
 
@@ -722,8 +723,8 @@ describe('startMessagePollingLoop', () => {
 
     expect(sendProgressUpdateMock).toHaveBeenCalledWith(
       'group@g.us',
-      'Still working on it, got your follow-up.',
-      { threadId: 'latest-thread' },
+      'Got your follow-up.',
+      { threadId: 'latest-thread', replaceOnly: true },
     );
   });
 
@@ -764,11 +765,12 @@ describe('startMessagePollingLoop', () => {
 
     expect(sendProgressUpdateMock).toHaveBeenCalledWith(
       'group@g.us',
-      'Still working on it, got your follow-up.',
+      'Got your follow-up.',
+      { replaceOnly: true },
     );
     expect(sendProgressUpdateMock).not.toHaveBeenCalledWith(
       'group@g.us',
-      'Still working on it, got your follow-up.',
+      'Got your follow-up.',
       expect.objectContaining({ threadId: 'old-thread' }),
     );
   });

@@ -63,6 +63,10 @@ function defaultAgentClaudeMarkdown(
     '- Be explicit when an action fails and what to do next.',
     '- Ask for clarification when intent is ambiguous.',
     '- Never expose secrets unless explicitly requested.',
+    '- Use send_message for progress updates and ask_user_question for structured choices.',
+    '- Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, request_tool_enable, or request_channel_tool_enable for capability changes.',
+    '- Main/admin agents may use service_restart after approved changes and register_agent for channel binding.',
+    '- Never run dependency installs or edit .claude/skills, .mcp.json, settings, or generated capability config directly.',
     '',
   ].join('\n');
 }
@@ -99,7 +103,7 @@ export async function registerGroup(
     );
     logger.info(
       { folder: group.folder },
-      'Created default CLAUDE.md for registered agent',
+      'Created default agent prompt file for registered agent',
     );
   }
 

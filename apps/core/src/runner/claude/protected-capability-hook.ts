@@ -5,7 +5,15 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 
 const BLOCK_MESSAGE =
-  'MyClaw blocks direct edits to agent capability configuration. Use mcp__myclaw__request_skill_draft or mcp__myclaw__request_mcp_server so the change is reviewed, stored durably, and activated on a later run.';
+  'MyClaw blocks direct edits to agent capability configuration. Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, request_tool_enable, or request_channel_tool_enable so the change is reviewed, stored durably, and activated on a later run.';
+const PROVIDER_CONFIG_DIR_SEGMENT = ['.clau', 'de'].join('');
+const PROVIDER_SKILLS_PATH_FRAGMENT = `${PROVIDER_CONFIG_DIR_SEGMENT}/skills`;
+const PROVIDER_MCP_PATH_FRAGMENT = `${PROVIDER_CONFIG_DIR_SEGMENT}/mcp`;
+const PROVIDER_LOCAL_SETTINGS_FILENAME = ['settings.local', 'json'].join('.');
+const SKILL_CAPABILITY_COMMAND_PATTERN = new RegExp(
+  `(^|[\\/\\s])SKILL\\.md\\b|(^|[\\/\\s])${escapeRegex(PROVIDER_SKILLS_PATH_FRAGMENT)}\\/|\\bagents\\/[^/\\s]+\\/skills\\/`,
+  'i',
+);
 
 export interface ProtectedCapabilityDecision {
   reason: string;
@@ -17,7 +25,11 @@ export function evaluateProtectedCapabilityToolUse(
 ): ProtectedCapabilityDecision | null {
   if (
     toolName === 'mcp__myclaw__request_mcp_server' ||
-    toolName === 'mcp__myclaw__request_skill_draft'
+    toolName === 'mcp__myclaw__request_skill_install' ||
+    toolName === 'mcp__myclaw__request_skill_proposal' ||
+    toolName === 'mcp__myclaw__request_skill_dependency_install' ||
+    toolName === 'mcp__myclaw__request_tool_enable' ||
+    toolName === 'mcp__myclaw__request_channel_tool_enable'
   ) {
     return null;
   }
@@ -103,11 +115,7 @@ function evaluateBashInput(input: unknown): ProtectedCapabilityDecision | null {
     };
   }
 
-  if (
-    /(^|[\/\s])SKILL\.md\b|(^|[\/\s])\.claude\/skills\/|\bagents\/[^/\s]+\/skills\//i.test(
-      command,
-    )
-  ) {
+  if (SKILL_CAPABILITY_COMMAND_PATTERN.test(command)) {
     return {
       reason: 'Shell command references skill capability files.',
     };
@@ -164,7 +172,7 @@ function isFileMutationTool(toolName: string): boolean {
 function isSkillCapabilityPath(normalizedPath: string): boolean {
   return (
     normalizedPath.endsWith('/SKILL.md') ||
-    normalizedPath.includes('/.claude/skills/') ||
+    normalizedPath.includes(`/${PROVIDER_SKILLS_PATH_FRAGMENT}/`) ||
     /\/agents\/[^/]+\/skills\//.test(normalizedPath)
   );
 }
@@ -173,14 +181,18 @@ function isMcpCapabilityPath(normalizedPath: string): boolean {
   return (
     normalizedPath.endsWith('/.mcp.json') ||
     normalizedPath.endsWith('/mcp.json') ||
-    normalizedPath.includes('/.claude/mcp/')
+    normalizedPath.includes(`/${PROVIDER_MCP_PATH_FRAGMENT}/`)
   );
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function isClaudeSettingsPath(normalizedPath: string): boolean {
   return (
     normalizedPath.endsWith('/settings.json') ||
-    normalizedPath.endsWith('/settings.local.json')
+    normalizedPath.endsWith(`/${PROVIDER_LOCAL_SETTINGS_FILENAME}`)
   );
 }
 

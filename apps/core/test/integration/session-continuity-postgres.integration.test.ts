@@ -59,9 +59,11 @@ maybeDescribe('Postgres memory continuity', () => {
       threadId: null,
     });
     expect(withArtifact.agentSessionId).toBe(withoutArtifact.agentSessionId);
-    expect(withArtifact).not.toHaveProperty('providerSessionId');
-    expect(withArtifact).not.toHaveProperty('externalSessionId');
-    expect(withArtifact).not.toHaveProperty('latestArtifactId');
+    expect(withArtifact).toMatchObject({
+      providerSessionId: sessionId,
+      externalSessionId: sessionId,
+      latestArtifactId: 'provider-session-artifact:test:mode',
+    });
   });
 
   it('uses active channel binding agent identity for turn context', async () => {
@@ -133,8 +135,12 @@ maybeDescribe('Postgres memory continuity', () => {
     });
 
     expect(rootResume.agentSessionId).not.toBe(threadResume.agentSessionId);
-    expect(rootResume).not.toHaveProperty('externalSessionId');
-    expect(threadResume).not.toHaveProperty('externalSessionId');
+    expect(rootResume).toMatchObject({
+      externalSessionId: 'provider-session:test:root:v2',
+    });
+    expect(threadResume).toMatchObject({
+      externalSessionId: 'provider-session:test:thread:v1',
+    });
 
     await expect(
       runtime.repositories.providerSessions.getProviderSession(

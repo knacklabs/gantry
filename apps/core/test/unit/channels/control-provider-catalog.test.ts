@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { RuntimeSecretConversationDiscovery } from '@core/channels/control-provider-catalog.js';
+import {
+  BuiltInControlChannelProviderCatalog,
+  RuntimeSecretConversationDiscovery,
+} from '@core/channels/control-provider-catalog.js';
 import type { ChannelInstallation } from '@core/domain/channel/channel.js';
 import type { RuntimeSecretProvider } from '@core/domain/ports/runtime-secret-provider.js';
 
@@ -90,5 +93,24 @@ describe('RuntimeSecretConversationDiscovery', () => {
       token: 'ref-token',
       limit: 10,
     });
+  });
+});
+
+describe('BuiltInControlChannelProviderCatalog', () => {
+  it('lists Teams as an installable discoverable provider, not a placeholder', () => {
+    const catalog = new BuiltInControlChannelProviderCatalog();
+
+    const teams = catalog
+      .listProviders()
+      .find((provider) => provider.id === 'teams');
+
+    expect(teams).toEqual(
+      expect.objectContaining({
+        id: 'teams',
+        displayName: 'Teams',
+        capabilityFlags: expect.arrayContaining(['install', 'discover']),
+      }),
+    );
+    expect(teams?.capabilityFlags).not.toContain('placeholder');
   });
 });

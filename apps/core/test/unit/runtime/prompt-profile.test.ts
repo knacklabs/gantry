@@ -74,6 +74,12 @@ describe('PromptProfileService', () => {
     expect(shared).toContain(
       'absence means no relevant memory was auto-retrieved',
     );
+    expect(shared).toContain(
+      'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, request_tool_enable, or request_channel_tool_enable for capability changes.',
+    );
+    expect(shared).toContain(
+      'Never edit .claude/skills, .mcp.json, settings.yaml, generated Claude config, or permission files directly.',
+    );
     expect(fs.existsSync(path.join(configDir, 'CLAUDE.md'))).toBe(false);
     expect(fs.existsSync(path.join(configDir, 'SOUL.md'))).toBe(false);
     expect(

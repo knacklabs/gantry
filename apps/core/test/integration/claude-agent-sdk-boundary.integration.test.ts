@@ -14,7 +14,8 @@ const sdkState = vi.hoisted(() => ({
     | 'mcp-metadata-omitted'
     | 'active-followup'
     | 'memory-denial'
-    | 'subagent-attribution',
+    | 'subagent-attribution'
+    | 'partial-output',
   calls: [] as Array<{
     options: Record<string, any>;
     streamMessages: unknown[];
@@ -127,6 +128,25 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
       };
     }
 
+    if (sdkState.mode === 'partial-output') {
+      yield {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          delta: { type: 'text_delta', text: 'Hello ' },
+        },
+      };
+      yield {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          delta: { type: 'text_delta', text: 'world' },
+        },
+      };
+      yield { type: 'result', subtype: 'success', result: 'Hello world' };
+      return;
+    }
+
     yield { type: 'result', subtype: 'success', result: 'ok' };
   },
 }));
@@ -213,6 +233,35 @@ afterEach(() => {
 });
 
 describe('Claude Agent SDK boundary integration', () => {
+  it('emits SDK partial text deltas as channel-visible streaming chunks', async () => {
+    sdkState.mode = 'partial-output';
+    const env = prepareRuntimeEnv();
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { runQuery } = await importRunQuery();
+
+    await runQuery(
+      'hello from MyClaw',
+      env.mcpServerPath,
+      runnerInput(),
+      { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR },
+      'sonnet',
+      undefined,
+      undefined,
+    );
+
+    const outputs = logSpy.mock.calls
+      .map((call) => String(call[0] ?? ''))
+      .filter((line) => line.startsWith('{'))
+      .map((line) => JSON.parse(line) as { result: string | null });
+    logSpy.mockRestore();
+
+    expect(outputs.map((output) => output.result)).toEqual([
+      'Hello ',
+      'world',
+      null,
+    ]);
+  });
+
   it('passes hermetic MyClaw capabilities and settings into the Claude SDK', async () => {
     const env = prepareRuntimeEnv();
     const { runQuery } = await importRunQuery();
@@ -240,10 +289,33 @@ describe('Claude Agent SDK boundary integration', () => {
       includePartialMessages: true,
     });
     expect(call?.options.allowedTools).toEqual(
-      expect.arrayContaining(['Bash', 'mcp__myclaw__*']),
+      expect.arrayContaining([
+        'Read',
+        'Glob',
+        'Grep',
+        'mcp__myclaw__send_message',
+        'mcp__myclaw__ask_user_question',
+        'mcp__myclaw__request_skill_install',
+        'mcp__myclaw__request_skill_proposal',
+        'mcp__myclaw__request_skill_dependency_install',
+        'mcp__myclaw__request_mcp_server',
+        'mcp__myclaw__request_tool_enable',
+        'mcp__myclaw__request_channel_tool_enable',
+        'mcp__myclaw__mcp_list_tools',
+        'mcp__myclaw__mcp_call_tool',
+      ]),
     );
     expect(call?.options.allowedTools).not.toEqual(
-      expect.arrayContaining(['Monitor', 'AskUserQuestion', 'Agent']),
+      expect.arrayContaining([
+        'Bash',
+        'Write',
+        'Edit',
+        'Config',
+        'mcp__myclaw__*',
+        'Monitor',
+        'AskUserQuestion',
+        'Agent',
+      ]),
     );
     expect(call?.options.mcpServers.myclaw).toEqual({
       command: 'node',

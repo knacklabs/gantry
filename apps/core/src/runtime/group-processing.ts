@@ -49,6 +49,7 @@ import { runDreamingForGroup } from './memory-dreaming-runner.js';
 import { sendWithPartialDeliveryGuard } from './partial-delivery.js';
 import {
   archiveCurrentRuntimeSession,
+  buildApprovedSkillContextBlock,
   buildRuntimeRunOptions,
   completeFailedRuntimeSessionRun,
   completeSuccessfulRuntimeSessionRun,
@@ -88,13 +89,34 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     const isMain = group.isMain === true;
     const sessionThreadId = options?.memoryContext?.threadId ?? null;
     let streamedResult = '';
+    let latestProviderSessionId: string | undefined;
+    const persistedProviderSessionIds = new Set<string>();
     const turnContext = await ops().getAgentTurnContext?.({
       groupFolder: group.folder,
       chatJid,
       threadId: sessionThreadId,
     });
+    const persistProviderSessionId = async (
+      providerSessionId: string | undefined,
+    ) => {
+      if (
+        !providerSessionId ||
+        !turnContext?.agentSessionId ||
+        persistedProviderSessionIds.has(providerSessionId)
+      ) {
+        return;
+      }
+      await ops().setSession(group.folder, providerSessionId, sessionThreadId, {
+        chatJid,
+      });
+      persistedProviderSessionIds.add(providerSessionId);
+    };
     const wrappedOnOutput = onOutput
       ? async (output: AgentOutput) => {
+          if (output.status !== 'error' && output.newSessionId) {
+            latestProviderSessionId = output.newSessionId;
+            await persistProviderSessionId(output.newSessionId);
+          }
           if (output.status !== 'error' && output.result) {
             streamedResult += String(output.result);
           }
@@ -114,7 +136,17 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           await onOutput(output);
         }
       : undefined;
-    const memoryContextBlock = turnContext?.memoryContextBlock;
+    const approvedSkillContextBlock = await buildApprovedSkillContextBlock({
+      skillRepository: deps.getSkillRepository?.(),
+      skillArtifactStore: deps.getSkillArtifactStore?.(),
+      turnContext,
+    });
+    const memoryContextBlock = [
+      turnContext?.memoryContextBlock,
+      approvedSkillContextBlock,
+    ]
+      .filter((block): block is string => Boolean(block?.trim()))
+      .join('\n\n');
     const runId = turnContext?.agentSessionId
       ? await ops().createSessionAgentRun?.({
           agentSessionId: turnContext.agentSessionId,
@@ -144,6 +176,9 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             groupFolder: group.folder,
             chatJid,
             threadId: options?.memoryContext?.threadId,
+            ...(turnContext?.externalSessionId
+              ? { sessionId: turnContext.externalSessionId }
+              : {}),
             isMain,
             assistantName: ASSISTANT_NAME,
             thinking: group.agentConfig?.thinking,
@@ -180,7 +215,14 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       await completeSuccessfulRuntimeSessionRun({
         ops: ops(),
         group,
+        chatJid,
+        threadId: sessionThreadId,
         agentSessionId: turnContext?.agentSessionId,
+        providerSessionId: persistedProviderSessionIds.has(
+          output.newSessionId ?? latestProviderSessionId ?? '',
+        )
+          ? undefined
+          : (output.newSessionId ?? latestProviderSessionId),
         runId,
         result: output.result ?? (streamedResult.trim() || null),
       });

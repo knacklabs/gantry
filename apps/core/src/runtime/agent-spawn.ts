@@ -19,10 +19,7 @@ import {
   getHostRuntimeCredentialEnv,
   prepareHostRuntimeContext,
 } from './agent-spawn-host.js';
-import {
-  McpServerService,
-  type MaterializedMcpCapability,
-} from '../application/mcp/mcp-server-service.js';
+import type { MaterializedMcpCapability } from '../application/mcp/mcp-server-service.js';
 import { materializeClaudeRuntime } from '../adapters/llm/anthropic-claude-agent/claude-config-materializer.js';
 import {
   ArtifactClaudeSkillSource,
@@ -135,20 +132,6 @@ export async function spawnAgent(
       createActionMcpServerConfig: createBrowserActionMcpServerConfig,
     },
   );
-  const mcpCapabilities =
-    options?.mcpServerRepository &&
-    options.mcpContext?.appId &&
-    options.mcpContext.agentId
-      ? await new McpServerService(options.mcpServerRepository, undefined, {
-          lookupHostname: options.mcpHostnameLookup,
-          dnsValidationCache: options.mcpDnsValidationCache,
-          auditMaterialization: false,
-        }).materializeForAgent({
-          appId: options.mcpContext.appId as never,
-          agentId: options.mcpContext.agentId as never,
-          credentialEnv: hostCredentials.env,
-        })
-      : [];
   const hostRunnerPath = path.join(
     hostRuntime.runnerDistDir,
     'claude',
@@ -193,6 +176,8 @@ export async function spawnAgent(
     }
     claudeRuntimeMaterialization = await materializeClaudeRuntime({
       groupDir,
+      baseTempDir: path.join(groupDir, '.claude-runtime'),
+      cleanupPolicy: 'retain-for-debug',
       cliEntryPoint: path.join(packageRoot, 'dist', 'cli', 'index.js'),
       packageRoot,
       skillSource: new CompositeSkillSource(skillSources),
@@ -243,7 +228,7 @@ export async function spawnAgent(
     env.ANTHROPIC_MODEL = effectiveModel;
   }
   let browserRuntimeDetails: readonly string[] = [];
-  let allMcpCapabilities: MaterializedMcpCapability[] = [...mcpCapabilities];
+  let allMcpCapabilities: MaterializedMcpCapability[] = [];
   try {
     const browserProjection = await browserWiring.activate();
     Object.assign(env, browserProjection.env);

@@ -41,7 +41,7 @@ Agent-created capability changes must enter through MyClaw-owned draft/request
 flows. The Claude Agent SDK `PreToolUse` hook denies direct writes to skill
 files, MCP configuration, and permission settings so local Claude files cannot
 become hidden durable state. Agents submit skills through
-`mcp__myclaw__request_skill_draft` and MCP servers through
+`mcp__myclaw__request_skill_proposal` and MCP servers through
 `mcp__myclaw__request_mcp_server`; both route to same-channel review before
 future-run activation.
 

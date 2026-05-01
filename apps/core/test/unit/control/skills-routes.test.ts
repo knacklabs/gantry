@@ -50,6 +50,12 @@ type StoredSkill = {
   promptRefs: string[];
   toolIds: string[];
   workflowRefs: string[];
+  storage?: {
+    storageType: 'local-filesystem';
+    storageRef: string;
+    contentHash: string;
+    sizeBytes: number;
+  };
   createdAt: string;
   updatedAt: string;
 };
@@ -216,8 +222,28 @@ beforeEach(() => {
     promptRefs: [],
     toolIds: [],
     workflowRefs: [],
+    storage: {
+      storageType: 'local-filesystem',
+      storageRef: 'skills/approved/hash',
+      contentHash: 'sha256:approved',
+      sizeBytes: 31,
+    },
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
+  });
+  skillArtifacts.getSkillArtifact.mockResolvedValue({
+    assets: [
+      {
+        path: 'SKILL.md',
+        contentType: 'text/markdown',
+        content: Buffer.from('# Approved\n'),
+      },
+      {
+        path: 'references/context.md',
+        contentType: 'text/markdown',
+        content: Buffer.from('Context\n'),
+      },
+    ],
   });
   process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
     {
@@ -380,6 +406,51 @@ describe('control skill routes', () => {
       const body = await response.json();
       expect(response.status).toBe(415);
       expect(body.error?.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('lists and reads readable skill files from artifact storage', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const list = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/skills/skill%3Aapproved/files`,
+        'token-skills',
+      );
+      const listBody = await list.json();
+      expect(list.status).toBe(200);
+      expect(listBody.files).toEqual([
+        expect.objectContaining({
+          path: 'SKILL.md',
+          contentType: 'text/markdown',
+          sizeBytes: Buffer.byteLength('# Approved\n'),
+        }),
+        expect.objectContaining({
+          path: 'references/context.md',
+          contentHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+        }),
+      ]);
+
+      const read = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/skills/skill%3Aapproved/files/references%2Fcontext.md`,
+        'token-skills',
+      );
+      const readBody = await read.json();
+      expect(read.status).toBe(200);
+      expect(readBody.file).toMatchObject({
+        path: 'references/context.md',
+        encoding: 'utf-8',
+        content: 'Context\n',
+      });
+      expect(skillArtifacts.getSkillArtifact).toHaveBeenCalledWith(
+        'skills/approved/hash',
+      );
     } finally {
       await handle.close();
     }

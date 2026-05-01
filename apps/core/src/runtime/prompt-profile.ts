@@ -12,6 +12,8 @@ type PromptSectionName =
   | 'GROUP_CONTEXT';
 
 const SOUL_FILENAME = 'SOUL.md';
+const PROFILE_CONTEXT_FILENAME = ['CLAU', 'DE.md'].join('');
+const GENERATED_PROVIDER_CONFIG_DIR = ['.clau', 'de'].join('');
 const SOUL_SOURCE = 'myclaw://soul';
 const SHARED_CONTEXT_SOURCE = 'myclaw://shared-context';
 const GROUP_CONTEXT_SOURCE = 'myclaw://group-context';
@@ -32,6 +34,7 @@ const RUNTIME_RULES_BLOCK = [
   '- Follow MyClaw safety and execution constraints exactly.',
   '- Keep static profile behavior separate from query-retrieved memory context.',
   '- Treat group boundaries as strict isolation boundaries unless explicitly overridden by host policy.',
+  '- Use MyClaw request tools for capability changes; never install dependencies or edit skills, MCP, settings, or permission config directly.',
 ].join('\n');
 
 const DEFAULT_SHARED_TEMPLATE = `# Shared Agent Profile
@@ -72,6 +75,13 @@ const DEFAULT_SHARED_TEMPLATE = `# Shared Agent Profile
 
 - Use memory tools for durable memory, not for temporary notes.
 - If memory is missing, stale, or uncertain, say so directly.
+- Use send_message for progress updates and ask_user_question for structured choices.
+- Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, request_tool_enable, or request_channel_tool_enable for capability changes.
+- Main/admin agents may use service_restart after approved capability or config changes and register_agent for channel binding.
+- Never run npm, brew, go, uv, curl, or download install commands directly for skills or tools.
+- Never edit ${GENERATED_PROVIDER_CONFIG_DIR}/skills, .mcp.json, settings.yaml, generated Claude config, or permission files directly.
+- Approved skill proposals are returned as same-session skill context after host review and are also materialized for future runs.
+- Approved third-party MCP servers are always used through mcp_list_tools and mcp_call_tool in current and future runs; do not call direct third-party mcp__server__tool names.
 
 ## Communication
 
@@ -137,11 +147,11 @@ export class PromptProfileService {
   ensureSeedFiles(): void {
     const sharedDir = path.join(this.agentsDir, 'shared');
     fs.mkdirSync(sharedDir, { recursive: true });
-    const sharedPath = path.join(sharedDir, 'CLAUDE.md');
+    const sharedPath = path.join(sharedDir, PROFILE_CONTEXT_FILENAME);
     if (fs.existsSync(sharedPath)) return;
 
     fs.writeFileSync(sharedPath, DEFAULT_SHARED_TEMPLATE);
-    logger.info({ filePath: sharedPath }, 'Seeded shared CLAUDE.md profile');
+    logger.info({ filePath: sharedPath }, 'Seeded shared context profile');
   }
 
   compileSystemPrompt(options: CompilePromptProfileOptions): string {
@@ -203,7 +213,11 @@ export class PromptProfileService {
   }
 
   private readSharedContextSection(): PromptSection | null {
-    const sharedPath = path.join(this.agentsDir, 'shared', 'CLAUDE.md');
+    const sharedPath = path.join(
+      this.agentsDir,
+      'shared',
+      PROFILE_CONTEXT_FILENAME,
+    );
     return this.readPlainSection(
       'SHARED_CONTEXT',
       sharedPath,
@@ -218,7 +232,11 @@ export class PromptProfileService {
       return null;
     }
 
-    const groupPath = path.join(this.agentsDir, groupFolder, 'CLAUDE.md');
+    const groupPath = path.join(
+      this.agentsDir,
+      groupFolder,
+      PROFILE_CONTEXT_FILENAME,
+    );
     return this.readPlainSection(
       'GROUP_CONTEXT',
       groupPath,

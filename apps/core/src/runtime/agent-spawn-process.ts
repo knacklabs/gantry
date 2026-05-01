@@ -300,7 +300,8 @@ export function executeRunnerProcess(
           logLines.push(
             `=== Input Summary ===`,
             `Prompt length: ${input.prompt.length} chars`,
-            `SDK session persistence: disabled`,
+            `SDK session persistence: ${input.isScheduledJob ? 'disabled' : 'enabled'}`,
+            `Resume session: ${input.sessionId || '(none)'}`,
             `Chat JID: ${input.chatJid}`,
             `Group Folder: ${input.groupFolder}`,
             '',
@@ -309,7 +310,8 @@ export function executeRunnerProcess(
           logLines.push(
             `=== Input Summary ===`,
             `Prompt length: ${input.prompt.length} chars`,
-            `SDK session persistence: disabled`,
+            `SDK session persistence: ${input.isScheduledJob ? 'disabled' : 'enabled'}`,
+            `Resume session: ${input.sessionId || '(none)'}`,
             ``,
           );
         }
@@ -330,7 +332,8 @@ export function executeRunnerProcess(
         logLines.push(
           `=== Input Summary ===`,
           `Prompt length: ${input.prompt.length} chars`,
-          `SDK session persistence: disabled`,
+          `SDK session persistence: ${input.isScheduledJob ? 'disabled' : 'enabled'}`,
+          `Resume session: ${input.sessionId || '(none)'}`,
           ``,
           `=== Runtime Details ===`,
           runtimeDetails.join('\n'),

@@ -145,6 +145,9 @@ export interface OpsRepository {
     appId: string;
     agentId: string;
     agentSessionId: string;
+    providerSessionId?: string;
+    externalSessionId?: string;
+    latestArtifactId?: string | null;
     memoryContextBlock?: string;
   }>;
   setSession(

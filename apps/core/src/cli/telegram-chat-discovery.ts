@@ -6,6 +6,8 @@ export interface TelegramRecentChat {
   chatTitle: string;
   chatType: string;
   username?: string;
+  lastSenderId?: string;
+  lastSenderName?: string;
   sourceUpdateId: number;
 }
 
@@ -53,6 +55,12 @@ function parseTelegramChatFromUpdate(update: unknown): {
     first_name?: string;
     last_name?: string;
   };
+  sender?: {
+    id?: number | string;
+    first_name?: string;
+    last_name?: string;
+    username?: string;
+  };
 } {
   if (!update || typeof update !== 'object') {
     return { updateId: 0 };
@@ -84,7 +92,17 @@ function parseTelegramChatFromUpdate(update: unknown): {
     first_name?: string;
     last_name?: string;
   };
-  return { updateId, chat };
+  const senderRaw = message.from;
+  const sender =
+    senderRaw && typeof senderRaw === 'object'
+      ? (senderRaw as {
+          id?: number | string;
+          first_name?: string;
+          last_name?: string;
+          username?: string;
+        })
+      : undefined;
+  return { updateId, chat, sender };
 }
 
 function formatTelegramChatTitle(
@@ -105,6 +123,20 @@ function formatTelegramChatTitle(
     fullName ||
     fallback
   );
+}
+
+function formatTelegramSenderName(
+  candidate: {
+    username?: string;
+    first_name?: string;
+    last_name?: string;
+  },
+  fallback: string,
+): string {
+  const fullName = [candidate.first_name || '', candidate.last_name || '']
+    .join(' ')
+    .trim();
+  return fullName || candidate.username?.trim() || fallback;
 }
 
 export async function listTelegramRecentChats(options: {
@@ -174,6 +206,13 @@ export async function listTelegramRecentChats(options: {
         chatTitle: formatTelegramChatTitle(parsed.chat, chatJid),
         chatType: String(parsed.chat.type || 'unknown'),
         username: parsed.chat.username || undefined,
+        lastSenderId:
+          parsed.sender?.id !== undefined
+            ? String(parsed.sender.id).trim()
+            : undefined,
+        lastSenderName: parsed.sender
+          ? formatTelegramSenderName(parsed.sender, '')
+          : undefined,
         sourceUpdateId: parsed.updateId,
       };
       const previous = byJid.get(chatJid);

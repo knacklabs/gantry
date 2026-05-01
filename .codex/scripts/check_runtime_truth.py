@@ -9,10 +9,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 ACTIVE_DOCS = [
     REPO_ROOT / "README.md",
+    REPO_ROOT / "CLAUDE.md",
+    REPO_ROOT / "AGENTS.md",
     REPO_ROOT / "docs" / "MEMORY.md",
     REPO_ROOT / "docs" / "CONTINUITY.md",
     REPO_ROOT / "docs" / "SPEC.md",
     REPO_ROOT / "docs" / "README.md",
+    REPO_ROOT / "docs" / "architecture" / "capability-management.md",
+    REPO_ROOT / "docs" / "architecture" / "channel-interactions.md",
+    REPO_ROOT / "docs" / "sdk" / "api-reference.md",
     REPO_ROOT / ".claude" / "skills" / "commands" / "SKILL.md",
     REPO_ROOT / ".claude" / "skills" / "myclaw-admin" / "SKILL.md",
 ]
@@ -48,6 +53,44 @@ DISALLOWED_POSTGRES_CLI_PATTERNS = [
     re.compile(r"\bmyclaw\s+postgres\s+(up|down|status|url)\b", re.IGNORECASE),
 ]
 
+DISALLOWED_CAPABILITY_GUIDANCE_PATTERNS = [
+    (
+        re.compile(
+            r"\b(?:run|use|execute)\s+`?claude\s+mcp\s+(?:add|add-json|remove|reset-project-choices)\b",
+            re.IGNORECASE,
+        ),
+        "direct Claude MCP mutation guidance",
+    ),
+    (
+        re.compile(
+            r"\b(?:run|use|execute)\s+`?(?:npm|pnpm|yarn|brew|go|uv)\s+(?:install|add|get|pip)\b.{0,80}\b(?:skill|capability|tool|mcp)\b",
+            re.IGNORECASE,
+        ),
+        "direct dependency install guidance for agent capabilities",
+    ),
+]
+
+REQUIRED_CAPABILITY_DOC_FILES = [
+    REPO_ROOT / "docs" / "architecture" / "capability-management.md",
+    REPO_ROOT / "docs" / "architecture" / "channel-interactions.md",
+    REPO_ROOT / "docs" / "sdk" / "api-reference.md",
+    REPO_ROOT / ".claude" / "skills" / "myclaw-admin" / "SKILL.md",
+    REPO_ROOT / "CLAUDE.md",
+]
+
+REQUIRED_CAPABILITY_TOOL_NAMES = [
+    "send_message",
+    "ask_user_question",
+    "request_skill_install",
+    "request_skill_proposal",
+    "request_skill_dependency_install",
+    "request_mcp_server",
+    "request_tool_enable",
+    "request_channel_tool_enable",
+    "service_restart",
+    "register_agent",
+]
+
 
 def _scan_patterns(path: Path, patterns: list[re.Pattern[str]]) -> list[str]:
     text = path.read_text(encoding="utf-8")
@@ -56,6 +99,33 @@ def _scan_patterns(path: Path, patterns: list[re.Pattern[str]]) -> list[str]:
         for match in pattern.finditer(text):
             line = text.count("\n", 0, match.start()) + 1
             failures.append(f"{path.relative_to(REPO_ROOT)}:{line}: matched `{pattern.pattern}`")
+    return failures
+
+
+def _scan_named_patterns(
+    path: Path, patterns: list[tuple[re.Pattern[str], str]]
+) -> list[str]:
+    text = path.read_text(encoding="utf-8")
+    failures: list[str] = []
+    for pattern, label in patterns:
+        for match in pattern.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
+            failures.append(f"{path.relative_to(REPO_ROOT)}:{line}: {label}")
+    return failures
+
+
+def _check_capability_docs() -> list[str]:
+    failures: list[str] = []
+    for doc in REQUIRED_CAPABILITY_DOC_FILES:
+        if not doc.exists():
+            failures.append(f"Missing required capability doc: {doc.relative_to(REPO_ROOT)}")
+            continue
+        text = doc.read_text(encoding="utf-8")
+        for tool_name in REQUIRED_CAPABILITY_TOOL_NAMES:
+            if tool_name not in text:
+                failures.append(
+                    f"{doc.relative_to(REPO_ROOT)} missing capability request tool `{tool_name}`"
+                )
     return failures
 
 
@@ -116,6 +186,7 @@ def main() -> int:
         failures.extend(_scan_patterns(doc, FEATURES_PATTERNS))
         failures.extend(_scan_patterns(doc, EMBED_REQUIRED_PATTERNS))
         failures.extend(_scan_patterns(doc, STALE_STORAGE_PATTERNS))
+        failures.extend(_scan_named_patterns(doc, DISALLOWED_CAPABILITY_GUIDANCE_PATTERNS))
 
     for code_file in CLI_CONTRACT_FILES:
         if not code_file.exists():
@@ -125,6 +196,7 @@ def main() -> int:
 
     failures.extend(_check_bundled_skill_claims())
     failures.extend(_check_runtime_settings_renderer())
+    failures.extend(_check_capability_docs())
 
     if failures:
         print("Runtime truth checks failed:")

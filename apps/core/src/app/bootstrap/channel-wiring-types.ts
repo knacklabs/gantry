@@ -23,6 +23,7 @@ import type {
 import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
 import type { ChannelProvider } from '../../channels/provider-registry.js';
 import type { logger } from '../../infrastructure/logging/logger.js';
+import type { RuntimeSecretProvider } from '../../domain/ports/runtime-secret-provider.js';
 
 export interface ChannelWiringDeps {
   channelProviders: readonly ChannelProvider[];
@@ -36,6 +37,7 @@ export interface ChannelWiringDeps {
   asRemoteControlCommand: typeof asRemoteControlCommand;
   handleRemoteControlCommand: typeof handleRemoteControlCommand;
   logger: Pick<typeof logger, 'info' | 'warn' | 'debug' | 'error'>;
+  runtimeSecrets: RuntimeSecretProvider;
 }
 
 export interface ChannelWiring {

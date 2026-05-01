@@ -5,6 +5,7 @@ import type { RegisteredGroup } from '../domain/types.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import { channelFromGroupJid, getChannelIds } from './channel-utils.js';
 import {
+  addControlSenderForAgent,
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
@@ -52,6 +53,33 @@ export function pruneAgentSenderPolicyOverride(
   }
 }
 
+function inferTelegramPrivateChatApprover(chatJid: string): string | undefined {
+  const privateChatId = /^tg:(\d+)$/.exec(chatJid)?.[1];
+  return privateChatId || undefined;
+}
+
+export async function seedTelegramControlApproverForAgent(input: {
+  runtimeHome: string;
+  db: RuntimeGroupDb;
+  chatJid: string;
+  agentFolder: string;
+}): Promise<string | undefined> {
+  if (!input.chatJid.startsWith('tg:')) return undefined;
+
+  const approver = inferTelegramPrivateChatApprover(input.chatJid);
+  if (!approver) return undefined;
+
+  const settings = loadRuntimeSettings(input.runtimeHome);
+  const added = addControlSenderForAgent(
+    settings,
+    'telegram',
+    input.agentFolder,
+    approver,
+  );
+  if (added) saveRuntimeSettings(input.runtimeHome, settings);
+  return approver;
+}
+
 export function normalizeGroupAddSelector(raw: string): string | null {
   const input = raw.trim();
   if (!input) return null;
@@ -95,6 +123,8 @@ function createDefaultGroupClaudeMarkdown(agentName: string): string {
     '## Static Chat Guidance\n\nThis file is for stable, group-specific instructions only.\nDynamic task state, open commitments, and remembered facts come from query-retrieved memory context and explicit memory_search calls.\nDo not duplicate current task progress, raw logs, or remembered facts here.',
     '',
     'Rules:\n- Answer directly unless the user asks for detail.\n- Be explicit when an action failed and what to do next.\n- Never expose secrets or local paths unless explicitly requested.\n- When the user says "continue", call memory_search before guessing.',
+    '',
+    'Capability rules:\n- Use send_message for progress updates and ask_user_question for structured choices.\n- Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, request_tool_enable, or request_channel_tool_enable for capability changes.\n- Main/admin agents may use service_restart after approved changes and register_agent for channel binding.\n- Never run dependency installs or edit .claude/skills, .mcp.json, settings, or generated capability config directly.',
     '',
   ].join('\n');
 }

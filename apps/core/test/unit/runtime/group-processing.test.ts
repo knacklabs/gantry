@@ -834,7 +834,7 @@ describe('createGroupProcessor', () => {
   // =======================================================================
 
   describe('Postgres-authoritative session context', () => {
-    it('passes hydrated context without provider session ids or artifact options', async () => {
+    it('passes hydrated memory context and provider session resume id', async () => {
       const group = makeGroup({ isMain: true });
       const { deps } = setupHappyPath({ group });
       (deps.opsRepository as any).getAgentTurnContext = vi
@@ -843,6 +843,8 @@ describe('createGroupProcessor', () => {
           appId: 'app:test',
           agentId: 'agent:test',
           agentSessionId: 'agent-session:1',
+          providerSessionId: 'provider-session:1',
+          externalSessionId: 'claude-session-1',
           memoryContextBlock:
             '<myclaw_memory_context>memory</myclaw_memory_context>',
         });
@@ -850,8 +852,8 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
       expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
+        sessionId: 'claude-session-1',
         memoryContextBlock: expect.stringContaining(
           '<myclaw_memory_context>memory</myclaw_memory_context>',
         ),
@@ -859,7 +861,7 @@ describe('createGroupProcessor', () => {
       expect(mockSpawnAgent.mock.calls[0][4]).toBeUndefined();
     });
 
-    it('does not persist SDK session ids from final agent output', async () => {
+    it('persists SDK session ids from final agent output for the next turn', async () => {
       const agentOutput: AgentOutput = {
         status: 'success',
         result: 'response',
@@ -867,16 +869,37 @@ describe('createGroupProcessor', () => {
       };
       const group = makeGroup({ isMain: true });
       const { deps } = setupHappyPath({ group, agentOutput });
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+        });
 
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(deps.opsRepository.setSession).not.toHaveBeenCalled();
+      expect(deps.opsRepository.setSession).toHaveBeenCalledWith(
+        group.folder,
+        'new-sess-123',
+        null,
+        { chatJid: 'group1@g.us' },
+      );
     });
 
-    it('does not persist SDK session ids from streamed output', async () => {
+    it('persists SDK session ids from streamed output before the runner exits', async () => {
       const group = makeGroup({ isMain: true });
       const { deps } = setupHappyPath({ group });
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+        });
+      const streamed = deferred<void>();
+      const releaseRunner = deferred<AgentOutput>();
 
       mockSpawnAgent.mockImplementation(
         async (
@@ -892,14 +915,24 @@ describe('createGroupProcessor', () => {
               newSessionId: 'streamed-sess',
             });
           }
-          return { status: 'success', result: 'text' } as AgentOutput;
+          streamed.resolve();
+          return releaseRunner.promise;
         },
       );
 
       const { processGroupMessages } = createGroupProcessor(deps);
-      await processGroupMessages('group1@g.us');
+      const processing = processGroupMessages('group1@g.us');
+      await streamed.promise;
 
-      expect(deps.opsRepository.setSession).not.toHaveBeenCalled();
+      expect(deps.opsRepository.setSession).toHaveBeenCalledWith(
+        group.folder,
+        'streamed-sess',
+        null,
+        { chatJid: 'group1@g.us' },
+      );
+
+      releaseRunner.resolve({ status: 'success', result: 'text' });
+      await processing;
     });
   });
 
@@ -2164,7 +2197,7 @@ describe('createGroupProcessor', () => {
   });
 
   describe('double setSession from streamed + final output', () => {
-    it('should not persist SDK session IDs from streamed or final output', async () => {
+    it('persists a streamed SDK session ID once even when final output repeats it', async () => {
       const group = makeGroup({ isMain: true });
       const channel = makeChannel();
       const messages = [makeMessage()];
@@ -2180,6 +2213,13 @@ describe('createGroupProcessor', () => {
       mockGetAllJobs.mockReturnValue([]);
       mockGetRecentJobRuns.mockReturnValue([]);
       mockLoadSenderAllowlist.mockReturnValue({});
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+        });
 
       mockSpawnAgent.mockImplementation(
         async (
@@ -2201,7 +2241,13 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(deps.opsRepository.setSession).not.toHaveBeenCalled();
+      expect(deps.opsRepository.setSession).toHaveBeenCalledTimes(1);
+      expect(deps.opsRepository.setSession).toHaveBeenCalledWith(
+        group.folder,
+        'session-42',
+        null,
+        { chatJid: 'group1@g.us' },
+      );
     });
   });
 });

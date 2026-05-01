@@ -71,6 +71,7 @@ export function buildRuntimeRunOptions(input: {
     appId: string;
     agentId: string;
     agentSessionId: string;
+    externalSessionId?: string;
   };
 }): RunAgentOptions | undefined {
   const resolvedSkillContext = input.skillContext
@@ -112,7 +113,10 @@ export function buildRuntimeRunOptions(input: {
 export async function completeSuccessfulRuntimeSessionRun(input: {
   ops: OpsRepository;
   group: RegisteredGroup;
+  chatJid?: string;
+  threadId?: string | null;
   agentSessionId?: string;
+  providerSessionId?: string;
   runId?: string;
   result?: string | null;
 }): Promise<void> {
@@ -124,9 +128,23 @@ export async function completeSuccessfulRuntimeSessionRun(input: {
     });
   }
   if (input.agentSessionId) {
+    if (input.providerSessionId && input.chatJid) {
+      await input.ops.setSession(
+        input.group.folder,
+        input.providerSessionId,
+        input.threadId,
+        {
+          chatJid: input.chatJid,
+        },
+      );
+    }
     logger.debug(
-      { group: input.group.name, agentSessionId: input.agentSessionId },
-      'Completed runtime session run without Postgres prompt replay',
+      {
+        group: input.group.name,
+        agentSessionId: input.agentSessionId,
+        providerSessionId: input.providerSessionId,
+      },
+      'Completed runtime session run',
     );
   }
 }
@@ -142,6 +160,67 @@ export async function completeFailedRuntimeSessionRun(input: {
     status: 'failed',
     errorSummary: input.errorSummary,
   });
+}
+
+export async function buildApprovedSkillContextBlock(input: {
+  skillRepository?: SkillCatalogRepository;
+  skillArtifactStore?: SkillArtifactStore;
+  turnContext?: {
+    appId: string;
+    agentId: string;
+  };
+  maxChars?: number;
+}): Promise<string> {
+  if (
+    !input.skillRepository ||
+    !input.skillArtifactStore ||
+    !input.turnContext
+  ) {
+    return '';
+  }
+  const maxChars = input.maxChars ?? 16_000;
+  const skills = await input.skillRepository.listEnabledSkillsForAgent({
+    appId: input.turnContext.appId as never,
+    agentId: input.turnContext.agentId as never,
+  });
+  if (skills.length === 0) return '';
+  const sections: string[] = [
+    '[[APPROVED_SKILLS_AVAILABLE_THIS_SESSION]]',
+    'The following MyClaw-approved skills are available to use in this session. Follow the SKILL.md instructions when relevant. Do not claim these skills are unavailable solely because the provider session was already running.',
+  ];
+  let remaining = maxChars - sections.join('\n').length;
+  for (const skill of skills) {
+    if (!skill.storage || remaining <= 0) break;
+    const bundle = await input.skillArtifactStore.getSkillArtifact(
+      skill.storage.storageRef,
+    );
+    const skillMarkdown = bundle.assets.find(
+      (asset) => asset.path === 'SKILL.md',
+    );
+    if (!skillMarkdown) continue;
+    const content = Buffer.from(skillMarkdown.content).toString('utf-8');
+    const rendered = [
+      '',
+      `## ${skill.name}`,
+      `id: ${skill.id}`,
+      skill.description ? `description: ${skill.description}` : undefined,
+      `contentHash: ${skill.storage.contentHash}`,
+      '',
+      '```markdown',
+      content,
+      '```',
+    ]
+      .filter((line): line is string => line !== undefined)
+      .join('\n');
+    const chunk =
+      rendered.length <= remaining
+        ? rendered
+        : `${rendered.slice(0, Math.max(0, remaining - 80)).trimEnd()}\n[Skill context truncated]`;
+    sections.push(chunk);
+    remaining -= chunk.length;
+  }
+  sections.push('[[/APPROVED_SKILLS_AVAILABLE_THIS_SESSION]]');
+  return sections.length > 3 ? sections.join('\n') : '';
 }
 
 export function resolveMemoryUserId(

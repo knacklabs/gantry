@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 
 import { RuntimeSettings } from '../../config/settings/runtime-settings.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import '../../channels/register-builtins.js';
 import {
   GroupDiscoverySource,
   MessageDeliveryResult,
@@ -37,6 +36,7 @@ import {
   tryAcquireRuntimeAdvisoryLease,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { ChannelAdapter } from '../../channels/channel-provider.js';
+import { EnvRuntimeSecretProvider } from '../../adapters/credentials/env-runtime-secret-provider.js';
 import { RuntimeApp } from './runtime-app.js';
 import {
   asGroupDiscoverySource,
@@ -91,6 +91,7 @@ export function createChannelWiring(
     asRemoteControlCommand,
     handleRemoteControlCommand,
     logger,
+    runtimeSecrets: new EnvRuntimeSecretProvider(),
     ...deps,
   };
 
@@ -122,6 +123,7 @@ export function createChannelWiring(
     runtimeLease: {
       tryAcquire: tryAcquireRuntimeAdvisoryLease,
     },
+    runtimeSecrets: resolved.runtimeSecrets,
   };
   let currentRuntimeSettings: RuntimeSettings;
 
@@ -381,6 +383,28 @@ export function createChannelWiring(
   async function requestUserAnswer(
     request: UserQuestionRequest,
   ): Promise<UserQuestionResponse> {
+    if (request.targetJid) {
+      const channel = findBoundChannel(request.targetJid);
+      const questionSurface = channel
+        ? asUserQuestionSurface(channel)
+        : undefined;
+      if (!questionSurface) {
+        return { requestId: request.requestId, answers: {} };
+      }
+      try {
+        return await questionSurface.requestUserAnswer(
+          request.targetJid,
+          request,
+        );
+      } catch (err) {
+        resolved.logger.error(
+          { err, targetJid: request.targetJid, requestId: request.requestId },
+          'Target channel user question flow failed',
+        );
+        return { requestId: request.requestId, answers: {} };
+      }
+    }
+
     const mainEntries = Object.entries(app.getRegisteredGroups()).filter(
       ([, group]) => group.isMain === true,
     );

@@ -1512,8 +1512,8 @@ describe('control server runtime hardening', () => {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             appId: 'app-one',
-            providerId: 'teams',
-            label: 'Teams',
+            providerId: 'whatsapp',
+            label: 'WhatsApp',
           }),
         },
       );

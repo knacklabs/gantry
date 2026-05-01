@@ -55,6 +55,7 @@ Channels:
 ```bash
 myclaw channel connect telegram
 myclaw channel connect slack
+myclaw channel connect teams
 myclaw channel list
 myclaw channel doctor
 ```
@@ -70,8 +71,8 @@ myclaw agent trigger <jid|folder> <word>
 myclaw agent trigger <jid|folder> --off
 myclaw agent policy <jid|folder> --allow <"*"|id1,id2> [--mode trigger|drop]
 myclaw agent policy <jid|folder> --clear
-myclaw agent policy-default --channel <telegram|slack> --allow <"*"|id1,id2> [--mode trigger|drop]
-myclaw agent policy-show [--channel <telegram|slack>]
+myclaw agent policy-default --channel <telegram|slack|teams> --allow <"*"|id1,id2> [--mode trigger|drop]
+myclaw agent policy-show [--channel <telegram|slack|teams>]
 ```
 
 Skill drafts:
@@ -125,6 +126,64 @@ Runtime Claude settings and skills are generated into a temporary per-run
 truth. Do not install separate global Claude hooks for MyClaw memory. Generated
 runtime settings do not install memory hooks.
 
+Capability changes are never direct edits. Agents must not run dependency
+install commands, edit `.claude/skills`, edit `.mcp.json`, edit `settings.yaml`,
+edit Claude permission settings, or mutate generated capability config. Every
+capability change goes through request, review, approval or denial, durable
+audit, a new config version, and next-run activation.
+
+Use these MyClaw tools for capability work:
+
+| Tool | Use |
+| --- | --- |
+| `send_message` | Progress updates or direct channel messages while the agent is still running. |
+| `ask_user_question` | Structured choices only; supports content, options, single-select, multi-select, preview/details, and channel-native buttons. |
+| `request_skill_install` | Provider-backed skill installs such as `clawhub:<slug>@<version>`. |
+| `request_skill_proposal` | Agent-created or modified skill file bundles for review. |
+| `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies required by a skill; never run those commands directly. |
+| `request_mcp_server` | Third-party MCP server requests with transport, origin, tool patterns, credentials, and reason. |
+| `request_tool_enable` | SDK tools or host tools such as `Bash`, `Write`, `Edit`, browser tools, scheduler tools, memory tools, or service tools. |
+| `request_channel_tool_enable` | Channel-specific tools or channel capabilities such as Teams proactive messaging, Slack file access, or Telegram file download behavior. |
+| `service_restart` | Main/admin agent only, after approved config or capability changes when host restart is needed. |
+| `register_agent` | Main/admin agent only, for binding a new channel conversation to an agent. |
+
+Same-channel review is a delivery and origin constraint, not a shortcut around
+authorization. The host verifies that the origin chat belongs to the requesting
+agent, the deciding user is in the control allowlist, the approval decides only
+that pending request, and activation happens on the next run.
+
+Channel tool selection:
+
+- Use `ask_user_question` only for discrete choices. Set single-select for one
+  answer, multi-select when multiple answers are valid, and include concise
+  option descriptions so Slack, Telegram, Teams, and Web/API can render native
+  controls.
+- Use `request_channel_tool_enable` before enabling provider-specific behavior
+  such as Slack file reads, Telegram file downloads, Teams proactive messages,
+  Teams card updates, or Web/API file browser access.
+- Use `request_tool_enable` for provider-neutral SDK/host tools such as `Bash`,
+  `Write`, `Edit`, browser action tools, scheduler tools, memory tools, and
+  service tools.
+- Use `request_skill_dependency_install` for dependency recipes found in a
+  skill. Do not invoke package managers, download tools, archive extractors, or
+  equivalent dependency commands from the agent.
+- Use `request_skill_install` for provider refs such as
+  `clawhub:github-reviewer@1.2.0`. ClawHub verification is review context, not
+  approval.
+
+Channel rendering rules:
+
+- Slack renders approvals and questions with Block Kit, buttons, radio buttons,
+  checkboxes or multi-selects, modals for long details, and ephemeral denial for
+  unauthorized users.
+- Telegram renders concise HTML with inline keyboards. Multi-select toggles
+  choices and requires `Done`; long details and file lists are paginated.
+- Teams renders Adaptive Cards with `Action.Execute`. Single-select uses action
+  buttons, multi-select uses `Input.ChoiceSet` plus Done, and approvals update
+  the original card.
+- Web/API renders the same interaction descriptor as cards, tables, modals,
+  file browsers, and audit timelines.
+
 Global options:
 
 ```bash
@@ -157,6 +216,14 @@ channels:
       agents: {}
       log_denied: true
   slack:
+    enabled: false
+    sender_allowlist:
+      default:
+        allow: '*'
+        mode: trigger
+      agents: {}
+      log_denied: true
+  teams:
     enabled: false
     sender_allowlist:
       default:
@@ -225,13 +292,13 @@ Common keys:
 TELEGRAM_BOT_TOKEN=...
 SLACK_BOT_TOKEN=...
 SLACK_APP_TOKEN=...
-ANTHROPIC_BASE_URL=...
+TEAMS_CLIENT_ID=...
+TEAMS_CLIENT_SECRET=...
+TEAMS_TENANT_ID=...
 MYCLAW_DATABASE_URL=...
 ONECLI_DATABASE_URL=...
 SECRET_ENCRYPTION_KEY=<generated base64-encoded 32-byte secret>
 MYCLAW_IPC_AUTH_SECRET=...
-MYCLAW_CREDENTIAL_MODE=onecli
-ONECLI_URL=...
 CHROME_PATH=...
 LOG_LEVEL=info
 ```
@@ -239,9 +306,11 @@ LOG_LEVEL=info
 Use `myclaw config list` to inspect configured keys. Use `myclaw config get
 <KEY> --raw` only when the raw value is required.
 
-Agent runners receive only broker-safe model endpoint settings such as
-`ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL`. Do not pass proxy, certificate, raw
-provider key, database URL, or channel-token values through Model Access.
+Credential broker mode, OneCLI gateway URL, model selection, and provider base
+URLs belong in `settings.yaml`, not `.env`. Agent runners receive only
+broker-safe model endpoint settings projected from typed runtime settings. Do
+not pass proxy, certificate, raw provider key, database URL, or channel-token
+values through Model Access.
 
 ## Direct Edit Workflow
 
@@ -249,7 +318,7 @@ When setting up local services for personal use:
 
 1. Run `myclaw local setup`.
 2. Run `myclaw local doctor`.
-3. Confirm `.env` has `MYCLAW_DATABASE_URL`, `ONECLI_DATABASE_URL`, `ONECLI_URL`, and `SECRET_ENCRYPTION_KEY`.
+3. Confirm `.env` has `MYCLAW_DATABASE_URL`, `ONECLI_DATABASE_URL`, and `SECRET_ENCRYPTION_KEY`; confirm the OneCLI URL is in `settings.yaml`.
 4. Continue with `myclaw setup` or restart with `myclaw restart`.
 5. Confirm with `myclaw status`.
 
@@ -322,7 +391,16 @@ When changing credentials:
     myclaw.log
     myclaw.error.log
   artifacts/
-    skills/
+    provider-sessions/
+  skills/
+    <skill-slug>/
+      SKILL.md
+      ...
+  skill-drafts/
+    <request-id>/
+      <skill-slug>/
+        SKILL.md
+        ...
   agents/
     <agent-folder>/
 ```
@@ -333,6 +411,15 @@ Messaging and interaction:
 
 - `mcp__myclaw__send_message`
 - `mcp__myclaw__ask_user_question`
+
+Capability requests:
+
+- `mcp__myclaw__request_skill_install`
+- `mcp__myclaw__request_skill_proposal`
+- `mcp__myclaw__request_skill_dependency_install`
+- `mcp__myclaw__request_mcp_server`
+- `mcp__myclaw__request_tool_enable`
+- `mcp__myclaw__request_channel_tool_enable`
 
 Service and agents:
 
@@ -494,6 +581,24 @@ myclaw channel connect slack
 myclaw agent add sl:<channel-id> --main --requires-trigger false
 myclaw service restart
 ```
+
+Enable Teams:
+
+```bash
+myclaw channel connect teams
+myclaw agent add teams:<conversation-id> --main --requires-trigger false
+myclaw service restart
+```
+
+Teams setup notes:
+
+- Teams credentials are runtime secrets resolved through `RuntimeSecretProvider`
+  and must not be passed to agent runners.
+- Teams conversations use `teams:` JIDs and `teams_` agent folders.
+- Teams channel or group approvals must preserve tenant, conversation, and
+  reply-chain/thread identity for same-channel checks.
+- Teams approval cards use Adaptive Card `Action.Execute`; do not ask the agent
+  to call Microsoft Graph or Teams SDK APIs directly for capability approval.
 
 External embedding providers are not enabled through MyClaw `.env`. Keep
 embeddings off unless brokered embedding-provider support has been configured

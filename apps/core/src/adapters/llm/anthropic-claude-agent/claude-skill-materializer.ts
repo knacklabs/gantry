@@ -201,11 +201,16 @@ function isValidAssetSkill(
   assets: Array<{ path: string; content: Uint8Array }>,
 ): boolean {
   try {
-    return assets.some(
-      (asset) => normalizeAssetPath(asset.path) === 'SKILL.md',
-    );
-  } catch {
-    return false;
+    const paths = assets.map((asset) => normalizeAssetPath(asset.path));
+    return paths.includes('SKILL.md');
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith('Invalid skill asset path:')
+    ) {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -214,6 +219,7 @@ function sanitizeSkillName(value: string): string {
     .trim()
     .replace(/[^A-Za-z0-9._-]+/g, '-')
     .replace(/-+/g, '-')
+    .replace(/^\.+/, '')
     .slice(0, 120);
   return safe || 'skill';
 }
@@ -248,14 +254,20 @@ function writeAssets(
 }
 
 function normalizeAssetPath(value: string): string {
-  const normalized = value.replace(/\\/g, '/').replace(/^\/+/, '');
+  const normalized = value.replace(/\\/g, '/');
+  const parts = normalized.split('/');
   if (
     !normalized ||
+    normalized.startsWith('/') ||
+    /^[A-Za-z]:\//.test(normalized) ||
     path.posix.isAbsolute(normalized) ||
     normalized.includes('\0') ||
-    normalized.split('/').some((part) => part === '..' || part === '')
+    parts.some(
+      (part) =>
+        part === '..' || part === '.' || part === '' || part.startsWith('.'),
+    )
   ) {
     throw new Error(`Invalid skill asset path: ${value}`);
   }
-  return normalized;
+  return parts.join('/');
 }

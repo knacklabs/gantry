@@ -12,6 +12,7 @@ import {
 function makeRuntimeSettings(enabled: {
   telegram: boolean;
   slack: boolean;
+  teams?: boolean;
   [key: string]: boolean;
 }): RuntimeSettings {
   const allowlist = {
@@ -23,9 +24,12 @@ function makeRuntimeSettings(enabled: {
     channels: {
       telegram: { enabled: enabled.telegram, senderAllowlist: allowlist },
       slack: { enabled: enabled.slack, senderAllowlist: allowlist },
+      teams: { enabled: enabled.teams ?? false, senderAllowlist: allowlist },
       ...Object.fromEntries(
         Object.entries(enabled)
-          .filter(([key]) => key !== 'telegram' && key !== 'slack')
+          .filter(
+            ([key]) => key !== 'telegram' && key !== 'slack' && key !== 'teams',
+          )
           .map(([key, value]) => [
             key,
             { enabled: value, senderAllowlist: allowlist },
@@ -58,12 +62,14 @@ describe('listChannelProviders', () => {
     expect(listChannelProviders().map((provider) => provider.id)).toEqual([
       'app',
       'slack',
+      'teams',
       'telegram',
     ]);
   });
 
   it('resolves enablement from runtime settings', () => {
     const slackProvider = getChannelProvider('slack')!;
+    const teamsProvider = getChannelProvider('teams')!;
     const telegramProvider = getChannelProvider('telegram')!;
     const appProvider = getChannelProvider('app')!;
 
@@ -85,6 +91,16 @@ describe('listChannelProviders', () => {
     expect(
       telegramProvider.isEnabled(
         makeRuntimeSettings({ telegram: false, slack: false }),
+      ),
+    ).toBe(false);
+    expect(
+      teamsProvider.isEnabled(
+        makeRuntimeSettings({ telegram: false, slack: false, teams: true }),
+      ),
+    ).toBe(true);
+    expect(
+      teamsProvider.isEnabled(
+        makeRuntimeSettings({ telegram: false, slack: false, teams: false }),
       ),
     ).toBe(false);
     expect(
@@ -140,8 +156,10 @@ describe('listChannelProviders', () => {
   it('resolves providers by channel id and jid prefix', () => {
     expect(getChannelProvider('telegram')?.id).toBe('telegram');
     expect(getChannelProvider('slack')?.id).toBe('slack');
+    expect(getChannelProvider('teams')?.id).toBe('teams');
     expect(providerForJid('tg:-100123')?.id).toBe('telegram');
     expect(providerForJid('sl:C123456')?.id).toBe('slack');
+    expect(providerForJid('teams:19:abc@thread.v2')?.id).toBe('teams');
     expect(providerForJid('unknown:123')).toBeUndefined();
   });
 

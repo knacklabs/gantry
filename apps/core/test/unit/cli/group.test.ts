@@ -11,9 +11,13 @@ import {
   validateRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
 import { parseRuntimeMemorySnapshotFromRoot } from '@core/config/settings/memory-snapshot.js';
-import { settingsFilePath } from '@core/config/settings/runtime-home.js';
+import {
+  envFilePath,
+  settingsFilePath,
+} from '@core/config/settings/runtime-home.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
+const messagesStore = vi.hoisted(() => new Map<string, any[]>());
 
 vi.mock('@core/cli/runtime-group-db.js', () => ({
   openRuntimeGroupDb: async () => ({
@@ -27,6 +31,8 @@ vi.mock('@core/cli/runtime-group-db.js', () => ({
     },
     getAllRegisteredGroups: async () =>
       Object.fromEntries(groupsStore.entries()),
+    getMessagesSince: async (chatJid: string) =>
+      messagesStore.get(chatJid) || [],
     setRegisteredGroup: async (jid: string, group: any) => {
       groupsStore.set(jid, group);
     },
@@ -116,6 +122,7 @@ let runtimeHome = '';
 beforeEach(() => {
   vi.resetModules();
   groupsStore.clear();
+  messagesStore.clear();
   runtimeHome = createRuntimeHome();
   process.env.MYCLAW_HOME = runtimeHome;
   process.env.MYCLAW_DATABASE_URL =
@@ -403,6 +410,64 @@ describe('group CLI commands', () => {
     const output = infoSpy.mock.calls.at(-1)?.[0] as string;
     expect(output).toContain('Name: Channel Team');
     expect(output).toContain('Trigger: @Kai');
+  });
+
+  it('does not seed Telegram control approver from recent group messages when adding an agent', async () => {
+    vi.resetModules();
+    vi.doMock('@core/cli/telegram.js', () => ({
+      normalizeTelegramChatJid: vi.fn((value: string) => {
+        const trimmed = value.trim();
+        if (!/^-?\d+$/.test(trimmed)) return null;
+        return `tg:${trimmed}`;
+      }),
+      verifyTelegramChatAccess: vi.fn(async () => ({
+        ok: true,
+        message: 'ok',
+        chatTitle: 'Kai',
+      })),
+    }));
+    fs.writeFileSync(
+      envFilePath(runtimeHome),
+      'TELEGRAM_BOT_TOKEN=telegram-token\n',
+      'utf-8',
+    );
+    messagesStore.set('tg:-100123', [
+      {
+        id: 'm1',
+        chat_jid: 'tg:-100123',
+        sender: '5759865942',
+        sender_name: 'Ravi',
+        content: 'hello',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        is_from_me: false,
+        is_bot_message: false,
+      },
+    ]);
+
+    try {
+      const { runAgentCommand } = await import('@core/cli/group.js');
+      expect(
+        await runAgentCommand(runtimeHome, [
+          'add',
+          '-100123',
+          '--name',
+          'Kai',
+          '--folder',
+          'kai_tg_100123',
+          '--no-test-message',
+        ]),
+      ).toBe(0);
+
+      const settings = loadRuntimeSettingsFromPath(
+        settingsFilePath(runtimeHome),
+      );
+      expect(
+        settings.channels.telegram.controlAllowlist.agents.kai_tg_100123,
+      ).toBeUndefined();
+    } finally {
+      vi.doUnmock('@core/cli/telegram.js');
+      vi.resetModules();
+    }
   });
 
   it('persists the configurable main agent name', async () => {

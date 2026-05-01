@@ -343,11 +343,11 @@ describe('cli telegram helpers', () => {
     expect(result.ok).toBe(true);
     expect(result.chats).toHaveLength(2);
     expect(result.chats[0]?.chatJid).toBe('tg:99887766');
-    expect('adminSenderId' in result.chats[0]!).toBe(false);
-    expect('adminSenderName' in result.chats[0]!).toBe(false);
+    expect(result.chats[0]?.lastSenderId).toBe('5759865942');
+    expect(result.chats[0]?.lastSenderName).toBe('Ravi');
     expect(result.chats[1]?.chatJid).toBe('tg:-100123');
-    expect('adminSenderId' in result.chats[1]!).toBe(false);
-    expect('adminSenderName' in result.chats[1]!).toBe(false);
+    expect(result.chats[1]?.lastSenderId).toBe('5759865942');
+    expect(result.chats[1]?.lastSenderName).toBe('Ravi');
   });
 
   it('does not leak token-bearing transport details when discovery fails', async () => {
@@ -740,6 +740,12 @@ describe('cli telegram helpers', () => {
     expect(claude).toContain('query-retrieved memory context');
     expect(claude).toContain(
       'When the user says "continue", call memory_search before guessing.',
+    );
+    expect(claude).toContain(
+      'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, request_tool_enable, or request_channel_tool_enable for capability changes.',
+    );
+    expect(claude).toContain(
+      'Main/admin agents may use service_restart after approved changes and register_agent for channel binding.',
     );
     expect(soul).toContain('# Soul - Who You Are');
     expect(soul).toContain('- **Name:** Kai Telegram');

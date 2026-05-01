@@ -248,16 +248,14 @@ export async function runMessagePollingTick(
             .catch((err: unknown) =>
               logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
             );
-          const progressPromise = progressThreadId
-            ? deps.sendProgressUpdate(
-                chatJid,
-                'Still working on it, got your follow-up.',
-                { threadId: progressThreadId },
-              )
-            : deps.sendProgressUpdate(
-                chatJid,
-                'Still working on it, got your follow-up.',
-              );
+          const progressPromise = deps.sendProgressUpdate(
+            chatJid,
+            'Got your follow-up.',
+            {
+              ...(progressThreadId ? { threadId: progressThreadId } : {}),
+              replaceOnly: true,
+            },
+          );
           progressPromise.catch((err: unknown) =>
             logger.warn(
               { chatJid, err },

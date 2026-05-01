@@ -464,17 +464,17 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'loads external MCP config from a private file and removes the handoff file',
+    'loads direct runtime MCP config from a private file and removes the handoff file',
     async () => {
       const fixture = createRunnerFixture();
       const mcpConfigPath = path.join(fixture.root, 'mcp-config.json');
       fs.writeFileSync(
         mcpConfigPath,
         JSON.stringify({
-          github: {
-            type: 'http',
-            url: 'https://93.184.216.34/github',
-            headers: { Authorization: 'broker-token' },
+          agent_browser: {
+            type: 'stdio',
+            command: '/tmp/playwright-mcp',
+            args: ['--cdp-endpoint', 'http://127.0.0.1:4567'],
           },
         }),
       );
@@ -483,16 +483,16 @@ describe('agent-runner IPC lifecycle', () => {
         TEST_EXIT_AFTER_QUERY: '1',
         MYCLAW_MCP_CONFIG_FILE: mcpConfigPath,
         MYCLAW_MCP_ALLOWED_TOOLS_JSON: JSON.stringify([
-          'mcp__github__search_repositories',
+          'mcp__agent_browser__*',
         ]),
       });
 
       expect(result.exitCode).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
-      expect(call?.mcpServers.github).toEqual({
-        type: 'http',
-        url: 'https://93.184.216.34/github',
-        headers: { Authorization: 'broker-token' },
+      expect(call?.mcpServers.agent_browser).toEqual({
+        type: 'stdio',
+        command: '/tmp/playwright-mcp',
+        args: ['--cdp-endpoint', 'http://127.0.0.1:4567'],
       });
       expect(call?.sdkEnv.MYCLAW_MCP_CONFIG_FILE).toBeUndefined();
       expect(fs.existsSync(mcpConfigPath)).toBe(false);
@@ -598,7 +598,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'disables SDK session persistence and resume options',
+    'resumes persisted SDK sessions for live channel turns',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -612,15 +612,15 @@ describe('agent-runner IPC lifecycle', () => {
 
       expect(result.exitCode).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
-      expect(call?.persistSession).toBe(false);
-      expect(call?.resume).toBeUndefined();
+      expect(call?.persistSession).toBe(true);
+      expect(call?.resume).toBe('stale-sdk-session');
       expect(call?.resumeSessionAt).toBeUndefined();
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
 
   it(
-    'routes /compact through the live streaming SDK session without persistence or resume',
+    'routes /compact through the live streaming SDK session with persistence',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -633,7 +633,7 @@ describe('agent-runner IPC lifecycle', () => {
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.promptKind).toBe('stream');
       expect(call?.streamMessages?.[0]).toBe('/compact');
-      expect(call?.persistSession).toBe(false);
+      expect(call?.persistSession).toBe(true);
       expect(call?.resume).toBeUndefined();
       expect(call?.resumeSessionAt).toBeUndefined();
     },

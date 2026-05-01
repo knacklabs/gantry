@@ -337,14 +337,35 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
   }
 
   private async startPollingWithLease(): Promise<void> {
-    if (!this.bot || this.isStopping || this.pollingLease) return;
+    if (
+      !this.bot ||
+      this.isStopping ||
+      this.pollingLease ||
+      this.pollingStartInFlight
+    ) {
+      return;
+    }
+    this.pollingStartInFlight = true;
     if (!this.botToken.trim()) {
+      this.pollingStartInFlight = false;
       logger.error('Telegram polling cannot start without a bot token');
       return;
     }
     const leaseKey = `telegram:poll:${createHash('sha256').update(this.botToken).digest('hex').slice(0, TELEGRAM_POLL_LEASE_HASH_CHARS)}`;
-    const lease = await this.opts.runtimeLease?.tryAcquire(leaseKey);
+    let lease;
+    try {
+      lease = await this.opts.runtimeLease?.tryAcquire(leaseKey);
+    } catch (err) {
+      this.pollingStartInFlight = false;
+      logger.warn(
+        { err, leaseKey },
+        'Telegram polling lease acquisition failed; scheduling retry',
+      );
+      this.schedulePollingRetry();
+      return;
+    }
     if (!lease && this.opts.runtimeLease) {
+      this.pollingStartInFlight = false;
       logger.warn(
         { leaseKey },
         'Telegram polling lease is held by another runtime; skipping poller start',
@@ -365,6 +386,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
     });
 
     if (this.isTelegramBotRunning()) {
+      this.pollingStartInFlight = false;
       logger.info(
         { leaseKey },
         'Telegram poller already running; retaining polling lease',
@@ -372,24 +394,29 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
       return;
     }
 
-    Promise.resolve(
-      this.bot.start({
-        onStart: (botInfo) => {
-          logger.info(
-            { username: botInfo.username, id: botInfo.id },
-            'Telegram bot connected',
-          );
-          logger.info(
-            {
-              username: botInfo.username,
-              hint: 'Send /chatid to the bot to get a chat registration ID',
-            },
-            'Telegram bot connection hint',
-          );
-        },
-      }),
-    )
+    const pollingRun = this.bot.start({
+      onStart: (botInfo) => {
+        logger.info(
+          { username: botInfo.username, id: botInfo.id },
+          'Telegram bot connected',
+        );
+        logger.info(
+          {
+            username: botInfo.username,
+            hint: 'Send /chatid to the bot to get a chat registration ID',
+          },
+          'Telegram bot connection hint',
+        );
+      },
+    });
+    if (!pollingRun || typeof pollingRun.then !== 'function') {
+      this.pollingStartInFlight = false;
+      return;
+    }
+
+    Promise.resolve(pollingRun)
       .then(() => {
+        this.pollingStartInFlight = false;
         if (this.isTelegramBotRunning()) {
           logger.info(
             { leaseKey },
@@ -403,6 +430,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
         this.schedulePollingRetry();
       })
       .catch((err) => {
+        this.pollingStartInFlight = false;
         void this.releasePollingLease();
         if (this.isStopping) return;
         logger.error({ err }, 'Telegram polling failed');

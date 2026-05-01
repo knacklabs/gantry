@@ -15,6 +15,7 @@ import {
 } from '../domain/types.js';
 import type { RuntimeSettings } from '../config/settings/runtime-settings.js';
 import type { RuntimeLeasePort } from '../domain/ports/runtime-lease.js';
+import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provider.js';
 
 export interface ChannelOpts {
   onMessage: OnInboundMessage;
@@ -22,6 +23,7 @@ export interface ChannelOpts {
   registeredGroups: () => Record<string, RegisteredGroup>;
   runtimeSettings?: () => RuntimeSettings;
   runtimeLease?: RuntimeLeasePort;
+  runtimeSecrets?: RuntimeSecretProvider;
 }
 
 export type MaybePromise<T> = T | Promise<T>;

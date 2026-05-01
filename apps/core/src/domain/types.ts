@@ -167,6 +167,7 @@ export interface PermissionApprovalRequest {
   decisionReason?: string;
   blockedPath?: string;
   toolInput?: Record<string, unknown>;
+  interaction?: InteractionDescriptor;
 }
 
 export interface PermissionApprovalDecision {
@@ -191,14 +192,108 @@ export interface UserQuestionItem {
 export interface UserQuestionRequest {
   requestId: string;
   sourceGroup: string;
+  targetJid?: string;
   threadId?: string;
   questions: UserQuestionItem[];
+  interaction?: InteractionDescriptor;
 }
 
 export interface UserQuestionResponse {
   requestId: string;
   answers: Record<string, string | string[]>;
   answeredBy?: string;
+}
+
+export type InteractionSeverity =
+  | 'info'
+  | 'success'
+  | 'warning'
+  | 'error'
+  | 'critical';
+
+export type InteractionSelectionMode = 'none' | 'single' | 'multi';
+
+export interface InteractionOption {
+  id: string;
+  label: string;
+  description?: string;
+  preview?: string;
+  selected?: boolean;
+  disabled?: boolean;
+}
+
+export interface InteractionAction {
+  id: string;
+  label: string;
+  kind: 'submit' | 'approve' | 'deny' | 'cancel' | 'open' | 'secondary';
+  style?: 'primary' | 'danger' | 'default';
+  value?: Record<string, unknown>;
+}
+
+export interface InteractionDetail {
+  label: string;
+  value: string;
+  mono?: boolean;
+}
+
+export interface InteractionFile {
+  path: string;
+  sizeBytes?: number;
+  contentHash?: string;
+  contentType?: string;
+  preview?: string;
+  truncated?: boolean;
+}
+
+export interface InteractionDependency {
+  ecosystem: 'npm' | 'brew' | 'go' | 'uv' | 'download' | string;
+  name: string;
+  version?: string;
+  commandArgv?: string[];
+  risk?: InteractionSeverity;
+}
+
+export interface InteractionAuditSummary {
+  actor?: string;
+  action: string;
+  at?: string;
+  reason?: string;
+}
+
+export interface InteractionResult {
+  status:
+    | 'pending'
+    | 'approved'
+    | 'denied'
+    | 'expired'
+    | 'failed'
+    | 'completed';
+  message?: string;
+  decidedBy?: string;
+  decidedAt?: string;
+}
+
+export interface InteractionDescriptor {
+  id: string;
+  title: string;
+  body?: string;
+  severity?: InteractionSeverity;
+  requestContext?: {
+    requestId?: string;
+    sourceGroup?: string;
+    targetJid?: string;
+    threadId?: string;
+    toolName?: string;
+    capabilityType?: string;
+  };
+  options?: InteractionOption[];
+  selectionMode?: InteractionSelectionMode;
+  actions?: InteractionAction[];
+  details?: InteractionDetail[];
+  files?: InteractionFile[];
+  dependencies?: InteractionDependency[];
+  auditSummary?: InteractionAuditSummary[];
+  result?: InteractionResult;
 }
 
 export interface StreamingChunkOptions {

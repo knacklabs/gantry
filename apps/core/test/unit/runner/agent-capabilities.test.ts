@@ -6,8 +6,44 @@ import {
   type AgentCapabilityProvider,
 } from '@agent-runner-src/agent-capabilities.js';
 
+const SAFE_DEFAULT_ALLOWED_TOOLS = [
+  'Read',
+  'Glob',
+  'Grep',
+  'WebSearch',
+  'WebFetch',
+  'Task',
+  'TaskOutput',
+  'TaskStop',
+  'ToolSearch',
+  'Skill',
+  'EnterWorktree',
+  'ExitWorktree',
+  'mcp__myclaw__send_message',
+  'mcp__myclaw__ask_user_question',
+  'mcp__myclaw__request_skill_install',
+  'mcp__myclaw__request_skill_proposal',
+  'mcp__myclaw__request_skill_dependency_install',
+  'mcp__myclaw__request_mcp_server',
+  'mcp__myclaw__request_tool_enable',
+  'mcp__myclaw__request_channel_tool_enable',
+  'mcp__myclaw__mcp_list_tools',
+  'mcp__myclaw__mcp_call_tool',
+  'mcp__myclaw__service_restart',
+  'mcp__myclaw__register_agent',
+] as const;
+
+const DANGEROUS_DEFAULT_TOOLS = [
+  'Bash',
+  'Write',
+  'Edit',
+  'NotebookEdit',
+  'Config',
+  'mcp__myclaw__*',
+] as const;
+
 describe('agent capability composition', () => {
-  it('keeps the default built-in tools and myclaw MCP server wiring', () => {
+  it('uses exact safe defaults and myclaw MCP server wiring', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:team',
@@ -19,13 +55,15 @@ describe('agent capability composition', () => {
       ipcResponseVerifyKey: 'verify-key',
     });
 
-    expect(profile.allowedTools).toContain('Bash');
-    expect(profile.allowedTools).toContain('mcp__myclaw__*');
+    expect(profile.allowedTools).toEqual(SAFE_DEFAULT_ALLOWED_TOOLS);
+    for (const tool of DANGEROUS_DEFAULT_TOOLS) {
+      expect(profile.allowedTools).not.toContain(tool);
+    }
     expect(profile.permissionMode).toBe('default');
-    expect(profile.alwaysAllowedTools).toEqual(
-      expect.arrayContaining(['EnterWorktree', 'ExitWorktree']),
-    );
-    expect(profile.alwaysAllowedTools).not.toContain('Config');
+    expect(profile.alwaysAllowedTools).toEqual([
+      'EnterWorktree',
+      'ExitWorktree',
+    ]);
     expect(profile.mcpServers.myclaw).toEqual({
       command: 'node',
       args: ['/tmp/ipc-mcp-stdio.js'],
@@ -61,11 +99,12 @@ describe('agent capability composition', () => {
       [...BUILTIN_AGENT_CAPABILITY_PROVIDERS, extraProvider],
     );
     expect(profile.allowedTools).toContain('CustomTool');
-    expect(profile.allowedTools).toContain('mcp__myclaw__*');
+    expect(profile.allowedTools).toContain('mcp__myclaw__send_message');
+    expect(profile.allowedTools).not.toContain('mcp__myclaw__*');
     expect(profile.alwaysAllowedTools).toContain('CustomTool');
   });
 
-  it('merges approved external MCP servers without overriding the built-in server', () => {
+  it('does not expose approved third-party MCP servers as direct SDK tools', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:team',
@@ -84,13 +123,11 @@ describe('agent capability composition', () => {
     expect(profile.mcpServers.myclaw).toMatchObject({
       command: 'node',
     });
-    expect(profile.mcpServers.github).toEqual({
-      type: 'http',
-      url: 'https://mcp.example.test/github',
-      headers: { Authorization: 'broker-safe-token' },
-    });
-    expect(profile.allowedTools).toContain('mcp__myclaw__*');
-    expect(profile.allowedTools).toContain('mcp__github__search_repositories');
+    expect(profile.mcpServers.github).toBeUndefined();
+    expect(profile.allowedTools).toEqual([...SAFE_DEFAULT_ALLOWED_TOOLS]);
+    expect(profile.allowedTools).not.toContain(
+      'mcp__github__search_repositories',
+    );
   });
 
   it('treats runtime-projected MCP servers as configured MCP input', () => {
@@ -114,6 +151,7 @@ describe('agent capability composition', () => {
       command: '/tmp/playwright-mcp',
       args: ['--cdp-endpoint', 'http://127.0.0.1:4567'],
     });
+    expect(profile.allowedTools).not.toContain('mcp__myclaw__*');
     expect(profile.allowedTools).toContain('mcp__agent_browser__*');
   });
 });
