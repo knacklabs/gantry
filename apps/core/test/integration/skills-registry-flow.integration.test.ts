@@ -25,6 +25,11 @@ vi.mock('@core/config/index.js', () => ({
   MYCLAW_HOME: '/tmp/myclaw-skills-integration-home',
   ONECLI_ALLOWED_ENV_KEYS: [],
   MYCLAW_IPC_AUTH_SECRET: 'test-ipc-secret',
+  getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
+  getDefaultModelConfig: vi.fn(() => ({
+    model: 'opus',
+    source: 'system default',
+  })),
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({

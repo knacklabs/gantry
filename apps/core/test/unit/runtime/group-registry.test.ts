@@ -204,7 +204,7 @@ describe('setGroupModelOverride', () => {
 
   it('does nothing when model is unchanged', () => {
     groups['g1@g.us'] = makeGroup({
-      agentConfig: { model: 'claude-sonnet-4-6' },
+      agentConfig: { model: 'sonnet' },
     });
     setGroupModelOverride(groups, 'g1@g.us', 'sonnet', persist);
     expect(persist).not.toHaveBeenCalled();
@@ -221,18 +221,18 @@ describe('setGroupModelOverride', () => {
     setGroupModelOverride(groups, 'g1@g.us', 'haiku', persist);
 
     expect(groups['g1@g.us'].agentConfig).toEqual({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'haiku',
     });
     expect(persist).toHaveBeenCalledWith('g1@g.us', groups['g1@g.us']);
   });
 
   it('overwrites existing model', () => {
     groups['g1@g.us'] = makeGroup({
-      agentConfig: { model: 'claude-haiku-4-5-20251001' },
+      agentConfig: { model: 'haiku' },
     });
     setGroupModelOverride(groups, 'g1@g.us', 'opus', persist);
 
-    expect(groups['g1@g.us'].agentConfig?.model).toBe('claude-opus-4-7');
+    expect(groups['g1@g.us'].agentConfig?.model).toBe('opus');
     expect(persist).toHaveBeenCalled();
   });
 

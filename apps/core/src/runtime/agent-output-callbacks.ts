@@ -4,6 +4,7 @@ export function isAgentTurnCompleteMarker(result: AgentOutput): boolean {
   return (
     result.status === 'success' &&
     !result.result &&
+    !result.usage &&
     !result.compactBoundary &&
     !result.interactionBoundary
   );

@@ -428,7 +428,7 @@ export async function runJob(
                 deliveredAnyOutput = true;
               }
             }
-            if (streamedOutput.status === 'success') {
+            if (streamedOutput.status === 'success' && !streamedOutput.usage) {
               if (await finalizeStreaming()) deliveredAnyOutput = true;
             }
             if (streamedOutput.status === 'error') {

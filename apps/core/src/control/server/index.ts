@@ -9,10 +9,11 @@ import type {
 import type { RuntimeApp } from '../../app/bootstrap/runtime-app.js';
 import {
   MYCLAW_HOME,
+  getControlEnvValue,
+  getDefaultModelConfig,
   getPublicRuntimeSettings,
   updatePublicRuntimeSettings,
 } from '../../config/index.js';
-import { envValueDynamic } from '../../config/env/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import { canAccessApp, jobBelongsToApp, makeAppGroup } from './app-identity.js';
@@ -125,11 +126,15 @@ function updateRuntimeSettings(
 export function startControlServer(input: {
   app: RuntimeApp;
 }): ControlServerHandle {
-  const keys = parseControlApiKeys();
+  const keys = parseControlApiKeys({
+    rawJson: getControlEnvValue('MYCLAW_CONTROL_API_KEYS_JSON'),
+    rawSingle: getControlEnvValue('MYCLAW_CONTROL_API_KEY'),
+    singleAppId: getControlEnvValue('MYCLAW_CONTROL_APP_ID'),
+  });
   const socketPath =
-    envValueDynamic('MYCLAW_CONTROL_SOCKET_PATH') ||
+    getControlEnvValue('MYCLAW_CONTROL_SOCKET_PATH') ||
     path.join(MYCLAW_HOME, 'run', 'control.sock');
-  const port = Number(envValueDynamic('MYCLAW_CONTROL_PORT') || 0);
+  const port = Number(getControlEnvValue('MYCLAW_CONTROL_PORT') || 0);
   const state: ControlServerState = {
     activeStreams: 0,
     activeWaits: 0,
@@ -148,6 +153,7 @@ export function startControlServer(input: {
     triggerRateLimiter: createRateLimiter(),
     getRuntimeSettings: () => getPublicRuntimeSettings(),
     updateRuntimeSettings,
+    getDefaultModelConfig,
   };
 
   const server = http.createServer(createControlRequestHandler(ctx));

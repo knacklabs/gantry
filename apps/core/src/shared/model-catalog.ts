@@ -10,6 +10,7 @@ export type NormalizedCacheProvider =
   | 'anthropic'
   | 'openrouter-provider'
   | 'openrouter-response'
+  | 'mixed'
   | 'none';
 
 export type NormalizedCacheStatus =
@@ -429,7 +430,17 @@ export function normalizeModelUsage(input: {
     let cacheReadTokens = 0;
     let cacheWriteTokens = 0;
     let estimatedCostUsd = 0;
-    const firstModel = Object.keys(result.modelUsage)[0] ?? input.fallbackModel;
+    const modelNames = Object.keys(result.modelUsage);
+    const firstModel = modelNames[0] ?? input.fallbackModel;
+    const entries = modelNames
+      .map((model) => findModelByRunnerModel(model))
+      .filter((entry): entry is ModelCatalogEntry => Boolean(entry));
+    const providerSet = new Set(entries.map((entry) => entry.provider));
+    const cacheProviderSet = new Set(
+      entries.map((entry) =>
+        entry.provider === 'openrouter' ? 'openrouter-provider' : 'anthropic',
+      ),
+    );
     for (const usage of Object.values(result.modelUsage)) {
       inputTokens += numeric(usage.inputTokens);
       outputTokens += numeric(usage.outputTokens);
@@ -438,9 +449,15 @@ export function normalizeModelUsage(input: {
       estimatedCostUsd += numeric(usage.costUSD);
     }
     const entry = findModelByRunnerModel(firstModel ?? input.fallbackModel);
+    const isMixedModel = modelNames.length > 1;
     return {
-      model: entry?.recommendedAlias ?? firstModel,
-      provider: entry?.provider,
+      model: isMixedModel ? 'mixed' : (entry?.recommendedAlias ?? firstModel),
+      provider:
+        providerSet.size === 1
+          ? [...providerSet][0]
+          : isMixedModel
+            ? undefined
+            : entry?.provider,
       inputTokens,
       outputTokens,
       cacheReadTokens,
@@ -449,7 +466,11 @@ export function normalizeModelUsage(input: {
       estimatedCostUsd:
         estimatedCostUsd > 0 ? estimatedCostUsd : result.total_cost_usd,
       cacheProvider:
-        entry?.provider === 'openrouter' ? 'openrouter-provider' : 'anthropic',
+        cacheProviderSet.size === 1
+          ? [...cacheProviderSet][0]
+          : entries.length === 0
+            ? 'anthropic'
+            : 'mixed',
       cacheStatus: normalizeCacheStatus(
         cacheReadTokens,
         cacheWriteTokens,

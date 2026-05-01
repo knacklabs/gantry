@@ -206,6 +206,25 @@ describe('resolveClaudeAuthState', () => {
     expect(raw).toContain('enabled: false');
   });
 
+  it('rejects raw or unknown model values in public runtime settings', async () => {
+    createRuntimeHome('onecli');
+    vi.resetModules();
+
+    const { updatePublicRuntimeSettings } =
+      await import('@core/config/index.js');
+
+    expect(() =>
+      updatePublicRuntimeSettings({
+        agent: { defaultModel: 'claude-sonnet-4-6' },
+      }),
+    ).toThrow(/Provider model ID "claude-sonnet-4-6" is not accepted/);
+    expect(() =>
+      updatePublicRuntimeSettings({
+        agent: { oneTimeJobDefaultModel: 'sonet' },
+      }),
+    ).toThrow(/Did you mean "sonnet"/);
+  });
+
   it('returns no-op metadata when a typed settings patch is unchanged', async () => {
     createRuntimeHome('onecli');
     vi.resetModules();

@@ -5,8 +5,16 @@ import {
   CLAUDE_CODE_MODEL_PIN_ENV,
   CLAUDE_CODE_MODEL_PIN_ENV_KEYS,
 } from '../models/claude-model-registry.js';
-import { resolveModelAlias } from '../shared/model-catalog.js';
-import { envConfig, envValue, runtimeEnvValue } from './env/index.js';
+import {
+  resolveModelAlias,
+  resolveModelSelection,
+} from '../shared/model-catalog.js';
+import {
+  envConfig,
+  envValue,
+  envValueDynamic,
+  runtimeEnvValue,
+} from './env/index.js';
 import { parseBooleanEnv } from './env/parse.js';
 import { getMemoryModelConfig } from './memory.js';
 import { getMyclawHome } from '../shared/myclaw-home.js';
@@ -23,6 +31,17 @@ import { isValidTimezone } from '../shared/timezone.js';
 export * from './memory.js';
 
 export const POLL_INTERVAL = 2000;
+
+export type ControlEnvKey =
+  | 'MYCLAW_CONTROL_API_KEYS_JSON'
+  | 'MYCLAW_CONTROL_API_KEY'
+  | 'MYCLAW_CONTROL_APP_ID'
+  | 'MYCLAW_CONTROL_PORT'
+  | 'MYCLAW_CONTROL_SOCKET_PATH';
+
+export function getControlEnvValue(key: ControlEnvKey): string {
+  return envValueDynamic(key);
+}
 
 const MYCLAW_HOME_RAW =
   process.env.MYCLAW_HOME?.trim() || envConfig.MYCLAW_HOME?.trim() || '';
@@ -131,21 +150,30 @@ export function updatePublicRuntimeSettings(patch: {
     }
   }
   if (patch.agent?.defaultModel !== undefined) {
-    const next = patch.agent.defaultModel.trim();
+    const next = normalizeSettingsModelPatch(
+      patch.agent.defaultModel,
+      'agent.defaultModel',
+    );
     if (settings.agent.defaultModel !== next) {
       settings.agent.defaultModel = next;
       changed.push('agent.defaultModel');
     }
   }
   if (patch.agent?.oneTimeJobDefaultModel !== undefined) {
-    const next = patch.agent.oneTimeJobDefaultModel.trim();
+    const next = normalizeSettingsModelPatch(
+      patch.agent.oneTimeJobDefaultModel,
+      'agent.oneTimeJobDefaultModel',
+    );
     if (settings.agent.oneTimeJobDefaultModel !== next) {
       settings.agent.oneTimeJobDefaultModel = next;
       changed.push('agent.oneTimeJobDefaultModel');
     }
   }
   if (patch.agent?.recurringJobDefaultModel !== undefined) {
-    const next = patch.agent.recurringJobDefaultModel.trim();
+    const next = normalizeSettingsModelPatch(
+      patch.agent.recurringJobDefaultModel,
+      'agent.recurringJobDefaultModel',
+    );
     if (settings.agent.recurringJobDefaultModel !== next) {
       settings.agent.recurringJobDefaultModel = next;
       changed.push('agent.recurringJobDefaultModel');
@@ -174,6 +202,19 @@ export function updatePublicRuntimeSettings(patch: {
     changed,
     restartRequired: changed.length > 0,
   };
+}
+
+function normalizeSettingsModelPatch(value: string, field: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const resolved = resolveModelSelection(trimmed);
+  if (!resolved.ok) {
+    throw Object.assign(new Error(`${field}: ${resolved.message}`), {
+      statusCode: 400,
+      code: 'INVALID_REQUEST',
+    });
+  }
+  return resolved.alias;
 }
 
 export const STORE_DIR = path.resolve(RUNTIME_ROOT, 'store');

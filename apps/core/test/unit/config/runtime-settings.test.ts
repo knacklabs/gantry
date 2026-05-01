@@ -5,6 +5,7 @@ import {
   parseRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
 import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
+import { validateLoadedRuntimeSettings } from '@core/config/settings/runtime-settings-validation.js';
 
 describe('runtime settings', () => {
   it('defaults, renders, and parses agent.name', () => {
@@ -43,6 +44,25 @@ describe('runtime settings', () => {
     );
     expect(() => parseRuntimeSettings(yaml)).toThrow(
       'agent.raw_env is not supported',
+    );
+  });
+
+  it('validates model defaults against the model catalog', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agent.defaultModel = 'claude-opus-4-7';
+    settings.agent.oneTimeJobDefaultModel = 'sonet';
+
+    const result = validateLoadedRuntimeSettings(
+      '/tmp/myclaw-missing',
+      settings,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.failure?.details.join('\n')).toContain(
+      'agent.default_model is invalid: Provider model ID "claude-opus-4-7" is not accepted here.',
+    );
+    expect(result.failure?.details.join('\n')).toContain(
+      'agent.one_time_job_default_model is invalid: Unknown model "sonet". Did you mean "sonnet"?',
     );
   });
 });

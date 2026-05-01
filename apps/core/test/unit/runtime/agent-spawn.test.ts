@@ -6,6 +6,7 @@ import { PassThrough } from 'stream';
 const OUTPUT_START_MARKER = '---MYCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---MYCLAW_OUTPUT_END---';
 const mockGetBrowserStatus = vi.hoisted(() => vi.fn());
+const mockMaterializeClaudeRuntime = vi.hoisted(() => vi.fn());
 
 // Mock config
 vi.mock('@core/config/index.js', () => ({
@@ -72,6 +73,13 @@ vi.mock('@core/runtime/agent-spawn-host.js', () => ({
     runnerDistDir: '/tmp/myclaw-home/dist/runner',
   })),
 }));
+
+vi.mock(
+  '@core/adapters/llm/anthropic-claude-agent/claude-config-materializer.js',
+  () => ({
+    materializeClaudeRuntime: mockMaterializeClaudeRuntime,
+  }),
+);
 
 const mockEnsureGroupIpcLayout = vi.fn();
 vi.mock('@core/runtime/agent-spawn-layout.js', () => ({
@@ -294,6 +302,11 @@ describe('agent-spawn timeout behavior', () => {
       running: false,
       cdpReady: false,
     });
+    mockMaterializeClaudeRuntime.mockReset();
+    mockMaterializeClaudeRuntime.mockImplementation(async (input: any) => ({
+      claudeConfigDir: `${input.groupDir}/.claude-runtime/claude`,
+      cleanup: vi.fn(),
+    }));
   });
 
   afterEach(() => {
@@ -483,6 +496,7 @@ describe('agent-spawn timeout behavior', () => {
 
     expect(result.status).toBe('error');
     expect(result.error).toContain('requires an OpenRouter credential');
+    expect(mockMaterializeClaudeRuntime).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();
   });
 

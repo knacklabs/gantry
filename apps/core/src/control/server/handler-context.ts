@@ -16,6 +16,11 @@ export type ControlServerState = {
   activeTriggerWaits: number;
 };
 
+export type ControlDefaultModelConfig = {
+  model?: string;
+  source: string;
+};
+
 export type ControlRouteContext = {
   app: RuntimeApp;
   keys: ApiKeyRecord[];
@@ -30,6 +35,9 @@ export type ControlRouteContext = {
   updateRuntimeSettings: (
     patch: UpdateRuntimeSettingsRequest,
   ) => UpdateRuntimeSettingsResponse;
+  getDefaultModelConfig: (
+    kind?: 'interactive' | 'oneTimeJob' | 'recurringJob',
+  ) => ControlDefaultModelConfig;
 };
 
 export function authorizeControlRequest(

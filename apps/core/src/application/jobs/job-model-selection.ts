@@ -16,16 +16,16 @@ export function resolveOptionalJobModel(value: unknown): string | undefined {
   return resolved.alias;
 }
 
+function hasModelValue(value: unknown): boolean {
+  return value !== undefined && value !== null && value !== '';
+}
+
 export function resolveRequestedJobModel(
   modelAlias: unknown,
   modelProfileId: unknown,
 ): string | undefined {
-  const hasAlias =
-    modelAlias !== undefined && modelAlias !== null && modelAlias !== '';
-  const hasProfile =
-    modelProfileId !== undefined &&
-    modelProfileId !== null &&
-    modelProfileId !== '';
+  const hasAlias = hasModelValue(modelAlias);
+  const hasProfile = hasModelValue(modelProfileId);
   if (hasAlias && hasProfile) {
     throw new ApplicationError(
       'INVALID_REQUEST',

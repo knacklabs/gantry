@@ -1760,6 +1760,13 @@
     "removeByPhase": "canonical-boundary-cleanup-phase"
   },
   {
+    "file": "apps/core/src/application/mcp/mcp-tool-proxy.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "Current MCP proxy owns direct MCP SDK transport calls until the MCP proxy is split behind an adapter port; capped so additional SDK imports fail.",
+    "removeByPhase": "canonical-boundary-cleanup-phase",
+    "maxViolations": 4
+  },
+  {
     "file": "apps/core/src/memory/index.ts",
     "rule": "wrapper_only_file",
     "reason": "Baseline wrapper-only export surface kept temporarily for package/import compatibility during the canonical module cleanup.",

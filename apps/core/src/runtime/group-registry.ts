@@ -4,7 +4,7 @@ import path from 'path';
 import { ASSISTANT_NAME as DEFAULT_ASSISTANT_NAME } from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { RegisteredGroup, ThinkingOverride } from '../domain/types.js';
-import { normalizeClaudeModelSelection } from '../models/claude-model-registry.js';
+import { resolveModelAlias } from '../shared/model-catalog.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import { AvailableGroup } from './agent-spawn.js';
 
@@ -124,7 +124,7 @@ export function setGroupModelOverride(
   const existingGroup = registeredGroups[chatJid];
   if (!existingGroup) return;
 
-  const normalizedModel = normalizeClaudeModelSelection(model);
+  const normalizedModel = resolveModelAlias(model);
   const prevModel = existingGroup.agentConfig?.model;
   if (prevModel === normalizedModel) return;
 

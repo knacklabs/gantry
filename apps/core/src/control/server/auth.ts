@@ -1,7 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { isValidControlId } from '../../application/app-scope/control-id.js';
-import { envValueDynamic } from '../../config/env/index.js';
 
 export type Scope =
   | 'sessions:read'
@@ -66,10 +65,14 @@ function isApiKeyJsonEntry(value: unknown): value is {
   return Boolean(value && typeof value === 'object');
 }
 
-export function parseControlApiKeys(): ApiKeyRecord[] {
-  const rawJson = envValueDynamic('MYCLAW_CONTROL_API_KEYS_JSON');
-  const rawSingle = envValueDynamic('MYCLAW_CONTROL_API_KEY');
-  const singleAppId = envValueDynamic('MYCLAW_CONTROL_APP_ID');
+export function parseControlApiKeys(input: {
+  rawJson?: string;
+  rawSingle?: string;
+  singleAppId?: string;
+}): ApiKeyRecord[] {
+  const rawJson = input.rawJson?.trim() || '';
+  const rawSingle = input.rawSingle?.trim() || '';
+  const singleAppId = input.singleAppId?.trim() || '';
   if (rawJson) {
     let parsed: unknown;
     try {

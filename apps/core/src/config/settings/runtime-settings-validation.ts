@@ -11,6 +11,7 @@ import { readEnvFile } from '../env/file.js';
 import { validateOnecliUrl } from '../../adapters/credentials/onecli/policy.js';
 import { validateExternalBrokerUrl } from '../credentials/broker-url-policy.js';
 import { validateRuntimeEnvPolicy } from '../source-classification.js';
+import { resolveModelSelection } from '../../shared/model-catalog.js';
 import { envFilePath, settingsFilePath } from './runtime-home.js';
 import type {
   RuntimeSettings,
@@ -36,6 +37,21 @@ export function validateLoadedRuntimeSettings(
     details.push(violation.message);
   }
   const credentialMode = settings.credentialBroker.mode;
+  for (const [field, value] of [
+    ['agent.default_model', settings.agent.defaultModel],
+    ['agent.one_time_job_default_model', settings.agent.oneTimeJobDefaultModel],
+    [
+      'agent.recurring_job_default_model',
+      settings.agent.recurringJobDefaultModel,
+    ],
+  ] as const) {
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    const resolved = resolveModelSelection(trimmed);
+    if (!resolved.ok) {
+      details.push(`${field} is invalid: ${resolved.message}`);
+    }
+  }
   const postgresUrlEnv = settings.storage.postgres.urlEnv;
   const postgresUrl =
     env[postgresUrlEnv]?.trim() || process.env[postgresUrlEnv]?.trim() || '';

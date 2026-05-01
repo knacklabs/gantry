@@ -5,6 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@core/config/index.js', () => ({
   MYCLAW_HOME: '/tmp/myclaw-control-test-home',
   ONECLI_ALLOWED_ENV_KEYS: [],
+  getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
+  getDefaultModelConfig: vi.fn(() => ({
+    model: 'opus',
+    source: 'system default',
+  })),
 }));
 
 const schedulerMocks = vi.hoisted(() => ({
@@ -316,6 +321,49 @@ describe('control job trigger', () => {
         next_run: null,
       });
       expect(schedulerMocks.requestSchedulerSync).toHaveBeenCalledWith('job-1');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects conflicting PATCH job model selectors', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    mockMutableJob(makeJob());
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs/job-1`,
+        'token-jobs',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            modelAlias: 'kimi',
+            modelProfileId: 'openrouter:kimi-k2.6',
+          }),
+        },
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'Use either modelAlias or modelProfileId, not both.',
+        },
+      });
+      expect(opsRepo.updateJob).not.toHaveBeenCalled();
     } finally {
       await handle.close();
     }

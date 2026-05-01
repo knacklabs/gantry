@@ -11,6 +11,11 @@ const state = vi.hoisted(() => ({
 vi.mock('@core/config/index.js', () => ({
   MYCLAW_HOME: '/tmp/myclaw-session-control-runs-home',
   ONECLI_ALLOWED_ENV_KEYS: [],
+  getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
+  getDefaultModelConfig: vi.fn(() => ({
+    model: 'opus',
+    source: 'system default',
+  })),
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({

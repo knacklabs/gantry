@@ -83,6 +83,42 @@ describe('model usage normalization', () => {
     expect(typeof usage?.at).toBe('string');
   });
 
+  it('marks aggregate modelUsage from multiple models as mixed', () => {
+    const usage = normalizeModelUsage({
+      message: {
+        modelUsage: {
+          'claude-sonnet-4-6': {
+            inputTokens: 100,
+            outputTokens: 20,
+            cacheReadInputTokens: 40,
+            cacheCreationInputTokens: 10,
+            costUSD: 0.002,
+          },
+          'moonshotai/kimi-k2.6': {
+            inputTokens: 50,
+            outputTokens: 10,
+            cacheReadInputTokens: 20,
+            cacheCreationInputTokens: 0,
+            costUSD: 0.001,
+          },
+        },
+      },
+      fallbackModel: 'claude-sonnet-4-6',
+    });
+
+    expect(usage).toMatchObject({
+      model: 'mixed',
+      provider: undefined,
+      inputTokens: 150,
+      outputTokens: 30,
+      cacheReadTokens: 60,
+      cacheWriteTokens: 10,
+      estimatedCostUsd: 0.003,
+      cacheProvider: 'mixed',
+      cacheStatus: 'partial',
+    });
+  });
+
   it('normalizes OpenRouter usage payload cache details', () => {
     const usage = normalizeModelUsage({
       message: {

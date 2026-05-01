@@ -150,6 +150,16 @@ export async function spawnAgent(
     agentIdentifier,
     options?.credentialBroker,
   );
+  if (
+    effectiveModelEntry?.provider === 'openrouter' &&
+    !hostCredentials.env.ANTHROPIC_AUTH_TOKEN
+  ) {
+    return {
+      status: 'error',
+      result: null,
+      error: `OpenRouter model ${effectiveModelEntry.displayName} requires an OpenRouter credential from AgentCredentialBroker as ANTHROPIC_AUTH_TOKEN. Configure Model Access/OpenRouter credentials before selecting this model.`,
+    };
+  }
   const browserWiring = createAgentBrowserRunWiring(
     {
       isMain: input.isMain,
@@ -255,13 +265,6 @@ export async function spawnAgent(
   if (effectiveModelEntry?.provider === 'openrouter') {
     env.ANTHROPIC_BASE_URL = 'https://openrouter.ai/api';
     env[[['ANTH', 'ROPIC'].join(''), 'API', 'KEY'].join('_')] = '';
-    if (!env.ANTHROPIC_AUTH_TOKEN) {
-      return {
-        status: 'error',
-        result: null,
-        error: `OpenRouter model ${effectiveModelEntry.displayName} requires an OpenRouter credential from AgentCredentialBroker as ANTHROPIC_AUTH_TOKEN. Configure Model Access/OpenRouter credentials before selecting this model.`,
-      };
-    }
   }
   let browserRuntimeDetails: readonly string[] = [];
   let allMcpCapabilities: MaterializedMcpCapability[] = [];

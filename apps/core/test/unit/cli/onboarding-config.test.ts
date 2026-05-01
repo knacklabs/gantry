@@ -86,7 +86,7 @@ describe('onboarding config persistence', () => {
     expect(settings.credentialBroker.mode).toBe('onecli');
     expect(settings.credentialBroker.onecli.url).toBe('http://localhost:10254');
     expect(settings.agent.name).toBe('Kai');
-    expect(settings.agent.defaultModel).toBe('claude-sonnet-4-6');
+    expect(settings.agent.defaultModel).toBe('sonnet');
   });
 
   it('generates a stable OneCLI encryption key when none exists', () => {

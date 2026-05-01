@@ -12,8 +12,8 @@ import {
   runtimeJobSchedulePlanner,
   requestSchedulerSync,
 } from '../../../jobs/scheduler.js';
-import { getDefaultModelConfig } from '../../../config/index.js';
 import { resolveModelSelection } from '../../../shared/model-catalog.js';
+import { resolveRequestedJobModel } from '../../../application/jobs/job-model-selection.js';
 import {
   getRuntimeControlRepository,
   getRuntimeEventExchange,
@@ -131,9 +131,10 @@ function adaptAppSession(
 function modelPreviewFor(input: {
   explicitAlias?: string;
   kind: 'manual' | 'once' | 'recurring';
+  getDefaultModelConfig: ControlRouteContext['getDefaultModelConfig'];
 }) {
   const modelKind = input.kind === 'recurring' ? 'recurringJob' : 'oneTimeJob';
-  const defaultConfig = getDefaultModelConfig(modelKind);
+  const defaultConfig = input.getDefaultModelConfig(modelKind);
   const selected = input.explicitAlias || defaultConfig.model;
   const resolved = selected ? resolveModelSelection(selected) : undefined;
   if (!resolved?.ok) {
@@ -204,6 +205,7 @@ export async function handleJobRoutes(
         ...modelPreviewFor({
           explicitAlias: created.modelAlias,
           kind,
+          getDefaultModelConfig: ctx.getDefaultModelConfig,
         }),
       });
     } catch (error) {
@@ -270,8 +272,11 @@ export async function handleJobRoutes(
       );
       return true;
     }
-    const requestedModel = body.modelAlias ?? body.modelProfileId;
     try {
+      const requestedModel = resolveRequestedJobModel(
+        body.modelAlias,
+        body.modelProfileId,
+      );
       const { job: updated } = await createJobManagementService().updateJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
@@ -285,9 +290,7 @@ export async function handleJobRoutes(
           ...(typeof body.threadId === 'string'
             ? { threadId: body.threadId }
             : {}),
-          ...(typeof requestedModel === 'string'
-            ? { model: requestedModel }
-            : {}),
+          ...(requestedModel ? { model: requestedModel } : {}),
           ...(body.status === 'active' || body.status === 'paused'
             ? { status: body.status }
             : {}),

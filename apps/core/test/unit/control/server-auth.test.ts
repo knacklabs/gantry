@@ -44,6 +44,11 @@ vi.mock('@core/config/index.js', async () => {
   };
   return {
     MYCLAW_HOME: runtimeHome,
+    getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
+    getDefaultModelConfig: vi.fn(() => ({
+      model: 'opus',
+      source: 'system default',
+    })),
     getPublicRuntimeSettings: toPublic,
     updatePublicRuntimeSettings: (patch: any) => {
       const settings = settingsModule.loadRuntimeSettings(runtimeHome);
@@ -583,10 +588,18 @@ afterEach(() => {
 });
 
 describe('control server auth key parsing', () => {
+  function parseControlApiKeysFromEnv() {
+    return _testControlServer.parseControlApiKeys({
+      rawJson: process.env.MYCLAW_CONTROL_API_KEYS_JSON,
+      rawSingle: process.env.MYCLAW_CONTROL_API_KEY,
+      singleAppId: process.env.MYCLAW_CONTROL_APP_ID,
+    });
+  }
+
   it('returns no keys when MYCLAW_CONTROL_API_KEYS_JSON is malformed', () => {
     process.env.MYCLAW_CONTROL_API_KEYS_JSON = '{"kid":"broken"';
 
-    expect(_testControlServer.parseControlApiKeys()).toEqual([]);
+    expect(parseControlApiKeysFromEnv()).toEqual([]);
   });
 
   it('filters out JSON keys that are not app-bound', () => {
@@ -610,7 +623,7 @@ describe('control server auth key parsing', () => {
       },
     ]);
 
-    const keys = _testControlServer.parseControlApiKeys();
+    const keys = parseControlApiKeysFromEnv();
 
     expect(keys).toHaveLength(1);
     expect(keys[0]?.kid).toBe('valid');
@@ -619,13 +632,13 @@ describe('control server auth key parsing', () => {
 
   it('requires MYCLAW_CONTROL_APP_ID for single-token auth', () => {
     process.env.MYCLAW_CONTROL_API_KEY = 'single-token';
-    expect(_testControlServer.parseControlApiKeys()).toHaveLength(0);
+    expect(parseControlApiKeysFromEnv()).toHaveLength(0);
 
     process.env.MYCLAW_CONTROL_APP_ID = 'app:unsafe';
-    expect(_testControlServer.parseControlApiKeys()).toHaveLength(0);
+    expect(parseControlApiKeysFromEnv()).toHaveLength(0);
 
     process.env.MYCLAW_CONTROL_APP_ID = 'app-two';
-    const keys = _testControlServer.parseControlApiKeys();
+    const keys = parseControlApiKeysFromEnv();
     expect(keys).toHaveLength(1);
     expect(keys[0]?.appId).toBe('app-two');
   });

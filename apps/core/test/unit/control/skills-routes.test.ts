@@ -5,6 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@core/config/index.js', () => ({
   MYCLAW_HOME: '/tmp/myclaw-control-test-home',
   ONECLI_ALLOWED_ENV_KEYS: [],
+  getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
+  getDefaultModelConfig: vi.fn(() => ({
+    model: 'opus',
+    source: 'system default',
+  })),
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({

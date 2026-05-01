@@ -14,6 +14,7 @@ export interface RuntimeModelStatusSnapshot {
 }
 
 const snapshots = new Map<string, RuntimeModelStatusSnapshot>();
+const MAX_RUNTIME_MODEL_STATUS_SNAPSHOTS = 500;
 
 function emptyUsage(): NormalizedModelUsage {
   return {
@@ -42,6 +43,7 @@ export function updateRuntimeModelStatus(input: {
 }): void {
   const key = statusKey(input.scopeKey, input.threadId);
   const existing = snapshots.get(key);
+  if (existing) snapshots.delete(key);
   const cumulative = existing?.cumulativeUsage ?? emptyUsage();
   if (input.usage) {
     cumulative.inputTokens += input.usage.inputTokens;
@@ -73,6 +75,11 @@ export function updateRuntimeModelStatus(input: {
     lastUsage: input.usage ?? existing?.lastUsage,
     cumulativeUsage: cumulative,
   });
+  while (snapshots.size > MAX_RUNTIME_MODEL_STATUS_SNAPSHOTS) {
+    const oldest = snapshots.keys().next().value;
+    if (!oldest) break;
+    snapshots.delete(oldest);
+  }
 }
 
 export function getRuntimeModelStatus(input: {
