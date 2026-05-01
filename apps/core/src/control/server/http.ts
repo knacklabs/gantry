@@ -145,6 +145,7 @@ export function sendApplicationError(
       return true;
     case 'INVALID_REQUEST':
     case 'INVALID_SCHEDULE':
+    case 'INVALID_CONTROL_ALLOWLIST':
       sendError(
         res,
         400,

@@ -192,7 +192,11 @@ describe('canonical Postgres persistence cut', () => {
     expect(seed).toContain("provider: 'anthropic'");
     expect(seed).toContain('permission-policy:default');
     expect(seed).toContain('sandbox-profile:local-dev');
-    expect(seed).toContain('tool:memory');
+    expect(seed).toContain('tool:Browser');
+    expect(seed).toMatch(/sdkTool\(\s*'Bash'/);
+    expect(seed).toMatch(/sdkTool\(\s*'ReadMcpResource'/);
+    expect(seed).not.toContain('SubscribeMcpResource');
+    expect(seed).not.toContain('SubscribePolling');
     expect(seed).toContain('skill:memory');
     expect(storage).toContain('seedDefaultRuntimeData(this.db)');
   });

@@ -1,4 +1,10 @@
-import { pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 
 import { agentsPostgres } from './agents.js';
 import { appsPostgres } from './apps.js';
@@ -11,10 +17,17 @@ export const toolCatalogPostgres = pgTable(
       .notNull()
       .references(() => appsPostgres.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    kind: text('kind').notNull().default('host'),
+    provider: text('provider').notNull().default('myclaw'),
+    providerToolName: text('provider_tool_name'),
+    displayName: text('display_name').notNull().default(''),
     description: text('description'),
+    category: text('category').notNull().default('admin'),
     inputSchemaJson: text('input_schema_json').notNull().default('{}'),
     outputSchemaJson: text('output_schema_json').notNull().default('{}'),
     risk: text('risk').notNull(),
+    selectable: boolean('selectable').notNull().default(true),
+    status: text('status').notNull().default('active'),
     permissionPolicyId: text('permission_policy_id'),
     sandboxProfileId: text('sandbox_profile_id'),
     adapterRef: text('adapter_ref').notNull(),

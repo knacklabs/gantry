@@ -58,10 +58,9 @@ async function runSlackSetup(runtimeHome: string): Promise<number> {
   return await mod.runSlackConnectCommand(runtimeHome);
 }
 
-async function runTeamsSetup(): Promise<void> {
-  throw new Error(
-    'Teams interactive setup is not implemented yet. Create a Teams channel installation with TEAMS_CLIENT_ID, TEAMS_CLIENT_SECRET, and TEAMS_TENANT_ID runtime secret refs.',
-  );
+async function runTeamsSetup(runtimeHome: string): Promise<number> {
+  const mod = await import('../cli/teams.js');
+  return await mod.runTeamsConnectCommand(runtimeHome);
 }
 
 function isChannelEnabled(
@@ -117,7 +116,7 @@ const teamsProvider: ChannelProvider = {
   setup: {
     envKeys: ['TEAMS_CLIENT_ID', 'TEAMS_CLIENT_SECRET', 'TEAMS_TENANT_ID'],
     describe: () => 'Microsoft Teams app auth',
-    run: runTeamsSetup,
+    run: (ctx) => runBuiltInSetup('Teams', runTeamsSetup, ctx),
   },
 };
 

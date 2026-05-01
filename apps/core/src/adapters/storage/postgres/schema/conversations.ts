@@ -1,4 +1,10 @@
-import { index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import {
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 
 import { appsPostgres, usersPostgres } from './apps.js';
 
@@ -82,6 +88,36 @@ export const conversationParticipantsPostgres = pgTable(
     conversationIdx: index('idx_conversation_participants_conversation').on(
       table.conversationId,
       table.userId,
+    ),
+  }),
+);
+
+export const channelControlApproversPostgres = pgTable(
+  'channel_control_approvers',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    conversationId: text('conversation_id')
+      .notNull()
+      .references(() => conversationsPostgres.id, { onDelete: 'cascade' }),
+    externalUserId: text('external_user_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    conversationIdx: index('idx_channel_control_approvers_conversation').on(
+      table.conversationId,
+    ),
+    userIdx: uniqueIndex('uniq_channel_control_approvers_user').on(
+      table.appId,
+      table.conversationId,
+      table.externalUserId,
     ),
   }),
 );

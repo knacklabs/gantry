@@ -151,8 +151,12 @@ Notes:
 - `myclaw channel connect slack` auto-discovers accessible conversations and can register one directly.
 - Slack tool permission approvals are deny-by-default until approvers are listed in `channels.slack.control_allowlist` in `settings.yaml`. Guided setup asks for comma-separated Slack member IDs like `U0123456789`; these users can approve tool permissions and answer interactive prompts.
 - Slack UX uses native Slack surfaces (threads, streaming updates, actions).
-- Teams uses Microsoft Teams app auth through `RuntimeSecretProvider`, `teams:`
-  conversation IDs, and Adaptive Card `Action.Execute` approval flows.
+- Teams setup uses Microsoft Teams app auth through `RuntimeSecretProvider`
+  (`TEAMS_CLIENT_ID`, `TEAMS_CLIENT_SECRET`, `TEAMS_TENANT_ID`), discovers
+  Teams channels through Microsoft Graph, and registers `teams:` conversation
+  IDs. Live Teams message transport remains behind the `TeamsSdkClient` adapter
+  seam; this checkout includes tested normalization and Adaptive Card approval
+  scaffolding, but not a concrete Bot Framework transport.
 
 ### Capability Management
 

@@ -40,6 +40,7 @@ import {
   usage,
 } from './group-helpers.js';
 import { printPolicyChannel } from './group-policy-format.js';
+import { runAgentDmAccessCommand } from './agent-dm-access.js';
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -683,6 +684,8 @@ export async function runAgentCommand(
       return runRemove(runtimeHome, rest);
     case 'trigger':
       return runTrigger(runtimeHome, rest);
+    case 'dm-access':
+      return runAgentDmAccessCommand(rest);
     case 'policy':
       return runPolicy(runtimeHome, rest);
     case 'policy-default':

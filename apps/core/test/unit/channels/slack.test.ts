@@ -207,6 +207,39 @@ describe('Slack channel', () => {
     expect(opts.onMessage).not.toHaveBeenCalled();
   });
 
+  it('delivers unregistered Slack DMs so agent DM access can route centrally', async () => {
+    const opts = createOpts();
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'D123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: 'hello',
+      },
+    });
+
+    expect(opts.onChatMetadata).toHaveBeenCalledWith(
+      'sl:D123',
+      expect.any(String),
+      'ops',
+      'slack',
+      false,
+    );
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:D123',
+      expect.objectContaining({
+        chat_jid: 'sl:D123',
+        channel_provider: 'slack',
+        sender: 'U123',
+        content: 'hello',
+      }),
+    );
+  });
+
   it('delivers Slack messages for registered conversations', async () => {
     const opts = createOpts();
     opts.registeredGroups.mockReturnValue({
@@ -458,6 +491,56 @@ describe('Slack channel', () => {
     await channel.disconnect();
     await expect(approvalPromise).resolves.toEqual(
       expect.objectContaining({ approved: false }),
+    );
+  });
+
+  it('authorizes Slack permission decisions through channel control allowlist hook', async () => {
+    const isControlApproverAllowed = vi.fn(async () => true);
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', {
+      ...createOpts({ default: [], agents: {} }),
+      isControlApproverAllowed,
+    } as any);
+    await channel.connect();
+
+    const approvalPromise = channel.requestPermissionApproval(
+      'sl:C1234567890',
+      {
+        requestId: 'perm-channel-allowlist',
+        sourceGroup: 'slack_main',
+        decisionPolicy: 'same_channel',
+        toolName: 'Bash',
+      },
+    );
+
+    const actionHandler = appRef.current.actionHandlers.get(
+      'myclaw_perm_decision',
+    );
+    await actionHandler?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        channel: { id: 'C1234567890' },
+        user: { id: 'U_CHANNEL_ADMIN', name: 'ChannelAdmin' },
+      },
+      action: {
+        value: JSON.stringify({
+          requestId: 'perm-channel-allowlist',
+          decision: 'approve',
+        }),
+      },
+    });
+
+    await expect(approvalPromise).resolves.toEqual(
+      expect.objectContaining({
+        approved: true,
+        decidedBy: 'ChannelAdmin',
+      }),
+    );
+    expect(isControlApproverAllowed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'slack',
+        channelJid: 'sl:C1234567890',
+        userId: 'U_CHANNEL_ADMIN',
+      }),
     );
   });
 

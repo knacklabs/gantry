@@ -8,6 +8,44 @@ Agents must not choose channel-specific payloads directly. They choose the
 right MyClaw tool, the host builds an `InteractionDescriptor`, and the channel
 adapter renders it using the provider's native controls.
 
+## Channel Administration Model
+
+Use `Channel` as the public admin term for Slack channels, Teams channels, and
+Telegram groups. Provider-specific identifiers remain metadata on the channel
+record. Slack and Teams threads, plus Telegram forum topics, are `Session`
+records under a Channel.
+
+Channels can bind multiple agents. Routing priority is deterministic:
+
+1. explicit mention or command
+2. session default agent
+3. channel default agent
+4. picker when the route is ambiguous
+
+Agent DM access is a provider-neutral allowlist. It is displayed and managed on
+the Agent admin surface, separately from Channel membership and Channel control
+approvers. DM access can include external Slack, Teams, Telegram, Web, or local
+users who are not members of any configured Channel. Each agent can set one DM
+approval admin per provider; that admin can approve permission prompts only for
+direct/private DM sessions bound to that agent on the same provider. DM access
+users are not approvers unless they are also configured as the provider's DM
+admin.
+
+Control approvers are a second Channel-owned allowlist. They decide permission
+prompts for all agents bound to the Channel, must be verified members of that
+Channel before save, and never grant agent capabilities by themselves. Slack,
+Telegram, Teams, and App/Web channels must expose the same admin behavior:
+same-channel origin check, Channel control allowlist check, and separate Agent
+DM access. Runtime approval callbacks first detect direct/private DM sessions
+and check the bound agent's DM admin; group/channel callbacks check the Channel
+control allowlist after same-channel origin checks and before accepting a
+decision.
+
+Channel setup should prefer provider discovery and validation. Pasted Slack,
+Teams, or Telegram IDs are accepted as a fallback only after MyClaw verifies
+the bot can see the channel and post or, for Telegram, that the bot is a member
+and forum topics are available when topic sessions are requested.
+
 ## InteractionDescriptor
 
 `InteractionDescriptor` is the canonical shape for permission prompts,
@@ -40,19 +78,19 @@ control/admin rules.
 
 Use these rules in agent prompts, docs, and admin surfaces:
 
-| User intent | Required tool | Channel behavior |
-| --- | --- | --- |
-| Send progress, status, or a normal message while still running | `send_message` | Delivers plain channel text using the active channel formatting dialect. |
-| Ask the user to choose one option | `ask_user_question` with `multiSelect: false` | Slack buttons/radio, Telegram inline buttons, Teams action buttons, Web/API single-select control. |
-| Ask the user to choose multiple options | `ask_user_question` with `multiSelect: true` | Slack checkboxes/multi-select plus Done, Telegram toggle buttons plus Done, Teams `Input.ChoiceSet` plus Done, Web/API multi-select control. |
-| Install a provider skill | `request_skill_install` | Renders provider, slug, version, publisher, verification, files, dependencies, activation timing, approve/deny. |
-| Propose agent-created skill files | `request_skill_proposal` | Renders `SKILL.md` preview, file list, hashes, risk summary, approve/deny. |
-| Install skill dependencies | `request_skill_dependency_install` | Renders npm/brew/go/uv/download spec, command argv, sandbox/policy, risk, approve/deny. |
-| Add a third-party MCP server | `request_mcp_server` | Renders transport, origin, credential refs, allowed tool patterns, SSRF checks, approve/deny. |
-| Enable SDK or host tools | `request_tool_enable` | Renders exact tool names, risk class, permission policy, sandbox profile, approve/deny. |
-| Enable a channel capability | `request_channel_tool_enable` | Renders provider, capability, required scopes, affected conversations, approve/deny. |
-| Restart after approved changes | `service_restart` | Main/admin agent only; reports validation and restart status. |
-| Bind a channel conversation to an agent | `register_agent` | Main/admin agent only; validates channel-prefixed folder and JID. |
+| User intent                                                    | Required tool                                 | Channel behavior                                                                                                                             |
+| -------------------------------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Send progress, status, or a normal message while still running | `send_message`                                | Delivers plain channel text using the active channel formatting dialect.                                                                     |
+| Ask the user to choose one option                              | `ask_user_question` with `multiSelect: false` | Slack buttons/radio, Telegram inline buttons, Teams action buttons, Web/API single-select control.                                           |
+| Ask the user to choose multiple options                        | `ask_user_question` with `multiSelect: true`  | Slack checkboxes/multi-select plus Done, Telegram toggle buttons plus Done, Teams `Input.ChoiceSet` plus Done, Web/API multi-select control. |
+| Install a provider skill                                       | `request_skill_install`                       | Renders provider, slug, version, publisher, verification, files, dependencies, activation timing, approve/deny.                              |
+| Propose agent-created skill files                              | `request_skill_proposal`                      | Renders `SKILL.md` preview, file list, hashes, risk summary, approve/deny.                                                                   |
+| Install skill dependencies                                     | `request_skill_dependency_install`            | Renders npm/brew/go/uv/download spec, command argv, sandbox/policy, risk, approve/deny.                                                      |
+| Add a third-party MCP server                                   | `request_mcp_server`                          | Renders transport, origin, credential refs, allowed tool patterns, SSRF checks, approve/deny.                                                |
+| Enable SDK or host tools                                       | `request_tool_enable`                         | Renders exact tool names, risk class, permission policy, sandbox profile, approve/deny.                                                      |
+| Enable a channel capability                                    | `request_channel_tool_enable`                 | Renders provider, capability, required scopes, affected conversations, approve/deny.                                                         |
+| Restart after approved changes                                 | `service_restart`                             | Main/admin agent only; reports validation and restart status.                                                                                |
+| Bind a channel to an agent                                     | `register_agent`                              | Main/admin agent only; validates the channel/session target and creates an agent binding.                                                    |
 
 The agent must never substitute `Bash`, direct config edits, direct SDK calls,
 or provider-specific API writes for these request tools.
@@ -100,18 +138,26 @@ Telegram details:
 
 ## Teams
 
-Teams is a first-class channel target. Teams renderers use Adaptive Cards and
-`Action.Execute` for approvals and prompts. Single-select uses action buttons.
-Multi-select uses `Input.ChoiceSet` plus `Done`. Details and files use card
-updates, show-card sections, or dialogs where needed. Final decisions update
-the original card using Teams activity update. Unauthorized users receive
-targeted/private feedback where Teams supports it; otherwise MyClaw sends a
-non-sensitive denial update.
+Teams is a first-class channel target in the channel model. Current support
+includes Microsoft Graph setup/discovery, `teams:` conversation ids, normalized
+inbound/outbound adapter shapes, and Adaptive Card approval scaffolding behind
+the `TeamsSdkClient` seam. A concrete live Bot Framework transport is still a
+future adapter. Teams renderers use Adaptive Cards and `Action.Execute` for
+approvals and prompts. Single-select uses action buttons. Multi-select uses
+`Input.ChoiceSet` plus `Done`. Details and files use card updates, show-card
+sections, or dialogs where needed. Final decisions update the original card
+using Teams activity update. Unauthorized users receive targeted/private
+feedback where Teams supports it; otherwise MyClaw sends a non-sensitive denial
+update.
 
 Teams details:
 
 - Use Adaptive Card `Action.Execute` for approve, deny, select, details, files,
   dependencies, and audit actions.
+- Validate Teams control approvers through Microsoft Graph conversation
+  membership: `/chats/{chat-id}/members` for chat-style conversation ids, and
+  `/teams/{team-id}/channels/{channel-id}/members` when the channel installation
+  config includes `teamId` and `channelId`.
 - Include tenant id, conversation id, reply chain/thread id, request id, and
   nonce in the server-side interaction record, not as trusted card state.
 - Use `Input.ChoiceSet` with `isMultiSelect: true` for multi-select prompts and

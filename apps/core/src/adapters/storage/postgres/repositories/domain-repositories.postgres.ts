@@ -21,6 +21,7 @@ import type { App } from '../../../../domain/app/app.js';
 import type { BrowserProfile } from '../../../../domain/browser/browser.js';
 import type {
   AgentChannelBinding,
+  ChannelControlApprover,
   ChannelInstallation,
   ChannelProviderId,
 } from '../../../../domain/channel/channel.js';
@@ -71,7 +72,6 @@ import type {
   WorkspaceSnapshot,
 } from '../../../../domain/sandbox/sandbox.js';
 import type { AgentSession } from '../../../../domain/sessions/sessions.js';
-import type { ToolCatalogItem } from '../../../../domain/tools/tools.js';
 import type { ExternalRef } from '../../../../shared/ids/branded-id.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
@@ -83,6 +83,8 @@ import {
 import { PostgresMcpServerRepository } from './mcp-server-repository.postgres.js';
 import { PostgresSkillCatalogRepository } from './skill-repository.postgres.js';
 import { PostgresRuntimeEventRepository } from './runtime-event-repository.postgres.js';
+import { PostgresToolCatalogRepository } from './tool-repository.postgres.js';
+import { PostgresAgentRepository } from './agent-repository.postgres.js';
 
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
@@ -142,6 +144,17 @@ function parseJsonArray<T extends string>(value: unknown): T[] {
   return Array.isArray(parsed)
     ? (parsed.filter((v) => typeof v === 'string') as T[])
     : [];
+}
+
+function safeIdPart(value: string): string {
+  return value.trim().replace(/[^a-zA-Z0-9._:@-]/g, '_');
+}
+
+function channelControlApproverId(
+  conversationId: string,
+  externalUserId: string,
+): string {
+  return `channel-control:${safeIdPart(conversationId)}:${safeIdPart(externalUserId)}`;
 }
 
 function externalRef<Kind extends string>(
@@ -332,49 +345,6 @@ export class PostgresAppRepository implements AppRepository {
           name: app.name,
           status: app.status,
           updatedAt: app.updatedAt,
-        },
-      });
-  }
-}
-
-export class PostgresAgentRepository implements AgentRepository {
-  constructor(private readonly db: CanonicalDb) {}
-
-  async getAgent(id: Agent['id']): Promise<Agent | null> {
-    const rows = await this.db
-      .select()
-      .from(pgSchema.agentsPostgres)
-      .where(eq(pgSchema.agentsPostgres.id, id))
-      .limit(1);
-    return (rows[0] as Agent | undefined) ?? null;
-  }
-
-  async listAgents(appId: App['id']): Promise<Agent[]> {
-    const rows = await this.db
-      .select()
-      .from(pgSchema.agentsPostgres)
-      .where(eq(pgSchema.agentsPostgres.appId, appId))
-      .orderBy(
-        asc(pgSchema.agentsPostgres.name),
-        asc(pgSchema.agentsPostgres.id),
-      );
-    return rows as Agent[];
-  }
-
-  async saveAgent(agent: Agent): Promise<void> {
-    await this.db
-      .insert(pgSchema.agentsPostgres)
-      .values({
-        ...agent,
-        currentConfigVersionId: agent.currentConfigVersionId ?? null,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.agentsPostgres.id,
-        set: {
-          name: agent.name,
-          status: agent.status,
-          currentConfigVersionId: agent.currentConfigVersionId ?? null,
-          updatedAt: agent.updatedAt,
         },
       });
   }
@@ -732,6 +702,26 @@ export class PostgresChannelInstallationRepository implements ChannelInstallatio
     return rows.map((row) => this.bindingFromRow(row));
   }
 
+  async listAgentChannelBindingsByConversation(input: {
+    appId: App['id'];
+    conversationId: Conversation['id'];
+  }): Promise<AgentChannelBinding[]> {
+    const rows = await this.db
+      .select()
+      .from(pgSchema.agentChannelBindingsPostgres)
+      .where(
+        and(
+          eq(pgSchema.agentChannelBindingsPostgres.appId, input.appId),
+          eq(
+            pgSchema.agentChannelBindingsPostgres.conversationId,
+            input.conversationId,
+          ),
+        ),
+      )
+      .orderBy(asc(pgSchema.agentChannelBindingsPostgres.createdAt));
+    return rows.map((row) => this.bindingFromRow(row));
+  }
+
   private bindingFromRow(
     row: typeof pgSchema.agentChannelBindingsPostgres.$inferSelect,
   ): AgentChannelBinding {
@@ -826,6 +816,28 @@ export class PostgresConversationRepository implements ConversationRepository {
       )
       .limit(1);
     return rows[0] ? this.conversationFromRow(rows[0].conversation) : null;
+  }
+
+  async findConversationByExternalValue(input: {
+    appId: App['id'];
+    externalConversationId: string;
+  }): Promise<Conversation | null> {
+    const c = pgSchema.conversationsPostgres;
+    const rows = await this.db
+      .select()
+      .from(c)
+      .where(
+        and(
+          eq(c.appId, input.appId),
+          jsonTextEquals(
+            c.externalRefJson,
+            ['value', 'jid', 'externalConversationId'],
+            input.externalConversationId,
+          ),
+        ),
+      )
+      .limit(1);
+    return rows[0] ? this.conversationFromRow(rows[0]) : null;
   }
 
   async getThread(
@@ -930,6 +942,86 @@ export class PostgresConversationRepository implements ConversationRepository {
       )
       .orderBy(asc(pgSchema.conversationThreadsPostgres.createdAt));
     return rows.map((row) => this.threadFromRow(row));
+  }
+
+  async listParticipantExternalUserIds(
+    conversationId: Conversation['id'],
+  ): Promise<string[]> {
+    const rows = await this.db
+      .select({
+        externalUserId:
+          pgSchema.conversationParticipantsPostgres.externalUserId,
+      })
+      .from(pgSchema.conversationParticipantsPostgres)
+      .where(
+        and(
+          eq(
+            pgSchema.conversationParticipantsPostgres.conversationId,
+            conversationId,
+          ),
+          eq(pgSchema.conversationParticipantsPostgres.status, 'active'),
+        ),
+      )
+      .orderBy(asc(pgSchema.conversationParticipantsPostgres.externalUserId));
+    return rows
+      .map((row) => row.externalUserId?.trim() || '')
+      .filter((id) => id.length > 0);
+  }
+
+  async listChannelControlApprovers(
+    conversationId: Conversation['id'],
+  ): Promise<ChannelControlApprover[]> {
+    const rows = await this.db
+      .select()
+      .from(pgSchema.channelControlApproversPostgres)
+      .where(
+        eq(
+          pgSchema.channelControlApproversPostgres.conversationId,
+          conversationId,
+        ),
+      )
+      .orderBy(asc(pgSchema.channelControlApproversPostgres.externalUserId));
+    return rows.map((row) => ({
+      id: row.id,
+      appId: row.appId,
+      conversationId: row.conversationId,
+      externalUserId: row.externalUserId,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    })) as ChannelControlApprover[];
+  }
+
+  async replaceChannelControlApprovers(input: {
+    appId: App['id'];
+    conversationId: Conversation['id'];
+    externalUserIds: string[];
+    updatedAt: string;
+  }): Promise<ChannelControlApprover[]> {
+    await this.db.transaction(async (tx) => {
+      await tx
+        .delete(pgSchema.channelControlApproversPostgres)
+        .where(
+          and(
+            eq(pgSchema.channelControlApproversPostgres.appId, input.appId),
+            eq(
+              pgSchema.channelControlApproversPostgres.conversationId,
+              input.conversationId,
+            ),
+          ),
+        );
+      if (input.externalUserIds.length === 0) return;
+      await tx.insert(pgSchema.channelControlApproversPostgres).values(
+        input.externalUserIds.map((externalUserId) => ({
+          id: channelControlApproverId(input.conversationId, externalUserId),
+          appId: input.appId,
+          conversationId: input.conversationId,
+          externalUserId,
+          createdAt: input.updatedAt,
+          updatedAt: input.updatedAt,
+        })),
+      );
+    });
+    return this.listChannelControlApprovers(input.conversationId);
   }
 
   private conversationFromRow(
@@ -1644,67 +1736,6 @@ export class PostgresJobRepository implements JobRepository {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     } as Job;
-  }
-}
-
-export class PostgresToolCatalogRepository implements ToolCatalogRepository {
-  constructor(private readonly db: CanonicalDb) {}
-
-  async getTool(id: ToolCatalogItem['id']): Promise<ToolCatalogItem | null> {
-    const rows = await this.db
-      .select()
-      .from(pgSchema.toolCatalogPostgres)
-      .where(eq(pgSchema.toolCatalogPostgres.id, id))
-      .limit(1);
-    const row = rows[0];
-    if (!row) return null;
-    return {
-      id: row.id,
-      appId: row.appId,
-      name: row.name,
-      description: row.description ?? undefined,
-      inputSchema: parseJson(row.inputSchemaJson, undefined),
-      outputSchema: parseJson(row.outputSchemaJson, undefined),
-      risk: row.risk as ToolCatalogItem['risk'],
-      permissionPolicyId: row.permissionPolicyId ?? undefined,
-      sandboxProfileId: row.sandboxProfileId ?? undefined,
-      adapterRef: row.adapterRef,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
-    } as ToolCatalogItem;
-  }
-
-  async saveTool(item: ToolCatalogItem): Promise<void> {
-    await this.db
-      .insert(pgSchema.toolCatalogPostgres)
-      .values({
-        id: item.id,
-        appId: item.appId,
-        name: item.name,
-        description: item.description ?? null,
-        inputSchemaJson: encodeJson(item.inputSchema ?? {}),
-        outputSchemaJson: encodeJson(item.outputSchema ?? {}),
-        risk: item.risk,
-        permissionPolicyId: item.permissionPolicyId ?? null,
-        sandboxProfileId: item.sandboxProfileId ?? null,
-        adapterRef: item.adapterRef,
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.toolCatalogPostgres.id,
-        set: {
-          name: item.name,
-          description: item.description ?? null,
-          inputSchemaJson: encodeJson(item.inputSchema ?? {}),
-          outputSchemaJson: encodeJson(item.outputSchema ?? {}),
-          risk: item.risk,
-          permissionPolicyId: item.permissionPolicyId ?? null,
-          sandboxProfileId: item.sandboxProfileId ?? null,
-          adapterRef: item.adapterRef,
-          updatedAt: item.updatedAt,
-        },
-      });
   }
 }
 

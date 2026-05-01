@@ -409,6 +409,37 @@ describe('TelegramChannel', () => {
       expect(opts.onMessage).not.toHaveBeenCalled();
     });
 
+    it('delivers unregistered Telegram private chats so agent DM access can route centrally', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const ctx = createTextCtx({
+        chatId: 999999,
+        chatType: 'private',
+        text: 'Unknown private chat',
+        firstName: 'Ravi',
+      });
+      await triggerTextMessage(ctx);
+
+      expect(opts.onChatMetadata).toHaveBeenCalledWith(
+        'tg:999999',
+        expect.any(String),
+        'Ravi',
+        'telegram',
+        false,
+      );
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'tg:999999',
+        expect.objectContaining({
+          chat_jid: 'tg:999999',
+          channel_provider: 'telegram',
+          sender: '99001',
+          content: 'Unknown private chat',
+        }),
+      );
+    });
+
     it('skips bot commands (/chatid, /ping) but passes other / messages through', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
@@ -1133,6 +1164,43 @@ describe('TelegramChannel', () => {
       await flushPromises();
 
       expect(opts.onMessage).not.toHaveBeenCalled();
+    });
+
+    it('registers first private-DM media routes before delivery', async () => {
+      const ensureMessageRoute = vi.fn(async () => undefined);
+      const opts = createTestOpts({
+        ensureMessageRoute,
+        registeredGroups: vi.fn(() => ({})),
+      });
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const ctx = createMediaCtx({
+        chatId: 999999,
+        chatType: 'private',
+        extra: { photo: [{ file_id: 'photo_id', width: 800 }] },
+      });
+      await triggerMediaMessage('message:photo', ctx);
+      await flushPromises();
+
+      expect(ensureMessageRoute).toHaveBeenCalledWith(
+        'tg:999999',
+        expect.objectContaining({
+          chat_jid: 'tg:999999',
+          channel_provider: 'telegram',
+          sender: '99001',
+          content: '[Photo]',
+        }),
+      );
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'tg:999999',
+        expect.objectContaining({
+          chat_jid: 'tg:999999',
+          channel_provider: 'telegram',
+          content: '[Photo]',
+        }),
+      );
+      expect(currentBot().api.getFile).not.toHaveBeenCalled();
     });
 
     it('stores document with fallback name when filename missing', async () => {
@@ -2387,6 +2455,47 @@ describe('TelegramChannel', () => {
       expect(mockLogger.error).toHaveBeenCalledWith(
         { error: 'Polling error occurred' },
         'Telegram bot error',
+      );
+    });
+
+    it('authorizes permission callbacks through channel control allowlist hook', async () => {
+      const isControlApproverAllowed = vi.fn(async () => true);
+      const opts = createTestOpts({ isControlApproverAllowed });
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const decisionPromise = channel.requestPermissionApproval(
+        'tg:100200300',
+        {
+          requestId: 'perm-channel-allowlist',
+          sourceGroup: 'unlisted_source',
+          decisionPolicy: 'same_channel',
+          toolName: 'Write',
+        },
+      );
+      await flushPromises();
+
+      const approvedCtx = {
+        callbackQuery: { data: 'perm:approve:perm-channel-allowlist' },
+        chat: { id: 100200300 },
+        from: { id: 777, first_name: 'ChannelAdmin' },
+        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
+      };
+      await triggerCallbackQuery(approvedCtx);
+      const decision = await decisionPromise;
+
+      expect(isControlApproverAllowed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerId: 'telegram',
+          channelJid: 'tg:100200300',
+          userId: '777',
+        }),
+      );
+      expect(decision).toEqual(
+        expect.objectContaining({
+          approved: true,
+          decidedBy: 'ChannelAdmin',
+        }),
       );
     });
   });

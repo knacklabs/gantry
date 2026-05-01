@@ -203,6 +203,18 @@ const domainRepositories = {
       createdAt: new Date(0).toISOString(),
       updatedAt: new Date(0).toISOString(),
     })),
+    listAgents: vi.fn(async () => []),
+    saveAgent: vi.fn(async () => undefined),
+    listAgentDmAccess: vi.fn(async () => []),
+    listAgentDmApprovers: vi.fn(async () => []),
+    replaceAgentDmAccess: vi.fn(async () => []),
+    replaceAgentDmAccessPolicy: vi.fn(async () => ({
+      access: [],
+      approvers: [],
+    })),
+    replaceAgentDmApprovers: vi.fn(async () => []),
+    findAgentsByDmAccess: vi.fn(async () => []),
+    replaceAgentCapabilityBindings: vi.fn(async () => undefined),
   },
   channelInstallations: {
     listChannelInstallations: vi.fn(async () => []),
@@ -215,16 +227,21 @@ const domainRepositories = {
     getAgentChannelBinding: vi.fn(async () => null),
     isAgentEnabledInConversation: vi.fn(async () => false),
     listAgentChannelBindings: vi.fn(async () => []),
+    listAgentChannelBindingsByConversation: vi.fn(async () => []),
   },
   conversations: {
     listConversations: vi.fn(async () => []),
     getConversation: vi.fn(async () => null),
     getConversationByExternalRef: vi.fn(async () => null),
+    findConversationByExternalValue: vi.fn(async () => null),
     getThread: vi.fn(async () => null),
     getThreadByExternalRef: vi.fn(async () => null),
     saveConversation: vi.fn(async () => undefined),
     saveThread: vi.fn(async () => undefined),
     listThreads: vi.fn(async () => []),
+    listParticipantExternalUserIds: vi.fn(async () => []),
+    listChannelControlApprovers: vi.fn(async () => []),
+    replaceChannelControlApprovers: vi.fn(async () => []),
   },
   messages: {
     listMessages: vi.fn(async () => []),
@@ -463,6 +480,20 @@ beforeEach(() => {
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
   });
+  domainRepositories.agents.listAgents.mockResolvedValue([]);
+  domainRepositories.agents.saveAgent.mockResolvedValue(undefined);
+  domainRepositories.agents.listAgentDmAccess.mockResolvedValue([]);
+  domainRepositories.agents.listAgentDmApprovers.mockResolvedValue([]);
+  domainRepositories.agents.replaceAgentDmAccess.mockResolvedValue([]);
+  domainRepositories.agents.replaceAgentDmAccessPolicy.mockResolvedValue({
+    access: [],
+    approvers: [],
+  });
+  domainRepositories.agents.replaceAgentDmApprovers.mockResolvedValue([]);
+  domainRepositories.agents.findAgentsByDmAccess.mockResolvedValue([]);
+  domainRepositories.agents.replaceAgentCapabilityBindings.mockResolvedValue(
+    undefined,
+  );
   domainRepositories.channelInstallations.listChannelInstallations.mockResolvedValue(
     [],
   );
@@ -493,6 +524,9 @@ beforeEach(() => {
   domainRepositories.channelInstallations.listAgentChannelBindings.mockResolvedValue(
     [],
   );
+  domainRepositories.channelInstallations.listAgentChannelBindingsByConversation.mockResolvedValue(
+    [],
+  );
   domainRepositories.conversations.listConversations.mockResolvedValue([]);
   domainRepositories.conversations.getConversation.mockResolvedValue(null);
   domainRepositories.conversations.getConversationByExternalRef.mockResolvedValue(
@@ -507,6 +541,15 @@ beforeEach(() => {
   );
   domainRepositories.conversations.saveThread.mockResolvedValue(undefined);
   domainRepositories.conversations.listThreads.mockResolvedValue([]);
+  domainRepositories.conversations.listParticipantExternalUserIds.mockResolvedValue(
+    [],
+  );
+  domainRepositories.conversations.listChannelControlApprovers.mockResolvedValue(
+    [],
+  );
+  domainRepositories.conversations.replaceChannelControlApprovers.mockResolvedValue(
+    [],
+  );
   domainRepositories.messages.listMessages.mockResolvedValue([]);
   memoryService.isEnabled.mockReturnValue(true);
   memoryService.save.mockClear();
@@ -528,6 +571,12 @@ afterEach(() => {
 });
 
 describe('control server auth key parsing', () => {
+  it('returns no keys when MYCLAW_CONTROL_API_KEYS_JSON is malformed', () => {
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = '{"kid":"broken"';
+
+    expect(_testControlServer.parseControlApiKeys()).toEqual([]);
+  });
+
   it('filters out JSON keys that are not app-bound', () => {
     process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
       {
@@ -1840,6 +1889,257 @@ describe('control server runtime hardening', () => {
     }
   });
 
+  it('manages agent-owned DM access through the agent admin API', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'agents-admin-token',
+        scopes: ['agents:admin'],
+        appId: 'app-one',
+      },
+    ]);
+    const iso = new Date(0).toISOString();
+    domainRepositories.agents.getAgent.mockResolvedValue({
+      id: 'agent-1',
+      appId: 'app-one',
+      name: 'Agent',
+      status: 'active',
+      createdAt: iso,
+      updatedAt: iso,
+    });
+    domainRepositories.agents.listAgentDmAccess.mockResolvedValue([
+      {
+        id: 'dm-1',
+        appId: 'app-one',
+        agentId: 'agent-1',
+        providerId: 'slack',
+        externalUserId: 'U1',
+        createdAt: iso,
+        updatedAt: iso,
+      },
+    ]);
+    domainRepositories.agents.listAgentDmApprovers.mockResolvedValue([
+      {
+        id: 'dm-admin-1',
+        appId: 'app-one',
+        agentId: 'agent-1',
+        providerId: 'slack',
+        externalUserId: 'UADMIN',
+        createdAt: iso,
+        updatedAt: iso,
+      },
+    ]);
+    domainRepositories.agents.replaceAgentDmAccessPolicy.mockImplementation(
+      async (input: any) => ({
+        access: input.accessEntries.map((entry: any) => ({
+          id: `dm:${entry.providerId}:${entry.externalUserId}`,
+          appId: input.appId,
+          agentId: input.agentId,
+          providerId: entry.providerId,
+          externalUserId: entry.externalUserId,
+          createdAt: iso,
+          updatedAt: input.updatedAt,
+        })),
+        approvers: input.approverEntries.map((entry: any) => ({
+          id: `dm-admin:${entry.providerId}`,
+          appId: input.appId,
+          agentId: input.agentId,
+          providerId: entry.providerId,
+          externalUserId: entry.externalUserId,
+          createdAt: iso,
+          updatedAt: input.updatedAt,
+        })),
+      }),
+    );
+
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+
+    try {
+      const adminResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/agents/agent-1/admin`,
+        'agents-admin-token',
+      );
+      expect(adminResponse.status).toBe(200);
+      expect(await adminResponse.json()).toMatchObject({
+        agent: { id: 'agent-1' },
+        dmAccess: {
+          entries: [
+            { provider: 'slack', userIds: ['U1'], adminUserId: 'UADMIN' },
+          ],
+        },
+      });
+
+      const replaceResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/agents/agent-1/dm-access`,
+        'agents-admin-token',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            entries: [
+              {
+                provider: 'teams',
+                userIds: ['user-1', 'user-1'],
+                adminUserId: 'admin-1',
+              },
+              { provider: 'telegram', userIds: ['123'] },
+            ],
+          }),
+        },
+      );
+      expect(replaceResponse.status).toBe(200);
+      expect(await replaceResponse.json()).toMatchObject({
+        agentId: 'agent-1',
+        dmAccess: {
+          entries: [
+            {
+              provider: 'teams',
+              userIds: ['user-1'],
+              adminUserId: 'admin-1',
+            },
+            { provider: 'telegram', userIds: ['123'] },
+          ],
+        },
+      });
+      expect(
+        domainRepositories.agents.replaceAgentDmAccessPolicy,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accessEntries: [
+            { providerId: 'teams', externalUserId: 'user-1' },
+            { providerId: 'telegram', externalUserId: '123' },
+          ],
+        }),
+      );
+      expect(
+        domainRepositories.agents.replaceAgentDmAccessPolicy,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          approverEntries: [{ providerId: 'teams', externalUserId: 'admin-1' }],
+        }),
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('manages channel control allowlist without channel-owned DM access', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'channels-admin-token',
+        scopes: ['channels:read', 'channels:admin'],
+        appId: 'app-one',
+      },
+    ]);
+    const iso = new Date(0).toISOString();
+    const installation = {
+      id: 'installation-1',
+      appId: 'app-one',
+      providerId: 'app',
+      label: 'App',
+      status: 'active',
+      config: {},
+      runtimeSecretRefs: [],
+      createdAt: iso,
+      updatedAt: iso,
+    };
+    const conversation = {
+      id: 'conversation-1',
+      appId: 'app-one',
+      channelInstallationId: 'installation-1',
+      externalRef: { kind: 'conversation', value: 'app-conv-1' },
+      kind: 'channel',
+      title: 'engineering',
+      status: 'active',
+      createdAt: iso,
+      updatedAt: iso,
+    };
+    domainRepositories.channelInstallations.getChannelInstallation.mockResolvedValue(
+      installation,
+    );
+    domainRepositories.conversations.getConversation.mockResolvedValue(
+      conversation,
+    );
+    domainRepositories.conversations.listParticipantExternalUserIds.mockResolvedValue(
+      ['user-2'],
+    );
+    domainRepositories.conversations.listChannelControlApprovers.mockResolvedValueOnce(
+      [
+        {
+          id: 'approver-1',
+          appId: 'app-one',
+          conversationId: 'conversation-1',
+          externalUserId: 'user-1',
+          createdAt: iso,
+          updatedAt: iso,
+        },
+      ],
+    );
+    domainRepositories.conversations.replaceChannelControlApprovers.mockResolvedValue(
+      [
+        {
+          id: 'approver-2',
+          appId: 'app-one',
+          conversationId: 'conversation-1',
+          externalUserId: 'user-2',
+          createdAt: iso,
+          updatedAt: iso,
+        },
+      ],
+    );
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+
+    try {
+      const adminResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/channels/conversation-1/admin`,
+        'channels-admin-token',
+      );
+      expect(adminResponse.status).toBe(200);
+      expect(await adminResponse.json()).toMatchObject({
+        controlAllowlist: { userIds: ['user-1'] },
+      });
+
+      const updateResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/channels/conversation-1/control-allowlist`,
+        'channels-admin-token',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ userIds: ['user-2', 'user-2'] }),
+        },
+      );
+      expect(updateResponse.status).toBe(200);
+      expect(await updateResponse.json()).toEqual({
+        controlAllowlist: { userIds: ['user-2'] },
+      });
+      expect(
+        domainRepositories.conversations.replaceChannelControlApprovers,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({ externalUserIds: ['user-2'] }),
+      );
+      expect(
+        domainRepositories.channelInstallations.updateChannelInstallation,
+      ).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
   it.each([
     {
       name: 'channels:admin',
@@ -1878,6 +2178,16 @@ describe('control server runtime hardening', () => {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ triggerMode: 'mention' }),
+      },
+    },
+    {
+      name: 'channels:admin for channel control allowlist',
+      path: '/v1/channels/conversation-1/control-allowlist',
+      tokenScopes: ['channels:read'],
+      init: {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ userIds: ['user-1'] }),
       },
     },
   ])(

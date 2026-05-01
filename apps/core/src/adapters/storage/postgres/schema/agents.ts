@@ -1,4 +1,12 @@
-import { integer, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core';
+import {
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 
 import { appsPostgres } from './apps.js';
 import {
@@ -76,6 +84,73 @@ export const agentConfigVersionsPostgres = pgTable(
     agentVersion: unique('agent_config_versions_agent_id_version_unique').on(
       table.agentId,
       table.version,
+    ),
+  }),
+);
+
+export const agentDmAccessPostgres = pgTable(
+  'agent_dm_access',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agentsPostgres.id, { onDelete: 'cascade' }),
+    providerId: text('provider_id').notNull(),
+    externalUserId: text('external_user_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    agentIdx: index('idx_agent_dm_access_agent').on(table.appId, table.agentId),
+    lookupIdx: index('idx_agent_dm_access_lookup').on(
+      table.appId,
+      table.providerId,
+      table.externalUserId,
+    ),
+    uniqueAgentUser: uniqueIndex('uniq_agent_dm_access_user').on(
+      table.appId,
+      table.agentId,
+      table.providerId,
+      table.externalUserId,
+    ),
+  }),
+);
+
+export const agentDmApproversPostgres = pgTable(
+  'agent_dm_approvers',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agentsPostgres.id, { onDelete: 'cascade' }),
+    providerId: text('provider_id').notNull(),
+    externalUserId: text('external_user_id').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    agentIdx: index('idx_agent_dm_approvers_agent').on(
+      table.appId,
+      table.agentId,
+    ),
+    uniqueProviderAdmin: uniqueIndex('uniq_agent_dm_approver_provider').on(
+      table.appId,
+      table.agentId,
+      table.providerId,
     ),
   }),
 );

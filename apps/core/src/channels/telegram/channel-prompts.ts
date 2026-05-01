@@ -205,6 +205,16 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
       );
       return false;
     }
+    const channelJid = `tg:${chatId}`;
+    if (this.opts.isControlApproverAllowed) {
+      return this.opts.isControlApproverAllowed({
+        providerId: 'telegram',
+        channelJid,
+        userId,
+        sourceGroup,
+        decisionPolicy,
+      });
+    }
     const allowlist =
       this.opts.runtimeSettings?.().channels.telegram?.controlAllowlist;
     const allowedIds =

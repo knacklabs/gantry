@@ -6,8 +6,10 @@ import {
   MessageSink,
   OnInboundMessage,
   OnChatMetadata,
+  NewMessage,
   PlanReviewSurface,
   ProgressSink,
+  PermissionApprovalRequest,
   RegisteredGroup,
   StreamingSink,
   StreamingStateSink,
@@ -19,11 +21,22 @@ import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provi
 
 export interface ChannelOpts {
   onMessage: OnInboundMessage;
+  ensureMessageRoute?: (
+    chatJid: string,
+    message: NewMessage,
+  ) => Promise<boolean>;
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
   runtimeSettings?: () => RuntimeSettings;
   runtimeLease?: RuntimeLeasePort;
   runtimeSecrets?: RuntimeSecretProvider;
+  isControlApproverAllowed?: (input: {
+    providerId: string;
+    channelJid: string;
+    userId: string;
+    sourceGroup: string;
+    decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
+  }) => Promise<boolean>;
 }
 
 export type MaybePromise<T> = T | Promise<T>;

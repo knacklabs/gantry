@@ -67,9 +67,14 @@ Important constraints:
 - Agent-requested third-party MCP servers use same-channel approval until real admin RBAC exists. Host must verify the origin chat belongs to the requesting agent; approval only decides that pending draft, binds only that agent, and activates next run.
 - Treat third-party MCP servers as approved agent capabilities. Durable MCP truth belongs in Postgres definitions, versions, bindings, credential refs, and audit events; Claude SDK `mcpServers` is only a per-run adapter projection.
 - Use typed capability catalogs for skills, MCP servers, SDK tools, host tools, browser tools, channel tools, and channel bindings; provider or channel flags are metadata, not authorization.
+- Agent administration source of truth is Postgres plus application services. Agents own `selectedToolIds`, `selectedSkillIds`, `selectedMcpServerIds`, provider-neutral DM access, and one optional DM approval admin per provider; channels own bound agents, sessions, and control approver allowlists. Do not add channel-scoped tool selections or any separate browser capability list.
+- Keep agent DM access, agent DM admins, and channel control approvers distinct. DM access may name any external provider users allowed to DM an agent from Slack, Teams, Telegram, Web, or local surfaces; a DM admin can approve permission prompts only for that agent's direct/private DM sessions on that provider; control approvers must be verified members of that Channel and authorize permission prompts for all agents bound there.
+- Public admin API, local CLI, and MyClaw MCP tools are separate adapters over the same services. API is for owner/admin automation, CLI is for local service and setup operations, and MCP tools are for agent-requested reviewed changes.
+- Use Channel as the public term for Slack channels, Teams channels, and Telegram groups. Slack/Teams threads and Telegram forum topics are Sessions under a Channel.
 - Render approvals, questions, files, dependencies, audit summaries, and final decisions through a channel-neutral `InteractionDescriptor` before Slack, Telegram, Teams, or Web/API adapters format them.
 - Teams is a first-class channel. Use `teams:` conversation IDs, Teams runtime secrets through `RuntimeSecretProvider`, and Adaptive Card `Action.Execute` approval flows.
 - Agents must use `send_message`, `ask_user_question`, `request_skill_install`, `request_skill_proposal`, `request_skill_dependency_install`, `request_mcp_server`, `request_tool_enable`, `request_channel_tool_enable`, `service_restart`, and `register_agent` instead of direct installs or config edits.
+- The control API is part of the runtime process. launchd/systemd service definitions should stay secret-free; `MYCLAW_CONTROL_API_KEY(S)_JSON`, `MYCLAW_CONTROL_APP_ID`, `MYCLAW_CONTROL_PORT`, and `MYCLAW_CONTROL_SOCKET_PATH` belong in process env or the runtime `.env`.
 
 ## Docs Rules
 
@@ -112,4 +117,5 @@ Before merge or release: `npm run build`, `npm test`, `python3 .codex/scripts/ve
 Full factory mode also requires `python3 .codex/scripts/validate_work.py`, required decomposition/testing/review artifacts, and `python3 .codex/scripts/pr_ready.py`.
 
 ## Important
+
 - Add or Update AGENTS.md in respective folder with the learnings and corrections

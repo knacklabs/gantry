@@ -12,6 +12,7 @@ import {
   getPublicRuntimeSettings,
   updatePublicRuntimeSettings,
 } from '../../config/index.js';
+import { envValueDynamic } from '../../config/env/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import { canAccessApp, jobBelongsToApp, makeAppGroup } from './app-identity.js';
@@ -22,6 +23,8 @@ import type {
 } from './handler-context.js';
 import { sendError } from './http.js';
 import { createRateLimiter } from './rate-limit.js';
+import { handleAgentRoutes } from './routes/agents.js';
+import { handleCapabilityCatalogRoutes } from './routes/capability-catalog.js';
 import { handleChannelControlRoutes } from './routes/channels.js';
 import { handleExternalIngressRoutes } from './routes/external-ingress.js';
 import { handleJobRoutes } from './routes/jobs.js';
@@ -68,6 +71,8 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
 
     try {
       if (await handleSystemRoutes(req, res, ctx, pathname)) return;
+      if (await handleAgentRoutes(req, res, ctx, pathname)) return;
+      if (await handleCapabilityCatalogRoutes(req, res, ctx, pathname)) return;
       if (await handleSessionRoutes(req, res, ctx, url, pathname)) return;
       if (await handleChannelControlRoutes(req, res, ctx, url, pathname))
         return;
@@ -120,9 +125,9 @@ export function startControlServer(input: {
 }): ControlServerHandle {
   const keys = parseControlApiKeys();
   const socketPath =
-    process.env.MYCLAW_CONTROL_SOCKET_PATH?.trim() ||
+    envValueDynamic('MYCLAW_CONTROL_SOCKET_PATH') ||
     path.join(MYCLAW_HOME, 'run', 'control.sock');
-  const port = Number(process.env.MYCLAW_CONTROL_PORT || 0);
+  const port = Number(envValueDynamic('MYCLAW_CONTROL_PORT') || 0);
   const state: ControlServerState = {
     activeStreams: 0,
     activeWaits: 0,

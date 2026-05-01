@@ -13,6 +13,7 @@ import type { IsoTimestamp } from '../../shared/time/primitives.js';
 
 export type ChannelProviderId = BrandedId<'ChannelProviderId'>;
 export type ChannelInstallationId = BrandedId<'ChannelInstallationId'>;
+export type ChannelControlApproverId = BrandedId<'ChannelControlApproverId'>;
 
 export interface ChannelProvider {
   id: ChannelProviderId;
@@ -30,6 +31,15 @@ export interface ChannelInstallation {
   status: 'active' | 'disabled';
   config: Record<string, unknown>;
   runtimeSecretRefs: string[];
+  createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
+}
+
+export interface ChannelControlApprover {
+  id: ChannelControlApproverId;
+  appId: AppId;
+  conversationId: ConversationId;
+  externalUserId: string;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;
 }

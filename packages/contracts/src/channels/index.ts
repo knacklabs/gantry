@@ -176,3 +176,124 @@ export const AgentChannelBindingListResponseSchema = z.object({
 export type AgentChannelBindingListResponse = z.infer<
   typeof AgentChannelBindingListResponseSchema
 >;
+
+export const ChannelUserAllowlistSchema = z.object({
+  userIds: z.array(z.string().trim().min(1).max(128)).max(200),
+});
+export type ChannelUserAllowlist = z.infer<typeof ChannelUserAllowlistSchema>;
+
+export const ChannelConversationKindSchema = z.enum([
+  'channel',
+  'group',
+  'dm',
+  'service',
+  'web',
+  'sdk',
+]);
+export const ChannelConversationStatusSchema = z.enum([
+  'active',
+  'archived',
+  'inactive',
+]);
+
+export const ChannelConversationResponseSchema = z.object({
+  id: z.string(),
+  appId: z.string(),
+  channelInstallationId: z.string(),
+  externalRef: ExternalReferenceSchema.optional(),
+  kind: ChannelConversationKindSchema,
+  title: z.string().nullable(),
+  status: ChannelConversationStatusSchema,
+  createdAt: IsoDateTimeSchema,
+  updatedAt: IsoDateTimeSchema,
+});
+export type ChannelConversationResponse = z.infer<
+  typeof ChannelConversationResponseSchema
+>;
+
+export const ChannelSessionResponseSchema = z.object({
+  id: z.string(),
+  appId: z.string(),
+  conversationId: z.string(),
+  externalRef: ExternalReferenceSchema.optional(),
+  title: z.string().nullable(),
+  status: z.enum(['active', 'archived']),
+  createdAt: IsoDateTimeSchema,
+  updatedAt: IsoDateTimeSchema,
+});
+export type ChannelSessionResponse = z.infer<
+  typeof ChannelSessionResponseSchema
+>;
+
+export const ChannelAdminResponseSchema = z.object({
+  channel: ChannelConversationResponseSchema,
+  agents: z.array(AgentChannelBindingResponseSchema),
+  sessions: z.array(ChannelSessionResponseSchema),
+  controlAllowlist: ChannelUserAllowlistSchema,
+});
+export type ChannelAdminResponse = z.infer<typeof ChannelAdminResponseSchema>;
+
+export const UpdateChannelControlAllowlistRequestSchema = z.object({
+  userIds: ChannelUserAllowlistSchema.shape.userIds,
+});
+export type UpdateChannelControlAllowlistRequest = z.infer<
+  typeof UpdateChannelControlAllowlistRequestSchema
+>;
+
+export const UpdateChannelControlAllowlistResponseSchema = z.object({
+  controlAllowlist: ChannelUserAllowlistSchema,
+});
+export type UpdateChannelControlAllowlistResponse = z.infer<
+  typeof UpdateChannelControlAllowlistResponseSchema
+>;
+
+export const CreateChannelRequestSchema = z
+  .object({
+    channelInstallationId: z.string().trim().min(1),
+    externalId: z.string().trim().min(1).max(512),
+    title: z.string().trim().min(1).max(512).optional(),
+    label: z.string().trim().min(1).max(512).optional(),
+    kind: z.enum(['direct', 'group', 'channel', 'service', 'web']).optional(),
+  })
+  .strict()
+  .refine((value) => Boolean(value.title || value.label), {
+    message: 'title or label is required',
+    path: ['title'],
+  });
+export type CreateChannelRequest = z.infer<typeof CreateChannelRequestSchema>;
+
+export const UpdateChannelRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(512).optional(),
+    status: z.enum(['active', 'archived', 'disabled']).optional(),
+  })
+  .strict();
+export type UpdateChannelRequest = z.infer<typeof UpdateChannelRequestSchema>;
+
+export const BindChannelAgentsRequestSchema = z
+  .object({
+    agentIds: z.array(z.string().trim().min(1)).min(1).max(100),
+    defaultAgentId: z.string().trim().min(1).optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      !value.defaultAgentId || value.agentIds.includes(value.defaultAgentId),
+    {
+      message: 'defaultAgentId must be included in agentIds',
+      path: ['defaultAgentId'],
+    },
+  );
+export type BindChannelAgentsRequest = z.infer<
+  typeof BindChannelAgentsRequestSchema
+>;
+
+export const CreateChannelSessionRequestSchema = z
+  .object({
+    externalThreadId: z.string().trim().min(1).max(512).optional(),
+    title: z.string().trim().min(1).max(512).optional(),
+  })
+  .strict();
+export type CreateChannelSessionRequest = z.infer<
+  typeof CreateChannelSessionRequestSchema
+>;

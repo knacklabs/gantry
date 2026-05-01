@@ -314,9 +314,8 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         isGroup,
       );
 
-      // Only deliver full message for registered groups
       const group = this.opts.registeredGroups()[chatJid];
-      if (!group) {
+      if (!group && isGroup) {
         logger.debug(
           { chatJid, chatName },
           'Message from unregistered Telegram chat',
@@ -354,17 +353,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       opts?: { fileId?: string; filename?: string },
     ) => {
       const chatJid = `tg:${ctx.chat.id}`;
-      const group = this.opts.registeredGroups()[chatJid];
-      if (!group) return;
-
       const timestamp = new Date(ctx.message.date * 1000).toISOString();
-      const senderName =
-        ctx.from?.first_name ||
-        ctx.from?.username ||
-        ctx.from?.id?.toString() ||
-        'Unknown';
-      const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
-
       const isGroup =
         ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
       await this.opts.onChatMetadata(
@@ -374,6 +363,40 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         'telegram',
         isGroup,
       );
+
+      const routeGroups = this.opts.registeredGroups;
+      let groups = routeGroups();
+      if (!isGroup && !groups[chatJid]) {
+        await this.opts.ensureMessageRoute?.(chatJid, {
+          id: ctx.message.message_id.toString(),
+          chat_jid: chatJid,
+          channel_provider: 'telegram',
+          sender: ctx.from?.id?.toString() || '',
+          sender_name:
+            ctx.from?.first_name ||
+            ctx.from?.username ||
+            ctx.from?.id?.toString() ||
+            'Unknown',
+          content: placeholder,
+          timestamp,
+          is_from_me: false,
+          external_message_id: ctx.message.message_id.toString(),
+          thread_id: ctx.message.message_thread_id
+            ? ctx.message.message_thread_id.toString()
+            : undefined,
+        });
+        groups = routeGroups();
+      }
+
+      const group = groups[chatJid];
+      if (!group && isGroup) return;
+
+      const senderName =
+        ctx.from?.first_name ||
+        ctx.from?.username ||
+        ctx.from?.id?.toString() ||
+        'Unknown';
+      const caption = ctx.message.caption ? ` ${ctx.message.caption}` : '';
 
       const deliver = async (
         content: string,
@@ -410,7 +433,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       };
 
       // If we have a file_id, attempt to download; deliver asynchronously
-      if (opts?.fileId) {
+      if (opts?.fileId && group) {
         const msgId = ctx.message.message_id.toString();
         const filename =
           opts.filename ||

@@ -12,6 +12,8 @@ import type { DurationMs, IsoTimestamp } from '../../shared/time/primitives.js';
 export type AgentId = BrandedId<'AgentId'>;
 export type AgentConfigVersionId = BrandedId<'AgentConfigVersionId'>;
 export type LlmProfileId = BrandedId<'LlmProfileId'>;
+export type AgentDmAccessId = BrandedId<'AgentDmAccessId'>;
+export type AgentDmApproverId = BrandedId<'AgentDmApproverId'>;
 
 export type ThinkingMode = 'adaptive' | 'enabled' | 'disabled';
 export type ThinkingEffort = 'low' | 'medium' | 'high' | 'max';
@@ -42,6 +44,26 @@ export interface Agent {
   name: string;
   status: 'active' | 'disabled';
   currentConfigVersionId?: AgentConfigVersionId;
+  createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
+}
+
+export interface AgentDmAccess {
+  id: AgentDmAccessId;
+  appId: AppId;
+  agentId: AgentId;
+  providerId: string;
+  externalUserId: string;
+  createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
+}
+
+export interface AgentDmApprover {
+  id: AgentDmApproverId;
+  appId: AppId;
+  agentId: AgentId;
+  providerId: string;
+  externalUserId: string;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;
 }

@@ -54,6 +54,7 @@ import {
   providerToResponse,
   threadToResponse,
 } from './channel-mappers.js';
+import { handleChannelAdminFacadeRoutes } from './channel-admin-facade.js';
 
 const providers = new BuiltInControlChannelProviderCatalog();
 
@@ -134,6 +135,10 @@ export async function handleChannelControlRoutes(
   url: URL,
   pathname: string,
 ): Promise<boolean> {
+  if (await handleChannelAdminFacadeRoutes(req, res, ctx, url, pathname)) {
+    return true;
+  }
+
   if (pathname === '/v1/channel-providers' && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['channels:read']);
     if (!auth) return true;

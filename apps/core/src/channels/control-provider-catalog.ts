@@ -8,6 +8,10 @@ import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provi
 import type { IsoTimestamp } from '../shared/time/primitives.js';
 import { listSlackRecentChats } from '../cli/slack-chat-discovery.js';
 import { listTelegramRecentChats } from '../cli/telegram-chat-discovery.js';
+import {
+  GraphTeamsSetupDiscoveryClient,
+  type TeamsSetupDiscoveryClient,
+} from './teams-setup-discovery.js';
 import './register-builtins.js';
 import { listChannelProviders } from './provider-registry.js';
 import { ApplicationError } from '../application/common/application-error.js';
@@ -41,7 +45,10 @@ export class BuiltInControlChannelProviderCatalog implements ChannelProviderCata
 }
 
 export class RuntimeSecretConversationDiscovery implements ChannelConversationDiscoveryPort {
-  constructor(private readonly secrets: RuntimeSecretProvider) {}
+  constructor(
+    private readonly secrets: RuntimeSecretProvider,
+    private readonly teamsDiscoveryClient: TeamsSetupDiscoveryClient = new GraphTeamsSetupDiscoveryClient(),
+  ) {}
 
   async discover(
     input: Parameters<ChannelConversationDiscoveryPort['discover']>[0],
@@ -94,6 +101,36 @@ export class RuntimeSecretConversationDiscovery implements ChannelConversationDi
         }),
       );
     }
+    if (providerId === 'teams') {
+      const result = await this.teamsDiscoveryClient.listChannels({
+        credentials: {
+          clientId: this.resolveExactSecret(
+            input.installation.runtimeSecretRefs,
+            'TEAMS_CLIENT_ID',
+          ),
+          clientSecret: this.resolveExactSecret(
+            input.installation.runtimeSecretRefs,
+            'TEAMS_CLIENT_SECRET',
+          ),
+          tenantId: this.resolveExactSecret(
+            input.installation.runtimeSecretRefs,
+            'TEAMS_TENANT_ID',
+          ),
+        },
+        limit: input.limit,
+      });
+      if (!result.ok) {
+        throw new ApplicationError('UNAVAILABLE', result.message);
+      }
+      return result.channels.map(
+        (channel): DiscoveredConversation => ({
+          externalId: channel.chatJid,
+          title: channel.chatTitle,
+          kind: 'channel',
+          externalRef: { kind: 'conversation', value: channel.chatJid },
+        }),
+      );
+    }
     throw new ApplicationError(
       'NOT_IMPLEMENTED',
       `Conversation discovery is not implemented for ${providerId}`,
@@ -112,6 +149,21 @@ export class RuntimeSecretConversationDiscovery implements ChannelConversationDi
     throw new ApplicationError(
       'INVALID_REQUEST',
       'Channel installation does not reference a configured runtime secret',
+    );
+  }
+
+  private resolveExactSecret(refs: string[], ref: string): string {
+    if (!refs.includes(ref)) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        `Channel installation does not reference ${ref}`,
+      );
+    }
+    const value = this.secrets.getOptionalSecret({ env: ref });
+    if (value) return value;
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      `Channel installation references ${ref}, but it is not configured`,
     );
   }
 }

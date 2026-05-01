@@ -46,7 +46,8 @@ A provider `id` becomes:
 - `settings.yaml` key under `channels.<id>`
 - runtime enablement selector (`settings.channels[id].enabled`)
 - sender allowlist key (`settings.channels[id].sender_allowlist`)
-- session/admin allowlist key (`settings.channels[id].control_allowlist`)
+- legacy sender-control allowlist key (`settings.channels[id].control_allowlist`);
+  new permission approvers are Channel control allowlist rows in Postgres
 
 A provider `jidPrefix` is used for:
 

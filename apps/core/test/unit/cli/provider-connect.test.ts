@@ -39,4 +39,20 @@ describe('runProviderConnectCommand', () => {
       expect.stringContaining('Unknown channel provider: app'),
     );
   });
+
+  it('dispatches Teams connect through its built-in setup command', async () => {
+    vi.resetModules();
+    const runTeamsConnectCommand = vi.fn(async () => 0);
+    vi.doMock('@core/cli/teams.js', () => ({
+      runTeamsConnectCommand,
+    }));
+    const { runProviderConnectCommand: runConnect } =
+      await import('@core/cli/provider-connect.js');
+    const runtimeHome = makeRuntimeHome();
+
+    const code = await runConnect(runtimeHome, 'teams');
+
+    expect(code).toBe(0);
+    expect(runTeamsConnectCommand).toHaveBeenCalledWith(runtimeHome);
+  });
 });

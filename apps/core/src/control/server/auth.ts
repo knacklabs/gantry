@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import { isValidControlId } from '../../application/app-scope/control-id.js';
+import { envValueDynamic } from '../../config/env/index.js';
 
 export type Scope =
   | 'sessions:read'
@@ -56,24 +57,35 @@ const ALL_SCOPES: Scope[] = [
 
 export { isValidControlId };
 
+function isApiKeyJsonEntry(value: unknown): value is {
+  kid?: string;
+  token?: string;
+  scopes?: string[];
+  appId?: string;
+} {
+  return Boolean(value && typeof value === 'object');
+}
+
 export function parseControlApiKeys(): ApiKeyRecord[] {
-  const rawJson = process.env.MYCLAW_CONTROL_API_KEYS_JSON?.trim();
-  const rawSingle = process.env.MYCLAW_CONTROL_API_KEY?.trim();
-  const singleAppId = process.env.MYCLAW_CONTROL_APP_ID?.trim() || '';
+  const rawJson = envValueDynamic('MYCLAW_CONTROL_API_KEYS_JSON');
+  const rawSingle = envValueDynamic('MYCLAW_CONTROL_API_KEY');
+  const singleAppId = envValueDynamic('MYCLAW_CONTROL_APP_ID');
   if (rawJson) {
-    const parsed = JSON.parse(rawJson) as Array<{
-      kid?: string;
-      token?: string;
-      scopes?: string[];
-      appId?: string;
-    }>;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawJson);
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(parsed)) return [];
     return parsed
+      .filter(isApiKeyJsonEntry)
       .filter((entry) => entry.kid && entry.token)
       .map((entry) => ({
         kid: String(entry.kid),
         tokenHash: createHash('sha256').update(String(entry.token)).digest(),
         scopes: new Set(
-          (entry.scopes || []).filter((scope): scope is Scope =>
+          (entry.scopes || []).filter((scope: string): scope is Scope =>
             ALL_SCOPES.includes(scope as Scope),
           ),
         ),
