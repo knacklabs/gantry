@@ -1106,6 +1106,75 @@ describe('createChannelPersistenceHandlers agent DM access', () => {
     expect(storeMessage).not.toHaveBeenCalled();
   });
 
+  it('preserves explicitly configured direct conversation bindings without DM access', async () => {
+    const registeredGroups: Record<string, any> = {
+      'tg:5759865942': {
+        name: 'Main Agent',
+        folder: 'main_agent',
+        trigger: '@Main Agent',
+        added_at: '2026-05-01T00:00:00.000Z',
+        requiresTrigger: false,
+        isMain: true,
+      },
+    };
+    const app = makeApp(registeredGroups);
+    const storeMessage = vi.fn(async () => undefined);
+    runtimeStoreMock.repositories.agents.findAgentsByDmAccess.mockReset();
+    runtimeStoreMock.repositories.agents.findAgentsByDmAccess.mockResolvedValue(
+      [],
+    );
+
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 5_000),
+      ...dmAccessTestDeps(),
+    });
+
+    await handlers.onChatMetadata(
+      'tg:5759865942',
+      '2026-05-01T00:00:00.000Z',
+      'Ravi',
+      'telegram',
+      false,
+    );
+    const msg = {
+      id: 'm-configured-dm',
+      chat_jid: 'tg:5759865942',
+      provider: 'telegram',
+      sender: '5759865942',
+      sender_name: 'Ravi',
+      content: 'hello',
+      timestamp: '2026-05-01T00:00:01.000Z',
+    };
+    await handlers.onMessage('tg:5759865942', msg);
+
+    expect(
+      runtimeStoreMock.repositories.agents.findAgentsByDmAccess,
+    ).not.toHaveBeenCalled();
+    expect(app.registerGroup).not.toHaveBeenCalled();
+    expect(storeMessage).toHaveBeenCalledWith(msg);
+  });
+
   it('does not register unregistered group conversations through DM access', async () => {
     const app = makeApp({});
     const storeMessage = vi.fn(async () => undefined);

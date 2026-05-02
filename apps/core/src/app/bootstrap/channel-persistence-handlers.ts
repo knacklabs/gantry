@@ -80,6 +80,7 @@ export function createChannelPersistenceHandlers({
     const groupsByChat = app.getRegisteredGroups();
     const existingGroup = groupsByChat[chatJid];
     if (msg.is_from_me || msg.is_bot_message) return Boolean(existingGroup);
+    if (existingGroup && !existingGroup.folder.startsWith('dm_')) return true;
     const isKnownDirect =
       chatIsGroup.get(chatJid) === false ||
       existingGroup?.folder.startsWith('dm_') === true;
