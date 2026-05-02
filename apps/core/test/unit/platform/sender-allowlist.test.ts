@@ -75,7 +75,7 @@ function renderSettingsYaml(overrides: {
     lines.push(`  ${folder}_conversation:`);
     lines.push('    provider_connection: telegram_default');
     lines.push('    external_id: "1"');
-    lines.push('    kind: group');
+    lines.push('    kind: channel');
     lines.push(`    display_name: ${folder}`);
     lines.push('    sender_policy:');
     lines.push(`      allow: ${renderAllow(entry.allow)}`);
@@ -181,7 +181,7 @@ function writeSameAgentMultiConversationSettings(): string {
       '  first_conversation:',
       '    provider_connection: telegram_default',
       '    external_id: "1"',
-      '    kind: group',
+      '    kind: channel',
       '    display_name: First',
       '    sender_policy:',
       '      allow: ["alice"]',
@@ -190,7 +190,7 @@ function writeSameAgentMultiConversationSettings(): string {
       '  second_conversation:',
       '    provider_connection: telegram_default',
       '    external_id: "2"',
-      '    kind: group',
+      '    kind: channel',
       '    display_name: Second',
       '    sender_policy:',
       '      allow: ["bob"]',

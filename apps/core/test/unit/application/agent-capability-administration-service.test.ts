@@ -213,6 +213,8 @@ function createState() {
             else mcpBindings.push(binding);
           }
         },
+        listAgentPermissionRules: async () => [],
+        replaceAgentPermissionRules: async () => [],
       },
       tools: {
         getTool: async (id: string) => tools.get(id) ?? null,

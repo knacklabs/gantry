@@ -24,6 +24,7 @@ import {
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import { AgentOutput, spawnAgent } from '../runtime/agent-spawn.js';
 import {
+  buildRuntimeRunOptions,
   completeFailedRuntimeSessionRun,
   completeSuccessfulRuntimeSessionRun,
 } from '../runtime/session-resume-runtime.js';
@@ -385,6 +386,8 @@ export async function runJob(
               cause: 'job',
             })
           : undefined;
+        // prettier-ignore
+        const permissionRules = await deps.getAgentPermissionRules?.(execution.group.folder);
         const output = await runAgentImpl(
           execution.group,
           {
@@ -436,10 +439,9 @@ export async function runJob(
               if (await finalizeStreaming()) deliveredAnyOutput = true;
             }
           },
-          { timeoutMs },
+          buildRuntimeRunOptions({ timeoutMs, permissionRules }),
         );
         flushStreamingEvent(true);
-
         if (output.status === 'error') {
           error = output.error || 'Unknown error';
           await completeFailedRuntimeSessionRun({
@@ -686,7 +688,6 @@ export async function runJob(
     }
   } catch {} // eslint-disable-line no-empty
   deps.onSchedulerChanged?.(currentJob.id);
-
   if (
     !jobDeletedDuringRun &&
     currentJob.schedule_type === 'once' &&

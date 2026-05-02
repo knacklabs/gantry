@@ -14,6 +14,7 @@ export type AgentConfigVersionId = BrandedId<'AgentConfigVersionId'>;
 export type LlmProfileId = BrandedId<'LlmProfileId'>;
 export type AgentDmAccessId = BrandedId<'AgentDmAccessId'>;
 export type AgentDmApproverId = BrandedId<'AgentDmApproverId'>;
+export type AgentPermissionRuleId = BrandedId<'AgentPermissionRuleId'>;
 
 export type ThinkingMode = 'adaptive' | 'enabled' | 'disabled';
 export type ThinkingEffort = 'low' | 'medium' | 'high' | 'max';
@@ -64,6 +65,16 @@ export interface AgentDmApprover {
   agentId: AgentId;
   providerId: string;
   externalUserId: string;
+  createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
+}
+
+export interface AgentPermissionRule {
+  id: AgentPermissionRuleId;
+  appId: AppId;
+  agentId: AgentId;
+  effect: 'allow' | 'deny';
+  rule: string;
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;
 }

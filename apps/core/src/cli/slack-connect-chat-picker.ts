@@ -1,7 +1,9 @@
 import * as p from '@clack/prompts';
 
-import type { RuntimeConfiguredConversation } from '../config/settings/runtime-settings-types.js';
-import { slackConversationKindForChat } from './conversation-kind.js';
+import {
+  slackConversationKindForChat,
+  type CliConversationKind,
+} from './conversation-kind.js';
 import { listSlackRecentChats } from './slack-chat-discovery.js';
 
 function normalizeSlackChatJid(raw: string): string | null {
@@ -20,7 +22,7 @@ export type SlackChatChoice =
   | {
       type: 'selected';
       chatJid: string;
-      conversationKind: RuntimeConfiguredConversation['kind'];
+      conversationKind: CliConversationKind;
     }
   | { type: 'skip' }
   | { type: 'cancel' };

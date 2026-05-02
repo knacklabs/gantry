@@ -27,6 +27,10 @@ import { PartialMessageDeliveryError } from '../../runtime/partial-delivery.js';
 import { parseTextStyles } from '../../text-styles.js';
 import { AsyncTaskQueue } from '../../app/bootstrap/async-task-queue.js';
 import { writeTelegramFetchResponseToFile } from '../telegram-file-download.js';
+import {
+  permissionApproveLabel,
+  permissionDecisionOptions,
+} from '../permission-approval-format.js';
 
 import { TelegramChannelConnect } from './channel-connect.js';
 import {
@@ -341,13 +345,13 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         ...telegramThreadOptionsFromString(request.threadId),
         reply_markup: {
           inline_keyboard: [
-            [
-              {
-                text: 'Approve',
-                callback_data: `perm:approve:${request.requestId}`,
-              },
-              { text: 'Deny', callback_data: `perm:deny:${request.requestId}` },
-            ],
+            permissionDecisionOptions(request).map((option) => ({
+              text:
+                option === 'reject'
+                  ? 'Reject'
+                  : permissionApproveLabel(request, option),
+              callback_data: `perm:${option}:${request.requestId}`,
+            })),
           ],
         },
       });
@@ -362,6 +366,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         this.pendingPermissionPrompts.set(request.requestId, {
           sourceGroup: request.sourceGroup,
           decisionPolicy: request.decisionPolicy,
+          request,
           chatId,
           messageId: sent.message_id,
           timer,

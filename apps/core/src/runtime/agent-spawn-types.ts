@@ -53,6 +53,10 @@ export interface RunAgentOptions {
   };
   mcpHostnameLookup?: HostnameLookup;
   mcpDnsValidationCache?: RemoteMcpDnsValidationCache;
+  permissionRules?: {
+    allow: string[];
+    deny: string[];
+  };
 }
 
 export interface HostRuntimeContext {

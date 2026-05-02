@@ -97,6 +97,22 @@ export function saveRuntimeSettings(
   );
 }
 
+export function updateRuntimeSettingsIfRevision(
+  runtimeHome: string,
+  expectedRevision: string,
+  update: (settings: RuntimeSettings) => RuntimeSettings,
+): RuntimeSettings | null {
+  if (getRuntimeSettingsRevision(runtimeHome) !== expectedRevision) {
+    return null;
+  }
+  const settings = update(loadRuntimeSettings(runtimeHome));
+  if (getRuntimeSettingsRevision(runtimeHome) !== expectedRevision) {
+    return null;
+  }
+  saveRuntimeSettings(runtimeHome, settings);
+  return settings;
+}
+
 function writeSettingsYamlAtomic(filePath: string, content: string): void {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -219,6 +235,10 @@ export function ensureConfiguredConversationBinding(
       toolIds: [],
       skillIds: [],
       mcpServerIds: [],
+      permissionRules: {
+        allow: [],
+        deny: [],
+      },
     },
   };
 

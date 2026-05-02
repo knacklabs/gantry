@@ -5,6 +5,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import {
   composeAgentCapabilities,
   type McpServerConfig,
@@ -24,6 +25,7 @@ import { requestPermissionApproval } from './permission-callback.js';
 import { protectedCapabilityPreToolUseHook } from './protected-capability-hook.js';
 import {
   discoverAdditionalDirectories,
+  IPC_BASE_DIR,
   IPC_POLL_MS,
   WORKSPACE_GROUP_DIR,
 } from './runtime-env.js';
@@ -36,6 +38,7 @@ import {
   findModelByRunnerModel,
   normalizeModelUsage,
 } from '../../shared/model-catalog.js';
+import { permissionRuleMatchesToolUse } from '../../shared/permission-rules.js';
 import { validateAgentToolInput } from './agent-model-selection.js';
 import { usageEventIdForMessage } from './query-usage-event-id.js';
 
@@ -121,6 +124,12 @@ export async function runQuery(
     externalMcpServers: readExternalMcpServers(),
     externalMcpAllowedTools: readExternalMcpAllowedTools(),
     externalMcpAlwaysAllowedTools: readExternalMcpAlwaysAllowedTools(),
+    permissionAllowRules: readJsonStringArrayEnv(
+      'MYCLAW_AGENT_PERMISSION_ALLOW_RULES_JSON',
+    ),
+    permissionDenyRules: readJsonStringArrayEnv(
+      'MYCLAW_AGENT_PERMISSION_DENY_RULES_JSON',
+    ),
   });
 
   for await (const message of query({
@@ -138,6 +147,10 @@ export async function runQuery(
           : undefined,
       systemPrompt,
       allowedTools: [...capabilities.allowedTools],
+      disallowedTools:
+        capabilities.disallowedTools.length > 0
+          ? [...capabilities.disallowedTools]
+          : undefined,
       env: sdkEnv,
       permissionMode: capabilities.permissionMode,
       hooks: {
@@ -178,6 +191,12 @@ export async function runQuery(
         }
 
         if (capabilities.alwaysAllowedTools.includes(toolName)) {
+          return { behavior: 'allow' as const, updatedInput: input };
+        }
+
+        const oneTimeRule = consumeOneTimePermissionRule(toolName, input);
+        if (oneTimeRule) {
+          log(`Permission approved once for tool ${toolName}: ${oneTimeRule}`);
           return { behavior: 'allow' as const, updatedInput: input };
         }
 
@@ -400,7 +419,11 @@ function validateExternalMcpServers(
 }
 
 function readExternalMcpAllowedTools(): readonly string[] {
-  const raw = process.env.MYCLAW_MCP_ALLOWED_TOOLS_JSON?.trim();
+  return readJsonStringArrayEnv('MYCLAW_MCP_ALLOWED_TOOLS_JSON');
+}
+
+function readJsonStringArrayEnv(name: string): readonly string[] {
+  const raw = process.env[name]?.trim();
   if (!raw) return [];
   const parsed = JSON.parse(raw) as unknown;
   if (!Array.isArray(parsed)) return [];
@@ -408,11 +431,34 @@ function readExternalMcpAllowedTools(): readonly string[] {
 }
 
 function readExternalMcpAlwaysAllowedTools(): readonly string[] {
-  const raw = process.env.MYCLAW_MCP_ALWAYS_ALLOWED_TOOLS_JSON?.trim();
-  if (!raw) return [];
-  const parsed = JSON.parse(raw) as unknown;
-  if (!Array.isArray(parsed)) return [];
-  return parsed.filter((entry): entry is string => typeof entry === 'string');
+  return readJsonStringArrayEnv('MYCLAW_MCP_ALWAYS_ALLOWED_TOOLS_JSON');
+}
+
+function consumeOneTimePermissionRule(
+  toolName: string,
+  input: unknown,
+): string | null {
+  const dir = path.join(IPC_BASE_DIR, 'one-time-permission-rules');
+  if (!fs.existsSync(dir)) return null;
+  for (const entry of fs.readdirSync(dir)) {
+    if (!entry.endsWith('.json')) continue;
+    const filePath = path.join(dir, entry);
+    try {
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as {
+        rule?: unknown;
+      };
+      if (
+        typeof parsed.rule === 'string' &&
+        permissionRuleMatchesToolUse(parsed.rule, toolName, input)
+      ) {
+        fs.rmSync(filePath, { force: true });
+        return parsed.rule;
+      }
+    } catch {
+      fs.rmSync(filePath, { force: true });
+    }
+  }
+  return null;
 }
 
 function logUsage(message: unknown): void {

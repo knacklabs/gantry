@@ -11,6 +11,7 @@ import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-
 import { encodeGroupMessageCursor } from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { RegisteredGroup, ThinkingOverride } from '../../domain/types.js';
+import type { AgentId } from '../../domain/agent/agent.js';
 import { RemoteMcpDnsValidationCache } from '../../application/mcp/mcp-server-policy.js';
 import { createGroupProcessor } from '../../runtime/group-processing.js';
 import type { GroupProcessingDeps } from '../../runtime/group-processing-types.js';
@@ -57,6 +58,9 @@ export interface RuntimeApp {
     chatJid: string,
     options?: { queued?: boolean },
   ) => Promise<boolean>;
+  getAgentPermissionRules: (
+    agentFolder: string,
+  ) => Promise<{ allow: string[]; deny: string[] }>;
   getRegisteredGroups: () => Record<string, RegisteredGroup>;
   getLastTimestamp: () => string;
   setLastTimestamp: (timestamp: string) => void;
@@ -365,6 +369,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     getMcpServerRepository: () => getRuntimeStorage().repositories.mcpServers,
     getMcpHostnameLookup: options.mcpHostnameLookup,
     getMcpDnsValidationCache: () => mcpDnsValidationCache,
+    getAgentPermissionRules: readRuntimeAgentPermissionRules,
     getSkillArtifactStore:
       options.skillArtifactStore ?? getRuntimeSkillArtifactStore,
     collectSessionMemory:
@@ -385,6 +390,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     clearSessionForChatJid,
     processGroupMessages: (chatJid, options) =>
       groupProcessor.processGroupMessages(chatJid, options),
+    getAgentPermissionRules: readRuntimeAgentPermissionRules,
     getRegisteredGroups: () => registeredGroups,
     getLastTimestamp: () => lastTimestamp,
     setLastTimestamp: (timestamp) => {
@@ -396,6 +402,22 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     setChannelRuntime: (runtime) => {
       channelRuntime = runtime;
     },
+  };
+}
+
+async function readRuntimeAgentPermissionRules(
+  agentFolder: string,
+): Promise<{ allow: string[]; deny: string[] }> {
+  const rows =
+    await getRuntimeStorage().repositories.agents.listAgentPermissionRules({
+      appId: 'default' as never,
+      agentId: (agentFolder.startsWith('agent:')
+        ? agentFolder
+        : `agent:${agentFolder}`) as AgentId,
+    });
+  return {
+    allow: rows.filter((row) => row.effect === 'allow').map((row) => row.rule),
+    deny: rows.filter((row) => row.effect === 'deny').map((row) => row.rule),
   };
 }
 

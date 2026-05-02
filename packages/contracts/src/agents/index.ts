@@ -90,6 +90,10 @@ export const AgentCapabilitiesResponseSchema = z.object({
   selectedToolIds: z.array(z.string()),
   selectedSkillIds: z.array(z.string()),
   selectedMcpServerIds: z.array(z.string()),
+  permissionRules: z.object({
+    allow: z.array(z.string()),
+    deny: z.array(z.string()),
+  }),
   updatedAt: IsoDateTimeSchema,
 });
 export type AgentCapabilitiesResponse = z.infer<

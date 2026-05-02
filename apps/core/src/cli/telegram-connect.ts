@@ -11,8 +11,10 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
-import type { RuntimeConfiguredConversation } from '../config/settings/runtime-settings-types.js';
-import { telegramConversationKindForChat } from './conversation-kind.js';
+import {
+  telegramConversationKindForChat,
+  type CliConversationKind,
+} from './conversation-kind.js';
 import {
   normalizeTelegramChatJid,
   readTelegramFromRuntimeEnv,
@@ -26,7 +28,7 @@ type TelegramChatChoice =
   | {
       type: 'selected';
       chatJid: string;
-      conversationKind: RuntimeConfiguredConversation['kind'];
+      conversationKind: CliConversationKind;
       adminSenderId?: string;
     }
   | { type: 'skip' }

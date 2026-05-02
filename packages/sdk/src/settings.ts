@@ -47,6 +47,10 @@ export type RuntimeSettingsResponse = {
           toolIds: string[];
           skillIds: string[];
           mcpServerIds: string[];
+          permissionRules: {
+            allow: string[];
+            deny: string[];
+          };
         };
       }
     >;

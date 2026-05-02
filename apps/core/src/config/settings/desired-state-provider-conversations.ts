@@ -83,8 +83,8 @@ export function configuredConversationKind(
   providerId?: string,
 ): Conversation['kind'] {
   if (kind === 'dm') return 'direct';
-  if (providerId === 'telegram') return 'group';
-  return kind;
+  if (kind === 'channel') return 'group';
+  return providerId === 'telegram' ? 'group' : kind;
 }
 
 export function defaultRuntimeSecretRefs(

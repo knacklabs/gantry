@@ -5,6 +5,7 @@ import type {
   AgentDmAccess,
   AgentDmApprover,
   AgentId,
+  AgentPermissionRule,
 } from '../agent/agent.js';
 import type { App, AppId } from '../app/app.js';
 import type { BrowserProfile, BrowserProfileId } from '../browser/browser.js';
@@ -113,6 +114,16 @@ export interface AgentRepository {
     mcpBindings: AgentMcpServerBinding[];
     updatedAt: string;
   }): Promise<void>;
+  listAgentPermissionRules(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentPermissionRule[]>;
+  replaceAgentPermissionRules(input: {
+    appId: AppId;
+    agentId: AgentId;
+    rules: Array<Pick<AgentPermissionRule, 'effect' | 'rule'>>;
+    updatedAt: string;
+  }): Promise<AgentPermissionRule[]>;
   disableAgent(input: {
     appId: AppId;
     agentId: AgentId;

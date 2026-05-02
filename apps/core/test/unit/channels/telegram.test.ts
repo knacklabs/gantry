@@ -2089,7 +2089,7 @@ describe('TelegramChannel', () => {
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '100200300',
-        expect.stringContaining('Permission request: perm-1'),
+        expect.stringContaining('Request ID: perm-1'),
         expect.objectContaining({
           reply_markup: expect.objectContaining({
             inline_keyboard: expect.any(Array),
@@ -2108,6 +2108,7 @@ describe('TelegramChannel', () => {
 
       expect(decision).toEqual({
         approved: true,
+        mode: 'approve_once',
         decidedBy: 'Ravi',
         reason: 'approved via Telegram',
       });
@@ -2117,7 +2118,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
         '100200300',
         987,
-        expect.stringContaining('Status: APPROVED by Ravi'),
+        expect.stringContaining('Approved once: Bash by Ravi'),
         expect.objectContaining({
           reply_markup: { inline_keyboard: [] },
         }),

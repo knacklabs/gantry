@@ -49,6 +49,7 @@ export interface PendingPermissionPrompt {
   channelId: string;
   sourceGroup: string;
   decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
+  request: PermissionApprovalRequest;
   messageTs: string;
   timer: ReturnType<typeof setTimeout>;
   resolve: (decision: PermissionApprovalDecision) => void;
@@ -167,11 +168,7 @@ export abstract class SlackChannelState {
   ): string[] {
     if (!request.toolInput || typeof request.toolInput !== 'object') return [];
     const input = request.toolInput;
-    if (
-      request.toolName === 'Bash' &&
-      typeof input.command === 'string' &&
-      input.command.trim()
-    ) {
+    if (typeof input.command === 'string' && input.command.trim()) {
       return [`Command: \`${this.truncateText(input.command.trim(), 300)}\``];
     }
     if (request.toolName === 'Edit' || request.toolName === 'Write') {
@@ -689,7 +686,6 @@ export abstract class SlackChannelState {
         });
       }
     }
-
     return { text: lines.join('\n').trim(), attachments };
   }
 

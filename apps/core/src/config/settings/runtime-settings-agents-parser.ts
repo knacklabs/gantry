@@ -1,4 +1,8 @@
 import { resolveModelSelection } from '../../shared/model-catalog.js';
+import {
+  normalizePermissionRules,
+  type PermissionRuleSet,
+} from '../../shared/permission-rules.js';
 import type {
   RuntimeConfiguredAgent,
   RuntimeConfiguredAgentBinding,
@@ -50,6 +54,34 @@ function parseStringArrayValue(raw: unknown, pathPrefix: string): string[] {
     }
     return item.trim();
   });
+}
+
+function parsePermissionRuleSet(
+  raw: unknown,
+  pathPrefix: string,
+): PermissionRuleSet {
+  if (raw === undefined) return normalizePermissionRules();
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`${pathPrefix} must be a mapping`);
+  }
+  const map = raw as Record<string, unknown>;
+  for (const key of Object.keys(map)) {
+    if (key !== 'allow' && key !== 'deny') {
+      throw new Error(
+        `${pathPrefix}.${key} is not supported. Configure allow or deny.`,
+      );
+    }
+  }
+  try {
+    return normalizePermissionRules({
+      allow: parseStringArrayValue(map.allow ?? [], `${pathPrefix}.allow`),
+      deny: parseStringArrayValue(map.deny ?? [], `${pathPrefix}.deny`),
+    });
+  } catch (err) {
+    throw new Error(
+      `${pathPrefix} is invalid: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 function isValidSettingsAgentFolder(folder: string): boolean {
@@ -114,16 +146,26 @@ function parseConfiguredAgentCapabilities(
   pathPrefix: string,
 ): RuntimeConfiguredAgentCapabilities {
   if (raw === undefined) {
-    return { toolIds: [], skillIds: [], mcpServerIds: [] };
+    return {
+      toolIds: [],
+      skillIds: [],
+      mcpServerIds: [],
+      permissionRules: normalizePermissionRules(),
+    };
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw new Error(`${pathPrefix} must be a mapping`);
   }
   const map = raw as Record<string, unknown>;
   for (const key of Object.keys(map)) {
-    if (key !== 'tool_ids' && key !== 'skill_ids' && key !== 'mcp_server_ids') {
+    if (
+      key !== 'tool_ids' &&
+      key !== 'skill_ids' &&
+      key !== 'mcp_server_ids' &&
+      key !== 'permission_rules'
+    ) {
       throw new Error(
-        `${pathPrefix}.${key} is not supported. Configure tool_ids, skill_ids, or mcp_server_ids.`,
+        `${pathPrefix}.${key} is not supported. Configure tool_ids, skill_ids, mcp_server_ids, or permission_rules.`,
       );
     }
   }
@@ -139,6 +181,10 @@ function parseConfiguredAgentCapabilities(
     mcpServerIds: parseStringArrayValue(
       map.mcp_server_ids ?? [],
       `${pathPrefix}.mcp_server_ids`,
+    ),
+    permissionRules: parsePermissionRuleSet(
+      map.permission_rules,
+      `${pathPrefix}.permission_rules`,
     ),
   };
 }

@@ -56,6 +56,10 @@ Important constraints:
 - Keep shared utilities narrowly scoped to an owned layer or adapter, such as infrastructure logging or error boundaries.
 - Prefer small files with clear responsibility.
 - Add tests for new behavior.
+- Every meaningful feature or fix plan must include a Surface Impact Matrix. Classify runtime behavior, `settings.yaml`, Postgres/runtime projection, control API, SDK/contracts, CLI, MyClaw MCP tools/admin skill, channel/provider adapters, docs/prompts, audit/events, and tests/verification as `Changed`, `Read-only/observable`, `Unchanged by design`, `Deferred`, or `Not applicable`.
+- Every `Deferred` or `Unchanged by design` Surface Impact Matrix entry must include a short reason. Do not leave API, CLI, MCP tools, database projection, docs, or tests implicit.
+- For settings-owned config changes, explicitly state whether the change writes `settings.yaml`, reconciles Postgres/runtime projection, and updates API/CLI/MCP/admin-tool surfaces.
+- For permission and capability changes, explicitly state whether the change affects transient approval, persistent capability selection, or both.
 - MyClaw is early-stage: prefer deleting legacy code over compatibility shims because no users are live yet.
 - Do not add migration compatibility commands, auto-migration flows, cleanup shims, or runtime branches that exist only to support old local state.
 - Remove obsolete code paths in the same change when introducing a breaking replacement.

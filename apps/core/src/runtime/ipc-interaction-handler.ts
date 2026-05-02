@@ -70,6 +70,7 @@ export function writePermissionIpcResponse(
   const payload = withSignature(privateKeyPem, {
     requestId: decision.requestId,
     approved: decision.approved,
+    ...(decision.mode ? { mode: decision.mode } : {}),
     ...(decision.decidedBy ? { decidedBy: decision.decidedBy } : {}),
     ...(decision.reason ? { reason: decision.reason } : {}),
   });

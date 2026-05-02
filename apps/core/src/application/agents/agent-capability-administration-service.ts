@@ -24,6 +24,10 @@ import type {
   ToolCatalogItem,
   ToolId,
 } from '../../domain/tools/tools.js';
+import {
+  normalizePermissionRules,
+  type PermissionRuleSet,
+} from '../../shared/permission-rules.js';
 
 export interface CapabilityCatalogView {
   tools: ToolCatalogItem[];
@@ -36,6 +40,7 @@ export interface AgentCapabilitiesView {
   selectedToolIds: ToolId[];
   selectedSkillIds: SkillId[];
   selectedMcpServerIds: McpServerId[];
+  permissionRules: PermissionRuleSet;
   updatedAt: string;
 }
 
@@ -74,14 +79,16 @@ export class AgentCapabilityAdministrationService {
     agentId: AgentId;
   }): Promise<AgentCapabilitiesView> {
     await this.requireAgent(input.appId, input.agentId);
-    const [toolBindings, skillBindings, mcpBindings] = await Promise.all([
-      this.repositories.tools.listAgentToolBindings(input),
-      this.repositories.skills.listAgentSkillBindings(input),
-      this.repositories.mcpServers.listAgentBindings({
-        ...input,
-        limit: 500,
-      }),
-    ]);
+    const [toolBindings, skillBindings, mcpBindings, permissionRules] =
+      await Promise.all([
+        this.repositories.tools.listAgentToolBindings(input),
+        this.repositories.skills.listAgentSkillBindings(input),
+        this.repositories.mcpServers.listAgentBindings({
+          ...input,
+          limit: 500,
+        }),
+        this.repositories.agents.listAgentPermissionRules(input),
+      ]);
     return {
       agentId: input.agentId,
       selectedToolIds: toolBindings
@@ -93,6 +100,14 @@ export class AgentCapabilityAdministrationService {
       selectedMcpServerIds: mcpBindings
         .filter((binding) => binding.status === 'active')
         .map((binding) => binding.serverId),
+      permissionRules: normalizePermissionRules({
+        allow: permissionRules
+          .filter((rule) => rule.effect === 'allow')
+          .map((rule) => rule.rule),
+        deny: permissionRules
+          .filter((rule) => rule.effect === 'deny')
+          .map((rule) => rule.rule),
+      }),
       updatedAt: this.clock.now(),
     };
   }
@@ -103,6 +118,7 @@ export class AgentCapabilityAdministrationService {
     selectedToolIds: ToolId[];
     selectedSkillIds: SkillId[];
     selectedMcpServerIds: McpServerId[];
+    permissionRules?: PermissionRuleSet;
   }): Promise<AgentCapabilitiesView> {
     const agent = await this.requireAgent(input.appId, input.agentId);
     if (agent.status !== 'active') {
@@ -238,12 +254,34 @@ export class AgentCapabilityAdministrationService {
       mcpBindings: nextMcpBindings,
       updatedAt: now,
     });
+    const permissionRules =
+      input.permissionRules === undefined
+        ? await this.getPermissionRules(input.appId, input.agentId)
+        : normalizePermissionRules(input.permissionRules);
+    if (input.permissionRules !== undefined) {
+      await this.repositories.agents.replaceAgentPermissionRules({
+        appId: input.appId,
+        agentId: input.agentId,
+        rules: [
+          ...permissionRules.allow.map((rule) => ({
+            effect: 'allow' as const,
+            rule,
+          })),
+          ...permissionRules.deny.map((rule) => ({
+            effect: 'deny' as const,
+            rule,
+          })),
+        ],
+        updatedAt: now,
+      });
+    }
 
     return {
       agentId: input.agentId,
       selectedToolIds,
       selectedSkillIds,
       selectedMcpServerIds,
+      permissionRules,
       updatedAt: now,
     };
   }
@@ -254,6 +292,24 @@ export class AgentCapabilityAdministrationService {
       throw new ApplicationError('NOT_FOUND', `Agent not found: ${agentId}`);
     }
     return agent;
+  }
+
+  private async getPermissionRules(
+    appId: AppId,
+    agentId: AgentId,
+  ): Promise<PermissionRuleSet> {
+    const rows = await this.repositories.agents.listAgentPermissionRules({
+      appId,
+      agentId,
+    });
+    return normalizePermissionRules({
+      allow: rows
+        .filter((rule) => rule.effect === 'allow')
+        .map((rule) => rule.rule),
+      deny: rows
+        .filter((rule) => rule.effect === 'deny')
+        .map((rule) => rule.rule),
+    });
   }
 
   private async requireSelectableTools(

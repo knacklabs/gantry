@@ -314,6 +314,20 @@ export async function spawnAgent(
       ),
     );
   }
+  const agentPermissionRules = options?.permissionRules ?? {
+    allow: [],
+    deny: [],
+  };
+  if (agentPermissionRules.allow.length > 0) {
+    env.MYCLAW_AGENT_PERMISSION_ALLOW_RULES_JSON = JSON.stringify(
+      agentPermissionRules.allow,
+    );
+  }
+  if (agentPermissionRules.deny.length > 0) {
+    env.MYCLAW_AGENT_PERMISSION_DENY_RULES_JSON = JSON.stringify(
+      agentPermissionRules.deny,
+    );
+  }
 
   const runtimeDetails = [
     `groupDir=${hostRuntime.groupDir}`,

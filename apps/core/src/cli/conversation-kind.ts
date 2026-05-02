@@ -1,9 +1,9 @@
-import type { RuntimeConfiguredConversation } from '../config/settings/runtime-settings-types.js';
+export type CliConversationKind = 'dm' | 'channel';
 
 export function telegramConversationKindForChat(input: {
   chatJid: string;
   providerChatType?: string;
-}): RuntimeConfiguredConversation['kind'] {
+}): CliConversationKind {
   const providerKind = input.providerChatType?.trim().toLowerCase();
   if (providerKind === 'private') return 'dm';
   if (
@@ -19,7 +19,7 @@ export function telegramConversationKindForChat(input: {
 export function slackConversationKindForChat(input: {
   chatJid: string;
   providerChatType?: string;
-}): RuntimeConfiguredConversation['kind'] {
+}): CliConversationKind {
   const providerKind = input.providerChatType?.trim().toLowerCase();
   if (providerKind === 'im') return 'dm';
   if (providerKind === 'mpim') return 'channel';

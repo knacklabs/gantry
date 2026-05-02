@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
-import { MYCLAW_HOME } from '../config/index.js';
+import { DATA_DIR, MYCLAW_HOME } from '../config/index.js';
 import {
   getRuntimeSettingsRevision,
   readRuntimeSettingsYaml,
   saveRuntimeSettings,
+  updateRuntimeSettingsIfRevision,
 } from '../config/settings/runtime-settings.js';
 import { parseRuntimeSettings } from '../config/settings/runtime-settings-parser.js';
 import { renderRuntimeSettingsYaml } from '../config/settings/runtime-settings-renderer.js';
@@ -14,11 +17,25 @@ import { SettingsDesiredStateService } from '../config/settings/desired-state-se
 import { logger } from '../infrastructure/logging/logger.js';
 import { validateRuntimePreflightWithStorage } from '../config/preflight.js';
 import { TaskHandler } from './ipc-types.js';
+import type { PermissionApprovalDecision } from '../domain/types.js';
+import type { IpcDeps } from '../runtime/ipc-domain-types.js';
+import {
+  appendPermissionRule,
+  canonicalizePermissionRule,
+} from '../shared/permission-rules.js';
 import {
   createTaskResponder,
   restartServiceForRuntimeHome,
   toTrimmedString,
 } from './ipc-shared.js';
+
+export interface CapabilityReviewForPermission {
+  toolName: string;
+  requestKind: string;
+  displayName: string;
+  reason: string;
+  toolInput: Record<string, unknown>;
+}
 
 function validateSameChannelApprovalTarget(input: {
   data: Parameters<TaskHandler>[0]['data'];
@@ -322,4 +339,204 @@ function summarizeYamlDiff(before: string, after: string): string[] {
     }
   }
   return diff;
+}
+
+export function startRequestOnlyCapabilityReview(input: {
+  deps: IpcDeps;
+  sourceGroup: string;
+  targetJid: string;
+  threadId?: string;
+  review: CapabilityReviewForPermission;
+}): void {
+  void completeCapabilityReview(input).catch((err) =>
+    logger.error(
+      { err, sourceGroup: input.sourceGroup, toolName: input.review.toolName },
+      'Capability permission review final message failed',
+    ),
+  );
+}
+
+async function completeCapabilityReview(input: {
+  deps: IpcDeps;
+  sourceGroup: string;
+  targetJid: string;
+  threadId?: string;
+  review: CapabilityReviewForPermission;
+}): Promise<void> {
+  let message: string;
+  try {
+    const isToolEnable = input.review.toolName === 'request_tool_enable';
+    const temporaryOnly = input.review.toolInput.temporaryOnly === true;
+    const expectedSettingsRevision =
+      isToolEnable && !temporaryOnly
+        ? getRuntimeSettingsRevision(MYCLAW_HOME)
+        : undefined;
+    const decision = await input.deps.requestPermissionApproval({
+      requestId: `capability-${input.review.toolName}-${randomUUID()}`,
+      sourceGroup: input.sourceGroup,
+      targetJid: input.targetJid,
+      threadId: input.threadId,
+      decisionPolicy: 'same_channel',
+      toolName: input.review.toolName,
+      displayName: input.review.displayName,
+      title: isToolEnable
+        ? 'Approve scoped tool permission'
+        : `Approve ${input.review.requestKind.toLowerCase()} request`,
+      description: isToolEnable
+        ? 'Approving once allows only this current action. Approving the rule writes settings.yaml and updates future agent permissions.'
+        : 'Only configured approvers can decide this request. This records the permission review only and does not enable the capability directly.',
+      decisionReason: input.review.reason,
+      approvalScope: temporaryOnly ? 'temporary' : 'persistent',
+      decisionOptions: isToolEnable
+        ? temporaryOnly
+          ? ['approve_once', 'reject']
+          : ['approve_permanent', 'approve_once', 'reject']
+        : undefined,
+      permissionRule: isToolEnable
+        ? describeToolEnableRule(
+            String(input.review.toolInput.permissionRule || ''),
+          )
+        : undefined,
+      toolInput: input.review.toolInput,
+    });
+    message = isToolEnable
+      ? await finalizeToolEnableDecision({
+          sourceGroup: input.sourceGroup,
+          displayName: input.review.displayName,
+          canonicalRule: String(input.review.toolInput.permissionRule || ''),
+          expectedSettingsRevision,
+          decision,
+        })
+      : requestOnlyReviewReceipt(input.review.displayName, decision);
+  } catch (err) {
+    logger.error(
+      { err, sourceGroup: input.sourceGroup, toolName: input.review.toolName },
+      'Capability permission review failed',
+    );
+    message = `Rejected ${input.review.displayName}: ${
+      err instanceof Error ? err.message : 'permission review failed'
+    }. No capability was enabled.`;
+  }
+  await input.deps.sendMessage(
+    input.targetJid,
+    message,
+    input.threadId ? { threadId: input.threadId } : undefined,
+  );
+}
+
+function requestOnlyReviewReceipt(
+  displayName: string,
+  decision: PermissionApprovalDecision,
+): string {
+  const reason = decision.approved
+    ? 'missing approving principal'
+    : decision.reason || 'not approved';
+  return decision.approved && decision.decidedBy
+    ? `Approved ${displayName}. Permission review recorded by ${decision.decidedBy}; no capability was enabled by this request-only flow.`
+    : `Rejected ${displayName}: ${reason}. No capability was enabled.`;
+}
+
+function describeToolEnableRule(canonicalRule: string) {
+  const described = canonicalizePermissionRule({
+    toolName: canonicalRule.startsWith('mcp__')
+      ? canonicalRule
+      : canonicalRule.replace(/\(.*\)$/, ''),
+    rule: canonicalRule.match(/^[^(]+\((.*)\)$/)?.[1],
+  });
+  return {
+    canonical: described.canonical,
+    risk: described.risk,
+    riskReason: described.riskReason,
+    broad: described.broad,
+    examples: described.examples,
+    boundary: described.boundary,
+  };
+}
+
+async function finalizeToolEnableDecision(input: {
+  sourceGroup: string;
+  displayName: string;
+  canonicalRule: string;
+  expectedSettingsRevision?: string;
+  decision: PermissionApprovalDecision;
+}): Promise<string> {
+  if (!input.decision.approved || !input.decision.decidedBy) {
+    return `Rejected ${input.displayName}: ${
+      input.decision.reason || 'not approved'
+    }. No permission rule was added.`;
+  }
+  if (input.decision.mode !== 'approve_permanent') {
+    writeOneTimePermissionRule(input.sourceGroup, input.canonicalRule);
+    return `Approved once: ${input.canonicalRule}. This matching tool use can proceed once; no persistent permission rule was added.`;
+  }
+  if (!input.expectedSettingsRevision) {
+    return `Rejected ${input.displayName}: missing settings revision. Ask the agent to retry.`;
+  }
+  const settings = updateRuntimeSettingsIfRevision(
+    MYCLAW_HOME,
+    input.expectedSettingsRevision,
+    (settings) => {
+      const agent = settings.agents[input.sourceGroup];
+      if (!agent) {
+        throw new Error(
+          `agent ${input.sourceGroup} is not present in settings.yaml`,
+        );
+      }
+      agent.capabilities.permissionRules = appendPermissionRule(
+        agent.capabilities.permissionRules,
+        'allow',
+        input.canonicalRule,
+      );
+      return settings;
+    },
+  );
+  if (!settings) {
+    return `Rejected ${input.displayName}: settings.yaml changed while approval was pending. Ask the agent to retry.`;
+  }
+  const storage = getRuntimeStorage();
+  try {
+    await new SettingsDesiredStateService({
+      ops: storage.ops,
+      repositories: storage.repositories,
+    }).reconcile(settings);
+  } catch (err) {
+    updateRuntimeSettingsIfRevision(
+      MYCLAW_HOME,
+      getRuntimeSettingsRevision(MYCLAW_HOME),
+      (current) => {
+        const agent = current.agents[input.sourceGroup];
+        if (agent) {
+          agent.capabilities.permissionRules.allow =
+            agent.capabilities.permissionRules.allow.filter(
+              (rule) => rule !== input.canonicalRule,
+            );
+        }
+        return current;
+      },
+    );
+    throw err;
+  }
+  return `Approved permanently: ${input.canonicalRule}. Changed settings.yaml and updated agent permissions.`;
+}
+
+function writeOneTimePermissionRule(
+  sourceGroup: string,
+  canonicalRule: string,
+) {
+  const dir = path.join(
+    DATA_DIR,
+    'ipc',
+    sourceGroup,
+    'one-time-permission-rules',
+  );
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(
+    path.join(dir, `${randomUUID()}.json`),
+    JSON.stringify(
+      { rule: canonicalRule, createdAt: new Date().toISOString() },
+      null,
+      2,
+    ),
+    { mode: 0o600 },
+  );
 }

@@ -117,12 +117,14 @@ export function registerServiceTools(server: McpServer): void {
 
   server.tool(
     'request_tool_enable',
-    'Request SDK, host, browser, scheduler, memory, or service tools for same-conversation admin review. This records a review request only; it never changes permissions directly.',
+    'Request a scoped SDK, host, browser, scheduler, memory, service, or MCP permission rule for same-conversation admin review. Prefer granular rules such as WebFetch(domain:github.com), Edit(/docs/**), Agent(Explore), Bash(npm run test *), or mcp__github__*; broad whole-tool access is high risk.',
     {
       toolName: z
         .string()
         .optional()
-        .describe('Single tool name to enable, such as Bash or Write'),
+        .describe(
+          'Single tool name or MCP pattern to enable, such as WebFetch, Edit, Agent, Bash, or mcp__github__*',
+        ),
       toolNames: z
         .array(z.string())
         .optional()
@@ -132,6 +134,18 @@ export function registerServiceTools(server: McpServer): void {
         .optional()
         .describe(
           'Optional category such as sdk, host, browser, scheduler, memory, or service',
+        ),
+      rule: z
+        .string()
+        .optional()
+        .describe(
+          'Optional scope for the tool, such as npm run test *, /docs/**, domain:github.com, or Explore',
+        ),
+      temporaryOnly: z
+        .boolean()
+        .optional()
+        .describe(
+          'If true, request one-time approval only and do not persist a rule',
         ),
       riskClass: z
         .enum(['low', 'medium', 'high', 'critical'])
@@ -153,6 +167,8 @@ export function registerServiceTools(server: McpServer): void {
         toolNames: args.toolNames ?? [],
         toolCategory: args.toolCategory,
         riskClass: args.riskClass,
+        rule: args.rule,
+        temporaryOnly: args.temporaryOnly === true,
         permissionPolicy: args.permissionPolicy,
         sandboxProfile: args.sandboxProfile,
         reason: args.reason,

@@ -156,10 +156,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       skillArtifactStore: deps.getSkillArtifactStore?.(),
       turnContext,
     });
-    const memoryContextBlock = [
-      turnContext?.memoryContextBlock,
-      approvedSkillContextBlock,
-    ]
+    // prettier-ignore
+    const memoryContextBlock = [turnContext?.memoryContextBlock, approvedSkillContextBlock]
       .filter((block): block is string => Boolean(block?.trim()))
       .join('\n\n');
     const runId = turnContext?.agentSessionId
@@ -173,6 +171,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       : undefined;
     try {
       const credentialBroker = await deps.getCredentialBroker?.();
+      // prettier-ignore
+      const permissionRules = await deps.getAgentPermissionRules?.(group.folder);
       const runOptions = buildRuntimeRunOptions({
         timeoutMs: options?.timeoutMs,
         credentialBroker,
@@ -181,6 +181,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         mcpServerRepository: deps.getMcpServerRepository?.(),
         mcpHostnameLookup: deps.getMcpHostnameLookup?.(),
         mcpDnsValidationCache: deps.getMcpDnsValidationCache?.(),
+        permissionRules,
         turnContext,
       });
       const invokeAgent = (input: { memoryContextBlock?: string }) =>

@@ -87,6 +87,11 @@ export interface GroupProcessingDeps {
   getMcpHostnameLookup?: () => HostnameLookup | undefined;
   getMcpDnsValidationCache?: () => RemoteMcpDnsValidationCache | undefined;
   getSkillArtifactStore?: () => SkillArtifactStore | undefined;
+  getAgentPermissionRules?: (
+    groupFolder: string,
+  ) =>
+    | Promise<{ allow: string[]; deny: string[] }>
+    | { allow: string[]; deny: string[] };
   collectSessionMemory?: SessionMemoryCollector;
   opsRepository?: OpsRepository;
   getOpsRepository?: () => OpsRepository;

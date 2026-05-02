@@ -29,6 +29,11 @@ export interface SchedulerDependencies {
   resetStreaming?: (jid: string) => void;
   onSchedulerChanged?: (jobId?: string) => void;
   runAgent?: typeof spawnAgent;
+  getAgentPermissionRules?: (
+    agentFolder: string,
+  ) =>
+    | Promise<{ allow: string[]; deny: string[] }>
+    | { allow: string[]; deny: string[] };
   collectSessionMemory?: SessionMemoryCollector;
   opsRepository: OpsRepository;
 }

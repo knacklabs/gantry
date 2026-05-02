@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto';
+
 import { and, asc, eq } from 'drizzle-orm';
 
 import type {
   Agent,
   AgentDmAccess,
   AgentDmApprover,
+  AgentPermissionRule,
 } from '../../../../domain/agent/agent.js';
 import type { App } from '../../../../domain/app/app.js';
 import type { AgentRepository } from '../../../../domain/ports/repositories.js';
@@ -27,6 +30,18 @@ function agentDmAccessId(
 
 function agentDmApproverId(agentId: string, providerId: string): string {
   return `agent-dm-admin:${safeIdPart(agentId)}:${safeIdPart(providerId)}`;
+}
+
+function agentPermissionRuleId(
+  agentId: string,
+  effect: AgentPermissionRule['effect'],
+  rule: string,
+): string {
+  const hash = createHash('sha256')
+    .update(`${agentId}:${effect}:${rule}`)
+    .digest('hex')
+    .slice(0, 16);
+  return `agent-permission-rule:${safeIdPart(agentId)}:${effect}:${hash}`;
 }
 
 export class PostgresAgentRepository implements AgentRepository {
@@ -289,6 +304,69 @@ export class PostgresAgentRepository implements AgentRepository {
             },
           });
       }
+    });
+  }
+
+  async listAgentPermissionRules(input: {
+    appId: Agent['appId'];
+    agentId: Agent['id'];
+  }): Promise<AgentPermissionRule[]> {
+    const rows = await this.db
+      .select()
+      .from(pgSchema.agentPermissionRulesPostgres)
+      .where(
+        and(
+          eq(pgSchema.agentPermissionRulesPostgres.appId, input.appId),
+          eq(pgSchema.agentPermissionRulesPostgres.agentId, input.agentId),
+        ),
+      )
+      .orderBy(
+        asc(pgSchema.agentPermissionRulesPostgres.effect),
+        asc(pgSchema.agentPermissionRulesPostgres.rule),
+      );
+    return rows as AgentPermissionRule[];
+  }
+
+  async replaceAgentPermissionRules(input: {
+    appId: Agent['appId'];
+    agentId: Agent['id'];
+    rules: Array<Pick<AgentPermissionRule, 'effect' | 'rule'>>;
+    updatedAt: string;
+  }): Promise<AgentPermissionRule[]> {
+    return this.db.transaction(async (tx) => {
+      await tx
+        .delete(pgSchema.agentPermissionRulesPostgres)
+        .where(
+          and(
+            eq(pgSchema.agentPermissionRulesPostgres.appId, input.appId),
+            eq(pgSchema.agentPermissionRulesPostgres.agentId, input.agentId),
+          ),
+        );
+      for (const rule of input.rules) {
+        await tx.insert(pgSchema.agentPermissionRulesPostgres).values({
+          id: agentPermissionRuleId(input.agentId, rule.effect, rule.rule),
+          appId: input.appId,
+          agentId: input.agentId,
+          effect: rule.effect,
+          rule: rule.rule,
+          createdAt: input.updatedAt,
+          updatedAt: input.updatedAt,
+        });
+      }
+      const rows = await tx
+        .select()
+        .from(pgSchema.agentPermissionRulesPostgres)
+        .where(
+          and(
+            eq(pgSchema.agentPermissionRulesPostgres.appId, input.appId),
+            eq(pgSchema.agentPermissionRulesPostgres.agentId, input.agentId),
+          ),
+        )
+        .orderBy(
+          asc(pgSchema.agentPermissionRulesPostgres.effect),
+          asc(pgSchema.agentPermissionRulesPostgres.rule),
+        );
+      return rows as AgentPermissionRule[];
     });
   }
 

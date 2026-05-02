@@ -70,6 +70,9 @@ export async function requestPermissionApproval(options: {
             const responsePayload: Record<string, unknown> = {
               requestId,
               approved: Boolean((raw as { approved?: unknown }).approved),
+              ...(typeof (raw as { mode?: unknown }).mode === 'string'
+                ? { mode: (raw as { mode: string }).mode }
+                : {}),
               ...(typeof (raw as { decidedBy?: unknown }).decidedBy === 'string'
                 ? { decidedBy: (raw as { decidedBy: string }).decidedBy }
                 : {}),
@@ -90,6 +93,12 @@ export async function requestPermissionApproval(options: {
             }
             return {
               approved: responsePayload.approved as boolean,
+              mode:
+                responsePayload.mode === 'approve_once' ||
+                responsePayload.mode === 'approve_permanent' ||
+                responsePayload.mode === 'reject'
+                  ? responsePayload.mode
+                  : undefined,
               decidedBy:
                 typeof responsePayload.decidedBy === 'string'
                   ? responsePayload.decidedBy
@@ -113,6 +122,7 @@ export async function requestPermissionApproval(options: {
       }
       await sleep(100);
     }
+    fs.rmSync(requestPath, { force: true });
     return {
       approved: false,
       reason: 'Timed out waiting for host permission approval',

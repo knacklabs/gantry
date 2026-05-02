@@ -145,6 +145,7 @@ export async function startRuntimeServices(
     },
     onSchedulerChanged,
     opsRepository: resolved.opsRepository,
+    getAgentPermissionRules: app.getAgentPermissionRules,
     collectSessionMemory: resolved.collectSessionMemory,
   });
 

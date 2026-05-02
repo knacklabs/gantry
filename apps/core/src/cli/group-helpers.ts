@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
+import * as p from '@clack/prompts';
+
 import type { RegisteredGroup } from '../domain/types.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import { providerFromGroupJid, getProviderIds } from './provider-utils.js';
@@ -12,6 +14,11 @@ import {
 import { ensureRuntimeLayout } from '../config/settings/runtime-home.js';
 import { RuntimeGroupDb, openRuntimeGroupDb } from './runtime-group-db.js';
 import { normalizeTelegramChatJid } from './telegram.js';
+import {
+  appendPermissionRule,
+  canonicalizePermissionRule,
+  normalizePermissionRules,
+} from '../shared/permission-rules.js';
 
 export function usage(): string {
   const channels = getProviderIds().join('|');
@@ -25,11 +32,95 @@ export function usage(): string {
     '  myclaw agent trigger <jid|folder> <word>',
     '  myclaw agent trigger <jid|folder> --off',
     '  myclaw agent dm-access <agentId> [--provider <provider> --allow <userId,userId> --admin <userId>]',
+    '  myclaw agent permission-rules <agentId> list|add|remove [--allow|--deny] <tool> [rule]',
     '  myclaw agent policy <jid|folder> --allow <"*"|id1,id2> [--mode trigger|drop]',
     '  myclaw agent policy <jid|folder> --clear',
     `  myclaw agent policy-default --channel ${channels} --allow <"*"|id1,id2> [--mode trigger|drop]`,
     `  myclaw agent policy-show [--channel ${channels}]`,
   ].join('\n');
+}
+
+export function runPermissionRules(
+  runtimeHome: string,
+  args: string[],
+): number {
+  const [agentId, action, ...rest] = args;
+  if (!agentId || !action || !['list', 'add', 'remove'].includes(action)) {
+    p.log.error(
+      'Usage: myclaw agent permission-rules <agent-id> list|add|remove [--allow|--deny] <tool> [rule]',
+    );
+    return 1;
+  }
+  const settings = loadRuntimeSettings(runtimeHome);
+  const agent = settings.agents[agentId];
+  if (!agent) {
+    p.log.error(`Agent not found in settings.yaml: ${agentId}`);
+    return 1;
+  }
+  agent.capabilities.permissionRules = normalizePermissionRules(
+    agent.capabilities.permissionRules,
+  );
+  if (action === 'list') {
+    printPermissionRules(agentId, agent.capabilities.permissionRules);
+    return 0;
+  }
+  const flag = rest[0];
+  if (flag === '--ask') {
+    p.log.error(
+      'The ask bucket is not supported. Use --allow for persistent access or --deny for an explicit block.',
+    );
+    return 1;
+  }
+  const effect = flag === '--deny' ? 'deny' : 'allow';
+  const offset = flag?.startsWith('--') ? 1 : 0;
+  const toolName = rest[offset];
+  const rule = rest.slice(offset + 1).join(' ');
+  if (!toolName) {
+    p.log.error(
+      'Missing tool name, such as Bash, Edit, WebFetch, or mcp__github__*.',
+    );
+    return 1;
+  }
+  let canonical: string;
+  try {
+    canonical = canonicalizePermissionRule({ toolName, rule }).canonical;
+  } catch (err) {
+    p.log.error(err instanceof Error ? err.message : String(err));
+    return 1;
+  }
+  if (action === 'add') {
+    agent.capabilities.permissionRules = appendPermissionRule(
+      agent.capabilities.permissionRules,
+      effect,
+      canonical,
+    );
+    saveRuntimeSettings(runtimeHome, settings);
+    p.log.success(
+      `Added ${effect} permission rule for ${agentId}: ${canonical}. The running service will apply it after settings reload or restart.`,
+    );
+    return 0;
+  }
+  agent.capabilities.permissionRules[effect] =
+    agent.capabilities.permissionRules[effect].filter(
+      (item) => item !== canonical,
+    );
+  saveRuntimeSettings(runtimeHome, settings);
+  p.log.success(
+    `Removed ${effect} permission rule for ${agentId}: ${canonical}. The running service will apply it after settings reload or restart.`,
+  );
+  return 0;
+}
+
+function printPermissionRules(
+  agentId: string,
+  rules: { allow: string[]; deny: string[] },
+): void {
+  console.log(`Permission rules for ${agentId}`);
+  for (const effect of ['allow', 'deny'] as const) {
+    console.log(`${effect}:`);
+    for (const rule of rules[effect]) console.log(`  - ${rule}`);
+    if (rules[effect].length === 0) console.log('  (none)');
+  }
 }
 
 export function pruneAgentSenderPolicyOverride(

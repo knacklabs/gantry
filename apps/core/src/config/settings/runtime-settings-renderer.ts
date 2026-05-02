@@ -1,4 +1,5 @@
 import { quoteYamlString } from './yaml.js';
+import { normalizePermissionRules } from '../../shared/permission-rules.js';
 import type {
   RuntimeCredentialBrokerSettings,
   RuntimeAgentSettings,
@@ -125,11 +126,17 @@ function renderConfiguredAgentsYaml(
         }
       }
     }
+    const permissionRules = normalizePermissionRules(
+      agent.capabilities.permissionRules,
+    );
     lines.push(
       '    capabilities:',
       `      tool_ids: ${JSON.stringify(agent.capabilities.toolIds)}`,
       `      skill_ids: ${JSON.stringify(agent.capabilities.skillIds)}`,
       `      mcp_server_ids: ${JSON.stringify(agent.capabilities.mcpServerIds)}`,
+      '      permission_rules:',
+      `        allow: ${JSON.stringify(permissionRules.allow)}`,
+      `        deny: ${JSON.stringify(permissionRules.deny)}`,
     );
   }
   lines.push('');

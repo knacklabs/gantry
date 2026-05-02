@@ -425,15 +425,19 @@ describe('skill registry integration flow', () => {
     [
       'request_tool_enable',
       {
-        toolName: 'Bash',
-        toolNames: ['Read'],
+        toolName: 'WebFetch',
+        rule: 'domain:github.com',
         toolCategory: 'sdk',
         permissionPolicy: 'prompt',
         sandboxProfile: 'workspace-write',
-        reason: 'Run project tests and inspect files.',
+        reason: 'Read the linked GitHub issue.',
       },
       {
-        toolNames: ['Bash', 'Read'],
+        toolNames: ['WebFetch'],
+        permissionRule: 'WebFetch(domain:github.com)',
+        temporaryOnly: false,
+        risk: 'low',
+        broad: false,
         toolCategory: 'sdk',
         permissionPolicy: 'prompt',
         sandboxProfile: 'workspace-write',

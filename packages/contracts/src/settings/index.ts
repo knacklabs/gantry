@@ -26,6 +26,12 @@ export const RuntimeSettingsConfiguredAgentCapabilitiesSchema = z
     toolIds: z.array(z.string().trim().min(1)),
     skillIds: z.array(z.string().trim().min(1)),
     mcpServerIds: z.array(z.string().trim().min(1)),
+    permissionRules: z
+      .object({
+        allow: z.array(z.string().trim().min(1)),
+        deny: z.array(z.string().trim().min(1)),
+      })
+      .strict(),
   })
   .strict();
 

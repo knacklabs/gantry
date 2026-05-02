@@ -15,6 +15,8 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
       listAgentDmApprovers: vi.fn(async () => []),
       replaceAgentDmAccessPolicy: vi.fn(async () => undefined),
       replaceAgentCapabilityBindings: vi.fn(async () => undefined),
+      listAgentPermissionRules: vi.fn(async () => []),
+      replaceAgentPermissionRules: vi.fn(async () => []),
       disableAgent: vi.fn(async () => undefined),
       listAgents: vi.fn(async () => []),
     },
@@ -404,6 +406,7 @@ describe('SettingsDesiredStateService', () => {
         listAgentDmApprovers: vi.fn(async () => []),
         replaceAgentDmAccessPolicy: vi.fn(async () => undefined),
         replaceAgentCapabilityBindings: vi.fn(async () => undefined),
+        replaceAgentPermissionRules: vi.fn(async () => []),
         disableAgent: vi.fn(async () => undefined),
       },
     });

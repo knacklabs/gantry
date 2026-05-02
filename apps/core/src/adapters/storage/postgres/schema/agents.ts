@@ -154,3 +154,37 @@ export const agentDmApproversPostgres = pgTable(
     ),
   }),
 );
+
+export const agentPermissionRulesPostgres = pgTable(
+  'agent_permission_rules',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agentsPostgres.id, { onDelete: 'cascade' }),
+    effect: text('effect').notNull(),
+    rule: text('rule').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    agentIdx: index('idx_agent_permission_rules_agent').on(
+      table.appId,
+      table.agentId,
+      table.effect,
+    ),
+    uniqueRule: uniqueIndex('uniq_agent_permission_rule').on(
+      table.appId,
+      table.agentId,
+      table.effect,
+      table.rule,
+    ),
+  }),
+);

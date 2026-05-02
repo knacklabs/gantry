@@ -37,6 +37,7 @@ import {
   normalizeGroupAddSelector,
   pruneAgentSenderPolicyOverride,
   resolveGroupSelector,
+  runPermissionRules,
   seedTelegramControlApproverForAgent,
   usage,
 } from './group-helpers.js';
@@ -765,6 +766,8 @@ export async function runAgentCommand(
       return runTrigger(runtimeHome, rest);
     case 'dm-access':
       return runAgentDmAccessCommand(rest);
+    case 'permission-rules':
+      return runPermissionRules(runtimeHome, rest);
     case 'policy':
       return runPolicy(runtimeHome, rest);
     case 'policy-default':

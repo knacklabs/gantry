@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
-import type { AgentMcpServerBinding } from '../../domain/mcp/mcp-servers.js';
 import type {
   AgentRepository,
   ConversationRepository,
@@ -20,8 +19,13 @@ import type {
   ProviderConnectionId,
   ProviderId,
 } from '../../domain/provider/provider.js';
-import type { AgentSkillBinding } from '../../domain/skills/skills.js';
-import type { AgentToolBinding } from '../../domain/tools/tools.js';
+import { emptyPermissionRules } from '../../shared/permission-rules.js';
+import {
+  activeConfiguredCapabilities,
+  flattenPermissionRules,
+  hasAnyConfiguredCapability,
+  hasConfiguredPermissionRules,
+} from './desired-state-capabilities.js';
 import {
   configuredConversationKind,
   defaultRuntimeSecretRefs,
@@ -118,7 +122,6 @@ export class SettingsDesiredStateService {
     const bindings: Record<string, RuntimeConfiguredBinding> = {
       ...settings.bindings,
     };
-
     const exportedGroups = await Promise.all(
       Object.entries(groups).map(async ([jid, group]) => {
         const agentId = agentIdForFolder(group.folder);
@@ -128,6 +131,7 @@ export class SettingsDesiredStateService {
           toolBindings,
           skillBindings,
           mcpBindings,
+          permissionRules,
         ] = await Promise.all([
           this.deps.repositories.agents.listAgentDmAccess({
             appId: this.appId,
@@ -150,6 +154,10 @@ export class SettingsDesiredStateService {
             agentId,
             limit: 500,
           }),
+          this.deps.repositories.agents.listAgentPermissionRules({
+            appId: this.appId,
+            agentId,
+          }),
         ]);
         return {
           jid,
@@ -159,10 +167,10 @@ export class SettingsDesiredStateService {
           toolBindings,
           skillBindings,
           mcpBindings,
+          permissionRules,
         };
       }),
     );
-
     for (const exported of exportedGroups) {
       const {
         jid,
@@ -172,6 +180,7 @@ export class SettingsDesiredStateService {
         toolBindings,
         skillBindings,
         mcpBindings,
+        permissionRules,
       } = exported;
       const folder = group.folder;
       const existing = agents[folder];
@@ -246,10 +255,14 @@ export class SettingsDesiredStateService {
         ),
         capabilities:
           existing?.capabilities ??
-          activeCapabilities(toolBindings, skillBindings, mcpBindings),
+          activeConfiguredCapabilities(
+            toolBindings,
+            skillBindings,
+            mcpBindings,
+            permissionRules,
+          ),
       };
     }
-
     return {
       ...settings,
       providers,
@@ -290,7 +303,6 @@ export class SettingsDesiredStateService {
     if (invalidReferences.length > 0) {
       return { applied: [], skipped: [], invalidReferences };
     }
-
     const applied: string[] = [];
     const skipped: string[] = [];
     const existingGroups = await this.deps.ops.getAllRegisteredGroups();
@@ -309,7 +321,6 @@ export class SettingsDesiredStateService {
         updatedAt: now,
       });
       applied.push(`agent:${folder}`);
-
       for (const binding of Object.values(agent.bindings)) {
         configuredJids.add(binding.jid);
         await this.deps.ops.setRegisteredGroup(binding.jid, {
@@ -323,7 +334,6 @@ export class SettingsDesiredStateService {
         });
         applied.push(`binding:${binding.jid}`);
       }
-
       if (settings.desiredState.authoritative || agent.dmAccess.length > 0) {
         await this.deps.repositories.agents.replaceAgentDmAccessPolicy({
           appId: this.appId,
@@ -350,15 +360,23 @@ export class SettingsDesiredStateService {
       } else {
         skipped.push(`dm_access:${folder}:not-authoritative-empty`);
       }
-
       if (
         settings.desiredState.authoritative ||
-        hasAnyCapability(agent.capabilities)
+        hasAnyConfiguredCapability(agent.capabilities)
       ) {
-        await this.replaceCapabilities(agentId, agent.capabilities, now);
+        await this.replaceCapabilityBindings(agentId, agent.capabilities, now);
         applied.push(`capabilities:${folder}`);
       } else {
         skipped.push(`capabilities:${folder}:not-authoritative-empty`);
+      }
+      if (
+        settings.desiredState.authoritative ||
+        hasConfiguredPermissionRules(agent.capabilities)
+      ) {
+        await this.replacePermissionRules(agentId, agent.capabilities, now);
+        applied.push(`permission_rules:${folder}`);
+      } else {
+        skipped.push(`permission_rules:${folder}:not-authoritative-empty`);
       }
     }
 
@@ -404,6 +422,12 @@ export class SettingsDesiredStateService {
         const folder = folderForAgentId(agent.id);
         if (!folder || configuredFolders.has(folder)) continue;
         const now = this.clock.now();
+        const emptyCapabilities = {
+          toolIds: [],
+          skillIds: [],
+          mcpServerIds: [],
+          permissionRules: emptyPermissionRules(),
+        };
         await this.deps.repositories.agents.disableAgent({
           appId: this.appId,
           agentId: agent.id,
@@ -416,11 +440,8 @@ export class SettingsDesiredStateService {
           approverEntries: [],
           updatedAt: now,
         });
-        await this.replaceCapabilities(
-          agent.id,
-          { toolIds: [], skillIds: [], mcpServerIds: [] },
-          now,
-        );
+        await this.replaceCapabilityBindings(agent.id, emptyCapabilities, now);
+        await this.replacePermissionRules(agent.id, emptyCapabilities, now);
         applied.push(`authoritative:disabled_absent_agent:${folder}`);
       }
     }
@@ -559,7 +580,7 @@ export class SettingsDesiredStateService {
     return errors.sort();
   }
 
-  private async replaceCapabilities(
+  private async replaceCapabilityBindings(
     agentId: AgentId,
     capabilities: RuntimeConfiguredAgentCapabilities,
     now: string,
@@ -603,6 +624,19 @@ export class SettingsDesiredStateService {
           updatedAt: now,
         };
       }),
+      updatedAt: now,
+    });
+  }
+
+  private async replacePermissionRules(
+    agentId: AgentId,
+    capabilities: RuntimeConfiguredAgentCapabilities,
+    now: string,
+  ): Promise<void> {
+    await this.deps.repositories.agents.replaceAgentPermissionRules({
+      appId: this.appId,
+      agentId,
+      rules: flattenPermissionRules(capabilities.permissionRules),
       updatedAt: now,
     });
   }
@@ -725,32 +759,6 @@ export function agentIdForFolder(folder: string): AgentId {
 function folderForAgentId(agentId: AgentId): string | null {
   const raw = String(agentId);
   return raw.startsWith('agent:') ? raw.slice('agent:'.length) : null;
-}
-
-function hasAnyCapability(capabilities: RuntimeConfiguredAgentCapabilities) {
-  return (
-    capabilities.toolIds.length > 0 ||
-    capabilities.skillIds.length > 0 ||
-    capabilities.mcpServerIds.length > 0
-  );
-}
-
-function activeCapabilities(
-  toolBindings: AgentToolBinding[],
-  skillBindings: AgentSkillBinding[],
-  mcpBindings: AgentMcpServerBinding[],
-): RuntimeConfiguredAgentCapabilities {
-  return {
-    toolIds: toolBindings
-      .filter((binding) => binding.status === 'active')
-      .map((binding) => binding.toolId),
-    skillIds: skillBindings
-      .filter((binding) => binding.status === 'active')
-      .map((binding) => binding.skillId),
-    mcpServerIds: mcpBindings
-      .filter((binding) => binding.status === 'active')
-      .map((binding) => binding.serverId),
-  };
 }
 
 function mergeDmAccess(

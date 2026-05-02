@@ -73,6 +73,7 @@ export function buildRuntimeRunOptions(input: {
     agentSessionId: string;
     externalSessionId?: string;
   };
+  permissionRules?: RunAgentOptions['permissionRules'];
 }): RunAgentOptions | undefined {
   const resolvedSkillContext = input.skillContext
     ? input.skillContext
@@ -106,6 +107,9 @@ export function buildRuntimeRunOptions(input: {
       : {}),
     ...skillOptions,
     ...mcpOptions,
+    ...(input.permissionRules
+      ? { permissionRules: input.permissionRules }
+      : {}),
   };
   return Object.keys(options).length > 0 ? options : undefined;
 }

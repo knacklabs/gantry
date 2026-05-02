@@ -100,6 +100,10 @@ export interface RuntimeConfiguredAgentCapabilities {
   toolIds: string[];
   skillIds: string[];
   mcpServerIds: string[];
+  permissionRules: {
+    allow: string[];
+    deny: string[];
+  };
 }
 
 export interface RuntimeConfiguredAgent {

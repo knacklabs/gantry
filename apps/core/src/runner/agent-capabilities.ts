@@ -12,6 +12,8 @@ export interface AgentCapabilityContext {
   externalMcpServers?: Record<string, McpServerConfig>;
   externalMcpAllowedTools?: readonly string[];
   externalMcpAlwaysAllowedTools?: readonly string[];
+  permissionAllowRules?: readonly string[];
+  permissionDenyRules?: readonly string[];
 }
 
 export type McpServerConfig =
@@ -32,6 +34,7 @@ export interface AgentCapabilityProfile {
   mcpServers: Record<string, McpServerConfig>;
   permissionMode: 'default' | 'bypassPermissions';
   alwaysAllowedTools: readonly string[];
+  disallowedTools: readonly string[];
 }
 
 export interface AgentCapabilityProvider {
@@ -150,12 +153,21 @@ const configuredMcpProvider: AgentCapabilityProvider = {
   },
 };
 
+const configuredPermissionRulesProvider: AgentCapabilityProvider = {
+  id: 'configured-permission-rules',
+  provide: (ctx) => ({
+    allowedTools: ctx.permissionAllowRules ?? [],
+    disallowedTools: ctx.permissionDenyRules ?? [],
+  }),
+};
+
 export const BUILTIN_AGENT_CAPABILITY_PROVIDERS: readonly AgentCapabilityProvider[] =
   [
     sdkToolsProvider,
     permissionProvider,
     myclawMcpProvider,
     configuredMcpProvider,
+    configuredPermissionRulesProvider,
   ];
 
 function mergeUnique(
@@ -175,6 +187,7 @@ export function composeAgentCapabilities(
   let mcpServers: AgentCapabilityProfile['mcpServers'] = {};
   let permissionMode: AgentCapabilityProfile['permissionMode'] = 'default';
   let alwaysAllowedTools: readonly string[] = [];
+  let disallowedTools: readonly string[] = [];
 
   for (const provider of providers) {
     const partial = provider.provide(ctx);
@@ -193,6 +206,9 @@ export function composeAgentCapabilities(
         partial.alwaysAllowedTools,
       );
     }
+    if (partial.disallowedTools) {
+      disallowedTools = mergeUnique(disallowedTools, partial.disallowedTools);
+    }
   }
 
   return {
@@ -200,5 +216,6 @@ export function composeAgentCapabilities(
     mcpServers,
     permissionMode,
     alwaysAllowedTools,
+    disallowedTools,
   };
 }

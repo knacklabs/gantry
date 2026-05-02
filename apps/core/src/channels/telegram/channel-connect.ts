@@ -27,6 +27,10 @@ import { PartialMessageDeliveryError } from '../../runtime/partial-delivery.js';
 import { parseTextStyles } from '../../text-styles.js';
 import { AsyncTaskQueue } from '../../app/bootstrap/async-task-queue.js';
 import { writeTelegramFetchResponseToFile } from '../telegram-file-download.js';
+import {
+  isPermissionDecisionAllowed,
+  normalizePermissionDecisionAction,
+} from '../permission-approval-format.js';
 
 import { TelegramChannelPrompts } from './channel-prompts.js';
 import {
@@ -189,7 +193,12 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
 
       const permissionMatch = TELEGRAM_PERMISSION_CALLBACK_PATTERN.exec(data);
       if (!permissionMatch) return;
-      const action = permissionMatch[1] as 'approve' | 'deny';
+      const action = permissionMatch[1] as
+        | 'approve_once'
+        | 'approve_permanent'
+        | 'reject'
+        | 'approve'
+        | 'deny';
       const requestId = permissionMatch[2];
       const pending = this.pendingPermissionPrompts.get(requestId);
       if (!pending) {
@@ -230,19 +239,31 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         });
         return;
       }
+      if (!isPermissionDecisionAllowed(pending.request, action)) {
+        await ctx.answerCallbackQuery({
+          text: 'This option is not available for this request.',
+          show_alert: true,
+        });
+        return;
+      }
 
       const decidedBy =
         ctx.from?.first_name || ctx.from?.username || userId || 'unknown';
+      const mode = normalizePermissionDecisionAction(action);
       await this.resolvePermissionPrompt(requestId, {
-        approved: action === 'approve',
+        approved: mode === 'approve_once' || mode === 'approve_permanent',
+        mode,
         decidedBy,
         reason:
-          action === 'approve'
+          mode === 'approve_once' || mode === 'approve_permanent'
             ? 'approved via Telegram'
             : 'denied via Telegram',
       });
       await ctx.answerCallbackQuery({
-        text: action === 'approve' ? 'Approved.' : 'Denied.',
+        text:
+          mode === 'approve_once' || mode === 'approve_permanent'
+            ? 'Approved.'
+            : 'Rejected.',
       });
     });
 

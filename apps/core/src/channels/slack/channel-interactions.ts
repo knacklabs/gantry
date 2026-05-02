@@ -23,6 +23,12 @@ import {
 } from '../../messaging/router.js';
 import { resolveGroupFolderPath } from '../../platform/group-folder.js';
 import { ChannelOpts } from '../channel-provider.js';
+import {
+  formatPermissionReceiptText,
+  formatPermissionRequestText,
+  isPermissionDecisionAllowed,
+  normalizePermissionDecisionAction,
+} from '../permission-approval-format.js';
 
 import { SlackChannelState, SlackMessageLike } from './channel-state.js';
 
@@ -159,22 +165,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     request: PermissionApprovalRequest,
     timeoutMs: number,
   ): string {
-    const timeoutMinutes = Math.max(1, Math.round(timeoutMs / 60000));
-    const lines = [
-      `Permission request: ${request.requestId}`,
-      `Tool: ${request.displayName || request.toolName}`,
-      `Source: ${request.sourceGroup}`,
-    ];
-    if (request.threadId) {
-      lines.push(`Thread: ${this.truncateText(request.threadId, 80)}`);
-    }
-    if (request.title) lines.push(`Action: ${request.title}`);
-    if (request.blockedPath) lines.push(`Path: ${request.blockedPath}`);
-    if (request.decisionReason) lines.push(`Reason: ${request.decisionReason}`);
-    if (request.description) lines.push(`Details: ${request.description}`);
-    lines.push(...this.formatPermissionToolInputLines(request));
-    lines.push(`Reply timeout: ${timeoutMinutes} minute(s)`);
-    return lines.join('\n');
+    return formatPermissionRequestText(request, timeoutMs);
   }
 
   protected async resolvePermissionPrompt(
@@ -189,10 +180,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     pending.resolve(decision);
     if (!this.app) return;
 
-    const status = decision.approved ? 'APPROVED' : 'DENIED';
-    const actor = decision.decidedBy || 'unknown';
-    const reason = decision.reason ? ` (${decision.reason})` : '';
-    const text = `Permission request ${requestId}\nStatus: ${status} by ${actor}${reason}`;
+    const text = formatPermissionReceiptText(pending.request, decision);
 
     try {
       await this.app.client.chat.update({
@@ -323,13 +311,23 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       let payload:
         | {
             requestId: string;
-            decision: 'approve' | 'deny';
+            decision:
+              | 'approve_once'
+              | 'approve_permanent'
+              | 'reject'
+              | 'approve'
+              | 'deny';
           }
         | undefined;
       try {
         payload = JSON.parse(action.value) as {
           requestId: string;
-          decision: 'approve' | 'deny';
+          decision:
+            | 'approve_once'
+            | 'approve_permanent'
+            | 'reject'
+            | 'approve'
+            | 'deny';
         };
       } catch {
         return;
@@ -373,11 +371,25 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         }
         return;
       }
+      if (!isPermissionDecisionAllowed(pending.request, payload.decision)) {
+        try {
+          await this.app?.client.chat.postEphemeral({
+            channel: pending.channelId,
+            user: userId,
+            text: 'This option is not available for this permission request.',
+          });
+        } catch {
+          // ignore
+        }
+        return;
+      }
 
       const decidedBy =
         body.user?.name || body.user?.username || body.user?.id || 'unknown';
+      const mode = normalizePermissionDecisionAction(payload.decision);
       await this.resolvePermissionPrompt(payload.requestId, {
-        approved: payload.decision === 'approve',
+        approved: mode === 'approve_once' || mode === 'approve_permanent',
+        mode,
         decidedBy,
       });
     });

@@ -167,11 +167,22 @@ export interface PermissionApprovalRequest {
   decisionReason?: string;
   blockedPath?: string;
   toolInput?: Record<string, unknown>;
+  approvalScope?: 'temporary' | 'persistent';
+  decisionOptions?: Array<'approve_once' | 'approve_permanent' | 'reject'>;
+  permissionRule?: {
+    canonical: string;
+    risk: 'low' | 'medium' | 'high';
+    riskReason: string;
+    broad: boolean;
+    examples: string[];
+    boundary: string;
+  };
   interaction?: InteractionDescriptor;
 }
 
 export interface PermissionApprovalDecision {
   approved: boolean;
+  mode?: 'approve_once' | 'approve_permanent' | 'reject';
   decidedBy?: string;
   reason?: string;
 }

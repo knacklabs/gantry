@@ -7,6 +7,13 @@ import type {
 } from '../domain/types.js';
 import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provider.js';
 import { logger } from '../infrastructure/logging/logger.js';
+import {
+  formatPermissionReceiptText,
+  isPermissionDecisionAllowed,
+  normalizePermissionDecisionAction,
+  permissionApproveLabel,
+  permissionDecisionOptions,
+} from './permission-approval-format.js';
 
 export const TEAMS_JID_PREFIX = 'teams:';
 export const TEAMS_ADAPTIVE_CARD_CONTENT_TYPE =
@@ -73,6 +80,7 @@ interface PendingTeamsPermissionPrompt {
   conversationId: string;
   sourceGroup: string;
   decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
+  request: PermissionApprovalRequest;
   threadId?: string;
   timer: ReturnType<typeof setTimeout>;
   resolve: (decision: PermissionApprovalDecision) => void;
@@ -93,7 +101,12 @@ export interface TeamsAdaptiveCardAction {
   data: {
     action: 'permission_decision';
     requestId: string;
-    decision: 'approve' | 'deny';
+    decision:
+      | 'approve_once'
+      | 'approve_permanent'
+      | 'reject'
+      | 'approve'
+      | 'deny';
     sourceGroup: string;
     targetJid?: string;
     threadId?: string;
@@ -146,7 +159,23 @@ export function buildTeamsApprovalAdaptiveCard(
     `${request.toolName} permission request`;
   const facts = [
     { title: 'Source', value: request.sourceGroup },
-    { title: 'Tool', value: request.toolName },
+    {
+      title: 'Requested access',
+      value: request.permissionRule?.canonical ?? request.toolName,
+    },
+    {
+      title: 'Scope',
+      value:
+        request.approvalScope === 'persistent'
+          ? 'Persistent for this agent'
+          : 'Temporary for this action',
+    },
+    request.permissionRule
+      ? {
+          title: 'Risk',
+          value: `${request.permissionRule.risk} - ${request.permissionRule.riskReason}`,
+        }
+      : null,
     request.threadId ? { title: 'Thread', value: request.threadId } : null,
     request.decisionReason
       ? { title: 'Reason', value: request.decisionReason }
@@ -195,34 +224,25 @@ export function buildTeamsApprovalAdaptiveCard(
     type: 'AdaptiveCard',
     version: '1.5',
     body,
-    actions: [
-      {
-        type: 'Action.Execute',
-        title: 'Approve',
-        verb: 'myclaw.permission.approve',
-        data: {
-          action: 'permission_decision',
-          requestId: request.requestId,
-          decision: 'approve',
-          sourceGroup: request.sourceGroup,
-          targetJid: request.targetJid,
-          threadId: request.threadId,
-        },
+    actions: permissionDecisionOptions(request).map((option) => ({
+      type: 'Action.Execute',
+      title:
+        option === 'reject'
+          ? 'Reject'
+          : permissionApproveLabel(request, option),
+      verb:
+        option === 'reject'
+          ? 'myclaw.permission.reject'
+          : `myclaw.permission.${option}`,
+      data: {
+        action: 'permission_decision',
+        requestId: request.requestId,
+        decision: option,
+        sourceGroup: request.sourceGroup,
+        targetJid: request.targetJid,
+        threadId: request.threadId,
       },
-      {
-        type: 'Action.Execute',
-        title: 'Deny',
-        verb: 'myclaw.permission.deny',
-        data: {
-          action: 'permission_decision',
-          requestId: request.requestId,
-          decision: 'deny',
-          sourceGroup: request.sourceGroup,
-          targetJid: request.targetJid,
-          threadId: request.threadId,
-        },
-      },
-    ],
+    })),
   };
 }
 
@@ -384,6 +404,7 @@ export class TeamsChannel implements ChannelAdapter {
           conversationId,
           sourceGroup: request.sourceGroup,
           decisionPolicy: request.decisionPolicy,
+          request: approvalRequest,
           threadId: request.threadId,
           timer,
           resolve,
@@ -435,11 +456,22 @@ export class TeamsChannel implements ChannelAdapter {
       );
       return true;
     }
+    if (
+      !isPermissionDecisionAllowed(pending.request, decisionPayload.decision)
+    ) {
+      logger.warn(
+        { requestId: decisionPayload.requestId, userId, jid },
+        'Teams permission decision denied: option is not available',
+      );
+      return true;
+    }
+    const mode = normalizePermissionDecisionAction(decisionPayload.decision);
     await this.resolvePermissionPrompt(decisionPayload.requestId, {
-      approved: decisionPayload.decision === 'approve',
+      approved: mode === 'approve_once' || mode === 'approve_permanent',
+      mode,
       decidedBy: userName,
       reason:
-        decisionPayload.decision === 'approve'
+        mode === 'approve_once' || mode === 'approve_permanent'
           ? 'approved via Teams'
           : 'denied via Teams',
     });
@@ -473,12 +505,22 @@ export class TeamsChannel implements ChannelAdapter {
     this.pendingPermissionPrompts.delete(requestId);
     clearTimeout(pending.timer);
     pending.resolve(decision);
+    await this.sdkClient.sendMessage({
+      conversationId: pending.conversationId,
+      text: formatPermissionReceiptText(pending.request, decision),
+      ...(pending.threadId ? { threadId: pending.threadId } : {}),
+    });
   }
 }
 
 function readTeamsPermissionDecision(value: unknown): {
   requestId: string;
-  decision: 'approve' | 'deny';
+  decision:
+    | 'approve_once'
+    | 'approve_permanent'
+    | 'reject'
+    | 'approve'
+    | 'deny';
 } | null {
   if (!value || typeof value !== 'object') return null;
   const payload = value as {
@@ -495,7 +537,13 @@ function readTeamsPermissionDecision(value: unknown): {
         : null;
   if (!candidate || candidate.action !== 'permission_decision') return null;
   if (typeof candidate.requestId !== 'string') return null;
-  if (candidate.decision !== 'approve' && candidate.decision !== 'deny') {
+  if (
+    candidate.decision !== 'approve' &&
+    candidate.decision !== 'deny' &&
+    candidate.decision !== 'approve_once' &&
+    candidate.decision !== 'approve_permanent' &&
+    candidate.decision !== 'reject'
+  ) {
     return null;
   }
   return {

@@ -34,6 +34,7 @@ export interface AgentRunnerOutput {
 
 export interface PermissionDecision {
   approved: boolean;
+  mode?: 'approve_once' | 'approve_permanent' | 'reject';
   decidedBy?: string;
   reason?: string;
 }

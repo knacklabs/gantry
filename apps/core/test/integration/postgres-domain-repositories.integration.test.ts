@@ -198,6 +198,30 @@ maybeDescribe('Postgres domain repositories', () => {
     ).toBe('disabled');
   });
 
+  it('replaces agent permission rules by effect', async () => {
+    const updatedAt = '2026-05-03T00:00:00.000Z';
+    await repositories.agents.replaceAgentPermissionRules({
+      appId,
+      agentId,
+      rules: [
+        { effect: 'allow', rule: 'WebFetch(domain:github.com)' },
+        { effect: 'deny', rule: 'Write' },
+      ],
+      updatedAt,
+    });
+
+    await repositories.agents.replaceAgentPermissionRules({
+      appId,
+      agentId,
+      rules: [{ effect: 'allow', rule: 'Edit(/docs/**)' }],
+      updatedAt,
+    });
+
+    await expect(
+      repositories.agents.listAgentPermissionRules({ appId, agentId }),
+    ).resolves.toMatchObject([{ effect: 'allow', rule: 'Edit(/docs/**)' }]);
+  });
+
   it('inserts messages idempotently by provider redelivery key', async () => {
     await repositories.messages.saveMessage({
       id: 'message:test:first' as MessageId,

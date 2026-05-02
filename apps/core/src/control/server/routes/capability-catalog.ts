@@ -101,6 +101,10 @@ function capabilitiesToResponse(input: {
   selectedToolIds: string[];
   selectedSkillIds: string[];
   selectedMcpServerIds: string[];
+  permissionRules: {
+    allow: string[];
+    deny: string[];
+  };
   updatedAt: string;
 }) {
   return input;
