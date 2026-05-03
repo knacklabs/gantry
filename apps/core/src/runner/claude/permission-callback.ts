@@ -20,6 +20,9 @@ export async function requestPermissionApproval(options: {
   decisionReason?: string;
   blockedPath?: string;
   toolInput?: unknown;
+  toolUseID?: string;
+  agentID?: string;
+  suggestions?: unknown[];
   threadId?: string;
 }): Promise<PermissionDecision> {
   try {
@@ -48,6 +51,9 @@ export async function requestPermissionApproval(options: {
       ...(isPlainObject(options.toolInput)
         ? { toolInput: options.toolInput }
         : {}),
+      ...(options.toolUseID ? { toolUseID: options.toolUseID } : {}),
+      ...(options.agentID ? { agentID: options.agentID } : {}),
+      ...(options.suggestions ? { suggestions: options.suggestions } : {}),
       ...(options.threadId ? { threadId: options.threadId } : {}),
       timestamp: nowIso(),
     };
@@ -76,6 +82,26 @@ export async function requestPermissionApproval(options: {
               ...(typeof (raw as { reason?: unknown }).reason === 'string'
                 ? { reason: (raw as { reason: string }).reason }
                 : {}),
+              ...(typeof (raw as { mode?: unknown }).mode === 'string'
+                ? { mode: (raw as { mode: string }).mode }
+                : {}),
+              ...(Array.isArray(
+                (raw as { updatedPermissions?: unknown }).updatedPermissions,
+              )
+                ? {
+                    updatedPermissions: (
+                      raw as { updatedPermissions: unknown[] }
+                    ).updatedPermissions,
+                  }
+                : {}),
+              ...(typeof (raw as { decisionClassification?: unknown })
+                .decisionClassification === 'string'
+                ? {
+                    decisionClassification: (
+                      raw as { decisionClassification: string }
+                    ).decisionClassification,
+                  }
+                : {}),
             };
             if (
               !hasValidIpcResponseSignature(
@@ -97,6 +123,19 @@ export async function requestPermissionApproval(options: {
               reason:
                 typeof responsePayload.reason === 'string'
                   ? responsePayload.reason
+                  : undefined,
+              mode:
+                typeof responsePayload.mode === 'string'
+                  ? (responsePayload.mode as never)
+                  : undefined,
+              updatedPermissions: Array.isArray(
+                responsePayload.updatedPermissions,
+              )
+                ? (responsePayload.updatedPermissions as never)
+                : undefined,
+              decisionClassification:
+                typeof responsePayload.decisionClassification === 'string'
+                  ? (responsePayload.decisionClassification as never)
                   : undefined,
             };
           }

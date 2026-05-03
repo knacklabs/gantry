@@ -332,7 +332,7 @@ describe('provider conversation onboarding control SDK integration', () => {
     const server = await startTestControlServer({
       token: 'token-channels',
       appId: 'app-one',
-      scopes: ['providers:admin', 'agents:admin'],
+      scopes: ['providers:admin', 'conversations:admin', 'agents:admin'],
     });
     const client = createClient({
       apiKey: server.token,
@@ -392,7 +392,7 @@ describe('provider conversation onboarding control SDK integration', () => {
     const server = await startTestControlServer({
       token: 'token-channels',
       appId: 'app-one',
-      scopes: ['conversations:read', 'agents:admin'],
+      scopes: ['conversations:read', 'conversations:admin', 'agents:admin'],
     });
     const client = createClient({
       apiKey: server.token,

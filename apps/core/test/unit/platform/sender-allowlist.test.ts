@@ -49,7 +49,8 @@ function renderSettingsYaml(overrides: {
   slackControlAgents?: Record<string, string[]>;
 }): string {
   const lines = [
-    'version: 3',
+    'defaults:',
+    '  model: opus',
     'providers:',
     '  telegram:',
     '    enabled: true',
@@ -167,7 +168,8 @@ function writeSameAgentMultiConversationSettings(): string {
   fs.writeFileSync(
     p,
     [
-      'version: 3',
+      'defaults:',
+      '  model: opus',
       'providers:',
       '  telegram:',
       '    enabled: true',

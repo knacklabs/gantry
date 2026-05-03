@@ -10,6 +10,16 @@ import {
 export const AgentStatusSchema = z.enum(['active', 'disabled']);
 export type AgentStatus = z.infer<typeof AgentStatusSchema>;
 
+export const AgentPersonaSchema = z.enum([
+  'developer',
+  'personal_assistant',
+  'sales',
+  'marketing',
+  'operations',
+  'research',
+]);
+export type AgentPersona = z.infer<typeof AgentPersonaSchema>;
+
 export const CreateAgentRequestSchema = z.object({
   appId: z.string(),
   name: z.string().min(1),

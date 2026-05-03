@@ -141,7 +141,8 @@ MyClaw MCP tools are grouped by capability:
 
 - messaging and user interaction: send a message, ask a question
 - capability requests: skill install/proposal/dependency install, MCP server,
-  SDK or host tool enablement, and channel tool enablement
+  and the unified `request_permission` approval flow for scoped SDK, host,
+  browser, memory, service, provider, and MCP actions
 - scheduler: create, inspect, mutate, pause, resume, list, and wait for jobs, runs, events, and dead letters
 - memory: search, save, and patch memory or procedures
 - browser: list profiles, launch, close, and inspect browser status
@@ -164,12 +165,12 @@ sequenceDiagram
   Runner->>Dir: write request with group/thread auth token
   Host->>Host: validate path, token, kind, rate limit, and ownership
   Host->>Main: request approval when policy requires it
-  Main->>User: show approval prompt
-  User->>Main: approve or deny
+  Main->>User: show Allow once / Always allow / Cancel prompt
+  User->>Main: choose one permission action
   Main->>Host: return decision
   Host->>Dir: write signed response
   Runner->>Runner: verify response signature
-  Runner-->>Agent: allow or deny
+  Runner-->>Agent: allow once, apply returned permission update, or cancel
 ```
 
 Important permission boundaries:
@@ -247,6 +248,7 @@ Memory injected into a prompt is context, not trusted authority. The agent may u
 | Scheduled job does not run                 | `apps/core/src/jobs/scheduler.ts`, `apps/core/src/jobs/execution.ts`, `apps/core/src/infrastructure/pgboss/scheduler-engine.ts`                                                                    | Scheduler readiness, pg-boss connection, schedule sync, due time, pause state, dead-letter queue.                                                |
 | Runtime reports storage not ready          | `apps/core/src/adapters/storage/postgres/runtime-store.ts`, `apps/core/src/adapters/storage/postgres/readiness.ts`, `apps/core/src/cli/doctor.ts`                                                  | Postgres URL, migrations, pg-boss schema, pgvector extension, full-text indexes, connectivity.                                                   |
 | OneCLI broker persistence is not ready     | `apps/core/src/adapters/credentials/onecli/local/persistence.ts`, `apps/core/src/cli/doctor.ts`, `apps/core/src/adapters/storage/postgres/storage-readiness.ts`                                    | `ONECLI_DATABASE_URL`, `schema=onecli`, generated base64-encoded 32-byte `SECRET_ENCRYPTION_KEY`, schema existence, OneCLI gateway reachability. |
+| External ingress invoke fails              | `apps/core/src/control/server/routes/external-ingress.ts`, `apps/core/src/control/server/external-ingress-adapter.ts`, `apps/core/src/application/external-ingress/target-policy.ts`, `apps/core/src/application/external-ingress/external-ingress-module.ts` | HMAC signature/timestamp/nonce headers, ingress record `enabled` flag, target-policy allowlist (`allowedTargetKinds`, `sessionIds`, `conversationIds`, `jobIds`, `templateIds`), and the dispatch target kind (`session_message`, `job_trigger`, `job_template`). |
 
 ## Reading Paths
 

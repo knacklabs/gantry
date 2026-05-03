@@ -1,5 +1,9 @@
 import type { EffortLevel } from '@anthropic-ai/claude-agent-sdk';
-import type { NormalizedModelUsage } from '../../shared/model-catalog.js';
+import type {
+  NormalizedModelUsage,
+  RuntimeContextUsageSnapshot,
+} from '../../shared/model-catalog.js';
+import type { AgentPersona } from '../../shared/agent-persona.js';
 
 export interface AgentRunnerInput {
   prompt: string;
@@ -7,6 +11,11 @@ export interface AgentRunnerInput {
   groupFolder: string;
   chatJid: string;
   threadId?: string;
+  memoryUserId?: string;
+  memoryDefaultScope?: 'user' | 'group';
+  persona?: AgentPersona;
+  browserProfileName?: string;
+  allowedTools?: string[];
   isMain: boolean;
   isScheduledJob?: boolean;
   assistantName?: string;
@@ -29,13 +38,17 @@ export interface AgentRunnerOutput {
   interactionBoundary?: 'user_interaction';
   usage?: NormalizedModelUsage;
   usageEventId?: string;
+  contextUsage?: RuntimeContextUsageSnapshot;
   error?: string;
 }
 
 export interface PermissionDecision {
   approved: boolean;
+  mode?: 'allow_once' | 'allow_persistent_rule' | 'cancel';
   decidedBy?: string;
   reason?: string;
+  updatedPermissions?: unknown[];
+  decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
 }
 
 export interface SessionSlashCommand {

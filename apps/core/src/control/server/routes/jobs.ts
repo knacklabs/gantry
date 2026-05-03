@@ -21,6 +21,10 @@ import {
 } from '../../../jobs/scheduler.js';
 import { resolveModelSelection } from '../../../shared/model-catalog.js';
 import {
+  formatBrowserProfileLabel,
+  resolveConversationBrowserProfile,
+} from '../../../shared/browser-profile-scope.js';
+import {
   resolveRequestedJobModel,
   resolveRequestedJobModelPatch,
 } from '../../../application/jobs/job-model-selection.js';
@@ -210,6 +214,33 @@ function modelPreviewFor(input: {
   };
 }
 
+async function runtimeContextPreviewFor(input: {
+  sessionId: string;
+  chatJid: string;
+  groupScope: string;
+  threadId: string | null;
+  groups: ReturnType<ControlRouteContext['app']['getRegisteredGroups']>;
+}) {
+  const group = input.groups[input.chatJid];
+  return {
+    sessionId: input.sessionId,
+    conversationJid: input.chatJid,
+    groupScope: input.groupScope,
+    threadId: input.threadId,
+    notificationTarget: input.threadId ? 'conversation_thread' : 'conversation',
+    browserProfileLabel: formatBrowserProfileLabel({
+      agentName: group?.name,
+      conversationKind: group?.conversationKind,
+    }),
+    browserProfileName: resolveConversationBrowserProfile({
+      agentId: group?.folder ?? input.groupScope,
+      workspaceKey: input.groupScope,
+      conversationId: input.chatJid,
+    }),
+    persona: group?.agentConfig?.persona ?? 'developer',
+  };
+}
+
 function resolveCreateJobModel(input: {
   modelAlias: unknown;
   modelProfileId: unknown;
@@ -280,6 +311,13 @@ export async function handleJobRoutes(
       sendJson(res, body.dryRun === true ? 200 : 201, {
         ...(body.dryRun === true ? {} : { jobId: created.jobId }),
         dryRun: body.dryRun === true,
+        runtimeContext: await runtimeContextPreviewFor({
+          ...created.runtimeContext,
+          groups:
+            typeof ctx.app.getRegisteredGroups === 'function'
+              ? ctx.app.getRegisteredGroups()
+              : {},
+        }),
         ...modelPreviewFor({
           explicitAlias: resolvedModel.modelAlias,
           kind,

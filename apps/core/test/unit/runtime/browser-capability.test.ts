@@ -46,8 +46,8 @@ vi.mock('@core/runtime/browser-config.js', () => ({
 
 vi.mock('@core/runtime/browser-profiles.js', () => ({
   acquireProfileLock: vi.fn(async () => ({ release: mocks.release })),
-  createProfile: vi.fn(() => ({
-    name: 'myclaw',
+  createProfile: vi.fn((name = 'myclaw') => ({
+    name,
     dir: '/tmp/myclaw-browser-capability-test',
     userDataDir: '/tmp/myclaw-browser-capability-test',
     statePath: '/tmp/myclaw-browser-capability-test/state.json',
@@ -58,6 +58,10 @@ vi.mock('@core/runtime/browser-profiles.js', () => ({
     },
   })),
   getProfile: vi.fn(() => null),
+  isValidBrowserProfileName: vi.fn((name: string) =>
+    /^[a-z0-9][a-z0-9._-]{0,63}$/.test(name),
+  ),
+  listProfiles: vi.fn(() => []),
   updateProfileMetadata: vi.fn(),
 }));
 
@@ -135,7 +139,7 @@ describe('browser-capability', () => {
     vi.unstubAllEnvs();
   });
 
-  it('reports running only when the CDP HTTP endpoint is healthy', async () => {
+  it('reports stopped when the CDP HTTP endpoint is unhealthy', async () => {
     const manager = await import('@core/runtime/browser-capability.js');
     mocks.fetch
       .mockResolvedValueOnce(cdpResponse({ Browser: 'Chrome' }))
@@ -160,8 +164,8 @@ describe('browser-capability', () => {
       running: false,
       cdpReady: false,
     });
-    expect(killSpy).toHaveBeenCalledWith(expect.any(Number), 'SIGTERM');
-    expect(mocks.release).toHaveBeenCalledTimes(1);
+    expect(killSpy).not.toHaveBeenCalledWith(expect.any(Number), 'SIGTERM');
+    expect(mocks.release).not.toHaveBeenCalled();
   });
 
   it('relaunches instead of reusing a process with an unhealthy CDP endpoint', async () => {
@@ -200,6 +204,24 @@ describe('browser-capability', () => {
 
     expect(status.headless).toBe(true);
     expect(mocks.spawn.mock.calls[0][1]).toContain('--headless=new');
+  });
+
+  it('reports known running sessions without a CDP health probe', async () => {
+    const manager = await import('@core/runtime/browser-capability.js');
+    mocks.fetch
+      .mockResolvedValueOnce(cdpResponse({ Browser: 'Chrome' }))
+      .mockResolvedValueOnce(cdpResponse([{ id: 'target-1', type: 'page' }]));
+    await manager.launchBrowser();
+    mocks.fetch.mockClear();
+
+    const status = manager.getKnownBrowserStatus();
+
+    expect(status).toMatchObject({
+      running: true,
+      cdpReady: true,
+      port: 4567,
+    });
+    expect(mocks.fetch).not.toHaveBeenCalled();
   });
 
   it('auto-detects headless mode in CI when no explicit mode is provided', async () => {

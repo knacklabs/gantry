@@ -423,26 +423,35 @@ describe('skill registry integration flow', () => {
       },
     ],
     [
-      'request_tool_enable',
+      'request_permission',
       {
+        permissionKind: 'tool',
         toolName: 'Bash',
         toolNames: ['Read'],
+        rule: 'npm run test *',
+        temporaryOnly: false,
+        broadAccess: false,
         toolCategory: 'sdk',
-        permissionPolicy: 'prompt',
+        permissionPolicy: 'scoped persistent',
         sandboxProfile: 'workspace-write',
         reason: 'Run project tests and inspect files.',
       },
       {
+        permissionKind: 'tool',
         toolNames: ['Bash', 'Read'],
+        rule: 'npm run test *',
+        temporaryOnly: false,
+        broadAccess: false,
         toolCategory: 'sdk',
-        permissionPolicy: 'prompt',
+        permissionPolicy: 'scoped persistent',
         sandboxProfile: 'workspace-write',
         effect: 'review_only_no_permission_change',
       },
     ],
     [
-      'request_channel_tool_enable',
+      'request_permission',
       {
+        permissionKind: 'provider_capability',
         channelTool: 'slack_file_access',
         providerId: 'slack',
         requiredScopes: ['files:read'],
@@ -450,11 +459,12 @@ describe('skill registry integration flow', () => {
         reason: 'Read files shared in the active channel.',
       },
       {
+        permissionKind: 'provider_capability',
         channelTool: 'slack_file_access',
         providerId: 'slack',
         requiredScopes: ['files:read'],
         affectedConversations: ['C123'],
-        effect: 'review_only_no_channel_permission_change',
+        effect: 'review_only_no_permission_change',
       },
     ],
   ])(
@@ -515,13 +525,14 @@ describe('skill registry integration flow', () => {
 
     await processTaskIpc(
       {
-        type: 'request_tool_enable',
-        taskId: 'request-tool-deny-test',
+        type: 'request_permission',
+        taskId: 'request-permission-deny-test',
         targetJid: 'chat-origin',
         chatJid: 'chat-origin',
         authThreadId: 'thread-origin',
         payload: {
           toolName: 'Bash',
+          permissionKind: 'tool',
           reason: 'Run arbitrary commands.',
         },
       },
@@ -536,7 +547,7 @@ describe('skill registry integration flow', () => {
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
-        expect.stringContaining('Rejected Tool enable: Bash: too broad'),
+        expect.stringContaining('Rejected Permission: Bash: too broad'),
         { threadId: 'thread-origin' },
       );
     });
@@ -564,11 +575,12 @@ describe('skill registry integration flow', () => {
 
     await processTaskIpc(
       {
-        type: 'request_channel_tool_enable',
-        taskId: 'request-channel-tool-forum-shopping-test',
+        type: 'request_permission',
+        taskId: 'request-permission-forum-shopping-test',
         chatJid: 'chat-origin',
         targetJid: 'chat-admin-dm',
         payload: {
+          permissionKind: 'provider_capability',
           channelTool: 'slack_file_access',
           providerId: 'slack',
           reason: 'Try routing review to another bound chat.',

@@ -77,23 +77,23 @@ enterprise credential broker, never in MyClaw `.env` or process env.
 
 ## Common Key Placement
 
-| Value                                          | Source                                 |
-| ---------------------------------------------- | -------------------------------------- |
-| `credential_broker.mode`                       | `settings.yaml`                        |
-| `credential_broker.onecli.url`                 | `settings.yaml`                        |
-| `credential_broker.external.base_url`          | `settings.yaml`                        |
-| `agent.name`                                   | `settings.yaml`                        |
-| `agent.default_model`                          | `settings.yaml`                        |
-| `agent.one_time_job_default_model`             | `settings.yaml`                        |
-| `agent.recurring_job_default_model`            | `settings.yaml`                        |
-| Conversation approvers                         | `settings.yaml` and Postgres conversation approver rows |
-| `storage.postgres.url_env`                     | `settings.yaml`                        |
-| `MYCLAW_DATABASE_URL`                          | `RuntimeSecretProvider` / local `.env` |
-| `TELEGRAM_BOT_TOKEN`                           | `RuntimeSecretProvider` / local `.env` |
-| `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`           | `RuntimeSecretProvider` / local `.env` |
-| `ONECLI_DATABASE_URL`, `SECRET_ENCRYPTION_KEY` | `RuntimeSecretProvider` / local `.env` |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY` | `AgentCredentialBroker`                |
-| `CLAUDE_CODE_OAUTH_TOKEN`                      | `AgentCredentialBroker`                |
+| Value                                                         | Source                                                  |
+| ------------------------------------------------------------- | ------------------------------------------------------- |
+| `credential_broker.mode`                                      | `settings.yaml` advanced override                       |
+| `credential_broker.onecli.url`                                | `settings.yaml` advanced override                       |
+| `credential_broker.external.base_url`                         | `settings.yaml` advanced override                       |
+| `defaults.name`                                               | `settings.yaml`                                         |
+| `defaults.model`                                              | `settings.yaml`                                         |
+| `defaults.jobs.one_time_model`                                | `settings.yaml`                                         |
+| `defaults.jobs.recurring_model`                               | `settings.yaml`                                         |
+| Conversation approvers                                        | `settings.yaml` and Postgres conversation approver rows |
+| `storage.postgres.url_env`                                    | `settings.yaml` advanced override                       |
+| `MYCLAW_DATABASE_URL`                                         | `RuntimeSecretProvider` / local `.env`                  |
+| `TELEGRAM_BOT_TOKEN`                                          | `RuntimeSecretProvider` / local `.env`                  |
+| `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`                          | `RuntimeSecretProvider` / local `.env`                  |
+| `ONECLI_DATABASE_URL`, `SECRET_ENCRYPTION_KEY`                | `RuntimeSecretProvider` / local `.env`                  |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY` | `AgentCredentialBroker`                                 |
+| `CLAUDE_CODE_OAUTH_TOKEN`                                     | `AgentCredentialBroker`                                 |
 
 Model env keys such as `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL`, and
 `ANTHROPIC_DEFAULT_*_MODEL` are child-process adapter projections. MyClaw

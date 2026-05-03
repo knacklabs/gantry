@@ -699,6 +699,12 @@ describe('control server auth key parsing', () => {
         'foo',
       ),
     ).toBe(true);
+    expect(
+      _testControlServer.jobBelongsToApp(
+        { linked_sessions: ['app:foo:conv', 'app:bar:conv'] } as any,
+        'foo',
+      ),
+    ).toBe(false);
   });
 
   it('keeps app group folders collision-resistant for distinct valid ids', () => {
@@ -818,8 +824,8 @@ describe('control server runtime hardening', () => {
         path.join(runtimeHome, 'settings.yaml'),
         'utf-8',
       );
-      expect(raw).toContain('name: "Main Agent"');
-      expect(raw).toContain('default_model: ""');
+      expect(raw).toContain('defaults:');
+      expect(raw).toContain('model: opus');
 
       const unsupportedResponse = await requestWithRetry(
         `http://127.0.0.1:${port}/v1/settings`,
@@ -3443,7 +3449,7 @@ describe('control server runtime hardening', () => {
       schedule_type: 'manual',
       schedule_value: 'manual',
       status: 'active',
-      linked_sessions: ['app:app-two:conv-2', 'app:app-one:conv-1'],
+      linked_sessions: ['app:app-one:conv-1'],
       session_id: null,
       thread_id: null,
       group_scope: 'app_app_one_conv_1',

@@ -15,17 +15,23 @@ MyClaw must present one runtime truth across runtime code, CLI, diagnostics, set
    - `memory.embeddings.provider` (`disabled`, built-in provider ids, or registered provider ids)
    - `memory.embeddings.model`
    - `memory.dreaming.enabled`
-5. `settings.yaml` runtime behavior schema is `providers.*`, `provider_connections.*`, `conversations.*`, `bindings.*`, `storage.*`, `agent.*`, `credential_broker.*`, `memory.*`, `desired_state.*`, and `agents.*`; `agent.name` is the user-visible main-agent identity while `main_agent` remains the stable internal folder key.
+5. `settings.yaml` is rendered as compact current desired state for humans:
+   `defaults.*`, enabled `providers.*`, editable `agents.*`, and
+   `conversations.*`. Advanced sections such as `provider_connections.*`,
+   `storage.*`, `credential_broker.*`, `memory.*`, and
+   `desired_state.authoritative` are omitted when they match built-in defaults.
+   There is no versioned settings lane because MyClaw is still early-stage.
 6. `credential_broker.onecli.postgres.*` declares the OneCLI persistence contract. It stores only the env key and schema name; the URL and encryption key stay in `.env`.
 7. Runtime memory injection is query-scoped: the current message or scheduled
    job prompt drives retrieval, and no memory block is injected when nothing
    matches. Provider/session continuity remains separate from durable memory and
    memory tooling; commitment/inbox/digest controls are separate future work.
 8. Local desired-state configuration uses `agents.<agentId>` for agent display,
-   channel/chat bindings, DM access/admins, and selected capability ids. It
-   references approved catalog ids only; skill source bytes, MCP definitions,
-   artifacts, messages, jobs history, browser profiles, memory records, and raw
-   provider secrets stay out of `settings.yaml`.
+   DM access/admins, and selected capabilities, while `conversations.<id>`
+   owns provider conversation IDs, approvers, and the usual single-agent
+   binding. It references approved catalog ids or aliases only; skill source
+   bytes, MCP definitions, artifacts, messages, jobs history, browser profiles,
+   memory records, and raw provider secrets stay out of `settings.yaml`.
 9. Phase 1 desired-state reconciliation is additive/update-only. DB-only
    agents or bindings are reported as drift but are not removed. Phase 2 enables
    destructive reconciliation only when `desired_state.authoritative: true`.

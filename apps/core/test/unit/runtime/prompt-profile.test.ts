@@ -72,11 +72,21 @@ describe('PromptProfileService', () => {
       'When the user says "continue", "resume", or similar, call memory_search',
     );
     expect(shared).toContain(
+      'Treat memory as durable evidence. Prefer recent, high-confidence, and directly relevant memory.',
+    );
+    expect(shared).toContain(
+      'Dreaming currently stages candidates, marks items for review, and promotes reviewed memory; it does not automatically decay, retire, merge, rewrite, or rank memories by usefulness.',
+    );
+    expect(shared).not.toContain('dream lifecycle signals');
+    expect(shared).not.toContain('stale/decayed');
+    expect(shared).toContain(
       'absence means no relevant memory was auto-retrieved',
     );
     expect(shared).toContain(
-      'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, request_tool_enable, or request_channel_tool_enable for capability changes.',
+      'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission for capability changes.',
     );
+    expect(shared).toContain('scoped persistent permission rules');
+    expect(shared).not.toContain('Anthropic permission rules');
     expect(shared).toContain(
       'Never edit .claude/skills, .mcp.json, settings.yaml, generated Claude config, or permission files directly.',
     );
@@ -102,7 +112,7 @@ describe('PromptProfileService', () => {
     expect(fs.readFileSync(sharedPath, 'utf-8')).toBe(existingContent);
   });
 
-  it('compiles deterministic order: runtime rules, soul, shared context, group context', () => {
+  it('compiles deterministic order: runtime rules, persona, soul, capability guidance, shared context, group context', () => {
     const root = makeTempRoot();
     roots.push(root);
 
@@ -113,18 +123,30 @@ describe('PromptProfileService', () => {
     writeFile(path.join(agentsDir, 'team', 'CLAUDE.md'), 'group context');
 
     const service = new PromptProfileService({ agentsDir });
-    const prompt = service.compileSystemPrompt({ groupFolder: 'team' });
+    const prompt = service.compileSystemPrompt({
+      groupFolder: 'team',
+      persona: 'personal_assistant',
+    });
 
     expect(prompt.indexOf('[[RUNTIME_RULES]]')).toBeLessThan(
+      prompt.indexOf('[[PERSONA]]'),
+    );
+    expect(prompt.indexOf('[[PERSONA]]')).toBeLessThan(
       prompt.indexOf('[[SOUL]]'),
     );
     expect(prompt.indexOf('[[SOUL]]')).toBeLessThan(
+      prompt.indexOf('[[CAPABILITY_GUIDANCE]]'),
+    );
+    expect(prompt.indexOf('[[CAPABILITY_GUIDANCE]]')).toBeLessThan(
       prompt.indexOf('[[SHARED_CONTEXT]]'),
     );
     expect(prompt.indexOf('[[SHARED_CONTEXT]]')).toBeLessThan(
       prompt.indexOf('[[GROUP_CONTEXT]]'),
     );
     expect(prompt).toContain('source: myclaw://soul');
+    expect(prompt).toContain('source: myclaw://persona');
+    expect(prompt).toContain('Personal assistant persona');
+    expect(prompt).toContain('source: myclaw://capability-guidance');
     expect(prompt).toContain('source: myclaw://shared-context');
     expect(prompt).toContain('source: myclaw://group-context');
     expect(prompt).not.toContain(root);
@@ -234,7 +256,9 @@ describe('PromptProfileService', () => {
     const service = new PromptProfileService({
       agentsDir,
       sectionBudgets: {
+        PERSONA: 0,
         SOUL: 400,
+        CAPABILITY_GUIDANCE: 0,
         SHARED_CONTEXT: 300,
         GROUP_CONTEXT: 200,
       },

@@ -38,6 +38,7 @@ export interface AllowedRoot {
 
 export interface AgentConfig {
   additionalMounts?: AdditionalMount[];
+  persona?: import('../shared/agent-persona.js').AgentPersona;
   model?: string; // Optional model alias/full name for this group
   thinking?: ThinkingOverride; // Optional thinking override for this group
   timeout?: number; // Default: 300000 (5 minutes)
@@ -51,6 +52,7 @@ export interface RegisteredGroup {
   agentConfig?: AgentConfig;
   requiresTrigger?: boolean; // Default: true for groups, false for solo chats
   isMain?: boolean; // True for the main control group (no trigger, elevated privileges)
+  conversationKind?: 'dm' | 'channel';
 }
 
 export interface NewMessage {
@@ -158,22 +160,61 @@ export interface PermissionApprovalRequest {
   requestId: string;
   sourceGroup: string;
   targetJid?: string;
+  approvalContextJid?: string;
   threadId?: string;
   decisionPolicy?: 'control_allowlist' | 'same_channel';
   toolName: string;
+  toolUseID?: string;
+  agentID?: string;
+  subagentType?: string;
   title?: string;
   displayName?: string;
   description?: string;
   decisionReason?: string;
   blockedPath?: string;
   toolInput?: Record<string, unknown>;
+  suggestions?: PermissionApprovalUpdate[];
+  decisionOptions?: PermissionApprovalDecisionMode[];
   interaction?: InteractionDescriptor;
+}
+
+export type PermissionApprovalDecisionMode =
+  | 'allow_once'
+  | 'allow_persistent_rule'
+  | 'cancel';
+
+export interface PermissionApprovalRuleValue {
+  toolName: string;
+  ruleContent?: string;
+}
+
+export interface PermissionApprovalUpdate {
+  type:
+    | 'addRules'
+    | 'replaceRules'
+    | 'removeRules'
+    | 'setMode'
+    | 'addDirectories'
+    | 'removeDirectories';
+  rules?: PermissionApprovalRuleValue[];
+  behavior?: 'allow' | 'deny' | 'ask';
+  destination?:
+    | 'userSettings'
+    | 'projectSettings'
+    | 'localSettings'
+    | 'session'
+    | 'cliArg';
+  mode?: string;
+  directories?: string[];
 }
 
 export interface PermissionApprovalDecision {
   approved: boolean;
+  mode?: PermissionApprovalDecisionMode;
   decidedBy?: string;
   reason?: string;
+  updatedPermissions?: PermissionApprovalUpdate[];
+  decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
 }
 
 export interface UserQuestionOption {

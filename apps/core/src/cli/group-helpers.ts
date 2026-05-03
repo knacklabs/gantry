@@ -3,6 +3,7 @@ import path from 'path';
 
 import type { RegisteredGroup } from '../domain/types.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
+import { renderDefaultCapabilityRules } from '../shared/capability-guidance.js';
 import { providerFromGroupJid, getProviderIds } from './provider-utils.js';
 import {
   addControlSenderForAgent,
@@ -135,7 +136,7 @@ function createDefaultGroupClaudeMarkdown(agentName: string): string {
     '',
     'Rules:\n- Answer directly unless the user asks for detail.\n- Be explicit when an action failed and what to do next.\n- Never expose secrets or local paths unless explicitly requested.\n- When the user says "continue", call memory_search before guessing.',
     '',
-    'Capability rules:\n- Use send_message for progress updates and ask_user_question for structured choices.\n- Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, request_tool_enable, or request_channel_tool_enable for capability changes.\n- Main/admin agents may use service_restart after approved changes and register_agent for conversation binding.\n- Never run dependency installs or edit .claude/skills, .mcp.json, settings, or generated capability config directly.',
+    renderDefaultCapabilityRules(),
     '',
   ].join('\n');
 }

@@ -28,8 +28,8 @@ describe('runtime settings', () => {
     settings.agent.recurringJobDefaultModel = 'opus-4.6';
 
     const yaml = renderRuntimeSettingsYaml(settings);
-    expect(yaml).toContain('one_time_job_default_model: kimi');
-    expect(yaml).toContain('recurring_job_default_model: opus-4.6');
+    expect(yaml).toContain('one_time_model: kimi');
+    expect(yaml).toContain('recurring_model: opus-4.6');
 
     const parsed = parseRuntimeSettings(yaml);
     expect(parsed.agent.defaultModel).toBe('sonnet');
@@ -40,12 +40,140 @@ describe('runtime settings', () => {
   it('rejects unsupported agent settings keys', () => {
     const settings = createDefaultRuntimeSettings();
     const yaml = renderRuntimeSettingsYaml(settings).replace(
-      '  default_model:',
-      '  raw_env: true\n  default_model:',
+      '  model:',
+      '  raw_env: true\n  model:',
     );
     expect(() => parseRuntimeSettings(yaml)).toThrow(
-      'agent.raw_env is not supported',
+      'defaults.raw_env is not supported',
     );
+  });
+
+  it('rejects malformed compact default maps', () => {
+    expect(() =>
+      parseRuntimeSettings(`defaults:
+  model: opus
+  jobs: sonnet
+`),
+    ).toThrow('defaults.jobs must be a mapping');
+
+    expect(() =>
+      parseRuntimeSettings(`defaults:
+  model: opus
+  sessions: enabled
+`),
+    ).toThrow('defaults.sessions must be a mapping');
+  });
+
+  it('rejects malformed compact agent job maps', () => {
+    expect(() =>
+      parseRuntimeSettings(`defaults:
+  model: opus
+
+agents:
+  kai:
+    name: Kai
+    jobs: sonnet
+`),
+    ).toThrow('agents.kai.jobs must be a mapping');
+  });
+
+  it('rejects unsupported compact provider, conversation, and job keys', () => {
+    expect(() =>
+      parseRuntimeSettings(`providers:
+  telegram:
+    enabled: true
+    bot_token_en: TELEGRAM_BOT_TOKEN
+`),
+    ).toThrow('providers.telegram.bot_token_en is not supported');
+
+    expect(() =>
+      parseRuntimeSettings(`agents:
+  kai:
+    name: Kai
+    jobs:
+      one_tim_model: sonnet
+`),
+    ).toThrow('agents.kai.jobs.one_tim_model is not supported');
+
+    expect(() =>
+      parseRuntimeSettings(`conversations:
+  kai:
+    provider: telegram
+    id: "123"
+    type: channel
+    aproverz: ["42"]
+`),
+    ).toThrow('conversations.kai.aproverz is not supported');
+  });
+
+  it('rejects unsupported nested memory settings keys', () => {
+    expect(() =>
+      parseRuntimeSettings(`memory:
+  enabled: true
+  embeddings:
+    enabled: true
+    provider: openai
+    modell: text-embedding-3-small
+`),
+    ).toThrow('memory.embeddings.modell is not supported');
+
+    expect(() =>
+      parseRuntimeSettings(`memory:
+  enabled: true
+  embeddings:
+    enabled: false
+    provider: disabled
+    model: text-embedding-3-small
+  dreaming:
+    enabld: true
+`),
+    ).toThrow('memory.dreaming.enabld is not supported');
+
+    expect(() =>
+      parseRuntimeSettings(`memory:
+  enabled: true
+  embeddings:
+    enabled: false
+    provider: disabled
+    model: text-embedding-3-small
+  llm:
+    modelz: {}
+`),
+    ).toThrow('memory.llm.modelz is not supported');
+
+    expect(() =>
+      parseRuntimeSettings(`memory:
+  enabled: true
+  embeddings:
+    enabled: false
+    provider: disabled
+    model: text-embedding-3-small
+  llm:
+    models:
+      extractorr: sonnet
+`),
+    ).toThrow('memory.llm.models.extractorr is not supported');
+  });
+
+  it('keeps explicit verbose provider connections over compact defaults', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  telegram:
+    enabled: true
+    label: Compact Telegram
+    bot_token_env: TELEGRAM_COMPACT_BOT_TOKEN
+
+provider_connections:
+  telegram_default:
+    provider: telegram
+    label: Explicit Telegram
+    runtime_secret_refs:
+      bot_token: TELEGRAM_EXPLICIT_BOT_TOKEN
+`);
+
+    expect(parsed.providerConnections.telegram_default).toMatchObject({
+      label: 'Explicit Telegram',
+      runtimeSecretRefs: { bot_token: 'TELEGRAM_EXPLICIT_BOT_TOKEN' },
+    });
   });
 
   it('validates model defaults against the model catalog', () => {
@@ -73,6 +201,7 @@ describe('runtime settings', () => {
     settings.agents.main_agent = {
       name: 'Main Agent',
       folder: 'main_agent',
+      persona: 'personal_assistant',
       model: 'sonnet',
       oneTimeJobDefaultModel: 'haiku',
       recurringJobDefaultModel: 'opus',
@@ -118,7 +247,11 @@ describe('runtime settings', () => {
     const parsed = parseRuntimeSettings(renderRuntimeSettingsYaml(settings));
 
     expect(parsed.desiredState.authoritative).toBe(true);
-    expect(parsed.agents.main_agent.bindings.primary).toMatchObject({
+    expect(parsed.agents.main_agent.persona).toBe('personal_assistant');
+    expect(renderRuntimeSettingsYaml(parsed)).toContain(
+      '    persona: personal_assistant',
+    );
+    expect(parsed.agents.main_agent.bindings.main_dm).toMatchObject({
       jid: 'tg:100',
       provider: 'telegram',
       name: 'Main DM',
@@ -126,15 +259,132 @@ describe('runtime settings', () => {
       requiresTrigger: false,
       isMain: true,
     });
-    expect(parsed.bindings.primary).toEqual(settings.bindings.primary);
+    expect(parsed.bindings.main_dm).toMatchObject({
+      agent: 'main_agent',
+      conversation: 'main_dm',
+      trigger: '@kai',
+      requiresTrigger: false,
+      isMain: true,
+      memoryScope: 'conversation',
+    });
+  });
+
+  it('keeps multi-binding conversations explicit without duplicating bindings', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.telegram.enabled = true;
+    settings.providers.telegram.defaultConnection = 'telegram_default';
+    settings.providerConnections.telegram_default = {
+      provider: 'telegram',
+      label: 'Telegram Default',
+      runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
+    };
+    settings.agents.main_agent = {
+      name: 'Main Agent',
+      folder: 'main_agent',
+      bindings: {},
+      dmAccess: [],
+      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+    };
+    settings.agents.helper = {
+      name: 'Helper',
+      folder: 'helper',
+      bindings: {},
+      dmAccess: [],
+      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+    };
+    settings.conversations.team = {
+      providerConnection: 'telegram_default',
+      externalId: '-100',
+      kind: 'channel',
+      displayName: 'Team',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['575'],
+    };
+    settings.conversations.solo = {
+      providerConnection: 'telegram_default',
+      externalId: '575',
+      kind: 'dm',
+      displayName: 'Solo',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['575'],
+    };
+    settings.bindings.main_team = {
+      agent: 'main_agent',
+      conversation: 'team',
+      trigger: '@main',
+      addedAt: '2026-05-02T00:00:00.000Z',
+      requiresTrigger: false,
+      isMain: true,
+      memoryScope: 'conversation',
+    };
+    settings.bindings.helper_team = {
+      agent: 'helper',
+      conversation: 'team',
+      trigger: '@helper',
+      addedAt: '2026-05-03T00:00:00.000Z',
+      requiresTrigger: true,
+      isMain: false,
+      memoryScope: 'conversation',
+    };
+    settings.bindings.main_solo = {
+      agent: 'main_agent',
+      conversation: 'solo',
+      trigger: '@main',
+      addedAt: '2026-05-04T00:00:00.000Z',
+      requiresTrigger: false,
+      isMain: true,
+      memoryScope: 'conversation',
+    };
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    const parsed = parseRuntimeSettings(yaml);
+
+    expect(
+      Object.values(parsed.bindings).filter(
+        (binding) => binding.conversation === 'team',
+      ),
+    ).toHaveLength(2);
+    expect(
+      Object.values(parsed.bindings).filter(
+        (binding) => binding.conversation === 'solo',
+      ),
+    ).toHaveLength(1);
+    expect(parsed.bindings.solo?.addedAt).toBe('2026-05-04T00:00:00.000Z');
+  });
+
+  it('renders non-default provider connection ids without rerouting', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.telegram.enabled = true;
+    settings.providers.telegram.defaultConnection = 'telegram_default';
+    settings.providerConnections.telegram_default = {
+      provider: 'telegram',
+      label: 'Telegram Default',
+      runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
+    };
+    settings.providerConnections.telegram_work = {
+      provider: 'telegram',
+      label: 'Telegram Work',
+      runtimeSecretRefs: { bot_token: 'TELEGRAM_WORK_BOT_TOKEN' },
+    };
+    settings.conversations.work = {
+      providerConnection: 'telegram_work',
+      externalId: '-200',
+      kind: 'channel',
+      displayName: 'Work',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: [],
+    };
+
+    const parsed = parseRuntimeSettings(renderRuntimeSettingsYaml(settings));
+
+    expect(parsed.conversations.work?.providerConnection).toBe('telegram_work');
   });
 
   it('rejects duplicate desired-state conversation bindings', () => {
-    const yaml = renderRuntimeSettingsYaml(
-      createDefaultRuntimeSettings(),
-    ).replace(
-      'agents: {}\n',
-      `agents:
+    const yaml = `defaults:
+  model: opus
+
+agents:
   one:
     name: One
     bindings:
@@ -149,8 +399,7 @@ describe('runtime settings', () => {
         jid: tg:100
         trigger: '@two'
         added_at: 2026-05-02T00:00:00.000Z
-`,
-    );
+`;
 
     expect(() => parseRuntimeSettings(yaml)).toThrow(
       'agents.two.bindings contains duplicate jid tg:100; already configured by agents.one',
@@ -158,17 +407,14 @@ describe('runtime settings', () => {
   });
 
   it('rejects raw model ids in desired-state agent defaults', () => {
-    const yaml = renderRuntimeSettingsYaml(
-      createDefaultRuntimeSettings(),
-    ).replace(
-      'agents: {}\n',
-      `agents:
+    const yaml = `defaults:
+  model: opus
+
+agents:
   main_agent:
     name: Main
     model: claude-opus-4-7
-    bindings: {}
-`,
-    );
+`;
 
     expect(() => parseRuntimeSettings(yaml)).toThrow(
       'agents.main_agent.model is invalid: Provider model ID "claude-opus-4-7" is not accepted here.',
@@ -206,5 +452,56 @@ describe('runtime settings', () => {
       ),
     ).toEqual(['abc-def', 'abc:def']);
     expect(Object.keys(settings.bindings)).toHaveLength(2);
+  });
+
+  it('maps compact DM conversation approvers to agent DM admins', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  telegram:
+    enabled: true
+    bot_token_env: TELEGRAM_BOT_TOKEN
+
+agents:
+  main_agent:
+    name: Main
+
+conversations:
+  main_dm:
+    provider: telegram
+    id: "5759865942"
+    type: dm
+    approvers: ["5759865942"]
+    agent: main_agent
+`);
+
+    expect(parsed.agents.main_agent.dmAccess).toEqual([
+      {
+        provider: 'telegram',
+        userIds: ['5759865942'],
+        adminUserId: '5759865942',
+      },
+    ]);
+  });
+
+  it('does not render opaque skill UUIDs into human settings', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.kai = {
+      name: 'Kai',
+      folder: 'kai',
+      bindings: {},
+      dmAccess: [],
+      capabilities: {
+        toolIds: [],
+        skillIds: [
+          'skill:3014949c-a616-4b2c-80e7-0bc61bb31e85',
+          'company-handbook',
+        ],
+        mcpServerIds: [],
+      },
+    };
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+
+    expect(yaml).not.toContain('skill:3014949c-a616-4b2c-80e7-0bc61bb31e85');
+    expect(yaml).toContain('company-handbook');
   });
 });

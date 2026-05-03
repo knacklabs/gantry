@@ -4,28 +4,26 @@ import path from 'path';
 
 import { logger } from '../infrastructure/logging/logger.js';
 import { CHROME_PATH, DEFAULT_CHROME_ARGS } from './browser-config.js';
-import {
-  BrowserProfileLock,
-  acquireProfileLock,
-  createProfile,
-  getProfile,
-  updateProfileMetadata,
-} from './browser-profiles.js';
-import {
-  clearBrowserSessionRecord,
-  readBrowserSessionRecord,
-  writeBrowserSessionRecord,
-} from './browser-session-record.js';
-import {
-  resolveBrowserHeadless,
-  resolveBrowserKeepAliveMs,
-} from './browser-launch-options.js';
-import {
-  hasPersistentBrowserState,
-  inferAuthMarkers,
-} from './browser-profile-state.js';
+import type {
+  BrowserProfileStatus,
+  BrowserSessionStatus,
+  LaunchBrowserOptions,
+} from './browser-capability-types.js';
+// prettier-ignore
+import { acquireProfileLock, createProfile, getProfile, isValidBrowserProfileName, listProfiles, updateProfileMetadata, type BrowserProfileLock } from './browser-profiles.js';
+// prettier-ignore
+import { clearBrowserSessionRecord, readBrowserSessionRecord, writeBrowserSessionRecord } from './browser-session-record.js';
+// prettier-ignore
+import { resolveBrowserHeadless, resolveBrowserKeepAliveMs } from './browser-launch-options.js';
+// prettier-ignore
+import { hasPersistentBrowserState, inferAuthMarkers } from './browser-profile-state.js';
 
 export const DEFAULT_BROWSER_PROFILE_NAME = 'myclaw';
+export type {
+  BrowserProfileStatus,
+  BrowserSessionStatus,
+  LaunchBrowserOptions,
+} from './browser-capability-types.js';
 
 interface BrowserSession {
   profileName: string;
@@ -38,39 +36,6 @@ interface BrowserSession {
   keepAliveMs: number;
   keepAliveTimer: NodeJS.Timeout | null;
   headless: boolean;
-}
-
-export interface LaunchBrowserOptions {
-  profileName?: string;
-  headless?: boolean;
-  keepAliveMs?: number;
-}
-
-export interface BrowserSessionStatus {
-  profile: string;
-  profileName: string;
-  running: boolean;
-  cdpReady: boolean;
-  cdpUrl?: string;
-  port?: number;
-  pid?: number;
-  targetId?: string;
-  lastUsedAt?: string;
-  headless?: boolean;
-  keepAliveMs?: number;
-  idleExpiresAt?: string;
-  error?: string;
-}
-
-export interface BrowserProfileStatus {
-  name: string;
-  created_at: string;
-  last_used?: string;
-  cdp_port?: number;
-  auth_markers: string[];
-  has_state: boolean;
-  running: boolean;
-  cdpReady: boolean;
 }
 
 const sessions = new Map<string, BrowserSession>();
@@ -102,9 +67,9 @@ function resolveProfileName(profileName?: string): string {
     .trim()
     .toLowerCase();
   if (!normalized) return DEFAULT_BROWSER_PROFILE_NAME;
-  if (normalized !== DEFAULT_BROWSER_PROFILE_NAME) {
+  if (!isValidBrowserProfileName(normalized)) {
     throw new Error(
-      `Only browser profile "${DEFAULT_BROWSER_PROFILE_NAME}" is supported`,
+      'Invalid browser profile name. Use lowercase letters, digits, dot, underscore, or hyphen.',
     );
   }
   return normalized;
@@ -540,26 +505,43 @@ export async function getBrowserStatus(
 ): Promise<BrowserSessionStatus> {
   const normalized = resolveProfileName(profileName);
   const session = sessions.get(normalized);
-  if (!session) {
-    const profile = createProfile(normalized);
-    const lock = await acquireProfileLock(normalized);
-    try {
-      const recovered = await recoverPersistedBrowserSession({
-        profileName: normalized,
-        profile,
-        lock,
-        keepAliveMs: resolveBrowserKeepAliveMs(undefined),
-      });
-      if (recovered) return toRunningStatus(recovered);
-    } finally {
-      if (!sessions.has(normalized)) lock.release();
-    }
+  if (session) {
+    if (await isSessionHealthy(session)) return toRunningStatus(session);
     return toStoppedStatus(normalized);
   }
-  if (!(await isSessionHealthy(session))) {
-    await closeUnhealthySession(normalized, session);
+
+  const profile = getProfile(normalized);
+  if (!profile) return toStoppedStatus(normalized);
+  const record = readBrowserSessionRecord(profile);
+  if (
+    !record ||
+    !isPidAlive(record.pid) ||
+    !isPidOwnedByBrowserProfile(record.pid, profile) ||
+    !(await isCdpHttpHealthy(record.port))
+  ) {
     return toStoppedStatus(normalized);
   }
+
+  return {
+    profile: normalized,
+    profileName: normalized,
+    running: true,
+    cdpReady: true,
+    cdpUrl: `http://127.0.0.1:${record.port}`,
+    port: record.port,
+    pid: record.pid,
+    targetId: record.targetId,
+    lastUsedAt: record.lastUsedAt,
+    headless: record.headless,
+  };
+}
+
+export function getKnownBrowserStatus(
+  profileName = DEFAULT_BROWSER_PROFILE_NAME,
+): BrowserSessionStatus {
+  const normalized = resolveProfileName(profileName);
+  const session = sessions.get(normalized);
+  if (!session || !isChromeAlive(session)) return toStoppedStatus(normalized);
   return toRunningStatus(session);
 }
 
@@ -655,28 +637,32 @@ export async function listActiveBrowserSessions(): Promise<
 }
 
 export async function listBrowserProfiles(): Promise<BrowserProfileStatus[]> {
-  const profile = createProfile(DEFAULT_BROWSER_PROFILE_NAME);
-  const session = sessions.get(profile.name);
-  const persisted = readBrowserSessionRecord(profile);
-  const persistedRunning = Boolean(
-    persisted &&
-    isPidAlive(persisted.pid) &&
-    isPidOwnedByBrowserProfile(persisted.pid, profile),
-  );
-  const running = session ? isChromeAlive(session) : persistedRunning;
-  const cdpReady = session
-    ? running && (await isCdpHttpHealthy(session.port))
-    : Boolean(
-        persistedRunning &&
-        persisted &&
-        (await isCdpHttpHealthy(persisted.port)),
-      );
-  const authMarkers = new Set([
-    ...(profile.metadata.auth_markers || []),
-    ...inferAuthMarkers(profile),
-  ]);
-  return [
-    {
+  const profiles = listProfiles();
+  if (profiles.length === 0) {
+    profiles.push(createProfile(DEFAULT_BROWSER_PROFILE_NAME));
+  }
+  const statuses: BrowserProfileStatus[] = [];
+  for (const profile of profiles) {
+    const session = sessions.get(profile.name);
+    const persisted = readBrowserSessionRecord(profile);
+    const persistedRunning = Boolean(
+      persisted &&
+      isPidAlive(persisted.pid) &&
+      isPidOwnedByBrowserProfile(persisted.pid, profile),
+    );
+    const running = session ? isChromeAlive(session) : persistedRunning;
+    const cdpReady = session
+      ? running && (await isCdpHttpHealthy(session.port))
+      : Boolean(
+          persistedRunning &&
+          persisted &&
+          (await isCdpHttpHealthy(persisted.port)),
+        );
+    const authMarkers = new Set([
+      ...(profile.metadata.auth_markers || []),
+      ...inferAuthMarkers(profile),
+    ]);
+    statuses.push({
       name: profile.name,
       created_at: profile.metadata.created_at,
       last_used: profile.metadata.last_used,
@@ -685,8 +671,9 @@ export async function listBrowserProfiles(): Promise<BrowserProfileStatus[]> {
       has_state: hasPersistentBrowserState(profile),
       running,
       cdpReady,
-    },
-  ];
+    });
+  }
+  return statuses;
 }
 
 export async function ensureBrowserProfileExists(

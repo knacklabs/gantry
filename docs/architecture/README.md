@@ -4,6 +4,7 @@ Store architecture-level design inputs for planning and decomposition here.
 
 For MyClaw, canonical architecture references are:
 
+- `docs/architecture/overview.md` — top-down architecture map with diagrams (start here)
 - `docs/architecture/canonical-domain-model.md`
 - `docs/architecture/target-folder-structure.md`
 - `docs/architecture/personal-and-enterprise-modes.md`
@@ -16,6 +17,7 @@ For MyClaw, canonical architecture references are:
 - `docs/architecture/local-files-policy.md`
 - `docs/architecture/local-state-inventory.md`
 - `docs/architecture/session-resume.md`
+- `docs/architecture/compact-human-settings-yaml.md`
 - `docs/MEMORY.md`
 - `docs/REQUIREMENTS.md`
 - `docs/SPEC.md`

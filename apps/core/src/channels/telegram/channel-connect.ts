@@ -27,6 +27,10 @@ import { PartialMessageDeliveryError } from '../../runtime/partial-delivery.js';
 import { parseTextStyles } from '../../text-styles.js';
 import { AsyncTaskQueue } from '../../app/bootstrap/async-task-queue.js';
 import { writeTelegramFetchResponseToFile } from '../telegram-file-download.js';
+import {
+  decisionForMode,
+  normalizePermissionAction,
+} from '../permission-interaction.js';
 
 import { TelegramChannelPrompts } from './channel-prompts.js';
 import {
@@ -189,8 +193,11 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
 
       const permissionMatch = TELEGRAM_PERMISSION_CALLBACK_PATTERN.exec(data);
       if (!permissionMatch) return;
-      const action = permissionMatch[1] as 'approve' | 'deny';
-      const requestId = permissionMatch[2];
+      const mode = normalizePermissionAction(permissionMatch[1]);
+      if (!mode) return;
+      const callbackId = permissionMatch[2];
+      const requestId =
+        this.pendingPermissionCallbackIds.get(callbackId) || callbackId;
       const pending = this.pendingPermissionPrompts.get(requestId);
       if (!pending) {
         await ctx.answerCallbackQuery({
@@ -200,7 +207,20 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         return;
       }
 
-      const callbackChatId = ctx.chat?.id?.toString() || '';
+      const callbackQuery = ctx.callbackQuery as
+        | {
+            from?: {
+              id?: number | string;
+              first_name?: string;
+              username?: string;
+            };
+            message?: { chat?: { id?: number | string } };
+          }
+        | undefined;
+      const callbackChatId =
+        callbackQuery?.message?.chat?.id?.toString() ||
+        ctx.chat?.id?.toString() ||
+        '';
       if (!callbackChatId || callbackChatId !== pending.chatId) {
         await ctx.answerCallbackQuery({
           text: 'This approval request belongs to a different chat.',
@@ -209,7 +229,8 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         return;
       }
 
-      const userId = ctx.from?.id?.toString() || '';
+      const userId =
+        callbackQuery?.from?.id?.toString() || ctx.from?.id?.toString() || '';
       if (!userId) {
         await ctx.answerCallbackQuery({
           text: 'Unable to verify approver identity.',
@@ -218,12 +239,30 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         return;
       }
       const authorized = await this.isTelegramApproverAuthorized(
-        pending.chatId,
+        (pending.approvalContextJid || `tg:${pending.chatId}`).replace(
+          /^tg:/,
+          '',
+        ),
         userId,
         pending.sourceGroup,
         pending.decisionPolicy,
       );
       if (!authorized) {
+        logger.warn(
+          {
+            requestId,
+            userId,
+            chatId:
+              callbackQuery?.message?.chat?.id?.toString() ||
+              ctx.chat?.id?.toString() ||
+              pending.chatId,
+            pendingChatId: pending.chatId,
+            approvalContextJid: pending.approvalContextJid,
+            sourceGroup: pending.sourceGroup,
+            decisionPolicy: pending.decisionPolicy,
+          },
+          'Telegram permission decision rejected: user is not an approved administrator',
+        );
         await ctx.answerCallbackQuery({
           text: 'Only approved admins can make this decision.',
           show_alert: true,
@@ -232,17 +271,29 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
       }
 
       const decidedBy =
-        ctx.from?.first_name || ctx.from?.username || userId || 'unknown';
+        callbackQuery?.from?.first_name ||
+        callbackQuery?.from?.username ||
+        ctx.from?.first_name ||
+        ctx.from?.username ||
+        userId ||
+        'unknown';
+      const decision = decisionForMode(pending.request, mode, decidedBy);
       await this.resolvePermissionPrompt(requestId, {
-        approved: action === 'approve',
-        decidedBy,
+        ...decision,
         reason:
-          action === 'approve'
-            ? 'approved via Telegram'
-            : 'denied via Telegram',
+          mode === 'allow_once'
+            ? 'allowed once via Telegram'
+            : mode === 'allow_persistent_rule'
+              ? 'persistent rule allowed via Telegram'
+              : 'canceled via Telegram',
       });
       await ctx.answerCallbackQuery({
-        text: action === 'approve' ? 'Approved.' : 'Denied.',
+        text:
+          mode === 'allow_once'
+            ? 'Allowed once.'
+            : mode === 'allow_persistent_rule'
+              ? 'Always allowed.'
+              : 'Canceled.',
       });
     });
 

@@ -3,11 +3,15 @@ import {
   type EffortLevel,
   type ThinkingConfig,
 } from '@anthropic-ai/claude-agent-sdk';
-import { buildSystemPrompt } from './system-prompt.js';
+import {
+  buildSystemPrompt,
+  includeGitInstructionsForPersona,
+} from './system-prompt.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import { WORKSPACE_GROUP_DIR } from './runtime-env.js';
 import type { SessionSlashCommand } from './types.js';
+import type { AgentPersona } from '../../shared/agent-persona.js';
 
 interface SessionSlashRunOptions {
   command: string;
@@ -18,6 +22,7 @@ interface SessionSlashRunOptions {
   configuredThinking?: ThinkingConfig;
   configuredEffort?: EffortLevel;
   systemPromptAppend?: string;
+  persona?: AgentPersona;
   silent?: boolean;
 }
 
@@ -62,6 +67,11 @@ export async function runSessionSlashCommand(
         cwd: WORKSPACE_GROUP_DIR,
         persistSession: false,
         systemPrompt,
+        settings: {
+          includeGitInstructions: includeGitInstructionsForPersona(
+            opts.persona,
+          ),
+        },
         allowedTools: [],
         env: opts.sdkEnv,
         permissionMode: 'bypassPermissions' as const,

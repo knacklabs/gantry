@@ -33,12 +33,7 @@ export function createBrowserActionMcpServerConfig(
 
   return {
     command: process.execPath,
-    args: [
-      resolveBrowserActionMcpCliPath(),
-      '--cdp-endpoint',
-      cdpEndpoint,
-      '--shared-browser-context',
-    ],
+    args: [resolveBrowserActionMcpCliPath(), '--shared-browser-context'],
     env,
   };
 }

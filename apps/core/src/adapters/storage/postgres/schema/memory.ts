@@ -61,5 +61,9 @@ export const memoryItemsPostgres = pgTable(
       table.status,
       table.updatedAt,
     ),
+    searchIdx: index('idx_memory_items_search').using(
+      'gin',
+      sql`to_tsvector('english', ${table.key} || ' ' || COALESCE(${table.valueJson}::jsonb->>'value', '') || ' ' || COALESCE(${table.valueJson}::jsonb->>'why', ''))`,
+    ),
   }),
 );

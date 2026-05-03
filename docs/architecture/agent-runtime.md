@@ -72,6 +72,113 @@ The `app` channel keeps app-originated conversations on the same runtime path as
 
 That avoids a second agent-output path with different behavior.
 
+## Agent Composition
+
+An agent is composed at spawn time, not stored as a single record. The runtime
+brings together the persisted `Agent`, its current `AgentConfigVersion`, the
+`LlmProfile`, the per-group `AgentConfig` (which carries persona and optional
+model override), and the five built-in capability providers.
+
+```mermaid
+classDiagram
+  class Agent {
+    +AgentId id
+    +AppId appId
+    +string name
+    +'active'|'disabled' status
+    +AgentConfigVersionId currentConfigVersionId
+  }
+  class AgentConfigVersion {
+    +AgentConfigVersionId id
+    +int version
+    +string promptProfileRef
+    +LlmProfileId llmProfileId
+    +ToolId[] toolIds
+    +SkillId[] skillIds
+    +PermissionPolicyId[] permissionPolicyIds
+    +SandboxProfileId? sandboxProfileId
+    +WorkspaceSnapshotId? workspaceSnapshotId
+  }
+  class LlmProfile {
+    +'chat'|'planning'|'coding'|'embedding'|'summarization' purpose
+    +string modelAlias
+    +Thinking? thinking
+    +Budget? budget
+  }
+  class AgentDmAccess {
+    +string providerId
+    +string externalUserId
+  }
+  class AgentDmApprover {
+    +string providerId
+    +string externalUserId
+  }
+  class AgentConfig {
+    +AdditionalMount[]? additionalMounts
+    +AgentPersona? persona
+    +string? model
+    +ThinkingOverride? thinking
+  }
+  class AgentCapabilityContext {
+    +string mcpServerPath
+    +string chatJid
+    +string groupFolder
+    +AgentPersona? persona
+    +bool isMain
+    +McpServerConfigs externalMcpServers
+    +string[] configuredAllowedTools
+  }
+  class AgentCapabilityProfile {
+    +string[] allowedTools
+    +McpServerConfigs mcpServers
+    +'default'|'bypassPermissions' permissionMode
+    +string[] alwaysAllowedTools
+  }
+
+  Agent "1" --> "many" AgentConfigVersion : versioned
+  AgentConfigVersion --> LlmProfile : llmProfileId
+  Agent "1" --> "many" AgentDmAccess : per provider
+  Agent "1" --> "many" AgentDmApprover : one per provider
+  AgentConfig --> Agent : per RegisteredGroup
+  AgentCapabilityContext --> AgentCapabilityProfile : composeAgentCapabilities()
+```
+
+Sources:
+
+- `Agent`, `AgentConfigVersion`, `LlmProfile`, `AgentDmAccess`,
+  `AgentDmApprover` — `apps/core/src/domain/agent/agent.ts:41` through
+  `apps/core/src/domain/agent/agent.ts:88`.
+- `AgentConfig` (carrying `persona`, model override, additional mounts) —
+  `apps/core/src/domain/types.ts:39`.
+- `AgentPersona` enum and resolver —
+  `apps/core/src/shared/agent-persona.ts:1`.
+- `AgentCapabilityContext`, `AgentCapabilityProfile`, and the five built-in
+  providers (`sdk-tools`, `permissions`, `myclaw-mcp`, `configured-tools`,
+  `configured-mcp`) plus `composeAgentCapabilities` —
+  `apps/core/src/runner/agent-capabilities.ts:7`,
+  `apps/core/src/runner/agent-capabilities.ts:131`,
+  `apps/core/src/runner/agent-capabilities.ts:249`.
+- Persona compiled into the system prompt —
+  `apps/core/src/runtime/prompt-profile.ts:111` and
+  `apps/core/src/runtime/agent-spawn.ts:141`.
+- Skill materialisation into the run env —
+  `apps/core/src/adapters/llm/anthropic-claude-agent/claude-skill-materializer.ts:1`,
+  imported by `apps/core/src/runtime/agent-spawn.ts:39`.
+
+### Subagents
+
+Native Anthropic-SDK subagents inherit the parent run by default. MyClaw
+projects which `subagent_type` names are allowed for the current agent and
+rejects cross-provider models, custom `tools`/`mcpServers`/`skills` input on
+the Agent tool call, and unknown subagent types. See
+`subagentTypeFromAgentInput`, `validateAgentModelRequest`, and
+`validateAgentToolInput` at
+`apps/core/src/runner/claude/agent-model-selection.ts:39`,
+`apps/core/src/runner/claude/agent-model-selection.ts:45`, and
+`apps/core/src/runner/claude/agent-model-selection.ts:71`. The rejection
+message points the agent at a configured subagent definition for any input
+that exceeds the native Agent override surface.
+
 ## Provider And Conversation Onboarding Control Surface
 
 The control API exposes provider and conversation onboarding through

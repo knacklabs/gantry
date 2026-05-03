@@ -1,4 +1,5 @@
 import { resolveModelSelection } from '../../shared/model-catalog.js';
+import { parseAgentPersona } from '../../shared/agent-persona.js';
 import type {
   RuntimeConfiguredAgent,
   RuntimeConfiguredAgentBinding,
@@ -287,6 +288,7 @@ export function parseConfiguredAgents(
     for (const key of Object.keys(map)) {
       if (
         key !== 'name' &&
+        key !== 'persona' &&
         key !== 'jid' &&
         key !== 'trigger' &&
         key !== 'added_at' &&
@@ -349,6 +351,7 @@ export function parseConfiguredAgents(
     result[folder] = {
       name: parseStringValue(map.name, `${pathPrefix}.name`),
       folder,
+      persona: parseAgentPersona(map.persona, `${pathPrefix}.persona`),
       model,
       oneTimeJobDefaultModel,
       recurringJobDefaultModel,

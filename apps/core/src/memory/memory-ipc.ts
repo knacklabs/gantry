@@ -20,6 +20,16 @@ import {
 
 const MEMORY_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 
+interface TrustedMemoryContext {
+  threadId?: string;
+  userId?: string;
+  defaultScope?: 'user' | 'group';
+}
+
+type TrustedMemoryRequest = Omit<MemoryIpcRequest, 'context'> & {
+  context?: TrustedMemoryContext;
+};
+
 function parseOptionalString(
   value: unknown,
   opts: { maxLen?: number } = {},
@@ -183,6 +193,7 @@ function parseSaveProcedureInput(payload: unknown): SaveProcedureInput {
   const groupFolder = parseOptionalString(payload.group_folder, {
     maxLen: 128,
   });
+  const userId = parseOptionalString(payload.user_id, { maxLen: 255 });
   const tags = parseOptionalTags(payload.tags);
   const originRaw = parseOptionalString(payload.origin, { maxLen: 64 });
   const origin =
@@ -200,6 +211,7 @@ function parseSaveProcedureInput(payload: unknown): SaveProcedureInput {
     body,
     ...(scope ? { scope } : {}),
     ...(groupFolder ? { group_folder: groupFolder } : {}),
+    ...(userId ? { user_id: userId } : {}),
     ...(tags ? { tags } : {}),
     ...(origin ? { origin } : {}),
     ...(trigger ? { trigger } : {}),
@@ -242,7 +254,7 @@ function parsePatchProcedureInput(payload: unknown): PatchProcedureInput {
 }
 
 export async function processMemoryRequest(
-  request: MemoryIpcRequest,
+  request: TrustedMemoryRequest,
   sourceGroup: string,
   isMain: boolean,
 ): Promise<MemoryIpcResponse> {
@@ -270,9 +282,7 @@ export async function processMemoryRequest(
           appId: DEFAULT_MEMORY_APP_ID,
           agentId: memoryAgentIdForGroupFolder(sourceGroup),
           groupId: sourceGroup,
-          userId: request.payload.user_id
-            ? String(request.payload.user_id)
-            : undefined,
+          userId: request.context?.userId,
           threadId: request.context?.threadId,
           limit: request.payload.limit
             ? Number(request.payload.limit)
@@ -292,13 +302,19 @@ export async function processMemoryRequest(
             ? { topic_id: request.context.threadId }
             : {}),
         };
+        const effectiveScope = input.scope || request.context?.defaultScope;
+        const effectiveUserId =
+          effectiveScope === 'user' ? request.context?.userId : undefined;
+        if (effectiveScope === 'user' && !effectiveUserId) {
+          throw new Error('user-scoped memory requires an authenticated user');
+        }
         const saved = await memory.save({
           appId: DEFAULT_MEMORY_APP_ID,
           agentId: memoryAgentIdForGroupFolder(sourceGroup),
           groupId: sourceGroup,
-          userId: input.user_id,
+          userId: effectiveUserId,
           threadId: request.context?.threadId,
-          subjectType: subjectTypeFromScope(input.scope),
+          subjectType: subjectTypeFromScope(effectiveScope),
           kind: input.kind,
           key: input.key,
           value: input.value,
@@ -376,12 +392,21 @@ export async function processMemoryRequest(
             ? { topic_id: request.context.threadId }
             : {}),
         };
+        const effectiveScope = input.scope || request.context?.defaultScope;
+        const effectiveUserId =
+          effectiveScope === 'user' ? request.context?.userId : undefined;
+        if (effectiveScope === 'user' && !effectiveUserId) {
+          throw new Error(
+            'user-scoped procedure requires an authenticated user',
+          );
+        }
         const saved = await memory.save({
           appId: DEFAULT_MEMORY_APP_ID,
           agentId: memoryAgentIdForGroupFolder(sourceGroup),
           groupId: sourceGroup,
+          userId: effectiveUserId,
           threadId: request.context?.threadId,
-          subjectType: subjectTypeFromScope(input.scope),
+          subjectType: subjectTypeFromScope(effectiveScope),
           kind: 'reference',
           key: `procedure:${input.title}`,
           value: input.body,

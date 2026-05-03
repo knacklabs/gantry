@@ -42,13 +42,9 @@ describe('runner browser MCP lifecycle tools', () => {
     const server = new TestMcpServer();
     registerBrowserTools(server as never);
 
-    const result = await server.tools.get('browser_status')?.({
-      profile_name: 'myclaw',
-    });
+    const result = await server.tools.get('browser_status')?.({});
 
-    expect(requestBrowserAction).toHaveBeenCalledWith('browser_status', {
-      profile_name: 'myclaw',
-    });
+    expect(requestBrowserAction).toHaveBeenCalledWith('browser_status', {});
     expect(fetch).not.toHaveBeenCalled();
     expect(result).toEqual({
       content: [

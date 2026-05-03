@@ -4,6 +4,7 @@ import {
   ContractMetadataSchema,
   IsoDateTimeSchema,
 } from '../contract-primitives.js';
+import { AgentPersonaSchema } from '../agents/index.js';
 
 export const JobScheduleSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('manual') }),
@@ -46,6 +47,20 @@ export const JobModelPreviewSchema = z.object({
   modelProfileId: z.string(),
 });
 export type JobModelPreview = z.infer<typeof JobModelPreviewSchema>;
+
+export const JobRuntimeContextPreviewSchema = z.object({
+  sessionId: z.string(),
+  conversationJid: z.string(),
+  groupScope: z.string(),
+  threadId: z.string().nullable(),
+  notificationTarget: z.enum(['conversation', 'conversation_thread']),
+  browserProfileLabel: z.string(),
+  browserProfileName: z.string(),
+  persona: AgentPersonaSchema,
+});
+export type JobRuntimeContextPreview = z.infer<
+  typeof JobRuntimeContextPreviewSchema
+>;
 
 export const JobTargetSchema = z.object({
   sessionId: z.string().optional(),
@@ -136,6 +151,7 @@ export const CreateJobResponseSchema = z.object({
   modelAlias: z.string().nullable().optional(),
   modelSource: JobModelSourceSchema.optional(),
   model: JobModelPreviewSchema.nullable().optional(),
+  runtimeContext: JobRuntimeContextPreviewSchema.optional(),
 });
 export type CreateJobResponse = z.infer<typeof CreateJobResponseSchema>;
 

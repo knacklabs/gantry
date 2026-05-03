@@ -20,8 +20,10 @@ const runtimeStoreMock = vi.hoisted(() => ({
       listAgentDmApprovers: vi.fn(async () => []),
     },
     providerConnections: {
+      getProviderConnection: vi.fn(async () => null),
       saveAgentConversationBinding: vi.fn(async () => undefined),
       listAgentConversationBindings: vi.fn(async () => []),
+      listAgentConversationBindingsByConversation: vi.fn(async () => []),
     },
     conversations: {
       getConversation: vi.fn(async () => null),
@@ -665,6 +667,152 @@ describe('createChannelWiring', () => {
       approved: false,
       reason: 'No main channel supports interactive permission approvals',
     });
+  });
+
+  it('routes direct DM permission approvals to the configured DM admin', async () => {
+    const app = makeApp({
+      'tg:111': { name: 'Alice DM', folder: 'main_agent' },
+    });
+    const requestPermissionApproval = vi.fn(async () => ({ approved: true }));
+    runtimeStoreMock.repositories.conversations.getConversation.mockResolvedValueOnce(
+      {
+        id: 'conversation:tg:111',
+        appId: 'default',
+        providerConnectionId: 'telegram_default',
+        kind: 'direct',
+      },
+    );
+    runtimeStoreMock.repositories.providerConnections.listAgentConversationBindingsByConversation.mockResolvedValueOnce(
+      [
+        {
+          agentId: 'main_agent',
+          conversationId: 'conversation:tg:111',
+          providerConnectionId: 'telegram_default',
+          status: 'active',
+        },
+      ],
+    );
+    runtimeStoreMock.repositories.providerConnections.getProviderConnection.mockResolvedValueOnce(
+      {
+        id: 'telegram_default',
+        appId: 'default',
+        providerId: 'telegram',
+      },
+    );
+    runtimeStoreMock.repositories.agents.listAgentDmApprovers.mockResolvedValueOnce(
+      [
+        {
+          agentId: 'main_agent',
+          providerId: 'telegram',
+          externalUserId: '575',
+        },
+      ],
+    );
+
+    const approvalChannel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid.startsWith('tg:')),
+      requestPermissionApproval,
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => approvalChannel),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    const result = await wiring.requestPermissionApproval({
+      requestId: 'req-dm-admin',
+      sourceGroup: 'main_agent',
+      targetJid: 'tg:111',
+      toolName: 'danger-tool',
+    });
+
+    expect(result.approved).toBe(true);
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      'tg:575',
+      expect.objectContaining({
+        targetJid: 'tg:575',
+        approvalContextJid: 'tg:111',
+      }),
+    );
+  });
+
+  it('treats settings-style dm conversations as direct approval contexts', async () => {
+    const app = makeApp({
+      'tg:222': { name: 'Bob DM', folder: 'main_agent' },
+    });
+    const requestPermissionApproval = vi.fn(async () => ({ approved: true }));
+    runtimeStoreMock.repositories.conversations.getConversation.mockResolvedValueOnce(
+      {
+        id: 'conversation:tg:222',
+        appId: 'default',
+        providerConnectionId: 'telegram_default',
+        kind: 'dm',
+      },
+    );
+    runtimeStoreMock.repositories.providerConnections.listAgentConversationBindingsByConversation
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          agentId: 'main_agent',
+          conversationId: 'conversation:tg:222',
+          providerConnectionId: 'telegram_default',
+          status: 'active',
+        },
+      ]);
+    runtimeStoreMock.repositories.providerConnections.getProviderConnection.mockResolvedValueOnce(
+      {
+        id: 'telegram_default',
+        appId: 'default',
+        providerId: 'telegram',
+      },
+    );
+    runtimeStoreMock.repositories.agents.listAgentDmApprovers.mockResolvedValueOnce(
+      [
+        {
+          agentId: 'main_agent',
+          providerId: 'telegram',
+          externalUserId: '575',
+        },
+      ],
+    );
+
+    const approvalChannel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid.startsWith('tg:')),
+      requestPermissionApproval,
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => approvalChannel),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    const result = await wiring.requestPermissionApproval({
+      requestId: 'req-dm-settings-kind',
+      sourceGroup: 'main_agent',
+      targetJid: 'tg:222',
+      toolName: 'danger-tool',
+    });
+
+    expect(result.approved).toBe(true);
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      'tg:575',
+      expect.objectContaining({
+        targetJid: 'tg:575',
+        approvalContextJid: 'tg:222',
+      }),
+    );
   });
 
   it('authorizes direct DM approval with the agent DM admin before channel allowlists', async () => {

@@ -265,6 +265,37 @@ describe('memory IPC provider integration', () => {
     vi.doUnmock('@core/memory/app-memory-service.js');
   });
 
+  it('uses trusted memory user context for user-scoped search', async () => {
+    const search = vi.fn().mockResolvedValue([]);
+    vi.resetModules();
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: {
+        getInstance: () => ({
+          search,
+        }),
+        resetForTest: () => undefined,
+      },
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-user-search',
+        action: 'memory_search',
+        payload: { query: 'style', user_id: 'attacker' },
+        context: { userId: 'trusted-user', defaultScope: 'user' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(search).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'trusted-user' }),
+    );
+    vi.doUnmock('@core/memory/app-memory-service.js');
+  });
+
   it('ignores caller-supplied topic overrides in IPC memory_save payloads', async () => {
     const saveMemory = vi.fn().mockResolvedValue({ id: 'mem-1' });
     vi.resetModules();
@@ -297,6 +328,116 @@ describe('memory IPC provider integration', () => {
     expect(saveMemory).toHaveBeenCalledWith(
       expect.objectContaining({ threadId: 'trusted-thread' }),
     );
+    vi.doUnmock('@core/memory/app-memory-service.js');
+  });
+
+  it('uses trusted memory user context for user-scoped saves', async () => {
+    const saveMemory = vi.fn().mockResolvedValue({ id: 'mem-user' });
+    vi.resetModules();
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: {
+        getInstance: () => ({
+          save: saveMemory,
+        }),
+        resetForTest: () => undefined,
+      },
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-user-save',
+        action: 'memory_save',
+        payload: {
+          key: 'preference:style',
+          value: 'Prefers concise replies.',
+          scope: 'user',
+          user_id: 'attacker',
+        },
+        context: { userId: 'trusted-user', defaultScope: 'user' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(saveMemory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'trusted-user',
+        subjectType: 'user',
+      }),
+    );
+    vi.doUnmock('@core/memory/app-memory-service.js');
+  });
+
+  it('honors explicit group scope instead of DM default scope', async () => {
+    const saveMemory = vi.fn().mockResolvedValue({ id: 'mem-group' });
+    vi.resetModules();
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: {
+        getInstance: () => ({
+          save: saveMemory,
+        }),
+        resetForTest: () => undefined,
+      },
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-group-save',
+        action: 'memory_save',
+        payload: {
+          key: 'team:decision',
+          value: 'Use the shared support queue.',
+          scope: 'group',
+        },
+        context: { userId: 'trusted-user', defaultScope: 'user' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(saveMemory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: undefined,
+        subjectType: 'group',
+      }),
+    );
+    vi.doUnmock('@core/memory/app-memory-service.js');
+  });
+
+  it('rejects user-scoped saves without trusted user context', async () => {
+    const saveMemory = vi.fn().mockResolvedValue({ id: 'mem-user' });
+    vi.resetModules();
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: {
+        getInstance: () => ({
+          save: saveMemory,
+        }),
+        resetForTest: () => undefined,
+      },
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-user-save-missing',
+        action: 'memory_save',
+        payload: {
+          key: 'preference:style',
+          value: 'Prefers concise replies.',
+          scope: 'user',
+        },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toContain('authenticated user');
+    expect(saveMemory).not.toHaveBeenCalled();
     vi.doUnmock('@core/memory/app-memory-service.js');
   });
 
@@ -637,6 +778,75 @@ describe('processMemoryRequest additional branches', () => {
     expect(response.ok).toBe(true);
     expect(saveProcedure).toHaveBeenCalledWith(
       expect.objectContaining({ threadId: 'trusted-thread' }),
+    );
+  });
+
+  it('uses trusted memory user context for user-scoped procedures', async () => {
+    vi.resetModules();
+    const saveProcedure = vi
+      .fn()
+      .mockReturnValue({ id: 'proc-user', title: 'Travel' });
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: mockMemoryService({ saveProcedure }),
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-proc-user',
+        action: 'procedure_save',
+        payload: {
+          title: 'Travel',
+          body: 'Book direct flights.',
+          scope: 'user',
+          user_id: 'attacker',
+        },
+        context: { userId: 'trusted-user', defaultScope: 'user' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(saveProcedure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'trusted-user',
+        subjectType: 'user',
+      }),
+    );
+  });
+
+  it('honors explicit group scope for procedures instead of DM default scope', async () => {
+    vi.resetModules();
+    const saveProcedure = vi
+      .fn()
+      .mockReturnValue({ id: 'proc-group', title: 'Escalation' });
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: mockMemoryService({ saveProcedure }),
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-proc-group',
+        action: 'procedure_save',
+        payload: {
+          title: 'Escalation',
+          body: 'Post in the shared incident conversation.',
+          scope: 'group',
+        },
+        context: { userId: 'trusted-user', defaultScope: 'user' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(saveProcedure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: undefined,
+        subjectType: 'group',
+      }),
     );
   });
 

@@ -35,9 +35,8 @@ export function registerBrowserTools(server: McpServer): void {
 
   server.tool(
     'browser_launch',
-    'Launch, recover, or reuse the shared Chrome browser session (profile: myclaw). Optional keep_alive_ms extends the explicit hold.',
+    'Launch, recover, or reuse this conversation scoped Chrome browser profile. Optional keep_alive_ms extends the explicit hold.',
     {
-      profile_name: z.string().optional().default('myclaw'),
       headless: z.boolean().optional(),
       keep_alive_ms: z.number().optional(),
     },
@@ -56,10 +55,8 @@ export function registerBrowserTools(server: McpServer): void {
 
   server.tool(
     'browser_close',
-    'Close the shared Chrome browser session (profile: myclaw).',
-    {
-      profile_name: z.string().optional().default('myclaw'),
-    },
+    'Close this conversation scoped Chrome browser profile.',
+    {},
     async (args) => {
       const response = await requestBrowserAction('browser_close', args);
       if (!response.ok) {
@@ -75,10 +72,8 @@ export function registerBrowserTools(server: McpServer): void {
 
   server.tool(
     'browser_status',
-    'Get status for the shared Chrome browser session (profile: myclaw).',
-    {
-      profile_name: z.string().optional().default('myclaw'),
-    },
+    'Get status for this conversation scoped Chrome browser profile.',
+    {},
     async (args) => {
       const response = await requestBrowserAction('browser_status', args);
       if (!response.ok) {

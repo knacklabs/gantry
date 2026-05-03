@@ -176,6 +176,13 @@
       "when": 1777072200000,
       "tag": "0024_provider_conversation_rename",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1777075800000,
+      "tag": "0025_memory_items_search_index",
+      "breakpoints": true
     }
   ]
 }

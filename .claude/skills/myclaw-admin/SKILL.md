@@ -146,7 +146,8 @@ Runtime continuity injection:
 
 - Host runtime injects a memory/continuity block on every run (message turns and scheduler runs).
 - This injection is baseline context. Memory MCP tools are for deeper lookup and explicit writes.
-- Dream lifecycle metadata is part of the injected brief when available.
+- Dream status metadata is part of the injected brief when available.
+- Runtime memory retrieval is lexical plus keyword fallback today. Embeddings can be configured, but vector retrieval is not active until the runtime indexing/query path is enabled.
 
 Runtime memory:
 
@@ -176,8 +177,7 @@ Use these MyClaw tools for capability work:
 | `request_skill_proposal`           | Agent-created or modified skill file bundles for review.                                                                                 |
 | `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies required by a skill; never run those commands directly.                                      |
 | `request_mcp_server`               | Third-party MCP server requests with transport, origin, tool patterns, credentials, and reason.                                          |
-| `request_tool_enable`              | SDK tools or host tools such as `Bash`, `Write`, `Edit`, browser tools, scheduler tools, memory tools, or service tools.                 |
-| `request_channel_tool_enable`      | Channel-specific tools or channel capabilities such as Teams proactive messaging, Slack file access, or Telegram file download behavior. |
+| `request_permission`               | Provider-neutral tools and provider/channel capabilities. Prefer `Allow once` or `Always allow <granular rule>` over broad access.       |
 | `service_restart`                  | Main/admin agent only, after approved config or capability changes when host restart is needed.                                          |
 | `register_agent`                   | Main/admin agent only, for binding a new channel conversation to an agent.                                                               |
 
@@ -186,18 +186,38 @@ authorization. The host verifies that the origin chat belongs to the requesting
 agent, the deciding user is in the control allowlist, the approval decides only
 that pending request, and activation happens on the next run.
 
-Channel tool selection:
+Permission selection:
 
 - Use `ask_user_question` only for discrete choices. Set single-select for one
   answer, multi-select when multiple answers are valid, and include concise
   option descriptions so Slack, Telegram, Teams, and Web/API can render native
   controls.
-- Use `request_channel_tool_enable` before enabling provider-specific behavior
-  such as Slack file reads, Telegram file downloads, Teams proactive messages,
-  Teams card updates, or Web/API file browser access.
-- Use `request_tool_enable` for provider-neutral SDK/host tools such as `Bash`,
-  `Write`, `Edit`, browser action tools, scheduler tools, memory tools, and
-  service tools.
+- Use `request_permission` before enabling provider-neutral tools or
+  provider/channel capabilities such as `Bash`, `Write`, `Edit`, browser action
+  tools, scheduler tools, memory tools, service tools, Slack file reads,
+  Telegram file downloads, Teams proactive messages, Teams card updates, or
+  Web/API file browser access.
+- Permission prompts offer exactly three user decisions: `Allow once`, `Always
+  allow <granular rule>`, or `Cancel`.
+- Use the narrowest useful permission request:
+  - Ask for temporary/one-time access when the action is rare, exploratory, or
+    risky and does not need to persist.
+  - Ask for a persistent scoped rule when the same bounded action is likely to
+    repeat, such as `ToolName(scope-pattern)`, `Edit(/docs/**)`,
+    `WebFetch(domain:example.com)`, `mcp__server__*`, or
+    `Agent(subagent-type)`.
+  - Ask for broad whole-tool access only when the task genuinely requires many
+    unpredictable operations and no scoped rule would work. Broad `Bash`,
+    `Write`, `Edit`, network, credential, service, or MCP wildcard access must
+    explain why narrower rules are insufficient.
+  - This policy applies to every tool, not just shell commands. Scope file
+    tools by path, web tools by domain, agent tools by subagent type, MCP tools
+    by tool pattern, and service/scheduler/memory tools by the specific
+    operation when possible.
+- Browser state is scoped by agent plus conversation. Use `/status` or
+  `myclaw browser profiles` when a user asks which browser profile, cookies, or
+  signed-in state an agent or job will use. Jobs created from a conversation use
+  that conversation's browser profile and notify that conversation/thread.
 - Use `request_skill_dependency_install` for dependency recipes found in a
   skill. Do not invoke package managers, download tools, archive extractors, or
   equivalent dependency commands from the agent.
@@ -310,6 +330,10 @@ Rules:
 - Sender policy `mode` is `trigger` or `drop`.
 - Memory records require `appId` and `agentId`; optional subject IDs
   (`userId`, `groupId`, `channelId`, `threadId`) define visibility.
+- Direct/private agent conversations default explicit and automatic memory saves
+  to user memory. Channel conversations, including Slack channels, Teams
+  channels/chats, Telegram groups, and Telegram topics, default explicit and
+  automatic memory saves to conversation memory.
 - `common` memory is app-level shared context and must be written only by
   admin/service workflows.
 
@@ -452,8 +476,7 @@ Capability requests:
 - `mcp__myclaw__request_skill_proposal`
 - `mcp__myclaw__request_skill_dependency_install`
 - `mcp__myclaw__request_mcp_server`
-- `mcp__myclaw__request_tool_enable`
-- `mcp__myclaw__request_channel_tool_enable`
+- `mcp__myclaw__request_permission`
 
 Service and agents:
 
@@ -489,11 +512,12 @@ Browser:
 - `mcp__myclaw__browser_close`
 - `mcp__myclaw__browser_status`
 
-MyClaw owns only browser lifecycle for the persistent `myclaw` Chrome profile.
-The runtime installs `agent-browser` into the generated per-run Claude config
-and registers `mcp__agent_browser__*` action tools for navigation, click, type,
-wait, snapshot, and screenshot workflows. Do not ask the user to install
-browser skills or edit `.claude/skills` manually.
+MyClaw owns browser lifecycle for the current agent conversation's Chrome
+profile. DM sessions, channel/group conversations, and jobs created from them
+use separate profiles by default. The runtime installs `agent-browser` into the
+generated per-run Claude config and registers `mcp__agent_browser__*` action
+tools for navigation, click, type, wait, snapshot, and screenshot workflows. Do
+not ask the user to install browser skills or edit `.claude/skills` manually.
 
 ## Scheduler Usage
 

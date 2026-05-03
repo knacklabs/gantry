@@ -216,4 +216,80 @@ describe('app-grade memory boundaries', () => {
     ).rejects.toThrow(/common memory patches require admin/);
     expect(db.update).not.toHaveBeenCalled();
   });
+
+  it('uses full-text search for embeddings-off recall', async () => {
+    const row = {
+      ...memoryRow({
+        id: 'mem_keyword',
+        appId: 'default',
+        agentId: 'agent:kai',
+        subjectType: 'group',
+        subjectId: 'kai',
+      }),
+      key: 'persona:path',
+      valueJson: JSON.stringify({
+        value: 'Persona memory DB lives under ~/persona/state.sqlite.',
+        why: null,
+      }),
+    };
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            orderBy: vi.fn(() => ({
+              limit: vi.fn(async () => [
+                { row, lexicalScore: 0.02, vectorScore: 0, score: 0.083 },
+              ]),
+            })),
+          })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+      })),
+    };
+    const service = new AppMemoryService(db as any);
+
+    const results = await service.search({
+      appId: 'default',
+      agentId: 'agent:kai',
+      groupId: 'kai',
+      query: 'state.sqlite',
+    });
+
+    expect(db.select).toHaveBeenCalledTimes(1);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.item.id).toBe('mem_keyword');
+    expect(results[0]?.reasons).toContain('lexical');
+  });
+
+  it('does not expose legacy default-user memories to group searches', async () => {
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            orderBy: vi.fn(() => ({
+              limit: vi.fn(async () => []),
+            })),
+          })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+      })),
+    };
+    const service = new AppMemoryService(db as any);
+
+    const results = await service.search({
+      appId: 'default',
+      agentId: 'agent:kai',
+      groupId: 'kai',
+      userId: '5759865942',
+      query: 'sender ids',
+    });
+
+    expect(results).toHaveLength(0);
+  });
 });

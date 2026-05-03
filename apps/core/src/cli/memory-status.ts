@@ -28,14 +28,14 @@ export function deriveMemoryMode(health: MemoryHealthInspection): {
   const dreamingOn = health.dreamingEnabled;
   if (embeddingsOn && dreamingOn) {
     return {
-      mode: 'full-mode',
-      note: null,
+      mode: 'continuity-mode',
+      note: 'dreaming is on and embeddings are configured, but runtime retrieval is currently lexical + keyword; vector retrieval is not active yet',
     };
   }
   if (embeddingsOn) {
     return {
-      mode: 'semantic-mode',
-      note: null,
+      mode: 'keyword-mode',
+      note: 'embeddings are configured, but runtime retrieval is currently lexical + keyword; vector retrieval is not active yet',
     };
   }
   if (dreamingOn) {

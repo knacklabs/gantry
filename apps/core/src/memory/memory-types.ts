@@ -275,6 +275,7 @@ export interface PatchMemoryInput {
 export interface SaveProcedureInput {
   scope?: MemoryScope;
   group_folder?: string;
+  user_id?: string;
   topic_id?: string;
   title: string;
   body: string;

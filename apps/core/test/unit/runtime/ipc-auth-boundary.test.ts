@@ -2,8 +2,16 @@ import { randomUUID } from 'crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { signIpcRequestPayload } from '@core/infrastructure/ipc/request-signing.js';
-import { computeIpcAuthToken } from '@core/runtime/ipc-auth.js';
+import {
+  computeBrowserIpcAuthToken,
+  computeIpcAuthToken,
+  computeMemoryIpcAuthToken,
+} from '@core/runtime/ipc-auth.js';
 import { stopIpcWatcher, validateIpcAuthRequest } from '@core/runtime/ipc.js';
+import {
+  parseBrowserIpcRequest,
+  parseMemoryIpcRequest,
+} from '@core/runtime/ipc-parsing.js';
 import { parseTaskIpcData } from '@core/runtime/ipc-task-parsing.js';
 
 function signedPayload(
@@ -12,6 +20,35 @@ function signedPayload(
   threadId?: string,
 ): Record<string, unknown> {
   const signingKey = computeIpcAuthToken(sourceGroup, threadId);
+  return {
+    ...payload,
+    signature: signIpcRequestPayload(signingKey, payload),
+  };
+}
+
+function signedBrowserPayload(
+  payload: Record<string, unknown>,
+  sourceGroup = 'team',
+  chatJid = 'tg:team',
+  threadId?: string,
+): Record<string, unknown> {
+  const signingKey = computeBrowserIpcAuthToken(sourceGroup, chatJid, threadId);
+  return {
+    ...payload,
+    signature: signIpcRequestPayload(signingKey, payload),
+  };
+}
+
+function signedMemoryPayload(
+  payload: Record<string, unknown>,
+  sourceGroup = 'team',
+  input: {
+    userId?: string;
+    defaultScope?: 'user' | 'group';
+    threadId?: string;
+  } = {},
+): Record<string, unknown> {
+  const signingKey = computeMemoryIpcAuthToken(sourceGroup, input);
   return {
     ...payload,
     signature: signIpcRequestPayload(signingKey, payload),
@@ -87,6 +124,64 @@ describe('validateIpcAuthRequest', () => {
       modelAlias: null,
       modelProfileId: null,
     });
+  });
+
+  it('requires browser IPC signatures to match the chat-scoped token', () => {
+    const payload = {
+      requestId: 'browser-1',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      action: 'browser_status',
+      payload: { profile_name: 'c-team-abc123abc123' },
+      context: { chatJid: 'tg:team' },
+    };
+
+    expect(
+      parseBrowserIpcRequest(signedBrowserPayload(payload), 'team'),
+    ).toMatchObject({
+      requestId: 'browser-1',
+      chatJid: 'tg:team',
+      action: 'browser_status',
+    });
+    expect(() =>
+      parseBrowserIpcRequest(signedPayload(payload), 'team'),
+    ).toThrow(/Invalid browser IPC signature/);
+  });
+
+  it('requires memory IPC signatures to match trusted user scope', () => {
+    const payload = {
+      requestId: 'mem-1',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      action: 'memory_search',
+      payload: { query: 'travel' },
+      context: { userId: 'u-1', defaultScope: 'user' },
+    };
+
+    expect(
+      parseMemoryIpcRequest(
+        signedMemoryPayload(payload, 'team', {
+          userId: 'u-1',
+          defaultScope: 'user',
+        }),
+        'team',
+      ),
+    ).toMatchObject({
+      requestId: 'mem-1',
+      context: { userId: 'u-1', defaultScope: 'user' },
+    });
+    expect(() => parseMemoryIpcRequest(signedPayload(payload), 'team')).toThrow(
+      /Invalid memory IPC signature/,
+    );
+    expect(() =>
+      parseMemoryIpcRequest(
+        signedMemoryPayload(payload, 'team', {
+          userId: 'u-2',
+          defaultScope: 'user',
+        }),
+        'team',
+      ),
+    ).toThrow(/Invalid memory IPC signature/);
   });
 
   it('normalizes IPC agentConfig model overrides to catalog aliases', () => {

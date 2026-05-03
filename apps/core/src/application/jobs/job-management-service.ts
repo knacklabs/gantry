@@ -1,7 +1,7 @@
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import { ApplicationError } from '../common/application-error.js';
 import type { Clock } from '../common/clock.js';
-import { assertJobBelongsToApp } from './job-access.js';
+import { assertJobBelongsToApp, jobBelongsToApp } from './job-access.js';
 import {
   assertSchedulerJobAccess,
   canAccessSchedulerJob,
@@ -56,7 +56,7 @@ export class JobManagementService {
     modelAlias?: unknown;
     modelProfileId?: unknown;
     dryRun?: unknown;
-  }): Promise<{ jobId: string; created: boolean; modelAlias?: string }> {
+  }) {
     const control = this.requireControl();
     const session = await control.getAppSessionById(input.sessionId);
     if (!input.name.trim() || !input.prompt.trim() || !session) {
@@ -83,8 +83,14 @@ export class JobManagementService {
       input.modelProfileId,
     );
     const jobId = this.deps.schedulePlanner.createManualJobId();
+    const runtimeContext = {
+      sessionId: session.sessionId,
+      chatJid: session.chatJid,
+      groupScope: session.workspaceKey,
+      threadId: typeof input.threadId === 'string' ? input.threadId : null,
+    };
     if (input.dryRun === true) {
-      return { jobId, created: false, modelAlias };
+      return { jobId, created: false, modelAlias, runtimeContext };
     }
     const result = await this.deps.ops.upsertJob({
       id: jobId,
@@ -105,7 +111,7 @@ export class JobManagementService {
         input.executionMode === 'serialized' ? 'serialized' : 'parallel',
     });
     this.deps.scheduler.requestSchedulerSync(jobId);
-    return { jobId, created: result.created, modelAlias };
+    return { jobId, created: result.created, modelAlias, runtimeContext };
   }
 
   async upsertJobFromIpc(input: {
@@ -248,6 +254,7 @@ export class JobManagementService {
     });
     return {
       jobs: jobs.filter((job) => {
+        if (input.appId && !jobBelongsToApp(job, input.appId)) return false;
         if (input.access && !canAccessSchedulerJob(job, input.access))
           return false;
         return true;

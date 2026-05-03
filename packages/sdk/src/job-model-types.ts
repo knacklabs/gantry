@@ -77,6 +77,24 @@ export interface CreateJobResponse {
   modelAlias?: string | null;
   modelSource?: JobModelSource;
   model?: JobModelPreview | null;
+  runtimeContext?: JobRuntimeContextPreview;
+}
+
+export interface JobRuntimeContextPreview {
+  sessionId: string;
+  conversationJid: string;
+  groupScope: string;
+  threadId: string | null;
+  notificationTarget: 'conversation' | 'conversation_thread';
+  browserProfileLabel: string;
+  browserProfileName: string;
+  persona:
+    | 'developer'
+    | 'personal_assistant'
+    | 'sales'
+    | 'marketing'
+    | 'operations'
+    | 'research';
 }
 
 export type JobModelSource =

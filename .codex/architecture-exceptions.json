@@ -1456,13 +1456,6 @@
     "maxViolations": 3
   },
   {
-    "file": "apps/core/src/runtime/ipc-auth.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 14
-  },
-  {
     "file": "apps/core/src/runtime/ipc-browser-handler.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",

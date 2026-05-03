@@ -6,7 +6,7 @@ MyClaw browser support has two separate responsibilities:
 - Runtime-installed browser action tooling owns browser actions.
 
 This keeps MyClaw from becoming a browser automation framework while still
-giving the Main Agent a persistent browser capability on demand.
+giving every persona a persistent browser capability on demand.
 
 ## End-To-End Flow
 
@@ -19,13 +19,12 @@ sequenceDiagram
   participant Runner as "Claude Child Runner"
   participant Action as "agent_browser MCP"
 
-  User->>Host: Message for Main Agent
+  User->>Host: Message for agent in DM/channel
   Host->>Mat: Generate per-run CLAUDE_CONFIG_DIR
   Mat->>Mat: Materialize runtime agent-browser skill
-  Host->>Browser: Check existing myclaw profile status
+  Host->>Browser: Check conversation-scoped profile status
   Browser-->>Host: Existing CDP endpoint, or stopped
   alt browser is already running and CDP-ready
-    Host->>Runner: Spawn with PLAYWRIGHT_MCP_CDP_ENDPOINT
     Host->>Runner: Pass MCP handoff for agent_browser
     Runner->>Action: Start package-managed browser action MCP
     Action->>Browser: Attach through CDP endpoint
@@ -35,7 +34,7 @@ sequenceDiagram
   Runner-->>User: Agent can request browser lifecycle tools; action tools attach when a browser was already running
 ```
 
-The default path is lazy for the Main Agent. A normal first chat does not launch
+The default path is lazy for every persona. A normal first chat does not launch
 Chrome. Users do not install a browser skill, copy files into `.claude/skills`,
 or configure Playwright manually.
 
@@ -43,7 +42,7 @@ or configure Playwright manually.
 
 The host browser capability owns:
 
-- the persistent `myclaw` browser profile
+- persistent browser profiles scoped by agent plus conversation
 - headed local Chrome launch when the lifecycle tool requests it
 - CI-like headless default when no explicit mode is provided
 - CDP readiness checks
@@ -89,11 +88,23 @@ agent run after the persistent browser is running.
 
 ## Persistent Profile State
 
-The browser profile lives under MyClaw runtime data, not under the generated
-per-run Claude config. The generated config is scratch state and is deleted
-after the run.
+Browser profiles live under MyClaw runtime data, not under the generated per-run
+Claude config. The generated config is scratch state and is deleted after the
+run.
 
-The persistent profile keeps:
+The default profile key is derived from the agent/binding folder and source
+conversation id. DM sessions, Slack/Teams channels, Telegram groups, and jobs
+created from those sessions therefore keep separate cookies and browser history.
+Threads/topics and scheduled jobs inherit the parent conversation profile so a
+job behaves like an extension of the place that created it. The legacy `myclaw`
+profile is used only when the runtime cannot determine a source conversation.
+User-facing surfaces should show the friendly profile label, such as
+`Kai conversation browser`, and keep the deterministic profile key as secondary
+debug detail. `/status`, job previews, and `myclaw browser profiles` expose the
+active profile so users can understand which signed-in browser state a run will
+use.
+
+Each persistent profile keeps:
 
 - Chrome user data, including cookies after the user logs in
 - profile metadata such as creation time, last-used time, CDP port, and auth
@@ -130,10 +141,10 @@ Browser lifecycle tools and browser action tools go through the existing Claude
 Agent SDK permission path and MyClaw channel approval surface. MyClaw does not
 add a separate browser-specific permission system.
 
-When an existing browser is attached at startup, the Main Agent receives the
-browser action MCP as an allowed MCP capability, but auto-approval remains
-empty. Risky actions continue to be evaluated by the existing `canUseTool` and
-channel approval flow.
+When an existing browser is attached at startup, any persona with browser
+capability receives the browser action MCP for that conversation-scoped
+profile, but auto-approval remains empty. Risky actions continue to be
+evaluated by the existing `canUseTool` and channel approval flow.
 
 ## Proxy Boundary
 
@@ -153,12 +164,14 @@ runner env:
 Runner-side lifecycle MCP tools must not perform their own direct CDP health
 checks. The host browser capability is the authority for CDP readiness.
 
-## Non-Main Agents
+## Agent Scope
 
-Default browser support is only wired for the Main Agent. Non-main agents do
-not receive the runtime `agent-browser` skill, browser CDP environment, or
-`agent_browser` MCP projection unless a future explicit binding model adds
-that capability.
+Browser support is a baseline persona capability. Each agent/conversation pair
+gets its own persistent profile name, and lifecycle MCP requests are bound by
+host-derived conversation context. The model does not choose arbitrary browser
+profiles. If a profile is already CDP-ready when the run starts, MyClaw adds the
+`agent_browser` action MCP handoff for that same profile. If the agent launches
+the browser during a run, action tools attach on the next run.
 
 ## Operational Checks
 

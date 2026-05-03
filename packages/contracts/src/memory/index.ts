@@ -98,6 +98,8 @@ export const MemoryIpcRequestSchema = z.object({
   context: z
     .object({
       threadId: z.string().optional(),
+      userId: z.string().optional(),
+      defaultScope: z.enum(['user', 'group']).optional(),
     })
     .optional(),
 });

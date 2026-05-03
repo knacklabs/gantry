@@ -11,6 +11,7 @@ import {
   findModelByRunnerModel,
   resolveModelSelection,
 } from '../shared/model-catalog.js';
+import { formatBrowserProfileLabel } from '../shared/browser-profile-scope.js';
 
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
@@ -113,10 +114,15 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
       : result.modelAlias
         ? ` Model: ${result.modelAlias}.`
         : ' Model: agent default for this job type.';
+    const sourceJid = sourceGroupJids[0] || '';
+    const sourceConversation = registeredGroups[sourceJid];
+    const runtimeText = ` Runtime: notifications ${data.threadId || data.authThreadId ? 'this thread' : 'this conversation'}; browser ${formatBrowserProfileLabel({ agentName: sourceConversation?.name ?? sourceGroup, conversationKind: sourceConversation?.conversationKind })}.`;
     accept(
       (result.created
         ? `Scheduler job created (${result.jobId}).`
-        : `Scheduler job updated (${result.jobId}).`) + modelText,
+        : `Scheduler job updated (${result.jobId}).`) +
+        modelText +
+        runtimeText,
     );
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to upsert scheduler job.');

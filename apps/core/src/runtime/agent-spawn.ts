@@ -39,12 +39,17 @@ import {
 } from '../adapters/llm/anthropic-claude-agent/claude-skill-materializer.js';
 import { ensureGroupIpcLayout } from './agent-spawn-layout.js';
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
-import { createIpcAuthEnvelope } from './ipc-auth.js';
+import {
+  computeBrowserIpcAuthToken,
+  createIpcAuthEnvelope,
+  computeMemoryIpcAuthToken,
+} from './ipc-auth.js';
 import { getContinuationInputDir } from './continuation-input.js';
 import { getPromptProfileService } from './prompt-profile.js';
 import { executeRunnerProcess } from './agent-spawn-process.js';
 import { applyLoopbackNoProxyEnv } from '../shared/no-proxy.js';
 import { createAgentBrowserRunWiring } from './agent-browser-run-wiring.js';
+import { resolveConversationBrowserProfile } from '../shared/browser-profile-scope.js';
 import {
   AgentInput,
   AgentOutput,
@@ -133,6 +138,7 @@ export async function spawnAgent(
   try {
     compiledSystemPrompt = promptProfileService.compileSystemPrompt({
       groupFolder: group.folder,
+      persona: input.persona ?? group.agentConfig?.persona,
     });
   } catch (err) {
     logger.warn(
@@ -141,8 +147,15 @@ export async function spawnAgent(
     );
   }
 
+  const browserProfileName = resolveConversationBrowserProfile({
+    agentId: group.folder,
+    workspaceKey: group.folder,
+    conversationId: input.chatJid,
+  });
+
   const runnerInput: AgentInput = {
     ...input,
+    browserProfileName,
     compiledSystemPrompt,
   };
 
@@ -179,6 +192,7 @@ export async function spawnAgent(
   const browserWiring = createAgentBrowserRunWiring(
     {
       isMain: input.isMain,
+      browserProfileName,
     },
     {
       browserSkillSource: new RuntimeInstalledAgentBrowserSkillSource(),
@@ -267,8 +281,20 @@ export async function spawnAgent(
     MYCLAW_IPC_DIR: hostRuntime.groupIpcDir,
     MYCLAW_IPC_INPUT_DIR: ipcInputDir,
     MYCLAW_IPC_AUTH_TOKEN: ipcAuth.authToken,
+    MYCLAW_BROWSER_IPC_AUTH_TOKEN: computeBrowserIpcAuthToken(
+      group.folder,
+      input.chatJid,
+      input.threadId,
+    ),
+    MYCLAW_MEMORY_IPC_AUTH_TOKEN: computeMemoryIpcAuthToken(group.folder, {
+      userId: input.memoryUserId,
+      defaultScope: input.memoryDefaultScope || 'group',
+      threadId: input.threadId,
+    }),
     MYCLAW_IPC_RESPONSE_VERIFY_KEY: ipcAuth.responseVerifyKey,
     MYCLAW_THREAD_ID: input.threadId || '',
+    MYCLAW_MEMORY_USER_ID: input.memoryUserId || '',
+    MYCLAW_MEMORY_DEFAULT_SCOPE: input.memoryDefaultScope || 'group',
     MYCLAW_PERMISSION_TIMEOUT_MS: String(PERMISSION_APPROVAL_TIMEOUT_MS),
     CLAUDE_CONFIG_DIR: claudeRuntimeMaterialization.claudeConfigDir,
   };

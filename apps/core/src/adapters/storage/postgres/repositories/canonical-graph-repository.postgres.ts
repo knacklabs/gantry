@@ -332,7 +332,7 @@ export class PostgresCanonicalGraphRepository {
         name: row.title || ref.jid || row.id,
         last_message_time: row.updatedAt,
         channel: row.providerId || '',
-        is_group: row.kind === 'group' ? 1 : 0,
+        is_group: row.kind === 'group' || row.kind === 'channel' ? 1 : 0,
       };
     });
   }

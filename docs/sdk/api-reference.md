@@ -96,15 +96,15 @@ Agent-facing tools:
 - `request_skill_proposal`: agent-created or modified skill file bundles for review.
 - `request_skill_dependency_install`: dependency requests for npm, brew, go, uv, or downloads required by a skill.
 - `request_mcp_server`: third-party MCP server requests with transport, origin, tool patterns, credential needs, and reason.
-- `request_tool_enable`: SDK or host tool requests such as `Bash`, `Write`, `Edit`, browser tools, scheduler tools, memory tools, and service tools.
-- `request_channel_tool_enable`: channel capability requests such as Teams proactive messaging, Slack file access, or Telegram file download behavior.
+- `request_permission`: SDK, host, browser, scheduler, memory, service, MCP, or provider/channel capability permission requests.
 - `service_restart`: main/admin agent restart after approved changes that require host restart.
 - `register_agent`: main/admin agent binding of a channel conversation to an agent.
 
-Every persistent capability change follows request, validation, review, approve
-or deny, durable audit, new config version, and next-run activation. Same-conversation
-review binds the request to the originating chat or thread; it does not bypass
-the configured conversation approvers.
+Every persistent capability change follows request, validation, review,
+decision, durable audit, new config version, and next-run activation.
+Permission prompts use `Allow once`, `Always allow <granular rule>`, or
+`Cancel`. Same-conversation review binds the request to the originating chat or
+thread; it does not bypass the configured conversation approvers.
 
 ## Skills
 
@@ -311,7 +311,7 @@ client.jobs.create({
   threadId?,
   modelAlias?,    // friendly catalog alias, e.g. opus, sonnet, kimi
   modelProfileId?,
-  dryRun?,        // preview resolved model/cache/provider without scheduling
+  dryRun?,        // preview model plus runtime context without scheduling
 })
 
 client.jobs.list()
@@ -335,6 +335,12 @@ client.jobs.wait(triggerId, timeoutMs?)
 Use `client.models.list()` to inspect supported model aliases, context windows,
 cache policy, and provider labels. API job creation rejects raw provider model
 IDs unless they are registered catalog aliases.
+
+Job create and dry-run responses include `runtimeContext`: source conversation,
+thread target, notification target, resolved persona, and conversation-scoped
+browser profile. Jobs created from a DM/channel inherit that place's context; API
+or CLI callers should pass a session id for the conversation that should receive
+job notifications and permission issues.
 
 ## Runs
 

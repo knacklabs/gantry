@@ -7,10 +7,15 @@ import {
 
 import {
   PermissionApprovalRequest,
+  PermissionApprovalUpdate,
   UserQuestionRequest,
 } from '../domain/types.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
-import { validateIpcAuthRequest } from './ipc-auth-validation.js';
+import {
+  validateBrowserIpcAuthRequest,
+  validateIpcAuthRequest,
+  validateMemoryIpcAuthRequest,
+} from './ipc-auth-validation.js';
 
 const MEMORY_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const PERMISSION_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
@@ -30,13 +35,18 @@ export interface ParsedMemoryIpcRequest {
   requestId: string;
   action: MemoryIpcAction;
   payload: Record<string, unknown>;
-  context?: { threadId?: string };
+  context?: {
+    threadId?: string;
+    userId?: string;
+    defaultScope?: 'user' | 'group';
+  };
 }
 
 export interface ParsedBrowserIpcRequest {
   requestId: string;
   action: BrowserIpcAction;
   payload: Record<string, unknown>;
+  chatJid: string;
   threadId?: string;
 }
 
@@ -44,6 +54,20 @@ const TOOL_INPUT_MAX_DEPTH = 2;
 const TOOL_INPUT_MAX_STRING_LENGTH = 500;
 const SECRET_KEY_PATTERN =
   /(secret|token|password|credential|api[_-]?key|key)/i;
+const PERMISSION_UPDATE_TYPES = new Set<PermissionApprovalUpdate['type']>([
+  'addRules',
+  'replaceRules',
+  'removeRules',
+  'setMode',
+  'addDirectories',
+  'removeDirectories',
+]);
+const PERMISSION_BEHAVIORS = new Set<
+  NonNullable<PermissionApprovalUpdate['behavior']>
+>(['allow', 'deny', 'ask']);
+const PERMISSION_DESTINATIONS = new Set<
+  NonNullable<PermissionApprovalUpdate['destination']>
+>(['userSettings', 'projectSettings', 'localSettings', 'session', 'cliArg']);
 
 function sanitizeToolInputValue(value: unknown, depth: number): unknown {
   if (depth > TOOL_INPUT_MAX_DEPTH) return '[TRUNCATED_DEPTH]';
@@ -84,6 +108,83 @@ function sanitizeToolInput(
   return sanitizeToolInputValue(value, 0) as Record<string, unknown>;
 }
 
+function parsePermissionRuleValues(
+  raw: unknown,
+): PermissionApprovalUpdate['rules'] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const rules: NonNullable<PermissionApprovalUpdate['rules']> = [];
+  for (const item of raw.slice(0, 20)) {
+    if (!isPlainObject(item)) continue;
+    const toolName = toTrimmedString(item.toolName, { maxLen: 120 });
+    if (!toolName) continue;
+    const ruleContent = toTrimmedString(item.ruleContent, {
+      maxLen: 500,
+      allowEmpty: true,
+    });
+    rules.push({
+      toolName,
+      ...(ruleContent !== undefined ? { ruleContent } : {}),
+    });
+  }
+  return rules.length ? rules : undefined;
+}
+
+function parsePermissionDirectories(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const directories = raw
+    .slice(0, 50)
+    .map((entry) => toTrimmedString(entry, { maxLen: 2048 }))
+    .filter((entry): entry is string => Boolean(entry));
+  return directories.length ? directories : undefined;
+}
+
+function parsePermissionApprovalUpdates(
+  raw: unknown,
+): PermissionApprovalUpdate[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const updates: PermissionApprovalUpdate[] = [];
+  for (const item of raw.slice(0, 20)) {
+    if (!isPlainObject(item)) continue;
+    const type = toTrimmedString(item.type, { maxLen: 32 });
+    if (
+      !PERMISSION_UPDATE_TYPES.has(type as PermissionApprovalUpdate['type'])
+    ) {
+      continue;
+    }
+    const update: PermissionApprovalUpdate = {
+      type: type as PermissionApprovalUpdate['type'],
+    };
+    const behavior = toTrimmedString(item.behavior, { maxLen: 16 });
+    if (
+      PERMISSION_BEHAVIORS.has(
+        behavior as NonNullable<PermissionApprovalUpdate['behavior']>,
+      )
+    ) {
+      update.behavior = behavior as NonNullable<
+        PermissionApprovalUpdate['behavior']
+      >;
+    }
+    const destination = toTrimmedString(item.destination, { maxLen: 32 });
+    if (
+      PERMISSION_DESTINATIONS.has(
+        destination as NonNullable<PermissionApprovalUpdate['destination']>,
+      )
+    ) {
+      update.destination = destination as NonNullable<
+        PermissionApprovalUpdate['destination']
+      >;
+    }
+    const mode = toTrimmedString(item.mode, { maxLen: 120 });
+    if (mode) update.mode = mode;
+    const rules = parsePermissionRuleValues(item.rules);
+    if (rules) update.rules = rules;
+    const directories = parsePermissionDirectories(item.directories);
+    if (directories) update.directories = directories;
+    updates.push(update);
+  }
+  return updates.length ? updates : undefined;
+}
+
 export function parseIpcMessage(
   raw: unknown,
   sourceGroup: string,
@@ -114,11 +215,11 @@ export function parseMemoryIpcRequest(
   sourceGroup: string,
 ): ParsedMemoryIpcRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid memory IPC payload');
-  const { authThreadId: threadId } = validateIpcAuthRequest(
-    raw,
-    sourceGroup,
-    'memory IPC',
-  );
+  const {
+    authThreadId: threadId,
+    userId,
+    defaultScope,
+  } = validateMemoryIpcAuthRequest(raw, sourceGroup, 'memory IPC');
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
   const action = toTrimmedString(raw.action, { maxLen: 64 });
   if (!requestId || !action) {
@@ -138,7 +239,15 @@ export function parseMemoryIpcRequest(
     requestId,
     action: action as MemoryIpcAction,
     payload,
-    ...(threadId ? { context: { threadId } } : {}),
+    ...(threadId || userId || defaultScope
+      ? {
+          context: {
+            ...(threadId ? { threadId } : {}),
+            ...(userId ? { userId } : {}),
+            ...(defaultScope ? { defaultScope } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -163,19 +272,27 @@ export function parsePermissionIpcRequest(
   const description = toTrimmedString(raw.description, { maxLen: 4000 });
   const decisionReason = toTrimmedString(raw.decisionReason, { maxLen: 2000 });
   const blockedPath = toTrimmedString(raw.blockedPath, { maxLen: 2048 });
+  const toolUseID = toTrimmedString(raw.toolUseID, { maxLen: 200 });
+  const agentID = toTrimmedString(raw.agentID, { maxLen: 200 });
+  const subagentType = toTrimmedString(raw.subagentType, { maxLen: 200 });
   const toolInput = sanitizeToolInput(raw.toolInput);
+  const suggestions = parsePermissionApprovalUpdates(raw.suggestions);
 
   return {
     requestId,
     sourceGroup,
     ...(threadId ? { threadId } : {}),
     toolName,
+    ...(toolUseID ? { toolUseID } : {}),
+    ...(agentID ? { agentID } : {}),
+    ...(subagentType ? { subagentType } : {}),
     ...(title ? { title } : {}),
     ...(displayName ? { displayName } : {}),
     ...(description ? { description } : {}),
     ...(decisionReason ? { decisionReason } : {}),
     ...(blockedPath ? { blockedPath } : {}),
     ...(toolInput ? { toolInput } : {}),
+    ...(suggestions ? { suggestions } : {}),
   };
 }
 
@@ -266,7 +383,7 @@ export function parseBrowserIpcRequest(
   sourceGroup: string,
 ): ParsedBrowserIpcRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid browser IPC payload');
-  const { authThreadId: threadId } = validateIpcAuthRequest(
+  const { authThreadId: threadId, chatJid } = validateBrowserIpcAuthRequest(
     raw,
     sourceGroup,
     'browser IPC',
@@ -290,6 +407,7 @@ export function parseBrowserIpcRequest(
     requestId,
     action: action as BrowserIpcAction,
     payload,
+    chatJid,
     ...(threadId ? { threadId } : {}),
   };
 }

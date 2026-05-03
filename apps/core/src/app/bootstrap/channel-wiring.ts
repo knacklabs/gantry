@@ -88,6 +88,10 @@ function sanitizeDeliveryError(err: unknown, provider: string): string {
   );
 }
 
+function waitForMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function createChannelWiring(
   app: RuntimeApp,
   deps: Partial<ChannelWiringDeps> = {},
@@ -392,7 +396,11 @@ export function createChannelWiring(
     request: PermissionApprovalRequest,
   ): Promise<PermissionApprovalDecision> {
     if (request.targetJid) {
-      const channel = findBoundChannel(request.targetJid);
+      const routed = await resolvePermissionApprovalTarget(request);
+      if ('blockedReason' in routed) {
+        return { approved: false, reason: routed.blockedReason };
+      }
+      const channel = findBoundChannel(routed.targetJid);
       const approvalSurface = channel
         ? asPermissionApprovalSurface(channel)
         : undefined;
@@ -404,12 +412,12 @@ export function createChannelWiring(
       }
       try {
         return await approvalSurface.requestPermissionApproval(
-          request.targetJid,
-          request,
+          routed.targetJid,
+          routed.request,
         );
       } catch (err) {
         resolved.logger.error(
-          { err, targetJid: request.targetJid, requestId: request.requestId },
+          { err, targetJid: routed.targetJid, requestId: request.requestId },
           'Target channel permission approval flow failed',
         );
         return { approved: false, reason: 'Permission approval flow failed' };
@@ -442,6 +450,94 @@ export function createChannelWiring(
     return {
       approved: false,
       reason: 'No main channel supports interactive permission approvals',
+    };
+  }
+
+  async function resolvePermissionApprovalTarget(
+    request: PermissionApprovalRequest,
+  ): Promise<
+    | { targetJid: string; request: PermissionApprovalRequest }
+    | { blockedReason: string }
+  > {
+    const targetJid = request.targetJid;
+    if (!targetJid) {
+      return { blockedReason: 'Permission approval target is missing' };
+    }
+    const repositories = getRuntimeStorage().repositories;
+    const conversationId = `conversation:${targetJid}` as ConversationId;
+    const conversation =
+      await repositories.conversations.getConversation(conversationId);
+    const isDirectConversation =
+      conversation?.kind === 'direct' || String(conversation?.kind) === 'dm';
+    if (!conversation || !isDirectConversation) {
+      return { targetJid, request };
+    }
+
+    let activeBindings: AgentConversationBinding[] = [];
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const bindings =
+        await repositories.providerConnections.listAgentConversationBindingsByConversation(
+          {
+            appId: resolved.appId,
+            conversationId,
+          },
+        );
+      activeBindings = bindings.filter(
+        (binding) => binding.status === 'active',
+      );
+      if (activeBindings.length === 1 || attempt === 2) break;
+      await waitForMs(50 * (attempt + 1));
+    }
+    if (activeBindings.length !== 1) {
+      return {
+        blockedReason:
+          'DM permission approval requires exactly one active agent binding.',
+      };
+    }
+    const binding = activeBindings[0]!;
+    const providerConnection =
+      await repositories.providerConnections.getProviderConnection(
+        binding.providerConnectionId,
+      );
+    if (!providerConnection || providerConnection.appId !== resolved.appId) {
+      return {
+        blockedReason:
+          'DM permission approval requires a valid provider connection.',
+      };
+    }
+    const approvers = await repositories.agents.listAgentDmApprovers({
+      appId: resolved.appId,
+      agentId: binding.agentId,
+    });
+    const providerId = providerConnection.providerId.toString();
+    const approver = approvers.find(
+      (candidate) => candidate.providerId.toString() === providerId,
+    );
+    if (!approver) {
+      return {
+        blockedReason:
+          'DM permission approval requires a configured agent DM admin.',
+      };
+    }
+    const provider = resolved.providerIds.find(
+      (candidate) => candidate.id === providerId,
+    );
+    if (!provider) {
+      return {
+        blockedReason:
+          'DM permission approval requires a connected provider for the admin.',
+      };
+    }
+    const adminJid = approver.externalUserId.startsWith(provider.jidPrefix)
+      ? approver.externalUserId
+      : `${provider.jidPrefix}${approver.externalUserId}`;
+    return {
+      targetJid: adminJid,
+      request: {
+        ...request,
+        targetJid: adminJid,
+        approvalContextJid: targetJid,
+      },
     };
   }
 

@@ -202,7 +202,7 @@ describe('resolveClaudeAuthState', () => {
       'utf-8',
     );
     expect(raw).toContain('name: Kai');
-    expect(raw).toContain('default_model: sonnet');
+    expect(raw).toContain('model: sonnet');
     expect(raw).toContain('enabled: false');
   });
 

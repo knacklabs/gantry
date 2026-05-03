@@ -1,11 +1,7 @@
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import { ASSISTANT_NAME, getEffectiveModelConfig } from '../config/index.js';
-import type {
-  Job,
-  JobExecutionMode,
-  StreamingChunkOptions,
-} from '../domain/types.js';
+import type { Job, JobExecutionMode } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
   getRuntimeControlRepository,
@@ -33,10 +29,18 @@ import {
 } from './compact-memory.js';
 import { notifyLinkedSessions } from './delivery.js';
 import { normalizeCleanupAfterMs } from './cleanup.js';
-import { resolveExecutionContext } from './execution-context.js';
+import {
+  resolveExecutionContext,
+  resolveExecutionMemoryContext,
+} from './execution-context.js';
 import { computeNextJobRun } from './schedule-math.js';
 import { formatRunStatusMessage } from './status-formatting.js';
 import { handleSystemJob, MEMORY_DREAM_SYSTEM_PROMPT } from './system-jobs.js';
+import {
+  buildJobStreamingOptions,
+  nextJobStreamingGeneration,
+} from './streaming-options.js';
+export { resetJobStreamingGenerationForTests as resetSchedulerExecutionStateForTests } from './streaming-options.js';
 import { runtimeEventTypeForRunStatus } from './run-status-event.js';
 import {
   jobCompletedModelPayload,
@@ -56,12 +60,6 @@ import type {
   SchedulerDispatchPayload,
 } from './types.js';
 const JOB_DELETION_CHECK_INTERVAL_MS = 1_000;
-let schedulerStreamingGenerationCounter = 0;
-export function resetSchedulerExecutionStateForTests(): void {
-  schedulerStreamingGenerationCounter = 0;
-}
-const nextSchedulerStreamingGeneration = (): number =>
-  ++schedulerStreamingGenerationCounter;
 export async function runJob(
   job: Job,
   deps: SchedulerDependencies,
@@ -86,7 +84,6 @@ export async function runJob(
     deps.onSchedulerChanged?.(currentJob.id);
     return;
   }
-
   const scheduledFor =
     dispatch?.scheduledFor || currentJob.next_run || currentIso();
   const runId = randomUUID();
@@ -103,7 +100,6 @@ export async function runJob(
     currentJob,
     getEffectiveModelConfig(undefined, jobModelUseKind, execution.group.folder),
   );
-
   const claimed = await deps.opsRepository.claimDueJobRunStart({
     jobId: currentJob.id,
     runId,
@@ -237,17 +233,13 @@ export async function runJob(
   const isMain = execution.group.isMain === true;
   const linkedSessions = Array.from(new Set(currentJob.linked_sessions));
   const shouldDeliverToChat = !currentJob.silent && linkedSessions.length > 0;
-  const streamGeneration = nextSchedulerStreamingGeneration();
-  const buildStreamingOptions = (args: {
-    done?: boolean;
-  }): StreamingChunkOptions => {
-    const options: StreamingChunkOptions = {
+  const streamGeneration = nextJobStreamingGeneration();
+  const buildStreamingOptions = (done?: boolean) =>
+    buildJobStreamingOptions({
       generation: streamGeneration,
-    };
-    if (currentJob.thread_id) options.threadId = currentJob.thread_id;
-    if (args.done !== undefined) options.done = args.done;
-    return options;
-  };
+      threadId: currentJob.thread_id,
+      done,
+    });
   const resetDeliveryStreams = () => {
     if (!deps.resetStreaming || !shouldDeliverToChat) return;
     for (const jid of linkedSessions) {
@@ -296,7 +288,7 @@ export async function runJob(
         const accepted = await deps.sendStreamingChunk(
           jid,
           text,
-          buildStreamingOptions({}),
+          buildStreamingOptions(),
         );
         if (accepted) delivered = true;
       } catch (err) {
@@ -325,7 +317,7 @@ export async function runJob(
         const accepted = await deps.sendStreamingChunk(
           jid,
           '',
-          buildStreamingOptions({ done: true }),
+          buildStreamingOptions(true),
         );
         if (accepted) delivered = true;
       } catch (err) {
@@ -337,6 +329,10 @@ export async function runJob(
     }
     return delivered;
   };
+  const { memoryDefaultScope, memoryUserId } = resolveExecutionMemoryContext({
+    conversationKind: execution.group.conversationKind,
+    executionJid: execution.executionJid,
+  });
   if (shouldDeliverToChat) {
     resetDeliveryStreams();
     await deliverMessage(`🔔 Scheduled task: ${currentJob.name}`);
@@ -393,6 +389,9 @@ export async function runJob(
             groupFolder: execution.group.folder,
             chatJid: execution.executionJid,
             threadId: currentJob.thread_id || undefined,
+            persona: execution.group.agentConfig?.persona,
+            memoryUserId,
+            memoryDefaultScope,
             isMain,
             isScheduledJob: true,
             jobModelUseKind,
@@ -414,6 +413,7 @@ export async function runJob(
               compactBoundary: streamedOutput.compactBoundary,
               agentSessionId: turnContext?.agentSessionId,
               collectMemory: deps.collectSessionMemory,
+              defaultScope: memoryDefaultScope,
               logger,
               context: { jobId: currentJob.id, runId },
             });
@@ -462,6 +462,7 @@ export async function runJob(
           await collectJobCompletionMemory({
             agentSessionId: turnContext?.agentSessionId,
             collectMemory: deps.collectSessionMemory,
+            defaultScope: memoryDefaultScope,
             prompt: currentJob.prompt,
             result: result || collectedResult || output.result,
             logger,

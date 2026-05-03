@@ -3,7 +3,7 @@ import {
   memoryAgentIdForGroupFolder,
 } from '../memory/app-memory-boundaries.js';
 import { AppMemoryService } from '../memory/app-memory-service.js';
-import type { MemoryStatusSnapshot } from '../session/session-commands.js';
+import type { MemoryStatusSnapshot } from '../session/session-command-format.js';
 
 export async function getGroupMemoryStatus(
   groupFolder: string,
@@ -36,6 +36,10 @@ export async function getGroupMemoryStatus(
       key: item.key,
       updated_at: item.updatedAt,
     })),
+    retrieval: {
+      searchMode: 'lexical_keyword',
+      vectorSearch: 'inactive',
+    },
     last_dream_run: runs[0]
       ? {
           at: runs[0].completedAt || runs[0].startedAt,

@@ -2,6 +2,7 @@ import type {
   RuntimeMemorySettingsSnapshot,
   RuntimeStorageSettingsSnapshot,
 } from './memory-snapshot.js';
+import type { AgentPersona } from '../../shared/agent-persona.js';
 
 export interface RuntimeProviderSettings {
   enabled: boolean;
@@ -112,6 +113,7 @@ export interface RuntimeConfiguredAgentCapabilities {
 export interface RuntimeConfiguredAgent {
   name: string;
   folder: string;
+  persona?: AgentPersona;
   model?: string;
   oneTimeJobDefaultModel?: string;
   recurringJobDefaultModel?: string;

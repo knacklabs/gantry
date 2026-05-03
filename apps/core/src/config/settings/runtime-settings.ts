@@ -7,6 +7,7 @@ import {
   providerForJid,
 } from '../../channels/provider-registry.js';
 import { isValidGroupFolder } from '../../platform/group-folder-rules.js';
+import type { AgentPersona } from '../../shared/agent-persona.js';
 import { ensureRuntimeLayout, settingsFilePath } from './runtime-home.js';
 import {
   applyMemoryModelProfile,
@@ -83,6 +84,7 @@ export interface EnsureConfiguredConversationBindingInput {
   trigger: string;
   requiresTrigger: boolean;
   isMain: boolean;
+  persona?: AgentPersona;
   approverIds?: string[];
 }
 
@@ -212,6 +214,7 @@ export function ensureConfiguredConversationBinding(
   settings.agents[agentId] ??= {
     name: input.agentName.trim() || settings.agent.name,
     folder,
+    persona: input.persona ?? 'developer',
     bindings: {},
     dmAccess: [],
     capabilities: {
@@ -240,7 +243,7 @@ export function ensureConfiguredConversationBinding(
   settings.conversations[conversationId] = {
     providerConnection: providerConnectionId,
     externalId,
-    kind: provider.isGroupJid(input.jid) ? 'group' : 'dm',
+    kind: provider.isGroupJid(input.jid) ? 'channel' : 'dm',
     displayName: input.displayName.trim() || input.jid,
     senderPolicy: existingConversation?.senderPolicy || {
       allow: '*',

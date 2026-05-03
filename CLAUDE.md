@@ -51,15 +51,15 @@ reviewed, audited, versioned, and activated on the next run.
 | `request_skill_proposal`           | Propose an agent-created or modified skill bundle for review.                                                          |
 | `request_skill_dependency_install` | Ask for npm, brew, go, uv, or download dependencies needed by a skill.                                                 |
 | `request_mcp_server`               | Request a third-party MCP server with transport, origin, tool patterns, credentials, and reason.                       |
-| `request_tool_enable`              | Request SDK or host tools such as `Bash`, `Write`, `Edit`, browser, scheduler, memory, or service tools.               |
-| `request_channel_tool_enable`      | Request channel capabilities such as Teams proactive messaging, Slack file access, or Telegram file download behavior. |
+| `request_permission`               | Request SDK, host, browser, scheduler, memory, service, MCP, or provider/channel capability permissions.               |
 | `service_restart`                  | Main/admin agent only, after an approved change requires host restart.                                                 |
 | `register_agent`                   | Main/admin agent only, to bind a new channel conversation to an agent.                                                 |
 
 Same-channel approval verifies the origin chat and Channel control allowlist;
 control approvers must be members of that Channel. Direct/private DM approval
 uses the bound agent's provider-specific DM admin. Agent DM access is separate,
-provider-neutral, and does not grant approval rights by itself.
+provider-neutral, and does not grant approval rights by itself. Permission
+prompts offer `Allow once`, `Always allow <granular rule>`, or `Cancel`.
 
 Admin boundary: use the public control API for owner/admin automation, the
 local CLI for setup, provider validation, service control, logs, and doctor

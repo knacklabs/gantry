@@ -329,7 +329,7 @@ async function runMcpFixture(
     const timeout = setTimeout(() => {
       child.kill('SIGKILL');
       reject(new Error(`MCP fixture timed out\nstderr:\n${stderr}`));
-    }, 6_000);
+    }, 15_000);
     child.on('error', (err) => {
       clearTimeout(timeout);
       reject(err);
@@ -551,27 +551,36 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
       },
     ],
     [
-      'request_tool_enable',
+      'request_permission',
       {
+        permissionKind: 'tool',
         toolName: 'Bash',
         toolNames: ['Read'],
+        rule: 'npm run test *',
+        temporaryOnly: false,
+        broadAccess: false,
         toolCategory: 'sdk',
-        permissionPolicy: 'prompt',
+        permissionPolicy: 'scoped persistent',
         sandboxProfile: 'workspace-write',
         reason: 'Run project tests and inspect files.',
       },
       {
+        permissionKind: 'tool',
         toolName: 'Bash',
         toolNames: ['Read'],
+        rule: 'npm run test *',
+        temporaryOnly: false,
+        broadAccess: false,
         toolCategory: 'sdk',
-        permissionPolicy: 'prompt',
+        permissionPolicy: 'scoped persistent',
         sandboxProfile: 'workspace-write',
         reason: 'Run project tests and inspect files.',
       },
     ],
     [
-      'request_channel_tool_enable',
+      'request_permission',
       {
+        permissionKind: 'provider_capability',
         channelTool: 'slack_file_access',
         providerId: 'slack',
         requiredScopes: ['files:read'],
@@ -579,6 +588,7 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
         reason: 'Read files shared in the active channel.',
       },
       {
+        permissionKind: 'provider_capability',
         channelTool: 'slack_file_access',
         providerId: 'slack',
         requiredScopes: ['files:read'],

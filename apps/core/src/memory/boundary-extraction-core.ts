@@ -3,6 +3,7 @@ import type { MemoryItem, MemorySubject } from '../domain/memory/memory.js';
 import type { AgentSession } from '../domain/sessions/sessions.js';
 import type {
   MemoryBoundaryTurn,
+  MemoryBoundaryDefaultScope,
   SessionMemoryCollector,
 } from '../domain/ports/session-memory-collector.js';
 import type {
@@ -39,6 +40,7 @@ export async function collectDurableMemoryFromRepositories(input: {
   extractFacts: (
     input: ArcExtractionInput,
   ) => Promise<ExtractedMemoryFact[]> | ExtractedMemoryFact[];
+  defaultScope?: MemoryBoundaryDefaultScope;
   additionalTurns?: MemoryBoundaryTurn[];
 }): Promise<{ saved: number }> {
   const session = await input.repositories.agentSessions.getAgentSession(
@@ -88,7 +90,7 @@ export async function collectDurableMemoryFromRepositories(input: {
   const now = new Date().toISOString();
   let saved = 0;
   for (const fact of facts) {
-    const subject = subjectForFact(fact, session);
+    const subject = subjectForFact(fact, session, input.defaultScope);
     await input.repositories.memory.saveMemoryItem({
       id: memoryIdFor({
         appId: session.appId,
@@ -147,13 +149,15 @@ function memorySubjectsForSession(session: AgentSession): MemorySubject[] {
 function subjectForFact(
   fact: ExtractedMemoryFact,
   session: AgentSession,
+  defaultScope: MemoryBoundaryDefaultScope | undefined,
 ): MemorySubject {
-  if (fact.scope === 'user') {
+  const scope = fact.scope === 'global' ? 'global' : defaultScope || fact.scope;
+  if (scope === 'user') {
     return session.userId
       ? { kind: 'user', appId: session.appId, userId: session.userId }
       : { kind: 'agent', appId: session.appId, agentId: session.agentId };
   }
-  if (fact.scope === 'group') {
+  if (scope === 'group') {
     if (session.conversationId && session.threadId) {
       return {
         kind: 'thread',

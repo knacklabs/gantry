@@ -351,15 +351,14 @@ const requestSkillDraftHandler: TaskHandler = async (context) => {
 };
 
 // prettier-ignore
-type RequestOnlyCapabilityToolName = 'request_skill_install' | 'request_skill_dependency_install' | 'request_tool_enable' | 'request_channel_tool_enable';
+type RequestOnlyCapabilityToolName = 'request_skill_install' | 'request_skill_dependency_install' | 'request_permission';
 // prettier-ignore
 interface RequestOnlyCapabilityReview { toolName: RequestOnlyCapabilityToolName; requestKind: string; displayName: string; reason: string; toolInput: Record<string, unknown>; }
 // prettier-ignore
 const requestOnlyCapabilitySpecs: Record<RequestOnlyCapabilityToolName, { kind: string; required: string[]; any?: string[]; display: string; effect: string }> = {
   request_skill_install: { kind: 'Skill install', required: ['spec'], display: 'spec', effect: 'review_only_no_direct_install' },
   request_skill_dependency_install: { kind: 'Skill dependency install', required: ['ecosystem'], any: ['packages', 'commandArgv'], display: 'ecosystem', effect: 'review_only_no_command_execution' },
-  request_tool_enable: { kind: 'Tool enable', required: [], any: ['toolName', 'toolNames'], display: 'toolName', effect: 'review_only_no_permission_change' },
-  request_channel_tool_enable: { kind: 'Channel tool enable', required: ['channelTool'], display: 'channelTool', effect: 'review_only_no_channel_permission_change' },
+  request_permission: { kind: 'Permission', required: [], any: ['toolName', 'toolNames', 'channelTool'], display: 'toolName', effect: 'review_only_no_permission_change' },
 };
 
 // prettier-ignore
@@ -377,7 +376,7 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
 };
 
 // prettier-ignore
-export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, request_settings_update: requestSettingsUpdateHandler, request_skill_install: requestOnlyCapabilityHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_tool_enable: requestOnlyCapabilityHandler, request_channel_tool_enable: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillDraftHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_call_tool: mcpCallToolHandler };
+export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, request_settings_update: requestSettingsUpdateHandler, request_skill_install: requestOnlyCapabilityHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_permission: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillDraftHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_call_tool: mcpCallToolHandler };
 
 // prettier-ignore
 function validateSameChannelApprovalTarget(input: { data: Parameters<TaskHandler>[0]['data']; sourceGroupJids: string[]; requestKind: string; reject: (error: string, code?: string, details?: string[]) => void }): string | null {
@@ -397,13 +396,15 @@ function parseRequestOnlyCapabilityReview(toolName: RequestOnlyCapabilityToolNam
   if (!reason) missing.push('reason');
   if (missing.length > 0) return { ok: false, error: `Missing required fields: ${missing.join(', ')}.` };
   const toolInput = sanitizeCapabilityPayload(payload);
-  if (toolName === 'request_tool_enable') {
+  if (toolName === 'request_permission') {
     const toolNames = sanitizedStringList([
       payload.toolName,
       ...(Array.isArray(payload.toolNames) ? payload.toolNames : []),
     ]);
-    delete toolInput.toolName;
-    toolInput.toolNames = toolNames;
+    if (toolNames.length > 0) {
+      delete toolInput.toolName;
+      toolInput.toolNames = toolNames;
+    }
   }
   if (toolName === 'request_skill_dependency_install' && !['npm', 'brew', 'go', 'uv', 'download'].includes(String(toolInput.ecosystem))) return { ok: false, error: 'ecosystem must be npm, brew, go, uv, or download.' };
   return {
@@ -430,6 +431,10 @@ function sanitizeCapabilityPayload(payload: Record<string, unknown>) {
       const list = sanitizedStringList(value);
       if (list.length > 0) output[key] = list;
     } else {
+      if (typeof value === 'boolean') {
+        output[key] = value;
+        continue;
+      }
       const item = toTrimmedString(value, { maxLen: 2048 });
       if (item) output[key] = item;
     }

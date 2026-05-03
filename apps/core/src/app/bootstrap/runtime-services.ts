@@ -191,7 +191,7 @@ export async function startRuntimeServices(
   }: {
     chatJid: string;
     queueJid: string;
-    group: { folder: string };
+    group: { folder: string; conversationKind?: 'dm' | 'channel' };
     command: { kind: string };
     message: NewMessage;
   }): Promise<boolean> => {
@@ -239,6 +239,7 @@ export async function startRuntimeServices(
           await resolved.collectSessionMemory({
             agentSessionId: turnContext.agentSessionId,
             trigger: 'session-end',
+            defaultScope: group.conversationKind === 'dm' ? 'user' : 'group',
           });
         }
       } catch (err) {

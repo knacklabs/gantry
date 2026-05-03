@@ -1,13 +1,24 @@
 import { applyLoopbackNoProxyEnv } from '../shared/no-proxy.js';
+import {
+  resolveAgentPersona,
+  type AgentPersona,
+} from '../shared/agent-persona.js';
 
 export interface AgentCapabilityContext {
   mcpServerPath: string;
   chatJid: string;
   groupFolder: string;
   threadId?: string;
+  memoryUserId?: string;
+  memoryDefaultScope?: 'user' | 'group';
+  persona?: AgentPersona;
+  browserProfileName?: string;
   isMain: boolean;
+  configuredAllowedTools?: readonly string[];
   ipcDir?: string;
   ipcAuthToken?: string;
+  browserIpcAuthToken?: string;
+  memoryIpcAuthToken?: string;
   ipcResponseVerifyKey?: string;
   externalMcpServers?: Record<string, McpServerConfig>;
   externalMcpAllowedTools?: readonly string[];
@@ -40,15 +51,20 @@ export interface AgentCapabilityProvider {
 }
 
 const SAFE_NATIVE_ALLOWED_TOOLS = [
+  'Agent',
+  'Browser',
+  'WebSearch',
+  'WebFetch',
+  'ToolSearch',
+  'Skill',
+] as const;
+
+const DEVELOPER_NATIVE_ALLOWED_TOOLS = [
   'Read',
   'Glob',
   'Grep',
-  'WebSearch',
-  'WebFetch',
   'TaskOutput',
   'TaskStop',
-  'ToolSearch',
-  'Skill',
   'EnterWorktree',
   'ExitWorktree',
 ] as const;
@@ -56,12 +72,16 @@ const SAFE_NATIVE_ALLOWED_TOOLS = [
 const MYCLAW_MCP_ALLOWED_TOOLS = [
   'mcp__myclaw__send_message',
   'mcp__myclaw__ask_user_question',
+  'mcp__myclaw__memory_search',
+  'mcp__myclaw__memory_save',
+  'mcp__myclaw__procedure_save',
+  'mcp__myclaw__browser_launch',
+  'mcp__myclaw__browser_status',
   'mcp__myclaw__request_skill_install',
   'mcp__myclaw__request_skill_proposal',
   'mcp__myclaw__request_skill_dependency_install',
   'mcp__myclaw__request_mcp_server',
-  'mcp__myclaw__request_tool_enable',
-  'mcp__myclaw__request_channel_tool_enable',
+  'mcp__myclaw__request_permission',
   'mcp__myclaw__mcp_list_tools',
   'mcp__myclaw__mcp_call_tool',
 ] as const;
@@ -80,21 +100,58 @@ const DEFAULT_ALLOWED_TOOLS = [
 
 const ALWAYS_ALLOWED_TOOLS = ['EnterWorktree', 'ExitWorktree'] as const;
 const DIRECT_RUNTIME_MCP_SERVER_NAMES = new Set(['agent_browser']);
+const NON_DEVELOPER_BLOCKED_TOOL_NAMES = new Set([
+  'Bash',
+  'Read',
+  'Glob',
+  'Grep',
+  'LS',
+  'Write',
+  'Edit',
+  'MultiEdit',
+  'NotebookEdit',
+  'EnterWorktree',
+  'ExitWorktree',
+  ...MAIN_AGENT_MCP_ALLOWED_TOOLS,
+]);
+
+function sdkToolName(toolRule: string): string {
+  const paren = toolRule.indexOf('(');
+  return (paren === -1 ? toolRule : toolRule.slice(0, paren)).trim();
+}
+
+function configuredToolAllowedForPersona(
+  toolRule: string,
+  persona: AgentPersona,
+): boolean {
+  if (persona === 'developer') return true;
+  return !NON_DEVELOPER_BLOCKED_TOOL_NAMES.has(sdkToolName(toolRule));
+}
 
 const sdkToolsProvider: AgentCapabilityProvider = {
   id: 'sdk-tools',
-  provide: (ctx) => ({
-    allowedTools: ctx.isMain
-      ? [...DEFAULT_ALLOWED_TOOLS, ...MAIN_AGENT_MCP_ALLOWED_TOOLS]
-      : DEFAULT_ALLOWED_TOOLS,
-  }),
+  provide: (ctx) => {
+    const persona = resolveAgentPersona(ctx.persona);
+    const mainAgentTools =
+      ctx.isMain && persona === 'developer' ? MAIN_AGENT_MCP_ALLOWED_TOOLS : [];
+    const personaTools =
+      persona === 'developer'
+        ? [...DEVELOPER_NATIVE_ALLOWED_TOOLS, ...DEFAULT_ALLOWED_TOOLS]
+        : DEFAULT_ALLOWED_TOOLS;
+    return {
+      allowedTools: [...personaTools, ...mainAgentTools],
+    };
+  },
 };
 
 const permissionProvider: AgentCapabilityProvider = {
   id: 'permissions',
-  provide: () => ({
+  provide: (ctx) => ({
     permissionMode: 'default',
-    alwaysAllowedTools: ALWAYS_ALLOWED_TOOLS,
+    alwaysAllowedTools:
+      resolveAgentPersona(ctx.persona) === 'developer'
+        ? ALWAYS_ALLOWED_TOOLS
+        : [],
   }),
 };
 
@@ -105,9 +162,18 @@ const myclawMcpProvider: AgentCapabilityProvider = {
       MYCLAW_CHAT_JID: ctx.chatJid,
       MYCLAW_GROUP_FOLDER: ctx.groupFolder,
       MYCLAW_THREAD_ID: ctx.threadId || '',
+      MYCLAW_MEMORY_USER_ID: ctx.memoryUserId || '',
+      MYCLAW_MEMORY_DEFAULT_SCOPE: ctx.memoryDefaultScope || 'group',
+      MYCLAW_BROWSER_PROFILE_NAME: ctx.browserProfileName || '',
       MYCLAW_IS_MAIN: ctx.isMain ? '1' : '0',
       ...(ctx.ipcDir ? { MYCLAW_IPC_DIR: ctx.ipcDir } : {}),
       ...(ctx.ipcAuthToken ? { MYCLAW_IPC_AUTH_TOKEN: ctx.ipcAuthToken } : {}),
+      ...(ctx.browserIpcAuthToken
+        ? { MYCLAW_BROWSER_IPC_AUTH_TOKEN: ctx.browserIpcAuthToken }
+        : {}),
+      ...(ctx.memoryIpcAuthToken
+        ? { MYCLAW_MEMORY_IPC_AUTH_TOKEN: ctx.memoryIpcAuthToken }
+        : {}),
       ...(ctx.ipcResponseVerifyKey
         ? { MYCLAW_IPC_RESPONSE_VERIFY_KEY: ctx.ipcResponseVerifyKey }
         : {}),
@@ -150,11 +216,24 @@ const configuredMcpProvider: AgentCapabilityProvider = {
   },
 };
 
+const configuredToolProvider: AgentCapabilityProvider = {
+  id: 'configured-tools',
+  provide: (ctx) => {
+    const persona = resolveAgentPersona(ctx.persona);
+    return {
+      allowedTools: (ctx.configuredAllowedTools ?? []).filter((toolRule) =>
+        configuredToolAllowedForPersona(toolRule, persona),
+      ),
+    };
+  },
+};
+
 export const BUILTIN_AGENT_CAPABILITY_PROVIDERS: readonly AgentCapabilityProvider[] =
   [
     sdkToolsProvider,
     permissionProvider,
     myclawMcpProvider,
+    configuredToolProvider,
     configuredMcpProvider,
   ];
 

@@ -22,6 +22,13 @@ export type RuntimeSettingsResponse = {
       {
         name: string;
         folder: string;
+        persona?:
+          | 'developer'
+          | 'personal_assistant'
+          | 'sales'
+          | 'marketing'
+          | 'operations'
+          | 'research';
         model?: string;
         oneTimeJobDefaultModel?: string;
         recurringJobDefaultModel?: string;

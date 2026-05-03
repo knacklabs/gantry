@@ -60,6 +60,25 @@ export interface NormalizedModelUsage {
   at: string;
 }
 
+export interface RuntimeContextUsageSnapshot {
+  totalTokens: number;
+  maxTokens: number;
+  percentage: number;
+  model?: string;
+  categories: Array<{
+    name: string;
+    tokens: number;
+    percentage?: number;
+  }>;
+  apiUsage?: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens: number;
+    cache_read_input_tokens: number;
+  } | null;
+  at: string;
+}
+
 export const DEFAULT_SETUP_MODEL_ALIAS = 'opus';
 
 export const MEMORY_MODEL_DEFAULT_ALIASES = {

@@ -70,8 +70,15 @@ export function writePermissionIpcResponse(
   const payload = withSignature(privateKeyPem, {
     requestId: decision.requestId,
     approved: decision.approved,
+    ...(decision.mode ? { mode: decision.mode } : {}),
     ...(decision.decidedBy ? { decidedBy: decision.decidedBy } : {}),
     ...(decision.reason ? { reason: decision.reason } : {}),
+    ...(decision.updatedPermissions
+      ? { updatedPermissions: decision.updatedPermissions }
+      : {}),
+    ...(decision.decisionClassification
+      ? { decisionClassification: decision.decisionClassification }
+      : {}),
   });
   fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2));
   if (fs.existsSync(responsePath)) {

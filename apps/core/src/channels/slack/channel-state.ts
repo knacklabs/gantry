@@ -23,8 +23,7 @@ import { ChannelOpts } from '../channel-provider.js';
 
 export const SLACK_STREAM_UPDATE_INTERVAL_MS = 900;
 export const SLACK_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
-export const SLACK_BUTTON_TEXT_MAX_LENGTH = 75;
-export const SLACK_ACTION_VALUE_MAX_LENGTH = 2000;
+const SLACK_LIMITS = { buttonText: 75, actionValue: 2000 } as const;
 
 export interface ActiveStreamState {
   channelId: string;
@@ -49,6 +48,8 @@ export interface PendingPermissionPrompt {
   channelId: string;
   sourceGroup: string;
   decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
+  approvalContextJid?: string;
+  request: PermissionApprovalRequest;
   messageTs: string;
   timer: ReturnType<typeof setTimeout>;
   resolve: (decision: PermissionApprovalDecision) => void;
@@ -148,12 +149,12 @@ export abstract class SlackChannelState {
   protected truncateButtonText(text: string): string {
     const trimmed = text.trim();
     if (!trimmed) return 'Option';
-    return this.truncateText(trimmed, SLACK_BUTTON_TEXT_MAX_LENGTH);
+    return this.truncateText(trimmed, SLACK_LIMITS.buttonText);
   }
 
   protected encodeActionValue(value: Record<string, unknown>): string {
     const serialized = JSON.stringify(value);
-    if (serialized.length <= SLACK_ACTION_VALUE_MAX_LENGTH) {
+    if (serialized.length <= SLACK_LIMITS.actionValue) {
       return serialized;
     }
     return JSON.stringify({
@@ -692,7 +693,6 @@ export abstract class SlackChannelState {
 
     return { text: lines.join('\n').trim(), attachments };
   }
-
   protected abstract tryNativeStreamStop(
     channelId: string,
     streamTs: string,

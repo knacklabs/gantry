@@ -9,11 +9,16 @@ import {
 import {
   BROWSER_REQUESTS_DIR,
   BROWSER_RESPONSES_DIR,
+  BROWSER_IPC_AUTH_TOKEN,
   IPC_AUTH_TOKEN,
   IPC_RESPONSE_VERIFY_KEY,
+  MEMORY_IPC_AUTH_TOKEN,
   MEMORY_REQUESTS_DIR,
   MEMORY_RESPONSES_DIR,
   TASK_RESPONSES_DIR,
+  chatJid,
+  memoryDefaultScope,
+  memoryUserId,
   threadId,
 } from './context.js';
 import {
@@ -87,10 +92,12 @@ export async function requestMemoryAction(
     payload,
     context: {
       ...(threadId ? { threadId } : {}),
+      ...(memoryUserId ? { userId: memoryUserId } : {}),
+      defaultScope: memoryDefaultScope,
     },
   };
   const requestEnvelope = createSignedIpcRequestEnvelope(
-    IPC_AUTH_TOKEN,
+    MEMORY_IPC_AUTH_TOKEN,
     requestPayload,
   );
   fs.writeFileSync(tmpReqPath, JSON.stringify(requestEnvelope, null, 2));
@@ -170,10 +177,13 @@ export async function requestBrowserAction(
     requestId,
     action,
     payload,
-    ...(threadId ? { threadId } : {}),
+    context: {
+      chatJid,
+      ...(threadId ? { threadId } : {}),
+    },
   };
   const requestEnvelope = createSignedIpcRequestEnvelope(
-    IPC_AUTH_TOKEN,
+    BROWSER_IPC_AUTH_TOKEN,
     requestPayload,
   );
   fs.writeFileSync(tmpReqPath, JSON.stringify(requestEnvelope, null, 2));

@@ -14,10 +14,13 @@ import {
 import type { RuntimeModelStatusSnapshot } from '../runtime/model-status-store.js';
 import {
   describeThinking,
+  formatBrowserStatus,
   formatCurrentModel,
   formatModelsList,
   formatModelStatus,
   formatMemoryStatus,
+  type BrowserStatusSnapshot,
+  type MemoryStatusSnapshot,
 } from './session-command-format.js';
 import {
   defaultModelStatusSelection,
@@ -39,15 +42,6 @@ export type SessionCommand =
   | { kind: 'thinking_show'; raw: '/thinking' }
   | { kind: 'thinking_set'; raw: string; value: ThinkingOverride }
   | { kind: 'thinking_default'; raw: '/thinking default' };
-
-export interface MemoryStatusSnapshot {
-  items_by_kind: Record<string, number>;
-  items_by_scope: Record<string, number>;
-  top10_most_used: Array<{ key: string; retrieval_count: number }>;
-  top10_stalest: Array<{ key: string; updated_at: string }>;
-  last_dream_run?: { at?: string; summary?: string };
-  disk_kb?: Record<string, number>;
-}
 
 interface DreamQueueResult {
   queued: boolean;
@@ -206,6 +200,9 @@ export interface SessionCommandDeps {
   getGroupModelOverride: () => string | undefined;
   setGroupModelOverride: (value: string | undefined) => Promise<void> | void;
   getModelStatus?: () => RuntimeModelStatusSnapshot | undefined;
+  getBrowserStatus?: () =>
+    | Promise<BrowserStatusSnapshot>
+    | BrowserStatusSnapshot;
   updateModelStatusSelection?: (input: ModelStatusSelectionUpdate) => void;
   getGroupThinkingOverride: () => ThinkingOverride | undefined;
   setGroupThinkingOverride: (
@@ -571,13 +568,15 @@ export async function handleSessionCommand(opts: {
 
   if (command.kind === 'status') {
     deps.advanceCursor(cmdMsg);
-    await deps.sendMessage(
-      formatModelStatus(deps.getModelStatus?.(), {
-        currentModel: groupOverrideModel,
-        defaultModel,
-        source: groupOverrideModel ? 'session override' : 'chat default',
-      }),
-    );
+    const modelStatusText = formatModelStatus(deps.getModelStatus?.(), {
+      currentModel: groupOverrideModel,
+      defaultModel,
+      source: groupOverrideModel ? 'session override' : 'chat default',
+    });
+    const browserStatusText = deps.getBrowserStatus
+      ? `\n\n${formatBrowserStatus(await deps.getBrowserStatus())}`
+      : '';
+    await deps.sendMessage(`${modelStatusText}${browserStatusText}`);
     return { handled: true, success: true };
   }
 

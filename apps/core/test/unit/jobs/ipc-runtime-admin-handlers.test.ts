@@ -80,7 +80,7 @@ describe('runtime admin IPC handlers', () => {
     expect(readResponse(runtimeHome, 'settings-read')).toMatchObject({
       ok: true,
       data: {
-        yaml: expect.stringContaining('desired_state:'),
+        yaml: expect.stringContaining('defaults:'),
         revision: expect.stringMatching(/^sha256:/),
       },
     });
@@ -240,7 +240,7 @@ describe('runtime admin IPC handlers', () => {
         toolInput: expect.objectContaining({
           expectedRevision,
           diffSummary: expect.arrayContaining([
-            expect.stringContaining('default_model'),
+            expect.stringContaining('model'),
           ]),
         }),
       }),

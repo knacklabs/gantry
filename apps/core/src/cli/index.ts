@@ -54,6 +54,7 @@ function usage(): string {
     '  myclaw provider list|connect|doctor',
     '  myclaw conversation info|approvers',
     '  myclaw agent list|info|add|remove|trigger|dm-access|policy',
+    '  myclaw browser profiles|status',
     '  myclaw model list|set-default|doctor',
     '  myclaw settings export-current|drift',
     '  myclaw service install|start|stop|restart',
@@ -434,6 +435,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === 'memory') {
     const { runMemoryCommand } = await import('./memory.js');
     return runMemoryCommand(runtimeHome, rest);
+  }
+
+  if (command === 'browser') {
+    process.env.MYCLAW_HOME = runtimeHome;
+    const { runBrowserCommand } = await import('./browser.js');
+    return runBrowserCommand(runtimeHome, rest);
   }
 
   if (command === 'model') {

@@ -361,6 +361,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     },
     runAgent: options.runAgent,
     getCredentialBroker,
+    getToolRepository: () => getRuntimeStorage().repositories.tools,
     getSkillRepository: () => getRuntimeStorage().repositories.skills,
     getMcpServerRepository: () => getRuntimeStorage().repositories.mcpServers,
     getMcpHostnameLookup: options.mcpHostnameLookup,

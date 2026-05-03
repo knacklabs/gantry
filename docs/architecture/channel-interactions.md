@@ -71,10 +71,9 @@ Fields:
 Descriptors are data, not policy. They can display `send_message`,
 `ask_user_question`, `request_skill_install`, `request_skill_proposal`,
 `request_skill_dependency_install`, `request_mcp_server`,
-`request_tool_enable`, `request_channel_tool_enable`,
-`settings_desired_state`, `request_settings_update`, `service_restart`, and
-`register_agent` requests, but approval authority stays with the configured
-conversation/DM admin rules.
+`request_permission`, `settings_desired_state`, `request_settings_update`,
+`service_restart`, and `register_agent` requests, but approval authority stays
+with the configured conversation/DM admin rules.
 
 ## Tool Selection Rules
 
@@ -89,8 +88,7 @@ Use these rules in agent prompts, docs, and admin surfaces:
 | Propose agent-created skill files                              | `request_skill_proposal`                      | Renders `SKILL.md` preview, file list, hashes, risk summary, approve/deny.                                                                                                                                                                                                                           |
 | Install skill dependencies                                     | `request_skill_dependency_install`            | Renders npm/brew/go/uv/download spec, command argv, sandbox/policy, risk, approve/deny.                                                                                                                                                                                                              |
 | Add a third-party MCP server                                   | `request_mcp_server`                          | Renders transport, origin, credential refs, allowed tool patterns, SSRF checks, approve/deny.                                                                                                                                                                                                        |
-| Enable SDK or host tools                                       | `request_tool_enable`                         | Renders exact tool names, risk class, permission policy, sandbox profile, approve/deny.                                                                                                                                                                                                              |
-| Enable a channel capability                                    | `request_channel_tool_enable`                 | Renders provider, capability, required scopes, affected conversations, approve/deny.                                                                                                                                                                                                                 |
+| Request SDK, host, or channel permission                       | `request_permission`                          | Renders exact tool names or provider capability, risk class, permission policy, sandbox profile, affected conversations, and the decisions `Allow once`, `Always allow <granular rule>`, or `Cancel`.                                                                                                 |
 | Inspect local desired-state settings                           | `settings_desired_state`                      | Main/admin agents can read rendered `settings.yaml` plus its revision for review context; no write occurs. Non-main agents are rejected.                                                                                                                                                             |
 | Change local desired-state settings                            | `request_settings_update`                     | Main/admin agents can request a complete replacement `settings.yaml` with the expected revision; the host validates it, shows a diff summary for same-channel approval, rechecks the revision/references after approval, writes atomically, then reloads safe changes. Non-main agents are rejected. |
 | Restart after approved changes                                 | `service_restart`                             | Main/admin agent only; reports validation and restart status.                                                                                                                                                                                                                                        |
@@ -179,16 +177,15 @@ Web/API renderers expose the same descriptor as cards, tables, modals, file
 browser views, and an audit timeline. API callers must treat descriptors as
 rendering contracts; they must not bypass `request_skill_install`,
 `request_skill_proposal`, `request_skill_dependency_install`,
-`request_mcp_server`, `request_tool_enable`, or
-`request_channel_tool_enable` by editing durable state directly.
+`request_mcp_server`, or `request_permission` by editing durable state directly.
 
 ## Channel Tool Requests
 
 Channel-specific tools are approved capabilities. Examples include Teams
 proactive messaging, Slack file access, and Telegram file download behavior.
-Agents request them with `request_channel_tool_enable`. A provider flag
-describes whether the adapter can render or execute an interaction; it is not
-an authorization grant.
+Agents request them with `request_permission` using a provider/channel
+capability kind. A provider flag describes whether the adapter can render or
+execute an interaction; it is not an authorization grant.
 
 Channel tool request payloads must include:
 

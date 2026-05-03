@@ -7,31 +7,41 @@ import {
 } from '@agent-runner-src/agent-capabilities.js';
 
 const SAFE_DEFAULT_ALLOWED_TOOLS = [
-  'Read',
-  'Glob',
-  'Grep',
+  'Agent',
+  'Browser',
   'WebSearch',
   'WebFetch',
-  'TaskOutput',
-  'TaskStop',
   'ToolSearch',
   'Skill',
-  'EnterWorktree',
-  'ExitWorktree',
   'mcp__myclaw__send_message',
   'mcp__myclaw__ask_user_question',
+  'mcp__myclaw__memory_search',
+  'mcp__myclaw__memory_save',
+  'mcp__myclaw__procedure_save',
+  'mcp__myclaw__browser_launch',
+  'mcp__myclaw__browser_status',
   'mcp__myclaw__request_skill_install',
   'mcp__myclaw__request_skill_proposal',
   'mcp__myclaw__request_skill_dependency_install',
   'mcp__myclaw__request_mcp_server',
-  'mcp__myclaw__request_tool_enable',
-  'mcp__myclaw__request_channel_tool_enable',
+  'mcp__myclaw__request_permission',
   'mcp__myclaw__mcp_list_tools',
   'mcp__myclaw__mcp_call_tool',
 ] as const;
 
-const MAIN_AGENT_ALLOWED_TOOLS = [
+const DEVELOPER_ALLOWED_TOOLS = [
+  'Read',
+  'Glob',
+  'Grep',
+  'TaskOutput',
+  'TaskStop',
+  'EnterWorktree',
+  'ExitWorktree',
   ...SAFE_DEFAULT_ALLOWED_TOOLS,
+] as const;
+
+const MAIN_AGENT_ALLOWED_TOOLS = [
+  ...DEVELOPER_ALLOWED_TOOLS,
   'mcp__myclaw__settings_desired_state',
   'mcp__myclaw__request_settings_update',
   'mcp__myclaw__service_restart',
@@ -44,7 +54,6 @@ const DANGEROUS_DEFAULT_TOOLS = [
   'Edit',
   'NotebookEdit',
   'Config',
-  'Agent',
   'mcp__myclaw__list_models',
   'mcp__myclaw__*',
 ] as const;
@@ -56,10 +65,15 @@ describe('agent capability composition', () => {
       chatJid: 'tg:team',
       groupFolder: 'telegram_team',
       threadId: 'topic-1',
+      memoryUserId: '5759865942',
+      browserProfileName: 'c-team-abc123abc123',
       isMain: false,
       ipcDir: '/tmp/ipc/team',
       ipcAuthToken: 'token',
+      browserIpcAuthToken: 'browser-token',
+      memoryIpcAuthToken: 'memory-token',
       ipcResponseVerifyKey: 'verify-key',
+      persona: 'personal_assistant',
     });
 
     expect(profile.allowedTools).toEqual(SAFE_DEFAULT_ALLOWED_TOOLS);
@@ -67,10 +81,7 @@ describe('agent capability composition', () => {
       expect(profile.allowedTools).not.toContain(tool);
     }
     expect(profile.permissionMode).toBe('default');
-    expect(profile.alwaysAllowedTools).toEqual([
-      'EnterWorktree',
-      'ExitWorktree',
-    ]);
+    expect(profile.alwaysAllowedTools).toEqual([]);
     expect(profile.mcpServers.myclaw).toEqual({
       command: 'node',
       args: ['/tmp/ipc-mcp-stdio.js'],
@@ -78,9 +89,14 @@ describe('agent capability composition', () => {
         MYCLAW_CHAT_JID: 'tg:team',
         MYCLAW_GROUP_FOLDER: 'telegram_team',
         MYCLAW_THREAD_ID: 'topic-1',
+        MYCLAW_MEMORY_USER_ID: '5759865942',
+        MYCLAW_MEMORY_DEFAULT_SCOPE: 'group',
+        MYCLAW_BROWSER_PROFILE_NAME: 'c-team-abc123abc123',
         MYCLAW_IS_MAIN: '0',
         MYCLAW_IPC_DIR: '/tmp/ipc/team',
         MYCLAW_IPC_AUTH_TOKEN: 'token',
+        MYCLAW_BROWSER_IPC_AUTH_TOKEN: 'browser-token',
+        MYCLAW_MEMORY_IPC_AUTH_TOKEN: 'memory-token',
         MYCLAW_IPC_RESPONSE_VERIFY_KEY: 'verify-key',
         NO_PROXY: '127.0.0.1,localhost,::1',
         no_proxy: '127.0.0.1,localhost,::1',
@@ -88,7 +104,7 @@ describe('agent capability composition', () => {
     });
   });
 
-  it('exposes global settings and service tools only to the main agent', () => {
+  it('exposes global settings and service tools only to the developer main agent', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:main',
@@ -102,6 +118,144 @@ describe('agent capability composition', () => {
     );
     expect(profile.allowedTools).toContain(
       'mcp__myclaw__request_settings_update',
+    );
+  });
+
+  it('keeps non-developer main agents away from runtime-admin tools', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:main-assistant',
+      groupFolder: 'main_assistant',
+      persona: 'personal_assistant',
+      isMain: true,
+    });
+
+    expect(profile.allowedTools).toEqual(SAFE_DEFAULT_ALLOWED_TOOLS);
+    expect(profile.allowedTools).toContain('Agent');
+    expect(profile.allowedTools).not.toContain(
+      'mcp__myclaw__settings_desired_state',
+    );
+    expect(profile.allowedTools).not.toContain(
+      'mcp__myclaw__request_settings_update',
+    );
+    expect(profile.allowedTools).not.toContain('mcp__myclaw__service_restart');
+    expect(profile.allowedTools).not.toContain('mcp__myclaw__register_agent');
+  });
+
+  it('defaults missing personas to developer capabilities', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:dev',
+      groupFolder: 'dev',
+      isMain: false,
+    });
+
+    expect(profile.allowedTools).toEqual(DEVELOPER_ALLOWED_TOOLS);
+    expect(profile.allowedTools).toContain('Agent');
+    expect(profile.allowedTools).toContain('Read');
+    expect(profile.allowedTools).toContain('mcp__myclaw__memory_search');
+    expect(profile.allowedTools).toContain('Browser');
+  });
+
+  it('fails unknown persona strings closed to assistant capabilities', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:typo',
+      groupFolder: 'typo',
+      persona: 'saless' as never,
+      isMain: false,
+    });
+
+    expect(profile.allowedTools).toEqual(SAFE_DEFAULT_ALLOWED_TOOLS);
+    expect(profile.allowedTools).not.toContain('Read');
+    expect(profile.allowedTools).toContain('Agent');
+    expect(profile.allowedTools).toContain('mcp__myclaw__memory_search');
+    expect(profile.allowedTools).toContain('Browser');
+  });
+
+  it.each([
+    'personal_assistant',
+    'sales',
+    'marketing',
+    'operations',
+    'research',
+  ] as const)('keeps %s away from developer/admin tools', (persona) => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: `tg:${persona}`,
+      groupFolder: persona,
+      persona,
+      isMain: false,
+    });
+
+    expect(profile.allowedTools).toContain('Browser');
+    expect(profile.allowedTools).toContain('mcp__myclaw__memory_search');
+    expect(profile.allowedTools).toContain('mcp__myclaw__memory_save');
+    expect(profile.allowedTools).toContain('mcp__myclaw__procedure_save');
+    expect(profile.allowedTools).not.toContain('mcp__myclaw__memory_patch');
+    expect(profile.allowedTools).not.toContain('mcp__myclaw__procedure_patch');
+    expect(profile.allowedTools).not.toContain('Read');
+    expect(profile.allowedTools).not.toContain('Glob');
+    expect(profile.allowedTools).not.toContain('Grep');
+    expect(profile.allowedTools).toContain('Agent');
+    expect(profile.allowedTools).not.toContain('Bash');
+    expect(profile.allowedTools).not.toContain('mcp__myclaw__service_restart');
+    expect(profile.allowedTools).not.toContain('mcp__myclaw__register_agent');
+  });
+
+  it('projects configured scoped SDK tool rules into developer allowed tools', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:team',
+      groupFolder: 'telegram_team',
+      isMain: false,
+      configuredAllowedTools: ['ToolName(scope-pattern)'],
+    });
+
+    expect(profile.allowedTools).toContain('ToolName(scope-pattern)');
+    expect(profile.allowedTools).not.toContain('ToolName');
+  });
+
+  it('filters configured shell, repo, file-write, and admin rules for non-developer personas', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:sales',
+      groupFolder: 'sales',
+      persona: 'sales',
+      isMain: true,
+      configuredAllowedTools: [
+        'Agent',
+        'Browser',
+        'Bash(git status)',
+        'Read(/repo/**)',
+        'Glob(**/*.ts)',
+        'Grep(todo)',
+        'LS(/repo)',
+        'Write(/repo/**)',
+        'Edit(/repo/**)',
+        'MultiEdit(/repo/**)',
+        'NotebookEdit',
+        'mcp__myclaw__service_restart',
+        'mcp__myclaw__settings_desired_state',
+        'ToolName(scope-pattern)',
+      ],
+    });
+
+    expect(profile.allowedTools).toContain('Agent');
+    expect(profile.allowedTools).toContain('Browser');
+    expect(profile.allowedTools).toContain('ToolName(scope-pattern)');
+    expect(profile.allowedTools).not.toContain('Bash(git status)');
+    expect(profile.allowedTools).not.toContain('Read(/repo/**)');
+    expect(profile.allowedTools).not.toContain('Glob(**/*.ts)');
+    expect(profile.allowedTools).not.toContain('Grep(todo)');
+    expect(profile.allowedTools).not.toContain('LS(/repo)');
+    expect(profile.allowedTools).not.toContain('Write(/repo/**)');
+    expect(profile.allowedTools).not.toContain('Edit(/repo/**)');
+    expect(profile.allowedTools).not.toContain('MultiEdit(/repo/**)');
+    expect(profile.allowedTools).not.toContain('NotebookEdit');
+    expect(profile.allowedTools).not.toContain('mcp__myclaw__service_restart');
+    expect(profile.allowedTools).not.toContain(
+      'mcp__myclaw__settings_desired_state',
     );
   });
 
@@ -164,7 +318,8 @@ describe('agent capability composition', () => {
         agent_browser: {
           type: 'stdio',
           command: '/tmp/playwright-mcp',
-          args: ['--cdp-endpoint', 'http://127.0.0.1:4567'],
+          args: ['--shared-browser-context'],
+          env: { PLAYWRIGHT_MCP_CDP_ENDPOINT: 'http://127.0.0.1:4567' },
         },
       },
       externalMcpAllowedTools: ['mcp__agent_browser__*'],
@@ -173,7 +328,8 @@ describe('agent capability composition', () => {
     expect(profile.mcpServers.agent_browser).toEqual({
       type: 'stdio',
       command: '/tmp/playwright-mcp',
-      args: ['--cdp-endpoint', 'http://127.0.0.1:4567'],
+      args: ['--shared-browser-context'],
+      env: { PLAYWRIGHT_MCP_CDP_ENDPOINT: 'http://127.0.0.1:4567' },
     });
     expect(profile.allowedTools).not.toContain('mcp__myclaw__*');
     expect(profile.allowedTools).toContain('mcp__agent_browser__*');

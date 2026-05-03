@@ -28,6 +28,10 @@ import { PartialMessageDeliveryError } from '../../runtime/partial-delivery.js';
 import { parseTextStyles } from '../../text-styles.js';
 import { AsyncTaskQueue } from '../../app/bootstrap/async-task-queue.js';
 import { writeTelegramFetchResponseToFile } from '../telegram-file-download.js';
+import {
+  formatPermissionPromptText as formatSharedPermissionPromptText,
+  formatPermissionReceiptText,
+} from '../permission-interaction.js';
 
 import { TelegramChannelState } from './channel-state.js';
 
@@ -48,22 +52,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
     request: PermissionApprovalRequest,
     timeoutMs: number,
   ): string {
-    const timeoutMinutes = Math.max(1, Math.round(timeoutMs / 60000));
-    const lines = [
-      `Permission request: ${request.requestId}`,
-      `Tool: ${request.displayName || request.toolName}`,
-      `Source: ${request.sourceGroup}`,
-    ];
-    if (request.threadId) {
-      lines.push(`Thread: ${truncateText(request.threadId, 80)}`);
-    }
-    if (request.title) lines.push(`Action: ${request.title}`);
-    if (request.blockedPath) lines.push(`Path: ${request.blockedPath}`);
-    if (request.decisionReason) lines.push(`Reason: ${request.decisionReason}`);
-    if (request.description) lines.push(`Details: ${request.description}`);
-    lines.push(...this.formatPermissionToolInputLines(request));
-    lines.push(`Reply timeout: ${timeoutMinutes} minute(s)`);
-    return lines.join('\n');
+    return formatSharedPermissionPromptText(request, timeoutMs);
   }
 
   protected formatPermissionToolInputLines(
@@ -243,13 +232,15 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
     const pending = this.pendingPermissionPrompts.get(requestId);
     if (!pending || !this.bot) return;
     this.pendingPermissionPrompts.delete(requestId);
+    this.pendingPermissionCallbackIds.delete(pending.callbackId);
     clearTimeout(pending.timer);
     pending.resolve(decision);
 
-    const status = decision.approved ? 'APPROVED' : 'DENIED';
-    const actor = decision.decidedBy || 'unknown';
-    const reasonSuffix = decision.reason ? ` (${decision.reason})` : '';
-    const text = `Permission request ${requestId}\nStatus: ${status} by ${actor}${reasonSuffix}`;
+    const text = formatPermissionReceiptText(
+      requestId,
+      pending.request,
+      decision,
+    );
     try {
       await this.bot.api.editMessageText(
         pending.chatId,

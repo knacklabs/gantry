@@ -67,14 +67,14 @@ approved skill artifacts containing `SKILL.md` into the temp `skills/`
 directory for that run, then the Claude Agent SDK loads them from
 `CLAUDE_CONFIG_DIR`.
 
-For the Main Agent, MyClaw also materializes a pinned runtime-installed
-`agent-browser` skill into that same temp directory. It is not stored under the
-repo-bundled `.claude/skills` tree and does not require user `.claude` edits.
-The runtime browser run wiring module owns this per-run projection. It always
-materializes lifecycle guidance, and it only adds the `agent_browser` action MCP
-handoff plus `PLAYWRIGHT_MCP_CDP_ENDPOINT` when the persistent browser is
-already running and CDP-ready at agent startup. The skill owns agent guidance
-for both lifecycle requests and action workflows.
+For each persona with browser capability, MyClaw also materializes a pinned
+runtime-installed `agent-browser` skill into that same temp directory. It is not
+stored under the repo-bundled `.claude/skills` tree and does not require user
+`.claude` edits. The runtime browser run wiring module owns this per-run
+projection. It always materializes lifecycle guidance, and it only adds the
+`agent_browser` action MCP handoff plus `PLAYWRIGHT_MCP_CDP_ENDPOINT` when the
+persistent browser is already running and CDP-ready at agent startup. The skill
+owns agent guidance for both lifecycle requests and action workflows.
 
 Durable user-installed files under the runtime-home Claude skills directory are
 not read or copied by enterprise runtime.

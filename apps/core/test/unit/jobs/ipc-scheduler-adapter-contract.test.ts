@@ -94,6 +94,30 @@ describe('scheduler IPC adapter contracts', () => {
     expect(mocks.jobService.upsertJobFromIpc).not.toHaveBeenCalled();
   });
 
+  it('describes job runtime context after scheduler upsert', async () => {
+    mocks.jobService.upsertJobFromIpc.mockResolvedValueOnce({
+      jobId: 'job-1',
+      created: true,
+      modelAlias: null,
+    });
+
+    await schedulerCreateTaskHandlers.scheduler_upsert_job(
+      makeContext({
+        type: 'scheduler_upsert_job',
+        name: 'Daily review',
+        prompt: 'Review memory',
+        scheduleType: 'once',
+        scheduleValue: '2026-05-04T00:00:00.000Z',
+      }),
+    );
+
+    const message = mocks.responder.accept.mock.calls[0][0] as string;
+    expect(message).toContain('Scheduler job created (job-1).');
+    expect(message).toContain('Model:');
+    expect(message).toContain('Runtime: notifications this conversation');
+    expect(message).toContain('team conversation browser');
+  });
+
   it('resolves scheduler update models through catalog aliases', async () => {
     await schedulerMutateTaskHandlers.scheduler_update_job(
       makeContext({

@@ -1,4 +1,8 @@
 import { composeSystemPromptAppend } from '../memory-boundary.js';
+import {
+  resolveAgentPersona,
+  type AgentPersona,
+} from '../../shared/agent-persona.js';
 import { log } from './logging.js';
 import type { AgentRunnerInput } from './types.js';
 
@@ -46,4 +50,10 @@ export function buildRunnerSystemPrompt(
       Boolean(memoryBlock),
     ),
   );
+}
+
+export function includeGitInstructionsForPersona(
+  persona: AgentPersona | undefined,
+): boolean {
+  return resolveAgentPersona(persona) === 'developer';
 }

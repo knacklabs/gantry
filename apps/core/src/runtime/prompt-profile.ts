@@ -4,10 +4,16 @@ import path from 'path';
 import { AGENTS_DIR } from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
+import {
+  resolveAgentPersona,
+  type AgentPersona,
+} from '../shared/agent-persona.js';
 
 type PromptSectionName =
   | 'RUNTIME_RULES'
+  | 'PERSONA'
   | 'SOUL'
+  | 'CAPABILITY_GUIDANCE'
   | 'SHARED_CONTEXT'
   | 'GROUP_CONTEXT';
 
@@ -15,6 +21,8 @@ const SOUL_FILENAME = 'SOUL.md';
 const PROFILE_CONTEXT_FILENAME = ['CLAU', 'DE.md'].join('');
 const GENERATED_PROVIDER_CONFIG_DIR = ['.clau', 'de'].join('');
 const SOUL_SOURCE = 'myclaw://soul';
+const PERSONA_SOURCE = 'myclaw://persona';
+const CAPABILITY_GUIDANCE_SOURCE = 'myclaw://capability-guidance';
 const SHARED_CONTEXT_SOURCE = 'myclaw://shared-context';
 const GROUP_CONTEXT_SOURCE = 'myclaw://group-context';
 
@@ -22,7 +30,9 @@ export const DEFAULT_PROMPT_SECTION_BUDGETS: Readonly<
   Record<PromptSectionName, number>
 > = {
   RUNTIME_RULES: 1200,
+  PERSONA: 1200,
   SOUL: 3000,
+  CAPABILITY_GUIDANCE: 1500,
   SHARED_CONTEXT: 8000,
   GROUP_CONTEXT: 5000,
 };
@@ -54,6 +64,7 @@ const DEFAULT_SHARED_TEMPLATE = `# Shared Agent Profile
 - Save only durable facts, preferences, decisions, corrections, constraints, and reusable procedures.
 - Do not save raw chat logs, terminal output, temporary task progress, secrets, credentials, or vague importance scores.
 - Prefer group/channel/user memory boundaries; common app memory is host-controlled and write-restricted.
+- Treat memory as durable evidence. Prefer recent, high-confidence, and directly relevant memory. If memory may be stale, verify with the user.
 - Search memory before assuming a user preference or prior decision is unknown.
 - Treat explicit user corrections as higher priority than older remembered facts.
 
@@ -62,7 +73,7 @@ const DEFAULT_SHARED_TEMPLATE = `# Shared Agent Profile
 - Use current state to understand what work is active.
 - Use open commitments to avoid dropping promises.
 - Use recent digest context to understand what changed recently.
-- Use dream lifecycle signals to prefer promoted memory and be cautious with stale/decayed items.
+- Dreaming currently stages candidates, marks items for review, and promotes reviewed memory; it does not automatically decay, retire, merge, rewrite, or rank memories by usefulness.
 - When the user says "continue", "resume", or similar, call memory_search for prior context instead of guessing.
 
 ## Privacy Rules
@@ -76,7 +87,8 @@ const DEFAULT_SHARED_TEMPLATE = `# Shared Agent Profile
 - Use memory tools for durable memory, not for temporary notes.
 - If memory is missing, stale, or uncertain, say so directly.
 - Use send_message for progress updates and ask_user_question for structured choices.
-- Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, request_tool_enable, or request_channel_tool_enable for capability changes.
+- Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission for capability changes.
+- For request_permission, default to the narrowest useful request: one-time for rare/exploratory actions, scoped persistent permission rules for repeated bounded actions, and broad whole-tool access only when scoped rules cannot work. This applies to every tool type, including shell, file, web, browser, scheduler, memory, service, Agent, and MCP tools.
 - Main/admin agents may use settings_desired_state before local configuration changes and request_settings_update for reviewed settings.yaml changes; do not edit settings.yaml directly.
 - Main/admin agents may use service_restart after approved capability or config changes and register_agent for conversation binding.
 - Never run npm, brew, go, uv, curl, or download install commands directly for skills or tools.
@@ -96,8 +108,76 @@ const DEFAULT_SHARED_TEMPLATE = `# Shared Agent Profile
 - Keep short answers short unless the user asks for detail.
 `;
 
+function personaPrompt(persona: AgentPersona): string {
+  switch (persona) {
+    case 'personal_assistant':
+      return [
+        '# Personal assistant persona',
+        '- Help with planning, reminders, coordination, lightweight research, and personal workflows.',
+        '- Use generic Agent delegation for isolated research, summarization, comparison, planning, or second-pass review when it reduces clutter for the user.',
+        '- Avoid developer, repository, shell, Git, deployment, PR, and runtime-admin assumptions unless the user explicitly asks and host capabilities allow it.',
+      ].join('\n');
+    case 'sales':
+      return [
+        '# Sales persona',
+        '- Help with customer context, account follow-up, scheduling, messaging, and approved CRM-backed workflows.',
+        '- Use generic Agent delegation for bounded account research, meeting prep, follow-up critique, or synthesis; keep customer-facing output owned by the main agent.',
+        '- Do not assume repository, shell, Git, deployment, PR, or runtime-admin work by default.',
+      ].join('\n');
+    case 'marketing':
+      return [
+        '# Marketing persona',
+        '- Help with campaign context, messaging, content review, research, and approved analytics/content workflows.',
+        '- Use generic Agent delegation for audience research, copy critique, channel comparison, and campaign synthesis; do not delegate brand judgment blindly.',
+        '- Do not assume repository, shell, Git, deployment, PR, or runtime-admin work by default.',
+      ].join('\n');
+    case 'operations':
+      return [
+        '# Operations persona',
+        '- Help with coordination, runbook-style status, scheduling, messaging, and approved operational workflows.',
+        '- Use generic Agent delegation for runbook checks, status summarization, incident context gathering, and blocker analysis.',
+        '- Runtime-admin actions require explicit main/admin capability and approval.',
+      ].join('\n');
+    case 'research':
+      return [
+        '# Research persona',
+        '- Help with browsing, source-backed research, comparison, synthesis, and citations.',
+        '- Use generic Agent delegation for source finding, cross-checking, citation review, and synthesis critique.',
+        '- Do not assume repository, shell, Git, deployment, PR, or runtime-admin work by default.',
+      ].join('\n');
+    case 'developer':
+    default:
+      return [
+        '# Developer persona',
+        '- Help with code, architecture, tests, review, local workspace context, and safe generic Agent delegation when available.',
+        '- Use developer tools only when the current request needs them and host permissions allow them.',
+      ].join('\n');
+  }
+}
+
+function capabilityGuidancePrompt(persona: AgentPersona): string {
+  const baseline = [
+    '# Capability guidance',
+    '- Browser and memory are baseline capabilities for every persona.',
+    '- Memory tools store durable evidence only; temporary task state does not belong in memory.',
+    '- Generic Agent delegation is available for bounded subtasks. Write a clear prompt with goal, context, constraints, and expected output.',
+    '- Do not delegate risky execution, secret handling, config edits, permission changes, or work requiring tools the parent run cannot use.',
+  ];
+  if (persona === 'developer') {
+    baseline.push(
+      '- Developer capabilities may include workspace read/search and delegation. Shell, file writes, Git, PR, deploy, and runtime-admin actions still require explicit capability or permission.',
+    );
+  } else {
+    baseline.push(
+      '- This persona should not introduce gstack, Git, PR, deploy, shell, repository, filesystem, or runtime-admin workflow language unless the user explicitly asks and host capabilities allow it.',
+    );
+  }
+  return baseline.join('\n');
+}
+
 export interface CompilePromptProfileOptions {
   groupFolder: string;
+  persona?: AgentPersona;
 }
 
 export interface PromptProfileServiceOptions {
@@ -110,6 +190,16 @@ interface PromptSection {
   name: PromptSectionName;
   source: string;
   content: string;
+}
+
+function makeSection(
+  name: PromptSectionName,
+  source: string,
+  content: string,
+  budget: number,
+): PromptSection | null {
+  const truncated = truncateDeterministically(content, budget);
+  return truncated ? { name, source, content: truncated } : null;
 }
 
 function normalizeContent(content: string): string {
@@ -160,17 +250,32 @@ export class PromptProfileService {
 
     const sections: PromptSection[] = [];
 
-    sections.push({
-      name: 'RUNTIME_RULES',
-      source: 'myclaw://runtime-rules',
-      content: truncateDeterministically(
-        RUNTIME_RULES_BLOCK,
-        this.sectionBudgets.RUNTIME_RULES,
-      ),
-    });
+    const runtimeRules = makeSection(
+      'RUNTIME_RULES',
+      'myclaw://runtime-rules',
+      RUNTIME_RULES_BLOCK,
+      this.sectionBudgets.RUNTIME_RULES,
+    );
+    if (runtimeRules) sections.push(runtimeRules);
+
+    const personaSection = makeSection(
+      'PERSONA',
+      PERSONA_SOURCE,
+      personaPrompt(resolveAgentPersona(options.persona)),
+      this.sectionBudgets.PERSONA,
+    );
+    if (personaSection) sections.push(personaSection);
 
     const soul = this.readSoulSection(options.groupFolder);
     if (soul) sections.push(soul);
+
+    const capabilityGuidance = makeSection(
+      'CAPABILITY_GUIDANCE',
+      CAPABILITY_GUIDANCE_SOURCE,
+      capabilityGuidancePrompt(resolveAgentPersona(options.persona)),
+      this.sectionBudgets.CAPABILITY_GUIDANCE,
+    );
+    if (capabilityGuidance) sections.push(capabilityGuidance);
 
     const sharedSection = this.readSharedContextSection();
     if (sharedSection) sections.push(sharedSection);

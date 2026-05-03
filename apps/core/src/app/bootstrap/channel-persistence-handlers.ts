@@ -271,6 +271,7 @@ function dmAgentGroup(
     added_at: new Date().toISOString(),
     requiresTrigger: false,
     isMain: false,
+    conversationKind: 'dm',
   };
 }
 

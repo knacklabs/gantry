@@ -743,7 +743,7 @@ describe('cli telegram helpers', () => {
       'When the user says "continue", call memory_search before guessing.',
     );
     expect(claude).toContain(
-      'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, request_tool_enable, or request_channel_tool_enable for capability changes.',
+      'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission for capability changes.',
     );
     expect(claude).toContain(
       'Main/admin agents may use service_restart after approved changes and register_agent for conversation binding.',

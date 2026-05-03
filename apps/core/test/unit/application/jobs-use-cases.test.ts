@@ -82,6 +82,14 @@ describe('job application use cases', () => {
         'app-one',
       ),
     ).toBe(false);
+    expect(
+      jobBelongsToApp(
+        makeJob({
+          linked_sessions: ['app:app-one:conv', 'app:app-two:conv'],
+        }),
+        'app-one',
+      ),
+    ).toBe(false);
   });
 
   it('updates mutable job fields and requests scheduler sync', async () => {

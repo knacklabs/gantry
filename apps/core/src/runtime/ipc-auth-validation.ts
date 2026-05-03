@@ -5,11 +5,24 @@ import {
 } from '../infrastructure/ipc/request-signing.js';
 import { nowMs } from '../infrastructure/time/datetime.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
-import { computeIpcAuthToken } from './ipc-auth.js';
+import {
+  computeBrowserIpcAuthToken,
+  computeIpcAuthToken,
+  computeMemoryIpcAuthToken,
+} from './ipc-auth.js';
 
 interface IpcThreadBinding {
   authThreadId?: string;
   payloadThreadId?: string | null;
+}
+
+interface IpcBrowserBinding extends IpcThreadBinding {
+  chatJid: string;
+}
+
+interface IpcMemoryBinding extends IpcThreadBinding {
+  userId?: string;
+  defaultScope?: 'user' | 'group';
 }
 
 const consumedIpcRequestIds = new Map<string, number>();
@@ -113,4 +126,90 @@ export function validateIpcAuthRequest(
     consumedIpcRequestIds.set(replayKey, nowMs() + IPC_REQUEST_MAX_AGE_MS);
   }
   return binding;
+}
+
+export function validateBrowserIpcAuthRequest(
+  raw: Record<string, unknown>,
+  sourceGroup: string,
+  label: string,
+): IpcBrowserBinding {
+  const binding = readTrustedThreadBinding(raw, label);
+  const context = isPlainObject(raw.context) ? raw.context : undefined;
+  const chatJid = toTrimmedString(context?.chatJid, { maxLen: 255 });
+  if (!chatJid) {
+    throw new Error(`${label} context.chatJid is required`);
+  }
+  const signature = toTrimmedString(raw.signature, { maxLen: 512 }) || '';
+  const payload = { ...raw };
+  delete payload.signature;
+  delete payload.authToken;
+  const requestSigningKey = computeBrowserIpcAuthToken(
+    sourceGroup,
+    chatJid,
+    binding.authThreadId,
+  );
+  if (!verifyIpcRequestPayload(requestSigningKey, payload, signature)) {
+    throw new Error(`Invalid ${label} signature`);
+  }
+  const freshness = validateIpcRequestFreshness(payload);
+  if (!freshness.ok) {
+    throw new Error(`Invalid ${label} freshness: ${freshness.reason}`);
+  }
+  const requestId = toTrimmedString(payload.requestId, { maxLen: 128 });
+  if (requestId) {
+    pruneConsumedIpcRequestIds();
+    const replayKey = `${sourceGroup}:${binding.authThreadId || ''}:${chatJid}:${requestId}`;
+    if (consumedIpcRequestIds.has(replayKey)) {
+      throw new Error(`Invalid ${label} replay`);
+    }
+    consumedIpcRequestIds.set(replayKey, nowMs() + IPC_REQUEST_MAX_AGE_MS);
+  }
+  return { ...binding, chatJid };
+}
+
+export function validateMemoryIpcAuthRequest(
+  raw: Record<string, unknown>,
+  sourceGroup: string,
+  label: string,
+): IpcMemoryBinding {
+  const binding = readTrustedThreadBinding(raw, label);
+  const context = isPlainObject(raw.context) ? raw.context : undefined;
+  const userId = toTrimmedString(context?.userId, { maxLen: 255 });
+  const defaultScopeRaw = toTrimmedString(context?.defaultScope, {
+    maxLen: 16,
+  });
+  const defaultScope =
+    defaultScopeRaw === 'user' || defaultScopeRaw === 'group'
+      ? defaultScopeRaw
+      : undefined;
+  const signature = toTrimmedString(raw.signature, { maxLen: 512 }) || '';
+  const payload = { ...raw };
+  delete payload.signature;
+  delete payload.authToken;
+  const requestSigningKey = computeMemoryIpcAuthToken(sourceGroup, {
+    ...(userId ? { userId } : {}),
+    defaultScope: defaultScope || 'group',
+    threadId: binding.authThreadId,
+  });
+  if (!verifyIpcRequestPayload(requestSigningKey, payload, signature)) {
+    throw new Error(`Invalid ${label} signature`);
+  }
+  const freshness = validateIpcRequestFreshness(payload);
+  if (!freshness.ok) {
+    throw new Error(`Invalid ${label} freshness: ${freshness.reason}`);
+  }
+  const requestId = toTrimmedString(payload.requestId, { maxLen: 128 });
+  if (requestId) {
+    pruneConsumedIpcRequestIds();
+    const replayKey = `${sourceGroup}:${binding.authThreadId || ''}:memory:${userId || ''}:${defaultScope || 'group'}:${requestId}`;
+    if (consumedIpcRequestIds.has(replayKey)) {
+      throw new Error(`Invalid ${label} replay`);
+    }
+    consumedIpcRequestIds.set(replayKey, nowMs() + IPC_REQUEST_MAX_AGE_MS);
+  }
+  return {
+    ...binding,
+    ...(userId ? { userId } : {}),
+    ...(defaultScope ? { defaultScope } : {}),
+  };
 }

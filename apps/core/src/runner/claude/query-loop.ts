@@ -29,12 +29,14 @@ import {
 } from './runtime-env.js';
 import {
   buildRunnerSystemPrompt,
+  includeGitInstructionsForPersona,
   readMemoryContextBlock,
 } from './system-prompt.js';
 import type { AgentRunnerInput } from './types.js';
 import {
   findModelByRunnerModel,
   normalizeModelUsage,
+  type RuntimeContextUsageSnapshot,
 } from '../../shared/model-catalog.js';
 import { validateAgentToolInput } from './agent-model-selection.js';
 import { usageEventIdForMessage } from './query-usage-event-id.js';
@@ -114,16 +116,23 @@ export async function runQuery(
     chatJid: agentInput.chatJid,
     groupFolder: agentInput.groupFolder,
     threadId: agentInput.threadId,
+    memoryUserId: agentInput.memoryUserId,
+    memoryDefaultScope: agentInput.memoryDefaultScope,
+    persona: agentInput.persona,
+    browserProfileName: agentInput.browserProfileName,
     isMain: agentInput.isMain,
+    configuredAllowedTools: agentInput.allowedTools,
     ipcDir: process.env.MYCLAW_IPC_DIR,
     ipcAuthToken: process.env.MYCLAW_IPC_AUTH_TOKEN,
+    browserIpcAuthToken: process.env.MYCLAW_BROWSER_IPC_AUTH_TOKEN,
+    memoryIpcAuthToken: process.env.MYCLAW_MEMORY_IPC_AUTH_TOKEN,
     ipcResponseVerifyKey: process.env.MYCLAW_IPC_RESPONSE_VERIFY_KEY,
     externalMcpServers: readExternalMcpServers(),
     externalMcpAllowedTools: readExternalMcpAllowedTools(),
     externalMcpAlwaysAllowedTools: readExternalMcpAlwaysAllowedTools(),
   });
 
-  for await (const message of query({
+  const sdkQuery = query({
     prompt: stream,
     options: {
       model: configuredModel,
@@ -137,6 +146,11 @@ export async function runQuery(
           ? agentInput.sessionId
           : undefined,
       systemPrompt,
+      settings: {
+        includeGitInstructions: includeGitInstructionsForPersona(
+          agentInput.persona,
+        ),
+      },
       allowedTools: [...capabilities.allowedTools],
       env: sdkEnv,
       permissionMode: capabilities.permissionMode,
@@ -214,13 +228,28 @@ export async function runQuery(
           decisionReason: permissionOpts.decisionReason,
           blockedPath: permissionOpts.blockedPath,
           toolInput: input,
+          toolUseID: permissionOpts.toolUseID,
+          agentID: permissionOpts.agentID,
+          suggestions: permissionOpts.suggestions,
           threadId: agentInput.threadId,
         });
         if (decision.approved) {
           log(
             `Permission approved for tool ${toolName} by ${decision.decidedBy || 'unknown'}`,
           );
-          return { behavior: 'allow' as const, updatedInput: input };
+          return {
+            behavior: 'allow' as const,
+            updatedInput: input,
+            ...(decision.updatedPermissions
+              ? { updatedPermissions: decision.updatedPermissions as never }
+              : {}),
+            ...(decision.decisionClassification
+              ? {
+                  decisionClassification:
+                    decision.decisionClassification as never,
+                }
+              : {}),
+          };
         }
         const reason = decision.reason || 'Denied by operator';
         log(`Permission denied for tool ${toolName}: ${reason}`);
@@ -234,7 +263,9 @@ export async function runQuery(
       mcpServers: capabilities.mcpServers,
       includePartialMessages: true,
     },
-  })) {
+  });
+
+  for await (const message of sdkQuery) {
     messageCount++;
     const msgType =
       message.type === 'system'
@@ -311,11 +342,13 @@ export async function runQuery(
         message,
         fallbackModel: configuredModel,
       });
+      const contextUsage = await readContextUsage(sdkQuery);
       writeOutput({
         status: 'success',
         result:
           textResult && !sawPartialTextSinceLastResult ? textResult : null,
         newSessionId,
+        ...(contextUsage ? { contextUsage } : {}),
         ...(usage
           ? {
               usage,
@@ -397,6 +430,45 @@ function validateExternalMcpServers(
     servers[name] = config;
   }
   return servers;
+}
+
+async function readContextUsage(queryHandle: unknown) {
+  const candidate = queryHandle as {
+    getContextUsage?: () => Promise<{
+      totalTokens: number;
+      maxTokens: number;
+      percentage: number;
+      model?: string;
+      categories?: Array<{
+        name: string;
+        tokens: number;
+        percentage?: number;
+      }>;
+      apiUsage?: RuntimeContextUsageSnapshot['apiUsage'];
+    }>;
+  };
+  if (typeof candidate.getContextUsage !== 'function') return undefined;
+  try {
+    const usage = await candidate.getContextUsage();
+    return {
+      totalTokens: usage.totalTokens,
+      maxTokens: usage.maxTokens,
+      percentage: usage.percentage,
+      model: usage.model,
+      categories: (usage.categories ?? []).map((category) => ({
+        name: category.name,
+        tokens: category.tokens,
+        percentage: category.percentage,
+      })),
+      apiUsage: usage.apiUsage,
+      at: new Date().toISOString(),
+    } satisfies RuntimeContextUsageSnapshot;
+  } catch (err) {
+    log(
+      `Context usage unavailable: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return undefined;
+  }
 }
 
 function readExternalMcpAllowedTools(): readonly string[] {

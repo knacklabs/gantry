@@ -81,6 +81,7 @@ async function main(): Promise<void> {
       configuredThinking: configuredThinking.thinking,
       configuredEffort: configuredThinking.effort,
       systemPromptAppend: compiledSystemPrompt,
+      persona: agentInput.persona,
     });
 
     if (slashResult.status === 'error') {

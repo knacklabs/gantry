@@ -86,7 +86,7 @@ describe('Teams JID helpers', () => {
 });
 
 describe('Teams Adaptive Card payloads', () => {
-  it('builds Action.Execute approval and deny actions', () => {
+  it('builds Action.Execute allow-once and cancel actions', () => {
     const payload = buildTeamsApprovalDescriptorPayload({
       requestId: 'perm-1',
       sourceGroup: 'teams_main',
@@ -104,20 +104,20 @@ describe('Teams Adaptive Card payloads', () => {
     expect(payload.attachments[0].content.actions).toEqual([
       expect.objectContaining({
         type: 'Action.Execute',
-        title: 'Approve',
-        verb: 'myclaw.permission.approve',
+        title: 'Allow once',
+        verb: 'myclaw.permission.allow',
         data: expect.objectContaining({
           requestId: 'perm-1',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       }),
       expect.objectContaining({
         type: 'Action.Execute',
-        title: 'Deny',
-        verb: 'myclaw.permission.deny',
+        title: 'Cancel',
+        verb: 'myclaw.permission.cancel',
         data: expect.objectContaining({
           requestId: 'perm-1',
-          decision: 'deny',
+          decision: 'cancel',
         }),
       }),
     ]);

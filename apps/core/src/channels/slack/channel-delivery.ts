@@ -21,6 +21,10 @@ import {
 import { resolveGroupFolderPath } from '../../platform/group-folder.js';
 import { ChannelOpts } from '../channel-provider.js';
 import {
+  permissionButtonLabel,
+  permissionDecisionOptions,
+} from '../permission-interaction.js';
+import {
   channelProgressStateFilePath,
   readProgressStateEntries,
   writeProgressStateEntries,
@@ -361,34 +365,21 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           },
           {
             type: 'actions',
-            elements: [
-              {
-                type: 'button',
-                action_id: 'myclaw_perm_decision',
-                text: {
-                  type: 'plain_text',
-                  text: 'Approve',
-                },
-                style: 'primary',
-                value: JSON.stringify({
-                  requestId: request.requestId,
-                  decision: 'approve',
-                }),
+            elements: permissionDecisionOptions(request).map((mode) => ({
+              type: 'button',
+              action_id: 'myclaw_perm_decision',
+              text: {
+                type: 'plain_text',
+                text: permissionButtonLabel(mode, request),
               },
-              {
-                type: 'button',
-                action_id: 'myclaw_perm_decision',
-                text: {
-                  type: 'plain_text',
-                  text: 'Deny',
-                },
-                style: 'danger',
-                value: JSON.stringify({
-                  requestId: request.requestId,
-                  decision: 'deny',
-                }),
-              },
-            ],
+              ...(mode === 'cancel'
+                ? { style: 'danger' as const }
+                : { style: 'primary' as const }),
+              value: JSON.stringify({
+                requestId: request.requestId,
+                decision: mode,
+              }),
+            })),
           },
         ],
       })) as { ts?: string };
@@ -415,6 +406,8 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           channelId: parsed.channelId,
           sourceGroup: request.sourceGroup,
           decisionPolicy: request.decisionPolicy,
+          approvalContextJid: request.approvalContextJid,
+          request,
           messageTs,
           timer,
           resolve,

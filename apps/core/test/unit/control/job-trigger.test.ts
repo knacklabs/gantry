@@ -99,7 +99,17 @@ const runtimeEvents = {
 const opsRepo = {
   getJobById: vi.fn(),
   getJobRunById: vi.fn(),
+  getAllRegisteredGroups: vi.fn(async () => ({
+    'chat-1': {
+      name: 'App Folder',
+      folder: 'app-folder',
+      trigger: '@App',
+      added_at: '2026-04-24T00:00:00.000Z',
+      agentConfig: { persona: 'personal_assistant' },
+    },
+  })),
   upsertJob: vi.fn(async (job) => ({ job, created: true })),
+  listJobs: vi.fn(async () => []),
   updateJob: vi.fn(async () => undefined),
 };
 
@@ -165,7 +175,17 @@ beforeEach(() => {
   runtimeEvents.publish.mockResolvedValue({ eventId: 1 });
   opsRepo.getJobById.mockReset();
   opsRepo.getJobRunById.mockReset();
+  opsRepo.getAllRegisteredGroups.mockResolvedValue({
+    'chat-1': {
+      name: 'App Folder',
+      folder: 'app-folder',
+      trigger: '@App',
+      added_at: '2026-04-24T00:00:00.000Z',
+      agentConfig: { persona: 'personal_assistant' },
+    },
+  });
   opsRepo.upsertJob.mockClear();
+  opsRepo.listJobs.mockResolvedValue([]);
   opsRepo.updateJob.mockResolvedValue(undefined);
 });
 
@@ -272,7 +292,20 @@ describe('control job trigger', () => {
       },
     ]);
     const handle = startControlServer({
-      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+      app: {
+        queue: { enqueueMessageCheck: vi.fn() },
+        getRegisteredGroups: () => ({
+          'chat-1': {
+            name: 'App Folder',
+            folder: 'app-folder',
+            trigger: '@App',
+            requiresTrigger: false,
+            isMain: false,
+            conversationKind: 'channel',
+            agentConfig: { persona: 'personal_assistant' },
+          },
+        }),
+      } as never,
     });
 
     try {
@@ -300,6 +333,16 @@ describe('control job trigger', () => {
           displayName: 'Opus 4.7',
           modelProfileId: 'anthropic:opus-4.7',
         },
+        runtimeContext: {
+          conversationJid: 'chat-1',
+          groupScope: 'app-folder',
+          notificationTarget: 'conversation',
+          persona: 'personal_assistant',
+          browserProfileLabel: 'App Folder conversation browser',
+          browserProfileName: expect.stringMatching(
+            /^c-app-folder-[a-f0-9]{12}$/,
+          ),
+        },
       });
       expect(opsRepo.upsertJob).toHaveBeenCalledWith(
         expect.objectContaining({ model: null }),
@@ -321,7 +364,20 @@ describe('control job trigger', () => {
       },
     ]);
     const handle = startControlServer({
-      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+      app: {
+        queue: { enqueueMessageCheck: vi.fn() },
+        getRegisteredGroups: () => ({
+          'chat-1': {
+            name: 'App Folder',
+            folder: 'app-folder',
+            trigger: '@App',
+            requiresTrigger: false,
+            isMain: false,
+            conversationKind: 'channel',
+            agentConfig: { persona: 'personal_assistant' },
+          },
+        }),
+      } as never,
     });
 
     try {
@@ -347,6 +403,10 @@ describe('control job trigger', () => {
         dryRun: true,
         modelAlias: 'haiku',
         modelSource: 'explicit',
+        runtimeContext: {
+          conversationJid: 'chat-1',
+          notificationTarget: 'conversation',
+        },
       });
       expect(body.jobId).toBeUndefined();
       expect(opsRepo.upsertJob).not.toHaveBeenCalled();
@@ -960,6 +1020,43 @@ describe('control job trigger', () => {
       expect(response.status).toBe(404);
       await expect(response.json()).resolves.toMatchObject({
         error: { code: 'TRIGGER_NOT_FOUND' },
+      });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('filters mixed-app jobs from app-scoped job listing', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:read'],
+        appId: 'app-one',
+      },
+    ]);
+    opsRepo.listJobs.mockResolvedValue([
+      makeJob({ id: 'visible', linked_sessions: ['app:app-one:conv-1'] }),
+      makeJob({
+        id: 'mixed',
+        linked_sessions: ['app:app-one:conv-1', 'app:app-two:conv-2'],
+      }),
+    ]);
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs`,
+        'token-jobs',
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        jobs: [expect.objectContaining({ jobId: 'visible' })],
       });
     } finally {
       await handle.close();

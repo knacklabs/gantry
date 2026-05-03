@@ -29,22 +29,14 @@ interface BrowserResponse {
   error?: string;
 }
 
-type BrowserContext = Pick<IpcDomainContext, 'sourceGroup' | 'isMain'>;
+type BrowserContext = Pick<
+  IpcDomainContext,
+  'sourceGroup' | 'isMain' | 'browserProfileName'
+>;
 type BrowserActionHandler = (
   request: BrowserRequest,
   context: BrowserContext,
 ) => Promise<BrowserResponse>;
-
-function toTrimmedString(
-  value: unknown,
-  opts: { maxLen?: number } = {},
-): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  if (opts.maxLen && trimmed.length > opts.maxLen) return undefined;
-  return trimmed;
-}
 
 function toOptionalBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
@@ -60,24 +52,56 @@ function toOptionalNumber(
   return value;
 }
 
-function getProfileNameFromPayload(payload: Record<string, unknown>): string {
-  const requested = toTrimmedString(payload.profile_name, { maxLen: 64 });
-  if (!requested) return DEFAULT_BROWSER_PROFILE_NAME;
-  const normalized = requested.toLowerCase();
-  if (normalized !== DEFAULT_BROWSER_PROFILE_NAME) {
-    throw new Error(
-      `Only browser profile "${DEFAULT_BROWSER_PROFILE_NAME}" is supported`,
-    );
-  }
-  return normalized;
+function getProfileNameFromPayload(
+  payload: Record<string, unknown>,
+  context: BrowserContext,
+): string {
+  void payload;
+  return context.browserProfileName || DEFAULT_BROWSER_PROFILE_NAME;
+}
+
+function sanitizeBrowserStatus(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value;
+  const row = value as Record<string, unknown>;
+  return {
+    profile: row.profile,
+    profileName: row.profileName,
+    running: row.running,
+    cdpReady: row.cdpReady,
+    lastUsedAt: row.lastUsedAt,
+    headless: row.headless,
+    keepAliveMs: row.keepAliveMs,
+    idleExpiresAt: row.idleExpiresAt,
+    error: row.error,
+  };
+}
+
+function sanitizeBrowserProfiles(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    const profile = row as Record<string, unknown>;
+    return {
+      name: profile.name,
+      created_at: profile.created_at,
+      last_used: profile.last_used,
+      auth_markers: profile.auth_markers,
+      has_state: profile.has_state,
+      running: profile.running,
+      cdpReady: profile.cdpReady,
+    };
+  });
 }
 
 const browserActionHandlers: Record<BrowserIpcAction, BrowserActionHandler> = {
   browser_profile_list: async () => {
-    return { ok: true, data: { profiles: await listBrowserProfiles() } };
+    return {
+      ok: true,
+      data: { profiles: sanitizeBrowserProfiles(await listBrowserProfiles()) },
+    };
   },
-  browser_launch: async (request) => {
-    const profileName = getProfileNameFromPayload(request.payload);
+  browser_launch: async (request, context) => {
+    const profileName = getProfileNameFromPayload(request.payload, context);
     const status = await ensureBrowserReady({
       profileName,
       headless: toOptionalBoolean(request.payload.headless),
@@ -86,16 +110,19 @@ const browserActionHandlers: Record<BrowserIpcAction, BrowserActionHandler> = {
         max: 3_600_000,
       }),
     });
-    return { ok: true, data: status };
+    return { ok: true, data: sanitizeBrowserStatus(status) };
   },
-  browser_close: async (request) => {
-    const profileName = getProfileNameFromPayload(request.payload);
+  browser_close: async (request, context) => {
+    const profileName = getProfileNameFromPayload(request.payload, context);
     const closed = await closeBrowser(profileName);
     return { ok: true, data: closed };
   },
-  browser_status: async (request) => {
-    const profileName = getProfileNameFromPayload(request.payload);
-    return { ok: true, data: await getBrowserStatus(profileName) };
+  browser_status: async (request, context) => {
+    const profileName = getProfileNameFromPayload(request.payload, context);
+    return {
+      ok: true,
+      data: sanitizeBrowserStatus(await getBrowserStatus(profileName)),
+    };
   },
 };
 
@@ -105,9 +132,7 @@ export async function processBrowserIpcRequest(
 ): Promise<BrowserResponse> {
   const mainOnlyActions = new Set<BrowserIpcAction>([
     'browser_profile_list',
-    'browser_launch',
     'browser_close',
-    'browser_status',
   ]);
 
   if (!context.isMain && mainOnlyActions.has(request.action)) {

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { AgentPersonaSchema } from '../agents/index.js';
+
 export const RuntimeSettingsConfiguredAgentDmAccessSchema = z
   .object({
     provider: z.string().trim().min(1),
@@ -33,6 +35,7 @@ export const RuntimeSettingsConfiguredAgentSchema = z
   .object({
     name: z.string().trim().min(1),
     folder: z.string().trim().min(1),
+    persona: AgentPersonaSchema.optional(),
     model: z.string().optional(),
     oneTimeJobDefaultModel: z.string().optional(),
     recurringJobDefaultModel: z.string().optional(),

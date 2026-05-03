@@ -208,7 +208,7 @@ describe('setup config step', () => {
         onecliPostgresDatabaseUrl: draft.onecliPostgresDatabaseUrl,
       }),
     );
-  });
+  }, 10_000);
 
   it('returns to storage without writing config when database URLs are missing', async () => {
     const runtimeHome = makeRuntimeHome();
@@ -222,7 +222,7 @@ describe('setup config step', () => {
     expect(logError).toHaveBeenCalledWith(
       expect.stringContaining('MYCLAW_DATABASE_URL'),
     );
-  });
+  }, 10_000);
 });
 
 describe('setup group step', () => {

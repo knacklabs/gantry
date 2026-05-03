@@ -1,13 +1,27 @@
-import type { Job, RegisteredGroup } from '../domain/types.js';
+import type {
+  Job,
+  RegisteredGroup as RuntimeConversationRecord,
+} from '../domain/types.js';
 
 export function resolveExecutionContext(
   job: Job,
-  groups: Record<string, RegisteredGroup>,
+  groups: Record<string, RuntimeConversationRecord>,
 ): {
-  group: RegisteredGroup;
+  group: RuntimeConversationRecord;
   executionJid: string;
   stopAliasJids: string[];
 } | null {
+  for (const linked of job.linked_sessions) {
+    const group = groups[linked];
+    if (group) {
+      return {
+        group,
+        executionJid: linked,
+        stopAliasJids: Array.from(new Set([...(job.linked_sessions || [])])),
+      };
+    }
+  }
+
   const byFolder = Object.entries(groups).find(
     ([, group]) => group.folder === job.group_scope,
   );
@@ -22,16 +36,23 @@ export function resolveExecutionContext(
     };
   }
 
-  for (const linked of job.linked_sessions) {
-    const group = groups[linked];
-    if (group) {
-      const stopAliasJids = Array.from(
-        new Set([...(job.linked_sessions || []), linked]),
-      );
-      return { group, executionJid: linked, stopAliasJids };
-    }
-  }
   return null;
+}
+
+export function resolveExecutionMemoryContext(input: {
+  conversationKind?: RuntimeConversationRecord['conversationKind'];
+  executionJid: string;
+}): {
+  memoryDefaultScope: 'user' | 'group';
+  memoryUserId?: string;
+} {
+  if (input.conversationKind === 'dm') {
+    return {
+      memoryDefaultScope: 'user',
+      memoryUserId: input.executionJid,
+    };
+  }
+  return { memoryDefaultScope: 'group' };
 }
 
 export function parseTriggerRequesterSessionId(

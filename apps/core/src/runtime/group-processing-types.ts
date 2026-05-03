@@ -14,6 +14,7 @@ import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js
 import type {
   McpServerRepository,
   SkillCatalogRepository,
+  ToolCatalogRepository,
 } from '../domain/ports/repositories.js';
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import type { RemoteMcpDnsValidationCache } from '../application/mcp/mcp-server-policy.js';
@@ -82,6 +83,7 @@ export interface GroupProcessingDeps {
   };
   runAgent?: typeof spawnAgent;
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
+  getToolRepository?: () => ToolCatalogRepository | undefined;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
   getMcpHostnameLookup?: () => HostnameLookup | undefined;

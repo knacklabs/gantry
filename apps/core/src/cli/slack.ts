@@ -26,6 +26,7 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
+import { renderDefaultCapabilityRules } from '../shared/capability-guidance.js';
 import { chooseSlackChatForConnect } from './slack-connect-chat-picker.js';
 
 export interface SlackTokenValidation {
@@ -74,7 +75,7 @@ function defaultGroupClaudeMarkdown(): string {
     'Rules:',
     '- Answer directly unless the user asks for detail.\n- Be explicit when an action failed and what to do next.\n- Avoid exposing secrets, tokens, or local machine paths unless requested.\n- When the user says "continue", call memory_search before guessing.',
     '',
-    'Capability rules:\n- Use send_message for progress updates and ask_user_question for structured choices.\n- Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, request_tool_enable, or request_channel_tool_enable for capability changes.\n- Main/admin agents may use service_restart after approved changes and register_agent for conversation binding.\n- Never run dependency installs or edit .claude/skills, .mcp.json, settings, or generated capability config directly.',
+    renderDefaultCapabilityRules(),
     '',
   ].join('\n');
 }

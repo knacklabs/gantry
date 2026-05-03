@@ -1,6 +1,7 @@
 import type {
   ModelCatalogEntry,
   NormalizedModelUsage,
+  RuntimeContextUsageSnapshot,
 } from '../shared/model-catalog.js';
 
 export interface RuntimeModelStatusSnapshot {
@@ -9,6 +10,7 @@ export interface RuntimeModelStatusSnapshot {
   selectionSource: string;
   modelAlias?: string;
   model?: ModelCatalogEntry;
+  contextUsage?: RuntimeContextUsageSnapshot;
   lastUsage?: NormalizedModelUsage;
   cumulativeUsage: NormalizedModelUsage;
 }
@@ -22,6 +24,7 @@ export interface RuntimeModelStatusSelectionUpdate {
   selectionSource: string;
   modelAlias?: string;
   model?: ModelCatalogEntry;
+  contextUsage?: RuntimeContextUsageSnapshot;
 }
 
 function emptyUsage(): NormalizedModelUsage {
@@ -47,6 +50,7 @@ export function updateRuntimeModelStatus(input: {
   selectionSource: string;
   modelAlias?: string;
   model?: ModelCatalogEntry;
+  contextUsage?: RuntimeContextUsageSnapshot;
   usage?: NormalizedModelUsage;
   usageKey?: string;
 }): void {
@@ -94,6 +98,7 @@ export function updateRuntimeModelStatus(input: {
     selectionSource: input.selectionSource,
     modelAlias: input.modelAlias ?? existing?.modelAlias,
     model: input.model ?? existing?.model,
+    contextUsage: input.contextUsage ?? existing?.contextUsage,
     lastUsage: input.usage ?? existing?.lastUsage,
     cumulativeUsage: cumulative,
   });

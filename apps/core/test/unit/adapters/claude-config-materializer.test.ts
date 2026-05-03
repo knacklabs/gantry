@@ -177,7 +177,7 @@ describe('Claude config materializer', () => {
       'utf-8',
     );
     expect(skillText).toContain(
-      'MyClaw attaches them only when the shared browser is already running at agent startup.',
+      "MyClaw attaches them only when this conversation's browser is already running at agent startup.",
     );
     expect(skillText).toContain('Do not install browser skills');
     expect(fs.existsSync(path.join(tempRoot, '.claude', 'skills'))).toBe(false);

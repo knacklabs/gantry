@@ -33,6 +33,25 @@ describe('collectCompactBoundaryMemory', () => {
     );
   });
 
+  it('forwards the runtime default scope for automatic compact memory', async () => {
+    const collectMemory = vi.fn().mockResolvedValue({ saved: 1 });
+    const logger = { info: vi.fn(), warn: vi.fn() };
+
+    await collectCompactBoundaryMemory({
+      compactBoundary: true,
+      agentSessionId: 'agent-session:dm',
+      collectMemory,
+      defaultScope: 'user',
+      logger,
+    });
+
+    expect(collectMemory).toHaveBeenCalledWith({
+      agentSessionId: 'agent-session:dm',
+      trigger: 'precompact',
+      defaultScope: 'user',
+    });
+  });
+
   it('does not collect without a compact boundary, canonical session, or collector', async () => {
     const collectMemory = vi.fn().mockResolvedValue({ saved: 1 });
     const logger = { info: vi.fn(), warn: vi.fn() };
@@ -97,6 +116,28 @@ describe('collectJobCompletionMemory', () => {
       },
       'Collected durable memory after successful job run',
     );
+  });
+
+  it('forwards the runtime default scope for automatic job completion memory', async () => {
+    const collectMemory = vi.fn().mockResolvedValue({ saved: 1 });
+    const logger = { info: vi.fn(), warn: vi.fn() };
+
+    await collectJobCompletionMemory({
+      agentSessionId: 'agent-session:channel',
+      collectMemory,
+      defaultScope: 'group',
+      prompt: 'Remember the channel release rule.',
+      logger,
+    });
+
+    expect(collectMemory).toHaveBeenCalledWith({
+      agentSessionId: 'agent-session:channel',
+      trigger: 'session-end',
+      defaultScope: 'group',
+      additionalTurns: [
+        { role: 'user', text: 'Remember the channel release rule.' },
+      ],
+    });
   });
 
   it('does not collect job completion memory without a session, collector, or turns', async () => {

@@ -28,6 +28,7 @@ import {
   defaultTriggerForAgentName,
   normalizeMainAgentName,
 } from './main-agent.js';
+import { renderDefaultCapabilityRules } from '../shared/capability-guidance.js';
 
 type TeamsChannelChoice =
   | { type: 'selected'; channel: TeamsDiscoveredChannel }
@@ -65,11 +66,7 @@ function defaultTeamsClaudeMarkdown(): string {
     '- Avoid exposing secrets, tokens, or local machine paths unless requested.',
     '- When the user says "continue", call memory_search before guessing.',
     '',
-    'Capability rules:',
-    '- Use send_message for progress updates and ask_user_question for structured choices.',
-    '- Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, request_tool_enable, or request_channel_tool_enable for capability changes.',
-    '- Main/admin agents may use service_restart after approved changes and register_agent for conversation binding.',
-    '- Never run dependency installs or edit .claude/skills, .mcp.json, settings, or generated capability config directly.',
+    renderDefaultCapabilityRules(),
     '',
   ].join('\n');
 }

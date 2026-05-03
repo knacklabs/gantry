@@ -9,7 +9,10 @@ import type { HostnameLookup } from '../domain/network/public-address-policy.js'
 import type { RemoteMcpDnsValidationCache } from '../application/mcp/mcp-server-policy.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import type { RunAgentOptions } from './agent-spawn-types.js';
-import type { SessionMemoryCollector } from '../domain/ports/session-memory-collector.js';
+import type {
+  MemoryBoundaryDefaultScope,
+  SessionMemoryCollector,
+} from '../domain/ports/session-memory-collector.js';
 
 export async function archiveCurrentRuntimeSession(input: {
   ops: OpsRepository;
@@ -17,6 +20,7 @@ export async function archiveCurrentRuntimeSession(input: {
   chatJid: string;
   threadId: string | null;
   cause?: 'new-session' | 'manual-compact';
+  defaultScope?: MemoryBoundaryDefaultScope;
   collectMemory?: SessionMemoryCollector;
 }): Promise<void> {
   const turnContext = await input.ops.getAgentTurnContext?.({
@@ -32,6 +36,7 @@ export async function archiveCurrentRuntimeSession(input: {
       const result = await collectMemory({
         agentSessionId: turnContext.agentSessionId,
         trigger,
+        ...(input.defaultScope ? { defaultScope: input.defaultScope } : {}),
       });
       logger.info(
         {

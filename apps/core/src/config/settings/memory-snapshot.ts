@@ -127,7 +127,28 @@ export function parseRuntimeMemorySnapshotFromRoot(
 export function parseRuntimeStorageSnapshotFromRoot(
   root: Record<string, unknown>,
 ): RuntimeStorageSettingsSnapshot {
+  const supportedRootKeys = new Set([
+    'defaults',
+    'desired_state',
+    'providers',
+    'provider_connections',
+    'conversations',
+    'bindings',
+    'agents',
+    'storage',
+    'agent',
+    'credential_broker',
+    'memory',
+  ]);
+  for (const key of Object.keys(root)) {
+    if (!supportedRootKeys.has(key)) {
+      throw new Error(
+        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, conversations, bindings, agents, storage, credential_broker, and memory.`,
+      );
+    }
+  }
   const storageRaw = root.storage;
+  if (storageRaw === undefined) return {};
   if (
     typeof storageRaw !== 'object' ||
     storageRaw === null ||

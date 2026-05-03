@@ -85,8 +85,7 @@ REQUIRED_CAPABILITY_TOOL_NAMES = [
     "request_skill_proposal",
     "request_skill_dependency_install",
     "request_mcp_server",
-    "request_tool_enable",
-    "request_channel_tool_enable",
+    "request_permission",
     "service_restart",
     "register_agent",
 ]

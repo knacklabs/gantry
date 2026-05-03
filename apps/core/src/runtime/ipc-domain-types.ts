@@ -39,6 +39,7 @@ export interface IpcDeps {
 export interface IpcDomainContext {
   sourceGroup: string;
   isMain: boolean;
+  browserProfileName?: string;
   ipcBaseDir: string;
   deps: IpcDeps;
 }

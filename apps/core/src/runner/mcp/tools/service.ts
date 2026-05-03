@@ -116,17 +116,50 @@ export function registerServiceTools(server: McpServer): void {
   );
 
   server.tool(
-    'request_tool_enable',
-    'Request SDK, host, browser, scheduler, memory, or service tools for same-conversation admin review. This records a review request only; it never changes permissions directly.',
+    'request_permission',
+    [
+      'Request one reviewed permission or capability change for the current agent.',
+      'Prefer letting the actual tool call trigger Allow once. Use this tool for planned persistent granular access, provider/channel capabilities, or when a capability is missing.',
+      'Use Anthropic-compatible rule syntax when asking for persistent tool access: ToolName(scope-pattern), Edit(/path/**), WebFetch(domain:example.com), mcp__server__*, Agent(subagent-type).',
+      'Broad whole-tool access is a last resort and must be explicit in the reason.',
+    ].join(' '),
     {
+      permissionKind: z
+        .enum(['tool', 'provider_capability'])
+        .optional()
+        .describe(
+          'Use tool for SDK/host/browser/scheduler/memory/service/MCP tool access; use provider_capability for Slack/Teams/Telegram provider capabilities.',
+        ),
       toolName: z
         .string()
         .optional()
-        .describe('Single tool name to enable, such as Bash or Write'),
+        .describe(
+          'Single tool name to enable, such as Bash, Edit, Write, WebFetch, Agent, browser_open, scheduler_create_job, or an MCP tool name.',
+        ),
       toolNames: z
         .array(z.string())
         .optional()
-        .describe('Exact tool names to enable'),
+        .describe(
+          'Exact tool names to enable. Prefer one tool plus a scoped rule; use multiple names only when the request truly needs them together.',
+        ),
+      rule: z
+        .string()
+        .optional()
+        .describe(
+          'Optional granular scope for the requested tool. Use this instead of broad access when possible, for example "npm run test *", "/docs/**", "domain:github.com", "Explore", or "mcp__github__*".',
+        ),
+      temporaryOnly: z
+        .boolean()
+        .optional()
+        .describe(
+          'Set true when the permission is needed only for the current action or an exploratory one-off. Leave false/omitted only when a persistent rule is genuinely useful for future turns.',
+        ),
+      broadAccess: z
+        .boolean()
+        .optional()
+        .describe(
+          'Set true only when scoped rules are insufficient and the admin should intentionally consider whole-tool access. Explain why in reason.',
+        ),
       toolCategory: z
         .string()
         .optional()
@@ -136,36 +169,30 @@ export function registerServiceTools(server: McpServer): void {
       riskClass: z
         .enum(['low', 'medium', 'high', 'critical'])
         .optional()
-        .describe('Requested risk classification'),
+        .describe(
+          'Requested risk classification. Broad shell, edit/write, network, credential, service, or wildcard MCP access should be high or critical.',
+        ),
       permissionPolicy: z
         .string()
         .optional()
-        .describe('Optional requested permission policy'),
+        .describe(
+          'Optional requested permission policy. Prefer "ask once" or scoped persistent rules over broad persistent access.',
+        ),
       sandboxProfile: z
         .string()
         .optional()
         .describe('Optional requested sandbox profile'),
-      reason: z.string().describe('Why these tools are needed'),
-    },
-    async (args) =>
-      submitCapabilityReviewTask('request_tool_enable', 'Tool enable', {
-        toolName: args.toolName,
-        toolNames: args.toolNames ?? [],
-        toolCategory: args.toolCategory,
-        riskClass: args.riskClass,
-        permissionPolicy: args.permissionPolicy,
-        sandboxProfile: args.sandboxProfile,
-        reason: args.reason,
-      }),
-  );
-
-  server.tool(
-    'request_channel_tool_enable',
-    'Request a provider-native channel capability for same-conversation admin review. This records a review request only; it never changes conversation permissions directly.',
-    {
+      reason: z
+        .string()
+        .describe(
+          'Why this exact scope is needed. If broadAccess is true, explain why narrower rules are insufficient.',
+        ),
       channelTool: z
         .string()
-        .describe('Channel capability name, such as slack_file_access'),
+        .optional()
+        .describe(
+          'Provider-native capability name, such as slack_file_access. Use only with permissionKind=provider_capability.',
+        ),
       providerId: z
         .string()
         .optional()
@@ -178,20 +205,25 @@ export function registerServiceTools(server: McpServer): void {
         .array(z.string())
         .optional()
         .describe('Conversation ids or names affected by this capability'),
-      reason: z.string().describe('Why this channel capability is needed'),
     },
     async (args) =>
-      submitCapabilityReviewTask(
-        'request_channel_tool_enable',
-        'Channel tool enable',
-        {
-          channelTool: args.channelTool,
-          providerId: args.providerId,
-          requiredScopes: args.requiredScopes ?? [],
-          affectedConversations: args.affectedConversations ?? [],
-          reason: args.reason,
-        },
-      ),
+      submitCapabilityReviewTask('request_permission', 'Permission', {
+        permissionKind: args.permissionKind,
+        toolName: args.toolName,
+        toolNames: args.toolNames ?? [],
+        rule: args.rule,
+        temporaryOnly: args.temporaryOnly,
+        broadAccess: args.broadAccess,
+        toolCategory: args.toolCategory,
+        riskClass: args.riskClass,
+        permissionPolicy: args.permissionPolicy,
+        sandboxProfile: args.sandboxProfile,
+        channelTool: args.channelTool,
+        providerId: args.providerId,
+        requiredScopes: args.requiredScopes ?? [],
+        affectedConversations: args.affectedConversations ?? [],
+        reason: args.reason,
+      }),
   );
 
   server.tool(
@@ -516,8 +548,7 @@ Use available_groups.json to find the JID for a conversation. The folder name mu
 type CapabilityReviewToolName =
   | 'request_skill_install'
   | 'request_skill_dependency_install'
-  | 'request_tool_enable'
-  | 'request_channel_tool_enable';
+  | 'request_permission';
 
 async function submitCapabilityReviewTask(
   toolName: CapabilityReviewToolName,

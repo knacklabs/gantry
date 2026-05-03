@@ -4,6 +4,7 @@ This directory holds in-repo product, architecture, factory, and operational doc
 
 Use these files as the local source of truth when planning or reviewing work:
 
+- [architecture/overview.md](architecture/overview.md) for a top-down architecture map with diagrams (start here)
 - [architecture/runtime-components.md](architecture/runtime-components.md) for the contributor runtime component map and source-reading paths
 - [MEMORY.md](MEMORY.md) for the app-grade memory boundary model and dreaming lifecycle
 - [../README.md](../README.md) for end-user npm install and first-run setup

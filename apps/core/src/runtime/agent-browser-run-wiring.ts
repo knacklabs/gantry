@@ -1,7 +1,7 @@
 import type { MaterializedMcpCapability } from '../application/mcp/mcp-server-service.js';
 import {
   DEFAULT_BROWSER_PROFILE_NAME,
-  getBrowserStatus,
+  getKnownBrowserStatus,
 } from './browser-capability.js';
 import { applyLoopbackNoProxyEnv } from '../shared/no-proxy.js';
 
@@ -19,6 +19,7 @@ export interface AgentBrowserRunWiring<SkillSourceT> {
 export function createAgentBrowserRunWiring<SkillSourceT>(
   input: {
     isMain: boolean;
+    browserProfileName?: string;
   },
   adapters: {
     browserSkillSource: SkillSourceT;
@@ -28,29 +29,20 @@ export function createAgentBrowserRunWiring<SkillSourceT>(
     ) => MaterializedMcpCapability['config'];
   },
 ): AgentBrowserRunWiring<SkillSourceT> {
-  if (!input.isMain) {
-    return {
-      skillSources: [],
-      activate: async () => ({
-        env: {},
-        mcpCapabilities: [],
-        runtimeDetails: [],
-      }),
-    };
-  }
-
+  const browserProfileName =
+    input.browserProfileName || DEFAULT_BROWSER_PROFILE_NAME;
   return {
     skillSources: [adapters.browserSkillSource],
     activate: async () => {
-      let session: Awaited<ReturnType<typeof getBrowserStatus>>;
+      let session: ReturnType<typeof getKnownBrowserStatus>;
       try {
-        session = await getBrowserStatus(DEFAULT_BROWSER_PROFILE_NAME);
+        session = getKnownBrowserStatus(browserProfileName);
       } catch (err) {
         return {
           env: {},
           mcpCapabilities: [],
           runtimeDetails: [
-            `browserProfile=${DEFAULT_BROWSER_PROFILE_NAME}`,
+            `browserProfile=${browserProfileName}`,
             `browserStatus=unavailable:${err instanceof Error ? err.message : String(err)}`,
           ],
         };
@@ -60,16 +52,14 @@ export function createAgentBrowserRunWiring<SkillSourceT>(
           env: {},
           mcpCapabilities: [],
           runtimeDetails: [
-            `browserProfile=${DEFAULT_BROWSER_PROFILE_NAME}`,
+            `browserProfile=${browserProfileName}`,
             'browserStatus=stopped',
           ],
         };
       }
-      const cdpEndpoint = `http://127.0.0.1:${session.port}`;
-      const env: Record<string, string> = {
-        PLAYWRIGHT_MCP_CDP_ENDPOINT: cdpEndpoint,
-      };
+      const env: Record<string, string> = {};
       applyLoopbackNoProxyEnv(env);
+      const cdpEndpoint = `http://127.0.0.1:${session.port}`;
 
       return {
         env,
@@ -85,8 +75,8 @@ export function createAgentBrowserRunWiring<SkillSourceT>(
           },
         ],
         runtimeDetails: [
-          `browserProfile=${DEFAULT_BROWSER_PROFILE_NAME}`,
-          `browserCdp=${cdpEndpoint}`,
+          `browserProfile=${browserProfileName}`,
+          'browserActionMcp=ready',
           `browserHeadless=${session.headless === true}`,
         ],
       };

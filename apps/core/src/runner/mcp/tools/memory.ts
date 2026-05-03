@@ -1,8 +1,12 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { groupFolder } from '../context.js';
+import { groupFolder, memoryDefaultScope, memoryUserId } from '../context.js';
 import { formatMemoryToolResponse } from '../formatting.js';
 import { requestMemoryAction } from '../ipc.js';
+import {
+  buildMemorySavePayload,
+  buildProcedureSavePayload,
+} from './memory-payload.js';
 
 export function registerMemoryTools(server: McpServer): void {
   server.tool(
@@ -14,17 +18,12 @@ export function registerMemoryTools(server: McpServer): void {
         .string()
         .optional()
         .describe('Optional override group folder (defaults to current group)'),
-      user_id: z
-        .string()
-        .optional()
-        .describe('Optional user id for user-scoped facts'),
       limit: z.number().int().min(1).max(20).optional().describe('Max results'),
     },
     async (args) => {
       const response = await requestMemoryAction('memory_search', {
         query: args.query,
         group_folder: args.group_folder || groupFolder,
-        user_id: args.user_id,
         limit: args.limit,
       });
       if (!response.ok) {
@@ -48,11 +47,10 @@ export function registerMemoryTools(server: McpServer): void {
 
   server.tool(
     'memory_save',
-    'Save a durable memory statement. Use this for user preferences, project facts, decisions, corrections, constraints, and reusable context that should survive future sessions. Do not save raw logs, temporary task progress, secrets, or generic summaries.',
+    'Save a durable memory statement. Defaults to group scope in group/channel conversations and user scope in DMs. Use this for user preferences, project facts, decisions, corrections, constraints, and reusable context that should survive future sessions. Do not save raw logs, temporary task progress, secrets, or generic summaries.',
     {
       scope: z.enum(['user', 'group', 'global']).optional(),
       group_folder: z.string().optional(),
-      user_id: z.string().optional(),
       kind: z
         .enum([
           'preference',
@@ -78,7 +76,10 @@ export function registerMemoryTools(server: McpServer): void {
       source: z.string().optional(),
     },
     async (args) => {
-      const response = await requestMemoryAction('memory_save', args);
+      const response = await requestMemoryAction(
+        'memory_save',
+        buildMemorySavePayload(args, { memoryDefaultScope, memoryUserId }),
+      );
       if (!response.ok) {
         return {
           content: [
@@ -142,7 +143,10 @@ export function registerMemoryTools(server: McpServer): void {
       source: z.string().optional(),
     },
     async (args) => {
-      const response = await requestMemoryAction('procedure_save', args);
+      const response = await requestMemoryAction(
+        'procedure_save',
+        buildProcedureSavePayload(args, { memoryDefaultScope, memoryUserId }),
+      );
       if (!response.ok) {
         return {
           content: [

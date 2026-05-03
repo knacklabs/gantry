@@ -47,14 +47,19 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   protected pendingPermissionPrompts = new Map<
     string,
     {
+      callbackId: string;
       sourceGroup: string;
       decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
+      approvalContextJid?: string;
+      request: PermissionApprovalRequest;
       chatId: string;
       messageId: number;
       timer: ReturnType<typeof setTimeout>;
       resolve: (decision: PermissionApprovalDecision) => void;
     }
   >();
+  protected pendingPermissionCallbackIds = new Map<string, string>();
+  private permissionCallbackCounter = 0;
   protected pendingUserQuestions = new Map<string, PendingUserQuestionState>();
   protected activeDraftStreams = new Map<string, ActiveDraftStreamState>();
   protected activeGroupStreams = new Map<string, ActiveGroupStreamState>();
@@ -72,6 +77,16 @@ export abstract class TelegramChannelState implements ChannelAdapter {
   constructor(botToken: string, opts: ChannelOpts) {
     this.botToken = botToken;
     this.opts = opts;
+  }
+
+  protected nextPermissionCallbackId(): string {
+    for (let attempts = 0; attempts < 1000; attempts += 1) {
+      this.permissionCallbackCounter =
+        (this.permissionCallbackCounter + 1) % Number.MAX_SAFE_INTEGER;
+      const id = `p${this.permissionCallbackCounter.toString(36)}`;
+      if (!this.pendingPermissionCallbackIds.has(id)) return id;
+    }
+    throw new Error('Unable to allocate Telegram permission callback id');
   }
 
   protected redactBotToken(input: string): string {

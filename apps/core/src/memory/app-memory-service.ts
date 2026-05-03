@@ -554,7 +554,11 @@ export class AppMemoryService {
       lexicalScore: Number(row.lexicalScore || 0),
       vectorScore: Number(row.vectorScore || 0),
       reasons: [
-        row.lexicalScore ? 'lexical' : '',
+        row.lexicalScore
+          ? Number(row.lexicalScore) < 0.01
+            ? 'keyword'
+            : 'lexical'
+          : '',
         row.vectorScore ? 'semantic' : '',
         parseItemSource(row.row).isPinned ? 'pinned' : '',
       ].filter(Boolean),
@@ -613,6 +617,7 @@ export const collectDurableMemoryAtSessionBoundary: SessionMemoryCollector =
       ...input,
       repositories,
       extractFacts: (extractInput) => extractor.extractFacts(extractInput),
+      defaultScope: input.defaultScope,
       additionalTurns: input.additionalTurns,
     });
   };

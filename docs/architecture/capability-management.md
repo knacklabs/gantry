@@ -62,8 +62,7 @@ place.
 | `request_skill_proposal`           | Agent-created or modified `SKILL.md` bundles for review.                                                                | Writing directly to `.claude/skills`, `.agents/skills`, or agent-local `skills/`.                     |
 | `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies needed by a reviewed skill.                                                 | Running dependency commands from the agent.                                                           |
 | `request_mcp_server`               | Third-party MCP server drafts with transport, origin, allowed tool patterns, credential needs, and reason.              | Editing `.mcp.json` or Claude `mcpServers`.                                                           |
-| `request_tool_enable`              | SDK or host tools such as `Bash`, `Write`, `Edit`, browser tools, scheduler tools, memory tools, or service tools.      | Changing permission settings directly.                                                                |
-| `request_channel_tool_enable`      | Channel-specific capabilities such as Teams proactive messaging, Slack file access, or Telegram file download behavior. | Treating a channel SDK permission as already approved.                                                |
+| `request_permission`               | SDK, host, browser, scheduler, memory, service, MCP, or provider/channel capability permission requests.                 | Changing permission settings directly or treating provider SDK permissions as already approved.        |
 | `settings_desired_state`           | Main/admin-agent-only reading of the current local desired-state settings before proposing a reviewed config change.    | Non-main access, mutating settings, or exposing raw secrets.                                          |
 | `request_settings_update`          | Main/admin-agent-only reviewed host-side edits to non-secret local `settings.yaml` desired state.                       | Non-main access, direct file edits, raw provider secrets, skill source injection, or MCP definitions. |
 | `service_restart`                  | Main/admin agent restart after approved config or capability changes that require host restart.                         | Restarting to activate unapproved changes.                                                            |
@@ -118,7 +117,7 @@ not durable MyClaw truth.
    credential refs, sandbox profile, tool patterns, and provider metadata.
 3. Review: same-channel review renders the request, but authority still comes
    from configured admin/control policy.
-4. Decide: approval or denial is recorded with actor, reason, and audit summary.
+4. Decide: `Allow once`, `Always allow <granular rule>`, or `Cancel` is recorded with actor, reason, and audit summary.
 5. Bind: approval creates or updates the agent binding and a new config version.
 6. Same-session handoff: approved skill proposals are returned to the running
    agent as reviewed skill files; approved MCP servers are reachable through the
@@ -182,9 +181,10 @@ projected only from approved reviewed versions and active bindings. Their
 Skills are projected only when approved and bound. Draft, denied, disabled, or
 unbound skill files are never copied into per-run Claude config.
 
-Browser lifecycle tools manage the persistent browser profile. Browser action
-tools are a separate runtime-installed capability and attach only on a later run
-when a healthy browser is already running at startup.
+Browser lifecycle tools manage the agent conversation's persistent browser
+profile. Browser action tools are a separate runtime-installed capability and
+attach only on a later run when that profile's healthy browser is already
+running at startup.
 
 SDK built-in tools are denied by default unless the profile explicitly grants
 them. `Bash`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, and `Config` are

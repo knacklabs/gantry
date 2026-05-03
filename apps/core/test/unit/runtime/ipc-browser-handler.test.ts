@@ -8,7 +8,16 @@ vi.mock('@core/runtime/browser-capability.js', () => ({
   DEFAULT_BROWSER_PROFILE_NAME: 'default',
   ensureBrowserReady: vi.fn(async () => ({ ok: true, status: 'launched' })),
   closeBrowser: vi.fn(async () => ({ ok: true, closed: true })),
-  getBrowserStatus: vi.fn(() => ({ running: true })),
+  getBrowserStatus: vi.fn(() => ({
+    profile: 'c-child-abc123abc123',
+    profileName: 'c-child-abc123abc123',
+    running: true,
+    cdpReady: true,
+    cdpUrl: 'http://127.0.0.1:9222',
+    port: 9222,
+    pid: 123,
+    targetId: 'target-1',
+  })),
   listBrowserProfiles: vi.fn(async () => [
     {
       name: 'default',
@@ -38,6 +47,9 @@ vi.mock('@core/runtime/browser-profiles.js', () => ({
     hasState: false,
     authMarkers: [],
   })),
+  isValidBrowserProfileName: vi.fn((name: string) =>
+    /^[a-z0-9][a-z0-9._-]{0,63}$/.test(name),
+  ),
 }));
 
 import { BrowserIpcAction } from '@myclaw/contracts';
@@ -68,18 +80,106 @@ describe('ipc-browser-handler', () => {
     vi.clearAllMocks();
   });
 
-  it('blocks main-only browser actions for non-main groups', async () => {
+  it('allows non-main groups to inspect browser status', async () => {
     const response = await processBrowserIpcRequest(
       {
         requestId: 'req-1',
         action: 'browser_status',
         payload: {},
       },
-      { sourceGroup: 'child', isMain: false },
+      {
+        sourceGroup: 'child',
+        isMain: false,
+        browserProfileName: 'c-child-abc123abc123',
+      },
     );
 
-    expect(response.ok).toBe(false);
-    expect(response.error).toContain('restricted to the main group');
+    expect(response.ok).toBe(true);
+    expect(getBrowserStatus).toHaveBeenCalledWith('c-child-abc123abc123');
+    expect(response.data).toMatchObject({
+      profileName: 'c-child-abc123abc123',
+      running: true,
+      cdpReady: true,
+    });
+    expect(response.data).not.toHaveProperty('cdpUrl');
+    expect(response.data).not.toHaveProperty('port');
+    expect(response.data).not.toHaveProperty('pid');
+    expect(response.data).not.toHaveProperty('targetId');
+  });
+
+  it('ignores non-main profile overrides and uses the host-derived profile', async () => {
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-1a',
+        action: 'browser_status',
+        payload: { profile_name: 'c-child-other123456' },
+      },
+      {
+        sourceGroup: 'child',
+        isMain: false,
+        browserProfileName: 'c-child-abc123abc123',
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    expect(getBrowserStatus).toHaveBeenCalledWith('c-child-abc123abc123');
+  });
+
+  it('prevents agents from switching to another browser profile', async () => {
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-1b',
+        action: 'browser_status',
+        payload: { profile_name: 'default' },
+      },
+      {
+        sourceGroup: 'child',
+        isMain: false,
+        browserProfileName: 'c-child-abc123abc123',
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    expect(getBrowserStatus).toHaveBeenCalledWith('c-child-abc123abc123');
+  });
+
+  it('ignores forged top-level browser profile scope from child IPC', async () => {
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-1d',
+        action: 'browser_status',
+        payload: { profile_name: 'c-child-other123456' },
+        browserProfileName: 'c-child-other123456',
+      } as never,
+      {
+        sourceGroup: 'child',
+        isMain: false,
+        browserProfileName: 'c-child-abc123abc123',
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    expect(getBrowserStatus).toHaveBeenCalledWith('c-child-abc123abc123');
+  });
+
+  it('sanitizes browser profile lists for main agents', async () => {
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-1c',
+        action: 'browser_profile_list',
+        payload: {},
+      },
+      { sourceGroup: 'main', isMain: true },
+    );
+
+    expect(response.ok).toBe(true);
+    expect(response.data).toMatchObject({
+      profiles: [{ name: 'default', running: false, cdpReady: false }],
+    });
+    const first = (
+      response.data as { profiles: Array<Record<string, unknown>> }
+    ).profiles[0];
+    expect(first).not.toHaveProperty('cdp_port');
   });
 
   it('dispatches browser actions via explicit handlers', async () => {
@@ -96,12 +196,39 @@ describe('ipc-browser-handler', () => {
     );
 
     expect(response.ok).toBe(true);
+    expect(response.data).not.toHaveProperty('cdpUrl');
+    expect(response.data).not.toHaveProperty('port');
+    expect(response.data).not.toHaveProperty('pid');
+    expect(response.data).not.toHaveProperty('targetId');
     expect(ensureBrowserReady).toHaveBeenCalledTimes(1);
     expect(ensureBrowserReady).toHaveBeenCalledWith({
       profileName: 'default',
       headless: true,
       keepAliveMs: undefined,
     });
+  });
+
+  it('ignores main-agent profile overrides and uses host-derived profile', async () => {
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-2a',
+        action: 'browser_launch',
+        payload: {
+          profile_name: 'other-profile',
+          headless: true,
+        },
+      },
+      {
+        sourceGroup: 'main',
+        isMain: true,
+        browserProfileName: 'c-main-abc123abc123',
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    expect(ensureBrowserReady).toHaveBeenCalledWith(
+      expect.objectContaining({ profileName: 'c-main-abc123abc123' }),
+    );
   });
 
   it('returns unsupported error for unknown browser action', async () => {

@@ -1,4 +1,7 @@
-import type { SessionMemoryCollector } from '../domain/ports/session-memory-collector.js';
+import type {
+  MemoryBoundaryDefaultScope,
+  SessionMemoryCollector,
+} from '../domain/ports/session-memory-collector.js';
 
 type JobMemoryLogger = {
   info: (obj: Record<string, unknown>, msg: string) => void;
@@ -9,6 +12,7 @@ export async function collectCompactBoundaryMemory(input: {
   compactBoundary?: boolean;
   agentSessionId?: string;
   collectMemory?: SessionMemoryCollector;
+  defaultScope?: MemoryBoundaryDefaultScope;
   logger: JobMemoryLogger;
   context?: Record<string, unknown>;
 }): Promise<void> {
@@ -19,6 +23,7 @@ export async function collectCompactBoundaryMemory(input: {
     const result = await input.collectMemory({
       agentSessionId: input.agentSessionId,
       trigger: 'precompact',
+      ...(input.defaultScope ? { defaultScope: input.defaultScope } : {}),
     });
     input.logger.info(
       {
@@ -39,6 +44,7 @@ export async function collectCompactBoundaryMemory(input: {
 export async function collectJobCompletionMemory(input: {
   agentSessionId?: string;
   collectMemory?: SessionMemoryCollector;
+  defaultScope?: MemoryBoundaryDefaultScope;
   prompt?: string | null;
   result?: string | null;
   logger: JobMemoryLogger;
@@ -61,6 +67,7 @@ export async function collectJobCompletionMemory(input: {
     const result = await input.collectMemory({
       agentSessionId: input.agentSessionId,
       trigger: 'session-end',
+      ...(input.defaultScope ? { defaultScope: input.defaultScope } : {}),
       additionalTurns,
     });
     input.logger.info(

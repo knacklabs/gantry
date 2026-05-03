@@ -54,6 +54,7 @@ async function loadIpcModule(tempRoot: string, responseVerifyKey: string) {
   vi.resetModules();
   vi.stubEnv('MYCLAW_IPC_DIR', tempRoot);
   vi.stubEnv('MYCLAW_IPC_AUTH_TOKEN', 'mcp-test-auth-token');
+  vi.stubEnv('MYCLAW_BROWSER_IPC_AUTH_TOKEN', 'browser-test-auth-token');
   vi.stubEnv('MYCLAW_IPC_RESPONSE_VERIFY_KEY', responseVerifyKey);
   vi.stubEnv('MYCLAW_CHAT_JID', 'tg:team');
   vi.stubEnv('MYCLAW_GROUP_FOLDER', 'team');
@@ -70,6 +71,53 @@ afterEach(() => {
 });
 
 describe('runner MCP browser IPC signature verification', () => {
+  it('signs browser requests with the chat-scoped browser IPC token', async () => {
+    const tempRoot = makeTempRoot();
+    const { publicKey } = generateKeyPairSync('ed25519');
+    const responseVerifyKey = publicKey
+      .export({ format: 'pem', type: 'spki' })
+      .toString();
+
+    const { requestBrowserAction } = await loadIpcModule(
+      tempRoot,
+      responseVerifyKey,
+    );
+    const requestPromise = requestBrowserAction('browser_status', {});
+    const requestId = await waitForRequestId(
+      path.join(tempRoot, 'browser-requests'),
+    );
+    const requestPath = path.join(
+      tempRoot,
+      'browser-requests',
+      `${requestId}.json`,
+    );
+    const request = JSON.parse(fs.readFileSync(requestPath, 'utf-8')) as Record<
+      string,
+      unknown
+    >;
+    const payload = { ...request };
+    delete payload.signature;
+
+    expect(request).toMatchObject({
+      context: { chatJid: 'tg:team' },
+    });
+    expect(request.signature).toBe(
+      signPayloadWithAuthToken('browser-test-auth-token', payload),
+    );
+
+    const responsePath = path.join(
+      tempRoot,
+      'browser-responses',
+      `${requestId}.json`,
+    );
+    fs.mkdirSync(path.dirname(responsePath), { recursive: true });
+    fs.writeFileSync(
+      responsePath,
+      JSON.stringify({ requestId, ok: false, error: 'done' }),
+    );
+    await requestPromise;
+  });
+
   it('accepts valid signed browser responses and unlinks consumed response files', async () => {
     const tempRoot = makeTempRoot();
     const { publicKey, privateKey } = generateKeyPairSync('ed25519');

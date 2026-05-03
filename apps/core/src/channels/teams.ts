@@ -7,6 +7,14 @@ import type {
 } from '../domain/types.js';
 import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provider.js';
 import { logger } from '../infrastructure/logging/logger.js';
+import {
+  decisionForMode,
+  formatPermissionPromptText,
+  formatPermissionReceiptText,
+  normalizePermissionAction,
+  permissionButtonLabel,
+  permissionDecisionOptions,
+} from './permission-interaction.js';
 
 export const TEAMS_JID_PREFIX = 'teams:';
 export const TEAMS_ADAPTIVE_CARD_CONTENT_TYPE =
@@ -73,6 +81,8 @@ interface PendingTeamsPermissionPrompt {
   conversationId: string;
   sourceGroup: string;
   decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
+  approvalContextJid?: string;
+  request: PermissionApprovalRequest;
   threadId?: string;
   timer: ReturnType<typeof setTimeout>;
   resolve: (decision: PermissionApprovalDecision) => void;
@@ -93,7 +103,7 @@ export interface TeamsAdaptiveCardAction {
   data: {
     action: 'permission_decision';
     requestId: string;
-    decision: 'approve' | 'deny';
+    decision: string;
     sourceGroup: string;
     targetJid?: string;
     threadId?: string;
@@ -140,89 +150,46 @@ export function teamsConversationIdFromJid(jid: string): string | null {
 export function buildTeamsApprovalAdaptiveCard(
   request: PermissionApprovalRequest,
 ): TeamsAdaptiveCardPayload {
-  const title =
-    request.title ||
-    request.displayName ||
-    `${request.toolName} permission request`;
-  const facts = [
-    { title: 'Source', value: request.sourceGroup },
-    { title: 'Tool', value: request.toolName },
-    request.threadId ? { title: 'Thread', value: request.threadId } : null,
-    request.decisionReason
-      ? { title: 'Reason', value: request.decisionReason }
-      : null,
-    request.blockedPath ? { title: 'Path', value: request.blockedPath } : null,
-  ].filter(
-    (entry): entry is { title: string; value: string } => entry !== null,
+  const promptText = formatPermissionPromptText(
+    request,
+    TEAMS_PERMISSION_APPROVAL_TIMEOUT_MS,
   );
-
-  const command =
-    typeof request.toolInput?.command === 'string'
-      ? request.toolInput.command
-      : undefined;
   const body: Array<Record<string, unknown>> = [
     {
       type: 'TextBlock',
       size: 'Medium',
       weight: 'Bolder',
-      text: title,
+      text: 'Permission request',
       wrap: true,
     },
     {
-      type: 'FactSet',
-      facts,
+      type: 'TextBlock',
+      text: promptText,
+      wrap: true,
     },
   ];
-
-  if (request.description) {
-    body.push({
-      type: 'TextBlock',
-      text: request.description,
-      wrap: true,
-    });
-  }
-  if (command) {
-    body.push({
-      type: 'TextBlock',
-      text: `Command: \`${command}\``,
-      wrap: true,
-      fontType: 'Monospace',
-    });
-  }
 
   return {
     $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
     type: 'AdaptiveCard',
     version: '1.5',
     body,
-    actions: [
-      {
-        type: 'Action.Execute',
-        title: 'Approve',
-        verb: 'myclaw.permission.approve',
-        data: {
-          action: 'permission_decision',
-          requestId: request.requestId,
-          decision: 'approve',
-          sourceGroup: request.sourceGroup,
-          targetJid: request.targetJid,
-          threadId: request.threadId,
-        },
+    actions: permissionDecisionOptions(request).map((mode) => ({
+      type: 'Action.Execute',
+      title: permissionButtonLabel(mode, request),
+      verb:
+        mode === 'cancel'
+          ? 'myclaw.permission.cancel'
+          : 'myclaw.permission.allow',
+      data: {
+        action: 'permission_decision',
+        requestId: request.requestId,
+        decision: mode,
+        sourceGroup: request.sourceGroup,
+        targetJid: request.targetJid,
+        threadId: request.threadId,
       },
-      {
-        type: 'Action.Execute',
-        title: 'Deny',
-        verb: 'myclaw.permission.deny',
-        data: {
-          action: 'permission_decision',
-          requestId: request.requestId,
-          decision: 'deny',
-          sourceGroup: request.sourceGroup,
-          targetJid: request.targetJid,
-          threadId: request.threadId,
-        },
-      },
-    ],
+    })),
   };
 }
 
@@ -384,6 +351,8 @@ export class TeamsChannel implements ChannelAdapter {
           conversationId,
           sourceGroup: request.sourceGroup,
           decisionPolicy: request.decisionPolicy,
+          approvalContextJid: request.approvalContextJid,
+          request: approvalRequest,
           threadId: request.threadId,
           timer,
           resolve,
@@ -426,7 +395,7 @@ export class TeamsChannel implements ChannelAdapter {
       userId,
       pending.sourceGroup,
       pending.decisionPolicy,
-      jid,
+      pending.approvalContextJid || jid,
     );
     if (!authorized) {
       logger.warn(
@@ -435,14 +404,12 @@ export class TeamsChannel implements ChannelAdapter {
       );
       return true;
     }
-    await this.resolvePermissionPrompt(decisionPayload.requestId, {
-      approved: decisionPayload.decision === 'approve',
-      decidedBy: userName,
-      reason:
-        decisionPayload.decision === 'approve'
-          ? 'approved via Teams'
-          : 'denied via Teams',
-    });
+    const mode = normalizePermissionAction(decisionPayload.decision);
+    if (!mode) return true;
+    await this.resolvePermissionPrompt(
+      decisionPayload.requestId,
+      decisionForMode(pending.request, mode, userName),
+    );
     return true;
   }
 
@@ -473,12 +440,24 @@ export class TeamsChannel implements ChannelAdapter {
     this.pendingPermissionPrompts.delete(requestId);
     clearTimeout(pending.timer);
     pending.resolve(decision);
+    try {
+      await this.sdkClient.sendMessage({
+        conversationId: pending.conversationId,
+        text: formatPermissionReceiptText(requestId, pending.request, decision),
+        ...(pending.threadId ? { threadId: pending.threadId } : {}),
+      });
+    } catch (err) {
+      logger.debug(
+        { requestId, err },
+        'Failed to send Teams permission receipt',
+      );
+    }
   }
 }
 
 function readTeamsPermissionDecision(value: unknown): {
   requestId: string;
-  decision: 'approve' | 'deny';
+  decision: string;
 } | null {
   if (!value || typeof value !== 'object') return null;
   const payload = value as {
@@ -495,7 +474,10 @@ function readTeamsPermissionDecision(value: unknown): {
         : null;
   if (!candidate || candidate.action !== 'permission_decision') return null;
   if (typeof candidate.requestId !== 'string') return null;
-  if (candidate.decision !== 'approve' && candidate.decision !== 'deny') {
+  if (
+    typeof candidate.decision !== 'string' ||
+    !normalizePermissionAction(candidate.decision)
+  ) {
     return null;
   }
   return {

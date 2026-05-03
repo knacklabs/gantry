@@ -273,9 +273,13 @@ async function triggerMediaMessage(
 }
 
 async function triggerCallbackQuery(ctx: {
-  callbackQuery: { data: string };
-  chat: { id: number };
-  from: { id: number; first_name?: string; username?: string };
+  callbackQuery: {
+    data: string;
+    from?: { id: number; first_name?: string; username?: string };
+    message?: { chat?: { id: number } };
+  };
+  chat?: { id: number };
+  from?: { id: number; first_name?: string; username?: string };
   answerCallbackQuery: ReturnType<typeof vi.fn>;
 }) {
   const handlers = currentBot().filterHandlers.get('callback_query:data') || [];
@@ -2079,7 +2083,8 @@ describe('TelegramChannel', () => {
       const decisionPromise = channel.requestPermissionApproval(
         'tg:100200300',
         {
-          requestId: 'perm-1',
+          requestId:
+            'capability-request_permission-0faf53fe-39cd-4ef0-af6e-5e09b96eef53',
           sourceGroup: 'whatsapp_main',
           toolName: 'Bash',
           title: 'Allow command',
@@ -2089,16 +2094,21 @@ describe('TelegramChannel', () => {
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '100200300',
-        expect.stringContaining('Permission request: perm-1'),
+        expect.stringContaining('Action: Allow command'),
         expect.objectContaining({
           reply_markup: expect.objectContaining({
             inline_keyboard: expect.any(Array),
           }),
         }),
       );
+      const sendOptions = currentBot().api.sendMessage.mock.calls.at(-1)?.[2];
+      const callbackData =
+        sendOptions.reply_markup.inline_keyboard[0][0].callback_data;
+      expect(callbackData).toMatch(/^perm:allow_once:p[0-9a-z]+$/);
+      expect(Buffer.byteLength(callbackData, 'utf8')).toBeLessThanOrEqual(64);
 
       const callbackCtx = {
-        callbackQuery: { data: 'perm:approve:perm-1' },
+        callbackQuery: { data: callbackData },
         chat: { id: 100200300 },
         from: { id: 12345, first_name: 'Ravi' },
         answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
@@ -2109,15 +2119,17 @@ describe('TelegramChannel', () => {
       expect(decision).toEqual({
         approved: true,
         decidedBy: 'Ravi',
-        reason: 'approved via Telegram',
+        mode: 'allow_once',
+        decisionClassification: 'user_temporary',
+        reason: 'allowed once via Telegram',
       });
       expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
-        text: 'Approved.',
+        text: 'Allowed once.',
       });
       expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
         '100200300',
         987,
-        expect.stringContaining('Status: APPROVED by Ravi'),
+        expect.stringContaining('Allowed once: Allow command'),
         expect.objectContaining({
           reply_markup: { inline_keyboard: [] },
         }),
@@ -2479,21 +2491,21 @@ describe('TelegramChannel', () => {
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const decisionPromise = channel.requestPermissionApproval(
-        'tg:100200300',
-        {
-          requestId: 'perm-channel-allowlist',
-          sourceGroup: 'unlisted_source',
-          decisionPolicy: 'same_channel',
-          toolName: 'Write',
-        },
-      );
+      const decisionPromise = channel.requestPermissionApproval('tg:777', {
+        requestId: 'perm-channel-allowlist',
+        sourceGroup: 'unlisted_source',
+        approvalContextJid: 'tg:100200300',
+        decisionPolicy: 'same_channel',
+        toolName: 'Write',
+      });
       await flushPromises();
 
       const approvedCtx = {
-        callbackQuery: { data: 'perm:approve:perm-channel-allowlist' },
-        chat: { id: 100200300 },
-        from: { id: 777, first_name: 'ChannelAdmin' },
+        callbackQuery: {
+          data: 'perm:approve:perm-channel-allowlist',
+          from: { id: 777, first_name: 'ChannelAdmin' },
+          message: { chat: { id: 777 } },
+        },
         answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
       };
       await triggerCallbackQuery(approvedCtx);

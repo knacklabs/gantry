@@ -97,7 +97,7 @@ describe('protected capability SDK hook', () => {
     ).toBeNull();
 
     expect(
-      evaluateProtectedCapabilityToolUse('mcp__myclaw__request_tool_enable', {
+      evaluateProtectedCapabilityToolUse('mcp__myclaw__request_permission', {
         toolName: 'Bash',
         reason: 'Run project tests',
       }),
@@ -122,13 +122,10 @@ describe('protected capability SDK hook', () => {
     ).toBeNull();
 
     expect(
-      evaluateProtectedCapabilityToolUse(
-        'mcp__myclaw__request_channel_tool_enable',
-        {
-          channelTool: 'slack_file_access',
-          reason: 'Allow file download support',
-        },
-      ),
+      evaluateProtectedCapabilityToolUse('mcp__myclaw__request_permission', {
+        channelTool: 'slack_file_access',
+        reason: 'Allow file download support',
+      }),
     ).toBeNull();
   });
 });

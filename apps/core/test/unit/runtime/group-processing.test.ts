@@ -18,6 +18,7 @@ vi.mock('@core/config/index.js', () => ({
   IDLE_TIMEOUT: 1_800_000,
   MEMORY_MAINTENANCE_MAX_PENDING: 5_000,
   MAX_MESSAGES_PER_PROMPT: 50,
+  CHROME_PATH: undefined,
   TIMEZONE: 'UTC',
   getDefaultModelConfig: () => ({ model: undefined }),
   getTriggerPattern: (trigger?: string) =>
@@ -1238,6 +1239,7 @@ describe('createGroupProcessor', () => {
       expect(deps.collectSessionMemory).toHaveBeenCalledWith({
         agentSessionId: 'agent-session:1',
         trigger: 'precompact',
+        defaultScope: 'group',
       });
       expect(deps.queue.notifyIdle).not.toHaveBeenCalled();
     });
@@ -1910,6 +1912,7 @@ describe('createGroupProcessor', () => {
       expect(deps.collectSessionMemory).toHaveBeenCalledWith({
         agentSessionId: 'agent-session:test',
         trigger: 'session-end',
+        defaultScope: 'group',
       });
     });
 
@@ -1931,6 +1934,7 @@ describe('createGroupProcessor', () => {
       expect(deps.collectSessionMemory).toHaveBeenCalledWith({
         agentSessionId: 'agent-session:test',
         trigger: 'precompact',
+        defaultScope: 'group',
       });
     });
 
@@ -2144,6 +2148,7 @@ describe('createGroupProcessor', () => {
       expect(deps.collectSessionMemory).toHaveBeenCalledWith({
         agentSessionId: 'agent-session:test',
         trigger: 'precompact',
+        defaultScope: 'group',
       });
     });
   });

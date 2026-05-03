@@ -38,7 +38,7 @@ MyClaw currently has these layers:
 
 3. Host-driven continuity context
    - Host runtime injects a fresh continuity block for every run.
-   - The agent can call memory MCP tools during the run.
+   - The agent can call memory search and save MCP tools during the run.
    - `/new`, manual `/compact`, and observed SDK auto-compaction boundaries run
      durable memory extraction.
 
@@ -147,7 +147,9 @@ Current user controls:
 - `/new` to reset session state while preserving memory
 - `/compact` to ask the Claude Agent SDK to compact active context and collect
   durable memory at the compact boundary
-- memory MCP tools available to agents: `memory_search`, `memory_save`, `memory_patch`, `procedure_save`, `procedure_patch`
+- default memory MCP tools available to agents: `memory_search`,
+  `memory_save`, and `procedure_save`; patch tools are reserved for reviewed
+  admin flows
 
 Planned continuity controls:
 

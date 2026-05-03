@@ -355,7 +355,7 @@ Job model precedence is:
 3. `agent.default_model`
 4. system default `opus`
 
-Use `/model` in a group session to switch the live model (`/model`, `/model <alias>`, `/model default`). Use `/models` to list supported aliases and `/status` to inspect the current model, context window, token usage, cache read/write tokens, cache state, and cost when the provider reports it.
+Use `/model` in a group session to switch the live model (`/model`, `/model <alias>`, `/model default`). Use `/models` to list supported aliases and `/status` to inspect the current model, context window usage percentage, cache hit percentage, token usage, cache read/write tokens, cache state, top context contributors when available, and cost when the provider reports it.
 
 ### Claude Authentication
 
@@ -478,9 +478,10 @@ Agents interact with memory via MCP tools over IPC:
 | ----------------- | ---------------------------------------------------------------------------------- |
 | `memory_save`     | Save a durable fact, decision, preference, correction, constraint, or context item |
 | `memory_search`   | Search scoped memory statements and source snippets                                |
-| `memory_patch`    | Update an existing item (optimistic concurrency via version)                       |
 | `procedure_save`  | Save a reusable multi-step procedure                                               |
-| `procedure_patch` | Update an existing procedure                                                       |
+
+Patch tools exist in the host protocol for reviewed/admin flows, but they are
+not part of the default agent capability bundle.
 
 #### Memory Boundaries
 

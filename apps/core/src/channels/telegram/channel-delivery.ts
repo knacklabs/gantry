@@ -43,6 +43,10 @@ import {
   sendTelegramMessageWithResult,
   telegramThreadOptionsFromString,
 } from './channel-shared.js';
+import {
+  permissionButtonLabel,
+  permissionDecisionOptions,
+} from '../permission-interaction.js';
 
 export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
   async sendMessage(
@@ -334,21 +338,19 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       };
     }
 
+    const callbackId = this.nextPermissionCallbackId();
     const timeoutMs = TELEGRAM_USER_QUESTION_TIMEOUT_MS;
     const promptText = this.formatPermissionPromptText(request, timeoutMs);
     try {
       const sent = await this.bot.api.sendMessage(chatId, promptText, {
         ...telegramThreadOptionsFromString(request.threadId),
         reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: 'Approve',
-                callback_data: `perm:approve:${request.requestId}`,
-              },
-              { text: 'Deny', callback_data: `perm:deny:${request.requestId}` },
-            ],
-          ],
+          inline_keyboard: permissionDecisionOptions(request).map((mode) => [
+            {
+              text: permissionButtonLabel(mode, request),
+              callback_data: `perm:${mode}:${callbackId}`,
+            },
+          ]),
         },
       });
       return await new Promise<PermissionApprovalDecision>((resolve) => {
@@ -360,13 +362,17 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
           });
         }, timeoutMs);
         this.pendingPermissionPrompts.set(request.requestId, {
+          callbackId,
           sourceGroup: request.sourceGroup,
           decisionPolicy: request.decisionPolicy,
+          approvalContextJid: request.approvalContextJid,
+          request,
           chatId,
           messageId: sent.message_id,
           timer,
           resolve,
         });
+        this.pendingPermissionCallbackIds.set(callbackId, request.requestId);
       });
     } catch (err) {
       logger.error(
@@ -539,6 +545,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         reason: 'Telegram channel disconnected',
       });
       this.pendingPermissionPrompts.delete(requestId);
+      this.pendingPermissionCallbackIds.delete(pending.callbackId);
     }
     for (const [key, pending] of this.pendingUserQuestions.entries()) {
       clearTimeout(pending.timer);
