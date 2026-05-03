@@ -373,7 +373,9 @@ export class SettingsDesiredStateService {
         settings.desiredState.authoritative ||
         hasAnyCapability(agent.capabilities)
       ) {
-        await this.replaceCapabilities(agentId, agent.capabilities, now);
+        await this.replaceCapabilities(agentId, agent.capabilities, now, {
+          preserveOpaqueSkillBindings: !settings.desiredState.authoritative,
+        });
         applied.push(`capabilities:${folder}`);
       } else {
         skipped.push(`capabilities:${folder}:not-authoritative-empty`);
@@ -438,6 +440,7 @@ export class SettingsDesiredStateService {
           agent.id,
           { toolIds: [], skillIds: [], mcpServerIds: [] },
           now,
+          { preserveOpaqueSkillBindings: false },
         );
         applied.push(`authoritative:disabled_absent_agent:${folder}`);
       }
@@ -578,6 +581,7 @@ export class SettingsDesiredStateService {
     agentId: AgentId,
     capabilities: RuntimeConfiguredAgentCapabilities,
     now: string,
+    options: { preserveOpaqueSkillBindings?: boolean } = {},
   ): Promise<void> {
     await replaceDesiredStateCapabilities({
       appId: this.appId,
@@ -585,6 +589,7 @@ export class SettingsDesiredStateService {
       capabilities,
       repositories: this.deps.repositories,
       now,
+      preserveOpaqueSkillBindings: options.preserveOpaqueSkillBindings,
     });
   }
 

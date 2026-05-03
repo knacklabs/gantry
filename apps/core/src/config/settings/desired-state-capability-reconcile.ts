@@ -12,6 +12,7 @@ export async function replaceDesiredStateCapabilities(input: {
   capabilities: RuntimeConfiguredAgentCapabilities;
   repositories: SettingsDesiredStateRepositories;
   now: string;
+  preserveOpaqueSkillBindings?: boolean;
 }): Promise<void> {
   const skillIds = await skillIdsForReplacement(input);
   const mcpServersById = await getApprovedMcpServersById(input);
@@ -60,8 +61,10 @@ async function skillIdsForReplacement(input: {
   agentId: AgentId;
   capabilities: RuntimeConfiguredAgentCapabilities;
   repositories: SettingsDesiredStateRepositories;
+  preserveOpaqueSkillBindings?: boolean;
 }): Promise<string[]> {
   const next = new Set(input.capabilities.skillIds);
+  if (!input.preserveOpaqueSkillBindings) return [...next];
   const existing = await input.repositories.skills.listAgentSkillBindings({
     appId: input.appId,
     agentId: input.agentId,

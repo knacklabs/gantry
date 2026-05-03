@@ -102,6 +102,46 @@ describe('ipc-interaction-handler', () => {
     });
   });
 
+  it('writes persistent permission metadata for runner SDK responses', () => {
+    writePermissionIpcResponse(tempDir, 'grp', {
+      requestId: 'perm-3',
+      approved: true,
+      mode: 'allow_persistent_rule',
+      reason: 'persistent rule allowed',
+      updatedPermissions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          destination: 'session',
+          rules: [{ toolName: 'Bash', ruleContent: 'npm test *' }],
+        },
+      ],
+      decisionClassification: 'user_permanent',
+    });
+
+    const responsePath = path.join(
+      tempDir,
+      'grp',
+      'permission-responses',
+      'perm-3.json',
+    );
+    const payload = JSON.parse(fs.readFileSync(responsePath, 'utf-8'));
+    expect(payload).toMatchObject({
+      requestId: 'perm-3',
+      approved: true,
+      mode: 'allow_persistent_rule',
+      updatedPermissions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          destination: 'session',
+          rules: [{ toolName: 'Bash', ruleContent: 'npm test *' }],
+        },
+      ],
+      decisionClassification: 'user_permanent',
+    });
+  });
+
   it('sanitizes user answer keys and values when writing responses', () => {
     const answers = {
       mode: 'trigger',

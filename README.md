@@ -82,27 +82,26 @@ Defaults in v1:
 
 Runtime home is a single-cut contract. MyClaw reads `~/myclaw` by default unless `--runtime-home` or `MYCLAW_HOME` is set.
 
-Canonical runtime settings live in `~/myclaw/settings.yaml`:
+Human-editable runtime settings live in `~/myclaw/settings.yaml`. The common
+shape is compact and only includes values users normally change:
 
 ```yaml
-storage:
-  postgres:
-    url_env: MYCLAW_DATABASE_URL
-    schema: myclaw
-
-agent:
+defaults:
   name: Main Agent
-  default_model: opus
-  one_time_job_default_model: ""
-  recurring_job_default_model: ""
+  model: opus
+  jobs:
+    one_time_model: haiku
+    recurring_model: sonnet
 
-credential_broker:
-  mode: onecli
-  onecli:
-    url: http://localhost:10254
-    postgres:
-      url_env: ONECLI_DATABASE_URL
-      schema: onecli
+providers:
+  telegram:
+    enabled: true
+    bot_token_env: TELEGRAM_BOT_TOKEN
+
+agents:
+  main:
+    name: Main Agent
+    persona: personal_assistant
 
 memory:
   enabled: true
@@ -112,7 +111,19 @@ memory:
     model: text-embedding-3-large
   dreaming:
     enabled: true
+
+conversations:
+  main_dm:
+    provider: telegram
+    id: "5759865942"
+    type: dm
+    approvers: ["5759865942"]
+    agent: main
+    trigger: "@Main Agent"
 ```
+
+Advanced storage and credential broker overrides stay supported, but setup keeps
+them out of `settings.yaml` unless you change them from defaults.
 
 MyClaw uses Postgres for runtime state, jobs, events, memory, semantic search, and lexical search. Runtime readiness expects `pgvector`, `pg_trgm`, and `pg-boss` schema readiness. The supported deployment model is one database with separate schemas and roles: `myclaw` for runtime state, `onecli` for broker state, and `pgboss` for job queue internals. `MYCLAW_DATABASE_URL` and `ONECLI_DATABASE_URL` must use different Postgres users.
 

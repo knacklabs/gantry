@@ -58,8 +58,10 @@ conversations:
 ```
 
 Do not render disabled providers, empty arrays, empty inherited model defaults,
-`added_at`, internal provider connection IDs, runtime storage internals, or
-credential broker internals unless the user changed them from defaults.
+internal provider connection IDs, runtime storage internals, or credential
+broker internals unless the user changed them from defaults. Binding timestamps
+are advanced state; keep them out of common examples and only preserve them
+where omitting the value would mutate live desired state.
 
 ## Inherited Settings Documentation
 

@@ -16,17 +16,17 @@ import { resolveConversationBrowserProfile } from '../shared/browser-profile-sco
 import type { IpcDeps } from './ipc-domain-types.js';
 import { writeTaskIpcResponse } from '../jobs/ipc-shared.js';
 // prettier-ignore
-import { processPermissionIpcRequest, processUserQuestionIpcRequest, writePermissionIpcResponse, writeUserQuestionIpcResponse } from './ipc-interaction-handler.js';
+import { interactionInFlightKey, processPermissionInteractionIpc, processUserQuestionInteractionIpc, writePermissionInteractionFailure, writeUserQuestionInteractionFailure } from './ipc-interaction-processing.js';
 import { processTaskIpc } from '../jobs/ipc-handler.js';
 // prettier-ignore
-import { acquireIpcRootLock, archiveIpcErrorFile, claimIpcFile, ensureGroupIpcLayout, hasCompleteTrustedGroupIpcLayout, isTrustedDirectory, readIpcRootLockDetails, recoverStaleIpcRootLock } from './ipc-filesystem.js';
+import { acquireIpcRootLock, archiveIpcErrorFile, claimIpcFile, ensureGroupIpcLayout, hasCompleteTrustedGroupIpcLayout, isPendingIpcJsonFile, isTrustedDirectory, readIpcRootLockDetails, recoverStaleIpcRootLock } from './ipc-filesystem.js';
 // prettier-ignore
 import { parseBrowserIpcRequest, parseIpcMessage, parseMemoryIpcRequest, parsePermissionIpcRequest, parseUserQuestionIpcRequest } from './ipc-parsing.js';
 import { parseTaskIpcData } from './ipc-task-parsing.js';
 import { clearConsumedIpcRequestIds } from './ipc-auth-validation.js';
 import type { RegisteredGroup as RuntimeGroupRecord } from '../domain/types.js';
-
 export type { IpcDeps } from './ipc-domain-types.js';
+export { isPendingIpcJsonFile } from './ipc-filesystem.js';
 export { processTaskIpc } from '../jobs/ipc-handler.js';
 export { validateIpcAuthRequest } from './ipc-auth-validation.js';
 
@@ -35,10 +35,12 @@ let ipcWatcherTimer: ReturnType<typeof setTimeout> | undefined;
 let ipcRootLockPath: string | undefined;
 const IPC_RATE_LIMIT_WINDOW_MS = 60_000;
 const IPC_RATE_LIMIT_MAX_FILES_PER_WINDOW = 300;
+const MAX_IN_FLIGHT_INTERACTION_IPC = 100;
 const ipcRateLimitState = new Map<
   string,
   { windowStart: number; count: number }
 >();
+const inFlightInteractionIpc = new Set<string>();
 
 function canProcessIpcFile(sourceGroup: string, kind: string): boolean {
   const now = nowMs();
@@ -301,7 +303,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
         if (isTrustedDirectory(messagesDir)) {
           const messageFiles = fs
             .readdirSync(messagesDir)
-            .filter((f) => f.endsWith('.json'));
+            .filter(isPendingIpcJsonFile);
           for (const file of messageFiles) {
             const filePath = path.join(messagesDir, file);
             let claimedPath = filePath;
@@ -362,9 +364,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
         if (isTrustedDirectory(tasksDir)) {
           const taskFiles = fs
             .readdirSync(tasksDir)
-            .filter(
-              (f) => f.endsWith('.json') && !f.startsWith('.processing-'),
-            );
+            .filter(isPendingIpcJsonFile);
           for (const file of taskFiles) {
             const filePath = path.join(tasksDir, file);
             let claimedPath = filePath;
@@ -425,7 +425,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
         if (isTrustedDirectory(memoryRequestsDir)) {
           const memoryFiles = fs
             .readdirSync(memoryRequestsDir)
-            .filter((f) => f.endsWith('.json'));
+            .filter(isPendingIpcJsonFile);
           for (const file of memoryFiles) {
             const filePath = path.join(memoryRequestsDir, file);
             let claimedPath = filePath;
@@ -485,7 +485,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
         if (isTrustedDirectory(browserRequestsDir)) {
           const browserFiles = fs
             .readdirSync(browserRequestsDir)
-            .filter((f) => f.endsWith('.json'));
+            .filter(isPendingIpcJsonFile);
           for (const file of browserFiles) {
             const filePath = path.join(browserRequestsDir, file);
             let claimedPath = filePath;
@@ -570,11 +570,12 @@ export function startIpcWatcher(deps: IpcDeps): void {
         if (isTrustedDirectory(permissionRequestsDir)) {
           const permissionFiles = fs
             .readdirSync(permissionRequestsDir)
-            .filter((f) => f.endsWith('.json'));
+            .filter(isPendingIpcJsonFile);
           for (const file of permissionFiles) {
             const filePath = path.join(permissionRequestsDir, file);
             let claimedPath = filePath;
             let requestId: string | undefined;
+            let requestThreadId: string | undefined;
             try {
               if (!canProcessIpcFile(sourceGroup, 'permission')) {
                 throw new Error('Permission IPC rate limit exceeded');
@@ -590,40 +591,40 @@ export function startIpcWatcher(deps: IpcDeps): void {
               request.targetJid =
                 request.targetJid || folderTargetJid.get(sourceGroup);
               requestId = request.requestId;
-              const decision = await processPermissionIpcRequest(request, {
-                requestPermissionApproval: deps.requestPermissionApproval,
-              });
-              writePermissionIpcResponse(
-                ipcBaseDir,
+              requestThreadId = request.threadId;
+              if (
+                inFlightInteractionIpc.size >= MAX_IN_FLIGHT_INTERACTION_IPC
+              ) {
+                throw new Error('Too many in-flight interaction IPC requests');
+              }
+              const inFlightKey = interactionInFlightKey({
                 sourceGroup,
-                {
-                  requestId,
-                  approved: decision.approved,
-                  decidedBy: decision.decidedBy,
-                  reason: decision.reason,
-                },
-                getIpcResponseSigningPrivateKey(sourceGroup, request.threadId),
-              );
-              fs.unlinkSync(claimedPath);
+                kind: 'permission',
+                threadId: requestThreadId,
+                requestId,
+              });
+              if (inFlightInteractionIpc.has(inFlightKey)) {
+                throw new Error('Permission IPC request already in flight');
+              }
+              inFlightInteractionIpc.add(inFlightKey);
+              void processPermissionInteractionIpc({
+                request,
+                sourceGroup,
+                deps,
+                ipcBaseDir,
+                file,
+                claimedPath,
+                logger,
+              }).finally(() => inFlightInteractionIpc.delete(inFlightKey));
             } catch (err) {
               if (requestId) {
-                try {
-                  writePermissionIpcResponse(
-                    ipcBaseDir,
-                    sourceGroup,
-                    {
-                      requestId,
-                      approved: false,
-                      reason: 'Failed to process permission request',
-                    },
-                    getIpcResponseSigningPrivateKey(sourceGroup),
-                  );
-                } catch (writeErr) {
-                  logger.warn(
-                    { sourceGroup, requestId, err: writeErr },
-                    'Failed to write permission IPC denial fallback',
-                  );
-                }
+                writePermissionInteractionFailure({
+                  ipcBaseDir,
+                  sourceGroup,
+                  requestId,
+                  threadId: requestThreadId,
+                  logger,
+                });
               }
               logger.error(
                 { file, sourceGroup, err },
@@ -650,11 +651,12 @@ export function startIpcWatcher(deps: IpcDeps): void {
         if (isTrustedDirectory(userQuestionRequestsDir)) {
           const questionFiles = fs
             .readdirSync(userQuestionRequestsDir)
-            .filter((f) => f.endsWith('.json'));
+            .filter(isPendingIpcJsonFile);
           for (const file of questionFiles) {
             const filePath = path.join(userQuestionRequestsDir, file);
             let claimedPath = filePath;
             let requestId: string | undefined;
+            let requestThreadId: string | undefined;
             try {
               if (!canProcessIpcFile(sourceGroup, 'user-question')) {
                 throw new Error('User question IPC rate limit exceeded');
@@ -670,38 +672,40 @@ export function startIpcWatcher(deps: IpcDeps): void {
               request.targetJid =
                 request.targetJid || folderTargetJid.get(sourceGroup);
               requestId = request.requestId;
-              const response = await processUserQuestionIpcRequest(request, {
-                requestUserAnswer: deps.requestUserAnswer,
-              });
-              writeUserQuestionIpcResponse(
-                ipcBaseDir,
+              requestThreadId = request.threadId;
+              if (
+                inFlightInteractionIpc.size >= MAX_IN_FLIGHT_INTERACTION_IPC
+              ) {
+                throw new Error('Too many in-flight interaction IPC requests');
+              }
+              const inFlightKey = interactionInFlightKey({
                 sourceGroup,
-                {
-                  requestId,
-                  answers: response.answers || {},
-                  answeredBy: response.answeredBy,
-                },
-                getIpcResponseSigningPrivateKey(sourceGroup, request.threadId),
-              );
-              fs.unlinkSync(claimedPath);
+                kind: 'user-question',
+                threadId: requestThreadId,
+                requestId,
+              });
+              if (inFlightInteractionIpc.has(inFlightKey)) {
+                throw new Error('User question IPC request already in flight');
+              }
+              inFlightInteractionIpc.add(inFlightKey);
+              void processUserQuestionInteractionIpc({
+                request,
+                sourceGroup,
+                deps,
+                ipcBaseDir,
+                file,
+                claimedPath,
+                logger,
+              }).finally(() => inFlightInteractionIpc.delete(inFlightKey));
             } catch (err) {
               if (requestId) {
-                try {
-                  writeUserQuestionIpcResponse(
-                    ipcBaseDir,
-                    sourceGroup,
-                    {
-                      requestId,
-                      answers: {},
-                    },
-                    getIpcResponseSigningPrivateKey(sourceGroup),
-                  );
-                } catch (writeErr) {
-                  logger.warn(
-                    { sourceGroup, requestId, err: writeErr },
-                    'Failed to write user question IPC fallback response',
-                  );
-                }
+                writeUserQuestionInteractionFailure({
+                  ipcBaseDir,
+                  sourceGroup,
+                  requestId,
+                  threadId: requestThreadId,
+                  logger,
+                });
               }
               logger.error(
                 { file, sourceGroup, err },
@@ -738,6 +742,7 @@ export function stopIpcWatcher(): void {
   }
   ipcWatcherRunning = false;
   ipcRateLimitState.clear();
+  inFlightInteractionIpc.clear();
   clearConsumedIpcRequestIds();
   releaseIpcRootLock();
   logger.info('IPC watcher stopped');

@@ -48,6 +48,134 @@ describe('runtime settings', () => {
     );
   });
 
+  it('rejects malformed compact default maps', () => {
+    expect(() =>
+      parseRuntimeSettings(`defaults:
+  model: opus
+  jobs: sonnet
+`),
+    ).toThrow('defaults.jobs must be a mapping');
+
+    expect(() =>
+      parseRuntimeSettings(`defaults:
+  model: opus
+  sessions: enabled
+`),
+    ).toThrow('defaults.sessions must be a mapping');
+  });
+
+  it('rejects malformed compact agent job maps', () => {
+    expect(() =>
+      parseRuntimeSettings(`defaults:
+  model: opus
+
+agents:
+  kai:
+    name: Kai
+    jobs: sonnet
+`),
+    ).toThrow('agents.kai.jobs must be a mapping');
+  });
+
+  it('rejects unsupported compact provider, conversation, and job keys', () => {
+    expect(() =>
+      parseRuntimeSettings(`providers:
+  telegram:
+    enabled: true
+    bot_token_en: TELEGRAM_BOT_TOKEN
+`),
+    ).toThrow('providers.telegram.bot_token_en is not supported');
+
+    expect(() =>
+      parseRuntimeSettings(`agents:
+  kai:
+    name: Kai
+    jobs:
+      one_tim_model: sonnet
+`),
+    ).toThrow('agents.kai.jobs.one_tim_model is not supported');
+
+    expect(() =>
+      parseRuntimeSettings(`conversations:
+  kai:
+    provider: telegram
+    id: "123"
+    type: channel
+    aproverz: ["42"]
+`),
+    ).toThrow('conversations.kai.aproverz is not supported');
+  });
+
+  it('rejects unsupported nested memory settings keys', () => {
+    expect(() =>
+      parseRuntimeSettings(`memory:
+  enabled: true
+  embeddings:
+    enabled: true
+    provider: openai
+    modell: text-embedding-3-small
+`),
+    ).toThrow('memory.embeddings.modell is not supported');
+
+    expect(() =>
+      parseRuntimeSettings(`memory:
+  enabled: true
+  embeddings:
+    enabled: false
+    provider: disabled
+    model: text-embedding-3-small
+  dreaming:
+    enabld: true
+`),
+    ).toThrow('memory.dreaming.enabld is not supported');
+
+    expect(() =>
+      parseRuntimeSettings(`memory:
+  enabled: true
+  embeddings:
+    enabled: false
+    provider: disabled
+    model: text-embedding-3-small
+  llm:
+    modelz: {}
+`),
+    ).toThrow('memory.llm.modelz is not supported');
+
+    expect(() =>
+      parseRuntimeSettings(`memory:
+  enabled: true
+  embeddings:
+    enabled: false
+    provider: disabled
+    model: text-embedding-3-small
+  llm:
+    models:
+      extractorr: sonnet
+`),
+    ).toThrow('memory.llm.models.extractorr is not supported');
+  });
+
+  it('keeps explicit verbose provider connections over compact defaults', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  telegram:
+    enabled: true
+    label: Compact Telegram
+    bot_token_env: TELEGRAM_COMPACT_BOT_TOKEN
+
+provider_connections:
+  telegram_default:
+    provider: telegram
+    label: Explicit Telegram
+    runtime_secret_refs:
+      bot_token: TELEGRAM_EXPLICIT_BOT_TOKEN
+`);
+
+    expect(parsed.providerConnections.telegram_default).toMatchObject({
+      label: 'Explicit Telegram',
+      runtimeSecretRefs: { bot_token: 'TELEGRAM_EXPLICIT_BOT_TOKEN' },
+    });
+  });
+
   it('validates model defaults against the model catalog', () => {
     const settings = createDefaultRuntimeSettings();
     settings.agent.defaultModel = 'claude-opus-4-7';

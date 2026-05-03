@@ -757,6 +757,14 @@ function parseMemoryLlmModels(
     throw new Error(`${pathPrefix} must be a mapping`);
   }
   const map = raw as Record<string, unknown>;
+  const supportedKeys = new Set(['extractor', 'dreaming', 'consolidation']);
+  for (const key of Object.keys(map)) {
+    if (!supportedKeys.has(key)) {
+      throw new Error(
+        `${pathPrefix}.${key} is not supported. Use ${pathPrefix}.extractor, dreaming, or consolidation.`,
+      );
+    }
+  }
   return {
     extractor: parseStringValue(
       map.extractor,
@@ -833,6 +841,30 @@ function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
     throw new Error('memory.llm must be a mapping');
   }
   const llmMap = (llmRaw || {}) as Record<string, unknown>;
+  const embeddingsKeys = new Set(['enabled', 'provider', 'model']);
+  for (const key of Object.keys(embeddingsMap)) {
+    if (!embeddingsKeys.has(key)) {
+      throw new Error(
+        `memory.embeddings.${key} is not supported. Use memory.embeddings.enabled, provider, or model.`,
+      );
+    }
+  }
+  const dreamingKeys = new Set(['enabled']);
+  for (const key of Object.keys(dreamingMap)) {
+    if (!dreamingKeys.has(key)) {
+      throw new Error(
+        `memory.dreaming.${key} is not supported. Use memory.dreaming.enabled.`,
+      );
+    }
+  }
+  const llmKeys = new Set(['models']);
+  for (const key of Object.keys(llmMap)) {
+    if (!llmKeys.has(key)) {
+      throw new Error(
+        `memory.llm.${key} is not supported. Use memory.llm.models.`,
+      );
+    }
+  }
   const enabled = parseBooleanValue(map.enabled, 'memory.enabled');
   const embeddingsEnabled = parseBooleanValue(
     embeddingsMap.enabled,

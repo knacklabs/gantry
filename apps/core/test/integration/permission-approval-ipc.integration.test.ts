@@ -110,6 +110,21 @@ describe('permission approval IPC boundary', () => {
         apiKey: 'sk-sensitive-key',
         nested: { password: 'top-secret' },
       },
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          destination: 'session',
+          rules: [
+            {
+              toolName: 'Browser',
+              ruleContent: 'domain:example.internal',
+              secretToken: 'must-not-survive',
+            },
+          ],
+          ignored: { nested: { value: 'must-not-survive' } },
+        },
+      ],
     });
 
     const pendingRequest = await waitForPermissionRequest(
@@ -132,6 +147,19 @@ describe('permission approval IPC boundary', () => {
           password: '[REDACTED]',
         },
       },
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          destination: 'session',
+          rules: [
+            {
+              toolName: 'Browser',
+              ruleContent: 'domain:example.internal',
+            },
+          ],
+        },
+      ],
     });
     expect(() =>
       parsePermissionIpcRequest(pendingRequest.raw, groupFolder),

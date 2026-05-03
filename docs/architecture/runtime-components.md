@@ -141,7 +141,8 @@ MyClaw MCP tools are grouped by capability:
 
 - messaging and user interaction: send a message, ask a question
 - capability requests: skill install/proposal/dependency install, MCP server,
-  SDK or host tool enablement, and channel tool enablement
+  and the unified `request_permission` approval flow for scoped SDK, host,
+  browser, memory, service, provider, and MCP actions
 - scheduler: create, inspect, mutate, pause, resume, list, and wait for jobs, runs, events, and dead letters
 - memory: search, save, and patch memory or procedures
 - browser: list profiles, launch, close, and inspect browser status
@@ -164,12 +165,12 @@ sequenceDiagram
   Runner->>Dir: write request with group/thread auth token
   Host->>Host: validate path, token, kind, rate limit, and ownership
   Host->>Main: request approval when policy requires it
-  Main->>User: show approval prompt
-  User->>Main: approve or deny
+  Main->>User: show Allow once / Always allow / Cancel prompt
+  User->>Main: choose one permission action
   Main->>Host: return decision
   Host->>Dir: write signed response
   Runner->>Runner: verify response signature
-  Runner-->>Agent: allow or deny
+  Runner-->>Agent: allow once, apply returned permission update, or cancel
 ```
 
 Important permission boundaries:

@@ -2,6 +2,28 @@ function isRecord(raw: unknown): raw is Record<string, unknown> {
   return typeof raw === 'object' && raw !== null && !Array.isArray(raw);
 }
 
+function parseOptionalRecord(
+  raw: unknown,
+  pathPrefix: string,
+): Record<string, unknown> | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) throw new Error(`${pathPrefix} must be a mapping`);
+  return raw;
+}
+
+function assertSupportedKeys(
+  map: Record<string, unknown>,
+  pathPrefix: string,
+  supported: Set<string>,
+  extraAllowed?: (key: string) => boolean,
+): void {
+  for (const key of Object.keys(map)) {
+    if (!supported.has(key) && !extraAllowed?.(key)) {
+      throw new Error(`${pathPrefix}.${key} is not supported`);
+    }
+  }
+}
+
 function defaultConnectionIdForProvider(providerId: string): string {
   return `${providerId}_default`;
 }
@@ -15,6 +37,12 @@ function compactProviderToVerbose(
 } {
   if (!isRecord(raw)) return { provider: {} };
   const map = raw;
+  assertSupportedKeys(
+    map,
+    `providers.${providerId}`,
+    new Set(['enabled', 'default_connection', 'label']),
+    (key) => key.endsWith('_env'),
+  );
   const provider: Record<string, unknown> = {
     enabled: map.enabled,
     default_connection: map.default_connection,
@@ -73,7 +101,7 @@ function normalizeCompactDefaults(
       );
     }
   }
-  const jobs = isRecord(defaults.jobs) ? defaults.jobs : {};
+  const jobs = parseOptionalRecord(defaults.jobs, 'defaults.jobs') || {};
   for (const key of Object.keys(jobs)) {
     if (
       key !== 'one_time_model' &&
@@ -86,7 +114,7 @@ function normalizeCompactDefaults(
       );
     }
   }
-  const sessions = isRecord(defaults.sessions) ? defaults.sessions : undefined;
+  const sessions = parseOptionalRecord(defaults.sessions, 'defaults.sessions');
   normalized.agent = {
     name: defaults.name,
     default_model: defaults.model,
@@ -113,7 +141,10 @@ function normalizeCompactProviders(
   for (const [providerId, providerRaw] of Object.entries(root.providers)) {
     const compact = compactProviderToVerbose(providerId, providerRaw);
     providers[providerId] = compact.provider;
-    if (compact.connection) {
+    if (
+      compact.connection &&
+      providerConnections[compact.connection[0]] === undefined
+    ) {
       providerConnections[compact.connection[0]] = compact.connection[1];
     }
   }
@@ -140,7 +171,18 @@ function normalizeCompactAgents(
     if (agentRaw.mcp_servers !== undefined) {
       capabilities.mcp_server_ids = agentRaw.mcp_servers;
     }
-    const jobs = isRecord(agentRaw.jobs) ? agentRaw.jobs : {};
+    const jobs =
+      parseOptionalRecord(agentRaw.jobs, `agents.${agentId}.jobs`) || {};
+    assertSupportedKeys(
+      jobs,
+      `agents.${agentId}.jobs`,
+      new Set([
+        'one_time_model',
+        'recurring_model',
+        'one_time_job_default_model',
+        'recurring_job_default_model',
+      ]),
+    );
     const {
       tools: _tools,
       skills: _skills,
@@ -185,6 +227,29 @@ function normalizeCompactConversations(
       conversations[conversationId] = conversationRaw;
       continue;
     }
+    assertSupportedKeys(
+      conversationRaw,
+      `conversations.${conversationId}`,
+      new Set([
+        'provider',
+        'provider_connection',
+        'id',
+        'external_id',
+        'type',
+        'kind',
+        'display_name',
+        'sender_policy',
+        'approvers',
+        'control_approvers',
+        'agent',
+        'trigger',
+        'added_at',
+        'requires_trigger',
+        'main',
+        'memory_scope',
+        'model',
+      ]),
+    );
     const providerId =
       typeof conversationRaw.provider === 'string'
         ? conversationRaw.provider.trim()

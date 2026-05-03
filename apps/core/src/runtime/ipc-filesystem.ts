@@ -55,6 +55,10 @@ export function claimIpcFile(filePath: string): string {
   return claimed;
 }
 
+export function isPendingIpcJsonFile(filename: string): boolean {
+  return filename.endsWith('.json') && !filename.startsWith('.processing-');
+}
+
 export function archiveIpcErrorFile(
   ipcBaseDir: string,
   sourceGroup: string,

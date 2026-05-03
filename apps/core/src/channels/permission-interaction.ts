@@ -22,13 +22,17 @@ export function normalizePermissionAction(
 export function persistentPermissionUpdates(
   request: PermissionApprovalRequest,
 ): PermissionApprovalUpdate[] {
-  return (request.suggestions || []).filter(
+  const candidates = (request.suggestions || []).filter(
     (update) =>
       (update.type === 'addRules' || update.type === 'replaceRules') &&
       update.behavior === 'allow' &&
       Array.isArray(update.rules) &&
       update.rules.length > 0,
   );
+  if (candidates.length !== 1 || candidates[0].rules?.length !== 1) {
+    return [];
+  }
+  return candidates;
 }
 
 export function firstPersistentRule(
@@ -79,17 +83,25 @@ export function decisionForMode(
     };
   }
   if (mode === 'allow_persistent_rule') {
+    const updates = persistentPermissionUpdates(request).map((update) => ({
+      ...update,
+      destination: 'session' as const,
+    }));
+    if (updates.length === 0) {
+      return {
+        approved: false,
+        mode: 'cancel',
+        decidedBy,
+        reason: 'persistent rule unavailable',
+        decisionClassification: 'user_reject',
+      };
+    }
     return {
       approved: true,
       mode,
       decidedBy,
       reason: 'persistent rule allowed',
-      updatedPermissions: persistentPermissionUpdates(request).map(
-        (update) => ({
-          ...update,
-          destination: 'session',
-        }),
-      ),
+      updatedPermissions: updates,
       decisionClassification: 'user_permanent',
     };
   }
@@ -147,7 +159,7 @@ export function formatPermissionReceiptText(
   }
   if (decision.mode === 'allow_persistent_rule') {
     const rule = request ? firstPersistentRule(request) : undefined;
-    return `Always allowed: ${rule || action}\nBy: ${actor}\nRequest ID: ${requestId}`;
+    return `Allowed for this session: ${rule || action}\nBy: ${actor}\nRequest ID: ${requestId}`;
   }
   return `Allowed once: ${action}\nBy: ${actor}\nRequest ID: ${requestId}`;
 }
@@ -199,7 +211,7 @@ function formatPermissionBoundaryLines(
   }
   return [
     'What this changes: Allow once applies only to this tool call.',
-    `Always allow adds a reusable rule for this agent: ${rule}`,
+    `Always allow applies this rule for the running agent session: ${rule}`,
     'What this does not allow: unrelated tools, secrets, settings edits, or broader access outside the rule.',
   ];
 }

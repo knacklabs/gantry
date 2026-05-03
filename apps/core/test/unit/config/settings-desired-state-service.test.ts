@@ -207,9 +207,51 @@ describe('SettingsDesiredStateService', () => {
     );
   });
 
-  it('preserves hidden opaque skill bindings when reconciling visible settings', async () => {
+  it('removes hidden opaque skill bindings in authoritative mode', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.desiredState.authoritative = true;
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      dmAccess: [],
+      capabilities: {
+        toolIds: [],
+        skillIds: ['skill:admin'],
+        mcpServerIds: [],
+      },
+    };
+    const repositories = makeRepositories();
+    repositories.skills.listAgentSkillBindings = vi.fn(async () => [
+      {
+        id: 'agent-skill-binding:agent:main_agent:skill:3014949c-a616-4b2c-80e7-0bc61bb31e85',
+        appId: 'default',
+        agentId: 'agent:main_agent',
+        skillId: 'skill:3014949c-a616-4b2c-80e7-0bc61bb31e85',
+        status: 'active',
+        createdAt: '2026-05-01T00:00:00.000Z',
+        updatedAt: '2026-05-01T00:00:00.000Z',
+      },
+    ]);
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillBindings: [expect.objectContaining({ skillId: 'skill:admin' })],
+      }),
+    );
+  });
+
+  it('preserves hidden opaque skill bindings only for non-authoritative visible settings', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.desiredState.authoritative = false;
     settings.agents.main_agent = {
       name: 'Main',
       folder: 'main_agent',

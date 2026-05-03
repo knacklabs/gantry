@@ -15,6 +15,8 @@ describe('EnvRuntimeSecretProvider', () => {
     } else {
       process.env.MYCLAW_HOME = originalHome;
     }
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
   });
 
   it('falls back to runtime .env when using process.env', () => {
@@ -37,6 +39,28 @@ describe('EnvRuntimeSecretProvider', () => {
 
     expect(provider.getOptionalSecret({ env: 'TELEGRAM_BOT_TOKEN' })).toBe(
       undefined,
+    );
+  });
+
+  it('refuses wrong-lane provider credentials from process env and runtime .env', () => {
+    const runtimeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-env-'));
+    fs.writeFileSync(
+      path.join(runtimeHome, '.env'),
+      'ANTHROPIC_API_KEY=sk-ant-runtime\n',
+      'utf8',
+    );
+    process.env.MYCLAW_HOME = runtimeHome;
+    process.env.OPENAI_API_KEY = 'sk-openai-process';
+    const provider = new EnvRuntimeSecretProvider();
+
+    expect(provider.getOptionalSecret({ env: 'OPENAI_API_KEY' })).toBe(
+      undefined,
+    );
+    expect(provider.getOptionalSecret({ env: 'ANTHROPIC_API_KEY' })).toBe(
+      undefined,
+    );
+    expect(() => provider.getSecret({ env: 'OPENAI_API_KEY' })).toThrow(
+      'OPENAI_API_KEY is required.',
     );
   });
 });
