@@ -265,6 +265,7 @@ export function parsePermissionIpcRequest(
   if (!requestId || !PERMISSION_IPC_REQUEST_ID_PATTERN.test(requestId)) {
     throw new Error('Invalid permission IPC requestId');
   }
+  const responseNonce = toTrimmedString(raw.responseNonce, { maxLen: 128 });
   const toolName = toTrimmedString(raw.toolName, { maxLen: 120 });
   if (!toolName) throw new Error('Permission IPC toolName is required');
   const title = toTrimmedString(raw.title, { maxLen: 2000 });
@@ -280,6 +281,7 @@ export function parsePermissionIpcRequest(
 
   return {
     requestId,
+    ...(responseNonce ? { responseNonce } : {}),
     sourceGroup,
     ...(threadId ? { threadId } : {}),
     toolName,

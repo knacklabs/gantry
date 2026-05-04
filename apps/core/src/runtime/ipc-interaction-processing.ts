@@ -38,6 +38,7 @@ export function writePermissionInteractionFailure(input: {
   ipcBaseDir: string;
   sourceGroup: string;
   requestId: string;
+  responseNonce?: string;
   threadId?: string;
   logger: IpcInteractionLogger;
 }): void {
@@ -47,6 +48,7 @@ export function writePermissionInteractionFailure(input: {
       input.sourceGroup,
       {
         requestId: input.requestId,
+        ...(input.responseNonce ? { responseNonce: input.responseNonce } : {}),
         approved: false,
         reason: 'Failed to process permission request',
       },
@@ -103,6 +105,7 @@ export async function processPermissionInteractionIpc(input: {
       input.sourceGroup,
       {
         requestId: input.request.requestId,
+        responseNonce: input.request.responseNonce,
         approved: decision.approved,
         mode: decision.mode,
         decidedBy: decision.decidedBy,
@@ -121,6 +124,7 @@ export async function processPermissionInteractionIpc(input: {
       ipcBaseDir: input.ipcBaseDir,
       sourceGroup: input.sourceGroup,
       requestId: input.request.requestId,
+      responseNonce: input.request.responseNonce,
       threadId: input.request.threadId,
       logger: input.logger,
     });

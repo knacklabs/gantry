@@ -245,7 +245,12 @@ export async function runQuery(
           toolInput: input,
           toolUseID: permissionOpts.toolUseID,
           agentID: permissionOpts.agentID,
-          suggestions: permissionOpts.suggestions,
+          suggestions:
+            (permissionOpts.suggestions?.length ?? 0) > 0
+              ? permissionOpts.suggestions
+              : synthesizePermissionSuggestions(toolName, {
+                  blockedPath: permissionOpts.blockedPath,
+                }),
           threadId: agentInput.threadId,
         });
         if (decision.approved) {
@@ -272,6 +277,12 @@ export async function runQuery(
           behavior: 'deny' as const,
           message: `Permission denied: ${reason}`,
           interrupt: false,
+          ...(decision.decisionClassification
+            ? {
+                decisionClassification:
+                  decision.decisionClassification as never,
+              }
+            : {}),
         };
       },
       settingSources: ['user'],
@@ -391,6 +402,43 @@ export async function runQuery(
     lastAssistantUuid,
     closedDuringQuery,
   };
+}
+
+function synthesizePermissionSuggestions(
+  toolName: string,
+  options: { blockedPath?: string },
+): unknown[] | undefined {
+  const normalizedToolName = toolName.trim();
+  if (!normalizedToolName) return undefined;
+  const ruleContent = inferPermissionRuleContent(options);
+  if (!ruleContent) return undefined;
+  return [
+    {
+      type: 'addRules',
+      behavior: 'allow',
+      destination: 'session',
+      rules: [
+        {
+          toolName: normalizedToolName,
+          ...(ruleContent ? { ruleContent } : {}),
+        },
+      ],
+    },
+  ];
+}
+
+function inferPermissionRuleContent(options: {
+  blockedPath?: string;
+}): string | undefined {
+  const scope = trimmed(options.blockedPath);
+  if (!scope) return undefined;
+  return scope;
+}
+
+function trimmed(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const out = value.trim();
+  return out || undefined;
 }
 
 function assertRequiredMcpServerReady(message: unknown): void {

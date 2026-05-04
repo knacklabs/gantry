@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import { nowIso, nowMs, sleep } from '../../infrastructure/time/datetime.js';
 import { isPlainObject } from '../../shared/object.js';
 import { hasValidIpcResponseSignature } from './ipc-signing.js';
@@ -34,11 +35,13 @@ export async function requestPermissionApproval(options: {
     );
     fs.mkdirSync(permissionRequestsDir, { recursive: true });
     fs.mkdirSync(permissionResponsesDir, { recursive: true });
-    const requestId = `perm-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+    const requestId = `perm-${randomUUID()}`;
+    const responseNonce = randomUUID();
     const requestPath = path.join(permissionRequestsDir, `${requestId}.json`);
     const requestTmpPath = `${requestPath}.tmp`;
     const payload = {
       requestId,
+      responseNonce,
       sourceGroup: options.groupFolder,
       toolName: options.toolName,
       ...(options.title ? { title: options.title } : {}),
@@ -75,15 +78,16 @@ export async function requestPermissionApproval(options: {
           ) {
             const responsePayload: Record<string, unknown> = {
               requestId,
+              responseNonce,
               approved: Boolean((raw as { approved?: unknown }).approved),
+              ...(typeof (raw as { mode?: unknown }).mode === 'string'
+                ? { mode: (raw as { mode: string }).mode }
+                : {}),
               ...(typeof (raw as { decidedBy?: unknown }).decidedBy === 'string'
                 ? { decidedBy: (raw as { decidedBy: string }).decidedBy }
                 : {}),
               ...(typeof (raw as { reason?: unknown }).reason === 'string'
                 ? { reason: (raw as { reason: string }).reason }
-                : {}),
-              ...(typeof (raw as { mode?: unknown }).mode === 'string'
-                ? { mode: (raw as { mode: string }).mode }
                 : {}),
               ...(Array.isArray(
                 (raw as { updatedPermissions?: unknown }).updatedPermissions,
@@ -103,6 +107,15 @@ export async function requestPermissionApproval(options: {
                   }
                 : {}),
             };
+            if (
+              (raw as { responseNonce?: unknown }).responseNonce !==
+              responseNonce
+            ) {
+              return {
+                approved: false,
+                reason: 'Malformed permission response',
+              };
+            }
             if (
               !hasValidIpcResponseSignature(
                 raw as Record<string, unknown>,

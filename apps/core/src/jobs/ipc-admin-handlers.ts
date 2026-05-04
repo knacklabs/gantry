@@ -14,6 +14,14 @@ import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { parseSkillDraftAssets } from './skill-draft-ipc.js';
 import { getHostRuntimeCredentialEnv } from '../runtime/agent-spawn-host.js';
 import {
+  isPermanentPermissionDecision,
+  persistRequestPermissionRules,
+  requestPermissionDescription,
+  requestPermissionQueuedMessage,
+  requestPermissionReviewEffect,
+  requestPermissionReviewSuggestions,
+} from './request-permission-review.js';
+import {
   requestSettingsUpdateHandler,
   serviceRestartHandler,
   settingsDesiredStateHandler,
@@ -372,7 +380,7 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
   if (!requestedTargetJid) return;
   if (typeof deps.requestPermissionApproval !== 'function' || typeof deps.sendMessage !== 'function') { reject(`${parsed.review.requestKind} requests require a configured approval surface.`, 'preflight_failed'); return; }
   startRequestOnlyCapabilityReview({ deps, sourceGroup, targetJid: requestedTargetJid, threadId: data.authThreadId, review: parsed.review });
-  accept(`${parsed.review.displayName} request sent to this chat for approval. This records a permission review only and does not enable the capability directly.`, 'capability_request_recorded');
+  accept(requestOnlyCapabilityQueuedMessage(parsed.review), 'capability_request_recorded');
 };
 
 // prettier-ignore
@@ -414,9 +422,23 @@ function parseRequestOnlyCapabilityReview(toolName: RequestOnlyCapabilityToolNam
       requestKind: spec.kind,
       displayName: `${spec.kind}: ${capabilityDisplayValue(payload, spec)}`,
       reason,
-      toolInput: { ...toolInput, activation: 'future_config_version', effect: spec.effect },
+      toolInput: { ...toolInput, activation: 'future_config_version', effect: requestOnlyCapabilityEffect(toolName, toolInput, spec.effect) },
     },
   };
+}
+
+// prettier-ignore
+function requestOnlyCapabilityEffect(toolName: RequestOnlyCapabilityToolName, toolInput: Record<string, unknown>, fallback: string): string {
+  return toolName === 'request_permission'
+    ? requestPermissionReviewEffect(toolInput, fallback)
+    : fallback;
+}
+
+// prettier-ignore
+function requestOnlyCapabilityQueuedMessage(review: RequestOnlyCapabilityReview): string {
+  return review.toolName === 'request_permission'
+    ? requestPermissionQueuedMessage({ toolName: 'request_permission', displayName: review.displayName })
+    : `${review.displayName} request sent to this chat for approval. This records a permission review only and does not enable the capability directly.`;
 }
 
 // prettier-ignore
@@ -482,12 +504,31 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
         toolName: input.review.toolName,
         displayName: input.review.displayName,
         title: `Approve ${input.review.requestKind.toLowerCase()} request`,
-        description: 'Only configured approvers can decide this request. This records the permission review only and does not enable the capability directly.',
+        description: input.review.toolName === 'request_permission' ? requestPermissionDescription() : 'Only configured approvers can decide this request. This records the permission review only and does not enable the capability directly.',
         decisionReason: input.review.reason,
         toolInput: input.review.toolInput,
+        ...(input.review.toolName === 'request_permission'
+          ? {
+              suggestions: requestPermissionReviewSuggestions(
+                input.review.toolInput,
+              ),
+            }
+          : {}),
       });
       const reason = decision.approved ? 'missing approving principal' : decision.reason || 'not approved';
-      message = decision.approved && decision.decidedBy ? `Approved ${input.review.displayName}. Permission review recorded by ${decision.decidedBy}; no capability was enabled by this request-only flow.` : `Rejected ${input.review.displayName}: ${reason}. No capability was enabled.`;
+      let persistedRules: string[] = [];
+      if (input.review.toolName === 'request_permission' && isPermanentPermissionDecision(decision)) {
+        persistedRules = await persistRequestPermissionRules({
+          deps: input.deps,
+          sourceGroup: input.sourceGroup,
+          updates: decision.updatedPermissions ?? [],
+        });
+      }
+      message = decision.approved && decision.decidedBy
+        ? persistedRules.length
+          ? `Approved ${input.review.displayName}. Persistent permission rule enabled for future runs by ${decision.decidedBy}: ${persistedRules.join(', ')}.`
+          : `Approved ${input.review.displayName}. Permission review recorded by ${decision.decidedBy}; no capability was enabled by this request-only flow.`
+        : `Rejected ${input.review.displayName}: ${reason}. No capability was enabled.`;
     } catch (err) {
       logger.error(
         { err, sourceGroup: input.sourceGroup, toolName: input.review.toolName },

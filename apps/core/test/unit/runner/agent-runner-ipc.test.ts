@@ -238,13 +238,17 @@ export async function* query({ prompt, options }) {
   }
 
   if (process.env.TEST_PERMISSION_DECISION) {
+    const permissionToolName = process.env.TEST_PERMISSION_TOOL_NAME || 'Bash';
+    const permissionInput = process.env.TEST_PERMISSION_SCOPE
+      ? { scope: process.env.TEST_PERMISSION_SCOPE }
+      : { cmd: 'npm test', apiToken: 'secret-token' };
     const decisionPromise = options.canUseTool(
-      'Bash',
-      { cmd: 'npm test', apiToken: 'secret-token' },
+      permissionToolName,
+      permissionInput,
       {
         signal: new AbortController().signal,
         title: 'Run command',
-        displayName: 'Bash',
+        displayName: permissionToolName,
         description: 'Needs shell access',
         decisionReason: 'Agent wants to verify tests',
         blockedPath: process.env.MYCLAW_WORKSPACE_GROUP_DIR,
@@ -257,9 +261,19 @@ export async function* query({ prompt, options }) {
     fs.mkdirSync(responseDir, { recursive: true });
     const responsePayload = {
       requestId: request.requestId,
+      responseNonce: request.responseNonce,
       approved: process.env.TEST_PERMISSION_DECISION === 'approve',
+      ...(process.env.TEST_PERMISSION_MODE
+        ? { mode: process.env.TEST_PERMISSION_MODE }
+        : {}),
       decidedBy: 'runner-test-admin',
       reason: process.env.TEST_PERMISSION_DECISION,
+      ...(process.env.TEST_PERMISSION_CLASSIFICATION
+        ? {
+            decisionClassification:
+              process.env.TEST_PERMISSION_CLASSIFICATION,
+          }
+        : {}),
     };
     const signature = signPayload(responsePayload);
     fs.writeFileSync(
@@ -961,6 +975,19 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.permissionRequest?.toolInput).toEqual(
         expect.objectContaining({ cmd: 'npm test', apiToken: 'secret-token' }),
       );
+      expect(call?.permissionRequest?.suggestions).toEqual([
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          destination: 'session',
+          rules: [
+            {
+              toolName: 'Bash',
+              ruleContent: call.permissionRequest.blockedPath,
+            },
+          ],
+        },
+      ]);
       expect(call?.permissionDecision).toEqual({
         behavior: 'allow',
         updatedInput: { cmd: 'npm test', apiToken: 'secret-token' },
@@ -968,6 +995,69 @@ describe('agent-runner IPC lifecycle', () => {
       expect(
         fs.readdirSync(path.join(fixture.ipcDir, 'permission-responses')),
       ).toHaveLength(0);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'synthesizes persistent permission suggestions from host blockedPath, not agent input',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_PERMISSION_DECISION: 'approve',
+        TEST_PERMISSION_TOOL_NAME: 'mcp__internal__deploy_preview',
+        TEST_PERMISSION_SCOPE: 'environment:staging',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionRequest).toEqual(
+        expect.objectContaining({
+          toolName: 'mcp__internal__deploy_preview',
+          suggestions: [
+            {
+              type: 'addRules',
+              behavior: 'allow',
+              destination: 'session',
+              rules: [
+                {
+                  toolName: 'mcp__internal__deploy_preview',
+                  ruleContent: call.permissionRequest.blockedPath,
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      expect(call?.permissionDecision).toEqual({
+        behavior: 'allow',
+        updatedInput: { scope: 'environment:staging' },
+      });
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'accepts a signed SDK permission response that includes a decision mode',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_PERMISSION_DECISION: 'approve',
+        TEST_PERMISSION_MODE: 'allow_once',
+        TEST_PERMISSION_CLASSIFICATION: 'user_temporary',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionDecision).toEqual({
+        behavior: 'allow',
+        updatedInput: { cmd: 'npm test', apiToken: 'secret-token' },
+        decisionClassification: 'user_temporary',
+      });
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -1083,6 +1173,7 @@ describe('agent-runner IPC lifecycle', () => {
 
       const result = await runRunner(fixture, baseInput(), {
         TEST_PERMISSION_DECISION: 'deny',
+        TEST_PERMISSION_CLASSIFICATION: 'user_reject',
         TEST_EXIT_AFTER_QUERY: '1',
       });
 
@@ -1093,6 +1184,7 @@ describe('agent-runner IPC lifecycle', () => {
           behavior: 'deny',
           message: 'Permission denied: deny',
           interrupt: false,
+          decisionClassification: 'user_reject',
         }),
       );
     },

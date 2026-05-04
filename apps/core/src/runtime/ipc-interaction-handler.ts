@@ -55,7 +55,10 @@ function withSignature(
 export function writePermissionIpcResponse(
   ipcBaseDir: string,
   sourceGroup: string,
-  decision: PermissionApprovalDecision & { requestId: string },
+  decision: PermissionApprovalDecision & {
+    requestId: string;
+    responseNonce?: string;
+  },
   privateKeyPem?: string,
 ): void {
   const responseDir = path.join(
@@ -69,6 +72,9 @@ export function writePermissionIpcResponse(
   const tmpPath = `${responsePath}.tmp`;
   const payload = withSignature(privateKeyPem, {
     requestId: decision.requestId,
+    ...(decision.responseNonce
+      ? { responseNonce: decision.responseNonce }
+      : {}),
     approved: decision.approved,
     ...(decision.mode ? { mode: decision.mode } : {}),
     ...(decision.decidedBy ? { decidedBy: decision.decidedBy } : {}),

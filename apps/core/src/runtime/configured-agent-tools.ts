@@ -15,7 +15,14 @@ export async function resolveConfiguredAllowedTools(input: {
     appId: input.appId as never,
     agentId: input.agentId as never,
   });
-  return bindings
-    .filter((binding) => binding.status === 'active')
-    .map((binding) => configuredAllowedToolName(binding.toolId));
+  const activeBindings = bindings.filter(
+    (binding) => binding.status === 'active',
+  );
+  const tools = await Promise.all(
+    activeBindings.map((binding) => input.repository?.getTool(binding.toolId)),
+  );
+  return activeBindings.map((binding, index) => {
+    const tool = tools[index];
+    return tool?.name || configuredAllowedToolName(binding.toolId);
+  });
 }

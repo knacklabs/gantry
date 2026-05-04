@@ -4,6 +4,7 @@ import type {
   PermissionApprovalRequest,
   PermissionApprovalUpdate,
 } from '../domain/types.js';
+import { logger } from '../infrastructure/logging/logger.js';
 
 export type PermissionActionToken =
   | PermissionApprovalDecisionMode
@@ -50,9 +51,40 @@ export function permissionDecisionOptions(
   request: PermissionApprovalRequest,
 ): PermissionApprovalDecisionMode[] {
   if (request.decisionOptions?.length) return request.decisionOptions;
-  return firstPersistentRule(request)
+  const persistentRule = firstPersistentRule(request);
+  if (!persistentRule) logPersistentOptionDrop(request);
+  return persistentRule
     ? ['allow_once', 'allow_persistent_rule', 'cancel']
     : ['allow_once', 'cancel'];
+}
+
+function logPersistentOptionDrop(request: PermissionApprovalRequest): void {
+  const suggestions = request.suggestions || [];
+  if (suggestions.length === 0) return;
+  logger.debug(
+    {
+      requestId: request.requestId,
+      toolName: request.toolName,
+      suggestionCount: suggestions.length,
+      reason: persistentOptionDropReason(request),
+    },
+    'Persistent permission option unavailable',
+  );
+}
+
+function persistentOptionDropReason(
+  request: PermissionApprovalRequest,
+): string {
+  const candidates = (request.suggestions || []).filter(
+    (update) =>
+      (update.type === 'addRules' || update.type === 'replaceRules') &&
+      update.behavior === 'allow' &&
+      Array.isArray(update.rules) &&
+      update.rules.length > 0,
+  );
+  if (candidates.length !== 1) return 'expected exactly one allow rule update';
+  if (candidates[0].rules?.length !== 1) return 'expected exactly one rule';
+  return 'rule missing toolName';
 }
 
 export function permissionButtonLabel(
@@ -159,7 +191,7 @@ export function formatPermissionReceiptText(
   }
   if (decision.mode === 'allow_persistent_rule') {
     const rule = request ? firstPersistentRule(request) : undefined;
-    return `Allowed for this session: ${rule || action}\nBy: ${actor}\nRequest ID: ${requestId}`;
+    return `Allowed persistent rule: ${rule || action}\nBy: ${actor}\nRequest ID: ${requestId}`;
   }
   return `Allowed once: ${action}\nBy: ${actor}\nRequest ID: ${requestId}`;
 }
@@ -211,11 +243,16 @@ function formatPermissionBoundaryLines(
   }
   return [
     'What this changes: Allow once applies only to this tool call.',
-    `Always allow applies this rule for the running agent session: ${rule}`,
+    `Always allow applies this rule to matching future tool calls: ${rule}`,
     'What this does not allow: unrelated tools, secrets, settings edits, or broader access outside the rule.',
   ];
 }
 
 function isBroadPermissionRule(rule: string): boolean {
-  return /^[A-Za-z][A-Za-z0-9]*(?:\(\s*\*\s*\))?$/.test(rule.trim());
+  const trimmed = rule.trim();
+  const match = /^([A-Za-z][A-Za-z0-9_]*)(?:\((.*)\))?$/.exec(trimmed);
+  if (!match) return false;
+  const content = match[2]?.trim();
+  if (content === undefined) return true;
+  return /(^|[/\\])\*\*($|[/\\])|^\*$|^\.\*$|^\/?\*\*$/.test(content);
 }
