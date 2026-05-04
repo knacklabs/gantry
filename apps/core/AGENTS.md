@@ -30,5 +30,6 @@
 - Host runner sync code must work with npm workspace hoisting and installed package layouts; do not assume `packages/agent-runner/node_modules` exists.
 - Files under `apps/core/src/app/bootstrap/` own composition and wiring only; runtime behavior must live in `runtime/`, `jobs/`, `session/`, `platform/`, `messaging/`, `memory/`, or infrastructure modules.
 - Channel provider catalog flags must match executable behavior: do not advertise `install` or `discover` unless the CLI/control path can actually perform setup or discovery, and document any remaining runtime adapter seam explicitly.
+- Permission approval suggestion synthesis must be tool-agnostic. Preserve exact tool names and infer only one displayed scope from generic request fields; do not special-case Bash, file, web, browser, MCP, or provider-native tools.
 - Keep the architecture simple, do not over complicate
 - Search Anthropic SDK in node modules and do not reinvent what already exists.

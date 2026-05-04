@@ -230,7 +230,12 @@ export async function runQuery(
           toolInput: input,
           toolUseID: permissionOpts.toolUseID,
           agentID: permissionOpts.agentID,
-          suggestions: permissionOpts.suggestions,
+          suggestions:
+            (permissionOpts.suggestions?.length ?? 0) > 0
+              ? permissionOpts.suggestions
+              : synthesizePermissionSuggestions(toolName, input, {
+                  blockedPath: permissionOpts.blockedPath,
+                }),
           threadId: agentInput.threadId,
         });
         if (decision.approved) {
@@ -376,6 +381,84 @@ export async function runQuery(
     lastAssistantUuid,
     closedDuringQuery,
   };
+}
+
+function synthesizePermissionSuggestions(
+  toolName: string,
+  input: Record<string, unknown>,
+  options: { blockedPath?: string },
+): unknown[] | undefined {
+  const normalizedToolName = toolName.trim();
+  if (!normalizedToolName) return undefined;
+  const ruleContent = inferPermissionRuleContent(input, options);
+  return [
+    {
+      type: 'addRules',
+      behavior: 'allow',
+      destination: 'session',
+      rules: [
+        {
+          toolName: normalizedToolName,
+          ...(ruleContent ? { ruleContent } : {}),
+        },
+      ],
+    },
+  ];
+}
+
+function inferPermissionRuleContent(
+  input: Record<string, unknown>,
+  options: { blockedPath?: string },
+): string | undefined {
+  const scope =
+    firstTrimmedInputValue(input, [
+      'scope',
+      'rule',
+      'ruleContent',
+      'command',
+      'cmd',
+      'file_path',
+      'path',
+      'notebook_path',
+      'url',
+      'domain',
+      'subagent_type',
+      'agentType',
+      'operation',
+      'resource',
+      'target',
+      'name',
+    ]) || trimmed(options.blockedPath);
+  if (!scope) return undefined;
+  if (looksLikeHttpUrl(scope)) {
+    try {
+      return `domain:${new URL(scope).hostname}`;
+    } catch {
+      return scope;
+    }
+  }
+  return scope;
+}
+
+function firstTrimmedInputValue(
+  input: Record<string, unknown>,
+  keys: string[],
+): string | undefined {
+  for (const key of keys) {
+    const value = trimmed(input[key]);
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function trimmed(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const out = value.trim();
+  return out || undefined;
+}
+
+function looksLikeHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
 }
 
 function assertRequiredMcpServerReady(message: unknown): void {

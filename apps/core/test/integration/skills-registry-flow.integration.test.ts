@@ -555,6 +555,52 @@ describe('skill registry integration flow', () => {
     expect([...state.bindings.values()]).toEqual([]);
   });
 
+  it('adds a persistent single-rule suggestion for request_permission reviews', async () => {
+    const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
+    const { deps, requestPermissionApproval } = createCapabilityReviewDeps();
+
+    await processTaskIpc(
+      {
+        type: 'request_permission',
+        taskId: 'request-permission-persistent-suggestion-test',
+        targetJid: 'chat-origin',
+        chatJid: 'chat-origin',
+        authThreadId: 'thread-origin',
+        payload: {
+          permissionKind: 'tool',
+          toolName: 'mcp__internal__deploy_preview',
+          rule: 'environment:staging',
+          temporaryOnly: false,
+          reason: 'Deploy previews repeatedly during this session.',
+        },
+      },
+      'agent:one',
+      false,
+      deps as any,
+    );
+
+    await vi.waitFor(() => {
+      expect(requestPermissionApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          toolName: 'request_permission',
+          suggestions: [
+            {
+              type: 'addRules',
+              behavior: 'allow',
+              destination: 'session',
+              rules: [
+                {
+                  toolName: 'mcp__internal__deploy_preview',
+                  ruleContent: 'environment:staging',
+                },
+              ],
+            },
+          ],
+        }),
+      );
+    });
+  });
+
   it('rejects request-only capability approval target overrides', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const { deps, sendMessage, requestPermissionApproval } =

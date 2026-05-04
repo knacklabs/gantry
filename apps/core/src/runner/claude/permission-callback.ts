@@ -76,14 +76,14 @@ export async function requestPermissionApproval(options: {
             const responsePayload: Record<string, unknown> = {
               requestId,
               approved: Boolean((raw as { approved?: unknown }).approved),
+              ...(typeof (raw as { mode?: unknown }).mode === 'string'
+                ? { mode: (raw as { mode: string }).mode }
+                : {}),
               ...(typeof (raw as { decidedBy?: unknown }).decidedBy === 'string'
                 ? { decidedBy: (raw as { decidedBy: string }).decidedBy }
                 : {}),
               ...(typeof (raw as { reason?: unknown }).reason === 'string'
                 ? { reason: (raw as { reason: string }).reason }
-                : {}),
-              ...(typeof (raw as { mode?: unknown }).mode === 'string'
-                ? { mode: (raw as { mode: string }).mode }
                 : {}),
               ...(Array.isArray(
                 (raw as { updatedPermissions?: unknown }).updatedPermissions,

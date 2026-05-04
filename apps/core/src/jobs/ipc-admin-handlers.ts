@@ -13,6 +13,7 @@ import {
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { parseSkillDraftAssets } from './skill-draft-ipc.js';
 import { getHostRuntimeCredentialEnv } from '../runtime/agent-spawn-host.js';
+import type { PermissionApprovalUpdate } from '../domain/types.js';
 import {
   requestSettingsUpdateHandler,
   serviceRestartHandler,
@@ -485,6 +486,13 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
         description: 'Only configured approvers can decide this request. This records the permission review only and does not enable the capability directly.',
         decisionReason: input.review.reason,
         toolInput: input.review.toolInput,
+        ...(input.review.toolName === 'request_permission'
+          ? {
+              suggestions: requestPermissionReviewSuggestions(
+                input.review.toolInput,
+              ),
+            }
+          : {}),
       });
       const reason = decision.approved ? 'missing approving principal' : decision.reason || 'not approved';
       message = decision.approved && decision.decidedBy ? `Approved ${input.review.displayName}. Permission review recorded by ${decision.decidedBy}; no capability was enabled by this request-only flow.` : `Rejected ${input.review.displayName}: ${reason}. No capability was enabled.`;
@@ -497,6 +505,28 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
     }
     await input.deps.sendMessage(input.targetJid, message, input.threadId ? { threadId: input.threadId } : undefined);
   })().catch((err) => logger.error({ err, sourceGroup: input.sourceGroup, toolName: input.review.toolName }, 'Capability permission review final message failed'));
+}
+
+// prettier-ignore
+function requestPermissionReviewSuggestions(toolInput: Record<string, unknown>): PermissionApprovalUpdate[] | undefined {
+  if (toolInput.temporaryOnly === true) return undefined;
+  if (toolInput.permissionKind && toolInput.permissionKind !== 'tool') return undefined;
+  const toolNames = sanitizedStringList(Array.isArray(toolInput.toolNames) ? toolInput.toolNames : [toolInput.toolName]);
+  if (toolNames.length !== 1) return undefined;
+  const ruleContent = toTrimmedString(toolInput.rule, { maxLen: 2048 });
+  return [
+    {
+      type: 'addRules',
+      behavior: 'allow',
+      destination: 'session',
+      rules: [
+        {
+          toolName: toolNames[0],
+          ...(ruleContent ? { ruleContent } : {}),
+        },
+      ],
+    },
+  ];
 }
 
 // prettier-ignore

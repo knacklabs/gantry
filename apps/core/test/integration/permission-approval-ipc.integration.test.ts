@@ -171,16 +171,20 @@ describe('permission approval IPC boundary', () => {
       {
         requestId: pendingRequest.requestId,
         approved: true,
+        mode: 'allow_once',
         decidedBy: 'admin:lead',
         reason: 'Approved for one-time access',
+        decisionClassification: 'user_temporary',
       },
       responseSigningKey,
     );
 
     await expect(pendingDecision).resolves.toEqual({
       approved: true,
+      mode: 'allow_once',
       decidedBy: 'admin:lead',
       reason: 'Approved for one-time access',
+      decisionClassification: 'user_temporary',
     });
   });
 

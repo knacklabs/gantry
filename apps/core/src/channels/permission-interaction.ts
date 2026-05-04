@@ -4,6 +4,7 @@ import type {
   PermissionApprovalRequest,
   PermissionApprovalUpdate,
 } from '../domain/types.js';
+import { logger } from '../infrastructure/logging/logger.js';
 
 export type PermissionActionToken =
   | PermissionApprovalDecisionMode
@@ -50,9 +51,40 @@ export function permissionDecisionOptions(
   request: PermissionApprovalRequest,
 ): PermissionApprovalDecisionMode[] {
   if (request.decisionOptions?.length) return request.decisionOptions;
-  return firstPersistentRule(request)
+  const persistentRule = firstPersistentRule(request);
+  if (!persistentRule) logPersistentOptionDrop(request);
+  return persistentRule
     ? ['allow_once', 'allow_persistent_rule', 'cancel']
     : ['allow_once', 'cancel'];
+}
+
+function logPersistentOptionDrop(request: PermissionApprovalRequest): void {
+  const suggestions = request.suggestions || [];
+  if (suggestions.length === 0) return;
+  logger.debug(
+    {
+      requestId: request.requestId,
+      toolName: request.toolName,
+      suggestionCount: suggestions.length,
+      reason: persistentOptionDropReason(request),
+    },
+    'Persistent permission option unavailable',
+  );
+}
+
+function persistentOptionDropReason(
+  request: PermissionApprovalRequest,
+): string {
+  const candidates = (request.suggestions || []).filter(
+    (update) =>
+      (update.type === 'addRules' || update.type === 'replaceRules') &&
+      update.behavior === 'allow' &&
+      Array.isArray(update.rules) &&
+      update.rules.length > 0,
+  );
+  if (candidates.length !== 1) return 'expected exactly one allow rule update';
+  if (candidates[0].rules?.length !== 1) return 'expected exactly one rule';
+  return 'rule missing toolName';
 }
 
 export function permissionButtonLabel(
