@@ -495,6 +495,9 @@ Cited at:
 
 - Manual job creation binds `linked_sessions: [chatJid]` —
   `apps/core/src/application/jobs/job-management-service.ts:99`.
+- Agent-facing scheduler MCP tools authorize by `group_scope` plus the
+  originating conversation in `linked_sessions`; thread ids are delivery
+  metadata and spoof-check inputs, not visibility authority.
 - System (dreaming) jobs registered per `group.folder` —
   `apps/core/src/jobs/system-jobs.ts:44`-`apps/core/src/jobs/system-jobs.ts:50`.
 - Scheduler core — `apps/core/src/jobs/scheduler.ts`,

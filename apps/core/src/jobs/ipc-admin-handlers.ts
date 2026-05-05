@@ -28,7 +28,7 @@ import {
 } from './ipc-runtime-admin-handlers.js';
 
 const refreshGroupsHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup, isMain, deps, registeredGroups } = context;
+  const { data, sourceGroup, isMain, deps, conversationBindings } = context;
   const { accept, reject } = createTaskResponder(
     sourceGroup,
     data.taskId,
@@ -48,7 +48,7 @@ const refreshGroupsHandler: TaskHandler = async (context) => {
       sourceGroup,
       true,
       availableGroups,
-      new Set(Object.keys(registeredGroups)),
+      new Set(Object.keys(conversationBindings)),
     );
     accept('Group metadata refresh completed.');
   } catch (err) {
@@ -61,7 +61,7 @@ const refreshGroupsHandler: TaskHandler = async (context) => {
 };
 
 const registerAgentHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup, isMain, deps, registeredGroups } = context;
+  const { data, sourceGroup, isMain, deps, conversationBindings } = context;
   const { accept, reject } = createTaskResponder(
     sourceGroup,
     data.taskId,
@@ -81,7 +81,7 @@ const registerAgentHandler: TaskHandler = async (context) => {
       reject(`Invalid agent folder: ${data.folder}`, 'invalid_request');
       return;
     }
-    const existingGroup = registeredGroups[data.jid];
+    const existingGroup = conversationBindings[data.jid];
     await deps.registerGroup(data.jid, {
       name: data.name,
       folder: data.folder,

@@ -482,6 +482,55 @@ conversations:
     ]);
   });
 
+  it('keeps same-agent Slack and Teams admins provider-scoped in settings', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+    bot_token_env: SLACK_BOT_TOKEN
+  teams:
+    enabled: true
+    client_id_env: TEAMS_CLIENT_ID
+
+agents:
+  main_agent:
+    name: Main
+    dm_access:
+      slack:
+        allow: ["U123"]
+        admin: "U123"
+      teams:
+        allow: ["8:orgid:abc"]
+        admin: "8:orgid:abc"
+
+conversations:
+  sales_slack:
+    provider: slack
+    id: "C123"
+    type: channel
+    approvers: ["U123"]
+    agent: main_agent
+  sales_teams:
+    provider: teams
+    id: "19:channel@thread.tacv2"
+    type: channel
+    approvers: ["8:orgid:abc"]
+    agent: main_agent
+`);
+
+    expect(parsed.agents.main_agent.dmAccess).toEqual([
+      { provider: 'slack', userIds: ['U123'], adminUserId: 'U123' },
+      {
+        provider: 'teams',
+        userIds: ['8:orgid:abc'],
+        adminUserId: '8:orgid:abc',
+      },
+    ]);
+    expect(parsed.conversations.sales_slack.controlApprovers).toEqual(['U123']);
+    expect(parsed.conversations.sales_teams.controlApprovers).toEqual([
+      '8:orgid:abc',
+    ]);
+  });
+
   it('does not render opaque skill UUIDs into human settings', () => {
     const settings = createDefaultRuntimeSettings();
     settings.agents.kai = {

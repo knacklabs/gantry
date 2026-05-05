@@ -358,15 +358,17 @@ describe('job application use cases', () => {
     expect(ops.updateJob).not.toHaveBeenCalled();
   });
 
-  it('enforces scheduler access by source group, thread, and linked sessions', () => {
+  it('enforces scheduler access by source group and originating conversation', () => {
     const access = {
       sourceGroup: 'team',
+      originConversationJid: 'tg:team',
       isMain: false,
       conversationBindings: {
         'tg:team': { folder: 'team' },
+        'tg:sibling': { folder: 'team' },
         'tg:other': { folder: 'other' },
       },
-      sourceGroupJids: ['tg:team'],
+      sourceGroupJids: ['tg:team', 'tg:sibling'],
       authThreadId: 'thread-1',
     };
 
@@ -409,7 +411,27 @@ describe('job application use cases', () => {
         }),
         access,
       ),
+    ).toBe(true);
+    expect(
+      canAccessSchedulerJob(
+        makeJob({
+          group_scope: 'team',
+          linked_sessions: ['tg:sibling'],
+          thread_id: 'thread-1',
+        }),
+        access,
+      ),
     ).toBe(false);
+    expect(
+      canAccessSchedulerJob(
+        makeJob({
+          group_scope: 'team',
+          linked_sessions: ['tg:team', 'tg:sibling'],
+          thread_id: 'thread-1',
+        }),
+        access,
+      ),
+    ).toBe(true);
     expectThrowsCode(
       () =>
         assertSchedulerJobAccess(
@@ -427,18 +449,30 @@ describe('job application use cases', () => {
   it('validates scheduler linked sessions and thread mutations', () => {
     const access = {
       sourceGroup: 'team',
+      originConversationJid: 'tg:team',
       isMain: false,
       conversationBindings: {
         'tg:team': { folder: 'team' },
+        'tg:sibling': { folder: 'team' },
         'tg:other': { folder: 'other' },
       },
-      sourceGroupJids: ['tg:team'],
+      sourceGroupJids: ['tg:team', 'tg:sibling'],
       authThreadId: 'thread-1',
     };
 
     expect(resolveLinkedSessions({}, access)).toEqual(['tg:team']);
+    expect(
+      resolveLinkedSessions(
+        { linkedSessions: ['tg:team', 'tg:sibling'] },
+        access,
+      ),
+    ).toEqual(['tg:team', 'tg:sibling']);
     expectThrowsCode(
       () => resolveLinkedSessions({ linkedSessions: ['tg:other'] }, access),
+      'FORBIDDEN',
+    );
+    expectThrowsCode(
+      () => resolveLinkedSessions({ linkedSessions: ['tg:sibling'] }, access),
       'FORBIDDEN',
     );
     expectThrowsCode(
@@ -450,20 +484,11 @@ describe('job application use cases', () => {
         ),
       'FORBIDDEN',
     );
-    expectThrowsCode(
-      () =>
-        validateSchedulerUpdate(
-          makeJob({ group_scope: 'team', thread_id: 'thread-1' }),
-          { thread_id: null },
-          access,
-        ),
-      'FORBIDDEN',
-    );
     expect(() =>
       validateSchedulerUpdate(
         makeJob({ group_scope: 'team', thread_id: 'thread-1' }),
         { thread_id: null },
-        { ...access, isMain: true, authThreadId: undefined },
+        access,
       ),
     ).not.toThrow();
   });
@@ -515,7 +540,6 @@ describe('job application use cases', () => {
       agentId: 'agent:one',
       kind: 'recurring',
       conversationJid: 'tg:team',
-      allowedConversationJids: undefined,
       limit: 500,
     });
   });
@@ -533,6 +557,7 @@ describe('job application use cases', () => {
     await service.listJobs({
       access: {
         sourceGroup: 'team',
+        originConversationJid: 'tg:team',
         isMain: false,
         conversationBindings: {
           'tg:team': { folder: 'team' },
@@ -545,7 +570,7 @@ describe('job application use cases', () => {
     expect(ops.listJobs).toHaveBeenCalledWith(
       expect.objectContaining({
         groupScope: 'team',
-        allowedConversationJids: ['tg:team'],
+        conversationJid: 'tg:team',
         limit: 100,
       }),
     );
@@ -566,6 +591,7 @@ describe('job application use cases', () => {
       service.upsertJobFromIpc({
         access: {
           sourceGroup: 'team',
+          originConversationJid: 'tg:team',
           isMain: true,
           conversationBindings: {},
           sourceGroupJids: ['tg:team'],
@@ -594,6 +620,7 @@ describe('job application use cases', () => {
       service.upsertJobFromIpc({
         access: {
           sourceGroup: 'team',
+          originConversationJid: 'tg:team',
           isMain: true,
           conversationBindings: {},
           sourceGroupJids: ['tg:team'],
@@ -609,6 +636,38 @@ describe('job application use cases', () => {
       code: 'INVALID_REQUEST',
       message: 'Use either modelAlias or modelProfileId, not both.',
     });
+    expect(ops.upsertJob).not.toHaveBeenCalled();
+  });
+
+  it('rejects IPC scheduler upsert thread ids without authenticated thread context', async () => {
+    const ops = {
+      getJobById: vi.fn(),
+      upsertJob: vi.fn(),
+    };
+    const service = new JobManagementService({
+      ops: ops as unknown as OpsRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+    });
+
+    await expect(
+      service.upsertJobFromIpc({
+        access: {
+          sourceGroup: 'team',
+          originConversationJid: 'tg:team',
+          isMain: false,
+          conversationBindings: {
+            'tg:team': { folder: 'team' },
+          },
+          sourceGroupJids: ['tg:team'],
+        },
+        name: 'Spoofed thread',
+        prompt: 'Run',
+        scheduleType: 'interval',
+        scheduleValue: '60000',
+        threadId: 'thread-1',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(ops.upsertJob).not.toHaveBeenCalled();
   });
 
@@ -813,6 +872,384 @@ describe('job application use cases', () => {
     });
   });
 
+  it('does not query persisted run or event rows for missing scoped job ids', async () => {
+    const access = {
+      sourceGroup: 'team',
+      originConversationJid: 'tg:team',
+      isMain: false,
+      conversationBindings: {
+        'tg:team': { folder: 'team' },
+      },
+      sourceGroupJids: ['tg:team'],
+    };
+    const leakedRun: JobRun = {
+      run_id: 'run-leaked',
+      job_id: 'deleted-job',
+      scheduled_for: '2026-04-24T00:00:00.000Z',
+      started_at: '2026-04-24T00:00:00.000Z',
+      ended_at: null,
+      status: 'running',
+      result_summary: null,
+      error_summary: null,
+      retry_count: 0,
+      notified_at: null,
+    };
+    const leakedEvent: JobEvent = {
+      id: 1,
+      job_id: 'deleted-job',
+      run_id: 'run-leaked',
+      event_type: 'job.run.started',
+      payload: '{}',
+      created_at: '2026-04-24T00:00:00.000Z',
+    };
+    const ops = {
+      getJobById: vi.fn(async () => undefined),
+      listJobRuns: vi.fn(async () => [leakedRun]),
+      listRecentJobEvents: vi.fn(async () => [leakedEvent]),
+    };
+    const service = new JobManagementService({
+      ops: ops as unknown as OpsRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+    });
+
+    await expect(
+      service.listJobRuns({ access, jobId: 'deleted-job' }),
+    ).resolves.toEqual({ runs: [] });
+    await expect(
+      service.listJobEvents({ access, jobId: 'deleted-job' }),
+    ).resolves.toEqual({ events: [] });
+
+    expect(ops.getJobById).toHaveBeenCalledTimes(2);
+    expect(ops.listJobRuns).not.toHaveBeenCalled();
+    expect(ops.listRecentJobEvents).not.toHaveBeenCalled();
+  });
+
+  it('rejects inaccessible scoped run and event reads before querying persisted rows', async () => {
+    const access = {
+      sourceGroup: 'team',
+      originConversationJid: 'tg:team',
+      isMain: false,
+      conversationBindings: {
+        'tg:team': { folder: 'team' },
+        'tg:other': { folder: 'other' },
+      },
+      sourceGroupJids: ['tg:team'],
+    };
+    const ops = {
+      getJobById: vi.fn(async () =>
+        makeJob({
+          id: 'other-job',
+          group_scope: 'other',
+          linked_sessions: ['tg:other'],
+        }),
+      ),
+      listJobRuns: vi.fn(async () => []),
+      listRecentJobEvents: vi.fn(async () => []),
+    };
+    const service = new JobManagementService({
+      ops: ops as unknown as OpsRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+    });
+
+    await expect(
+      service.listJobRuns({ access, jobId: 'other-job' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(
+      service.listJobEvents({ access, jobId: 'other-job' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+    expect(ops.getJobById).toHaveBeenCalledTimes(2);
+    expect(ops.listJobRuns).not.toHaveBeenCalled();
+    expect(ops.listRecentJobEvents).not.toHaveBeenCalled();
+  });
+
+  it('rejects scoped run reads when the originating conversation is not linked', async () => {
+    const access = {
+      sourceGroup: 'team',
+      originConversationJid: 'tg:team',
+      isMain: false,
+      conversationBindings: {
+        'tg:team': { folder: 'team' },
+        'tg:sibling': { folder: 'team' },
+      },
+      sourceGroupJids: ['tg:team', 'tg:sibling'],
+    };
+    const ops = {
+      getJobById: vi.fn(async () =>
+        makeJob({
+          id: 'sibling-job',
+          group_scope: 'team',
+          linked_sessions: ['tg:sibling'],
+        }),
+      ),
+      listJobRuns: vi.fn(async () => []),
+      listRecentJobEvents: vi.fn(async () => []),
+    };
+    const service = new JobManagementService({
+      ops: ops as unknown as OpsRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+    });
+
+    await expect(
+      service.listJobRuns({ access, jobId: 'sibling-job' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(
+      service.listJobEvents({ access, jobId: 'sibling-job' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+    expect(ops.listJobRuns).not.toHaveBeenCalled();
+    expect(ops.listRecentJobEvents).not.toHaveBeenCalled();
+  });
+
+  it('derives visible MCP job ids before listing runs, events, and dead letters', async () => {
+    const access = {
+      sourceGroup: 'team',
+      originConversationJid: 'tg:team',
+      isMain: false,
+      conversationBindings: {
+        'tg:team': { folder: 'team' },
+      },
+      sourceGroupJids: ['tg:team'],
+    };
+    const run: JobRun = {
+      run_id: 'run-1',
+      job_id: 'job-1',
+      scheduled_for: '2026-04-24T00:00:00.000Z',
+      started_at: '2026-04-24T00:00:00.000Z',
+      ended_at: null,
+      status: 'running',
+      result_summary: null,
+      error_summary: null,
+      retry_count: 0,
+      notified_at: null,
+    };
+    const event: JobEvent = {
+      id: 1,
+      job_id: 'job-1',
+      run_id: 'run-1',
+      event_type: 'job.run.started',
+      payload: '{}',
+      created_at: '2026-04-24T00:00:00.000Z',
+    };
+    const visibleJob = makeJob({
+      id: 'job-1',
+      group_scope: 'team',
+      linked_sessions: ['tg:team'],
+    });
+    const ops = {
+      listJobs: vi.fn(async () => [visibleJob]),
+      listJobRuns: vi.fn(async () => [run]),
+      listRecentJobEvents: vi.fn(async () => [event]),
+      listDeadLetterRuns: vi.fn(async () => [run]),
+    };
+    const service = new JobManagementService({
+      ops: ops as unknown as OpsRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+    });
+
+    await expect(service.listJobRuns({ access, limit: 10 })).resolves.toEqual({
+      runs: [run],
+    });
+    await expect(
+      service.listJobEvents({
+        access,
+        runId: 'run-1',
+        limit: 20,
+      }),
+    ).resolves.toEqual({ events: [event] });
+    await expect(
+      service.listDeadLetterRuns({ access, limit: 5 }),
+    ).resolves.toEqual({ deadLetterRuns: [run] });
+
+    expect(ops.listJobs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groupScope: 'team',
+        conversationJid: 'tg:team',
+      }),
+    );
+    expect(ops.listJobRuns).toHaveBeenCalledWith(undefined, 10, {
+      jobIds: ['job-1'],
+    });
+    expect(ops.listRecentJobEvents).toHaveBeenCalledWith(20, {
+      app_id: undefined,
+      job_id: undefined,
+      job_ids: ['job-1'],
+      run_id: 'run-1',
+      event_type: undefined,
+      since_id: undefined,
+      since: undefined,
+    });
+  });
+
+  it('queues scheduler_run_now with a preallocated run id for the real job', async () => {
+    const control = {
+      createJobTrigger: vi.fn(async () => ({ triggerId: 'trigger-1' })),
+      markTriggerCompleted: vi.fn(),
+    };
+    const runtimeEvents = { publish: vi.fn() };
+    const triggerQueue = {
+      isReady: vi.fn(() => true),
+      enqueue: vi.fn(async () => undefined),
+    };
+    const service = new JobManagementService({
+      ops: makeOps(
+        makeJob({
+          id: 'job-1',
+          group_scope: 'team',
+          linked_sessions: ['tg:team'],
+          schedule_type: 'cron',
+          schedule_value: '0 9 * * *',
+        }),
+      ) as OpsRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: control as never,
+      runtimeEvents,
+      triggerQueue,
+    });
+
+    await expect(
+      service.runJobNowFromMcp({
+        jobId: 'job-1',
+        runId: 'run-1',
+        access: {
+          sourceGroup: 'team',
+          originConversationJid: 'tg:team',
+          isMain: false,
+          conversationBindings: {
+            'tg:team': { folder: 'team' },
+          },
+          sourceGroupJids: ['tg:team'],
+        },
+      }),
+    ).resolves.toEqual({
+      runId: 'run-1',
+      queued: true,
+      triggerId: 'trigger-1',
+    });
+
+    expect(control.createJobTrigger).toHaveBeenCalledWith({
+      jobId: 'job-1',
+      requestedBy: JSON.stringify({
+        kind: 'mcp',
+        sourceGroup: 'team',
+        conversationJid: 'tg:team',
+      }),
+    });
+    expect(triggerQueue.enqueue).toHaveBeenCalledWith('job-1', 'trigger-1', {
+      runId: 'run-1',
+    });
+    expect(runtimeEvents.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'job-1',
+        runId: 'run-1',
+        triggerId: 'trigger-1',
+        payload: expect.objectContaining({
+          runId: 'run-1',
+          triggeredBy: 'mcp',
+        }),
+      }),
+    );
+  });
+
+  it('rejects scheduler_run_now for inactive jobs before enqueueing', async () => {
+    const control = {
+      createJobTrigger: vi.fn(),
+      markTriggerCompleted: vi.fn(),
+    };
+    const triggerQueue = {
+      isReady: vi.fn(() => true),
+      enqueue: vi.fn(),
+    };
+    const service = new JobManagementService({
+      ops: makeOps(
+        makeJob({
+          status: 'paused',
+          group_scope: 'team',
+          linked_sessions: ['tg:team'],
+        }),
+      ) as OpsRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: control as never,
+      runtimeEvents: { publish: vi.fn() },
+      triggerQueue,
+    });
+
+    await expect(
+      service.runJobNowFromMcp({
+        jobId: 'job-1',
+        runId: 'run-1',
+        access: {
+          sourceGroup: 'team',
+          originConversationJid: 'tg:team',
+          isMain: false,
+          conversationBindings: {
+            'tg:team': { folder: 'team' },
+          },
+          sourceGroupJids: ['tg:team'],
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+
+    expect(control.createJobTrigger).not.toHaveBeenCalled();
+    expect(triggerQueue.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('marks scheduler_run_now triggers failed when enqueue fails', async () => {
+    const control = {
+      createJobTrigger: vi.fn(async () => ({ triggerId: 'trigger-1' })),
+      markTriggerCompleted: vi.fn(),
+    };
+    const triggerQueue = {
+      isReady: vi.fn(() => true),
+      enqueue: vi.fn(async () => {
+        throw new Error('pg-boss insert failed');
+      }),
+    };
+    const service = new JobManagementService({
+      ops: makeOps(
+        makeJob({
+          group_scope: 'team',
+          linked_sessions: ['tg:team'],
+        }),
+      ) as OpsRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: control as never,
+      runtimeEvents: { publish: vi.fn() },
+      triggerQueue,
+    });
+
+    await expect(
+      service.runJobNowFromMcp({
+        jobId: 'job-1',
+        runId: 'run-1',
+        access: {
+          sourceGroup: 'team',
+          originConversationJid: 'tg:team',
+          isMain: false,
+          conversationBindings: {
+            'tg:team': { folder: 'team' },
+          },
+          sourceGroupJids: ['tg:team'],
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: 'ENQUEUE_FAILED',
+      message: 'pg-boss insert failed',
+    });
+
+    expect(control.markTriggerCompleted).toHaveBeenCalledWith(
+      'trigger-1',
+      'failed',
+    );
+  });
+
   it('waits for trigger completion through runtime event wakeups', async () => {
     const subscription = {
       next: vi.fn(async () => [{ eventId: 1 }]),
@@ -933,8 +1370,11 @@ describe('job application use cases', () => {
     await service.upsertJobFromIpc({
       access: {
         sourceGroup: 'app-folder',
+        originConversationJid: 'app:app-one:conv-1',
         isMain: true,
-        conversationBindings: {},
+        conversationBindings: {
+          'app:app-one:conv-1': { folder: 'app-folder' },
+        },
         sourceGroupJids: ['app:app-one:conv-1'],
       },
       jobId: 'job-1',
@@ -1025,9 +1465,12 @@ describe('job application use cases', () => {
       service.updateJob({
         access: {
           sourceGroup: 'app-folder',
+          originConversationJid: 'app:app-one:conv-1',
           isMain: false,
-          conversationBindings: { 'tg:team': { folder: 'app-folder' } },
-          sourceGroupJids: ['tg:team'],
+          conversationBindings: {
+            'app:app-one:conv-1': { folder: 'app-folder' },
+          },
+          sourceGroupJids: ['app:app-one:conv-1'],
         },
         jobId: 'job-1',
         patch: { allowedTools: ['mcp__myclaw__*'] },

@@ -16,6 +16,7 @@
 - Run `npm run test:integration:postgres` for DB-backed feature work. A plain `npm run test:integration` is allowed to skip those suites when the local Postgres test URL is absent.
 - Claude Agent SDK boundary tests must stay hermetic: mock the SDK provider, assert generated options at the adapter boundary, and never require real Anthropic auth.
 - Control HTTP route changes must have route-level coverage for encoded ids, app ownership checks, and pre-mutation authorization.
+- Agent admin changes must keep provider-specific DM admins separate from conversation approvers; the same agent can span Slack, Teams, Telegram, or Web, but approval authority stays on provider/conversation ids.
 - External ingress `session_message` dispatch must register the session group before enqueueing message checks; ingress and control adapters should share the same session interaction intent.
 - External ingress target policy must mirror dispatch precedence: when `sessionId` is present, authorize only against `sessionIds`; use `conversationIds` only when no `sessionId` was supplied.
 - SSE route writes that wait for backpressure must also unblock on response close/error and release subscriptions/active counters.
@@ -28,6 +29,8 @@
 - Resolved third-party MCP credentials must not be serialized into long-lived process env; use a private per-run handoff and keep SDK tool env sanitized.
 - Broker model proxy and CA values belong only in the model SDK credential lane. Keep general runner, script, browser, and MCP env tool-agnostic; `NO_PROXY` is compatibility only, not a safety boundary.
 - Autonomous scheduler jobs must never use chat permission IPC during execution. Resolve target-agent tools at run time, merge only approved job-scoped extras from `targetJson.capabilityPolicy.allowedTools`, and fail fast with `tool not on autonomous job allowlist` when a scheduled run requests anything outside that effective set.
+- Agent-facing scheduler MCP tools must authorize jobs by both calling agent group and originating conversation (`group_scope` plus `linked_sessions`). Threads/topics are delivery metadata only and must not grant scheduler job visibility or run authority.
+- Do not expose scheduler MCP list filters that the host will ignore. If an MCP tool is always scoped to the authenticated conversation, keep agent-facing schemas scoped the same way.
 - Host runner sync code must work with npm workspace hoisting and installed package layouts; do not assume `packages/agent-runner/node_modules` exists.
 - Files under `apps/core/src/app/bootstrap/` own composition and wiring only; runtime behavior must live in `runtime/`, `jobs/`, `session/`, `platform/`, `messaging/`, `memory/`, or infrastructure modules.
 - Channel provider catalog flags must match executable behavior: do not advertise `install` or `discover` unless the CLI/control path can actually perform setup or discovery, and document any remaining runtime adapter seam explicitly.

@@ -14,6 +14,7 @@ describe('mapApplicationError', () => {
     ['UNAVAILABLE', 'unavailable'],
     ['RATE_LIMITED', 'rate_limited'],
     ['WAIT_TIMEOUT', 'timeout'],
+    ['ENQUEUE_FAILED', 'internal_error'],
   ] as const)('maps %s to %s', (applicationCode, ipcCode) => {
     expect(
       mapApplicationError(new ApplicationError(applicationCode, 'message'), ''),

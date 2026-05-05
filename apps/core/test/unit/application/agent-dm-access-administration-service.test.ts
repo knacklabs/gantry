@@ -284,6 +284,79 @@ describe('AgentDmAccessAdministrationService', () => {
     ).resolves.toBe(null);
   });
 
+  it('keeps direct DM admins provider-scoped for the same agent', async () => {
+    const { repository } = createService();
+    await repository.replaceAgentDmApprovers({
+      appId: 'default',
+      agentId: 'agent:one',
+      entries: [
+        { providerId: 'slack', externalUserId: 'UADMIN' },
+        { providerId: 'teams', externalUserId: '8:orgid:admin' },
+      ],
+      updatedAt: iso,
+    });
+    const service = new AgentDmAccessAdministrationService(
+      {
+        agents: repository as never,
+        providerConnections: {
+          listAgentConversationBindings: vi.fn(async () => [
+            {
+              agentId: 'agent:one',
+              conversationId: 'conversation:sl:D123',
+              status: 'active',
+            },
+            {
+              agentId: 'agent:one',
+              conversationId: 'conversation:teams:D123',
+              status: 'active',
+            },
+          ]),
+        } as never,
+        conversations: {
+          getConversation: vi.fn(async (conversationId: string) => ({
+            id: conversationId,
+            appId: 'default',
+            kind: 'direct',
+          })),
+        } as never,
+      },
+      { now: () => iso },
+    );
+
+    await expect(
+      service.isDmApproverAllowed({
+        appId: 'default' as never,
+        providerId: 'slack',
+        channelJid: 'sl:D123',
+        userId: 'UADMIN',
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      service.isDmApproverAllowed({
+        appId: 'default' as never,
+        providerId: 'teams',
+        channelJid: 'teams:D123',
+        userId: '8:orgid:admin',
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      service.isDmApproverAllowed({
+        appId: 'default' as never,
+        providerId: 'teams',
+        channelJid: 'teams:D123',
+        userId: 'UADMIN',
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      service.isDmApproverAllowed({
+        appId: 'default' as never,
+        providerId: 'slack',
+        channelJid: 'sl:D123',
+        userId: '8:orgid:admin',
+      }),
+    ).resolves.toBe(false);
+  });
+
   it('fails closed when a direct conversation has multiple active bindings', async () => {
     const { repository } = createService();
     await repository.replaceAgentDmApprovers({

@@ -117,21 +117,6 @@ function kindClause(
   return sql`${scheduleJson}::jsonb ->> 'type' in ('cron', 'interval')`;
 }
 
-function linkedSessionsAllowedClause(targetJson: unknown, jids: string[]) {
-  if (jids.length === 0) {
-    return sql`jsonb_array_length(coalesce(${targetJson}::jsonb -> 'linkedSessions', '[]'::jsonb)) = 0`;
-  }
-  const allowed = sql.join(
-    jids.map((jid) => sql`${jid}`),
-    sql`, `,
-  );
-  return sql`not exists (
-    select 1
-    from jsonb_array_elements_text(coalesce(${targetJson}::jsonb -> 'linkedSessions', '[]'::jsonb)) as linked_session(value)
-    where linked_session.value not in (${allowed})
-  )`;
-}
-
 export class PostgresCanonicalJobRepository {
   private readonly graph: PostgresCanonicalGraphRepository;
 
@@ -188,12 +173,6 @@ export class PostgresCanonicalJobRepository {
             from jsonb_array_elements_text(coalesce(${pgSchema.canonicalJobsPostgres.targetJson}::jsonb -> 'linkedSessions', '[]'::jsonb)) as linked_session(value)
             where linked_session.value = ${filters.conversationJid}
           )`
-        : undefined,
-      filters?.allowedConversationJids
-        ? linkedSessionsAllowedClause(
-            pgSchema.canonicalJobsPostgres.targetJson,
-            filters.allowedConversationJids,
-          )
         : undefined,
     ].filter(Boolean);
     const filtered = clauses.length > 0 ? query.where(and(...clauses)) : query;

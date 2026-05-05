@@ -420,6 +420,9 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
       ),
     );
     expect(task.modelAlias).toBe('kimi 2.6');
+    expect(task.chatJid).toBe('tg:team');
+    expect(task.targetJid).toBe('tg:team');
+    expect(task.authThreadId).toBe('trusted-thread');
     expect(task.threadId).toBe('trusted-thread');
     expect(task.context.threadId).toBe('trusted-thread');
     expect(task.requestId).toEqual(expect.any(String));
@@ -652,7 +655,6 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
       'scheduler_list_jobs',
       {
         statuses: ['active'],
-        group_scope: 'team',
       },
       {
         TEST_MCP_TASK_RESPONSE_DATA: JSON.stringify({
@@ -674,8 +676,46 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
     );
     expect(task).toMatchObject({
       type: 'scheduler_list_jobs',
+      chatJid: 'tg:team',
+      targetJid: 'tg:team',
       statuses: ['active'],
-      groupScope: 'team',
+    });
+  });
+
+  it('queues scheduler_run_now through signed IPC and returns the run data', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'scheduler_run_now',
+      {
+        job_id: 'job-1',
+      },
+      {
+        TEST_MCP_TASK_RESPONSE_DATA: JSON.stringify({
+          run_id: 'run-1',
+          queued: true,
+          trigger_id: 'trigger-1',
+        }),
+      },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.content[0].text).toContain('"run_id": "run-1"');
+
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'scheduler_run_now',
+      jobId: 'job-1',
+      chatJid: 'tg:team',
+      targetJid: 'tg:team',
     });
   });
 

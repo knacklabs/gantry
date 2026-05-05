@@ -433,6 +433,135 @@ describe('SettingsDesiredStateService', () => {
     ).resolves.toBe(true);
   });
 
+  it('reconciles one agent with provider-scoped DM admins and conversation approvers', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.slack.enabled = true;
+    settings.providers.slack.defaultConnection = 'slack_default';
+    settings.providers.teams.enabled = true;
+    settings.providers.teams.defaultConnection = 'teams_default';
+    settings.providerConnections.slack_default = {
+      provider: 'slack',
+      label: 'Slack Default',
+      runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
+    };
+    settings.providerConnections.teams_default = {
+      provider: 'teams',
+      label: 'Teams Default',
+      runtimeSecretRefs: { client_id: 'TEAMS_CLIENT_ID' },
+    };
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {
+        slack_sales: {
+          jid: 'slack:C123',
+          name: 'Sales Slack',
+          trigger: '@main',
+          addedAt: '2026-05-02T00:00:00.000Z',
+          requiresTrigger: true,
+          isMain: true,
+        },
+        teams_sales: {
+          jid: 'teams:19:channel@thread.tacv2',
+          name: 'Sales Teams',
+          trigger: '@main',
+          addedAt: '2026-05-02T00:00:00.000Z',
+          requiresTrigger: true,
+          isMain: false,
+        },
+      },
+      dmAccess: [
+        { provider: 'slack', userIds: ['U123'], adminUserId: 'U123' },
+        {
+          provider: 'teams',
+          userIds: ['8:orgid:abc'],
+          adminUserId: '8:orgid:abc',
+        },
+      ],
+      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+    };
+    settings.conversations.sales_slack = {
+      providerConnection: 'slack_default',
+      externalId: 'C123',
+      kind: 'channel',
+      displayName: 'Sales Slack',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['U123'],
+    };
+    settings.conversations.sales_teams = {
+      providerConnection: 'teams_default',
+      externalId: '19:channel@thread.tacv2',
+      kind: 'channel',
+      displayName: 'Sales Teams',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['8:orgid:abc'],
+    };
+    const savedConversations: any[] = [];
+    const savedApprovers = new Map<string, string[]>();
+    const conversations = {
+      findConversationByExternalValue: vi.fn(
+        async (input: any) =>
+          savedConversations.find(
+            (conversation) =>
+              conversation.externalRef.value === input.externalConversationId,
+          ) ?? null,
+      ),
+      saveConversation: vi.fn(async (conversation: any) => {
+        savedConversations.push(conversation);
+      }),
+      replaceConversationApprovers: vi.fn(async (input: any) => {
+        savedApprovers.set(input.conversationId, input.externalUserIds);
+        return input.externalUserIds.map((externalUserId: string) => ({
+          id: `approver:${input.conversationId}:${externalUserId}`,
+          appId: input.appId,
+          conversationId: input.conversationId,
+          externalUserId,
+          createdAt: input.updatedAt,
+          updatedAt: input.updatedAt,
+        }));
+      }),
+    };
+    const repositories = makeRepositories({
+      conversations,
+      providerConnections: {
+        saveProviderConnection: vi.fn(async () => undefined),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+      clock: { now: () => '2026-05-02T00:00:00.000Z' },
+    });
+
+    const result = await service.reconcile(settings);
+
+    expect(result.applied).toEqual(
+      expect.arrayContaining([
+        'dm_access:main_agent',
+        'conversation_approvers:sales_slack',
+        'conversation_approvers:sales_teams',
+      ]),
+    );
+    expect(repositories.agents.replaceAgentDmAccessPolicy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accessEntries: [
+          { providerId: 'slack', externalUserId: 'U123' },
+          { providerId: 'teams', externalUserId: '8:orgid:abc' },
+        ],
+        approverEntries: [
+          { providerId: 'slack', externalUserId: 'U123' },
+          { providerId: 'teams', externalUserId: '8:orgid:abc' },
+        ],
+      }),
+    );
+    expect(savedApprovers).toEqual(
+      new Map([
+        ['conversation:sl:C123', ['U123']],
+        ['conversation:teams:19:channel@thread.tacv2', ['8:orgid:abc']],
+      ]),
+    );
+  });
+
   it('exports colliding conversation bindings without overwriting one another', async () => {
     const settings = createDefaultRuntimeSettings();
     const service = new SettingsDesiredStateService({

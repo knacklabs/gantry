@@ -127,8 +127,20 @@ export const AgentDmAccessResponseSchema = z.object({
 });
 export type AgentDmAccessResponse = z.infer<typeof AgentDmAccessResponseSchema>;
 
+export const AgentAdminBoundConversationSchema = z.object({
+  conversationId: z.string(),
+  provider: z.string().min(1),
+  kind: z.string().min(1),
+  displayName: z.string().min(1).optional(),
+  approverUserIds: z.array(z.string().min(1)),
+});
+export type AgentAdminBoundConversation = z.infer<
+  typeof AgentAdminBoundConversationSchema
+>;
+
 export const AgentAdminResponseSchema = z.object({
   agent: AgentResponseSchema,
   dmAccess: AgentDmAccessResponseSchema.shape.dmAccess,
+  boundConversations: z.array(AgentAdminBoundConversationSchema),
 });
 export type AgentAdminResponse = z.infer<typeof AgentAdminResponseSchema>;

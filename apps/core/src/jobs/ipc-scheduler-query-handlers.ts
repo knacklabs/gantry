@@ -7,6 +7,7 @@ import { logger } from '../infrastructure/logging/logger.js';
 import { TaskContext, TaskHandler } from './ipc-types.js';
 import { mapApplicationError } from './ipc-application-error.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
+import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
 import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 
 function makeJobService(context: TaskContext): JobManagementService {
@@ -16,16 +17,6 @@ function makeJobService(context: TaskContext): JobManagementService {
     schedulePlanner: runtimeJobSchedulePlanner,
     toolRepository: context.deps.getToolRepository?.(),
   });
-}
-
-function accessFromContext(context: TaskContext) {
-  return {
-    sourceGroup: context.sourceGroup,
-    isMain: context.isMain,
-    conversationBindings: context.registeredGroups,
-    sourceGroupJids: context.sourceGroupJids,
-    authThreadId: context.data.authThreadId,
-  };
 }
 
 const schedulerGetJobHandler: TaskHandler = async (context) => {
@@ -44,7 +35,7 @@ const schedulerGetJobHandler: TaskHandler = async (context) => {
     const service = makeJobService(context);
     const result = await service.getJob({
       jobId,
-      access: accessFromContext(context),
+      access: schedulerAccessFromContext(context),
     });
     const data = result.job
       ? {
@@ -80,18 +71,14 @@ const schedulerListJobsHandler: TaskHandler = async (context) => {
   try {
     const service = makeJobService(context);
     const result = await service.listJobs({
-      access: accessFromContext(context),
+      access: schedulerAccessFromContext(context),
       statuses: Array.isArray(data.statuses) ? data.statuses : undefined,
-      groupScope:
-        toTrimmedString(data.groupScope, { maxLen: 128 }) || undefined,
       kind:
         data.kind === 'manual' ||
         data.kind === 'once' ||
         data.kind === 'recurring'
           ? data.kind
           : undefined,
-      conversationJid:
-        toTrimmedString(data.conversationJid, { maxLen: 256 }) || undefined,
       limit: data.limit,
     });
     const metadata = await buildJobListVisibilityMetadata({
@@ -123,7 +110,7 @@ const schedulerListRunsHandler: TaskHandler = async (context) => {
   const jobId = toTrimmedString(data.jobId, { maxLen: 128 });
   try {
     const result = await makeJobService(context).listJobRuns({
-      access: accessFromContext(context),
+      access: schedulerAccessFromContext(context),
       jobId: jobId || undefined,
       limit: data.limit,
     });
@@ -150,7 +137,7 @@ const schedulerListEventsHandler: TaskHandler = async (context) => {
   const eventType = toTrimmedString(data.eventType, { maxLen: 128 });
   try {
     const result = await makeJobService(context).listJobEvents({
-      access: accessFromContext(context),
+      access: schedulerAccessFromContext(context),
       jobId: jobId || undefined,
       runId: runId || undefined,
       eventType: eventType || undefined,
@@ -187,7 +174,7 @@ const schedulerGetDeadLetterHandler: TaskHandler = async (context) => {
   );
   try {
     const result = await makeJobService(context).listDeadLetterRuns({
-      access: accessFromContext(context),
+      access: schedulerAccessFromContext(context),
       limit: data.limit,
     });
     acceptData(

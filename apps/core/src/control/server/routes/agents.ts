@@ -12,6 +12,7 @@ import { ApplicationError } from '../../../application/common/application-error.
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import type { Agent, AgentId } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
+import type { ConversationId } from '../../../domain/conversation/conversation.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
@@ -99,9 +100,14 @@ export async function handleAgentRoutes(
         appId: auth.appId as AppId,
         agentId,
       });
+      const boundConversations = await agentBoundConversations({
+        appId: auth.appId as AppId,
+        agentId,
+      });
       sendJson(res, 200, {
         agent: agentToResponse(agent),
         dmAccess: dmAccess.dmAccess,
+        boundConversations,
       });
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
@@ -188,5 +194,71 @@ function agentToResponse(agent: Agent) {
     currentConfigVersionId: agent.currentConfigVersionId,
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt,
+  };
+}
+
+async function agentBoundConversations(input: {
+  appId: AppId;
+  agentId: AgentId;
+}): Promise<
+  Array<{
+    conversationId: string;
+    provider: string;
+    kind: string;
+    displayName?: string;
+    approverUserIds: string[];
+  }>
+> {
+  const repositories = getRuntimeStorage().repositories;
+  const bindings =
+    await repositories.providerConnections.listAgentConversationBindings(
+      input.appId,
+      input.agentId,
+    );
+  const conversationIds = [
+    ...new Set(
+      bindings
+        .filter((binding) => binding.status === 'active')
+        .map((binding) => binding.conversationId),
+    ),
+  ].sort((a, b) => String(a).localeCompare(String(b)));
+  const summaries = await Promise.all(
+    conversationIds.map(async (conversationId) =>
+      agentBoundConversation(input.appId, conversationId),
+    ),
+  );
+  return summaries.filter(
+    (summary): summary is NonNullable<typeof summary> => summary !== null,
+  );
+}
+
+async function agentBoundConversation(
+  appId: AppId,
+  conversationId: ConversationId,
+): Promise<{
+  conversationId: string;
+  provider: string;
+  kind: string;
+  displayName?: string;
+  approverUserIds: string[];
+} | null> {
+  const repositories = getRuntimeStorage().repositories;
+  const conversation =
+    await repositories.conversations.getConversation(conversationId);
+  if (!conversation || conversation.appId !== appId) return null;
+  const providerConnection =
+    await repositories.providerConnections.getProviderConnection(
+      conversation.providerConnectionId,
+    );
+  if (!providerConnection || providerConnection.appId !== appId) return null;
+  const approvers = await repositories.conversations.listConversationApprovers(
+    conversation.id,
+  );
+  return {
+    conversationId: conversation.id,
+    provider: providerConnection.providerId,
+    kind: conversation.kind,
+    ...(conversation.title ? { displayName: conversation.title } : {}),
+    approverUserIds: approvers.map((approver) => approver.externalUserId),
   };
 }

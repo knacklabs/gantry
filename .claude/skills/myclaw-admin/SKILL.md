@@ -75,7 +75,7 @@ myclaw channel onboard <slack|teams|telegram> --external-id <id> --title <name>
 myclaw channel list
 myclaw channel info <channelId>
 myclaw channel agents <channelId> --agents <agentId,agentId> [--default <agentId>]
-myclaw channel control-allowlist <channelId> --allow <userId,userId>
+myclaw conversation approvers <conversationId> --allow <userId,userId>
 myclaw channel archive <channelId>
 myclaw channel doctor <channelId>
 
@@ -108,17 +108,22 @@ Administration source of truth:
 - Agent DM access is a provider-neutral allowlist; do not mix it with channel
   membership, channel control approvers, or agent capabilities. Each agent can
   set one DM approval admin per provider; DM access users are not approvers
-  unless explicitly configured as that provider admin.
+  unless explicitly configured as that provider admin. If the same agent is
+  bound in Slack and Teams, configure the Slack DM admin with a Slack user id
+  and the Teams DM admin with a Teams user id.
 - Channel control allowlist is separate from DM access. It is per Channel,
   applies to all agents bound there, and approvers must be verified Channel
-  members before save.
+  members before save. A Slack channel approver does not approve Teams channel
+  requests unless the matching Teams user id is also configured on that Teams
+  Channel.
 - CLI calls application services directly for local/admin operations. Public
   API is for owner/admin automation. MyClaw MCP request tools are for
   agent-requested reviewed changes.
 - Use `myclaw agent dm-access <agentId> --provider <provider> --allow <ids> --admin <userId>`
   to replace provider-specific DM access and the direct/private DM approval
-  admin for an agent. Use channel `control-allowlist` only for group/channel
-  permission approvers.
+  admin for an agent. Use
+  `myclaw conversation approvers <conversationId> --allow <ids>` only for
+  group/channel permission approvers.
 
 Config file editing through `.env`:
 
@@ -618,10 +623,10 @@ myclaw agent dm-access <agentId> --provider telegram --allow 5759865942,12345678
 myclaw service restart
 ```
 
-Set channel control approvers:
+Set conversation approvers:
 
 ```bash
-myclaw channel control-allowlist <channelId> --allow 5759865942,123456789
+myclaw conversation approvers <conversationId> --allow 5759865942,123456789
 myclaw service restart
 ```
 
@@ -712,7 +717,7 @@ If messages are not processed:
 4. Check that the channel is enabled in `settings.yaml`.
 5. Check that matching credentials exist in `.env`.
 6. Check `myclaw agent list`.
-7. Check `myclaw channel info <channelId>`, `myclaw agent dm-access <agentId>`, and `myclaw channel control-allowlist <channelId>`.
+7. Check `myclaw conversation info <conversationId>`, `myclaw agent dm-access <agentId>`, and `myclaw conversation approvers <conversationId>`.
 8. Restart with `myclaw service restart`.
 
 If scheduler jobs do not run:

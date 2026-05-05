@@ -442,11 +442,14 @@ DELETE /v1/agents/:id/conversation-bindings/:conversationId agents:admin
 ```
 
 `GET /v1/agents/:id/admin` returns Agent admin state, including
-provider-neutral `dmAccess`. `PUT /v1/agents/:id/dm-access` replaces DM access
-with
+provider-neutral `dmAccess` and read-only `boundConversations` summaries with
+the provider, conversation kind, display name, and current conversation
+approver user ids. `PUT /v1/agents/:id/dm-access` replaces DM access with
 `{ "entries": [{ "provider": "slack", "userIds": ["U123"], "adminUserId": "UADMIN" }] }`.
 `adminUserId` is optional and names the single provider-specific user allowed
 to approve permission prompts for that agent's direct/private DM sessions.
+For the same agent in Slack and Teams, configure Slack and Teams entries
+separately; MyClaw does not infer a shared person identity across providers.
 
 `GET /v1/conversations/:id/approvers` returns the Conversation approver list.
 `PUT /v1/conversations/:id/approvers` replaces it with
@@ -455,7 +458,9 @@ member of the Conversation. Slack, Telegram, Teams, and App/Web conversations
 use the same API shape; Teams validation uses Microsoft Graph membership for
 chat or team-channel members. Agent DM access remains independent and may
 include non-members; those users are not conversation approvers unless they are
-also listed on the conversation.
+also listed on the conversation. A Slack approver can approve only Slack-origin
+conversation requests; the corresponding Teams user id must be listed on the
+Teams conversation to approve Teams-origin requests.
 
 `teams` is a built-in provider for setup and discovery with Microsoft
 Teams app auth through `RuntimeSecretProvider`, Microsoft Graph channel

@@ -79,6 +79,7 @@ Defaults in v1:
 - dreaming: on in guided setup; disable with `myclaw memory dreaming off`
 - provider connections, conversations, bindings, and conversation approvers live under `providers`, `provider_connections`, `conversations`, and `bindings` in `settings.yaml`
 - conversation approvers approve group/channel actions only when listed on that conversation and currently a member; agent DM admins are only for private/direct agent administration
+- the same agent can be bound across providers, but admin user ids stay provider-scoped: Slack approvers are Slack member ids and Teams approvers are Teams user ids
 
 Runtime home is a single-cut contract. MyClaw reads `~/myclaw` by default unless `--runtime-home` or `MYCLAW_HOME` is set.
 
@@ -120,6 +121,37 @@ conversations:
     approvers: ["5759865942"]
     agent: main
     trigger: "@Main Agent"
+```
+
+For the same agent across Slack and Teams, configure the provider-specific DM
+admins on the agent and the group/channel approvers on each conversation:
+
+```yaml
+agents:
+  main:
+    name: Main Agent
+    dm_access:
+      slack:
+        allow: ["U123"]
+        admin: "U123"
+      teams:
+        allow: ["8:orgid:abc"]
+        admin: "8:orgid:abc"
+
+conversations:
+  sales_slack:
+    provider: slack
+    id: "C123"
+    type: channel
+    approvers: ["U123"]
+    agent: main
+
+  sales_teams:
+    provider: teams
+    id: "19:channel@thread.tacv2"
+    type: channel
+    approvers: ["8:orgid:abc"]
+    agent: main
 ```
 
 Advanced storage and credential broker overrides stay supported, but setup keeps

@@ -81,6 +81,9 @@ function sendApplicationError(res: ServerResponse, error: unknown): boolean {
     case 'UNAVAILABLE':
       sendError(res, 503, 'UNAVAILABLE', error.message);
       return true;
+    case 'ENQUEUE_FAILED':
+      sendError(res, 500, 'ENQUEUE_FAILED', error.message);
+      return true;
     case 'NOT_IMPLEMENTED':
       sendError(res, 501, 'NOT_IMPLEMENTED', error.message);
       return true;

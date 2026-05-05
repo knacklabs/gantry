@@ -1980,6 +1980,109 @@ describe('control server runtime hardening', () => {
         updatedAt: iso,
       },
     ]);
+    domainRepositories.providerConnections.listAgentConversationBindings.mockResolvedValue(
+      [
+        {
+          id: 'binding-slack',
+          appId: 'app-one',
+          agentId: 'agent-1',
+          conversationId: 'conversation:slack:C123',
+          status: 'active',
+        },
+        {
+          id: 'binding-teams',
+          appId: 'app-one',
+          agentId: 'agent-1',
+          conversationId: 'conversation:teams:19:channel@thread.tacv2',
+          status: 'active',
+        },
+        {
+          id: 'binding-disabled',
+          appId: 'app-one',
+          agentId: 'agent-1',
+          conversationId: 'conversation:slack:C999',
+          status: 'disabled',
+        },
+      ],
+    );
+    domainRepositories.conversations.getConversation.mockImplementation(
+      async (conversationId: string) => {
+        if (conversationId === 'conversation:slack:C123') {
+          return {
+            id: conversationId,
+            appId: 'app-one',
+            providerConnectionId: 'providerConnection-slack',
+            kind: 'channel',
+            title: 'Sales Slack',
+            status: 'active',
+            createdAt: iso,
+            updatedAt: iso,
+          };
+        }
+        if (conversationId === 'conversation:teams:19:channel@thread.tacv2') {
+          return {
+            id: conversationId,
+            appId: 'app-one',
+            providerConnectionId: 'providerConnection-teams',
+            kind: 'channel',
+            title: 'Sales Teams',
+            status: 'active',
+            createdAt: iso,
+            updatedAt: iso,
+          };
+        }
+        return null;
+      },
+    );
+    domainRepositories.providerConnections.getProviderConnection.mockImplementation(
+      async (providerConnectionId: string) => {
+        if (providerConnectionId === 'providerConnection-slack') {
+          return {
+            id: providerConnectionId,
+            appId: 'app-one',
+            providerId: 'slack',
+            label: 'Slack',
+            status: 'active',
+            config: {},
+            runtimeSecretRefs: ['SLACK_BOT_TOKEN'],
+            createdAt: iso,
+            updatedAt: iso,
+          };
+        }
+        if (providerConnectionId === 'providerConnection-teams') {
+          return {
+            id: providerConnectionId,
+            appId: 'app-one',
+            providerId: 'teams',
+            label: 'Teams',
+            status: 'active',
+            config: {},
+            runtimeSecretRefs: ['TEAMS_CLIENT_ID'],
+            createdAt: iso,
+            updatedAt: iso,
+          };
+        }
+        return null;
+      },
+    );
+    domainRepositories.conversations.listConversationApprovers.mockImplementation(
+      async (conversationId: string) => {
+        const userIds =
+          conversationId === 'conversation:slack:C123'
+            ? ['UADMIN']
+            : conversationId === 'conversation:teams:19:channel@thread.tacv2'
+              ? ['8:orgid:admin']
+              : [];
+        return userIds.map((externalUserId) => ({
+          id: `approver:${conversationId}:${externalUserId}`,
+          appId: 'app-one',
+          conversationId,
+          externalUserId,
+          createdAt: iso,
+          updatedAt: iso,
+        }));
+      },
+    );
     domainRepositories.agents.replaceAgentDmAccessPolicy.mockImplementation(
       async (input: any) => ({
         access: input.accessEntries.map((entry: any) => ({
@@ -2023,6 +2126,22 @@ describe('control server runtime hardening', () => {
             { provider: 'slack', userIds: ['U1'], adminUserId: 'UADMIN' },
           ],
         },
+        boundConversations: [
+          {
+            conversationId: 'conversation:slack:C123',
+            provider: 'slack',
+            kind: 'channel',
+            displayName: 'Sales Slack',
+            approverUserIds: ['UADMIN'],
+          },
+          {
+            conversationId: 'conversation:teams:19:channel@thread.tacv2',
+            provider: 'teams',
+            kind: 'channel',
+            displayName: 'Sales Teams',
+            approverUserIds: ['8:orgid:admin'],
+          },
+        ],
       });
 
       const replaceResponse = await requestWithRetry(

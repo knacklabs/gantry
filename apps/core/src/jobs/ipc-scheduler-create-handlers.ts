@@ -16,6 +16,7 @@ import {
 } from '../shared/model-catalog.js';
 import { formatBrowserProfileLabel } from '../shared/browser-profile-scope.js';
 import { resolveSchedulerApprovalTarget } from './ipc-scheduler-approval-target.js';
+import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
 
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
@@ -69,7 +70,7 @@ function scheduleType(raw: unknown): JobScheduleType | undefined {
 }
 
 const schedulerUpsertJobHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup, isMain, registeredGroups, sourceGroupJids } =
+  const { data, sourceGroup, isMain, conversationBindings, sourceGroupJids } =
     context;
   const { accept, reject } = createTaskResponder(
     sourceGroup,
@@ -105,13 +106,7 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
 
   try {
     const result = await makeJobService(context).upsertJobFromIpc({
-      access: {
-        sourceGroup,
-        isMain,
-        conversationBindings: registeredGroups,
-        sourceGroupJids,
-        authThreadId: data.authThreadId,
-      },
+      access: schedulerAccessFromContext(context),
       jobId: data.jobId,
       name: data.name || '',
       prompt: data.prompt || '',
@@ -157,7 +152,7 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
         ? ` Model: ${result.modelAlias}.`
         : ' Model: agent default for this job type.';
     const sourceJid = sourceGroupJids[0] || '';
-    const sourceConversation = registeredGroups[sourceJid];
+    const sourceConversation = conversationBindings[sourceJid];
     const runtimeText = ` Runtime: notifications ${data.threadId || data.authThreadId ? 'this thread' : 'this conversation'}; browser ${formatBrowserProfileLabel({ agentName: sourceConversation?.name ?? sourceGroup, conversationKind: sourceConversation?.conversationKind })}.`;
     accept(
       (result.created

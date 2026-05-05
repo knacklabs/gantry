@@ -30,7 +30,8 @@ users who are not members of any configured Conversation. Each agent can set one
 approval admin per provider; that admin can approve permission prompts only for
 direct/private DM sessions bound to that agent on the same provider. DM access
 users are not approvers unless they are also configured as the provider's DM
-admin.
+admin. The same MyClaw agent can be bound to Slack and Teams at once, but Slack
+and Teams admin user ids remain independent provider identities.
 
 Conversation approvers are a Conversation-owned allowlist. They decide
 permission prompts for all agents bound to the Conversation, must be verified

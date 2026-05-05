@@ -34,6 +34,9 @@ The deterministic ownership rule is:
   sessions on that provider.
 - Control approvers are separate from DM access. They must be verifiable
   members of the Channel and apply to every agent bound to that Channel.
+- Agent identity is shared across provider bindings, but admin authority is not:
+  Slack user ids, Teams user ids, Telegram user ids, Web users, and local users
+  must be configured on their own provider or conversation surfaces.
 
 There is no channel-scoped tool selection field and no separate browser
 capability list. Browser is a normal catalog tool. Channel-provider flags

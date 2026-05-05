@@ -199,4 +199,173 @@ describe('ConversationAdministrationService', () => {
       repositories.conversations.replaceConversationApprovers,
     ).not.toHaveBeenCalled();
   });
+
+  it('keeps approvers scoped to the origin conversation provider', async () => {
+    const providerConnections = new Map([
+      [
+        'providerConnection-slack',
+        {
+          id: 'providerConnection-slack',
+          appId: 'default',
+          providerId: 'slack',
+          label: 'Slack',
+          status: 'active',
+          config: {},
+          runtimeSecretRefs: ['SLACK_BOT_TOKEN'],
+          createdAt: iso,
+          updatedAt: iso,
+        },
+      ],
+      [
+        'providerConnection-teams',
+        {
+          id: 'providerConnection-teams',
+          appId: 'default',
+          providerId: 'teams',
+          label: 'Teams',
+          status: 'active',
+          config: {},
+          runtimeSecretRefs: ['TEAMS_CLIENT_ID'],
+          createdAt: iso,
+          updatedAt: iso,
+        },
+      ],
+    ]);
+    const conversations = new Map([
+      [
+        'conversation:slack:C123',
+        {
+          id: 'conversation:slack:C123',
+          appId: 'default',
+          providerConnectionId: 'providerConnection-slack',
+          externalRef: { kind: 'conversation', value: 'slack:C123' },
+          kind: 'channel',
+          title: 'Sales Slack',
+          status: 'active',
+          createdAt: iso,
+          updatedAt: iso,
+        },
+      ],
+      [
+        'conversation:teams:19:channel@thread.tacv2',
+        {
+          id: 'conversation:teams:19:channel@thread.tacv2',
+          appId: 'default',
+          providerConnectionId: 'providerConnection-teams',
+          externalRef: {
+            kind: 'conversation',
+            value: 'teams:19:channel@thread.tacv2',
+          },
+          kind: 'channel',
+          title: 'Sales Teams',
+          status: 'active',
+          createdAt: iso,
+          updatedAt: iso,
+        },
+      ],
+    ]);
+    const storedApprovers = new Map<string, string[]>();
+    const repositories = {
+      providerConnections: {
+        getProviderConnection: vi.fn(async (id: string) =>
+          providerConnections.get(id),
+        ),
+      },
+      conversations: {
+        getConversation: vi.fn(async (id: string) => conversations.get(id)),
+        findConversationByExternalValue: vi.fn(async (input: any) =>
+          [...conversations.values()].find(
+            (conversation) =>
+              conversation.externalRef.value === input.externalConversationId,
+          ),
+        ),
+        listParticipantExternalUserIds: vi.fn(async () => []),
+        listConversationApprovers: vi.fn(async (conversationId: string) =>
+          (storedApprovers.get(conversationId) ?? []).map((externalUserId) => ({
+            id: `approver:${conversationId}:${externalUserId}`,
+            appId: 'default',
+            conversationId,
+            externalUserId,
+            createdAt: iso,
+            updatedAt: iso,
+          })),
+        ),
+        replaceConversationApprovers: vi.fn(async (input: any) => {
+          storedApprovers.set(input.conversationId, input.externalUserIds);
+          return input.externalUserIds.map((externalUserId: string) => ({
+            id: `approver:${input.conversationId}:${externalUserId}`,
+            appId: 'default',
+            conversationId: input.conversationId,
+            externalUserId,
+            createdAt: input.updatedAt,
+            updatedAt: input.updatedAt,
+          }));
+        }),
+      },
+    };
+    const validator: ConversationMembershipValidator = {
+      validateControlApprovers: vi.fn(async (input) => {
+        const validByProvider = new Map([
+          ['slack', new Set(['UADMIN'])],
+          ['teams', new Set(['8:orgid:admin'])],
+        ]);
+        const valid =
+          validByProvider.get(String(input.providerId)) ?? new Set();
+        return {
+          validUserIds: input.userIds.filter((id) => valid.has(id)),
+          invalidUserIds: input.userIds.filter((id) => !valid.has(id)),
+        };
+      }),
+    };
+    const service = new ConversationAdministrationService(
+      repositories as never,
+      validator,
+    );
+
+    await service.replaceControlAllowlist({
+      appId: 'default' as never,
+      conversationId: 'conversation:slack:C123' as never,
+      userIds: ['UADMIN'],
+      updatedAt: iso,
+    });
+    await service.replaceControlAllowlist({
+      appId: 'default' as never,
+      conversationId: 'conversation:teams:19:channel@thread.tacv2' as never,
+      userIds: ['8:orgid:admin'],
+      updatedAt: iso,
+    });
+
+    await expect(
+      service.isControlApproverAllowed({
+        appId: 'default' as never,
+        providerId: 'slack' as never,
+        conversationJid: 'slack:C123',
+        userId: 'UADMIN',
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      service.isControlApproverAllowed({
+        appId: 'default' as never,
+        providerId: 'teams' as never,
+        conversationJid: 'teams:19:channel@thread.tacv2',
+        userId: '8:orgid:admin',
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      service.isControlApproverAllowed({
+        appId: 'default' as never,
+        providerId: 'teams' as never,
+        conversationJid: 'teams:19:channel@thread.tacv2',
+        userId: 'UADMIN',
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      service.isControlApproverAllowed({
+        appId: 'default' as never,
+        providerId: 'slack' as never,
+        conversationJid: 'slack:C123',
+        userId: '8:orgid:admin',
+      }),
+    ).resolves.toBe(false);
+  });
 });

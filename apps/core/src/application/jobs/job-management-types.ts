@@ -45,6 +45,9 @@ export interface JobControlPort {
   ): Promise<AppSessionRecord[]>;
   createJobTrigger(input: {
     jobId: string;
+    // Opaque audit string. SDK triggers use JSON `{kind:"sdk",...}`;
+    // MCP triggers use JSON `{kind:"mcp",...}`. Queryable auth fields belong
+    // on job/session records, not in this free-form trigger column.
     requestedBy?: string;
   }): Promise<JobTriggerRecord>;
   markTriggerCompleted(
@@ -64,7 +67,11 @@ export interface RuntimeEventPublisherPort {
 
 export interface JobTriggerQueuePort {
   isReady(): boolean;
-  enqueue(jobId: string, triggerId: string): Promise<void>;
+  enqueue(
+    jobId: string,
+    triggerId: string,
+    options?: { runId?: string },
+  ): Promise<void>;
 }
 
 export interface JobSchedulePlan {
@@ -171,6 +178,9 @@ export interface ConversationBinding {
 
 export interface SchedulerJobAccess {
   sourceGroup: string;
+  originConversationJid: string;
+  // Main-agent status does not widen scheduler job visibility or mutation.
+  // It is only used for job-scoped extra tool approval policy.
   isMain: boolean;
   conversationBindings: Record<string, ConversationBinding>;
   sourceGroupJids?: string[];
@@ -225,6 +235,12 @@ export interface JobEventListInput extends JobRunListInput {
   eventType?: string;
   sinceId?: number;
   since?: string;
+}
+
+export interface SchedulerRunNowInput {
+  jobId: string;
+  access: SchedulerJobAccess;
+  runId: string;
 }
 
 export type { Job, JobEvent, JobExecutionMode, JobRun, JobScheduleType };

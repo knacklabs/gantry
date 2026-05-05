@@ -121,5 +121,10 @@ describe('scheduler MCP tools', () => {
     expect(
       schemas.get('scheduler_update_job')?.thread_id.safeParse(null).success,
     ).toBe(true);
+    expect(schemas.get('scheduler_list_jobs')?.group_scope).toBeUndefined();
+    expect(
+      schemas.get('scheduler_list_jobs')?.conversation_jid,
+    ).toBeUndefined();
+    expect(schemas.get('scheduler_run_now')?.job_id).toBeDefined();
   });
 });

@@ -26,6 +26,7 @@ export function usage(): string {
     '  myclaw agent trigger <jid|folder> <word>',
     '  myclaw agent trigger <jid|folder> --off',
     '  myclaw agent dm-access <agentId> [--provider <provider> --allow <userId,userId> --admin <userId>]',
+    '    dm-access sets provider-specific direct/private DM admins; use myclaw conversation approvers for group/channel approvers.',
     '  myclaw agent policy <jid|folder> --allow <"*"|id1,id2> [--mode trigger|drop]',
     '  myclaw agent policy <jid|folder> --clear',
     `  myclaw agent policy-default --channel ${channels} --allow <"*"|id1,id2> [--mode trigger|drop]`,

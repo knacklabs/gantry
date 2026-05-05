@@ -7,6 +7,7 @@ import type {
   ProviderConnectionInput,
   ProviderConnectionPatch,
 } from './provider-types.js';
+import { createAgentAdminClient } from './agents.js';
 import { createAgentSkillsClient, createSkillDraftsClient } from './skills.js';
 import { createSettingsClient } from './settings.js';
 import type {
@@ -31,6 +32,12 @@ import type {
   ModelRecord,
   UpdateJobInput,
 } from './job-model-types.js';
+export type {
+  AgentAdminBoundConversation,
+  AgentAdminResponse,
+  AgentDmAccessEntry,
+  AgentDmAccessResponse,
+} from './agents.js';
 export type {
   CreateJobInput,
   CreateJobResponse,
@@ -508,6 +515,7 @@ export class MyClawClient {
   };
 
   readonly agents = {
+    ...createAgentAdminClient({ request: this.request }),
     skills: createAgentSkillsClient({ request: this.request }),
     mcpServers: mcpServerClients.createAgentMcpServersClient({
       request: this.request,
