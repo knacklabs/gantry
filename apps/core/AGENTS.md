@@ -29,6 +29,8 @@
 - Resolved third-party MCP credentials must not be serialized into long-lived process env; use a private per-run handoff and keep SDK tool env sanitized.
 - Broker model proxy and CA values belong only in the model SDK credential lane. Keep general runner, script, browser, and MCP env tool-agnostic; `NO_PROXY` is compatibility only, not a safety boundary.
 - Autonomous scheduler jobs must never use chat permission IPC during execution. Resolve target-agent tools at run time, merge only approved job-scoped extras from `targetJson.capabilityPolicy.allowedTools`, and fail fast with `tool not on autonomous job allowlist` when a scheduled run requests anything outside that effective set.
+- Agent-facing scheduler MCP tools must authorize jobs by both calling agent group and originating conversation (`group_scope` plus `linked_sessions`). Threads/topics are delivery metadata only and must not grant scheduler job visibility or run authority.
+- Do not expose scheduler MCP list filters that the host will ignore. If an MCP tool is always scoped to the authenticated conversation, keep agent-facing schemas scoped the same way.
 - Host runner sync code must work with npm workspace hoisting and installed package layouts; do not assume `packages/agent-runner/node_modules` exists.
 - Files under `apps/core/src/app/bootstrap/` own composition and wiring only; runtime behavior must live in `runtime/`, `jobs/`, `session/`, `platform/`, `messaging/`, `memory/`, or infrastructure modules.
 - Channel provider catalog flags must match executable behavior: do not advertise `install` or `discover` unless the CLI/control path can actually perform setup or discovery, and document any remaining runtime adapter seam explicitly.

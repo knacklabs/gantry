@@ -73,7 +73,7 @@ describe('runtime admin IPC handlers', () => {
       sourceGroup: 'main_agent',
       isMain: true,
       deps: {} as never,
-      registeredGroups: {},
+      conversationBindings: {},
       sourceGroupJids: ['tg:100'],
     });
 
@@ -98,7 +98,7 @@ describe('runtime admin IPC handlers', () => {
       sourceGroup: 'main_agent',
       isMain: false,
       deps: {} as never,
-      registeredGroups: {},
+      conversationBindings: {},
       sourceGroupJids: ['tg:100'],
     });
 
@@ -127,7 +127,7 @@ describe('runtime admin IPC handlers', () => {
       sourceGroup: 'main_agent',
       isMain: false,
       deps: {} as never,
-      registeredGroups: {},
+      conversationBindings: {},
       sourceGroupJids: ['tg:100'],
     });
 
@@ -157,7 +157,7 @@ describe('runtime admin IPC handlers', () => {
       sourceGroup: 'main_agent',
       isMain: true,
       deps: {} as never,
-      registeredGroups: {},
+      conversationBindings: {},
       sourceGroupJids: ['tg:100'],
     });
 
@@ -225,7 +225,7 @@ describe('runtime admin IPC handlers', () => {
         requestPermissionApproval,
         sendMessage: vi.fn(async () => undefined),
       } as any,
-      registeredGroups: {},
+      conversationBindings: {},
       sourceGroupJids: ['tg:100'],
     });
 

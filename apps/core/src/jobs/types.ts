@@ -43,6 +43,7 @@ export type JobTurnContext = Awaited<
 
 export interface SchedulerDispatchPayload {
   jobId: string;
+  runId?: string | null;
   triggerId?: string | null;
   scheduledFor?: string | null;
 }

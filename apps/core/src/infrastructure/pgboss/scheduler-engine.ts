@@ -155,7 +155,11 @@ export class PgBossSchedulerEngine {
       });
   }
 
-  async enqueueTrigger(jobId: string, triggerId: string): Promise<void> {
+  async enqueueTrigger(
+    jobId: string,
+    triggerId: string,
+    options?: { runId?: string },
+  ): Promise<void> {
     const boss = this.requireBoss();
     const [job, trigger] = await Promise.all([
       this.deps.opsRepository.getJobById(jobId),
@@ -167,6 +171,7 @@ export class PgBossSchedulerEngine {
       jobQueueName(job),
       {
         jobId,
+        runId: options?.runId,
         triggerId,
         scheduledFor: trigger.requestedAt,
       },

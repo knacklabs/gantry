@@ -188,6 +188,14 @@ export function sendApplicationError(
         error.message,
       );
       return true;
+    case 'ENQUEUE_FAILED':
+      sendError(
+        res,
+        500,
+        overrides?.ENQUEUE_FAILED ?? 'ENQUEUE_FAILED',
+        error.message,
+      );
+      return true;
     case 'NOT_IMPLEMENTED':
       sendError(
         res,

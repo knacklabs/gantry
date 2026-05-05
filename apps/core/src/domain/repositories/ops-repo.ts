@@ -47,7 +47,6 @@ export interface JobListFilters {
   agentId?: string;
   kind?: 'manual' | 'once' | 'recurring';
   conversationJid?: string;
-  allowedConversationJids?: string[];
   limit?: number;
 }
 

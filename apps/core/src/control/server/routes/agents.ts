@@ -218,12 +218,7 @@ async function agentBoundConversations(input: {
   const conversationIds = [
     ...new Set(
       bindings
-        .filter(
-          (binding) =>
-            binding.appId === input.appId &&
-            binding.agentId === input.agentId &&
-            binding.status === 'active',
-        )
+        .filter((binding) => binding.status === 'active')
         .map((binding) => binding.conversationId),
     ),
   ].sort((a, b) => String(a).localeCompare(String(b)));

@@ -30,6 +30,7 @@ import type {
   JobKind,
   RuntimeEventPublisherPort,
   SchedulerJobAccess,
+  SchedulerRunNowInput,
   JobUpdatePatch,
   CreateManagedJobInput,
   UpsertJobFromIpcInput,
@@ -42,6 +43,7 @@ import {
   assertJobExtraToolsAllowedForTarget,
   normalizeJobExtraTools,
 } from './job-tool-policy.js';
+import { runSchedulerJobNowFromMcp } from './job-management-run-now.js';
 
 const DEFAULT_RUN_LIMIT = 50;
 const DEFAULT_JOB_LIST_LIMIT = 100;
@@ -91,17 +93,17 @@ export class JobManagementService {
       input.modelProfileId,
     );
     const groupScope = (input.groupScope || access.sourceGroup).trim();
-    if (!access.isMain && groupScope !== access.sourceGroup) {
+    if (groupScope !== access.sourceGroup) {
       throw new ApplicationError(
         'FORBIDDEN',
-        'Only the main agent can set groupScope outside the source group.',
+        'Scheduler jobs cannot be created outside the source group.',
       );
     }
 
     const linkedSessions = resolveLinkedSessions(input, access);
     const authThreadId = normalizeOptional(input.access.authThreadId);
     const payloadThreadId = normalizeOptional(input.threadId);
-    if (authThreadId && payloadThreadId && payloadThreadId !== authThreadId) {
+    if (payloadThreadId && payloadThreadId !== authThreadId) {
       throw new ApplicationError(
         'FORBIDDEN',
         'threadId payload does not match authenticated thread binding.',
@@ -188,24 +190,18 @@ export class JobManagementService {
     limit?: number;
   }): Promise<{ jobs: Job[] }> {
     const queryGroupScope = input.access
-      ? input.access.isMain
-        ? input.groupScope
-        : input.access.sourceGroup
+      ? input.access.sourceGroup
       : input.groupScope;
     const jobs = await this.deps.ops.listJobs({
       appId: input.appId,
       statuses: input.statuses,
       groupScope: queryGroupScope,
-      threadId: input.access
-        ? (normalizeOptional(input.access.authThreadId) ?? null)
-        : undefined,
+      threadId: undefined,
       agentId: input.agentId,
       kind: input.kind,
-      conversationJid: input.conversationJid,
-      allowedConversationJids:
-        input.access && !input.access.isMain
-          ? input.access.sourceGroupJids
-          : undefined,
+      conversationJid: input.access
+        ? input.access.originConversationJid
+        : input.conversationJid,
       limit: Math.min(
         resolveLimit(input.limit, DEFAULT_JOB_LIST_LIMIT),
         MAX_JOB_LIST_LIMIT,
@@ -439,6 +435,14 @@ export class JobManagementService {
     return { triggerId: trigger.triggerId };
   }
 
+  async runJobNowFromMcp(input: SchedulerRunNowInput): Promise<{
+    runId: string;
+    queued: true;
+    triggerId: string;
+  }> {
+    return runSchedulerJobNowFromMcp(this.deps, input);
+  }
+
   async waitForTrigger(input: {
     appId: string;
     triggerId: string;
@@ -520,11 +524,12 @@ export class JobManagementService {
     limit?: number;
   }): Promise<{ runs: JobRun[] }> {
     if (input.jobId) {
-      await this.getJob({
+      const job = await this.getVisibleJobForScopedRead({
         jobId: input.jobId,
         appId: input.appId,
         access: input.access,
       });
+      if (!job) return { runs: [] };
     }
     const runs = await this.deps.ops.listJobRuns(
       input.jobId,
@@ -548,11 +553,12 @@ export class JobManagementService {
     limit?: number;
   }): Promise<{ events: JobEvent[] }> {
     if (input.jobId) {
-      await this.getJob({
+      const job = await this.getVisibleJobForScopedRead({
         jobId: input.jobId,
         appId: input.appId,
         access: input.access,
       });
+      if (!job) return { events: [] };
     }
     const visibleJobIds = input.jobId
       ? undefined
@@ -588,6 +594,17 @@ export class JobManagementService {
   private async requireJob(jobId: string): Promise<Job> {
     const job = await this.deps.ops.getJobById(jobId);
     if (!job) throw new ApplicationError('NOT_FOUND', 'Job not found');
+    return job;
+  }
+
+  private async getVisibleJobForScopedRead(input: {
+    jobId: string;
+    appId?: string;
+    access?: SchedulerJobAccess;
+  }): Promise<Job | null> {
+    const job = await this.deps.ops.getJobById(input.jobId);
+    if (!job) return null;
+    this.assertAccess(job, input);
     return job;
   }
 

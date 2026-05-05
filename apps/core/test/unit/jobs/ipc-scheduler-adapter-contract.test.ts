@@ -6,12 +6,16 @@ import type { TaskContext, TaskIpcData } from '@core/jobs/ipc-types.js';
 const mocks = vi.hoisted(() => ({
   responder: {
     accept: vi.fn(),
+    acceptData: vi.fn(),
     reject: vi.fn(),
   },
   jobService: {
     upsertJobFromIpc: vi.fn(),
     updateJob: vi.fn(),
+    deleteJob: vi.fn(),
+    pauseJob: vi.fn(),
     resumeJob: vi.fn(),
+    runJobNowFromMcp: vi.fn(),
   },
   jobServiceDeps: [] as unknown[],
 }));
@@ -33,19 +37,33 @@ vi.mock('@core/application/jobs/job-management-service.js', () => ({
   }),
 }));
 
+vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  getRuntimeControlRepository: vi.fn(() => ({})),
+  getRuntimeEventExchange: vi.fn(() => ({
+    publish: vi.fn(),
+  })),
+}));
+
 import { schedulerCreateTaskHandlers } from '@core/jobs/ipc-scheduler-create-handlers.js';
 import { schedulerMutateTaskHandlers } from '@core/jobs/ipc-scheduler-mutate-handlers.js';
+import { schedulerAccessFromContext } from '@core/jobs/ipc-scheduler-access.js';
 
 function makeContext(data: TaskIpcData): TaskContext {
   return {
     data: {
       type: data.type,
       taskId: 'task-1',
+      chatJid: 'tg:team',
+      targetJid: 'tg:team',
       ...data,
     },
     sourceGroup: 'team',
     isMain: false,
-    registeredGroups: {},
+    conversationBindings: {
+      'tg:team': { folder: 'team' },
+      'tg:team-a': { folder: 'team' },
+      'tg:team-b': { folder: 'team' },
+    },
     sourceGroupJids: ['tg:team'],
     deps: {
       opsRepository: {
@@ -80,6 +98,15 @@ describe('scheduler IPC adapter contracts', () => {
       'invalid_request',
     );
     expect(mocks.jobService.upsertJobFromIpc).not.toHaveBeenCalled();
+  });
+
+  it('fails loudly when scheduler IPC context omits conversation bindings', () => {
+    const context = makeContext({ type: 'scheduler_list_jobs' });
+    delete (context as Partial<TaskContext>).conversationBindings;
+
+    expect(() => schedulerAccessFromContext(context)).toThrow(
+      'Scheduler IPC context missing conversation bindings.',
+    );
   });
 
   it('keeps unsupported upsert scheduleType as invalid_schedule', async () => {
@@ -145,6 +172,10 @@ describe('scheduler IPC adapter contracts', () => {
     expect(mocks.jobService.upsertJobFromIpc).toHaveBeenCalledWith(
       expect.objectContaining({
         allowedTools: ['Read'],
+        access: expect.objectContaining({
+          sourceGroup: 'team',
+          originConversationJid: 'tg:team',
+        }),
       }),
     );
   });
@@ -192,12 +223,7 @@ describe('scheduler IPC adapter contracts', () => {
     );
   });
 
-  it('fails closed for scheduler create job tool approval without an originating conversation', async () => {
-    mocks.jobService.upsertJobFromIpc.mockResolvedValueOnce({
-      jobId: 'job-1',
-      created: true,
-      modelAlias: null,
-    });
+  it('fails closed for scheduler create without an originating conversation', async () => {
     const context = makeContext({
       type: 'scheduler_upsert_job',
       name: 'Daily review',
@@ -205,32 +231,17 @@ describe('scheduler IPC adapter contracts', () => {
       scheduleType: 'once',
       scheduleValue: '2026-05-04T00:00:00.000Z',
       allowedTools: ['Read'],
+      chatJid: undefined,
     });
     context.sourceGroupJids = ['tg:team-a', 'tg:team-b'];
 
     await schedulerCreateTaskHandlers.scheduler_upsert_job(context);
 
-    const deps = mocks.jobServiceDeps.at(-1) as {
-      approveJobExtraTools: (request: unknown) => Promise<{
-        approved: boolean;
-        reason?: string;
-      }>;
-    };
-    const decision = await deps.approveJobExtraTools({
-      operation: 'create',
-      jobName: 'Daily review',
-      target: { agentId: 'team' },
-      inheritedTools: [],
-      existingJobExtraTools: [],
-      requestedJobExtraTools: ['Read'],
-      extrasBeyondInherited: ['Read'],
-    });
-
-    expect(decision).toEqual({
-      approved: false,
-      reason:
-        'scheduler job tool approval requires an originating chat for this agent',
-    });
+    expect(mocks.responder.reject).toHaveBeenCalledWith(
+      'Scheduler job operations require an originating conversation.',
+      'forbidden',
+    );
+    expect(mocks.jobService.upsertJobFromIpc).not.toHaveBeenCalled();
     expect(context.deps.requestPermissionApproval).not.toHaveBeenCalled();
   });
 
@@ -440,5 +451,51 @@ describe('scheduler IPC adapter contracts', () => {
       'invalid_schedule',
       [pauseReason, 'Job has been moved to dead_lettered state.'],
     );
+  });
+
+  it('queues scheduler_run_now through the job service with conversation access', async () => {
+    mocks.jobService.runJobNowFromMcp.mockResolvedValueOnce({
+      runId: 'run-1',
+      queued: true,
+      triggerId: 'trigger-1',
+    });
+
+    await schedulerMutateTaskHandlers.scheduler_run_now(
+      makeContext({
+        type: 'scheduler_run_now',
+        jobId: 'job-1',
+      }),
+    );
+
+    expect(mocks.jobService.runJobNowFromMcp).toHaveBeenCalledWith({
+      jobId: 'job-1',
+      access: expect.objectContaining({
+        sourceGroup: 'team',
+        originConversationJid: 'tg:team',
+      }),
+      runId: expect.any(String),
+    });
+    expect(mocks.responder.acceptData).toHaveBeenCalledWith(
+      'Scheduler job queued (job-1).',
+      {
+        run_id: 'run-1',
+        queued: true,
+        trigger_id: 'trigger-1',
+      },
+    );
+  });
+
+  it('rejects scheduler_run_now without a job id', async () => {
+    await schedulerMutateTaskHandlers.scheduler_run_now(
+      makeContext({
+        type: 'scheduler_run_now',
+      }),
+    );
+
+    expect(mocks.responder.reject).toHaveBeenCalledWith(
+      'scheduler_run_now requires jobId.',
+      'invalid_request',
+    );
+    expect(mocks.jobService.runJobNowFromMcp).not.toHaveBeenCalled();
   });
 });

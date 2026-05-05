@@ -30,7 +30,6 @@ export interface TaskIpcData {
   allowedTools?: string[];
   statuses?: string[];
   kind?: 'manual' | 'once' | 'recurring';
-  conversationJid?: string;
   runId?: string;
   eventType?: string;
   sinceId?: number;
@@ -52,7 +51,7 @@ export interface TaskContext {
   sourceGroup: string;
   isMain: boolean;
   deps: IpcDeps;
-  registeredGroups: Record<string, RegisteredGroup>;
+  conversationBindings: Record<string, RegisteredGroup>;
   sourceGroupJids: string[];
 }
 

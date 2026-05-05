@@ -206,12 +206,14 @@ describe('PgBossSchedulerEngine', () => {
     await (
       engine as unknown as {
         processBossJobs: (
-          jobs: Array<{ data: { jobId: string; triggerId?: string } }>,
+          jobs: Array<{
+            data: { jobId: string; triggerId?: string; runId?: string };
+          }>,
           mode: 'serialized',
         ) => Promise<void>;
       }
     ).processBossJobs(
-      [{ data: { jobId: 'job-1', triggerId: 'trigger-1' } }],
+      [{ data: { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' } }],
       'serialized',
     );
 
@@ -220,7 +222,7 @@ describe('PgBossSchedulerEngine', () => {
       expect.any(Object),
       '__scheduler__:tg:team',
       'serialized',
-      { jobId: 'job-1', triggerId: 'trigger-1' },
+      { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' },
     );
   });
 });

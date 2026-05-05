@@ -26,8 +26,8 @@ export async function processTaskIpc(
   isMain: boolean,
   deps: IpcDeps,
 ): Promise<void> {
-  const registeredGroups = deps.registeredGroups();
-  const sourceGroupJids = Object.entries(registeredGroups)
+  const conversationBindings = deps.registeredGroups();
+  const sourceGroupJids = Object.entries(conversationBindings)
     .filter(([, group]) => group.folder === sourceGroup)
     .map(([jid]) => jid);
 
@@ -67,7 +67,7 @@ export async function processTaskIpc(
       sourceGroup,
       isMain,
       deps: resolvedDeps,
-      registeredGroups,
+      conversationBindings,
       sourceGroupJids,
     });
   } catch (err) {

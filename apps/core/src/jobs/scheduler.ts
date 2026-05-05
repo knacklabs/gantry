@@ -43,11 +43,12 @@ export function requestSchedulerSync(jobId?: string): void {
 export async function enqueueJobTrigger(
   jobId: string,
   triggerId: string,
+  options?: { runId?: string },
 ): Promise<void> {
   if (!activeSchedulerEngine) {
     throw new Error('Scheduler engine is not running');
   }
-  await activeSchedulerEngine.enqueueTrigger(jobId, triggerId);
+  await activeSchedulerEngine.enqueueTrigger(jobId, triggerId, options);
 }
 
 export async function startSchedulerLoop(

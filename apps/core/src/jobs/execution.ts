@@ -90,7 +90,7 @@ export async function runJob(
   }
   const scheduledFor =
     dispatch?.scheduledFor || currentJob.next_run || currentIso();
-  const runId = randomUUID();
+  const runId = dispatch?.runId ?? randomUUID();
   const startedAt = currentIso();
   const timeoutMs = Math.max(30_000, currentJob.timeout_ms || 300_000);
   const executionMode: JobExecutionMode =

@@ -10,30 +10,39 @@ export function resolveLinkedSessions(
   input: { linkedSessions?: string[]; deliverTo?: string[] },
   access: SchedulerJobAccess,
 ): string[] {
-  let linkedSessions = Array.isArray(input.deliverTo)
-    ? input.deliverTo.map(String).filter((item) => item.length > 0)
+  const originConversationJid = normalizeOptional(access.originConversationJid);
+  if (!originConversationJid) {
+    throw new ApplicationError(
+      'FORBIDDEN',
+      'Scheduler job access requires an originating conversation.',
+    );
+  }
+  const linkedSessions = Array.isArray(input.deliverTo)
+    ? input.deliverTo.map((item) => String(item).trim()).filter(Boolean)
     : Array.isArray(input.linkedSessions)
-      ? input.linkedSessions.map(String).filter((item) => item.length > 0)
-      : (access.sourceGroupJids ?? []);
-  if (linkedSessions.length === 0)
-    linkedSessions = access.sourceGroupJids ?? [];
+      ? input.linkedSessions.map((item) => String(item).trim()).filter(Boolean)
+      : [originConversationJid];
   if (linkedSessions.length === 0) {
     throw new ApplicationError(
       'INVALID_REQUEST',
       'scheduler_upsert_job requires at least one linked session.',
     );
   }
-  if (!access.isMain) {
-    const unauthorized = linkedSessions.some((jid) => {
-      const binding = access.conversationBindings[jid];
-      return !binding || binding.folder !== access.sourceGroup;
-    });
-    if (unauthorized) {
-      throw new ApplicationError(
-        'FORBIDDEN',
-        'linked_sessions must belong to the source group for non-main agents.',
-      );
-    }
+  if (!linkedSessions.includes(originConversationJid)) {
+    throw new ApplicationError(
+      'FORBIDDEN',
+      'linked_sessions must include the originating conversation.',
+    );
+  }
+  const unauthorized = linkedSessions.some((jid) => {
+    const binding = access.conversationBindings[jid];
+    return !binding || binding.folder !== access.sourceGroup;
+  });
+  if (unauthorized) {
+    throw new ApplicationError(
+      'FORBIDDEN',
+      'linked_sessions must belong to the source group.',
+    );
   }
   return linkedSessions;
 }
@@ -42,13 +51,10 @@ export function canAccessSchedulerJob(
   job: Job,
   access: SchedulerJobAccess,
 ): boolean {
-  if (access.authThreadId) {
-    if ((job.thread_id || null) !== access.authThreadId) return false;
-  } else if ((job.thread_id || null) !== null) {
-    return false;
-  }
-  if (access.isMain) return true;
+  const originConversationJid = normalizeOptional(access.originConversationJid);
+  if (!originConversationJid) return false;
   if (job.group_scope !== access.sourceGroup) return false;
+  if (!job.linked_sessions.includes(originConversationJid)) return false;
   return job.linked_sessions.every((jid) => {
     const binding = access.conversationBindings[jid];
     return !!binding && binding.folder === access.sourceGroup;
@@ -62,7 +68,7 @@ export function assertSchedulerJobAccess(
   if (!canAccessSchedulerJob(job, access)) {
     throw new ApplicationError(
       'FORBIDDEN',
-      'Job does not belong to this source group or thread.',
+      'Job does not belong to this source group or conversation.',
     );
   }
 }
@@ -72,41 +78,23 @@ export function validateSchedulerUpdate(
   updates: Partial<Job>,
   access: SchedulerJobAccess,
 ): void {
-  if (
-    !access.isMain &&
-    updates.group_scope &&
-    updates.group_scope !== access.sourceGroup
-  ) {
+  if (updates.group_scope && updates.group_scope !== access.sourceGroup) {
     throw new ApplicationError(
       'FORBIDDEN',
-      'Only the main agent can set groupScope outside the source group.',
+      'Scheduler jobs cannot move outside the source group.',
     );
   }
   if (updates.thread_id !== undefined) {
     const requestedThreadId = updates.thread_id || null;
     const authThreadId = normalizeOptional(access.authThreadId) ?? null;
-    const currentThreadId = job.thread_id || null;
-    const allowed = authThreadId
-      ? currentThreadId === authThreadId && requestedThreadId === authThreadId
-      : access.isMain ||
-        (requestedThreadId === null && currentThreadId === null);
-    if (!allowed) {
+    if (requestedThreadId && requestedThreadId !== authThreadId) {
       throw new ApplicationError(
         'FORBIDDEN',
         'threadId payload does not match authenticated thread binding.',
       );
     }
   }
-  if (!access.isMain && updates.linked_sessions) {
-    const unauthorized = updates.linked_sessions.some((jid) => {
-      const binding = access.conversationBindings[jid];
-      return !binding || binding.folder !== access.sourceGroup;
-    });
-    if (unauthorized) {
-      throw new ApplicationError(
-        'FORBIDDEN',
-        'linked_sessions must belong to the source group for non-main agents.',
-      );
-    }
+  if (updates.linked_sessions) {
+    resolveLinkedSessions({ linkedSessions: updates.linked_sessions }, access);
   }
 }

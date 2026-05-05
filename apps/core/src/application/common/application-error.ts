@@ -8,6 +8,7 @@ export type ApplicationErrorCode =
   | 'CONFLICT'
   | 'RATE_LIMITED'
   | 'SCHEDULER_NOT_READY'
+  | 'ENQUEUE_FAILED'
   | 'TRIGGER_NOT_FOUND'
   | 'UNAVAILABLE'
   | 'WAIT_TIMEOUT';

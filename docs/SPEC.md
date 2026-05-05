@@ -696,7 +696,9 @@ MyClaw has a built-in scheduler that runs jobs as full agents in their group's c
 1. **Group Context**: Jobs created in a group run with that group's working directory and memory
 2. **Full Agent Capabilities**: Scheduled jobs have access to all tools (WebSearch, file operations, etc.)
 3. **Optional Messaging**: Jobs can send messages to their group using the `send_message` tool, or complete silently
-4. **Main Channel Privileges**: The main channel can schedule jobs for any group and view all jobs
+4. **Admin Privileges**: Admin-wide job management belongs to the Control API
+   and local/admin CLI surfaces. Normal agent-facing scheduler MCP tools stay
+   scoped to the calling agent and originating conversation.
 
 ### Schedule Types
 
@@ -770,10 +772,16 @@ The `myclaw` MCP server is created dynamically per agent call with the current g
 | `scheduler_delete_job` | Delete a job |
 | `scheduler_pause_job` | Pause a job |
 | `scheduler_resume_job` | Resume a paused job |
-| `scheduler_trigger_job` | Trigger immediate job run |
+| `scheduler_run_now` | Queue an immediate run of an existing job |
 | `scheduler_list_runs` | List job run history |
 | `scheduler_get_dead_letter` | List dead-lettered runs |
 | `send_message` | Send a message to the group via its channel |
+
+Scheduler MCP job visibility and mutation are scoped to both the calling
+agent's group and the current conversation: `group_scope` must match the
+agent, and `linked_sessions` must include the originating chat. Thread/topic
+ids may be checked to prevent delivery retargeting, but they do not grant job
+visibility or run authority.
 
 ---
 

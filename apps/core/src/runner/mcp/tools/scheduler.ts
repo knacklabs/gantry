@@ -37,6 +37,9 @@ async function requestSchedulerData(
     type,
     taskId,
     ...payload,
+    targetJid: chatJid,
+    chatJid,
+    authThreadId: threadId,
     timestamp: nowIso(),
   });
   return waitForTaskResponse(taskId, timeoutMs);
@@ -250,17 +253,13 @@ export function registerSchedulerTools(server: McpServer): void {
     'List scheduler jobs from the host scheduler.',
     {
       statuses: z.array(z.string()).optional(),
-      group_scope: z.string().optional(),
       kind: z.enum(['manual', 'once', 'recurring']).optional(),
-      conversation_jid: z.string().optional(),
       limit: z.number().optional(),
     },
     async (args) => {
       const response = await requestSchedulerData('scheduler_list_jobs', {
         statuses: args.statuses,
-        groupScope: args.group_scope,
         kind: args.kind,
-        conversationJid: args.conversation_jid,
         limit: args.limit,
       });
       const error = taskError(response, 'Scheduler list jobs failed.');
@@ -390,6 +389,9 @@ export function registerSchedulerTools(server: McpServer): void {
         type: 'scheduler_delete_job',
         taskId,
         jobId: args.job_id,
+        targetJid: chatJid,
+        chatJid,
+        authThreadId: threadId,
         timestamp: nowIso(),
       });
       const response = await waitForTaskResponse(taskId, 20_000);
@@ -439,6 +441,9 @@ export function registerSchedulerTools(server: McpServer): void {
         type: 'scheduler_pause_job',
         taskId,
         jobId: args.job_id,
+        targetJid: chatJid,
+        chatJid,
+        authThreadId: threadId,
         timestamp: nowIso(),
       });
       const response = await waitForTaskResponse(taskId, 20_000);
@@ -488,6 +493,9 @@ export function registerSchedulerTools(server: McpServer): void {
         type: 'scheduler_resume_job',
         taskId,
         jobId: args.job_id,
+        targetJid: chatJid,
+        chatJid,
+        authThreadId: threadId,
         timestamp: nowIso(),
       });
       const response = await waitForTaskResponse(taskId, 20_000);
@@ -522,6 +530,25 @@ export function registerSchedulerTools(server: McpServer): void {
             type: 'text' as const,
             text: response.message || 'Scheduler job resume completed.',
           },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    'scheduler_run_now',
+    'Queue an immediate run of an existing scheduler job.',
+    { job_id: z.string() },
+    async (args) => {
+      const response = await requestSchedulerData('scheduler_run_now', {
+        jobId: args.job_id,
+      });
+      const error = taskError(response, 'Scheduler run-now failed.');
+      if (error) return error;
+      const data = dataRecord(response!);
+      return {
+        content: [
+          { type: 'text' as const, text: JSON.stringify(data, null, 2) },
         ],
       };
     },
@@ -604,7 +631,7 @@ export function registerSchedulerTools(server: McpServer): void {
       const deadline = nowMs() + timeoutMs;
       while (nowMs() < deadline) {
         const response = await requestSchedulerData(
-          'scheduler_list_events',
+          'scheduler_wait_for_events',
           {
             jobId: args.job_id,
             runId: args.run_id,

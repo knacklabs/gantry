@@ -41,6 +41,8 @@ function ipcCodeForApplicationError(code: ApplicationError['code']): string {
       return 'timeout';
     case 'CONFLICT':
       return 'conflict';
+    case 'ENQUEUE_FAILED':
+      return 'internal_error';
     case 'NOT_IMPLEMENTED':
     default:
       return 'internal_error';

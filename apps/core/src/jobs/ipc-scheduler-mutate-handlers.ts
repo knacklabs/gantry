@@ -16,6 +16,12 @@ import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 import { invalidateSystemJobRegistrationSignature } from './system-registration-cache.js';
 import { resolveRequestedJobModelPatch } from '../application/jobs/job-model-selection.js';
 import { resolveSchedulerApprovalTarget } from './ipc-scheduler-approval-target.js';
+import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
+import {
+  getRuntimeControlRepository,
+  getRuntimeEventExchange,
+} from '../adapters/storage/postgres/runtime-store.js';
+import { enqueueJobTrigger, isSchedulerReady } from './scheduler.js';
 
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
@@ -25,6 +31,21 @@ function makeJobService(context: TaskContext): JobManagementService {
     toolRepository: context.deps.getToolRepository?.(),
     approveJobExtraTools: (request) =>
       requestJobExtraToolApproval(context, request),
+  });
+}
+
+function makeRunNowJobService(context: TaskContext): JobManagementService {
+  return new JobManagementService({
+    ops: context.deps.opsRepository,
+    scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
+    schedulePlanner: runtimeJobSchedulePlanner,
+    toolRepository: context.deps.getToolRepository?.(),
+    control: getRuntimeControlRepository(),
+    runtimeEvents: getRuntimeEventExchange(),
+    triggerQueue: {
+      isReady: isSchedulerReady,
+      enqueue: enqueueJobTrigger,
+    },
   });
 }
 
@@ -60,16 +81,6 @@ async function requestJobExtraToolApproval(
     decisionOptions: ['allow_once', 'cancel'],
   });
   return { approved: decision.approved, reason: decision.reason };
-}
-
-function accessFromContext(context: TaskContext) {
-  return {
-    sourceGroup: context.sourceGroup,
-    isMain: context.isMain,
-    conversationBindings: context.registeredGroups,
-    sourceGroupJids: context.sourceGroupJids,
-    authThreadId: context.data.authThreadId,
-  };
 }
 
 function scheduleType(raw: unknown): JobScheduleType | undefined {
@@ -193,7 +204,7 @@ const schedulerUpdateJobHandler: TaskHandler = async (context) => {
 
     await makeJobService(context).updateJob({
       jobId,
-      access: accessFromContext(context),
+      access: schedulerAccessFromContext(context),
       patch,
     });
     invalidateSystemJobRegistrationSignature(context.deps.opsRepository);
@@ -223,7 +234,7 @@ const schedulerDeleteJobHandler: TaskHandler = async (context) => {
   try {
     await makeJobService(context).deleteJob({
       jobId,
-      access: accessFromContext(context),
+      access: schedulerAccessFromContext(context),
     });
     invalidateSystemJobRegistrationSignature(context.deps.opsRepository);
     accept(`Scheduler job deleted (${jobId}).`);
@@ -252,7 +263,7 @@ const schedulerPauseJobHandler: TaskHandler = async (context) => {
   try {
     await makeJobService(context).pauseJob({
       jobId,
-      access: accessFromContext(context),
+      access: schedulerAccessFromContext(context),
       reason: 'Paused by user',
     });
     invalidateSystemJobRegistrationSignature(context.deps.opsRepository);
@@ -282,7 +293,7 @@ const schedulerResumeJobHandler: TaskHandler = async (context) => {
   try {
     await makeJobService(context).resumeJob({
       jobId,
-      access: accessFromContext(context),
+      access: schedulerAccessFromContext(context),
       invalidSchedulePolicy: 'dead_letter',
     });
     invalidateSystemJobRegistrationSignature(context.deps.opsRepository);
@@ -298,9 +309,44 @@ const schedulerResumeJobHandler: TaskHandler = async (context) => {
   }
 };
 
+const schedulerRunNowHandler: TaskHandler = async (context) => {
+  const { data, sourceGroup } = context;
+  const { acceptData, reject } = createTaskResponder(
+    sourceGroup,
+    data.taskId,
+    data.authThreadId,
+  );
+  const jobId = toTrimmedString(data.jobId, { maxLen: 128 });
+  if (!jobId) {
+    reject('scheduler_run_now requires jobId.', 'invalid_request');
+    return;
+  }
+  const runId = randomUUID();
+  try {
+    const result = await makeRunNowJobService(context).runJobNowFromMcp({
+      jobId,
+      access: schedulerAccessFromContext(context),
+      runId,
+    });
+    acceptData(`Scheduler job queued (${jobId}).`, {
+      run_id: result.runId,
+      queued: result.queued,
+      trigger_id: result.triggerId,
+    });
+  } catch (err) {
+    const mapped = mapApplicationError(err, 'Failed to run scheduler job.');
+    logger.error(
+      { err, sourceGroup, jobId },
+      'scheduler_run_now failed unexpectedly',
+    );
+    reject(mapped.message, mapped.code);
+  }
+};
+
 export const schedulerMutateTaskHandlers: Record<string, TaskHandler> = {
   scheduler_update_job: schedulerUpdateJobHandler,
   scheduler_delete_job: schedulerDeleteJobHandler,
   scheduler_pause_job: schedulerPauseJobHandler,
   scheduler_resume_job: schedulerResumeJobHandler,
+  scheduler_run_now: schedulerRunNowHandler,
 };
