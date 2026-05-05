@@ -12,11 +12,11 @@ export function renderDefaultCapabilityRules(options?: {
   ];
   if (options?.includeSettingsTools) {
     lines.push(
-      '- Main/admin agents may use settings_desired_state before local configuration changes and request_settings_update for reviewed settings.yaml changes; do not edit settings directly.',
+      '- Agents with selected admin capabilities may use settings_desired_state before local configuration changes and request_settings_update for reviewed settings.yaml changes; do not edit settings directly.',
     );
   }
   lines.push(
-    '- Main/admin agents may use service_restart after approved changes and register_agent for conversation binding.',
+    '- Agents with selected admin capabilities may use service_restart after approved changes and register_agent for conversation binding.',
     '- Never run dependency installs or edit local skill files, MCP config, settings, or generated capability config directly.',
   );
   return lines.join('\n');

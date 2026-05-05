@@ -29,7 +29,7 @@ describe('browser MCP IPC response signatures', () => {
     vi.stubEnv('MYCLAW_IPC_DIR', path.join(root, 'main_agent'));
     vi.stubEnv('MYCLAW_GROUP_FOLDER', 'main_agent');
     vi.stubEnv('MYCLAW_CHAT_JID', 'tg:test');
-    vi.stubEnv('MYCLAW_IS_MAIN', '1');
+    vi.stubEnv('MYCLAW_ADMIN_MCP_TOOLS_JSON', '[]');
   }
 
   it('accepts host-written signed browser lifecycle responses', async () => {
@@ -41,7 +41,7 @@ describe('browser MCP IPC response signatures', () => {
     vi.stubEnv('MYCLAW_IPC_RESPONSE_VERIFY_KEY', keys.publicKeyPem);
     vi.stubEnv('MYCLAW_GROUP_FOLDER', 'main_agent');
     vi.stubEnv('MYCLAW_CHAT_JID', 'tg:test');
-    vi.stubEnv('MYCLAW_IS_MAIN', '1');
+    vi.stubEnv('MYCLAW_ADMIN_MCP_TOOLS_JSON', '[]');
 
     const { requestBrowserAction } = await import('@core/runner/mcp/ipc.js');
 
@@ -92,7 +92,7 @@ describe('browser MCP IPC response signatures', () => {
     vi.stubEnv('MYCLAW_IPC_RESPONSE_VERIFY_KEY', keys.publicKeyPem);
     vi.stubEnv('MYCLAW_GROUP_FOLDER', 'main_agent');
     vi.stubEnv('MYCLAW_CHAT_JID', 'tg:test');
-    vi.stubEnv('MYCLAW_IS_MAIN', '1');
+    vi.stubEnv('MYCLAW_ADMIN_MCP_TOOLS_JSON', '[]');
 
     const { hasValidIpcResponseSignature } =
       await import('@core/runner/mcp/ipc.js');

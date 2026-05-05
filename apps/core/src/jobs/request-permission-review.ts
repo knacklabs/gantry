@@ -11,6 +11,11 @@ import {
 } from '../memory/app-memory-boundaries.js';
 import type { IpcDeps } from '../runtime/ipc-domain-types.js';
 import { toTrimmedString } from './ipc-shared.js';
+import {
+  adminMcpToolIdForFullName,
+  isAdminMcpToolFullName,
+  isMyClawMcpWildcardRule,
+} from '../shared/admin-mcp-tools.js';
 
 export interface RequestPermissionReview {
   toolName: 'request_permission';
@@ -56,24 +61,48 @@ export async function persistRequestPermissionRules(input: {
   const agentId = memoryAgentIdForGroupFolder(input.sourceGroup) as never;
   const timestamp = new Date().toISOString();
   for (const allowedRule of allowedRules) {
-    const toolId = persistentPermissionToolId(allowedRule);
-    await repository.saveTool({
-      id: toolId,
-      appId,
-      name: allowedRule,
-      kind: 'host',
-      provider: 'myclaw',
-      displayName: allowedRule,
-      description:
-        'Persistent permission rule approved from request_permission.',
-      category: 'admin',
-      risk: 'high',
-      selectable: true,
-      status: 'active',
-      adapterRef: 'permission/request_permission',
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    });
+    if (isMyClawMcpWildcardRule(allowedRule)) {
+      throw new Error(
+        'Persistent MyClaw MCP wildcard grants are not supported; request one exact mcp__myclaw__ tool.',
+      );
+    }
+    const adminMcpTool = adminMcpToolFullNameFromRule(allowedRule);
+    if (adminMcpTool && adminMcpTool !== allowedRule) {
+      throw new Error(
+        'Persistent MyClaw admin MCP tool grants must request the exact tool name without a scoped rule.',
+      );
+    }
+    const toolId = (
+      adminMcpTool
+        ? adminMcpToolIdForFullName(adminMcpTool)
+        : persistentPermissionToolId(allowedRule)
+    ) as AgentToolBinding['toolId'];
+    if (adminMcpTool) {
+      const existing = await repository.getTool(toolId);
+      if (!existing || existing.status !== 'active' || !existing.selectable) {
+        throw new Error(
+          `Tool catalog row ${toolId} is unavailable for persistent approval.`,
+        );
+      }
+    } else {
+      await repository.saveTool({
+        id: toolId,
+        appId,
+        name: allowedRule,
+        kind: 'host',
+        provider: 'myclaw',
+        displayName: allowedRule,
+        description:
+          'Persistent permission rule approved from request_permission.',
+        category: 'admin',
+        risk: 'high',
+        selectable: true,
+        status: 'active',
+        adapterRef: 'permission/request_permission',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+    }
     await repository.saveAgentToolBinding({
       id: persistentPermissionBindingId(appId, agentId, toolId),
       appId,
@@ -153,6 +182,14 @@ function permissionUpdateAllowedToolRules(
 function persistentPermissionToolId(allowedRule: string) {
   const digest = createHash('sha256').update(allowedRule).digest('hex');
   return `tool:permission-rule:${digest}` as never;
+}
+
+function adminMcpToolFullNameFromRule(allowedRule: string): string | null {
+  const trimmed = allowedRule.trim();
+  const toolName = trimmed.includes('(')
+    ? trimmed.slice(0, trimmed.indexOf('('))
+    : trimmed;
+  return isAdminMcpToolFullName(toolName) ? toolName : null;
 }
 
 function strictRuleContent(value: unknown): string | undefined | null {

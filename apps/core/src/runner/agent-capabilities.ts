@@ -3,6 +3,10 @@ import {
   resolveAgentPersona,
   type AgentPersona,
 } from '../shared/agent-persona.js';
+import {
+  adminMcpToolNameFromFullName,
+  isMyClawMcpWildcardRule,
+} from '../shared/admin-mcp-tools.js';
 
 export interface AgentCapabilityContext {
   mcpServerPath: string;
@@ -82,15 +86,9 @@ const MYCLAW_MCP_ALLOWED_TOOLS = [
   'mcp__myclaw__request_skill_dependency_install',
   'mcp__myclaw__request_mcp_server',
   'mcp__myclaw__request_permission',
+  'mcp__myclaw__capability_status',
   'mcp__myclaw__mcp_list_tools',
   'mcp__myclaw__mcp_call_tool',
-] as const;
-
-const MAIN_AGENT_MCP_ALLOWED_TOOLS = [
-  'mcp__myclaw__settings_desired_state',
-  'mcp__myclaw__request_settings_update',
-  'mcp__myclaw__service_restart',
-  'mcp__myclaw__register_agent',
 ] as const;
 
 const DEFAULT_ALLOWED_TOOLS = [
@@ -112,7 +110,6 @@ const NON_DEVELOPER_BLOCKED_TOOL_NAMES = new Set([
   'NotebookEdit',
   'EnterWorktree',
   'ExitWorktree',
-  ...MAIN_AGENT_MCP_ALLOWED_TOOLS,
 ]);
 
 function sdkToolName(toolRule: string): string {
@@ -124,6 +121,7 @@ function configuredToolAllowedForPersona(
   toolRule: string,
   persona: AgentPersona,
 ): boolean {
+  if (isMyClawMcpWildcardRule(toolRule)) return false;
   if (persona === 'developer') return true;
   return !NON_DEVELOPER_BLOCKED_TOOL_NAMES.has(sdkToolName(toolRule));
 }
@@ -132,14 +130,12 @@ const sdkToolsProvider: AgentCapabilityProvider = {
   id: 'sdk-tools',
   provide: (ctx) => {
     const persona = resolveAgentPersona(ctx.persona);
-    const mainAgentTools =
-      ctx.isMain && persona === 'developer' ? MAIN_AGENT_MCP_ALLOWED_TOOLS : [];
     const personaTools =
       persona === 'developer'
         ? [...DEVELOPER_NATIVE_ALLOWED_TOOLS, ...DEFAULT_ALLOWED_TOOLS]
         : DEFAULT_ALLOWED_TOOLS;
     return {
-      allowedTools: [...personaTools, ...mainAgentTools],
+      allowedTools: personaTools,
     };
   },
 };
@@ -165,7 +161,9 @@ const myclawMcpProvider: AgentCapabilityProvider = {
       MYCLAW_MEMORY_USER_ID: ctx.memoryUserId || '',
       MYCLAW_MEMORY_DEFAULT_SCOPE: ctx.memoryDefaultScope || 'group',
       MYCLAW_BROWSER_PROFILE_NAME: ctx.browserProfileName || '',
-      MYCLAW_IS_MAIN: ctx.isMain ? '1' : '0',
+      MYCLAW_ADMIN_MCP_TOOLS_JSON: JSON.stringify(
+        selectedAdminMcpToolNames(ctx.configuredAllowedTools ?? []),
+      ),
       ...(ctx.ipcDir ? { MYCLAW_IPC_DIR: ctx.ipcDir } : {}),
       ...(ctx.ipcAuthToken ? { MYCLAW_IPC_AUTH_TOKEN: ctx.ipcAuthToken } : {}),
       ...(ctx.browserIpcAuthToken
@@ -190,6 +188,17 @@ const myclawMcpProvider: AgentCapabilityProvider = {
     };
   },
 };
+
+function selectedAdminMcpToolNames(
+  configuredTools: readonly string[],
+): string[] {
+  const names = new Set<string>();
+  for (const configuredTool of configuredTools) {
+    const name = adminMcpToolNameFromFullName(configuredTool.trim());
+    if (name) names.add(name);
+  }
+  return [...names].sort();
+}
 
 const configuredMcpProvider: AgentCapabilityProvider = {
   id: 'configured-mcp',

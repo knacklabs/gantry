@@ -6,8 +6,10 @@ import type {
 import { resolveRequestedJobModel } from './job-model-selection.js';
 import { requireJobExtraToolApproval } from './job-extra-tool-approval.js';
 import {
+  agentIdForJobGroupScope,
   assertJobExtraToolsAllowedForTarget,
   normalizeJobExtraTools,
+  resolveAgentToolBindings,
 } from './job-tool-policy.js';
 
 export async function createManagedJob(
@@ -52,9 +54,14 @@ export async function createManagedJob(
     threadId: typeof input.threadId === 'string' ? input.threadId : null,
   };
   const allowedTools = normalizeJobExtraTools(input.allowedTools);
+  const inheritedTools = await resolveAgentToolBindings({
+    repository: deps.toolRepository,
+    appId: input.appId,
+    agentId: agentIdForJobGroupScope(session.workspaceKey),
+  });
   assertJobExtraToolsAllowedForTarget({
     rules: allowedTools,
-    isMain: false,
+    inheritedTools,
   });
   if (input.dryRun === true) {
     return { jobId, created: false, modelAlias, runtimeContext };
@@ -67,7 +74,6 @@ export async function createManagedJob(
     groupScope: session.workspaceKey,
     allowedTools,
     existingJobExtraTools: [],
-    isMain: false,
     operation: 'create',
   });
   const result = await deps.ops.upsertJob({

@@ -26,6 +26,10 @@ import {
   serviceRestartHandler,
   settingsDesiredStateHandler,
 } from './ipc-runtime-admin-handlers.js';
+import {
+  adminCapabilityRequiredMessage,
+  sourceAgentHasAdminToolCapability,
+} from './ipc-admin-authorization.js';
 
 const refreshGroupsHandler: TaskHandler = async (context) => {
   const { data, sourceGroup, isMain, deps, conversationBindings } = context;
@@ -36,7 +40,7 @@ const refreshGroupsHandler: TaskHandler = async (context) => {
   );
   if (!isMain) {
     logger.warn({ sourceGroup }, 'Unauthorized refresh_groups attempt blocked');
-    reject('Only the main agent can refresh groups.', 'forbidden');
+    reject('Only the setup/routing agent can refresh groups.', 'forbidden');
     return;
   }
 
@@ -61,15 +65,18 @@ const refreshGroupsHandler: TaskHandler = async (context) => {
 };
 
 const registerAgentHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup, isMain, deps, conversationBindings } = context;
+  const { data, sourceGroup, deps, conversationBindings } = context;
   const { accept, reject } = createTaskResponder(
     sourceGroup,
     data.taskId,
     data.authThreadId,
   );
-  if (!isMain) {
+  if (!(await sourceAgentHasAdminToolCapability(context, 'register_agent'))) {
     logger.warn({ sourceGroup }, 'Unauthorized register_agent attempt blocked');
-    reject('Only the main agent can register new agents.', 'forbidden');
+    reject(
+      adminCapabilityRequiredMessage('register_agent'),
+      'missing_capability',
+    );
     return;
   }
   if (data.jid && data.name && data.folder && data.trigger) {

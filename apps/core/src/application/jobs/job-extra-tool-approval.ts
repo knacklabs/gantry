@@ -18,7 +18,6 @@ export async function requireJobExtraToolApproval(input: {
   groupScope: string;
   allowedTools: string[];
   existingJobExtraTools: string[];
-  isMain: boolean;
   operation: JobExtraToolApprovalRequest['operation'];
 }): Promise<void> {
   if (input.allowedTools.length === 0) return;

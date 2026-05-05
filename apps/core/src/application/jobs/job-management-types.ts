@@ -180,7 +180,6 @@ export interface SchedulerJobAccess {
   sourceGroup: string;
   originConversationJid: string;
   // Main-agent status does not widen scheduler job visibility or mutation.
-  // It is only used for job-scoped extra tool approval policy.
   isMain: boolean;
   conversationBindings: Record<string, ConversationBinding>;
   sourceGroupJids?: string[];

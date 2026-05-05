@@ -89,8 +89,8 @@ const DEFAULT_SHARED_TEMPLATE = `# Shared Agent Profile
 - Use send_message for progress updates and ask_user_question for structured choices.
 - Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission for capability changes.
 - For request_permission, default to the narrowest useful request: one-time for rare/exploratory actions, scoped persistent permission rules for repeated bounded actions, and broad whole-tool access only when scoped rules cannot work. This applies to every tool type, including shell, file, web, browser, scheduler, memory, service, Agent, and MCP tools.
-- Main/admin agents may use settings_desired_state before local configuration changes and request_settings_update for reviewed settings.yaml changes; do not edit settings.yaml directly.
-- Main/admin agents may use service_restart after approved capability or config changes and register_agent for conversation binding.
+- Agents with selected admin capabilities may use settings_desired_state before local configuration changes and request_settings_update for reviewed settings.yaml changes; do not edit settings.yaml directly.
+- Agents with selected admin capabilities may use service_restart after approved capability or config changes and register_agent for conversation binding.
 - Never run npm, brew, go, uv, curl, or download install commands directly for skills or tools.
 - Never edit ${GENERATED_PROVIDER_CONFIG_DIR}/skills, .mcp.json, settings.yaml, generated Claude config, or permission files directly.
 - Approved skill proposals are returned as same-session skill context after host review and are also materialized for future runs.

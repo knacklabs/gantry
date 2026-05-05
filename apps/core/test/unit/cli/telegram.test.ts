@@ -631,7 +631,8 @@ describe('cli telegram helpers', () => {
     );
     expect(text).toHaveBeenCalledWith(
       expect.objectContaining({
-        message: 'Telegram approver user IDs for permissions (required)',
+        message:
+          'Telegram admin/approver user IDs for permissions; seeds main_agent DM admin and conversation approvers (required)',
       }),
     );
   });
@@ -716,7 +717,8 @@ describe('cli telegram helpers', () => {
     expect(text).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        message: 'Telegram approver user IDs for permissions (required)',
+        message:
+          'Telegram admin/approver user IDs for permissions; seeds main_agent DM admin and conversation approvers (required)',
         defaultValue: '',
       }),
     );
@@ -746,7 +748,7 @@ describe('cli telegram helpers', () => {
       'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission for capability changes.',
     );
     expect(claude).toContain(
-      'Main/admin agents may use service_restart after approved changes and register_agent for conversation binding.',
+      'Agents with selected admin capabilities may use service_restart after approved changes and register_agent for conversation binding.',
     );
     expect(soul).toContain('# Soul - Who You Are');
     expect(soul).toContain('- **Name:** Kai Telegram');

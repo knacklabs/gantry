@@ -241,7 +241,17 @@ describe('setup group step', () => {
     const conversation = Object.values(settings.conversations).find(
       (entry) => entry.providerConnection === 'telegram_default',
     );
+    expect(Object.keys(settings.agents)).toEqual(['main_agent']);
+    expect(Object.values(settings.bindings)).toHaveLength(1);
+    expect(settings.agents.main_agent?.dmAccess).toEqual([
+      {
+        provider: 'telegram',
+        userIds: ['123', '456'],
+        adminUserId: '123',
+      },
+    ]);
     expect(conversation?.controlApprovers).toEqual(['123', '456']);
+    expect(conversation?.senderPolicy).toEqual({ allow: '*', mode: 'trigger' });
   });
 });
 

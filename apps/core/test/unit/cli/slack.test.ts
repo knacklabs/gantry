@@ -474,7 +474,7 @@ describe('cli slack helpers', () => {
       'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission for capability changes.',
     );
     expect(claude).toContain(
-      'Main/admin agents may use service_restart after approved changes and register_agent for conversation binding.',
+      'Agents with selected admin capabilities may use service_restart after approved changes and register_agent for conversation binding.',
     );
     expect(soul).toContain('# Soul - Who You Are');
     expect(soul).toContain('- **Name:** Kai Slack');

@@ -109,7 +109,8 @@ async function promptTelegramPermissionApproverIds(
   defaultValue: string,
 ): Promise<string | null> {
   const result = await p.text({
-    message: 'Telegram approver user IDs for permissions (required)',
+    message:
+      'Telegram admin/approver user IDs for permissions; seeds main_agent DM admin and conversation approvers (required)',
     placeholder: '12345,67890',
     defaultValue,
     validate: (value) => {

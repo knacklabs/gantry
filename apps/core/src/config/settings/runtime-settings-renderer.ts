@@ -306,16 +306,11 @@ function renderConversationsYaml(
       `    type: ${quoteYamlString(conversation.kind === 'group' ? 'channel' : conversation.kind)}`,
       `    display_name: ${quoteYamlString(conversation.displayName)}`,
     );
-    if (
-      conversation.senderPolicy.allow !== '*' ||
-      conversation.senderPolicy.mode !== 'trigger'
-    ) {
-      lines.push(
-        '    sender_policy:',
-        `      allow: ${conversation.senderPolicy.allow === '*' ? '"*"' : JSON.stringify(conversation.senderPolicy.allow)}`,
-        `      mode: ${conversation.senderPolicy.mode}`,
-      );
-    }
+    lines.push(
+      '    sender_policy:',
+      `      allow: ${conversation.senderPolicy.allow === '*' ? '"*"' : JSON.stringify(conversation.senderPolicy.allow)}`,
+      `      mode: ${conversation.senderPolicy.mode}`,
+    );
     if (conversation.controlApprovers.length > 0) {
       lines.push(
         `    approvers: ${JSON.stringify(conversation.controlApprovers)}`,

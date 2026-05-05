@@ -6,7 +6,6 @@ export async function resolveExecutionAllowedTools(input: {
   job: Job;
   appId?: string;
   agentId?: string;
-  isMain: boolean;
   toolRepository?: ToolCatalogRepository;
 }): Promise<string[]> {
   const policy = await resolveJobToolPolicy(input);

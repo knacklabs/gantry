@@ -221,13 +221,18 @@ generated Claude config directly. They use MyClaw request tools instead:
 - `request_skill_dependency_install`
 - `request_mcp_server`
 - `request_permission`
+- `capability_status`
 - `service_restart`
 - `register_agent`
 
 Capability changes are request, review, approval or cancellation, durable audit,
 new config version, and next-run activation. Tool and channel capability
 permission prompts use `request_permission` and present three decisions: `Allow
-once`, `Always allow <granular rule>`, or `Cancel`. Skill source is stored as
+once`, `Always allow <granular rule>`, or `Cancel`. Privileged admin tools such
+as `service_restart`, `register_agent`, `settings_desired_state`, and
+`request_settings_update` require exact selected tool capabilities; unselected
+agents see requestable tool IDs and `request_permission` arguments through
+`capability_status`. Skill source is stored as
 readable skill folders with `SKILL.md` plus supporting files; Postgres stores
 metadata, source, hash, provider refs, binding, and audit records. ClawHub is
 the default provider-backed skill source, but provider verification never

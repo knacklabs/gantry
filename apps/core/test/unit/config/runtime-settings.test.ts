@@ -454,6 +454,37 @@ agents:
     expect(Object.keys(settings.bindings)).toHaveLength(2);
   });
 
+  it('seeds onboarding approvers into default agent DM admin and conversation policy', () => {
+    const settings = createDefaultRuntimeSettings();
+
+    ensureConfiguredConversationBinding(settings, {
+      agentId: 'main_agent',
+      agentName: 'Main Agent',
+      agentFolder: 'main_agent',
+      jid: 'sl:C123',
+      displayName: 'Engineering',
+      trigger: '@Main Agent',
+      requiresTrigger: true,
+      isMain: true,
+      approverIds: ['UADMIN', 'UHELPER'],
+    });
+
+    expect(settings.agents.main_agent?.dmAccess).toEqual([
+      {
+        provider: 'slack',
+        userIds: ['UADMIN', 'UHELPER'],
+        adminUserId: 'UADMIN',
+      },
+    ]);
+    const conversation = Object.values(settings.conversations)[0];
+    expect(conversation?.controlApprovers).toEqual(['UADMIN', 'UHELPER']);
+    expect(conversation?.senderPolicy).toEqual({ allow: '*', mode: 'trigger' });
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('    dm_access:');
+    expect(yaml).toContain('    sender_policy:');
+    expect(yaml).toContain('      mode: trigger');
+  });
+
   it('maps compact DM conversation approvers to agent DM admins', () => {
     const parsed = parseRuntimeSettings(`providers:
   telegram:

@@ -19,6 +19,10 @@ import {
   restartServiceForRuntimeHome,
   toTrimmedString,
 } from './ipc-shared.js';
+import {
+  adminCapabilityRequiredMessage,
+  sourceAgentHasAdminToolCapability,
+} from './ipc-admin-authorization.js';
 
 function validateSameChannelApprovalTarget(input: {
   data: Parameters<TaskHandler>[0]['data'];
@@ -54,19 +58,22 @@ function validateSameChannelApprovalTarget(input: {
 }
 
 export const serviceRestartHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup, isMain } = context;
+  const { data, sourceGroup } = context;
   const taskId = toTrimmedString(data.taskId, { maxLen: 128 });
   const { accept, reject } = createTaskResponder(
     sourceGroup,
     taskId,
     data.authThreadId,
   );
-  if (!isMain) {
+  if (!(await sourceAgentHasAdminToolCapability(context, 'service_restart'))) {
     logger.warn(
       { sourceGroup },
       'Unauthorized service_restart attempt blocked',
     );
-    reject('Only the main agent can restart the service.', 'forbidden');
+    reject(
+      adminCapabilityRequiredMessage('service_restart'),
+      'missing_capability',
+    );
     return;
   }
 
@@ -112,16 +119,21 @@ export const serviceRestartHandler: TaskHandler = async (context) => {
 };
 
 export const settingsDesiredStateHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup, isMain } = context;
+  const { data, sourceGroup } = context;
   const { acceptData, reject } = createTaskResponder(
     sourceGroup,
     data.taskId,
     data.authThreadId,
   );
-  if (!isMain) {
+  if (
+    !(await sourceAgentHasAdminToolCapability(
+      context,
+      'settings_desired_state',
+    ))
+  ) {
     reject(
-      'Only the main agent can read the full local settings desired state.',
-      'forbidden',
+      adminCapabilityRequiredMessage('settings_desired_state'),
+      'missing_capability',
     );
     return;
   }
@@ -139,16 +151,21 @@ export const settingsDesiredStateHandler: TaskHandler = async (context) => {
 };
 
 export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
-  const { data, deps, sourceGroup, sourceGroupJids, isMain } = context;
+  const { data, deps, sourceGroup, sourceGroupJids } = context;
   const { accept, reject } = createTaskResponder(
     sourceGroup,
     data.taskId,
     data.authThreadId,
   );
-  if (!isMain) {
+  if (
+    !(await sourceAgentHasAdminToolCapability(
+      context,
+      'request_settings_update',
+    ))
+  ) {
     reject(
-      'Only the main agent can request global settings.yaml updates.',
-      'forbidden',
+      adminCapabilityRequiredMessage('request_settings_update'),
+      'missing_capability',
     );
     return;
   }

@@ -539,7 +539,7 @@ export async function runSlackConnectCommand(
   const approverInput = normalizedChatJid
     ? await promptForValue({
         message:
-          'Slack conversation approver user IDs (comma-separated, must be members of this conversation)',
+          'Slack admin/approver user IDs (comma-separated; seeds main_agent DM admin and conversation approvers; must be members of this conversation)',
         defaultValue: '',
       })
     : '';

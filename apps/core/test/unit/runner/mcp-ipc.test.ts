@@ -58,7 +58,7 @@ async function loadIpcModule(tempRoot: string, responseVerifyKey: string) {
   vi.stubEnv('MYCLAW_IPC_RESPONSE_VERIFY_KEY', responseVerifyKey);
   vi.stubEnv('MYCLAW_CHAT_JID', 'tg:team');
   vi.stubEnv('MYCLAW_GROUP_FOLDER', 'team');
-  vi.stubEnv('MYCLAW_IS_MAIN', '0');
+  vi.stubEnv('MYCLAW_ADMIN_MCP_TOOLS_JSON', '[]');
   return import('@core/runner/mcp/ipc.js');
 }
 

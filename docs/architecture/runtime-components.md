@@ -143,6 +143,9 @@ MyClaw MCP tools are grouped by capability:
 - capability requests: skill install/proposal/dependency install, MCP server,
   and the unified `request_permission` approval flow for scoped SDK, host,
   browser, memory, service, provider, and MCP actions
+- capability visibility: `capability_status` and `mcp_list_tools` show
+  available tools plus exact requestable admin tool IDs and `request_permission`
+  arguments
 - scheduler: create, inspect, mutate, pause, resume, list, and wait for jobs, runs, events, and dead letters
 - memory: search, save, and patch memory or procedures
 - browser: list profiles, launch, close, and inspect browser status

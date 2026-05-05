@@ -40,10 +40,11 @@ MyClaw must present one runtime truth across runtime code, CLI, diagnostics, set
 
 - CLI mutation commands update `settings.yaml`.
 - Agent-requested local configuration changes use reviewed MyClaw admin tools.
-  Only the main/admin agent can use `settings_desired_state` to inspect and
-  `request_settings_update` to ask the host to validate and write a replacement
-  file after approval. Settings updates carry the revision returned by
-  `settings_desired_state`; stale revisions are rejected, and writes are atomic.
+  Only agents with selected admin tool capabilities can use
+  `settings_desired_state` to inspect and `request_settings_update` to ask the
+  host to validate and write a replacement file after approval. Settings
+  updates carry the revision returned by `settings_desired_state`; stale
+  revisions are rejected, and writes are atomic.
 - Runtime watches `settings.yaml`; valid safe changes reconcile live, while
   storage, credential broker, and channel topology changes are reported as
   restart-required.

@@ -93,6 +93,10 @@ function createMcpFixture(): {
     path.join(sharedDir, 'model-catalog.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/admin-mcp-tools.ts'),
+    path.join(sharedDir, 'admin-mcp-tools.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/runner/memory-timeouts.ts'),
     path.join(runnerDir, 'memory-timeouts.ts'),
   );
@@ -308,7 +312,7 @@ async function runMcpFixture(
         TEST_IPC_RESPONSE_SIGNING_KEY: fixture.responseSigningKey,
         MYCLAW_CHAT_JID: 'tg:team',
         MYCLAW_GROUP_FOLDER: 'team',
-        MYCLAW_IS_MAIN: '0',
+        MYCLAW_ADMIN_MCP_TOOLS_JSON: '[]',
         ...envOverrides,
         TEST_MCP_TOOL_NAME: toolName,
         TEST_MCP_TOOL_ARGS: JSON.stringify(args),
@@ -392,6 +396,76 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
       '(answered by runner-mcp-test-admin)',
     );
     expect(record.responseFiles).toHaveLength(0);
+  });
+
+  it('shows unavailable admin tools with exact request_permission guidance', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'capability_status', {});
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.content[0].text).toContain(
+      'requestable: mcp__myclaw__service_restart',
+    );
+    expect(record.result.content[0].text).toContain(
+      'tool_id: tool:mcp__myclaw__service_restart',
+    );
+    expect(record.result.content[0].text).toContain(
+      'request_permission: permissionKind=tool toolName=mcp__myclaw__service_restart temporaryOnly=false',
+    );
+  });
+
+  it('registers selected admin tools and reports remaining requestable tools', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'service_restart',
+      {},
+      { MYCLAW_ADMIN_MCP_TOOLS_JSON: '["service_restart"]' },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.content[0].text).toContain(
+      'Scheduler task confirmed.',
+    );
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task.type).toBe('service_restart');
+
+    const statusFixture = createMcpFixture();
+    const statusResult = await runMcpFixture(
+      statusFixture,
+      'capability_status',
+      {},
+      { MYCLAW_ADMIN_MCP_TOOLS_JSON: '["service_restart"]' },
+    );
+    expect(statusResult.exitCode, statusResult.stderr).toBe(0);
+    const statusRecord = JSON.parse(
+      fs.readFileSync(statusFixture.resultPath, 'utf-8'),
+    );
+    expect(statusRecord.result.content[0].text).toContain(
+      'available: mcp__myclaw__service_restart',
+    );
+    expect(statusRecord.result.content[0].text).toContain(
+      'requestable: mcp__myclaw__register_agent',
+    );
+  });
+
+  it('keeps unselected admin tools out of the MCP surface', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'service_restart', {});
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain('tool not registered: service_restart');
   });
 
   it('defaults scheduler upsert delivery to the trusted runtime thread', async () => {

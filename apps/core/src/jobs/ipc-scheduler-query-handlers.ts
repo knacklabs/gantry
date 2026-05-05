@@ -45,7 +45,6 @@ const schedulerGetJobHandler: TaskHandler = async (context) => {
               job: result.job,
               ops: context.deps.opsRepository,
               toolRepository: context.deps.getToolRepository?.(),
-              isMain: context.isMain,
             }),
           },
         }
@@ -84,7 +83,6 @@ const schedulerListJobsHandler: TaskHandler = async (context) => {
     const metadata = await buildJobListVisibilityMetadata({
       jobs: result.jobs,
       toolRepository: context.deps.getToolRepository?.(),
-      isMain: context.isMain,
     });
     acceptData(`Listed ${result.jobs.length} scheduler job(s).`, {
       jobs: result.jobs.map(({ prompt: _prompt, ...job }) => ({

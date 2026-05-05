@@ -385,7 +385,6 @@ export async function runJob(
           agentId:
             turnContext?.agentId ??
             agentIdForJobGroupScope(execution.group.folder),
-          isMain,
           toolRepository: deps.getToolRepository?.(),
         });
         agentRunId = turnContext?.agentSessionId

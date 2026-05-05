@@ -42,7 +42,6 @@ export async function buildJobVisibilityMetadata(input: {
   job: Job;
   ops: OpsRepository;
   toolRepository?: ToolCatalogRepository;
-  isMain?: boolean;
   recentRunLimit?: number;
 }): Promise<JobVisibilityMetadata> {
   const appId = resolveJobRuntimeAppId(input.job);
@@ -51,7 +50,6 @@ export async function buildJobVisibilityMetadata(input: {
     job: input.job,
     appId,
     agentId,
-    isMain: input.isMain ?? input.job.group_scope === 'main_agent',
     toolRepository: input.toolRepository,
   });
   const runs =
@@ -90,7 +88,6 @@ export async function buildJobVisibilityMetadata(input: {
 export async function buildJobListVisibilityMetadata(input: {
   jobs: Job[];
   toolRepository?: ToolCatalogRepository;
-  isMain?: boolean;
 }): Promise<Map<string, JobVisibilityMetadata>> {
   const inheritedToolsByTarget = new Map<string, Promise<string[]>>();
   const loadInheritedTools = (appId: string, agentId: string) => {

@@ -358,7 +358,7 @@ describe('Claude Agent SDK boundary integration', () => {
         MYCLAW_MEMORY_USER_ID: '',
         MYCLAW_MEMORY_DEFAULT_SCOPE: 'group',
         MYCLAW_BROWSER_PROFILE_NAME: '',
-        MYCLAW_IS_MAIN: '0',
+        MYCLAW_ADMIN_MCP_TOOLS_JSON: '[]',
         MYCLAW_IPC_DIR: path.join(env.root, 'ipc', 'group'),
         MYCLAW_IPC_AUTH_TOKEN: 'runner-ipc-token',
         MYCLAW_IPC_RESPONSE_VERIFY_KEY: 'runner-response-verify-key',

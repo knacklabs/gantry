@@ -327,7 +327,7 @@ export async function runTeamsConnectCommand(
     channelChoice.type === 'selected'
       ? await promptForValue({
           message:
-            'Teams conversation approver user IDs (comma-separated, must be members of this conversation)',
+            'Teams admin/approver user IDs (comma-separated; seeds main_agent DM admin and conversation approvers; must be members of this conversation)',
           defaultValue: '',
         })
       : '';

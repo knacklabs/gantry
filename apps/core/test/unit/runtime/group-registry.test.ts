@@ -144,7 +144,7 @@ describe('registerGroup', () => {
     expect(mockFs.writeFileSync).toHaveBeenCalledWith(
       '/resolved/test-group/CLAUDE.md',
       expect.stringContaining(
-        'Main/admin agents may use service_restart after approved changes and register_agent for conversation binding.',
+        'Agents with selected admin capabilities may use service_restart after approved changes and register_agent for conversation binding.',
       ),
     );
   });

@@ -1,7 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { nowIso, nowMs } from '../../../infrastructure/time/datetime.js';
-import { chatJid, isMain, TASKS_DIR, threadId } from '../context.js';
+import {
+  capabilityStatusText,
+  chatJid,
+  isAdminMcpToolEnabled,
+  TASKS_DIR,
+  threadId,
+} from '../context.js';
 import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
 import {
   MCP_PROXY_WAIT_MS,
@@ -21,7 +27,16 @@ export function registerServiceTools(server: McpServer): void {
     'request_skill_proposal',
     'Submit an agent-created or modified skill bundle for same-conversation admin review. This creates a proposal only; it never approves, binds, or activates the skill.',
   );
-  registerSettingsTools(server);
+  registerSettingsTools(server, { isAdminToolEnabled: isAdminMcpToolEnabled });
+
+  server.tool(
+    'capability_status',
+    'Show selected MyClaw admin tool capabilities for this agent and exact request_permission arguments for requestable missing tools.',
+    {},
+    async () => ({
+      content: [{ type: 'text' as const, text: capabilityStatusText() }],
+    }),
+  );
 
   server.tool(
     'request_skill_install',
@@ -337,7 +352,10 @@ export function registerServiceTools(server: McpServer): void {
         content: [
           {
             type: 'text' as const,
-            text: formatMcpListToolsResponse(response.data),
+            text: [
+              formatMcpListToolsResponse(response.data),
+              capabilityStatusText(),
+            ].join('\n\n'),
           },
         ],
       };
@@ -395,154 +413,134 @@ export function registerServiceTools(server: McpServer): void {
     },
   );
 
-  server.tool(
-    'service_restart',
-    'Restart the MyClaw service with config validation. Main agent only. If validation fails, returns actionable errors so you can correct settings and retry.',
-    {},
-    async () => {
-      if (!isMain) {
+  if (isAdminMcpToolEnabled('service_restart')) {
+    server.tool(
+      'service_restart',
+      'Restart the MyClaw service with config validation. Requires selected agent capability tool:mcp__myclaw__service_restart.',
+      {},
+      async () => {
+        const taskId = `service-restart-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+        writeIpcFile(TASKS_DIR, {
+          type: 'service_restart',
+          taskId,
+          timestamp: nowIso(),
+        });
+
+        const response = await waitForTaskResponse(taskId, 20_000);
+        if (!response) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: 'Service restart requested, but host response timed out.',
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        if (!response.ok) {
+          const lines = [
+            response.error || 'Service restart failed.',
+            ...(response.details && response.details.length > 0
+              ? response.details.map((item) => `- ${item}`)
+              : []),
+          ];
+          return {
+            content: [{ type: 'text' as const, text: lines.join('\n') }],
+            isError: true,
+          };
+        }
+
         return {
           content: [
             {
               type: 'text' as const,
-              text: 'Only the main agent can restart the service.',
+              text: response.message || 'Service restart completed.',
             },
           ],
-          isError: true,
         };
-      }
+      },
+    );
+  }
 
-      const taskId = `service-restart-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
-      writeIpcFile(TASKS_DIR, {
-        type: 'service_restart',
-        taskId,
-        timestamp: nowIso(),
-      });
-
-      const response = await waitForTaskResponse(taskId, 20_000);
-      if (!response) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: 'Service restart requested, but host response timed out.',
-            },
-          ],
-          isError: true,
-        };
-      }
-
-      if (!response.ok) {
-        const lines = [
-          response.error || 'Service restart failed.',
-          ...(response.details && response.details.length > 0
-            ? response.details.map((item) => `- ${item}`)
-            : []),
-        ];
-        return {
-          content: [{ type: 'text' as const, text: lines.join('\n') }],
-          isError: true,
-        };
-      }
-
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: response.message || 'Service restart completed.',
-          },
-        ],
-      };
-    },
-  );
-
-  server.tool(
-    'register_agent',
-    `Register a new chat/channel agent so MyClaw can respond to messages there. Main agent only.
+  if (isAdminMcpToolEnabled('register_agent')) {
+    server.tool(
+      'register_agent',
+      `Register a new chat/channel agent so MyClaw can respond to messages there. Requires selected agent capability tool:mcp__myclaw__register_agent.
 
 Use available_groups.json to find the JID for a conversation. The folder name must be channel-prefixed: "{channel}_{conversation-name}" (e.g., "telegram_dev-team", "slack_eng", "teams_engineering"). Use lowercase with hyphens for the conversation name part.`,
-    {
-      jid: z
-        .string()
-        .describe(
-          'The chat JID (e.g., "tg:-1001234567890", "sl:C0123456789", "teams:19:abc@thread.v2")',
-        ),
-      name: z.string().describe('Display name for the agent'),
-      folder: z
-        .string()
-        .describe('Channel-prefixed folder name (e.g., "teams_engineering")'),
-      trigger: z.string().describe('Trigger word (e.g., "@Main Agent")'),
-      requiresTrigger: z
-        .boolean()
-        .optional()
-        .describe(
-          'Whether messages must start with the trigger word. Default: false (respond to all messages). Set to true for busy groups with many participants where you only want the agent to respond when explicitly mentioned.',
-        ),
-    },
-    async (args) => {
-      if (!isMain) {
+      {
+        jid: z
+          .string()
+          .describe(
+            'The chat JID (e.g., "tg:-1001234567890", "sl:C0123456789", "teams:19:abc@thread.v2")',
+          ),
+        name: z.string().describe('Display name for the agent'),
+        folder: z
+          .string()
+          .describe('Channel-prefixed folder name (e.g., "teams_engineering")'),
+        trigger: z.string().describe('Trigger word (e.g., "@Main Agent")'),
+        requiresTrigger: z
+          .boolean()
+          .optional()
+          .describe(
+            'Whether messages must start with the trigger word. Default: false (respond to all messages). Set to true for busy groups with many participants where you only want the agent to respond when explicitly mentioned.',
+          ),
+      },
+      async (args) => {
+        const taskId = `register-agent-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+        const data = {
+          type: 'register_agent',
+          taskId,
+          jid: args.jid,
+          name: args.name,
+          folder: args.folder,
+          trigger: args.trigger,
+          requiresTrigger: args.requiresTrigger ?? false,
+          timestamp: nowIso(),
+        };
+
+        writeIpcFile(TASKS_DIR, data);
+
+        const response = await waitForTaskResponse(taskId, 300_000);
+        if (!response) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: 'Agent registration requested, but host response timed out.',
+              },
+            ],
+            isError: true,
+          };
+        }
+        if (!response.ok) {
+          const lines = [
+            response.error || 'Agent registration failed.',
+            ...(response.details && response.details.length > 0
+              ? response.details.map((item) => `- ${item}`)
+              : []),
+          ];
+          return {
+            content: [{ type: 'text' as const, text: lines.join('\n') }],
+            isError: true,
+          };
+        }
+
         return {
           content: [
             {
               type: 'text' as const,
-              text: 'Only the main agent can register new agents.',
+              text:
+                response.message ||
+                `Agent "${args.name}" registered. It will start receiving messages immediately.`,
             },
           ],
-          isError: true,
         };
-      }
-
-      const taskId = `register-agent-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
-      const data = {
-        type: 'register_agent',
-        taskId,
-        jid: args.jid,
-        name: args.name,
-        folder: args.folder,
-        trigger: args.trigger,
-        requiresTrigger: args.requiresTrigger ?? false,
-        timestamp: nowIso(),
-      };
-
-      writeIpcFile(TASKS_DIR, data);
-
-      const response = await waitForTaskResponse(taskId, 300_000);
-      if (!response) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: 'Agent registration requested, but host response timed out.',
-            },
-          ],
-          isError: true,
-        };
-      }
-      if (!response.ok) {
-        const lines = [
-          response.error || 'Agent registration failed.',
-          ...(response.details && response.details.length > 0
-            ? response.details.map((item) => `- ${item}`)
-            : []),
-        ];
-        return {
-          content: [{ type: 'text' as const, text: lines.join('\n') }],
-          isError: true,
-        };
-      }
-
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text:
-              response.message ||
-              `Agent "${args.name}" registered. It will start receiving messages immediately.`,
-          },
-        ],
-      };
-    },
-  );
+      },
+    );
+  }
 }
 
 type CapabilityReviewToolName =

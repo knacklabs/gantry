@@ -52,6 +52,22 @@ async function waitForResponse(runtimeHome: string, taskId: string) {
   throw new Error(`Timed out waiting for task response: ${taskId}`);
 }
 
+function depsWithAdminTools(
+  toolNames: string[],
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    ...extra,
+    getToolRepository: () => ({
+      listAgentToolBindings: async () =>
+        toolNames.map((toolName) => ({
+          status: 'active',
+          toolId: `tool:${toolName}`,
+        })),
+    }),
+  };
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.doUnmock('@core/adapters/storage/postgres/runtime-store.js');
@@ -72,7 +88,9 @@ describe('runtime admin IPC handlers', () => {
       data: { taskId: 'settings-read' },
       sourceGroup: 'main_agent',
       isMain: true,
-      deps: {} as never,
+      deps: depsWithAdminTools([
+        'mcp__myclaw__settings_desired_state',
+      ]) as never,
       conversationBindings: {},
       sourceGroupJids: ['tg:100'],
     });
@@ -86,7 +104,7 @@ describe('runtime admin IPC handlers', () => {
     });
   });
 
-  it('rejects full settings reads from non-main agents', async () => {
+  it('rejects full settings reads without the selected capability', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'myclaw-settings-ipc-'),
     );
@@ -96,19 +114,20 @@ describe('runtime admin IPC handlers', () => {
     await settingsDesiredStateHandler({
       data: { taskId: 'settings-read' },
       sourceGroup: 'main_agent',
-      isMain: false,
-      deps: {} as never,
+      isMain: true,
+      deps: depsWithAdminTools([]) as never,
       conversationBindings: {},
       sourceGroupJids: ['tg:100'],
     });
 
     expect(readResponse(runtimeHome, 'settings-read')).toMatchObject({
       ok: false,
-      code: 'forbidden',
+      code: 'missing_capability',
+      error: expect.stringContaining('request_permission'),
     });
   });
 
-  it('rejects global settings updates from non-main agents', async () => {
+  it('rejects global settings updates without the selected capability', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'myclaw-settings-ipc-'),
     );
@@ -125,15 +144,16 @@ describe('runtime admin IPC handlers', () => {
         },
       },
       sourceGroup: 'main_agent',
-      isMain: false,
-      deps: {} as never,
+      isMain: true,
+      deps: depsWithAdminTools([]) as never,
       conversationBindings: {},
       sourceGroupJids: ['tg:100'],
     });
 
     expect(readResponse(runtimeHome, 'settings-update')).toMatchObject({
       ok: false,
-      code: 'forbidden',
+      code: 'missing_capability',
+      error: expect.stringContaining('request_permission'),
     });
   });
 
@@ -156,7 +176,9 @@ describe('runtime admin IPC handlers', () => {
       },
       sourceGroup: 'main_agent',
       isMain: true,
-      deps: {} as never,
+      deps: depsWithAdminTools([
+        'mcp__myclaw__request_settings_update',
+      ]) as never,
       conversationBindings: {},
       sourceGroupJids: ['tg:100'],
     });
@@ -222,6 +244,7 @@ describe('runtime admin IPC handlers', () => {
       sourceGroup: 'main_agent',
       isMain: true,
       deps: {
+        ...depsWithAdminTools(['mcp__myclaw__request_settings_update']),
         requestPermissionApproval,
         sendMessage: vi.fn(async () => undefined),
       } as any,

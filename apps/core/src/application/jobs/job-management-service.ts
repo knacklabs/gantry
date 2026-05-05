@@ -40,8 +40,10 @@ import {
   resolveRequestedJobModel,
 } from './job-model-selection.js';
 import {
+  agentIdForJobGroupScope,
   assertJobExtraToolsAllowedForTarget,
   normalizeJobExtraTools,
+  resolveAgentToolBindings,
 } from './job-tool-policy.js';
 import { runSchedulerJobNowFromMcp } from './job-management-run-now.js';
 
@@ -130,9 +132,14 @@ export class JobManagementService {
       input.allowedTools === undefined
         ? (existingJob?.capability_policy?.allowed_tools ?? [])
         : normalizeJobExtraTools(input.allowedTools);
+    const inheritedTools = await resolveAgentToolBindings({
+      repository: this.deps.toolRepository,
+      appId: 'default',
+      agentId: agentIdForJobGroupScope(groupScope),
+    });
     assertJobExtraToolsAllowedForTarget({
       rules: allowedTools,
-      isMain: access.isMain,
+      inheritedTools,
     });
     await requireJobExtraToolApproval({
       deps: this.deps,
@@ -143,7 +150,6 @@ export class JobManagementService {
       allowedTools,
       existingJobExtraTools:
         existingJob?.capability_policy?.allowed_tools ?? [],
-      isMain: access.isMain,
       operation: existingJob ? 'update' : 'create',
     });
 
@@ -241,11 +247,16 @@ export class JobManagementService {
         ? undefined
         : normalizeJobExtraTools(patch.allowedTools);
     if (allowedTools) {
+      const targetGroupScope = patch.groupScope ?? job.group_scope;
+      const inheritedTools = await resolveAgentToolBindings({
+        repository: this.deps.toolRepository,
+        appId: resolveJobRuntimeAppId(job),
+        agentId: agentIdForJobGroupScope(targetGroupScope),
+      });
       assertJobExtraToolsAllowedForTarget({
         rules: allowedTools,
-        isMain: input.access?.isMain ?? true,
+        inheritedTools,
       });
-      const targetGroupScope = patch.groupScope ?? job.group_scope;
       await requireJobExtraToolApproval({
         deps: this.deps,
         jobId: job.id,
@@ -254,7 +265,6 @@ export class JobManagementService {
         groupScope: targetGroupScope,
         allowedTools,
         existingJobExtraTools: job.capability_policy?.allowed_tools ?? [],
-        isMain: input.access?.isMain ?? true,
         operation: 'update',
       });
     }

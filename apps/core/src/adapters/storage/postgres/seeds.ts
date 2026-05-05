@@ -2,6 +2,10 @@ import { sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import * as pgSchema from './schema/schema.js';
+import {
+  ADMIN_MCP_TOOL_FULL_NAMES,
+  adminMcpToolIdForFullName,
+} from '../../../shared/admin-mcp-tools.js';
 
 export const DEFAULT_APP_ID = 'default';
 export const DEFAULT_AGENT_ID = 'agent:personal';
@@ -272,6 +276,15 @@ const DEFAULT_TOOL_CATALOG = [
     category: 'web',
     risk: 'medium',
   },
+  ...ADMIN_MCP_TOOL_FULL_NAMES.map((name) =>
+    hostTool(
+      name,
+      adminToolDisplayName(name),
+      adminToolDescription(name),
+      'admin',
+      'high',
+    ),
+  ),
 ] as const;
 
 function sdkTool(
@@ -300,4 +313,62 @@ function sdkTool(
     category,
     risk,
   } as const;
+}
+
+function hostTool(
+  name: string,
+  displayName: string,
+  description: string,
+  category:
+    | 'files'
+    | 'search'
+    | 'execution'
+    | 'web'
+    | 'agent'
+    | 'mcp'
+    | 'channel'
+    | 'admin',
+  risk: 'low' | 'medium' | 'high',
+) {
+  return {
+    id: adminMcpToolIdForFullName(name),
+    name,
+    kind: 'host',
+    provider: 'myclaw',
+    providerToolName: undefined,
+    displayName,
+    description,
+    category,
+    risk,
+  } as const;
+}
+
+function adminToolDisplayName(name: string): string {
+  switch (name) {
+    case 'mcp__myclaw__settings_desired_state':
+      return 'Settings desired state';
+    case 'mcp__myclaw__request_settings_update':
+      return 'Request settings update';
+    case 'mcp__myclaw__service_restart':
+      return 'Service restart';
+    case 'mcp__myclaw__register_agent':
+      return 'Register agent';
+    default:
+      return name;
+  }
+}
+
+function adminToolDescription(name: string): string {
+  switch (name) {
+    case 'mcp__myclaw__settings_desired_state':
+      return 'Read local desired-state settings before a reviewed settings update.';
+    case 'mcp__myclaw__request_settings_update':
+      return 'Request a reviewed local settings.yaml desired-state update.';
+    case 'mcp__myclaw__service_restart':
+      return 'Restart the MyClaw service after validation.';
+    case 'mcp__myclaw__register_agent':
+      return 'Bind a channel conversation to an agent.';
+    default:
+      return 'Built-in MyClaw admin MCP tool.';
+  }
 }

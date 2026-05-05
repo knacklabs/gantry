@@ -6,13 +6,12 @@ import {
   normalizeToolRules,
   validateAutonomousToolRules,
 } from '../../shared/tool-rule-matcher.js';
+import {
+  ADMIN_MCP_TOOL_FULL_NAMES,
+  isMyClawMcpWildcardRule,
+} from '../../shared/admin-mcp-tools.js';
 
-const NON_MAIN_ADMIN_TOOLS = new Set([
-  'mcp__myclaw__settings_desired_state',
-  'mcp__myclaw__request_settings_update',
-  'mcp__myclaw__service_restart',
-  'mcp__myclaw__register_agent',
-]);
+const ADMIN_TOOLS = new Set<string>(ADMIN_MCP_TOOL_FULL_NAMES);
 
 export interface JobToolPolicyResolution {
   inheritedTools: string[];
@@ -34,16 +33,18 @@ export function normalizeJobExtraTools(input: unknown): string[] {
 
 export function assertJobExtraToolsAllowedForTarget(input: {
   rules: readonly string[];
-  isMain: boolean;
+  inheritedTools: readonly string[];
 }): void {
-  if (input.isMain) return;
   const forbidden = input.rules.find(
-    (rule) => NON_MAIN_ADMIN_TOOLS.has(rule) || rule === 'mcp__myclaw__*',
+    (rule) =>
+      isMyClawMcpWildcardRule(rule) ||
+      (ADMIN_TOOLS.has(rule) &&
+        !anyToolRuleMatches(input.inheritedTools, rule)),
   );
   if (forbidden) {
     throw new ApplicationError(
       'FORBIDDEN',
-      `Tool ${forbidden} is only available to main/admin jobs.`,
+      `Tool ${forbidden} requires a selected agent capability before it can be used by an autonomous job.`,
     );
   }
 }
@@ -66,7 +67,6 @@ export async function resolveJobToolPolicy(input: {
   job: Job;
   appId?: string;
   agentId?: string;
-  isMain: boolean;
   toolRepository?: ToolCatalogRepository;
 }): Promise<JobToolPolicyResolution> {
   const inheritedTools =
@@ -82,7 +82,7 @@ export async function resolveJobToolPolicy(input: {
   );
   assertJobExtraToolsAllowedForTarget({
     rules: jobExtraTools,
-    isMain: input.isMain,
+    inheritedTools,
   });
   return {
     inheritedTools,

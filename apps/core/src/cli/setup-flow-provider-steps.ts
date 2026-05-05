@@ -80,7 +80,7 @@ async function promptTelegramPermissionApproverIds(
     draft.telegramPermissionApproverIds || draft.telegramAdminSenderId;
   const input = await p.text({
     message:
-      'Telegram approver user IDs for tool permissions and prompts (/back, /resume, /cancel)',
+      'Telegram admin/approver user IDs; seeds main_agent DM admin and conversation approvers (/back, /resume, /cancel)',
     placeholder: '12345,67890',
     defaultValue,
     validate: validateTelegramPermissionApproverIdsInput,
@@ -632,7 +632,7 @@ export async function runSlackStep(draft: SetupDraft): Promise<FlowAction> {
 
     const approverInput = await p.text({
       message:
-        'Slack approver user IDs for tool permissions and prompts (/back, /resume, /cancel)',
+        'Slack admin/approver user IDs; seeds main_agent DM admin and conversation approvers (/back, /resume, /cancel)',
       placeholder: 'U0123456789,U0987654321',
       defaultValue: draft.slackPermissionApproverIds,
       validate: validateSlackPermissionApproverIdsInput,

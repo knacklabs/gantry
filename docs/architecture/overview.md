@@ -224,12 +224,14 @@ mcp_list_tools          mcp_call_tool
 request_skill_install   request_skill_proposal
 request_skill_dependency_install
 request_mcp_server      request_permission
+capability_status
 ```
 
-Main agents add four additional admin tools
+Selected-capability admin agents add four additional admin tools
 (`apps/core/src/runner/agent-capabilities.ts:89`):
 `settings_desired_state`, `request_settings_update`, `service_restart`,
 `register_agent`. Older tool-enable names were removed; agents use
+`capability_status` to inspect missing admin capabilities and
 `request_permission` for tool and provider capability review.
 
 ### Subagents
@@ -436,9 +438,9 @@ Cited at:
 - Settings tools (`settings_desired_state`, `request_settings_update`) —
   `apps/core/src/runner/mcp/tools/settings.ts:9` and
   `apps/core/src/runner/mcp/tools/settings.ts:54`.
-- Main-only tools (`service_restart`, `register_agent`) —
-  `apps/core/src/runner/mcp/tools/service.ts:465` and
-  `apps/core/src/runner/mcp/tools/service.ts:526`.
+- Selected admin-capability tools (`service_restart`, `register_agent`) —
+  `apps/core/src/runner/mcp/tools/service.ts:417` and
+  `apps/core/src/runner/mcp/tools/service.ts:468`.
 - Decision modes (`allow_once | allow_persistent_rule | cancel`) —
   `apps/core/src/domain/types.ts:181`.
 - IPC handlers — `apps/core/src/runtime/ipc.ts` and

@@ -223,6 +223,9 @@ export function ensureConfiguredConversationBinding(
       mcpServerIds: [],
     },
   };
+  seedAgentDmAdminFromApprovers(settings.agents[agentId], provider.id, [
+    ...(input.approverIds || []),
+  ]);
 
   const externalId = stripProviderPrefix(input.jid, provider.id);
   const conversationId = configuredConversationId({
@@ -285,6 +288,33 @@ export function ensureConfiguredConversationBinding(
     conversationId,
     bindingId,
   };
+}
+
+function seedAgentDmAdminFromApprovers(
+  agent: RuntimeSettings['agents'][string],
+  providerId: string,
+  approverIds: string[],
+): void {
+  const userIds = [
+    ...new Set(approverIds.map((value) => value.trim()).filter(Boolean)),
+  ];
+  if (userIds.length === 0) return;
+
+  const existing = agent.dmAccess.find(
+    (entry) => entry.provider === providerId,
+  );
+  if (existing) {
+    existing.userIds = [...new Set([...existing.userIds, ...userIds])].sort();
+    existing.adminUserId ??= userIds[0];
+    return;
+  }
+
+  agent.dmAccess.push({
+    provider: providerId,
+    userIds,
+    adminUserId: userIds[0],
+  });
+  agent.dmAccess.sort((a, b) => a.provider.localeCompare(b.provider));
 }
 
 function stripProviderPrefix(jid: string, providerId: string): string {
