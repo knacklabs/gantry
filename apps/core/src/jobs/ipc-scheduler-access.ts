@@ -18,18 +18,18 @@ export function schedulerAccessFromContext(
   if (!context.conversationBindings) {
     throw new Error('Scheduler IPC context missing conversation bindings.');
   }
-  if (!context.sourceGroupJids.includes(originConversationJid)) {
+  if (!context.sourceAgentFolderJids.includes(originConversationJid)) {
     throw new ApplicationError(
       'FORBIDDEN',
       'Scheduler job operations must originate from a conversation bound to this agent.',
     );
   }
   return {
-    sourceGroup: context.sourceGroup,
+    sourceAgentFolder: context.sourceAgentFolder,
     originConversationJid,
     isMain: context.isMain,
     conversationBindings: context.conversationBindings,
-    sourceGroupJids: context.sourceGroupJids,
+    sourceConversationJids: context.sourceAgentFolderJids,
     authThreadId: context.data.authThreadId,
   };
 }

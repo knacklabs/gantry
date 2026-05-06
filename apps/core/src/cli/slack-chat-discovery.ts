@@ -4,6 +4,7 @@ export interface SlackRecentChat {
   chatJid: string;
   chatTitle: string;
   chatType: string;
+  isArchived?: boolean;
   sourceTs: number;
 }
 
@@ -80,6 +81,7 @@ export async function listSlackRecentChats(options: {
   botToken: string;
   timeoutMs?: number;
   limit?: number;
+  includeArchived?: boolean;
 }): Promise<SlackRecentChatsResult> {
   const botToken = options.botToken.trim();
   if (!botToken) {
@@ -93,10 +95,11 @@ export async function listSlackRecentChats(options: {
 
   const timeoutMs = options.timeoutMs ?? 10_000;
   const limit = Math.max(1, Math.min(200, options.limit ?? 100));
+  const excludeArchived = options.includeArchived === true ? 'false' : 'true';
 
   try {
     const response = await fetchWithTimeout(
-      `https://slack.com/api/users.conversations?types=public_channel,private_channel,mpim,im&exclude_archived=true&limit=${limit}`,
+      `https://slack.com/api/users.conversations?types=public_channel,private_channel,mpim,im&exclude_archived=${excludeArchived}&limit=${limit}`,
       timeoutMs,
       {
         headers: {
@@ -123,6 +126,7 @@ export async function listSlackRecentChats(options: {
         is_im?: boolean;
         is_mpim?: boolean;
         is_private?: boolean;
+        is_archived?: boolean;
         latest?: { ts?: string };
         updated?: number;
         created?: number;
@@ -154,6 +158,7 @@ export async function listSlackRecentChats(options: {
         chatJid: normalized,
         chatTitle,
         chatType,
+        ...(row.is_archived === true ? { isArchived: true } : {}),
         sourceTs,
       });
     }

@@ -57,7 +57,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
       close: vi.fn(),
     })),
   }),
-  getRuntimeOpsRepository: () => ({
+  getRuntimeRepositories: () => ({
     storeChatMetadata: vi.fn(async () => undefined),
     storeMessage: vi.fn(async () => undefined),
   }),

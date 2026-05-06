@@ -1,8 +1,5 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
-import type { AgentMcpServerBinding } from '../../domain/mcp/mcp-servers.js';
-import type { AgentSkillBinding } from '../../domain/skills/skills.js';
-import type { AgentToolBinding } from '../../domain/tools/tools.js';
 import type { SettingsDesiredStateRepositories } from './desired-state-service.js';
 import type { RuntimeConfiguredAgentCapabilities } from './runtime-settings-types.js';
 

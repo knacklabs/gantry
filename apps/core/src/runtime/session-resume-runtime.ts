@@ -1,5 +1,5 @@
-import type { NewMessage, RegisteredGroup } from '../domain/types.js';
-import type { OpsRepository } from '../domain/repositories/ops-repo.js';
+import type { NewMessage, ConversationRoute } from '../domain/types.js';
+import type { RuntimeAgentSessionRepository } from '../domain/repositories/ops-repo.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
 import type {
   McpServerRepository,
@@ -15,8 +15,8 @@ import type {
 } from '../domain/ports/session-memory-collector.js';
 
 export async function archiveCurrentRuntimeSession(input: {
-  ops: OpsRepository;
-  group: RegisteredGroup;
+  ops: RuntimeAgentSessionRepository;
+  group: ConversationRoute;
   chatJid: string;
   threadId: string | null;
   cause?: 'new-session' | 'manual-compact';
@@ -24,8 +24,8 @@ export async function archiveCurrentRuntimeSession(input: {
   collectMemory?: SessionMemoryCollector;
 }): Promise<void> {
   const turnContext = await input.ops.getAgentTurnContext?.({
-    groupFolder: input.group.folder,
-    chatJid: input.chatJid,
+    agentFolder: input.group.folder,
+    conversationJid: input.chatJid,
     threadId: input.threadId,
   });
   const collectMemory = input.collectMemory;
@@ -116,8 +116,8 @@ export function buildRuntimeRunOptions(input: {
 }
 
 export async function completeSuccessfulRuntimeSessionRun(input: {
-  ops: OpsRepository;
-  group: RegisteredGroup;
+  ops: RuntimeAgentSessionRepository;
+  group: ConversationRoute;
   chatJid?: string;
   threadId?: string | null;
   agentSessionId?: string;
@@ -139,7 +139,7 @@ export async function completeSuccessfulRuntimeSessionRun(input: {
         input.providerSessionId,
         input.threadId,
         {
-          chatJid: input.chatJid,
+          conversationJid: input.chatJid,
         },
       );
     }
@@ -155,7 +155,7 @@ export async function completeSuccessfulRuntimeSessionRun(input: {
 }
 
 export async function completeFailedRuntimeSessionRun(input: {
-  ops: OpsRepository;
+  ops: RuntimeAgentSessionRepository;
   runId?: string;
   errorSummary: string;
 }): Promise<void> {

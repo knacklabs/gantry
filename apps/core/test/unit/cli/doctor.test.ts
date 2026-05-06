@@ -114,7 +114,7 @@ async function loadDoctor(options?: {
   }));
   vi.doMock('@core/cli/runtime-group-db.js', () => ({
     openRuntimeGroupDb: vi.fn(async () => ({
-      countRegisteredGroupsByJidPrefix: vi.fn(
+      countConversationRoutesByJidPrefix: vi.fn(
         async () => options?.runtimeGroupCount ?? 0,
       ),
       close: vi.fn(async () => {}),

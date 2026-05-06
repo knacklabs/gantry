@@ -1,4 +1,4 @@
-import type { OpsRepository } from '../domain/repositories/ops-repo.js';
+import type { RuntimeAgentSessionRepository } from '../domain/repositories/ops-repo.js';
 import type { NewMessage } from '../domain/types.js';
 import type { SessionMemoryCollector } from '../domain/ports/session-memory-collector.js';
 import {
@@ -36,7 +36,7 @@ export function createAdvanceCursorHandler(input: {
 }
 
 export function createArchiveCurrentSessionHandler(input: {
-  ops: () => OpsRepository;
+  ops: () => RuntimeAgentSessionRepository;
   group: ArchiveSessionInput['group'];
   chatJid: string;
   threadId: string | null;

@@ -4,6 +4,7 @@ import {
   decisionForMode,
   firstPersistentRule,
   permissionDecisionOptions,
+  permissionButtonLabel,
 } from '@core/channels/permission-interaction.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 
@@ -12,7 +13,7 @@ function requestWithSuggestions(
 ): PermissionApprovalRequest {
   return {
     requestId: 'permission_123',
-    sourceGroup: 'kai_group',
+    sourceAgentFolder: 'kai_group',
     toolName: 'Bash',
     suggestions,
   };
@@ -66,5 +67,19 @@ describe('permission interaction', () => {
     const decision = decisionForMode(request, 'allow_persistent_rule');
     expect(decision.approved).toBe(false);
     expect(decision.reason).toBe('persistent rule unavailable');
+  });
+
+  it('labels job-scoped durable approvals without saying allow once', () => {
+    const request = requestWithSuggestions([]);
+
+    expect(permissionButtonLabel('allow_job_policy', request)).toBe(
+      'Store on this job',
+    );
+    expect(decisionForMode(request, 'allow_job_policy')).toMatchObject({
+      approved: true,
+      mode: 'allow_job_policy',
+      reason: 'job-scoped policy approved',
+      decisionClassification: 'user_permanent',
+    });
   });
 });

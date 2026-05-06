@@ -140,7 +140,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', async () => {
       listDueWebhookDeliveries: vi.fn(async () => []),
       claimDueWebhookDeliveries: vi.fn(async () => []),
     }),
-    getRuntimeOpsRepository: () => ({
+    getRuntimeRepositories: () => ({
       storeChatMetadata: vi.fn(async () => undefined),
       storeMessage: vi.fn(async () => undefined),
     }),
@@ -195,7 +195,7 @@ describe('skill registry integration flow', () => {
         },
     );
     const deps = {
-      registeredGroups: () =>
+      conversationRoutes: () =>
         options?.groups ?? {
           'chat-origin': {
             name: 'Agent One Origin',
@@ -507,7 +507,7 @@ describe('skill registry integration flow', () => {
       await vi.waitFor(() => {
         expect(requestPermissionApproval).toHaveBeenCalledWith(
           expect.objectContaining({
-            sourceGroup: 'agent:one',
+            sourceAgentFolder: 'agent:one',
             targetJid: 'chat-origin',
             threadId: 'thread-origin',
             decisionPolicy: 'same_channel',
@@ -788,7 +788,7 @@ describe('skill registry integration flow', () => {
       reason: 'approved',
     }));
     const deps = {
-      registeredGroups: () => ({
+      conversationRoutes: () => ({
         'chat-origin': {
           name: 'Agent One Origin',
           folder: 'agent:one',
@@ -836,7 +836,7 @@ describe('skill registry integration flow', () => {
     await vi.waitFor(() => {
       expect(requestPermissionApproval).toHaveBeenCalledWith(
         expect.objectContaining({
-          sourceGroup: 'agent:one',
+          sourceAgentFolder: 'agent:one',
           targetJid: 'chat-origin',
           threadId: 'thread-origin',
           decisionPolicy: 'same_channel',
@@ -900,7 +900,7 @@ describe('skill registry integration flow', () => {
       reason: 'approved',
     }));
     const deps = {
-      registeredGroups: () => ({
+      conversationRoutes: () => ({
         'chat-origin': {
           name: 'Agent One Origin',
           folder: 'agent:one',
@@ -960,7 +960,7 @@ describe('skill registry integration flow', () => {
       reason: 'not approved',
     }));
     const deps = {
-      registeredGroups: () => ({
+      conversationRoutes: () => ({
         'chat-origin': {
           name: 'Agent One Origin',
           folder: 'agent:one',
@@ -1008,7 +1008,7 @@ describe('skill registry integration flow', () => {
     await vi.waitFor(() => {
       expect(requestPermissionApproval).toHaveBeenCalledWith(
         expect.objectContaining({
-          sourceGroup: 'agent:one',
+          sourceAgentFolder: 'agent:one',
           targetJid: 'chat-origin',
           threadId: 'thread-origin',
           decisionPolicy: 'same_channel',

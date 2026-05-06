@@ -31,6 +31,7 @@ import type {
   RuntimeConfiguredConversation,
   RuntimeMemoryLlmModels,
   RuntimeMemorySettings,
+  RuntimeProcessSettings,
   RuntimeProviderConnectionSettings,
   RuntimeProviderSettings,
   RuntimeSettings,
@@ -453,6 +454,18 @@ function parsePositiveIntegerValue(
   return raw;
 }
 
+function parseNonNegativeIntegerValue(
+  raw: unknown,
+  pathPrefix: string,
+  fallback: number,
+): number {
+  if (raw === undefined) return fallback;
+  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0) {
+    throw new Error(`${pathPrefix} must be a non-negative integer`);
+  }
+  return raw;
+}
+
 function parseEmbeddingProvider(
   raw: unknown,
   pathPrefix: string,
@@ -696,6 +709,75 @@ function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
         sessions.max_memory_context_chars,
         'agent.sessions.max_memory_context_chars',
         DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS,
+      ),
+    },
+  };
+}
+
+function parseRuntimeProcessSettings(raw: unknown): RuntimeProcessSettings {
+  const defaults: RuntimeProcessSettings = {
+    queue: {
+      maxMessageRuns: 3,
+      maxJobRuns: 4,
+      maxRetries: 5,
+      baseRetryMs: 5000,
+    },
+  };
+  if (raw === undefined) return defaults;
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error('runtime must be a mapping');
+  }
+  const map = raw as Record<string, unknown>;
+  for (const key of Object.keys(map)) {
+    if (key !== 'queue') {
+      throw new Error(
+        `runtime.${key} is not supported. Configure runtime.queue.*.`,
+      );
+    }
+  }
+  const queueRaw = map.queue;
+  if (
+    queueRaw !== undefined &&
+    (typeof queueRaw !== 'object' ||
+      queueRaw === null ||
+      Array.isArray(queueRaw))
+  ) {
+    throw new Error('runtime.queue must be a mapping');
+  }
+  const queue = (queueRaw || {}) as Record<string, unknown>;
+  for (const key of Object.keys(queue)) {
+    if (
+      key !== 'max_message_runs' &&
+      key !== 'max_job_runs' &&
+      key !== 'max_retries' &&
+      key !== 'base_retry_ms'
+    ) {
+      throw new Error(
+        `runtime.queue.${key} is not supported. Configure max_message_runs, max_job_runs, max_retries, or base_retry_ms.`,
+      );
+    }
+  }
+  return {
+    queue: {
+      maxMessageRuns: parsePositiveIntegerValue(
+        queue.max_message_runs,
+        'runtime.queue.max_message_runs',
+        defaults.queue.maxMessageRuns,
+      ),
+      maxJobRuns: parsePositiveIntegerValue(
+        queue.max_job_runs,
+        'runtime.queue.max_job_runs',
+        defaults.queue.maxJobRuns,
+      ),
+      maxRetries: parseNonNegativeIntegerValue(
+        queue.max_retries,
+        'runtime.queue.max_retries',
+        defaults.queue.maxRetries,
+      ),
+      baseRetryMs: parseNonNegativeIntegerValue(
+        queue.base_retry_ms,
+        'runtime.queue.base_retry_ms',
+        defaults.queue.baseRetryMs,
       ),
     },
   };
@@ -961,9 +1043,6 @@ export function parseRuntimeSettings(raw: string): RuntimeSettings {
         'features block is not supported. Configure memory settings under memory.*',
       );
     }
-    if (key === 'runtime') {
-      throw new Error('runtime settings are not supported.');
-    }
     if (
       key !== 'defaults' &&
       key !== 'desired_state' &&
@@ -975,10 +1054,11 @@ export function parseRuntimeSettings(raw: string): RuntimeSettings {
       key !== 'storage' &&
       key !== 'agent' &&
       key !== 'credential_broker' &&
-      key !== 'memory'
+      key !== 'memory' &&
+      key !== 'runtime'
     ) {
       throw new Error(
-        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, conversations, bindings, agents, storage, credential_broker, and memory.`,
+        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, conversations, bindings, agents, storage, credential_broker, memory, and runtime.`,
       );
     }
   }
@@ -1011,6 +1091,7 @@ export function parseRuntimeSettings(raw: string): RuntimeSettings {
     root.credential_broker,
   );
   const memory = parseMemorySettings(root.memory);
+  const runtime = parseRuntimeProcessSettings(root.runtime);
 
   return {
     desiredState,
@@ -1023,5 +1104,6 @@ export function parseRuntimeSettings(raw: string): RuntimeSettings {
     agent,
     credentialBroker,
     memory,
+    runtime,
   };
 }

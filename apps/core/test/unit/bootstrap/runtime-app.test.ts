@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { RegisteredGroup } from '@core/domain/types.js';
+import type { ConversationRoute } from '@core/domain/types.js';
 
-function makeGroup(overrides: Partial<RegisteredGroup> = {}): RegisteredGroup {
+function makeGroup(
+  overrides: Partial<ConversationRoute> = {},
+): ConversationRoute {
   return {
     name: 'Main Agent',
     folder: 'main_agent',
@@ -32,7 +34,7 @@ async function loadRuntimeApp() {
     };
   });
   vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
-    getRuntimeOpsRepository: vi.fn(() => {
+    getRuntimeRepositories: vi.fn(() => {
       throw new Error('ops repository should not be used by this test');
     }),
     getRuntimeSkillArtifactStore: vi.fn(),
@@ -48,7 +50,7 @@ describe('runtime app credential binding', () => {
     const ensureCredentialBinding = vi.fn(async () => ({ created: true }));
     const app = createRuntimeApp({ ensureCredentialBinding });
 
-    app.setRegisteredGroupsForTest({
+    app.setConversationRoutesForTest({
       'tg:first': firstGroup,
       'tg:second': makeGroup({
         name: 'Side Agent',
@@ -57,8 +59,8 @@ describe('runtime app credential binding', () => {
       }),
     });
 
-    await app.ensureCredentialBindingsForRegisteredGroups();
-    await app.ensureCredentialBindingsForRegisteredGroups();
+    await app.ensureCredentialBindingsForConversationRoutes();
+    await app.ensureCredentialBindingsForConversationRoutes();
 
     expect(ensureCredentialBinding).toHaveBeenCalledTimes(1);
     expect(ensureCredentialBinding).toHaveBeenCalledWith({
@@ -77,10 +79,10 @@ describe('runtime app credential binding', () => {
       .mockResolvedValueOnce({ created: false });
     const app = createRuntimeApp({ ensureCredentialBinding });
 
-    app.setRegisteredGroupsForTest({ 'tg:first': group });
+    app.setConversationRoutesForTest({ 'tg:first': group });
 
-    await app.ensureCredentialBindingsForRegisteredGroups();
-    await app.ensureCredentialBindingsForRegisteredGroups();
+    await app.ensureCredentialBindingsForConversationRoutes();
+    await app.ensureCredentialBindingsForConversationRoutes();
 
     expect(ensureCredentialBinding).toHaveBeenCalledTimes(2);
   });

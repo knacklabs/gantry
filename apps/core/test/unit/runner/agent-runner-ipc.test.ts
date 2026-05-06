@@ -971,7 +971,7 @@ describe('agent-runner IPC lifecycle', () => {
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.permissionRequest).toEqual(
         expect.objectContaining({
-          sourceGroup: 'team',
+          sourceAgentFolder: 'team',
           toolName: 'Bash',
           signature: expect.any(String),
         }),

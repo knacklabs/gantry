@@ -1,6 +1,6 @@
 import { MYCLAW_HOME } from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { MessageSink, NewMessage, RegisteredGroup } from '../domain/types.js';
+import { MessageSink, NewMessage, ConversationRoute } from '../domain/types.js';
 import { startRemoteControl, stopRemoteControl } from './remote-control.js';
 
 export type RemoteControlCommand = '/remote-control' | '/remote-control-end';
@@ -18,7 +18,7 @@ export async function handleRemoteControlCommand(
   command: RemoteControlCommand,
   chatJid: string,
   msg: NewMessage,
-  getGroup: (chatJid: string) => RegisteredGroup | undefined,
+  getGroup: (chatJid: string) => ConversationRoute | undefined,
   findMessageSink: (chatJid: string) => MessageSink | undefined,
   isSenderControlAllowlisted: (msg: NewMessage) => boolean,
   cwd = MYCLAW_HOME,

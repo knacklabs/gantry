@@ -43,7 +43,7 @@ export function requestPermissionReviewEffect(
 
 export async function persistRequestPermissionRules(input: {
   deps: Pick<IpcDeps, 'getToolRepository'>;
-  sourceGroup: string;
+  sourceAgentFolder: string;
   updates: PermissionApprovalUpdate[];
 }): Promise<string[]> {
   const repository = input.deps.getToolRepository?.();
@@ -58,7 +58,7 @@ export async function persistRequestPermissionRules(input: {
     throw new Error('Persistent permission approval must contain one rule');
   }
   const appId = DEFAULT_MEMORY_APP_ID as never;
-  const agentId = memoryAgentIdForGroupFolder(input.sourceGroup) as never;
+  const agentId = memoryAgentIdForGroupFolder(input.sourceAgentFolder) as never;
   const timestamp = new Date().toISOString();
   for (const allowedRule of allowedRules) {
     if (isMyClawMcpWildcardRule(allowedRule)) {

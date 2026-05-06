@@ -1,32 +1,11 @@
-import fs from 'fs';
 import https from 'https';
-import path from 'path';
 
-import { Api, Bot, Context } from 'grammy';
+import { Bot } from 'grammy';
 import { autoRetry } from '@grammyjs/auto-retry';
-import { StreamFlavor, stream, streamApi } from '@grammyjs/stream';
+import { stream, streamApi } from '@grammyjs/stream';
 
-import {
-  ASSISTANT_NAME,
-  PERMISSION_APPROVAL_TIMEOUT_MS,
-  TRIGGER_PATTERN,
-} from '../../config/index.js';
-import { resolveGroupFolderPath } from '../../platform/group-folder.js';
+import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import { ChannelAdapter, ChannelOpts } from '../channel-provider.js';
-import {
-  MessageSendOptions,
-  PermissionApprovalDecision,
-  PermissionApprovalRequest,
-  ProgressUpdateOptions,
-  StreamingChunkOptions,
-  UserQuestionRequest,
-  UserQuestionResponse,
-} from '../../domain/types.js';
-import { PartialMessageDeliveryError } from '../../runtime/partial-delivery.js';
-import { parseTextStyles } from '../../text-styles.js';
-import { AsyncTaskQueue } from '../../app/bootstrap/async-task-queue.js';
-import { writeTelegramFetchResponseToFile } from '../telegram-file-download.js';
 import {
   decisionForMode,
   normalizePermissionAction,
@@ -117,7 +96,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         const authorized = await this.isTelegramApproverAuthorized(
           pending.chatId,
           userId,
-          pending.sourceGroup,
+          pending.sourceAgentFolder,
         );
         if (!authorized) {
           await ctx.answerCallbackQuery({
@@ -244,7 +223,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           '',
         ),
         userId,
-        pending.sourceGroup,
+        pending.sourceAgentFolder,
         pending.decisionPolicy,
       );
       if (!authorized) {
@@ -258,7 +237,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
               pending.chatId,
             pendingChatId: pending.chatId,
             approvalContextJid: pending.approvalContextJid,
-            sourceGroup: pending.sourceGroup,
+            sourceAgentFolder: pending.sourceAgentFolder,
             decisionPolicy: pending.decisionPolicy,
           },
           'Telegram permission decision rejected: user is not an approved administrator',
@@ -365,7 +344,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         isGroup,
       );
 
-      const group = this.opts.registeredGroups()[chatJid];
+      const group = this.opts.conversationRoutes()[chatJid];
       if (!group && isGroup) {
         logger.debug(
           { chatJid, chatName },
@@ -415,7 +394,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         isGroup,
       );
 
-      const routeGroups = this.opts.registeredGroups;
+      const routeGroups = this.opts.conversationRoutes;
       let groups = routeGroups();
       if (!isGroup && !groups[chatJid]) {
         await this.opts.ensureMessageRoute?.(chatJid, {

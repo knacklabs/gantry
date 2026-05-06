@@ -57,14 +57,14 @@ function makeContext(data: TaskIpcData): TaskContext {
       targetJid: 'tg:team',
       ...data,
     },
-    sourceGroup: 'team',
+    sourceAgentFolder: 'team',
     isMain: false,
     conversationBindings: {
       'tg:team': { folder: 'team' },
       'tg:team-a': { folder: 'team' },
       'tg:team-b': { folder: 'team' },
     },
-    sourceGroupJids: ['tg:team'],
+    sourceAgentFolderJids: ['tg:team'],
     deps: {
       opsRepository: {
         getJobById: vi.fn(),
@@ -173,7 +173,7 @@ describe('scheduler IPC adapter contracts', () => {
       expect.objectContaining({
         allowedTools: ['Read'],
         access: expect.objectContaining({
-          sourceGroup: 'team',
+          sourceAgentFolder: 'team',
           originConversationJid: 'tg:team',
         }),
       }),
@@ -196,7 +196,7 @@ describe('scheduler IPC adapter contracts', () => {
       chatJid: 'tg:team-b',
       targetJid: 'tg:team-b',
     });
-    context.sourceGroupJids = ['tg:team-a', 'tg:team-b'];
+    context.sourceAgentFolderJids = ['tg:team-a', 'tg:team-b'];
 
     await schedulerCreateTaskHandlers.scheduler_upsert_job(context);
 
@@ -233,7 +233,7 @@ describe('scheduler IPC adapter contracts', () => {
       allowedTools: ['Read'],
       chatJid: undefined,
     });
-    context.sourceGroupJids = ['tg:team-a', 'tg:team-b'];
+    context.sourceAgentFolderJids = ['tg:team-a', 'tg:team-b'];
 
     await schedulerCreateTaskHandlers.scheduler_upsert_job(context);
 
@@ -322,7 +322,7 @@ describe('scheduler IPC adapter contracts', () => {
       chatJid: 'tg:team-b',
       targetJid: 'tg:team-b',
     });
-    context.sourceGroupJids = ['tg:team-a', 'tg:team-b'];
+    context.sourceAgentFolderJids = ['tg:team-a', 'tg:team-b'];
 
     await schedulerMutateTaskHandlers.scheduler_update_job(context);
 
@@ -358,7 +358,7 @@ describe('scheduler IPC adapter contracts', () => {
       chatJid: 'tg:team-b',
       targetJid: 'tg:team-a',
     });
-    context.sourceGroupJids = ['tg:team-a', 'tg:team-b'];
+    context.sourceAgentFolderJids = ['tg:team-a', 'tg:team-b'];
 
     await schedulerMutateTaskHandlers.scheduler_update_job(context);
 
@@ -385,6 +385,44 @@ describe('scheduler IPC adapter contracts', () => {
         'scheduler job tool approval must use the originating chat as the approval target',
     });
     expect(context.deps.requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('uses explicit job-scoped approval options for durable extra tool storage', async () => {
+    const context = makeContext({
+      type: 'scheduler_upsert_job',
+      name: 'Daily review',
+      prompt: 'Review memory',
+      scheduleType: 'interval',
+      scheduleValue: '60000',
+      allowedTools: ['Read'],
+    });
+
+    await schedulerCreateTaskHandlers.scheduler_upsert_job(context);
+    const deps = mocks.jobServiceDeps.at(-1) as {
+      approveJobExtraTools: (request: unknown) => Promise<{
+        approved: boolean;
+        reason?: string;
+      }>;
+    };
+    await deps.approveJobExtraTools({
+      operation: 'create',
+      jobId: 'job-1',
+      jobName: 'Daily review',
+      target: { agentId: 'team' },
+      inheritedTools: [],
+      existingJobExtraTools: [],
+      requestedJobExtraTools: ['Read'],
+      extrasBeyondInherited: ['Read'],
+    });
+
+    expect(context.deps.requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decisionOptions: ['allow_job_policy', 'cancel'],
+        toolInput: expect.objectContaining({
+          persistence: 'target_json.capabilityPolicy.allowedTools',
+        }),
+      }),
+    );
   });
 
   it('rejects raw provider IDs for scheduler update models', async () => {
@@ -470,7 +508,7 @@ describe('scheduler IPC adapter contracts', () => {
     expect(mocks.jobService.runJobNowFromMcp).toHaveBeenCalledWith({
       jobId: 'job-1',
       access: expect.objectContaining({
-        sourceGroup: 'team',
+        sourceAgentFolder: 'team',
         originConversationJid: 'tg:team',
       }),
       runId: expect.any(String),

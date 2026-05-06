@@ -92,6 +92,10 @@ export interface AgentRepository {
     appId: AppId;
     agentId: AgentId;
   }): Promise<AgentDmAccess[]>;
+  listAgentDmAccessForAgents(input: {
+    appId: AppId;
+    agentIds: readonly AgentId[];
+  }): Promise<AgentDmAccess[]>;
   replaceAgentDmAccess(input: {
     appId: AppId;
     agentId: AgentId;
@@ -126,6 +130,10 @@ export interface AgentRepository {
   listAgentDmApprovers(input: {
     appId: AppId;
     agentId: AgentId;
+  }): Promise<AgentDmApprover[]>;
+  listAgentDmApproversForAgents(input: {
+    appId: AppId;
+    agentIds: readonly AgentId[];
   }): Promise<AgentDmApprover[]>;
   replaceAgentDmApprovers(input: {
     appId: AppId;
@@ -230,6 +238,9 @@ export interface ConversationRepository {
   ): Promise<string[]>;
   listConversationApprovers(
     conversationId: ConversationId,
+  ): Promise<ConversationApprover[]>;
+  listConversationApproversForConversations(
+    conversationIds: readonly ConversationId[],
   ): Promise<ConversationApprover[]>;
   replaceConversationApprovers(input: {
     appId: AppId;
@@ -340,6 +351,10 @@ export interface ToolCatalogRepository {
     appId: AppId;
     agentId: AgentId;
   }): Promise<AgentToolBinding[]>;
+  listAgentToolBindingsForAgents(input: {
+    appId: AppId;
+    agentIds: readonly AgentId[];
+  }): Promise<AgentToolBinding[]>;
 }
 
 export interface SkillCatalogRepository {
@@ -360,6 +375,10 @@ export interface SkillCatalogRepository {
   listAgentSkillBindings(input: {
     appId: AppId;
     agentId: AgentId;
+  }): Promise<AgentSkillBinding[]>;
+  listAgentSkillBindingsForAgents(input: {
+    appId: AppId;
+    agentIds: readonly AgentId[];
   }): Promise<AgentSkillBinding[]>;
   listEnabledSkillsForAgent(input: {
     appId: AppId;
@@ -401,6 +420,11 @@ export interface McpServerRepository {
     agentId: AgentId;
     limit?: number;
     cursor?: string;
+  }): Promise<AgentMcpServerBinding[]>;
+  listAgentBindingsForAgents(input: {
+    appId: AppId;
+    agentIds: readonly AgentId[];
+    limitPerAgent?: number;
   }): Promise<AgentMcpServerBinding[]>;
   listMaterializedServersForAgent(input: {
     appId: AppId;

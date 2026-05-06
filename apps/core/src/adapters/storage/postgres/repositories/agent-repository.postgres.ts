@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import type {
   Agent,
@@ -75,20 +75,14 @@ export class PostgresAgentRepository implements AgentRepository {
     appId: App['id'];
     agentId: Agent['id'];
   }): Promise<AgentDmAccess[]> {
-    const rows = await this.db
-      .select()
-      .from(pgSchema.agentDmAccessPostgres)
-      .where(
-        and(
-          eq(pgSchema.agentDmAccessPostgres.appId, input.appId),
-          eq(pgSchema.agentDmAccessPostgres.agentId, input.agentId),
-        ),
-      )
-      .orderBy(
-        asc(pgSchema.agentDmAccessPostgres.providerId),
-        asc(pgSchema.agentDmAccessPostgres.externalUserId),
-      );
-    return rows as AgentDmAccess[];
+    return this.listAgentDmAccessRows(input);
+  }
+
+  async listAgentDmAccessForAgents(input: {
+    appId: App['id'];
+    agentIds: readonly Agent['id'][];
+  }): Promise<AgentDmAccess[]> {
+    return this.listAgentDmAccessRows(input);
   }
 
   async replaceAgentDmAccess(input: {
@@ -347,23 +341,40 @@ export class PostgresAgentRepository implements AgentRepository {
     return this.listAgentDmApproverRows(input);
   }
 
+  async listAgentDmApproversForAgents(input: {
+    appId: App['id'];
+    agentIds: readonly Agent['id'][];
+  }): Promise<AgentDmApprover[]> {
+    return this.listAgentDmApproverRows(input);
+  }
+
   private async listAgentDmAccessRows(
     input: {
       appId: App['id'];
-      agentId: Agent['id'];
+      agentId?: Agent['id'];
+      agentIds?: readonly Agent['id'][];
     },
     db: CanonicalDb = this.db,
   ): Promise<AgentDmAccess[]> {
+    if (input.agentIds?.length === 0) return [];
     const rows = await db
       .select()
       .from(pgSchema.agentDmAccessPostgres)
       .where(
         and(
           eq(pgSchema.agentDmAccessPostgres.appId, input.appId),
-          eq(pgSchema.agentDmAccessPostgres.agentId, input.agentId),
+          input.agentId
+            ? eq(pgSchema.agentDmAccessPostgres.agentId, input.agentId)
+            : undefined,
+          input.agentIds?.length
+            ? inArray(pgSchema.agentDmAccessPostgres.agentId, [
+                ...input.agentIds,
+              ])
+            : undefined,
         ),
       )
       .orderBy(
+        asc(pgSchema.agentDmAccessPostgres.agentId),
         asc(pgSchema.agentDmAccessPostgres.providerId),
         asc(pgSchema.agentDmAccessPostgres.externalUserId),
       );
@@ -373,20 +384,32 @@ export class PostgresAgentRepository implements AgentRepository {
   private async listAgentDmApproverRows(
     input: {
       appId: App['id'];
-      agentId: Agent['id'];
+      agentId?: Agent['id'];
+      agentIds?: readonly Agent['id'][];
     },
     db: CanonicalDb = this.db,
   ): Promise<AgentDmApprover[]> {
+    if (input.agentIds?.length === 0) return [];
     const rows = await db
       .select()
       .from(pgSchema.agentDmApproversPostgres)
       .where(
         and(
           eq(pgSchema.agentDmApproversPostgres.appId, input.appId),
-          eq(pgSchema.agentDmApproversPostgres.agentId, input.agentId),
+          input.agentId
+            ? eq(pgSchema.agentDmApproversPostgres.agentId, input.agentId)
+            : undefined,
+          input.agentIds?.length
+            ? inArray(pgSchema.agentDmApproversPostgres.agentId, [
+                ...input.agentIds,
+              ])
+            : undefined,
         ),
       )
-      .orderBy(asc(pgSchema.agentDmApproversPostgres.providerId));
+      .orderBy(
+        asc(pgSchema.agentDmApproversPostgres.agentId),
+        asc(pgSchema.agentDmApproversPostgres.providerId),
+      );
     return rows as AgentDmApprover[];
   }
 

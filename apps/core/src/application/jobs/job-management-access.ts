@@ -36,7 +36,7 @@ export function resolveLinkedSessions(
   }
   const unauthorized = linkedSessions.some((jid) => {
     const binding = access.conversationBindings[jid];
-    return !binding || binding.folder !== access.sourceGroup;
+    return !binding || binding.folder !== access.sourceAgentFolder;
   });
   if (unauthorized) {
     throw new ApplicationError(
@@ -53,19 +53,19 @@ export function canAccessSchedulerJob(
 ): boolean {
   const originConversationJid = normalizeOptional(access.originConversationJid);
   if (!originConversationJid) return false;
-  if (job.group_scope !== access.sourceGroup) return false;
+  if (job.group_scope !== access.sourceAgentFolder) return false;
   if (!job.linked_sessions.includes(originConversationJid)) return false;
   return job.linked_sessions.every((jid) => {
     const binding = access.conversationBindings[jid];
-    return !!binding && binding.folder === access.sourceGroup;
+    return !!binding && binding.folder === access.sourceAgentFolder;
   });
 }
 
 export function assertSchedulerJobAccess(
-  job: Job,
+  _job: Job,
   access: SchedulerJobAccess,
 ): void {
-  if (!canAccessSchedulerJob(job, access)) {
+  if (!canAccessSchedulerJob(_job, access)) {
     throw new ApplicationError(
       'FORBIDDEN',
       'Job does not belong to this source group or conversation.',
@@ -74,11 +74,11 @@ export function assertSchedulerJobAccess(
 }
 
 export function validateSchedulerUpdate(
-  job: Job,
+  _job: Job,
   updates: Partial<Job>,
   access: SchedulerJobAccess,
 ): void {
-  if (updates.group_scope && updates.group_scope !== access.sourceGroup) {
+  if (updates.group_scope && updates.group_scope !== access.sourceAgentFolder) {
     throw new ApplicationError(
       'FORBIDDEN',
       'Scheduler jobs cannot move outside the source group.',

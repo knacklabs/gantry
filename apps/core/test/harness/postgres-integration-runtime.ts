@@ -9,7 +9,7 @@ import {
   createPostgresDomainRepositories,
   type PostgresDomainRepositoryBundle,
 } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
-import { PostgresCanonicalOpsRepository } from '@core/adapters/storage/postgres/schema/canonical-ops-repo.postgres.js';
+import { PostgresRuntimeRepositoryBundle } from '@core/adapters/storage/postgres/schema/canonical-ops-repo.postgres.js';
 import { PostgresControlPlaneRepository } from '@core/adapters/storage/postgres/repositories/control-plane-repository.postgres.js';
 import { PostgresCanonicalSessionRepository } from '@core/adapters/storage/postgres/repositories/canonical-session-repository.postgres.js';
 import { RuntimeEventExchange } from '@core/application/runtime-events/runtime-event-exchange.js';
@@ -40,7 +40,7 @@ export interface PostgresIntegrationRuntime {
   readonly artifactRoot: string;
   readonly service: PostgresStorageService;
   readonly storageRuntime: StorageRuntime;
-  readonly ops: PostgresCanonicalOpsRepository;
+  readonly ops: PostgresRuntimeRepositoryBundle;
   readonly control: PostgresControlPlaneRepository;
   readonly repositories: PostgresDomainRepositoryBundle;
   readonly canonicalSessionRepository: PostgresCanonicalSessionRepository;
@@ -71,7 +71,7 @@ export async function createPostgresIntegrationRuntime(options?: {
     repositories.runtimeEvents,
     runtimeEventNotifier,
   );
-  const ops = new PostgresCanonicalOpsRepository(service.pool, service.db, {
+  const ops = new PostgresRuntimeRepositoryBundle(service.pool, service.db, {
     runtimeEvents,
   });
   const canonicalSessionRepository = new PostgresCanonicalSessionRepository(

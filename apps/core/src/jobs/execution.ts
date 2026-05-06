@@ -38,7 +38,7 @@ import {
   logMemoryDreamJobFailure,
   notifySchedulerRunFailure,
 } from './execution-notifications.js';
-import { handleSystemJob, MEMORY_DREAM_SYSTEM_PROMPT } from './system-jobs.js';
+import { handleSystemJob } from './system-jobs.js';
 import {
   buildJobStreamingOptions,
   nextJobStreamingGeneration,
@@ -77,7 +77,7 @@ export async function runJob(
     return;
   }
 
-  const groups = deps.registeredGroups();
+  const groups = deps.conversationRoutes();
   const execution = resolveExecutionContext(currentJob, groups);
   if (!execution) {
     await deps.opsRepository.updateJob(currentJob.id, {
@@ -375,8 +375,8 @@ export async function runJob(
       };
       try {
         turnContext = await deps.opsRepository.getAgentTurnContext?.({
-          groupFolder: execution.group.folder,
-          chatJid: execution.executionJid,
+          agentFolder: execution.group.folder,
+          conversationJid: execution.executionJid,
           threadId: currentJob.thread_id ?? null,
         });
         const effectiveAllowedTools = await resolveExecutionAllowedTools({

@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { CanonicalMessageOpsService } from '@core/adapters/storage/postgres/services/canonical-message-ops-service.js';
-import type { PostgresCanonicalMessageRepository } from '@core/adapters/storage/postgres/repositories/canonical-message-repository.postgres.js';
+import {
+  externalRefForMessage,
+  type PostgresCanonicalMessageRepository,
+} from '@core/adapters/storage/postgres/repositories/canonical-message-repository.postgres.js';
 
 describe('CanonicalMessageOpsService', () => {
   it('does not pass an after boundary for an empty global cursor', async () => {
@@ -34,5 +37,73 @@ describe('CanonicalMessageOpsService', () => {
       hasThreadFilter: true,
       limit: 50,
     });
+  });
+
+  it('keeps message content out of external refs and reads content from parts', async () => {
+    const ref = externalRefForMessage({
+      id: 'provider-message-1',
+      chat_jid: 'tg:one',
+      provider: 'telegram',
+      sender: '42',
+      sender_name: 'Ravi',
+      content: 'sensitive body',
+      timestamp: '2026-05-06T00:00:00.000Z',
+      thread_id: 'thread-1',
+      reply_to_message_content: 'quoted sensitive body',
+      external_message_id: 'provider-event-1',
+      attachments: [
+        {
+          id: 'attachment-1',
+          kind: 'file',
+          externalId: 'file-ref',
+          storageRef: 'artifact-ref',
+        },
+      ],
+    });
+
+    expect(ref).toMatchObject({
+      id: 'provider-message-1',
+      chat_jid: 'tg:one',
+      provider: 'telegram',
+      thread_id: 'thread-1',
+      external_message_id: 'provider-event-1',
+    });
+    expect(ref).not.toHaveProperty('content');
+    expect(ref).not.toHaveProperty('reply_to_message_content');
+    expect(ref).not.toHaveProperty('attachments');
+
+    const listInboundMessages = vi.fn().mockResolvedValue([
+      {
+        id: 'message:tg:one:provider-message-1',
+        conversation_id: 'conversation:tg:one',
+        thread_id: 'thread:tg:one:thread-1',
+        external_ref_json: JSON.stringify(ref),
+        direction: 'inbound',
+        sender_user_id: '42',
+        sender_display_name: 'Ravi',
+        trust: 'trusted',
+        created_at: '2026-05-06T00:00:00.000Z',
+        received_at: '2026-05-06T00:00:00.000Z',
+        delivery_status: null,
+        delivered_at: null,
+        delivery_error: null,
+        payload_json: JSON.stringify({ kind: 'text', text: 'sensitive body' }),
+      },
+    ]);
+    const service = new CanonicalMessageOpsService({
+      listInboundMessages,
+    } as unknown as PostgresCanonicalMessageRepository);
+
+    await expect(service.getMessagesSince('tg:one', '')).resolves.toMatchObject(
+      [
+        {
+          id: 'provider-message-1',
+          chat_jid: 'tg:one',
+          content: 'sensitive body',
+          thread_id: 'thread-1',
+          reply_to_message_content: undefined,
+        },
+      ],
+    );
   });
 });

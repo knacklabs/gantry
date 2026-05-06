@@ -94,8 +94,8 @@ export class JobManagementService {
       input.modelAlias,
       input.modelProfileId,
     );
-    const groupScope = (input.groupScope || access.sourceGroup).trim();
-    if (groupScope !== access.sourceGroup) {
+    const groupScope = (input.groupScope || access.sourceAgentFolder).trim();
+    if (groupScope !== access.sourceAgentFolder) {
       throw new ApplicationError(
         'FORBIDDEN',
         'Scheduler jobs cannot be created outside the source group.',
@@ -196,7 +196,7 @@ export class JobManagementService {
     limit?: number;
   }): Promise<{ jobs: Job[] }> {
     const queryGroupScope = input.access
-      ? input.access.sourceGroup
+      ? input.access.sourceAgentFolder
       : input.groupScope;
     const jobs = await this.deps.ops.listJobs({
       appId: input.appId,
@@ -667,14 +667,14 @@ export class JobManagementService {
     const control = this.requireControl();
     const appChatJids = (
       Array.isArray(job.linked_sessions) ? job.linked_sessions : []
-    ).filter((chatJid) => chatJid.startsWith(`app:${appId}:`));
+    ).filter((conversationJid) => conversationJid.startsWith(`app:${appId}:`));
     if (control.getAppSessionsByChatJids) {
       const sessions = await control.getAppSessionsByChatJids(appChatJids);
       return sessions.find((session) => session.appId === appId);
     }
-    for (const chatJid of appChatJids) {
-      if (!chatJid.startsWith(`app:${appId}:`)) continue;
-      const session = await control.getAppSessionByChatJid(chatJid);
+    for (const conversationJid of appChatJids) {
+      if (!conversationJid.startsWith(`app:${appId}:`)) continue;
+      const session = await control.getAppSessionByChatJid(conversationJid);
       if (session?.appId === appId) return session;
     }
     return undefined;

@@ -34,6 +34,21 @@ function messageIdFor(chatJid: string, id: string): string {
   return `message:${chatJid}:${id}`;
 }
 
+export function externalRefForMessage(
+  msg: NewMessage,
+): Record<string, unknown> {
+  return {
+    kind: 'message',
+    id: msg.id,
+    chat_jid: msg.chat_jid,
+    provider: msg.provider,
+    thread_id: msg.thread_id,
+    external_message_id: msg.external_message_id,
+    reply_to_message_id: msg.reply_to_message_id,
+    reply_to_sender_name: msg.reply_to_sender_name,
+  };
+}
+
 export class PostgresCanonicalMessageRepository {
   private readonly graph: PostgresCanonicalGraphRepository;
 
@@ -92,7 +107,7 @@ export class PostgresCanonicalMessageRepository {
           conversationId,
           threadId: canonicalThreadId,
           externalMessageId,
-          externalRefJson: json(msg),
+          externalRefJson: json(externalRefForMessage(msg)),
           direction,
           senderUserId: msg.sender,
           senderDisplayName: msg.sender_name,
@@ -107,7 +122,7 @@ export class PostgresCanonicalMessageRepository {
           target: pgSchema.messagesPostgres.id,
           set: {
             externalMessageId,
-            externalRefJson: json(msg),
+            externalRefJson: json(externalRefForMessage(msg)),
             direction,
             senderUserId: msg.sender,
             senderDisplayName: msg.sender_name,

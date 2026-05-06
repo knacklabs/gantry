@@ -23,14 +23,15 @@ function makeApp(): RuntimeApp {
     saveState: vi.fn(),
     getOrRecoverCursor: vi.fn(() => ''),
     registerGroup: vi.fn(),
+    projectConversationRoute: vi.fn(),
     setGroupModelOverride: vi.fn(),
     setGroupThinkingOverride: vi.fn(),
     getAvailableGroups: vi.fn(() => []),
-    setRegisteredGroupsForTest: vi.fn(),
-    ensureCredentialBindingsForRegisteredGroups: vi.fn(),
+    setConversationRoutesForTest: vi.fn(),
+    ensureCredentialBindingsForConversationRoutes: vi.fn(),
     clearSessionForChatJid: vi.fn(),
     processGroupMessages: vi.fn(async () => true),
-    getRegisteredGroups: vi.fn(() => ({
+    getConversationRoutes: vi.fn(() => ({
       'tg:main': {
         name: 'Main',
         folder: 'main',

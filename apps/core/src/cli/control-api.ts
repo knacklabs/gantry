@@ -144,8 +144,8 @@ function parseJson(raw: string): unknown {
   if (!raw.trim()) return {};
   try {
     return JSON.parse(raw);
-  } catch {
-    throw new Error('MyClaw returned a non-JSON response');
+  } catch (err) {
+    throw new Error('MyClaw returned a non-JSON response', { cause: err });
   }
 }
 

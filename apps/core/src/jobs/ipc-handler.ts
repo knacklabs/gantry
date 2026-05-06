@@ -7,7 +7,7 @@ import { schedulerQueryTaskHandlers } from './ipc-scheduler-query-handlers.js';
 import { TaskHandler, TaskIpcData } from './ipc-types.js';
 import { writeTaskIpcResponse } from './ipc-shared.js';
 import {
-  getRuntimeOpsRepository,
+  getRuntimeRepositories,
   getRuntimeStorage,
 } from '../adapters/storage/postgres/runtime-store.js';
 
@@ -22,20 +22,23 @@ export type { TaskIpcData } from './ipc-types.js';
 
 export async function processTaskIpc(
   data: TaskIpcData,
-  sourceGroup: string,
+  sourceAgentFolder: string,
   isMain: boolean,
   deps: IpcDeps,
 ): Promise<void> {
-  const conversationBindings = deps.registeredGroups();
-  const sourceGroupJids = Object.entries(conversationBindings)
-    .filter(([, group]) => group.folder === sourceGroup)
+  const conversationBindings = deps.conversationRoutes();
+  const sourceAgentFolderJids = Object.entries(conversationBindings)
+    .filter(([, group]) => group.folder === sourceAgentFolder)
     .map(([jid]) => jid);
 
   const handler = taskHandlers[data.type];
   if (!handler) {
-    logger.warn({ type: data.type, sourceGroup }, 'Unknown IPC task type');
+    logger.warn(
+      { type: data.type, sourceAgentFolder },
+      'Unknown IPC task type',
+    );
     writeTaskIpcResponse(
-      sourceGroup,
+      sourceAgentFolder,
       data.taskId,
       {
         ok: false,
@@ -49,7 +52,7 @@ export async function processTaskIpc(
 
   const resolvedDeps = {
     ...deps,
-    opsRepository: deps.opsRepository ?? getRuntimeOpsRepository(),
+    opsRepository: deps.opsRepository ?? getRuntimeRepositories(),
     getToolRepository:
       deps.getToolRepository ??
       (() => {
@@ -64,19 +67,19 @@ export async function processTaskIpc(
   try {
     await handler({
       data,
-      sourceGroup,
+      sourceAgentFolder,
       isMain,
       deps: resolvedDeps,
       conversationBindings,
-      sourceGroupJids,
+      sourceAgentFolderJids,
     });
   } catch (err) {
     logger.error(
-      { err, type: data.type, sourceGroup },
+      { err, type: data.type, sourceAgentFolder },
       'Unhandled IPC task handler error',
     );
     writeTaskIpcResponse(
-      sourceGroup,
+      sourceAgentFolder,
       data.taskId,
       {
         ok: false,

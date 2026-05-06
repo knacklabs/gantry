@@ -44,7 +44,7 @@ export interface AgentConfig {
   timeout?: number; // Default: 300000 (5 minutes)
 }
 
-export interface RegisteredGroup {
+export interface ConversationRoute {
   name: string;
   folder: string;
   trigger: string;
@@ -162,7 +162,7 @@ export interface JobEvent {
 export interface PermissionApprovalRequest {
   requestId: string;
   responseNonce?: string;
-  sourceGroup: string;
+  sourceAgentFolder: string;
   targetJid?: string;
   approvalContextJid?: string;
   threadId?: string;
@@ -184,6 +184,7 @@ export interface PermissionApprovalRequest {
 
 export type PermissionApprovalDecisionMode =
   | 'allow_once'
+  | 'allow_job_policy'
   | 'allow_persistent_rule'
   | 'cancel';
 
@@ -236,7 +237,7 @@ export interface UserQuestionItem {
 
 export interface UserQuestionRequest {
   requestId: string;
-  sourceGroup: string;
+  sourceAgentFolder: string;
   targetJid?: string;
   threadId?: string;
   questions: UserQuestionItem[];
@@ -325,7 +326,7 @@ export interface InteractionDescriptor {
   severity?: InteractionSeverity;
   requestContext?: {
     requestId?: string;
-    sourceGroup?: string;
+    sourceAgentFolder?: string;
     targetJid?: string;
     threadId?: string;
     toolName?: string;
@@ -369,7 +370,7 @@ export interface MessageDeliveryResult {
 
 // Callback type that channels use to deliver inbound messages
 export type OnInboundMessage = (
-  chatJid: string,
+  conversationJid: string,
   message: NewMessage,
 ) => Promise<void>;
 
@@ -377,7 +378,7 @@ export type OnInboundMessage = (
 // name is optional for providers that deliver names inline; channels that sync
 // names separately omit it.
 export type OnChatMetadata = (
-  chatJid: string,
+  conversationJid: string,
   timestamp: string,
   name?: string,
   channel?: string,
@@ -451,7 +452,7 @@ export interface InteractionSurface {
 
 export interface PlanReviewRequest {
   requestId: string;
-  sourceGroup: string;
+  sourceAgentFolder: string;
   title: string;
   summary?: string;
   options: UserQuestionOption[];

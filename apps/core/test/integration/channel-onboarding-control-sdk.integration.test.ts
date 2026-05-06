@@ -168,7 +168,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => {
       listDueWebhookDeliveries: vi.fn(async () => []),
       claimDueWebhookDeliveries: vi.fn(async () => []),
     }),
-    getRuntimeOpsRepository: () => ({
+    getRuntimeRepositories: () => ({
       storeChatMetadata: vi.fn(async () => undefined),
       storeMessage: vi.fn(async () => undefined),
     }),
@@ -221,7 +221,27 @@ describe('provider conversation onboarding control SDK integration', () => {
     vi.clearAllMocks();
   });
 
+  function runtimeProjectionApp() {
+    const registered = new Map<string, any>();
+    return {
+      registered,
+      app: {
+        queue: { enqueueMessageCheck: async () => undefined },
+        registerGroup: vi.fn(async (jid: string, group: any) => {
+          registered.set(jid, group);
+        }),
+        projectConversationRoute: vi.fn(async (jid: string, group: any) => {
+          registered.set(jid, group);
+        }),
+        unregisterConversationRoute: vi.fn(async (jid: string) => {
+          registered.delete(jid);
+        }),
+      },
+    };
+  }
+
   it('creates provider connection and binds an agent with permission policies through SDK/control routes', async () => {
+    const runtimeApp = runtimeProjectionApp();
     const server = await startTestControlServer({
       token: 'token-channels',
       appId: 'app-one',
@@ -232,6 +252,7 @@ describe('provider conversation onboarding control SDK integration', () => {
         'conversations:admin',
         'agents:admin',
       ],
+      runtimeApp: runtimeApp.app,
     });
     const client = createClient({
       apiKey: server.token,
@@ -316,6 +337,9 @@ describe('provider conversation onboarding control SDK integration', () => {
         type: 'thread',
         id: 'thread:slack:C123:1700.1',
       });
+      expect(runtimeApp.app.projectConversationRoute).not.toHaveBeenCalled();
+      expect(runtimeApp.app.registerGroup).not.toHaveBeenCalled();
+      expect(runtimeApp.registered.has('sl:C123')).toBe(false);
 
       const listed = await client.agents.conversationBindings.list('agent:one');
       const parsedList =
@@ -323,6 +347,79 @@ describe('provider conversation onboarding control SDK integration', () => {
       expect(parsedList.bindings.map((entry) => entry.id)).toEqual([
         binding.id,
       ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('projects whole-conversation binding disable out of live runtime routing', async () => {
+    const runtimeApp = runtimeProjectionApp();
+    const server = await startTestControlServer({
+      token: 'token-channels',
+      appId: 'app-one',
+      scopes: ['conversations:admin', 'agents:admin'],
+      runtimeApp: runtimeApp.app,
+    });
+    const client = createClient({
+      apiKey: server.token,
+      baseUrl: server.baseUrl,
+      timeoutMs: 3000,
+    });
+
+    const providerConnectionId = 'providerConnection:slack:disable';
+    const conversationId = 'conversation:slack:disable';
+    state.providerConnections.set(providerConnectionId, {
+      id: providerConnectionId,
+      appId: 'app-one',
+      providerId: 'slack',
+      label: 'Slack',
+      status: 'active',
+      config: {},
+      runtimeSecretRefs: [],
+      createdAt: '2026-04-28T00:00:00.000Z',
+      updatedAt: '2026-04-28T00:00:00.000Z',
+    });
+    state.conversations.set(conversationId, {
+      id: conversationId,
+      appId: 'app-one',
+      providerConnectionId,
+      externalRef: { kind: 'conversation', value: 'C999' },
+      kind: 'channel',
+      title: 'ops',
+      status: 'active',
+      createdAt: '2026-04-28T00:00:00.000Z',
+      updatedAt: '2026-04-28T00:00:00.000Z',
+    });
+
+    try {
+      await client.agents.conversationBindings.enable(
+        'agent:one',
+        conversationId,
+        {
+          providerConnectionId,
+          displayName: 'Ops',
+          triggerMode: 'always',
+        },
+      );
+      expect(runtimeApp.registered.has('sl:C999')).toBe(true);
+      expect(runtimeApp.app.projectConversationRoute).toHaveBeenCalledWith(
+        'sl:C999',
+        expect.objectContaining({
+          name: 'Ops',
+          folder: 'one',
+          conversationKind: 'channel',
+        }),
+      );
+      expect(runtimeApp.app.registerGroup).not.toHaveBeenCalled();
+
+      await client.agents.conversationBindings.disable(
+        'agent:one',
+        conversationId,
+      );
+      expect(runtimeApp.app.unregisterConversationRoute).toHaveBeenCalledWith(
+        'sl:C999',
+      );
+      expect(runtimeApp.registered.has('sl:C999')).toBe(false);
     } finally {
       await server.close();
     }

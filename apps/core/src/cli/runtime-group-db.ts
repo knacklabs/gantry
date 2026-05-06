@@ -1,4 +1,4 @@
-import { NewMessage, RegisteredGroup } from '../domain/types.js';
+import { NewMessage, ConversationRoute } from '../domain/types.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import { createStorageRuntime } from '../adapters/storage/postgres/factory.js';
 import type { StorageRuntime } from '../adapters/storage/postgres/factory.js';
@@ -8,15 +8,15 @@ import { envFilePath } from '../config/settings/runtime-home.js';
 import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
 
 export interface RuntimeGroupDb {
-  countRegisteredGroupsByJidPrefix(jidPrefix: string): Promise<number>;
-  getAllRegisteredGroups(): Promise<Record<string, RegisteredGroup>>;
+  countConversationRoutesByJidPrefix(jidPrefix: string): Promise<number>;
+  getAllConversationRoutes(): Promise<Record<string, ConversationRoute>>;
   getMessagesSince(
     chatJid: string,
     sinceCursor: string,
     limit?: number,
   ): Promise<NewMessage[]>;
-  setRegisteredGroup(jid: string, group: RegisteredGroup): Promise<void>;
-  deleteRegisteredGroup(jid: string): Promise<void>;
+  setConversationRoute(jid: string, group: ConversationRoute): Promise<void>;
+  deleteConversationRoute(jid: string): Promise<void>;
   deleteSession(groupFolder: string): Promise<void>;
   close(): Promise<void>;
 }
@@ -41,14 +41,18 @@ function normalizePrefix(jidPrefix: string): string {
 
 function createProviderRuntimeGroupDb(runtime: StorageRuntime): RuntimeGroupDb {
   return {
-    async countRegisteredGroupsByJidPrefix(jidPrefix: string): Promise<number> {
+    async countConversationRoutesByJidPrefix(
+      jidPrefix: string,
+    ): Promise<number> {
       const prefix = normalizePrefix(jidPrefix);
-      const groups = await runtime.ops.getAllRegisteredGroups();
+      const groups = await runtime.ops.getAllConversationRoutes();
       return Object.keys(groups).filter((jid) => jid.startsWith(prefix)).length;
     },
 
-    async getAllRegisteredGroups(): Promise<Record<string, RegisteredGroup>> {
-      return runtime.ops.getAllRegisteredGroups();
+    async getAllConversationRoutes(): Promise<
+      Record<string, ConversationRoute>
+    > {
+      return runtime.ops.getAllConversationRoutes();
     },
 
     async getMessagesSince(
@@ -59,24 +63,24 @@ function createProviderRuntimeGroupDb(runtime: StorageRuntime): RuntimeGroupDb {
       return runtime.ops.getMessagesSince(chatJid, sinceCursor, limit);
     },
 
-    async setRegisteredGroup(
+    async setConversationRoute(
       jid: string,
-      group: RegisteredGroup,
+      group: ConversationRoute,
     ): Promise<void> {
       if (!isValidGroupFolder(group.folder)) {
         throw new Error(
           `Invalid group folder "${group.folder}" for JID ${jid}`,
         );
       }
-      await runtime.ops.setRegisteredGroup(jid, group);
+      await runtime.ops.setConversationRoute(jid, group);
     },
 
-    async deleteRegisteredGroup(jid: string): Promise<void> {
-      await runtime.ops.deleteRegisteredGroup(jid);
+    async deleteConversationRoute(jid: string): Promise<void> {
+      await runtime.ops.deleteConversationRoute(jid);
     },
 
     async deleteSession(groupFolder: string): Promise<void> {
-      await runtime.ops.deleteSessionsByGroupFolder(groupFolder);
+      await runtime.ops.deleteSessionsByAgentFolder(groupFolder);
     },
 
     async close(): Promise<void> {

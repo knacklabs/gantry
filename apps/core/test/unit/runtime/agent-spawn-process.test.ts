@@ -93,13 +93,13 @@ vi.mock('child_process', async () => {
 
 import { executeRunnerProcess } from '@core/runtime/agent-spawn-process.js';
 import type { RunnerProcessSpec } from '@core/runtime/agent-spawn-types.js';
-import type { RegisteredGroup } from '@core/domain/types.js';
+import type { ConversationRoute } from '@core/domain/types.js';
 
 /* ------------------------------------------------------------------ */
 /*  Shared fixtures                                                    */
 /* ------------------------------------------------------------------ */
 
-const testGroup: RegisteredGroup = {
+const testGroup: ConversationRoute = {
   name: 'Test Group',
   folder: 'test-group',
   trigger: '@bot',
@@ -420,7 +420,7 @@ describe('executeRunnerProcess', () => {
     });
 
     it('uses group agentConfig.timeout when options.timeoutMs not set', async () => {
-      const groupWithTimeout: RegisteredGroup = {
+      const groupWithTimeout: ConversationRoute = {
         ...testGroup,
         agentConfig: { timeout: 150 },
       };

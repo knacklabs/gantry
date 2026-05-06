@@ -15,6 +15,7 @@ import {
   BuiltInControlChannelProviderCatalog,
   RuntimeSecretConversationDiscovery,
 } from '../../../channels/control-provider-catalog.js';
+import { getProvider } from '../../../channels/provider-registry.js';
 import { ConversationAdministrationService } from '../../../application/provider-conversations/conversation-administration-service.js';
 import {
   AgentConversationBindingControlService,
@@ -23,13 +24,15 @@ import {
 } from '../../../application/provider-conversations/provider-conversation-control-use-cases.js';
 import { ListProvidersUseCase } from '../../../application/provider-conversations/list-providers-use-case.js';
 import { ConversationControlService } from '../../../application/conversations/conversation-control-use-cases.js';
-import type { AgentId } from '../../../domain/agent/agent.js';
+import type { Agent, AgentId } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
 import type {
+  AgentConversationBinding,
   ProviderConnectionId,
   ProviderId,
 } from '../../../domain/provider/provider.js';
 import type {
+  Conversation,
   ConversationId,
   ConversationThreadId,
 } from '../../../domain/conversation/conversation.js';
@@ -61,6 +64,16 @@ import {
   providerToResponse,
   threadToResponse,
 } from './provider-conversation-mappers.js';
+
+interface RuntimeConversationRouteState {
+  name: string;
+  folder: string;
+  trigger: string;
+  added_at: string;
+  requiresTrigger: boolean;
+  isMain?: boolean;
+  conversationKind: 'dm' | 'channel';
+}
 
 const providers = new BuiltInControlChannelProviderCatalog();
 
@@ -483,6 +496,7 @@ export async function handleProviderConversationRoutes(
         conversationId: bindingRoute.conversationId as ConversationId,
         patch,
       });
+      await projectBindingToRuntime(ctx, binding);
       sendJson(res, 200, bindingToResponse(binding));
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
@@ -517,6 +531,7 @@ export async function handleProviderConversationRoutes(
         conversationId: bindingRoute.conversationId as ConversationId,
         patch,
       });
+      await projectBindingToRuntime(ctx, binding);
       sendJson(res, 200, bindingToResponse(binding));
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
@@ -539,6 +554,7 @@ export async function handleProviderConversationRoutes(
           (url.searchParams.get('threadId') as ConversationThreadId | null) ??
           undefined,
       });
+      await removeBindingFromRuntime(ctx, binding);
       sendJson(res, 200, {
         disabled: true,
         binding: bindingToResponse(binding),
@@ -550,4 +566,101 @@ export async function handleProviderConversationRoutes(
   }
 
   return false;
+}
+
+async function projectBindingToRuntime(
+  ctx: ControlRouteContext,
+  binding: AgentConversationBinding,
+): Promise<void> {
+  if (binding.status !== 'active') {
+    await removeBindingFromRuntime(ctx, binding);
+    return;
+  }
+  if (binding.threadId) return;
+  const projectRoute = (ctx.app as { projectConversationRoute?: unknown })
+    .projectConversationRoute;
+  if (typeof projectRoute !== 'function') return;
+
+  const repositories = getRuntimeStorage().repositories;
+  const [agent, conversation] = await Promise.all([
+    repositories.agents.getAgent(binding.agentId),
+    repositories.conversations.getConversation(binding.conversationId),
+  ]);
+  if (!agent || !conversation) return;
+  const providerConnection =
+    await repositories.providerConnections.getProviderConnection(
+      binding.providerConnectionId,
+    );
+  if (!providerConnection) return;
+
+  const externalConversationId = conversation.externalRef?.value?.trim();
+  if (!externalConversationId) return;
+  const jid = jidForConversation(
+    String(providerConnection.providerId),
+    externalConversationId,
+  );
+  await projectRoute.call(
+    ctx.app,
+    jid,
+    routeStateForBinding({ agent, binding, conversation }),
+  );
+}
+
+async function removeBindingFromRuntime(
+  ctx: ControlRouteContext,
+  binding: AgentConversationBinding,
+): Promise<void> {
+  if (binding.threadId) return;
+  const removeRoute = (ctx.app as { unregisterConversationRoute?: unknown })
+    .unregisterConversationRoute;
+  if (typeof removeRoute !== 'function') return;
+
+  const repositories = getRuntimeStorage().repositories;
+  const conversation = await repositories.conversations.getConversation(
+    binding.conversationId,
+  );
+  if (!conversation) return;
+  const providerConnection =
+    await repositories.providerConnections.getProviderConnection(
+      binding.providerConnectionId,
+    );
+  if (!providerConnection) return;
+
+  const externalConversationId = conversation.externalRef?.value?.trim();
+  if (!externalConversationId) return;
+  const jid = jidForConversation(
+    String(providerConnection.providerId),
+    externalConversationId,
+  );
+  await removeRoute.call(ctx.app, jid);
+}
+
+function routeStateForBinding(input: {
+  agent: Agent;
+  binding: AgentConversationBinding;
+  conversation: Conversation;
+}): RuntimeConversationRouteState {
+  return {
+    name: input.binding.displayName || input.agent.name,
+    folder: folderForAgentId(input.agent.id),
+    trigger: input.binding.triggerPattern ?? '',
+    added_at: input.binding.createdAt,
+    requiresTrigger: input.binding.requiresTrigger,
+    isMain: input.binding.isAdminBinding || undefined,
+    conversationKind: input.conversation.kind === 'direct' ? 'dm' : 'channel',
+  };
+}
+
+function folderForAgentId(agentId: Agent['id']): string {
+  const value = String(agentId);
+  return value.startsWith('agent:') ? value.slice('agent:'.length) : value;
+}
+
+function jidForConversation(providerId: string, externalId: string): string {
+  const provider = getProvider(providerId);
+  const trimmed = externalId.trim();
+  if (!provider?.jidPrefix || trimmed.startsWith(provider.jidPrefix)) {
+    return trimmed;
+  }
+  return `${provider.jidPrefix}${trimmed}`;
 }

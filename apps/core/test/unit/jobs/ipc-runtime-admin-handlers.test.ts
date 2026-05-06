@@ -86,13 +86,13 @@ describe('runtime admin IPC handlers', () => {
 
     await settingsDesiredStateHandler({
       data: { taskId: 'settings-read' },
-      sourceGroup: 'main_agent',
+      sourceAgentFolder: 'main_agent',
       isMain: true,
       deps: depsWithAdminTools([
         'mcp__myclaw__settings_desired_state',
       ]) as never,
       conversationBindings: {},
-      sourceGroupJids: ['tg:100'],
+      sourceAgentFolderJids: ['tg:100'],
     });
 
     expect(readResponse(runtimeHome, 'settings-read')).toMatchObject({
@@ -113,11 +113,11 @@ describe('runtime admin IPC handlers', () => {
 
     await settingsDesiredStateHandler({
       data: { taskId: 'settings-read' },
-      sourceGroup: 'main_agent',
+      sourceAgentFolder: 'main_agent',
       isMain: true,
       deps: depsWithAdminTools([]) as never,
       conversationBindings: {},
-      sourceGroupJids: ['tg:100'],
+      sourceAgentFolderJids: ['tg:100'],
     });
 
     expect(readResponse(runtimeHome, 'settings-read')).toMatchObject({
@@ -143,11 +143,11 @@ describe('runtime admin IPC handlers', () => {
           reason: 'test',
         },
       },
-      sourceGroup: 'main_agent',
+      sourceAgentFolder: 'main_agent',
       isMain: true,
       deps: depsWithAdminTools([]) as never,
       conversationBindings: {},
-      sourceGroupJids: ['tg:100'],
+      sourceAgentFolderJids: ['tg:100'],
     });
 
     expect(readResponse(runtimeHome, 'settings-update')).toMatchObject({
@@ -174,13 +174,13 @@ describe('runtime admin IPC handlers', () => {
           reason: 'test',
         },
       },
-      sourceGroup: 'main_agent',
+      sourceAgentFolder: 'main_agent',
       isMain: true,
       deps: depsWithAdminTools([
         'mcp__myclaw__request_settings_update',
       ]) as never,
       conversationBindings: {},
-      sourceGroupJids: ['tg:100'],
+      sourceAgentFolderJids: ['tg:100'],
     });
 
     expect(readResponse(runtimeHome, 'settings-update')).toMatchObject({
@@ -220,7 +220,7 @@ describe('runtime admin IPC handlers', () => {
     });
     vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
       getRuntimeStorage: () => ({
-        ops: { getAllRegisteredGroups: vi.fn(async () => ({})) },
+        ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
         repositories: {
           agents: {},
           tools: { getTool: vi.fn(async () => null) },
@@ -241,7 +241,7 @@ describe('runtime admin IPC handlers', () => {
           reason: 'test',
         },
       },
-      sourceGroup: 'main_agent',
+      sourceAgentFolder: 'main_agent',
       isMain: true,
       deps: {
         ...depsWithAdminTools(['mcp__myclaw__request_settings_update']),
@@ -249,7 +249,7 @@ describe('runtime admin IPC handlers', () => {
         sendMessage: vi.fn(async () => undefined),
       } as any,
       conversationBindings: {},
-      sourceGroupJids: ['tg:100'],
+      sourceAgentFolderJids: ['tg:100'],
     });
 
     await expect(

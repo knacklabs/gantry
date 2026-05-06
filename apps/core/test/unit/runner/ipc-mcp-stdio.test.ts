@@ -378,7 +378,7 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
     const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
     expect(record.observedRequest).toEqual(
       expect.objectContaining({
-        sourceGroup: 'team',
+        sourceAgentFolder: 'team',
         signature: expect.any(String),
       }),
     );

@@ -1,6 +1,6 @@
 import { ChildProcess } from 'child_process';
 
-import { RegisteredGroup, ThinkingOverride } from '../domain/types.js';
+import { ConversationRoute, ThinkingOverride } from '../domain/types.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '../domain/ports/repositories.js';
@@ -80,7 +80,7 @@ export interface AvailableGroup {
 }
 
 export interface RunnerProcessSpec {
-  group: RegisteredGroup;
+  group: ConversationRoute;
   input: AgentInput;
   command: string;
   args: string[];

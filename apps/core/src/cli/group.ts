@@ -3,7 +3,7 @@ import path from 'path';
 
 import * as p from '@clack/prompts';
 
-import type { RegisteredGroup } from '../domain/types.js';
+import type { ConversationRoute } from '../domain/types.js';
 import { providerFromGroupJid, getProviderIds } from './provider-utils.js';
 import { readEnvFile } from '../config/env/file.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
@@ -88,9 +88,9 @@ async function runList(runtimeHome: string): Promise<number> {
   }
 
   try {
-    let groups: Array<{ jid: string; group: RegisteredGroup }>;
+    let groups: Array<{ jid: string; group: ConversationRoute }>;
     try {
-      groups = listGroupsWithJid(await db.getAllRegisteredGroups());
+      groups = listGroupsWithJid(await db.getAllConversationRoutes());
     } catch (err) {
       p.log.error(
         `Could not read registered groups from database. The DB may be corrupted. Details: ${errorMessage(err)}`,
@@ -155,9 +155,9 @@ async function runInfo(
   }
 
   try {
-    let groups: Record<string, RegisteredGroup>;
+    let groups: Record<string, ConversationRoute>;
     try {
-      groups = await db.getAllRegisteredGroups();
+      groups = await db.getAllConversationRoutes();
     } catch (err) {
       p.log.error(`Could not read groups from database: ${errorMessage(err)}`);
       return 1;
@@ -214,9 +214,9 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
   }
 
   try {
-    let groups: Record<string, RegisteredGroup>;
+    let groups: Record<string, ConversationRoute>;
     try {
-      groups = await db.getAllRegisteredGroups();
+      groups = await db.getAllConversationRoutes();
     } catch (err) {
       p.log.error(`Could not read groups from database: ${errorMessage(err)}`);
       return 1;
@@ -291,7 +291,7 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
       mainAgentNameFromSettings(settings),
     );
 
-    const record: RegisteredGroup = {
+    const record: ConversationRoute = {
       name: displayName,
       folder: agentFolder,
       trigger: (parsed.trigger || defaultTrigger).trim() || defaultTrigger,
@@ -304,13 +304,13 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
       if (record.isMain) {
         for (const [jid, group] of Object.entries(groups)) {
           if (!group.isMain) continue;
-          await db.setRegisteredGroup(jid, {
+          await db.setConversationRoute(jid, {
             ...group,
             isMain: false,
           });
         }
       }
-      await db.setRegisteredGroup(normalized, record);
+      await db.setConversationRoute(normalized, record);
       try {
         ensureConfiguredConversationBinding(settings, {
           agentId: agentFolder,
@@ -409,9 +409,9 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
   }
 
   try {
-    let groups: Record<string, RegisteredGroup>;
+    let groups: Record<string, ConversationRoute>;
     try {
-      groups = await db.getAllRegisteredGroups();
+      groups = await db.getAllConversationRoutes();
     } catch (err) {
       p.log.error(`Could not read groups from database: ${errorMessage(err)}`);
       return 1;
@@ -457,7 +457,7 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
     }
 
     try {
-      await db.deleteRegisteredGroup(found.jid);
+      await db.deleteConversationRoute(found.jid);
       await db.deleteSession(found.group.folder);
     } catch (err) {
       p.log.error(`Could not remove agent from database: ${errorMessage(err)}`);
@@ -524,9 +524,9 @@ async function runTrigger(
   }
 
   try {
-    let groups: Record<string, RegisteredGroup>;
+    let groups: Record<string, ConversationRoute>;
     try {
-      groups = await db.getAllRegisteredGroups();
+      groups = await db.getAllConversationRoutes();
     } catch (err) {
       p.log.error(`Could not read groups from database: ${errorMessage(err)}`);
       return 1;
@@ -544,7 +544,7 @@ async function runTrigger(
     }
     const found = resolved.found;
 
-    const nextGroup: RegisteredGroup = {
+    const nextGroup: ConversationRoute = {
       ...found.group,
       requiresTrigger: parsed.disable ? false : true,
       trigger: parsed.disable
@@ -558,7 +558,7 @@ async function runTrigger(
     }
 
     try {
-      await db.setRegisteredGroup(found.jid, nextGroup);
+      await db.setConversationRoute(found.jid, nextGroup);
     } catch (err) {
       p.log.error(`Could not update trigger settings: ${errorMessage(err)}`);
       return 1;
@@ -596,7 +596,7 @@ async function runPolicy(runtimeHome: string, args: string[]): Promise<number> {
   }
 
   try {
-    const groups = await db.getAllRegisteredGroups();
+    const groups = await db.getAllConversationRoutes();
     const selector = parsed.selector || '';
     const resolved = resolveGroupSelector(groups, selector);
     if (resolved.error) {

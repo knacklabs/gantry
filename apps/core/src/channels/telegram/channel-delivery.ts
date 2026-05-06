@@ -1,19 +1,5 @@
-import fs from 'fs';
-import https from 'https';
-import path from 'path';
-
-import { Api, Bot, Context } from 'grammy';
-import { autoRetry } from '@grammyjs/auto-retry';
-import { StreamFlavor, stream, streamApi } from '@grammyjs/stream';
-
-import {
-  ASSISTANT_NAME,
-  PERMISSION_APPROVAL_TIMEOUT_MS,
-  TRIGGER_PATTERN,
-} from '../../config/index.js';
-import { resolveGroupFolderPath } from '../../platform/group-folder.js';
+import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import { ChannelAdapter, ChannelOpts } from '../channel-provider.js';
 import {
   MessageSendOptions,
   PermissionApprovalDecision,
@@ -24,9 +10,6 @@ import {
   UserQuestionResponse,
 } from '../../domain/types.js';
 import { PartialMessageDeliveryError } from '../../runtime/partial-delivery.js';
-import { parseTextStyles } from '../../text-styles.js';
-import { AsyncTaskQueue } from '../../app/bootstrap/async-task-queue.js';
-import { writeTelegramFetchResponseToFile } from '../telegram-file-download.js';
 
 import { TelegramChannelConnect } from './channel-connect.js';
 import {
@@ -363,7 +346,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         }, timeoutMs);
         this.pendingPermissionPrompts.set(request.requestId, {
           callbackId,
-          sourceGroup: request.sourceGroup,
+          sourceAgentFolder: request.sourceAgentFolder,
           decisionPolicy: request.decisionPolicy,
           approvalContextJid: request.approvalContextJid,
           request,
@@ -452,7 +435,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
 
           this.pendingUserQuestions.set(pendingKey, {
             requestId: request.requestId,
-            sourceGroup: request.sourceGroup,
+            sourceAgentFolder: request.sourceAgentFolder,
             questionIndex: i,
             questionHeader: question.header,
             questionText: question.question,

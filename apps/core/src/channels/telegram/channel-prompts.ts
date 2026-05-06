@@ -1,32 +1,14 @@
 import fs from 'fs';
 import { createHash } from 'crypto';
-import https from 'https';
 import path from 'path';
 
-import { Api, Bot, Context } from 'grammy';
-import { autoRetry } from '@grammyjs/auto-retry';
-import { StreamFlavor, stream, streamApi } from '@grammyjs/stream';
-
-import {
-  ASSISTANT_NAME,
-  PERMISSION_APPROVAL_TIMEOUT_MS,
-  TRIGGER_PATTERN,
-} from '../../config/index.js';
 import { resolveGroupFolderPath } from '../../platform/group-folder.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import { ChannelAdapter, ChannelOpts } from '../channel-provider.js';
 import {
-  MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
-  ProgressUpdateOptions,
-  StreamingChunkOptions,
   UserQuestionRequest,
-  UserQuestionResponse,
 } from '../../domain/types.js';
-import { PartialMessageDeliveryError } from '../../runtime/partial-delivery.js';
-import { parseTextStyles } from '../../text-styles.js';
-import { AsyncTaskQueue } from '../../app/bootstrap/async-task-queue.js';
 import { writeTelegramFetchResponseToFile } from '../telegram-file-download.js';
 import {
   formatPermissionPromptText as formatSharedPermissionPromptText,
@@ -39,12 +21,8 @@ const TELEGRAM_POLL_LEASE_HASH_CHARS = 24;
 import {
   PendingUserQuestionState,
   TELEGRAM_INLINE_BUTTON_TEXT_MAX_BYTES,
-  TELEGRAM_USER_QUESTION_CALLBACK_PATTERN,
-  TELEGRAM_PERMISSION_CALLBACK_PATTERN,
-  TELEGRAM_USER_QUESTION_TIMEOUT_MS,
   truncateText,
   truncateUtf8ToByteLimit,
-  telegramThreadOptionsFromString,
 } from './channel-shared.js';
 
 export abstract class TelegramChannelPrompts extends TelegramChannelState {
@@ -102,7 +80,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
     const timeoutMinutes = Math.max(1, Math.round(timeoutMs / 60000));
     const lines = [
       `❓ ${question.header}`,
-      `Source: ${truncateText(request.sourceGroup, 80)}`,
+      `Source: ${truncateText(request.sourceAgentFolder, 80)}`,
     ];
     if (request.threadId) {
       lines.push(`Thread: ${truncateText(request.threadId, 80)}`);
@@ -184,12 +162,12 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
   protected async isTelegramApproverAuthorized(
     chatId: string,
     userId: string,
-    sourceGroup: string,
+    sourceAgentFolder: string,
     decisionPolicy?: PermissionApprovalRequest['decisionPolicy'],
   ): Promise<boolean> {
     if (decisionPolicy && decisionPolicy !== 'same_channel') {
       logger.warn(
-        { chatId, userId, sourceGroup, decisionPolicy },
+        { chatId, userId, sourceAgentFolder, decisionPolicy },
         'Permission decision denied: unsupported Telegram decision policy',
       );
       return false;
@@ -200,14 +178,14 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
         providerId: 'telegram',
         conversationJid,
         userId,
-        sourceGroup,
+        sourceAgentFolder,
         decisionPolicy,
       });
     }
     const settings = this.opts.runtimeSettings?.();
     const binding = settings
       ? Object.values(settings.bindings || {}).find(
-          (entry) => entry.agent === sourceGroup,
+          (entry) => entry.agent === sourceAgentFolder,
         )
       : undefined;
     const conversation = binding
@@ -217,7 +195,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
 
     if (allowedIds.length === 0) {
       logger.warn(
-        { chatId, userId, sourceGroup },
+        { chatId, userId, sourceAgentFolder },
         'Permission decision denied: Telegram control_allowlist is empty',
       );
       return false;

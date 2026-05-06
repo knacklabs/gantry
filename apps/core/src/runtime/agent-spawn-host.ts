@@ -10,7 +10,7 @@ import { resolveExternalCredentialBaseUrl } from '../config/credentials/broker-u
 import { getAgentCredentialInjection } from '../application/credentials/agent-credential-service.js';
 import { createAgentCredentialBroker } from '../adapters/credentials/agent-credential-broker-factory.js';
 import { createExternalAgentCredentialInjection } from '../adapters/llm/external-credential-injection.js';
-import { RegisteredGroup } from '../domain/types.js';
+import { ConversationRoute } from '../domain/types.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 import type {
   AgentCredentialPurpose,
@@ -98,7 +98,7 @@ async function resolveOnecliBroker(
 }
 
 export function prepareHostRuntimeContext(
-  group: RegisteredGroup,
+  group: ConversationRoute,
 ): HostRuntimeContext {
   const groupDir = resolveGroupFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });

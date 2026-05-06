@@ -39,7 +39,6 @@ export function writeLaunchdPlist(
 ): void {
   const target = launchdPlistPath();
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  const uid = process.getuid?.() || 0;
   const servicePath = buildServicePath(os.homedir());
   const command = `${shellQuote(process.execPath)} ${shellQuote(runtimeEntry)}`;
   const plist = `<?xml version="1.0" encoding="UTF-8"?>

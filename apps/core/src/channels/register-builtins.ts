@@ -107,6 +107,7 @@ const slackProvider: Provider = {
 const teamsProvider: Provider = {
   id: 'teams',
   label: 'Teams',
+  controlCapabilityFlags: ['setup', 'discover', 'runtime-placeholder'],
   jidPrefix: 'teams:',
   folderPrefix: 'teams_',
   isGroupJid: (jid: string) => jid.startsWith('teams:'),

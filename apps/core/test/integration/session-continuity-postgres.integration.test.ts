@@ -69,7 +69,7 @@ maybeDescribe('Postgres memory continuity', () => {
   it('uses active conversation binding agent identity for turn context', async () => {
     const chatJid = 'tg:bound-skill-agent';
 
-    await runtime.ops.setRegisteredGroup(chatJid, {
+    await runtime.ops.setConversationRoute(chatJid, {
       name: 'Bound Skill Agent',
       folder: 'bound_skill_agent',
       trigger: '@Andy',

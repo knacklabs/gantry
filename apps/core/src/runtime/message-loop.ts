@@ -12,9 +12,9 @@ import { logger } from '../infrastructure/logging/logger.js';
 import {
   NewMessage,
   ProgressUpdateOptions,
-  RegisteredGroup,
+  ConversationRoute,
 } from '../domain/types.js';
-import type { OpsRepository } from '../domain/repositories/ops-repo.js';
+import type { RuntimeMessageRepository } from '../domain/repositories/ops-repo.js';
 import { formatMessages } from '../messaging/router.js';
 import {
   isSenderControlAllowed,
@@ -34,7 +34,7 @@ import {
 } from './thread-queue-key.js';
 
 export interface MessageLoopDeps {
-  getRegisteredGroups: () => Record<string, RegisteredGroup>;
+  getConversationRoutes: () => Record<string, ConversationRoute>;
   getLastTimestamp: () => string;
   setLastTimestamp: (timestamp: string) => void;
   getOrRecoverCursor: (chatJid: string) => Promise<string> | string;
@@ -60,16 +60,18 @@ export interface MessageLoopDeps {
   handleActiveControlCommand?: (args: {
     chatJid: string;
     queueJid: string;
-    group: RegisteredGroup;
+    group: ConversationRoute;
     message: NewMessage;
     command: SessionCommand;
   }) => Promise<boolean> | boolean;
-  opsRepository?: OpsRepository;
+  opsRepository?: RuntimeMessageRepository;
 }
 
-function resolveOpsRepository(deps: MessageLoopDeps): OpsRepository {
+function resolveMessageRepository(
+  deps: MessageLoopDeps,
+): RuntimeMessageRepository {
   if (!deps.opsRepository) {
-    throw new Error('Message loop requires an OpsRepository');
+    throw new Error('Message loop requires a runtime message repository');
   }
   return deps.opsRepository;
 }
@@ -84,9 +86,9 @@ export async function runMessagePollingTick(
   deps: MessageLoopDeps,
 ): Promise<void> {
   try {
-    const opsRepository = resolveOpsRepository(deps);
-    const registeredGroups = deps.getRegisteredGroups();
-    const jids = Object.keys(registeredGroups);
+    const opsRepository = resolveMessageRepository(deps);
+    const conversationRoutes = deps.getConversationRoutes();
+    const jids = Object.keys(conversationRoutes);
     const lastTimestamp = deps.getLastTimestamp();
     const { messages, newTimestamp } = await opsRepository.getNewMessages(
       jids,
@@ -118,7 +120,7 @@ export async function runMessagePollingTick(
 
       for (const [queueJid, groupMessages] of messagesByGroup) {
         const { chatJid, threadId } = parseThreadQueueKey(queueJid);
-        const group = registeredGroups[chatJid];
+        const group = conversationRoutes[chatJid];
         if (!group) continue;
 
         if (!deps.hasChannel(chatJid)) {
@@ -286,8 +288,8 @@ export async function startMessagePollingLoop(
 export async function recoverPendingMessages(
   deps: MessageLoopDeps,
 ): Promise<void> {
-  const opsRepository = resolveOpsRepository(deps);
-  for (const [chatJid, group] of Object.entries(deps.getRegisteredGroups())) {
+  const opsRepository = resolveMessageRepository(deps);
+  for (const [chatJid, group] of Object.entries(deps.getConversationRoutes())) {
     const queuedThreads = new Set<string>();
     let pendingCount = 0;
 

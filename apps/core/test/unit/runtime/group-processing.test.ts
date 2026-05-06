@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { ChildProcess } from 'child_process';
-import type { NewMessage, RegisteredGroup } from '@core/domain/types.js';
+import type { NewMessage, ConversationRoute } from '@core/domain/types.js';
 import {
   decodeGroupMessageCursor,
   encodeGroupMessageCursor,
@@ -107,7 +107,9 @@ function makeMessage(overrides: Partial<NewMessage> = {}): NewMessage {
   };
 }
 
-function makeGroup(overrides: Partial<RegisteredGroup> = {}): RegisteredGroup {
+function makeGroup(
+  overrides: Partial<ConversationRoute> = {},
+): ConversationRoute {
   return {
     name: 'TestGroup',
     folder: 'test-group',
@@ -203,7 +205,7 @@ function makeDeps(
  */
 function setupHappyPath(
   opts: {
-    group?: RegisteredGroup;
+    group?: ConversationRoute;
     messages?: NewMessage[];
     agentOutput?: AgentOutput;
   } = {},
@@ -243,7 +245,7 @@ function setupHappyPath(
   // spawnAgent: by default calls onOutput with a successful result then returns it
   mockSpawnAgent.mockImplementation(
     async (
-      _group: RegisteredGroup,
+      _group: ConversationRoute,
       _input: unknown,
       _onProc: unknown,
       onOutput?: (output: AgentOutput) => Promise<void>,
@@ -547,7 +549,7 @@ describe('createGroupProcessor', () => {
       const { deps } = setupHappyPath();
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _prompt: string,
           _chatJid: string,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -578,7 +580,7 @@ describe('createGroupProcessor', () => {
       deps.channelRuntime = channel;
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           _onProc: unknown,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -618,7 +620,7 @@ describe('createGroupProcessor', () => {
       deps.channelRuntime = channel;
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           _onProc: unknown,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -688,7 +690,7 @@ describe('createGroupProcessor', () => {
       };
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           _onProc: unknown,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -723,7 +725,7 @@ describe('createGroupProcessor', () => {
       // Simulate: first call has result text, second call signals error
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           _onProc: unknown,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -885,7 +887,7 @@ describe('createGroupProcessor', () => {
         group.folder,
         'new-sess-123',
         null,
-        { chatJid: 'group1@g.us' },
+        { conversationJid: 'group1@g.us' },
       );
     });
 
@@ -904,7 +906,7 @@ describe('createGroupProcessor', () => {
 
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           _onProc: unknown,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -929,7 +931,7 @@ describe('createGroupProcessor', () => {
         group.folder,
         'streamed-sess',
         null,
-        { chatJid: 'group1@g.us' },
+        { conversationJid: 'group1@g.us' },
       );
 
       releaseRunner.resolve({ status: 'success', result: 'text' });
@@ -958,7 +960,7 @@ describe('createGroupProcessor', () => {
       // Make spawnAgent call onOutput then wait, so the idle timer can fire
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           _onProc: unknown,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -989,7 +991,7 @@ describe('createGroupProcessor', () => {
       };
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           _onProc: unknown,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -1021,7 +1023,7 @@ describe('createGroupProcessor', () => {
 
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           _onProc: unknown,
           _onOutput?: (output: AgentOutput) => Promise<void>,
@@ -1075,7 +1077,7 @@ describe('createGroupProcessor', () => {
 
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           _onProc: unknown,
           _onOutput?: (output: AgentOutput) => Promise<void>,
@@ -1116,7 +1118,7 @@ describe('createGroupProcessor', () => {
 
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           _onProc: unknown,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -1159,7 +1161,7 @@ describe('createGroupProcessor', () => {
 
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           _onProc: unknown,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -1219,7 +1221,7 @@ describe('createGroupProcessor', () => {
 
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           _onProc: unknown,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -1254,7 +1256,7 @@ describe('createGroupProcessor', () => {
 
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           _onProc: unknown,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -1334,7 +1336,7 @@ describe('createGroupProcessor', () => {
 
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           _onProc: unknown,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -1498,7 +1500,7 @@ describe('createGroupProcessor', () => {
       const mockProc = {} as ChildProcess;
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           onProc: (proc: ChildProcess, containerName: string) => void,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -1633,7 +1635,7 @@ describe('createGroupProcessor', () => {
       const mockProc = {} as ChildProcess;
       mockSpawnAgent.mockImplementation(
         async (
-          _group: RegisteredGroup,
+          _group: ConversationRoute,
           _input: unknown,
           onProc: (proc: ChildProcess, containerName: string) => void,
           onOutput?: (output: AgentOutput) => Promise<void>,
@@ -1706,7 +1708,7 @@ describe('createGroupProcessor', () => {
      */
     async function captureSessionDeps(
       opts: {
-        group?: RegisteredGroup;
+        group?: ConversationRoute;
         messages?: NewMessage[];
         queueJid?: string;
       } = {},
@@ -2251,7 +2253,7 @@ describe('createGroupProcessor', () => {
         group.folder,
         'session-42',
         null,
-        { chatJid: 'group1@g.us' },
+        { conversationJid: 'group1@g.us' },
       );
     });
   });

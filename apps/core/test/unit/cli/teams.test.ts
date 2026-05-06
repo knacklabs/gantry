@@ -15,7 +15,7 @@ const groupsStore = vi.hoisted(() => new Map<string, any>());
 
 vi.mock('@core/cli/runtime-group-db.js', () => ({
   openRuntimeGroupDb: async () => ({
-    countRegisteredGroupsByJidPrefix: async (jidPrefix: string) => {
+    countConversationRoutesByJidPrefix: async (jidPrefix: string) => {
       const normalized = jidPrefix.endsWith('%')
         ? jidPrefix.slice(0, -1)
         : jidPrefix;
@@ -23,12 +23,12 @@ vi.mock('@core/cli/runtime-group-db.js', () => ({
         jid.startsWith(normalized),
       ).length;
     },
-    getAllRegisteredGroups: async () =>
+    getAllConversationRoutes: async () =>
       Object.fromEntries(groupsStore.entries()),
-    setRegisteredGroup: async (jid: string, group: any) => {
+    setConversationRoute: async (jid: string, group: any) => {
       groupsStore.set(jid, group);
     },
-    deleteRegisteredGroup: async (jid: string) => {
+    deleteConversationRoute: async (jid: string) => {
       groupsStore.delete(jid);
     },
     deleteSession: async () => {},

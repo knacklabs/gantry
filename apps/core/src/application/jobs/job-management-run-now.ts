@@ -74,7 +74,7 @@ export async function runSchedulerJobNowFromMcp(
     jobId: job.id,
     requestedBy: JSON.stringify({
       kind: 'mcp',
-      sourceGroup: input.access.sourceGroup,
+      sourceAgentFolder: input.access.sourceAgentFolder,
       conversationJid: input.access.originConversationJid,
     }),
   });

@@ -9,7 +9,7 @@ import {
   resolveLinkedSessions,
   validateSchedulerUpdate,
 } from '@core/application/jobs/job-management-access.js';
-import type { OpsRepository } from '@core/domain/repositories/ops-repo.js';
+import type { RuntimeJobRepository } from '@core/domain/repositories/ops-repo.js';
 import type { Job, JobEvent, JobRun } from '@core/domain/types.js';
 import { runtimeJobSchedulePlanner } from '@core/jobs/job-schedule-planner.js';
 
@@ -49,7 +49,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
 
 function makeOps(
   job: Job | undefined,
-): Pick<OpsRepository, 'getJobById' | 'updateJob'> {
+): Pick<RuntimeJobRepository, 'getJobById' | 'updateJob'> {
   let current = job;
   return {
     getJobById: vi.fn(async () => current),
@@ -97,7 +97,7 @@ describe('job application use cases', () => {
     const ops = makeOps(makeJob());
     const scheduler = { requestSchedulerSync: vi.fn() };
     const service = new JobManagementService({
-      ops: ops as OpsRepository,
+      ops: ops as RuntimeJobRepository,
       scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
@@ -140,7 +140,7 @@ describe('job application use cases', () => {
     const ops = makeOps(makeJob());
     const scheduler = { requestSchedulerSync: vi.fn() };
     const service = new JobManagementService({
-      ops: ops as OpsRepository,
+      ops: ops as RuntimeJobRepository,
       scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
@@ -179,7 +179,7 @@ describe('job application use cases', () => {
     );
     const scheduler = { requestSchedulerSync: vi.fn() };
     const service = new JobManagementService({
-      ops: ops as OpsRepository,
+      ops: ops as RuntimeJobRepository,
       scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
@@ -203,7 +203,7 @@ describe('job application use cases', () => {
     const ops = makeOps(makeJob());
     const scheduler = { requestSchedulerSync: vi.fn() };
     const service = new JobManagementService({
-      ops: ops as OpsRepository,
+      ops: ops as RuntimeJobRepository,
       scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
@@ -239,7 +239,7 @@ describe('job application use cases', () => {
     );
     const scheduler = { requestSchedulerSync: vi.fn() };
     const service = new JobManagementService({
-      ops: ops as OpsRepository,
+      ops: ops as RuntimeJobRepository,
       scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
@@ -267,7 +267,7 @@ describe('job application use cases', () => {
       }),
     );
     const service = new JobManagementService({
-      ops: ops as OpsRepository,
+      ops: ops as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
@@ -295,7 +295,7 @@ describe('job application use cases', () => {
       }),
     );
     const service = new JobManagementService({
-      ops: ops as OpsRepository,
+      ops: ops as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
@@ -328,7 +328,7 @@ describe('job application use cases', () => {
     const ops = makeOps(makeJob());
     const scheduler = { requestSchedulerSync: vi.fn() };
     const service = new JobManagementService({
-      ops: ops as OpsRepository,
+      ops: ops as RuntimeJobRepository,
       scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
     });
@@ -347,7 +347,7 @@ describe('job application use cases', () => {
   it('rejects cross-app job access', async () => {
     const ops = makeOps(makeJob());
     const service = new JobManagementService({
-      ops: ops as OpsRepository,
+      ops: ops as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
     });
@@ -360,7 +360,7 @@ describe('job application use cases', () => {
 
   it('enforces scheduler access by source group and originating conversation', () => {
     const access = {
-      sourceGroup: 'team',
+      sourceAgentFolder: 'team',
       originConversationJid: 'tg:team',
       isMain: false,
       conversationBindings: {
@@ -368,7 +368,7 @@ describe('job application use cases', () => {
         'tg:sibling': { folder: 'team' },
         'tg:other': { folder: 'other' },
       },
-      sourceGroupJids: ['tg:team', 'tg:sibling'],
+      sourceAgentFolderJids: ['tg:team', 'tg:sibling'],
       authThreadId: 'thread-1',
     };
 
@@ -448,7 +448,7 @@ describe('job application use cases', () => {
 
   it('validates scheduler linked sessions and thread mutations', () => {
     const access = {
-      sourceGroup: 'team',
+      sourceAgentFolder: 'team',
       originConversationJid: 'tg:team',
       isMain: false,
       conversationBindings: {
@@ -456,7 +456,7 @@ describe('job application use cases', () => {
         'tg:sibling': { folder: 'team' },
         'tg:other': { folder: 'other' },
       },
-      sourceGroupJids: ['tg:team', 'tg:sibling'],
+      sourceAgentFolderJids: ['tg:team', 'tg:sibling'],
       authThreadId: 'thread-1',
     };
 
@@ -516,7 +516,7 @@ describe('job application use cases', () => {
       listJobs: vi.fn(async () => [makeJob({ id: 'job-1' })]),
     };
     const service = new JobManagementService({
-      ops: ops as unknown as OpsRepository,
+      ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
     });
@@ -549,21 +549,21 @@ describe('job application use cases', () => {
       listJobs: vi.fn(async () => []),
     };
     const service = new JobManagementService({
-      ops: ops as unknown as OpsRepository,
+      ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
     });
 
     await service.listJobs({
       access: {
-        sourceGroup: 'team',
+        sourceAgentFolder: 'team',
         originConversationJid: 'tg:team',
         isMain: false,
         conversationBindings: {
           'tg:team': { folder: 'team' },
           'tg:other': { folder: 'other' },
         },
-        sourceGroupJids: ['tg:team'],
+        sourceAgentFolderJids: ['tg:team'],
       },
     });
 
@@ -582,7 +582,7 @@ describe('job application use cases', () => {
       upsertJob: vi.fn(),
     };
     const service = new JobManagementService({
-      ops: ops as unknown as OpsRepository,
+      ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
     });
@@ -590,11 +590,11 @@ describe('job application use cases', () => {
     await expect(
       service.upsertJobFromIpc({
         access: {
-          sourceGroup: 'team',
+          sourceAgentFolder: 'team',
           originConversationJid: 'tg:team',
           isMain: true,
           conversationBindings: {},
-          sourceGroupJids: ['tg:team'],
+          sourceAgentFolderJids: ['tg:team'],
         },
         name: 'Bad schedule',
         prompt: 'Run',
@@ -611,7 +611,7 @@ describe('job application use cases', () => {
       upsertJob: vi.fn(),
     };
     const service = new JobManagementService({
-      ops: ops as unknown as OpsRepository,
+      ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
     });
@@ -619,11 +619,11 @@ describe('job application use cases', () => {
     await expect(
       service.upsertJobFromIpc({
         access: {
-          sourceGroup: 'team',
+          sourceAgentFolder: 'team',
           originConversationJid: 'tg:team',
           isMain: true,
           conversationBindings: {},
-          sourceGroupJids: ['tg:team'],
+          sourceAgentFolderJids: ['tg:team'],
         },
         name: 'Ambiguous model',
         prompt: 'Run',
@@ -645,7 +645,7 @@ describe('job application use cases', () => {
       upsertJob: vi.fn(),
     };
     const service = new JobManagementService({
-      ops: ops as unknown as OpsRepository,
+      ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
     });
@@ -653,13 +653,13 @@ describe('job application use cases', () => {
     await expect(
       service.upsertJobFromIpc({
         access: {
-          sourceGroup: 'team',
+          sourceAgentFolder: 'team',
           originConversationJid: 'tg:team',
           isMain: false,
           conversationBindings: {
             'tg:team': { folder: 'team' },
           },
-          sourceGroupJids: ['tg:team'],
+          sourceAgentFolderJids: ['tg:team'],
         },
         name: 'Spoofed thread',
         prompt: 'Run',
@@ -684,7 +684,7 @@ describe('job application use cases', () => {
       createJobTrigger: vi.fn(),
     };
     const service = new JobManagementService({
-      ops: makeOps(makeJob()) as OpsRepository,
+      ops: makeOps(makeJob()) as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
       control: control as never,
@@ -737,7 +737,7 @@ describe('job application use cases', () => {
         makeJob({
           linked_sessions: ['telegram:chat', 'app:app-one:conv-1'],
         }),
-      ) as OpsRepository,
+      ) as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
       control: control as never,
@@ -785,7 +785,7 @@ describe('job application use cases', () => {
       }),
     );
     const service = new JobManagementService({
-      ops: ops as OpsRepository,
+      ops: ops as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
       control: control as never,
@@ -844,7 +844,7 @@ describe('job application use cases', () => {
       listRecentJobEvents: vi.fn(async () => [event]),
     };
     const service = new JobManagementService({
-      ops: ops as unknown as OpsRepository,
+      ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
     });
@@ -874,13 +874,13 @@ describe('job application use cases', () => {
 
   it('does not query persisted run or event rows for missing scoped job ids', async () => {
     const access = {
-      sourceGroup: 'team',
+      sourceAgentFolder: 'team',
       originConversationJid: 'tg:team',
       isMain: false,
       conversationBindings: {
         'tg:team': { folder: 'team' },
       },
-      sourceGroupJids: ['tg:team'],
+      sourceAgentFolderJids: ['tg:team'],
     };
     const leakedRun: JobRun = {
       run_id: 'run-leaked',
@@ -908,7 +908,7 @@ describe('job application use cases', () => {
       listRecentJobEvents: vi.fn(async () => [leakedEvent]),
     };
     const service = new JobManagementService({
-      ops: ops as unknown as OpsRepository,
+      ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
     });
@@ -927,14 +927,14 @@ describe('job application use cases', () => {
 
   it('rejects inaccessible scoped run and event reads before querying persisted rows', async () => {
     const access = {
-      sourceGroup: 'team',
+      sourceAgentFolder: 'team',
       originConversationJid: 'tg:team',
       isMain: false,
       conversationBindings: {
         'tg:team': { folder: 'team' },
         'tg:other': { folder: 'other' },
       },
-      sourceGroupJids: ['tg:team'],
+      sourceAgentFolderJids: ['tg:team'],
     };
     const ops = {
       getJobById: vi.fn(async () =>
@@ -948,7 +948,7 @@ describe('job application use cases', () => {
       listRecentJobEvents: vi.fn(async () => []),
     };
     const service = new JobManagementService({
-      ops: ops as unknown as OpsRepository,
+      ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
     });
@@ -967,14 +967,14 @@ describe('job application use cases', () => {
 
   it('rejects scoped run reads when the originating conversation is not linked', async () => {
     const access = {
-      sourceGroup: 'team',
+      sourceAgentFolder: 'team',
       originConversationJid: 'tg:team',
       isMain: false,
       conversationBindings: {
         'tg:team': { folder: 'team' },
         'tg:sibling': { folder: 'team' },
       },
-      sourceGroupJids: ['tg:team', 'tg:sibling'],
+      sourceAgentFolderJids: ['tg:team', 'tg:sibling'],
     };
     const ops = {
       getJobById: vi.fn(async () =>
@@ -988,7 +988,7 @@ describe('job application use cases', () => {
       listRecentJobEvents: vi.fn(async () => []),
     };
     const service = new JobManagementService({
-      ops: ops as unknown as OpsRepository,
+      ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
     });
@@ -1006,13 +1006,13 @@ describe('job application use cases', () => {
 
   it('derives visible MCP job ids before listing runs, events, and dead letters', async () => {
     const access = {
-      sourceGroup: 'team',
+      sourceAgentFolder: 'team',
       originConversationJid: 'tg:team',
       isMain: false,
       conversationBindings: {
         'tg:team': { folder: 'team' },
       },
-      sourceGroupJids: ['tg:team'],
+      sourceAgentFolderJids: ['tg:team'],
     };
     const run: JobRun = {
       run_id: 'run-1',
@@ -1046,7 +1046,7 @@ describe('job application use cases', () => {
       listDeadLetterRuns: vi.fn(async () => [run]),
     };
     const service = new JobManagementService({
-      ops: ops as unknown as OpsRepository,
+      ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
     });
@@ -1104,7 +1104,7 @@ describe('job application use cases', () => {
           schedule_type: 'cron',
           schedule_value: '0 9 * * *',
         }),
-      ) as OpsRepository,
+      ) as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
       control: control as never,
@@ -1117,13 +1117,13 @@ describe('job application use cases', () => {
         jobId: 'job-1',
         runId: 'run-1',
         access: {
-          sourceGroup: 'team',
+          sourceAgentFolder: 'team',
           originConversationJid: 'tg:team',
           isMain: false,
           conversationBindings: {
             'tg:team': { folder: 'team' },
           },
-          sourceGroupJids: ['tg:team'],
+          sourceAgentFolderJids: ['tg:team'],
         },
       }),
     ).resolves.toEqual({
@@ -1136,7 +1136,7 @@ describe('job application use cases', () => {
       jobId: 'job-1',
       requestedBy: JSON.stringify({
         kind: 'mcp',
-        sourceGroup: 'team',
+        sourceAgentFolder: 'team',
         conversationJid: 'tg:team',
       }),
     });
@@ -1172,7 +1172,7 @@ describe('job application use cases', () => {
           group_scope: 'team',
           linked_sessions: ['tg:team'],
         }),
-      ) as OpsRepository,
+      ) as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
       control: control as never,
@@ -1185,13 +1185,13 @@ describe('job application use cases', () => {
         jobId: 'job-1',
         runId: 'run-1',
         access: {
-          sourceGroup: 'team',
+          sourceAgentFolder: 'team',
           originConversationJid: 'tg:team',
           isMain: false,
           conversationBindings: {
             'tg:team': { folder: 'team' },
           },
-          sourceGroupJids: ['tg:team'],
+          sourceAgentFolderJids: ['tg:team'],
         },
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
@@ -1217,7 +1217,7 @@ describe('job application use cases', () => {
           group_scope: 'team',
           linked_sessions: ['tg:team'],
         }),
-      ) as OpsRepository,
+      ) as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
       control: control as never,
@@ -1230,13 +1230,13 @@ describe('job application use cases', () => {
         jobId: 'job-1',
         runId: 'run-1',
         access: {
-          sourceGroup: 'team',
+          sourceAgentFolder: 'team',
           originConversationJid: 'tg:team',
           isMain: false,
           conversationBindings: {
             'tg:team': { folder: 'team' },
           },
-          sourceGroupJids: ['tg:team'],
+          sourceAgentFolderJids: ['tg:team'],
         },
       }),
     ).rejects.toMatchObject({
@@ -1293,7 +1293,7 @@ describe('job application use cases', () => {
       })),
     };
     const service = new JobManagementService({
-      ops: ops as unknown as OpsRepository,
+      ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
       control: control as never,
@@ -1323,7 +1323,7 @@ describe('job application use cases', () => {
     const ops = makeOps(makeJob());
     const approveJobExtraTools = vi.fn(async () => ({ approved: true }));
     const service = new JobManagementService({
-      ops: ops as OpsRepository,
+      ops: ops as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
       toolRepository: {
@@ -1358,7 +1358,7 @@ describe('job application use cases', () => {
     };
     const approveJobExtraTools = vi.fn(async () => ({ approved: true }));
     const service = new JobManagementService({
-      ops: ops as unknown as OpsRepository,
+      ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
       toolRepository: {
@@ -1369,13 +1369,13 @@ describe('job application use cases', () => {
 
     await service.upsertJobFromIpc({
       access: {
-        sourceGroup: 'app-folder',
+        sourceAgentFolder: 'app-folder',
         originConversationJid: 'app:app-one:conv-1',
         isMain: true,
         conversationBindings: {
           'app:app-one:conv-1': { folder: 'app-folder' },
         },
-        sourceGroupJids: ['app:app-one:conv-1'],
+        sourceAgentFolderJids: ['app:app-one:conv-1'],
       },
       jobId: 'job-1',
       name: 'Job',
@@ -1400,7 +1400,7 @@ describe('job application use cases', () => {
       reason: 'no',
     }));
     const service = new JobManagementService({
-      ops: ops as OpsRepository,
+      ops: ops as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
       toolRepository: {
@@ -1434,7 +1434,7 @@ describe('job application use cases', () => {
   it('fails closed when extra tools need approval but no approval port is configured', async () => {
     const ops = makeOps(makeJob({ capability_policy: { allowed_tools: [] } }));
     const service = new JobManagementService({
-      ops: ops as OpsRepository,
+      ops: ops as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
       toolRepository: {
@@ -1456,7 +1456,7 @@ describe('job application use cases', () => {
   it('rejects broad MyClaw MCP wildcards for non-main job extras', async () => {
     const ops = makeOps(makeJob({ capability_policy: { allowed_tools: [] } }));
     const service = new JobManagementService({
-      ops: ops as OpsRepository,
+      ops: ops as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
     });
@@ -1464,13 +1464,13 @@ describe('job application use cases', () => {
     await expect(
       service.updateJob({
         access: {
-          sourceGroup: 'app-folder',
+          sourceAgentFolder: 'app-folder',
           originConversationJid: 'app:app-one:conv-1',
           isMain: false,
           conversationBindings: {
             'app:app-one:conv-1': { folder: 'app-folder' },
           },
-          sourceGroupJids: ['app:app-one:conv-1'],
+          sourceAgentFolderJids: ['app:app-one:conv-1'],
         },
         jobId: 'job-1',
         patch: { allowedTools: ['mcp__myclaw__*'] },

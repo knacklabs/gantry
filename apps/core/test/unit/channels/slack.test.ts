@@ -13,11 +13,11 @@ vi.mock('@core/config/index.js', () => ({
   PERMISSION_APPROVAL_TIMEOUT_MS: 300000,
   getSlackBotToken: () => process.env.SLACK_BOT_TOKEN || '',
   getSlackAppToken: () => process.env.SLACK_APP_TOKEN || '',
-  getSlackPermissionApproverIds: (sourceGroup?: string) => {
+  getSlackPermissionApproverIds: (sourceAgentFolder?: string) => {
     const allowlist = currentControlAllowlist.current;
     const scoped =
-      sourceGroup && allowlist.agents[sourceGroup] !== undefined
-        ? allowlist.agents[sourceGroup]
+      sourceAgentFolder && allowlist.agents[sourceAgentFolder] !== undefined
+        ? allowlist.agents[sourceAgentFolder]
         : allowlist.default;
     return new Set(scoped);
   },
@@ -125,7 +125,7 @@ function createOpts(
   return {
     onMessage: vi.fn(),
     onChatMetadata: vi.fn(),
-    registeredGroups: vi.fn(() => ({})),
+    conversationRoutes: vi.fn(() => ({})),
     runtimeSettings: vi.fn(() => ({
       providers: {
         slack: { enabled: true },
@@ -268,7 +268,7 @@ describe('Slack channel', () => {
 
   it('delivers Slack messages for registered conversations', async () => {
     const opts = createOpts();
-    opts.registeredGroups.mockReturnValue({
+    opts.conversationRoutes.mockReturnValue({
       'sl:C123': { folder: 'slack_ops', name: 'Ops' },
     });
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
@@ -439,7 +439,7 @@ describe('Slack channel', () => {
       'sl:C1234567890',
       {
         requestId: 'perm-cmd',
-        sourceGroup: 'slack_main',
+        sourceAgentFolder: 'slack_main',
         threadId: '1711111111.000100',
         toolName: 'Bash',
         toolInput: {
@@ -483,7 +483,7 @@ describe('Slack channel', () => {
       'sl:C1234567890',
       {
         requestId: 'perm-no-approver',
-        sourceGroup: 'slack_main',
+        sourceAgentFolder: 'slack_main',
         decisionPolicy: 'same_channel',
         toolName: 'Bash',
       },
@@ -520,6 +520,54 @@ describe('Slack channel', () => {
     );
   });
 
+  it('sends unauthorized Slack permission feedback to the callback channel', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    const approvalPromise = channel.requestPermissionApproval(
+      'sl:C1234567890',
+      {
+        requestId: 'perm-origin-feedback',
+        sourceAgentFolder: 'slack_main',
+        toolName: 'Bash',
+      },
+    );
+
+    const actionHandler = appRef.current.actionHandlers.get(
+      'myclaw_perm_decision',
+    );
+    await actionHandler?.({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        channel: { id: 'C9999999999' },
+        user: { id: 'U_ANY', name: 'Any User' },
+      },
+      action: {
+        value: JSON.stringify({
+          requestId: 'perm-origin-feedback',
+          decision: 'approve',
+        }),
+      },
+    });
+
+    expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C9999999999',
+        user: 'U_ANY',
+        text: 'You are not allowed to decide this permission request.',
+      }),
+    );
+
+    await channel.disconnect();
+    await expect(approvalPromise).resolves.toEqual(
+      expect.objectContaining({ approved: false }),
+    );
+  });
+
   it('authorizes Slack permission decisions through conversation approver hook', async () => {
     const isControlApproverAllowed = vi.fn(async () => true);
     const channel = new SlackChannel('xoxb-token', 'xapp-token', {
@@ -532,7 +580,7 @@ describe('Slack channel', () => {
       'sl:C1234567890',
       {
         requestId: 'perm-channel-allowlist',
-        sourceGroup: 'slack_main',
+        sourceAgentFolder: 'slack_main',
         decisionPolicy: 'same_channel',
         toolName: 'Bash',
       },
@@ -588,7 +636,7 @@ describe('Slack channel', () => {
       'sl:C1234567890',
       {
         requestId: 'perm-agent-scope',
-        sourceGroup: 'agent_two',
+        sourceAgentFolder: 'agent_two',
         toolName: 'Bash',
       },
     );
@@ -635,7 +683,7 @@ describe('Slack channel', () => {
       'sl:C1234567890',
       {
         requestId: 'perm-revoked',
-        sourceGroup: 'slack_main',
+        sourceAgentFolder: 'slack_main',
         toolName: 'Bash',
       },
     );
@@ -679,7 +727,7 @@ describe('Slack channel', () => {
 
     const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
       requestId: 'userq-1',
-      sourceGroup: 'slack_main',
+      sourceAgentFolder: 'slack_main',
       threadId: '1711111111.000200',
       questions: [
         {
@@ -738,7 +786,7 @@ describe('Slack channel', () => {
 
     const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
       requestId: 'userq-auth-1',
-      sourceGroup: 'slack_main',
+      sourceAgentFolder: 'slack_main',
       questions: [
         {
           header: 'Pick one',
@@ -810,7 +858,7 @@ describe('Slack channel', () => {
 
     const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
       requestId: 'userq-2',
-      sourceGroup: 'slack_main',
+      sourceAgentFolder: 'slack_main',
       questions: [
         {
           header: 'Pick many',
@@ -890,7 +938,7 @@ describe('Slack channel', () => {
 
     const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
       requestId: 'userq-timeout',
-      sourceGroup: 'slack_main',
+      sourceAgentFolder: 'slack_main',
       questions: [
         {
           header: 'Timeout',
@@ -920,7 +968,7 @@ describe('Slack channel', () => {
 
     const answerPromise = channel.requestUserAnswer('sl:C1234567890', {
       requestId: 'userq-disconnect',
-      sourceGroup: 'slack_main',
+      sourceAgentFolder: 'slack_main',
       questions: [
         {
           header: 'Disconnect',
@@ -1156,7 +1204,7 @@ describe('Slack channel', () => {
       'sl:C1234567890',
       {
         requestId: 'req-1',
-        sourceGroup: 'test',
+        sourceAgentFolder: 'test',
         toolName: 'shell',
       },
     );

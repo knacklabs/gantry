@@ -44,7 +44,7 @@ export interface MemoryRepository {
   ): Promise<MemoryItem>;
   findItemByKey(input: {
     scope: MemoryScope;
-    groupFolder: string;
+    agentFolder: string;
     key: string;
     userId?: string | null;
     topicId?: string | null;
@@ -97,11 +97,11 @@ export interface MemoryRepository {
   ): Promise<void>;
   findSimilarItems(input: {
     embedding: number[];
-    groupFolder: string;
+    agentFolder: string;
     limit?: number;
     threshold?: number;
   }): Promise<SimilarMemoryItemMatch[]>;
-  listActiveItems(groupFolder: string, limit?: number): Promise<MemoryItem[]>;
+  listActiveItems(agentFolder: string, limit?: number): Promise<MemoryItem[]>;
   softDeleteItem(id: string, supersededBy?: string | null): Promise<void>;
   incrementRetrievalCount(ids: string[]): Promise<void>;
   recordRetrievalSignal(
@@ -110,10 +110,10 @@ export interface MemoryRepository {
   ): Promise<void>;
   bumpConfidence(ids: string[], delta: number): Promise<void>;
   adjustConfidence(ids: string[], delta: number): Promise<void>;
-  decayUnusedConfidence(groupFolder: string, delta: number): Promise<number>;
-  countReflectionsSinceLastUsageDecay(groupFolder: string): Promise<number>;
-  recordUsageDecayRun(groupFolder: string): Promise<void>;
-  listTopItems(groupFolder: string, limit?: number): Promise<MemoryItem[]>;
+  decayUnusedConfidence(agentFolder: string, delta: number): Promise<number>;
+  countReflectionsSinceLastUsageDecay(agentFolder: string): Promise<number>;
+  recordUsageDecayRun(agentFolder: string): Promise<void>;
+  listTopItems(agentFolder: string, limit?: number): Promise<MemoryItem[]>;
   chunkExists(input: ChunkInsert): Promise<boolean>;
   touchItem(id: string): Promise<void>;
   saveProcedure(
@@ -131,24 +131,24 @@ export interface MemoryRepository {
     patch: Partial<MemoryProcedure>,
   ): Promise<MemoryProcedure>;
   listTopProcedures(
-    groupFolder: string,
+    agentFolder: string,
     limit?: number,
   ): Promise<MemoryProcedure[]>;
   softDeleteProcedure(id: string): Promise<void>;
   saveChunks(chunks: ChunkInsert[]): Promise<number>;
   lexicalSearch(
     query: string,
-    groupFolder: string,
+    agentFolder: string,
     limit?: number,
   ): Promise<MemorySearchResult[]>;
   vectorSearch(
     embedding: number[],
-    groupFolder: string,
+    agentFolder: string,
     limit?: number,
   ): Promise<MemorySearchResult[]>;
   searchProceduresByText(
     query: string,
-    groupFolder: string,
+    agentFolder: string,
     limit?: number,
   ): Promise<MemoryProcedure[]>;
   listSourceChunks(
@@ -156,7 +156,7 @@ export interface MemoryRepository {
     sourceId: string,
   ): Promise<MemoryChunk[]>;
   deleteSourceChunks(sourceType: string, sourceId: string): Promise<number>;
-  applyRetentionPolicies(groupFolder: string): Promise<RetentionPolicyResult>;
+  applyRetentionPolicies(agentFolder: string): Promise<RetentionPolicyResult>;
   recordEvent(
     eventType: string,
     entityType: string,

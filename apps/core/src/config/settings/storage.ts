@@ -19,6 +19,7 @@ export function resolveRuntimeStorageConfig(
     const storageError = err instanceof Error ? err : new Error(String(err));
     throw new Error(
       `Invalid runtime storage settings: ${storageError.message}`,
+      { cause: err },
     );
   }
   const postgresUrlEnv = settings.postgresUrlEnv || 'MYCLAW_DATABASE_URL';
@@ -32,6 +33,7 @@ export function resolveRuntimeStorageConfig(
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(
         `Invalid runtime storage settings: ${postgresUrlEnv} ${message}`,
+        { cause: err },
       );
     }
   }

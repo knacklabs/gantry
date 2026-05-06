@@ -2,6 +2,7 @@ import {
   ASSISTANT_NAME,
   DATA_DIR,
   getCredentialBrokerRuntimeConfig,
+  getRuntimeQueueConfig,
 } from '../../config/index.js';
 import {
   createAgentCredentialBroker,
@@ -14,7 +15,7 @@ import {
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
 import { encodeGroupMessageCursor } from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import { RegisteredGroup, ThinkingOverride } from '../../domain/types.js';
+import { ConversationRoute, ThinkingOverride } from '../../domain/types.js';
 import { RemoteMcpDnsValidationCache } from '../../application/mcp/mcp-server-policy.js';
 import { createGroupProcessor } from '../../runtime/group-processing.js';
 import type { GroupProcessingDeps } from '../../runtime/group-processing-types.js';
@@ -26,20 +27,37 @@ import {
   setGroupModelOverride as setGroupModelOverrideEntry,
   setGroupThinkingOverride as setGroupThinkingOverrideEntry,
 } from '../../runtime/group-registry.js';
-import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
+import type {
+  RuntimeAgentSessionRepository,
+  RuntimeChatMetadataRepository,
+  RuntimeConversationRouteRepository,
+  RuntimeMessageRepository,
+  RuntimeRouterStateRepository,
+} from '../../domain/repositories/ops-repo.js';
 import {
-  getRuntimeOpsRepository,
+  getRuntimeRepositories,
   getRuntimeSkillArtifactStore,
   getRuntimeStorage,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { collectDurableMemoryAtSessionBoundary } from '../../memory/app-memory-service.js';
+
+type RuntimeAppRepository = RuntimeRouterStateRepository &
+  RuntimeMessageRepository &
+  RuntimeConversationRouteRepository &
+  RuntimeChatMetadataRepository &
+  RuntimeAgentSessionRepository;
 
 export interface RuntimeApp {
   queue: GroupQueue;
   loadState: () => Promise<void>;
   saveState: () => Promise<void>;
   getOrRecoverCursor: (chatJid: string) => Promise<string>;
-  registerGroup: (jid: string, group: RegisteredGroup) => Promise<void>;
+  registerGroup: (jid: string, group: ConversationRoute) => Promise<void>;
+  projectConversationRoute: (
+    jid: string,
+    group: ConversationRoute,
+  ) => Promise<void>;
+  unregisterConversationRoute: (jid: string) => Promise<void>;
   setGroupModelOverride: (
     chatJid: string,
     model: string | undefined,
@@ -51,8 +69,10 @@ export interface RuntimeApp {
   getAvailableGroups: () => Promise<
     import('../../runtime/agent-spawn.js').AvailableGroup[]
   >;
-  setRegisteredGroupsForTest: (groups: Record<string, RegisteredGroup>) => void;
-  ensureCredentialBindingsForRegisteredGroups: () => Promise<void>;
+  setConversationRoutesForTest: (
+    groups: Record<string, ConversationRoute>,
+  ) => void;
+  ensureCredentialBindingsForConversationRoutes: () => Promise<void>;
   clearSessionForChatJid: (
     chatJid: string,
     threadId?: string | null,
@@ -61,7 +81,7 @@ export interface RuntimeApp {
     chatJid: string,
     options?: { queued?: boolean },
   ) => Promise<boolean>;
-  getRegisteredGroups: () => Record<string, RegisteredGroup>;
+  getConversationRoutes: () => Record<string, ConversationRoute>;
   getLastTimestamp: () => string;
   setLastTimestamp: (timestamp: string) => void;
   setAgentCursor: (chatJid: string, timestamp: string) => void;
@@ -71,7 +91,7 @@ export interface RuntimeApp {
 export interface RuntimeAppOptions {
   ensureCredentialBinding?: (input: {
     groupJid: string;
-    group: RegisteredGroup;
+    group: ConversationRoute;
     agentIdentifier: string;
   }) => Promise<{ created?: boolean } | undefined>;
   queue?: GroupQueue;
@@ -79,17 +99,17 @@ export interface RuntimeAppOptions {
   skillArtifactStore?: GroupProcessingDeps['getSkillArtifactStore'];
   mcpHostnameLookup?: GroupProcessingDeps['getMcpHostnameLookup'];
   collectSessionMemory?: GroupProcessingDeps['collectSessionMemory'];
-  opsRepository?: OpsRepository;
+  opsRepository?: RuntimeAppRepository;
 }
 
 export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   let lastTimestamp = '';
-  let registeredGroups: Record<string, RegisteredGroup> = {};
+  let conversationRoutes: Record<string, ConversationRoute> = {};
   let lastAgentTimestamp: Record<string, string> = {};
   let stateSaveInFlight: Promise<void> | undefined;
   let stateSaveDirty = false;
 
-  const queue = options.queue ?? new GroupQueue();
+  const queue = options.queue ?? new GroupQueue(getRuntimeQueueConfig());
   const mcpDnsValidationCache = new RemoteMcpDnsValidationCache();
   let credentialBrokerPromise:
     | Promise<AgentCredentialBroker | undefined>
@@ -97,7 +117,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   let credentialBrokerCacheKey = '';
   let modelAccessCredentialBindingPromise: Promise<void> | undefined;
   let modelAccessCredentialBindingCacheKey = '';
-  const ops = () => options.opsRepository ?? getRuntimeOpsRepository();
+  const ops = () => options.opsRepository ?? getRuntimeRepositories();
   let channelRuntime: GroupProcessingDeps['channelRuntime'] = {
     hasChannel: () => false,
     supportsStreaming: () => false,
@@ -129,7 +149,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
 
   async function ensureCredentialBindingAsync(
     jid: string,
-    group: RegisteredGroup,
+    group: ConversationRoute,
   ): Promise<void> {
     const brokerConfig = getCredentialBrokerRuntimeConfig();
     const cacheKey = `${brokerConfig.mode}:${brokerConfig.onecliUrl}:${brokerConfig.externalBrokerBaseUrl}`;
@@ -185,18 +205,20 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     return modelAccessCredentialBindingPromise;
   }
 
-  function ensureCredentialBinding(jid: string, group: RegisteredGroup): void {
+  function ensureCredentialBinding(
+    jid: string,
+    group: ConversationRoute,
+  ): void {
     void ensureCredentialBindingAsync(jid, group);
   }
 
   async function loadState(): Promise<void> {
     const repository = ops();
-    const [loadedLastTimestamp, agentTs, loadedRegisteredGroups] =
-      await Promise.all([
-        repository.getRouterState('last_timestamp'),
-        repository.getRouterState('last_agent_timestamp'),
-        repository.getAllRegisteredGroups(),
-      ]);
+    const [loadedLastTimestamp, agentTs, loadedRoutes] = await Promise.all([
+      repository.getRouterState('last_timestamp'),
+      repository.getRouterState('last_agent_timestamp'),
+      repository.getAllConversationRoutes(),
+    ]);
     lastTimestamp = loadedLastTimestamp || '';
     try {
       lastAgentTimestamp = agentTs ? JSON.parse(agentTs) : {};
@@ -204,9 +226,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
       logger.warn('Corrupted last_agent_timestamp in DB, resetting');
       lastAgentTimestamp = {};
     }
-    registeredGroups = loadedRegisteredGroups;
+    conversationRoutes = loadedRoutes;
     logger.info(
-      { groupCount: Object.keys(registeredGroups).length },
+      { groupCount: Object.keys(conversationRoutes).length },
       'State loaded',
     );
   }
@@ -266,14 +288,31 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
 
   async function registerGroup(
     jid: string,
-    group: RegisteredGroup,
+    group: ConversationRoute,
   ): Promise<void> {
-    await registerGroupEntry(registeredGroups, jid, group, {
+    await registerGroupEntry(conversationRoutes, jid, group, {
       assistantName: ASSISTANT_NAME,
       persist: (persistJid, persistedGroup) =>
-        ops().setRegisteredGroup(persistJid, persistedGroup),
+        ops().setConversationRoute(persistJid, persistedGroup),
       ensureCredentialBinding,
     });
+  }
+
+  async function projectConversationRoute(
+    jid: string,
+    group: ConversationRoute,
+  ): Promise<void> {
+    await registerGroupEntry(conversationRoutes, jid, group, {
+      assistantName: ASSISTANT_NAME,
+      persist: async () => undefined,
+      ensureCredentialBinding,
+    });
+  }
+
+  async function unregisterConversationRoute(jid: string): Promise<void> {
+    delete conversationRoutes[jid];
+    queue.stopGroup(jid);
+    await ops().deleteConversationRoute(jid);
   }
 
   async function setGroupModelOverride(
@@ -281,10 +320,10 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     model: string | undefined,
   ): Promise<void> {
     await setGroupModelOverrideEntry(
-      registeredGroups,
+      conversationRoutes,
       chatJid,
       model,
-      (jid, group) => ops().setRegisteredGroup(jid, group),
+      (jid, group) => ops().setConversationRoute(jid, group),
     );
   }
 
@@ -293,27 +332,27 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     thinking: ThinkingOverride | undefined,
   ): Promise<void> {
     await setGroupThinkingOverrideEntry(
-      registeredGroups,
+      conversationRoutes,
       chatJid,
       thinking,
-      (jid, group) => ops().setRegisteredGroup(jid, group),
+      (jid, group) => ops().setConversationRoute(jid, group),
     );
   }
 
   async function getAvailableGroups(): Promise<
     import('../../runtime/agent-spawn.js').AvailableGroup[]
   > {
-    return listAvailableGroups(await ops().getAllChats(), registeredGroups);
+    return listAvailableGroups(await ops().getAllChats(), conversationRoutes);
   }
 
-  function setRegisteredGroupsForTest(
-    groups: Record<string, RegisteredGroup>,
+  function setConversationRoutesForTest(
+    groups: Record<string, ConversationRoute>,
   ): void {
-    registeredGroups = groups;
+    conversationRoutes = groups;
   }
 
-  async function ensureCredentialBindingsForRegisteredGroups(): Promise<void> {
-    const firstEntry = Object.entries(registeredGroups)[0];
+  async function ensureCredentialBindingsForConversationRoutes(): Promise<void> {
+    const firstEntry = Object.entries(conversationRoutes)[0];
     if (!firstEntry) return;
     const [jid, group] = firstEntry;
     await ensureCredentialBindingAsync(jid, group);
@@ -323,7 +362,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     chatJid: string,
     threadId?: string | null,
   ): Promise<void> {
-    const group = registeredGroups[chatJid];
+    const group = conversationRoutes[chatJid];
     if (!group) return;
     await ops().deleteSession(group.folder, threadId);
   }
@@ -343,7 +382,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
       sendProgressUpdate: (chatJid, text, options) =>
         channelRuntime.sendProgressUpdate(chatJid, text, options),
     },
-    getGroup: (chatJid) => registeredGroups[chatJid],
+    getGroup: (chatJid) => conversationRoutes[chatJid],
     clearSession: async (groupFolder, threadId) => {
       await ops().deleteSession(groupFolder, threadId);
     },
@@ -355,9 +394,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     setGroupModelOverride,
     setGroupThinkingOverride,
     getAvailableGroups,
-    getRegisteredJids: () => new Set(Object.keys(registeredGroups)),
+    getRegisteredJids: () => new Set(Object.keys(conversationRoutes)),
     opsRepository: options.opsRepository,
-    getOpsRepository: ops,
+    getRuntimeRepository: ops,
     queue: {
       closeStdin: (chatJid) => queue.closeStdin(chatJid),
       notifyIdle: (chatJid) => queue.notifyIdle(chatJid),
@@ -398,15 +437,17 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     saveState,
     getOrRecoverCursor,
     registerGroup,
+    projectConversationRoute,
+    unregisterConversationRoute,
     setGroupModelOverride,
     setGroupThinkingOverride,
     getAvailableGroups,
-    setRegisteredGroupsForTest,
-    ensureCredentialBindingsForRegisteredGroups,
+    setConversationRoutesForTest,
+    ensureCredentialBindingsForConversationRoutes,
     clearSessionForChatJid,
     processGroupMessages: (chatJid, options) =>
       groupProcessor.processGroupMessages(chatJid, options),
-    getRegisteredGroups: () => registeredGroups,
+    getConversationRoutes: () => conversationRoutes,
     getLastTimestamp: () => lastTimestamp,
     setLastTimestamp: (timestamp) => {
       lastTimestamp = timestamp;
@@ -438,8 +479,8 @@ export function getAvailableGroups(): Promise<
 }
 
 /** @internal - exported for testing */
-export function _setRegisteredGroups(
-  groups: Record<string, RegisteredGroup>,
+export function _setConversationRoutes(
+  groups: Record<string, ConversationRoute>,
 ): void {
-  getDefaultRuntimeApp().setRegisteredGroupsForTest(groups);
+  getDefaultRuntimeApp().setConversationRoutesForTest(groups);
 }

@@ -2,8 +2,8 @@ export function parsePostgresConnectionUrl(url: string): URL {
   let parsed: URL;
   try {
     parsed = new URL(url);
-  } catch {
-    throw new Error('Invalid postgres connection URL');
+  } catch (err) {
+    throw new Error('Invalid postgres connection URL', { cause: err });
   }
   if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
     throw new Error(

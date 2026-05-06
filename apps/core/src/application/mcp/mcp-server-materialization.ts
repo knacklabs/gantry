@@ -65,6 +65,12 @@ export function materializeMcpRecord(
   }
 
   const template = STDIO_TEMPLATE_COMMANDS[config.templateId ?? ''];
+  if (!template) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      'Stored MCP stdio_template config references an unsupported templateId.',
+    );
+  }
   const env = {
     ...(config.env ?? {}),
     ...credentialValues.env,

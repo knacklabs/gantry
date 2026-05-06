@@ -130,6 +130,112 @@ maybeDescribe('Postgres domain repositories', () => {
     ).resolves.toMatchObject({ id: threadId });
   });
 
+  it('rebinds desired-state conversation and binding upserts to the selected provider connection', async () => {
+    const selectedConnectionId =
+      'channel-providerConnection:test:slack-selected' as ProviderConnectionId;
+    const reboundConversationId =
+      'conversation:test:slack:C999' as ConversationId;
+    const bindingId = 'agent-channel-binding:test:rebound';
+    await repositories.providerConnections.saveProviderConnection({
+      id: selectedConnectionId,
+      appId,
+      providerId,
+      externalInstallationRef: {
+        kind: 'provider_connection',
+        value: 'T999',
+      },
+      label: 'Selected Slack',
+      status: 'active',
+      config: { workspace: 'selected' },
+      runtimeSecretRefs: ['SLACK_BOT_TOKEN'],
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await repositories.conversations.saveConversation({
+      id: reboundConversationId,
+      appId,
+      providerConnectionId,
+      externalRef: { kind: 'conversation', value: 'C999' },
+      kind: 'channel',
+      title: 'stale',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await repositories.providerConnections.saveAgentConversationBinding({
+      id: bindingId,
+      appId,
+      agentId,
+      providerConnectionId,
+      conversationId: reboundConversationId,
+      displayName: 'stale',
+      status: 'active',
+      triggerMode: 'trigger',
+      requiresTrigger: true,
+      isAdminBinding: false,
+      memoryScope: 'conversation',
+      memorySubject: {
+        kind: 'conversation',
+        appId,
+        conversationId: reboundConversationId,
+      },
+      permissionPolicyIds: [DEFAULT_PERMISSION_POLICY_ID],
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await repositories.conversations.saveConversation({
+      id: reboundConversationId,
+      appId,
+      providerConnectionId: selectedConnectionId,
+      externalRef: { kind: 'conversation', value: 'C999' },
+      kind: 'channel',
+      title: 'selected',
+      status: 'active',
+      createdAt: now,
+      updatedAt: '2026-04-27T00:01:00.000Z',
+    });
+    await repositories.providerConnections.saveAgentConversationBinding({
+      id: bindingId,
+      appId,
+      agentId,
+      providerConnectionId: selectedConnectionId,
+      conversationId: reboundConversationId,
+      displayName: 'selected',
+      status: 'active',
+      triggerMode: 'trigger',
+      requiresTrigger: true,
+      isAdminBinding: false,
+      memoryScope: 'conversation',
+      memorySubject: {
+        kind: 'conversation',
+        appId,
+        conversationId: reboundConversationId,
+      },
+      permissionPolicyIds: [DEFAULT_PERMISSION_POLICY_ID],
+      createdAt: now,
+      updatedAt: '2026-04-27T00:01:00.000Z',
+    });
+
+    await expect(
+      repositories.conversations.getConversation(reboundConversationId),
+    ).resolves.toMatchObject({
+      providerConnectionId: selectedConnectionId,
+      title: 'selected',
+    });
+    await expect(
+      repositories.providerConnections.getAgentConversationBinding({
+        appId,
+        agentId,
+        conversationId: reboundConversationId,
+      }),
+    ).resolves.toMatchObject({
+      providerConnectionId: selectedConnectionId,
+      displayName: 'selected',
+    });
+  });
+
   it('partially updates provider connections without clobbering stored config', async () => {
     const partialInstallationId =
       'channel-providerConnection:test:partial' as ProviderConnectionId;

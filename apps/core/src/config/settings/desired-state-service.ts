@@ -1,19 +1,12 @@
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
-import type { AgentPersona } from '../../shared/agent-persona.js';
-import type {
-  AgentRepository,
-  ConversationRepository,
-  McpServerRepository,
-  ProviderConnectionRepository,
-  SkillCatalogRepository,
-  ToolCatalogRepository,
-} from '../../domain/ports/repositories.js';
+import type { ConversationRepository } from '../../domain/ports/repositories.js';
 import type {
   Conversation,
   ConversationId,
 } from '../../domain/conversation/conversation.js';
 import type {
+  AgentConversationBinding,
   ProviderConnection,
   ProviderConnectionId,
   ProviderId,
@@ -33,9 +26,41 @@ import {
   defaultRuntimeSecretRefs,
   jidForConfiguredConversation,
   providerInfoForJid,
-  providerTopology,
   stripProviderPrefix,
 } from './desired-state-provider-conversations.js';
+import {
+  agentIdForFolder,
+  configuredRoutingBindings,
+  configuredRoutingBindingsByAgent,
+  errorMessage,
+  folderForAgentId,
+  groupByAgentId,
+  groupByConversationId,
+  hasAnyCapability,
+  loadMcpServersById,
+  loadSkillsById,
+  loadToolsById,
+  memorySubjectForConfiguredBinding,
+  storedConversationKey,
+} from './desired-state-service-helpers.js';
+export {
+  agentIdForFolder,
+  classifySettingsChanges,
+} from './desired-state-service-helpers.js';
+export type {
+  SettingsChangeClassification,
+  SettingsDesiredStateDriftReport,
+  SettingsDesiredStateOps,
+  SettingsDesiredStateRepositories,
+  SettingsDesiredStateServiceDeps,
+  SettingsReconcileResult,
+  StoredAgentBinding,
+} from './desired-state-service-types.js';
+import type {
+  SettingsDesiredStateDriftReport,
+  SettingsDesiredStateServiceDeps,
+  SettingsReconcileResult,
+} from './desired-state-service-types.js';
 import type {
   RuntimeConfiguredAgent,
   RuntimeConfiguredAgentCapabilities,
@@ -45,56 +70,6 @@ import type {
   RuntimeProviderSettings,
   RuntimeSettings,
 } from './runtime-settings-types.js';
-
-interface StoredAgentBinding {
-  name: string;
-  folder: string;
-  trigger: string;
-  added_at: string;
-  requiresTrigger?: boolean;
-  isMain?: boolean;
-  conversationKind?: 'dm' | 'channel';
-  agentConfig?: { model?: string; persona?: AgentPersona };
-}
-
-export interface SettingsDesiredStateOps {
-  getAllRegisteredGroups(): Promise<Record<string, StoredAgentBinding>>;
-  setRegisteredGroup(jid: string, group: StoredAgentBinding): Promise<void>;
-  deleteRegisteredGroup?(jid: string): Promise<void>;
-}
-
-export interface SettingsDesiredStateRepositories {
-  agents: AgentRepository;
-  providerConnections?: ProviderConnectionRepository;
-  conversations?: ConversationRepository;
-  tools: ToolCatalogRepository;
-  skills: SkillCatalogRepository;
-  mcpServers: McpServerRepository;
-}
-
-export interface SettingsDesiredStateServiceDeps {
-  appId?: AppId;
-  ops: SettingsDesiredStateOps;
-  repositories: SettingsDesiredStateRepositories;
-  clock?: { now(): string };
-}
-
-export interface SettingsDesiredStateDriftReport {
-  missingSettingsAgents: string[];
-  dbOnlyGroupJids: string[];
-  invalidReferences: string[];
-}
-
-export interface SettingsReconcileResult {
-  applied: string[];
-  skipped: string[];
-  invalidReferences: string[];
-}
-
-export interface SettingsChangeClassification {
-  liveApplied: string[];
-  restartRequired: string[];
-}
 
 export class SettingsDesiredStateService {
   private readonly appId: AppId;
@@ -106,7 +81,7 @@ export class SettingsDesiredStateService {
   }
 
   async exportCurrent(settings: RuntimeSettings): Promise<RuntimeSettings> {
-    const groups = await this.deps.ops.getAllRegisteredGroups();
+    const groups = await this.deps.ops.getAllConversationRoutes();
     const agents: Record<string, RuntimeConfiguredAgent> = {
       ...settings.agents,
     };
@@ -126,49 +101,81 @@ export class SettingsDesiredStateService {
       ...settings.bindings,
     };
 
-    const exportedGroups = await Promise.all(
-      Object.entries(groups).map(async ([jid, group]) => {
-        const agentId = agentIdForFolder(group.folder);
-        const [
-          dmAccess,
-          dmApprovers,
-          toolBindings,
-          skillBindings,
-          mcpBindings,
-        ] = await Promise.all([
-          this.deps.repositories.agents.listAgentDmAccess({
-            appId: this.appId,
-            agentId,
-          }),
-          this.deps.repositories.agents.listAgentDmApprovers({
-            appId: this.appId,
-            agentId,
-          }),
-          this.deps.repositories.tools.listAgentToolBindings({
-            appId: this.appId,
-            agentId,
-          }),
-          this.deps.repositories.skills.listAgentSkillBindings({
-            appId: this.appId,
-            agentId,
-          }),
-          this.deps.repositories.mcpServers.listAgentBindings({
-            appId: this.appId,
-            agentId,
-            limit: 500,
-          }),
-        ]);
-        return {
-          jid,
-          group,
-          dmAccess,
-          dmApprovers,
-          toolBindings,
-          skillBindings,
-          mcpBindings,
-        };
+    const groupEntries = Object.entries(groups);
+    const agentIds = [
+      ...new Set(
+        groupEntries.map(([, group]) => agentIdForFolder(group.folder)),
+      ),
+    ];
+    const [
+      dmAccessRows,
+      dmApproverRows,
+      toolBindingRows,
+      skillBindingRows,
+      mcpBindingRows,
+      storedConversations,
+    ] = await Promise.all([
+      this.deps.repositories.agents.listAgentDmAccessForAgents({
+        appId: this.appId,
+        agentIds,
       }),
+      this.deps.repositories.agents.listAgentDmApproversForAgents({
+        appId: this.appId,
+        agentIds,
+      }),
+      this.deps.repositories.tools.listAgentToolBindingsForAgents({
+        appId: this.appId,
+        agentIds,
+      }),
+      this.deps.repositories.skills.listAgentSkillBindingsForAgents({
+        appId: this.appId,
+        agentIds,
+      }),
+      this.deps.repositories.mcpServers.listAgentBindingsForAgents({
+        appId: this.appId,
+        agentIds,
+        limitPerAgent: 500,
+      }),
+      this.deps.repositories.conversations
+        ? this.deps.repositories.conversations.listConversations({
+            appId: this.appId,
+          })
+        : Promise.resolve([]),
+    ]);
+    const dmAccessByAgent = groupByAgentId(dmAccessRows);
+    const dmApproversByAgent = groupByAgentId(dmApproverRows);
+    const toolBindingsByAgent = groupByAgentId(toolBindingRows);
+    const skillBindingsByAgent = groupByAgentId(skillBindingRows);
+    const mcpBindingsByAgent = groupByAgentId(mcpBindingRows);
+    const storedConversationsByExternal = new Map<string, Conversation>();
+    for (const conversation of storedConversations) {
+      const externalId = conversation.externalRef?.value?.trim();
+      if (!externalId) continue;
+      storedConversationsByExternal.set(
+        storedConversationKey(conversation.providerConnectionId, externalId),
+        conversation,
+      );
+    }
+    const storedApproversByConversation = groupByConversationId(
+      this.deps.repositories.conversations
+        ? await this.deps.repositories.conversations.listConversationApproversForConversations(
+            storedConversations.map((conversation) => conversation.id),
+          )
+        : [],
     );
+
+    const exportedGroups = groupEntries.map(([jid, group]) => {
+      const agentId = agentIdForFolder(group.folder);
+      return {
+        jid,
+        group,
+        dmAccess: dmAccessByAgent.get(agentId) ?? [],
+        dmApprovers: dmApproversByAgent.get(agentId) ?? [],
+        toolBindings: toolBindingsByAgent.get(agentId) ?? [],
+        skillBindings: skillBindingsByAgent.get(agentId) ?? [],
+        mcpBindings: mcpBindingsByAgent.get(agentId) ?? [],
+      };
+    });
 
     for (const exported of exportedGroups) {
       const {
@@ -197,28 +204,21 @@ export class SettingsDesiredStateService {
         label: provider?.label ?? providerId,
         runtimeSecretRefs: defaultRuntimeSecretRefs(providerId),
       };
-      const conversationsRepository = this.deps.repositories.conversations;
       const conversationId =
         configuredConversationId({
           providerConnectionId: connectionId,
           externalId,
           conversations,
         }) ?? stableSettingsId(`${folder}_${providerId}`, conversations);
-      const storedConversation = conversationsRepository
-        ? await this.findConfiguredConversation({
-            conversations: conversationsRepository,
-            providerId: providerId as ProviderId,
-            providerConnectionId: connectionId as ProviderConnectionId,
-            externalConversationId: externalId,
-          })
-        : null;
+      const storedConversation =
+        storedConversationsByExternal.get(
+          storedConversationKey(connectionId, externalId),
+        ) ?? null;
       const storedApprovers =
         kind === 'dm' || !storedConversation
           ? []
           : (
-              await this.deps.repositories.conversations!.listConversationApprovers(
-                storedConversation.id,
-              )
+              storedApproversByConversation.get(storedConversation.id) ?? []
             ).map((approver) => approver.externalUserId);
       const existingConversation = conversations[conversationId];
       const controlApprovers =
@@ -313,12 +313,10 @@ export class SettingsDesiredStateService {
   async drift(
     settings: RuntimeSettings,
   ): Promise<SettingsDesiredStateDriftReport> {
-    const groups = await this.deps.ops.getAllRegisteredGroups();
+    const groups = await this.deps.ops.getAllConversationRoutes();
     const configuredFolders = new Set(Object.keys(settings.agents));
     const configuredJids = new Set(
-      Object.values(settings.agents).flatMap((agent) =>
-        Object.values(agent.bindings).map((binding) => binding.jid),
-      ),
+      configuredRoutingBindings(settings).map((binding) => binding.jid),
     );
     return {
       missingSettingsAgents: [
@@ -343,9 +341,10 @@ export class SettingsDesiredStateService {
 
     const applied: string[] = [];
     const skipped: string[] = [];
-    const existingGroups = await this.deps.ops.getAllRegisteredGroups();
+    const existingGroups = await this.deps.ops.getAllConversationRoutes();
     const configuredFolders = new Set(Object.keys(settings.agents));
     const configuredJids = new Set<string>();
+    const bindingsByAgent = configuredRoutingBindingsByAgent(settings);
 
     for (const [folder, agent] of Object.entries(settings.agents)) {
       const agentId = agentIdForFolder(folder);
@@ -360,16 +359,10 @@ export class SettingsDesiredStateService {
       });
       applied.push(`agent:${folder}`);
 
-      for (const binding of Object.values(agent.bindings)) {
-        const conversation = Object.values(settings.conversations).find(
-          (candidate) =>
-            jidForConfiguredConversation(
-              candidate,
-              settings.providerConnections,
-            ) === binding.jid,
-        );
+      for (const binding of bindingsByAgent.get(folder) ?? []) {
+        const conversation = binding.conversation;
         configuredJids.add(binding.jid);
-        await this.deps.ops.setRegisteredGroup(binding.jid, {
+        await this.deps.ops.setConversationRoute(binding.jid, {
           name: binding.name ?? agent.name,
           folder,
           trigger: binding.trigger,
@@ -428,7 +421,10 @@ export class SettingsDesiredStateService {
       }
     }
 
-    if (this.deps.repositories.conversations) {
+    if (
+      this.deps.repositories.conversations &&
+      this.deps.repositories.providerConnections
+    ) {
       for (const [conversationKey, conversation] of Object.entries(
         settings.conversations,
       )) {
@@ -440,26 +436,38 @@ export class SettingsDesiredStateService {
           skipped,
         });
         if (!storedConversation) continue;
-        await this.deps.repositories.conversations.replaceConversationApprovers(
-          {
-            appId: this.appId,
-            conversationId: storedConversation.id,
-            externalUserIds: conversation.controlApprovers,
+        await this.rebindConfiguredConversationBindings({
+          settings,
+          conversationKey,
+          conversation,
+          storedConversation,
+          now: this.clock.now(),
+        });
+        try {
+          await this.replaceStoredConversationApprovers({
+            conversation: storedConversation,
+            userIds: conversation.controlApprovers,
             updatedAt: this.clock.now(),
-          },
-        );
-        applied.push(`conversation_approvers:${conversationKey}`);
+          });
+          applied.push(`conversation_approvers:${conversationKey}`);
+        } catch (err) {
+          skipped.push(
+            `conversation_approvers:${conversationKey}:${errorMessage(err)}`,
+          );
+        }
       }
+    } else if (Object.keys(settings.conversations).length > 0) {
+      skipped.push('conversation_approvers:missing-repositories');
     }
 
     if (
       settings.desiredState.authoritative &&
-      this.deps.ops.deleteRegisteredGroup
+      this.deps.ops.deleteConversationRoute
     ) {
       await Promise.all(
         Object.keys(existingGroups)
           .filter((jid) => !configuredJids.has(jid))
-          .map((jid) => this.deps.ops.deleteRegisteredGroup!(jid)),
+          .map((jid) => this.deps.ops.deleteConversationRoute!(jid)),
       );
       applied.push('authoritative:removed_absent_bindings');
     }
@@ -586,6 +594,99 @@ export class SettingsDesiredStateService {
     return conversation;
   }
 
+  private async rebindConfiguredConversationBindings(input: {
+    settings: RuntimeSettings;
+    conversationKey: string;
+    conversation: RuntimeConfiguredConversation;
+    storedConversation: Conversation;
+    now: string;
+  }): Promise<void> {
+    const providerConnections = this.deps.repositories.providerConnections;
+    if (!providerConnections) return;
+    for (const [bindingKey, binding] of Object.entries(
+      input.settings.bindings,
+    )) {
+      if (binding.conversation !== input.conversationKey) continue;
+      const agent = input.settings.agents[binding.agent];
+      if (!agent) continue;
+      const agentId = agentIdForFolder(binding.agent);
+      await providerConnections.saveAgentConversationBinding({
+        id: `agent-conversation-binding:${encodeURIComponent(
+          binding.agent,
+        )}:${encodeURIComponent(bindingKey)}` as AgentConversationBinding['id'],
+        appId: this.appId,
+        agentId,
+        providerConnectionId: input.storedConversation.providerConnectionId,
+        conversationId: input.storedConversation.id,
+        displayName: input.conversation.displayName || agent.name,
+        status: 'active',
+        triggerMode: binding.requiresTrigger === false ? 'always' : 'keyword',
+        triggerPattern: binding.trigger,
+        requiresTrigger: binding.requiresTrigger,
+        isAdminBinding: binding.isMain,
+        memoryScope: binding.memoryScope,
+        memorySubject: memorySubjectForConfiguredBinding({
+          appId: this.appId,
+          agentId,
+          memoryScope: binding.memoryScope,
+          conversation: input.conversation,
+          conversationId: input.storedConversation.id,
+        }),
+        permissionPolicyIds: [],
+        createdAt: binding.addedAt || input.now,
+        updatedAt: input.now,
+      } satisfies AgentConversationBinding);
+    }
+  }
+
+  private async replaceStoredConversationApprovers(input: {
+    conversation: Conversation;
+    userIds: string[];
+    updatedAt: string;
+  }): Promise<void> {
+    const conversations = this.deps.repositories.conversations;
+    if (!conversations) return;
+    if (input.conversation.kind === 'direct') {
+      throw new Error(
+        'Conversation approvers are not supported for direct conversations; use the agent DM admin for direct/private prompts',
+      );
+    }
+    const userIds = normalizeUserIds(input.userIds);
+    const invalidShape = userIds.filter((id) => !isValidExternalUserId(id));
+    if (invalidShape.length > 0) {
+      throw new Error(
+        `Invalid control approver user ids: ${invalidShape.join(', ')}`,
+      );
+    }
+    if (userIds.length > 0) {
+      const knownMembers = new Set(
+        await conversations.listParticipantExternalUserIds(
+          input.conversation.id,
+        ),
+      );
+      const invalidUserIds = userIds.filter((id) => !knownMembers.has(id));
+      if (invalidUserIds.length > 0) {
+        throw new Error(
+          [
+            'Control approvers must be members of the conversation.',
+            `Invalid: ${invalidUserIds.join(', ')}`,
+            knownMembers.size === 0
+              ? 'No conversation participant records are available.'
+              : undefined,
+          ]
+            .filter(Boolean)
+            .join(' '),
+        );
+      }
+    }
+    await conversations.replaceConversationApprovers({
+      appId: this.appId,
+      conversationId: input.conversation.id,
+      externalUserIds: userIds,
+      updatedAt: input.updatedAt,
+    });
+  }
+
   private async findConfiguredConversation(input: {
     conversations: ConversationRepository;
     providerId: ProviderId;
@@ -615,9 +716,9 @@ export class SettingsDesiredStateService {
       }
     }
     const [tools, skills, servers] = await Promise.all([
-      this.loadToolsById([...toolIds]),
-      this.loadSkillsById([...skillIds]),
-      this.loadMcpServersById([...serverIds]),
+      loadToolsById(this.deps.repositories.tools, [...toolIds]),
+      loadSkillsById(this.deps.repositories.skills, [...skillIds]),
+      loadMcpServersById(this.deps.repositories.mcpServers, [...serverIds]),
     ]);
     for (const [folder, agent] of Object.entries(settings.agents)) {
       for (const toolId of [...new Set(agent.capabilities.toolIds)]) {
@@ -681,121 +782,19 @@ export class SettingsDesiredStateService {
       preserveOpaqueSkillBindings: options.preserveOpaqueSkillBindings,
     });
   }
-
-  private async loadToolsById(
-    toolIds: readonly string[],
-  ): Promise<
-    Map<string, Awaited<ReturnType<ToolCatalogRepository['getTool']>>>
-  > {
-    const tools = await Promise.all(
-      toolIds.map(
-        async (toolId) =>
-          [
-            toolId,
-            await this.deps.repositories.tools.getTool(toolId as never),
-          ] as const,
-      ),
-    );
-    return new Map(tools);
-  }
-
-  private async loadSkillsById(
-    skillIds: readonly string[],
-  ): Promise<
-    Map<string, Awaited<ReturnType<SkillCatalogRepository['getSkill']>>>
-  > {
-    const skills = await Promise.all(
-      skillIds.map(
-        async (skillId) =>
-          [
-            skillId,
-            await this.deps.repositories.skills.getSkill(skillId as never),
-          ] as const,
-      ),
-    );
-    return new Map(skills);
-  }
-
-  private async loadMcpServersById(
-    serverIds: readonly string[],
-  ): Promise<
-    Map<string, Awaited<ReturnType<McpServerRepository['getServer']>>>
-  > {
-    const servers = await Promise.all(
-      serverIds.map(
-        async (serverId) =>
-          [
-            serverId,
-            await this.deps.repositories.mcpServers.getServer(
-              serverId as never,
-            ),
-          ] as const,
-      ),
-    );
-    return new Map(servers);
-  }
 }
 
-export function classifySettingsChanges(
-  before: RuntimeSettings,
-  after: RuntimeSettings,
-): SettingsChangeClassification {
-  const liveApplied: string[] = [];
-  const restartRequired: string[] = [];
-
-  if (!jsonEqual(before.storage, after.storage)) {
-    restartRequired.push('storage');
-  }
-  if (!jsonEqual(before.credentialBroker, after.credentialBroker)) {
-    restartRequired.push('credential_broker');
-  }
-  const providerTopologyChanged = !jsonEqual(
-    providerTopology(before),
-    providerTopology(after),
-  );
-  if (providerTopologyChanged) {
-    restartRequired.push('providers');
-  }
-  if (
-    !providerTopologyChanged &&
-    (!jsonEqual(before.conversations, after.conversations) ||
-      !jsonEqual(before.bindings, after.bindings))
-  ) {
-    liveApplied.push('conversation_policies');
-  }
-  if (!jsonEqual(before.agent, after.agent)) {
-    liveApplied.push('agent_defaults');
-  }
-  if (!jsonEqual(before.agents, after.agents)) {
-    restartRequired.push('agents');
-  }
-  if (!jsonEqual(before.memory, after.memory)) {
-    restartRequired.push('memory');
-  }
-
-  return {
-    liveApplied: [...new Set(liveApplied)].sort(),
-    restartRequired: [...new Set(restartRequired)].sort(),
-  };
+function normalizeUserIds(userIds: string[]): string[] {
+  return [
+    ...new Set(
+      userIds
+        .filter((id): id is string => typeof id === 'string')
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
 }
 
-export function agentIdForFolder(folder: string): AgentId {
-  return (folder.startsWith('agent:') ? folder : `agent:${folder}`) as AgentId;
-}
-
-function folderForAgentId(agentId: AgentId): string | null {
-  const raw = String(agentId);
-  return raw.startsWith('agent:') ? raw.slice('agent:'.length) : null;
-}
-
-function hasAnyCapability(capabilities: RuntimeConfiguredAgentCapabilities) {
-  return (
-    capabilities.toolIds.length > 0 ||
-    capabilities.skillIds.length > 0 ||
-    capabilities.mcpServerIds.length > 0
-  );
-}
-
-function jsonEqual(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+function isValidExternalUserId(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/.test(value);
 }

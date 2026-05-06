@@ -156,12 +156,12 @@ describe('RuntimeSecretConversationDiscovery', () => {
       }),
     ).resolves.toEqual([
       expect.objectContaining({
-        externalId: 'teams:19:general@thread.tacv2',
+        externalId: '19:general@thread.tacv2',
         title: 'Engineering / General',
         kind: 'channel',
         externalRef: {
           kind: 'conversation',
-          value: 'teams:19:general@thread.tacv2',
+          value: '19:general@thread.tacv2',
         },
       }),
     ]);
@@ -172,6 +172,7 @@ describe('RuntimeSecretConversationDiscovery', () => {
         tenantId: 'tenant-id',
       },
       limit: 10,
+      includeArchived: undefined,
     });
   });
 
@@ -192,15 +193,16 @@ describe('RuntimeSecretConversationDiscovery', () => {
       }),
     ).resolves.toEqual([
       {
-        externalId: 'sl:C123',
+        externalId: 'C123',
         title: 'Engineering',
         kind: 'channel',
-        externalRef: { kind: 'conversation', value: 'sl:C123' },
+        externalRef: { kind: 'conversation', value: 'C123' },
       },
     ]);
     expect(mocks.listSlackRecentChats).toHaveBeenCalledWith({
       botToken: 'xoxb-token',
       limit: 10,
+      includeArchived: undefined,
     });
   });
 
@@ -230,10 +232,137 @@ describe('RuntimeSecretConversationDiscovery', () => {
     });
     expect(mocks.listTeamsChannels).not.toHaveBeenCalled();
   });
+
+  it('filters discovered conversations by query after canonicalizing ids', async () => {
+    mocks.listSlackRecentChats.mockResolvedValueOnce({
+      ok: true,
+      chats: [
+        { chatJid: 'sl:C123', chatTitle: 'Engineering', chatType: 'channel' },
+        { chatJid: 'sl:C999', chatTitle: 'Marketing', chatType: 'channel' },
+      ],
+    });
+    const discovery = new RuntimeSecretConversationDiscovery(
+      secrets({ SLACK_BOT_TOKEN: 'xoxb-token' }),
+    );
+    const slackConnection = {
+      ...providerConnection(['SLACK_BOT_TOKEN']),
+      providerId: 'slack' as never,
+      label: 'Slack',
+    } as ProviderConnection;
+
+    await expect(
+      discovery.discover({
+        providerConnection: slackConnection,
+        query: 'eng',
+        limit: 10,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        externalId: 'C123',
+        title: 'Engineering',
+      }),
+    ]);
+  });
+
+  it('threads archive controls through Slack discovery and filters archived rows', async () => {
+    mocks.listSlackRecentChats.mockResolvedValueOnce({
+      ok: true,
+      chats: [
+        {
+          chatJid: 'sl:C123',
+          chatTitle: 'Engineering',
+          chatType: 'channel',
+          isArchived: true,
+        },
+        { chatJid: 'sl:C999', chatTitle: 'Operations', chatType: 'channel' },
+      ],
+    });
+    const discovery = new RuntimeSecretConversationDiscovery(
+      secrets({ SLACK_BOT_TOKEN: 'xoxb-token' }),
+    );
+    const slackConnection = {
+      ...providerConnection(['SLACK_BOT_TOKEN']),
+      providerId: 'slack' as never,
+      label: 'Slack',
+    } as ProviderConnection;
+
+    await expect(
+      discovery.discover({
+        providerConnection: slackConnection,
+        includeArchived: false,
+        limit: 10,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        externalId: 'C999',
+        title: 'Operations',
+      }),
+    ]);
+    expect(mocks.listSlackRecentChats).toHaveBeenCalledWith({
+      botToken: 'xoxb-token',
+      limit: 10,
+      includeArchived: false,
+    });
+  });
+
+  it('preserves archived Teams status when archive inclusion is requested', async () => {
+    mocks.listTeamsChannels.mockResolvedValueOnce({
+      ok: true,
+      channels: [
+        {
+          chatJid: 'teams:19:archived@thread.tacv2',
+          chatTitle: 'Engineering / Old',
+          teamId: 'team-1',
+          channelId: '19:archived@thread.tacv2',
+          channelType: 'standard',
+          isArchived: true,
+        },
+      ],
+    });
+    const discovery = new RuntimeSecretConversationDiscovery(
+      secrets({
+        TEAMS_CLIENT_ID: 'client-id',
+        TEAMS_CLIENT_SECRET: 'client-secret',
+        TEAMS_TENANT_ID: 'tenant-id',
+      }),
+      teamsDiscoveryClient(),
+    );
+    const teamsInstallation = {
+      ...providerConnection([
+        'TEAMS_CLIENT_ID',
+        'TEAMS_CLIENT_SECRET',
+        'TEAMS_TENANT_ID',
+      ]),
+      providerId: 'teams' as never,
+      label: 'Teams',
+    } as ProviderConnection;
+
+    await expect(
+      discovery.discover({
+        providerConnection: teamsInstallation,
+        includeArchived: true,
+        limit: 10,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        externalId: '19:archived@thread.tacv2',
+        status: 'archived',
+      }),
+    ]);
+    expect(mocks.listTeamsChannels).toHaveBeenCalledWith({
+      credentials: {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      limit: 10,
+      includeArchived: true,
+    });
+  });
 });
 
 describe('BuiltInControlChannelProviderCatalog', () => {
-  it('lists Teams as an installable discoverable provider, not a placeholder', () => {
+  it('does not advertise Teams runtime as installable while the transport is stubbed', () => {
     const catalog = new BuiltInControlChannelProviderCatalog();
 
     const teams = catalog
@@ -244,9 +373,14 @@ describe('BuiltInControlChannelProviderCatalog', () => {
       expect.objectContaining({
         id: 'teams',
         displayName: 'Teams',
-        capabilityFlags: expect.arrayContaining(['install', 'discover']),
+        capabilityFlags: expect.arrayContaining([
+          'setup',
+          'discover',
+          'runtime-placeholder',
+        ]),
       }),
     );
+    expect(teams?.capabilityFlags).not.toContain('install');
     expect(teams?.capabilityFlags).not.toContain('placeholder');
   });
 });

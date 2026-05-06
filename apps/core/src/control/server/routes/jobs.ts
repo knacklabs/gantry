@@ -36,7 +36,7 @@ import {
 import {
   getRuntimeControlRepository,
   getRuntimeEventExchange,
-  getRuntimeOpsRepository,
+  getRuntimeRepositories,
 } from '../../../adapters/storage/postgres/runtime-store.js';
 import { mapManualJobToStored, nowIso } from '../app-identity.js';
 import {
@@ -136,7 +136,7 @@ function parseUpdateJobRequest(
 export function createJobManagementService() {
   const control = getRuntimeControlRepository();
   return new JobManagementService({
-    ops: getRuntimeOpsRepository(),
+    ops: getRuntimeRepositories(),
     control: adaptJobControl(control),
     runtimeEvents: getRuntimeEventExchange(),
     toolRepository: getRuntimeToolRepositoryIfReady(),
@@ -186,7 +186,7 @@ function adaptAppSession(
   return {
     sessionId: session.sessionId,
     appId: session.appId,
-    chatJid: session.chatJid,
+    conversationJid: session.chatJid,
     workspaceKey: session.workspaceKey,
     defaultResponseMode: session.defaultResponseMode,
     defaultWebhookId: session.defaultWebhookId,
@@ -225,15 +225,15 @@ function modelPreviewFor(input: {
 
 async function runtimeContextPreviewFor(input: {
   sessionId: string;
-  chatJid: string;
+  conversationJid: string;
   groupScope: string;
   threadId: string | null;
-  groups: ReturnType<ControlRouteContext['app']['getRegisteredGroups']>;
+  groups: ReturnType<ControlRouteContext['app']['getConversationRoutes']>;
 }) {
-  const group = input.groups[input.chatJid];
+  const group = input.groups[input.conversationJid];
   return {
     sessionId: input.sessionId,
-    conversationJid: input.chatJid,
+    conversationJid: input.conversationJid,
     groupScope: input.groupScope,
     threadId: input.threadId,
     notificationTarget: input.threadId ? 'conversation_thread' : 'conversation',
@@ -244,7 +244,7 @@ async function runtimeContextPreviewFor(input: {
     browserProfileName: resolveConversationBrowserProfile({
       agentId: group?.folder ?? input.groupScope,
       workspaceKey: input.groupScope,
-      conversationId: input.chatJid,
+      conversationId: input.conversationJid,
     }),
     persona: group?.agentConfig?.persona ?? 'developer',
   };
@@ -338,8 +338,8 @@ export async function handleJobRoutes(
         runtimeContext: await runtimeContextPreviewFor({
           ...created.runtimeContext,
           groups:
-            typeof ctx.app.getRegisteredGroups === 'function'
-              ? ctx.app.getRegisteredGroups()
+            typeof ctx.app.getConversationRoutes === 'function'
+              ? ctx.app.getConversationRoutes()
               : {},
         }),
         ...modelPreviewFor({
@@ -401,7 +401,7 @@ export async function handleJobRoutes(
           job,
           await buildJobVisibilityMetadata({
             job,
-            ops: getRuntimeOpsRepository(),
+            ops: getRuntimeRepositories(),
             toolRepository: getRuntimeToolRepositoryIfReady(),
           }),
         ),
@@ -468,7 +468,7 @@ export async function handleJobRoutes(
           updated,
           await buildJobVisibilityMetadata({
             job: updated,
-            ops: getRuntimeOpsRepository(),
+            ops: getRuntimeRepositories(),
             toolRepository: getRuntimeToolRepositoryIfReady(),
           }),
         ),

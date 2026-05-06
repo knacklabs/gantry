@@ -42,7 +42,7 @@ describe('request permission review helpers', () => {
 
     const persisted = await persistRequestPermissionRules({
       deps: { getToolRepository: () => repository as never },
-      sourceGroup: 'agent:one',
+      sourceAgentFolder: 'agent:one',
       updates: [
         {
           type: 'addRules',
@@ -85,7 +85,7 @@ describe('request permission review helpers', () => {
 
     const persisted = await persistRequestPermissionRules({
       deps: { getToolRepository: () => repository as never },
-      sourceGroup: 'main_agent',
+      sourceAgentFolder: 'main_agent',
       updates: [
         {
           type: 'addRules',
@@ -118,7 +118,7 @@ describe('request permission review helpers', () => {
     await expect(
       persistRequestPermissionRules({
         deps: { getToolRepository: () => repository as never },
-        sourceGroup: 'main_agent',
+        sourceAgentFolder: 'main_agent',
         updates: [
           {
             type: 'addRules',
@@ -141,7 +141,7 @@ describe('request permission review helpers', () => {
     await expect(
       persistRequestPermissionRules({
         deps: { getToolRepository: () => repository as never },
-        sourceGroup: 'main_agent',
+        sourceAgentFolder: 'main_agent',
         updates: [
           {
             type: 'addRules',
@@ -173,7 +173,7 @@ describe('request permission review helpers', () => {
     await expect(
       persistRequestPermissionRules({
         deps: { getToolRepository: () => repository as never },
-        sourceGroup: 'main_agent',
+        sourceAgentFolder: 'main_agent',
         updates: [
           {
             type: 'addRules',

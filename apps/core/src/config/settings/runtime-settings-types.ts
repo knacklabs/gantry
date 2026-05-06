@@ -144,6 +144,17 @@ export interface RuntimeCredentialBrokerSettings {
 
 export type { RuntimeMemorySettingsSnapshot, RuntimeStorageSettingsSnapshot };
 
+export interface RuntimeQueueSettings {
+  maxMessageRuns: number;
+  maxJobRuns: number;
+  maxRetries: number;
+  baseRetryMs: number;
+}
+
+export interface RuntimeProcessSettings {
+  queue: RuntimeQueueSettings;
+}
+
 export interface RuntimeSettings {
   desiredState: RuntimeDesiredStateSettings;
   providers: Record<string, RuntimeProviderSettings>;
@@ -155,6 +166,7 @@ export interface RuntimeSettings {
   agent: RuntimeAgentSettings;
   credentialBroker: RuntimeCredentialBrokerSettings;
   memory: RuntimeMemorySettings;
+  runtime: RuntimeProcessSettings;
 }
 
 export interface RuntimeSettingsValidationFailure {

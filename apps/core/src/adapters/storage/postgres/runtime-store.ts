@@ -1,5 +1,8 @@
-import { createStorageRuntime, type StorageRuntime } from './factory.js';
-import type { OpsRepository } from '../../../domain/repositories/ops-repo.js';
+import {
+  createStorageRuntime,
+  type RuntimeOpsRepositories,
+  type StorageRuntime,
+} from './factory.js';
 import type { ProviderArtifactStore } from '../../../domain/ports/provider-artifact-store.js';
 import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
 import { evaluatePostgresStorageCapabilities } from './readiness.js';
@@ -33,7 +36,7 @@ export function getRuntimeStorage(): StorageRuntime {
   return runtime;
 }
 
-export function getRuntimeOpsRepository(): OpsRepository {
+export function getRuntimeRepositories(): RuntimeOpsRepositories {
   return getRuntimeStorage().ops;
 }
 
@@ -69,7 +72,9 @@ export async function tryAcquireRuntimeAdvisoryLease(
       client.removeListener('end', notifyEnd);
       try {
         client.release(err);
-      } catch {}
+      } catch {
+        // Best effort release after the lease connection is already broken.
+      }
     };
     const notifyEnd = () => {
       notifyLost(new Error(`Runtime advisory lease connection ended: ${key}`));
@@ -122,7 +127,9 @@ export function _setRuntimeStorageForTest(nextRuntime: StorageRuntime): void {
 }
 
 /** @internal test hook */
-export function _setRuntimeOpsRepositoryForTest(ops: OpsRepository): void {
+export function _setRuntimeRepositoriesForTest(
+  ops: RuntimeOpsRepositories,
+): void {
   runtime = {
     service: {
       migrate: async () => {},

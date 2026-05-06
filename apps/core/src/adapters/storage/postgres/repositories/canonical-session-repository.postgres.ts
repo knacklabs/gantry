@@ -4,7 +4,6 @@ import * as pgSchema from '../schema/schema.js';
 import {
   CANONICAL_APP_ID,
   type CanonicalExecutor,
-  agentIdForFolder,
   type CanonicalDb,
   json,
   PostgresCanonicalGraphRepository,

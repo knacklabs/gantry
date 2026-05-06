@@ -1,6 +1,6 @@
-import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
 import type { Job } from '../../domain/types.js';
 import type { ToolCatalogRepository } from '../../domain/ports/repositories.js';
+import type { RuntimeJobRepository } from '../../domain/repositories/ops-repo.js';
 import { resolveJobRuntimeAppId } from './job-access.js';
 import {
   agentIdForJobGroupScope,
@@ -45,7 +45,7 @@ export interface JobVisibilityMetadata {
 
 export async function buildJobVisibilityMetadata(input: {
   job: Job;
-  ops: OpsRepository;
+  ops: Pick<RuntimeJobRepository, 'listJobRuns'>;
   toolRepository?: ToolCatalogRepository;
   recentRunLimit?: number;
   nowMs?: number;

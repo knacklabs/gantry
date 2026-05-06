@@ -34,7 +34,7 @@ const runtimeStoreMock = vi.hoisted(() => ({
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeStorage: () => ({ repositories: runtimeStoreMock.repositories }),
-  getRuntimeOpsRepository: () => runtimeStoreMock.opsRepository,
+  getRuntimeRepositories: () => runtimeStoreMock.opsRepository,
   tryAcquireRuntimeAdvisoryLease: vi.fn(async () => true),
 }));
 
@@ -78,6 +78,14 @@ function makeRuntimeSettings(enabled: {
         },
       },
     },
+    runtime: {
+      queue: {
+        maxMessageRuns: 3,
+        maxJobRuns: 4,
+        maxRetries: 5,
+        baseRetryMs: 5000,
+      },
+    },
   };
 }
 
@@ -93,22 +101,28 @@ function makeChannel(overrides: Partial<ChannelAdapter> = {}): ChannelAdapter {
   };
 }
 
-function makeApp(registeredGroups: Record<string, any> = {}): RuntimeApp {
+function makeApp(conversationRoutes: Record<string, any> = {}): RuntimeApp {
   return {
     queue: {} as RuntimeApp['queue'],
     loadState: vi.fn(),
     saveState: vi.fn(),
     getOrRecoverCursor: vi.fn(),
     registerGroup: vi.fn(async (jid: string, group: any) => {
-      registeredGroups[jid] = group;
+      conversationRoutes[jid] = group;
+    }),
+    projectConversationRoute: vi.fn(async (jid: string, group: any) => {
+      conversationRoutes[jid] = group;
+    }),
+    unregisterConversationRoute: vi.fn(async (jid: string) => {
+      delete conversationRoutes[jid];
     }),
     setGroupModelOverride: vi.fn(),
     setGroupThinkingOverride: vi.fn(),
     getAvailableGroups: vi.fn(() => []),
-    setRegisteredGroupsForTest: vi.fn(),
-    ensureCredentialBindingsForRegisteredGroups: vi.fn(),
+    setConversationRoutesForTest: vi.fn(),
+    ensureCredentialBindingsForConversationRoutes: vi.fn(),
     processGroupMessages: vi.fn(),
-    getRegisteredGroups: vi.fn(() => registeredGroups),
+    getConversationRoutes: vi.fn(() => conversationRoutes),
     getLastTimestamp: vi.fn(() => ''),
     setLastTimestamp: vi.fn(),
     setAgentCursor: vi.fn(),
@@ -147,6 +161,7 @@ function dmAccessTestDeps() {
 function makeProvider(
   id: Provider['id'],
   create: Provider['create'],
+  overrides: Partial<Provider> = {},
 ): Provider {
   return {
     id,
@@ -166,6 +181,7 @@ function makeProvider(
       describe: () => id,
       run: async () => {},
     },
+    ...overrides,
   };
 }
 
@@ -226,6 +242,38 @@ describe('createChannelWiring', () => {
 
     expect(wiring.hasConnectedChannels()).toBe(false);
     expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it('fails clearly when an enabled provider has only setup/discovery support', async () => {
+    const app = makeApp();
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => null),
+          {
+            label: 'Teams',
+            controlCapabilityFlags: [
+              'setup',
+              'discover',
+              'runtime-placeholder',
+            ],
+          },
+        ),
+      ],
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+        error: vi.fn(),
+      },
+    });
+
+    await expect(
+      wiring.connectEnabledChannels(
+        makeRuntimeSettings({ telegram: true, slack: false }),
+      ),
+    ).rejects.toThrow(/runtime transport is not implemented/);
   });
 
   it('drops disallowed inbound sender before persistence', async () => {
@@ -650,7 +698,7 @@ describe('createChannelWiring', () => {
     );
     const result = await wiring.requestPermissionApproval({
       requestId: 'req-1',
-      sourceGroup: 'tg:other',
+      sourceAgentFolder: 'tg:other',
       toolName: 'danger-tool',
     });
 
@@ -659,7 +707,7 @@ describe('createChannelWiring', () => {
     const fallbackWiring = createChannelWiring(makeApp({}));
     const fallback = await fallbackWiring.requestPermissionApproval({
       requestId: 'req-2',
-      sourceGroup: 'tg:none',
+      sourceAgentFolder: 'tg:none',
       toolName: 'danger-tool',
     });
 
@@ -727,7 +775,7 @@ describe('createChannelWiring', () => {
 
     const result = await wiring.requestPermissionApproval({
       requestId: 'req-dm-admin',
-      sourceGroup: 'main_agent',
+      sourceAgentFolder: 'main_agent',
       targetJid: 'tg:111',
       toolName: 'danger-tool',
     });
@@ -800,7 +848,7 @@ describe('createChannelWiring', () => {
 
     const result = await wiring.requestPermissionApproval({
       requestId: 'req-dm-settings-kind',
-      sourceGroup: 'main_agent',
+      sourceAgentFolder: 'main_agent',
       targetJid: 'tg:222',
       toolName: 'danger-tool',
     });
@@ -824,7 +872,7 @@ describe('createChannelWiring', () => {
           providerId: string;
           conversationJid: string;
           userId: string;
-          sourceGroup: string;
+          sourceAgentFolder: string;
         }) => Promise<boolean>)
       | undefined;
     runtimeStoreMock.repositories.conversations.getConversation.mockResolvedValue(
@@ -878,7 +926,7 @@ describe('createChannelWiring', () => {
         providerId: 'slack',
         conversationJid: 'sl:D123',
         userId: 'UADMIN',
-        sourceGroup: 'sl:D123',
+        sourceAgentFolder: 'sl:D123',
       }),
     ).resolves.toBe(true);
     await expect(
@@ -886,7 +934,7 @@ describe('createChannelWiring', () => {
         providerId: 'slack',
         conversationJid: 'sl:D123',
         userId: 'U1',
-        sourceGroup: 'sl:D123',
+        sourceAgentFolder: 'sl:D123',
       }),
     ).resolves.toBe(false);
   });
@@ -900,7 +948,7 @@ describe('createChannelWiring', () => {
           providerId: string;
           conversationJid: string;
           userId: string;
-          sourceGroup: string;
+          sourceAgentFolder: string;
         }) => Promise<boolean>)
       | undefined;
     runtimeStoreMock.repositories.conversations.getConversation.mockResolvedValue(
@@ -938,7 +986,7 @@ describe('createChannelWiring', () => {
         providerId: 'slack',
         conversationJid: 'sl:C123',
         userId: 'UADMIN',
-        sourceGroup: 'team',
+        sourceAgentFolder: 'team',
       }),
     ).resolves.toBe(false);
     expect(legacyControlAllowed).not.toHaveBeenCalled();
@@ -973,7 +1021,7 @@ describe('createChannelWiring', () => {
 
     const response = await wiring.requestUserAnswer({
       requestId: 'q-1',
-      sourceGroup: 'group',
+      sourceAgentFolder: 'group',
       targetJid: 'tg:group',
       questions: [],
     });
@@ -987,7 +1035,7 @@ describe('createChannelWiring', () => {
       'tg:group',
       expect.objectContaining({
         requestId: 'q-1',
-        sourceGroup: 'group',
+        sourceAgentFolder: 'group',
         targetJid: 'tg:group',
       }),
     );
@@ -1024,7 +1072,7 @@ describe('createChannelWiring', () => {
 
     const response = await wiring.requestUserAnswer({
       requestId: 'q-1',
-      sourceGroup: 'tg:main',
+      sourceAgentFolder: 'tg:main',
       questions: [],
     });
 
@@ -1034,8 +1082,8 @@ describe('createChannelWiring', () => {
 
 describe('createChannelPersistenceHandlers agent DM access', () => {
   it('registers an unregistered direct conversation for the single allowed agent', async () => {
-    const registeredGroups: Record<string, any> = {};
-    const app = makeApp(registeredGroups);
+    const conversationRoutes: Record<string, any> = {};
+    const app = makeApp(conversationRoutes);
     const storeMessage = vi.fn(async () => undefined);
     runtimeStoreMock.repositories.agents.findAgentsByDmAccess.mockResolvedValueOnce(
       [
@@ -1115,9 +1163,79 @@ describe('createChannelPersistenceHandlers agent DM access', () => {
     expect(storeMessage).toHaveBeenCalledWith(msg);
   });
 
+  it('resolves DM provider access from the chat JID when message provider is absent', async () => {
+    const conversationRoutes: Record<string, any> = {};
+    const app = makeApp(conversationRoutes);
+    const storeMessage = vi.fn(async () => undefined);
+    runtimeStoreMock.repositories.agents.findAgentsByDmAccess.mockResolvedValueOnce(
+      [
+        {
+          id: 'agent:one',
+          appId: 'default',
+          name: 'Agent One',
+          status: 'active',
+          createdAt: '2026-05-01T00:00:00.000Z',
+          updatedAt: '2026-05-01T00:00:00.000Z',
+        },
+      ],
+    );
+
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 5_000),
+      ...dmAccessTestDeps(),
+    });
+
+    await handlers.onChatMetadata(
+      'tg:12345',
+      '2026-05-01T00:00:00.000Z',
+      'Telegram User',
+      'telegram',
+      false,
+    );
+    await handlers.onMessage('tg:12345', {
+      id: 'm-providerless',
+      chat_jid: 'tg:12345',
+      sender: '12345',
+      sender_name: 'Telegram User',
+      content: 'hello',
+      timestamp: '2026-05-01T00:00:01.000Z',
+    });
+
+    expect(
+      runtimeStoreMock.repositories.agents.findAgentsByDmAccess,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'telegram',
+        externalUserId: '12345',
+      }),
+    );
+    expect(storeMessage).toHaveBeenCalled();
+  });
+
   it('uses a distinct runtime folder for each allowed direct conversation', async () => {
-    const registeredGroups: Record<string, any> = {};
-    const app = makeApp(registeredGroups);
+    const conversationRoutes: Record<string, any> = {};
+    const app = makeApp(conversationRoutes);
     const storeMessage = vi.fn(async () => undefined);
     runtimeStoreMock.repositories.agents.findAgentsByDmAccess.mockResolvedValue(
       [
@@ -1191,15 +1309,15 @@ describe('createChannelPersistenceHandlers agent DM access', () => {
       timestamp: '2026-05-01T00:00:02.000Z',
     });
 
-    expect(registeredGroups['sl:D1']?.folder).toMatch(/^dm_slack_/);
-    expect(registeredGroups['sl:D2']?.folder).toMatch(/^dm_slack_/);
-    expect(registeredGroups['sl:D1']?.folder).not.toBe(
-      registeredGroups['sl:D2']?.folder,
+    expect(conversationRoutes['sl:D1']?.folder).toMatch(/^dm_slack_/);
+    expect(conversationRoutes['sl:D2']?.folder).toMatch(/^dm_slack_/);
+    expect(conversationRoutes['sl:D1']?.folder).not.toBe(
+      conversationRoutes['sl:D2']?.folder,
     );
   });
 
   it('drops registered direct conversations after DM access is revoked', async () => {
-    const registeredGroups: Record<string, any> = {
+    const conversationRoutes: Record<string, any> = {
       'sl:D123': {
         name: 'Agent One DM',
         folder: 'dm_slack_previous',
@@ -1208,7 +1326,7 @@ describe('createChannelPersistenceHandlers agent DM access', () => {
         requiresTrigger: false,
       },
     };
-    const app = makeApp(registeredGroups);
+    const app = makeApp(conversationRoutes);
     const storeMessage = vi.fn(async () => undefined);
     runtimeStoreMock.repositories.agents.findAgentsByDmAccess.mockReset();
     runtimeStoreMock.repositories.agents.findAgentsByDmAccess.mockResolvedValue(

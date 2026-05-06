@@ -35,13 +35,6 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/adapters/storage/postgres/repositories/canonical-binding-repository.postgres.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 4
-  },
-  {
     "file": "apps/core/src/adapters/storage/postgres/repositories/canonical-session-repository.postgres.ts",
     "rule": "old_term_groupFolder",
     "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
@@ -70,13 +63,6 @@
     "maxOccurrences": 7
   },
   {
-    "file": "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 4
-  },
-  {
     "file": "apps/core/src/adapters/storage/postgres/schema/control-plane-canonical.postgres.ts",
     "rule": "old_term_groupFolder",
     "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
@@ -103,13 +89,6 @@
     "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/adapters/storage/postgres/services/canonical-binding-ops-service.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 5
   },
   {
     "file": "apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts",
@@ -147,13 +126,6 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/app/bootstrap/channel-persistence-handlers.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 5
-  },
-  {
     "file": "apps/core/src/app/bootstrap/channel-wiring-types.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -166,13 +138,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 7
-  },
-  {
-    "file": "apps/core/src/app/bootstrap/channel-wiring.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
   },
   {
     "file": "apps/core/src/app/bootstrap/runtime-app.ts",
@@ -189,13 +154,6 @@
     "maxOccurrences": 6
   },
   {
-    "file": "apps/core/src/app/bootstrap/runtime-app.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 24
-  },
-  {
     "file": "apps/core/src/app/bootstrap/runtime-services.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -208,13 +166,6 @@
     "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxOccurrences": 4
-  },
-  {
-    "file": "apps/core/src/app/bootstrap/runtime-services.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 5
   },
   {
     "file": "apps/core/src/app/bootstrap/shutdown.ts",
@@ -245,13 +196,6 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/channels/channel-provider.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 3
-  },
-  {
     "file": "apps/core/src/channels/slack/channel-adapter.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -273,25 +217,11 @@
     "maxViolations": 3
   },
   {
-    "file": "apps/core/src/channels/slack/channel-interactions.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
-  },
-  {
     "file": "apps/core/src/channels/slack/channel-state.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 3
-  },
-  {
-    "file": "apps/core/src/channels/slack/channel-state.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
   },
   {
     "file": "apps/core/src/channels/telegram/channel-adapter.ts",
@@ -306,13 +236,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 4
-  },
-  {
-    "file": "apps/core/src/channels/telegram/channel-connect.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
   },
   {
     "file": "apps/core/src/channels/telegram/channel-delivery.ts",
@@ -385,13 +308,6 @@
     "maxViolations": 3
   },
   {
-    "file": "apps/core/src/cli/group-helpers.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 9
-  },
-  {
     "file": "apps/core/src/cli/group-policy-format.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -404,13 +320,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 3
-  },
-  {
-    "file": "apps/core/src/cli/group.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 8
   },
   {
     "file": "apps/core/src/cli/index.ts",
@@ -483,13 +392,6 @@
     "maxOccurrences": 3
   },
   {
-    "file": "apps/core/src/cli/runtime-group-db.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 5
-  },
-  {
     "file": "apps/core/src/cli/setup-credentials.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -544,13 +446,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 3
-  },
-  {
-    "file": "apps/core/src/cli/status.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 4
   },
   {
     "file": "apps/core/src/cli/telegram-connect.ts",
@@ -637,13 +532,6 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/control/server/app-identity.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
-  },
-  {
     "file": "apps/core/src/control/server/handler-context.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -686,46 +574,11 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/domain/repositories/domain-types.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
-  },
-  {
-    "file": "apps/core/src/domain/repositories/memory-repo.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 12
-  },
-  {
-    "file": "apps/core/src/domain/repositories/ops-repo.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 7
-  },
-  {
-    "file": "apps/core/src/domain/repositories/ops-repo.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 4
-  },
-  {
     "file": "apps/core/src/domain/sessions/provider-session-artifact.ts",
     "rule": "provider_specific_path",
     "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 2
-  },
-  {
-    "file": "apps/core/src/domain/types.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
   },
   {
     "file": "apps/core/src/index.ts",
@@ -770,13 +623,6 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/jobs/execution-context.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 3
-  },
-  {
     "file": "apps/core/src/jobs/execution.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -791,13 +637,6 @@
     "maxOccurrences": 2
   },
   {
-    "file": "apps/core/src/jobs/execution.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
-  },
-  {
     "file": "apps/core/src/jobs/ipc-admin-handlers.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -810,13 +649,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 2
-  },
-  {
-    "file": "apps/core/src/jobs/ipc-handler.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 4
   },
   {
     "file": "apps/core/src/jobs/ipc-scheduler-create-handlers.ts",
@@ -854,13 +686,6 @@
     "maxOccurrences": 1
   },
   {
-    "file": "apps/core/src/jobs/ipc-types.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 4
-  },
-  {
     "file": "apps/core/src/jobs/schedule-math.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -896,13 +721,6 @@
     "maxOccurrences": 10
   },
   {
-    "file": "apps/core/src/jobs/system-jobs.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
-  },
-  {
     "file": "apps/core/src/jobs/types.ts",
     "rule": "forbidden_external_import_by_layer",
     "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
@@ -915,13 +733,6 @@
     "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxOccurrences": 1
-  },
-  {
-    "file": "apps/core/src/jobs/types.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 3
   },
   {
     "file": "apps/core/src/memory/app-memory-boundaries.ts",
@@ -1162,13 +973,6 @@
     "maxViolations": 4
   },
   {
-    "file": "apps/core/src/runtime/agent-spawn-host.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
-  },
-  {
     "file": "apps/core/src/runtime/agent-spawn-process.ts",
     "rule": "direct_risky_execution",
     "reason": "Baseline host-execution debt pending sandbox adapter cutover; capped so new direct execution calls fail.",
@@ -1218,13 +1022,6 @@
     "maxOccurrences": 1
   },
   {
-    "file": "apps/core/src/runtime/agent-spawn-types.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
-  },
-  {
     "file": "apps/core/src/runtime/agent-spawn.ts",
     "rule": "forbidden_external_import_by_layer",
     "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
@@ -1242,13 +1039,6 @@
     "file": "apps/core/src/runtime/agent-spawn.ts",
     "rule": "old_term_groupFolder",
     "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
-  },
-  {
-    "file": "apps/core/src/runtime/agent-spawn.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxOccurrences": 2
   },
@@ -1330,13 +1120,6 @@
     "maxOccurrences": 3
   },
   {
-    "file": "apps/core/src/runtime/group-processing-types.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
-  },
-  {
     "file": "apps/core/src/runtime/group-processing.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -1349,13 +1132,6 @@
     "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxOccurrences": 5
-  },
-  {
-    "file": "apps/core/src/runtime/group-processing.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
   },
   {
     "file": "apps/core/src/runtime/group-queue-stop.ts",
@@ -1401,13 +1177,6 @@
   },
   {
     "file": "apps/core/src/runtime/group-registry.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 26
-  },
-  {
-    "file": "apps/core/src/runtime/group-registry.ts",
     "rule": "provider_specific_path",
     "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
@@ -1442,13 +1211,6 @@
     "maxOccurrences": 1
   },
   {
-    "file": "apps/core/src/runtime/ipc-domain-types.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 4
-  },
-  {
     "file": "apps/core/src/runtime/ipc-filesystem.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -1477,25 +1239,11 @@
     "maxOccurrences": 5
   },
   {
-    "file": "apps/core/src/runtime/ipc-task-parsing.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 3
-  },
-  {
     "file": "apps/core/src/runtime/ipc.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 3
-  },
-  {
-    "file": "apps/core/src/runtime/ipc.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 5
   },
   {
     "file": "apps/core/src/runtime/memory-dreaming-runner.ts",
@@ -1510,13 +1258,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 2
-  },
-  {
-    "file": "apps/core/src/runtime/message-loop.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 6
   },
   {
     "file": "apps/core/src/runtime/partial-delivery.ts",
@@ -1554,13 +1295,6 @@
     "maxViolations": 2
   },
   {
-    "file": "apps/core/src/runtime/remote-control-command.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
-  },
-  {
     "file": "apps/core/src/runtime/remote-control.ts",
     "rule": "direct_risky_execution",
     "reason": "Baseline host-execution debt pending sandbox adapter cutover; capped so new direct execution calls fail.",
@@ -1594,20 +1328,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 2
-  },
-  {
-    "file": "apps/core/src/runtime/session-resume-runtime.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
-  },
-  {
-    "file": "apps/core/src/runtime/session-resume-runtime.ts",
-    "rule": "old_term_registeredGroup",
-    "reason": "Baseline RegisteredGroup terminology debt pending canonical conversation binding rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 5
   },
   {
     "file": "apps/core/src/session/session-commands.ts",

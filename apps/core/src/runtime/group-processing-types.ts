@@ -3,11 +3,14 @@ import type { ChildProcess } from 'child_process';
 import type {
   MessageSendOptions,
   ProgressUpdateOptions,
-  RegisteredGroup,
+  ConversationRoute,
   StreamingChunkOptions,
   ThinkingOverride,
 } from '../domain/types.js';
-import type { OpsRepository } from '../domain/repositories/ops-repo.js';
+import type {
+  RuntimeAgentSessionRepository,
+  RuntimeMessageRepository,
+} from '../domain/repositories/ops-repo.js';
 import type { AvailableGroup, spawnAgent } from './agent-spawn.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
@@ -19,6 +22,9 @@ import type {
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import type { RemoteMcpDnsValidationCache } from '../application/mcp/mcp-server-policy.js';
 import type { SessionMemoryCollector } from '../domain/ports/session-memory-collector.js';
+
+export type GroupProcessingRepository = RuntimeAgentSessionRepository &
+  RuntimeMessageRepository;
 
 export interface GroupProcessor {
   processGroupMessages: (
@@ -50,7 +56,7 @@ export interface GroupProcessingDeps {
       options?: ProgressUpdateOptions,
     ) => Promise<void>;
   };
-  getGroup: (chatJid: string) => RegisteredGroup | undefined;
+  getGroup: (chatJid: string) => ConversationRoute | undefined;
   clearSession: (
     groupFolder: string,
     threadId?: string | null,
@@ -90,6 +96,6 @@ export interface GroupProcessingDeps {
   getMcpDnsValidationCache?: () => RemoteMcpDnsValidationCache | undefined;
   getSkillArtifactStore?: () => SkillArtifactStore | undefined;
   collectSessionMemory?: SessionMemoryCollector;
-  opsRepository?: OpsRepository;
-  getOpsRepository?: () => OpsRepository;
+  opsRepository?: GroupProcessingRepository;
+  getRuntimeRepository?: () => GroupProcessingRepository;
 }

@@ -33,6 +33,7 @@ import {
   materializeMcpRecord,
   type MaterializedMcpCapability,
 } from './mcp-server-materialization.js';
+import { stableSha256Json } from '../../shared/stable-hash.js';
 
 export type { MaterializedMcpCapability } from './mcp-server-materialization.js';
 
@@ -591,14 +592,8 @@ function buildVersion(input: {
   };
 }
 
-function hashMcpConfig(value: unknown): string {
-  const serialized = JSON.stringify(value);
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < serialized.length; index += 1) {
-    hash ^= serialized.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return `fnv1a32:${hash.toString(16).padStart(8, '0')}`;
+export function hashMcpConfig(value: unknown): string {
+  return `sha256:${stableSha256Json(value)}`;
 }
 
 const MCP_TOOL_PATTERN = /^[A-Za-z0-9_.-]+(?:\*)?$/;

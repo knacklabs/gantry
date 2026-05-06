@@ -42,7 +42,7 @@ export async function requestPermissionApproval(options: {
     const payload = {
       requestId,
       responseNonce,
-      sourceGroup: options.groupFolder,
+      sourceAgentFolder: options.groupFolder,
       toolName: options.toolName,
       ...(options.title ? { title: options.title } : {}),
       ...(options.displayName ? { displayName: options.displayName } : {}),

@@ -145,7 +145,7 @@ import { spawnAgent, AgentOutput } from '@core/runtime/agent-spawn.js';
 import { getEffectiveModelConfig } from '@core/config/index.js';
 import { spawn } from 'child_process';
 import fs from 'fs';
-import type { RegisteredGroup } from '@core/domain/types.js';
+import type { ConversationRoute } from '@core/domain/types.js';
 import { getPromptProfileService } from '@core/runtime/prompt-profile.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 import { getHostRuntimeCredentialEnv } from '@core/runtime/agent-spawn-host.js';
@@ -160,7 +160,7 @@ import type {
 } from '@core/domain/mcp/mcp-servers.js';
 import type { McpServerRepository } from '@core/domain/ports/repositories.js';
 
-const testGroup: RegisteredGroup = {
+const testGroup: ConversationRoute = {
   name: 'Test Group',
   folder: 'test-group',
   trigger: '@Andy',
@@ -214,6 +214,10 @@ class SpawnMcpRepository implements McpServerRepository {
   }
 
   async listAgentBindings() {
+    return [];
+  }
+
+  async listAgentBindingsForAgents() {
     return [];
   }
 
@@ -409,7 +413,7 @@ describe('agent-spawn timeout behavior', () => {
       model: 'opus',
       source: 'group.agentConfig.model' as const,
     });
-    const groupWithModel: RegisteredGroup = {
+    const groupWithModel: ConversationRoute = {
       ...testGroup,
       agentConfig: { model: 'opus' },
     };
@@ -440,7 +444,7 @@ describe('agent-spawn timeout behavior', () => {
       model: 'opus',
       source: 'group.agentConfig.model' as const,
     });
-    const groupWithModel: RegisteredGroup = {
+    const groupWithModel: ConversationRoute = {
       ...testGroup,
       agentConfig: { model: 'opus' },
     };
@@ -849,7 +853,7 @@ describe('agent-spawn timeout behavior', () => {
       source: 'unset',
     });
     vi.mocked(getHostRuntimeCredentialEnv).mockClear();
-    const mainGroup: RegisteredGroup = {
+    const mainGroup: ConversationRoute = {
       ...testGroup,
       folder: 'main_agent',
       isMain: true,

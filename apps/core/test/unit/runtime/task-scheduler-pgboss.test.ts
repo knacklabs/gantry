@@ -57,7 +57,7 @@ describe('PgBossSchedulerEngine', () => {
       };
       const engine = new PgBossSchedulerEngine(
         {
-          registeredGroups: () => ({}),
+          conversationRoutes: () => ({}),
           queue: {} as never,
           onProcess: vi.fn(),
           sendMessage: vi.fn(),
@@ -129,7 +129,7 @@ describe('PgBossSchedulerEngine', () => {
     const onSchedulerChanged = vi.fn();
     const engine = new PgBossSchedulerEngine(
       {
-        registeredGroups: () => ({}),
+        conversationRoutes: () => ({}),
         queue: {} as never,
         onProcess: vi.fn(),
         sendMessage: vi.fn(),
@@ -171,7 +171,7 @@ describe('PgBossSchedulerEngine', () => {
     };
     const engine = new PgBossSchedulerEngine(
       {
-        registeredGroups: () => ({}),
+        conversationRoutes: () => ({}),
         queue: {} as never,
         onProcess: vi.fn(),
         sendMessage: vi.fn(),
@@ -226,7 +226,7 @@ describe('PgBossSchedulerEngine', () => {
     };
     const engine = new PgBossSchedulerEngine(
       {
-        registeredGroups: () => ({}),
+        conversationRoutes: () => ({}),
         queue: {} as never,
         onProcess: vi.fn(),
         sendMessage: vi.fn(),
@@ -263,7 +263,7 @@ describe('PgBossSchedulerEngine', () => {
     };
     const engine = new PgBossSchedulerEngine(
       {
-        registeredGroups: () => ({}),
+        conversationRoutes: () => ({}),
         queue: {} as never,
         onProcess: vi.fn(),
         sendMessage: vi.fn(),

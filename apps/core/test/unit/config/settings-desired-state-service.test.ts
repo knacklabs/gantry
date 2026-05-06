@@ -12,7 +12,9 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
     agents: {
       saveAgent: vi.fn(async () => undefined),
       listAgentDmAccess: vi.fn(async () => []),
+      listAgentDmAccessForAgents: vi.fn(async () => []),
       listAgentDmApprovers: vi.fn(async () => []),
+      listAgentDmApproversForAgents: vi.fn(async () => []),
       replaceAgentDmAccessPolicy: vi.fn(async () => undefined),
       replaceAgentCapabilityBindings: vi.fn(async () => undefined),
       disableAgent: vi.fn(async () => undefined),
@@ -30,6 +32,7 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
           : null,
       ),
       listAgentToolBindings: vi.fn(async () => []),
+      listAgentToolBindingsForAgents: vi.fn(async () => []),
     },
     skills: {
       getSkill: vi.fn(async (id: string) =>
@@ -43,6 +46,7 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
           : null,
       ),
       listAgentSkillBindings: vi.fn(async () => []),
+      listAgentSkillBindingsForAgents: vi.fn(async () => []),
     },
     mcpServers: {
       getServer: vi.fn(async (id: string) =>
@@ -56,9 +60,22 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
           : null,
       ),
       listAgentBindings: vi.fn(async () => []),
+      listAgentBindingsForAgents: vi.fn(async () => []),
     },
     providerConnections: {
+      getProviderConnection: vi.fn(async (id: string) => ({
+        id,
+        appId: 'default',
+        providerId: id.replace(/_default$/, ''),
+        label: id,
+        status: 'active',
+        config: {},
+        runtimeSecretRefs: [],
+        createdAt: '2026-05-02T00:00:00.000Z',
+        updatedAt: '2026-05-02T00:00:00.000Z',
+      })),
       saveProviderConnection: vi.fn(async () => undefined),
+      saveAgentConversationBinding: vi.fn(async () => undefined),
     },
     ...overrides,
   } as any;
@@ -66,9 +83,9 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
 
 function makeOps(groups: Record<string, any> = {}) {
   return {
-    getAllRegisteredGroups: vi.fn(async () => groups),
-    setRegisteredGroup: vi.fn(async () => undefined),
-    deleteRegisteredGroup: vi.fn(async () => undefined),
+    getAllConversationRoutes: vi.fn(async () => groups),
+    setConversationRoute: vi.fn(async () => undefined),
+    deleteConversationRoute: vi.fn(async () => undefined),
   };
 }
 
@@ -134,11 +151,277 @@ describe('SettingsDesiredStateService', () => {
     const result = await service.reconcile(settings);
 
     expect(result.invalidReferences).toEqual([]);
-    expect(ops.setRegisteredGroup).toHaveBeenCalledWith(
+    expect(ops.setConversationRoute).toHaveBeenCalledWith(
       'tg:100',
       expect.objectContaining({ folder: 'main_agent', trigger: '@main' }),
     );
-    expect(ops.deleteRegisteredGroup).not.toHaveBeenCalled();
+    expect(ops.deleteConversationRoute).not.toHaveBeenCalled();
+  });
+
+  it('reconciles canonical top-level bindings into registered routing', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.slack.enabled = true;
+    settings.providers.slack.defaultConnection = 'slack_default';
+    settings.providerConnections.slack_default = {
+      provider: 'slack',
+      label: 'Slack Default',
+      runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
+    };
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      dmAccess: [],
+      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+    };
+    settings.conversations.sales_slack = {
+      providerConnection: 'slack_default',
+      externalId: 'C123',
+      kind: 'channel',
+      displayName: 'Sales Slack',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: [],
+    };
+    settings.bindings.sales_slack = {
+      agent: 'main_agent',
+      conversation: 'sales_slack',
+      trigger: '@main',
+      addedAt: '2026-05-02T00:00:00.000Z',
+      requiresTrigger: true,
+      isMain: true,
+      memoryScope: 'conversation',
+    };
+    const ops = makeOps();
+    const service = new SettingsDesiredStateService({
+      ops,
+      repositories: makeRepositories(),
+    });
+
+    const result = await service.reconcile(settings);
+
+    expect(result.invalidReferences).toEqual([]);
+    expect(ops.setConversationRoute).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        name: 'Sales Slack',
+        folder: 'main_agent',
+        trigger: '@main',
+        isMain: true,
+      }),
+    );
+  });
+
+  it('persists top-level conversation bindings per agent without id collisions', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.slack.enabled = true;
+    settings.providers.slack.defaultConnection = 'slack_default';
+    settings.providerConnections.slack_default = {
+      provider: 'slack',
+      label: 'Slack Default',
+      runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
+    };
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      dmAccess: [],
+      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+    };
+    settings.agents.ops_agent = {
+      name: 'Ops',
+      folder: 'ops_agent',
+      bindings: {},
+      dmAccess: [],
+      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+    };
+    settings.conversations.sales = {
+      providerConnection: 'slack_default',
+      externalId: 'C123',
+      kind: 'channel',
+      displayName: 'Sales',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: [],
+    };
+    settings.bindings.sales_main = {
+      agent: 'main_agent',
+      conversation: 'sales',
+      trigger: '@main',
+      addedAt: '2026-05-02T00:00:00.000Z',
+      requiresTrigger: true,
+      isMain: false,
+      memoryScope: 'agent',
+    };
+    settings.bindings.sales_ops = {
+      agent: 'ops_agent',
+      conversation: 'sales',
+      trigger: '@ops',
+      addedAt: '2026-05-02T00:00:00.000Z',
+      requiresTrigger: true,
+      isMain: false,
+      memoryScope: 'conversation',
+    };
+    const savedConversations: any[] = [];
+    const conversations = {
+      getConversation: vi.fn(
+        async (id: string) =>
+          savedConversations.find((conversation) => conversation.id === id) ??
+          null,
+      ),
+      getConversationByExternalRef: vi.fn(async () => null),
+      saveConversation: vi.fn(async (conversation: any) => {
+        savedConversations.push(conversation);
+      }),
+      replaceConversationApprovers: vi.fn(async () => []),
+    };
+    const repositories = makeRepositories({ conversations });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+      clock: { now: () => '2026-05-02T00:00:00.000Z' },
+    });
+
+    await service.reconcile(settings);
+
+    const savedBindings =
+      repositories.providerConnections.saveAgentConversationBinding.mock.calls.map(
+        ([binding]: any[]) => binding,
+      );
+    expect(savedBindings.map((binding: any) => binding.id).sort()).toEqual([
+      'agent-conversation-binding:main_agent:sales_main',
+      'agent-conversation-binding:ops_agent:sales_ops',
+    ]);
+    expect(savedBindings).toContainEqual(
+      expect.objectContaining({
+        id: 'agent-conversation-binding:main_agent:sales_main',
+        agentId: 'agent:main_agent',
+        memoryScope: 'agent',
+        memorySubject: {
+          kind: 'agent',
+          appId: 'default',
+          agentId: 'agent:main_agent',
+        },
+      }),
+    );
+  });
+
+  it('persists user memory subjects for desired-state DM bindings', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.slack.enabled = true;
+    settings.providers.slack.defaultConnection = 'slack_default';
+    settings.providerConnections.slack_default = {
+      provider: 'slack',
+      label: 'Slack Default',
+      runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
+    };
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      dmAccess: [],
+      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+    };
+    settings.conversations.direct_user = {
+      providerConnection: 'slack_default',
+      externalId: 'U123',
+      kind: 'dm',
+      displayName: 'Direct User',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: [],
+    };
+    settings.bindings.direct_user_main = {
+      agent: 'main_agent',
+      conversation: 'direct_user',
+      trigger: '@main',
+      addedAt: '2026-05-02T00:00:00.000Z',
+      requiresTrigger: true,
+      isMain: false,
+      memoryScope: 'user',
+    };
+    const savedConversations: any[] = [];
+    const conversations = {
+      getConversation: vi.fn(
+        async (id: string) =>
+          savedConversations.find((conversation) => conversation.id === id) ??
+          null,
+      ),
+      getConversationByExternalRef: vi.fn(async () => null),
+      saveConversation: vi.fn(async (conversation: any) => {
+        savedConversations.push(conversation);
+      }),
+      replaceConversationApprovers: vi.fn(async () => []),
+    };
+    const repositories = makeRepositories({ conversations });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+      clock: { now: () => '2026-05-02T00:00:00.000Z' },
+    });
+
+    await service.reconcile(settings);
+
+    expect(
+      repositories.providerConnections.saveAgentConversationBinding,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memoryScope: 'user',
+        memorySubject: {
+          kind: 'user',
+          appId: 'default',
+          userId: 'U123',
+        },
+      }),
+    );
+  });
+
+  it('does not report drift for matching canonical top-level bindings', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.telegram.enabled = true;
+    settings.providers.telegram.defaultConnection = 'telegram_default';
+    settings.providerConnections.telegram_default = {
+      provider: 'telegram',
+      label: 'Telegram Default',
+      runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
+    };
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      dmAccess: [],
+      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+    };
+    settings.conversations.main = {
+      providerConnection: 'telegram_default',
+      externalId: '-100123',
+      kind: 'group',
+      displayName: 'Main',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: [],
+    };
+    settings.bindings.main = {
+      agent: 'main_agent',
+      conversation: 'main',
+      trigger: '@main',
+      addedAt: '2026-05-02T00:00:00.000Z',
+      requiresTrigger: true,
+      isMain: true,
+      memoryScope: 'conversation',
+    };
+    const service = new SettingsDesiredStateService({
+      ops: makeOps({
+        'tg:-100123': {
+          name: 'Main',
+          folder: 'main_agent',
+          trigger: '@main',
+          added_at: '2026-05-02T00:00:00.000Z',
+        },
+      }),
+      repositories: makeRepositories(),
+    });
+
+    await expect(service.drift(settings)).resolves.toMatchObject({
+      dbOnlyGroupJids: [],
+      missingSettingsAgents: [],
+    });
   });
 
   it('removes absent DB bindings only in authoritative mode', async () => {
@@ -170,7 +453,7 @@ describe('SettingsDesiredStateService', () => {
 
     await service.reconcile(settings);
 
-    expect(ops.deleteRegisteredGroup).toHaveBeenCalledWith('tg:old');
+    expect(ops.deleteConversationRoute).toHaveBeenCalledWith('tg:old');
   });
 
   it('clears empty capability selections in authoritative mode', async () => {
@@ -372,7 +655,7 @@ describe('SettingsDesiredStateService', () => {
           updatedAt: input.updatedAt,
         }));
       }),
-      listParticipantExternalUserIds: vi.fn(async () => []),
+      listParticipantExternalUserIds: vi.fn(async () => ['5759865942']),
     };
     const repositories = makeRepositories({
       conversations,
@@ -543,11 +826,26 @@ describe('SettingsDesiredStateService', () => {
           updatedAt: input.updatedAt,
         }));
       }),
+      listParticipantExternalUserIds: vi.fn(async (conversationId: string) =>
+        conversationId.includes('sl:C123') ? ['U123'] : ['8:orgid:abc'],
+      ),
     };
     const repositories = makeRepositories({
       conversations,
       providerConnections: {
+        getProviderConnection: vi.fn(async (id: string) => ({
+          id,
+          appId: 'default',
+          providerId: id === 'slack_default' ? 'slack' : 'teams',
+          label: id,
+          status: 'active',
+          config: {},
+          runtimeSecretRefs: [],
+          createdAt: '2026-05-02T00:00:00.000Z',
+          updatedAt: '2026-05-02T00:00:00.000Z',
+        })),
         saveProviderConnection: vi.fn(async () => undefined),
+        saveAgentConversationBinding: vi.fn(async () => undefined),
       },
     });
     const service = new SettingsDesiredStateService({
@@ -675,6 +973,52 @@ describe('SettingsDesiredStateService', () => {
     );
   });
 
+  it('skips settings approvers that are not known conversation members', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.slack.enabled = true;
+    settings.providers.slack.defaultConnection = 'slack_default';
+    settings.providerConnections.slack_default = {
+      provider: 'slack',
+      label: 'Slack Default',
+      runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
+    };
+    settings.conversations.sales = {
+      providerConnection: 'slack_default',
+      externalId: 'C123',
+      kind: 'channel',
+      displayName: 'Sales',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['U-NOT-MEMBER'],
+    };
+    const savedConversations: any[] = [];
+    const conversations = {
+      getConversation: vi.fn(
+        async (id: string) =>
+          savedConversations.find((conversation) => conversation.id === id) ??
+          null,
+      ),
+      getConversationByExternalRef: vi.fn(async () => null),
+      saveConversation: vi.fn(async (conversation: any) => {
+        savedConversations.push(conversation);
+      }),
+      listParticipantExternalUserIds: vi.fn(async () => ['U-MEMBER']),
+      replaceConversationApprovers: vi.fn(async () => []),
+      listConversationApprovers: vi.fn(async () => []),
+    };
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories: makeRepositories({ conversations }),
+      clock: { now: () => '2026-05-02T00:00:00.000Z' },
+    });
+
+    const result = await service.reconcile(settings);
+
+    expect(conversations.replaceConversationApprovers).not.toHaveBeenCalled();
+    expect(result.skipped.join('\n')).toContain(
+      'Control approvers must be members of the conversation.',
+    );
+  });
+
   it('exports colliding conversation bindings without overwriting one another', async () => {
     const settings = createDefaultRuntimeSettings();
     const service = new SettingsDesiredStateService({
@@ -704,6 +1048,117 @@ describe('SettingsDesiredStateService', () => {
     expect(Object.keys(exported.agents.main_agent.bindings)).toHaveLength(2);
   });
 
+  it('exports desired state with batched agent and conversation reads', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.slack = {
+      enabled: true,
+      defaultConnection: 'slack_default',
+    };
+    settings.providerConnections.slack_default = {
+      provider: 'slack',
+      label: 'Slack',
+      runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
+    };
+    const storedConversation = {
+      id: 'conversation:sl:C100',
+      appId: 'default',
+      providerConnectionId: 'slack_default',
+      externalRef: { kind: 'conversation', value: 'C100' },
+      kind: 'channel',
+      title: 'Slack C100',
+      status: 'active',
+      createdAt: '2026-05-01T00:00:00.000Z',
+      updatedAt: '2026-05-01T00:00:00.000Z',
+    };
+    const repositories = makeRepositories({
+      agents: {
+        ...makeRepositories().agents,
+        listAgentDmAccess: vi.fn(async () => {
+          throw new Error('single-agent DM access read should not run');
+        }),
+        listAgentDmAccessForAgents: vi.fn(async () => [
+          {
+            appId: 'default',
+            agentId: 'agent:main_agent',
+            providerId: 'slack',
+            externalUserId: '42',
+          },
+        ]),
+        listAgentDmApprovers: vi.fn(async () => {
+          throw new Error('single-agent DM approver read should not run');
+        }),
+        listAgentDmApproversForAgents: vi.fn(async () => []),
+      },
+      tools: {
+        ...makeRepositories().tools,
+        listAgentToolBindings: vi.fn(async () => {
+          throw new Error('single-agent tool read should not run');
+        }),
+        listAgentToolBindingsForAgents: vi.fn(async () => []),
+      },
+      skills: {
+        ...makeRepositories().skills,
+        listAgentSkillBindings: vi.fn(async () => {
+          throw new Error('single-agent skill read should not run');
+        }),
+        listAgentSkillBindingsForAgents: vi.fn(async () => []),
+      },
+      mcpServers: {
+        ...makeRepositories().mcpServers,
+        listAgentBindings: vi.fn(async () => {
+          throw new Error('single-agent MCP read should not run');
+        }),
+        listAgentBindingsForAgents: vi.fn(async () => []),
+      },
+      conversations: {
+        listConversations: vi.fn(async () => [storedConversation]),
+        listConversationApprovers: vi.fn(async () => {
+          throw new Error('single-conversation approver read should not run');
+        }),
+        listConversationApproversForConversations: vi.fn(async () => [
+          {
+            conversationId: storedConversation.id,
+            externalUserId: '5759865942',
+          },
+        ]),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps({
+        'sl:C100': {
+          name: 'Main Slack',
+          folder: 'main_agent',
+          trigger: '@main',
+          added_at: '2026-05-01T00:00:00.000Z',
+          requiresTrigger: false,
+          isMain: true,
+        },
+        'sl:C200': {
+          name: 'Side Slack',
+          folder: 'side_agent',
+          trigger: '@side',
+          added_at: '2026-05-01T00:00:00.000Z',
+        },
+      }),
+      repositories,
+    });
+
+    const exported = await service.exportCurrent(settings);
+
+    expect(
+      repositories.agents.listAgentDmAccessForAgents,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      repositories.conversations.listConversationApproversForConversations,
+    ).toHaveBeenCalledTimes(1);
+    expect(exported.agents.main_agent.dmAccess).toEqual([
+      { provider: 'slack', userIds: ['42'], adminUserId: undefined },
+    ]);
+    expect(exported.conversations.main_agent_slack.controlApprovers).toEqual([
+      '5759865942',
+    ]);
+  });
+
   it('does not borrow exported approvers from another provider external ID collision', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.telegram = {
@@ -727,10 +1182,19 @@ describe('SettingsDesiredStateService', () => {
       updatedAt: '2026-05-01T00:00:00.000Z',
     };
     const conversations = {
+      listConversations: vi.fn(async () => [slackConversation]),
       getConversationByExternalRef: vi.fn(async () => null),
       getConversation: vi.fn(async () => null),
       findConversationByExternalValue: vi.fn(async () => slackConversation),
       listConversationApprovers: vi.fn(async () => [
+        {
+          conversationId: slackConversation.id,
+          externalUserId: 'U123',
+          createdAt: '2026-05-01T00:00:00.000Z',
+          updatedAt: '2026-05-01T00:00:00.000Z',
+        },
+      ]),
+      listConversationApproversForConversations: vi.fn(async () => [
         {
           conversationId: slackConversation.id,
           externalUserId: 'U123',

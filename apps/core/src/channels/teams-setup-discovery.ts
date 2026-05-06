@@ -20,6 +20,7 @@ export interface TeamsDiscoveredChannel {
   channelId: string;
   channelName: string;
   channelType: string;
+  isArchived?: boolean;
 }
 
 export interface TeamsChannelDiscoveryResult {
@@ -49,6 +50,7 @@ export interface TeamsSetupDiscoveryClient {
   listChannels(options: {
     credentials: TeamsSetupCredentials;
     limit?: number;
+    includeArchived?: boolean;
   }): Promise<TeamsChannelDiscoveryResult>;
   verifyChannel(options: {
     credentials: TeamsSetupCredentials;
@@ -104,6 +106,7 @@ function normalizeGraphChannel(input: {
   channelId: string;
   channelName: string;
   channelType?: string;
+  isArchived?: boolean;
 }): TeamsDiscoveredChannel | null {
   const chatJid = normalizeTeamsJid(input.channelId);
   if (!chatJid) return null;
@@ -115,6 +118,7 @@ function normalizeGraphChannel(input: {
     channelId: input.channelId,
     channelName: input.channelName,
     channelType: input.channelType || 'standard',
+    ...(input.isArchived === true ? { isArchived: true } : {}),
   };
 }
 
@@ -182,6 +186,7 @@ export class GraphTeamsSetupDiscoveryClient implements TeamsSetupDiscoveryClient
   async listChannels(options: {
     credentials: TeamsSetupCredentials;
     limit?: number;
+    includeArchived?: boolean;
   }): Promise<TeamsChannelDiscoveryResult> {
     return listTeamsChannels(options);
   }
@@ -226,6 +231,7 @@ export async function listTeamsChannels(options: {
   credentials: TeamsSetupCredentials;
   timeoutMs?: number;
   limit?: number;
+  includeArchived?: boolean;
 }): Promise<TeamsChannelDiscoveryResult> {
   const limit = Math.max(1, Math.min(100, options.limit ?? 50));
   try {
@@ -247,6 +253,7 @@ export async function listTeamsChannels(options: {
         id?: string;
         displayName?: string;
         membershipType?: string;
+        isArchived?: boolean;
       }>({
         firstUrl: `${GRAPH_ROOT}/teams/${encodeURIComponent(teamId)}/channels?$top=${limit}`,
         accessToken,
@@ -255,12 +262,16 @@ export async function listTeamsChannels(options: {
       for (const channel of graphChannels) {
         const channelId = String(channel.id || '').trim();
         if (!channelId || !isSafeGraphId(channelId)) continue;
+        if (options.includeArchived !== true && channel.isArchived === true) {
+          continue;
+        }
         const normalized = normalizeGraphChannel({
           teamId,
           teamName,
           channelId,
           channelName: String(channel.displayName || channelId).trim(),
           channelType: String(channel.membershipType || 'standard').trim(),
+          isArchived: channel.isArchived === true,
         });
         if (normalized) channels.push(normalized);
         if (channels.length >= limit) break;
@@ -338,6 +349,7 @@ export async function verifyTeamsChannelAccess(options: {
       id?: string;
       displayName?: string;
       membershipType?: string;
+      isArchived?: boolean;
     }>(channelResponse);
     const normalized = normalizeGraphChannel({
       teamId,
@@ -347,6 +359,7 @@ export async function verifyTeamsChannelAccess(options: {
         channel.displayName || channel.id || channelId,
       ).trim(),
       channelType: String(channel.membershipType || 'standard').trim(),
+      isArchived: channel.isArchived === true,
     });
     if (!normalized) throw new Error('Teams channel id is invalid');
     return {

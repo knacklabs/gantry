@@ -1,6 +1,3 @@
-import fs from 'fs';
-import path from 'path';
-
 import { App } from '@slack/bolt';
 
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
@@ -18,8 +15,6 @@ import {
   formatOutboundForChannel,
   stripInternalTagsPreserveWhitespace,
 } from '../../messaging/router.js';
-import { resolveGroupFolderPath } from '../../platform/group-folder.js';
-import { ChannelOpts } from '../channel-provider.js';
 import {
   permissionButtonLabel,
   permissionDecisionOptions,
@@ -404,7 +399,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
 
         this.pendingPermissionPrompts.set(request.requestId, {
           channelId: parsed.channelId,
-          sourceGroup: request.sourceGroup,
+          sourceAgentFolder: request.sourceAgentFolder,
           decisionPolicy: request.decisionPolicy,
           approvalContextJid: request.approvalContextJid,
           request,
@@ -493,7 +488,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           promptText,
           selectedOptionIndexes: new Set<number>(),
           channelId: parsed.channelId,
-          sourceGroup: request.sourceGroup,
+          sourceAgentFolder: request.sourceAgentFolder,
           messageTs: '',
           resolve: () => undefined,
           settled: false,

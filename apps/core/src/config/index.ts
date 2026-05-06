@@ -118,6 +118,17 @@ export function getPublicRuntimeSettings() {
         enabled: settings.memory.dreaming.enabled,
       },
     },
+    runtime: settings.runtime,
+  };
+}
+
+export function getRuntimeQueueConfig() {
+  const queue = getRuntimeSettingsForConfig().runtime.queue;
+  return {
+    maxMessageRuns: queue.maxMessageRuns,
+    maxJobRuns: queue.maxJobRuns,
+    maxRetries: queue.maxRetries,
+    baseRetryMs: queue.baseRetryMs,
   };
 }
 
@@ -242,11 +253,13 @@ export const PERMISSION_APPROVAL_TIMEOUT_MS = Math.max(
 );
 function collectConversationApproverAllowlist(
   providerId: string,
-  sourceGroup?: string,
+  sourceAgentFolder?: string,
 ): Set<string> {
   const runtimeSettings = getRuntimeSettingsForConfig();
   const approvers = Object.values(runtimeSettings.bindings)
-    .filter((binding) => !sourceGroup || binding.agent === sourceGroup)
+    .filter(
+      (binding) => !sourceAgentFolder || binding.agent === sourceAgentFolder,
+    )
     .flatMap((binding) => {
       const conversation = runtimeSettings.conversations[binding.conversation];
       if (!conversation) return [];
@@ -259,9 +272,9 @@ function collectConversationApproverAllowlist(
   return new Set(approvers.filter((entry) => entry.trim().length > 0));
 }
 export function getSlackPermissionApproverIds(
-  sourceGroup?: string,
+  sourceAgentFolder?: string,
 ): Set<string> {
-  return collectConversationApproverAllowlist('slack', sourceGroup);
+  return collectConversationApproverAllowlist('slack', sourceAgentFolder);
 }
 export const AGENT_TIMEOUT = parseInt(
   process.env.AGENT_TIMEOUT || '1800000',

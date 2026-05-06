@@ -36,7 +36,7 @@ function writeJsonAtomic(filePath: string, value: unknown): void {
 }
 
 export function writeTaskIpcResponse(
-  sourceGroup: string,
+  sourceAgentFolder: string,
   taskId: string | undefined,
   payload: {
     ok: boolean;
@@ -49,8 +49,13 @@ export function writeTaskIpcResponse(
   authThreadId?: string,
 ): void {
   if (!taskId || !TASK_IPC_RESPONSE_ID_PATTERN.test(taskId)) return;
-  if (!isValidGroupFolder(sourceGroup)) return;
-  const responseDir = path.join(DATA_DIR, 'ipc', sourceGroup, 'task-responses');
+  if (!isValidGroupFolder(sourceAgentFolder)) return;
+  const responseDir = path.join(
+    DATA_DIR,
+    'ipc',
+    sourceAgentFolder,
+    'task-responses',
+  );
   fs.mkdirSync(responseDir, { recursive: true });
   const responsePath = path.join(responseDir, `task-${taskId}.json`);
   const responsePayload = {
@@ -59,7 +64,7 @@ export function writeTaskIpcResponse(
     timestamp: nowIso(),
   };
   const privateKeyPem = getIpcResponseSigningPrivateKey(
-    sourceGroup,
+    sourceAgentFolder,
     authThreadId,
   );
   const signature = signIpcResponsePayload(privateKeyPem, responsePayload);
@@ -70,7 +75,7 @@ export function writeTaskIpcResponse(
 }
 
 export function createTaskResponder(
-  sourceGroup: string,
+  sourceAgentFolder: string,
   taskIdRaw: unknown,
   authThreadId?: string,
 ): {
@@ -87,7 +92,7 @@ export function createTaskResponder(
   return {
     accept: (message: string, code?: string, details?: string[]) => {
       writeTaskIpcResponse(
-        sourceGroup,
+        sourceAgentFolder,
         taskId,
         {
           ok: true,
@@ -105,7 +110,7 @@ export function createTaskResponder(
       details?: string[],
     ) => {
       writeTaskIpcResponse(
-        sourceGroup,
+        sourceAgentFolder,
         taskId,
         {
           ok: true,
@@ -119,7 +124,7 @@ export function createTaskResponder(
     },
     reject: (error: string, code?: string, details?: string[]) => {
       writeTaskIpcResponse(
-        sourceGroup,
+        sourceAgentFolder,
         taskId,
         {
           ok: false,

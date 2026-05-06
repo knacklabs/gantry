@@ -3,7 +3,7 @@ export type {
   JobEvent,
   JobRun,
   NewMessage,
-  RegisteredGroup,
+  ConversationRoute,
 } from '../types.js';
 export type {
   MemoryChunk,

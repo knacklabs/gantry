@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-import type { RegisteredGroup } from '../domain/types.js';
+import type { ConversationRoute } from '../domain/types.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import { renderDefaultCapabilityRules } from '../shared/capability-guidance.js';
 import { providerFromGroupJid, getProviderIds } from './provider-utils.js';
@@ -181,8 +181,8 @@ export async function loadDatabase(
 }
 
 export function listGroupsWithJid(
-  groups: Record<string, RegisteredGroup>,
-): Array<{ jid: string; group: RegisteredGroup }> {
+  groups: Record<string, ConversationRoute>,
+): Array<{ jid: string; group: ConversationRoute }> {
   return Object.entries(groups)
     .map(([jid, group]) => ({ jid, group }))
     .sort((a, b) => {
@@ -193,9 +193,9 @@ export function listGroupsWithJid(
 }
 
 function resolveGroup(
-  groups: Record<string, RegisteredGroup>,
+  groups: Record<string, ConversationRoute>,
   selector: string,
-): { jid: string; group: RegisteredGroup } | null {
+): { jid: string; group: ConversationRoute } | null {
   if (groups[selector]) {
     return { jid: selector, group: groups[selector] };
   }
@@ -211,9 +211,9 @@ function resolveGroup(
 }
 
 export function resolveGroupSelector(
-  groups: Record<string, RegisteredGroup>,
+  groups: Record<string, ConversationRoute>,
   rawSelector: string,
-): { found: { jid: string; group: RegisteredGroup } | null; error?: string } {
+): { found: { jid: string; group: ConversationRoute } | null; error?: string } {
   const selector = rawSelector.trim();
   if (!selector) return { found: null };
 
@@ -255,7 +255,7 @@ export function isInteractiveTerminal(): boolean {
 function ensureFolderAvailable(
   runtimeHome: string,
   desiredFolder: string,
-  groups: Record<string, RegisteredGroup>,
+  groups: Record<string, ConversationRoute>,
 ): void {
   const inDb = Object.values(groups).some(
     (group) => group.folder === desiredFolder,
@@ -276,7 +276,7 @@ function ensureFolderAvailable(
 
 export function allocateGroupFolder(options: {
   runtimeHome: string;
-  groups: Record<string, RegisteredGroup>;
+  groups: Record<string, ConversationRoute>;
   preferredFolder?: string;
   seed: string;
 }): string {

@@ -33,7 +33,7 @@ import {
 import { isPartialMessageDeliveryError } from '../../runtime/partial-delivery.js';
 import {
   getRuntimeStorage,
-  getRuntimeOpsRepository,
+  getRuntimeRepositories,
   tryAcquireRuntimeAdvisoryLease,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { ChannelAdapter } from '../../channels/channel-provider.js';
@@ -114,7 +114,7 @@ export function createChannelWiring(
 
   const connectedChannels: ChannelAdapter[] = [];
   const persistenceQueue = new AsyncTaskQueue(4, 5_000);
-  const ops = () => resolved.opsRepository ?? getRuntimeOpsRepository();
+  const ops = () => resolved.opsRepository ?? getRuntimeRepositories();
   const optionalOps = () => {
     try {
       return ops();
@@ -146,7 +146,7 @@ export function createChannelWiring(
       },
       saveDmAgentConversationBinding,
     }),
-    registeredGroups: () => app.getRegisteredGroups(),
+    conversationRoutes: () => app.getConversationRoutes(),
     runtimeSettings: () => currentRuntimeSettings,
     runtimeLease: {
       tryAcquire: tryAcquireRuntimeAdvisoryLease,
@@ -215,6 +215,11 @@ export function createChannelWiring(
 
       const channel = await provider.create(channelOpts);
       if (!channel) {
+        if (provider.controlCapabilityFlags?.includes('runtime-placeholder')) {
+          throw new Error(
+            `${provider.label} channel runtime transport is not implemented; this provider currently supports setup/discovery only. Disable providers.${provider.id}.enabled before starting the runtime.`,
+          );
+        }
         resolved.logger.warn(
           { channel: provider.id },
           'Channel installed but credentials missing — skipping. Check .env or re-run the channel skill.',
@@ -424,7 +429,7 @@ export function createChannelWiring(
       }
     }
 
-    const mainEntries = Object.entries(app.getRegisteredGroups()).filter(
+    const mainEntries = Object.entries(app.getConversationRoutes()).filter(
       ([, group]) => group.isMain === true,
     );
 
@@ -545,7 +550,7 @@ export function createChannelWiring(
     providerId: string;
     conversationJid: string;
     userId: string;
-    sourceGroup: string;
+    sourceAgentFolder: string;
     decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
   }): Promise<boolean> {
     if (input.decisionPolicy && input.decisionPolicy !== 'same_channel') {
@@ -582,7 +587,11 @@ export function createChannelWiring(
       });
     } catch (err) {
       resolved.logger.warn(
-        { err, providerId: input.providerId, sourceGroup: input.sourceGroup },
+        {
+          err,
+          providerId: input.providerId,
+          sourceAgentFolder: input.sourceAgentFolder,
+        },
         'Conversation approver lookup failed',
       );
       return false;
@@ -614,7 +623,7 @@ export function createChannelWiring(
       }
     }
 
-    const mainEntries = Object.entries(app.getRegisteredGroups()).filter(
+    const mainEntries = Object.entries(app.getConversationRoutes()).filter(
       ([, group]) => group.isMain === true,
     );
 

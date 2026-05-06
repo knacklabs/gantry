@@ -116,16 +116,42 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
     appId: AgentToolBinding['appId'];
     agentId: AgentToolBinding['agentId'];
   }): Promise<AgentToolBinding[]> {
+    return this.listAgentToolBindingRows(input);
+  }
+
+  async listAgentToolBindingsForAgents(input: {
+    appId: AgentToolBinding['appId'];
+    agentIds: readonly AgentToolBinding['agentId'][];
+  }): Promise<AgentToolBinding[]> {
+    return this.listAgentToolBindingRows(input);
+  }
+
+  private async listAgentToolBindingRows(input: {
+    appId: AgentToolBinding['appId'];
+    agentId?: AgentToolBinding['agentId'];
+    agentIds?: readonly AgentToolBinding['agentId'][];
+  }): Promise<AgentToolBinding[]> {
+    if (input.agentIds?.length === 0) return [];
     const rows = await this.db
       .select()
       .from(pgSchema.agentToolBindingsPostgres)
       .where(
         and(
           eq(pgSchema.agentToolBindingsPostgres.appId, input.appId),
-          eq(pgSchema.agentToolBindingsPostgres.agentId, input.agentId),
+          input.agentId
+            ? eq(pgSchema.agentToolBindingsPostgres.agentId, input.agentId)
+            : undefined,
+          input.agentIds?.length
+            ? inArray(pgSchema.agentToolBindingsPostgres.agentId, [
+                ...input.agentIds,
+              ])
+            : undefined,
         ),
       )
-      .orderBy(asc(pgSchema.agentToolBindingsPostgres.createdAt));
+      .orderBy(
+        asc(pgSchema.agentToolBindingsPostgres.agentId),
+        asc(pgSchema.agentToolBindingsPostgres.createdAt),
+      );
     return rows.map((row) => this.mapBinding(row));
   }
 

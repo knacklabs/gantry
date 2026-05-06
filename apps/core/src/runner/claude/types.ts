@@ -45,7 +45,7 @@ export interface AgentRunnerOutput {
 
 export interface PermissionDecision {
   approved: boolean;
-  mode?: 'allow_once' | 'allow_persistent_rule' | 'cancel';
+  mode?: 'allow_once' | 'allow_job_policy' | 'allow_persistent_rule' | 'cancel';
   decidedBy?: string;
   reason?: string;
   updatedPermissions?: unknown[];

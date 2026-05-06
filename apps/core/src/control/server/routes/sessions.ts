@@ -96,7 +96,7 @@ export async function handleSessionRoutes(
         sessionId: result.session.sessionId,
         appId: result.session.appId,
         conversationId: result.session.conversationId,
-        chatJid: result.session.chatJid,
+        chatJid: result.session.conversationJid,
       });
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;

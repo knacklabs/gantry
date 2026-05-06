@@ -5,7 +5,7 @@ import { _resetSchedulerLoopForTests, runJob } from '@core/jobs/scheduler.js';
 import { AppMemoryService } from '@core/memory/app-memory-service.js';
 import { memoryAgentIdForGroupFolder } from '@core/memory/app-memory-boundaries.js';
 import type { JobUpsertInput } from '@core/domain/repositories/ops-repo.js';
-import type { RegisteredGroup } from '@core/domain/types.js';
+import type { ConversationRoute } from '@core/domain/types.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -42,7 +42,7 @@ function makeJob(id: string, patch: Partial<JobUpsertInput> = {}) {
   } satisfies JobUpsertInput;
 }
 
-function makeRegisteredGroup(): RegisteredGroup {
+function makeConversationRoute(): ConversationRoute {
   return {
     name: 'Scheduler Agent',
     folder: 'scheduler_agent',
@@ -110,7 +110,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     await runJob(
       await runtime.ops.getJobById(job.id).then((saved) => saved!),
       {
-        registeredGroups: () => ({ 'tg:scheduler': makeRegisteredGroup() }),
+        conversationRoutes: () => ({ 'tg:scheduler': makeConversationRoute() }),
         queue: {} as never,
         onProcess: () => {},
         sendMessage: harness.channel.sendMessage,
@@ -180,7 +180,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     await runJob(
       await runtime.ops.getJobById(job.id).then((saved) => saved!),
       {
-        registeredGroups: () => ({ 'tg:scheduler': makeRegisteredGroup() }),
+        conversationRoutes: () => ({ 'tg:scheduler': makeConversationRoute() }),
         queue: {} as never,
         onProcess: () => {},
         sendMessage: harness.channel.sendMessage,
@@ -214,7 +214,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     await runJob(
       await runtime.ops.getJobById(job.id).then((saved) => saved!),
       {
-        registeredGroups: () => ({ 'tg:scheduler': makeRegisteredGroup() }),
+        conversationRoutes: () => ({ 'tg:scheduler': makeConversationRoute() }),
         queue: {} as never,
         onProcess: () => {},
         sendMessage: harness.channel.sendMessage,
@@ -263,7 +263,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     await runJob(
       await runtime.ops.getJobById(job.id).then((saved) => saved!),
       {
-        registeredGroups: () => ({ 'tg:scheduler': makeRegisteredGroup() }),
+        conversationRoutes: () => ({ 'tg:scheduler': makeConversationRoute() }),
         queue: {} as never,
         onProcess: () => {},
         sendMessage: harness.channel.sendMessage,

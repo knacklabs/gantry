@@ -5,17 +5,19 @@ export function jobBelongsToApp(job: Job, appId: string): boolean {
   const linkedSessions = Array.isArray(job.linked_sessions)
     ? job.linked_sessions
     : [];
-  const appSessions = linkedSessions.filter((chatJid) =>
-    chatJid.startsWith('app:'),
+  const appSessions = linkedSessions.filter((conversationJid) =>
+    conversationJid.startsWith('app:'),
   );
   if (appSessions.length === 0) return false;
-  return appSessions.every((chatJid) => appChatJidBelongsToApp(chatJid, appId));
+  return appSessions.every((conversationJid) =>
+    appChatJidBelongsToApp(conversationJid, appId),
+  );
 }
 
 export function resolveJobRuntimeAppId(job: Job, fallback = 'default'): string {
   const appJid = (
     Array.isArray(job.linked_sessions) ? job.linked_sessions : []
-  ).find((chatJid) => chatJid.startsWith('app:'));
+  ).find((conversationJid) => conversationJid.startsWith('app:'));
   if (!appJid) return fallback;
   const rest = appJid.slice('app:'.length);
   const delimiterIndex = rest.indexOf(':');
@@ -31,8 +33,11 @@ export function assertJobBelongsToApp(job: Job, appId: string): void {
   }
 }
 
-function appChatJidBelongsToApp(chatJid: string, appId: string): boolean {
-  const rest = chatJid.slice('app:'.length);
+function appChatJidBelongsToApp(
+  conversationJid: string,
+  appId: string,
+): boolean {
+  const rest = conversationJid.slice('app:'.length);
   const delimiterIndex = rest.indexOf(':');
   if (delimiterIndex <= 0 || rest.indexOf(':', delimiterIndex + 1) !== -1) {
     return false;

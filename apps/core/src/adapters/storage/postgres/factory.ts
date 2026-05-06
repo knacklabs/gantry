@@ -15,18 +15,32 @@ import {
 } from '../../../config/index.js';
 import { PostgresProviderArtifactStore } from '../../artifacts/postgres/postgres-provider-artifact-store.js';
 import { LocalSkillArtifactStore } from '../../artifacts/skills/local-skill-artifact-store.js';
-import type { OpsRepository } from '../../../domain/repositories/ops-repo.js';
+import type {
+  RuntimeAgentSessionRepository,
+  RuntimeChatMetadataRepository,
+  RuntimeConversationRouteRepository,
+  RuntimeJobRepository,
+  RuntimeMessageRepository,
+  RuntimeRouterStateRepository,
+} from '../../../domain/repositories/ops-repo.js';
 import type { ProviderArtifactStore } from '../../../domain/ports/provider-artifact-store.js';
 import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
-import { PostgresCanonicalOpsRepository } from './schema/canonical-ops-repo.postgres.js';
+import { PostgresRuntimeRepositoryBundle } from './schema/canonical-ops-repo.postgres.js';
 import { PostgresControlPlaneRepository } from './repositories/control-plane-repository.postgres.js';
 import type { PostgresStorageService } from './storage-service.js';
 import { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
 import { PostgresRuntimeEventNotifier } from './runtime-event-notifier.postgres.js';
 
+export type RuntimeOpsRepositories = RuntimeChatMetadataRepository &
+  RuntimeMessageRepository &
+  RuntimeJobRepository &
+  RuntimeRouterStateRepository &
+  RuntimeAgentSessionRepository &
+  RuntimeConversationRouteRepository;
+
 export interface StorageRuntime {
   service: PostgresStorageService;
-  ops: OpsRepository;
+  ops: RuntimeOpsRepositories;
   control: PostgresControlPlaneRepository;
   repositories: PostgresDomainRepositoryBundle;
   runtimeEvents: RuntimeEventExchange;
@@ -58,7 +72,7 @@ export function createStorageRuntime(
     repositories.runtimeEvents,
     runtimeEventNotifier,
   );
-  const ops: OpsRepository = new PostgresCanonicalOpsRepository(
+  const ops: RuntimeOpsRepositories = new PostgresRuntimeRepositoryBundle(
     service.pool,
     service.db,
     {

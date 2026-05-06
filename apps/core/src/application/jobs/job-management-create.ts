@@ -49,7 +49,7 @@ export async function createManagedJob(
   const jobId = deps.schedulePlanner.createManualJobId();
   const runtimeContext = {
     sessionId: session.sessionId,
-    chatJid: session.chatJid,
+    conversationJid: session.conversationJid,
     groupScope: session.workspaceKey,
     threadId: typeof input.threadId === 'string' ? input.threadId : null,
   };
@@ -85,7 +85,7 @@ export async function createManagedJob(
     schedule_type: schedule.scheduleType,
     schedule_value: schedule.scheduleValue,
     status: 'active',
-    linked_sessions: [session.chatJid],
+    linked_sessions: [session.conversationJid],
     session_id: null,
     thread_id: typeof input.threadId === 'string' ? input.threadId : null,
     group_scope: session.workspaceKey,

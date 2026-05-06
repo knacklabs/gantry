@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { RegisteredGroup, ThinkingOverride } from '@core/domain/types.js';
+import type {
+  ConversationRoute,
+  ThinkingOverride,
+} from '@core/domain/types.js';
 
 // --- Mocks ---
 
@@ -40,14 +43,16 @@ import {
   listAvailableGroups,
 } from '@core/runtime/group-registry.js';
 
-type PersistGroupFn = (jid: string, group: RegisteredGroup) => void;
+type PersistGroupFn = (jid: string, group: ConversationRoute) => void;
 
 // Typed handles for convenience
 const mockFs = vi.mocked(fs);
 const mockResolve = vi.mocked(resolveGroupFolderPath);
 
-// Helper to build a minimal RegisteredGroup
-function makeGroup(overrides: Partial<RegisteredGroup> = {}): RegisteredGroup {
+// Helper to build a minimal ConversationRoute
+function makeGroup(
+  overrides: Partial<ConversationRoute> = {},
+): ConversationRoute {
   return {
     name: 'Test Group',
     folder: 'test-group',
@@ -61,7 +66,7 @@ function makeGroup(overrides: Partial<RegisteredGroup> = {}): RegisteredGroup {
 // registerGroup
 // ─────────────────────────────────────────────
 describe('registerGroup', () => {
-  let groups: Record<string, RegisteredGroup>;
+  let groups: Record<string, ConversationRoute>;
   let persist: ReturnType<typeof vi.fn<PersistGroupFn>>;
   let ensureCredentialBinding: ReturnType<typeof vi.fn<PersistGroupFn>>;
 
@@ -188,7 +193,7 @@ describe('registerGroup', () => {
 // setGroupModelOverride
 // ─────────────────────────────────────────────
 describe('setGroupModelOverride', () => {
-  let groups: Record<string, RegisteredGroup>;
+  let groups: Record<string, ConversationRoute>;
   let persist: ReturnType<typeof vi.fn<PersistGroupFn>>;
 
   beforeEach(() => {
@@ -284,7 +289,7 @@ describe('setGroupModelOverride', () => {
 // setGroupThinkingOverride
 // ─────────────────────────────────────────────
 describe('setGroupThinkingOverride', () => {
-  let groups: Record<string, RegisteredGroup>;
+  let groups: Record<string, ConversationRoute>;
   let persist: ReturnType<typeof vi.fn<PersistGroupFn>>;
 
   beforeEach(() => {
@@ -395,7 +400,7 @@ describe('listAvailableGroups', () => {
         is_group: 1,
       },
     ];
-    const registered: Record<string, RegisteredGroup> = {
+    const registered: Record<string, ConversationRoute> = {
       'g1@g.us': makeGroup(),
     };
 

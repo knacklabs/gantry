@@ -99,7 +99,7 @@ const runtimeEvents = {
 const opsRepo = {
   getJobById: vi.fn(),
   getJobRunById: vi.fn(),
-  getAllRegisteredGroups: vi.fn(async () => ({
+  getAllConversationRoutes: vi.fn(async () => ({
     'chat-1': {
       name: 'App Folder',
       folder: 'app-folder',
@@ -116,7 +116,7 @@ const opsRepo = {
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: () => controlRepo,
   getRuntimeEventExchange: () => runtimeEvents,
-  getRuntimeOpsRepository: () => opsRepo,
+  getRuntimeRepositories: () => opsRepo,
 }));
 
 import { startControlServer } from '@core/control/server/index.js';
@@ -175,7 +175,7 @@ beforeEach(() => {
   runtimeEvents.publish.mockResolvedValue({ eventId: 1 });
   opsRepo.getJobById.mockReset();
   opsRepo.getJobRunById.mockReset();
-  opsRepo.getAllRegisteredGroups.mockResolvedValue({
+  opsRepo.getAllConversationRoutes.mockResolvedValue({
     'chat-1': {
       name: 'App Folder',
       folder: 'app-folder',
@@ -294,7 +294,7 @@ describe('control job trigger', () => {
     const handle = startControlServer({
       app: {
         queue: { enqueueMessageCheck: vi.fn() },
-        getRegisteredGroups: () => ({
+        getConversationRoutes: () => ({
           'chat-1': {
             name: 'App Folder',
             folder: 'app-folder',
@@ -366,7 +366,7 @@ describe('control job trigger', () => {
     const handle = startControlServer({
       app: {
         queue: { enqueueMessageCheck: vi.fn() },
-        getRegisteredGroups: () => ({
+        getConversationRoutes: () => ({
           'chat-1': {
             name: 'App Folder',
             folder: 'app-folder',

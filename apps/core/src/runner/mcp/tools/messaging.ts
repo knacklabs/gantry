@@ -93,7 +93,7 @@ export function registerMessagingTools(server: McpServer): void {
     },
     async (
       args,
-      context?: {
+      _context?: {
         signal?: AbortSignal;
       },
     ) => {
@@ -172,7 +172,7 @@ export function registerMessagingTools(server: McpServer): void {
 
       const payload = {
         requestId,
-        sourceGroup: groupFolder,
+        sourceAgentFolder: groupFolder,
         questions: args.questions,
         ...(threadId ? { threadId } : {}),
         timestamp: nowIso(),

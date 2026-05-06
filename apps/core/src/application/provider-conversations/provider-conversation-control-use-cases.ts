@@ -12,7 +12,6 @@ import type {
 import type {
   ConversationId,
   ConversationThreadId,
-  UserId,
 } from '../../domain/conversation/conversation.js';
 import type { MemorySubject } from '../../domain/memory/memory.js';
 import type {

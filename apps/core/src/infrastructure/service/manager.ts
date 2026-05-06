@@ -92,7 +92,9 @@ function readFallbackPid(runtimeHome: string): number | null {
 function clearFallbackPid(runtimeHome: string): void {
   try {
     fs.unlinkSync(fallbackPidPath(runtimeHome));
-  } catch {}
+  } catch {
+    // Missing fallback pid files are harmless during service cleanup.
+  }
 }
 
 function isProcessRunning(pid: number): boolean {
@@ -172,7 +174,12 @@ function isManagedFallbackProcess(
 }
 
 function assertSystemdUnitValue(value: string, label: string): void {
-  if (/[\u0000-\u001f\u007f]/.test(value)) {
+  if (
+    Array.from(value).some((char) => {
+      const code = char.charCodeAt(0);
+      return code <= 31 || code === 127;
+    })
+  ) {
     throw new Error(`${label} cannot contain control characters`);
   }
 }
@@ -412,7 +419,9 @@ export function startService(runtimeHome: string): ServiceOutcome {
           // Best effort cleanup; preserve original write error.
         }
         const reason = err instanceof Error ? err.message : String(err);
-        throw new Error(`failed to persist service pid: ${reason}`);
+        throw new Error(`failed to persist service pid: ${reason}`, {
+          cause: err,
+        });
       }
       child.unref();
     } finally {

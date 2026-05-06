@@ -20,16 +20,22 @@ import type {
   asRemoteControlCommand,
   handleRemoteControlCommand,
 } from '../../runtime/remote-control-command.js';
-import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
+import type {
+  RuntimeChatMetadataRepository,
+  RuntimeMessageRepository,
+} from '../../domain/repositories/ops-repo.js';
 import type { Provider } from '../../channels/provider-registry.js';
 import type { logger } from '../../infrastructure/logging/logger.js';
 import type { RuntimeSecretProvider } from '../../domain/ports/runtime-secret-provider.js';
 import type { AppId } from '../../domain/app/app.js';
 
+export type ChannelWiringRepository = RuntimeChatMetadataRepository &
+  RuntimeMessageRepository;
+
 export interface ChannelWiringDeps {
   appId: AppId;
   providerIds: readonly Provider[];
-  opsRepository?: OpsRepository;
+  opsRepository?: ChannelWiringRepository;
   loadSenderAllowlist: typeof loadSenderAllowlist;
   loadSenderControlAllowlist: typeof loadSenderControlAllowlist;
   shouldDropMessage: typeof shouldDropMessage;

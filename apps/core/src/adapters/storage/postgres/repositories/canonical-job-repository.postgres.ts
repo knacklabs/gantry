@@ -2,7 +2,6 @@ import { and, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 
 import type { JobRun } from '../../../../domain/repositories/domain-types.js';
 import type {
-  JobEventListFilters,
   JobListFilters,
   JobRunListFilters,
 } from '../../../../domain/repositories/ops-repo.js';

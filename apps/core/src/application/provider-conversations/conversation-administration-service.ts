@@ -49,8 +49,7 @@ export class ConversationAdministrationService {
     appId: AppId;
     conversationId: ConversationId;
   }): Promise<ConversationAdminSummary> {
-    const { providerConnection, conversation } =
-      await this.requireConversation(input);
+    const { conversation } = await this.requireConversation(input);
     const approvers =
       await this.repositories.conversations.listConversationApprovers(
         conversation.id,
@@ -213,12 +212,10 @@ export class ConversationAdministrationService {
       `conversation:${input.conversationJid}` as ConversationId,
     );
     if (direct?.appId === input.appId) return direct;
-    const candidates = [
-      input.conversationJid,
-      input.conversationJid.startsWith(`${input.providerId}:`)
-        ? input.conversationJid.slice(String(input.providerId).length + 1)
-        : undefined,
-    ].filter((value): value is string => Boolean(value));
+    const candidates = conversationExternalRefCandidates({
+      providerId: String(input.providerId),
+      conversationJid: input.conversationJid,
+    });
     for (const candidate of candidates) {
       const conversation =
         await this.repositories.conversations.findConversationByExternalValue({
@@ -229,6 +226,25 @@ export class ConversationAdministrationService {
     }
     return null;
   }
+}
+
+function conversationExternalRefCandidates(input: {
+  providerId: string;
+  conversationJid: string;
+}): string[] {
+  const candidates = new Set<string>();
+  const jid = input.conversationJid.trim();
+  if (!jid) return [];
+  candidates.add(jid);
+  const providerPrefix = `${input.providerId.trim().toLowerCase()}:`;
+  if (providerPrefix !== ':' && jid.startsWith(providerPrefix)) {
+    candidates.add(jid.slice(providerPrefix.length));
+  }
+  const separator = jid.indexOf(':');
+  if (separator > 0) {
+    candidates.add(jid.slice(separator + 1));
+  }
+  return [...candidates].filter(Boolean);
 }
 
 function normalizeUserIds(userIds: string[]): string[] {

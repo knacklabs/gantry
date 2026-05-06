@@ -25,7 +25,7 @@ import { defaultHostnameLookup } from '../infrastructure/network/hostname-lookup
 export { escapeXml, formatMessages } from '../messaging/router.js';
 export {
   getAvailableGroups,
-  _setRegisteredGroups,
+  _setConversationRoutes,
 } from './bootstrap/runtime-app.js';
 
 export interface StartMyClawRuntimeOptions {
@@ -48,11 +48,11 @@ export async function startMyClawRuntime(
     mcpHostnameLookup: () => mcpHostnameLookup,
   });
   const channelWiring = createChannelWiring(app);
-  let controlServer:
-    | {
-        close: () => Promise<void>;
-      }
-    | undefined;
+  const controlServerRef: {
+    current?: {
+      close: () => Promise<void>;
+    };
+  } = {};
   app.setChannelRuntime({
     hasChannel: channelWiring.hasChannel,
     supportsStreaming: channelWiring.supportsStreaming,
@@ -80,7 +80,7 @@ export async function startMyClawRuntime(
     queue: app.queue,
     disconnectChannels: channelWiring.disconnectChannels,
     closeControlServer: async () => {
-      await controlServer?.close();
+      await controlServerRef.current?.close();
     },
     closeStorage: closeRuntimeStorage,
     closeScheduler: stopSchedulerLoop,
@@ -102,7 +102,7 @@ export async function startMyClawRuntime(
     },
     { mcpHostnameLookup },
   );
-  controlServer = startControlServer({ app });
+  controlServerRef.current = startControlServer({ app });
 }
 
 const isDirectRun =

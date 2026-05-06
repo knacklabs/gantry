@@ -138,7 +138,7 @@ describe('permission approval IPC boundary', () => {
     expect(parsedRequest).toMatchObject({
       requestId: pendingRequest.requestId,
       responseNonce: expect.any(String),
-      sourceGroup: groupFolder,
+      sourceAgentFolder: groupFolder,
       threadId,
       toolName: 'browser_open',
       toolInput: {

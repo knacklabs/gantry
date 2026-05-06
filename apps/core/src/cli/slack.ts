@@ -17,7 +17,6 @@ import {
 } from '../config/settings/runtime-home.js';
 import {
   allocateMainAgentFolder,
-  MAIN_AGENT_NAME,
   defaultTriggerForAgentName,
   normalizeMainAgentName,
 } from './main-agent.js';
@@ -416,7 +415,7 @@ export async function registerSlackMainGroup(options: {
   ensureRuntimeLayout(options.runtimeHome);
   const db = await openRuntimeGroupDb(options.runtimeHome);
   try {
-    const existing = await db.getAllRegisteredGroups();
+    const existing = await db.getAllConversationRoutes();
     const existingGroup = existing[options.chatJid];
     const folder =
       existingGroup?.folder ||
@@ -436,7 +435,7 @@ export async function registerSlackMainGroup(options: {
       fs.writeFileSync(soulPath, defaultSoulMarkdown(groupName), 'utf-8');
     }
 
-    await db.setRegisteredGroup(options.chatJid, {
+    await db.setConversationRoute(options.chatJid, {
       name: groupName,
       folder,
       trigger: existingGroup?.trigger || defaultTriggerForAgentName(groupName),
@@ -549,7 +548,7 @@ export async function runSlackConnectCommand(
   }
   const approverIds = parseSlackApproverIds(approverInput || '');
   let registeredFolder = '';
-  let registeredGroupName = '';
+  let conversationRouteName = '';
 
   if (normalizedChatJid) {
     const access = await verifySlackChatAccess({
@@ -569,7 +568,7 @@ export async function runSlackConnectCommand(
       displayName: loadRuntimeSettings(runtimeHome).agent.name,
     });
     registeredFolder = registered.folder;
-    registeredGroupName = registered.groupName;
+    conversationRouteName = registered.groupName;
 
     p.log.success(
       `Registered ${registered.groupName} for Slack conversation ${normalizedChatJid} in folder ${registered.folder}.`,
@@ -585,11 +584,11 @@ export async function runSlackConnectCommand(
   if (registeredFolder) {
     ensureConfiguredConversationBinding(settings, {
       agentId: registeredFolder,
-      agentName: registeredGroupName || settings.agent.name,
+      agentName: conversationRouteName || settings.agent.name,
       agentFolder: registeredFolder,
       jid: normalizedChatJid,
-      displayName: registeredGroupName || settings.agent.name,
-      trigger: `@${registeredGroupName || settings.agent.name}`,
+      displayName: conversationRouteName || settings.agent.name,
+      trigger: `@${conversationRouteName || settings.agent.name}`,
       requiresTrigger: false,
       isMain: true,
       approverIds,

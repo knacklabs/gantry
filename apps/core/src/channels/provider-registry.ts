@@ -26,6 +26,7 @@ export interface Provider {
   id: string;
   label: string;
   internal?: boolean;
+  controlCapabilityFlags?: readonly string[];
   jidPrefix: string;
   folderPrefix: string;
   isGroupJid: (jid: string) => boolean;
@@ -96,7 +97,7 @@ export function normalizeProviderId(id: string): string {
     const prefixAlias = provider.jidPrefix.replace(/:$/, '').toLowerCase();
     if (prefixAlias === normalized) return provider.id;
   }
-  return builtInPrefixAliases.get(normalized) ?? normalized;
+  return builtInPrefixAliases.get(normalized) ?? '';
 }
 
 export function listChannelProviders(): readonly Provider[] {
@@ -125,6 +126,6 @@ export function providerIdForJid(jid: string, fallback = 'app'): string {
     if (jid.startsWith(`${prefixAlias}:`)) return providerId;
   }
   const idx = jid.indexOf(':');
-  if (idx > 0) return normalizeProviderId(jid.slice(0, idx));
+  if (idx > 0) return normalizeProviderId(jid.slice(0, idx)) || fallback;
   return fallback;
 }

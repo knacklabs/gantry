@@ -116,7 +116,7 @@ function createTestOpts(
   return {
     onMessage: vi.fn(),
     onChatMetadata: vi.fn(),
-    registeredGroups: vi.fn(() => ({
+    conversationRoutes: vi.fn(() => ({
       'tg:100200300': {
         name: 'Test Group',
         folder: 'test-group',
@@ -531,7 +531,7 @@ describe('TelegramChannel', () => {
 
     it('uses sender name as chat name for private chats', async () => {
       const opts = createTestOpts({
-        registeredGroups: vi.fn(() => ({
+        conversationRoutes: vi.fn(() => ({
           'tg:100200300': {
             name: 'Private',
             folder: 'private',
@@ -1189,7 +1189,7 @@ describe('TelegramChannel', () => {
       const ensureMessageRoute = vi.fn(async () => undefined);
       const opts = createTestOpts({
         ensureMessageRoute,
-        registeredGroups: vi.fn(() => ({})),
+        conversationRoutes: vi.fn(() => ({})),
       });
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -2042,7 +2042,7 @@ describe('TelegramChannel', () => {
         'tg:100200300',
         {
           requestId: 'perm-command',
-          sourceGroup: 'whatsapp_main',
+          sourceAgentFolder: 'whatsapp_main',
           threadId: '42',
           toolName: 'Bash',
           toolInput: {
@@ -2085,7 +2085,7 @@ describe('TelegramChannel', () => {
         {
           requestId:
             'capability-request_permission-0faf53fe-39cd-4ef0-af6e-5e09b96eef53',
-          sourceGroup: 'whatsapp_main',
+          sourceAgentFolder: 'whatsapp_main',
           toolName: 'Bash',
           title: 'Allow command',
         },
@@ -2145,7 +2145,7 @@ describe('TelegramChannel', () => {
         'tg:100200300',
         {
           requestId: 'perm-2',
-          sourceGroup: 'whatsapp_main',
+          sourceAgentFolder: 'whatsapp_main',
           toolName: 'Write',
         },
       );
@@ -2184,7 +2184,7 @@ describe('TelegramChannel', () => {
         'tg:100200300',
         {
           requestId: 'perm-settings',
-          sourceGroup: 'unlisted_source',
+          sourceAgentFolder: 'unlisted_source',
           decisionPolicy: 'same_channel',
           toolName: 'Write',
         },
@@ -2224,7 +2224,7 @@ describe('TelegramChannel', () => {
           'tg:100200300',
           {
             requestId: 'perm-timeout',
-            sourceGroup: 'whatsapp_main',
+            sourceAgentFolder: 'whatsapp_main',
             toolName: 'Edit',
           },
         );
@@ -2257,7 +2257,7 @@ describe('TelegramChannel', () => {
 
       const responsePromise = channel.requestUserAnswer('tg:100200300', {
         requestId: 'userq-long',
-        sourceGroup: 'whatsapp_main',
+        sourceAgentFolder: 'whatsapp_main',
         threadId: '99abc',
         questions: [
           {
@@ -2306,7 +2306,7 @@ describe('TelegramChannel', () => {
 
       const responsePromise = channel.requestUserAnswer('tg:100200300', {
         requestId: 'userq-1',
-        sourceGroup: 'whatsapp_main',
+        sourceAgentFolder: 'whatsapp_main',
         threadId: '77',
         questions: [
           {
@@ -2361,7 +2361,7 @@ describe('TelegramChannel', () => {
 
       const responsePromise = channel.requestUserAnswer('tg:100200300', {
         requestId: 'userq-auth',
-        sourceGroup: 'whatsapp_main',
+        sourceAgentFolder: 'whatsapp_main',
         questions: [
           {
             question: 'Approve rollout?',
@@ -2408,7 +2408,7 @@ describe('TelegramChannel', () => {
 
       const responsePromise = channel.requestUserAnswer('tg:100200300', {
         requestId: 'userq-2',
-        sourceGroup: 'whatsapp_main',
+        sourceAgentFolder: 'whatsapp_main',
         questions: [
           {
             question: 'Which checks should we run?',
@@ -2493,7 +2493,7 @@ describe('TelegramChannel', () => {
 
       const decisionPromise = channel.requestPermissionApproval('tg:777', {
         requestId: 'perm-channel-allowlist',
-        sourceGroup: 'unlisted_source',
+        sourceAgentFolder: 'unlisted_source',
         approvalContextJid: 'tg:100200300',
         decisionPolicy: 'same_channel',
         toolName: 'Write',
@@ -2561,7 +2561,7 @@ describe('createTelegramChannel factory', () => {
       const result = createTelegramChannel({
         onMessage: vi.fn(),
         onChatMetadata: vi.fn(),
-        registeredGroups: () => ({}),
+        conversationRoutes: () => ({}),
       });
       expect(result).toBeNull();
       expect(logger.warn).toHaveBeenCalledWith(
@@ -2579,7 +2579,7 @@ describe('createTelegramChannel factory', () => {
       const result = createTelegramChannel({
         onMessage: vi.fn(),
         onChatMetadata: vi.fn(),
-        registeredGroups: () => ({}),
+        conversationRoutes: () => ({}),
       });
       expect(result).not.toBeNull();
       expect(result).toBeInstanceOf(TelegramChannel);

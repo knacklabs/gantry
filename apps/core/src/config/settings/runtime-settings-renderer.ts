@@ -86,23 +86,6 @@ function renderDefaultsYaml(
   lines.push('');
 }
 
-function renderAgentSettingsYaml(
-  lines: string[],
-  agent: RuntimeAgentSettings,
-): void {
-  lines.push(
-    'agent:',
-    `  name: ${quoteYamlString(agent.name)}`,
-    `  default_model: ${quoteYamlString(agent.defaultModel)}`,
-    `  one_time_job_default_model: ${quoteYamlString(agent.oneTimeJobDefaultModel)}`,
-    `  recurring_job_default_model: ${quoteYamlString(agent.recurringJobDefaultModel)}`,
-    '  sessions:',
-    `    memory_item_limit: ${agent.sessions.memoryItemLimit}`,
-    `    max_memory_context_chars: ${agent.sessions.maxMemoryContextChars}`,
-    '',
-  );
-}
-
 function renderDesiredStateYaml(
   lines: string[],
   desiredState: RuntimeDesiredStateSettings,
@@ -205,32 +188,6 @@ function renderConfiguredAgentsYaml(
     if (agent.capabilities.mcpServerIds.length > 0) {
       lines.push(
         `    mcp_servers: ${JSON.stringify(agent.capabilities.mcpServerIds)}`,
-      );
-    }
-  }
-  lines.push('');
-}
-
-function renderProvidersYaml(
-  lines: string[],
-  providers: Record<string, RuntimeProviderSettings>,
-): void {
-  const entries = Object.entries(providers).sort(([a], [b]) =>
-    a.localeCompare(b),
-  );
-  if (entries.length === 0) {
-    return;
-  }
-  lines.push('providers:');
-  for (const [providerId, provider] of entries) {
-    if (!provider.enabled) continue;
-    lines.push(
-      `  ${quoteYamlKey(providerId)}:`,
-      `    enabled: ${provider.enabled ? 'true' : 'false'}`,
-    );
-    if (provider.defaultConnection) {
-      lines.push(
-        `    default_connection: ${quoteYamlString(provider.defaultConnection)}`,
       );
     }
   }
@@ -439,6 +396,30 @@ function isDefaultMemory(memory: RuntimeMemorySettings): boolean {
   );
 }
 
+function isDefaultRuntime(runtime: RuntimeSettings['runtime']): boolean {
+  return (
+    runtime.queue.maxMessageRuns === 3 &&
+    runtime.queue.maxJobRuns === 4 &&
+    runtime.queue.maxRetries === 5 &&
+    runtime.queue.baseRetryMs === 5000
+  );
+}
+
+function renderRuntimeProcessYaml(
+  lines: string[],
+  runtime: RuntimeSettings['runtime'],
+): void {
+  lines.push(
+    'runtime:',
+    '  queue:',
+    `    max_message_runs: ${runtime.queue.maxMessageRuns}`,
+    `    max_job_runs: ${runtime.queue.maxJobRuns}`,
+    `    max_retries: ${runtime.queue.maxRetries}`,
+    `    base_retry_ms: ${runtime.queue.baseRetryMs}`,
+    '',
+  );
+}
+
 function renderProviderConnectionsInlineYaml(
   lines: string[],
   settings: RuntimeSettings,
@@ -517,6 +498,9 @@ export function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
   }
   if (!isDefaultMemory(settings.memory)) {
     renderMemorySettingsYaml(lines, settings.memory);
+  }
+  if (!isDefaultRuntime(settings.runtime)) {
+    renderRuntimeProcessYaml(lines, settings.runtime);
   }
 
   return lines.join('\n');

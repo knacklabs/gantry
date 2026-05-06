@@ -1,4 +1,4 @@
-import type { RegisteredGroup } from '../../../../domain/repositories/domain-types.js';
+import type { ConversationRoute } from '../../../../domain/repositories/domain-types.js';
 import {
   bindingRowToGroup,
   type PostgresCanonicalBindingRepository,
@@ -9,21 +9,26 @@ export class CanonicalBindingOpsService {
     private readonly repository: PostgresCanonicalBindingRepository,
   ) {}
 
-  async getRegisteredGroup(jid: string): Promise<RegisteredGroup | undefined> {
-    return (await this.getAllRegisteredGroups())[jid];
+  async getConversationRoute(
+    jid: string,
+  ): Promise<ConversationRoute | undefined> {
+    return (await this.getAllConversationRoutes())[jid];
   }
 
-  async setRegisteredGroup(jid: string, group: RegisteredGroup): Promise<void> {
-    await this.repository.saveRegisteredGroup(jid, group);
+  async setConversationRoute(
+    jid: string,
+    group: ConversationRoute,
+  ): Promise<void> {
+    await this.repository.saveConversationRoute(jid, group);
   }
 
-  async deleteRegisteredGroup(jid: string): Promise<void> {
-    await this.repository.deleteRegisteredGroup(jid);
+  async deleteConversationRoute(jid: string): Promise<void> {
+    await this.repository.deleteConversationRoute(jid);
   }
 
-  async getAllRegisteredGroups(): Promise<Record<string, RegisteredGroup>> {
-    const rows = await this.repository.listRegisteredGroups();
-    const result: Record<string, RegisteredGroup> = {};
+  async getAllConversationRoutes(): Promise<Record<string, ConversationRoute>> {
+    const rows = await this.repository.listConversationRoutes();
+    const result: Record<string, ConversationRoute> = {};
     for (const row of rows) {
       const binding = bindingRowToGroup(row);
       if (binding) result[binding.jid] = binding.group;

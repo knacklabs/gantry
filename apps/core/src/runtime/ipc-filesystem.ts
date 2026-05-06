@@ -61,7 +61,7 @@ export function isPendingIpcJsonFile(filename: string): boolean {
 
 export function archiveIpcErrorFile(
   ipcBaseDir: string,
-  sourceGroup: string,
+  sourceAgentFolder: string,
   filename: string,
   claimedPath: string,
 ): void {
@@ -70,7 +70,7 @@ export function archiveIpcErrorFile(
   try {
     fs.renameSync(
       claimedPath,
-      path.join(errorDir, `${sourceGroup}-${filename}`),
+      path.join(errorDir, `${sourceAgentFolder}-${filename}`),
     );
   } catch (err) {
     const code =

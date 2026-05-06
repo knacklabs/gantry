@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 
 import { ApplicationError } from '../application/common/application-error.js';
 import { JobManagementService } from '../application/jobs/job-management-service.js';
-import type { JobExtraToolApprovalRequest } from '../application/jobs/job-management-types.js';
+import type {
+  AppSessionRecord,
+  JobControlPort,
+  JobExtraToolApprovalRequest,
+} from '../application/jobs/job-management-types.js';
 import type { JobExecutionMode, JobScheduleType } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { TaskContext, TaskHandler } from './ipc-types.js';
@@ -40,13 +44,56 @@ function makeRunNowJobService(context: TaskContext): JobManagementService {
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
     toolRepository: context.deps.getToolRepository?.(),
-    control: getRuntimeControlRepository(),
+    control: adaptJobControl(getRuntimeControlRepository()),
     runtimeEvents: getRuntimeEventExchange(),
     triggerQueue: {
       isReady: isSchedulerReady,
       enqueue: enqueueJobTrigger,
     },
   });
+}
+
+function adaptJobControl(
+  control: ReturnType<typeof getRuntimeControlRepository>,
+): JobControlPort {
+  return {
+    async getAppSessionById(sessionId) {
+      return adaptAppSession(await control.getAppSessionById(sessionId));
+    },
+    async getAppSessionByChatJid(conversationJid) {
+      return adaptAppSession(
+        await control.getAppSessionByChatJid(conversationJid),
+      );
+    },
+    async getAppSessionsByChatJids(conversationJids) {
+      const sessions = await control.getAppSessionsByChatJids(conversationJids);
+      return sessions
+        .map((session) => adaptAppSession(session))
+        .filter((session): session is AppSessionRecord => Boolean(session));
+    },
+    createJobTrigger: (input) => control.createJobTrigger(input),
+    markTriggerCompleted: (triggerId, status) =>
+      control.markTriggerCompleted(triggerId, status),
+    getTriggerById: (triggerId) => control.getTriggerById(triggerId),
+  };
+}
+
+function adaptAppSession(
+  session: Awaited<
+    ReturnType<
+      ReturnType<typeof getRuntimeControlRepository>['getAppSessionById']
+    >
+  >,
+): AppSessionRecord | undefined {
+  if (!session) return undefined;
+  return {
+    sessionId: session.sessionId,
+    appId: session.appId,
+    conversationJid: session.chatJid,
+    workspaceKey: session.workspaceKey,
+    defaultResponseMode: session.defaultResponseMode,
+    defaultWebhookId: session.defaultWebhookId,
+  };
 }
 
 async function requestJobExtraToolApproval(
@@ -59,7 +106,7 @@ async function requestJobExtraToolApproval(
   }
   const decision = await context.deps.requestPermissionApproval({
     requestId: `job-tools-${randomUUID()}`,
-    sourceGroup: context.sourceGroup,
+    sourceAgentFolder: context.sourceAgentFolder,
     targetJid: approvalTarget.targetJid,
     threadId: context.data.authThreadId,
     decisionPolicy: 'same_channel',
@@ -78,7 +125,7 @@ async function requestJobExtraToolApproval(
       extrasBeyondInherited: request.extrasBeyondInherited,
       persistence: 'target_json.capabilityPolicy.allowedTools',
     },
-    decisionOptions: ['allow_once', 'cancel'],
+    decisionOptions: ['allow_job_policy', 'cancel'],
   });
   return { approved: decision.approved, reason: decision.reason };
 }
@@ -106,7 +153,7 @@ async function resumeDeadLetterDetails(
     return [pauseReason, 'Job has been moved to dead_lettered state.'];
   } catch (lookupErr) {
     logger.warn(
-      { err: lookupErr, sourceGroup: context.sourceGroup, jobId },
+      { err: lookupErr, sourceAgentFolder: context.sourceAgentFolder, jobId },
       'Failed to read dead-lettered job details after scheduler_resume_job failure',
     );
     return undefined;
@@ -114,9 +161,9 @@ async function resumeDeadLetterDetails(
 }
 
 const schedulerUpdateJobHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup } = context;
+  const { data, sourceAgentFolder } = context;
   const { accept, reject } = createTaskResponder(
-    sourceGroup,
+    sourceAgentFolder,
     data.taskId,
     data.authThreadId,
   );
@@ -127,7 +174,7 @@ const schedulerUpdateJobHandler: TaskHandler = async (context) => {
   }
   if (data.script !== undefined) {
     logger.warn(
-      { sourceGroup, jobId },
+      { sourceAgentFolder, jobId },
       'Rejected scheduler_update_job script mutation from IPC',
     );
     reject(
@@ -212,7 +259,7 @@ const schedulerUpdateJobHandler: TaskHandler = async (context) => {
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to mutate scheduler job.');
     logger.error(
-      { err, sourceGroup, jobId },
+      { err, sourceAgentFolder, jobId },
       'scheduler_update_job failed unexpectedly',
     );
     reject(mapped.message, mapped.code);
@@ -220,9 +267,9 @@ const schedulerUpdateJobHandler: TaskHandler = async (context) => {
 };
 
 const schedulerDeleteJobHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup } = context;
+  const { data, sourceAgentFolder } = context;
   const { accept, reject } = createTaskResponder(
-    sourceGroup,
+    sourceAgentFolder,
     data.taskId,
     data.authThreadId,
   );
@@ -241,7 +288,7 @@ const schedulerDeleteJobHandler: TaskHandler = async (context) => {
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to mutate scheduler job.');
     logger.error(
-      { err, sourceGroup, jobId },
+      { err, sourceAgentFolder, jobId },
       'scheduler_delete_job failed unexpectedly',
     );
     reject(mapped.message, mapped.code);
@@ -249,9 +296,9 @@ const schedulerDeleteJobHandler: TaskHandler = async (context) => {
 };
 
 const schedulerPauseJobHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup } = context;
+  const { data, sourceAgentFolder } = context;
   const { accept, reject } = createTaskResponder(
-    sourceGroup,
+    sourceAgentFolder,
     data.taskId,
     data.authThreadId,
   );
@@ -271,7 +318,7 @@ const schedulerPauseJobHandler: TaskHandler = async (context) => {
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to mutate scheduler job.');
     logger.error(
-      { err, sourceGroup, jobId },
+      { err, sourceAgentFolder, jobId },
       'scheduler_pause_job failed unexpectedly',
     );
     reject(mapped.message, mapped.code);
@@ -279,9 +326,9 @@ const schedulerPauseJobHandler: TaskHandler = async (context) => {
 };
 
 const schedulerResumeJobHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup } = context;
+  const { data, sourceAgentFolder } = context;
   const { accept, reject } = createTaskResponder(
-    sourceGroup,
+    sourceAgentFolder,
     data.taskId,
     data.authThreadId,
   );
@@ -302,7 +349,7 @@ const schedulerResumeJobHandler: TaskHandler = async (context) => {
     const mapped = mapApplicationError(err, 'Failed to mutate scheduler job.');
     const details = await resumeDeadLetterDetails(context, jobId, err);
     logger.error(
-      { err, sourceGroup, jobId },
+      { err, sourceAgentFolder, jobId },
       'scheduler_resume_job failed unexpectedly',
     );
     reject(mapped.message, mapped.code, details);
@@ -310,9 +357,9 @@ const schedulerResumeJobHandler: TaskHandler = async (context) => {
 };
 
 const schedulerRunNowHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup } = context;
+  const { data, sourceAgentFolder } = context;
   const { acceptData, reject } = createTaskResponder(
-    sourceGroup,
+    sourceAgentFolder,
     data.taskId,
     data.authThreadId,
   );
@@ -336,7 +383,7 @@ const schedulerRunNowHandler: TaskHandler = async (context) => {
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to run scheduler job.');
     logger.error(
-      { err, sourceGroup, jobId },
+      { err, sourceAgentFolder, jobId },
       'scheduler_run_now failed unexpectedly',
     );
     reject(mapped.message, mapped.code);

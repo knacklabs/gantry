@@ -31,7 +31,7 @@ interface BrowserResponse {
 
 type BrowserContext = Pick<
   IpcDomainContext,
-  'sourceGroup' | 'isMain' | 'browserProfileName'
+  'sourceAgentFolder' | 'isMain' | 'browserProfileName'
 >;
 type BrowserActionHandler = (
   request: BrowserRequest,
@@ -155,7 +155,7 @@ export async function processBrowserIpcRequest(
     logger.warn(
       {
         err,
-        sourceGroup: context.sourceGroup,
+        sourceAgentFolder: context.sourceAgentFolder,
         action: request.action,
         requestId: request.requestId,
       },
@@ -170,12 +170,16 @@ export async function processBrowserIpcRequest(
 
 export function writeBrowserIpcResponse(
   ipcBaseDir: string,
-  sourceGroup: string,
+  sourceAgentFolder: string,
   response: { requestId: string; ok: boolean; data?: unknown; error?: string },
   privateKeyPem?: string,
   responseSigningKey?: string,
 ): void {
-  const responseDir = path.join(ipcBaseDir, sourceGroup, 'browser-responses');
+  const responseDir = path.join(
+    ipcBaseDir,
+    sourceAgentFolder,
+    'browser-responses',
+  );
   fs.mkdirSync(responseDir, { recursive: true });
   const responsePath = path.join(responseDir, `${response.requestId}.json`);
   const tmpPath = `${responsePath}.tmp`;

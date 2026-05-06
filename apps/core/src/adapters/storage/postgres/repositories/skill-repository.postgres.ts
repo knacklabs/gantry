@@ -169,16 +169,42 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
     appId: AgentSkillBinding['appId'];
     agentId: AgentSkillBinding['agentId'];
   }): Promise<AgentSkillBinding[]> {
+    return this.listAgentSkillBindingRows(input);
+  }
+
+  async listAgentSkillBindingsForAgents(input: {
+    appId: AgentSkillBinding['appId'];
+    agentIds: readonly AgentSkillBinding['agentId'][];
+  }): Promise<AgentSkillBinding[]> {
+    return this.listAgentSkillBindingRows(input);
+  }
+
+  private async listAgentSkillBindingRows(input: {
+    appId: AgentSkillBinding['appId'];
+    agentId?: AgentSkillBinding['agentId'];
+    agentIds?: readonly AgentSkillBinding['agentId'][];
+  }): Promise<AgentSkillBinding[]> {
+    if (input.agentIds?.length === 0) return [];
     const rows = await this.db
       .select()
       .from(pgSchema.agentSkillBindingsPostgres)
       .where(
         and(
           eq(pgSchema.agentSkillBindingsPostgres.appId, input.appId),
-          eq(pgSchema.agentSkillBindingsPostgres.agentId, input.agentId),
+          input.agentId
+            ? eq(pgSchema.agentSkillBindingsPostgres.agentId, input.agentId)
+            : undefined,
+          input.agentIds?.length
+            ? inArray(pgSchema.agentSkillBindingsPostgres.agentId, [
+                ...input.agentIds,
+              ])
+            : undefined,
         ),
       )
-      .orderBy(asc(pgSchema.agentSkillBindingsPostgres.createdAt));
+      .orderBy(
+        asc(pgSchema.agentSkillBindingsPostgres.agentId),
+        asc(pgSchema.agentSkillBindingsPostgres.createdAt),
+      );
     return rows.map((row) => this.mapBinding(row));
   }
 

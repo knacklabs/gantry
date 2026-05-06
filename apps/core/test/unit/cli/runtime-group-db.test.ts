@@ -42,12 +42,12 @@ function configureMockRuntime(): void {
       close: closeMock,
     },
     ops: {
-      getAllRegisteredGroups: async () =>
+      getAllConversationRoutes: async () =>
         Object.fromEntries(groupsStore.entries()),
-      setRegisteredGroup: async (jid: string, group: any) => {
+      setConversationRoute: async (jid: string, group: any) => {
         groupsStore.set(jid, group);
       },
-      deleteRegisteredGroup: async (jid: string) => {
+      deleteConversationRoute: async (jid: string) => {
         groupsStore.delete(jid);
       },
       deleteSessionsByGroupFolder: async () => {},
@@ -75,7 +75,7 @@ describe('runtime-group-db', () => {
     const runtimeHome = createRuntimeHome();
 
     const groupDb = await openRuntimeGroupDb(runtimeHome);
-    await groupDb.setRegisteredGroup('tg:123', {
+    await groupDb.setConversationRoute('tg:123', {
       name: 'Main',
       folder: 'main',
       trigger: '@myclaw',
@@ -84,7 +84,7 @@ describe('runtime-group-db', () => {
     await groupDb.close();
 
     const reopened = await openRuntimeGroupDb(runtimeHome, { migrate: false });
-    expect((await reopened.getAllRegisteredGroups())['tg:123']?.folder).toBe(
+    expect((await reopened.getAllConversationRoutes())['tg:123']?.folder).toBe(
       'main',
     );
     await reopened.close();
@@ -96,20 +96,20 @@ describe('runtime-group-db', () => {
   it('counts groups by JID prefix', async () => {
     const runtimeHome = createRuntimeHome();
     const groupDb = await openRuntimeGroupDb(runtimeHome, { migrate: false });
-    await groupDb.setRegisteredGroup('tg:1', {
+    await groupDb.setConversationRoute('tg:1', {
       name: 'A',
       folder: 'a',
       trigger: '@a',
       added_at: '2026-04-21T00:00:00.000Z',
     });
-    await groupDb.setRegisteredGroup('sl:C1', {
+    await groupDb.setConversationRoute('sl:C1', {
       name: 'B',
       folder: 'b',
       trigger: '@b',
       added_at: '2026-04-21T00:00:00.000Z',
     });
-    expect(await groupDb.countRegisteredGroupsByJidPrefix('tg:')).toBe(1);
-    expect(await groupDb.countRegisteredGroupsByJidPrefix('sl:%')).toBe(1);
+    expect(await groupDb.countConversationRoutesByJidPrefix('tg:')).toBe(1);
+    expect(await groupDb.countConversationRoutesByJidPrefix('sl:%')).toBe(1);
     await groupDb.close();
   });
 
@@ -117,7 +117,7 @@ describe('runtime-group-db', () => {
     const runtimeHome = createRuntimeHome();
     const groupDb = await openRuntimeGroupDb(runtimeHome, { migrate: false });
     await expect(
-      groupDb.setRegisteredGroup('tg:999', {
+      groupDb.setConversationRoute('tg:999', {
         name: 'Invalid',
         folder: '../escape',
         trigger: '@bad',

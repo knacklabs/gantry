@@ -1,4 +1,4 @@
-import { RegisteredGroup } from '../domain/types.js';
+import { ConversationRoute } from '../domain/types.js';
 import { TaskIpcData } from '../jobs/ipc-handler.js';
 import { resolveModelSelection } from '../shared/model-catalog.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
@@ -95,7 +95,7 @@ function assertNoDisallowedTaskFields(raw: Record<string, unknown>): void {
 
 function parseAgentConfigPayload(
   value: unknown,
-): RegisteredGroup['agentConfig'] | undefined {
+): ConversationRoute['agentConfig'] | undefined {
   if (value === undefined) return undefined;
   if (!isPlainObject(value)) return undefined;
   const model = toTrimmedString(value.model, { maxLen: 120 });
@@ -103,7 +103,7 @@ function parseAgentConfigPayload(
     min: 1000,
     max: 3_600_000,
   });
-  const parsed: RegisteredGroup['agentConfig'] = {};
+  const parsed: ConversationRoute['agentConfig'] = {};
   if (model) {
     const resolvedModel = resolveModelSelection(model);
     if (!resolvedModel.ok) {
@@ -117,11 +117,15 @@ function parseAgentConfigPayload(
 
 export function parseTaskIpcData(
   raw: unknown,
-  sourceGroup: string,
+  sourceAgentFolder: string,
 ): TaskIpcData {
   if (!isPlainObject(raw)) throw new Error('Invalid IPC task payload');
   assertNoDisallowedTaskFields(raw);
-  const threadBinding = validateIpcAuthRequest(raw, sourceGroup, 'IPC task');
+  const threadBinding = validateIpcAuthRequest(
+    raw,
+    sourceAgentFolder,
+    'IPC task',
+  );
   const type = toTrimmedString(raw.type, { maxLen: 80 });
   if (!type) throw new Error('IPC task type is required');
   const parsed: TaskIpcData = { type };

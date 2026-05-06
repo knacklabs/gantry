@@ -38,9 +38,15 @@ export interface RuntimeStatusSummary {
   embeddingModelSource: string;
   dreamingEnabled: boolean;
   dreamingSource: string;
+  queuePolicy: {
+    maxMessageRuns: number;
+    maxJobRuns: number;
+    maxRetries: number;
+    baseRetryMs: number;
+  };
 }
 
-function countRegisteredGroupsByPrefix(
+function countConversationRoutesByPrefix(
   groups: Record<string, { folder: string }>,
   jidPrefix: string,
 ): number {
@@ -65,13 +71,13 @@ export async function collectRuntimeStatus(
   const storageCapabilityCheck = doctor.checks.find(
     (check) => check.id === 'storage-capabilities',
   );
-  let registeredGroups: Record<string, { folder: string }> = {};
+  let conversationRoutes: Record<string, { folder: string }> = {};
   let groupDb: Awaited<ReturnType<typeof openRuntimeGroupDb>> | null = null;
   try {
     groupDb = await openRuntimeGroupDb(runtimeHome, { migrate: false });
-    registeredGroups = await groupDb.getAllRegisteredGroups();
+    conversationRoutes = await groupDb.getAllConversationRoutes();
   } catch {
-    registeredGroups = {};
+    conversationRoutes = {};
   } finally {
     if (groupDb) {
       await groupDb.close();
@@ -95,8 +101,8 @@ export async function collectRuntimeStatus(
       enabled: settings.providers[provider.id]?.enabled ?? false,
       configuredEnvKeys,
       missingEnvKeys,
-      groups: countRegisteredGroupsByPrefix(
-        registeredGroups,
+      groups: countConversationRoutesByPrefix(
+        conversationRoutes,
         provider.jidPrefix,
       ),
     };
@@ -123,6 +129,7 @@ export async function collectRuntimeStatus(
     embeddingModelSource: memoryHealth.embeddingModelSource,
     dreamingEnabled: memoryHealth.dreamingEnabled,
     dreamingSource: memoryHealth.dreamingSource,
+    queuePolicy: settings.runtime.queue,
   };
 }
 
@@ -191,6 +198,9 @@ export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
   );
   lines.push(
     `Dreaming: ${statusWord(summary.dreamingEnabled)} (source: ${summary.dreamingSource})`,
+  );
+  lines.push(
+    `Queue: messages=${summary.queuePolicy.maxMessageRuns} jobs=${summary.queuePolicy.maxJobRuns} retries=${summary.queuePolicy.maxRetries} base_retry_ms=${summary.queuePolicy.baseRetryMs}`,
   );
   lines.push(`Service (${summary.service.kind}): ${summary.service.status}`);
 

@@ -83,7 +83,7 @@ async function loadCliWithBoundaryMocks(options?: {
   }));
   vi.doMock('@core/cli/runtime-group-db.js', () => ({
     openRuntimeGroupDb: vi.fn(async () => ({
-      countRegisteredGroupsByJidPrefix: vi.fn(async () => 1),
+      countConversationRoutesByJidPrefix: vi.fn(async () => 1),
       close: vi.fn(async () => {}),
     })),
   }));

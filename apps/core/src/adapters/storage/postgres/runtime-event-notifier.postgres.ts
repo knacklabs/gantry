@@ -182,7 +182,9 @@ export class PostgresRuntimeEventNotifier implements RuntimeEventNotifier {
       client.removeAllListeners('notification');
       client.removeAllListeners('error');
       client.release(err instanceof Error ? err : undefined);
-    } catch {}
+    } catch {
+      // Best effort release during connection failure handling.
+    }
   }
 
   private wakeListeners(): void {

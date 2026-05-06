@@ -3,7 +3,7 @@ import path from 'path';
 
 import { ASSISTANT_NAME as DEFAULT_ASSISTANT_NAME } from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { RegisteredGroup, ThinkingOverride } from '../domain/types.js';
+import { ConversationRoute, ThinkingOverride } from '../domain/types.js';
 import {
   resolveModelAlias,
   resolveModelSelection,
@@ -21,8 +21,8 @@ interface ChatRow {
 
 interface RegisterGroupOptions {
   assistantName?: string;
-  persist: (jid: string, group: RegisteredGroup) => void | Promise<void>;
-  ensureCredentialBinding: (jid: string, group: RegisteredGroup) => void;
+  persist: (jid: string, group: ConversationRoute) => void | Promise<void>;
+  ensureCredentialBinding: (jid: string, group: ConversationRoute) => void;
 }
 
 function isPromiseLike(value: unknown): value is Promise<void> {
@@ -35,15 +35,15 @@ function isPromiseLike(value: unknown): value is Promise<void> {
 }
 
 function commitGroupOverride(
-  registeredGroups: Record<string, RegisteredGroup>,
+  conversationRoutes: Record<string, ConversationRoute>,
   chatJid: string,
-  updatedGroup: RegisteredGroup,
+  updatedGroup: ConversationRoute,
   persisted: void | Promise<void>,
   logContext: Record<string, unknown>,
   logMessage: string,
 ): void | Promise<void> {
   const commit = () => {
-    registeredGroups[chatJid] = updatedGroup;
+    conversationRoutes[chatJid] = updatedGroup;
     logger.info(logContext, logMessage);
   };
   if (isPromiseLike(persisted)) {
@@ -73,9 +73,9 @@ function defaultAgentClaudeMarkdown(
 }
 
 export async function registerGroup(
-  registeredGroups: Record<string, RegisteredGroup>,
+  conversationRoutes: Record<string, ConversationRoute>,
   jid: string,
-  group: RegisteredGroup,
+  group: ConversationRoute,
   options: RegisterGroupOptions,
 ): Promise<void> {
   const assistantName = options.assistantName ?? DEFAULT_ASSISTANT_NAME;
@@ -91,7 +91,7 @@ export async function registerGroup(
     return;
   }
 
-  registeredGroups[jid] = group;
+  conversationRoutes[jid] = group;
   await options.persist(jid, group);
 
   fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
@@ -117,12 +117,12 @@ export async function registerGroup(
 }
 
 export function setGroupModelOverride(
-  registeredGroups: Record<string, RegisteredGroup>,
+  conversationRoutes: Record<string, ConversationRoute>,
   chatJid: string,
   model: string | undefined,
-  persist: (jid: string, group: RegisteredGroup) => void | Promise<void>,
+  persist: (jid: string, group: ConversationRoute) => void | Promise<void>,
 ): Promise<void> | void {
-  const existingGroup = registeredGroups[chatJid];
+  const existingGroup = conversationRoutes[chatJid];
   if (!existingGroup) return;
 
   const trimmedModel = typeof model === 'string' ? model.trim() : '';
@@ -143,7 +143,7 @@ export function setGroupModelOverride(
     delete nextAgentConfig.model;
   }
 
-  const updatedGroup: RegisteredGroup = {
+  const updatedGroup: ConversationRoute = {
     ...existingGroup,
     agentConfig:
       Object.keys(nextAgentConfig).length > 0 ? nextAgentConfig : undefined,
@@ -151,7 +151,7 @@ export function setGroupModelOverride(
 
   const persisted = persist(chatJid, updatedGroup);
   return commitGroupOverride(
-    registeredGroups,
+    conversationRoutes,
     chatJid,
     updatedGroup,
     persisted,
@@ -164,12 +164,12 @@ export function setGroupModelOverride(
 }
 
 export function setGroupThinkingOverride(
-  registeredGroups: Record<string, RegisteredGroup>,
+  conversationRoutes: Record<string, ConversationRoute>,
   chatJid: string,
   thinking: ThinkingOverride | undefined,
-  persist: (jid: string, group: RegisteredGroup) => void | Promise<void>,
+  persist: (jid: string, group: ConversationRoute) => void | Promise<void>,
 ): Promise<void> | void {
-  const existingGroup = registeredGroups[chatJid];
+  const existingGroup = conversationRoutes[chatJid];
   if (!existingGroup) return;
 
   const prevThinking = existingGroup.agentConfig?.thinking;
@@ -183,7 +183,7 @@ export function setGroupThinkingOverride(
     delete nextAgentConfig.thinking;
   }
 
-  const updatedGroup: RegisteredGroup = {
+  const updatedGroup: ConversationRoute = {
     ...existingGroup,
     agentConfig:
       Object.keys(nextAgentConfig).length > 0 ? nextAgentConfig : undefined,
@@ -191,7 +191,7 @@ export function setGroupThinkingOverride(
 
   const persisted = persist(chatJid, updatedGroup);
   return commitGroupOverride(
-    registeredGroups,
+    conversationRoutes,
     chatJid,
     updatedGroup,
     persisted,
@@ -205,9 +205,9 @@ export function setGroupThinkingOverride(
 
 export function listAvailableGroups(
   chats: ChatRow[],
-  registeredGroups: Record<string, RegisteredGroup>,
+  conversationRoutes: Record<string, ConversationRoute>,
 ): AvailableGroup[] {
-  const registeredJids = new Set(Object.keys(registeredGroups));
+  const registeredJids = new Set(Object.keys(conversationRoutes));
   return chats
     .filter((c) => c.jid !== '__group_sync__' && Boolean(c.is_group))
     .map((c) => ({

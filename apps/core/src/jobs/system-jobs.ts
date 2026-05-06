@@ -37,7 +37,7 @@ let memoryMaintenanceQueue: MemoryMaintenanceQueueLike =
 export async function registerSystemJobs(
   deps: SchedulerDependencies,
 ): Promise<void> {
-  const groups = deps.registeredGroups();
+  const groups = deps.conversationRoutes();
   const byFolder = new Map<string, string[]>();
   const mainFolders = new Set<string>();
 

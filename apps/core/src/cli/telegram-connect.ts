@@ -18,7 +18,6 @@ import {
   validateTelegramBotToken,
   verifyTelegramChatAccess,
 } from './telegram.js';
-import { MAIN_AGENT_NAME } from './main-agent.js';
 
 type TelegramChatChoice =
   | {
@@ -237,7 +236,7 @@ export async function runTelegramConnectCommand(
     approverInput = promptedApprovers;
   }
   let registeredFolder = '';
-  let registeredGroupName = '';
+  let conversationRouteName = '';
 
   if (normalizedChatJid) {
     const access = await verifyTelegramChatAccess({
@@ -258,7 +257,7 @@ export async function runTelegramConnectCommand(
       displayName: loadRuntimeSettings(runtimeHome).agent.name,
     });
     registeredFolder = registered.folder;
-    registeredGroupName = registered.groupName;
+    conversationRouteName = registered.groupName;
 
     p.log.success(
       `Registered ${registered.groupName} for Telegram chat ${normalizedChatJid} in folder ${registered.folder}.`,
@@ -276,11 +275,11 @@ export async function runTelegramConnectCommand(
     );
     ensureConfiguredConversationBinding(settings, {
       agentId: registeredFolder,
-      agentName: registeredGroupName || settings.agent.name,
+      agentName: conversationRouteName || settings.agent.name,
       agentFolder: registeredFolder,
       jid: normalizedChatJid,
-      displayName: registeredGroupName || settings.agent.name,
-      trigger: `@${registeredGroupName || settings.agent.name}`,
+      displayName: conversationRouteName || settings.agent.name,
+      trigger: `@${conversationRouteName || settings.agent.name}`,
       requiresTrigger: false,
       isMain: true,
       approverIds,

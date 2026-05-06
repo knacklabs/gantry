@@ -6,7 +6,10 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { McpServerRepository } from '../../domain/ports/repositories.js';
-import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
+import {
+  isIpAddress,
+  type HostnameLookup,
+} from '../../domain/network/public-address-policy.js';
 import { ApplicationError } from '../common/application-error.js';
 import {
   RemoteMcpDnsValidationCache,
@@ -19,19 +22,13 @@ import {
 
 const MCP_PROXY_TIMEOUT_MS = 60_000;
 const MCP_PROXY_CLIENT_IDLE_MS = 120_000;
-const MCP_PROXY_CAPABILITY_CACHE_MS = 30_000;
 
 type CachedMcpClient = {
   client: Client;
   idleTimer: ReturnType<typeof setTimeout>;
 };
-type CachedMcpCapabilities = {
-  expiresAtMs: number;
-  capabilities: MaterializedMcpCapability[];
-};
 
 const clientCache = new Map<string, CachedMcpClient>();
-const capabilityCache = new Map<string, CachedMcpCapabilities>();
 
 export class McpToolProxy {
   constructor(
@@ -130,35 +127,15 @@ export class McpToolProxy {
     appId: AppId;
     agentId: AgentId;
   }): Promise<MaterializedMcpCapability[]> {
-    const cacheKey = capabilityCacheKey(
-      input.appId,
-      input.agentId,
-      this.options.credentialEnv ?? {},
-    );
-    const now = Date.now();
-    const cached = capabilityCache.get(cacheKey);
-    if (cached && cached.expiresAtMs > now) {
-      return cached.capabilities;
-    }
-    if (cached) capabilityCache.delete(cacheKey);
-    const capabilities = await new McpServerService(
-      this.mcpServers,
-      undefined,
-      {
-        lookupHostname: this.options.lookupHostname,
-        dnsValidationCache: this.options.dnsValidationCache,
-        auditMaterialization: false,
-      },
-    ).materializeForAgent({
+    return await new McpServerService(this.mcpServers, undefined, {
+      lookupHostname: this.options.lookupHostname,
+      dnsValidationCache: this.options.dnsValidationCache,
+      auditMaterialization: false,
+    }).materializeForAgent({
       appId: input.appId,
       agentId: input.agentId,
       credentialEnv: this.options.credentialEnv ?? {},
     });
-    capabilityCache.set(cacheKey, {
-      capabilities,
-      expiresAtMs: now + MCP_PROXY_CAPABILITY_CACHE_MS,
-    });
-    return capabilities;
   }
 
   private async connect(
@@ -244,18 +221,6 @@ function mcpClientCacheKey(capability: MaterializedMcpCapability): string {
   return `${capability.name}:${JSON.stringify(capability.config)}`;
 }
 
-function capabilityCacheKey(
-  appId: AppId,
-  agentId: AgentId,
-  credentialEnv: Record<string, string>,
-): string {
-  return `${String(appId)}:${String(agentId)}:${JSON.stringify(
-    Object.entries(credentialEnv).sort(([left], [right]) =>
-      left.localeCompare(right),
-    ),
-  )}`;
-}
-
 function scheduleClientIdleClose(capability: MaterializedMcpCapability): void {
   const cacheKey = mcpClientCacheKey(capability);
   const cached = clientCache.get(cacheKey);
@@ -277,7 +242,7 @@ async function closeCachedClient(
   await cached.client.close();
 }
 
-function createGuardedMcpFetch(input: {
+export function createGuardedMcpFetch(input: {
   lookupHostname?: HostnameLookup;
   dnsValidationCache?: RemoteMcpDnsValidationCache;
 }): typeof fetch {
@@ -288,14 +253,10 @@ function createGuardedMcpFetch(input: {
         : url instanceof URL
           ? url
           : new URL(url.url);
-    const hostname = resolvedUrl.hostname.trim().toLowerCase();
-    if (
-      !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname) &&
-      !hostname.includes(':')
-    ) {
+    if (!isIpAddress(resolvedUrl.hostname)) {
       throw new ApplicationError(
-        'FORBIDDEN',
-        'Remote MCP proxy calls require an IP-literal URL until DNS-pinned outbound transport is implemented.',
+        'INVALID_REQUEST',
+        'Remote MCP hostname fetches require DNS-pinned transport.',
       );
     }
     await assertRemoteMcpDestinationPublic(

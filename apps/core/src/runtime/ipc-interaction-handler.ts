@@ -54,7 +54,7 @@ function withSignature(
 
 export function writePermissionIpcResponse(
   ipcBaseDir: string,
-  sourceGroup: string,
+  sourceAgentFolder: string,
   decision: PermissionApprovalDecision & {
     requestId: string;
     responseNonce?: string;
@@ -63,7 +63,7 @@ export function writePermissionIpcResponse(
 ): void {
   const responseDir = path.join(
     ipcBaseDir,
-    sourceGroup,
+    sourceAgentFolder,
     'permission-responses',
   );
   fs.mkdirSync(responseDir, { recursive: true });
@@ -97,11 +97,11 @@ export function writePermissionIpcResponse(
 
 export function writeUserQuestionIpcResponse(
   ipcBaseDir: string,
-  sourceGroup: string,
+  sourceAgentFolder: string,
   response: UserQuestionResponse,
   privateKeyPem?: string,
 ): void {
-  const responseDir = path.join(ipcBaseDir, sourceGroup, 'user-answers');
+  const responseDir = path.join(ipcBaseDir, sourceAgentFolder, 'user-answers');
   fs.mkdirSync(responseDir, { recursive: true });
   const responsePath = path.join(responseDir, `${response.requestId}.json`);
   if (fs.existsSync(responsePath)) return;

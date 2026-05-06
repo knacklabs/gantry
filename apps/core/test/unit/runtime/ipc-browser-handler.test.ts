@@ -88,7 +88,7 @@ describe('ipc-browser-handler', () => {
         payload: {},
       },
       {
-        sourceGroup: 'child',
+        sourceAgentFolder: 'child',
         isMain: false,
         browserProfileName: 'c-child-abc123abc123',
       },
@@ -115,7 +115,7 @@ describe('ipc-browser-handler', () => {
         payload: { profile_name: 'c-child-other123456' },
       },
       {
-        sourceGroup: 'child',
+        sourceAgentFolder: 'child',
         isMain: false,
         browserProfileName: 'c-child-abc123abc123',
       },
@@ -133,7 +133,7 @@ describe('ipc-browser-handler', () => {
         payload: { profile_name: 'default' },
       },
       {
-        sourceGroup: 'child',
+        sourceAgentFolder: 'child',
         isMain: false,
         browserProfileName: 'c-child-abc123abc123',
       },
@@ -152,7 +152,7 @@ describe('ipc-browser-handler', () => {
         browserProfileName: 'c-child-other123456',
       } as never,
       {
-        sourceGroup: 'child',
+        sourceAgentFolder: 'child',
         isMain: false,
         browserProfileName: 'c-child-abc123abc123',
       },
@@ -169,7 +169,7 @@ describe('ipc-browser-handler', () => {
         action: 'browser_profile_list',
         payload: {},
       },
-      { sourceGroup: 'main', isMain: true },
+      { sourceAgentFolder: 'main', isMain: true },
     );
 
     expect(response.ok).toBe(true);
@@ -192,7 +192,7 @@ describe('ipc-browser-handler', () => {
           headless: true,
         },
       },
-      { sourceGroup: 'main', isMain: true },
+      { sourceAgentFolder: 'main', isMain: true },
     );
 
     expect(response.ok).toBe(true);
@@ -219,7 +219,7 @@ describe('ipc-browser-handler', () => {
         },
       },
       {
-        sourceGroup: 'main',
+        sourceAgentFolder: 'main',
         isMain: true,
         browserProfileName: 'c-main-abc123abc123',
       },
@@ -238,7 +238,7 @@ describe('ipc-browser-handler', () => {
         action: 'not-real-action' as BrowserIpcAction,
         payload: {},
       },
-      { sourceGroup: 'main', isMain: true },
+      { sourceAgentFolder: 'main', isMain: true },
     );
 
     expect(response.ok).toBe(false);

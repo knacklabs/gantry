@@ -1,10 +1,13 @@
 import type { ChildProcess } from 'child_process';
 
 import type {
-  RegisteredGroup,
+  ConversationRoute,
   StreamingChunkOptions,
 } from '../domain/types.js';
-import type { OpsRepository } from '../domain/repositories/ops-repo.js';
+import type {
+  RuntimeAgentSessionRepository,
+  RuntimeJobRepository,
+} from '../domain/repositories/ops-repo.js';
 import type { GroupQueue } from '../runtime/group-queue.js';
 import type { spawnAgent } from '../runtime/agent-spawn.js';
 import type { SchedulerSendMessage } from './delivery.js';
@@ -12,7 +15,7 @@ import type { SessionMemoryCollector } from '../domain/ports/session-memory-coll
 import type { ToolCatalogRepository } from '../domain/ports/repositories.js';
 
 export interface SchedulerDependencies {
-  registeredGroups: () => Record<string, RegisteredGroup>;
+  conversationRoutes: () => Record<string, ConversationRoute>;
   queue: GroupQueue;
   onProcess: (
     groupJid: string,
@@ -31,7 +34,7 @@ export interface SchedulerDependencies {
   onSchedulerChanged?: (jobId?: string) => void;
   runAgent?: typeof spawnAgent;
   collectSessionMemory?: SessionMemoryCollector;
-  opsRepository: OpsRepository;
+  opsRepository: RuntimeJobRepository & RuntimeAgentSessionRepository;
   getToolRepository?: () => ToolCatalogRepository | undefined;
 }
 

@@ -279,7 +279,7 @@ describe('ConversationAdministrationService', () => {
               conversation.externalRef.value === input.externalConversationId,
           ),
         ),
-        listParticipantExternalUserIds: vi.fn(async () => []),
+        listParticipantExternalUserIds: vi.fn(async () => ['admin']),
         listConversationApprovers: vi.fn(async (conversationId: string) =>
           (storedApprovers.get(conversationId) ?? []).map((externalUserId) => ({
             id: `approver:${conversationId}:${externalUserId}`,
@@ -367,5 +367,113 @@ describe('ConversationAdministrationService', () => {
         userId: '8:orgid:admin',
       }),
     ).resolves.toBe(false);
+  });
+
+  it('finds prefixless stored conversations from provider-specific JID prefixes', async () => {
+    const providerConnections = new Map([
+      [
+        'providerConnection-telegram',
+        {
+          id: 'providerConnection-telegram',
+          appId: 'default',
+          providerId: 'telegram',
+          label: 'Telegram',
+          status: 'active',
+          config: {},
+          runtimeSecretRefs: ['TELEGRAM_BOT_TOKEN'],
+          createdAt: iso,
+          updatedAt: iso,
+        },
+      ],
+      [
+        'providerConnection-slack',
+        {
+          id: 'providerConnection-slack',
+          appId: 'default',
+          providerId: 'slack',
+          label: 'Slack',
+          status: 'active',
+          config: {},
+          runtimeSecretRefs: ['SLACK_BOT_TOKEN'],
+          createdAt: iso,
+          updatedAt: iso,
+        },
+      ],
+    ]);
+    const conversations = new Map([
+      [
+        '-100123',
+        {
+          id: 'conversation:telegram:-100123',
+          appId: 'default',
+          providerConnectionId: 'providerConnection-telegram',
+          externalRef: { kind: 'conversation', value: '-100123' },
+          kind: 'group',
+          title: 'Telegram Group',
+          status: 'active',
+          createdAt: iso,
+          updatedAt: iso,
+        },
+      ],
+      [
+        'C123',
+        {
+          id: 'conversation:slack:C123',
+          appId: 'default',
+          providerConnectionId: 'providerConnection-slack',
+          externalRef: { kind: 'conversation', value: 'C123' },
+          kind: 'channel',
+          title: 'Slack Channel',
+          status: 'active',
+          createdAt: iso,
+          updatedAt: iso,
+        },
+      ],
+    ]);
+    const repositories = {
+      providerConnections: {
+        getProviderConnection: vi.fn(async (id: string) =>
+          providerConnections.get(id),
+        ),
+      },
+      conversations: {
+        getConversation: vi.fn(async () => null),
+        findConversationByExternalValue: vi.fn(
+          async (input: any) =>
+            conversations.get(input.externalConversationId) ?? null,
+        ),
+        listParticipantExternalUserIds: vi.fn(async () => ['admin']),
+        listConversationApprovers: vi.fn(async (conversationId: string) => [
+          {
+            id: `approver:${conversationId}:admin`,
+            appId: 'default',
+            conversationId,
+            externalUserId: 'admin',
+            createdAt: iso,
+            updatedAt: iso,
+          },
+        ]),
+      },
+    };
+    const service = new ConversationAdministrationService(
+      repositories as never,
+    );
+
+    await expect(
+      service.isControlApproverAllowed({
+        appId: 'default' as never,
+        providerId: 'telegram' as never,
+        conversationJid: 'tg:-100123',
+        userId: 'admin',
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      service.isControlApproverAllowed({
+        appId: 'default' as never,
+        providerId: 'slack' as never,
+        conversationJid: 'sl:C123',
+        userId: 'admin',
+      }),
+    ).resolves.toBe(true);
   });
 });

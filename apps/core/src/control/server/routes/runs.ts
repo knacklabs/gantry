@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { Job } from '../../../domain/types.js';
-import { getRuntimeOpsRepository } from '../../../adapters/storage/postgres/runtime-store.js';
+import { getRuntimeRepositories } from '../../../adapters/storage/postgres/runtime-store.js';
 import { getRuntimeEventExchange } from '../../../adapters/storage/postgres/runtime-store.js';
 import { jobBelongsToApp } from '../app-identity.js';
 import {
@@ -23,7 +23,7 @@ export async function handleRunRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
     const jobId = url.searchParams.get('jobId') || undefined;
-    const ops = getRuntimeOpsRepository();
+    const ops = getRuntimeRepositories();
     const runs = await ops.listJobRuns(jobId, 100);
     const jobs = jobId ? [await ops.getJobById(jobId)] : await ops.getAllJobs();
     const visibleJobIds = new Set(
@@ -44,7 +44,7 @@ export async function handleRunRoutes(
   if (runEventsId && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
-    const ops = getRuntimeOpsRepository();
+    const ops = getRuntimeRepositories();
     const run = await ops.getJobRunById(runEventsId);
     if (!run) {
       sendError(res, 404, 'RUN_NOT_FOUND', 'Run not found');
@@ -72,12 +72,12 @@ export async function handleRunRoutes(
   if (runId && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
-    const run = await getRuntimeOpsRepository().getJobRunById(runId);
+    const run = await getRuntimeRepositories().getJobRunById(runId);
     if (!run) {
       sendError(res, 404, 'RUN_NOT_FOUND', 'Run not found');
       return true;
     }
-    const job = await getRuntimeOpsRepository().getJobById(run.job_id);
+    const job = await getRuntimeRepositories().getJobById(run.job_id);
     if (!job || !jobBelongsToApp(job, auth.appId)) {
       sendError(res, 403, 'FORBIDDEN', 'API key cannot access this run');
       return true;

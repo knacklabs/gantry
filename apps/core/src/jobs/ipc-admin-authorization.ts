@@ -10,7 +10,7 @@ import {
 } from '../shared/admin-mcp-tools.js';
 
 export async function sourceAgentHasAdminToolCapability(
-  context: Pick<TaskContext, 'deps' | 'sourceGroup'>,
+  context: Pick<TaskContext, 'deps' | 'sourceAgentFolder'>,
   toolName: AdminMcpToolName,
 ): Promise<boolean> {
   const repository = context.deps.getToolRepository?.();
@@ -19,7 +19,7 @@ export async function sourceAgentHasAdminToolCapability(
   const toolId = adminMcpToolIdForFullName(fullName);
   const bindings = await repository.listAgentToolBindings({
     appId: DEFAULT_MEMORY_APP_ID as never,
-    agentId: memoryAgentIdForGroupFolder(context.sourceGroup) as never,
+    agentId: memoryAgentIdForGroupFolder(context.sourceAgentFolder) as never,
   });
   return bindings.some(
     (binding) =>

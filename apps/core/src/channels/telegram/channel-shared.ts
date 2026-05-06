@@ -1,32 +1,11 @@
-import fs from 'fs';
-import https from 'https';
-import path from 'path';
+import type { Api, Context } from 'grammy';
+import type { StreamFlavor } from '@grammyjs/stream';
+import { streamApi } from '@grammyjs/stream';
 
-import { Api, Bot, Context } from 'grammy';
-import { autoRetry } from '@grammyjs/auto-retry';
-import { StreamFlavor, stream, streamApi } from '@grammyjs/stream';
-
-import {
-  ASSISTANT_NAME,
-  PERMISSION_APPROVAL_TIMEOUT_MS,
-  TRIGGER_PATTERN,
-} from '../../config/index.js';
-import { resolveGroupFolderPath } from '../../platform/group-folder.js';
+import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import { ChannelAdapter, ChannelOpts } from '../channel-provider.js';
-import {
-  MessageSendOptions,
-  PermissionApprovalDecision,
-  PermissionApprovalRequest,
-  ProgressUpdateOptions,
-  StreamingChunkOptions,
-  UserQuestionRequest,
-  UserQuestionResponse,
-} from '../../domain/types.js';
-import { PartialMessageDeliveryError } from '../../runtime/partial-delivery.js';
+import type { ChannelOpts } from '../channel-provider.js';
 import { parseTextStyles } from '../../text-styles.js';
-import { AsyncTaskQueue } from '../../app/bootstrap/async-task-queue.js';
-import { writeTelegramFetchResponseToFile } from '../telegram-file-download.js';
 
 export type TelegramChannelOpts = ChannelOpts;
 
@@ -42,7 +21,7 @@ export const TELEGRAM_INLINE_BUTTON_TEXT_MAX_BYTES = 56;
 // This can be split into a separate config knob later if UX needs diverge.
 export const TELEGRAM_USER_QUESTION_TIMEOUT_MS = PERMISSION_APPROVAL_TIMEOUT_MS;
 export const TELEGRAM_PERMISSION_CALLBACK_PATTERN =
-  /^perm:(allow_once|allow_persistent_rule|cancel|approve|deny):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})$/;
+  /^perm:(allow_once|allow_job_policy|allow_persistent_rule|cancel|approve|deny):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})$/;
 export const TELEGRAM_USER_QUESTION_CALLBACK_PATTERN =
   /^userq:(select|done):([a-zA-Z0-9][a-zA-Z0-9._-]{0,127}):(\d+)(?::(\d+))?$/;
 
@@ -73,7 +52,7 @@ export type ActiveProgressState = {
 };
 export type PendingUserQuestionState = {
   requestId: string;
-  sourceGroup: string;
+  sourceAgentFolder: string;
   questionIndex: number;
   questionHeader: string;
   questionText: string;
@@ -91,7 +70,7 @@ export type PendingUserQuestionState = {
 };
 
 export function escapeTelegramMarkdownV2Plain(text: string): string {
-  return text.replace(/[\[\]()`>#+\-=|{}.!\\]/g, '\\$&');
+  return text.replace(/[[\]()`>#+\-=|{}.!\\]/g, '\\$&');
 }
 
 export function escapeTelegramMarkdownV2Literal(text: string): string {

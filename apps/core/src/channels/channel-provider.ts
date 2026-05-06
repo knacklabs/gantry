@@ -10,7 +10,7 @@ import {
   PlanReviewSurface,
   ProgressSink,
   PermissionApprovalRequest,
-  RegisteredGroup,
+  ConversationRoute,
   StreamingSink,
   StreamingStateSink,
   TypingSink,
@@ -26,7 +26,7 @@ export interface ChannelOpts {
     message: NewMessage,
   ) => Promise<boolean>;
   onChatMetadata: OnChatMetadata;
-  registeredGroups: () => Record<string, RegisteredGroup>;
+  conversationRoutes: () => Record<string, ConversationRoute>;
   runtimeSettings?: () => RuntimeSettings;
   runtimeLease?: RuntimeLeasePort;
   runtimeSecrets?: RuntimeSecretProvider;
@@ -34,7 +34,7 @@ export interface ChannelOpts {
     providerId: string;
     conversationJid: string;
     userId: string;
-    sourceGroup: string;
+    sourceAgentFolder: string;
     decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
   }) => Promise<boolean>;
 }

@@ -4,7 +4,7 @@ import { SessionInteractionModule } from '../../application/sessions/session-int
 import {
   getRuntimeControlRepository,
   getRuntimeEventExchange,
-  getRuntimeOpsRepository,
+  getRuntimeRepositories,
   getRuntimeStorage,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { adaptSessionControlPort } from './session-control-port.js';
@@ -17,7 +17,7 @@ export type SessionEventSubscription = Awaited<
 export function createSessionInteractionModule(): SessionInteractionModule {
   return new SessionInteractionModule({
     control: adaptSessionControlPort(getRuntimeControlRepository()),
-    ops: getRuntimeOpsRepository(),
+    ops: getRuntimeRepositories(),
     repositories: getRuntimeStorage().repositories,
     runtimeEvents: getRuntimeEventExchange(),
     now: () => new Date().toISOString() as never,
@@ -32,7 +32,7 @@ export async function ensureSessionForControl(
 ): Promise<Awaited<ReturnType<SessionInteractionModule['ensureSession']>>> {
   const result = await createSessionInteractionModule().ensureSession(input);
   await ctx.app.registerGroup(
-    result.registerGroup.chatJid,
+    result.registerGroup.conversationJid,
     result.registerGroup.group,
   );
   return result;

@@ -131,6 +131,23 @@ class InMemoryMcpServerRepository implements McpServerRepository {
       .slice(0, input.limit ?? 100);
   }
 
+  async listAgentBindingsForAgents(input: {
+    appId: AppId;
+    agentIds: readonly AgentId[];
+    limitPerAgent?: number;
+  }) {
+    const agentIds = new Set(input.agentIds);
+    return [...this.bindings.values()]
+      .filter(
+        (binding) =>
+          binding.appId === input.appId && agentIds.has(binding.agentId),
+      )
+      .slice(
+        0,
+        (input.limitPerAgent ?? 100) * Math.max(input.agentIds.length, 1),
+      );
+  }
+
   async listMaterializedServersForAgent(input: {
     appId: AppId;
     agentId: AgentId;
@@ -241,7 +258,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => {
       listDueWebhookDeliveries: vi.fn(async () => []),
       claimDueWebhookDeliveries: vi.fn(async () => []),
     }),
-    getRuntimeOpsRepository: () => ({
+    getRuntimeRepositories: () => ({
       storeChatMetadata: vi.fn(async () => undefined),
       storeMessage: vi.fn(async () => undefined),
     }),
@@ -794,7 +811,7 @@ describe('MCP server management integration flow', () => {
       'agent:one',
       false,
       {
-        registeredGroups: () => ({
+        conversationRoutes: () => ({
           'chat-1': {
             name: 'Agent One',
             folder: 'agent:one',
@@ -856,7 +873,7 @@ describe('MCP server management integration flow', () => {
       'agent:one',
       false,
       {
-        registeredGroups: () => ({
+        conversationRoutes: () => ({
           'chat-1': {
             name: 'Agent One',
             folder: 'agent:one',
@@ -908,7 +925,7 @@ describe('MCP server management integration flow', () => {
         reason: 'approved',
       });
     const deps = {
-      registeredGroups: () => ({
+      conversationRoutes: () => ({
         'chat-1': {
           name: 'Agent One',
           folder: 'agent:one',
@@ -1034,7 +1051,7 @@ describe('MCP server management integration flow', () => {
       reason: 'approved',
     }));
     const deps = {
-      registeredGroups: () => ({
+      conversationRoutes: () => ({
         'chat-wrong': {
           name: 'Agent One Wrong',
           folder: 'agent:one',
@@ -1082,7 +1099,7 @@ describe('MCP server management integration flow', () => {
     });
     expect(requestPermissionApproval).toHaveBeenCalledWith(
       expect.objectContaining({
-        sourceGroup: 'agent:one',
+        sourceAgentFolder: 'agent:one',
         targetJid: 'chat-origin',
         threadId: 'thread-origin',
         decisionPolicy: 'same_channel',
@@ -1109,7 +1126,7 @@ describe('MCP server management integration flow', () => {
       decidedBy: 'Approver',
     }));
     const deps = {
-      registeredGroups: () => ({
+      conversationRoutes: () => ({
         'chat-origin': {
           name: 'Agent One Origin',
           folder: 'agent:one',
@@ -1166,7 +1183,7 @@ describe('MCP server management integration flow', () => {
       decidedBy: 'Approver',
     }));
     const deps = {
-      registeredGroups: () => ({
+      conversationRoutes: () => ({
         'chat-1': {
           name: 'Agent One',
           folder: 'agent:one',

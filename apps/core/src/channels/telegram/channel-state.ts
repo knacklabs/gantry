@@ -48,7 +48,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     string,
     {
       callbackId: string;
-      sourceGroup: string;
+      sourceAgentFolder: string;
       decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
       approvalContextJid?: string;
       request: PermissionApprovalRequest;

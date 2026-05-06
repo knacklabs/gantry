@@ -1,22 +1,20 @@
-import type { OpsRepository } from '../domain/repositories/ops-repo.js';
-
-const signatures = new WeakMap<OpsRepository, string>();
+const signatures = new WeakMap<object, string>();
 
 export function getSystemJobRegistrationSignature(
-  opsRepository: OpsRepository,
+  opsRepository: object,
 ): string | undefined {
   return signatures.get(opsRepository);
 }
 
 export function setSystemJobRegistrationSignature(
-  opsRepository: OpsRepository,
+  opsRepository: object,
   signature: string,
 ): void {
   signatures.set(opsRepository, signature);
 }
 
 export function invalidateSystemJobRegistrationSignature(
-  opsRepository: OpsRepository,
+  opsRepository: object,
 ): void {
   signatures.delete(opsRepository);
 }

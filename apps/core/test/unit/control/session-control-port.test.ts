@@ -18,7 +18,7 @@ describe('adaptSessionControlPort', () => {
     await port.ensureAppSession({
       appId: 'app-one',
       conversationId: 'conv-one',
-      chatJid: 'app:app-one:conv-one',
+      conversationJid: 'app:app-one:conv-one',
       folder: 'app_scope_folder',
       title: 'Conversation One',
       defaultResponseMode: 'sse',
@@ -37,5 +37,6 @@ describe('adaptSessionControlPort', () => {
       defaultWebhookId: 'webhook-1',
     });
     expect(input).not.toHaveProperty('folder');
+    expect(input).not.toHaveProperty('conversationJid');
   });
 });

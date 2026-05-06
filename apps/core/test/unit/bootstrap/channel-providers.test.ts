@@ -48,6 +48,14 @@ function makeRuntimeSettings(enabled: {
         },
       },
     },
+    runtime: {
+      queue: {
+        maxMessageRuns: 3,
+        maxJobRuns: 4,
+        maxRetries: 5,
+        baseRetryMs: 5000,
+      },
+    },
   };
 }
 
@@ -158,8 +166,10 @@ describe('listChannelProviders', () => {
     expect(providerIdForJid('tg:-100123')).toBe('telegram');
     expect(providerIdForJid('sl:C123456')).toBe('slack');
     expect(providerIdForJid('teams:19:abc@thread.v2')).toBe('teams');
+    expect(providerIdForJid('unknown:123', '')).toBe('');
     expect(normalizeProviderId('tg')).toBe('telegram');
     expect(normalizeProviderId('sl')).toBe('slack');
+    expect(normalizeProviderId('unknown')).toBe('');
   });
 
   it('supports a third provider in registry and settings checks', () => {

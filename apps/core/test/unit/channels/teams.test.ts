@@ -29,7 +29,7 @@ function makeOpts(): ChannelOpts {
   return {
     onMessage: vi.fn(async () => {}),
     onChatMetadata: vi.fn(async () => {}),
-    registeredGroups: vi.fn(() => ({})),
+    conversationRoutes: vi.fn(() => ({})),
     runtimeSecrets: {
       getSecret(ref) {
         const value = this.getOptionalSecret(ref);
@@ -89,7 +89,7 @@ describe('Teams Adaptive Card payloads', () => {
   it('builds Action.Execute allow-once and cancel actions', () => {
     const payload = buildTeamsApprovalDescriptorPayload({
       requestId: 'perm-1',
-      sourceGroup: 'teams_main',
+      sourceAgentFolder: 'teams_main',
       targetJid: 'teams:19:abc@thread.v2',
       threadId: 'root-message',
       toolName: 'Bash',
@@ -243,7 +243,7 @@ describe('TeamsChannel adapter scaffold', () => {
       'teams:19:abc@thread.v2',
       {
         requestId: 'perm-teams-1',
-        sourceGroup: 'teams_engineering',
+        sourceAgentFolder: 'teams_engineering',
         decisionPolicy: 'same_channel',
         toolName: 'Bash',
         threadId: 'root-message',
@@ -315,7 +315,7 @@ describe('TeamsChannel adapter scaffold', () => {
       'teams:19:abc@thread.v2',
       {
         requestId: 'perm-teams-unauthorized',
-        sourceGroup: 'teams_engineering',
+        sourceAgentFolder: 'teams_engineering',
         decisionPolicy: 'same_channel',
         toolName: 'Bash',
       },
@@ -340,6 +340,10 @@ describe('TeamsChannel adapter scaffold', () => {
     });
     await Promise.resolve();
     expect(settled).toBe(false);
+    expect(sdkClient.sendMessage).toHaveBeenCalledWith({
+      conversationId: '19:abc@thread.v2',
+      text: 'You are not allowed to decide this permission request.',
+    });
 
     await channel.disconnect();
     await expect(approvalPromise).resolves.toEqual(

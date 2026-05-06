@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import type { Job, RegisteredGroup } from '../../domain/types.js';
+import type { Job, ConversationRoute } from '../../domain/types.js';
 import type { JobVisibilityMetadata } from '../../application/jobs/job-visibility-metadata.js';
 import type { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import { nowIso as runtimeNowIso } from '../../infrastructure/time/datetime.js';
@@ -28,7 +28,7 @@ export function makeAppGroup(input: {
   appId: string;
   conversationId: string;
   chatJid: string;
-}): RegisteredGroup {
+}): ConversationRoute {
   const app = sanitizeSegment(input.appId) || 'app';
   const conversation = sanitizeSegment(input.conversationId) || 'session';
   const identityHash = createHash('sha256')

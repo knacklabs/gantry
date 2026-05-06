@@ -24,7 +24,7 @@ async function emitSessionEvent(
   payload: Record<string, unknown>,
 ): Promise<{ emitted: boolean; eventId?: number }> {
   const result = await createSessionInteractionModule().publishOutboundEvent({
-    chatJid,
+    conversationJid: chatJid,
     eventType,
     payload,
   });

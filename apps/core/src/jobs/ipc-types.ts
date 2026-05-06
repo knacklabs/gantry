@@ -1,4 +1,4 @@
-import { RegisteredGroup } from '../domain/types.js';
+import { ConversationRoute } from '../domain/types.js';
 import { IpcDeps } from '../runtime/ipc-domain-types.js';
 
 export interface TaskIpcData {
@@ -42,17 +42,17 @@ export interface TaskIpcData {
   folder?: string;
   trigger?: string;
   requiresTrigger?: boolean;
-  agentConfig?: RegisteredGroup['agentConfig'];
+  agentConfig?: ConversationRoute['agentConfig'];
   payload?: Record<string, unknown>;
 }
 
 export interface TaskContext {
   data: TaskIpcData;
-  sourceGroup: string;
+  sourceAgentFolder: string;
   isMain: boolean;
   deps: IpcDeps;
-  conversationBindings: Record<string, RegisteredGroup>;
-  sourceGroupJids: string[];
+  conversationBindings: Record<string, ConversationRoute>;
+  sourceAgentFolderJids: string[];
 }
 
 export type TaskHandler = (context: TaskContext) => Promise<void> | void;

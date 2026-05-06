@@ -98,6 +98,32 @@ describe('GroupQueue', () => {
     expect(processMessages).toHaveBeenCalledTimes(4);
   });
 
+  it('uses injected message concurrency limits', async () => {
+    queue = new GroupQueue({ maxMessageRuns: 1 });
+    let activeCount = 0;
+    let maxActive = 0;
+    const completionCallbacks: Array<() => void> = [];
+
+    queue.setProcessMessagesFn(async () => {
+      activeCount++;
+      maxActive = Math.max(maxActive, activeCount);
+      await new Promise<void>((resolve) => completionCallbacks.push(resolve));
+      activeCount--;
+      return true;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+    queue.enqueueMessageCheck('group2@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(maxActive).toBe(1);
+
+    completionCallbacks[0]();
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(maxActive).toBe(1);
+  });
+
   // --- Tasks prioritized over messages ---
 
   it('drains tasks before messages for same group', async () => {
@@ -164,6 +190,25 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10000);
     await vi.advanceTimersByTimeAsync(10);
     expect(callCount).toBe(3);
+  });
+
+  it('uses injected retry policy without production backoff', async () => {
+    queue = new GroupQueue({ baseRetryMs: 0, maxRetries: 2 });
+    let callCount = 0;
+
+    queue.setProcessMessagesFn(async () => {
+      callCount++;
+      return false;
+    });
+
+    queue.enqueueMessageCheck('group1@g.us');
+
+    await vi.advanceTimersByTimeAsync(10);
+    expect(callCount).toBe(3);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(callCount).toBe(3);
+    expect(queue.getPolicy()).toMatchObject({ baseRetryMs: 0, maxRetries: 2 });
   });
 
   // --- Shutdown prevents new enqueues ---

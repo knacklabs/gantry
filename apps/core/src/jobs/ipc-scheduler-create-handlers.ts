@@ -39,7 +39,7 @@ async function requestJobExtraToolApproval(
   }
   const decision = await context.deps.requestPermissionApproval({
     requestId: `job-tools-${randomUUID()}`,
-    sourceGroup: context.sourceGroup,
+    sourceAgentFolder: context.sourceAgentFolder,
     targetJid: approvalTarget.targetJid,
     threadId: context.data.authThreadId,
     decisionPolicy: 'same_channel',
@@ -58,7 +58,7 @@ async function requestJobExtraToolApproval(
       extrasBeyondInherited: request.extrasBeyondInherited,
       persistence: 'target_json.capabilityPolicy.allowedTools',
     },
-    decisionOptions: ['allow_once', 'cancel'],
+    decisionOptions: ['allow_job_policy', 'cancel'],
   });
   return { approved: decision.approved, reason: decision.reason };
 }
@@ -70,17 +70,21 @@ function scheduleType(raw: unknown): JobScheduleType | undefined {
 }
 
 const schedulerUpsertJobHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup, isMain, conversationBindings, sourceGroupJids } =
-    context;
+  const {
+    data,
+    sourceAgentFolder,
+    conversationBindings,
+    sourceAgentFolderJids,
+  } = context;
   const { accept, reject } = createTaskResponder(
-    sourceGroup,
+    sourceAgentFolder,
     data.taskId,
     data.authThreadId,
   );
 
   if (typeof data.script === 'string' && data.script.trim().length > 0) {
     logger.warn(
-      { sourceGroup, name: data.name },
+      { sourceAgentFolder, name: data.name },
       'Rejected scheduler_upsert_job with script payload from IPC',
     );
     reject(
@@ -131,14 +135,14 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
     });
 
     logger.info(
-      { id: result.jobId, created: result.created, sourceGroup },
+      { id: result.jobId, created: result.created, sourceAgentFolder },
       'Job upserted via IPC',
     );
     invalidateSystemJobRegistrationSignature(context.deps.opsRepository);
     const defaultModel =
       normalizedScheduleType === 'once'
-        ? getDefaultModelConfig('oneTimeJob', sourceGroup)
-        : getDefaultModelConfig('recurringJob', sourceGroup);
+        ? getDefaultModelConfig('oneTimeJob', sourceAgentFolder)
+        : getDefaultModelConfig('recurringJob', sourceAgentFolder);
     const selectedModel = result.modelAlias || defaultModel.model;
     const catalogModel = selectedModel
       ? resolveModelSelection(selectedModel)
@@ -151,9 +155,9 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
       : result.modelAlias
         ? ` Model: ${result.modelAlias}.`
         : ' Model: agent default for this job type.';
-    const sourceJid = sourceGroupJids[0] || '';
+    const sourceJid = sourceAgentFolderJids[0] || '';
     const sourceConversation = conversationBindings[sourceJid];
-    const runtimeText = ` Runtime: notifications ${data.threadId || data.authThreadId ? 'this thread' : 'this conversation'}; browser ${formatBrowserProfileLabel({ agentName: sourceConversation?.name ?? sourceGroup, conversationKind: sourceConversation?.conversationKind })}.`;
+    const runtimeText = ` Runtime: notifications ${data.threadId || data.authThreadId ? 'this thread' : 'this conversation'}; browser ${formatBrowserProfileLabel({ agentName: sourceConversation?.name ?? sourceAgentFolder, conversationKind: sourceConversation?.conversationKind })}.`;
     accept(
       (result.created
         ? `Scheduler job created (${result.jobId}).`
@@ -163,7 +167,7 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
     );
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to upsert scheduler job.');
-    logger.error({ err, sourceGroup }, 'scheduler_upsert_job failed');
+    logger.error({ err, sourceAgentFolder }, 'scheduler_upsert_job failed');
     reject(mapped.message, mapped.code);
   }
 };

@@ -110,14 +110,14 @@ export async function registerTeamsMainGroup(options: {
   ensureRuntimeLayout(options.runtimeHome);
   const db = await openRuntimeGroupDb(options.runtimeHome);
   try {
-    const existing = await db.getAllRegisteredGroups();
+    const existing = await db.getAllConversationRoutes();
     const existingGroup = existing[options.chatJid];
     const folder =
       existingGroup?.folder ||
       allocateMainAgentFolder(options.runtimeHome, existing);
     const groupName = normalizeMainAgentName(options.displayName);
 
-    await db.setRegisteredGroup(options.chatJid, {
+    await db.setConversationRoute(options.chatJid, {
       name: groupName,
       folder,
       trigger: existingGroup?.trigger || defaultTriggerForAgentName(groupName),
@@ -320,7 +320,7 @@ export async function runTeamsConnectCommand(
   }
 
   let registeredFolder = '';
-  let registeredGroupName = '';
+  let conversationRouteName = '';
   let registeredChatJid = '';
   let registeredChatTitle = '';
   const approverInput =
@@ -354,7 +354,7 @@ export async function runTeamsConnectCommand(
       displayName: loadRuntimeSettings(runtimeHome).agent.name,
     });
     registeredFolder = registered.folder;
-    registeredGroupName = registered.groupName;
+    conversationRouteName = registered.groupName;
     registeredChatJid = verified.chatJid;
     registeredChatTitle = verified.chatTitle || verified.chatJid;
     p.log.success(
@@ -372,11 +372,11 @@ export async function runTeamsConnectCommand(
   if (registeredFolder) {
     ensureConfiguredConversationBinding(settings, {
       agentId: registeredFolder,
-      agentName: registeredGroupName || settings.agent.name,
+      agentName: conversationRouteName || settings.agent.name,
       agentFolder: registeredFolder,
       jid: registeredChatJid,
-      displayName: registeredChatTitle || registeredGroupName,
-      trigger: `@${registeredGroupName || settings.agent.name}`,
+      displayName: registeredChatTitle || conversationRouteName,
+      trigger: `@${conversationRouteName || settings.agent.name}`,
       requiresTrigger: false,
       isMain: true,
       approverIds,

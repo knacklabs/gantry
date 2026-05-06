@@ -590,6 +590,10 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
       .onConflictDoUpdate({
         target: pgSchema.agentConversationBindingsPostgres.id,
         set: {
+          agentId: binding.agentId,
+          providerConnectionId: binding.providerConnectionId,
+          conversationId: binding.conversationId,
+          threadId: binding.threadId ?? null,
           displayName: binding.displayName,
           status: binding.status,
           triggerMode: binding.triggerMode,
@@ -621,6 +625,7 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
           eq(b.appId, input.appId),
           eq(b.agentId, input.agentId),
           eq(b.conversationId, input.conversationId),
+          sql`${b.id} not like 'conversation-route:%'`,
           input.threadId ? eq(b.threadId, input.threadId) : isNull(b.threadId),
         ),
       )
@@ -635,6 +640,7 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
     threadId?: ConversationThread['id'];
   }): Promise<AgentConversationBinding | null> {
     const b = pgSchema.agentConversationBindingsPostgres;
+    const controlBindingPredicate = sql`${b.id} not like 'conversation-route:%'`;
     const threadPredicate = input.threadId
       ? or(eq(b.threadId, input.threadId), isNull(b.threadId))
       : isNull(b.threadId);
@@ -646,6 +652,7 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
           eq(b.appId, input.appId),
           eq(b.agentId, input.agentId),
           eq(b.conversationId, input.conversationId),
+          controlBindingPredicate,
           threadPredicate,
         ),
       )
@@ -693,18 +700,18 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
     appId: App['id'],
     agentId?: Agent['id'],
   ): Promise<AgentConversationBinding[]> {
+    const b = pgSchema.agentConversationBindingsPostgres;
     const rows = await this.db
       .select()
-      .from(pgSchema.agentConversationBindingsPostgres)
+      .from(b)
       .where(
         and(
-          eq(pgSchema.agentConversationBindingsPostgres.appId, appId),
-          agentId
-            ? eq(pgSchema.agentConversationBindingsPostgres.agentId, agentId)
-            : undefined,
+          eq(b.appId, appId),
+          agentId ? eq(b.agentId, agentId) : undefined,
+          sql`${b.id} not like 'conversation-route:%'`,
         ),
       )
-      .orderBy(asc(pgSchema.agentConversationBindingsPostgres.createdAt));
+      .orderBy(asc(b.createdAt));
     return rows.map((row) => this.bindingFromRow(row));
   }
 
@@ -712,19 +719,18 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
     appId: App['id'];
     conversationId: Conversation['id'];
   }): Promise<AgentConversationBinding[]> {
+    const b = pgSchema.agentConversationBindingsPostgres;
     const rows = await this.db
       .select()
-      .from(pgSchema.agentConversationBindingsPostgres)
+      .from(b)
       .where(
         and(
-          eq(pgSchema.agentConversationBindingsPostgres.appId, input.appId),
-          eq(
-            pgSchema.agentConversationBindingsPostgres.conversationId,
-            input.conversationId,
-          ),
+          eq(b.appId, input.appId),
+          eq(b.conversationId, input.conversationId),
+          sql`${b.id} not like 'conversation-route:%'`,
         ),
       )
-      .orderBy(asc(pgSchema.agentConversationBindingsPostgres.createdAt));
+      .orderBy(asc(b.createdAt));
     return rows.map((row) => this.bindingFromRow(row));
   }
 
@@ -904,6 +910,7 @@ export class PostgresConversationRepository implements ConversationRepository {
       .onConflictDoUpdate({
         target: pgSchema.conversationsPostgres.id,
         set: {
+          providerConnectionId: conversation.providerConnectionId,
           externalRefJson: encodeJsonOrNull(conversation.externalRef),
           kind: conversation.kind,
           title: conversation.title ?? null,
@@ -977,16 +984,31 @@ export class PostgresConversationRepository implements ConversationRepository {
   async listConversationApprovers(
     conversationId: Conversation['id'],
   ): Promise<ConversationApprover[]> {
+    return this.listConversationApproverRows([conversationId]);
+  }
+
+  async listConversationApproversForConversations(
+    conversationIds: readonly Conversation['id'][],
+  ): Promise<ConversationApprover[]> {
+    return this.listConversationApproverRows(conversationIds);
+  }
+
+  private async listConversationApproverRows(
+    conversationIds: readonly Conversation['id'][],
+  ): Promise<ConversationApprover[]> {
+    if (conversationIds.length === 0) return [];
     const rows = await this.db
       .select()
       .from(pgSchema.conversationApproversPostgres)
       .where(
-        eq(
-          pgSchema.conversationApproversPostgres.conversationId,
-          conversationId,
-        ),
+        inArray(pgSchema.conversationApproversPostgres.conversationId, [
+          ...conversationIds,
+        ]),
       )
-      .orderBy(asc(pgSchema.conversationApproversPostgres.externalUserId));
+      .orderBy(
+        asc(pgSchema.conversationApproversPostgres.conversationId),
+        asc(pgSchema.conversationApproversPostgres.externalUserId),
+      );
     return rows.map((row) => ({
       id: row.id,
       appId: row.appId,
@@ -2012,7 +2034,7 @@ export class PostgresBrowserProfileRepository implements BrowserProfileRepositor
 
 export function createPostgresDomainRepositories(
   db: CanonicalDb,
-  pool?: Pool,
+  _pool?: Pool,
 ): PostgresDomainRepositoryBundle {
   return {
     apps: new PostgresAppRepository(db),

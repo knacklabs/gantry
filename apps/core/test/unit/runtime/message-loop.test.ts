@@ -44,7 +44,7 @@ import {
   recoverPendingMessages,
 } from '@core/runtime/message-loop.js';
 import { decodeGroupMessageCursor } from '@core/shared/message-cursor.js';
-import { RegisteredGroup } from '@core/domain/types.js';
+import { ConversationRoute } from '@core/domain/types.js';
 
 function makeDeps(overrides: Partial<MessageLoopDeps> = {}): MessageLoopDeps & {
   enqueued: string[];
@@ -76,7 +76,7 @@ function makeDeps(overrides: Partial<MessageLoopDeps> = {}): MessageLoopDeps & {
     savedCount: number;
   } = {
     assistantName: 'Andy',
-    getRegisteredGroups: () => ({
+    getConversationRoutes: () => ({
       'group@g.us': {
         name: 'Team',
         folder: 'team',
@@ -231,7 +231,7 @@ describe('recoverPendingMessages', () => {
     ]);
 
     const deps = makeDeps({
-      getRegisteredGroups: () => ({
+      getConversationRoutes: () => ({
         'group1@g.us': {
           name: 'Team 1',
           folder: 'team1',
@@ -541,7 +541,7 @@ describe('startMessagePollingLoop', () => {
     mockGetTriggerPattern.mockReturnValue(/@Andy/i);
 
     const deps = makeDeps({
-      getRegisteredGroups: () => ({
+      getConversationRoutes: () => ({
         'group@g.us': {
           name: 'Team',
           folder: 'team',
@@ -775,7 +775,7 @@ describe('startMessagePollingLoop', () => {
     );
   });
 
-  it('skips groups not in registeredGroups', async () => {
+  it('skips groups not in conversationRoutes', async () => {
     const msg = {
       id: '1',
       chat_jid: 'unknown@g.us',
@@ -884,7 +884,7 @@ describe('startMessagePollingLoop', () => {
     mockIsTriggerAllowed.mockReturnValue(true);
 
     const deps = makeDeps({
-      getRegisteredGroups: () => ({
+      getConversationRoutes: () => ({
         'group@g.us': {
           name: 'Team',
           folder: 'team',
@@ -921,7 +921,7 @@ describe('startMessagePollingLoop', () => {
     mockGetMessagesSince.mockReturnValue([msg]);
 
     const deps = makeDeps({
-      getRegisteredGroups: () => ({
+      getConversationRoutes: () => ({
         'group@g.us': {
           name: 'Team',
           folder: 'team',
@@ -959,7 +959,7 @@ describe('startMessagePollingLoop', () => {
     mockIsTriggerAllowed.mockReturnValue(false);
 
     const deps = makeDeps({
-      getRegisteredGroups: () => ({
+      getConversationRoutes: () => ({
         'group@g.us': {
           name: 'Team',
           folder: 'team',

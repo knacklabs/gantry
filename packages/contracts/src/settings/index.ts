@@ -130,6 +130,18 @@ export const RuntimeSettingsPublicSchema = z
           .strict(),
       })
       .strict(),
+    runtime: z
+      .object({
+        queue: z
+          .object({
+            maxMessageRuns: z.number().int().positive(),
+            maxJobRuns: z.number().int().positive(),
+            maxRetries: z.number().int().nonnegative(),
+            baseRetryMs: z.number().int().nonnegative(),
+          })
+          .strict(),
+      })
+      .strict(),
   })
   .strict();
 export type RuntimeSettingsPublic = z.infer<typeof RuntimeSettingsPublicSchema>;

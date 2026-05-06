@@ -4,7 +4,7 @@ import {
   buildJobListVisibilityMetadata,
   buildJobVisibilityMetadata,
 } from '@core/application/jobs/job-visibility-metadata.js';
-import type { OpsRepository } from '@core/domain/repositories/ops-repo.js';
+import type { RuntimeJobRepository } from '@core/domain/repositories/ops-repo.js';
 import type { Job } from '@core/domain/types.js';
 
 function makeJob(overrides: Partial<Job> = {}): Job {
@@ -46,7 +46,9 @@ describe('job visibility metadata', () => {
     const job = makeJob();
     const metadata = await buildJobVisibilityMetadata({
       job,
-      ops: { listJobRuns: vi.fn(async () => []) } as unknown as OpsRepository,
+      ops: {
+        listJobRuns: vi.fn(async () => []),
+      } as unknown as RuntimeJobRepository,
       nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
     });
 
@@ -69,12 +71,16 @@ describe('job visibility metadata', () => {
   it('does not mark completed or future once jobs as stale', async () => {
     const future = await buildJobVisibilityMetadata({
       job: makeJob({ next_run: '2026-04-24T09:30:00.000Z' }),
-      ops: { listJobRuns: vi.fn(async () => []) } as unknown as OpsRepository,
+      ops: {
+        listJobRuns: vi.fn(async () => []),
+      } as unknown as RuntimeJobRepository,
       nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
     });
     const completed = await buildJobVisibilityMetadata({
       job: makeJob({ last_run: '2026-04-24T09:00:05.000Z' }),
-      ops: { listJobRuns: vi.fn(async () => []) } as unknown as OpsRepository,
+      ops: {
+        listJobRuns: vi.fn(async () => []),
+      } as unknown as RuntimeJobRepository,
       nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
     });
 

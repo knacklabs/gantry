@@ -11,14 +11,15 @@ function makeApp(overrides: Partial<RuntimeApp> = {}): RuntimeApp {
     saveState: vi.fn(async () => {}),
     getOrRecoverCursor: vi.fn(async () => ''),
     registerGroup: vi.fn(async () => {}),
+    projectConversationRoute: vi.fn(async () => {}),
     setGroupModelOverride: vi.fn(async () => {}),
     setGroupThinkingOverride: vi.fn(async () => {}),
     getAvailableGroups: vi.fn(() => []),
-    setRegisteredGroupsForTest: vi.fn(),
-    ensureCredentialBindingsForRegisteredGroups: vi.fn(async () => {}),
+    setConversationRoutesForTest: vi.fn(),
+    ensureCredentialBindingsForConversationRoutes: vi.fn(async () => {}),
     clearSessionForChatJid: vi.fn(async () => {}),
     processGroupMessages: vi.fn(),
-    getRegisteredGroups: vi.fn(() => ({
+    getConversationRoutes: vi.fn(() => ({
       'app:main': {
         name: 'Main Agent',
         folder: 'main_agent',
@@ -43,7 +44,7 @@ describe('runStartup', () => {
       loadState: vi.fn(() => {
         order.push('load-state');
       }),
-      ensureCredentialBindingsForRegisteredGroups: vi.fn(async () => {
+      ensureCredentialBindingsForConversationRoutes: vi.fn(async () => {
         order.push('ensure-credentials');
       }),
     });
@@ -135,7 +136,7 @@ describe('runStartup', () => {
   it('creates an internal main agent for a fresh runtime with no registered groups', async () => {
     const groups: Record<string, any> = {};
     const app = makeApp({
-      getRegisteredGroups: vi.fn(() => groups),
+      getConversationRoutes: vi.fn(() => groups),
       registerGroup: vi.fn(async (jid, group) => {
         groups[jid] = group;
       }),
@@ -175,7 +176,7 @@ describe('runStartup', () => {
   it('does not treat Telegram approver IDs as recoverable chat bindings on startup', async () => {
     const groups: Record<string, any> = {};
     const app = makeApp({
-      getRegisteredGroups: vi.fn(() => groups),
+      getConversationRoutes: vi.fn(() => groups),
       registerGroup: vi.fn(async (jid, group) => {
         groups[jid] = group;
       }),
@@ -250,7 +251,7 @@ describe('runStartup', () => {
         loadState: vi.fn(async () => {
           order.push('load-state');
         }),
-        ensureCredentialBindingsForRegisteredGroups: vi.fn(async () => {
+        ensureCredentialBindingsForConversationRoutes: vi.fn(async () => {
           order.push('ensure-credentials-start');
           resolve();
           await new Promise<void>((release) => {
@@ -312,7 +313,7 @@ describe('runStartup', () => {
         loadState: vi.fn(async () => {
           order.push('load-state');
         }),
-        ensureCredentialBindingsForRegisteredGroups: vi.fn(async () => {
+        ensureCredentialBindingsForConversationRoutes: vi.fn(async () => {
           order.push('ensure-credentials-start');
           await new Promise<void>(() => {});
         }),

@@ -11,7 +11,7 @@ import type {
 } from '../../domain/events/events.js';
 import type {
   JobUpsertInput,
-  OpsRepository,
+  RuntimeJobRepository,
 } from '../../domain/repositories/ops-repo.js';
 import type { ToolCatalogRepository } from '../../domain/ports/repositories.js';
 import type { Clock } from '../common/clock.js';
@@ -22,7 +22,7 @@ export type JobKind = 'manual' | 'once' | 'recurring';
 export interface AppSessionRecord {
   sessionId: string;
   appId: string;
-  chatJid: string;
+  conversationJid: string;
   workspaceKey: string;
   defaultResponseMode: RuntimeEventPublishInput['responseMode'];
   defaultWebhookId: string | null;
@@ -38,10 +38,10 @@ export interface JobTriggerRecord {
 export interface JobControlPort {
   getAppSessionById(sessionId: string): Promise<AppSessionRecord | undefined>;
   getAppSessionByChatJid(
-    chatJid: string,
+    conversationJid: string,
   ): Promise<AppSessionRecord | undefined>;
   getAppSessionsByChatJids?(
-    chatJids: readonly string[],
+    conversationJids: readonly string[],
   ): Promise<AppSessionRecord[]>;
   createJobTrigger(input: {
     jobId: string;
@@ -102,7 +102,7 @@ export interface JobSchedulePlanner {
 }
 
 export interface JobManagementServiceDeps {
-  ops: OpsRepository;
+  ops: RuntimeJobRepository;
   scheduler: SchedulerCoordinationPort;
   schedulePlanner: JobSchedulePlanner;
   clock?: Clock;
@@ -177,12 +177,12 @@ export interface ConversationBinding {
 }
 
 export interface SchedulerJobAccess {
-  sourceGroup: string;
+  sourceAgentFolder: string;
   originConversationJid: string;
   // Main-agent status does not widen scheduler job visibility or mutation.
   isMain: boolean;
   conversationBindings: Record<string, ConversationBinding>;
-  sourceGroupJids?: string[];
+  sourceConversationJids?: string[];
   authThreadId?: string;
 }
 

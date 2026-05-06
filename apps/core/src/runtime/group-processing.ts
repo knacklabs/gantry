@@ -14,7 +14,7 @@ import { logger } from '../infrastructure/logging/logger.js';
 import {
   MessageSendOptions,
   ProgressUpdateOptions,
-  RegisteredGroup,
+  ConversationRoute,
 } from '../domain/types.js';
 import {
   createSerializedAgentOutputCallbacks,
@@ -75,14 +75,16 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
   const runAgentImpl = deps.runAgent ?? spawnAgent;
   const collectSessionMemory = deps.collectSessionMemory;
   const ops = () => {
-    const repository = deps.opsRepository ?? deps.getOpsRepository?.();
+    const repository = deps.opsRepository ?? deps.getRuntimeRepository?.();
     if (!repository) {
-      throw new Error('Group processor requires an OpsRepository');
+      throw new Error(
+        'Group processor requires runtime message and session repositories',
+      );
     }
     return repository;
   };
   async function runAgent(
-    group: RegisteredGroup,
+    group: ConversationRoute,
     prompt: string,
     chatJid: string,
     queueJid: string,
@@ -106,8 +108,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let latestProviderSessionId: string | undefined;
     const persistedProviderSessionIds = new Set<string>();
     const turnContext = await ops().getAgentTurnContext?.({
-      groupFolder: group.folder,
-      chatJid,
+      agentFolder: group.folder,
+      conversationJid: chatJid,
       threadId: sessionThreadId,
     });
     const persistProviderSessionId = async (
@@ -121,7 +123,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         return;
       }
       await ops().setSession(group.folder, providerSessionId, sessionThreadId, {
-        chatJid,
+        conversationJid: chatJid,
       });
       persistedProviderSessionIds.add(providerSessionId);
     };

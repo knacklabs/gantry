@@ -97,7 +97,7 @@ export function clearConsumedIpcRequestIds(): void {
 
 export function validateIpcAuthRequest(
   raw: Record<string, unknown>,
-  sourceGroup: string,
+  sourceAgentFolder: string,
   label: string,
 ): IpcThreadBinding {
   const binding = readTrustedThreadBinding(raw, label);
@@ -106,7 +106,7 @@ export function validateIpcAuthRequest(
   delete payload.signature;
   delete payload.authToken;
   const requestSigningKey = computeIpcAuthToken(
-    sourceGroup,
+    sourceAgentFolder,
     binding.authThreadId,
   );
   if (!verifyIpcRequestPayload(requestSigningKey, payload, signature)) {
@@ -119,7 +119,7 @@ export function validateIpcAuthRequest(
   const requestId = toTrimmedString(payload.requestId, { maxLen: 128 });
   if (requestId) {
     pruneConsumedIpcRequestIds();
-    const replayKey = `${sourceGroup}:${binding.authThreadId || ''}:${requestId}`;
+    const replayKey = `${sourceAgentFolder}:${binding.authThreadId || ''}:${requestId}`;
     if (consumedIpcRequestIds.has(replayKey)) {
       throw new Error(`Invalid ${label} replay`);
     }
@@ -130,7 +130,7 @@ export function validateIpcAuthRequest(
 
 export function validateBrowserIpcAuthRequest(
   raw: Record<string, unknown>,
-  sourceGroup: string,
+  sourceAgentFolder: string,
   label: string,
 ): IpcBrowserBinding {
   const binding = readTrustedThreadBinding(raw, label);
@@ -144,7 +144,7 @@ export function validateBrowserIpcAuthRequest(
   delete payload.signature;
   delete payload.authToken;
   const requestSigningKey = computeBrowserIpcAuthToken(
-    sourceGroup,
+    sourceAgentFolder,
     chatJid,
     binding.authThreadId,
   );
@@ -158,7 +158,7 @@ export function validateBrowserIpcAuthRequest(
   const requestId = toTrimmedString(payload.requestId, { maxLen: 128 });
   if (requestId) {
     pruneConsumedIpcRequestIds();
-    const replayKey = `${sourceGroup}:${binding.authThreadId || ''}:${chatJid}:${requestId}`;
+    const replayKey = `${sourceAgentFolder}:${binding.authThreadId || ''}:${chatJid}:${requestId}`;
     if (consumedIpcRequestIds.has(replayKey)) {
       throw new Error(`Invalid ${label} replay`);
     }
@@ -169,7 +169,7 @@ export function validateBrowserIpcAuthRequest(
 
 export function validateMemoryIpcAuthRequest(
   raw: Record<string, unknown>,
-  sourceGroup: string,
+  sourceAgentFolder: string,
   label: string,
 ): IpcMemoryBinding {
   const binding = readTrustedThreadBinding(raw, label);
@@ -186,7 +186,7 @@ export function validateMemoryIpcAuthRequest(
   const payload = { ...raw };
   delete payload.signature;
   delete payload.authToken;
-  const requestSigningKey = computeMemoryIpcAuthToken(sourceGroup, {
+  const requestSigningKey = computeMemoryIpcAuthToken(sourceAgentFolder, {
     ...(userId ? { userId } : {}),
     defaultScope: defaultScope || 'group',
     threadId: binding.authThreadId,
@@ -201,7 +201,7 @@ export function validateMemoryIpcAuthRequest(
   const requestId = toTrimmedString(payload.requestId, { maxLen: 128 });
   if (requestId) {
     pruneConsumedIpcRequestIds();
-    const replayKey = `${sourceGroup}:${binding.authThreadId || ''}:memory:${userId || ''}:${defaultScope || 'group'}:${requestId}`;
+    const replayKey = `${sourceAgentFolder}:${binding.authThreadId || ''}:memory:${userId || ''}:${defaultScope || 'group'}:${requestId}`;
     if (consumedIpcRequestIds.has(replayKey)) {
       throw new Error(`Invalid ${label} replay`);
     }

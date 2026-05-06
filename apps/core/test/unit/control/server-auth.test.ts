@@ -304,7 +304,7 @@ const ingressSignatureCrypto = {
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: () => controlRepo,
   getRuntimeEventExchange: () => runtimeEvents,
-  getRuntimeOpsRepository: () => opsRepo,
+  getRuntimeRepositories: () => opsRepo,
   getRuntimeStorage: () => ({
     repositories: domainRepositories,
   }),

@@ -121,8 +121,9 @@ classDiagram
   }
   class AgentCapabilityContext {
     +string mcpServerPath
-    +string chatJid
-    +string groupFolder
+    +string conversationId
+    +string? threadId
+    +string agentFolder
     +AgentPersona? persona
     +bool isMain
     +McpServerConfigs externalMcpServers
@@ -139,7 +140,7 @@ classDiagram
   AgentConfigVersion --> LlmProfile : llmProfileId
   Agent "1" --> "many" AgentDmAccess : per provider
   Agent "1" --> "many" AgentDmApprover : one per provider
-  AgentConfig --> Agent : per RegisteredGroup
+  AgentConfig --> Agent : per ConversationRoute
   AgentCapabilityContext --> AgentCapabilityProfile : composeAgentCapabilities()
 ```
 

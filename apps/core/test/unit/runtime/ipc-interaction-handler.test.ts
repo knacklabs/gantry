@@ -33,7 +33,7 @@ describe('ipc-interaction-handler', () => {
     const response = await processPermissionIpcRequest(
       {
         requestId: 'perm-1',
-        sourceGroup: 'main',
+        sourceAgentFolder: 'main',
         toolName: 'tool-x',
       },
       { requestPermissionApproval },
@@ -57,7 +57,7 @@ describe('ipc-interaction-handler', () => {
     const response = await processUserQuestionIpcRequest(
       {
         requestId: 'q-1',
-        sourceGroup: 'main',
+        sourceAgentFolder: 'main',
         questions: [
           {
             header: 'Mode',

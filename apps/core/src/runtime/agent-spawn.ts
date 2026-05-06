@@ -12,7 +12,7 @@ import {
   getEffectiveModelConfig,
 } from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { RegisteredGroup } from '../domain/types.js';
+import { ConversationRoute } from '../domain/types.js';
 import {
   findModelByRunnerModel,
   resolveModelSelection,
@@ -98,7 +98,7 @@ function pickSafeHostEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 export async function spawnAgent(
-  group: RegisteredGroup,
+  group: ConversationRoute,
   input: AgentInput,
   onProcess: (proc: ChildProcess, runHandle: string) => void,
   onOutput?: (output: AgentOutput) => Promise<void>,

@@ -21,13 +21,13 @@ type IpcInteractionLogger = {
 };
 
 export function interactionInFlightKey(input: {
-  sourceGroup: string;
+  sourceAgentFolder: string;
   kind: 'permission' | 'user-question';
   threadId?: string;
   requestId: string;
 }): string {
   return [
-    input.sourceGroup,
+    input.sourceAgentFolder,
     input.kind,
     input.threadId || '',
     input.requestId,
@@ -36,7 +36,7 @@ export function interactionInFlightKey(input: {
 
 export function writePermissionInteractionFailure(input: {
   ipcBaseDir: string;
-  sourceGroup: string;
+  sourceAgentFolder: string;
   requestId: string;
   responseNonce?: string;
   threadId?: string;
@@ -45,18 +45,22 @@ export function writePermissionInteractionFailure(input: {
   try {
     writePermissionIpcResponse(
       input.ipcBaseDir,
-      input.sourceGroup,
+      input.sourceAgentFolder,
       {
         requestId: input.requestId,
         ...(input.responseNonce ? { responseNonce: input.responseNonce } : {}),
         approved: false,
         reason: 'Failed to process permission request',
       },
-      getIpcResponseSigningPrivateKey(input.sourceGroup, input.threadId),
+      getIpcResponseSigningPrivateKey(input.sourceAgentFolder, input.threadId),
     );
   } catch (err) {
     input.logger.warn(
-      { sourceGroup: input.sourceGroup, requestId: input.requestId, err },
+      {
+        sourceAgentFolder: input.sourceAgentFolder,
+        requestId: input.requestId,
+        err,
+      },
       'Failed to write permission IPC denial fallback',
     );
   }
@@ -64,7 +68,7 @@ export function writePermissionInteractionFailure(input: {
 
 export function writeUserQuestionInteractionFailure(input: {
   ipcBaseDir: string;
-  sourceGroup: string;
+  sourceAgentFolder: string;
   requestId: string;
   threadId?: string;
   logger: IpcInteractionLogger;
@@ -72,16 +76,20 @@ export function writeUserQuestionInteractionFailure(input: {
   try {
     writeUserQuestionIpcResponse(
       input.ipcBaseDir,
-      input.sourceGroup,
+      input.sourceAgentFolder,
       {
         requestId: input.requestId,
         answers: {},
       },
-      getIpcResponseSigningPrivateKey(input.sourceGroup, input.threadId),
+      getIpcResponseSigningPrivateKey(input.sourceAgentFolder, input.threadId),
     );
   } catch (err) {
     input.logger.warn(
-      { sourceGroup: input.sourceGroup, requestId: input.requestId, err },
+      {
+        sourceAgentFolder: input.sourceAgentFolder,
+        requestId: input.requestId,
+        err,
+      },
       'Failed to write user question IPC fallback response',
     );
   }
@@ -89,7 +97,7 @@ export function writeUserQuestionInteractionFailure(input: {
 
 export async function processPermissionInteractionIpc(input: {
   request: PermissionApprovalRequest;
-  sourceGroup: string;
+  sourceAgentFolder: string;
   deps: IpcDeps;
   ipcBaseDir: string;
   file: string;
@@ -102,7 +110,7 @@ export async function processPermissionInteractionIpc(input: {
     });
     writePermissionIpcResponse(
       input.ipcBaseDir,
-      input.sourceGroup,
+      input.sourceAgentFolder,
       {
         requestId: input.request.requestId,
         responseNonce: input.request.responseNonce,
@@ -114,7 +122,7 @@ export async function processPermissionInteractionIpc(input: {
         decisionClassification: decision.decisionClassification,
       },
       getIpcResponseSigningPrivateKey(
-        input.sourceGroup,
+        input.sourceAgentFolder,
         input.request.threadId,
       ),
     );
@@ -122,19 +130,19 @@ export async function processPermissionInteractionIpc(input: {
   } catch (err) {
     writePermissionInteractionFailure({
       ipcBaseDir: input.ipcBaseDir,
-      sourceGroup: input.sourceGroup,
+      sourceAgentFolder: input.sourceAgentFolder,
       requestId: input.request.requestId,
       responseNonce: input.request.responseNonce,
       threadId: input.request.threadId,
       logger: input.logger,
     });
     input.logger.error(
-      { file: input.file, sourceGroup: input.sourceGroup, err },
+      { file: input.file, sourceAgentFolder: input.sourceAgentFolder, err },
       'Error processing permission IPC request',
     );
     archiveIpcErrorFile(
       input.ipcBaseDir,
-      input.sourceGroup,
+      input.sourceAgentFolder,
       input.file,
       input.claimedPath,
     );
@@ -143,7 +151,7 @@ export async function processPermissionInteractionIpc(input: {
 
 export async function processUserQuestionInteractionIpc(input: {
   request: UserQuestionRequest;
-  sourceGroup: string;
+  sourceAgentFolder: string;
   deps: IpcDeps;
   ipcBaseDir: string;
   file: string;
@@ -156,14 +164,14 @@ export async function processUserQuestionInteractionIpc(input: {
     });
     writeUserQuestionIpcResponse(
       input.ipcBaseDir,
-      input.sourceGroup,
+      input.sourceAgentFolder,
       {
         requestId: input.request.requestId,
         answers: response.answers || {},
         answeredBy: response.answeredBy,
       },
       getIpcResponseSigningPrivateKey(
-        input.sourceGroup,
+        input.sourceAgentFolder,
         input.request.threadId,
       ),
     );
@@ -171,18 +179,18 @@ export async function processUserQuestionInteractionIpc(input: {
   } catch (err) {
     writeUserQuestionInteractionFailure({
       ipcBaseDir: input.ipcBaseDir,
-      sourceGroup: input.sourceGroup,
+      sourceAgentFolder: input.sourceAgentFolder,
       requestId: input.request.requestId,
       threadId: input.request.threadId,
       logger: input.logger,
     });
     input.logger.error(
-      { file: input.file, sourceGroup: input.sourceGroup, err },
+      { file: input.file, sourceAgentFolder: input.sourceAgentFolder, err },
       'Error processing user question IPC request',
     );
     archiveIpcErrorFile(
       input.ipcBaseDir,
-      input.sourceGroup,
+      input.sourceAgentFolder,
       input.file,
       input.claimedPath,
     );

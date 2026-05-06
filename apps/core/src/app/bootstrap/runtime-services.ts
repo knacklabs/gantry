@@ -17,9 +17,16 @@ import {
   startSchedulerLoop,
 } from '../../jobs/scheduler.js';
 import { makeThreadQueueKey } from '../../runtime/thread-queue-key.js';
-import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
+import type {
+  RuntimeAgentSessionRepository,
+  RuntimeChatMetadataRepository,
+  RuntimeConversationRouteRepository,
+  RuntimeJobRepository,
+  RuntimeMessageRepository,
+  RuntimeRouterStateRepository,
+} from '../../domain/repositories/ops-repo.js';
 import {
-  getRuntimeOpsRepository,
+  getRuntimeRepositories,
   getRuntimeStorage,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import type { SessionMemoryCollector } from '../../domain/ports/session-memory-collector.js';
@@ -27,11 +34,18 @@ import { ChannelWiring } from './channel-wiring.js';
 import { RuntimeApp } from './runtime-app.js';
 import { collectDurableMemoryAtSessionBoundary } from '../../memory/app-memory-service.js';
 
+type RuntimeBootstrapRepository = RuntimeChatMetadataRepository &
+  RuntimeMessageRepository &
+  RuntimeJobRepository &
+  RuntimeRouterStateRepository &
+  RuntimeAgentSessionRepository &
+  RuntimeConversationRouteRepository;
+
 interface RuntimeServicesDeps {
   startSchedulerLoop: typeof startSchedulerLoop;
   startIpcWatcher: typeof startIpcWatcher;
   writeGroupsSnapshot: typeof writeGroupsSnapshot;
-  opsRepository: OpsRepository;
+  opsRepository: RuntimeBootstrapRepository;
   recoverPendingMessages: typeof recoverPendingMessages;
   startMessagePollingLoop: typeof startMessagePollingLoop;
   logger: Pick<typeof logger, 'info' | 'warn' | 'fatal'>;
@@ -46,13 +60,13 @@ export interface RuntimeServicesOptions {
 }
 
 function makeDefaultDeps(
-  injectedOpsRepository?: OpsRepository,
+  injectedRuntimeRepository?: RuntimeBootstrapRepository,
 ): RuntimeServicesDeps {
   return {
     startSchedulerLoop,
     startIpcWatcher,
     writeGroupsSnapshot,
-    opsRepository: injectedOpsRepository ?? getRuntimeOpsRepository(),
+    opsRepository: injectedRuntimeRepository ?? getRuntimeRepositories(),
     recoverPendingMessages,
     startMessagePollingLoop,
     logger,
@@ -71,14 +85,14 @@ function createGroupSnapshotSync(
   const runSync = async () => {
     do {
       syncDirty = false;
-      const [registeredGroups, availableGroups] = [
-        app.getRegisteredGroups(),
+      const [conversationRoutes, availableGroups] = [
+        app.getConversationRoutes(),
         await app.getAvailableGroups(),
       ];
 
-      const registeredJids = new Set(Object.keys(registeredGroups));
+      const registeredJids = new Set(Object.keys(conversationRoutes));
       await Promise.all(
-        Object.values(registeredGroups).flatMap((group) => {
+        Object.values(conversationRoutes).flatMap((group) => {
           const isMain = group.isMain === true;
           return [
             deps.writeGroupsSnapshot(
@@ -125,7 +139,7 @@ export async function startRuntimeServices(
   };
 
   await resolved.startSchedulerLoop({
-    registeredGroups: () => app.getRegisteredGroups(),
+    conversationRoutes: () => app.getConversationRoutes(),
     queue: app.queue,
     onProcess: (groupJid, proc, runHandle, groupFolder, stopAliasJids) =>
       app.queue.registerProcess(
@@ -160,7 +174,7 @@ export async function startRuntimeServices(
           ? { messageOptions: { threadId: options.threadId } }
           : {}),
       }),
-    registeredGroups: () => app.getRegisteredGroups(),
+    conversationRoutes: () => app.getConversationRoutes(),
     registerGroup: app.registerGroup,
     syncGroups: async (force: boolean) => {
       await channelWiring.syncGroups(force);
@@ -236,8 +250,8 @@ export async function startRuntimeServices(
     if (command.kind === 'new') {
       try {
         const turnContext = await resolved.opsRepository.getAgentTurnContext?.({
-          groupFolder: group.folder,
-          chatJid,
+          agentFolder: group.folder,
+          conversationJid: chatJid,
           threadId,
         });
         if (turnContext?.agentSessionId) {
@@ -293,7 +307,7 @@ export async function startRuntimeServices(
 
   void Promise.resolve(
     resolved.recoverPendingMessages({
-      getRegisteredGroups: () => app.getRegisteredGroups(),
+      getConversationRoutes: () => app.getConversationRoutes(),
       getLastTimestamp: () => app.getLastTimestamp(),
       setLastTimestamp: (timestamp) => {
         app.setLastTimestamp(timestamp);
@@ -320,7 +334,7 @@ export async function startRuntimeServices(
 
   resolved
     .startMessagePollingLoop({
-      getRegisteredGroups: () => app.getRegisteredGroups(),
+      getConversationRoutes: () => app.getConversationRoutes(),
       getLastTimestamp: () => app.getLastTimestamp(),
       setLastTimestamp: (timestamp) => {
         app.setLastTimestamp(timestamp);

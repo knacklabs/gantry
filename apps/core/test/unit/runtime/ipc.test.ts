@@ -4,7 +4,7 @@ import path from 'path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { RegisteredGroup } from '@core/domain/types.js';
+import type { ConversationRoute } from '@core/domain/types.js';
 import {
   isPendingIpcJsonFile,
   isTrustedRegisteredIpcFolder,
@@ -12,7 +12,7 @@ import {
   resolveIpcTargetJidForSourceGroup,
 } from '@core/runtime/ipc.js';
 
-function group(folder: string): RegisteredGroup {
+function group(folder: string): ConversationRoute {
   return {
     name: folder,
     folder,

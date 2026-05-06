@@ -255,7 +255,7 @@ function parsePatchProcedureInput(payload: unknown): PatchProcedureInput {
 
 export async function processMemoryRequest(
   request: TrustedMemoryRequest,
-  sourceGroup: string,
+  sourceAgentFolder: string,
   isMain: boolean,
 ): Promise<MemoryIpcResponse> {
   let provider = 'uninitialized';
@@ -265,7 +265,7 @@ export async function processMemoryRequest(
     const memory = AppMemoryService.getInstance();
     provider = 'postgres';
     logger.debug(
-      { action: request.action, sourceGroup, isMain, provider },
+      { action: request.action, sourceAgentFolder, isMain, provider },
       'Processing memory IPC request',
     );
 
@@ -280,8 +280,8 @@ export async function processMemoryRequest(
         const results = await memory.search({
           query,
           appId: DEFAULT_MEMORY_APP_ID,
-          agentId: memoryAgentIdForGroupFolder(sourceGroup),
-          groupId: sourceGroup,
+          agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
+          groupId: sourceAgentFolder,
           userId: request.context?.userId,
           threadId: request.context?.threadId,
           limit: request.payload.limit
@@ -310,8 +310,8 @@ export async function processMemoryRequest(
         }
         const saved = await memory.save({
           appId: DEFAULT_MEMORY_APP_ID,
-          agentId: memoryAgentIdForGroupFolder(sourceGroup),
-          groupId: sourceGroup,
+          agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
+          groupId: sourceAgentFolder,
           userId: effectiveUserId,
           threadId: request.context?.threadId,
           subjectType: subjectTypeFromScope(effectiveScope),
@@ -337,8 +337,8 @@ export async function processMemoryRequest(
         const patched = await memory.patch({
           id: input.id,
           appId: DEFAULT_MEMORY_APP_ID,
-          agentId: memoryAgentIdForGroupFolder(sourceGroup),
-          groupId: sourceGroup,
+          agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
+          groupId: sourceAgentFolder,
           threadId: request.context?.threadId,
           key: input.key,
           value: input.value,
@@ -358,8 +358,8 @@ export async function processMemoryRequest(
       case 'memory_consolidate': {
         const result = await memory.triggerDreaming({
           appId: DEFAULT_MEMORY_APP_ID,
-          agentId: memoryAgentIdForGroupFolder(sourceGroup),
-          groupId: sourceGroup,
+          agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
+          groupId: sourceAgentFolder,
           phase: 'deep',
           dryRun: false,
         });
@@ -373,8 +373,8 @@ export async function processMemoryRequest(
       case 'memory_dream': {
         const result = await memory.triggerDreaming({
           appId: DEFAULT_MEMORY_APP_ID,
-          agentId: memoryAgentIdForGroupFolder(sourceGroup),
-          groupId: sourceGroup,
+          agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
+          groupId: sourceAgentFolder,
           phase: 'all',
           dryRun: false,
         });
@@ -402,8 +402,8 @@ export async function processMemoryRequest(
         }
         const saved = await memory.save({
           appId: DEFAULT_MEMORY_APP_ID,
-          agentId: memoryAgentIdForGroupFolder(sourceGroup),
-          groupId: sourceGroup,
+          agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
+          groupId: sourceAgentFolder,
           userId: effectiveUserId,
           threadId: request.context?.threadId,
           subjectType: subjectTypeFromScope(effectiveScope),
@@ -429,8 +429,8 @@ export async function processMemoryRequest(
         const patched = await memory.patch({
           id: input.id,
           appId: DEFAULT_MEMORY_APP_ID,
-          agentId: memoryAgentIdForGroupFolder(sourceGroup),
-          groupId: sourceGroup,
+          agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
+          groupId: sourceAgentFolder,
           threadId: request.context?.threadId,
           key: input.title ? `procedure:${input.title}` : undefined,
           value: input.body,

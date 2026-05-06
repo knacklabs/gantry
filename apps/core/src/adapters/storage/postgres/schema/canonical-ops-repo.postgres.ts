@@ -7,14 +7,19 @@ import type {
   JobEvent,
   JobRun,
   NewMessage,
-  RegisteredGroup,
+  ConversationRoute,
 } from '../../../../domain/repositories/domain-types.js';
 import type {
   JobEventListFilters,
   JobListFilters,
   JobRunListFilters,
   JobUpsertInput,
-  OpsRepository,
+  RuntimeAgentSessionRepository,
+  RuntimeChatMetadataRepository,
+  RuntimeConversationRouteRepository,
+  RuntimeJobRepository,
+  RuntimeMessageRepository,
+  RuntimeRouterStateRepository,
 } from '../../../../domain/repositories/ops-repo.js';
 import type { RuntimeEventPublishInput } from '../../../../domain/events/events.js';
 import { PostgresCanonicalBindingRepository } from '../repositories/canonical-binding-repository.postgres.js';
@@ -44,7 +49,15 @@ interface RuntimeEventPublisher {
   publish(input: RuntimeEventPublishInput): Promise<unknown>;
 }
 
-export class PostgresCanonicalOpsRepository implements OpsRepository {
+export class PostgresRuntimeRepositoryBundle
+  implements
+    RuntimeChatMetadataRepository,
+    RuntimeMessageRepository,
+    RuntimeJobRepository,
+    RuntimeRouterStateRepository,
+    RuntimeAgentSessionRepository,
+    RuntimeConversationRouteRepository
+{
   private readonly graph: PostgresCanonicalGraphRepository;
   private readonly messages: CanonicalMessageOpsService;
   private readonly jobs: CanonicalJobOpsService;
@@ -235,20 +248,23 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
   }
 
   async setSession(
-    groupFolder: string,
+    agentFolder: string,
     sessionId: string,
     threadId?: string | null,
     metadata: {
-      chatJid?: string;
+      conversationJid?: string;
       latestArtifactId?: string | null;
     } = {},
   ): Promise<void> {
-    await this.sessions.setSession(groupFolder, sessionId, threadId, metadata);
+    await this.sessions.setSession(agentFolder, sessionId, threadId, {
+      chatJid: metadata.conversationJid,
+      latestArtifactId: metadata.latestArtifactId,
+    });
   }
 
   async getAgentTurnContext(input: {
-    groupFolder: string;
-    chatJid: string;
+    agentFolder: string;
+    conversationJid: string;
     threadId?: string | null;
   }): Promise<{
     appId: string;
@@ -256,7 +272,11 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
     agentSessionId: string;
     memoryContextBlock?: string;
   }> {
-    return this.sessions.getAgentTurnContext(input);
+    return this.sessions.getAgentTurnContext({
+      groupFolder: input.agentFolder,
+      chatJid: input.conversationJid,
+      threadId: input.threadId,
+    });
   }
 
   async expireProviderSession(input: {
@@ -344,29 +364,34 @@ export class PostgresCanonicalOpsRepository implements OpsRepository {
   }
 
   async deleteSession(
-    groupFolder: string,
+    agentFolder: string,
     threadId?: string | null,
   ): Promise<void> {
-    await this.sessions.deleteSession(groupFolder, threadId);
+    await this.sessions.deleteSession(agentFolder, threadId);
   }
 
-  async deleteSessionsByGroupFolder(groupFolder: string): Promise<void> {
-    await this.sessions.deleteSessionsByGroupFolder(groupFolder);
+  async deleteSessionsByAgentFolder(agentFolder: string): Promise<void> {
+    await this.sessions.deleteSessionsByGroupFolder(agentFolder);
   }
 
-  async getRegisteredGroup(jid: string): Promise<RegisteredGroup | undefined> {
-    return this.bindings.getRegisteredGroup(jid);
+  async getConversationRoute(
+    jid: string,
+  ): Promise<ConversationRoute | undefined> {
+    return this.bindings.getConversationRoute(jid);
   }
 
-  async setRegisteredGroup(jid: string, group: RegisteredGroup): Promise<void> {
-    await this.bindings.setRegisteredGroup(jid, group);
+  async setConversationRoute(
+    jid: string,
+    group: ConversationRoute,
+  ): Promise<void> {
+    await this.bindings.setConversationRoute(jid, group);
   }
 
-  async deleteRegisteredGroup(jid: string): Promise<void> {
-    await this.bindings.deleteRegisteredGroup(jid);
+  async deleteConversationRoute(jid: string): Promise<void> {
+    await this.bindings.deleteConversationRoute(jid);
   }
 
-  async getAllRegisteredGroups(): Promise<Record<string, RegisteredGroup>> {
-    return this.bindings.getAllRegisteredGroups();
+  async getAllConversationRoutes(): Promise<Record<string, ConversationRoute>> {
+    return this.bindings.getAllConversationRoutes();
   }
 }

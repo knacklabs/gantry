@@ -106,6 +106,14 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
       models: getMemoryModelProfileDefaults('balanced'),
     },
   };
+  const runtime: RuntimeSettings['runtime'] = {
+    queue: {
+      maxMessageRuns: 3,
+      maxJobRuns: 4,
+      maxRetries: 5,
+      baseRetryMs: 5000,
+    },
+  };
   return {
     desiredState: {
       authoritative: false,
@@ -124,6 +132,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     agent,
     credentialBroker,
     memory,
+    runtime,
   };
 }
 

@@ -22,7 +22,7 @@ export function resolveSchedulerApprovalTarget(
 
   if (
     !requestedTargetJid ||
-    !context.sourceGroupJids.includes(requestedTargetJid)
+    !context.sourceAgentFolderJids.includes(requestedTargetJid)
   ) {
     return {
       ok: false,

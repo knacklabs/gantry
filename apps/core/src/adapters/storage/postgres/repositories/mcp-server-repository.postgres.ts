@@ -269,10 +269,44 @@ export class PostgresMcpServerRepository implements McpServerRepository {
     limit?: number;
     cursor?: string;
   }): Promise<AgentMcpServerBinding[]> {
+    return this.listAgentBindingRows(input);
+  }
+
+  async listAgentBindingsForAgents(input: {
+    appId: AgentMcpServerBinding['appId'];
+    agentIds: readonly AgentMcpServerBinding['agentId'][];
+    limitPerAgent?: number;
+  }): Promise<AgentMcpServerBinding[]> {
+    return this.listAgentBindingRows({
+      appId: input.appId,
+      agentIds: input.agentIds,
+      limit: (input.limitPerAgent ?? 500) * Math.max(input.agentIds.length, 1),
+    });
+  }
+
+  private async listAgentBindingRows(input: {
+    appId: AgentMcpServerBinding['appId'];
+    agentId?: AgentMcpServerBinding['agentId'];
+    agentIds?: readonly AgentMcpServerBinding['agentId'][];
+    limit?: number;
+    cursor?: string;
+  }): Promise<AgentMcpServerBinding[]> {
+    if (input.agentIds?.length === 0) return [];
     const filters = [
       eq(pgSchema.agentMcpServerBindingsPostgres.appId, input.appId),
-      eq(pgSchema.agentMcpServerBindingsPostgres.agentId, input.agentId),
     ];
+    if (input.agentId) {
+      filters.push(
+        eq(pgSchema.agentMcpServerBindingsPostgres.agentId, input.agentId),
+      );
+    }
+    if (input.agentIds?.length) {
+      filters.push(
+        inArray(pgSchema.agentMcpServerBindingsPostgres.agentId, [
+          ...input.agentIds,
+        ]),
+      );
+    }
     if (input.cursor) {
       filters.push(
         lt(pgSchema.agentMcpServerBindingsPostgres.createdAt, input.cursor),
@@ -282,7 +316,10 @@ export class PostgresMcpServerRepository implements McpServerRepository {
       .select()
       .from(pgSchema.agentMcpServerBindingsPostgres)
       .where(and(...filters))
-      .orderBy(desc(pgSchema.agentMcpServerBindingsPostgres.createdAt))
+      .orderBy(
+        asc(pgSchema.agentMcpServerBindingsPostgres.agentId),
+        desc(pgSchema.agentMcpServerBindingsPostgres.createdAt),
+      )
       .limit(normalizeLimit(input.limit));
     return rows.map((row) => this.mapBinding(row));
   }

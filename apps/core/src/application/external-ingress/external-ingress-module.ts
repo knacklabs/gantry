@@ -553,7 +553,9 @@ function parseBody(rawBody: string): Record<string, unknown> {
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       return parsed as Record<string, unknown>;
     }
-  } catch {}
+  } catch {
+    // Caller receives the typed invalid-body error below.
+  }
   throw new ApplicationError('INVALID_REQUEST', 'Invalid JSON body');
 }
 

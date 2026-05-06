@@ -4,7 +4,7 @@ import type { AgentOutput } from '@core/runtime/agent-spawn.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
-  RegisteredGroup,
+  ConversationRoute,
   StreamingChunkOptions,
 } from '@core/domain/types.js';
 
@@ -33,12 +33,12 @@ export interface RuntimeFlowHarness {
   };
   readonly runner: {
     calls: Array<{
-      group: RegisteredGroup;
+      group: ConversationRoute;
       input: Record<string, unknown>;
     }>;
     result: AgentOutput;
     runAgent: (
-      group: RegisteredGroup,
+      group: ConversationRoute,
       input: Record<string, unknown>,
       onProcess: (
         proc: ChildProcess,

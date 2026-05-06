@@ -8,10 +8,10 @@
     "apps/core/src/cli/group.ts": 820,
     "apps/core/src/config/settings/desired-state-service.ts": 820,
     "apps/core/src/config/settings/runtime-settings-parser.ts": 1120,
-    "apps/core/src/jobs/ipc-admin-handlers.ts": 870,
+    "apps/core/src/jobs/ipc-admin-handlers.ts": 883,
     "apps/core/src/runner/mcp/tools/service.ts": 850,
-    "apps/core/src/runtime/group-processing.ts": 742,
-    "apps/core/src/runtime/ipc.ts": 757
+    "apps/core/src/runtime/group-processing.ts": 744,
+    "apps/core/src/runtime/ipc.ts": 794
   },
   "layers": {
     "domain": {

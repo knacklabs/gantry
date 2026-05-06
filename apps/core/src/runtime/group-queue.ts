@@ -23,6 +23,21 @@ const BASE_RETRY_MS = 5000;
 const MAX_MESSAGE_RUNS = 3;
 const MAX_JOB_RUNS = 4;
 
+export interface GroupQueuePolicy {
+  maxRetries: number;
+  baseRetryMs: number;
+  maxMessageRuns: number;
+  maxJobRuns: number;
+}
+
+export interface GroupQueueOptions {
+  maxRetries?: number;
+  baseRetryMs?: number;
+  maxMessageRuns?: number;
+  maxJobRuns?: number;
+  setTimeoutFn?: typeof setTimeout;
+}
+
 interface GroupState {
   active: boolean;
   idleWaiting: boolean;
@@ -38,6 +53,8 @@ interface GroupState {
 }
 
 export class GroupQueue {
+  private readonly policy: GroupQueuePolicy;
+  private readonly setTimeoutFn: typeof setTimeout;
   private groups = new Map<string, GroupState>();
   private stopAliases = new Map<string, Set<string>>();
   private activeMessageCount = 0;
@@ -49,6 +66,26 @@ export class GroupQueue {
     null;
   private shuttingDown = false;
   private activeRuns = new Set<Promise<void>>();
+
+  constructor(options: GroupQueueOptions = {}) {
+    this.policy = {
+      maxRetries: normalizeNonNegativeInteger(options.maxRetries, MAX_RETRIES),
+      baseRetryMs: normalizeNonNegativeInteger(
+        options.baseRetryMs,
+        BASE_RETRY_MS,
+      ),
+      maxMessageRuns: normalizePositiveInteger(
+        options.maxMessageRuns,
+        MAX_MESSAGE_RUNS,
+      ),
+      maxJobRuns: normalizePositiveInteger(options.maxJobRuns, MAX_JOB_RUNS),
+    };
+    this.setTimeoutFn = options.setTimeoutFn ?? setTimeout;
+  }
+
+  getPolicy(): GroupQueuePolicy {
+    return { ...this.policy };
+  }
 
   private getGroup(groupJid: string): GroupState {
     let state = this.groups.get(groupJid);
@@ -76,11 +113,11 @@ export class GroupQueue {
   }
 
   private canStartMessageRun(): boolean {
-    return this.activeMessageCount < MAX_MESSAGE_RUNS;
+    return this.activeMessageCount < this.policy.maxMessageRuns;
   }
 
   private canStartTaskRun(): boolean {
-    return this.activeTaskCount < MAX_JOB_RUNS;
+    return this.activeTaskCount < this.policy.maxJobRuns;
   }
 
   private addStopAlias(aliasJid: string, queueJid: string): void {
@@ -432,7 +469,7 @@ export class GroupQueue {
 
   private scheduleRetry(groupJid: string, state: GroupState): void {
     state.retryCount++;
-    if (state.retryCount > MAX_RETRIES) {
+    if (state.retryCount > this.policy.maxRetries) {
       logger.error(
         { groupJid, retryCount: state.retryCount },
         'Max retries exceeded, dropping messages (will retry on next incoming message)',
@@ -441,12 +478,12 @@ export class GroupQueue {
       return;
     }
 
-    const delayMs = BASE_RETRY_MS * Math.pow(2, state.retryCount - 1);
+    const delayMs = this.policy.baseRetryMs * Math.pow(2, state.retryCount - 1);
     logger.info(
       { groupJid, retryCount: state.retryCount, delayMs },
       'Scheduling retry with backoff',
     );
-    setTimeout(() => {
+    this.setTimeoutFn(() => {
       if (!this.shuttingDown) {
         this.enqueueMessageCheck(groupJid);
       }
@@ -560,4 +597,22 @@ export class GroupQueue {
     );
     await this.waitForActiveRuns(gracePeriodMs);
   }
+}
+
+function normalizePositiveInteger(
+  value: number | undefined,
+  fallback: number,
+): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0
+    ? value
+    : fallback;
+}
+
+function normalizeNonNegativeInteger(
+  value: number | undefined,
+  fallback: number,
+): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+    ? value
+    : fallback;
 }

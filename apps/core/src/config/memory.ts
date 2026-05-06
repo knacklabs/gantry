@@ -1,8 +1,5 @@
 import { envConfig } from './env/index.js';
-import {
-  runtimeMemorySettings,
-  RUNTIME_MEMORY_ENABLED,
-} from './memory-state.js';
+import { runtimeMemorySettings } from './memory-state.js';
 import {
   MEMORY_MODEL_DEFAULT_ALIASES,
   resolveCatalogRunnerModel,

@@ -1,5 +1,5 @@
 import { logger } from '../infrastructure/logging/logger.js';
-import { getRuntimeOpsRepository } from '../adapters/storage/postgres/runtime-store.js';
+import { getRuntimeRepositories } from '../adapters/storage/postgres/runtime-store.js';
 import { PgBossSchedulerEngine } from '../infrastructure/pgboss/scheduler-engine.js';
 import { resetSchedulerRunSlots } from './concurrency.js';
 import { sweepCompletedOneTimeJobs } from './cleanup.js';
@@ -30,7 +30,7 @@ export async function runSchedulerTick(
 ): Promise<void> {
   deps = {
     ...deps,
-    opsRepository: deps.opsRepository ?? getRuntimeOpsRepository(),
+    opsRepository: deps.opsRepository ?? getRuntimeRepositories(),
   };
   await registerSystemJobs(deps);
   activeSchedulerEngine?.requestSync();
@@ -58,7 +58,7 @@ export async function startSchedulerLoop(
   schedulerRunning = true;
   const resolvedDeps = {
     ...deps,
-    opsRepository: deps.opsRepository ?? getRuntimeOpsRepository(),
+    opsRepository: deps.opsRepository ?? getRuntimeRepositories(),
   };
   const engine = new PgBossSchedulerEngine(resolvedDeps, {
     registerSystemJobs,

@@ -1,28 +1,9 @@
-import fs from 'fs';
-import path from 'path';
-
-import { App } from '@slack/bolt';
-
-import {
-  getSlackPermissionApproverIds,
-  PERMISSION_APPROVAL_TIMEOUT_MS,
-} from '../../config/index.js';
+import { getSlackPermissionApproverIds } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
-  MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
-  ProgressUpdateOptions,
-  StreamingChunkOptions,
-  UserQuestionRequest,
-  UserQuestionResponse,
 } from '../../domain/types.js';
-import {
-  formatOutboundForChannel,
-  stripInternalTagsPreserveWhitespace,
-} from '../../messaging/router.js';
-import { resolveGroupFolderPath } from '../../platform/group-folder.js';
-import { ChannelOpts } from '../channel-provider.js';
 import {
   decisionForMode,
   formatPermissionPromptText as formatSharedPermissionPromptText,
@@ -51,7 +32,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       this.isLikelyGroupConversation(event.channel),
     );
 
-    const group = this.opts.registeredGroups()[jid];
+    const group = this.opts.conversationRoutes()[jid];
     const isGroupConversation = this.isLikelyGroupConversation(event.channel);
     if (!group && isGroupConversation) {
       logger.debug(
@@ -142,7 +123,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
 
   protected async canDecidePermission(
     userId: string,
-    sourceGroup: string,
+    sourceAgentFolder: string,
     decisionPolicy?: PermissionApprovalRequest['decisionPolicy'],
     conversationJid?: string,
   ): Promise<boolean> {
@@ -152,11 +133,11 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         providerId: 'slack',
         conversationJid,
         userId,
-        sourceGroup,
+        sourceAgentFolder,
         decisionPolicy,
       });
     }
-    const allowedIds = getSlackPermissionApproverIds(sourceGroup);
+    const allowedIds = getSlackPermissionApproverIds(sourceAgentFolder);
     if (allowedIds.size === 0) return false;
     return allowedIds.has(userId);
   }
@@ -351,14 +332,15 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       if (
         !(await this.canDecidePermission(
           userId,
-          pending.sourceGroup,
+          pending.sourceAgentFolder,
           pending.decisionPolicy,
           pending.approvalContextJid || `sl:${pending.channelId}`,
         ))
       ) {
+        const callbackChannelId = body.channel?.id || pending.channelId;
         try {
           await this.app?.client.chat.postEphemeral({
-            channel: pending.channelId,
+            channel: callbackChannelId,
             user: userId,
             text: 'You are not allowed to decide this permission request.',
           });
@@ -399,7 +381,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       if (
         !(await this.canDecidePermission(
           userId,
-          pending.sourceGroup,
+          pending.sourceAgentFolder,
           undefined,
           `sl:${pending.channelId}`,
         ))
@@ -462,7 +444,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
       if (
         !(await this.canDecidePermission(
           userId,
-          pending.sourceGroup,
+          pending.sourceAgentFolder,
           undefined,
           `sl:${pending.channelId}`,
         ))

@@ -7,7 +7,6 @@ import {
   saveRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import { parseRuntimeSettings } from '../config/settings/runtime-settings-parser.js';
-import { renderRuntimeSettingsYaml } from '../config/settings/runtime-settings-renderer.js';
 import { validateLoadedRuntimeSettings } from '../config/settings/runtime-settings-validation.js';
 import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
 import { SettingsDesiredStateService } from '../config/settings/desired-state-service.js';
@@ -26,7 +25,7 @@ import {
 
 function validateSameChannelApprovalTarget(input: {
   data: Parameters<TaskHandler>[0]['data'];
-  sourceGroupJids: string[];
+  sourceAgentFolderJids: string[];
   requestKind: string;
   reject: (error: string, code?: string, details?: string[]) => void;
 }): string | null {
@@ -46,7 +45,7 @@ function validateSameChannelApprovalTarget(input: {
   }
   if (
     !requestedTargetJid ||
-    !input.sourceGroupJids.includes(requestedTargetJid)
+    !input.sourceAgentFolderJids.includes(requestedTargetJid)
   ) {
     input.reject(
       `${input.requestKind} requests must include the originating chat for this agent.`,
@@ -58,16 +57,16 @@ function validateSameChannelApprovalTarget(input: {
 }
 
 export const serviceRestartHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup } = context;
+  const { data, sourceAgentFolder } = context;
   const taskId = toTrimmedString(data.taskId, { maxLen: 128 });
   const { accept, reject } = createTaskResponder(
-    sourceGroup,
+    sourceAgentFolder,
     taskId,
     data.authThreadId,
   );
   if (!(await sourceAgentHasAdminToolCapability(context, 'service_restart'))) {
     logger.warn(
-      { sourceGroup },
+      { sourceAgentFolder },
       'Unauthorized service_restart attempt blocked',
     );
     reject(
@@ -95,13 +94,13 @@ export const serviceRestartHandler: TaskHandler = async (context) => {
       const restartOutcome = restartServiceForRuntimeHome(MYCLAW_HOME);
       if (!restartOutcome.ok) {
         logger.error(
-          { sourceGroup, taskId, error: restartOutcome.message },
+          { sourceAgentFolder, taskId, error: restartOutcome.message },
           'Service restart failed after acknowledgment',
         );
         return;
       }
       logger.info(
-        { sourceGroup, taskId, message: restartOutcome.message },
+        { sourceAgentFolder, taskId, message: restartOutcome.message },
         'Service restart completed',
       );
     }, 0);
@@ -111,7 +110,7 @@ export const serviceRestartHandler: TaskHandler = async (context) => {
         ? err.message
         : 'Service restart failed with an unexpected error.';
     logger.error(
-      { sourceGroup, taskId, err },
+      { sourceAgentFolder, taskId, err },
       'Error while handling service_restart IPC task',
     );
     reject(message, 'internal_error');
@@ -119,9 +118,9 @@ export const serviceRestartHandler: TaskHandler = async (context) => {
 };
 
 export const settingsDesiredStateHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup } = context;
+  const { data, sourceAgentFolder } = context;
   const { acceptData, reject } = createTaskResponder(
-    sourceGroup,
+    sourceAgentFolder,
     data.taskId,
     data.authThreadId,
   );
@@ -151,9 +150,9 @@ export const settingsDesiredStateHandler: TaskHandler = async (context) => {
 };
 
 export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
-  const { data, deps, sourceGroup, sourceGroupJids } = context;
+  const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
   const { accept, reject } = createTaskResponder(
-    sourceGroup,
+    sourceAgentFolder,
     data.taskId,
     data.authThreadId,
   );
@@ -195,7 +194,7 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
   const beforeYaml = readRuntimeSettingsYaml(MYCLAW_HOME);
   const requestedTargetJid = validateSameChannelApprovalTarget({
     data,
-    sourceGroupJids,
+    sourceAgentFolderJids,
     requestKind: 'Settings update',
     reject,
   });
@@ -250,7 +249,7 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
     try {
       const decision = await deps.requestPermissionApproval({
         requestId: `settings-${randomUUID()}`,
-        sourceGroup,
+        sourceAgentFolder,
         targetJid: requestedTargetJid,
         threadId: data.authThreadId,
         decisionPolicy: 'same_channel',
@@ -308,7 +307,7 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
         'Approved settings update. settings.yaml was written; safe changes reload automatically and restart may be required for topology changes.';
       accept(message, 'settings_updated');
     } catch (err) {
-      logger.error({ err, sourceGroup }, 'Settings update review failed');
+      logger.error({ err, sourceAgentFolder }, 'Settings update review failed');
       message = `Rejected settings update: ${err instanceof Error ? err.message : 'permission review failed'}.`;
       reject(message, 'permission_review_failed');
     }
@@ -318,7 +317,10 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
       data.authThreadId ? { threadId: data.authThreadId } : undefined,
     );
   })().catch((err) =>
-    logger.error({ err, sourceGroup }, 'Settings update final message failed'),
+    logger.error(
+      { err, sourceAgentFolder },
+      'Settings update final message failed',
+    ),
   );
 };
 

@@ -685,7 +685,7 @@ export async function hasProcessableGroupForConfiguredChannel(
     let db: Awaited<ReturnType<typeof openRuntimeGroupDb>> | undefined;
     try {
       db = await openRuntimeGroupDb(runtimeHome, { migrate: false });
-      const count = await db.countRegisteredGroupsByJidPrefix(
+      const count = await db.countConversationRoutesByJidPrefix(
         provider.jidPrefix,
       );
       if (count > 0) return true;

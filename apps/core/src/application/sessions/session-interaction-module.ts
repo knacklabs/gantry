@@ -7,7 +7,10 @@ import type {
 } from '../../domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import type { RuntimeEventExchange } from '../runtime-events/runtime-event-exchange.js';
-import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
+import type {
+  RuntimeChatMetadataRepository,
+  RuntimeMessageRepository,
+} from '../../domain/repositories/ops-repo.js';
 import type {
   AgentRunRepository,
   AgentSessionRepository,
@@ -24,7 +27,7 @@ export type SessionAppRecord = {
   sessionId: string;
   appId: string;
   conversationId: string;
-  chatJid: string;
+  conversationJid: string;
   workspaceKey: string;
   title?: string | null;
   defaultResponseMode: ControlResponseMode;
@@ -41,7 +44,7 @@ export interface SessionControlPort {
   ensureAppSession(input: {
     appId: string;
     conversationId: string;
-    chatJid: string;
+    conversationJid: string;
     folder: string;
     title?: string | null;
     defaultResponseMode?: ControlResponseMode;
@@ -49,7 +52,7 @@ export interface SessionControlPort {
   }): Promise<SessionAppRecord>;
   getAppSessionById(sessionId: string): Promise<SessionAppRecord | undefined>;
   getAppSessionByChatJid(
-    chatJid: string,
+    conversationJid: string,
   ): Promise<SessionAppRecord | undefined>;
   getWebhookById(
     webhookId: string,
@@ -70,7 +73,7 @@ export interface SessionControlPort {
 
 export type SessionInteractionDeps = {
   control: SessionControlPort;
-  ops: OpsRepository;
+  ops: RuntimeChatMetadataRepository & RuntimeMessageRepository;
   repositories: {
     agentSessions: AgentSessionRepository;
     providerSessions: ProviderSessionRepository;
@@ -84,7 +87,7 @@ export type SessionInteractionDeps = {
 };
 
 export type SessionQueueIntent = {
-  chatJid: string;
+  conversationJid: string;
   threadId: string | null;
   queueKey: string;
 };
@@ -101,7 +104,7 @@ export class SessionInteractionModule {
     webhookId?: string | null;
   }): Promise<{
     session: SessionAppRecord;
-    registerGroup: { chatJid: string; group: AppGroupRegistration };
+    registerGroup: { conversationJid: string; group: AppGroupRegistration };
   }> {
     assertAppScope(input.appId, input.assertedAppId);
     const conversationId = input.conversationId.trim();
@@ -117,11 +120,11 @@ export class SessionInteractionModule {
         'appId and conversationId must contain only letters, numbers, dot, underscore, or dash',
       );
     }
-    const chatJid = `app:${input.appId}:${conversationId}`;
+    const conversationJid = `app:${input.appId}:${conversationId}`;
     const group = makeAppGroup({
       appId: input.appId,
       conversationId,
-      chatJid,
+      conversationJid,
       identityHash: this.deps
         .stableHash(`${input.appId}\0${conversationId}`)
         .slice(0, 12),
@@ -134,13 +137,13 @@ export class SessionInteractionModule {
     const session = await this.deps.control.ensureAppSession({
       appId: input.appId,
       conversationId,
-      chatJid,
+      conversationJid,
       folder: group.folder,
       title: input.title ?? null,
       defaultResponseMode: normalizeResponseMode(input.responseMode, 'sse'),
       defaultWebhookId,
     });
-    return { session, registerGroup: { chatJid, group } };
+    return { session, registerGroup: { conversationJid, group } };
   }
 
   async getSessionDetails(input: {
@@ -242,7 +245,7 @@ export class SessionInteractionModule {
     const messageId = this.deps.createId();
     const message: NewMessage = {
       id: messageId,
-      chat_jid: session.chatJid,
+      chat_jid: session.conversationJid,
       provider: 'app',
       sender: input.senderId ?? 'sdk',
       sender_name: input.senderName ?? 'SDK',
@@ -254,9 +257,9 @@ export class SessionInteractionModule {
       thread_id: threadId ?? undefined,
     };
     await this.deps.ops.storeChatMetadata(
-      session.chatJid,
+      session.conversationJid,
       now,
-      session.title ?? session.chatJid,
+      session.title ?? session.conversationJid,
       'app',
       true,
     );
@@ -288,9 +291,9 @@ export class SessionInteractionModule {
       messageId,
       acceptedEventId: accepted.eventId,
       enqueue: {
-        chatJid: session.chatJid,
+        conversationJid: session.conversationJid,
         threadId,
-        queueKey: makeSessionQueueKey(session.chatJid, threadId),
+        queueKey: makeSessionQueueKey(session.conversationJid, threadId),
       },
     };
   }
@@ -341,12 +344,12 @@ export class SessionInteractionModule {
   }
 
   async publishOutboundEvent(input: {
-    chatJid: string;
+    conversationJid: string;
     eventType: RuntimeEventPublishInput['eventType'];
     payload: Record<string, unknown>;
   }): Promise<{ emitted: boolean; eventId?: number }> {
     const session = await this.deps.control.getAppSessionByChatJid(
-      input.chatJid,
+      input.conversationJid,
     );
     if (!session) return { emitted: false };
     const threadId =
@@ -451,7 +454,7 @@ type AppGroupRegistration = {
 export function makeAppGroup(input: {
   appId: string;
   conversationId: string;
-  chatJid: string;
+  conversationJid: string;
   identityHash: string;
   addedAt: string;
 }): AppGroupRegistration {
@@ -475,12 +478,12 @@ export function makeAppGroup(input: {
 }
 
 export function makeSessionQueueKey(
-  chatJid: string,
+  conversationJid: string,
   threadId?: string | null,
 ): string {
   const normalized = threadId?.trim();
-  if (!normalized) return chatJid;
-  return `${chatJid}::thread:${encodeURIComponent(normalized)}`;
+  if (!normalized) return conversationJid;
+  return `${conversationJid}::thread:${encodeURIComponent(normalized)}`;
 }
 
 function sanitizeSegment(value: string): string {

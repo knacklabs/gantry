@@ -1,6 +1,6 @@
 import type {
   Job,
-  RegisteredGroup as RuntimeConversationRecord,
+  ConversationRoute as RuntimeConversationRecord,
 } from '../domain/types.js';
 
 export function resolveExecutionContext(
@@ -67,6 +67,8 @@ export function parseTriggerRequesterSessionId(
     ) {
       return parsed.sessionId;
     }
-  } catch {}
+  } catch {
+    // Invalid requestedBy metadata simply means there is no SDK session id.
+  }
   return null;
 }

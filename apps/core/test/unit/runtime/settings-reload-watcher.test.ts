@@ -16,9 +16,9 @@ function makeDeps() {
   return {
     app: { loadState: vi.fn(async () => undefined) } as any,
     ops: {
-      getAllRegisteredGroups: vi.fn(async () => ({})),
-      setRegisteredGroup: vi.fn(async () => undefined),
-      deleteRegisteredGroup: vi.fn(async () => undefined),
+      getAllConversationRoutes: vi.fn(async () => ({})),
+      setConversationRoute: vi.fn(async () => undefined),
+      deleteConversationRoute: vi.fn(async () => undefined),
     },
     repositories: {
       agents: {

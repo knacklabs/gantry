@@ -4,9 +4,9 @@ import {
   resolveExecutionContext,
   resolveExecutionMemoryContext,
 } from '@core/jobs/execution-context.js';
-import type { Job, RegisteredGroup } from '@core/domain/types.js';
+import type { Job, ConversationRoute } from '@core/domain/types.js';
 
-function group(folder: string, name: string): RegisteredGroup {
+function group(folder: string, name: string): ConversationRoute {
   return {
     folder,
     name,
@@ -14,7 +14,7 @@ function group(folder: string, name: string): RegisteredGroup {
     requiresTrigger: false,
     isMain: false,
     conversationKind: 'channel',
-  } as RegisteredGroup;
+  } as ConversationRoute;
 }
 
 function job(input: Partial<Job>): Job {

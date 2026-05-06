@@ -21,7 +21,7 @@ const messagesStore = vi.hoisted(() => new Map<string, any[]>());
 
 vi.mock('@core/cli/runtime-group-db.js', () => ({
   openRuntimeGroupDb: async () => ({
-    countRegisteredGroupsByJidPrefix: async (jidPrefix: string) => {
+    countConversationRoutesByJidPrefix: async (jidPrefix: string) => {
       const normalized = jidPrefix.endsWith('%')
         ? jidPrefix.slice(0, -1)
         : jidPrefix;
@@ -29,14 +29,14 @@ vi.mock('@core/cli/runtime-group-db.js', () => ({
         jid.startsWith(normalized),
       ).length;
     },
-    getAllRegisteredGroups: async () =>
+    getAllConversationRoutes: async () =>
       Object.fromEntries(groupsStore.entries()),
     getMessagesSince: async (chatJid: string) =>
       messagesStore.get(chatJid) || [],
-    setRegisteredGroup: async (jid: string, group: any) => {
+    setConversationRoute: async (jid: string, group: any) => {
       groupsStore.set(jid, group);
     },
-    deleteRegisteredGroup: async (jid: string) => {
+    deleteConversationRoute: async (jid: string) => {
       groupsStore.delete(jid);
     },
     deleteSession: async () => {},
@@ -133,7 +133,7 @@ describe('group CLI commands', () => {
       parseRuntimeSettings(
         base.replace('storage:\n', 'runtime:\n  profile: personal\nstorage:\n'),
       ),
-    ).toThrow(/runtime settings are not supported/);
+    ).toThrow(/runtime\.profile is not supported/);
 
     expect(() =>
       parseRuntimeSettings(

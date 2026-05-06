@@ -371,14 +371,14 @@ export async function registerTelegramMainGroup(options: {
   ensureRuntimeLayout(options.runtimeHome);
   const db = await openRuntimeGroupDb(options.runtimeHome);
   try {
-    const existing = await db.getAllRegisteredGroups();
+    const existing = await db.getAllConversationRoutes();
     const existingGroup = existing[options.chatJid];
     const folder =
       existingGroup?.folder ||
       allocateMainAgentFolder(options.runtimeHome, existing);
     const groupName = normalizeMainAgentName(options.displayName);
 
-    await db.setRegisteredGroup(options.chatJid, {
+    await db.setConversationRoute(options.chatJid, {
       name: groupName,
       folder,
       trigger: existingGroup?.trigger || defaultTriggerForAgentName(groupName),

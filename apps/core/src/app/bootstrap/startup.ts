@@ -116,7 +116,7 @@ async function ensureFreshRuntimeHasMainAgent(
   inferMainJid: typeof inferRecoverableMainAgentJid,
   logger: StartupDeps['logger'],
 ): Promise<void> {
-  const bindings = app.getRegisteredGroups();
+  const bindings = app.getConversationRoutes();
   if (Object.values(bindings).some((group) => group.isMain === true)) {
     return;
   }
@@ -149,7 +149,7 @@ async function waitForCredentialBindings(
   logger: StartupDeps['logger'],
 ): Promise<void> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
-  const bindings = app.ensureCredentialBindingsForRegisteredGroups();
+  const bindings = app.ensureCredentialBindingsForConversationRoutes();
   const timeoutPromise = new Promise<'timeout'>((resolve) => {
     timeout = setTimeout(
       () => resolve('timeout'),

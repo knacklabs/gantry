@@ -79,7 +79,7 @@ export interface TeamsSdkClient {
 
 interface PendingTeamsPermissionPrompt {
   conversationId: string;
-  sourceGroup: string;
+  sourceAgentFolder: string;
   decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
   approvalContextJid?: string;
   request: PermissionApprovalRequest;
@@ -104,7 +104,7 @@ export interface TeamsAdaptiveCardAction {
     action: 'permission_decision';
     requestId: string;
     decision: string;
-    sourceGroup: string;
+    sourceAgentFolder: string;
     targetJid?: string;
     threadId?: string;
   };
@@ -185,7 +185,7 @@ export function buildTeamsApprovalAdaptiveCard(
         action: 'permission_decision',
         requestId: request.requestId,
         decision: mode,
-        sourceGroup: request.sourceGroup,
+        sourceAgentFolder: request.sourceAgentFolder,
         targetJid: request.targetJid,
         threadId: request.threadId,
       },
@@ -349,7 +349,7 @@ export class TeamsChannel implements ChannelAdapter {
         }, TEAMS_PERMISSION_APPROVAL_TIMEOUT_MS);
         this.pendingPermissionPrompts.set(request.requestId, {
           conversationId,
-          sourceGroup: request.sourceGroup,
+          sourceAgentFolder: request.sourceAgentFolder,
           decisionPolicy: request.decisionPolicy,
           approvalContextJid: request.approvalContextJid,
           request: approvalRequest,
@@ -389,11 +389,15 @@ export class TeamsChannel implements ChannelAdapter {
         { requestId: decisionPayload.requestId, jid },
         'Teams permission decision denied: wrong channel',
       );
+      await this.sendDeniedDecisionFeedback(
+        conversationId || teamsConversationIdFromJid(jid),
+        'This approval request belongs to a different chat.',
+      );
       return true;
     }
     const authorized = await this.canDecidePermission(
       userId,
-      pending.sourceGroup,
+      pending.sourceAgentFolder,
       pending.decisionPolicy,
       pending.approvalContextJid || jid,
     );
@@ -401,6 +405,10 @@ export class TeamsChannel implements ChannelAdapter {
       logger.warn(
         { requestId: decisionPayload.requestId, userId, jid },
         'Teams permission decision denied: user is not a control approver',
+      );
+      await this.sendDeniedDecisionFeedback(
+        conversationId,
+        'You are not allowed to decide this permission request.',
       );
       return true;
     }
@@ -415,7 +423,7 @@ export class TeamsChannel implements ChannelAdapter {
 
   private async canDecidePermission(
     userId: string,
-    sourceGroup: string,
+    sourceAgentFolder: string,
     decisionPolicy: PermissionApprovalRequest['decisionPolicy'] | undefined,
     conversationJid: string,
   ): Promise<boolean> {
@@ -425,9 +433,24 @@ export class TeamsChannel implements ChannelAdapter {
       providerId: 'teams',
       conversationJid,
       userId,
-      sourceGroup,
+      sourceAgentFolder,
       decisionPolicy,
     });
+  }
+
+  private async sendDeniedDecisionFeedback(
+    conversationId: string | null,
+    text: string,
+  ): Promise<void> {
+    if (!conversationId) return;
+    try {
+      await this.sdkClient.sendMessage({ conversationId, text });
+    } catch (err) {
+      logger.debug(
+        { conversationId, err },
+        'Failed to send Teams permission denial feedback',
+      );
+    }
   }
 
   private async resolvePermissionPrompt(

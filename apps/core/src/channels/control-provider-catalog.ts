@@ -14,6 +14,7 @@ import {
 } from './teams-setup-discovery.js';
 import './register-builtins.js';
 import {
+  getProvider,
   listChannelProviders,
   normalizeProviderId,
 } from './provider-registry.js';
@@ -26,9 +27,9 @@ export class BuiltInControlChannelProviderCatalog implements ProviderCatalogPort
     const builtIns = listChannelProviders().map((provider) => ({
       id: provider.id,
       displayName: provider.label,
-      capabilityFlags: provider.internal
-        ? ['internal', 'discover']
-        : ['install', 'discover'],
+      capabilityFlags:
+        provider.controlCapabilityFlags ??
+        (provider.internal ? ['internal'] : ['install', 'discover']),
       allowedRuntimeSecretRefs: provider.setup.envKeys,
       createdAt,
     })) as Provider[];
@@ -61,6 +62,12 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
     const providerId = normalizeProviderId(
       String(input.providerConnection.providerId),
     );
+    if (!providerId) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        `Unknown provider: ${input.providerConnection.providerId}`,
+      );
+    }
     if (providerId === 'app') return [];
     if (providerId === 'telegram') {
       const token = this.resolveSecret(
@@ -74,18 +81,27 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
       if (!result.ok) {
         throw new ApplicationError('UNAVAILABLE', result.message);
       }
-      return result.chats.map(
-        (chat): DiscoveredConversation => ({
-          externalId: chat.chatJid,
-          title: chat.chatTitle,
-          kind:
-            chat.chatType === 'private'
-              ? 'direct'
-              : chat.chatType === 'channel'
-                ? 'channel'
-                : 'group',
-          externalRef: { kind: 'conversation', value: chat.chatJid },
-        }),
+      return filterDiscoveredConversations(
+        result.chats.map(
+          (chat): DiscoveredConversation => ({
+            externalId: canonicalConversationExternalId(
+              providerId,
+              chat.chatJid,
+            ),
+            title: chat.chatTitle,
+            kind:
+              chat.chatType === 'private'
+                ? 'direct'
+                : chat.chatType === 'channel'
+                  ? 'channel'
+                  : 'group',
+            externalRef: {
+              kind: 'conversation',
+              value: canonicalConversationExternalId(providerId, chat.chatJid),
+            },
+          }),
+        ),
+        input,
       );
     }
     if (providerId === 'slack') {
@@ -96,17 +112,28 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
       const result = await listSlackRecentChats({
         botToken,
         limit: input.limit,
+        includeArchived: input.includeArchived,
       });
       if (!result.ok) {
         throw new ApplicationError('UNAVAILABLE', result.message);
       }
-      return result.chats.map(
-        (chat): DiscoveredConversation => ({
-          externalId: chat.chatJid,
-          title: chat.chatTitle,
-          kind: chat.chatType === 'im' ? 'direct' : 'channel',
-          externalRef: { kind: 'conversation', value: chat.chatJid },
-        }),
+      return filterDiscoveredConversations(
+        result.chats.map(
+          (chat): DiscoveredConversation => ({
+            externalId: canonicalConversationExternalId(
+              providerId,
+              chat.chatJid,
+            ),
+            title: chat.chatTitle,
+            kind: chat.chatType === 'im' ? 'direct' : 'channel',
+            ...(chat.isArchived === true ? { status: 'archived' } : {}),
+            externalRef: {
+              kind: 'conversation',
+              value: canonicalConversationExternalId(providerId, chat.chatJid),
+            },
+          }),
+        ),
+        input,
       );
     }
     if (providerId === 'teams') {
@@ -126,17 +153,31 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
           ),
         },
         limit: input.limit,
+        includeArchived: input.includeArchived,
       });
       if (!result.ok) {
         throw new ApplicationError('UNAVAILABLE', result.message);
       }
-      return result.channels.map(
-        (channel): DiscoveredConversation => ({
-          externalId: channel.chatJid,
-          title: channel.chatTitle,
-          kind: 'channel',
-          externalRef: { kind: 'conversation', value: channel.chatJid },
-        }),
+      return filterDiscoveredConversations(
+        result.channels.map(
+          (channel): DiscoveredConversation => ({
+            externalId: canonicalConversationExternalId(
+              providerId,
+              channel.chatJid,
+            ),
+            title: channel.chatTitle,
+            kind: 'channel',
+            ...(channel.isArchived === true ? { status: 'archived' } : {}),
+            externalRef: {
+              kind: 'conversation',
+              value: canonicalConversationExternalId(
+                providerId,
+                channel.chatJid,
+              ),
+            },
+          }),
+        ),
+        input,
       );
     }
     throw new ApplicationError(
@@ -174,4 +215,34 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
       `provider connection references ${ref}, but it is not configured`,
     );
   }
+}
+
+function filterDiscoveredConversations(
+  conversations: DiscoveredConversation[],
+  input: Parameters<ProviderConversationDiscoveryPort['discover']>[0],
+): DiscoveredConversation[] {
+  const query = input.query?.trim().toLowerCase();
+  return conversations.filter((conversation) => {
+    if (input.includeArchived !== true && conversation.status === 'archived') {
+      return false;
+    }
+    if (!query) return true;
+    return [
+      conversation.externalId,
+      conversation.externalRef?.value,
+      conversation.title,
+    ].some((value) => value?.toLowerCase().includes(query));
+  });
+}
+
+function canonicalConversationExternalId(
+  providerId: string,
+  conversationJid: string,
+): string {
+  const provider = getProvider(providerId);
+  const jid = conversationJid.trim();
+  if (provider?.jidPrefix && jid.startsWith(provider.jidPrefix)) {
+    return jid.slice(provider.jidPrefix.length);
+  }
+  return jid;
 }

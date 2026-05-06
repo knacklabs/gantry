@@ -1,18 +1,24 @@
 import { createHash } from 'node:crypto';
 
 import type { ChannelAdapter } from '../../channels/channel-provider.js';
-import type { RegisteredGroup, NewMessage } from '../../domain/types.js';
-import type { OpsRepository } from '../../domain/repositories/ops-repo.js';
+import type { ConversationRoute, NewMessage } from '../../domain/types.js';
+import type {
+  RuntimeChatMetadataRepository,
+  RuntimeMessageRepository,
+} from '../../domain/repositories/ops-repo.js';
 import type { Agent } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { RuntimeApp } from './runtime-app.js';
 import type { AsyncTaskQueue } from './async-task-queue.js';
 import type { ChannelWiringDeps } from './channel-wiring-types.js';
 
+type ChannelPersistenceRepository = RuntimeChatMetadataRepository &
+  RuntimeMessageRepository;
+
 interface ChannelPersistenceHandlerDeps {
   app: RuntimeApp;
   resolved: ChannelWiringDeps;
-  ops: () => OpsRepository;
+  ops: () => ChannelPersistenceRepository;
   findBoundChannel: (jid: string) => ChannelAdapter | undefined;
   persistenceQueue: AsyncTaskQueue;
   appId: AppId;
@@ -72,12 +78,13 @@ export function createChannelPersistenceHandlers({
   saveDmAgentConversationBinding,
 }: ChannelPersistenceHandlerDeps) {
   const chatIsGroup = new Map<string, boolean>();
+  const chatProvider = new Map<string, string>();
 
   const ensureDmAgentRegistration = async (
     chatJid: string,
     msg: NewMessage,
   ): Promise<boolean> => {
-    const groupsByChat = app.getRegisteredGroups();
+    const groupsByChat = app.getConversationRoutes();
     const existingGroup = groupsByChat[chatJid];
     if (msg.is_from_me || msg.is_bot_message) return Boolean(existingGroup);
     const isKnownDirect =
@@ -85,7 +92,12 @@ export function createChannelPersistenceHandlers({
       existingGroup?.folder.startsWith('dm_') === true;
     if (!isKnownDirect) return Boolean(existingGroup);
 
-    const providerId = providerIdForMessage(chatJid, msg);
+    const providerId = providerIdForMessage(
+      chatJid,
+      msg,
+      chatProvider,
+      resolved.providerIds,
+    );
     const externalUserId = msg.sender.trim();
     if (!providerId || !externalUserId) return false;
     if (!dmAccess || !saveDmAgentConversationBinding) return false;
@@ -150,7 +162,7 @@ export function createChannelPersistenceHandlers({
       const trimmed = msg.content.trim();
       const canRoute = await ensureDmAgentRegistration(chatJid, msg);
       if (!canRoute) return;
-      const groupsByChat = app.getRegisteredGroups();
+      const groupsByChat = app.getConversationRoutes();
       if (!msg.is_from_me && !msg.is_bot_message && groupsByChat[chatJid]) {
         const cfg = resolved.loadSenderAllowlist();
         if (
@@ -184,7 +196,7 @@ export function createChannelPersistenceHandlers({
             remoteControlCommand,
             chatJid,
             msg,
-            (jid) => app.getRegisteredGroups()[jid],
+            (jid) => app.getConversationRoutes()[jid],
             findBoundChannel,
             (candidateMsg) =>
               resolved.isSenderControlAllowed(
@@ -226,6 +238,8 @@ export function createChannelPersistenceHandlers({
       isGroup?: boolean,
     ) => {
       if (isGroup !== undefined) chatIsGroup.set(chatJid, Boolean(isGroup));
+      const provider = channel?.trim().toLowerCase();
+      if (provider) chatProvider.set(chatJid, provider);
       const persistMetadata = async () => {
         try {
           await ops().storeChatMetadata(
@@ -253,15 +267,30 @@ export function createChannelPersistenceHandlers({
   };
 }
 
-function providerIdForMessage(_chatJid: string, msg: NewMessage): string {
-  return msg.provider?.trim().toLowerCase() || 'app';
+function providerIdForMessage(
+  chatJid: string,
+  msg: NewMessage,
+  metadataProviders: ReadonlyMap<string, string>,
+  providers: ChannelWiringDeps['providerIds'],
+): string {
+  const explicit = msg.provider?.trim().toLowerCase();
+  if (explicit) return explicit;
+  const metadataProvider = metadataProviders.get(chatJid);
+  if (metadataProvider) return metadataProvider;
+  const provider = providers.find((candidate) =>
+    chatJid.startsWith(candidate.jidPrefix),
+  );
+  if (provider) return provider.id;
+  const separator = chatJid.indexOf(':');
+  if (separator > 0) return chatJid.slice(0, separator).trim().toLowerCase();
+  throw new Error(`Unable to resolve provider for chat JID: ${chatJid}`);
 }
 
 function dmAgentGroup(
   providerId: string,
   agent: Agent,
   chatJid: string,
-): RegisteredGroup {
+): ConversationRoute {
   return {
     name: `${agent.name} DM`,
     folder: agentDmFolder(providerId, agent.id, chatJid),

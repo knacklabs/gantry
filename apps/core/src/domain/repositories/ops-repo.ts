@@ -4,7 +4,7 @@ import type {
   JobEvent,
   JobRun,
   NewMessage,
-  RegisteredGroup,
+  ConversationRoute,
 } from './domain-types.js';
 
 export interface JobUpsertInput {
@@ -65,24 +65,27 @@ export interface JobEventListFilters {
 }
 
 export function makeSessionScopeKey(
-  groupFolder: string,
+  agentFolder: string,
   threadId?: string | null,
 ): string {
   const normalizedThreadId = threadId?.trim();
   return normalizedThreadId
-    ? `${groupFolder}::thread:${normalizedThreadId}`
-    : groupFolder;
+    ? `${agentFolder}::thread:${normalizedThreadId}`
+    : agentFolder;
 }
 
-export interface OpsRepository {
+export interface RuntimeChatMetadataRepository {
   storeChatMetadata(
-    chatJid: string,
+    conversationJid: string,
     timestamp: string,
     name?: string,
     channel?: string,
     isGroup?: boolean,
   ): Promise<void>;
   getAllChats(): Promise<ChatInfo[]>;
+}
+
+export interface RuntimeMessageRepository {
   storeMessage(msg: NewMessage): Promise<void>;
   getNewMessages(
     jids: string[],
@@ -93,16 +96,21 @@ export interface OpsRepository {
     newTimestamp: string;
   }>;
   getMessagesSince(
-    chatJid: string,
+    conversationJid: string,
     sinceCursor: string,
     limit?: number,
     options?: { threadId?: string | null },
   ): Promise<NewMessage[]>;
-  getMessageThreadIds(chatJid: string): Promise<Array<string | null>>;
+  getMessageThreadIds(conversationJid: string): Promise<Array<string | null>>;
   getLastBotMessageCursor(
-    chatJid: string,
+    conversationJid: string,
   ): Promise<{ timestamp: string; id: string } | undefined>;
-  getLastBotMessageTimestamp(chatJid: string): Promise<string | undefined>;
+  getLastBotMessageTimestamp(
+    conversationJid: string,
+  ): Promise<string | undefined>;
+}
+
+export interface RuntimeJobRepository {
   upsertJob(job: JobUpsertInput): Promise<{ created: boolean }>;
   getJobById(id: string): Promise<Job | undefined>;
   getAllJobs(): Promise<Job[]>;
@@ -140,11 +148,17 @@ export interface OpsRepository {
     limit?: number,
     filters?: JobEventListFilters,
   ): Promise<JobEvent[]>;
+}
+
+export interface RuntimeRouterStateRepository {
   getRouterState(key: string): Promise<string | undefined>;
   setRouterState(key: string, value: string): Promise<void>;
+}
+
+export interface RuntimeAgentSessionRepository {
   getAgentTurnContext?(input: {
-    groupFolder: string;
-    chatJid: string;
+    agentFolder: string;
+    conversationJid: string;
     threadId?: string | null;
   }): Promise<{
     appId: string;
@@ -156,11 +170,11 @@ export interface OpsRepository {
     memoryContextBlock?: string;
   }>;
   setSession(
-    groupFolder: string,
+    agentFolder: string,
     sessionId: string,
     threadId?: string | null,
     metadata?: {
-      chatJid?: string;
+      conversationJid?: string;
       latestArtifactId?: string | null;
     },
   ): Promise<void>;
@@ -180,10 +194,13 @@ export interface OpsRepository {
     resultSummary?: string | null;
     errorSummary?: string | null;
   }): Promise<void>;
-  deleteSession(groupFolder: string, threadId?: string | null): Promise<void>;
-  deleteSessionsByGroupFolder(groupFolder: string): Promise<void>;
-  getRegisteredGroup(jid: string): Promise<RegisteredGroup | undefined>;
-  setRegisteredGroup(jid: string, group: RegisteredGroup): Promise<void>;
-  deleteRegisteredGroup(jid: string): Promise<void>;
-  getAllRegisteredGroups(): Promise<Record<string, RegisteredGroup>>;
+  deleteSession(agentFolder: string, threadId?: string | null): Promise<void>;
+  deleteSessionsByAgentFolder(agentFolder: string): Promise<void>;
+}
+
+export interface RuntimeConversationRouteRepository {
+  getConversationRoute(jid: string): Promise<ConversationRoute | undefined>;
+  setConversationRoute(jid: string, group: ConversationRoute): Promise<void>;
+  deleteConversationRoute(jid: string): Promise<void>;
+  getAllConversationRoutes(): Promise<Record<string, ConversationRoute>>;
 }

@@ -2,11 +2,11 @@ import { AvailableGroup } from './agent-spawn.js';
 import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
-  RegisteredGroup,
+  ConversationRoute,
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../domain/types.js';
-import type { OpsRepository } from '../domain/repositories/ops-repo.js';
+import type { RuntimeJobRepository } from '../domain/repositories/ops-repo.js';
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import type { ToolCatalogRepository } from '../domain/ports/repositories.js';
 
@@ -16,8 +16,11 @@ export interface IpcDeps {
     text: string,
     options?: { threadId?: string },
   ) => Promise<void>;
-  registeredGroups: () => Record<string, RegisteredGroup>;
-  registerGroup: (jid: string, group: RegisteredGroup) => Promise<void> | void;
+  conversationRoutes: () => Record<string, ConversationRoute>;
+  registerGroup: (
+    jid: string,
+    group: ConversationRoute,
+  ) => Promise<void> | void;
   syncGroups: (force: boolean) => Promise<void>;
   getAvailableGroups: () => Promise<AvailableGroup[]> | AvailableGroup[];
   writeGroupsSnapshot: (
@@ -34,12 +37,12 @@ export interface IpcDeps {
     request: UserQuestionRequest,
   ) => Promise<UserQuestionResponse>;
   mcpHostnameLookup?: HostnameLookup;
-  opsRepository: OpsRepository;
+  opsRepository: RuntimeJobRepository;
   getToolRepository?: () => ToolCatalogRepository | undefined;
 }
 
 export interface IpcDomainContext {
-  sourceGroup: string;
+  sourceAgentFolder: string;
   isMain: boolean;
   browserProfileName?: string;
   ipcBaseDir: string;

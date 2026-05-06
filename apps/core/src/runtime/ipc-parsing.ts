@@ -187,12 +187,12 @@ function parsePermissionApprovalUpdates(
 
 export function parseIpcMessage(
   raw: unknown,
-  sourceGroup: string,
+  sourceAgentFolder: string,
 ): ParsedIpcMessage {
   if (!isPlainObject(raw)) throw new Error('Invalid IPC message payload');
   const { authThreadId: threadId } = validateIpcAuthRequest(
     raw,
-    sourceGroup,
+    sourceAgentFolder,
     'IPC message',
   );
   const type = toTrimmedString(raw.type, { maxLen: 64 });
@@ -212,14 +212,14 @@ export function parseIpcMessage(
 
 export function parseMemoryIpcRequest(
   raw: unknown,
-  sourceGroup: string,
+  sourceAgentFolder: string,
 ): ParsedMemoryIpcRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid memory IPC payload');
   const {
     authThreadId: threadId,
     userId,
     defaultScope,
-  } = validateMemoryIpcAuthRequest(raw, sourceGroup, 'memory IPC');
+  } = validateMemoryIpcAuthRequest(raw, sourceAgentFolder, 'memory IPC');
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
   const action = toTrimmedString(raw.action, { maxLen: 64 });
   if (!requestId || !action) {
@@ -253,12 +253,12 @@ export function parseMemoryIpcRequest(
 
 export function parsePermissionIpcRequest(
   raw: unknown,
-  sourceGroup: string,
+  sourceAgentFolder: string,
 ): PermissionApprovalRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid permission IPC payload');
   const { authThreadId: threadId } = validateIpcAuthRequest(
     raw,
-    sourceGroup,
+    sourceAgentFolder,
     'permission IPC',
   );
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
@@ -282,7 +282,7 @@ export function parsePermissionIpcRequest(
   return {
     requestId,
     ...(responseNonce ? { responseNonce } : {}),
-    sourceGroup,
+    sourceAgentFolder,
     ...(threadId ? { threadId } : {}),
     toolName,
     ...(toolUseID ? { toolUseID } : {}),
@@ -300,12 +300,12 @@ export function parsePermissionIpcRequest(
 
 export function parseUserQuestionIpcRequest(
   raw: unknown,
-  sourceGroup: string,
+  sourceAgentFolder: string,
 ): UserQuestionRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid user question IPC payload');
   const { authThreadId: threadId } = validateIpcAuthRequest(
     raw,
-    sourceGroup,
+    sourceAgentFolder,
     'user question IPC',
   );
 
@@ -374,7 +374,7 @@ export function parseUserQuestionIpcRequest(
 
   return {
     requestId,
-    sourceGroup,
+    sourceAgentFolder,
     ...(threadId ? { threadId } : {}),
     questions,
   };
@@ -382,12 +382,12 @@ export function parseUserQuestionIpcRequest(
 
 export function parseBrowserIpcRequest(
   raw: unknown,
-  sourceGroup: string,
+  sourceAgentFolder: string,
 ): ParsedBrowserIpcRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid browser IPC payload');
   const { authThreadId: threadId, chatJid } = validateBrowserIpcAuthRequest(
     raw,
-    sourceGroup,
+    sourceAgentFolder,
     'browser IPC',
   );
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });

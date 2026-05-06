@@ -3,21 +3,12 @@ import path from 'path';
 
 import { App } from '@slack/bolt';
 
-import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
-  MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
-  ProgressUpdateOptions,
-  StreamingChunkOptions,
   UserQuestionRequest,
-  UserQuestionResponse,
 } from '../../domain/types.js';
-import {
-  formatOutboundForChannel,
-  stripInternalTagsPreserveWhitespace,
-} from '../../messaging/router.js';
 import { resolveGroupFolderPath } from '../../platform/group-folder.js';
 import { ChannelOpts } from '../channel-provider.js';
 
@@ -46,7 +37,7 @@ export interface ActiveProgressState {
 
 export interface PendingPermissionPrompt {
   channelId: string;
-  sourceGroup: string;
+  sourceAgentFolder: string;
   decisionPolicy?: PermissionApprovalRequest['decisionPolicy'];
   approvalContextJid?: string;
   request: PermissionApprovalRequest;
@@ -63,7 +54,7 @@ export interface PendingUserQuestionState {
   promptText: string;
   selectedOptionIndexes: Set<number>;
   channelId: string;
-  sourceGroup: string;
+  sourceAgentFolder: string;
   messageTs: string;
   timer?: ReturnType<typeof setTimeout>;
   resolve: (selection: {
@@ -102,7 +93,7 @@ export abstract class SlackChannelState {
     ChannelOpts,
     | 'onMessage'
     | 'onChatMetadata'
-    | 'registeredGroups'
+    | 'conversationRoutes'
     | 'runtimeSettings'
     | 'isControlApproverAllowed'
   >;
@@ -205,7 +196,7 @@ export abstract class SlackChannelState {
     const timeoutMinutes = Math.max(1, Math.round(timeoutMs / 60000));
     const lines = [
       `*${question.header}*`,
-      `Source: ${this.truncateText(request.sourceGroup, 80)}`,
+      `Source: ${this.truncateText(request.sourceAgentFolder, 80)}`,
     ];
     if (request.threadId) {
       lines.push(`Thread: ${this.truncateText(request.threadId, 80)}`);
@@ -590,9 +581,9 @@ export abstract class SlackChannelState {
         fs.writeSync(fd, Buffer.from(value));
       }
       return true;
-    } catch {
+    } catch (err) {
       shouldCleanup = true;
-      throw new Error('Failed to stream Slack attachment');
+      throw new Error('Failed to stream Slack attachment', { cause: err });
     } finally {
       fs.closeSync(fd);
       if (shouldCleanup) {
@@ -623,7 +614,7 @@ export abstract class SlackChannelState {
     const url = file.url_private_download || file.url_private;
     if (!url) return null;
 
-    const group = this.opts.registeredGroups()[jid];
+    const group = this.opts.conversationRoutes()[jid];
     if (!group) {
       return url;
     }

@@ -16,10 +16,10 @@ import { parseTaskIpcData } from '@core/runtime/ipc-task-parsing.js';
 
 function signedPayload(
   payload: Record<string, unknown>,
-  sourceGroup = 'team',
+  sourceAgentFolder = 'team',
   threadId?: string,
 ): Record<string, unknown> {
-  const signingKey = computeIpcAuthToken(sourceGroup, threadId);
+  const signingKey = computeIpcAuthToken(sourceAgentFolder, threadId);
   return {
     ...payload,
     signature: signIpcRequestPayload(signingKey, payload),
@@ -28,11 +28,15 @@ function signedPayload(
 
 function signedBrowserPayload(
   payload: Record<string, unknown>,
-  sourceGroup = 'team',
+  sourceAgentFolder = 'team',
   chatJid = 'tg:team',
   threadId?: string,
 ): Record<string, unknown> {
-  const signingKey = computeBrowserIpcAuthToken(sourceGroup, chatJid, threadId);
+  const signingKey = computeBrowserIpcAuthToken(
+    sourceAgentFolder,
+    chatJid,
+    threadId,
+  );
   return {
     ...payload,
     signature: signIpcRequestPayload(signingKey, payload),
@@ -41,14 +45,14 @@ function signedBrowserPayload(
 
 function signedMemoryPayload(
   payload: Record<string, unknown>,
-  sourceGroup = 'team',
+  sourceAgentFolder = 'team',
   input: {
     userId?: string;
     defaultScope?: 'user' | 'group';
     threadId?: string;
   } = {},
 ): Record<string, unknown> {
-  const signingKey = computeMemoryIpcAuthToken(sourceGroup, input);
+  const signingKey = computeMemoryIpcAuthToken(sourceAgentFolder, input);
   return {
     ...payload,
     signature: signIpcRequestPayload(signingKey, payload),

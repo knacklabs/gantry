@@ -168,8 +168,9 @@ classDiagram
   }
   class AgentCapabilityContext {
     +string mcpServerPath
-    +string chatJid
-    +string groupFolder
+    +string conversationId
+    +string? threadId
+    +string agentFolder
     +AgentPersona? persona
     +bool isMain
     +McpServerConfigs externalMcpServers
@@ -186,7 +187,7 @@ classDiagram
   AgentConfigVersion --> LlmProfile : llmProfileId
   Agent "1" --> "many" AgentDmAccess : per provider
   Agent "1" --> "many" AgentDmApprover : one per provider
-  AgentConfig --> Agent : per RegisteredGroup
+  AgentConfig --> Agent : per ConversationRoute
   AgentCapabilityContext --> AgentCapabilityProfile : composeAgentCapabilities()
 ```
 
@@ -309,8 +310,9 @@ DM vs channel/group routing differs on three axes:
 | Default memory scope         | `'user'` — see `domain/ports/session-memory-collector.ts:2`                       | `'group'` — same file, same toggle                                              |
 | Approval authority           | Bound agent's per-provider DM admin (`AgentDmApprover`)                           | Conversation control approvers; see channel-interactions.md §approvers         |
 
-`conversationKind: 'dm' | 'channel'` flag is on `RegisteredGroup`
-(`apps/core/src/domain/types.ts:55`).
+`conversationKind: 'dm' | 'channel'` is carried by `ConversationRoute`
+while active domain and application ports use canonical conversation/session
+IDs at their boundaries.
 
 Detail: [channel-interactions.md](./channel-interactions.md).
 
@@ -369,12 +371,13 @@ classDiagram
 ```
 
 Inbound messages route to a memory subject via
-`Provider.isGroupJid()` and the bound agent's group config:
+the provider adapter's conversation classification and the bound agent's
+conversation config:
 
 ```mermaid
 flowchart LR
-  In[Inbound message<br/>chatJid] --> IsGroup["Provider.isGroupJid(jid)?"]
-  IsGroup -- yes --> Conv["MemorySubject = conversation<br/>subjectId = chatJid<br/>memoryDefaultScope = 'group'"]
+  In[Inbound message<br/>conversation ref] --> IsGroup["Provider marks DM or channel?"]
+  IsGroup -- channel --> Conv["MemorySubject = conversation<br/>subjectId = conversationId<br/>memoryDefaultScope = 'group'"]
   IsGroup -- no --> User["MemorySubject = user<br/>subjectId = userId<br/>memoryDefaultScope = 'user'"]
   Conv --> Items[(memory_items<br/>unique by appId, agentId,<br/>subjectType, subjectId, kind, key)]
   User --> Items
@@ -461,22 +464,22 @@ not the job model.
 sequenceDiagram
   participant Caller as "API / SDK / agent / system"
   participant Service as "JobManagementService"
-  participant Ops as "ops repository (Postgres)"
+  participant Jobs as "job repository (Postgres)"
   participant PgB as "pg-boss queue"
   participant Sched as "scheduler / execution"
   participant Proc as "Group processor"
   participant Agent as "Child runner"
-  participant Linked as "Linked sessions<br/>(chatJids)"
+  participant Linked as "Linked sessions<br/>(conversation IDs)"
 
   Caller->>Service: createJob({manual|once|recurring})
-  Service->>Ops: upsertJob(linked_sessions=[chatJid])
+  Service->>Jobs: upsertJob(linked_sessions=[conversationId])
   Service->>PgB: requestSchedulerSync(jobId)
   PgB->>Sched: claim due run (cron / runAt / trigger)
   Sched->>Proc: dispatch under group processor
   Proc->>Agent: run prompt
   Agent->>Proc: final output
   Proc->>Linked: deliver result to all linked sessions
-  Sched->>Ops: write JobRun + JobEvent
+  Sched->>Jobs: write JobRun + JobEvent
   Sched->>PgB: release / dead-letter on failure
 ```
 
@@ -495,7 +498,7 @@ stateDiagram-v2
 
 Cited at:
 
-- Manual job creation binds `linked_sessions: [chatJid]` —
+- Manual job creation binds `linked_sessions: [conversationId]` —
   `apps/core/src/application/jobs/job-management-service.ts:99`.
 - Agent-facing scheduler MCP tools authorize by `group_scope` plus the
   originating conversation in `linked_sessions`; thread ids are delivery

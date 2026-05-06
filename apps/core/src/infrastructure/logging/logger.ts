@@ -95,7 +95,7 @@ function redactValue(value: unknown, depth: number): unknown {
 export function redactString(value: string): string {
   let out = value;
   for (const pattern of SECRET_VALUE_PATTERNS) {
-    out = out.replace(pattern, (match, first) => {
+    out = out.replace(pattern, (_match, first) => {
       if (
         typeof first === 'string' &&
         /^(https?|postgres(?:ql)?):\/\//i.test(first)

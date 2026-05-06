@@ -37,6 +37,43 @@ describe('runtime settings', () => {
     expect(parsed.agent.recurringJobDefaultModel).toBe('opus-4.6');
   });
 
+  it('defaults, renders, and parses runtime queue policy', () => {
+    const settings = createDefaultRuntimeSettings();
+    expect(settings.runtime.queue).toEqual({
+      maxMessageRuns: 3,
+      maxJobRuns: 4,
+      maxRetries: 5,
+      baseRetryMs: 5000,
+    });
+
+    settings.runtime.queue = {
+      maxMessageRuns: 6,
+      maxJobRuns: 2,
+      maxRetries: 1,
+      baseRetryMs: 250,
+    };
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('runtime:');
+    expect(yaml).toContain('max_message_runs: 6');
+    expect(yaml).toContain('max_job_runs: 2');
+    expect(yaml).toContain('max_retries: 1');
+    expect(yaml).toContain('base_retry_ms: 250');
+
+    const parsed = parseRuntimeSettings(yaml);
+    expect(parsed.runtime.queue).toEqual(settings.runtime.queue);
+  });
+
+  it('rejects unsupported runtime queue keys', () => {
+    expect(() =>
+      parseRuntimeSettings(`runtime:
+  queue:
+    max_message_runs: 3
+    max_jobb_runs: 4
+`),
+    ).toThrow('runtime.queue.max_jobb_runs is not supported');
+  });
+
   it('rejects unsupported agent settings keys', () => {
     const settings = createDefaultRuntimeSettings();
     const yaml = renderRuntimeSettingsYaml(settings).replace(

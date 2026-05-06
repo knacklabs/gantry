@@ -11,7 +11,7 @@ import { SessionInteractionModule } from '../../application/sessions/session-int
 import {
   getRuntimeControlRepository,
   getRuntimeEventExchange,
-  getRuntimeOpsRepository,
+  getRuntimeRepositories,
   getRuntimeStorage,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { nowIso } from './app-identity.js';
@@ -29,7 +29,7 @@ export function createExternalIngressModule(
   const control = getRuntimeControlRepository();
   const sessions = new SessionInteractionModule({
     control: adaptSessionControlPort(control),
-    ops: getRuntimeOpsRepository(),
+    ops: getRuntimeRepositories(),
     repositories: getRuntimeStorage().repositories,
     runtimeEvents: getRuntimeEventExchange(),
     now: nowIso,
@@ -60,12 +60,12 @@ export async function invokeExternalIngressForControl(
     'registerGroup' in result &&
     result.registerGroup &&
     typeof result.registerGroup === 'object' &&
-    'chatJid' in result.registerGroup &&
-    typeof result.registerGroup.chatJid === 'string' &&
+    'conversationJid' in result.registerGroup &&
+    typeof result.registerGroup.conversationJid === 'string' &&
     'group' in result.registerGroup
   ) {
     await ctx.app.registerGroup(
-      result.registerGroup.chatJid,
+      result.registerGroup.conversationJid,
       result.registerGroup.group as never,
     );
   }

@@ -20,9 +20,9 @@ function makeJobService(context: TaskContext): JobManagementService {
 }
 
 const schedulerGetJobHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup } = context;
+  const { data, sourceAgentFolder } = context;
   const { acceptData, reject } = createTaskResponder(
-    sourceGroup,
+    sourceAgentFolder,
     data.taskId,
     data.authThreadId,
   );
@@ -55,15 +55,15 @@ const schedulerGetJobHandler: TaskHandler = async (context) => {
     );
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to query scheduler jobs.');
-    logger.error({ err, sourceGroup, jobId }, 'scheduler_get_job failed');
+    logger.error({ err, sourceAgentFolder, jobId }, 'scheduler_get_job failed');
     reject(mapped.message, mapped.code);
   }
 };
 
 const schedulerListJobsHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup } = context;
+  const { data, sourceAgentFolder } = context;
   const { acceptData, reject } = createTaskResponder(
-    sourceGroup,
+    sourceAgentFolder,
     data.taskId,
     data.authThreadId,
   );
@@ -93,15 +93,15 @@ const schedulerListJobsHandler: TaskHandler = async (context) => {
     });
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to query scheduler jobs.');
-    logger.error({ err, sourceGroup }, 'scheduler_list_jobs failed');
+    logger.error({ err, sourceAgentFolder }, 'scheduler_list_jobs failed');
     reject(mapped.message, mapped.code);
   }
 };
 
 const schedulerListRunsHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup } = context;
+  const { data, sourceAgentFolder } = context;
   const { acceptData, reject } = createTaskResponder(
-    sourceGroup,
+    sourceAgentFolder,
     data.taskId,
     data.authThreadId,
   );
@@ -116,7 +116,7 @@ const schedulerListRunsHandler: TaskHandler = async (context) => {
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to query scheduler jobs.');
     logger.error(
-      { err, sourceGroup, jobId: jobId || undefined },
+      { err, sourceAgentFolder, jobId: jobId || undefined },
       'scheduler_list_runs failed unexpectedly',
     );
     reject(mapped.message, mapped.code);
@@ -124,9 +124,9 @@ const schedulerListRunsHandler: TaskHandler = async (context) => {
 };
 
 const schedulerListEventsHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup } = context;
+  const { data, sourceAgentFolder } = context;
   const { acceptData, reject } = createTaskResponder(
-    sourceGroup,
+    sourceAgentFolder,
     data.taskId,
     data.authThreadId,
   );
@@ -152,7 +152,7 @@ const schedulerListEventsHandler: TaskHandler = async (context) => {
     logger.error(
       {
         err,
-        sourceGroup,
+        sourceAgentFolder,
         jobId: jobId || undefined,
         runId: runId || undefined,
         eventType: eventType || undefined,
@@ -164,9 +164,9 @@ const schedulerListEventsHandler: TaskHandler = async (context) => {
 };
 
 const schedulerGetDeadLetterHandler: TaskHandler = async (context) => {
-  const { data, sourceGroup } = context;
+  const { data, sourceAgentFolder } = context;
   const { acceptData, reject } = createTaskResponder(
-    sourceGroup,
+    sourceAgentFolder,
     data.taskId,
     data.authThreadId,
   );
@@ -181,7 +181,10 @@ const schedulerGetDeadLetterHandler: TaskHandler = async (context) => {
     );
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to query scheduler jobs.');
-    logger.error({ err, sourceGroup }, 'scheduler_get_dead_letter failed');
+    logger.error(
+      { err, sourceAgentFolder },
+      'scheduler_get_dead_letter failed',
+    );
     reject(mapped.message, mapped.code);
   }
 };
