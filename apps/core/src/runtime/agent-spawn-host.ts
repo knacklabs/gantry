@@ -13,6 +13,7 @@ import { createExternalAgentCredentialInjection } from '../adapters/llm/external
 import { RegisteredGroup } from '../domain/types.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 import type {
+  AgentCredentialPurpose,
   AgentCredentialInjection,
   CredentialBrokerProfile,
 } from '../domain/models/credentials.js';
@@ -26,9 +27,14 @@ import {
 } from './agent-spawn-layout.js';
 import { HostRuntimeContext } from './agent-spawn-types.js';
 
+export interface HostRuntimeCredentialEnvOptions {
+  purpose?: AgentCredentialPurpose;
+}
+
 export async function getHostRuntimeCredentialEnv(
   agentIdentifier?: string,
   broker?: AgentCredentialBroker,
+  options: HostRuntimeCredentialEnvOptions = {},
 ): Promise<{
   env: Record<string, string>;
   credentialProviders: NonNullable<
@@ -38,10 +44,12 @@ export async function getHostRuntimeCredentialEnv(
   brokerProfile: CredentialBrokerProfile;
 }> {
   const brokerConfig = getCredentialBrokerRuntimeConfig();
+  const purpose = options.purpose ?? 'model_runtime';
   const injection =
     brokerConfig.mode === 'external'
       ? await getAgentCredentialInjection({
           mode: 'external',
+          purpose,
           agentIdentifier,
           externalInjection: createExternalAgentCredentialInjection({
             normalizedBaseUrl: resolveExternalCredentialBaseUrl(
@@ -52,11 +60,13 @@ export async function getHostRuntimeCredentialEnv(
       : brokerConfig.mode === 'onecli'
         ? await getAgentCredentialInjection({
             mode: 'onecli',
+            purpose,
             agentIdentifier,
             broker: await resolveOnecliBroker(broker, brokerConfig.onecliUrl),
           })
         : await getAgentCredentialInjection({
             mode: 'none',
+            purpose,
             agentIdentifier,
           });
 

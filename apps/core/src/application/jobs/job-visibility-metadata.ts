@@ -8,6 +8,10 @@ import {
   resolveAgentToolBindings,
   resolveJobToolPolicy,
 } from './job-tool-policy.js';
+import {
+  schedulerJobStaleness,
+  type SchedulerJobStaleness,
+} from '../../shared/scheduler-job-staleness.js';
 
 export interface JobVisibilityMetadata {
   target: {
@@ -36,6 +40,7 @@ export interface JobVisibilityMetadata {
     errorSummary: string;
     endedAt: string | null;
   }>;
+  staleness: SchedulerJobStaleness | null;
 }
 
 export async function buildJobVisibilityMetadata(input: {
@@ -43,6 +48,7 @@ export async function buildJobVisibilityMetadata(input: {
   ops: OpsRepository;
   toolRepository?: ToolCatalogRepository;
   recentRunLimit?: number;
+  nowMs?: number;
 }): Promise<JobVisibilityMetadata> {
   const appId = resolveJobRuntimeAppId(input.job);
   const agentId = agentIdForJobGroupScope(input.job.group_scope);
@@ -52,6 +58,8 @@ export async function buildJobVisibilityMetadata(input: {
     agentId,
     toolRepository: input.toolRepository,
   });
+  const nowMs = input.nowMs ?? Date.now();
+  const staleness = schedulerJobStaleness(input.job, nowMs);
   const runs =
     typeof input.ops.listJobRuns === 'function'
       ? await input.ops.listJobRuns(input.job.id, input.recentRunLimit ?? 5)
@@ -74,6 +82,7 @@ export async function buildJobVisibilityMetadata(input: {
     inheritedTools: policy.inheritedTools,
     jobExtraTools: policy.jobExtraTools,
     effectiveAllowedTools: policy.effectiveAllowedTools,
+    staleness,
     recentRunErrors: runs
       .filter((run) => Boolean(run.error_summary))
       .map((run) => ({
@@ -88,7 +97,9 @@ export async function buildJobVisibilityMetadata(input: {
 export async function buildJobListVisibilityMetadata(input: {
   jobs: Job[];
   toolRepository?: ToolCatalogRepository;
+  nowMs?: number;
 }): Promise<Map<string, JobVisibilityMetadata>> {
+  const nowMs = input.nowMs ?? Date.now();
   const inheritedToolsByTarget = new Map<string, Promise<string[]>>();
   const loadInheritedTools = (appId: string, agentId: string) => {
     const key = `${appId}\0${agentId}`;
@@ -137,6 +148,7 @@ export async function buildJobListVisibilityMetadata(input: {
           inheritedToolCount: inheritedTools.length,
           jobExtraToolCount: jobExtraTools.length,
           effectiveAllowedToolCount: effectiveAllowedTools.length,
+          staleness: schedulerJobStaleness(job, nowMs),
           recentRunErrors: [],
         };
         return [job.id, metadata] as const;

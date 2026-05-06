@@ -14,11 +14,20 @@ import type {
   SchedulerDependencies,
   SchedulerDispatchPayload,
 } from '../../jobs/types.js';
+import {
+  schedulerJobStaleness,
+  staleOnceRequeueBucket,
+} from '../../shared/scheduler-job-staleness.js';
+import {
+  nowMs as currentTimeMs,
+  toIso,
+} from '../../infrastructure/time/datetime.js';
 
 const SCHEDULER_QUEUE_PARALLEL = 'myclaw.jobs.parallel';
 const SCHEDULER_QUEUE_SERIALIZED = 'myclaw.jobs.serialized';
 const SCHEDULER_QUEUE_DEAD_LETTER = 'myclaw.jobs.dead_letter';
 const PGBOSS_KEY_PREFIX = 'myclaw';
+const STALE_ONCE_REENQUEUE_THROTTLE_MS = 60_000;
 
 interface PgBossSchedulerCallbacks {
   registerSystemJobs: (deps: SchedulerDependencies) => Promise<void>;
@@ -251,7 +260,8 @@ export class PgBossSchedulerEngine {
   }
 
   private async syncJob(boss: PgBoss, job: Job): Promise<void> {
-    const signature = this.scheduleSignature(job);
+    const nowMs = currentTimeMs();
+    const signature = this.scheduleSignature(job, nowMs);
     if (this.scheduleSignatures.get(job.id) === signature) return;
     await this.clearBossSchedule(boss, job.id);
     if (job.status !== 'active') {
@@ -293,6 +303,14 @@ export class PgBossSchedulerEngine {
       return;
     }
     if (!isRunnableScheduledJob(job) || !job.next_run) return;
+    const missedWindow = schedulerJobStaleness(job, nowMs) === 'missed_window';
+    const startAfter = missedWindow ? toIso(nowMs) : job.next_run;
+    if (missedWindow) {
+      logger.warn(
+        { jobId: job.id, nextRun: job.next_run, startAfter },
+        'Re-enqueueing stale once scheduler job after missed fire window',
+      );
+    }
     await boss.send(
       jobQueueName(job),
       {
@@ -301,20 +319,25 @@ export class PgBossSchedulerEngine {
       },
       {
         id: pgBossSendId(job.id, scheduleSlotForJob(job)),
-        startAfter: job.next_run,
+        startAfter,
         group: { id: pgBossGroupId(job.group_scope) },
         retryLimit: 0,
       },
     );
   }
 
-  private scheduleSignature(job: Job): string {
+  private scheduleSignature(job: Job, nowMs: number): string {
     return JSON.stringify({
       id: job.id,
       status: job.status,
       scheduleType: job.schedule_type,
       scheduleValue: job.schedule_value,
       nextRun: job.schedule_type === 'cron' ? null : job.next_run,
+      staleOnceRequeueBucket: staleOnceRequeueBucket(
+        job,
+        nowMs,
+        STALE_ONCE_REENQUEUE_THROTTLE_MS,
+      ),
       executionMode: job.execution_mode,
       groupScope: job.group_scope,
     });
@@ -370,6 +393,7 @@ export class PgBossSchedulerEngine {
       } finally {
         releaseSlot?.();
       }
+      this.requestSync();
     }
   }
 

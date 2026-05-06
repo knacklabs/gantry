@@ -332,6 +332,15 @@ describe('SettingsDesiredStateService', () => {
           savedConversations.find((conversation) => conversation.id === id) ??
           null,
       ),
+      getConversationByExternalRef: vi.fn(
+        async (input: any) =>
+          savedConversations.find(
+            (conversation) =>
+              conversation.providerConnectionId ===
+                input.providerConnectionId &&
+              conversation.externalRef.value === input.externalConversationId,
+          ) ?? null,
+      ),
       findConversationByExternalValue: vi.fn(
         async (input: any) =>
           savedConversations.find(
@@ -499,6 +508,20 @@ describe('SettingsDesiredStateService', () => {
     const savedConversations: any[] = [];
     const savedApprovers = new Map<string, string[]>();
     const conversations = {
+      getConversation: vi.fn(
+        async (id: string) =>
+          savedConversations.find((conversation) => conversation.id === id) ??
+          null,
+      ),
+      getConversationByExternalRef: vi.fn(
+        async (input: any) =>
+          savedConversations.find(
+            (conversation) =>
+              conversation.providerConnectionId ===
+                input.providerConnectionId &&
+              conversation.externalRef.value === input.externalConversationId,
+          ) ?? null,
+      ),
       findConversationByExternalValue: vi.fn(
         async (input: any) =>
           savedConversations.find(
@@ -562,6 +585,96 @@ describe('SettingsDesiredStateService', () => {
     );
   });
 
+  it('does not rewrite another provider conversation when external IDs collide', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.telegram.enabled = true;
+    settings.providers.telegram.defaultConnection = 'telegram_default';
+    settings.providers.slack.enabled = true;
+    settings.providers.slack.defaultConnection = 'slack_default';
+    settings.providerConnections.telegram_default = {
+      provider: 'telegram',
+      label: 'Telegram Default',
+      runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
+    };
+    settings.providerConnections.slack_default = {
+      provider: 'slack',
+      label: 'Slack Default',
+      runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
+    };
+    settings.conversations.telegram_conflict = {
+      providerConnection: 'telegram_default',
+      externalId: 'C123',
+      kind: 'group',
+      displayName: 'Telegram C123',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['5759865942'],
+    };
+    const slackConversation = {
+      id: 'conversation:sl:C123',
+      appId: 'default',
+      providerConnectionId: 'slack_default',
+      externalRef: { kind: 'conversation', value: 'C123' },
+      kind: 'channel',
+      title: 'Slack C123',
+      status: 'active',
+      createdAt: '2026-05-01T00:00:00.000Z',
+      updatedAt: '2026-05-01T00:00:00.000Z',
+    };
+    const savedConversations: any[] = [slackConversation];
+    const conversations = {
+      getConversation: vi.fn(
+        async (id: string) =>
+          savedConversations.find((conversation) => conversation.id === id) ??
+          null,
+      ),
+      getConversationByExternalRef: vi.fn(
+        async (input: any) =>
+          savedConversations.find(
+            (conversation) =>
+              conversation.providerConnectionId ===
+                input.providerConnectionId &&
+              conversation.externalRef.value === input.externalConversationId,
+          ) ?? null,
+      ),
+      findConversationByExternalValue: vi.fn(async () => slackConversation),
+      saveConversation: vi.fn(async (conversation: any) => {
+        savedConversations.push(conversation);
+      }),
+      replaceConversationApprovers: vi.fn(async (input: any) =>
+        input.externalUserIds.map((externalUserId: string) => ({
+          conversationId: input.conversationId,
+          externalUserId,
+          createdAt: input.updatedAt,
+          updatedAt: input.updatedAt,
+        })),
+      ),
+    };
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories: makeRepositories({ conversations }),
+      clock: { now: () => '2026-05-02T00:00:00.000Z' },
+    });
+
+    await service.reconcile(settings);
+
+    expect(
+      conversations.findConversationByExternalValue,
+    ).not.toHaveBeenCalled();
+    expect(conversations.saveConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'conversation:tg:C123',
+        providerConnectionId: 'telegram_default',
+        title: 'Telegram C123',
+      }),
+    );
+    expect(conversations.saveConversation).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'conversation:sl:C123',
+        providerConnectionId: 'telegram_default',
+      }),
+    );
+  });
+
   it('exports colliding conversation bindings without overwriting one another', async () => {
     const settings = createDefaultRuntimeSettings();
     const service = new SettingsDesiredStateService({
@@ -589,6 +702,149 @@ describe('SettingsDesiredStateService', () => {
 
     expect(bindingJids.sort()).toEqual(['tg abc', 'tg/abc']);
     expect(Object.keys(exported.agents.main_agent.bindings)).toHaveLength(2);
+  });
+
+  it('does not borrow exported approvers from another provider external ID collision', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.telegram = {
+      enabled: true,
+      defaultConnection: 'telegram_default',
+    };
+    settings.providerConnections.telegram_default = {
+      provider: 'telegram',
+      label: 'Telegram',
+      runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
+    };
+    const slackConversation = {
+      id: 'conversation:sl:-100123',
+      appId: 'default',
+      providerConnectionId: 'slack_default',
+      externalRef: { kind: 'conversation', value: '-100123' },
+      kind: 'channel',
+      title: 'Slack -100123',
+      status: 'active',
+      createdAt: '2026-05-01T00:00:00.000Z',
+      updatedAt: '2026-05-01T00:00:00.000Z',
+    };
+    const conversations = {
+      getConversationByExternalRef: vi.fn(async () => null),
+      getConversation: vi.fn(async () => null),
+      findConversationByExternalValue: vi.fn(async () => slackConversation),
+      listConversationApprovers: vi.fn(async () => [
+        {
+          conversationId: slackConversation.id,
+          externalUserId: 'U123',
+          createdAt: '2026-05-01T00:00:00.000Z',
+          updatedAt: '2026-05-01T00:00:00.000Z',
+        },
+      ]),
+    };
+    const service = new SettingsDesiredStateService({
+      ops: makeOps({
+        'tg:-100123': {
+          name: 'Telegram Group',
+          folder: 'main_agent',
+          trigger: '@Main Agent',
+          added_at: '2026-05-01T00:00:00.000Z',
+          requiresTrigger: false,
+          isMain: true,
+        },
+      }),
+      repositories: makeRepositories({ conversations }),
+    });
+
+    const exported = await service.exportCurrent(settings);
+
+    expect(
+      conversations.findConversationByExternalValue,
+    ).not.toHaveBeenCalled();
+    expect(exported.conversations.main_agent_telegram).toEqual(
+      expect.objectContaining({
+        providerConnection: 'telegram_default',
+        externalId: '-100123',
+        controlApprovers: [],
+      }),
+    );
+  });
+
+  it('exports canonical provider conversations without duplicate settings entries', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.telegram = {
+      enabled: true,
+      defaultConnection: 'telegram_default',
+    };
+    settings.providerConnections.telegram_default = {
+      provider: 'telegram',
+      label: 'Telegram',
+      runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
+    };
+    settings.conversations.main_agent_telegram = {
+      providerConnection: 'telegram_default',
+      externalId: '-100123',
+      kind: 'group',
+      displayName: 'Generated Group',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: [],
+    };
+    settings.conversations.main_telegram_group = {
+      providerConnection: 'telegram_default',
+      externalId: '-100123',
+      kind: 'group',
+      displayName: 'Main Agent Telegram Group',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['5759865942'],
+    };
+    settings.bindings.main_agent_telegram = {
+      agent: 'main_agent',
+      conversation: 'main_agent_telegram',
+      trigger: '@Main Agent',
+      addedAt: '2026-05-01T00:00:00.000Z',
+      requiresTrigger: false,
+      isMain: true,
+      memoryScope: 'conversation',
+    };
+    settings.bindings.main_telegram_group = {
+      agent: 'main_agent',
+      conversation: 'main_telegram_group',
+      trigger: '@Main Agent',
+      addedAt: '2026-05-01T00:00:00.000Z',
+      requiresTrigger: false,
+      isMain: true,
+      memoryScope: 'conversation',
+    };
+    const service = new SettingsDesiredStateService({
+      ops: makeOps({
+        'tg:-100123': {
+          name: 'Main Agent Telegram Group',
+          folder: 'main_agent',
+          trigger: '@Main Agent',
+          added_at: '2026-05-01T00:00:00.000Z',
+          requiresTrigger: false,
+          isMain: true,
+        },
+      }),
+      repositories: makeRepositories(),
+    });
+
+    const exported = await service.exportCurrent(settings);
+
+    const exportedConversations = Object.entries(exported.conversations).filter(
+      ([, conversation]) =>
+        conversation.providerConnection === 'telegram_default' &&
+        conversation.externalId === '-100123',
+    );
+    expect(exportedConversations).toEqual([
+      [
+        'main_telegram_group',
+        expect.objectContaining({
+          controlApprovers: ['5759865942'],
+          displayName: 'Main Agent Telegram Group',
+        }),
+      ],
+    ]);
+    expect(Object.values(exported.bindings)).toEqual([
+      expect.objectContaining({ conversation: 'main_telegram_group' }),
+    ]);
   });
 
   it('disables DB-only agents and clears their policies in authoritative mode', async () => {

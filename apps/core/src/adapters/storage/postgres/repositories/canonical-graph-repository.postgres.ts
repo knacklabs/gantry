@@ -3,6 +3,10 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import type { ChatInfo } from '../../../../domain/repositories/domain-types.js';
 import { nowIso as currentIso } from '../../../../infrastructure/time/datetime.js';
+import {
+  normalizeProviderId,
+  providerIdForJid as resolveProviderIdForJid,
+} from '../../../../channels/provider-registry.js';
 import * as pgSchema from '../schema/schema.js';
 
 export const CANONICAL_APP_ID = 'default';
@@ -25,8 +29,7 @@ export interface CanonicalConversationRow {
 }
 
 export function providerIdForJid(jid: string): string {
-  const idx = jid.indexOf(':');
-  return idx > 0 ? jid.slice(0, idx) : 'app';
+  return resolveProviderIdForJid(jid);
 }
 
 export function externalConversationIdForJid(jid: string): string {
@@ -140,7 +143,8 @@ export class PostgresCanonicalGraphRepository {
     executor: CanonicalExecutor = this.db,
   ): Promise<string> {
     await this.ensureApp(executor);
-    const providerId = input.channel || providerIdForJid(jid);
+    const providerId =
+      normalizeProviderId(input.channel || providerIdForJid(jid)) || 'app';
     const providerConnectionId = `channel-providerConnection:${CANONICAL_APP_ID}:${providerId}`;
     const conversationId = conversationIdForJid(jid);
     const title = input.name || jid;
@@ -183,9 +187,10 @@ export class PostgresCanonicalGraphRepository {
       .onConflictDoUpdate({
         target: pgSchema.conversationsPostgres.id,
         set: {
+          providerConnectionId,
           ...(input.name ? { title } : {}),
           ...(hasKnownKind ? { kind: input.isGroup ? 'group' : 'direct' } : {}),
-          ...(hasKnownKind ? { externalRefJson } : {}),
+          externalRefJson,
           updatedAt: sql`GREATEST(${pgSchema.conversationsPostgres.updatedAt}, ${now})`,
         },
       });

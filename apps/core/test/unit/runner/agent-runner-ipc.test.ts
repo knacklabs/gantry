@@ -138,6 +138,10 @@ function createRunnerFixture(): {
     path.join(sharedDir, 'agent-persona.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/admin-mcp-tools.ts'),
+    path.join(sharedDir, 'admin-mcp-tools.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/tool-rule-matcher.ts'),
     path.join(sharedDir, 'tool-rule-matcher.ts'),
   );

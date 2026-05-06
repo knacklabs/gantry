@@ -1040,6 +1040,9 @@ describe('control job trigger', () => {
     opsRepo.listJobs.mockResolvedValue([
       makeJob({
         id: 'visible',
+        schedule_type: 'once',
+        schedule_value: '2000-01-01T00:00:00.000Z',
+        next_run: '2000-01-01T00:00:00.000Z',
         linked_sessions: ['app:app-one:conv-1'],
         capability_policy: { allowed_tools: ['Read'] },
       }),
@@ -1065,6 +1068,7 @@ describe('control job trigger', () => {
           expect.objectContaining({
             jobId: 'visible',
             promptPreview: 'Run',
+            staleness: 'missed_window',
             inheritedToolCount: 0,
             jobExtraToolCount: 1,
             effectiveAllowedToolCount: 1,
@@ -1091,7 +1095,12 @@ describe('control job trigger', () => {
       },
     ]);
     opsRepo.getJobById.mockResolvedValue(
-      makeJob({ capability_policy: { allowed_tools: ['Read'] } }),
+      makeJob({
+        schedule_type: 'once',
+        schedule_value: '2000-01-01T00:00:00.000Z',
+        next_run: '2000-01-01T00:00:00.000Z',
+        capability_policy: { allowed_tools: ['Read'] },
+      }),
     );
     const handle = startControlServer({
       app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
@@ -1109,6 +1118,7 @@ describe('control job trigger', () => {
         jobId: 'job-1',
         prompt: 'Run',
         fullPrompt: 'Run',
+        staleness: 'missed_window',
         inheritedTools: [],
         jobExtraTools: ['Read'],
         effectiveAllowedTools: ['Read'],

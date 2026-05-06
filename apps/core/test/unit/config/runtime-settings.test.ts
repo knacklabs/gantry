@@ -483,6 +483,7 @@ agents:
     expect(yaml).toContain('    dm_access:');
     expect(yaml).toContain('    sender_policy:');
     expect(yaml).toContain('      mode: trigger');
+    expect(yaml).toContain('    control_approvers: ["UADMIN","UHELPER"]');
   });
 
   it('maps compact DM conversation approvers to agent DM admins', () => {

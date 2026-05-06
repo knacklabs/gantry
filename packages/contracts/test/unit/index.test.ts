@@ -25,6 +25,7 @@ import {
   CreateSessionRequestSchema,
   ExternalReferenceSchema,
   IsoDateTimeSchema,
+  JobResponseSchema,
   JobScheduleSchema,
   LlmProfileRefSchema,
   MEMORY_IPC_ACTIONS,
@@ -219,6 +220,44 @@ describe('contracts package', () => {
     });
     expectInvalid(UpdateJobRequestSchema, {
       model: 'claude-sonnet-4-6',
+    });
+    expect(
+      JobResponseSchema.parse({
+        jobId: 'job-1',
+        name: 'Daily summary',
+        kind: 'once',
+        status: 'active',
+        schedule: { type: 'once', runAt: iso },
+        linkedSessions: ['app:app-one:session-1'],
+        nextRun: iso,
+        lastRun: null,
+        staleness: 'missed_window',
+        executionMode: 'parallel',
+        modelAlias: null,
+        modelProfileId: null,
+        model: null,
+        threadId: null,
+        groupScope: 'app:app-one:session-1',
+        sessionId: null,
+      }),
+    ).toMatchObject({ staleness: 'missed_window' });
+    expectInvalid(JobResponseSchema, {
+      jobId: 'job-1',
+      name: 'Daily summary',
+      kind: 'once',
+      status: 'active',
+      schedule: { type: 'once', runAt: iso },
+      linkedSessions: ['app:app-one:session-1'],
+      nextRun: iso,
+      lastRun: null,
+      staleness: 'delayed',
+      executionMode: 'parallel',
+      modelAlias: null,
+      modelProfileId: null,
+      model: null,
+      threadId: null,
+      groupScope: 'app:app-one:session-1',
+      sessionId: null,
     });
 
     expect(

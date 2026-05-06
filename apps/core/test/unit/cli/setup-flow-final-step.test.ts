@@ -121,7 +121,7 @@ async function loadVerifyStep(modelAccessResult: {
   const warn = vi.fn();
   const success = vi.fn();
   const note = vi.fn();
-  const verifyFirstAgentModelAccess = vi.fn(async () => modelAccessResult);
+  const verifyModelAccess = vi.fn(async () => modelAccessResult);
   vi.doMock('@clack/prompts', () => ({
     note,
     isCancel: () => false,
@@ -150,10 +150,10 @@ async function loadVerifyStep(modelAccessResult: {
     ]),
   }));
   vi.doMock('@core/cli/setup-credentials.js', () => ({
-    verifyFirstAgentModelAccess,
+    verifyModelAccess,
   }));
   const { runVerifyStep } = await import('@core/cli/setup-flow-final-steps.js');
-  return { runVerifyStep, verifyFirstAgentModelAccess, warn, success, note };
+  return { runVerifyStep, verifyModelAccess, warn, success, note };
 }
 
 async function loadGroupStep() {
@@ -275,40 +275,34 @@ describe('setup embeddings step', () => {
 });
 
 describe('setup verification step', () => {
-  it('returns to Model Access when the first-agent check fails', async () => {
+  it('returns to Model Access when the shared model access check fails', async () => {
     const runtimeHome = makeRuntimeHome();
-    const { runVerifyStep, verifyFirstAgentModelAccess, warn } =
-      await loadVerifyStep({
-        ok: false,
-        message: 'OneCLI check failed',
-        nextAction: 'Open Model Access.',
-      });
+    const { runVerifyStep, verifyModelAccess, warn } = await loadVerifyStep({
+      ok: false,
+      message: 'OneCLI check failed',
+      nextAction: 'Open Model Access.',
+    });
     const draft = makeDraft(runtimeHome);
 
     const action = await runVerifyStep(import.meta.url, draft);
 
     expect(action).toEqual({ type: 'goto', step: 'credentials' });
-    expect(verifyFirstAgentModelAccess).toHaveBeenCalledWith(
-      'http://localhost:10254',
-    );
+    expect(verifyModelAccess).toHaveBeenCalledWith('http://localhost:10254');
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('OneCLI check'));
   });
 
-  it('continues when the first-agent Model Access check succeeds', async () => {
+  it('continues when the shared Model Access check succeeds', async () => {
     const runtimeHome = makeRuntimeHome();
-    const { runVerifyStep, verifyFirstAgentModelAccess, success } =
-      await loadVerifyStep({
-        ok: true,
-        message: 'First-agent Model Access check passed.',
-      });
+    const { runVerifyStep, verifyModelAccess, success } = await loadVerifyStep({
+      ok: true,
+      message: 'Model Access check passed.',
+    });
     const draft = makeDraft(runtimeHome);
 
     const action = await runVerifyStep(import.meta.url, draft);
 
     expect(action).toEqual({ type: 'next' });
-    expect(verifyFirstAgentModelAccess).toHaveBeenCalledWith(
-      'http://localhost:10254',
-    );
+    expect(verifyModelAccess).toHaveBeenCalledWith('http://localhost:10254');
     expect(success).toHaveBeenCalledWith(
       expect.stringContaining('Verification passed'),
     );

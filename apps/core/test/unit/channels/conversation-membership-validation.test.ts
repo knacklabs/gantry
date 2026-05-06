@@ -9,6 +9,67 @@ afterEach(() => {
 });
 
 describe('RuntimeSecretConversationMembershipValidator', () => {
+  it('normalizes Telegram prefix provider IDs before validating approvers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          result: { status: 'member' },
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const validator = new RuntimeSecretConversationMembershipValidator({
+      getSecret(ref) {
+        const value = this.getOptionalSecret(ref);
+        if (!value) throw new Error(`missing ${ref.env}`);
+        return value;
+      },
+      getOptionalSecret(ref) {
+        return { TELEGRAM_BOT_TOKEN: '123:telegram-token' }[ref.env];
+      },
+    });
+
+    const result = await validator.validateControlApprovers({
+      providerId: 'tg' as never,
+      providerConnection: {
+        id: 'providerConnection-tg',
+        appId: 'default' as never,
+        providerId: 'tg' as never,
+        label: 'Telegram',
+        status: 'active',
+        config: {},
+        runtimeSecretRefs: ['TELEGRAM_BOT_TOKEN'],
+        createdAt: iso,
+        updatedAt: iso,
+      },
+      conversation: {
+        id: 'conversation:tg:-100123' as never,
+        appId: 'default' as never,
+        providerConnectionId: 'providerConnection-tg' as never,
+        externalRef: { kind: 'conversation', value: 'tg:-100123' },
+        kind: 'group',
+        title: 'Main Agent Telegram Group',
+        status: 'active',
+        createdAt: iso,
+        updatedAt: iso,
+      },
+      userIds: ['5759865942'],
+    });
+
+    expect(result).toEqual({
+      validUserIds: ['5759865942'],
+      invalidUserIds: [],
+      reason: undefined,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.telegram.org/bot123%3Atelegram-token/getChatMember?chat_id=-100123&user_id=5759865942',
+      expect.any(Object),
+    );
+  });
+
   it('validates Teams approvers through Microsoft Graph conversation members', async () => {
     const fetchMock = vi
       .fn()

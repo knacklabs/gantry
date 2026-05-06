@@ -87,6 +87,8 @@ export const JobRecentRunErrorSchema = z.object({
   endedAt: IsoDateTimeSchema.nullable(),
 });
 
+export const JobStalenessSchema = z.enum(['missed_window']);
+
 export const CreateJobRequestSchema = z
   .object({
     name: z.string().min(1),
@@ -154,6 +156,7 @@ export const JobResponseSchema = z.object({
   linkedSessions: z.array(z.string()),
   nextRun: IsoDateTimeSchema.nullable(),
   lastRun: IsoDateTimeSchema.nullable(),
+  staleness: JobStalenessSchema.nullable().optional(),
   executionMode: JobExecutionModeSchema,
   modelAlias: z.string().nullable().optional(),
   modelProfileId: z.string().nullable().optional(),

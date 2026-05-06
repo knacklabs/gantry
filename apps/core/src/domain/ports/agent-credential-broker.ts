@@ -12,6 +12,8 @@ export interface AgentCredentialBrokerInput {
 export interface AgentCredentialBrokerCapabilities {
   profile: CredentialBrokerProfile;
   supportsAgentBinding: boolean;
+  supportsModelRuntimeProfile?: boolean;
+  modelRuntimeProfileIdentifier?: string;
   returnsRawSecrets: boolean;
   projectsProviderTokens?: boolean;
   projectedSecretEnvKeys?: string[];

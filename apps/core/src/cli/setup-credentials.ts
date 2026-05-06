@@ -4,6 +4,10 @@ import { OneCLI } from '@onecli-sh/sdk';
 import type { HostCredentialMode } from '../config/credentials/mode.js';
 import { filterTrustedOnecliEnv } from '../adapters/credentials/onecli/env-policy.js';
 import { validateOnecliUrl } from '../adapters/credentials/onecli/policy.js';
+import {
+  MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+  MODEL_RUNTIME_CREDENTIAL_NAME,
+} from '../domain/models/credentials.js';
 
 export interface CredentialSetupDraft {
   credentialMode: HostCredentialMode;
@@ -32,8 +36,12 @@ async function validateOneCLIReachability(
       };
     }
     const client = new OneCLI({ url: urlValidation.normalizedUrl });
+    await client.ensureAgent({
+      name: MODEL_RUNTIME_CREDENTIAL_NAME,
+      identifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+    });
     const config = await Promise.race([
-      client.getContainerConfig(),
+      client.getContainerConfig(MODEL_RUNTIME_CREDENTIAL_IDENTIFIER),
       new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
           reject(new Error('connection timed out after 8 seconds'));
@@ -56,7 +64,7 @@ async function validateOneCLIReachability(
   }
 }
 
-export async function verifyFirstAgentModelAccess(
+export async function verifyModelAccess(
   onecliUrl: string,
 ): Promise<{ ok: boolean; message: string; nextAction?: string }> {
   const check = await validateOneCLIReachability(onecliUrl);
@@ -65,13 +73,12 @@ export async function verifyFirstAgentModelAccess(
       ok: false,
       message: check.message,
       nextAction:
-        'Open Model Access, add the required Claude credentials, then rerun `myclaw setup`.',
+        'Open Model Access, add the required Claude/OpenRouter credentials once, then rerun `myclaw setup`.',
     };
   }
   return {
     ok: true,
-    message:
-      'First-agent Model Access check passed with broker-safe configuration.',
+    message: 'Model Access check passed with broker-safe configuration.',
   };
 }
 
@@ -81,6 +88,7 @@ export async function runCredentialsStep(
   p.note(
     [
       'Model Access gives agents brokered access to Claude and other model providers.',
+      'Claude/OpenRouter credentials are configured once and apply to every agent, subagent, memory run, and scheduled job.',
       'The agent runner receives broker-safe model endpoint settings only. Proxy, certificate, and raw Claude credential values are ignored.',
       'Channel, Postgres, and runtime-owned secrets still stay in runtime .env.',
     ].join('\n'),

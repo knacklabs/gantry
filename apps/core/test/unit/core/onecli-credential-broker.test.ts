@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const getContainerConfig = vi.hoisted(() => vi.fn());
 const ensureAgent = vi.hoisted(() => vi.fn());
+const MODEL_RUNTIME_CREDENTIAL_IDENTIFIER = 'myclaw-model-access';
+const MODEL_RUNTIME_CA_STEM = 'gateway-ca-72ce4c290ee39d60';
 
 vi.mock('@onecli-sh/sdk', () => ({
   OneCLI: vi.fn(function () {
@@ -47,13 +49,11 @@ describe('OnecliAgentCredentialBroker', () => {
         agentIdentifier: 'agent-a',
       },
     });
-    const caPath = path.join(
-      dataDir,
-      'onecli',
-      'gateway-ca-a51d7389ba2cb760.pem',
-    );
+    const caPath = path.join(dataDir, 'onecli', `${MODEL_RUNTIME_CA_STEM}.pem`);
 
-    expect(getContainerConfig).toHaveBeenCalledWith('agent-a');
+    expect(getContainerConfig).toHaveBeenCalledWith(
+      MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+    );
     expect(injection).toMatchObject({
       applied: true,
       brokerProfile: 'onecli',
@@ -75,6 +75,39 @@ describe('OnecliAgentCredentialBroker', () => {
     expect(fs.statSync(path.join(dataDir, 'onecli')).mode & 0o777).toBe(0o700);
     expect(fs.statSync(caPath).mode & 0o777).toBe(0o600);
     fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('requires explicit agent identity for tool capability credential projection', async () => {
+    getContainerConfig.mockResolvedValue({
+      env: {
+        ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
+      },
+    });
+
+    const { OnecliAgentCredentialBroker } =
+      await import('@core/adapters/credentials/onecli/broker.js');
+    const broker = new OnecliAgentCredentialBroker({
+      onecliUrl: 'http://localhost:10254',
+      dataDir: os.tmpdir(),
+    });
+
+    await expect(
+      broker.getInjection({
+        binding: { profile: 'onecli', purpose: 'tool_capability' },
+      }),
+    ).rejects.toThrow(
+      'Tool capability credential projection requires an explicit agent identifier.',
+    );
+
+    await broker.getInjection({
+      binding: {
+        profile: 'onecli',
+        purpose: 'tool_capability',
+        agentIdentifier: 'agent-a',
+      },
+    });
+
+    expect(getContainerConfig).toHaveBeenCalledWith('agent-a');
   });
 
   it('does not cache credential-bearing container config by default', async () => {
@@ -101,6 +134,28 @@ describe('OnecliAgentCredentialBroker', () => {
     expect(getContainerConfig).toHaveBeenCalledTimes(2);
   });
 
+  it('uses the Model Access profile for default broker health checks', async () => {
+    getContainerConfig.mockResolvedValue({
+      env: {
+        ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
+      },
+    });
+
+    const { OnecliAgentCredentialBroker } =
+      await import('@core/adapters/credentials/onecli/broker.js');
+    const broker = new OnecliAgentCredentialBroker({
+      onecliUrl: 'http://localhost:10254',
+      dataDir: os.tmpdir(),
+    });
+
+    await expect(broker.healthCheck()).resolves.toMatchObject({
+      status: 'pass',
+    });
+    expect(getContainerConfig).toHaveBeenCalledWith(
+      MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+    );
+  });
+
   it('tags OpenRouter auth tokens with broker provenance', async () => {
     getContainerConfig.mockResolvedValue({
       env: {
@@ -119,6 +174,8 @@ describe('OnecliAgentCredentialBroker', () => {
     expect(broker.getCapabilities()).toMatchObject({
       returnsRawSecrets: false,
       projectsProviderTokens: true,
+      supportsModelRuntimeProfile: true,
+      modelRuntimeProfileIdentifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
       projectedSecretEnvKeys: ['ANTHROPIC_AUTH_TOKEN'],
     });
 
@@ -159,7 +216,7 @@ describe('OnecliAgentCredentialBroker', () => {
     ).rejects.toThrow('forbidden raw credential env key: ANTHROPIC_AUTH_TOKEN');
   });
 
-  it('coalesces concurrent container config requests by agent', async () => {
+  it('coalesces concurrent container config requests by Model Access profile', async () => {
     let resolveConfig!: (config: { env: Record<string, string> }) => void;
     getContainerConfig.mockReturnValue(
       new Promise((resolve) => {
@@ -188,9 +245,12 @@ describe('OnecliAgentCredentialBroker', () => {
     await Promise.all([first, second]);
 
     expect(getContainerConfig).toHaveBeenCalledTimes(1);
+    expect(getContainerConfig).toHaveBeenCalledWith(
+      MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+    );
   });
 
-  it('can cache container config by agent when an explicit TTL is configured', async () => {
+  it('can cache container config by Model Access profile when an explicit TTL is configured', async () => {
     getContainerConfig.mockResolvedValue({
       env: {
         ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
@@ -213,9 +273,12 @@ describe('OnecliAgentCredentialBroker', () => {
     });
 
     expect(getContainerConfig).toHaveBeenCalledTimes(1);
+    expect(getContainerConfig).toHaveBeenCalledWith(
+      MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+    );
   });
 
-  it('does not rewrite unchanged CA certificate material for the same agent', async () => {
+  it('does not rewrite unchanged CA certificate material for the same Model Access profile', async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-onecli-'));
     getContainerConfig.mockResolvedValue({
       env: {
@@ -235,11 +298,7 @@ describe('OnecliAgentCredentialBroker', () => {
     await broker.getInjection({
       binding: { profile: 'onecli', agentIdentifier: 'agent-a' },
     });
-    const caPath = path.join(
-      dataDir,
-      'onecli',
-      'gateway-ca-a51d7389ba2cb760.pem',
-    );
+    const caPath = path.join(dataDir, 'onecli', `${MODEL_RUNTIME_CA_STEM}.pem`);
     const firstMtimeMs = fs.statSync(caPath).mtimeMs;
     await broker.getInjection({
       binding: { profile: 'onecli', agentIdentifier: 'agent-a' },

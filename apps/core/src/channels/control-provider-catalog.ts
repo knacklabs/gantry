@@ -13,7 +13,10 @@ import {
   type TeamsSetupDiscoveryClient,
 } from './teams-setup-discovery.js';
 import './register-builtins.js';
-import { listChannelProviders } from './provider-registry.js';
+import {
+  listChannelProviders,
+  normalizeProviderId,
+} from './provider-registry.js';
 import { ApplicationError } from '../application/common/application-error.js';
 
 const createdAt = '2026-04-27T00:00:00.000Z' as IsoTimestamp;
@@ -55,7 +58,9 @@ export class RuntimeSecretConversationDiscovery implements ProviderConversationD
   async discover(
     input: Parameters<ProviderConversationDiscoveryPort['discover']>[0],
   ) {
-    const providerId = String(input.providerConnection.providerId);
+    const providerId = normalizeProviderId(
+      String(input.providerConnection.providerId),
+    );
     if (providerId === 'app') return [];
     if (providerId === 'telegram') {
       const token = this.resolveSecret(

@@ -152,6 +152,7 @@ export function mapManualJobToStored(
     linkedSessions: job.linked_sessions,
     nextRun: job.next_run,
     lastRun: job.last_run,
+    staleness: metadata?.staleness ?? null,
     executionMode: job.execution_mode,
     modelAlias: job.model ?? null,
     modelProfileId: resolvedModel.ok ? resolvedModel.entry.id : null,

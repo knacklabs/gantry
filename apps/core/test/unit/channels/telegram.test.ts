@@ -2159,7 +2159,7 @@ describe('TelegramChannel', () => {
       };
       await triggerCallbackQuery(deniedCtx);
       expect(deniedCtx.answerCallbackQuery).toHaveBeenCalledWith({
-        text: 'Only approved admins can make this decision.',
+        text: 'Only the agent DM admin or this conversation control approver can approve.',
         show_alert: true,
       });
 
@@ -2200,7 +2200,7 @@ describe('TelegramChannel', () => {
       await triggerCallbackQuery(deniedCtx);
 
       expect(deniedCtx.answerCallbackQuery).toHaveBeenCalledWith({
-        text: 'Only approved admins can make this decision.',
+        text: 'Only the agent DM admin or this conversation control approver can approve.',
         show_alert: true,
       });
 
@@ -2384,7 +2384,7 @@ describe('TelegramChannel', () => {
       };
       await triggerCallbackQuery(deniedCtx);
       expect(deniedCtx.answerCallbackQuery).toHaveBeenCalledWith({
-        text: 'Only approved admins can answer this prompt.',
+        text: 'Only the agent DM admin or this conversation control approver can answer.',
         show_alert: true,
       });
 

@@ -213,6 +213,7 @@ describe('OneCLI persistence contract', () => {
         [
           { rows: [{ current_user: 'onecli' }] },
           { rows: [{ exists: true }] },
+          { rows: [{ current_schema: 'onecli' }] },
           { rows: [{ has_access: false }] },
           { rows: [{ has_access: false }] },
           { rows: [] },
@@ -271,6 +272,7 @@ describe('OneCLI persistence contract', () => {
         private readonly responses = [
           { rows: [{ current_user: 'onecli' }] },
           { rows: [{ exists: true }] },
+          { rows: [{ current_schema: 'onecli' }] },
           { rows: [{ has_access: false }] },
           { rows: [{ has_access: true }] },
         ];
@@ -301,6 +303,42 @@ describe('OneCLI persistence contract', () => {
     });
   });
 
+  it('fails readiness when the OneCLI role search_path resolves to public', async () => {
+    vi.resetModules();
+    vi.doMock('pg', () => ({
+      Pool: class {
+        private readonly responses = [
+          { rows: [{ current_user: 'onecli' }] },
+          { rows: [{ exists: true }] },
+          { rows: [{ current_schema: 'public' }] },
+        ];
+
+        async query() {
+          const response = this.responses.shift();
+          if (!response) throw new Error('unexpected query');
+          return response;
+        }
+
+        async end() {}
+      },
+    }));
+    const { inspectOnecliPersistenceReadiness: inspectReadiness } =
+      await import('@core/adapters/credentials/onecli/local/persistence.js');
+
+    await expect(
+      inspectReadiness({
+        postgresUrl:
+          'postgresql://onecli:pass@localhost:5432/myclaw?schema=onecli',
+        schema: 'onecli',
+        secretEncryptionKey: 'MDEyMzQ1Njc4OWFiY2RlZmdoaWprbG1ub3BxcnN0dXY=',
+      }),
+    ).resolves.toMatchObject({
+      status: 'fail',
+      message: expect.stringContaining('search_path'),
+      details: ['current_schema=public', 'expected_schema=onecli'],
+    });
+  });
+
   it('fails readiness when application tables exist in public', async () => {
     vi.resetModules();
     vi.doMock('pg', () => ({
@@ -308,6 +346,7 @@ describe('OneCLI persistence contract', () => {
         private readonly responses = [
           { rows: [{ current_user: 'onecli' }] },
           { rows: [{ exists: true }] },
+          { rows: [{ current_schema: 'onecli' }] },
           { rows: [{ has_access: false }] },
           { rows: [{ has_access: false }] },
           { rows: [{ table_name: 'credentials' }] },

@@ -5,8 +5,12 @@ import {
 } from '../../config/index.js';
 import {
   createAgentCredentialBroker,
-  ensureAgentCredentialBinding,
+  ensureModelCredentialBinding,
 } from '../../adapters/credentials/agent-credential-broker-factory.js';
+import {
+  MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+  MODEL_RUNTIME_CREDENTIAL_NAME,
+} from '../../domain/models/credentials.js';
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
 import { encodeGroupMessageCursor } from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
@@ -91,6 +95,8 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     | Promise<AgentCredentialBroker | undefined>
     | undefined;
   let credentialBrokerCacheKey = '';
+  let modelAccessCredentialBindingPromise: Promise<void> | undefined;
+  let modelAccessCredentialBindingCacheKey = '';
   const ops = () => options.opsRepository ?? getRuntimeOpsRepository();
   let channelRuntime: GroupProcessingDeps['channelRuntime'] = {
     hasChannel: () => false,
@@ -125,45 +131,58 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     jid: string,
     group: RegisteredGroup,
   ): Promise<void> {
-    if (group.isMain) return;
-    const identifier = group.folder.toLowerCase().replace(/_/g, '-');
     const brokerConfig = getCredentialBrokerRuntimeConfig();
-    try {
-      const res = options.ensureCredentialBinding
-        ? await options.ensureCredentialBinding({
-            groupJid: jid,
-            group,
-            agentIdentifier: identifier,
-          })
-        : await ensureAgentCredentialBinding({
-            mode: brokerConfig.mode,
-            onecliUrl: brokerConfig.onecliUrl,
-            dataDir: DATA_DIR,
-            broker: await getCredentialBroker(),
-            agentIdentifier: identifier,
-            agentName: group.name,
-          });
-      if (!res) return;
-      logger.info(
-        {
-          jid,
-          identifier,
-          created: res.created,
-          credentialMode: brokerConfig.mode,
-        },
-        'Agent credential binding ensured',
-      );
-    } catch (err) {
-      logger.debug(
-        {
-          jid,
-          identifier,
-          credentialMode: brokerConfig.mode,
-          err: String(err),
-        },
-        'Agent credential binding ensure skipped',
-      );
+    const cacheKey = `${brokerConfig.mode}:${brokerConfig.onecliUrl}:${brokerConfig.externalBrokerBaseUrl}`;
+    if (modelAccessCredentialBindingCacheKey !== cacheKey) {
+      modelAccessCredentialBindingPromise = undefined;
+      modelAccessCredentialBindingCacheKey = cacheKey;
     }
+    if (modelAccessCredentialBindingPromise) {
+      return modelAccessCredentialBindingPromise;
+    }
+    modelAccessCredentialBindingPromise = (async () => {
+      try {
+        const res = options.ensureCredentialBinding
+          ? await options.ensureCredentialBinding({
+              groupJid: jid,
+              group,
+              agentIdentifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+            })
+          : await ensureModelCredentialBinding({
+              mode: brokerConfig.mode,
+              onecliUrl: brokerConfig.onecliUrl,
+              dataDir: DATA_DIR,
+              broker: await getCredentialBroker(),
+            });
+        if (!res) return;
+        logger.info(
+          {
+            jid,
+            identifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+            name: MODEL_RUNTIME_CREDENTIAL_NAME,
+            created: res.created,
+            credentialMode: brokerConfig.mode,
+          },
+          'Model Access credential profile ensured',
+        );
+      } catch (err) {
+        modelAccessCredentialBindingPromise = undefined;
+        logger.debug(
+          {
+            jid,
+            identifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+            name: MODEL_RUNTIME_CREDENTIAL_NAME,
+            credentialMode: brokerConfig.mode,
+            err: String(err),
+          },
+          'Model Access credential profile ensure skipped',
+        );
+      }
+    })().catch((error) => {
+      modelAccessCredentialBindingPromise = undefined;
+      throw error;
+    });
+    return modelAccessCredentialBindingPromise;
   }
 
   function ensureCredentialBinding(jid: string, group: RegisteredGroup): void {
@@ -294,9 +313,10 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   }
 
   async function ensureCredentialBindingsForRegisteredGroups(): Promise<void> {
-    for (const [jid, group] of Object.entries(registeredGroups)) {
-      await ensureCredentialBindingAsync(jid, group);
-    }
+    const firstEntry = Object.entries(registeredGroups)[0];
+    if (!firstEntry) return;
+    const [jid, group] = firstEntry;
+    await ensureCredentialBindingAsync(jid, group);
   }
 
   async function clearSessionForChatJid(

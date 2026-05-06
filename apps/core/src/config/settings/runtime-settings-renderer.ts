@@ -313,7 +313,7 @@ function renderConversationsYaml(
     );
     if (conversation.controlApprovers.length > 0) {
       lines.push(
-        `    approvers: ${JSON.stringify(conversation.controlApprovers)}`,
+        `    control_approvers: ${JSON.stringify(conversation.controlApprovers)}`,
       );
     }
     if (binding) {

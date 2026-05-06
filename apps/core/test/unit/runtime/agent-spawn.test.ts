@@ -844,6 +844,33 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.CLAUDE_CONFIG_DIR).not.toBe('/tmp/myclaw-config/.claude');
   });
 
+  it('requests shared model runtime credentials for main agent runs', async () => {
+    vi.mocked(getEffectiveModelConfig).mockReturnValue({
+      source: 'unset',
+    });
+    vi.mocked(getHostRuntimeCredentialEnv).mockClear();
+    const mainGroup: RegisteredGroup = {
+      ...testGroup,
+      folder: 'main_agent',
+      isMain: true,
+    };
+    const resultPromise = spawnAgent(
+      mainGroup,
+      { ...testInput, groupFolder: 'main_agent', isMain: true },
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    expect(getHostRuntimeCredentialEnv).toHaveBeenCalledWith(
+      'main-agent',
+      undefined,
+      { purpose: 'model_runtime' },
+    );
+  });
+
   it('does not auto-launch the browser for the main agent', async () => {
     const resultPromise = spawnAgent(
       testGroup,

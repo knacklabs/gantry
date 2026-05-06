@@ -8,6 +8,7 @@ export type JobStatus =
   | 'failed'
   | 'dead_lettered'
   | 'archived';
+export type JobStaleness = 'missed_window';
 
 export interface JobRecord {
   jobId: string;
@@ -24,6 +25,7 @@ export interface JobRecord {
   linkedSessions: string[];
   nextRun: string | null;
   lastRun: string | null;
+  staleness?: JobStaleness | null;
   executionMode: JobExecutionMode;
   modelAlias: string | null;
   modelProfileId: string | null;

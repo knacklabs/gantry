@@ -101,7 +101,7 @@ describe('runClaudeQuery', () => {
     });
 
     expect(queryMock).toHaveBeenCalledTimes(1);
-    expect(getContainerConfigMock).toHaveBeenCalledWith('memory');
+    expect(getContainerConfigMock).toHaveBeenCalledWith('myclaw-model-access');
     const call = queryMock.mock.calls[0]?.[0] as
       | {
           prompt?: string;

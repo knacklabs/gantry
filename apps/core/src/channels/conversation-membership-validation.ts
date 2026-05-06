@@ -4,6 +4,7 @@ import type {
   ConversationMembershipValidator,
 } from '../application/provider-conversations/conversation-administration-service.js';
 import type { RuntimeSecretProvider } from '../domain/ports/runtime-secret-provider.js';
+import { normalizeProviderId } from './provider-registry.js';
 
 const TOKEN_BOUND_HTTP_GUIDANCE = 'Verify provider credentials and retry.';
 const TELEGRAM_BOT_TOKEN_PATTERN = /^\d+:[A-Za-z0-9_-]+$/;
@@ -14,7 +15,7 @@ export class RuntimeSecretConversationMembershipValidator implements Conversatio
   async validateControlApprovers(
     input: ConversationMembershipValidationInput,
   ): Promise<ConversationMembershipValidationResult> {
-    const providerId = String(input.providerId);
+    const providerId = normalizeProviderId(String(input.providerId));
     if (providerId === 'telegram') return this.validateTelegram(input);
     if (providerId === 'slack') return this.validateSlack(input);
     if (providerId === 'teams') return this.validateTeams(input);

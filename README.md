@@ -34,7 +34,7 @@ Then follow this order:
 2. Choose `Use local Postgres URL` if you started the provided Compose stack, or choose hosted/existing Postgres and paste those URLs.
 3. Choose your first channel: `Telegram` or `Slack`.
 4. Follow the in-CLI channel guide, choose the main agent name, paste channel credentials, and pick a discovered chat/channel (or enter an ID manually). This first chat becomes the user-facing main agent; channel IDs and runtime folders stay internal.
-5. Connect Model Access for agent model calls. MyClaw and OneCLI can share one Postgres database with separate schemas; agents never receive the database URLs or raw Claude credentials.
+5. Connect Model Access once for all agent, subagent, memory, and scheduled job model calls. MyClaw uses the reserved `myclaw-model-access` OneCLI profile for Claude/OpenRouter credentials; agents only select catalog model aliases and never receive database URLs or raw provider credentials.
 6. Choose main model by friendly alias (`opus` recommended; `sonnet`, `haiku`, or broker-backed `kimi` optional).
 7. Confirm memory settings (memory on, embeddings off, dreaming on by default).
 8. Choose whether to install/start a background service.
@@ -166,7 +166,7 @@ docker compose --env-file ~/myclaw/.env up -d
 myclaw setup
 ```
 
-The Compose file hardcodes the local ports, schema names, and non-secret role names. `~/myclaw/.env` only needs local passwords, `SECRET_ENCRYPTION_KEY`, and the runtime connection URLs. MyClaw setup does not start Docker or create containers; it asks for `MYCLAW_DATABASE_URL` and `ONECLI_DATABASE_URL`, then writes the non-secret OneCLI gateway URL to `settings.yaml` as `credential_broker.onecli.url`.
+The Compose file hardcodes the local ports, schema names, and non-secret role names. `~/myclaw/.env` only needs local passwords, `SECRET_ENCRYPTION_KEY`, and the runtime connection URLs. MyClaw setup does not start Docker or create containers; it asks for `MYCLAW_DATABASE_URL` and `ONECLI_DATABASE_URL`, creates the `myclaw-model-access` Model Access profile, then writes the non-secret OneCLI gateway URL to `settings.yaml` as `credential_broker.onecli.url`.
 
 If an older local `.env` still contains settings-owned keys such as
 `MYCLAW_CREDENTIAL_MODE`, `ONECLI_URL`, `ANTHROPIC_MODEL`, or

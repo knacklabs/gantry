@@ -62,14 +62,24 @@ must not contain non-secret settings such as credential mode or broker URLs.
 ## Agent-Accessed Credentials
 
 Agent-accessed credentials are credentials an agent may use after policy allows
-the action. They include LLM provider access and tool or API credentials.
+the action. They include LLM provider access and tool or API credentials, but
+those two categories are not scoped the same way.
+
+Model-provider access is account-level Model Access. MyClaw always requests it
+with `purpose=model_runtime` through the reserved broker profile
+`myclaw-model-access`; it is not bound to an individual agent, conversation,
+memory worker, subagent, or job. Agents, subagents, and jobs select catalog
+model aliases only. Claude and OpenRouter credentials are configured once in
+OneCLI or the selected enterprise broker and then projected to model SDK runs
+according to the selected model provider.
 
 Agents do not receive raw secret values from MyClaw. Runtime code requests an
 `AgentCredentialInjection` from `AgentCredentialBroker`; the returned injection
 contains only broker-safe environment values and certificate references for the
-provider credential lane. Today that lane is model/provider access. Future
-tool/API credential lanes must be explicit capability projections rather than
-runner-wide process environment.
+provider credential lane. Tool/API credential lanes must use
+`purpose=tool_capability` with an explicit agent/capability context; they must
+never reuse the shared Model Access profile or become runner-wide ambient
+process environment.
 
 Raw provider credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and
 `CLAUDE_CODE_OAUTH_TOKEN` must be configured through OneCLI or the selected
@@ -134,6 +144,10 @@ The adapter owns:
 - broker-safe environment filtering
 - OneCLI CA certificate materialization for host runners
 - local OneCLI persistence readiness checks
+
+OneCLI model access is resolved through the `myclaw-model-access` profile. Setup
+and runtime startup create that profile directly; there is no fallback to
+`main-agent` or per-agent model credential rows.
 
 OneCLI may return local provider proxy variables such as `HTTP_PROXY`,
 `HTTPS_PROXY`, and `NODE_USE_ENV_PROXY` for the model credential lane. MyClaw

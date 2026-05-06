@@ -127,4 +127,28 @@ describe('scheduler MCP tools', () => {
     ).toBeUndefined();
     expect(schemas.get('scheduler_run_now')?.job_id).toBeDefined();
   });
+
+  it('renders missed-window staleness in scheduler job summaries', async () => {
+    const { schedulerJobSummary } =
+      await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
+
+    expect(
+      schedulerJobSummary({
+        id: 'job-1',
+        name: 'Follow up',
+        schedule_type: 'once',
+        status: 'active',
+        next_run: '2026-04-24T09:00:00.000Z',
+        last_run: null,
+        visibility: {
+          staleness: 'missed_window',
+          target: { agentId: 'agent:main', conversationJids: ['tg:team'] },
+          inheritedTools: [],
+          jobExtraTools: [],
+          effectiveAllowedTools: [],
+          recentRunErrors: [],
+        },
+      }),
+    ).toContain('Staleness: missed_window');
+  });
 });

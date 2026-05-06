@@ -121,7 +121,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         );
         if (!authorized) {
           await ctx.answerCallbackQuery({
-            text: 'Only approved admins can answer this prompt.',
+            text: 'Only the agent DM admin or this conversation control approver can answer.',
             show_alert: true,
           });
           return;
@@ -264,7 +264,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           'Telegram permission decision rejected: user is not an approved administrator',
         );
         await ctx.answerCallbackQuery({
-          text: 'Only approved admins can make this decision.',
+          text: 'Only the agent DM admin or this conversation control approver can approve.',
           show_alert: true,
         });
         return;

@@ -39,6 +39,77 @@ function createJob(overrides: Partial<Job> = {}): Job {
 }
 
 describe('PgBossSchedulerEngine', () => {
+  it('re-enqueues stale pending once jobs immediately and throttles repeated syncs', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-24T09:10:10.000Z'));
+    try {
+      const staleJob = createJob({
+        next_run: '2026-04-24T09:00:00.000Z',
+        schedule_value: '2026-04-24T09:00:00.000Z',
+        last_run: null,
+      });
+      const send = vi.fn().mockResolvedValue(undefined);
+      const boss = {
+        send,
+        schedule: vi.fn().mockResolvedValue(undefined),
+        unschedule: vi.fn().mockResolvedValue(undefined),
+        deleteJob: vi.fn().mockResolvedValue(undefined),
+      };
+      const engine = new PgBossSchedulerEngine(
+        {
+          registeredGroups: () => ({}),
+          queue: {} as never,
+          onProcess: vi.fn(),
+          sendMessage: vi.fn(),
+          opsRepository: {
+            releaseStaleJobLeases: vi.fn().mockResolvedValue(0),
+            getAllJobs: vi.fn().mockResolvedValue([staleJob]),
+          } as never,
+        },
+        {
+          registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+          runJob: vi.fn().mockResolvedValue(undefined),
+          sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+        },
+      );
+      (engine as unknown as { boss: typeof boss }).boss = boss;
+
+      await (
+        engine as unknown as { syncAllJobs: () => Promise<void> }
+      ).syncAllJobs();
+      await (
+        engine as unknown as { syncAllJobs: () => Promise<void> }
+      ).syncAllJobs();
+
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenLastCalledWith(
+        'myclaw.jobs.parallel',
+        { jobId: 'job-1', scheduledFor: '2026-04-24T09:00:00.000Z' },
+        expect.objectContaining({
+          id: 'myclaw.send.am9iLTE6b25jZQ',
+          startAfter: '2026-04-24T09:10:10.000Z',
+          group: { id: 'myclaw.group.dGc6dGVhbQ' },
+        }),
+      );
+
+      vi.setSystemTime(new Date('2026-04-24T09:11:10.000Z'));
+      await (
+        engine as unknown as { syncAllJobs: () => Promise<void> }
+      ).syncAllJobs();
+
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(send).toHaveBeenLastCalledWith(
+        'myclaw.jobs.parallel',
+        { jobId: 'job-1', scheduledFor: '2026-04-24T09:00:00.000Z' },
+        expect.objectContaining({
+          startAfter: '2026-04-24T09:11:10.000Z',
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('re-enqueues active jobs after stale lease release even when the schedule signature is unchanged', async () => {
     const activeJob = createJob();
     const send = vi.fn().mockResolvedValue(undefined);
@@ -202,6 +273,9 @@ describe('PgBossSchedulerEngine', () => {
       },
       callbacks,
     );
+    const requestSync = vi
+      .spyOn(engine, 'requestSync')
+      .mockImplementation(() => undefined);
 
     await (
       engine as unknown as {
@@ -224,5 +298,6 @@ describe('PgBossSchedulerEngine', () => {
       'serialized',
       { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' },
     );
+    expect(requestSync).toHaveBeenCalledWith();
   });
 });

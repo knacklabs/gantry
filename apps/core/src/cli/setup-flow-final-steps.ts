@@ -27,7 +27,7 @@ import { registerTelegramMainGroup } from './telegram.js';
 import { type FlowAction } from './setup-flow-control.js';
 import { chooseProgressAction } from './setup-flow-prompts.js';
 import type { ServiceChoice, SetupDraft } from './setup-flow-state.js';
-import { verifyFirstAgentModelAccess } from './setup-credentials.js';
+import { verifyModelAccess } from './setup-credentials.js';
 
 function parseApproverIds(raw: string): string[] {
   return [
@@ -471,7 +471,7 @@ export async function runVerifyStep(
     return { type: 'resume' };
   }
 
-  const modelAccess = await verifyFirstAgentModelAccess(draft.onecliUrl);
+  const modelAccess = await verifyModelAccess(draft.onecliUrl);
   if (!modelAccess.ok) {
     p.log.warn(
       `${modelAccess.message}\nNext action: ${modelAccess.nextAction || 'Open Model Access and rerun setup verification.'}`,

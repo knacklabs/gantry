@@ -320,45 +320,8 @@ export async function handleSessionCommand(opts: {
   const cmdIndex = missedMessages.indexOf(cmdMsg);
   const preCommandMsgs = missedMessages.slice(0, cmdIndex);
 
-  // Send pre-command messages to the agent so they're in the session context.
-  if (preCommandMsgs.length > 0) {
-    const prePrompt = deps.formatMessages(preCommandMsgs, timezone);
-    let hadPreError = false;
-    let preOutputSent = false;
-
-    const preResult = await deps.runAgent(prePrompt, async (result) => {
-      if (result.status === 'error') hadPreError = true;
-      const text = resultToText(result.result);
-      if (text) {
-        await deps.sendMessage(text);
-        preOutputSent = true;
-      }
-      // Close stdin on session-update marker — emitted after query completes,
-      // so all results (including multi-result runs) are already written.
-      if (result.status === 'success' && result.result === null) {
-        deps.closeStdin();
-      }
-    });
-
-    if (preResult === 'error' || hadPreError) {
-      logger.warn(
-        { group: groupName },
-        'Pre-command processing failed, aborting session command',
-      );
-      await deps.sendMessage(
-        `Failed to process messages before ${command.raw}. Try again.`,
-      );
-      if (preOutputSent) {
-        // Output was already sent — don't retry or it will duplicate.
-        // Advance cursor past pre-command messages, leave command pending.
-        deps.advanceCursor(preCommandMsgs[preCommandMsgs.length - 1]);
-        return { handled: true, success: true };
-      }
-      return { handled: true, success: false };
-    }
-  }
-
-  // Forward the literal slash command as the prompt (no XML formatting)
+  // /new is the recovery path when the persisted provider session is bad.
+  // Do not try to run older queued messages before clearing the session.
   if (command.kind === 'new') {
     let archived = false;
     try {
@@ -398,6 +361,45 @@ export async function handleSessionCommand(opts: {
     return { handled: true, success: true };
   }
 
+  // Send pre-command messages to the agent so they're in the session context.
+  if (preCommandMsgs.length > 0) {
+    const prePrompt = deps.formatMessages(preCommandMsgs, timezone);
+    let hadPreError = false;
+    let preOutputSent = false;
+
+    const preResult = await deps.runAgent(prePrompt, async (result) => {
+      if (result.status === 'error') hadPreError = true;
+      const text = resultToText(result.result);
+      if (text) {
+        await deps.sendMessage(text);
+        preOutputSent = true;
+      }
+      // Close stdin on session-update marker — emitted after query completes,
+      // so all results (including multi-result runs) are already written.
+      if (result.status === 'success' && result.result === null) {
+        deps.closeStdin();
+      }
+    });
+
+    if (preResult === 'error' || hadPreError) {
+      logger.warn(
+        { group: groupName },
+        'Pre-command processing failed, aborting session command',
+      );
+      await deps.sendMessage(
+        `Failed to process messages before ${command.raw}. Try again.`,
+      );
+      if (preOutputSent) {
+        // Output was already sent — don't retry or it will duplicate.
+        // Advance cursor past pre-command messages, leave command pending.
+        deps.advanceCursor(preCommandMsgs[preCommandMsgs.length - 1]);
+        return { handled: true, success: true };
+      }
+      return { handled: true, success: false };
+    }
+  }
+
+  // Forward the literal slash command as the prompt (no XML formatting)
   if (command.kind === 'dream') {
     deps.advanceCursor(cmdMsg);
     if (!deps.runMemoryDreaming) {

@@ -652,7 +652,7 @@ describe('handleSessionCommand', () => {
     );
   });
 
-  it('does not clear session for /new when pre-command processing fails with no output', async () => {
+  it('clears session for /new without processing stale pre-command messages', async () => {
     const deps = makeDeps({ runAgent: vi.fn().mockResolvedValue('error') });
     const msgs = [
       makeMsg('summarize this', { timestamp: '99' }),
@@ -667,15 +667,17 @@ describe('handleSessionCommand', () => {
       timezone: 'UTC',
       deps,
     });
-    expect(result).toEqual({ handled: true, success: false });
-    expect(deps.archiveCurrentSession).not.toHaveBeenCalled();
-    expect(deps.clearCurrentSession).not.toHaveBeenCalled();
-    expect(deps.advanceCursor).not.toHaveBeenCalledWith(
+    expect(result).toEqual({ handled: true, success: true });
+    expect(deps.runAgent).not.toHaveBeenCalled();
+    expect(deps.archiveCurrentSession).toHaveBeenCalledTimes(1);
+    expect(deps.clearCurrentSession).toHaveBeenCalledTimes(1);
+    expect(deps.advanceCursor).toHaveBeenCalledWith(
       expect.objectContaining({ timestamp: '100' }),
     );
+    expect(deps.sendMessage).toHaveBeenCalledWith('Started a fresh session.');
   });
 
-  it('processes pre-command messages before /new and leaves post-command pending', async () => {
+  it('skips pre-command messages before /new and leaves post-command pending', async () => {
     const deps = makeDeps();
     const msgs = [
       makeMsg('summarize this', { timestamp: '99' }),
@@ -691,12 +693,8 @@ describe('handleSessionCommand', () => {
       deps,
     });
     expect(result).toEqual({ handled: true, success: true });
-    expect(deps.formatMessages).toHaveBeenCalledWith([msgs[0]], 'UTC');
-    expect(deps.runAgent).toHaveBeenCalledTimes(1);
-    expect(deps.runAgent).toHaveBeenCalledWith(
-      '<formatted>',
-      expect.any(Function),
-    );
+    expect(deps.formatMessages).not.toHaveBeenCalled();
+    expect(deps.runAgent).not.toHaveBeenCalled();
     expect(deps.archiveCurrentSession).toHaveBeenCalledTimes(1);
     expect(deps.clearCurrentSession).toHaveBeenCalledTimes(1);
     expect(deps.advanceCursor).toHaveBeenCalledWith(

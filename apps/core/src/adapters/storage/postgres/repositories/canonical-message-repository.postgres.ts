@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import type { NewMessage } from '../../../../domain/repositories/domain-types.js';
+import { normalizeProviderId } from '../../../../channels/provider-registry.js';
 import * as pgSchema from '../schema/schema.js';
 import {
   CANONICAL_APP_ID,
@@ -42,7 +43,9 @@ export class PostgresCanonicalMessageRepository {
 
   async saveMessage(msg: NewMessage): Promise<void> {
     await this.db.transaction(async (tx) => {
-      const providerId = msg.provider ?? providerIdForJid(msg.chat_jid);
+      const providerId =
+        normalizeProviderId(msg.provider ?? providerIdForJid(msg.chat_jid)) ||
+        'app';
       const conversationId = await this.graph.ensureConversation(
         msg.chat_jid,
         {

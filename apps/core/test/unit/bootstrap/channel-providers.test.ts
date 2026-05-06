@@ -5,7 +5,9 @@ import '@core/channels/register-builtins.js';
 import {
   getProvider,
   listChannelProviders,
+  normalizeProviderId,
   providerForJid,
+  providerIdForJid,
   registerProvider,
 } from '@core/channels/provider-registry.js';
 
@@ -153,6 +155,11 @@ describe('listChannelProviders', () => {
     expect(providerForJid('sl:C123456')?.id).toBe('slack');
     expect(providerForJid('teams:19:abc@thread.v2')?.id).toBe('teams');
     expect(providerForJid('unknown:123')).toBeUndefined();
+    expect(providerIdForJid('tg:-100123')).toBe('telegram');
+    expect(providerIdForJid('sl:C123456')).toBe('slack');
+    expect(providerIdForJid('teams:19:abc@thread.v2')).toBe('teams');
+    expect(normalizeProviderId('tg')).toBe('telegram');
+    expect(normalizeProviderId('sl')).toBe('slack');
   });
 
   it('supports a third provider in registry and settings checks', () => {

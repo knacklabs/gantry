@@ -136,9 +136,7 @@ export async function spawnAgent(
     (resolvedModel?.ok ? resolvedModel.entry : undefined) ??
     findModelByRunnerModel(effectiveModel);
   const promptProfileService = getPromptProfileService();
-  const agentIdentifier = input.isMain
-    ? undefined
-    : group.folder.toLowerCase().replace(/_/g, '-');
+  const agentIdentifier = group.folder.toLowerCase().replace(/_/g, '-');
 
   let compiledSystemPrompt = '';
 
@@ -172,6 +170,7 @@ export async function spawnAgent(
   const hostCredentials = await getHostRuntimeCredentialEnv(
     agentIdentifier,
     options?.credentialBroker,
+    { purpose: 'model_runtime' },
   );
   if (
     effectiveModelEntry?.provider === 'openrouter' &&

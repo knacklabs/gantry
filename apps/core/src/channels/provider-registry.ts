@@ -38,6 +38,13 @@ export interface Provider {
 const registry = new Map<string, Provider>();
 let providersByJidPrefix: Provider[] = [];
 
+const builtInPrefixAliases = new Map<string, string>([
+  ['app', 'app'],
+  ['tg', 'telegram'],
+  ['sl', 'slack'],
+  ['teams', 'teams'],
+]);
+
 function rebuildProviderPrefixCache(): void {
   providersByJidPrefix = [...registry.values()].sort(
     (a, b) => b.jidPrefix.length - a.jidPrefix.length,
@@ -78,6 +85,20 @@ export function getProvider(id: string): Provider | undefined {
   return registry.get(id);
 }
 
+export function normalizeProviderId(id: string): string {
+  const normalized = String(id ?? '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) return '';
+  const direct = registry.get(normalized);
+  if (direct) return direct.id;
+  for (const provider of registry.values()) {
+    const prefixAlias = provider.jidPrefix.replace(/:$/, '').toLowerCase();
+    if (prefixAlias === normalized) return provider.id;
+  }
+  return builtInPrefixAliases.get(normalized) ?? normalized;
+}
+
 export function listChannelProviders(): readonly Provider[] {
   return Array.from(registry.values());
 }
@@ -95,4 +116,15 @@ export function providerForJid(jid: string): Provider | undefined {
     }
   }
   return undefined;
+}
+
+export function providerIdForJid(jid: string, fallback = 'app'): string {
+  const provider = providerForJid(jid);
+  if (provider) return provider.id;
+  for (const [prefixAlias, providerId] of builtInPrefixAliases.entries()) {
+    if (jid.startsWith(`${prefixAlias}:`)) return providerId;
+  }
+  const idx = jid.indexOf(':');
+  if (idx > 0) return normalizeProviderId(jid.slice(0, idx));
+  return fallback;
 }

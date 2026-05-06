@@ -253,10 +253,8 @@ export function createChannelPersistenceHandlers({
   };
 }
 
-function providerIdForMessage(chatJid: string, msg: NewMessage): string {
-  if (msg.provider?.trim()) return msg.provider.trim();
-  const idx = chatJid.indexOf(':');
-  return idx > 0 ? chatJid.slice(0, idx) : 'app';
+function providerIdForMessage(_chatJid: string, msg: NewMessage): string {
+  return msg.provider?.trim().toLowerCase() || 'app';
 }
 
 function dmAgentGroup(

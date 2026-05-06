@@ -109,7 +109,7 @@ async function resolveOnecliMemoryEnv(): Promise<Record<string, string>> {
   if (brokerConfig.mode === 'external') {
     const injection = await getAgentCredentialInjection({
       mode: 'external',
-      agentIdentifier: 'memory',
+      purpose: 'model_runtime',
       externalInjection: createExternalAgentCredentialInjection({
         normalizedBaseUrl: resolveExternalCredentialBaseUrl(
           brokerConfig.externalBrokerBaseUrl,
@@ -134,7 +134,7 @@ async function resolveOnecliMemoryEnv(): Promise<Record<string, string>> {
   });
   const injection = await getAgentCredentialInjection({
     mode: 'onecli',
-    agentIdentifier: 'memory',
+    purpose: 'model_runtime',
     broker: requireOnecliBroker(await memoryCredentialBrokerPromise),
   });
   return injection.env;

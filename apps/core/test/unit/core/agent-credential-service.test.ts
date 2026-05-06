@@ -6,8 +6,17 @@ import { CredentialBrokerPolicyError } from '@core/domain/models/credential-erro
 function makeBroker(
   overrides: {
     getInjection?: AgentCredentialBroker['getInjection'];
+    ensureAgent?: (agent: {
+      name: string;
+      identifier: string;
+    }) => Promise<{ created?: boolean }>;
   } = {},
-): AgentCredentialBroker {
+): AgentCredentialBroker & {
+  ensureAgent?: (agent: {
+    name: string;
+    identifier: string;
+  }) => Promise<{ created?: boolean }>;
+} {
   return {
     getInjection:
       overrides.getInjection ||
@@ -28,6 +37,7 @@ function makeBroker(
       returnsRawSecrets: false,
       projectsProviderTokens: false,
     }),
+    ...(overrides.ensureAgent ? { ensureAgent: overrides.ensureAgent } : {}),
   };
 }
 
@@ -160,7 +170,7 @@ describe('agent credential service', () => {
     });
   });
 
-  it('keeps broker requests agent-scoped and does not request runtime-owned secrets', async () => {
+  it('requests brokered model credentials through the shared model runtime purpose', async () => {
     const getInjection = vi.fn(async () => ({
       env: {
         ANTHROPIC_BASE_URL: 'https://broker.example.com',
@@ -187,7 +197,34 @@ describe('agent credential service', () => {
     expect(getInjection).toHaveBeenCalledWith({
       binding: {
         profile: 'onecli',
-        agentIdentifier: 'memory',
+        purpose: 'model_runtime',
+      },
+    });
+  });
+
+  it('keeps tool capability credential requests agent-scoped', async () => {
+    const getInjection = vi.fn(async () => ({
+      env: {
+        ANTHROPIC_BASE_URL: 'https://broker.example.com',
+      },
+      applied: true,
+      brokerProfile: 'onecli' as const,
+    }));
+    const broker = makeBroker({ getInjection });
+    const { getAgentCredentialInjection } = await loadCredentialService();
+
+    await getAgentCredentialInjection({
+      mode: 'onecli',
+      purpose: 'tool_capability',
+      agentIdentifier: 'agent-one',
+      broker,
+    });
+
+    expect(getInjection).toHaveBeenCalledWith({
+      binding: {
+        profile: 'onecli',
+        purpose: 'tool_capability',
+        agentIdentifier: 'agent-one',
       },
     });
   });
@@ -235,7 +272,7 @@ describe('agent credential service', () => {
         broker: unreachableBroker,
       }),
     ).rejects.toThrow(
-      'Credential broker mode is enabled but the credential broker is not reachable for agent agent-one.',
+      'Credential broker mode is enabled but the credential broker is not reachable for MyClaw Model Access.',
     );
   });
 
@@ -253,7 +290,25 @@ describe('agent credential service', () => {
         broker,
       }),
     ).rejects.toThrow(
-      'Credential broker mode is enabled but the credential broker is not reachable.',
+      'Credential broker mode is enabled but the credential broker is not reachable for MyClaw Model Access.',
     );
+  });
+
+  it('ensures only the shared Model Access profile for onecli model credentials', async () => {
+    const ensureAgent = vi.fn(async () => ({ created: true }));
+    const broker = makeBroker({ ensureAgent });
+    const { ensureModelCredentialBinding } = await loadCredentialService();
+
+    await expect(
+      ensureModelCredentialBinding({
+        mode: 'onecli',
+        broker,
+      }),
+    ).resolves.toEqual({ created: true });
+
+    expect(ensureAgent).toHaveBeenCalledWith({
+      name: 'MyClaw Model Access',
+      identifier: 'myclaw-model-access',
+    });
   });
 });

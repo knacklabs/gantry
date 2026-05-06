@@ -11,8 +11,10 @@ import type {
 } from '../../../domain/ports/agent-credential-broker.js';
 import type {
   AgentCredentialInjection,
+  AgentCredentialBrokerBinding,
   CredentialBrokerHealth,
 } from '../../../domain/models/credentials.js';
+import { MODEL_RUNTIME_CREDENTIAL_IDENTIFIER } from '../../../domain/models/credentials.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import { CredentialBrokerConfigError } from '../../../domain/models/credential-errors.js';
 import { filterTrustedOnecliEnv } from './env-policy.js';
@@ -71,6 +73,8 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
     return {
       profile: 'onecli',
       supportsAgentBinding: true,
+      supportsModelRuntimeProfile: true,
+      modelRuntimeProfileIdentifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
       returnsRawSecrets: false,
       projectsProviderTokens: true,
       projectedSecretEnvKeys: ['ANTHROPIC_AUTH_TOKEN'],
@@ -80,8 +84,10 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
   async getInjection(
     input: AgentCredentialBrokerInput,
   ): Promise<AgentCredentialInjection> {
-    const agentIdentifier = input.binding.agentIdentifier;
-    const config = await this.getAgentRuntimeConfig(agentIdentifier);
+    const credentialIdentifier = this.resolveCredentialIdentifier(
+      input.binding,
+    );
+    const config = await this.getAgentRuntimeConfig(credentialIdentifier);
     const { env, credentialProviders, droppedKeys } = filterTrustedOnecliEnv(
       config.env || {},
     );
@@ -94,7 +100,7 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
         'Dropped disallowed OneCLI env keys',
       );
     }
-    this.applyCaCertificate(env, config.caCertificate, agentIdentifier);
+    this.applyCaCertificate(env, config.caCertificate, credentialIdentifier);
     const httpProxy = env.HTTP_PROXY || env.http_proxy;
     const httpsProxy = env.HTTPS_PROXY || env.https_proxy;
 
@@ -123,8 +129,13 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
       };
     }
     try {
-      const binding = input?.binding || { profile: 'onecli' as const };
-      const config = await this.getAgentRuntimeConfig(binding.agentIdentifier);
+      const binding = input?.binding || {
+        profile: 'onecli' as const,
+        purpose: 'model_runtime' as const,
+      };
+      const config = await this.getAgentRuntimeConfig(
+        this.resolveCredentialIdentifier(binding),
+      );
       filterTrustedOnecliEnv(config.env || {});
       return {
         status: 'pass',
@@ -150,19 +161,22 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
   private applyCaCertificate(
     env: Record<string, string>,
     caCertificate: string | undefined,
-    agentIdentifier: string | undefined,
+    credentialIdentifier: string,
   ): void {
     if (!caCertificate) return;
 
     const caDir = path.join(this.options.dataDir, 'onecli');
     const caHash = createHash('sha256').update(caCertificate).digest('hex');
-    const cacheKey = agentIdentifier || '__default__';
+    const cacheKey = credentialIdentifier;
     const cached = this.caCache.get(cacheKey);
     if (cached?.hash === caHash && fs.existsSync(cached.path)) {
       env.NODE_EXTRA_CA_CERTS = cached.path;
       return;
     }
-    const caPath = path.join(caDir, `${this.caFileStem(agentIdentifier)}.pem`);
+    const caPath = path.join(
+      caDir,
+      `${this.caFileStem(credentialIdentifier)}.pem`,
+    );
     const tempPath = `${caPath}.${process.pid}.${randomUUID()}.tmp`;
     fs.mkdirSync(caDir, { recursive: true, mode: 0o700 });
     fs.chmodSync(caDir, 0o700);
@@ -176,13 +190,13 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
     env.NODE_EXTRA_CA_CERTS = caPath;
     this.caCache.set(cacheKey, { hash: caHash, path: caPath });
     logger.info(
-      { agentIdentifier: agentIdentifier || 'default', caPath },
+      { agentIdentifier: credentialIdentifier, caPath },
       'Applied OneCLI CA certificate for host runner',
     );
   }
 
   private async getAgentRuntimeConfig(
-    agentIdentifier: string | undefined,
+    resolvedAgentIdentifier: string,
   ): Promise<OneCliAgentRuntimeConfig> {
     if (!this.client) {
       throw new CredentialBrokerConfigError(
@@ -190,7 +204,7 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
           'OneCLI credential mode is enabled but ONECLI_URL is not configured.',
       );
     }
-    const cacheKey = agentIdentifier || '__default__';
+    const cacheKey = resolvedAgentIdentifier;
     const now = Date.now();
     const cached = this.configCache.get(cacheKey);
     if (cached && cached.expiresAt > now) {
@@ -204,7 +218,7 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
       this.options.configCacheTtlMs ??
       OnecliAgentCredentialBroker.DEFAULT_CONFIG_CACHE_TTL_MS;
     const request = this.client
-      .getContainerConfig(agentIdentifier)
+      .getContainerConfig(resolvedAgentIdentifier)
       .then((config) => {
         if (ttlMs > 0) {
           this.configCache.set(cacheKey, {
@@ -221,9 +235,25 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
     return request;
   }
 
-  private caFileStem(agentIdentifier: string | undefined): string {
+  private resolveCredentialIdentifier(
+    binding: AgentCredentialBrokerBinding,
+  ): string {
+    const purpose = binding.purpose ?? 'model_runtime';
+    if (purpose === 'model_runtime') {
+      return MODEL_RUNTIME_CREDENTIAL_IDENTIFIER;
+    }
+    const identifier = binding.agentIdentifier?.trim();
+    if (!identifier) {
+      throw new CredentialBrokerConfigError(
+        'Tool capability credential projection requires an explicit agent identifier.',
+      );
+    }
+    return identifier;
+  }
+
+  private caFileStem(credentialIdentifier: string): string {
     const hash = createHash('sha256')
-      .update(agentIdentifier || 'default')
+      .update(credentialIdentifier)
       .digest('hex')
       .slice(0, 16);
     return `gateway-ca-${hash}`;

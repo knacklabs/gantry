@@ -13,6 +13,8 @@ const mockEnsureGroupIpcLayout = vi.fn();
 const mockGetHostAgentRunnerDistDir = vi.fn(
   () => '/tmp/myclaw-test/dist/runner',
 );
+const MODEL_RUNTIME_CREDENTIAL_IDENTIFIER = 'myclaw-model-access';
+const MODEL_RUNTIME_CA_STEM = 'gateway-ca-72ce4c290ee39d60';
 
 async function loadModule(config: {
   ONECLI_URL?: string;
@@ -133,7 +135,9 @@ describe('getHostRuntimeCredentialEnv', () => {
       brokerApplied: true,
       brokerProfile: 'onecli',
     });
-    expect(mockGetContainerConfig).toHaveBeenCalledWith('agent-x');
+    expect(mockGetContainerConfig).toHaveBeenCalledWith(
+      MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+    );
     expect(mockLoggerWarn).toHaveBeenCalledWith(
       {
         droppedKeys: ['CUSTOM_FLAG'],
@@ -166,6 +170,24 @@ describe('getHostRuntimeCredentialEnv', () => {
       brokerApplied: true,
       brokerProfile: 'onecli',
     });
+    expect(mockGetContainerConfig).toHaveBeenCalledWith(
+      MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+    );
+  });
+
+  it('keeps tool capability credentials agent-scoped', async () => {
+    mockGetContainerConfig.mockResolvedValue({
+      env: {
+        ANTHROPIC_BASE_URL: 'https://broker.example.com',
+      },
+    });
+    const mod = await loadModule({});
+
+    await mod.getHostRuntimeCredentialEnv('agent-x', undefined, {
+      purpose: 'tool_capability',
+    });
+
+    expect(mockGetContainerConfig).toHaveBeenCalledWith('agent-x');
   });
 
   it('returns OneCLI local model proxy env', async () => {
@@ -245,8 +267,7 @@ describe('getHostRuntimeCredentialEnv', () => {
     expect(result.brokerApplied).toBe(true);
     expect(result.env).toEqual({
       ANTHROPIC_BASE_URL: 'https://broker.example.com',
-      NODE_EXTRA_CA_CERTS:
-        '/tmp/myclaw-test/data/onecli/gateway-ca-37a8eec1ce19687d.pem',
+      NODE_EXTRA_CA_CERTS: `/tmp/myclaw-test/data/onecli/${MODEL_RUNTIME_CA_STEM}.pem`,
     });
     expect(mockMkdirSync).toHaveBeenCalledWith('/tmp/myclaw-test/data/onecli', {
       recursive: true,
@@ -258,21 +279,25 @@ describe('getHostRuntimeCredentialEnv', () => {
     );
     expect(mockWriteFileSync).toHaveBeenCalledWith(
       expect.stringMatching(
-        /^\/tmp\/myclaw-test\/data\/onecli\/gateway-ca-37a8eec1ce19687d\.pem\.\d+\.[0-9a-f-]+\.tmp$/,
+        new RegExp(
+          `^/tmp/myclaw-test/data/onecli/${MODEL_RUNTIME_CA_STEM}\\.pem\\.\\d+\\.[0-9a-f-]+\\.tmp$`,
+        ),
       ),
       'cert-data',
       { mode: 0o600 },
     );
     expect(mockRenameSync).toHaveBeenCalledWith(
       expect.stringMatching(
-        /^\/tmp\/myclaw-test\/data\/onecli\/gateway-ca-37a8eec1ce19687d\.pem\.\d+\.[0-9a-f-]+\.tmp$/,
+        new RegExp(
+          `^/tmp/myclaw-test/data/onecli/${MODEL_RUNTIME_CA_STEM}\\.pem\\.\\d+\\.[0-9a-f-]+\\.tmp$`,
+        ),
       ),
-      '/tmp/myclaw-test/data/onecli/gateway-ca-37a8eec1ce19687d.pem',
+      `/tmp/myclaw-test/data/onecli/${MODEL_RUNTIME_CA_STEM}.pem`,
     );
     expect(mockLoggerInfo).toHaveBeenCalledWith(
       {
-        agentIdentifier: 'default',
-        caPath: '/tmp/myclaw-test/data/onecli/gateway-ca-37a8eec1ce19687d.pem',
+        agentIdentifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+        caPath: `/tmp/myclaw-test/data/onecli/${MODEL_RUNTIME_CA_STEM}.pem`,
       },
       'Applied OneCLI CA certificate for host runner',
     );

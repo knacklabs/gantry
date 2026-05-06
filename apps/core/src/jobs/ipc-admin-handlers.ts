@@ -686,6 +686,8 @@ async function createMcpProxyForSourceGroup(
   const storage = getRuntimeStorage();
   const credentials = await getHostRuntimeCredentialEnv(
     memoryAgentIdForGroupFolder(sourceGroup),
+    undefined,
+    { purpose: 'tool_capability' },
   );
   return new McpToolProxy(storage.repositories.mcpServers, {
     credentialEnv: credentials.env,

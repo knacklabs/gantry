@@ -264,6 +264,21 @@ export async function inspectOnecliPersistenceReadiness(input: {
           'Run `myclaw local setup` or create the OneCLI schema before starting the broker.',
       };
     }
+    const currentSchema = await pool.query<{ current_schema: string | null }>(
+      'SELECT current_schema() AS current_schema',
+    );
+    if (currentSchema.rows[0]?.current_schema !== input.schema) {
+      return {
+        status: 'fail',
+        message:
+          'OneCLI database role search_path does not resolve to the configured schema.',
+        details: [
+          `current_schema=${currentSchema.rows[0]?.current_schema || 'none'}`,
+          `expected_schema=${input.schema}`,
+        ],
+        nextAction: `Set the OneCLI database role search_path to ${input.schema}, public and restart OneCLI.`,
+      };
+    }
     if (input.myclawSchema?.trim()) {
       const myclawUsage = await pool.query<{ has_access: boolean }>(
         'SELECT has_schema_privilege(current_user, $1, $2) AS has_access',

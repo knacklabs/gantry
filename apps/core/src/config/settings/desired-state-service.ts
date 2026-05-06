@@ -1,9 +1,6 @@
-import { createHash } from 'node:crypto';
-
 import type { AgentId } from '../../domain/agent/agent.js';
 import type { AppId } from '../../domain/app/app.js';
 import type { AgentPersona } from '../../shared/agent-persona.js';
-import type { AgentMcpServerBinding } from '../../domain/mcp/mcp-servers.js';
 import type {
   AgentRepository,
   ConversationRepository,
@@ -21,9 +18,16 @@ import type {
   ProviderConnectionId,
   ProviderId,
 } from '../../domain/provider/provider.js';
-import type { AgentSkillBinding } from '../../domain/skills/skills.js';
-import type { AgentToolBinding } from '../../domain/tools/tools.js';
 import { replaceDesiredStateCapabilities } from './desired-state-capability-reconcile.js';
+import {
+  activeCapabilities,
+  configuredBindingId,
+  configuredConversationId,
+  dedupeConfiguredConversation,
+  mergeDmAccess,
+  stableBindingId,
+  stableSettingsId,
+} from './desired-state-export-helpers.js';
 import {
   configuredConversationKind,
   defaultRuntimeSecretRefs,
@@ -182,6 +186,8 @@ export class SettingsDesiredStateService {
       const providerId = provider?.id ?? 'app';
       const connectionId =
         providers[providerId]?.defaultConnection ?? `${providerId}_default`;
+      const externalId = stripProviderPrefix(jid);
+      const kind = provider?.isGroupJid(jid) ? 'group' : 'dm';
       providers[providerId] = {
         enabled: true,
         defaultConnection: connectionId,
@@ -191,23 +197,63 @@ export class SettingsDesiredStateService {
         label: provider?.label ?? providerId,
         runtimeSecretRefs: defaultRuntimeSecretRefs(providerId),
       };
-      const conversationId = stableSettingsId(
-        `${folder}_${providerId}`,
-        conversations,
-      );
-      conversations[conversationId] ??= {
+      const conversationsRepository = this.deps.repositories.conversations;
+      const conversationId =
+        configuredConversationId({
+          providerConnectionId: connectionId,
+          externalId,
+          conversations,
+        }) ?? stableSettingsId(`${folder}_${providerId}`, conversations);
+      const storedConversation = conversationsRepository
+        ? await this.findConfiguredConversation({
+            conversations: conversationsRepository,
+            providerId: providerId as ProviderId,
+            providerConnectionId: connectionId as ProviderConnectionId,
+            externalConversationId: externalId,
+          })
+        : null;
+      const storedApprovers =
+        kind === 'dm' || !storedConversation
+          ? []
+          : (
+              await this.deps.repositories.conversations!.listConversationApprovers(
+                storedConversation.id,
+              )
+            ).map((approver) => approver.externalUserId);
+      const existingConversation = conversations[conversationId];
+      const controlApprovers =
+        kind === 'dm'
+          ? []
+          : existingConversation?.controlApprovers.length
+            ? existingConversation.controlApprovers
+            : storedApprovers;
+      conversations[conversationId] = {
         providerConnection: connectionId,
-        externalId: stripProviderPrefix(jid),
-        kind: provider?.isGroupJid(jid) ? 'group' : 'dm',
-        displayName: group.name,
-        senderPolicy: { allow: '*', mode: 'trigger' },
-        controlApprovers: [],
+        externalId,
+        kind,
+        displayName: existingConversation?.displayName ?? group.name,
+        senderPolicy: existingConversation?.senderPolicy ?? {
+          allow: '*',
+          mode: 'trigger',
+        },
+        controlApprovers: [...new Set(controlApprovers)].sort((a, b) =>
+          a.localeCompare(b),
+        ),
       };
-      const desiredBindingId = stableSettingsId(
-        `${folder}_${conversationId}`,
+      dedupeConfiguredConversation({
+        canonicalId: conversationId,
+        providerConnectionId: connectionId,
+        externalId,
+        conversations,
         bindings,
-      );
-      bindings[desiredBindingId] ??= {
+      });
+      const desiredBindingId =
+        configuredBindingId({
+          agent: folder,
+          conversationId,
+          bindings,
+        }) ?? stableSettingsId(`${folder}_${conversationId}`, bindings);
+      bindings[desiredBindingId] = {
         agent: folder,
         conversation: conversationId,
         trigger: group.trigger,
@@ -486,22 +532,51 @@ export class SettingsDesiredStateService {
       } satisfies ProviderConnection);
     }
 
-    const existing = await conversations.findConversationByExternalValue({
-      appId: this.appId,
+    const providerId = connectionSettings.provider as ProviderId;
+    const providerConnectionId = input.conversation
+      .providerConnection as ProviderConnectionId;
+    const existing = await this.findConfiguredConversation({
+      conversations,
+      providerId,
+      providerConnectionId,
       externalConversationId,
     });
-    if (existing) return existing;
+    const kind = configuredConversationKind(input.conversation.kind);
+    if (existing) {
+      if (
+        existing.providerConnectionId === providerConnectionId &&
+        existing.externalRef?.value === externalConversationId &&
+        existing.kind === kind &&
+        existing.title === input.conversation.displayName &&
+        existing.status === 'active'
+      ) {
+        return existing;
+      }
+      const reconciled: Conversation = {
+        ...existing,
+        providerConnectionId,
+        externalRef: {
+          kind: 'conversation',
+          value: externalConversationId,
+        },
+        kind,
+        title: input.conversation.displayName,
+        status: 'active',
+        updatedAt: input.now,
+      };
+      await conversations.saveConversation(reconciled);
+      return reconciled;
+    }
 
     const conversation: Conversation = {
       id: `conversation:${jid}` as ConversationId,
       appId: this.appId,
-      providerConnectionId: input.conversation
-        .providerConnection as ProviderConnectionId,
+      providerConnectionId,
       externalRef: {
         kind: 'conversation',
         value: externalConversationId,
       },
-      kind: configuredConversationKind(input.conversation.kind),
+      kind,
       title: input.conversation.displayName,
       status: 'active',
       createdAt: input.now,
@@ -509,6 +584,20 @@ export class SettingsDesiredStateService {
     };
     await conversations.saveConversation(conversation);
     return conversation;
+  }
+
+  private async findConfiguredConversation(input: {
+    conversations: ConversationRepository;
+    providerId: ProviderId;
+    providerConnectionId: ProviderConnectionId;
+    externalConversationId: string;
+  }): Promise<Conversation | null> {
+    return input.conversations.getConversationByExternalRef({
+      appId: this.appId,
+      providerId: input.providerId,
+      providerConnectionId: input.providerConnectionId,
+      externalConversationId: input.externalConversationId,
+    });
   }
 
   async validateCapabilityReferences(
@@ -705,77 +794,6 @@ function hasAnyCapability(capabilities: RuntimeConfiguredAgentCapabilities) {
     capabilities.skillIds.length > 0 ||
     capabilities.mcpServerIds.length > 0
   );
-}
-
-function activeCapabilities(
-  toolBindings: AgentToolBinding[],
-  skillBindings: AgentSkillBinding[],
-  mcpBindings: AgentMcpServerBinding[],
-): RuntimeConfiguredAgentCapabilities {
-  return {
-    toolIds: toolBindings
-      .filter((binding) => binding.status === 'active')
-      .map((binding) => binding.toolId),
-    skillIds: skillBindings
-      .filter((binding) => binding.status === 'active')
-      .map((binding) => binding.skillId),
-    mcpServerIds: mcpBindings
-      .filter((binding) => binding.status === 'active')
-      .map((binding) => binding.serverId),
-  };
-}
-
-function mergeDmAccess(
-  existing: RuntimeConfiguredAgent['dmAccess'],
-  access: Array<{ provider: string; externalUserId: string }>,
-  approvers: Array<{ provider: string; externalUserId: string }>,
-): RuntimeConfiguredAgent['dmAccess'] {
-  if (existing.length > 0) return existing;
-  const providers = new Map<string, Set<string>>();
-  for (const entry of access) {
-    const set = providers.get(entry.provider) ?? new Set<string>();
-    set.add(entry.externalUserId);
-    providers.set(entry.provider, set);
-  }
-  return [...providers.entries()].map(([provider, userIds]) => ({
-    provider,
-    userIds: [...userIds].sort(),
-    adminUserId: approvers.find((entry) => entry.provider === provider)
-      ?.externalUserId,
-  }));
-}
-
-function stableBindingId(
-  jid: string,
-  existing: Record<string, unknown>,
-): string {
-  const matching = Object.entries(existing).find(
-    ([, binding]) =>
-      binding &&
-      typeof binding === 'object' &&
-      'jid' in binding &&
-      (binding as { jid?: unknown }).jid === jid,
-  );
-  if (matching) return matching[0];
-  const base = jid.replace(/[^A-Za-z0-9_.:@-]/g, '_').slice(0, 80) || 'primary';
-  if (!Object.hasOwn(existing, base)) return base;
-  const hash = createHash('sha256').update(jid).digest('hex').slice(0, 12);
-  return `${base}_${hash}`.slice(0, 96);
-}
-
-function stableSettingsId(
-  seed: string,
-  existing: Record<string, unknown>,
-): string {
-  const base =
-    seed
-      .replace(/[^A-Za-z0-9_-]/g, '_')
-      .replace(/_+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      .slice(0, 80) || 'item';
-  if (!Object.hasOwn(existing, base)) return base;
-  const hash = createHash('sha256').update(seed).digest('hex').slice(0, 12);
-  return `${base}_${hash}`.slice(0, 96);
 }
 
 function jsonEqual(left: unknown, right: unknown): boolean {

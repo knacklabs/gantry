@@ -22,8 +22,9 @@ async function loadCredentialsStep(
     }
     return { env: onecliEnvOrError };
   });
+  const ensureAgent = vi.fn(async () => ({ created: false }));
   const OneCLI = vi.fn(function () {
-    return { getContainerConfig };
+    return { getContainerConfig, ensureAgent };
   });
   vi.doMock('@clack/prompts', () => ({
     isCancel: () => false,
@@ -34,16 +35,17 @@ async function loadCredentialsStep(
     log: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
   }));
   vi.doMock('@onecli-sh/sdk', () => ({ OneCLI }));
-  const { runCredentialsStep, verifyFirstAgentModelAccess } =
+  const { runCredentialsStep, verifyModelAccess } =
     await import('@core/cli/setup-credentials.js');
   return {
     runCredentialsStep,
-    verifyFirstAgentModelAccess,
+    verifyModelAccess,
     text,
     note,
     spinner,
     OneCLI,
     getContainerConfig,
+    ensureAgent,
   };
 }
 
@@ -56,6 +58,7 @@ describe('setup credentials step', () => {
       spinner,
       OneCLI,
       getContainerConfig,
+      ensureAgent,
     } = await loadCredentialsStep([], {
       ANTHROPIC_BASE_URL: 'http://localhost:10255/anthropic',
     });
@@ -71,7 +74,11 @@ describe('setup credentials step', () => {
     expect(draft.onecliUrl).toBe('http://localhost:10254');
     expect(text).not.toHaveBeenCalled();
     expect(OneCLI).toHaveBeenCalledWith({ url: 'http://localhost:10254' });
-    expect(getContainerConfig).toHaveBeenCalled();
+    expect(ensureAgent).toHaveBeenCalledWith({
+      name: 'MyClaw Model Access',
+      identifier: 'myclaw-model-access',
+    });
+    expect(getContainerConfig).toHaveBeenCalledWith('myclaw-model-access');
     expect(spinner.start).toHaveBeenCalledWith('Validating Model Access...');
     expect(note).toHaveBeenCalledWith(
       expect.stringContaining('Model Access URL: http://localhost:10254'),
@@ -93,40 +100,43 @@ describe('setup credentials step', () => {
 
     expect(action).toEqual({ type: 'next' });
     expect(OneCLI).toHaveBeenCalledWith({ url: 'http://localhost:10254' });
-    expect(getContainerConfig).toHaveBeenCalled();
+    expect(getContainerConfig).toHaveBeenCalledWith('myclaw-model-access');
     expect(spinner.start).toHaveBeenCalledWith('Validating Model Access...');
   });
 
-  it('verifies first-agent model access with broker-safe env', async () => {
-    const { verifyFirstAgentModelAccess, getContainerConfig } =
-      await loadCredentialsStep([], {
+  it('verifies shared model access with broker-safe env', async () => {
+    const { verifyModelAccess, getContainerConfig } = await loadCredentialsStep(
+      [],
+      {
         ANTHROPIC_BASE_URL: 'http://localhost:10255/anthropic',
-      });
+      },
+    );
 
-    const result = await verifyFirstAgentModelAccess('http://localhost:10254');
+    const result = await verifyModelAccess('http://localhost:10254');
 
     expect(result.ok).toBe(true);
     expect(result.message).toContain('broker-safe');
-    expect(getContainerConfig).toHaveBeenCalled();
+    expect(getContainerConfig).toHaveBeenCalledWith('myclaw-model-access');
   });
 
-  it('fails first-agent model access when OneCLI returns raw provider credentials', async () => {
-    const { verifyFirstAgentModelAccess } = await loadCredentialsStep([], {
+  it('fails shared model access when OneCLI returns raw provider credentials', async () => {
+    const { verifyModelAccess } = await loadCredentialsStep([], {
       OPENAI_API_KEY: 'sk-secret',
     });
 
-    const result = await verifyFirstAgentModelAccess('http://localhost:10254');
+    const result = await verifyModelAccess('http://localhost:10254');
 
     expect(result.ok).toBe(false);
     expect(result.message).toContain('forbidden raw credential');
     expect(result.nextAction).toContain('Open Model Access');
   });
 
-  it('fails first-agent model access for invalid Model Access URLs', async () => {
-    const { verifyFirstAgentModelAccess, getContainerConfig } =
-      await loadCredentialsStep([]);
+  it('fails shared model access for invalid Model Access URLs', async () => {
+    const { verifyModelAccess, getContainerConfig } = await loadCredentialsStep(
+      [],
+    );
 
-    const result = await verifyFirstAgentModelAccess('http://onecli.example');
+    const result = await verifyModelAccess('http://onecli.example');
 
     expect(result.ok).toBe(false);
     expect(result.message).toContain('ONECLI_URL must use HTTPS');
@@ -134,15 +144,17 @@ describe('setup credentials step', () => {
     expect(getContainerConfig).not.toHaveBeenCalled();
   });
 
-  it('fails first-agent model access with actionable guidance when OneCLI is unreachable', async () => {
-    const { verifyFirstAgentModelAccess, getContainerConfig } =
-      await loadCredentialsStep([], new Error('gateway unavailable'));
+  it('fails shared model access with actionable guidance when OneCLI is unreachable', async () => {
+    const { verifyModelAccess, getContainerConfig } = await loadCredentialsStep(
+      [],
+      new Error('gateway unavailable'),
+    );
 
-    const result = await verifyFirstAgentModelAccess('http://localhost:10254');
+    const result = await verifyModelAccess('http://localhost:10254');
 
     expect(result.ok).toBe(false);
     expect(result.message).toContain('gateway unavailable');
     expect(result.nextAction).toContain('Open Model Access');
-    expect(getContainerConfig).toHaveBeenCalled();
+    expect(getContainerConfig).toHaveBeenCalledWith('myclaw-model-access');
   });
 });

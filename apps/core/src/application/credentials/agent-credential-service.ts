@@ -1,6 +1,11 @@
 import type {
+  AgentCredentialPurpose,
   AgentCredentialInjection,
   CredentialBrokerProfile,
+} from '../../domain/models/credentials.js';
+import {
+  MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+  MODEL_RUNTIME_CREDENTIAL_NAME,
 } from '../../domain/models/credentials.js';
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
 import { isCredentialBrokerBoundaryError } from '../../domain/models/credential-errors.js';
@@ -8,16 +13,19 @@ import { isCredentialBrokerBoundaryError } from '../../domain/models/credential-
 export type AgentCredentialInjectionInput =
   | {
       mode: 'external';
+      purpose?: AgentCredentialPurpose;
       agentIdentifier?: string;
       externalInjection: AgentCredentialInjection;
     }
   | {
       mode: 'onecli';
+      purpose?: AgentCredentialPurpose;
       agentIdentifier?: string;
       broker: AgentCredentialBroker;
     }
   | {
       mode: 'none';
+      purpose?: AgentCredentialPurpose;
       agentIdentifier?: string;
     };
 
@@ -49,19 +57,26 @@ export async function getAgentCredentialInjection(
   }
 
   try {
+    const purpose = input.purpose ?? 'model_runtime';
     return await broker.getInjection({
       binding: {
         profile: input.mode,
-        agentIdentifier: input.agentIdentifier,
+        purpose,
+        ...(purpose === 'tool_capability'
+          ? { agentIdentifier: input.agentIdentifier }
+          : {}),
       },
     });
   } catch (err) {
     if (isCredentialBrokerBoundaryError(err)) {
       throw err;
     }
-    const suffix = input.agentIdentifier
-      ? ` for agent ${input.agentIdentifier}`
-      : '';
+    const suffix =
+      (input.purpose ?? 'model_runtime') === 'model_runtime'
+        ? ` for ${MODEL_RUNTIME_CREDENTIAL_NAME}`
+        : input.agentIdentifier
+          ? ` for agent ${input.agentIdentifier}`
+          : '';
     throw new Error(
       `Credential broker mode is enabled but the credential broker is not reachable${suffix}.`,
       { cause: err },
@@ -69,10 +84,8 @@ export async function getAgentCredentialInjection(
   }
 }
 
-export async function ensureAgentCredentialBinding(input: {
+export async function ensureModelCredentialBinding(input: {
   mode: CredentialBrokerProfile;
-  agentIdentifier: string;
-  agentName: string;
   broker?: AgentCredentialBroker;
 }): Promise<{ created?: boolean } | undefined> {
   if (input.mode !== 'onecli') return undefined;
@@ -91,7 +104,7 @@ export async function ensureAgentCredentialBinding(input: {
       })
     | undefined;
   return bindable?.ensureAgent?.({
-    name: input.agentName,
-    identifier: input.agentIdentifier,
+    name: MODEL_RUNTIME_CREDENTIAL_NAME,
+    identifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
   });
 }
