@@ -8,7 +8,7 @@ import {
   isMyClawMcpWildcardRule,
 } from '../shared/admin-mcp-tools.js';
 import {
-  BASELINE_MYCLAW_MCP_TOOL_NAMES,
+  DEFAULT_MYCLAW_MCP_TOOL_NAMES,
   myclawMcpFullToolName,
   myclawMcpToolNameFromFullName,
   selectedMyClawMcpFullToolNames,
@@ -106,7 +106,7 @@ export const UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS = [
   'ReadMcpResource',
 ] as const;
 
-const MYCLAW_MCP_ALLOWED_TOOLS = BASELINE_MYCLAW_MCP_TOOL_NAMES.map(
+const MYCLAW_MCP_ALLOWED_TOOLS = DEFAULT_MYCLAW_MCP_TOOL_NAMES.map(
   myclawMcpFullToolName,
 );
 

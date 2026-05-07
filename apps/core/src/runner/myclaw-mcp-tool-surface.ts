@@ -38,9 +38,13 @@ export const OPTIONAL_MYCLAW_MCP_TOOL_NAMES = [
   'scheduler_get_dead_letter',
 ] as const;
 
-export const ALL_MYCLAW_MCP_TOOL_NAMES = [
+export const DEFAULT_MYCLAW_MCP_TOOL_NAMES = [
   ...BASELINE_MYCLAW_MCP_TOOL_NAMES,
   ...OPTIONAL_MYCLAW_MCP_TOOL_NAMES,
+] as const;
+
+export const ALL_MYCLAW_MCP_TOOL_NAMES = [
+  ...DEFAULT_MYCLAW_MCP_TOOL_NAMES,
   ...ADMIN_MCP_TOOL_NAMES,
 ] as const;
 
@@ -60,7 +64,7 @@ export function myclawMcpToolNameFromFullName(value: string): string | null {
 export function selectedMyClawMcpToolNames(
   configuredTools: readonly string[],
 ): string[] {
-  const names = new Set<string>(BASELINE_MYCLAW_MCP_TOOL_NAMES);
+  const names = new Set<string>(DEFAULT_MYCLAW_MCP_TOOL_NAMES);
   for (const configuredTool of configuredTools) {
     const name = myclawMcpToolNameFromFullName(configuredTool);
     if (name) names.add(name);
@@ -78,18 +82,20 @@ export function parseEnabledMyClawMcpToolNames(
   raw: string | undefined,
 ): Set<string> {
   if (!raw?.trim()) {
-    return new Set(BASELINE_MYCLAW_MCP_TOOL_NAMES);
+    return new Set(DEFAULT_MYCLAW_MCP_TOOL_NAMES);
   }
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) {
-      return new Set(BASELINE_MYCLAW_MCP_TOOL_NAMES);
+      return new Set(DEFAULT_MYCLAW_MCP_TOOL_NAMES);
     }
-    const enabled = parsed
-      .map((item) => (typeof item === 'string' ? item.trim() : ''))
-      .filter((item) => ALL_MYCLAW_MCP_TOOL_NAME_SET.has(item));
-    return new Set(enabled);
+    const enabled = new Set<string>(DEFAULT_MYCLAW_MCP_TOOL_NAMES);
+    for (const item of parsed) {
+      const toolName = typeof item === 'string' ? item.trim() : '';
+      if (ALL_MYCLAW_MCP_TOOL_NAME_SET.has(toolName)) enabled.add(toolName);
+    }
+    return enabled;
   } catch {
-    return new Set(BASELINE_MYCLAW_MCP_TOOL_NAMES);
+    return new Set(DEFAULT_MYCLAW_MCP_TOOL_NAMES);
   }
 }

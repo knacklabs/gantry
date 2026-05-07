@@ -1,5 +1,9 @@
 import path from 'path';
 import {
+  myclawMcpFullToolName,
+  parseEnabledMyClawMcpToolNames,
+} from '../myclaw-mcp-tool-surface.js';
+import {
   ADMIN_MCP_TOOL_NAMES,
   isAdminMcpToolName,
   type AdminMcpToolName,
@@ -41,6 +45,9 @@ export const browserProfileName =
 export const enabledAdminMcpTools = parseEnabledAdminMcpTools(
   process.env.MYCLAW_ADMIN_MCP_TOOLS_JSON,
 );
+export const enabledMyClawMcpTools = parseEnabledMyClawMcpToolNames(
+  process.env.MYCLAW_MCP_TOOL_NAMES_JSON,
+);
 
 export function isAdminMcpToolEnabled(toolName: AdminMcpToolName): boolean {
   return enabledAdminMcpTools.has(toolName);
@@ -64,7 +71,18 @@ function parseEnabledAdminMcpTools(
 }
 
 export function capabilityStatusText(): string {
+  const availableToolNames = [...enabledMyClawMcpTools].filter(
+    (toolName) => !isAdminMcpToolName(toolName),
+  );
+  for (const adminToolName of enabledAdminMcpTools) {
+    availableToolNames.push(adminToolName);
+  }
   const lines = [
+    'MyClaw MCP tools available in this run:',
+    ...availableToolNames
+      .sort()
+      .map((toolName) => `- available: ${myclawMcpFullToolName(toolName)}`),
+    '',
     'MyClaw admin tool capabilities:',
     ...ADMIN_MCP_TOOL_NAMES.map((toolName) => {
       const fullName = `mcp__myclaw__${toolName}`;

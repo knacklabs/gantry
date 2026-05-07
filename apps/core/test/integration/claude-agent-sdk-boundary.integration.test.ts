@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { selectedMyClawMcpToolNames } from '@agent-runner-src/myclaw-mcp-tool-surface.js';
 import type { AgentRunnerInput } from '@core/runner/claude/types.js';
 
 const sdkState = vi.hoisted(() => ({
@@ -393,23 +394,9 @@ describe('Claude Agent SDK boundary integration', () => {
         MYCLAW_MEMORY_DEFAULT_SCOPE: 'group',
         MYCLAW_BROWSER_PROFILE_NAME: '',
         MYCLAW_ADMIN_MCP_TOOLS_JSON: '[]',
-        MYCLAW_MCP_TOOL_NAMES_JSON: JSON.stringify([
-          'ask_user_question',
-          'browser_launch',
-          'browser_status',
-          'capability_status',
-          'mcp_call_tool',
-          'mcp_list_tools',
-          'memory_save',
-          'memory_search',
-          'procedure_save',
-          'request_mcp_server',
-          'request_permission',
-          'request_skill_dependency_install',
-          'request_skill_install',
-          'request_skill_proposal',
-          'send_message',
-        ]),
+        MYCLAW_MCP_TOOL_NAMES_JSON: JSON.stringify(
+          selectedMyClawMcpToolNames([]),
+        ),
         MYCLAW_IPC_DIR: path.join(env.root, 'ipc', 'group'),
         MYCLAW_IPC_AUTH_TOKEN: 'runner-ipc-token',
         MYCLAW_IPC_RESPONSE_VERIFY_KEY: 'runner-response-verify-key',

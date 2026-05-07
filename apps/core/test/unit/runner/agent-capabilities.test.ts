@@ -5,6 +5,11 @@ import {
   composeAgentCapabilities,
   type AgentCapabilityProvider,
 } from '@agent-runner-src/agent-capabilities.js';
+import {
+  DEFAULT_MYCLAW_MCP_TOOL_NAMES,
+  myclawMcpFullToolName,
+  selectedMyClawMcpToolNames,
+} from '@agent-runner-src/myclaw-mcp-tool-surface.js';
 
 const SAFE_DEFAULT_ALLOWED_TOOLS = [
   'Agent',
@@ -12,21 +17,7 @@ const SAFE_DEFAULT_ALLOWED_TOOLS = [
   'WebFetch',
   'ToolSearch',
   'Skill',
-  'mcp__myclaw__send_message',
-  'mcp__myclaw__ask_user_question',
-  'mcp__myclaw__memory_search',
-  'mcp__myclaw__memory_save',
-  'mcp__myclaw__procedure_save',
-  'mcp__myclaw__browser_launch',
-  'mcp__myclaw__browser_status',
-  'mcp__myclaw__request_skill_install',
-  'mcp__myclaw__request_skill_proposal',
-  'mcp__myclaw__request_skill_dependency_install',
-  'mcp__myclaw__request_mcp_server',
-  'mcp__myclaw__request_permission',
-  'mcp__myclaw__capability_status',
-  'mcp__myclaw__mcp_list_tools',
-  'mcp__myclaw__mcp_call_tool',
+  ...DEFAULT_MYCLAW_MCP_TOOL_NAMES.map(myclawMcpFullToolName),
 ] as const;
 
 const DEVELOPER_ALLOWED_TOOLS = [
@@ -125,23 +116,9 @@ describe('agent capability composition', () => {
         MYCLAW_MEMORY_DEFAULT_SCOPE: 'group',
         MYCLAW_BROWSER_PROFILE_NAME: 'c-team-abc123abc123',
         MYCLAW_ADMIN_MCP_TOOLS_JSON: '[]',
-        MYCLAW_MCP_TOOL_NAMES_JSON: JSON.stringify([
-          'ask_user_question',
-          'browser_launch',
-          'browser_status',
-          'capability_status',
-          'mcp_call_tool',
-          'mcp_list_tools',
-          'memory_save',
-          'memory_search',
-          'procedure_save',
-          'request_mcp_server',
-          'request_permission',
-          'request_skill_dependency_install',
-          'request_skill_install',
-          'request_skill_proposal',
-          'send_message',
-        ]),
+        MYCLAW_MCP_TOOL_NAMES_JSON: JSON.stringify(
+          selectedMyClawMcpToolNames([]),
+        ),
         MYCLAW_IPC_DIR: '/tmp/ipc/team',
         MYCLAW_IPC_AUTH_TOKEN: 'token',
         MYCLAW_BROWSER_IPC_AUTH_TOKEN: 'browser-token',
@@ -186,27 +163,14 @@ describe('agent capability composition', () => {
       ]),
     );
     expect(profile.mcpServers.myclaw?.env?.MYCLAW_MCP_TOOL_NAMES_JSON).toBe(
-      JSON.stringify([
-        'ask_user_question',
-        'browser_launch',
-        'browser_status',
-        'capability_status',
-        'mcp_call_tool',
-        'mcp_list_tools',
-        'memory_save',
-        'memory_search',
-        'procedure_save',
-        'register_agent',
-        'request_mcp_server',
-        'request_permission',
-        'request_settings_update',
-        'request_skill_dependency_install',
-        'request_skill_install',
-        'request_skill_proposal',
-        'send_message',
-        'service_restart',
-        'settings_desired_state',
-      ]),
+      JSON.stringify(
+        selectedMyClawMcpToolNames([
+          'mcp__myclaw__settings_desired_state',
+          'mcp__myclaw__request_settings_update',
+          'mcp__myclaw__service_restart',
+          'mcp__myclaw__register_agent',
+        ]),
+      ),
     );
   });
 
@@ -284,8 +248,9 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).toContain('mcp__myclaw__memory_search');
     expect(profile.allowedTools).toContain('mcp__myclaw__memory_save');
     expect(profile.allowedTools).toContain('mcp__myclaw__procedure_save');
-    expect(profile.allowedTools).not.toContain('mcp__myclaw__memory_patch');
-    expect(profile.allowedTools).not.toContain('mcp__myclaw__procedure_patch');
+    expect(profile.allowedTools).toContain('mcp__myclaw__memory_patch');
+    expect(profile.allowedTools).toContain('mcp__myclaw__procedure_patch');
+    expect(profile.allowedTools).toContain('mcp__myclaw__scheduler_list_jobs');
     expect(profile.allowedTools).not.toContain('Read');
     expect(profile.allowedTools).not.toContain('Glob');
     expect(profile.allowedTools).not.toContain('Grep');

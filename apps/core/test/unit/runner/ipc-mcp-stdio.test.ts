@@ -417,6 +417,9 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
     expect(result.exitCode, result.stderr).toBe(0);
     const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
     expect(record.result.content[0].text).toContain(
+      'available: mcp__myclaw__scheduler_list_jobs',
+    );
+    expect(record.result.content[0].text).toContain(
       'requestable: mcp__myclaw__service_restart',
     );
     expect(record.result.content[0].text).toContain(
@@ -479,9 +482,9 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
     expect(result.stderr).toContain('tool not registered: service_restart');
   });
 
-  it('restricts registered MCP tools to the runner-projected surface', async () => {
+  it('keeps default first-party MCP tools registered despite stale runner projection', async () => {
     const fixture = createMcpFixture();
-    const restrictedSurface = JSON.stringify([
+    const staleSurface = JSON.stringify([
       'send_message',
       'ask_user_question',
       'memory_search',
@@ -499,42 +502,42 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
       'mcp_call_tool',
     ]);
 
-    const hiddenScheduler = await runMcpFixture(
+    const scheduler = await runMcpFixture(
       fixture,
       'scheduler_list_models',
       {},
-      { MYCLAW_MCP_TOOL_NAMES_JSON: restrictedSurface },
+      { MYCLAW_MCP_TOOL_NAMES_JSON: staleSurface },
     );
 
-    expect(hiddenScheduler.exitCode).not.toBe(0);
-    expect(hiddenScheduler.stderr).toContain(
-      'tool not registered: scheduler_list_models',
-    );
+    expect(scheduler.exitCode, scheduler.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.content[0].text).toContain('Supported models');
 
-    const hiddenPatch = await runMcpFixture(
+    const hiddenAdmin = await runMcpFixture(
       createMcpFixture(),
-      'memory_patch',
-      { id: 'memory-1', expected_version: 1, value: 'updated' },
-      { MYCLAW_MCP_TOOL_NAMES_JSON: restrictedSurface },
+      'service_restart',
+      {},
+      { MYCLAW_MCP_TOOL_NAMES_JSON: staleSurface },
     );
-    expect(hiddenPatch.exitCode).not.toBe(0);
-    expect(hiddenPatch.stderr).toContain('tool not registered: memory_patch');
+    expect(hiddenAdmin.exitCode).not.toBe(0);
+    expect(hiddenAdmin.stderr).toContain(
+      'tool not registered: service_restart',
+    );
   });
 
-  it('fails closed to baseline tools when runner projection is missing', async () => {
+  it('defaults to first-party MCP tools when runner projection is missing', async () => {
     const fixture = createMcpFixture();
 
-    const hiddenScheduler = await runMcpFixture(
+    const scheduler = await runMcpFixture(
       fixture,
       'scheduler_list_models',
       {},
       { MYCLAW_MCP_TOOL_NAMES_JSON: undefined },
     );
 
-    expect(hiddenScheduler.exitCode).not.toBe(0);
-    expect(hiddenScheduler.stderr).toContain(
-      'tool not registered: scheduler_list_models',
-    );
+    expect(scheduler.exitCode, scheduler.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.content[0].text).toContain('Supported models');
   });
 
   it('defaults scheduler upsert delivery to the trusted runtime thread', async () => {
