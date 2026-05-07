@@ -1,12 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { CronExpressionParser } from 'cron-parser';
-import {
-  nowIso,
-  nowMs,
-  parseIso,
-  sleep,
-} from '../../../infrastructure/time/datetime.js';
+import { nowIso, parseIso } from '../../../infrastructure/time/datetime.js';
 import { TASKS_DIR } from '../context.js';
 import { formatTaskFailureLines } from '../formatting.js';
 import {
@@ -42,6 +37,19 @@ async function requestSchedulerData(
     timestamp: nowIso(),
   });
   return waitForTaskResponse(taskId, timeoutMs);
+}
+
+const SCHEDULER_WAIT_MIN_TIMEOUT_MS = 1_000;
+const SCHEDULER_WAIT_MAX_TIMEOUT_MS = 300_000;
+const SCHEDULER_WAIT_RESPONSE_GRACE_MS = 10_000;
+
+function normalizeSchedulerWaitTimeoutMs(value: unknown): number {
+  const raw =
+    typeof value === 'number' && Number.isFinite(value) ? value : 30_000;
+  return Math.max(
+    SCHEDULER_WAIT_MIN_TIMEOUT_MS,
+    Math.min(raw, SCHEDULER_WAIT_MAX_TIMEOUT_MS),
+  );
 }
 
 function taskError(response: TaskResponseEnvelope | null, fallback: string) {
@@ -622,43 +630,32 @@ export function registerSchedulerTools(server: McpServer): void {
       timeout_ms: z.number().optional(),
     },
     async (args) => {
-      const timeoutMs = Math.max(
-        1_000,
-        Math.min(args.timeout_ms ?? 30_000, 120_000),
-      );
+      const timeoutMs = normalizeSchedulerWaitTimeoutMs(args.timeout_ms);
       const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
-      const deadline = nowMs() + timeoutMs;
-      while (nowMs() < deadline) {
-        const response = await requestSchedulerData(
-          'scheduler_wait_for_events',
-          {
-            jobId: args.job_id,
-            runId: args.run_id,
-            eventType: args.event_type,
-            sinceId: args.since_id,
-            since: args.since,
-            limit,
-          },
-          5_000,
-        );
-        const error = taskError(response, 'Scheduler wait for events failed.');
-        if (error) return error;
-        const events = dataRecord(response!).events;
-        const result = Array.isArray(events) ? events : [];
-        if (result.length > 0) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        }
-        await sleep(250);
-      }
+      const response = await requestSchedulerData(
+        'scheduler_wait_for_events',
+        {
+          jobId: args.job_id,
+          runId: args.run_id,
+          eventType: args.event_type,
+          sinceId: args.since_id,
+          since: args.since,
+          limit,
+          timeoutMs,
+        },
+        timeoutMs + SCHEDULER_WAIT_RESPONSE_GRACE_MS,
+      );
+      const error = taskError(response, 'Scheduler wait for events failed.');
+      if (error) return error;
+      const events = dataRecord(response!).events;
+      const result = Array.isArray(events) ? events : [];
       return {
-        content: [{ type: 'text' as const, text: '[]' }],
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
       };
     },
   );

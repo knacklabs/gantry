@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 
 import { ApplicationError } from '@core/application/common/application-error.js';
 import type { TaskContext, TaskIpcData } from '@core/jobs/ipc-types.js';
@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     pauseJob: vi.fn(),
     resumeJob: vi.fn(),
     runJobNowFromMcp: vi.fn(),
+    listJobEvents: vi.fn(),
   },
   jobServiceDeps: [] as unknown[],
   runtimeControlRepository: {
@@ -55,6 +56,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
 
 import { schedulerCreateTaskHandlers } from '@core/jobs/ipc-scheduler-create-handlers.js';
 import { schedulerMutateTaskHandlers } from '@core/jobs/ipc-scheduler-mutate-handlers.js';
+import { schedulerQueryTaskHandlers } from '@core/jobs/ipc-scheduler-query-handlers.js';
 import { schedulerAccessFromContext } from '@core/jobs/ipc-scheduler-access.js';
 
 function makeContext(data: TaskIpcData): TaskContext {
@@ -110,6 +112,10 @@ describe('scheduler IPC adapter contracts', () => {
       undefined,
     );
     mocks.runtimeControlRepository.getTriggerById.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('keeps missing upsert scheduleType as invalid_request', async () => {
@@ -627,5 +633,64 @@ describe('scheduler IPC adapter contracts', () => {
       'invalid_request',
     );
     expect(mocks.jobService.runJobNowFromMcp).not.toHaveBeenCalled();
+  });
+
+  it('waits for scheduler events until a matching event arrives', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    mocks.jobService.listJobEvents
+      .mockResolvedValueOnce({ events: [] })
+      .mockResolvedValueOnce({ events: [] })
+      .mockResolvedValueOnce({
+        events: [{ id: 3, job_id: 'job-1', event_type: 'run_started' }],
+      });
+
+    const waitPromise = schedulerQueryTaskHandlers.scheduler_wait_for_events(
+      makeContext({
+        type: 'scheduler_wait_for_events',
+        jobId: 'job-1',
+        eventType: 'run_started',
+        timeoutMs: 5_000,
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await waitPromise;
+
+    expect(Date.now()).toBe(2_000);
+    expect(mocks.jobService.listJobEvents).toHaveBeenCalledTimes(3);
+    expect(mocks.responder.acceptData).toHaveBeenCalledWith(
+      'Listed 1 scheduler event(s).',
+      {
+        events: [{ id: 3, job_id: 'job-1', event_type: 'run_started' }],
+      },
+    );
+  });
+
+  it('does not return an empty scheduler event wait before the requested timeout', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    mocks.jobService.listJobEvents.mockResolvedValue({ events: [] });
+
+    const waitPromise = schedulerQueryTaskHandlers.scheduler_wait_for_events(
+      makeContext({
+        type: 'scheduler_wait_for_events',
+        jobId: 'job-1',
+        timeoutMs: 2_500,
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(2_499);
+    expect(mocks.responder.acceptData).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await waitPromise;
+
+    expect(Date.now()).toBe(2_500);
+    expect(mocks.jobService.listJobEvents).toHaveBeenCalledTimes(4);
+    expect(mocks.responder.acceptData).toHaveBeenCalledWith(
+      'Listed 0 scheduler event(s).',
+      { events: [] },
+    );
   });
 });

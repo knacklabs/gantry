@@ -35,6 +35,7 @@
 - Agent-facing scheduler MCP tools must authorize jobs by both calling agent group and originating conversation (`group_scope` plus `linked_sessions`). Threads/topics are delivery metadata only and must not grant scheduler job visibility or run authority.
 - Scheduler list paths must not pass `threadId: undefined` into repository filters; undefined means no thread filter, while `null` is the explicit unthreaded-only filter.
 - Do not expose scheduler MCP list filters that the host will ignore. If an MCP tool is always scoped to the authenticated conversation, keep agent-facing schemas scoped the same way.
+- `scheduler_wait_for_events` is a long-polling contract, not an immediate list alias. It must wait until matching events arrive or the requested timeout expires, and a five-minute wait must stay within the host IPC long-running path.
 - Claude SDK `allowedTools` only auto-approves; it does not hide tools. Use runner-owned `tools` for available built-ins, `disallowedTools` for unsupported Claude Code built-ins, and `MYCLAW_MCP_TOOL_NAMES_JSON` to keep duplicate or unselected MyClaw MCP schemas out of agent context.
 - Owner-app job run/event listing must start from the app-owned control session route and join into jobs/runs/events; do not implement app scoping by scanning global recency pages and applying correlated ownership checks.
 - Memory tuning knobs are settings-owned. If env keys are rejected by preflight, the exact replacement field must exist in `settings.yaml`, the runtime snapshot, defaults, renderer, validation/docs, and tests.

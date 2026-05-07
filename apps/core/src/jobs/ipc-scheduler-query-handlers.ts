@@ -10,6 +10,10 @@ import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
 import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 
+const SCHEDULER_WAIT_MIN_TIMEOUT_MS = 1_000;
+const SCHEDULER_WAIT_MAX_TIMEOUT_MS = 300_000;
+const SCHEDULER_WAIT_POLL_MS = 1_000;
+
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
     ops: context.deps.opsRepository,
@@ -17,6 +21,43 @@ function makeJobService(context: TaskContext): JobManagementService {
     schedulePlanner: runtimeJobSchedulePlanner,
     toolRepository: context.deps.getToolRepository?.(),
   });
+}
+
+function normalizeSchedulerWaitTimeoutMs(value: unknown): number {
+  const raw =
+    typeof value === 'number' && Number.isFinite(value) ? value : 30_000;
+  return Math.max(
+    SCHEDULER_WAIT_MIN_TIMEOUT_MS,
+    Math.min(raw, SCHEDULER_WAIT_MAX_TIMEOUT_MS),
+  );
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function schedulerEventFilters(data: TaskContext['data']): {
+  jobId?: string;
+  runId?: string;
+  eventType?: string;
+  since?: string;
+  sinceId?: number;
+  limit?: number;
+} {
+  const jobId = toTrimmedString(data.jobId, { maxLen: 128 });
+  const runId = toTrimmedString(data.runId, { maxLen: 128 });
+  const eventType = toTrimmedString(data.eventType, { maxLen: 128 });
+  return {
+    jobId: jobId || undefined,
+    runId: runId || undefined,
+    eventType: eventType || undefined,
+    since: toTrimmedString(data.since, { maxLen: 128 }) || undefined,
+    sinceId:
+      typeof data.sinceId === 'number' && Number.isFinite(data.sinceId)
+        ? Math.max(0, Math.floor(data.sinceId))
+        : undefined,
+    limit: data.limit,
+  };
 }
 
 const schedulerGetJobHandler: TaskHandler = async (context) => {
@@ -130,21 +171,11 @@ const schedulerListEventsHandler: TaskHandler = async (context) => {
     data.taskId,
     data.authThreadId,
   );
-  const jobId = toTrimmedString(data.jobId, { maxLen: 128 });
-  const runId = toTrimmedString(data.runId, { maxLen: 128 });
-  const eventType = toTrimmedString(data.eventType, { maxLen: 128 });
+  const filters = schedulerEventFilters(data);
   try {
     const result = await makeJobService(context).listJobEvents({
       access: schedulerAccessFromContext(context),
-      jobId: jobId || undefined,
-      runId: runId || undefined,
-      eventType: eventType || undefined,
-      since: toTrimmedString(data.since, { maxLen: 128 }) || undefined,
-      sinceId:
-        typeof data.sinceId === 'number' && Number.isFinite(data.sinceId)
-          ? Math.max(0, Math.floor(data.sinceId))
-          : undefined,
-      limit: data.limit,
+      ...filters,
     });
     acceptData(`Listed ${result.events.length} scheduler event(s).`, result);
   } catch (err) {
@@ -153,11 +184,53 @@ const schedulerListEventsHandler: TaskHandler = async (context) => {
       {
         err,
         sourceAgentFolder,
-        jobId: jobId || undefined,
-        runId: runId || undefined,
-        eventType: eventType || undefined,
+        jobId: filters.jobId,
+        runId: filters.runId,
+        eventType: filters.eventType,
       },
       'scheduler_list_events failed unexpectedly',
+    );
+    reject(mapped.message, mapped.code);
+  }
+};
+
+const schedulerWaitForEventsHandler: TaskHandler = async (context) => {
+  const { data, sourceAgentFolder } = context;
+  const { acceptData, reject } = createTaskResponder(
+    sourceAgentFolder,
+    data.taskId,
+    data.authThreadId,
+  );
+  const filters = schedulerEventFilters(data);
+  const timeoutMs = normalizeSchedulerWaitTimeoutMs(data.timeoutMs);
+  const deadline = Date.now() + timeoutMs;
+  try {
+    while (true) {
+      const result = await makeJobService(context).listJobEvents({
+        access: schedulerAccessFromContext(context),
+        ...filters,
+      });
+      if (result.events.length > 0 || Date.now() >= deadline) {
+        acceptData(
+          `Listed ${result.events.length} scheduler event(s).`,
+          result,
+        );
+        return;
+      }
+      const remainingMs = Math.max(0, deadline - Date.now());
+      await delay(Math.min(SCHEDULER_WAIT_POLL_MS, remainingMs));
+    }
+  } catch (err) {
+    const mapped = mapApplicationError(err, 'Failed to query scheduler jobs.');
+    logger.error(
+      {
+        err,
+        sourceAgentFolder,
+        jobId: filters.jobId,
+        runId: filters.runId,
+        eventType: filters.eventType,
+      },
+      'scheduler_wait_for_events failed unexpectedly',
     );
     reject(mapped.message, mapped.code);
   }
@@ -194,6 +267,6 @@ export const schedulerQueryTaskHandlers: Record<string, TaskHandler> = {
   scheduler_list_jobs: schedulerListJobsHandler,
   scheduler_list_runs: schedulerListRunsHandler,
   scheduler_list_events: schedulerListEventsHandler,
-  scheduler_wait_for_events: schedulerListEventsHandler,
+  scheduler_wait_for_events: schedulerWaitForEventsHandler,
   scheduler_get_dead_letter: schedulerGetDeadLetterHandler,
 };

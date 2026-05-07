@@ -58,7 +58,7 @@ function canProcessIpcFile(sourceAgentFolder: string, kind: string): boolean {
 }
 
 const isLongRunningTask = (type: string): boolean =>
-  type === 'mcp_call_tool' || type === 'mcp_list_tools';
+  type.startsWith('mcp_') || type === 'scheduler_wait_for_events';
 
 async function processLongRunningTaskIpc(input: {
   data: ReturnType<typeof parseTaskIpcData>;
