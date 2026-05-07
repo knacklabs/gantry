@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { ensurePrivateDirSync, writePrivateFileSync } from './private-fs.js';
 
 const LIVE_TOOL_RULE_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const LIVE_TOOL_RULES_DIR = 'live-tool-rules';
@@ -27,8 +28,8 @@ export function appendLiveToolRules(input: {
   const filePath = liveToolRulesPath(input);
   if (!filePath) return [];
   const next = mergeRules(readLiveToolRules(input), input.rules);
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(next, null, 2), 'utf-8');
+  ensurePrivateDirSync(path.dirname(filePath));
+  writePrivateFileSync(filePath, JSON.stringify(next, null, 2));
   return next;
 }
 

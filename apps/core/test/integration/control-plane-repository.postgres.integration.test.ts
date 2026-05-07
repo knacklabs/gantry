@@ -378,6 +378,29 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
         enabled: false,
       }),
     ).resolves.toMatchObject({ enabled: false });
+    await runtime.service.db.insert(pgSchema.externalIngressesPostgres).values({
+      ingressId: 'ingress:control-repo:plaintext',
+      appId: 'default',
+      name: 'plaintext-rotatable',
+      secret: 'plaintext-secret',
+      enabled: true,
+      metadataJson: '{}',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await expect(
+      runtime.control.getExternalIngressById(
+        'ingress:control-repo:plaintext',
+        'default',
+      ),
+    ).rejects.toThrow('not encrypted');
+    await expect(
+      runtime.control.updateExternalIngress(
+        'ingress:control-repo:plaintext',
+        'default',
+        { secret: 'rotated-secret' },
+      ),
+    ).resolves.toMatchObject({ secret: 'rotated-secret' });
 
     await expect(
       runtime.control.reserveExternalIngressNonce({

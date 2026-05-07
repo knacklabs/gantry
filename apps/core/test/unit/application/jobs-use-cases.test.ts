@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { JobManagementService } from '@core/application/jobs/job-management-service.js';
-import { jobBelongsToApp } from '@core/application/jobs/job-access.js';
 import { isVisibleJob } from '@core/application/jobs/job-list-filters.js';
 import {
   assertSchedulerJobAccess,
@@ -25,7 +24,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     schedule_value: 'manual',
     status: 'active',
     linked_sessions: ['app:app-one:conv-1'],
-    session_id: null,
+    session_id: 'session-app-one',
     thread_id: null,
     group_scope: 'app-folder',
     created_by: 'human',
@@ -105,6 +104,12 @@ function makeControl(
   };
 }
 
+function makeAppOneControl(): JobControlPort {
+  return makeControl({
+    'session-app-one': { sessionId: 'session-app-one', appId: 'app-one' },
+  });
+}
+
 describe('job application use cases', () => {
   it('persists managed app jobs with their canonical app session id', async () => {
     const upsertJob = vi.fn(async () => ({ created: true }));
@@ -138,30 +143,6 @@ describe('job application use cases', () => {
     );
   });
 
-  it('parses app-owned job session bindings without accepting malformed IDs', () => {
-    expect(jobBelongsToApp(makeJob(), 'app-one')).toBe(true);
-    expect(
-      jobBelongsToApp(
-        makeJob({ linked_sessions: ['app:app-one:conv:extra'] }),
-        'app-one',
-      ),
-    ).toBe(false);
-    expect(
-      jobBelongsToApp(
-        makeJob({ linked_sessions: ['telegram:chat'] }),
-        'app-one',
-      ),
-    ).toBe(false);
-    expect(
-      jobBelongsToApp(
-        makeJob({
-          linked_sessions: ['app:app-one:conv', 'app:app-two:conv'],
-        }),
-        'app-one',
-      ),
-    ).toBe(false);
-  });
-
   it('updates mutable job fields and requests scheduler sync', async () => {
     const ops = makeOps(makeJob());
     const scheduler = { requestSchedulerSync: vi.fn() };
@@ -169,6 +150,8 @@ describe('job application use cases', () => {
       ops: ops as RuntimeJobRepository,
       scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
+      control: makeAppOneControl(),
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
     });
 
@@ -212,6 +195,7 @@ describe('job application use cases', () => {
       ops: ops as RuntimeJobRepository,
       scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
     });
 
@@ -251,6 +235,7 @@ describe('job application use cases', () => {
       ops: ops as RuntimeJobRepository,
       scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
     });
 
@@ -275,6 +260,7 @@ describe('job application use cases', () => {
       ops: ops as RuntimeJobRepository,
       scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
     });
 
@@ -311,6 +297,7 @@ describe('job application use cases', () => {
       ops: ops as RuntimeJobRepository,
       scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
     });
 
@@ -339,6 +326,8 @@ describe('job application use cases', () => {
       ops: ops as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
+      control: makeAppOneControl(),
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
     });
 
@@ -367,6 +356,7 @@ describe('job application use cases', () => {
       ops: ops as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
       clock: { now: () => '2026-04-24T01:00:00.000Z' },
     });
 
@@ -400,6 +390,7 @@ describe('job application use cases', () => {
       ops: ops as RuntimeJobRepository,
       scheduler,
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
     });
 
     await expect(
@@ -419,6 +410,7 @@ describe('job application use cases', () => {
       ops: ops as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
     });
 
     await expect(
@@ -477,9 +469,9 @@ describe('job application use cases', () => {
     });
   });
 
-  it('keeps legacy app jobs with missing session_id visible only through unambiguous app links', async () => {
-    const legacyAppJob = makeJob({
-      id: 'job-legacy-app-one',
+  it('hides app jobs without canonical session ownership', async () => {
+    const missingSessionJob = makeJob({
+      id: 'job-missing-session',
       session_id: null,
       linked_sessions: ['app:app-one:conv-1'],
     });
@@ -494,7 +486,11 @@ describe('job application use cases', () => {
       linked_sessions: ['app:app-one:conv-1', 'app:app-two:conv-1'],
     });
     const ops = {
-      listJobs: vi.fn(async () => [legacyAppJob, malformedAppJob, crossAppJob]),
+      listJobs: vi.fn(async () => [
+        missingSessionJob,
+        malformedAppJob,
+        crossAppJob,
+      ]),
     };
     const service = new JobManagementService({
       ops: ops as unknown as RuntimeJobRepository,
@@ -504,7 +500,7 @@ describe('job application use cases', () => {
     });
 
     await expect(service.listJobs({ appId: 'app-one' })).resolves.toEqual({
-      jobs: [legacyAppJob],
+      jobs: [],
     });
   });
 
@@ -669,6 +665,7 @@ describe('job application use cases', () => {
       ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
     });
 
     await expect(
@@ -701,6 +698,7 @@ describe('job application use cases', () => {
       ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
     });
 
     await service.listJobs({
@@ -755,6 +753,7 @@ describe('job application use cases', () => {
       ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
     });
 
     await expect(
@@ -776,6 +775,7 @@ describe('job application use cases', () => {
       ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
     });
 
     await expect(
@@ -1160,6 +1160,7 @@ describe('job application use cases', () => {
       ops: ops as unknown as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
     });
 
     await expect(
@@ -1818,20 +1819,28 @@ describe('job application use cases', () => {
     expect(subscription.close).toHaveBeenCalled();
   });
 
-  it('does not request approval when job extras are already inherited by the target agent', async () => {
-    const ops = makeOps(makeJob());
+  it('uses caller app ownership for inherited tools instead of linked session strings', async () => {
+    const ops = makeOps(
+      makeJob({
+        session_id: 'session-app-one',
+        linked_sessions: ['app:stale-app:conv-1'],
+      }),
+    );
     const approveJobExtraTools = vi.fn(async () => ({ approved: true }));
+    const listAgentToolBindings = vi.fn(async () => [
+      {
+        toolId: 'tool:Read',
+        status: 'active',
+      },
+    ]);
     const service = new JobManagementService({
       ops: ops as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
       toolRepository: {
-        listAgentToolBindings: vi.fn(async () => [
-          {
-            toolId: 'tool:Read',
-            status: 'active',
-          },
-        ]),
+        listAgentToolBindings,
+        getTool: vi.fn(async () => ({ name: 'Read' })),
       } as never,
       approveJobExtraTools,
     });
@@ -1843,6 +1852,10 @@ describe('job application use cases', () => {
     });
 
     expect(approveJobExtraTools).not.toHaveBeenCalled();
+    expect(listAgentToolBindings).toHaveBeenCalledWith({
+      appId: 'app-one',
+      agentId: 'agent:app-folder',
+    });
     expect(ops.updateJob).toHaveBeenCalledWith('job-1', {
       capability_policy: { allowed_tools: ['Read'] },
     });
@@ -1874,6 +1887,7 @@ describe('job application use cases', () => {
       },
       toolRepository: {
         listAgentToolBindings,
+        getTool: vi.fn(async () => null),
       } as never,
       approveJobExtraTools,
     });
@@ -1919,6 +1933,7 @@ describe('job application use cases', () => {
       ops: ops as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
       toolRepository: {
         listAgentToolBindings: vi.fn(async () => [
           {
@@ -1926,6 +1941,7 @@ describe('job application use cases', () => {
             status: 'active',
           },
         ]),
+        getTool: vi.fn(async () => ({ name: 'Read' })),
       } as never,
       approveJobExtraTools,
     });
@@ -1953,6 +1969,7 @@ describe('job application use cases', () => {
       ops: ops as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
       schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
       toolRepository: {
         listAgentToolBindings: vi.fn(async () => []),
       } as never,

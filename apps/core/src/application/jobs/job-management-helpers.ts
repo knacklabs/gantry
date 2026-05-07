@@ -52,6 +52,21 @@ export async function resolveCanonicalAppSessionForOrigin(input: {
   return { originAppId, canonicalSession };
 }
 
+export async function resolveJobPolicyAppId(input: {
+  appId?: string;
+  access?: SchedulerJobAccess;
+  control?: JobControlPort;
+}): Promise<string | undefined> {
+  if (input.appId) return input.appId;
+  if (!input.access) return undefined;
+  return (
+    await resolveCanonicalAppSessionForOrigin({
+      access: input.access,
+      control: input.control,
+    })
+  ).canonicalSession?.appId;
+}
+
 export function normalizeScheduleType(raw: unknown): JobScheduleType {
   if (
     raw === 'cron' ||

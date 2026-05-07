@@ -13,13 +13,13 @@ import type {
 } from '../../domain/provider/provider.js';
 import { replaceDesiredStateCapabilities } from './desired-state-capability-reconcile.js';
 import {
-  activeCapabilities,
   configuredBindingId,
   configuredConversationId,
   dedupeConfiguredConversation,
   mergeDmAccess,
   stableBindingId,
   stableSettingsId,
+  readableActiveCapabilities,
 } from './desired-state-export-helpers.js';
 import {
   configuredConversationKind,
@@ -39,7 +39,6 @@ import {
   hasAnyCapability,
   loadMcpServersById,
   loadSkillsById,
-  loadToolsById,
   memorySubjectForConfiguredBinding,
   storedConversationKey,
 } from './desired-state-service-helpers.js';
@@ -70,6 +69,7 @@ import type {
   RuntimeProviderSettings,
   RuntimeSettings,
 } from './runtime-settings-types.js';
+import { resolveAgentToolReference } from '../../domain/tools/agent-tool-catalog-references.js';
 
 export class SettingsDesiredStateService {
   private readonly appId: AppId;
@@ -113,6 +113,7 @@ export class SettingsDesiredStateService {
       toolBindingRows,
       skillBindingRows,
       mcpBindingRows,
+      toolCatalogRows,
       storedConversations,
     ] = await Promise.all([
       this.deps.repositories.agents.listAgentDmAccessForAgents({
@@ -136,6 +137,10 @@ export class SettingsDesiredStateService {
         agentIds,
         limitPerAgent: 500,
       }),
+      this.deps.repositories.tools.listTools({
+        appId: this.appId,
+        statuses: ['active'],
+      }),
       this.deps.repositories.conversations
         ? this.deps.repositories.conversations.listConversations({
             appId: this.appId,
@@ -147,6 +152,9 @@ export class SettingsDesiredStateService {
     const toolBindingsByAgent = groupByAgentId(toolBindingRows);
     const skillBindingsByAgent = groupByAgentId(skillBindingRows);
     const mcpBindingsByAgent = groupByAgentId(mcpBindingRows);
+    const toolCatalogById = new Map(
+      toolCatalogRows.map((tool) => [tool.id, tool]),
+    );
     const storedConversationsByExternal = new Map<string, Conversation>();
     for (const conversation of storedConversations) {
       const externalId = conversation.externalRef?.value?.trim();
@@ -296,7 +304,12 @@ export class SettingsDesiredStateService {
         ),
         capabilities:
           existing?.capabilities ??
-          activeCapabilities(toolBindings, skillBindings, mcpBindings),
+          readableActiveCapabilities(
+            toolBindings,
+            skillBindings,
+            mcpBindings,
+            toolCatalogById,
+          ),
       };
     }
 
@@ -705,30 +718,26 @@ export class SettingsDesiredStateService {
     settings: RuntimeSettings,
   ): Promise<string[]> {
     const errors: string[] = [];
-    const toolIds = new Set<string>();
     const skillIds = new Set<string>();
     const serverIds = new Set<string>();
     for (const agent of Object.values(settings.agents)) {
-      for (const toolId of agent.capabilities.toolIds) toolIds.add(toolId);
       for (const skillId of agent.capabilities.skillIds) skillIds.add(skillId);
       for (const serverId of agent.capabilities.mcpServerIds) {
         serverIds.add(serverId);
       }
     }
-    const [tools, skills, servers] = await Promise.all([
-      loadToolsById(this.deps.repositories.tools, [...toolIds]),
+    const [skills, servers] = await Promise.all([
       loadSkillsById(this.deps.repositories.skills, [...skillIds]),
       loadMcpServersById(this.deps.repositories.mcpServers, [...serverIds]),
     ]);
     for (const [folder, agent] of Object.entries(settings.agents)) {
       for (const toolId of [...new Set(agent.capabilities.toolIds)]) {
-        const tool = tools.get(toolId);
-        if (
-          !tool ||
-          tool.appId !== this.appId ||
-          tool.status !== 'active' ||
-          !tool.selectable
-        ) {
+        const resolved = await resolveAgentToolReference({
+          repository: this.deps.repositories.tools,
+          appId: this.appId,
+          reference: toolId,
+        });
+        if (resolved.error) {
           errors.push(
             `agents.${folder}.capabilities.tool_ids contains unavailable tool: ${toolId}`,
           );

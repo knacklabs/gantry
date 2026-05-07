@@ -25,6 +25,9 @@ Job-scoped extra tool rules are persisted in `jobs.target_json` under:
 ```
 
 Missing `capabilityPolicy.allowedTools` means an empty extra-tool list.
+These rules are stored on the job only. They are never mirrored into
+`settings.yaml`; inherited agent grants are resolved dynamically from the target
+agent and shown separately.
 
 Allowed job tool rules support exact tool names, registered scoped SDK tool
 rules such as `Tool(scope-pattern)`, and `mcp__server__*`. Scoped rules are
@@ -52,7 +55,22 @@ the linked group/thread or DM unless the job is silent.
 
 Jobs are inspectable through chat scheduler tools, Control API, SDK, and CLI.
 List/detail output should include the target, schedule, status, model, prompt,
-notification target, job extra tools, and effective autonomous tool surface.
+notification target, and one canonical `toolAccess` object:
+
+```json
+{
+  "toolAccess": {
+    "inheritedAgentTools": ["Read", "Bash(git status *)"],
+    "jobExtraTools": ["mcp__agent_browser__*"],
+    "effectiveAllowedTools": [
+      "Read",
+      "Bash(git status *)",
+      "mcp__agent_browser__*"
+    ],
+    "source": "inherited agent grants plus target_json.capabilityPolicy.allowedTools"
+  }
+}
+```
 
 Normal agent-facing scheduler MCP tools are not an admin surface. They may list,
 read, mutate, inspect runs/events, inspect dead letters, and manually queue runs

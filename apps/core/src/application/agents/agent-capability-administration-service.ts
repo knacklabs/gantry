@@ -24,6 +24,14 @@ import type {
   ToolCatalogItem,
   ToolId,
 } from '../../domain/tools/tools.js';
+import { displayToolReference } from '../../shared/agent-tool-references.js';
+import {
+  buildAgentToolAccessView,
+  buildRequestableAdminToolAccess,
+  PERMISSION_GATED_NATIVE_TOOLS,
+  type AgentToolAccessView,
+} from '../../shared/tool-access-view.js';
+import { adminMcpToolNameFromFullName } from '../../shared/admin-mcp-tools.js';
 
 export interface CapabilityCatalogView {
   tools: ToolCatalogItem[];
@@ -36,6 +44,7 @@ export interface AgentCapabilitiesView {
   selectedToolIds: ToolId[];
   selectedSkillIds: SkillId[];
   selectedMcpServerIds: McpServerId[];
+  toolAccess: AgentToolAccessView;
   updatedAt: string;
 }
 
@@ -82,17 +91,46 @@ export class AgentCapabilityAdministrationService {
         limit: 500,
       }),
     ]);
+    const activeToolBindings = toolBindings.filter(
+      (binding) => binding.status === 'active',
+    );
+    const selectedToolIds = activeToolBindings.map((binding) => binding.toolId);
+    const selectedTools = await Promise.all(
+      activeToolBindings.map((binding) =>
+        this.repositories.tools.getTool(binding.toolId),
+      ),
+    );
+    const configuredTools = activeToolBindings.flatMap((binding, index) => {
+      const tool = selectedTools[index];
+      return tool
+        ? [displayToolReference({ toolId: binding.toolId, tool })]
+        : [];
+    });
+    const enabledAdminTools = selectedAdminToolNames(configuredTools);
     return {
       agentId: input.agentId,
-      selectedToolIds: toolBindings
-        .filter((binding) => binding.status === 'active')
-        .map((binding) => binding.toolId),
+      selectedToolIds,
       selectedSkillIds: skillBindings
         .filter((binding) => binding.status === 'active')
         .map((binding) => binding.skillId),
       selectedMcpServerIds: mcpBindings
         .filter((binding) => binding.status === 'active')
         .map((binding) => binding.serverId),
+      toolAccess: buildAgentToolAccessView({
+        configuredTools,
+        defaultTools: [],
+        availableButGatedTools: PERMISSION_GATED_NATIVE_TOOLS.filter(
+          (toolName) =>
+            !configuredTools.some(
+              (configured) =>
+                configured === toolName ||
+                configured.startsWith(`${toolName}(`),
+            ),
+        ),
+        requestableAdminTools:
+          buildRequestableAdminToolAccess(enabledAdminTools),
+        source: 'Postgres agent_tool_bindings projected from settings.yaml',
+      }),
       updatedAt: this.clock.now(),
     };
   }
@@ -116,7 +154,7 @@ export class AgentCapabilityAdministrationService {
     const selectedSkillIds = unique(input.selectedSkillIds);
     const selectedMcpServerIds = unique(input.selectedMcpServerIds);
 
-    const [, , mcpMap] = await Promise.all([
+    const [toolMap, , mcpMap] = await Promise.all([
       this.requireSelectableTools(input.appId, selectedToolIds),
       this.requireApprovedSkills(input.appId, selectedSkillIds),
       this.requireApprovedMcpServers(input.appId, selectedMcpServerIds),
@@ -239,11 +277,34 @@ export class AgentCapabilityAdministrationService {
       updatedAt: now,
     });
 
+    const configuredTools = selectedToolIds.map((toolId) => {
+      const tool = toolMap.get(toolId);
+      if (!tool) {
+        throw new ApplicationError('NOT_FOUND', `Tool not found: ${toolId}`);
+      }
+      return displayToolReference({ toolId, tool });
+    });
     return {
       agentId: input.agentId,
       selectedToolIds,
       selectedSkillIds,
       selectedMcpServerIds,
+      toolAccess: buildAgentToolAccessView({
+        configuredTools,
+        defaultTools: [],
+        availableButGatedTools: PERMISSION_GATED_NATIVE_TOOLS.filter(
+          (toolName) =>
+            !configuredTools.some(
+              (configured) =>
+                configured === toolName ||
+                configured.startsWith(`${toolName}(`),
+            ),
+        ),
+        requestableAdminTools: buildRequestableAdminToolAccess(
+          selectedAdminToolNames(configuredTools),
+        ),
+        source: 'Postgres agent_tool_bindings projected from settings.yaml',
+      }),
       updatedAt: now,
     };
   }
@@ -334,4 +395,13 @@ export class AgentCapabilityAdministrationService {
 
 function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values));
+}
+
+function selectedAdminToolNames(tools: readonly string[]): Set<string> {
+  const names = new Set<string>();
+  for (const tool of tools) {
+    const name = adminMcpToolNameFromFullName(tool);
+    if (name) names.add(name);
+  }
+  return names;
 }

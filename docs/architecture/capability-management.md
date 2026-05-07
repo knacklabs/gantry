@@ -66,7 +66,7 @@ place.
 | `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies needed by a reviewed skill.                                                 | Running dependency commands from the agent.                                                           |
 | `request_mcp_server`               | Third-party MCP server drafts with transport, origin, allowed tool patterns, credential needs, and reason.              | Editing `.mcp.json` or Claude `mcpServers`.                                                           |
 | `request_permission`               | SDK, host, browser, scheduler, memory, service, MCP, or provider/channel capability permission requests.                 | Changing permission settings directly or treating provider SDK permissions as already approved.        |
-| `capability_status`                | Lists selected admin MCP tools and unavailable-but-requestable tools with exact `tool:` IDs and `request_permission` arguments. | Guessing hidden admin tools or requesting broad MyClaw MCP wildcards.                                  |
+| `capability_status`                | Lists current tool access, readable configured rules, default tools, gated tools, and unavailable-but-requestable admin tools with exact `request_permission` arguments. | Guessing hidden admin tools or requesting broad MyClaw MCP wildcards.                                  |
 | `settings_desired_state`           | Selected-capability reading of the current local desired-state settings before proposing a reviewed config change.      | Unselected access, mutating settings, or exposing raw secrets.                                        |
 | `request_settings_update`          | Selected-capability reviewed host-side edits to non-secret local `settings.yaml` desired state.                         | Unselected access, direct file edits, raw provider secrets, skill source injection, or MCP definitions. |
 | `service_restart`                  | Selected-capability restart after approved config or capability changes that require host restart.                      | Restarting to activate unapproved changes.                                                            |
@@ -90,6 +90,18 @@ place.
 Postgres is the durable capability store. It owns definitions, reviewed
 versions, agent bindings, config-version links, credential reference names,
 permission decisions, audit events, and disablement state.
+
+Agent-owned persistent tool grants are also mirrored into `settings.yaml` as
+readable `agents.<id>.tools` entries. Use rules such as `Bash(git status *)`,
+`Read(/repo/**)`, or `mcp__myclaw__service_restart`; do not expose opaque
+permission-rule hashes in settings. Settings reconciliation resolves those
+readable rules back into Postgres tool catalog rows and agent bindings after
+restart.
+
+Job-specific grants are single-cut runtime state. They remain on the job as
+`target_json.capabilityPolicy.allowedTools`, never under `settings.yaml`, and
+public inspection surfaces expose the canonical `toolAccess` object instead of
+parallel count or legacy tool fields.
 
 Readable skill bytes live outside catalog rows:
 

@@ -7,9 +7,11 @@ import { schedulerQueryTaskHandlers } from './ipc-scheduler-query-handlers.js';
 import { TaskHandler, TaskIpcData } from './ipc-types.js';
 import { writeTaskIpcResponse } from './ipc-shared.js';
 import {
+  getRuntimeControlRepository,
   getRuntimeRepositories,
   getRuntimeStorage,
 } from '../adapters/storage/postgres/runtime-store.js';
+import { adaptJobControl } from './ipc-job-control.js';
 
 const taskHandlers: Record<string, TaskHandler> = {
   ...schedulerCreateTaskHandlers,
@@ -63,6 +65,9 @@ export async function processTaskIpc(
           return undefined;
         }
       }),
+    getJobControl:
+      deps.getJobControl ??
+      (() => adaptJobControl(getRuntimeControlRepository())),
   };
 
   try {

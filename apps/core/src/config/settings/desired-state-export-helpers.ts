@@ -9,6 +9,7 @@ import type {
   RuntimeConfiguredBinding,
   RuntimeConfiguredConversation,
 } from './runtime-settings-types.js';
+import { displayToolReference } from '../../shared/agent-tool-references.js';
 
 export function activeCapabilities(
   toolBindings: AgentToolBinding[],
@@ -25,6 +26,26 @@ export function activeCapabilities(
     mcpServerIds: mcpBindings
       .filter((binding) => binding.status === 'active')
       .map((binding) => binding.serverId),
+  };
+}
+
+export function readableActiveCapabilities(
+  toolBindings: AgentToolBinding[],
+  skillBindings: AgentSkillBinding[],
+  mcpBindings: AgentMcpServerBinding[],
+  toolCatalogById: Map<unknown, { name: string }>,
+): RuntimeConfiguredAgentCapabilities {
+  const capabilities = activeCapabilities(
+    toolBindings,
+    skillBindings,
+    mcpBindings,
+  );
+  return {
+    ...capabilities,
+    toolIds: capabilities.toolIds.flatMap((toolId) => {
+      const tool = toolCatalogById.get(toolId);
+      return tool ? [displayToolReference({ toolId, tool })] : [];
+    }),
   };
 }
 

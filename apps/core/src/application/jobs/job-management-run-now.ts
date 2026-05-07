@@ -1,6 +1,5 @@
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import { ApplicationError } from '../common/application-error.js';
-import { resolveOptionalJobRuntimeAppId } from './job-access.js';
 import { assertSchedulerJobAccess } from './job-management-access.js';
 import type {
   JobControlPort,
@@ -92,7 +91,7 @@ export async function runSchedulerJobNowFromMcp(
   const appSession = job.session_id
     ? await control.getAppSessionById(job.session_id)
     : undefined;
-  const appId = appSession?.appId || resolveOptionalJobRuntimeAppId(job);
+  const appId = appSession?.appId;
   if (appId) {
     await runtimeEvents.publish({
       appId: appId as never,

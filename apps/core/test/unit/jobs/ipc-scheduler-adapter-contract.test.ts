@@ -48,7 +48,6 @@ vi.mock('@core/application/jobs/job-management-service.js', () => ({
 }));
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
-  getRuntimeControlRepository: vi.fn(() => mocks.runtimeControlRepository),
   getRuntimeEventExchange: vi.fn(() => ({
     publish: vi.fn(),
   })),
@@ -58,6 +57,14 @@ import { schedulerCreateTaskHandlers } from '@core/jobs/ipc-scheduler-create-han
 import { schedulerMutateTaskHandlers } from '@core/jobs/ipc-scheduler-mutate-handlers.js';
 import { schedulerQueryTaskHandlers } from '@core/jobs/ipc-scheduler-query-handlers.js';
 import { schedulerAccessFromContext } from '@core/jobs/ipc-scheduler-access.js';
+
+function adaptAppSession(session: any) {
+  if (!session) return undefined;
+  return {
+    ...session,
+    conversationJid: session.conversationJid ?? session.chatJid,
+  };
+}
 
 function makeContext(data: TaskIpcData): TaskContext {
   return {
@@ -84,6 +91,32 @@ function makeContext(data: TaskIpcData): TaskContext {
       requestPermissionApproval: vi.fn(async () => ({
         approved: true,
       })),
+      getJobControl: () => ({
+        getAppSessionById: async (sessionId: string) =>
+          adaptAppSession(
+            await mocks.runtimeControlRepository.getAppSessionById(sessionId),
+          ),
+        getAppSessionsByIds: async (sessionIds: readonly string[]) =>
+          (
+            await mocks.runtimeControlRepository.getAppSessionsByIds(sessionIds)
+          ).map(adaptAppSession),
+        getAppSessionByChatJid: async (chatJid: string) =>
+          adaptAppSession(
+            await mocks.runtimeControlRepository.getAppSessionByChatJid(
+              chatJid,
+            ),
+          ),
+        getAppSessionsByChatJids: async (chatJids: readonly string[]) =>
+          (
+            await mocks.runtimeControlRepository.getAppSessionsByChatJids(
+              chatJids,
+            )
+          ).map(adaptAppSession),
+        createJobTrigger: mocks.runtimeControlRepository.createJobTrigger,
+        markTriggerCompleted:
+          mocks.runtimeControlRepository.markTriggerCompleted,
+        getTriggerById: mocks.runtimeControlRepository.getTriggerById,
+      }),
     },
   } as unknown as TaskContext;
 }
@@ -516,6 +549,8 @@ describe('scheduler IPC adapter contracts', () => {
     expect(context.deps.requestPermissionApproval).toHaveBeenCalledWith(
       expect.objectContaining({
         decisionOptions: ['allow_job_policy', 'cancel'],
+        description:
+          'stored on this job only; inherited agent grants are shown separately.',
         toolInput: expect.objectContaining({
           persistence: 'target_json.capabilityPolicy.allowedTools',
         }),

@@ -417,7 +417,7 @@ export function registerServiceTools(server: McpServer): void {
   if (isAdminMcpToolEnabled('service_restart')) {
     server.tool(
       'service_restart',
-      'Restart the MyClaw service with config validation. Requires selected agent capability tool:mcp__myclaw__service_restart.',
+      'Restart the MyClaw service with config validation. Requires selected agent tool grant mcp__myclaw__service_restart.',
       {},
       async () => {
         const taskId = makeIpcId('service-restart');
@@ -468,7 +468,7 @@ export function registerServiceTools(server: McpServer): void {
   if (isAdminMcpToolEnabled('register_agent')) {
     server.tool(
       'register_agent',
-      `Register a new chat/channel agent so MyClaw can respond to messages there. Requires selected agent capability tool:mcp__myclaw__register_agent.
+      `Register a new chat/channel agent so MyClaw can respond to messages there. Requires selected agent tool grant mcp__myclaw__register_agent.
 
 Use available_groups.json to find the JID for a conversation. The folder name must be channel-prefixed: "{channel}_{conversation-name}" (e.g., "telegram_dev-team", "slack_eng", "teams_engineering"). Use lowercase with hyphens for the conversation name part.`,
       {

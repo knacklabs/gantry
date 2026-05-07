@@ -11,7 +11,7 @@ import {
 } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
-import { canAccessApp, jobBelongsToApp, makeAppGroup } from './app-identity.js';
+import { canAccessApp, makeAppGroup } from './app-identity.js';
 import {
   isValidControlId,
   parseControlApiKeys,
@@ -233,7 +233,6 @@ export const _testControlServer = {
   applyControlSocketMode,
   isValidControlId,
   isPrivateAddress,
-  jobBelongsToApp,
   makeAppGroup,
   deliverWebhookDelivery,
   flushWebhookDeliveries,

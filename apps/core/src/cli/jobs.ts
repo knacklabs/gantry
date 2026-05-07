@@ -1,6 +1,11 @@
 import * as p from '@clack/prompts';
 
 import { controlApiRequest } from './control-api.js';
+import {
+  compactToolList,
+  formatJobToolAccess,
+  type JobToolAccessView,
+} from '../shared/tool-access-view.js';
 
 interface JobRecord {
   jobId: string;
@@ -12,7 +17,16 @@ interface JobRecord {
   nextRun: string | null;
   lastRun: string | null;
   modelAlias: string | null;
-  prompt: string;
+  prompt?: string;
+  promptPreview?: string;
+  schedule?: unknown;
+  toolAccess: JobToolAccessView;
+  recentRunErrors?: Array<{
+    runId: string;
+    status: string;
+    errorSummary: string;
+    endedAt: string | null;
+  }>;
 }
 
 export async function runJobsCommand(
@@ -69,8 +83,8 @@ async function showJob(runtimeHome: string, jobId: string): Promise<number> {
   const job = (await controlApiRequest(runtimeHome, {
     method: 'GET',
     path: `/v1/jobs/${encodeURIComponent(jobId)}`,
-  })) as Record<string, unknown>;
-  p.note(JSON.stringify(job, null, 2), `Job ${jobId}`);
+  })) as JobRecord;
+  p.note(formatJobDetail(job), `Job ${jobId}`);
   return 0;
 }
 
@@ -82,6 +96,7 @@ function formatJobTable(jobs: JobRecord[]): string {
     job.groupScope,
     job.threadId ?? '',
     job.nextRun ?? '',
+    compactToolList(job.toolAccess.effectiveAllowedTools),
     job.name,
   ]);
   const headers = [
@@ -91,6 +106,7 @@ function formatJobTable(jobs: JobRecord[]): string {
     'Group',
     'Thread',
     'Next run',
+    'Tools',
     'Name',
   ];
   const widths = headers.map((header, index) =>
@@ -104,4 +120,33 @@ function formatJobTable(jobs: JobRecord[]): string {
         .trimEnd(),
     )
     .join('\n');
+}
+
+function formatJobDetail(job: JobRecord): string {
+  const lines = [
+    `ID: ${job.jobId}`,
+    `Name: ${job.name}`,
+    `Kind: ${job.kind}`,
+    `Status: ${job.status}`,
+    `Group: ${job.groupScope}`,
+    `Thread: ${job.threadId ?? '(none)'}`,
+    `Next Run: ${job.nextRun ?? '(none)'}`,
+    `Last Run: ${job.lastRun ?? '(none)'}`,
+    `Model: ${job.modelAlias ?? '(default)'}`,
+    '',
+    formatJobToolAccess(job.toolAccess),
+  ];
+  if (job.promptPreview || job.prompt) {
+    lines.push('', `Prompt: ${job.promptPreview ?? job.prompt}`);
+  }
+  if (job.recentRunErrors?.length) {
+    lines.push(
+      '',
+      'Recent Run Errors:',
+      ...job.recentRunErrors.map(
+        (error) => `  ${error.runId} ${error.status}: ${error.errorSummary}`,
+      ),
+    );
+  }
+  return lines.join('\n');
 }

@@ -734,28 +734,6 @@ describe('control server auth key parsing', () => {
     );
   });
 
-  it('does not authorize jobs by ambiguous app id prefix', () => {
-    const job = {
-      linked_sessions: ['app:foo:bar:conv'],
-    } as any;
-
-    expect(_testControlServer.jobBelongsToApp(job, 'foo')).toBe(false);
-    expect(_testControlServer.jobBelongsToApp(job, 'foo:bar')).toBe(false);
-    expect(_testControlServer.jobBelongsToApp(job, 'fo')).toBe(false);
-    expect(
-      _testControlServer.jobBelongsToApp(
-        { linked_sessions: ['app:foo:conv'] } as any,
-        'foo',
-      ),
-    ).toBe(true);
-    expect(
-      _testControlServer.jobBelongsToApp(
-        { linked_sessions: ['app:foo:conv', 'app:bar:conv'] } as any,
-        'foo',
-      ),
-    ).toBe(false);
-  });
-
   it('keeps app group folders collision-resistant for distinct valid ids', () => {
     const dashed = _testControlServer.makeAppGroup({
       appId: 'app-one',

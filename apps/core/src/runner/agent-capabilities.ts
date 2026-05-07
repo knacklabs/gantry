@@ -177,6 +177,9 @@ const myclawMcpProvider: AgentCapabilityProvider = {
       MYCLAW_ADMIN_MCP_TOOLS_JSON: JSON.stringify(
         selectedAdminMcpToolNames(ctx.configuredAllowedTools ?? []),
       ),
+      MYCLAW_CONFIGURED_ALLOWED_TOOLS_JSON: JSON.stringify(
+        ctx.configuredAllowedTools ?? [],
+      ),
       MYCLAW_MCP_TOOL_NAMES_JSON: JSON.stringify(
         selectedMyClawMcpToolNames(ctx.configuredAllowedTools ?? []),
       ),

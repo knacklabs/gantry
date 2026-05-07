@@ -11,6 +11,7 @@ import { validateOnecliUrl } from '../../adapters/credentials/onecli/policy.js';
 import { validateExternalBrokerUrl } from '../credentials/broker-url-policy.js';
 import { validateRuntimeEnvPolicy } from '../source-classification.js';
 import { resolveModelSelection } from '../../shared/model-catalog.js';
+import { validateReadableAgentToolRule } from '../../shared/agent-tool-references.js';
 import { envFilePath, settingsFilePath } from './runtime-home.js';
 import type {
   RuntimeSettings,
@@ -224,6 +225,17 @@ export function validateLoadedRuntimeSettings(
       details.push(
         `conversations.${conversationId}.control_approvers must include at least one conversation approver.`,
       );
+    }
+  }
+
+  for (const [agentId, agent] of Object.entries(settings.agents)) {
+    for (const toolRule of agent.capabilities.toolIds) {
+      const validation = validateReadableAgentToolRule(toolRule);
+      if (!validation.ok) {
+        details.push(
+          `agents.${agentId}.tools contains invalid tool rule "${toolRule}": ${validation.reason}`,
+        );
+      }
     }
   }
 

@@ -25,7 +25,7 @@ describe('configured agent tools', () => {
     ).resolves.toEqual(['Bash(npm test)']);
   });
 
-  it('keeps the legacy tool id fallback when a catalog row is unavailable', async () => {
+  it('drops stale active bindings when the catalog row is unavailable', async () => {
     const repository = {
       listAgentToolBindings: async () => [
         {
@@ -42,6 +42,6 @@ describe('configured agent tools', () => {
         appId: 'default',
         agentId: 'agent:one',
       }),
-    ).resolves.toEqual(['Bash']);
+    ).resolves.toEqual([]);
   });
 });

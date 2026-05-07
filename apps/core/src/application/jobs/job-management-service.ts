@@ -2,10 +2,9 @@ import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js'
 import { ApplicationError } from '../common/application-error.js';
 import type { Clock } from '../common/clock.js';
 import {
-  assertJobBelongsToApp,
+  DEFAULT_JOB_RUNTIME_APP_ID,
   filterJobsByCanonicalAppSession,
   resolveJobAppSession,
-  resolveJobRuntimeAppId,
 } from './job-access.js';
 import { isVisibleJob } from './job-list-filters.js';
 import {
@@ -22,6 +21,7 @@ import {
   normalizeExecutionMode,
   normalizeScheduleType,
   resolveCanonicalAppSessionForOrigin,
+  resolveJobPolicyAppId,
   resolveLimit,
 } from './job-management-helpers.js';
 import type {
@@ -262,18 +262,23 @@ export class JobManagementService {
     const job = await this.requireJob(input.jobId);
     await this.assertAccess(job, input);
     const patch = { ...input.patch };
-    if (typeof patch.model === 'string') {
+    if (typeof patch.model === 'string')
       patch.model = resolveOptionalJobModel(patch.model);
-    }
     const allowedTools =
       patch.allowedTools === undefined
         ? undefined
         : normalizeJobExtraTools(patch.allowedTools);
     if (allowedTools) {
       const targetGroupScope = patch.groupScope ?? job.group_scope;
+      const policyAppId =
+        (await resolveJobPolicyAppId({
+          appId: input.appId,
+          access: input.access,
+          control: this.deps.control,
+        })) ?? DEFAULT_JOB_RUNTIME_APP_ID;
       const inheritedTools = await resolveAgentToolBindings({
         repository: this.deps.toolRepository,
-        appId: resolveJobRuntimeAppId(job),
+        appId: policyAppId,
         agentId: agentIdForJobGroupScope(targetGroupScope),
       });
       assertJobExtraToolsAllowedForTarget({
@@ -284,7 +289,7 @@ export class JobManagementService {
         deps: this.deps,
         jobId: job.id,
         jobName: patch.name ?? job.name,
-        appId: resolveJobRuntimeAppId(job),
+        appId: policyAppId,
         groupScope: targetGroupScope,
         allowedTools,
         existingJobExtraTools: job.capability_policy?.allowed_tools ?? [],
@@ -648,7 +653,6 @@ export class JobManagementService {
     await this.assertAccess(job, input);
     return job;
   }
-
   private async assertAccess(
     job: Job,
     input: { appId?: string; access?: SchedulerJobAccess },
@@ -659,8 +663,10 @@ export class JobManagementService {
 
   private async assertJobAppAccess(job: Job, appId: string): Promise<void> {
     if (!this.deps.control) {
-      assertJobBelongsToApp(job, appId);
-      return;
+      throw new ApplicationError(
+        'UNAVAILABLE',
+        'Job control repository unavailable',
+      );
     }
     const appSession = await resolveJobAppSession({
       control: this.deps.control,

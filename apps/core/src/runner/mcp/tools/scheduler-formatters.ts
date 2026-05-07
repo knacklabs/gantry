@@ -14,13 +14,17 @@ export function schedulerJobSummary(job: unknown): string {
     : 0;
   const staleness =
     typeof visibility.staleness === 'string' ? visibility.staleness : 'none';
+  const toolAccess = toolAccessRecord(visibility.toolAccess);
+  const toolAccessLine = toolAccess.present
+    ? `Tool access: inherited ${formatTools(toolAccess.inheritedAgentTools)}, job extra ${formatTools(toolAccess.jobExtraTools)}, effective ${formatTools(toolAccess.effectiveAllowedTools)}`
+    : 'Tool access: missing canonical toolAccess';
   return [
     `Job: ${String(record.name ?? record.id ?? 'unknown')}`,
     `Target: ${String(target.agentId ?? record.group_scope ?? 'unknown')} in ${String(target.conversationJids?.[0] ?? 'no conversation')}`,
     `Kind/status: ${String(record.schedule_type ?? 'unknown')} / ${String(record.status ?? 'unknown')}`,
     `Next/last run: ${String(record.next_run ?? 'none')} / ${String(record.last_run ?? 'none')}`,
     `Staleness: ${staleness}`,
-    `Tools: inherited ${Array.isArray(visibility.inheritedTools) ? visibility.inheritedTools.length : 0}, job extra ${Array.isArray(visibility.jobExtraTools) ? visibility.jobExtraTools.length : 0}, effective ${Array.isArray(visibility.effectiveAllowedTools) ? visibility.effectiveAllowedTools.length : 0}`,
+    toolAccessLine,
     `Recent run errors: ${recentErrors}`,
     '',
     'Structured JSON:',
@@ -42,7 +46,11 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
       typeof visibility.target === 'object' && visibility.target !== null
         ? (visibility.target as Record<string, any>)
         : {};
-    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${String(record.schedule_type ?? '')} | ${String(record.status ?? '')} | ${String(target.agentId ?? record.group_scope ?? '')}`;
+    const toolAccess = toolAccessRecord(visibility.toolAccess);
+    const toolsLabel = toolAccess.present
+      ? formatTools(toolAccess.effectiveAllowedTools)
+      : '(missing toolAccess)';
+    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${String(record.schedule_type ?? '')} | ${String(record.status ?? '')} | ${String(target.agentId ?? record.group_scope ?? '')} | tools: ${toolsLabel}`;
   });
   return [
     `Scheduler jobs (${jobs.length})`,
@@ -51,4 +59,33 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
     'Structured JSON:',
     JSON.stringify(jobs, null, 2),
   ].join('\n');
+}
+
+function toolAccessRecord(value: unknown): {
+  present: boolean;
+  inheritedAgentTools: string[];
+  jobExtraTools: string[];
+  effectiveAllowedTools: string[];
+} {
+  const present = typeof value === 'object' && value !== null;
+  const record =
+    typeof value === 'object' && value !== null
+      ? (value as Record<string, unknown>)
+      : {};
+  return {
+    present,
+    inheritedAgentTools: stringArray(record.inheritedAgentTools),
+    jobExtraTools: stringArray(record.jobExtraTools),
+    effectiveAllowedTools: stringArray(record.effectiveAllowedTools),
+  };
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function formatTools(values: readonly string[]): string {
+  return values.length > 0 ? values.join(', ') : '(none)';
 }

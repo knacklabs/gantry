@@ -26,19 +26,6 @@ import type {
 
 type JobRecordSource = Omit<JobUpsertInput, 'id'> | JobUpsertInput | Job;
 
-function resolveJobRuntimeAppId(job: Job, fallback = CANONICAL_APP_ID): string {
-  const appJid = (
-    Array.isArray(job.linked_sessions) ? job.linked_sessions : []
-  ).find((chatJid) => chatJid.startsWith('app:'));
-  if (!appJid) return fallback;
-  const rest = appJid.slice('app:'.length);
-  const delimiterIndex = rest.indexOf(':');
-  if (delimiterIndex <= 0 || rest.indexOf(':', delimiterIndex + 1) !== -1) {
-    return fallback;
-  }
-  return rest.slice(0, delimiterIndex) || fallback;
-}
-
 export class CanonicalJobOpsService {
   constructor(private readonly repository: PostgresCanonicalJobRepository) {}
 
@@ -257,10 +244,7 @@ export class CanonicalJobOpsService {
         : undefined);
     if (!jobId) return CANONICAL_APP_ID;
 
-    const jobRecord = await this.repository.findJobById(jobId);
-    return jobRecord
-      ? resolveJobRuntimeAppId(this.rowToJob(jobRecord))
-      : CANONICAL_APP_ID;
+    return CANONICAL_APP_ID;
   }
 
   private rowToJob(row: CanonicalJobRecord): Job {

@@ -95,13 +95,33 @@ export type AgentCapabilitiesRequest = z.infer<
   typeof AgentCapabilitiesRequestSchema
 >;
 
-export const AgentCapabilitiesResponseSchema = z.object({
-  agentId: z.string(),
-  selectedToolIds: z.array(z.string()),
-  selectedSkillIds: z.array(z.string()),
-  selectedMcpServerIds: z.array(z.string()),
-  updatedAt: IsoDateTimeSchema,
-});
+export const AgentToolAccessSchema = z
+  .object({
+    configuredTools: z.array(z.string()),
+    defaultTools: z.array(z.string()),
+    availableButGatedTools: z.array(z.string()),
+    requestableAdminTools: z.array(
+      z.object({
+        tool: z.string(),
+        toolId: z.string(),
+        requestPermission: z.string(),
+      }),
+    ),
+    source: z.string(),
+  })
+  .strict();
+export type AgentToolAccess = z.infer<typeof AgentToolAccessSchema>;
+
+export const AgentCapabilitiesResponseSchema = z
+  .object({
+    agentId: z.string(),
+    selectedToolIds: z.array(z.string()),
+    selectedSkillIds: z.array(z.string()),
+    selectedMcpServerIds: z.array(z.string()),
+    toolAccess: AgentToolAccessSchema,
+    updatedAt: IsoDateTimeSchema,
+  })
+  .strict();
 export type AgentCapabilitiesResponse = z.infer<
   typeof AgentCapabilitiesResponseSchema
 >;

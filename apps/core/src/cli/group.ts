@@ -42,6 +42,13 @@ import {
 } from './group-helpers.js';
 import { printPolicyChannel } from './group-policy-format.js';
 import { runAgentDmAccessCommand } from './agent-dm-access.js';
+import {
+  buildAgentToolAccessView,
+  buildRequestableAdminToolAccess,
+  formatAgentToolAccess,
+  PERMISSION_GATED_NATIVE_TOOLS,
+} from '../shared/tool-access-view.js';
+import { adminMcpToolNameFromFullName } from '../shared/admin-mcp-tools.js';
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -176,6 +183,17 @@ async function runInfo(
     const found = resolved.found;
     const settings = loadRuntimeSettings(runtimeHome);
     const mainAgentName = mainAgentNameFromSettings(settings);
+    const configuredTools = (
+      settings.agents[found.group.folder]?.capabilities.toolIds ?? []
+    ).map((tool) => tool.trim());
+    const enabledAdminTools = selectedAdminToolNames(configuredTools);
+    const gatedTools = PERMISSION_GATED_NATIVE_TOOLS.filter(
+      (toolName) =>
+        !configuredTools.some(
+          (configured) =>
+            configured === toolName || configured.startsWith(`${toolName}(`),
+        ),
+    );
     const lines = [
       `JID: ${found.jid}`,
       `Name: ${displayAgentName(found.group, mainAgentName)}`,
@@ -184,12 +202,29 @@ async function runInfo(
       `Requires Trigger: ${found.group.requiresTrigger === false ? 'no' : 'yes'}`,
       `Main Agent: ${found.group.isMain ? 'yes' : 'no'}`,
       `Added At: ${found.group.added_at}`,
+      '',
+      formatAgentToolAccess(
+        buildAgentToolAccessView({
+          configuredTools,
+          defaultTools: [],
+          availableButGatedTools: gatedTools,
+          requestableAdminTools:
+            buildRequestableAdminToolAccess(enabledAdminTools),
+          source: `settings.yaml agents.${found.group.folder}.tools`,
+        }),
+      ),
     ];
     console.log(lines.join('\n'));
     return 0;
   } finally {
     await db?.close();
   }
+}
+
+function selectedAdminToolNames(tools: readonly string[]): Set<string> {
+  return new Set(
+    tools.map(adminMcpToolNameFromFullName).filter((name) => name !== null),
+  );
 }
 
 async function runAdd(runtimeHome: string, args: string[]): Promise<number> {

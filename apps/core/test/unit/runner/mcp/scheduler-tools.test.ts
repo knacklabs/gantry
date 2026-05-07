@@ -197,12 +197,45 @@ describe('scheduler MCP tools', () => {
         visibility: {
           staleness: 'missed_window',
           target: { agentId: 'agent:main', conversationJids: ['tg:team'] },
-          inheritedTools: [],
-          jobExtraTools: [],
-          effectiveAllowedTools: [],
+          toolAccess: {
+            inheritedAgentTools: [],
+            jobExtraTools: [],
+            effectiveAllowedTools: [],
+          },
           recentRunErrors: [],
         },
       }),
     ).toContain('Staleness: missed_window');
+  });
+
+  it('does not hide missing canonical toolAccess in scheduler summaries', async () => {
+    const { schedulerJobSummary, schedulerJobsSummary } =
+      await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
+
+    expect(
+      schedulerJobSummary({
+        id: 'job-1',
+        name: 'Follow up',
+        schedule_type: 'once',
+        status: 'active',
+        visibility: {
+          target: { agentId: 'agent:main', conversationJids: ['tg:team'] },
+          recentRunErrors: [],
+        },
+      }),
+    ).toContain('Tool access: missing canonical toolAccess');
+    expect(
+      schedulerJobsSummary([
+        {
+          id: 'job-1',
+          name: 'Follow up',
+          schedule_type: 'once',
+          status: 'active',
+          visibility: {
+            target: { agentId: 'agent:main', conversationJids: ['tg:team'] },
+          },
+        },
+      ]),
+    ).toContain('tools: (missing toolAccess)');
   });
 });

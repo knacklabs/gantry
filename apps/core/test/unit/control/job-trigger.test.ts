@@ -1102,15 +1102,20 @@ describe('control job trigger', () => {
             jobId: 'visible',
             promptPreview: 'Run',
             staleness: 'missed_window',
-            inheritedToolCount: 0,
-            jobExtraToolCount: 1,
-            effectiveAllowedToolCount: 1,
+            toolAccess: expect.objectContaining({
+              inheritedAgentTools: [],
+              jobExtraTools: ['Read'],
+              effectiveAllowedTools: ['Read'],
+              source:
+                'inherited agent grants plus target_json.capabilityPolicy.allowedTools',
+            }),
           }),
         ],
       });
       expect(body.jobs[0]).not.toHaveProperty('prompt');
       expect(body.jobs[0]).not.toHaveProperty('fullPrompt');
       expect(body.jobs[0]).not.toHaveProperty('inheritedTools');
+      expect(body.jobs[0]).not.toHaveProperty('inheritedToolCount');
     } finally {
       await handle.close();
     }
@@ -1152,11 +1157,16 @@ describe('control job trigger', () => {
         prompt: 'Run',
         fullPrompt: 'Run',
         staleness: 'missed_window',
-        inheritedTools: [],
-        jobExtraTools: ['Read'],
-        effectiveAllowedTools: ['Read'],
+        toolAccess: expect.objectContaining({
+          inheritedAgentTools: [],
+          jobExtraTools: ['Read'],
+          effectiveAllowedTools: ['Read'],
+          source:
+            'inherited agent grants plus target_json.capabilityPolicy.allowedTools',
+        }),
         recentRunErrors: [],
       });
+      expect(body).not.toHaveProperty('inheritedTools');
       expect(body).not.toHaveProperty('inheritedToolCount');
     } finally {
       await handle.close();

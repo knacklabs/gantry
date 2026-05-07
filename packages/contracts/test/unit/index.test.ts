@@ -5,6 +5,7 @@ import type {
 } from '../../../sdk/src/job-model-types.js';
 
 import {
+  AgentCapabilitiesResponseSchema,
   AgentResponseSchema,
   AgentConversationBindingRequestSchema,
   AgentConversationBindingListResponseSchema,
@@ -159,6 +160,37 @@ describe('contracts package', () => {
       updatedAt: iso,
     });
     expectInvalid(CreateAgentRequestSchema, { appId: 'app-1', name: '' });
+    expect(
+      AgentCapabilitiesResponseSchema.parse({
+        agentId: 'agent-1',
+        selectedToolIds: ['tool:mcp__myclaw__service_restart'],
+        selectedSkillIds: [],
+        selectedMcpServerIds: [],
+        toolAccess: {
+          configuredTools: ['mcp__myclaw__service_restart'],
+          defaultTools: [],
+          availableButGatedTools: ['Bash'],
+          requestableAdminTools: [],
+          source: 'settings.yaml agents.agent-1.tools',
+        },
+        updatedAt: iso,
+      }),
+    ).toMatchObject({ agentId: 'agent-1' });
+    expectInvalid(AgentCapabilitiesResponseSchema, {
+      agentId: 'agent-1',
+      selectedToolIds: [],
+      selectedSkillIds: [],
+      selectedMcpServerIds: [],
+      toolAccess: {
+        configuredTools: [],
+        defaultTools: [],
+        availableButGatedTools: [],
+        requestableAdminTools: [],
+        source: 'settings.yaml agents.agent-1.tools',
+        inheritedTools: [],
+      },
+      updatedAt: iso,
+    });
 
     const sdkCreatePayload = {
       name: 'Daily summary',
@@ -239,8 +271,40 @@ describe('contracts package', () => {
         threadId: null,
         groupScope: 'app:app-one:session-1',
         sessionId: null,
+        toolAccess: {
+          inheritedAgentTools: ['Read'],
+          jobExtraTools: [],
+          effectiveAllowedTools: ['Read'],
+          source:
+            'inherited agent grants plus target_json.capabilityPolicy.allowedTools',
+        },
       }),
     ).toMatchObject({ staleness: 'missed_window' });
+    expectInvalid(JobResponseSchema, {
+      jobId: 'job-1',
+      name: 'Daily summary',
+      kind: 'once',
+      status: 'active',
+      schedule: { type: 'once', runAt: iso },
+      linkedSessions: ['app:app-one:session-1'],
+      nextRun: iso,
+      lastRun: null,
+      executionMode: 'parallel',
+      modelAlias: null,
+      modelProfileId: null,
+      model: null,
+      threadId: null,
+      groupScope: 'app:app-one:session-1',
+      sessionId: null,
+      toolAccess: {
+        inheritedAgentTools: ['Read'],
+        jobExtraTools: [],
+        effectiveAllowedTools: ['Read'],
+        source:
+          'inherited agent grants plus target_json.capabilityPolicy.allowedTools',
+      },
+      inheritedTools: ['Read'],
+    });
     expectInvalid(JobResponseSchema, {
       jobId: 'job-1',
       name: 'Daily summary',

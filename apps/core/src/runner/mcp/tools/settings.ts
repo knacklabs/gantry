@@ -15,7 +15,7 @@ export function registerSettingsTools(
   if (options.isAdminToolEnabled('settings_desired_state')) {
     server.tool(
       'settings_desired_state',
-      'Read the current local settings.yaml desired state before requesting local MyClaw configuration changes. Requires the selected agent capability tool:mcp__myclaw__settings_desired_state.',
+      'Read the current local settings.yaml desired state before requesting local MyClaw configuration changes. Requires selected agent tool grant mcp__myclaw__settings_desired_state.',
       {},
       async () => {
         const taskId = makeIpcId('settings-desired-state');
@@ -62,7 +62,7 @@ export function registerSettingsTools(
   if (options.isAdminToolEnabled('request_settings_update')) {
     server.tool(
       'request_settings_update',
-      'Request a reviewed update to local settings.yaml. Requires the selected agent capability tool:mcp__myclaw__request_settings_update.',
+      'Request a reviewed update to local settings.yaml. Requires selected agent tool grant mcp__myclaw__request_settings_update.',
       {
         replacementYaml: z
           .string()

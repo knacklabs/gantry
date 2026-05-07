@@ -9,6 +9,13 @@ import {
   requestPermissionReviewSuggestions,
 } from '@core/jobs/request-permission-review.js';
 
+function depsWith(repository: unknown) {
+  return {
+    getToolRepository: () => repository as never,
+    mirrorAgentToolRulesToSettings: vi.fn(async () => undefined),
+  };
+}
+
 describe('request permission review helpers', () => {
   it('does not suggest persistent tool grants for temporary, non-tool, multi-tool, or oversized rules', () => {
     expect(
@@ -40,12 +47,15 @@ describe('request permission review helpers', () => {
 
   it('stores synthetic permission tools under namespaced ids without widening oversized rules', async () => {
     const repository = {
+      getTool: vi.fn(async () => null),
+      listTools: vi.fn(async () => []),
       saveTool: vi.fn(async () => undefined),
       saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
     };
 
     const persisted = await persistRequestPermissionRules({
-      deps: { getToolRepository: () => repository as never },
+      deps: depsWith(repository),
       sourceAgentFolder: 'agent:one',
       updates: [
         {
@@ -85,10 +95,11 @@ describe('request permission review helpers', () => {
       })),
       saveTool: vi.fn(async () => undefined),
       saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
     };
 
     const persisted = await persistRequestPermissionRules({
-      deps: { getToolRepository: () => repository as never },
+      deps: depsWith(repository),
       sourceAgentFolder: 'main_agent',
       updates: [
         {
@@ -117,12 +128,15 @@ describe('request permission review helpers', () => {
       path.join(os.tmpdir(), 'myclaw-live-tool-rules-'),
     );
     const repository = {
+      getTool: vi.fn(async () => null),
+      listTools: vi.fn(async () => []),
       saveTool: vi.fn(async () => undefined),
       saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
     };
 
     const persisted = await persistRequestPermissionRules({
-      deps: { getToolRepository: () => repository as never },
+      deps: depsWith(repository),
       sourceAgentFolder: 'main_agent',
       ipcDir,
       runHandle: 'agent-run-1',
@@ -146,16 +160,88 @@ describe('request permission review helpers', () => {
     ).toEqual(['Bash(npm test *)']);
   });
 
-  it('rejects persistent MyClaw MCP wildcard approvals', async () => {
+  it('fails closed when persistent settings mirror is unavailable', async () => {
     const repository = {
       getTool: vi.fn(async () => null),
+      listTools: vi.fn(async () => []),
       saveTool: vi.fn(async () => undefined),
       saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
     };
 
     await expect(
       persistRequestPermissionRules({
         deps: { getToolRepository: () => repository as never },
+        sourceAgentFolder: 'main_agent',
+        updates: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'Bash' }],
+          },
+        ],
+      }),
+    ).rejects.toThrow('Settings mirror unavailable');
+    expect(repository.saveTool).not.toHaveBeenCalled();
+    expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
+  });
+
+  it('rolls back active bindings when persistent settings mirror fails', async () => {
+    const ipcDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-live-tool-rules-rollback-'),
+    );
+    const repository = {
+      getTool: vi.fn(async () => null),
+      listTools: vi.fn(async () => []),
+      saveTool: vi.fn(async () => undefined),
+      saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => {
+      throw new Error('settings write failed');
+    });
+
+    await expect(
+      persistRequestPermissionRules({
+        deps: {
+          getToolRepository: () => repository as never,
+          mirrorAgentToolRulesToSettings,
+        },
+        sourceAgentFolder: 'main_agent',
+        ipcDir,
+        runHandle: 'agent-run-1',
+        updates: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'Bash' }],
+          },
+        ],
+      }),
+    ).rejects.toThrow('settings write failed');
+    expect(repository.saveAgentToolBinding).toHaveBeenCalledOnce();
+    expect(repository.disableAgentToolBinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'agent:main_agent',
+        toolId: expect.stringMatching(/^tool:permission-rule:/),
+      }),
+    );
+    expect(
+      fs.existsSync(path.join(ipcDir, 'live-tool-rules', 'agent-run-1.json')),
+    ).toBe(false);
+  });
+
+  it('rejects persistent MyClaw MCP wildcard approvals', async () => {
+    const repository = {
+      getTool: vi.fn(async () => null),
+      saveTool: vi.fn(async () => undefined),
+      saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+
+    await expect(
+      persistRequestPermissionRules({
+        deps: depsWith(repository),
         sourceAgentFolder: 'main_agent',
         updates: [
           {
@@ -174,11 +260,12 @@ describe('request permission review helpers', () => {
       getTool: vi.fn(async () => null),
       saveTool: vi.fn(async () => undefined),
       saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
     };
 
     await expect(
       persistRequestPermissionRules({
-        deps: { getToolRepository: () => repository as never },
+        deps: depsWith(repository),
         sourceAgentFolder: 'main_agent',
         updates: [
           {
@@ -206,11 +293,12 @@ describe('request permission review helpers', () => {
       })),
       saveTool: vi.fn(async () => undefined),
       saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
     };
 
     await expect(
       persistRequestPermissionRules({
-        deps: { getToolRepository: () => repository as never },
+        deps: depsWith(repository),
         sourceAgentFolder: 'main_agent',
         updates: [
           {

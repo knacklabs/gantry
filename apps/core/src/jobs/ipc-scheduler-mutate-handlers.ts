@@ -17,17 +17,13 @@ import { invalidateSystemJobRegistrationSignature } from './system-registration-
 import { resolveRequestedJobModelPatch } from '../application/jobs/job-model-selection.js';
 import { resolveSchedulerApprovalTarget } from './ipc-scheduler-approval-target.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
-import {
-  getRuntimeControlRepository,
-  getRuntimeEventExchange,
-} from '../adapters/storage/postgres/runtime-store.js';
+import { getRuntimeEventExchange } from '../adapters/storage/postgres/runtime-store.js';
 import { enqueueJobTrigger, isSchedulerReady } from './scheduler.js';
-import { adaptJobControl } from './ipc-job-control.js';
 
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
     ops: context.deps.opsRepository,
-    control: adaptJobControl(getRuntimeControlRepository()),
+    control: context.deps.getJobControl?.(),
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
     toolRepository: context.deps.getToolRepository?.(),
@@ -42,7 +38,7 @@ function makeRunNowJobService(context: TaskContext): JobManagementService {
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
     toolRepository: context.deps.getToolRepository?.(),
-    control: adaptJobControl(getRuntimeControlRepository()),
+    control: context.deps.getJobControl?.(),
     runtimeEvents: getRuntimeEventExchange(),
     triggerQueue: {
       isReady: isSchedulerReady,
@@ -69,7 +65,7 @@ async function requestJobExtraToolApproval(
     displayName: 'Autonomous job tools',
     title: 'Approve job-scoped autonomous tools',
     description:
-      'Approving stores these extra tool rules on this scheduler job only. Future runs still inherit the target agent tools dynamically.',
+      'stored on this job only; inherited agent grants are shown separately.',
     decisionReason: `Update scheduler job ${request.jobName} with job-scoped extra tools.`,
     toolInput: {
       jobId: request.jobId,

@@ -2,6 +2,7 @@ import { JobManagementService } from '../application/jobs/job-management-service
 import {
   buildJobListVisibilityMetadata,
   buildJobVisibilityMetadata,
+  type JobVisibilityMetadata,
 } from '../application/jobs/job-visibility-metadata.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { TaskContext, TaskHandler } from './ipc-types.js';
@@ -9,6 +10,10 @@ import { mapApplicationError } from './ipc-application-error.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
 import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
+import {
+  appIdFromConversationJid,
+  resolveCanonicalAppSessionForOrigin,
+} from '../application/jobs/job-management-helpers.js';
 
 const SCHEDULER_WAIT_MIN_TIMEOUT_MS = 1_000;
 const SCHEDULER_WAIT_MAX_TIMEOUT_MS = 300_000;
@@ -17,10 +22,25 @@ const SCHEDULER_WAIT_POLL_MS = 1_000;
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
     ops: context.deps.opsRepository,
+    control: context.deps.getJobControl?.(),
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
     toolRepository: context.deps.getToolRepository?.(),
   });
+}
+
+async function resolveMetadataAppId(
+  context: TaskContext,
+): Promise<string | undefined> {
+  const access = schedulerAccessFromContext(context);
+  if (!appIdFromConversationJid(access.originConversationJid)) {
+    return undefined;
+  }
+  const { canonicalSession } = await resolveCanonicalAppSessionForOrigin({
+    access,
+    control: context.deps.getJobControl?.(),
+  });
+  return canonicalSession?.appId;
 }
 
 function normalizeSchedulerWaitTimeoutMs(value: unknown): number {
@@ -74,19 +94,24 @@ const schedulerGetJobHandler: TaskHandler = async (context) => {
   }
   try {
     const service = makeJobService(context);
+    const access = schedulerAccessFromContext(context);
     const result = await service.getJob({
       jobId,
-      access: schedulerAccessFromContext(context),
+      access,
     });
+    const metadataAppId = await resolveMetadataAppId(context);
     const data = result.job
       ? {
           job: {
             ...result.job,
-            visibility: await buildJobVisibilityMetadata({
-              job: result.job,
-              ops: context.deps.opsRepository,
-              toolRepository: context.deps.getToolRepository?.(),
-            }),
+            visibility: publicJobVisibility(
+              await buildJobVisibilityMetadata({
+                job: result.job,
+                appId: metadataAppId,
+                ops: context.deps.opsRepository,
+                toolRepository: context.deps.getToolRepository?.(),
+              }),
+            ),
           },
         }
       : result;
@@ -110,6 +135,7 @@ const schedulerListJobsHandler: TaskHandler = async (context) => {
   );
   try {
     const service = makeJobService(context);
+    const metadataAppId = await resolveMetadataAppId(context);
     const result = await service.listJobs({
       access: schedulerAccessFromContext(context),
       statuses: Array.isArray(data.statuses) ? data.statuses : undefined,
@@ -123,14 +149,21 @@ const schedulerListJobsHandler: TaskHandler = async (context) => {
     });
     const metadata = await buildJobListVisibilityMetadata({
       jobs: result.jobs,
+      appId: metadataAppId,
       toolRepository: context.deps.getToolRepository?.(),
     });
     acceptData(`Listed ${result.jobs.length} scheduler job(s).`, {
-      jobs: result.jobs.map(({ prompt: _prompt, ...job }) => ({
-        ...job,
-        prompt_preview: metadata.get(job.id)?.promptPreview,
-        visibility: metadata.get(job.id),
-      })),
+      jobs: result.jobs.map(({ prompt: _prompt, ...job }) => {
+        const jobMetadata = metadata.get(job.id);
+        if (!jobMetadata) {
+          throw new Error(`Missing visibility metadata for job ${job.id}`);
+        }
+        return {
+          ...job,
+          prompt_preview: jobMetadata.promptPreview,
+          visibility: publicJobVisibility(jobMetadata),
+        };
+      }),
     });
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to query scheduler jobs.');
@@ -138,6 +171,18 @@ const schedulerListJobsHandler: TaskHandler = async (context) => {
     reject(mapped.message, mapped.code);
   }
 };
+
+function publicJobVisibility(metadata: JobVisibilityMetadata) {
+  return {
+    target: metadata.target,
+    promptPreview: metadata.promptPreview,
+    fullPrompt: metadata.fullPrompt,
+    notificationTarget: metadata.notificationTarget,
+    toolAccess: metadata.toolAccess,
+    recentRunErrors: metadata.recentRunErrors,
+    staleness: metadata.staleness,
+  };
+}
 
 const schedulerListRunsHandler: TaskHandler = async (context) => {
   const { data, sourceAgentFolder } = context;

@@ -29,6 +29,7 @@ import type {
   RuntimeSettings,
   RuntimeSettingsValidationResult,
 } from './runtime-settings-types.js';
+import { validateReadableAgentToolRule } from '../../shared/agent-tool-references.js';
 
 const DEFAULT_PROVIDER_CONNECTION_IDS: Record<string, string> = {
   app: 'app_default',
@@ -96,6 +97,37 @@ export function saveRuntimeSettings(
     settingsFilePath(runtimeHome),
     renderRuntimeSettingsYaml(settings),
   );
+}
+
+export function mirrorAgentToolRulesToRuntimeSettings(input: {
+  runtimeHome: string;
+  agentFolder: string;
+  rules: readonly string[];
+}): void {
+  const settings = loadRuntimeSettings(input.runtimeHome);
+  const folder = input.agentFolder.trim();
+  const agent = settings.agents[folder];
+  if (!agent) {
+    throw new Error(
+      `Cannot mirror persistent tool rules for missing settings agent: ${folder || '(empty)'}`,
+    );
+  }
+  const next = new Set<string>();
+  for (const existingRule of agent.capabilities.toolIds) {
+    const readable = existingRule.trim();
+    if (!readable) continue;
+    const validation = validateReadableAgentToolRule(readable);
+    if (!validation.ok) throw new Error(validation.reason);
+    next.add(readable);
+  }
+  for (const rule of input.rules) {
+    const readable = rule.trim();
+    const validation = validateReadableAgentToolRule(readable);
+    if (!validation.ok) throw new Error(validation.reason);
+    if (readable) next.add(readable);
+  }
+  agent.capabilities.toolIds = [...next];
+  saveRuntimeSettings(input.runtimeHome, settings);
 }
 
 function writeSettingsYamlAtomic(filePath: string, content: string): void {

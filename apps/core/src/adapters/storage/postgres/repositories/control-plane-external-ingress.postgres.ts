@@ -91,7 +91,17 @@ export class PostgresExternalIngressRepository {
       metadata?: unknown;
     },
   ) {
-    const existing = await this.getById(ingressId, appId);
+    const existingRows = await this.db
+      .select()
+      .from(pgSchema.externalIngressesPostgres)
+      .where(
+        and(
+          eq(pgSchema.externalIngressesPostgres.ingressId, ingressId),
+          eq(pgSchema.externalIngressesPostgres.appId, appId),
+        ),
+      )
+      .limit(1);
+    const existing = existingRows[0];
     if (!existing) return undefined;
     const rows = await this.db
       .update(pgSchema.externalIngressesPostgres)
@@ -100,15 +110,12 @@ export class PostgresExternalIngressRepository {
         secret:
           patch.secret !== undefined
             ? encryptExternalIngressSecret(patch.secret, this.runtimeSecrets)
-            : encryptExternalIngressSecret(
-                existing.secret,
-                this.runtimeSecrets,
-              ),
+            : existing.secret,
         enabled: patch.enabled ?? existing.enabled,
         metadataJson:
           patch.metadata !== undefined
             ? JSON.stringify(patch.metadata)
-            : JSON.stringify(existing.metadata),
+            : existing.metadataJson,
         updatedAt: currentIso(),
       })
       .where(
