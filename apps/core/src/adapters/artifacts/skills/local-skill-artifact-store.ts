@@ -21,6 +21,7 @@ export class LocalSkillArtifactStore implements SkillArtifactStore {
     const contentHash = hashSkillBundle(bundle);
     const storageRef = path.posix.join(
       'skills',
+      sanitizeSegment(input.appId),
       sanitizeSegment(input.skillId),
       contentHash.replace(/^sha256:/, ''),
     );

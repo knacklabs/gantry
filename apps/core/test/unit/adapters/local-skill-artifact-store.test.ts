@@ -43,7 +43,7 @@ describe('LocalSkillArtifactStore', () => {
 
     expect(stored.storageType).toBe('local-filesystem');
     expect(stored.storageRef).toMatch(
-      /^skills\/skill-Uploaded-One\/[a-f0-9]{64}$/,
+      /^skills\/app-one\/skill-Uploaded-One\/[a-f0-9]{64}$/,
     );
     expect(stored.storageRef.endsWith('.json')).toBe(false);
     expect(stored.sizeBytes).toBe(

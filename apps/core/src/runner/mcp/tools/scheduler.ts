@@ -1,12 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { CronExpressionParser } from 'cron-parser';
-import {
-  nowIso,
-  nowMs,
-  parseIso,
-  sleep,
-} from '../../../infrastructure/time/datetime.js';
+import { nowIso, parseIso } from '../../../infrastructure/time/datetime.js';
 import { TASKS_DIR } from '../context.js';
 import { formatTaskFailureLines } from '../formatting.js';
 import {
@@ -14,6 +9,7 @@ import {
   writeIpcFile,
   type TaskResponseEnvelope,
 } from '../ipc.js';
+import { makeIpcId } from '../ipc-ids.js';
 import {
   normalizeExecutionMode,
   resolveSchedulerThreadArg,
@@ -30,9 +26,7 @@ async function requestSchedulerData(
   payload: Record<string, unknown>,
   timeoutMs = 20_000,
 ): Promise<TaskResponseEnvelope | null> {
-  const taskId = `${type.replace(/_/g, '-')}-${nowMs()}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
+  const taskId = makeIpcId(type.replace(/_/g, '-'));
   writeIpcFile(TASKS_DIR, {
     type,
     taskId,
@@ -43,6 +37,19 @@ async function requestSchedulerData(
     timestamp: nowIso(),
   });
   return waitForTaskResponse(taskId, timeoutMs);
+}
+
+const SCHEDULER_WAIT_MIN_TIMEOUT_MS = 1_000;
+const SCHEDULER_WAIT_MAX_TIMEOUT_MS = 300_000;
+const SCHEDULER_WAIT_RESPONSE_GRACE_MS = 10_000;
+
+function normalizeSchedulerWaitTimeoutMs(value: unknown): number {
+  const raw =
+    typeof value === 'number' && Number.isFinite(value) ? value : 30_000;
+  return Math.max(
+    SCHEDULER_WAIT_MIN_TIMEOUT_MS,
+    Math.min(raw, SCHEDULER_WAIT_MAX_TIMEOUT_MS),
+  );
 }
 
 function taskError(response: TaskResponseEnvelope | null, fallback: string) {
@@ -153,7 +160,7 @@ export function registerSchedulerTools(server: McpServer): void {
         };
       }
 
-      const taskId = `scheduler-upsert-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+      const taskId = makeIpcId('scheduler-upsert');
       const data = {
         type: 'scheduler_upsert_job',
         taskId,
@@ -311,7 +318,7 @@ export function registerSchedulerTools(server: McpServer): void {
           isError: true,
         };
       }
-      const taskId = `scheduler-update-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+      const taskId = makeIpcId('scheduler-update');
       writeIpcFile(TASKS_DIR, {
         type: 'scheduler_update_job',
         taskId,
@@ -384,7 +391,7 @@ export function registerSchedulerTools(server: McpServer): void {
     'Delete a scheduler job.',
     { job_id: z.string() },
     async (args) => {
-      const taskId = `scheduler-delete-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+      const taskId = makeIpcId('scheduler-delete');
       writeIpcFile(TASKS_DIR, {
         type: 'scheduler_delete_job',
         taskId,
@@ -436,7 +443,7 @@ export function registerSchedulerTools(server: McpServer): void {
     'Pause a scheduler job.',
     { job_id: z.string() },
     async (args) => {
-      const taskId = `scheduler-pause-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+      const taskId = makeIpcId('scheduler-pause');
       writeIpcFile(TASKS_DIR, {
         type: 'scheduler_pause_job',
         taskId,
@@ -488,7 +495,7 @@ export function registerSchedulerTools(server: McpServer): void {
     'Resume a paused scheduler job.',
     { job_id: z.string() },
     async (args) => {
-      const taskId = `scheduler-resume-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+      const taskId = makeIpcId('scheduler-resume');
       writeIpcFile(TASKS_DIR, {
         type: 'scheduler_resume_job',
         taskId,
@@ -623,43 +630,32 @@ export function registerSchedulerTools(server: McpServer): void {
       timeout_ms: z.number().optional(),
     },
     async (args) => {
-      const timeoutMs = Math.max(
-        1_000,
-        Math.min(args.timeout_ms ?? 30_000, 120_000),
-      );
+      const timeoutMs = normalizeSchedulerWaitTimeoutMs(args.timeout_ms);
       const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
-      const deadline = nowMs() + timeoutMs;
-      while (nowMs() < deadline) {
-        const response = await requestSchedulerData(
-          'scheduler_wait_for_events',
-          {
-            jobId: args.job_id,
-            runId: args.run_id,
-            eventType: args.event_type,
-            sinceId: args.since_id,
-            since: args.since,
-            limit,
-          },
-          5_000,
-        );
-        const error = taskError(response, 'Scheduler wait for events failed.');
-        if (error) return error;
-        const events = dataRecord(response!).events;
-        const result = Array.isArray(events) ? events : [];
-        if (result.length > 0) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
-        }
-        await sleep(250);
-      }
+      const response = await requestSchedulerData(
+        'scheduler_wait_for_events',
+        {
+          jobId: args.job_id,
+          runId: args.run_id,
+          eventType: args.event_type,
+          sinceId: args.since_id,
+          since: args.since,
+          limit,
+          timeoutMs,
+        },
+        timeoutMs + SCHEDULER_WAIT_RESPONSE_GRACE_MS,
+      );
+      const error = taskError(response, 'Scheduler wait for events failed.');
+      if (error) return error;
+      const events = dataRecord(response!).events;
+      const result = Array.isArray(events) ? events : [];
       return {
-        content: [{ type: 'text' as const, text: '[]' }],
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
       };
     },
   );

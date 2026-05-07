@@ -7,7 +7,7 @@ import {
   getRuntimeControlRepository,
   getRuntimeEventExchange,
 } from '../adapters/storage/postgres/runtime-store.js';
-import { resolveJobRuntimeAppId } from '../application/jobs/job-access.js';
+import { DEFAULT_JOB_RUNTIME_APP_ID } from '../application/jobs/job-access.js';
 import { agentIdForJobGroupScope } from '../application/jobs/job-tool-policy.js';
 import {
   RUNTIME_EVENT_TYPES,
@@ -98,7 +98,7 @@ export async function runJob(
       ? 'serialized'
       : 'parallel';
   const leaseExpiresAt = toIso(currentTimeMs() + timeoutMs + 30_000);
-  const runtimeAppId = resolveJobRuntimeAppId(currentJob);
+  const runtimeAppId = DEFAULT_JOB_RUNTIME_APP_ID;
   const jobModelUseKind = modelUseKindForJobSchedule(currentJob.schedule_type);
   const resolvedModel = resolveJobModel(
     currentJob,
@@ -381,7 +381,7 @@ export async function runJob(
         });
         const effectiveAllowedTools = await resolveExecutionAllowedTools({
           job: currentJob,
-          appId: turnContext?.appId ?? runtimeAppId,
+          appId: turnContext?.appId ?? eventAppSession?.appId ?? runtimeAppId,
           agentId:
             turnContext?.agentId ??
             agentIdForJobGroupScope(execution.group.folder),

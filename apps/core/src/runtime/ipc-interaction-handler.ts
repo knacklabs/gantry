@@ -8,6 +8,11 @@ import {
   UserQuestionResponse,
 } from '../domain/types.js';
 import { signIpcResponsePayload } from '../infrastructure/ipc/response-signing.js';
+import {
+  ensurePrivateDirSync,
+  protectOwnerReadonlyFileSync,
+  writePrivateFileSync,
+} from '../shared/private-fs.js';
 import { IpcDeps } from './ipc-domain-types.js';
 
 export async function processPermissionIpcRequest(
@@ -37,7 +42,7 @@ function toTrimmedString(
 
 function protectTerminalResponseFile(filePath: string): void {
   try {
-    fs.chmodSync(filePath, 0o444);
+    protectOwnerReadonlyFileSync(filePath);
   } catch {
     // Best effort hardening only.
   }
@@ -66,7 +71,7 @@ export function writePermissionIpcResponse(
     sourceAgentFolder,
     'permission-responses',
   );
-  fs.mkdirSync(responseDir, { recursive: true });
+  ensurePrivateDirSync(responseDir);
   const responsePath = path.join(responseDir, `${decision.requestId}.json`);
   if (fs.existsSync(responsePath)) return;
   const tmpPath = `${responsePath}.tmp`;
@@ -86,7 +91,7 @@ export function writePermissionIpcResponse(
       ? { decisionClassification: decision.decisionClassification }
       : {}),
   });
-  fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2));
+  writePrivateFileSync(tmpPath, JSON.stringify(payload, null, 2));
   if (fs.existsSync(responsePath)) {
     fs.rmSync(tmpPath, { force: true });
     return;
@@ -102,7 +107,7 @@ export function writeUserQuestionIpcResponse(
   privateKeyPem?: string,
 ): void {
   const responseDir = path.join(ipcBaseDir, sourceAgentFolder, 'user-answers');
-  fs.mkdirSync(responseDir, { recursive: true });
+  ensurePrivateDirSync(responseDir);
   const responsePath = path.join(responseDir, `${response.requestId}.json`);
   if (fs.existsSync(responsePath)) return;
   const tmpPath = `${responsePath}.tmp`;
@@ -127,7 +132,7 @@ export function writeUserQuestionIpcResponse(
     answers: safeAnswers,
     ...(response.answeredBy ? { answeredBy: response.answeredBy } : {}),
   });
-  fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2));
+  writePrivateFileSync(tmpPath, JSON.stringify(payload, null, 2));
   if (fs.existsSync(responsePath)) {
     fs.rmSync(tmpPath, { force: true });
     return;

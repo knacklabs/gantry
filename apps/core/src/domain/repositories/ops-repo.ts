@@ -52,10 +52,12 @@ export interface JobListFilters {
 
 export interface JobRunListFilters {
   jobIds?: string[];
+  ownerAppId?: string;
 }
 
 export interface JobEventListFilters {
   app_id?: string;
+  owner_app_id?: string;
   job_id?: string;
   job_ids?: string[];
   run_id?: string;

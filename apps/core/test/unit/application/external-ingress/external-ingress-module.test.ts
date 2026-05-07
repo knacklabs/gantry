@@ -60,7 +60,16 @@ function makeModule(overrides?: {
   metadata?: unknown;
 }) {
   const control: ExternalIngressControl = {
-    createExternalIngress: vi.fn(),
+    createExternalIngress: vi.fn(async (input) => ({
+      ingressId: 'ingress-created',
+      appId: input.appId,
+      name: input.name,
+      secret: input.secret,
+      enabled: input.enabled ?? true,
+      metadata: input.metadata ?? {},
+      createdAt: '2026-04-30T00:00:00.000Z',
+      updatedAt: '2026-04-30T00:00:00.000Z',
+    })),
     listExternalIngresses: vi.fn(),
     getExternalIngressById: vi.fn(async () => ({
       ingressId: 'ingress-1',
@@ -194,6 +203,82 @@ type ExternalIngressJobs = {
 };
 
 describe('ExternalIngressModule', () => {
+  it('validates metadata before creating durable ingress state', async () => {
+    const { module, control } = makeModule();
+
+    await expect(
+      module.create({
+        appId: 'app-one',
+        name: 'bad-metadata',
+        metadata: {
+          targetPolicy: {
+            allowedTargetKinds: ['job_template'],
+            templateIds: ['template-1'],
+          },
+          templates: {
+            'template-1': {
+              name: 'Template',
+              prompt: 'Run {{task}}',
+              sessionId: 'session-1',
+              allowedVariables: ['task'],
+            },
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      secret: 'secret-generated',
+    });
+    expect(control.createExternalIngress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          targetPolicy: expect.objectContaining({
+            allowedTargetKinds: ['job_template'],
+          }),
+        }),
+      }),
+    );
+
+    await expect(
+      module.create({
+        appId: 'app-one',
+        name: 'invalid',
+        metadata: {
+          targetPolicy: { allowedTargetKinds: ['admin_escape'] },
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message:
+        'external ingress targetPolicy.allowedTargetKinds contains unsupported target kind: admin_escape',
+    });
+  });
+
+  it('rejects invalid metadata updates before writing durable state', async () => {
+    const { module, control } = makeModule();
+
+    await expect(
+      module.update({
+        appId: 'app-one',
+        ingressId: 'ingress-1',
+        patch: {
+          metadata: {
+            templates: {
+              'template-1': {
+                name: 'Missing session',
+                prompt: 'Run {{task}}',
+                allowedVariables: ['task'],
+              },
+            },
+          },
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'external ingress template template-1.sessionId is invalid',
+    });
+    expect(control.updateExternalIngress).not.toHaveBeenCalled();
+  });
+
   it('rejects disabled ingresses before nonce reservation', async () => {
     const { module, control, sessions } = makeModule({
       control: {
@@ -477,6 +562,17 @@ describe('ExternalIngressModule', () => {
         status: 'completed',
       }),
     );
+    expect(control.createExternalIngressInvocation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bodyHash: expect.any(String),
+        requestBody: expect.stringMatching(/^sha256:/),
+        signature: 'redacted',
+        expiresAt: '2026-05-07T00:00:00.000Z',
+      }),
+    );
+    expect(
+      control.createExternalIngressInvocation.mock.calls[0]![0].requestBody,
+    ).not.toContain('launch now');
   });
 
   it('rejects session_message targets not allowed by the ingress policy', async () => {

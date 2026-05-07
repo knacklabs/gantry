@@ -176,6 +176,7 @@ describe('Slack channel', () => {
     if (savedMyclawHome === undefined) delete process.env.MYCLAW_HOME;
     else process.env.MYCLAW_HOME = savedMyclawHome;
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('createSlackChannel returns null when tokens are missing', () => {
@@ -293,6 +294,159 @@ describe('Slack channel', () => {
         sender_name: 'Alice',
         content: 'hello',
       }),
+    );
+  });
+
+  it('stores Slack attachments without exposing local paths in message content', async () => {
+    const opts = createOpts();
+    opts.conversationRoutes.mockReturnValue({
+      'sl:C123': { folder: 'slack_ops', name: 'Ops' },
+    });
+    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
+    vi.spyOn(fs, 'lstatSync').mockReturnValue({
+      isDirectory: () => true,
+      isSymbolicLink: () => false,
+    } as any);
+    vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        headers: { get: () => null },
+        body: null,
+        arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
+      }),
+    );
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', opts as any);
+    await channel.connect();
+
+    const handlers = appRef.current.eventHandlers.get('message') || [];
+    await handlers[0]({
+      event: {
+        channel: 'C123',
+        ts: '1710000000.000100',
+        user: 'U123',
+        text: 'see file',
+        files: [
+          {
+            id: 'F123',
+            name: 'report.pdf',
+            mimetype: 'application/pdf',
+            url_private_download: 'https://files.slack.test/report.pdf',
+          },
+        ],
+      },
+    });
+
+    expect(opts.onMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.objectContaining({
+        content: 'see file\nAttachment: report.pdf',
+        attachments: [
+          expect.objectContaining({
+            externalId: 'F123',
+            storageRef: 'attachments/report.pdf',
+          }),
+        ],
+      }),
+    );
+    expect(opts.onMessage.mock.calls[0][1].content).not.toContain('/tmp/');
+    expect(mkdirSpy).toHaveBeenCalledWith(
+      '/tmp/test-groups/slack_ops/attachments',
+      { recursive: true, mode: 0o700 },
+    );
+    expect(writeSpy).toHaveBeenCalledWith(
+      '/tmp/test-groups/slack_ops/attachments/report.pdf',
+      expect.any(Buffer),
+      { mode: 0o600 },
+    );
+  });
+
+  it('resets Slack attachment file mode when overwriting buffered downloads', async () => {
+    class TestSlackChannel extends SlackChannel {
+      write(response: Response, destPath: string) {
+        return this.writeFetchResponseToFile(response, destPath);
+      }
+    }
+    vi.spyOn(fs, 'lstatSync').mockReturnValue({
+      isSymbolicLink: () => false,
+    } as any);
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined);
+    const chmodSpy = vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
+    const channel = new TestSlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+
+    await expect(
+      channel.write(
+        {
+          headers: { get: () => null },
+          body: null,
+          arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+        } as unknown as Response,
+        '/tmp/test-groups/slack_ops/attachments/report.pdf',
+      ),
+    ).resolves.toBe(true);
+
+    expect(writeSpy).toHaveBeenCalledWith(
+      '/tmp/test-groups/slack_ops/attachments/report.pdf',
+      expect.any(Buffer),
+      { mode: 0o600 },
+    );
+    expect(chmodSpy).toHaveBeenCalledWith(
+      '/tmp/test-groups/slack_ops/attachments/report.pdf',
+      0o600,
+    );
+  });
+
+  it('resets Slack attachment file mode when overwriting streamed downloads', async () => {
+    class TestSlackChannel extends SlackChannel {
+      write(response: Response, destPath: string) {
+        return this.writeFetchResponseToFile(response, destPath);
+      }
+    }
+    vi.spyOn(fs, 'lstatSync').mockReturnValue({
+      isSymbolicLink: () => false,
+    } as any);
+    const openSpy = vi.spyOn(fs, 'openSync').mockReturnValue(123);
+    const writeSpy = vi.spyOn(fs, 'writeSync').mockReturnValue(2);
+    const closeSpy = vi.spyOn(fs, 'closeSync').mockReturnValue(undefined);
+    const chmodSpy = vi.spyOn(fs, 'chmodSync').mockReturnValue(undefined);
+    const reader = {
+      read: vi
+        .fn()
+        .mockResolvedValueOnce({ done: false, value: new Uint8Array([1, 2]) })
+        .mockResolvedValueOnce({ done: true }),
+    };
+    const channel = new TestSlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+
+    await expect(
+      channel.write(
+        {
+          headers: { get: () => null },
+          body: { getReader: () => reader },
+        } as unknown as Response,
+        '/tmp/test-groups/slack_ops/attachments/report.pdf',
+      ),
+    ).resolves.toBe(true);
+
+    expect(openSpy).toHaveBeenCalledWith(
+      '/tmp/test-groups/slack_ops/attachments/report.pdf',
+      'w',
+      0o600,
+    );
+    expect(writeSpy).toHaveBeenCalledWith(123, expect.any(Buffer));
+    expect(closeSpy).toHaveBeenCalledWith(123);
+    expect(chmodSpy).toHaveBeenCalledWith(
+      '/tmp/test-groups/slack_ops/attachments/report.pdf',
+      0o600,
     );
   });
 

@@ -5,6 +5,7 @@ export interface TaskIpcData {
   type: string;
   authThreadId?: string;
   taskId?: string;
+  runHandle?: string;
   prompt?: string;
   modelAlias?: string | null;
   modelProfileId?: string | null;
@@ -50,6 +51,7 @@ export interface TaskContext {
   data: TaskIpcData;
   sourceAgentFolder: string;
   isMain: boolean;
+  ipcBaseDir?: string;
   deps: IpcDeps;
   conversationBindings: Record<string, ConversationRoute>;
   sourceAgentFolderJids: string[];

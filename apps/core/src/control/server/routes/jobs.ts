@@ -158,6 +158,12 @@ function adaptJobControl(
       const session = await control.getAppSessionById(sessionId);
       return adaptAppSession(session);
     },
+    async getAppSessionsByIds(sessionIds) {
+      const sessions = await control.getAppSessionsByIds(sessionIds);
+      return sessions
+        .map((session) => adaptAppSession(session))
+        .filter((session): session is AppSessionRecord => Boolean(session));
+    },
     async getAppSessionByChatJid(chatJid) {
       const session = await control.getAppSessionByChatJid(chatJid);
       return adaptAppSession(session);
@@ -371,11 +377,16 @@ export async function handleJobRoutes(
     const metadata = await buildJobListVisibilityMetadata({
       jobs: visibleJobs,
       toolRepository: getRuntimeToolRepositoryIfReady(),
+      appId: auth.appId,
     });
     sendJson(res, 200, {
-      jobs: visibleJobs.map((job) =>
-        mapManualJobToStored(job, metadata.get(job.id), { detail: false }),
-      ),
+      jobs: visibleJobs.map((job) => {
+        const jobMetadata = metadata.get(job.id);
+        if (!jobMetadata) {
+          throw new Error(`Missing visibility metadata for job ${job.id}`);
+        }
+        return mapManualJobToStored(job, jobMetadata, { detail: false });
+      }),
     });
     return true;
   }
@@ -403,6 +414,7 @@ export async function handleJobRoutes(
             job,
             ops: getRuntimeRepositories(),
             toolRepository: getRuntimeToolRepositoryIfReady(),
+            appId: auth.appId,
           }),
         ),
       );
@@ -470,6 +482,7 @@ export async function handleJobRoutes(
             job: updated,
             ops: getRuntimeRepositories(),
             toolRepository: getRuntimeToolRepositoryIfReady(),
+            appId: auth.appId,
           }),
         ),
       );

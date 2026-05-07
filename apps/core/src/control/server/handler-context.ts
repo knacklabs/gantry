@@ -41,9 +41,22 @@ export function authorizeControlRequest(
   scopes: Scope[],
 ): ApiKeyRecord | null {
   const auth = authenticate(req, scopes, keys);
-  if (!auth) {
+  if (auth.status === 'authenticated') {
+    return auth.key;
+  }
+  if (auth.status === 'forbidden') {
+    sendError(
+      res,
+      403,
+      'FORBIDDEN',
+      `API key is missing required scope ${auth.missingScopes[0]}`,
+    );
+    return null;
+  }
+  if (auth.status === 'missing') {
     sendError(res, 401, 'UNAUTHORIZED', 'Missing or invalid API key');
     return null;
   }
-  return auth;
+  sendError(res, 401, 'UNAUTHORIZED', 'Missing or invalid API key');
+  return null;
 }

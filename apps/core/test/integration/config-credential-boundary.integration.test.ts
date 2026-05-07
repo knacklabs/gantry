@@ -68,7 +68,7 @@ describe('config credential boundary integration', () => {
     fixture.cleanup();
   });
 
-  it('uses runtime .env values for runtime secrets and ignores ambient raw provider credentials', async () => {
+  it('uses process env values for runtime secrets and ignores ambient raw provider credentials', async () => {
     const fixture = createRuntimeHomeFixture({
       prefix: 'myclaw-config-boundary-',
       mutateSettings(settings) {
@@ -100,9 +100,9 @@ describe('config credential boundary integration', () => {
     } = await import('@core/config/index.js');
 
     expect(STORAGE_POSTGRES_URL).toBe(
-      'postgres://file:pass@localhost:15432/myclaw',
+      'postgres://ambient:pass@localhost:15432/ambient',
     );
-    expect(getTelegramBotToken()).toBe('runtime-telegram-token');
+    expect(getTelegramBotToken()).toBe('ambient-telegram-token');
     expect(resolveClaudeAuthState()).toMatchObject({
       hasApiKey: false,
       hasOauthToken: false,

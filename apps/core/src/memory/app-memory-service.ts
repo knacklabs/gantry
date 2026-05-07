@@ -3,11 +3,15 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
-import { RUNTIME_MEMORY_ENABLED } from '../config/memory-state.js';
+import {
+  RUNTIME_MEMORY_DREAMING_ENABLED,
+  RUNTIME_MEMORY_ENABLED,
+} from '../config/memory-state.js';
 import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
 import type { PostgresStorageService } from '../adapters/storage/postgres/storage-service.js';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
 import type { SessionMemoryCollector } from '../domain/ports/session-memory-collector.js';
+import { ApplicationError } from '../application/common/application-error.js';
 import { classifySensitiveMemoryMaterial } from './sensitive-material.js';
 import { runAppMemoryDreamPass } from './app-memory-dreaming.js';
 import {
@@ -43,6 +47,10 @@ import type {
   PatchAppMemoryInput,
   SaveAppMemoryInput,
 } from './memory-types.js';
+import {
+  isUniqueViolation,
+  memoryContentHash,
+} from './app-memory-service-helpers.js';
 
 type Db = NodePgDatabase<typeof pgSchema>;
 type MemoryItemRow = CanonicalMemoryItemRow;
@@ -245,9 +253,14 @@ export class AppMemoryService {
       valueJson: JSON.stringify({
         value: input.value.trim(),
         why: input.why?.trim() || null,
-        contentHash: hashText(
-          `${subject.appId}:${subject.agentId}:${subject.subjectType}:${subject.subjectId}:${input.key}:${input.value}`,
-        ),
+        contentHash: memoryContentHash({
+          appId: subject.appId,
+          agentId: subject.agentId,
+          subjectType: subject.subjectType,
+          subjectId: subject.subjectId,
+          key: input.key.trim(),
+          value: input.value.trim(),
+        }),
       }),
       sourceRefJson: encodeItemSource({
         subject,
@@ -332,38 +345,71 @@ export class AppMemoryService {
         );
     }
     const currentValue = parseItemValue(current);
-    const [row] = await this.db
-      .update(pgSchema.memoryItemsPostgres)
-      .set({
-        ...(input.key !== undefined ? { key: input.key.trim() } : {}),
-        valueJson: JSON.stringify({
-          ...parseJsonObject(current.valueJson),
-          value:
-            input.value !== undefined ? input.value.trim() : currentValue.value,
-          why:
-            input.why !== undefined
-              ? input.why?.trim() || null
-              : currentValue.why,
-        }),
-        ...(input.confidence !== undefined
-          ? { confidence: clampConfidence(input.confidence) }
-          : {}),
-        sourceRefJson: encodeItemSource({
-          ...currentSource,
-          isPinned: input.isPinned ?? currentSource.isPinned,
-          version: currentSource.version + 1,
-        }),
-        updatedAt: nowIso(),
-      })
-      .where(
-        and(
-          eq(pgSchema.memoryItemsPostgres.id, current.id),
-          input.expectedVersion === undefined
-            ? undefined
-            : sql`(${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'version')::int = ${input.expectedVersion}`,
-        ),
-      )
-      .returning();
+    const nextKey = input.key !== undefined ? input.key.trim() : current.key;
+    const nextValue =
+      input.value !== undefined ? input.value.trim() : currentValue.value;
+    if (nextKey !== current.key) {
+      const collision = await this.findActiveByKey(
+        currentSource.subject,
+        nextKey,
+      );
+      if (collision && collision.id !== current.id) {
+        throw new ApplicationError(
+          'CONFLICT',
+          'Memory key already exists for this subject',
+        );
+      }
+    }
+    const nextValueJson = JSON.stringify({
+      ...parseJsonObject(current.valueJson),
+      value: nextValue,
+      why:
+        input.why !== undefined ? input.why?.trim() || null : currentValue.why,
+      contentHash: memoryContentHash({
+        appId: currentSource.subject.appId,
+        agentId: currentSource.subject.agentId,
+        subjectType: currentSource.subject.subjectType,
+        subjectId: currentSource.subject.subjectId,
+        key: nextKey,
+        value: nextValue,
+      }),
+    });
+    let row: MemoryItemRow | undefined;
+    try {
+      [row] = await this.db
+        .update(pgSchema.memoryItemsPostgres)
+        .set({
+          ...(input.key !== undefined ? { key: nextKey } : {}),
+          valueJson: nextValueJson,
+          ...(input.confidence !== undefined
+            ? { confidence: clampConfidence(input.confidence) }
+            : {}),
+          sourceRefJson: encodeItemSource({
+            ...currentSource,
+            isPinned: input.isPinned ?? currentSource.isPinned,
+            version: currentSource.version + 1,
+          }),
+          updatedAt: nowIso(),
+        })
+        .where(
+          and(
+            eq(pgSchema.memoryItemsPostgres.id, current.id),
+            input.expectedVersion === undefined
+              ? undefined
+              : sql`(${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'version')::int = ${input.expectedVersion}`,
+          ),
+        )
+        .returning();
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new ApplicationError(
+          'CONFLICT',
+          'Memory key already exists for this subject',
+          { cause: err },
+        );
+      }
+      throw err;
+    }
     if (!row) throw new Error('stale memory patch');
     return toAppItem(row!);
   }
@@ -389,6 +435,12 @@ export class AppMemoryService {
     input: DreamingTriggerInput = {},
   ): Promise<DreamingRunStatus> {
     this.assertEnabled();
+    if (!RUNTIME_MEMORY_DREAMING_ENABLED) {
+      throw new ApplicationError(
+        'CONFLICT',
+        'memory dreaming is disabled in runtime settings',
+      );
+    }
     const subject = normalizeSubject(input);
     const phase = input.phase || 'all';
     const now = nowIso();
@@ -584,28 +636,36 @@ export class AppMemoryService {
         createdAt,
       })),
     );
-    await Promise.all(
-      results.map(async (result) => {
-        await this.db
-          .update(pgSchema.memoryItemsPostgres)
-          .set({
-            sourceRefJson: sql<string>`jsonb_set(
-              jsonb_set(
-                jsonb_set(
-                  ${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb,
-                  '{retrievalCount}',
-                  to_jsonb(COALESCE((${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'retrievalCount')::int, 0) + 1)
-                ),
-                '{totalScore}',
-                to_jsonb(COALESCE((${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'totalScore')::double precision, 0) + ${result.score})
-              ),
-              '{maxScore}',
-              to_jsonb(GREATEST(COALESCE((${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'maxScore')::double precision, 0), ${result.score}))
-            )::text`,
-          })
-          .where(eq(pgSchema.memoryItemsPostgres.id, result.item.id));
-      }),
+    const uniqueResults = new Map<string, number>();
+    for (const result of results) {
+      uniqueResults.set(
+        result.item.id,
+        Math.max(result.score, uniqueResults.get(result.item.id) ?? 0),
+      );
+    }
+    const idColumn = pgSchema.memoryItemsPostgres.id;
+    const scoreCases = [...uniqueResults].map(
+      ([id, score]) => sql`WHEN ${idColumn} = ${id} THEN ${score}`,
     );
+    const ids = [...uniqueResults.keys()].map((id) => sql`${id}`);
+    await this.db
+      .update(pgSchema.memoryItemsPostgres)
+      .set({
+        sourceRefJson: sql<string>`jsonb_set(
+          jsonb_set(
+            jsonb_set(
+              ${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb,
+              '{retrievalCount}',
+              to_jsonb(COALESCE((${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'retrievalCount')::int, 0) + 1)
+            ),
+            '{totalScore}',
+            to_jsonb(COALESCE((${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'totalScore')::double precision, 0) + (CASE ${sql.join(scoreCases, sql` `)} ELSE 0 END))
+          ),
+          '{maxScore}',
+          to_jsonb(GREATEST(COALESCE((${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'maxScore')::double precision, 0), (CASE ${sql.join(scoreCases, sql` `)} ELSE 0 END)))
+        )::text`,
+      })
+      .where(sql`${idColumn} IN (${sql.join(ids, sql`, `)})`);
   }
 }
 

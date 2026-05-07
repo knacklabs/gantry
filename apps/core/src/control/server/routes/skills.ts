@@ -81,6 +81,12 @@ export async function handleSkillRoutes(
       return true;
     }
     try {
+      if (parsed.data.agentId) {
+        await requireAgentInApp({
+          appId: auth.appId as AppId,
+          agentId: parsed.data.agentId as AgentId,
+        });
+      }
       const zip = await readRawBody(req, MAX_SKILL_ZIP_BYTES);
       const uploaded = parseSkillZipUpload(zip);
       const draft = await service().importDraft({
@@ -218,8 +224,7 @@ export async function handleSkillRoutes(
       sendJson(res, 200, {
         file: {
           ...skillAssetToFileResponse(asset),
-          encoding: 'utf-8',
-          content: Buffer.from(asset.content).toString('utf-8'),
+          ...skillAssetContentResponse(asset),
         },
       });
     } catch (error) {
@@ -328,6 +333,26 @@ export async function handleSkillRoutes(
   }
 
   return false;
+}
+
+function skillAssetContentResponse(asset: {
+  contentType?: string;
+  content: Uint8Array;
+}): { encoding: 'utf-8' | 'base64'; content: string } {
+  const content = Buffer.from(asset.content);
+  const contentType = asset.contentType ?? '';
+  const textLike =
+    contentType.startsWith('text/') ||
+    [
+      'application/json',
+      'application/javascript',
+      'application/typescript',
+      'application/xml',
+      'image/svg+xml',
+    ].includes(contentType);
+  return textLike
+    ? { encoding: 'utf-8', content: content.toString('utf-8') }
+    : { encoding: 'base64', content: content.toString('base64') };
 }
 
 function skillToResponse(skill: SkillCatalogItem): Record<string, unknown> {

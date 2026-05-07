@@ -20,6 +20,18 @@ import {
 } from './claude-skill-materializer.js';
 
 const OPENROUTER_ANTHROPIC_COMPATIBLE_API_URL = 'https://openrouter.ai/api';
+const CLAUDE_MODEL_CREDENTIAL_ENV_KEYS = new Set([
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_API_KEY',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'NODE_USE_ENV_PROXY',
+  'NODE_EXTRA_CA_CERTS',
+]);
 
 export interface ClaudeRuntimeMaterialization extends RuntimeMaterialization {
   claudeConfigDir: string;
@@ -44,6 +56,21 @@ export function applyOpenRouterSdkEnv(env: NodeJS.ProcessEnv): void {
   env.ANTHROPIC_BASE_URL = OPENROUTER_ANTHROPIC_COMPATIBLE_API_URL;
   // secret-scan: empty sentinel prevents ambient first-party keys from winning.
   env.ANTHROPIC_API_KEY = '';
+}
+
+export function projectClaudeModelCredentialEnv(
+  source: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (
+      CLAUDE_MODEL_CREDENTIAL_ENV_KEYS.has(key) &&
+      typeof value === 'string'
+    ) {
+      env[key] = value;
+    }
+  }
+  return env;
 }
 
 export async function materializeClaudeRuntime(

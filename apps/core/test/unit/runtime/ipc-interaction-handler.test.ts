@@ -11,6 +11,10 @@ import {
   writeUserQuestionIpcResponse,
 } from '@core/runtime/ipc-interaction-handler.js';
 
+function fileMode(filePath: string): number {
+  return fs.statSync(filePath).mode & 0o777;
+}
+
 describe('ipc-interaction-handler', () => {
   let tempDir: string;
 
@@ -100,6 +104,8 @@ describe('ipc-interaction-handler', () => {
       approved: false,
       reason: 'denied',
     });
+    expect(fileMode(path.dirname(responsePath))).toBe(0o700);
+    expect(fileMode(responsePath)).toBe(0o400);
   });
 
   it('writes persistent permission metadata for runner SDK responses', () => {
@@ -165,5 +171,7 @@ describe('ipc-interaction-handler', () => {
       },
       answeredBy: 'user',
     });
+    expect(fileMode(path.dirname(responsePath))).toBe(0o700);
+    expect(fileMode(responsePath)).toBe(0o400);
   });
 });

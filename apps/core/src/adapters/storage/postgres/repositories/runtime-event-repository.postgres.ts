@@ -49,6 +49,17 @@ function currentIso(): string {
   return new Date().toISOString();
 }
 
+function requiredId(value: unknown, name: string): string {
+  const id = typeof value === 'string' ? value.trim() : '';
+  if (!id) throw new Error(`Runtime event ${name} is required.`);
+  return id;
+}
+
+function optionalId(value: unknown): string | null {
+  const id = typeof value === 'string' ? value.trim() : '';
+  return id || null;
+}
+
 export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
   constructor(private readonly db: CanonicalDb) {}
 
@@ -69,14 +80,14 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
     const rows = await db
       .insert(pgSchema.runtimeEventsPostgres)
       .values({
-        appId: input.appId,
-        agentId: input.agentId ?? null,
-        sessionId: input.sessionId ?? null,
-        runId: input.runId ?? null,
-        jobId: input.jobId ?? null,
-        triggerId: input.triggerId ?? null,
-        conversationId: input.conversationId ?? null,
-        threadId: input.threadId ?? null,
+        appId: requiredId(input.appId, 'appId'),
+        agentId: optionalId(input.agentId),
+        sessionId: optionalId(input.sessionId),
+        runId: optionalId(input.runId),
+        jobId: optionalId(input.jobId),
+        triggerId: optionalId(input.triggerId),
+        conversationId: optionalId(input.conversationId),
+        threadId: optionalId(input.threadId),
         eventType: input.eventType,
         actor: input.actor,
         correlationId: input.correlationId ?? null,

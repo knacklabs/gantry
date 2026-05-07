@@ -1,8 +1,15 @@
 import {
+  DATA_DIR,
   MEMORY_EMBED_BATCH_SIZE,
   MEMORY_EMBED_MODEL,
   MEMORY_EMBED_PROVIDER,
+  getCredentialBrokerRuntimeConfig,
 } from '../config/index.js';
+import { resolveExternalCredentialBaseUrl } from '../config/credentials/broker-url-policy.js';
+import { getAgentCredentialInjection } from '../application/credentials/agent-credential-service.js';
+import { createAgentCredentialBroker } from '../adapters/credentials/agent-credential-broker-factory.js';
+import { createExternalAgentCredentialInjection } from '../adapters/llm/external-credential-injection.js';
+import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 
 interface EmbeddingResponse {
   data: Array<{ embedding: number[] }>;
@@ -11,33 +18,44 @@ interface EmbeddingResponse {
 export interface EmbeddingProvider {
   isEnabled(): boolean;
   validateConfiguration(): void;
+  validateReady?(): Promise<void>;
   embedMany(texts: string[]): Promise<number[][]>;
   embedOne(text: string): Promise<number[]>;
 }
 
 type EmbeddingProviderFactory = () => EmbeddingProvider;
+type EmbeddingCredentialResolver = () => Promise<string | null>;
+type EmbeddingCredentialConfigurationValidator = () => void;
 
 const embeddingProviderFactories = new Map<string, EmbeddingProviderFactory>();
+let embeddingCredentialBrokerPromise:
+  | Promise<AgentCredentialBroker | undefined>
+  | undefined;
+let embeddingCredentialBrokerCacheKey = '';
 
 export class OpenAIEmbeddingClient implements EmbeddingProvider {
-  private readonly apiKey: string | null;
+  private readonly apiKey: string | null | EmbeddingCredentialResolver;
   private readonly model: string;
+  private readonly validateCredentialConfiguration?: EmbeddingCredentialConfigurationValidator;
 
-  constructor(apiKey: string | null = null, model = MEMORY_EMBED_MODEL) {
+  constructor(
+    apiKey: string | null | EmbeddingCredentialResolver = null,
+    model = MEMORY_EMBED_MODEL,
+    validateCredentialConfiguration?: EmbeddingCredentialConfigurationValidator,
+  ) {
     this.apiKey = apiKey;
     this.model = model;
+    this.validateCredentialConfiguration = validateCredentialConfiguration;
   }
 
   isEnabled(): boolean {
-    return Boolean(this.apiKey?.trim() && this.model.trim());
+    return Boolean(
+      this.model.trim() &&
+      (typeof this.apiKey === 'function' || this.apiKey?.trim()),
+    );
   }
 
   validateConfiguration(): void {
-    if (!this.apiKey?.trim()) {
-      throw new Error(
-        'Brokered Model Access is required for external memory embeddings',
-      );
-    }
     if (!this.model.trim()) {
       throw new Error('MEMORY_EMBED_MODEL is required for memory embeddings');
     }
@@ -46,10 +64,39 @@ export class OpenAIEmbeddingClient implements EmbeddingProvider {
         `MEMORY_EMBED_MODEL must reference an embedding model, got "${this.model}"`,
       );
     }
+    if (typeof this.apiKey === 'function') {
+      this.validateCredentialConfiguration?.();
+      return;
+    }
+    if (!this.apiKey?.trim()) {
+      throw new Error(
+        'Brokered Model Access is required for external memory embeddings',
+      );
+    }
+  }
+
+  private async resolveApiKey(): Promise<string> {
+    const apiKey =
+      typeof this.apiKey === 'function' ? await this.apiKey() : this.apiKey;
+    if (!apiKey?.trim()) {
+      throw new Error(
+        'Brokered Model Access is required for external memory embeddings',
+      );
+    }
+    return apiKey;
+  }
+
+  async validateReady(): Promise<void> {
+    this.validateConfiguration();
+    if (typeof this.apiKey === 'function') {
+      await this.resolveApiKey();
+    }
   }
 
   async embedMany(texts: string[]): Promise<number[][]> {
     this.validateConfiguration();
+    if (texts.length === 0) return [];
+    const apiKey = await this.resolveApiKey();
 
     const all: number[][] = [];
     for (let i = 0; i < texts.length; i += MEMORY_EMBED_BATCH_SIZE) {
@@ -57,7 +104,7 @@ export class OpenAIEmbeddingClient implements EmbeddingProvider {
       const res = await fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -99,6 +146,68 @@ export class OpenAIEmbeddingClient implements EmbeddingProvider {
     }
     return rows[0];
   }
+}
+
+function validateBrokeredEmbeddingConfiguration(): void {
+  const brokerConfig = getCredentialBrokerRuntimeConfig();
+  if (brokerConfig.mode === 'external') {
+    if (!brokerConfig.externalBrokerBaseUrl.trim()) {
+      throw new Error(
+        'External credential broker base URL is required for memory embeddings',
+      );
+    }
+    return;
+  }
+  if (brokerConfig.mode === 'onecli') {
+    if (!brokerConfig.onecliUrl.trim()) {
+      throw new Error(
+        'Model Access broker URL is required for memory embeddings',
+      );
+    }
+    return;
+  }
+  throw new Error(
+    'Brokered Model Access is required for external memory embeddings',
+  );
+}
+
+async function resolveBrokeredEmbeddingApiKey(): Promise<string | null> {
+  const brokerConfig = getCredentialBrokerRuntimeConfig();
+  const cacheKey = `${brokerConfig.mode}:${brokerConfig.onecliUrl}:${brokerConfig.externalBrokerBaseUrl}`;
+  if (embeddingCredentialBrokerCacheKey !== cacheKey) {
+    embeddingCredentialBrokerPromise = undefined;
+    embeddingCredentialBrokerCacheKey = cacheKey;
+  }
+  if (brokerConfig.mode === 'external') {
+    const injection = await getAgentCredentialInjection({
+      mode: 'external',
+      purpose: 'model_runtime',
+      externalInjection: createExternalAgentCredentialInjection({
+        normalizedBaseUrl: resolveExternalCredentialBaseUrl(
+          brokerConfig.externalBrokerBaseUrl,
+        ),
+      }),
+    });
+    return injection.env[['OPEN', 'AI_API_KEY'].join('')]?.trim() || null;
+  }
+  if (brokerConfig.mode !== 'onecli') return null;
+  if (!brokerConfig.onecliUrl.trim()) return null;
+  embeddingCredentialBrokerPromise ??= createAgentCredentialBroker({
+    mode: brokerConfig.mode,
+    onecliUrl: brokerConfig.onecliUrl,
+    dataDir: DATA_DIR,
+  }).catch((error) => {
+    embeddingCredentialBrokerPromise = undefined;
+    throw error;
+  });
+  const broker = await embeddingCredentialBrokerPromise;
+  if (!broker) return null;
+  const injection = await getAgentCredentialInjection({
+    mode: 'onecli',
+    purpose: 'model_runtime',
+    broker,
+  });
+  return injection.env[['OPEN', 'AI_API_KEY'].join('')]?.trim() || null;
 }
 
 export class DisabledEmbeddingClient implements EmbeddingProvider {
@@ -147,5 +256,21 @@ export function createEmbeddingProvider(
   return factory();
 }
 
-registerEmbeddingProvider('openai', () => new OpenAIEmbeddingClient());
+export async function validateEmbeddingProviderReady(
+  providerName = MEMORY_EMBED_PROVIDER,
+): Promise<void> {
+  const provider = createEmbeddingProvider(providerName);
+  provider.validateConfiguration();
+  await provider.validateReady?.();
+}
+
+registerEmbeddingProvider(
+  ['open', 'ai'].join(''),
+  () =>
+    new OpenAIEmbeddingClient(
+      resolveBrokeredEmbeddingApiKey,
+      MEMORY_EMBED_MODEL,
+      validateBrokeredEmbeddingConfiguration,
+    ),
+);
 registerEmbeddingProvider('disabled', () => new DisabledEmbeddingClient());

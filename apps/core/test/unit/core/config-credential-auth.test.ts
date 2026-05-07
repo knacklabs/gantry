@@ -108,7 +108,7 @@ describe('resolveClaudeAuthState', () => {
     );
   });
 
-  it('uses runtime .env before ambient env for channel credential getters', async () => {
+  it('uses ambient process env before runtime .env for channel credential getters', async () => {
     createRuntimeHome('onecli');
     fs.writeFileSync(
       path.join(runtimeRoot, '.env'),
@@ -128,12 +128,12 @@ describe('resolveClaudeAuthState', () => {
     const { getTelegramBotToken, getSlackBotToken, getSlackAppToken } =
       await import('@core/config/index.js');
 
-    expect(getTelegramBotToken()).toBe('file-telegram-token');
-    expect(getSlackBotToken()).toBe('file-slack-bot-token');
-    expect(getSlackAppToken()).toBe('file-slack-app-token');
+    expect(getTelegramBotToken()).toBe('ambient-telegram-token');
+    expect(getSlackBotToken()).toBe('ambient-slack-bot-token');
+    expect(getSlackAppToken()).toBe('ambient-slack-app-token');
   });
 
-  it('uses settings for default model and runtime .env before ambient env for storage URL', async () => {
+  it('uses settings for default model and ambient process env before runtime .env for storage URL', async () => {
     createRuntimeHome('onecli');
     const settingsPath = path.join(runtimeRoot, 'settings.yaml');
     fs.writeFileSync(
@@ -167,7 +167,7 @@ describe('resolveClaudeAuthState', () => {
 
     expect(getConfiguredDefaultModel()).toBe('sonnet');
     expect(STORAGE_POSTGRES_URL).toBe(
-      'postgres://file:pass@localhost:15432/myclaw',
+      'postgres://ambient:pass@localhost:15432/myclaw',
     );
   });
 

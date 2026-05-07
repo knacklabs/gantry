@@ -1,4 +1,7 @@
-import { ensureModelCredentialBinding as ensureApplicationModelCredentialBinding } from '../../application/credentials/agent-credential-service.js';
+import {
+  ensureAgentCredentialBinding as ensureApplicationAgentCredentialBinding,
+  ensureModelCredentialBinding as ensureApplicationModelCredentialBinding,
+} from '../../application/credentials/agent-credential-service.js';
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
 import type { CredentialBrokerProfile } from '../../domain/models/credentials.js';
 import { OnecliAgentCredentialBroker } from './onecli/broker.js';
@@ -41,5 +44,27 @@ export async function ensureModelCredentialBinding(input: {
   return ensureApplicationModelCredentialBinding({
     mode: input.mode,
     broker,
+  });
+}
+
+export async function ensureAgentCredentialBinding(input: {
+  mode: CredentialBrokerProfile;
+  onecliUrl?: string;
+  dataDir?: string;
+  broker?: AgentCredentialBroker;
+  name: string;
+  identifier: string;
+}): Promise<{ created?: boolean } | undefined> {
+  const broker = await createAgentCredentialBroker({
+    mode: input.mode,
+    broker: input.broker,
+    onecliUrl: input.onecliUrl,
+    dataDir: input.dataDir,
+  });
+  return ensureApplicationAgentCredentialBinding({
+    mode: input.mode,
+    broker,
+    name: input.name,
+    identifier: input.identifier,
   });
 }

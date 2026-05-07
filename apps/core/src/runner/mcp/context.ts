@@ -1,9 +1,19 @@
 import path from 'path';
 import {
+  myclawMcpFullToolName,
+  parseEnabledMyClawMcpToolNames,
+} from '../myclaw-mcp-tool-surface.js';
+import {
   ADMIN_MCP_TOOL_NAMES,
   isAdminMcpToolName,
   type AdminMcpToolName,
 } from '../../shared/admin-mcp-tools.js';
+import {
+  buildAgentToolAccessView,
+  buildRequestableAdminToolAccess,
+  formatAgentToolAccess,
+  PERMISSION_GATED_NATIVE_TOOLS,
+} from '../../shared/tool-access-view.js';
 
 function requirePathEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -41,9 +51,32 @@ export const browserProfileName =
 export const enabledAdminMcpTools = parseEnabledAdminMcpTools(
   process.env.MYCLAW_ADMIN_MCP_TOOLS_JSON,
 );
+export const enabledMyClawMcpTools = parseEnabledMyClawMcpToolNames(
+  process.env.MYCLAW_MCP_TOOL_NAMES_JSON,
+);
+export const configuredAllowedTools = parseConfiguredAllowedTools(
+  process.env.MYCLAW_CONFIGURED_ALLOWED_TOOLS_JSON,
+);
 
 export function isAdminMcpToolEnabled(toolName: AdminMcpToolName): boolean {
   return enabledAdminMcpTools.has(toolName);
+}
+
+function parseConfiguredAllowedTools(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return [
+      ...new Set(
+        parsed
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter(Boolean),
+      ),
+    ];
+  } catch {
+    return [];
+  }
 }
 
 function parseEnabledAdminMcpTools(
@@ -64,7 +97,18 @@ function parseEnabledAdminMcpTools(
 }
 
 export function capabilityStatusText(): string {
+  const availableToolNames = [...enabledMyClawMcpTools].filter(
+    (toolName) => !isAdminMcpToolName(toolName),
+  );
+  for (const adminToolName of enabledAdminMcpTools) {
+    availableToolNames.push(adminToolName);
+  }
   const lines = [
+    'MyClaw MCP tools available in this run:',
+    ...availableToolNames
+      .sort()
+      .map((toolName) => `- available: ${myclawMcpFullToolName(toolName)}`),
+    '',
     'MyClaw admin tool capabilities:',
     ...ADMIN_MCP_TOOL_NAMES.map((toolName) => {
       const fullName = `mcp__myclaw__${toolName}`;
@@ -78,5 +122,21 @@ export function capabilityStatusText(): string {
       ].join('\n');
     }),
   ];
-  return lines.join('\n');
+  const view = buildAgentToolAccessView({
+    configuredTools: configuredAllowedTools,
+    defaultTools: availableToolNames
+      .filter((toolName) => !ADMIN_MCP_TOOL_NAMES.includes(toolName as never))
+      .map(myclawMcpFullToolName),
+    availableButGatedTools: PERMISSION_GATED_NATIVE_TOOLS.filter(
+      (toolName) =>
+        !configuredAllowedTools.some(
+          (configured) =>
+            configured === toolName || configured.startsWith(`${toolName}(`),
+        ),
+    ),
+    requestableAdminTools:
+      buildRequestableAdminToolAccess(enabledAdminMcpTools),
+    source: 'settings.yaml current agent tools plus runtime defaults',
+  });
+  return [...lines, '', formatAgentToolAccess(view)].join('\n');
 }

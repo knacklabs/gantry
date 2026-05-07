@@ -21,25 +21,15 @@ export type ToolCatalogCategory =
 export type ToolCatalogStatus = 'active' | 'disabled' | 'error';
 export type ToolCatalogProviderToolName =
   | 'Agent'
-  | 'AskUserQuestion'
   | 'Bash'
-  | 'Config'
   | 'Edit'
   | 'Read'
   | 'Write'
   | 'Glob'
   | 'Grep'
   | 'NotebookEdit'
-  | 'TaskOutput'
-  | 'TaskStop'
-  | 'TodoWrite'
   | 'WebFetch'
   | 'WebSearch'
-  | 'ExitPlanMode'
-  | 'EnterWorktree'
-  | 'ExitWorktree'
-  | 'ListMcpResources'
-  | 'ReadMcpResource'
   | 'Browser';
 
 export interface ToolCatalogItem {

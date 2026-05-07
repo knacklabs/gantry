@@ -41,8 +41,10 @@ function makeJob(id: string, patch: Partial<JobUpsertInput> = {}) {
 
 maybeDescribe('PostgresControlPlaneRepository', () => {
   let runtime: PostgresIntegrationRuntime;
+  const originalSecretEncryptionKey = process.env.SECRET_ENCRYPTION_KEY;
 
   beforeAll(async () => {
+    process.env.SECRET_ENCRYPTION_KEY = Buffer.alloc(32, 9).toString('base64');
     runtime = await createPostgresIntegrationRuntime({
       schemaPrefix: 'control_repo',
     });
@@ -50,6 +52,11 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
 
   afterAll(async () => {
     await runtime?.cleanup();
+    if (originalSecretEncryptionKey === undefined) {
+      delete process.env.SECRET_ENCRYPTION_KEY;
+    } else {
+      process.env.SECRET_ENCRYPTION_KEY = originalSecretEncryptionKey;
+    }
   });
 
   it('manages sessions, response routes, webhooks, deliveries, and triggers', async () => {
@@ -371,6 +378,29 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
         enabled: false,
       }),
     ).resolves.toMatchObject({ enabled: false });
+    await runtime.service.db.insert(pgSchema.externalIngressesPostgres).values({
+      ingressId: 'ingress:control-repo:plaintext',
+      appId: 'default',
+      name: 'plaintext-rotatable',
+      secret: 'plaintext-secret',
+      enabled: true,
+      metadataJson: '{}',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await expect(
+      runtime.control.getExternalIngressById(
+        'ingress:control-repo:plaintext',
+        'default',
+      ),
+    ).rejects.toThrow('not encrypted');
+    await expect(
+      runtime.control.updateExternalIngress(
+        'ingress:control-repo:plaintext',
+        'default',
+        { secret: 'rotated-secret' },
+      ),
+    ).resolves.toMatchObject({ secret: 'rotated-secret' });
 
     await expect(
       runtime.control.reserveExternalIngressNonce({

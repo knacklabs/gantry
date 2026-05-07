@@ -4,6 +4,7 @@ import { ApplicationError } from '../common/application-error.js';
 import {
   anyToolRuleMatches,
   normalizeToolRules,
+  toolRuleCoversRule,
   validateAutonomousToolRules,
 } from '../../shared/tool-rule-matcher.js';
 import {
@@ -59,7 +60,10 @@ export function jobToolRulesBeyondInherited(input: {
   inheritedTools: readonly string[];
 }): string[] {
   return input.requestedRules.filter(
-    (rule) => !anyToolRuleMatches(input.inheritedTools, rule),
+    (rule) =>
+      !input.inheritedTools.some((inheritedRule) =>
+        toolRuleCoversRule(inheritedRule, rule),
+      ),
   );
 }
 
@@ -101,12 +105,16 @@ export async function resolveAgentToolBindings(input: {
     appId: input.appId as never,
     agentId: input.agentId as never,
   });
-  return bindings
-    .filter((binding) => binding.status === 'active')
-    .map((binding) => {
-      const value = String(binding.toolId);
-      return value.startsWith('tool:') ? value.slice('tool:'.length) : value;
-    });
+  const activeBindings = bindings.filter(
+    (binding) => binding.status === 'active',
+  );
+  const tools = await Promise.all(
+    activeBindings.map((binding) => input.repository?.getTool(binding.toolId)),
+  );
+  return tools.flatMap((tool) => {
+    const name = tool?.name?.trim();
+    return name ? [name] : [];
+  });
 }
 
 function mergeUnique(

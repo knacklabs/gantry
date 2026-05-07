@@ -84,7 +84,30 @@ describe('CanonicalJobOpsService', () => {
       25,
       expect.objectContaining({
         appId: 'app-two',
+        ownerAppId: undefined,
         runId: 'run-2',
+      }),
+    );
+  });
+
+  it('passes app ownership filters to repository run and event queries', async () => {
+    const repository = {
+      listRuns: vi.fn(async () => []),
+      listEvents: vi.fn(async () => []),
+    } as unknown as PostgresCanonicalJobRepository;
+    const service = new CanonicalJobOpsService(repository);
+
+    await service.listJobRuns(undefined, 10, { ownerAppId: 'app-one' });
+    await service.listRecentJobEvents(20, { owner_app_id: 'app-one' });
+
+    expect(repository.listRuns).toHaveBeenCalledWith(undefined, 10, {
+      ownerAppId: 'app-one',
+    });
+    expect(repository.listEvents).toHaveBeenCalledWith(
+      20,
+      expect.objectContaining({
+        appId: undefined,
+        ownerAppId: 'app-one',
       }),
     );
   });

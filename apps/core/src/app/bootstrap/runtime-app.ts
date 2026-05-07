@@ -6,6 +6,7 @@ import {
 } from '../../config/index.js';
 import {
   createAgentCredentialBroker,
+  ensureAgentCredentialBinding,
   ensureModelCredentialBinding,
 } from '../../adapters/credentials/agent-credential-broker-factory.js';
 import {
@@ -40,6 +41,7 @@ import {
   getRuntimeStorage,
 } from '../../adapters/storage/postgres/runtime-store.js';
 import { collectDurableMemoryAtSessionBoundary } from '../../memory/app-memory-service.js';
+import { memoryAgentIdForGroupFolder } from '../../memory/app-memory-boundaries.js';
 
 type RuntimeAppRepository = RuntimeRouterStateRepository &
   RuntimeMessageRepository &
@@ -73,6 +75,7 @@ export interface RuntimeApp {
     groups: Record<string, ConversationRoute>,
   ) => void;
   ensureCredentialBindingsForConversationRoutes: () => Promise<void>;
+  getCredentialBroker: () => Promise<AgentCredentialBroker | undefined>;
   clearSessionForChatJid: (
     chatJid: string,
     threadId?: string | null,
@@ -93,6 +96,7 @@ export interface RuntimeAppOptions {
     groupJid: string;
     group: ConversationRoute;
     agentIdentifier: string;
+    agentName: string;
   }) => Promise<{ created?: boolean } | undefined>;
   queue?: GroupQueue;
   runAgent?: GroupProcessingDeps['runAgent'];
@@ -115,8 +119,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     | Promise<AgentCredentialBroker | undefined>
     | undefined;
   let credentialBrokerCacheKey = '';
-  let modelAccessCredentialBindingPromise: Promise<void> | undefined;
-  let modelAccessCredentialBindingCacheKey = '';
+  const credentialBindingPromises = new Map<string, Promise<void>>();
   const ops = () => options.opsRepository ?? getRuntimeRepositories();
   let channelRuntime: GroupProcessingDeps['channelRuntime'] = {
     hasChannel: () => false,
@@ -147,62 +150,98 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     return credentialBrokerPromise;
   }
 
-  async function ensureCredentialBindingAsync(
-    jid: string,
-    group: ConversationRoute,
-  ): Promise<void> {
-    const brokerConfig = getCredentialBrokerRuntimeConfig();
+  async function ensureCredentialProfileBinding(input: {
+    jid: string;
+    group: ConversationRoute;
+    brokerConfig: ReturnType<typeof getCredentialBrokerRuntimeConfig>;
+    identifier: string;
+    name: string;
+    modelRuntime: boolean;
+  }): Promise<void> {
+    const { jid, group, brokerConfig, identifier, name, modelRuntime } = input;
     const cacheKey = `${brokerConfig.mode}:${brokerConfig.onecliUrl}:${brokerConfig.externalBrokerBaseUrl}`;
-    if (modelAccessCredentialBindingCacheKey !== cacheKey) {
-      modelAccessCredentialBindingPromise = undefined;
-      modelAccessCredentialBindingCacheKey = cacheKey;
+    const bindingCacheKey = `${cacheKey}:${identifier}`;
+    const existing = credentialBindingPromises.get(bindingCacheKey);
+    if (existing) {
+      return existing;
     }
-    if (modelAccessCredentialBindingPromise) {
-      return modelAccessCredentialBindingPromise;
-    }
-    modelAccessCredentialBindingPromise = (async () => {
+    const bindingPromise = (async () => {
       try {
         const res = options.ensureCredentialBinding
           ? await options.ensureCredentialBinding({
               groupJid: jid,
               group,
-              agentIdentifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+              agentIdentifier: identifier,
+              agentName: name,
             })
-          : await ensureModelCredentialBinding({
-              mode: brokerConfig.mode,
-              onecliUrl: brokerConfig.onecliUrl,
-              dataDir: DATA_DIR,
-              broker: await getCredentialBroker(),
-            });
+          : modelRuntime
+            ? await ensureModelCredentialBinding({
+                mode: brokerConfig.mode,
+                onecliUrl: brokerConfig.onecliUrl,
+                dataDir: DATA_DIR,
+                broker: await getCredentialBroker(),
+              })
+            : await ensureAgentCredentialBinding({
+                mode: brokerConfig.mode,
+                onecliUrl: brokerConfig.onecliUrl,
+                dataDir: DATA_DIR,
+                broker: await getCredentialBroker(),
+                name,
+                identifier,
+              });
         if (!res) return;
         logger.info(
           {
             jid,
-            identifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
-            name: MODEL_RUNTIME_CREDENTIAL_NAME,
+            identifier,
+            name,
             created: res.created,
             credentialMode: brokerConfig.mode,
           },
-          'Model Access credential profile ensured',
+          'Credential broker profile ensured',
         );
       } catch (err) {
-        modelAccessCredentialBindingPromise = undefined;
         logger.debug(
           {
             jid,
-            identifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
-            name: MODEL_RUNTIME_CREDENTIAL_NAME,
+            identifier,
+            name,
             credentialMode: brokerConfig.mode,
             err: String(err),
           },
-          'Model Access credential profile ensure skipped',
+          'Credential broker profile ensure skipped',
         );
+        credentialBindingPromises.delete(bindingCacheKey);
       }
     })().catch((error) => {
-      modelAccessCredentialBindingPromise = undefined;
+      credentialBindingPromises.delete(bindingCacheKey);
       throw error;
     });
-    return modelAccessCredentialBindingPromise;
+    credentialBindingPromises.set(bindingCacheKey, bindingPromise);
+    return bindingPromise;
+  }
+
+  async function ensureCredentialBindingAsync(
+    jid: string,
+    group: ConversationRoute,
+  ): Promise<void> {
+    const brokerConfig = getCredentialBrokerRuntimeConfig();
+    await ensureCredentialProfileBinding({
+      jid,
+      group,
+      brokerConfig,
+      identifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+      name: MODEL_RUNTIME_CREDENTIAL_NAME,
+      modelRuntime: true,
+    });
+    await ensureCredentialProfileBinding({
+      jid,
+      group,
+      brokerConfig,
+      identifier: memoryAgentIdForGroupFolder(group.folder),
+      name: group.name || group.folder,
+      modelRuntime: false,
+    });
   }
 
   function ensureCredentialBinding(
@@ -352,10 +391,27 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   }
 
   async function ensureCredentialBindingsForConversationRoutes(): Promise<void> {
-    const firstEntry = Object.entries(conversationRoutes)[0];
-    if (!firstEntry) return;
-    const [jid, group] = firstEntry;
-    await ensureCredentialBindingAsync(jid, group);
+    const entries = Object.entries(conversationRoutes);
+    if (entries.length === 0) return;
+    const [firstJid, firstGroup] = entries[0];
+    await ensureCredentialProfileBinding({
+      jid: firstJid,
+      group: firstGroup,
+      brokerConfig: getCredentialBrokerRuntimeConfig(),
+      identifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+      name: MODEL_RUNTIME_CREDENTIAL_NAME,
+      modelRuntime: true,
+    });
+    for (const [jid, group] of entries) {
+      await ensureCredentialProfileBinding({
+        jid,
+        group,
+        brokerConfig: getCredentialBrokerRuntimeConfig(),
+        identifier: memoryAgentIdForGroupFolder(group.folder),
+        name: group.name || group.folder,
+        modelRuntime: false,
+      });
+    }
   }
 
   async function clearSessionForChatJid(
@@ -444,6 +500,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     getAvailableGroups,
     setConversationRoutesForTest,
     ensureCredentialBindingsForConversationRoutes,
+    getCredentialBroker,
     clearSessionForChatJid,
     processGroupMessages: (chatJid, options) =>
       groupProcessor.processGroupMessages(chatJid, options),

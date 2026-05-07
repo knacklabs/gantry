@@ -1,12 +1,20 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
   createDefaultRuntimeSettings,
   ensureConfiguredConversationBinding,
+  loadRuntimeSettings,
+  mirrorAgentToolRulesToRuntimeSettings,
   parseRuntimeSettings,
+  saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
 import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-settings-renderer.js';
 import { validateLoadedRuntimeSettings } from '@core/config/settings/runtime-settings-validation.js';
+import { settingsFilePath } from '@core/config/settings/runtime-home.js';
 
 describe('runtime settings', () => {
   it('defaults, renders, and parses agent.name', () => {
@@ -192,6 +200,37 @@ agents:
     ).toThrow('memory.llm.models.extractorr is not supported');
   });
 
+  it('parses settings-owned memory tuning knobs', () => {
+    const parsed = parseRuntimeSettings(`memory:
+  enabled: true
+  embeddings:
+    enabled: true
+    provider: openai
+    model: text-embedding-3-small
+    daily_limit: 42
+    batch_size: 7
+  dreaming:
+    enabled: true
+    cron: "*/15 * * * *"
+  llm:
+    extractor_max_facts: 5
+    extractor_min_confidence: 0.75
+    models:
+      extractor: haiku
+      dreaming: sonnet
+      consolidation: sonnet
+  maintenance:
+    max_pending: 250
+`);
+
+    expect(parsed.memory.embeddings.dailyLimit).toBe(42);
+    expect(parsed.memory.embeddings.batchSize).toBe(7);
+    expect(parsed.memory.dreaming.cron).toBe('*/15 * * * *');
+    expect(parsed.memory.llm.extractorMaxFacts).toBe(5);
+    expect(parsed.memory.llm.extractorMinConfidence).toBe(0.75);
+    expect(parsed.memory.maintenance.maxPending).toBe(250);
+  });
+
   it('keeps explicit verbose provider connections over compact defaults', () => {
     const parsed = parseRuntimeSettings(`providers:
   telegram:
@@ -251,7 +290,7 @@ provider_connections:
         },
       ],
       capabilities: {
-        toolIds: ['tool:read'],
+        toolIds: ['Read'],
         skillIds: ['skill:admin'],
         mcpServerIds: ['mcp:github'],
       },
@@ -304,6 +343,124 @@ provider_connections:
       isMain: true,
       memoryScope: 'conversation',
     });
+  });
+
+  it('mirrors persistent permission rules into readable agent tools only', () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-settings-tools-'),
+    );
+    try {
+      const settings = createDefaultRuntimeSettings();
+      settings.agents.main_agent = {
+        name: 'Main',
+        folder: 'main_agent',
+        bindings: {},
+        dmAccess: [],
+        capabilities: {
+          toolIds: ['mcp__myclaw__service_restart'],
+          skillIds: [],
+          mcpServerIds: [],
+        },
+      };
+      saveRuntimeSettings(runtimeHome, settings);
+
+      mirrorAgentToolRulesToRuntimeSettings({
+        runtimeHome,
+        agentFolder: 'main_agent',
+        rules: ['Bash(git status *)', 'Write(/repo/**)'],
+      });
+
+      const parsed = loadRuntimeSettings(runtimeHome);
+      expect(parsed.agents.main_agent.capabilities.toolIds).toEqual([
+        'mcp__myclaw__service_restart',
+        'Bash(git status *)',
+        'Write(/repo/**)',
+      ]);
+      const yaml = fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8');
+      expect(yaml).toContain(
+        'tools: ["mcp__myclaw__service_restart","Bash(git status *)","Write(/repo/**)"]',
+      );
+      expect(yaml).not.toContain('capabilityPolicy');
+      expect(yaml).not.toContain('permission-rule:');
+    } finally {
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects internal tool ids in settings agent tools', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      dmAccess: [],
+      capabilities: {
+        toolIds: ['tool:permission-rule:abc123'],
+        skillIds: [],
+        mcpServerIds: [],
+      },
+    };
+
+    const result = validateLoadedRuntimeSettings('/tmp/myclaw-tools', settings);
+
+    expect(result.ok).toBe(false);
+    expect(result.failure?.details.join('\n')).toContain(
+      'agents.main_agent.tools contains invalid tool rule "tool:permission-rule:abc123"',
+    );
+  });
+
+  it('fails closed when mirroring persistent tools for a missing settings agent', () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-settings-tools-missing-'),
+    );
+    try {
+      saveRuntimeSettings(runtimeHome, createDefaultRuntimeSettings());
+
+      expect(() =>
+        mirrorAgentToolRulesToRuntimeSettings({
+          runtimeHome,
+          agentFolder: 'missing_agent',
+          rules: ['Bash(git status *)'],
+        }),
+      ).toThrow('missing settings agent');
+      const parsed = loadRuntimeSettings(runtimeHome);
+      expect(parsed.agents.missing_agent).toBeUndefined();
+    } finally {
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects malformed persistent tool rules before writing settings', () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-settings-tools-invalid-'),
+    );
+    try {
+      const settings = createDefaultRuntimeSettings();
+      settings.agents.main_agent = {
+        name: 'Main',
+        folder: 'main_agent',
+        bindings: {},
+        dmAccess: [],
+        capabilities: {
+          toolIds: [],
+          skillIds: [],
+          mcpServerIds: [],
+        },
+      };
+      saveRuntimeSettings(runtimeHome, settings);
+
+      expect(() =>
+        mirrorAgentToolRulesToRuntimeSettings({
+          runtimeHome,
+          agentFolder: 'main_agent',
+          rules: ['mcp__myclaw__service_restart(reason=test)'],
+        }),
+      ).toThrow('exact tool name without a scoped rule');
+      const parsed = loadRuntimeSettings(runtimeHome);
+      expect(parsed.agents.main_agent.capabilities.toolIds).toEqual([]);
+    } finally {
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
   });
 
   it('keeps multi-binding conversations explicit without duplicating bindings', () => {

@@ -1,7 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 
+const runtimeStore = vi.hoisted(() => ({
+  controlRepository: {
+    getTriggerById: vi.fn(),
+  },
+}));
+
+vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  getRuntimeControlRepository: () => runtimeStore.controlRepository,
+}));
+
 import type { Job } from '@core/domain/types.js';
 import { PgBossSchedulerEngine } from '@core/infrastructure/pgboss/scheduler-engine.js';
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 function createJob(overrides: Partial<Job> = {}): Job {
   const now = '2026-04-24T08:00:00.000Z';
@@ -86,7 +99,7 @@ describe('PgBossSchedulerEngine', () => {
         'myclaw.jobs.parallel',
         { jobId: 'job-1', scheduledFor: '2026-04-24T09:00:00.000Z' },
         expect.objectContaining({
-          id: 'myclaw.send.am9iLTE6b25jZQ',
+          id: expect.stringMatching(UUID_PATTERN),
           startAfter: '2026-04-24T09:10:10.000Z',
           group: { id: 'myclaw.group.dGc6dGVhbQ' },
         }),
@@ -102,6 +115,7 @@ describe('PgBossSchedulerEngine', () => {
         'myclaw.jobs.parallel',
         { jobId: 'job-1', scheduledFor: '2026-04-24T09:00:00.000Z' },
         expect.objectContaining({
+          id: send.mock.calls[0][2].id,
           startAfter: '2026-04-24T09:11:10.000Z',
         }),
       );
@@ -249,6 +263,59 @@ describe('PgBossSchedulerEngine', () => {
 
     expect(boss.send).not.toHaveBeenCalled();
     expect(boss.schedule).not.toHaveBeenCalled();
+  });
+
+  it('enqueues manual trigger jobs with a pg-boss UUID id and preserves trigger payload', async () => {
+    const job = createJob({ schedule_type: 'manual', next_run: null });
+    runtimeStore.controlRepository.getTriggerById.mockResolvedValueOnce({
+      triggerId: '3ed752cc-6bf0-4055-b42c-b2ea3c415173',
+      requestedAt: '2026-05-07T02:35:00.000Z',
+    });
+    const boss = {
+      send: vi.fn().mockResolvedValue(undefined),
+      schedule: vi.fn().mockResolvedValue(undefined),
+      unschedule: vi.fn().mockResolvedValue(undefined),
+      deleteJob: vi.fn().mockResolvedValue(undefined),
+    };
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage: vi.fn(),
+        opsRepository: {
+          getJobById: vi.fn().mockResolvedValue(job),
+        } as never,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob: vi.fn().mockResolvedValue(undefined),
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      },
+    );
+    (engine as unknown as { boss: typeof boss }).boss = boss;
+
+    await engine.enqueueTrigger(
+      'job-1',
+      '3ed752cc-6bf0-4055-b42c-b2ea3c415173',
+      { runId: '55cda2f6-e553-486a-867f-b9c78a742217' },
+    );
+
+    expect(boss.send).toHaveBeenCalledWith(
+      'myclaw.jobs.parallel',
+      {
+        jobId: 'job-1',
+        runId: '55cda2f6-e553-486a-867f-b9c78a742217',
+        triggerId: '3ed752cc-6bf0-4055-b42c-b2ea3c415173',
+        scheduledFor: '2026-05-07T02:35:00.000Z',
+      },
+      expect.objectContaining({
+        id: expect.stringMatching(UUID_PATTERN),
+        group: { id: 'myclaw.group.dGc6dGVhbQ' },
+        retryLimit: 0,
+      }),
+    );
+    expect(boss.send.mock.calls[0][2].id).not.toContain('myclaw.send.');
   });
 
   it('dispatches serialized jobs through a group-scoped queue key and releases the slot', async () => {

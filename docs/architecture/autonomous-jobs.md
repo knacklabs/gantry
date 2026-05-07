@@ -15,16 +15,27 @@ Job-scoped extra tool rules are persisted in `jobs.target_json` under:
 ```json
 {
   "capabilityPolicy": {
-    "allowedTools": ["mcp__agent_browser__*"]
+    "allowedTools": [
+      "Bash(dedup-append-lead.py *)",
+      "Read(/Users/me/project/notes.md)",
+      "mcp__agent_browser__*"
+    ]
   }
 }
 ```
 
 Missing `capabilityPolicy.allowedTools` means an empty extra-tool list.
+These rules are stored on the job only. They are never mirrored into
+`settings.yaml`; inherited agent grants are resolved dynamically from the target
+agent and shown separately.
 
-Allowed job tool rules support exact tool names and `mcp__server__*`. Empty
-rules, global `*`, and other wildcard forms are invalid. Non-main jobs cannot
-add main/admin-only MyClaw tools as job extras.
+Allowed job tool rules support exact tool names, registered scoped SDK tool
+rules such as `Tool(scope-pattern)`, and `mcp__server__*`. Scoped rules are
+evaluated by `apps/core/src/shared/tool-rule-matcher.ts`; new tools must be
+registered there with allow/deny tests before they can be used in scheduled job
+policy. Empty rules, global `*`, unregistered scoped tools, and other wildcard
+forms are invalid. Non-main jobs cannot add main/admin-only MyClaw tools as job
+extras.
 
 ## Execution
 
@@ -44,7 +55,22 @@ the linked group/thread or DM unless the job is silent.
 
 Jobs are inspectable through chat scheduler tools, Control API, SDK, and CLI.
 List/detail output should include the target, schedule, status, model, prompt,
-notification target, job extra tools, and effective autonomous tool surface.
+notification target, and one canonical `toolAccess` object:
+
+```json
+{
+  "toolAccess": {
+    "inheritedAgentTools": ["Read", "Bash(git status *)"],
+    "jobExtraTools": ["mcp__agent_browser__*"],
+    "effectiveAllowedTools": [
+      "Read",
+      "Bash(git status *)",
+      "mcp__agent_browser__*"
+    ],
+    "source": "inherited agent grants plus target_json.capabilityPolicy.allowedTools"
+  }
+}
+```
 
 Normal agent-facing scheduler MCP tools are not an admin surface. They may list,
 read, mutate, inspect runs/events, inspect dead letters, and manually queue runs

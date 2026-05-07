@@ -24,6 +24,12 @@ export const DEFAULT_ONECLI_DATABASE_URL_ENV = 'ONECLI_DATABASE_URL';
 export const DEFAULT_ONECLI_POSTGRES_SCHEMA = 'onecli';
 export const DEFAULT_MEMORY_STORAGE_DIR = 'memory';
 export const DEFAULT_EMBED_MODEL = 'text-embedding-3-large';
+export const DEFAULT_OPENAI_DAILY_EMBED_LIMIT = 500;
+export const DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS = 8;
+export const DEFAULT_MEMORY_EXTRACTOR_MIN_CONFIDENCE = 0.6;
+export const DEFAULT_MEMORY_DREAMING_CRON = '15 3 * * *';
+export const DEFAULT_MEMORY_EMBED_BATCH_SIZE = 16;
+export const DEFAULT_MEMORY_MAINTENANCE_MAX_PENDING = 5_000;
 export const DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT = 8;
 export const DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS = 12_000;
 
@@ -98,12 +104,20 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
       enabled: false,
       provider: 'disabled',
       model: DEFAULT_EMBED_MODEL,
+      dailyLimit: DEFAULT_OPENAI_DAILY_EMBED_LIMIT,
+      batchSize: DEFAULT_MEMORY_EMBED_BATCH_SIZE,
     },
     dreaming: {
       enabled: false,
+      cron: DEFAULT_MEMORY_DREAMING_CRON,
     },
     llm: {
       models: getMemoryModelProfileDefaults('balanced'),
+      extractorMaxFacts: DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS,
+      extractorMinConfidence: DEFAULT_MEMORY_EXTRACTOR_MIN_CONFIDENCE,
+    },
+    maintenance: {
+      maxPending: DEFAULT_MEMORY_MAINTENANCE_MAX_PENDING,
     },
   };
   const runtime: RuntimeSettings['runtime'] = {

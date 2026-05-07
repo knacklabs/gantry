@@ -96,6 +96,14 @@ describe('OpenAIEmbeddingClient', () => {
       );
       expect(client.isEnabled()).toBe(true);
     });
+
+    it('returns true for brokered credential resolvers with an embedding model', () => {
+      const client = new OpenAIEmbeddingClient(
+        async () => 'brokered-key',
+        'text-embedding-test',
+      );
+      expect(client.isEnabled()).toBe(true);
+    });
   });
 
   /* ---- validateConfiguration --------------------------------------------- */
@@ -186,6 +194,30 @@ describe('OpenAIEmbeddingClient', () => {
             model: 'text-embedding-test',
             input: ['hello', 'world'],
           }),
+        }),
+      );
+    });
+
+    it('resolves the API key lazily from brokered model access', async () => {
+      const vectors = [[0.1, 0.2, 0.3]];
+      const fetchSpy = mockFetchOk(vectors.map((v) => ({ embedding: v })));
+      const resolveApiKey = vi.fn(async () => 'brokered-openai-key');
+
+      const client = new OpenAIEmbeddingClient(
+        resolveApiKey,
+        'text-embedding-test',
+      );
+      const result = await client.embedMany(['hello']);
+
+      expect(result).toEqual(vectors);
+      expect(resolveApiKey).toHaveBeenCalledOnce();
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://api.openai.com/v1/embeddings',
+        expect.objectContaining({
+          headers: {
+            Authorization: 'Bearer brokered-openai-key',
+            'Content-Type': 'application/json',
+          },
         }),
       );
     });

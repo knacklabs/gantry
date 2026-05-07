@@ -94,7 +94,7 @@ service writes audit rows to `memory_dream_runs` and `memory_dream_decisions`.
 
 ```mermaid
 sequenceDiagram
-  participant Sched as "Scheduler tick<br/>(MEMORY_DREAMING_CRON)"
+  participant Sched as "Scheduler tick<br/>(memory.dreaming.cron)"
   participant Sys as "registerSystemJobs<br/>per group.folder"
   participant Job as "Job: __system:memory_dream"
   participant Q as "MemoryMaintenanceQueue<br/>(dedupe key dream:{folder})"
@@ -123,8 +123,8 @@ Wired at:
 
 - System-job marker `MEMORY_DREAM_SYSTEM_PROMPT = '__system:memory_dream'` —
   `apps/core/src/jobs/system-jobs.ts:23`.
-- Per-folder registration gated on `RUNTIME_MEMORY_DREAMING_ENABLED` and
-  `MEMORY_DREAMING_CRON` —
+- Per-folder registration gated on `memory.dreaming.enabled` and
+  `memory.dreaming.cron` —
   `apps/core/src/jobs/system-jobs.ts:37`-`apps/core/src/jobs/system-jobs.ts:106`.
 - Maintenance-queue runner —
   `apps/core/src/runtime/memory-dreaming-runner.ts:10`.

@@ -1,9 +1,9 @@
-import fs from 'fs';
 import { createHash } from 'crypto';
 import path from 'path';
 
 import { resolveGroupFolderPath } from '../../platform/group-folder.js';
 import { logger } from '../../infrastructure/logging/logger.js';
+import { ensurePrivateDirSync } from '../../shared/private-fs.js';
 import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
@@ -24,6 +24,11 @@ import {
   truncateText,
   truncateUtf8ToByteLimit,
 } from './channel-shared.js';
+
+export interface TelegramDownloadedFile {
+  filePath: string;
+  storageRef: string;
+}
 
 export abstract class TelegramChannelPrompts extends TelegramChannelState {
   protected formatPermissionPromptText(
@@ -433,13 +438,13 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
 
   /**
    * Download a Telegram file to the group's attachments directory.
-   * Returns the absolute attachment path on disk or null if the download fails.
+   * Returns the downloaded file path and stable storage ref, or null on failure.
    */
   protected async downloadFile(
     fileId: string,
     groupFolder: string,
     filename: string,
-  ): Promise<string | null> {
+  ): Promise<TelegramDownloadedFile | null> {
     if (!this.bot) return null;
 
     try {
@@ -459,7 +464,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
 
       const groupDir = resolveGroupFolderPath(groupFolder);
       const attachDir = path.join(groupDir, 'attachments');
-      await fs.promises.mkdir(attachDir, { recursive: true });
+      ensurePrivateDirSync(attachDir);
 
       // Sanitize filename and add extension from Telegram's file_path if missing
       const tgExt = path.extname(safeFilePath);
@@ -467,6 +472,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
       const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
       const finalName = localExt ? safeName : `${safeName}${tgExt}`;
       const destPath = path.join(attachDir, finalName);
+      const storageRef = path.posix.join('attachments', finalName);
 
       const encodedPath = safeFilePath
         .split('/')
@@ -485,8 +491,8 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
       const wrote = await writeTelegramFetchResponseToFile(resp, destPath);
       if (!wrote) return null;
 
-      logger.info({ fileId, dest: destPath }, 'Telegram file downloaded');
-      return destPath;
+      logger.info({ fileId, storageRef }, 'Telegram file downloaded');
+      return { filePath: destPath, storageRef };
     } catch (err) {
       logger.error(
         { fileId, error: this.sanitizeErrorMessage(err) },

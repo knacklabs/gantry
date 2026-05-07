@@ -128,6 +128,60 @@ describe('scheduler MCP tools', () => {
     expect(schemas.get('scheduler_run_now')?.job_id).toBeDefined();
   });
 
+  it('passes five-minute scheduler event waits through to host IPC', async () => {
+    const ipcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-tools-'));
+    tempRoots.push(ipcDir);
+    process.env.MYCLAW_IPC_DIR = ipcDir;
+    const waitForTaskResponse = vi.fn(async () => ({
+      ok: true,
+      data: { events: [] },
+    }));
+    const writeIpcFile = vi.fn();
+    vi.doMock('../../../../src/runner/mcp/ipc.js', () => ({
+      waitForTaskResponse,
+      writeIpcFile,
+    }));
+    const { registerSchedulerTools } =
+      await import('../../../../src/runner/mcp/tools/scheduler.js');
+    const tools = new Map<
+      string,
+      (
+        args: Record<string, unknown>,
+      ) => Promise<{ content: { text: string }[] }>
+    >();
+    const server = {
+      tool: (
+        name: string,
+        _description: string,
+        _schema: unknown,
+        handler: never,
+      ) => {
+        tools.set(name, handler);
+      },
+    };
+
+    registerSchedulerTools(server as never);
+
+    const response = await tools.get('scheduler_wait_for_events')!({
+      job_id: 'job-1',
+      timeout_ms: 300_000,
+    });
+
+    expect(response.content[0].text).toBe('[]');
+    expect(writeIpcFile).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        type: 'scheduler_wait_for_events',
+        jobId: 'job-1',
+        timeoutMs: 300_000,
+      }),
+    );
+    expect(waitForTaskResponse).toHaveBeenCalledWith(
+      expect.any(String),
+      310_000,
+    );
+  });
+
   it('renders missed-window staleness in scheduler job summaries', async () => {
     const { schedulerJobSummary } =
       await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
@@ -143,12 +197,45 @@ describe('scheduler MCP tools', () => {
         visibility: {
           staleness: 'missed_window',
           target: { agentId: 'agent:main', conversationJids: ['tg:team'] },
-          inheritedTools: [],
-          jobExtraTools: [],
-          effectiveAllowedTools: [],
+          toolAccess: {
+            inheritedAgentTools: [],
+            jobExtraTools: [],
+            effectiveAllowedTools: [],
+          },
           recentRunErrors: [],
         },
       }),
     ).toContain('Staleness: missed_window');
+  });
+
+  it('does not hide missing canonical toolAccess in scheduler summaries', async () => {
+    const { schedulerJobSummary, schedulerJobsSummary } =
+      await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
+
+    expect(
+      schedulerJobSummary({
+        id: 'job-1',
+        name: 'Follow up',
+        schedule_type: 'once',
+        status: 'active',
+        visibility: {
+          target: { agentId: 'agent:main', conversationJids: ['tg:team'] },
+          recentRunErrors: [],
+        },
+      }),
+    ).toContain('Tool access: missing canonical toolAccess');
+    expect(
+      schedulerJobsSummary([
+        {
+          id: 'job-1',
+          name: 'Follow up',
+          schedule_type: 'once',
+          status: 'active',
+          visibility: {
+            target: { agentId: 'agent:main', conversationJids: ['tg:team'] },
+          },
+        },
+      ]),
+    ).toContain('tools: (missing toolAccess)');
   });
 });

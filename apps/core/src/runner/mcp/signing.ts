@@ -20,6 +20,10 @@ export function createSignedIpcRequestEnvelope(
   requestSigningKey: string | undefined,
   payload: Record<string, unknown>,
 ): Record<string, unknown> {
+  const expiresAt =
+    typeof payload.expiresAt === 'string' && payload.expiresAt.trim()
+      ? payload.expiresAt
+      : new Date(Date.now() + 5 * 60_000).toISOString();
   const signedPayload = {
     ...payload,
     requestId:
@@ -27,7 +31,7 @@ export function createSignedIpcRequestEnvelope(
         ? payload.requestId
         : `ipc-${randomUUID()}`,
     nonce: randomUUID(),
-    expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+    expiresAt,
   };
   const signature = signIpcRequestPayload(requestSigningKey, signedPayload);
   return signature ? { ...signedPayload, signature } : signedPayload;

@@ -3,6 +3,7 @@ import path from 'path';
 
 import { DATA_DIR, IPC_POLL_INTERVAL } from '../config/index.js';
 import { nowMs } from '../infrastructure/time/datetime.js';
+import { ensurePrivateDirSync } from '../shared/private-fs.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import { logger } from '../infrastructure/logging/logger.js';
@@ -29,7 +30,6 @@ export type { IpcDeps } from './ipc-domain-types.js';
 export { isPendingIpcJsonFile } from './ipc-filesystem.js';
 export { processTaskIpc } from '../jobs/ipc-handler.js';
 export { validateIpcAuthRequest } from './ipc-auth-validation.js';
-
 let ipcWatcherRunning = false;
 let ipcWatcherTimer: ReturnType<typeof setTimeout> | undefined;
 let ipcRootLockPath: string | undefined;
@@ -57,9 +57,8 @@ function canProcessIpcFile(sourceAgentFolder: string, kind: string): boolean {
   return true;
 }
 
-function isLongRunningTask(type: string): boolean {
-  return type === 'mcp_call_tool' || type === 'mcp_list_tools';
-}
+const isLongRunningTask = (type: string): boolean =>
+  type.startsWith('mcp_') || type === 'scheduler_wait_for_events';
 
 async function processLongRunningTaskIpc(input: {
   data: ReturnType<typeof parseTaskIpcData>;
@@ -71,12 +70,8 @@ async function processLongRunningTaskIpc(input: {
   claimedPath: string;
 }): Promise<void> {
   try {
-    await processTaskIpc(
-      input.data,
-      input.sourceAgentFolder,
-      input.isMain,
-      input.deps,
-    );
+    // prettier-ignore
+    await processTaskIpc(input.data, input.sourceAgentFolder, input.isMain, input.deps, input.ipcBaseDir);
     fs.unlinkSync(input.claimedPath);
   } catch (err) {
     writeTaskIpcResponse(
@@ -152,7 +147,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
   }
 
   const ipcBaseDir = path.join(DATA_DIR, 'ipc');
-  fs.mkdirSync(ipcBaseDir, { recursive: true });
+  ensurePrivateDirSync(ipcBaseDir);
   try {
     ipcRootLockPath = acquireIpcRootLock(ipcBaseDir);
   } catch (err) {
@@ -258,7 +253,6 @@ export function startIpcWatcher(deps: IpcDeps): void {
       }
     }
 
-    // Build folder→isMain lookup from known group records
     const folderIsMain = new Map<string, boolean>();
     const folderTargetJid = new Map<string, string>();
     for (const group of Object.values(groupRegistry)) {
@@ -394,7 +388,8 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 });
                 continue;
               }
-              await processTaskIpc(data, sourceAgentFolder, isMain, deps);
+              // prettier-ignore
+              await processTaskIpc(data, sourceAgentFolder, isMain, deps, ipcBaseDir);
               fs.unlinkSync(claimedPath);
             } catch (err) {
               const errorMessage =
@@ -534,6 +529,8 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 sourceAgentFolder,
                 isMain,
                 browserProfileName,
+                getCredentialBroker: deps.getCredentialBroker,
+                getCredentialBrokerProfile: deps.getCredentialBrokerProfile,
               });
               writeBrowserIpcResponse(
                 ipcBaseDir,

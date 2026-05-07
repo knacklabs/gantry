@@ -2,11 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { ApplicationError } from '../application/common/application-error.js';
 import { JobManagementService } from '../application/jobs/job-management-service.js';
-import type {
-  AppSessionRecord,
-  JobControlPort,
-  JobExtraToolApprovalRequest,
-} from '../application/jobs/job-management-types.js';
+import type { JobExtraToolApprovalRequest } from '../application/jobs/job-management-types.js';
 import type { JobExecutionMode, JobScheduleType } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { TaskContext, TaskHandler } from './ipc-types.js';
@@ -21,15 +17,13 @@ import { invalidateSystemJobRegistrationSignature } from './system-registration-
 import { resolveRequestedJobModelPatch } from '../application/jobs/job-model-selection.js';
 import { resolveSchedulerApprovalTarget } from './ipc-scheduler-approval-target.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
-import {
-  getRuntimeControlRepository,
-  getRuntimeEventExchange,
-} from '../adapters/storage/postgres/runtime-store.js';
+import { getRuntimeEventExchange } from '../adapters/storage/postgres/runtime-store.js';
 import { enqueueJobTrigger, isSchedulerReady } from './scheduler.js';
 
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
     ops: context.deps.opsRepository,
+    control: context.deps.getJobControl?.(),
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
     toolRepository: context.deps.getToolRepository?.(),
@@ -44,56 +38,13 @@ function makeRunNowJobService(context: TaskContext): JobManagementService {
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
     toolRepository: context.deps.getToolRepository?.(),
-    control: adaptJobControl(getRuntimeControlRepository()),
+    control: context.deps.getJobControl?.(),
     runtimeEvents: getRuntimeEventExchange(),
     triggerQueue: {
       isReady: isSchedulerReady,
       enqueue: enqueueJobTrigger,
     },
   });
-}
-
-function adaptJobControl(
-  control: ReturnType<typeof getRuntimeControlRepository>,
-): JobControlPort {
-  return {
-    async getAppSessionById(sessionId) {
-      return adaptAppSession(await control.getAppSessionById(sessionId));
-    },
-    async getAppSessionByChatJid(conversationJid) {
-      return adaptAppSession(
-        await control.getAppSessionByChatJid(conversationJid),
-      );
-    },
-    async getAppSessionsByChatJids(conversationJids) {
-      const sessions = await control.getAppSessionsByChatJids(conversationJids);
-      return sessions
-        .map((session) => adaptAppSession(session))
-        .filter((session): session is AppSessionRecord => Boolean(session));
-    },
-    createJobTrigger: (input) => control.createJobTrigger(input),
-    markTriggerCompleted: (triggerId, status) =>
-      control.markTriggerCompleted(triggerId, status),
-    getTriggerById: (triggerId) => control.getTriggerById(triggerId),
-  };
-}
-
-function adaptAppSession(
-  session: Awaited<
-    ReturnType<
-      ReturnType<typeof getRuntimeControlRepository>['getAppSessionById']
-    >
-  >,
-): AppSessionRecord | undefined {
-  if (!session) return undefined;
-  return {
-    sessionId: session.sessionId,
-    appId: session.appId,
-    conversationJid: session.chatJid,
-    workspaceKey: session.workspaceKey,
-    defaultResponseMode: session.defaultResponseMode,
-    defaultWebhookId: session.defaultWebhookId,
-  };
 }
 
 async function requestJobExtraToolApproval(
@@ -114,7 +65,7 @@ async function requestJobExtraToolApproval(
     displayName: 'Autonomous job tools',
     title: 'Approve job-scoped autonomous tools',
     description:
-      'Approving stores these extra tool rules on this scheduler job only. Future runs still inherit the target agent tools dynamically.',
+      'stored on this job only; inherited agent grants are shown separately.',
     decisionReason: `Update scheduler job ${request.jobName} with job-scoped extra tools.`,
     toolInput: {
       jobId: request.jobId,

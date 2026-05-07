@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   index,
   integer,
@@ -57,6 +58,7 @@ export const skillCatalogPostgres = pgTable(
   (table) => ({
     appNameVersionUnique: uniqueIndex('idx_skill_catalog_app_name_version').on(
       table.appId,
+      sql`coalesce(${table.agentId}, '')`,
       table.name,
       table.version,
     ),
@@ -71,6 +73,7 @@ export const skillCatalogPostgres = pgTable(
     ),
     appHashUnique: uniqueIndex('idx_skill_catalog_app_hash').on(
       table.appId,
+      sql`coalesce(${table.agentId}, '')`,
       table.contentHash,
     ),
   }),

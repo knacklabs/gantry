@@ -116,6 +116,23 @@ function kindClause(
   return sql`${scheduleJson}::jsonb ->> 'type' in ('cron', 'interval')`;
 }
 
+function ownedByAppClause(jobId: unknown, ownerAppId?: string) {
+  return ownerAppId
+    ? sql`exists (
+        select 1
+        from ${pgSchema.canonicalJobsPostgres} owned_job
+        join ${pgSchema.controlHttpSessionsPostgres} app_session
+          on app_session.session_id = owned_job.target_json::jsonb ->> 'sessionId'
+        where owned_job.id = ${jobId}
+          and app_session.app_id = ${ownerAppId}
+      )`
+    : undefined;
+}
+
+function canonicalJobSessionId() {
+  return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb ->> 'sessionId'`;
+}
+
 export class PostgresCanonicalJobRepository {
   private readonly graph: PostgresCanonicalGraphRepository;
 
@@ -141,8 +158,9 @@ export class PostgresCanonicalJobRepository {
       filters?.appId
         ? sql`exists (
             select 1
-            from jsonb_array_elements_text(coalesce(${pgSchema.canonicalJobsPostgres.targetJson}::jsonb -> 'linkedSessions', '[]'::jsonb)) as linked_session(value)
-            where linked_session.value like ${`app:${filters.appId}:%`}
+            from ${pgSchema.controlHttpSessionsPostgres} app_session
+            where app_session.session_id = ${pgSchema.canonicalJobsPostgres.targetJson}::jsonb ->> 'sessionId'
+              and app_session.app_id = ${filters.appId}
           )`
         : undefined,
       filters?.statuses?.length
@@ -151,7 +169,7 @@ export class PostgresCanonicalJobRepository {
       filters?.groupScope
         ? sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb ->> 'groupScope' = ${filters.groupScope}`
         : undefined,
-      filters && 'threadId' in filters
+      filters?.threadId !== undefined
         ? filters.threadId
           ? sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb ->> 'threadId' = ${filters.threadId}`
           : sql`coalesce(${pgSchema.canonicalJobsPostgres.targetJson}::jsonb ->> 'threadId', '') = ''`
@@ -357,15 +375,64 @@ export class PostgresCanonicalJobRepository {
     limit = 50,
     filters?: JobRunListFilters,
   ): Promise<CanonicalRunRecord[]> {
+    if (!jobId && filters?.jobIds?.length === 0) return [];
+    if (!jobId && filters?.ownerAppId) {
+      return this.listRunsForOwnerApp(filters.ownerAppId, limit, filters);
+    }
     const query = this.db.select().from(pgSchema.agentRunsPostgres).$dynamic();
     const clauses = [
       jobId ? eq(pgSchema.agentRunsPostgres.jobId, jobId) : undefined,
       !jobId && filters?.jobIds?.length
         ? inArray(pgSchema.agentRunsPostgres.jobId, filters.jobIds)
         : undefined,
+      !jobId
+        ? ownedByAppClause(
+            pgSchema.agentRunsPostgres.jobId,
+            filters?.ownerAppId,
+          )
+        : undefined,
     ].filter(Boolean);
     const filtered = clauses.length > 0 ? query.where(and(...clauses)) : query;
     return filtered
+      .orderBy(
+        sql`${pgSchema.agentRunsPostgres.startedAt} DESC NULLS LAST`,
+        desc(pgSchema.agentRunsPostgres.createdAt),
+      )
+      .limit(limit);
+  }
+
+  private async listRunsForOwnerApp(
+    ownerAppId: string,
+    limit: number,
+    filters?: JobRunListFilters,
+  ): Promise<CanonicalRunRecord[]> {
+    const clauses = [
+      eq(pgSchema.controlHttpSessionsPostgres.appId, ownerAppId),
+      filters?.jobIds?.length
+        ? inArray(pgSchema.agentRunsPostgres.jobId, filters.jobIds)
+        : undefined,
+    ].filter(Boolean);
+    return this.db
+      .select({
+        id: pgSchema.agentRunsPostgres.id,
+        jobId: pgSchema.agentRunsPostgres.jobId,
+        status: pgSchema.agentRunsPostgres.status,
+        createdAt: pgSchema.agentRunsPostgres.createdAt,
+        startedAt: pgSchema.agentRunsPostgres.startedAt,
+        endedAt: pgSchema.agentRunsPostgres.endedAt,
+        resultSummary: pgSchema.agentRunsPostgres.resultSummary,
+        errorSummary: pgSchema.agentRunsPostgres.errorSummary,
+      })
+      .from(pgSchema.controlHttpSessionsPostgres)
+      .innerJoin(
+        pgSchema.canonicalJobsPostgres,
+        sql`${pgSchema.controlHttpSessionsPostgres.sessionId} = ${canonicalJobSessionId()}`,
+      )
+      .innerJoin(
+        pgSchema.agentRunsPostgres,
+        eq(pgSchema.agentRunsPostgres.jobId, pgSchema.canonicalJobsPostgres.id),
+      )
+      .where(and(...clauses))
       .orderBy(
         sql`${pgSchema.agentRunsPostgres.startedAt} DESC NULLS LAST`,
         desc(pgSchema.agentRunsPostgres.createdAt),
@@ -422,21 +489,27 @@ export class PostgresCanonicalJobRepository {
       appId?: string;
       jobId?: string;
       jobIds?: string[];
+      ownerAppId?: string;
       runId?: string;
       eventType?: string;
       sinceId?: number;
       since?: string;
     },
   ): Promise<CanonicalJobEventRecord[]> {
+    if (!filters?.jobId && filters?.jobIds?.length === 0) return [];
+    if (!filters?.jobId && filters?.ownerAppId) {
+      return this.listEventsForOwnerApp(limit, filters);
+    }
     const query = this.db
       .select()
       .from(pgSchema.runtimeEventsPostgres)
       .$dynamic();
     const clauses = [
-      eq(
-        pgSchema.runtimeEventsPostgres.appId,
-        filters?.appId ?? CANONICAL_APP_ID,
-      ),
+      filters?.appId
+        ? eq(pgSchema.runtimeEventsPostgres.appId, filters.appId)
+        : !filters?.jobId && !filters?.jobIds?.length && !filters?.ownerAppId
+          ? eq(pgSchema.runtimeEventsPostgres.appId, CANONICAL_APP_ID)
+          : undefined,
       filters?.runId
         ? eq(pgSchema.runtimeEventsPostgres.runId, filters.runId)
         : undefined,
@@ -445,6 +518,12 @@ export class PostgresCanonicalJobRepository {
         : undefined,
       !filters?.jobId && filters?.jobIds?.length
         ? inArray(pgSchema.runtimeEventsPostgres.jobId, filters.jobIds)
+        : undefined,
+      !filters?.jobId
+        ? ownedByAppClause(
+            pgSchema.runtimeEventsPostgres.jobId,
+            filters?.ownerAppId,
+          )
         : undefined,
       filters?.eventType
         ? eq(
@@ -464,6 +543,72 @@ export class PostgresCanonicalJobRepository {
     ].filter(Boolean);
     const filtered = clauses.length > 0 ? query.where(and(...clauses)) : query;
     const rows = await filtered
+      .orderBy(desc(pgSchema.runtimeEventsPostgres.eventId))
+      .limit(limit);
+    return rows.map((row) => ({
+      id: String(row.eventId),
+      appId: row.appId,
+      runId: row.runId ?? '',
+      jobId: row.jobId ?? '',
+      type: row.eventType,
+      payloadJson: row.payloadJson,
+      createdAt: row.createdAt,
+    }));
+  }
+
+  private async listEventsForOwnerApp(
+    limit: number,
+    filters: NonNullable<
+      Parameters<PostgresCanonicalJobRepository['listEvents']>[1]
+    >,
+  ): Promise<CanonicalJobEventRecord[]> {
+    const clauses = [
+      eq(pgSchema.controlHttpSessionsPostgres.appId, filters.ownerAppId ?? ''),
+      filters.appId
+        ? eq(pgSchema.runtimeEventsPostgres.appId, filters.appId)
+        : undefined,
+      filters.runId
+        ? eq(pgSchema.runtimeEventsPostgres.runId, filters.runId)
+        : undefined,
+      filters.jobIds?.length
+        ? inArray(pgSchema.runtimeEventsPostgres.jobId, filters.jobIds)
+        : undefined,
+      filters.eventType
+        ? eq(pgSchema.runtimeEventsPostgres.eventType, filters.eventType)
+        : inArray(
+            pgSchema.runtimeEventsPostgres.eventType,
+            CANONICAL_JOB_EVENT_TYPES,
+          ),
+      filters.sinceId !== undefined
+        ? gt(pgSchema.runtimeEventsPostgres.eventId, filters.sinceId)
+        : undefined,
+      filters.since
+        ? gt(pgSchema.runtimeEventsPostgres.createdAt, filters.since)
+        : undefined,
+    ].filter(Boolean);
+    const rows = await this.db
+      .select({
+        eventId: pgSchema.runtimeEventsPostgres.eventId,
+        appId: pgSchema.runtimeEventsPostgres.appId,
+        runId: pgSchema.runtimeEventsPostgres.runId,
+        jobId: pgSchema.runtimeEventsPostgres.jobId,
+        eventType: pgSchema.runtimeEventsPostgres.eventType,
+        payloadJson: pgSchema.runtimeEventsPostgres.payloadJson,
+        createdAt: pgSchema.runtimeEventsPostgres.createdAt,
+      })
+      .from(pgSchema.controlHttpSessionsPostgres)
+      .innerJoin(
+        pgSchema.canonicalJobsPostgres,
+        sql`${pgSchema.controlHttpSessionsPostgres.sessionId} = ${canonicalJobSessionId()}`,
+      )
+      .innerJoin(
+        pgSchema.runtimeEventsPostgres,
+        eq(
+          pgSchema.runtimeEventsPostgres.jobId,
+          pgSchema.canonicalJobsPostgres.id,
+        ),
+      )
+      .where(and(...clauses))
       .orderBy(desc(pgSchema.runtimeEventsPostgres.eventId))
       .limit(limit);
     return rows.map((row) => ({

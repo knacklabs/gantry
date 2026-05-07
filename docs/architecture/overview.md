@@ -284,12 +284,12 @@ Provider {
 `providerForJid()` resolves a jid to its provider by longest-prefix match.
 Built-in registrations from `apps/core/src/channels/register-builtins.ts`:
 
-| Provider | jidPrefix  | folderPrefix | Group jid rule              | Formatting        |
-| -------- | ---------- | ------------ | --------------------------- | ----------------- |
-| Telegram | `tg:`      | `telegram_`  | starts with `tg:-`          | `telegram-html`   |
-| Slack    | `sl:`      | `slack_`     | always group                | `mrkdwn`          |
-| Teams    | `teams:`   | `teams_`     | always (`teams:` prefix)    | `markdown-native` |
-| App      | `app:`     | `app_`       | always (internal SDK plane) | `none`            |
+| Provider | jidPrefix | folderPrefix | Group jid rule              | Formatting        |
+| -------- | --------- | ------------ | --------------------------- | ----------------- |
+| Telegram | `tg:`     | `telegram_`  | starts with `tg:-`          | `telegram-html`   |
+| Slack    | `sl:`     | `slack_`     | always group                | `mrkdwn`          |
+| Teams    | `teams:`  | `teams_`     | always (`teams:` prefix)    | `markdown-native` |
+| App      | `app:`    | `app_`       | always (internal SDK plane) | `none`            |
 
 ```mermaid
 flowchart LR
@@ -304,11 +304,11 @@ flowchart LR
 
 DM vs channel/group routing differs on three axes:
 
-| Axis                         | DM                                                                                | Channel / group                                                                 |
-| ---------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Trigger requirement          | `requiresTrigger=false` by default                                                | `requiresTrigger=true` by default                                               |
-| Default memory scope         | `'user'` — see `domain/ports/session-memory-collector.ts:2`                       | `'group'` — same file, same toggle                                              |
-| Approval authority           | Bound agent's per-provider DM admin (`AgentDmApprover`)                           | Conversation control approvers; see channel-interactions.md §approvers         |
+| Axis                 | DM                                                          | Channel / group                                                        |
+| -------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Trigger requirement  | `requiresTrigger=false` by default                          | `requiresTrigger=true` by default                                      |
+| Default memory scope | `'user'` — see `domain/ports/session-memory-collector.ts:2` | `'group'` — same file, same toggle                                     |
+| Approval authority   | Bound agent's per-provider DM admin (`AgentDmApprover`)     | Conversation control approvers; see channel-interactions.md §approvers |
 
 `conversationKind: 'dm' | 'channel'` is carried by `ConversationRoute`
 while active domain and application ports use canonical conversation/session
@@ -625,7 +625,7 @@ service writes audit rows to `memory_dream_runs` and `memory_dream_decisions`.
 
 ```mermaid
 sequenceDiagram
-  participant Sched as "Scheduler tick<br/>(MEMORY_DREAMING_CRON)"
+  participant Sched as "Scheduler tick<br/>(memory.dreaming.cron)"
   participant Sys as "registerSystemJobs<br/>per group.folder"
   participant Job as "Job: __system:memory_dream"
   participant Q as "MemoryMaintenanceQueue<br/>(dedupe key dream:{folder})"
@@ -654,8 +654,8 @@ Cited at:
 
 - System-job marker `MEMORY_DREAM_SYSTEM_PROMPT = '__system:memory_dream'` —
   `apps/core/src/jobs/system-jobs.ts:23`.
-- Per-folder registration gated on `RUNTIME_MEMORY_DREAMING_ENABLED` and
-  `MEMORY_DREAMING_CRON` —
+- Per-folder registration gated on `memory.dreaming.enabled` and
+  `memory.dreaming.cron` —
   `apps/core/src/jobs/system-jobs.ts:37`-`apps/core/src/jobs/system-jobs.ts:106`.
 - Maintenance-queue runner —
   `apps/core/src/runtime/memory-dreaming-runner.ts:10`.
@@ -678,34 +678,34 @@ below is one operation; the columns show how each surface reaches it.
 
 CLI surface (the `usage()` block at `apps/core/src/cli/index.ts:41`):
 
-| Operation                     | CLI command                                                | Audience               |
-| ----------------------------- | ---------------------------------------------------------- | ---------------------- |
-| First-run setup / doctor      | `myclaw setup`, `myclaw doctor`, `myclaw status`           | Owner / admin          |
-| Service control               | `myclaw service install|start|stop|restart`                | Owner / admin          |
-| Local dev runtime             | `myclaw local setup|start|stop|status|logs|doctor`         | Owner / admin          |
-| Provider connect              | `myclaw provider list|connect|doctor`                      | Owner / admin          |
-| Conversation administration   | `myclaw conversation info|approvers`                       | Owner / admin          |
-| Agent administration          | `myclaw agent list|info|add|remove|trigger|dm-access|policy` | Owner / admin        |
-| Browser profiles              | `myclaw browser profiles|status`                           | Owner / admin          |
-| Model catalog                 | `myclaw model list|set-default|doctor`                     | Owner / admin          |
-| Settings drift / export       | `myclaw settings export-current|drift`                     | Owner / admin          |
-| Skill upload                  | `myclaw skill draft upload <skill.zip>`                    | Owner / admin          |
-| MCP administration            | `myclaw mcp draft|list|approve|reject|test|disable|bind|unbind|agent` | Owner / admin |
+| Operation                   | CLI command                                                                                                 | Audience      |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------- |
+| First-run setup / doctor    | `myclaw setup`, `myclaw doctor`, `myclaw status`                                                            | Owner / admin |
+| Service control             | `myclaw service install`, `myclaw service start`, `myclaw service stop`, `myclaw service restart`           | Owner / admin |
+| Local dev runtime           | `myclaw local setup`, `myclaw local start`, `myclaw local stop`, `myclaw local status`, `myclaw local logs` | Owner / admin |
+| Provider connect            | `myclaw provider list`, `myclaw provider connect`, `myclaw provider doctor`                                 | Owner / admin |
+| Conversation administration | `myclaw conversation info`, `myclaw conversation approvers`                                                 | Owner / admin |
+| Agent administration        | `myclaw agent list`, `myclaw agent info`, `myclaw agent add`, `myclaw agent remove`, `myclaw agent trigger` | Owner / admin |
+| Browser profiles            | `myclaw browser profiles`, `myclaw browser status`                                                          | Owner / admin |
+| Model catalog               | `myclaw model list`, `myclaw model set-default`, `myclaw model doctor`                                      | Owner / admin |
+| Settings drift / export     | `myclaw settings export-current`, `myclaw settings drift`                                                   | Owner / admin |
+| Skill upload                | `myclaw skill draft upload <skill.zip>`                                                                     | Owner / admin |
+| MCP administration          | `myclaw mcp draft`, `myclaw mcp list`, `myclaw mcp approve`, `myclaw mcp reject`, `myclaw mcp bind`         | Owner / admin |
 
 Control API surface (scopes from `apps/core/src/control/server/auth.ts:5`):
 
-| Domain         | Scopes                                                                        | Routes                                                       |
-| -------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| Sessions       | `sessions:read`, `sessions:write`                                             | `apps/core/src/control/server/routes/sessions.ts`            |
-| Jobs           | `jobs:read`, `jobs:write`                                                     | `apps/core/src/control/server/routes/jobs.ts`                |
-| Providers      | `providers:read`, `providers:admin`                                           | `apps/core/src/control/server/routes/provider-conversation-routes.ts` |
-| Conversations  | `conversations:read`, `conversations:admin`, `messages:read`                  | conversation routes under `routes/`                          |
-| Agents         | `agents:admin`                                                                | agent routes                                                 |
-| Skills         | `skills:read`, `skills:admin`                                                 | skill routes                                                 |
-| MCP            | `mcp:read`, `mcp:admin`                                                       | mcp routes                                                   |
-| Webhooks       | `webhooks:read`, `webhooks:write`                                             | `apps/core/src/control/server/routes/webhooks.ts`            |
-| Ingresses      | `ingresses:read`, `ingresses:write`                                           | `apps/core/src/control/server/routes/external-ingress.ts`    |
-| Memory         | `memory:read`, `memory:write`, `memory:admin`                                 | memory routes                                                |
+| Domain        | Scopes                                                       | Routes                                                                |
+| ------------- | ------------------------------------------------------------ | --------------------------------------------------------------------- |
+| Sessions      | `sessions:read`, `sessions:write`                            | `apps/core/src/control/server/routes/sessions.ts`                     |
+| Jobs          | `jobs:read`, `jobs:write`                                    | `apps/core/src/control/server/routes/jobs.ts`                         |
+| Providers     | `providers:read`, `providers:admin`                          | `apps/core/src/control/server/routes/provider-conversation-routes.ts` |
+| Conversations | `conversations:read`, `conversations:admin`, `messages:read` | conversation routes under `routes/`                                   |
+| Agents        | `agents:admin`                                               | agent routes                                                          |
+| Skills        | `skills:read`, `skills:admin`                                | skill routes                                                          |
+| MCP           | `mcp:read`, `mcp:admin`                                      | mcp routes                                                            |
+| Webhooks      | `webhooks:read`, `webhooks:write`                            | `apps/core/src/control/server/routes/webhooks.ts`                     |
+| Ingresses     | `ingresses:read`, `ingresses:write`                          | `apps/core/src/control/server/routes/external-ingress.ts`             |
+| Memory        | `memory:read`, `memory:write`, `memory:admin`                | memory routes                                                         |
 
 Agent-driven changes go through MyClaw MCP `request_*` tools (§7) and produce
 the same writes after approval. The principle —

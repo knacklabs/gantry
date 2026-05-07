@@ -217,6 +217,111 @@ describe('app-grade memory boundaries', () => {
     expect(db.update).not.toHaveBeenCalled();
   });
 
+  it('recomputes content hash when patching memory content', async () => {
+    const current = memoryRow({
+      id: 'mem_patch',
+      appId: 'app-a',
+      agentId: 'agent-a',
+      subjectType: 'group',
+      subjectId: 'group-a',
+      version: 1,
+    });
+    const updated = {
+      ...current,
+      valueJson: JSON.stringify({
+        value: 'updated value',
+        why: null,
+        contentHash: 'placeholder',
+      }),
+      sourceRefJson: JSON.stringify({
+        ...JSON.parse(current.sourceRefJson),
+        version: 2,
+      }),
+    };
+    const set = vi.fn(() => ({
+      where: vi.fn(() => ({
+        returning: vi.fn(async () => [updated]),
+      })),
+    }));
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [current]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({ set })),
+    };
+    const service = new AppMemoryService(db as any);
+
+    await service.patch({
+      id: 'mem_patch',
+      appId: 'app-a',
+      agentId: 'agent-a',
+      groupId: 'group-a',
+      value: 'updated value',
+    });
+
+    const valueJson = JSON.parse(set.mock.calls[0]![0].valueJson);
+    expect(valueJson.value).toBe('updated value');
+    expect(valueJson.contentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(valueJson.contentHash).not.toBe(
+      JSON.parse(current.valueJson).contentHash,
+    );
+  });
+
+  it('returns a typed conflict before renaming onto an existing subject key', async () => {
+    const current = memoryRow({
+      id: 'mem_current',
+      appId: 'app-a',
+      agentId: 'agent-a',
+      subjectType: 'group',
+      subjectId: 'group-a',
+      version: 1,
+    });
+    const collision = {
+      ...current,
+      id: 'mem_collision',
+      key: 'existing',
+    };
+    const select = vi
+      .fn()
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [current]),
+          })),
+        })),
+      })
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(async () => [collision]),
+          })),
+        })),
+      });
+    const db = {
+      select,
+      update: vi.fn(),
+    };
+    const service = new AppMemoryService(db as any);
+
+    await expect(
+      service.patch({
+        id: 'mem_current',
+        appId: 'app-a',
+        agentId: 'agent-a',
+        groupId: 'group-a',
+        key: 'existing',
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'Memory key already exists for this subject',
+    });
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
   it('uses full-text search for embeddings-off recall', async () => {
     const row = {
       ...memoryRow({
@@ -264,6 +369,46 @@ describe('app-grade memory boundaries', () => {
     expect(results[0]?.reasons).toContain('lexical');
   });
 
+  it('records recall metrics with one bulk memory item update', async () => {
+    const rows = ['mem_one', 'mem_two'].map((id, index) => ({
+      row: memoryRow({
+        id,
+        appId: 'default',
+        agentId: 'agent:kai',
+        subjectType: 'group',
+        subjectId: 'kai',
+      }),
+      lexicalScore: 0.05,
+      vectorScore: 0,
+      score: 0.1 + index,
+    }));
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            orderBy: vi.fn(() => ({
+              limit: vi.fn(async () => rows),
+            })),
+          })),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+      })),
+    };
+    const service = new AppMemoryService(db as any);
+
+    await service.search({
+      appId: 'default',
+      agentId: 'agent:kai',
+      groupId: 'kai',
+      query: 'status',
+    });
+
+    expect(db.update).toHaveBeenCalledTimes(1);
+  });
+
   it('does not expose legacy default-user memories to group searches', async () => {
     const db = {
       select: vi.fn(() => ({
@@ -291,5 +436,35 @@ describe('app-grade memory boundaries', () => {
     });
 
     expect(results).toHaveLength(0);
+  });
+});
+
+describe('app memory dreaming settings', () => {
+  it('rejects manual dreaming when memory.dreaming.enabled is false', async () => {
+    vi.resetModules();
+    vi.doMock('@core/config/memory-state.js', () => ({
+      RUNTIME_MEMORY_ENABLED: true,
+      RUNTIME_MEMORY_DREAMING_ENABLED: false,
+      runtimeMemorySettings: { dreamingEnabled: false },
+    }));
+    const { AppMemoryService: MockedAppMemoryService } =
+      await import('@core/memory/app-memory-service.js');
+    const db = {
+      insert: vi.fn(),
+    };
+    const service = new MockedAppMemoryService(db as any);
+
+    await expect(
+      service.triggerDreaming({
+        appId: 'app-a',
+        agentId: 'agent-a',
+        groupId: 'group-a',
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFLICT',
+      message: 'memory dreaming is disabled in runtime settings',
+    });
+    expect(db.insert).not.toHaveBeenCalled();
+    vi.doUnmock('@core/config/memory-state.js');
   });
 });

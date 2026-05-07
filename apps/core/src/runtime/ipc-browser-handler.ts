@@ -7,6 +7,10 @@ import {
   signIpcResponseAuthPayload,
   signIpcResponsePayload,
 } from '../infrastructure/ipc/response-signing.js';
+import {
+  ensurePrivateDirSync,
+  writePrivateFileSync,
+} from '../shared/private-fs.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
   DEFAULT_BROWSER_PROFILE_NAME,
@@ -16,6 +20,8 @@ import {
   listBrowserProfiles,
 } from './browser-capability.js';
 import { IpcDomainContext } from './ipc-domain-types.js';
+import type { CredentialBrokerHealth } from '../domain/models/credentials.js';
+import { memoryAgentIdForGroupFolder } from '../memory/app-memory-boundaries.js';
 
 interface BrowserRequest {
   requestId: string;
@@ -32,7 +38,15 @@ interface BrowserResponse {
 type BrowserContext = Pick<
   IpcDomainContext,
   'sourceAgentFolder' | 'isMain' | 'browserProfileName'
->;
+> & {
+  getCredentialBroker?: IpcDomainContext['deps']['getCredentialBroker'];
+  getCredentialBrokerProfile?: IpcDomainContext['deps']['getCredentialBrokerProfile'];
+};
+type BrowserStatusPayload = Record<string, unknown> & {
+  brokerHealthy?: boolean;
+  brokerHealth?: CredentialBrokerHealth;
+  warning?: string;
+};
 type BrowserActionHandler = (
   request: BrowserRequest,
   context: BrowserContext,
@@ -93,6 +107,75 @@ function sanitizeBrowserProfiles(value: unknown): unknown {
   });
 }
 
+async function inspectToolCapabilityBrokerHealth(
+  context: BrowserContext,
+): Promise<CredentialBrokerHealth | undefined> {
+  if (!context.getCredentialBroker) return undefined;
+  const brokerProfile = context.getCredentialBrokerProfile?.();
+  if (!brokerProfile) return undefined;
+  if (brokerProfile === 'none') {
+    return {
+      status: 'warn',
+      message:
+        'Credential broker mode is none; third-party MCP servers with credential refs cannot receive tool credentials.',
+      nextAction:
+        'Configure credential_broker in settings.yaml or use only credential-free MCP servers.',
+    };
+  }
+  const broker = await context.getCredentialBroker();
+  if (!broker) {
+    return {
+      status: 'warn',
+      message:
+        'Credential broker health is not available from this runtime process.',
+      nextAction: 'Run `myclaw doctor` to verify credential broker settings.',
+    };
+  }
+  return broker.healthCheck({
+    binding: {
+      profile: brokerProfile,
+      purpose: 'tool_capability',
+      agentIdentifier: memoryAgentIdForGroupFolder(context.sourceAgentFolder),
+    },
+  });
+}
+
+async function attachToolCapabilityBrokerHealth(
+  data: unknown,
+  context: BrowserContext,
+): Promise<unknown> {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return data;
+  let brokerHealth: CredentialBrokerHealth | undefined;
+  try {
+    brokerHealth = await inspectToolCapabilityBrokerHealth(context);
+  } catch (err) {
+    logger.warn(
+      { err, sourceAgentFolder: context.sourceAgentFolder },
+      'Credential broker health check failed during browser IPC status',
+    );
+    brokerHealth = {
+      status: 'fail',
+      message: 'Credential broker health check failed.',
+      nextAction: 'Run `myclaw doctor` to verify credential broker settings.',
+    };
+  }
+  if (!brokerHealth) return data;
+  const next: BrowserStatusPayload = {
+    ...(data as Record<string, unknown>),
+    brokerHealthy: brokerHealth.status === 'pass',
+    brokerHealth,
+  };
+  if (brokerHealth.status !== 'pass') {
+    next.warning = [
+      'Browser CDP may be ready, but third-party MCP tools can fail because the tool-capability credential broker is not healthy.',
+      brokerHealth.nextAction,
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+  return next;
+}
+
 const browserActionHandlers: Record<BrowserIpcAction, BrowserActionHandler> = {
   browser_profile_list: async () => {
     return {
@@ -110,7 +193,13 @@ const browserActionHandlers: Record<BrowserIpcAction, BrowserActionHandler> = {
         max: 3_600_000,
       }),
     });
-    return { ok: true, data: sanitizeBrowserStatus(status) };
+    return {
+      ok: true,
+      data: await attachToolCapabilityBrokerHealth(
+        sanitizeBrowserStatus(status),
+        context,
+      ),
+    };
   },
   browser_close: async (request, context) => {
     const profileName = getProfileNameFromPayload(request.payload, context);
@@ -121,7 +210,10 @@ const browserActionHandlers: Record<BrowserIpcAction, BrowserActionHandler> = {
     const profileName = getProfileNameFromPayload(request.payload, context);
     return {
       ok: true,
-      data: sanitizeBrowserStatus(await getBrowserStatus(profileName)),
+      data: await attachToolCapabilityBrokerHealth(
+        sanitizeBrowserStatus(await getBrowserStatus(profileName)),
+        context,
+      ),
     };
   },
 };
@@ -180,7 +272,7 @@ export function writeBrowserIpcResponse(
     sourceAgentFolder,
     'browser-responses',
   );
-  fs.mkdirSync(responseDir, { recursive: true });
+  ensurePrivateDirSync(responseDir);
   const responsePath = path.join(responseDir, `${response.requestId}.json`);
   const tmpPath = `${responsePath}.tmp`;
   const payload: Record<string, unknown> = {
@@ -195,6 +287,6 @@ export function writeBrowserIpcResponse(
   if (signature) {
     payload.signature = signature;
   }
-  fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2));
+  writePrivateFileSync(tmpPath, JSON.stringify(payload, null, 2));
   fs.renameSync(tmpPath, responsePath);
 }

@@ -44,33 +44,47 @@ async function loadRuntimeApp() {
 }
 
 describe('runtime app credential binding', () => {
-  it('ensures the shared Model Access profile once for registered groups', async () => {
+  it('ensures shared Model Access once and agent-scoped tool profiles for registered groups', async () => {
     const { createRuntimeApp } = await loadRuntimeApp();
     const firstGroup = makeGroup();
+    const sideGroup = makeGroup({
+      name: 'Side Agent',
+      folder: 'side_agent',
+      isMain: false,
+    });
     const ensureCredentialBinding = vi.fn(async () => ({ created: true }));
     const app = createRuntimeApp({ ensureCredentialBinding });
 
     app.setConversationRoutesForTest({
       'tg:first': firstGroup,
-      'tg:second': makeGroup({
-        name: 'Side Agent',
-        folder: 'side_agent',
-        isMain: false,
-      }),
+      'tg:second': sideGroup,
     });
 
     await app.ensureCredentialBindingsForConversationRoutes();
     await app.ensureCredentialBindingsForConversationRoutes();
 
-    expect(ensureCredentialBinding).toHaveBeenCalledTimes(1);
+    expect(ensureCredentialBinding).toHaveBeenCalledTimes(3);
     expect(ensureCredentialBinding).toHaveBeenCalledWith({
       groupJid: 'tg:first',
       group: firstGroup,
       agentIdentifier: 'myclaw-model-access',
+      agentName: 'MyClaw Model Access',
+    });
+    expect(ensureCredentialBinding).toHaveBeenCalledWith({
+      groupJid: 'tg:first',
+      group: firstGroup,
+      agentIdentifier: 'agent:main_agent',
+      agentName: 'Main Agent',
+    });
+    expect(ensureCredentialBinding).toHaveBeenCalledWith({
+      groupJid: 'tg:second',
+      group: sideGroup,
+      agentIdentifier: 'agent:side_agent',
+      agentName: 'Side Agent',
     });
   });
 
-  it('retries the shared Model Access profile after a failed ensure attempt', async () => {
+  it('retries a failed credential profile ensure attempt', async () => {
     const { createRuntimeApp } = await loadRuntimeApp();
     const group = makeGroup();
     const ensureCredentialBinding = vi
@@ -84,6 +98,26 @@ describe('runtime app credential binding', () => {
     await app.ensureCredentialBindingsForConversationRoutes();
     await app.ensureCredentialBindingsForConversationRoutes();
 
-    expect(ensureCredentialBinding).toHaveBeenCalledTimes(2);
+    expect(ensureCredentialBinding).toHaveBeenCalledTimes(3);
+    expect(ensureCredentialBinding.mock.calls.map(([input]) => input)).toEqual([
+      {
+        groupJid: 'tg:first',
+        group,
+        agentIdentifier: 'myclaw-model-access',
+        agentName: 'MyClaw Model Access',
+      },
+      {
+        groupJid: 'tg:first',
+        group,
+        agentIdentifier: 'agent:main_agent',
+        agentName: 'Main Agent',
+      },
+      {
+        groupJid: 'tg:first',
+        group,
+        agentIdentifier: 'myclaw-model-access',
+        agentName: 'MyClaw Model Access',
+      },
+    ]);
   });
 });

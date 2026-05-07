@@ -114,6 +114,31 @@ export function readTemplate(
   };
 }
 
+export function validateIngressMetadata(metadata: unknown): unknown {
+  const root =
+    metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+      ? (metadata as Record<string, unknown>)
+      : metadata === undefined
+        ? {}
+        : null;
+  if (!root) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      'external ingress metadata must be an object',
+    );
+  }
+  const keys = Object.keys(root);
+  if (keys.length > 20) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      'external ingress metadata has too many keys',
+    );
+  }
+  validateTargetPolicy(root.targetPolicy);
+  validateTemplates(root.templates);
+  return root;
+}
+
 export function renderTemplate(
   prompt: string,
   variables: Record<string, string>,
@@ -121,6 +146,151 @@ export function renderTemplate(
   return prompt.replace(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g, (_match, key) => {
     return variables[String(key)] ?? '';
   });
+}
+
+function validateTargetPolicy(value: unknown): void {
+  if (value === undefined) return;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      'external ingress targetPolicy must be an object',
+    );
+  }
+  const policy = value as Record<string, unknown>;
+  const supported = new Set([
+    'allowedTargetKinds',
+    'sessionIds',
+    'conversationIds',
+    'jobIds',
+    'templateIds',
+  ]);
+  for (const key of Object.keys(policy)) {
+    if (!supported.has(key)) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        `external ingress targetPolicy.${key} is not supported`,
+      );
+    }
+  }
+  validatePolicySet(policy.allowedTargetKinds, 'allowedTargetKinds', [
+    'session_message',
+    'job_trigger',
+    'job_template',
+  ]);
+  validatePolicySet(policy.sessionIds, 'sessionIds');
+  validatePolicySet(policy.conversationIds, 'conversationIds');
+  validatePolicySet(policy.jobIds, 'jobIds');
+  validatePolicySet(policy.templateIds, 'templateIds');
+}
+
+function validatePolicySet(
+  value: unknown,
+  field: string,
+  allowedValues?: string[],
+): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.length > 100) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      `external ingress targetPolicy.${field} must be an array with at most 100 entries`,
+    );
+  }
+  const allowed = allowedValues ? new Set(allowedValues) : null;
+  for (const item of value) {
+    if (typeof item !== 'string' || !item.trim() || item.length > 300) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        `external ingress targetPolicy.${field} contains an invalid entry`,
+      );
+    }
+    if (allowed && !allowed.has(item)) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        `external ingress targetPolicy.${field} contains unsupported target kind: ${item}`,
+      );
+    }
+  }
+}
+
+function validateTemplates(value: unknown): void {
+  if (value === undefined) return;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      'external ingress templates must be an object',
+    );
+  }
+  const templates = value as Record<string, unknown>;
+  const entries = Object.entries(templates);
+  if (entries.length > 50) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      'external ingress templates has too many entries',
+    );
+  }
+  for (const [templateId, raw] of entries) {
+    if (!templateId.trim() || templateId.length > 120) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'external ingress template id is invalid',
+      );
+    }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        `external ingress template ${templateId} must be an object`,
+      );
+    }
+    const template = raw as Record<string, unknown>;
+    const supported = new Set([
+      'name',
+      'prompt',
+      'sessionId',
+      'allowedVariables',
+    ]);
+    for (const key of Object.keys(template)) {
+      if (!supported.has(key)) {
+        throw new ApplicationError(
+          'INVALID_REQUEST',
+          `external ingress template ${templateId}.${key} is not supported`,
+        );
+      }
+    }
+    for (const field of ['name', 'prompt', 'sessionId']) {
+      if (
+        typeof template[field] !== 'string' ||
+        !template[field].trim() ||
+        template[field].length > (field === 'prompt' ? 20_000 : 300)
+      ) {
+        throw new ApplicationError(
+          'INVALID_REQUEST',
+          `external ingress template ${templateId}.${field} is invalid`,
+        );
+      }
+    }
+    validateTemplateVariables(template.allowedVariables, templateId);
+  }
+}
+
+function validateTemplateVariables(value: unknown, templateId: string): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.length > 100) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      `external ingress template ${templateId}.allowedVariables must be an array with at most 100 entries`,
+    );
+  }
+  for (const variable of value) {
+    if (
+      typeof variable !== 'string' ||
+      !/^[A-Za-z0-9_.-]{1,80}$/.test(variable)
+    ) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        `external ingress template ${templateId}.allowedVariables contains an invalid entry`,
+      );
+    }
+  }
 }
 
 function readTargetPolicy(metadata: unknown): {

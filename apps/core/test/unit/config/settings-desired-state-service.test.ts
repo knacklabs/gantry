@@ -26,11 +26,21 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
           ? {
               id,
               appId: 'default',
+              name: 'Read',
               status: 'active',
               selectable: true,
             }
           : null,
       ),
+      listTools: vi.fn(async () => [
+        {
+          id: 'tool:read',
+          appId: 'default',
+          name: 'Read',
+          status: 'active',
+          selectable: true,
+        },
+      ]),
       listAgentToolBindings: vi.fn(async () => []),
       listAgentToolBindingsForAgents: vi.fn(async () => []),
     },
@@ -98,7 +108,7 @@ describe('SettingsDesiredStateService', () => {
       bindings: {},
       dmAccess: [],
       capabilities: {
-        toolIds: ['tool:read', 'tool:missing'],
+        toolIds: ['Read', 'tool:read', '*'],
         skillIds: ['skill:admin'],
         mcpServerIds: ['mcp:github'],
       },
@@ -108,11 +118,14 @@ describe('SettingsDesiredStateService', () => {
       repositories: makeRepositories(),
     });
 
-    await expect(
-      service.validateCapabilityReferences(settings),
-    ).resolves.toEqual([
-      'agents.main_agent.capabilities.tool_ids contains unavailable tool: tool:missing',
-    ]);
+    const errors = await service.validateCapabilityReferences(settings);
+
+    expect([...errors].sort()).toEqual(
+      [
+        'agents.main_agent.capabilities.tool_ids contains unavailable tool: tool:read',
+        'agents.main_agent.capabilities.tool_ids contains unavailable tool: *',
+      ].sort(),
+    );
   });
 
   it('reconciles desired agents without deleting DB-only bindings in phase 1', async () => {
@@ -1386,7 +1399,7 @@ describe('SettingsDesiredStateService', () => {
       bindings: {},
       dmAccess: [],
       capabilities: {
-        toolIds: ['tool:read'],
+        toolIds: ['Read'],
         skillIds: [],
         mcpServerIds: [],
       },

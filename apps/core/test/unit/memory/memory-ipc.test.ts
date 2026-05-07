@@ -7,6 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const ORIGINAL_ENV = { ...process.env };
 const tempRoots: string[] = [];
 
+function fileMode(filePath: string): number {
+  return fs.statSync(filePath).mode & 0o777;
+}
+
 function writeMemorySettings(runtimeHome: string): void {
   const settingsPath = path.join(runtimeHome, 'settings.yaml');
   fs.writeFileSync(
@@ -1120,6 +1124,8 @@ describe('writeMemoryResponse', () => {
 
     const written = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     expect(written).toEqual(response);
+    expect(fileMode(responsesDir)).toBe(0o700);
+    expect(fileMode(filePath)).toBe(0o600);
 
     // tmp file should not remain
     expect(fs.existsSync(`${filePath}.tmp`)).toBe(false);

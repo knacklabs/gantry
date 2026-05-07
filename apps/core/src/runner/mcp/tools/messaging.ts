@@ -4,6 +4,10 @@ import path from 'path';
 import { z } from 'zod';
 import { nowIso, nowMs, sleep } from '../../../infrastructure/time/datetime.js';
 import {
+  ensurePrivateDirSync,
+  writePrivateFileSync,
+} from '../../../shared/private-fs.js';
+import {
   chatJid,
   groupFolder,
   IPC_AUTH_TOKEN,
@@ -14,6 +18,7 @@ import {
 import { truncateText } from '../formatting.js';
 import { hasValidIpcResponseSignature, writeIpcFile } from '../ipc.js';
 import { createSignedIpcRequestEnvelope } from '../signing.js';
+import { makeIpcId } from '../ipc-ids.js';
 
 const USER_QUESTION_TIMEOUT_MS = 5 * 60 * 1000;
 const USER_QUESTION_POLL_INTERVAL_MS = 100;
@@ -49,10 +54,10 @@ async function requestUserInteractionBoundary(
   signal?: AbortSignal,
 ): Promise<void> {
   const boundaryDir = path.join(IPC_DIR, 'interaction-boundaries');
-  fs.mkdirSync(boundaryDir, { recursive: true });
+  ensurePrivateDirSync(boundaryDir);
   const boundaryPath = path.join(boundaryDir, `${requestId}.json`);
   const tmpPath = `${boundaryPath}.tmp`;
-  fs.writeFileSync(
+  writePrivateFileSync(
     tmpPath,
     JSON.stringify(
       {
@@ -154,10 +159,10 @@ export function registerMessagingTools(server: McpServer): void {
     ) => {
       const userQuestionRequestsDir = path.join(IPC_DIR, 'user-questions');
       const userQuestionResponsesDir = path.join(IPC_DIR, 'user-answers');
-      fs.mkdirSync(userQuestionRequestsDir, { recursive: true });
-      fs.mkdirSync(userQuestionResponsesDir, { recursive: true });
+      ensurePrivateDirSync(userQuestionRequestsDir);
+      ensurePrivateDirSync(userQuestionResponsesDir);
 
-      const requestId = `userq-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+      const requestId = makeIpcId('userq');
       const requestPath = path.join(
         userQuestionRequestsDir,
         `${requestId}.json`,
@@ -176,15 +181,19 @@ export function registerMessagingTools(server: McpServer): void {
         questions: args.questions,
         ...(threadId ? { threadId } : {}),
         timestamp: nowIso(),
+        expiresAt: new Date(
+          Date.now() + USER_QUESTION_TIMEOUT_MS,
+        ).toISOString(),
       };
       const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload);
 
-      fs.writeFileSync(tmpPath, JSON.stringify(envelope, null, 2));
+      writePrivateFileSync(tmpPath, JSON.stringify(envelope, null, 2));
       fs.renameSync(tmpPath, requestPath);
 
       const deadline = nowMs() + USER_QUESTION_TIMEOUT_MS;
       while (nowMs() < deadline) {
         if (context?.signal?.aborted) {
+          fs.rmSync(requestPath, { force: true });
           return {
             content: [
               {
@@ -275,6 +284,7 @@ export function registerMessagingTools(server: McpServer): void {
           context?.signal,
         );
         if (aborted) {
+          fs.rmSync(requestPath, { force: true });
           return {
             content: [
               {
@@ -285,6 +295,7 @@ export function registerMessagingTools(server: McpServer): void {
           };
         }
       }
+      fs.rmSync(requestPath, { force: true });
       return {
         content: [
           {

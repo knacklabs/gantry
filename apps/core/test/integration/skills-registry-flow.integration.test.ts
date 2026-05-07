@@ -178,6 +178,7 @@ describe('skill registry integration flow', () => {
     groups?: Record<string, any>;
   }) {
     const sendMessage = vi.fn(async () => undefined);
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
     const toolRepository = {
       getTool: vi.fn(async () => null),
       listTools: vi.fn(async () => []),
@@ -212,8 +213,15 @@ describe('skill registry integration flow', () => {
       onSchedulerChanged: vi.fn(),
       registerGroup: vi.fn(),
       getToolRepository: () => toolRepository,
+      mirrorAgentToolRulesToSettings,
     };
-    return { deps, sendMessage, requestPermissionApproval, toolRepository };
+    return {
+      deps,
+      sendMessage,
+      requestPermissionApproval,
+      toolRepository,
+      mirrorAgentToolRulesToSettings,
+    };
   }
 
   it('uploads, deduplicates, approves, binds, resolves, and disables a local skill through control SDK and services', async () => {
@@ -619,7 +627,12 @@ describe('skill registry integration flow', () => {
 
   it('persists request_permission persistent approvals as configured allowed tool rules', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
-    const { deps, sendMessage, toolRepository } = createCapabilityReviewDeps({
+    const {
+      deps,
+      sendMessage,
+      toolRepository,
+      mirrorAgentToolRulesToSettings,
+    } = createCapabilityReviewDeps({
       decision: {
         approved: true,
         mode: 'allow_persistent_rule',
@@ -682,11 +695,14 @@ describe('skill registry integration flow', () => {
         status: 'active',
       }),
     );
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith('agent:one', [
+      'mcp__internal__deploy_preview(environment:staging)',
+    ]);
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
         expect.stringContaining(
-          'Persistent permission rule enabled for future runs',
+          'Persistent permission rule enabled for this run and future runs',
         ),
         { threadId: 'thread-origin' },
       );

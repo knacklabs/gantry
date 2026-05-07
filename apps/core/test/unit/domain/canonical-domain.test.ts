@@ -194,7 +194,10 @@ describe('canonical Postgres persistence cut', () => {
     expect(seed).toContain('sandbox-profile:local-dev');
     expect(seed).toContain('tool:Browser');
     expect(seed).toMatch(/sdkTool\(\s*'Bash'/);
-    expect(seed).toMatch(/sdkTool\(\s*'ReadMcpResource'/);
+    expect(seed).not.toMatch(/sdkTool\(\s*'AskUserQuestion'/);
+    expect(seed).not.toMatch(/sdkTool\(\s*'ReadMcpResource'/);
+    expect(seed).not.toMatch(/sdkTool\(\s*'TaskOutput'/);
+    expect(seed).not.toMatch(/sdkTool\(\s*'EnterWorktree'/);
     expect(seed).not.toContain('SubscribeMcpResource');
     expect(seed).not.toContain('SubscribePolling');
     expect(seed).toContain('skill:memory');

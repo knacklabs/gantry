@@ -11,8 +11,12 @@ import {
 } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
-import { canAccessApp, jobBelongsToApp, makeAppGroup } from './app-identity.js';
-import { isValidControlId, parseControlApiKeys } from './auth.js';
+import { canAccessApp, makeAppGroup } from './app-identity.js';
+import {
+  isValidControlId,
+  parseControlApiKeys,
+  parseControlApiKeysStrict,
+} from './auth.js';
 import type {
   ControlRouteContext,
   ControlServerState,
@@ -115,7 +119,7 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
 export function startControlServer(input: {
   app: RuntimeApp;
 }): ControlServerHandle {
-  const keys = parseControlApiKeys({
+  const keys = parseControlApiKeysStrict({
     rawJson: getControlEnvValue('MYCLAW_CONTROL_API_KEYS_JSON'),
     rawSingle: getControlEnvValue('MYCLAW_CONTROL_API_KEY'),
     singleAppId: getControlEnvValue('MYCLAW_CONTROL_APP_ID'),
@@ -224,11 +228,11 @@ export function startControlServer(input: {
 
 export const _testControlServer = {
   parseControlApiKeys,
+  parseControlApiKeysStrict,
   canAccessApp,
   applyControlSocketMode,
   isValidControlId,
   isPrivateAddress,
-  jobBelongsToApp,
   makeAppGroup,
   deliverWebhookDelivery,
   flushWebhookDeliveries,

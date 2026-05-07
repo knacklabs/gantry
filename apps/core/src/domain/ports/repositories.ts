@@ -359,6 +359,12 @@ export interface ToolCatalogRepository {
 
 export interface SkillCatalogRepository {
   getSkill(id: SkillId): Promise<SkillCatalogItem | null>;
+  getSkillByContentHash?(input: {
+    appId: AppId;
+    contentHash: string;
+    agentId?: AgentId | null;
+    statuses?: SkillCatalogItem['status'][];
+  }): Promise<SkillCatalogItem | null>;
   listSkills(input: {
     appId: AppId;
     agentId?: AgentId;

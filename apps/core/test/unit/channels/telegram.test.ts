@@ -812,7 +812,7 @@ describe('TelegramChannel', () => {
   // --- Non-text messages ---
 
   describe('non-text messages', () => {
-    it('downloads photo and includes path in content', async () => {
+    it('downloads photo and includes attachment storage ref in content', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -832,8 +832,10 @@ describe('TelegramChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content:
-            '[Photo] (/tmp/test-groups/test-group/attachments/photo_1.jpg)',
+          content: '[Photo] (attachments/photo_1.jpg)',
+          attachments: [
+            expect.objectContaining({ storageRef: 'attachments/photo_1.jpg' }),
+          ],
         }),
       );
     });
@@ -853,8 +855,7 @@ describe('TelegramChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content:
-            '[Photo] (/tmp/test-groups/test-group/attachments/photo_1.jpg) Look at this',
+          content: '[Photo] (attachments/photo_1.jpg) Look at this',
         }),
       );
     });
@@ -1049,8 +1050,7 @@ describe('TelegramChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content:
-            '[Document: report.pdf] (/tmp/test-groups/test-group/attachments/report.pdf)',
+          content: '[Document: report.pdf] (attachments/report.pdf)',
         }),
       );
     });
@@ -1074,8 +1074,7 @@ describe('TelegramChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content:
-            '[Video] (/tmp/test-groups/test-group/attachments/video_1.mp4)',
+          content: '[Video] (attachments/video_1.mp4)',
         }),
       );
     });
@@ -1099,8 +1098,7 @@ describe('TelegramChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content:
-            '[Voice message] (/tmp/test-groups/test-group/attachments/voice_1.oga)',
+          content: '[Voice message] (attachments/voice_1.oga)',
         }),
       );
     });
@@ -1123,7 +1121,7 @@ describe('TelegramChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content: '[Audio] (/tmp/test-groups/test-group/attachments/song.mp3)',
+          content: '[Audio] (attachments/song.mp3)',
         }),
       );
     });
@@ -1240,8 +1238,7 @@ describe('TelegramChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
         expect.objectContaining({
-          content:
-            '[Document: file] (/tmp/test-groups/test-group/attachments/file.bin)',
+          content: '[Document: file] (attachments/file.bin)',
         }),
       );
     });

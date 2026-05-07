@@ -143,6 +143,12 @@ describe('Postgres migration journal', () => {
       ),
       'utf8',
     );
+    const skillOwnerScopedMigration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0028_skill_catalog_owner_scoped_uniqueness.sql',
+      ),
+      'utf8',
+    );
     const repository = fs.readFileSync(
       path.resolve(
         'apps/core/src/adapters/storage/postgres/repositories/skill-repository.postgres.ts',
@@ -160,6 +166,31 @@ describe('Postgres migration journal', () => {
     expect(skillMigration).toContain('ADD COLUMN IF NOT EXISTS rejected_at');
     expect(skillMigration).toContain(
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_catalog_app_hash',
+    );
+    expect(skillOwnerScopedMigration).toContain(
+      "ON skill_catalog(app_id, (coalesce(agent_id, '')), content_hash)",
+    );
+    expect(skillOwnerScopedMigration).toContain('row_number() OVER (');
+    expect(skillOwnerScopedMigration).toContain(
+      'UPDATE agent_skill_bindings b',
+    );
+    expect(skillOwnerScopedMigration).toContain(
+      'SET skill_id = ranked_content_hashes.keep_id',
+    );
+    expect(skillOwnerScopedMigration).toContain(
+      'SET skill_id = ranked_names.keep_id',
+    );
+    expect(skillOwnerScopedMigration).toContain(
+      'WHERE content_hash IS NOT NULL',
+    );
+    expect(skillOwnerScopedMigration).toContain(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_skill_catalog_app_hash',
+    );
+    expect(skillOwnerScopedMigration).toContain(
+      "ON skill_catalog(app_id, (coalesce(agent_id, '')), name, version)",
+    );
+    expect(repository).toContain(
+      'coalesce(${pgSchema.skillCatalogPostgres.agentId}',
     );
     expect(repository).toContain('configVersionId: binding.configVersionId');
   });

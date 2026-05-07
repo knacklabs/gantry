@@ -97,12 +97,15 @@ Agent-facing tools:
 - `request_skill_dependency_install`: dependency requests for npm, brew, go, uv, or downloads required by a skill.
 - `request_mcp_server`: third-party MCP server requests with transport, origin, tool patterns, credential needs, and reason.
 - `request_permission`: SDK, host, browser, scheduler, memory, service, MCP, or provider/channel capability permission requests.
-- `capability_status`: current and requestable MyClaw tool capabilities, including exact `request_permission` arguments for missing admin tools.
+- `capability_status`: current tool access, readable configured rules, and exact `request_permission` arguments for missing admin tools.
 - `service_restart`: selected-capability restart after approved changes that require host restart.
 - `register_agent`: selected-capability binding of a channel conversation to an agent.
 
 Every persistent capability change follows request, validation, review,
 decision, durable audit, new config version, and next-run activation.
+Persistent agent tool grants are mirrored into `settings.yaml` as readable
+`agents.<id>.tools` rules. Job-specific tool grants stay on the job only and
+are returned as `toolAccess` in job responses.
 Permission prompts use `Allow once`, `Always allow <granular rule>`, or
 `Cancel`. Same-conversation review binds the request to the originating chat or
 thread; it does not bypass the configured conversation approvers.

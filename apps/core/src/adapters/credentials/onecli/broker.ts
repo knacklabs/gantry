@@ -17,13 +17,33 @@ import type {
 import { MODEL_RUNTIME_CREDENTIAL_IDENTIFIER } from '../../../domain/models/credentials.js';
 import { logger } from '../../../infrastructure/logging/logger.js';
 import { CredentialBrokerConfigError } from '../../../domain/models/credential-errors.js';
-import { filterTrustedOnecliEnv } from './env-policy.js';
+import {
+  filterTrustedOnecliEnv,
+  NATIVE_EMBED_API_KEY_ENV,
+} from './env-policy.js';
 import { validateOnecliUrl } from './policy.js';
 
 type OneCliClient = Pick<OneCLI, 'getContainerConfig' | 'ensureAgent'>;
 type OneCliAgentRuntimeConfig = Awaited<
   ReturnType<OneCliClient['getContainerConfig']>
 >;
+const ONECLI_AGENT_IDENTIFIER_PATTERN = /^[a-z][a-z0-9-]{0,49}$/;
+
+function onecliSafeAgentIdentifier(identifier: string): string {
+  const trimmed = identifier.trim();
+  if (ONECLI_AGENT_IDENTIFIER_PATTERN.test(trimmed)) return trimmed;
+
+  const hash = createHash('sha256').update(trimmed).digest('hex').slice(0, 10);
+  const slug =
+    trimmed
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'agent';
+  const prefixed = /^[a-z]/.test(slug) ? slug : `agent-${slug}`;
+  const maxStemLength = 50 - hash.length - 1;
+  const stem = prefixed.slice(0, maxStemLength).replace(/-+$/g, '') || 'agent';
+  return `${stem}-${hash}`;
+}
 
 export interface OnecliAgentCredentialBrokerOptions {
   onecliUrl?: string;
@@ -77,7 +97,10 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
       modelRuntimeProfileIdentifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
       returnsRawSecrets: false,
       projectsProviderTokens: true,
-      projectedSecretEnvKeys: ['ANTHROPIC_AUTH_TOKEN'],
+      projectedSecretEnvKeys: [
+        'ANTHROPIC_AUTH_TOKEN',
+        NATIVE_EMBED_API_KEY_ENV,
+      ],
     };
   }
 
@@ -142,10 +165,13 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
         message: `Connected to OneCLI at ${this.normalizedUrl}.`,
       };
     } catch (err) {
+      const endpoint =
+        this.normalizedUrl || this.options.onecliUrl || 'unknown endpoint';
       return {
         status: 'fail',
-        message: err instanceof Error ? err.message : String(err),
-        nextAction: 'Confirm the Model Access URL and gateway availability.',
+        message: `Could not reach OneCLI at ${endpoint}: ${err instanceof Error ? err.message : String(err)}`,
+        nextAction:
+          "Run `myclaw local doctor`. If you use MyClaw's provided local stack, start it from the directory containing the shipped stack file, or pass that stack file explicitly, then retry.",
       };
     }
   }
@@ -155,7 +181,10 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
     identifier: string;
   }): Promise<{ created?: boolean }> {
     if (!this.client) return {};
-    return this.client.ensureAgent(input);
+    return this.client.ensureAgent({
+      name: input.name,
+      identifier: onecliSafeAgentIdentifier(input.identifier),
+    });
   }
 
   private applyCaCertificate(
@@ -248,7 +277,7 @@ export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
         'Tool capability credential projection requires an explicit agent identifier.',
       );
     }
-    return identifier;
+    return onecliSafeAgentIdentifier(identifier);
   }
 
   private caFileStem(credentialIdentifier: string): string {

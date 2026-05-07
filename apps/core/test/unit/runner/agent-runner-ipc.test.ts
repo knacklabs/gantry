@@ -24,6 +24,8 @@ interface RunnerRecord {
     streamEnded?: boolean;
     permissionRequest?: Record<string, unknown>;
     permissionDecision?: Record<string, unknown>;
+    tools?: string[];
+    allowedTools?: string[];
     sdkEnv?: Record<string, string>;
     mcpServers?: Record<string, unknown>;
     settings?: Record<string, unknown>;
@@ -110,6 +112,10 @@ function createRunnerFixture(): {
     path.join(runnerDir, 'agent-capabilities.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/runner/myclaw-mcp-tool-surface.ts'),
+    path.join(runnerDir, 'myclaw-mcp-tool-surface.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/runner/memory-boundary.ts'),
     path.join(runnerDir, 'memory-boundary.ts'),
   );
@@ -144,6 +150,14 @@ function createRunnerFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/tool-rule-matcher.ts'),
     path.join(sharedDir, 'tool-rule-matcher.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/live-tool-rules.ts'),
+    path.join(sharedDir, 'live-tool-rules.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/permission-tool-rules.ts'),
+    path.join(sharedDir, 'permission-tool-rules.ts'),
   );
   symlinkPackage(root, 'dayjs', 'node_modules/dayjs');
   fs.writeFileSync(
@@ -209,8 +223,10 @@ export async function* query({ prompt, options }) {
     promptKind: typeof prompt === 'string' ? 'string' : 'stream',
     sdkEnv: options?.env,
     mcpServers: options?.mcpServers,
-    settings: options?.settings,
-    persistSession: options?.persistSession,
+	    settings: options?.settings,
+	    tools: options?.tools,
+	    allowedTools: options?.allowedTools,
+	    persistSession: options?.persistSession,
     resume: options?.resume,
     resumeSessionAt: options?.resumeSessionAt,
     systemPromptAppend: options?.systemPrompt?.append,
@@ -291,10 +307,19 @@ export async function* query({ prompt, options }) {
     call.permissionDecision = await decisionPromise;
   }
 
-  if (process.env.TEST_TOOL_USE_ONLY) {
-    call.permissionDecision = await options.canUseTool(
+	  if (process.env.TEST_TOOL_USE_ONLY) {
+	    if (process.env.TEST_LIVE_TOOL_RULE) {
+	      const runHandle = process.env.MYCLAW_AGENT_RUN_HANDLE;
+	      const liveDir = path.join(process.env.MYCLAW_IPC_DIR, 'live-tool-rules');
+	      fs.mkdirSync(liveDir, { recursive: true });
+	      fs.writeFileSync(
+	        path.join(liveDir, runHandle + '.json'),
+	        JSON.stringify([process.env.TEST_LIVE_TOOL_RULE]),
+	      );
+	    }
+	    call.permissionDecision = await options.canUseTool(
       process.env.TEST_TOOL_USE_ONLY,
-      { cmd: 'npm test' },
+      { cmd: process.env.TEST_TOOL_USE_CMD || 'npm test' },
       {
         signal: new AbortController().signal,
         title: 'Run command',
@@ -414,6 +439,7 @@ async function runRunner(
         MYCLAW_IPC_INPUT_DIR: fixture.inputDir,
         MYCLAW_IPC_AUTH_TOKEN: 'runner-test-token',
         MYCLAW_IPC_RESPONSE_VERIFY_KEY: fixture.responseVerifyKey,
+        MYCLAW_AGENT_RUN_HANDLE: 'runner-test-run',
         TEST_IPC_RESPONSE_SIGNING_KEY: fixture.responseSigningKey,
         MYCLAW_WORKSPACE_GROUP_DIR: path.join(fixture.root, 'group'),
         MYCLAW_WORKSPACE_EXTRA_DIR: path.join(fixture.root, 'extra'),
@@ -685,6 +711,60 @@ describe('agent-runner IPC lifecycle', () => {
       expect(
         readRecord(assistantFixture.recordPath).calls[0]?.settings
           ?.includeGitInstructions,
+      ).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'exposes permission-gated native tools without allowing them by default',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({ persona: 'personal_assistant' }),
+        {
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.tools).toEqual(
+        expect.arrayContaining(['Bash', 'Write', 'Edit']),
+      );
+      expect(call?.allowedTools).not.toEqual(
+        expect.arrayContaining(['Bash', 'Write', 'Edit']),
+      );
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'allows a tool from a live run permission rule without writing permission IPC',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({ persona: 'personal_assistant' }),
+        {
+          TEST_TOOL_USE_ONLY: 'Bash',
+          TEST_TOOL_USE_CMD: 'npm test --runInBand',
+          TEST_LIVE_TOOL_RULE: 'Bash(npm test *)',
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionDecision).toEqual(
+        expect.objectContaining({
+          behavior: 'allow',
+        }),
+      );
+      expect(
+        fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
       ).toBe(false);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
@@ -1093,6 +1173,72 @@ describe('agent-runner IPC lifecycle', () => {
       );
       expect(String(call?.permissionDecision?.message)).toContain(
         'memory boundary',
+      );
+      expect(
+        fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
+      ).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'scheduled jobs allow scoped Bash rules without writing permission IPC',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          isScheduledJob: true,
+          allowedTools: ['Bash(npm test *)'],
+        }),
+        {
+          TEST_TOOL_USE_ONLY: 'Bash',
+          TEST_TOOL_USE_CMD: 'npm test --runInBand',
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionDecision).toEqual(
+        expect.objectContaining({
+          behavior: 'allow',
+        }),
+      );
+      expect(
+        fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
+      ).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'scheduled jobs deny nonmatching scoped Bash rules without writing permission IPC',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          isScheduledJob: true,
+          allowedTools: ['Bash(dedup-append-lead.py *)'],
+        }),
+        {
+          TEST_TOOL_USE_ONLY: 'Bash',
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode).toBe(1);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionDecision).toEqual(
+        expect.objectContaining({
+          behavior: 'deny',
+          interrupt: true,
+        }),
+      );
+      expect(String(call?.permissionDecision?.message)).toContain(
+        'tool not on autonomous job allowlist: Bash',
       );
       expect(
         fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),

@@ -21,6 +21,7 @@ import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
     ops: context.deps.opsRepository,
+    control: context.deps.getJobControl?.(),
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
     toolRepository: context.deps.getToolRepository?.(),
@@ -47,7 +48,7 @@ async function requestJobExtraToolApproval(
     displayName: 'Autonomous job tools',
     title: 'Approve job-scoped autonomous tools',
     description:
-      'Approving stores these extra tool rules on this scheduler job only. Future runs still inherit the target agent tools dynamically.',
+      'stored on this job only; inherited agent grants are shown separately.',
     decisionReason: `${request.operation === 'create' ? 'Create' : 'Update'} scheduler job ${request.jobName} with job-scoped extra tools.`,
     toolInput: {
       jobId: request.jobId,

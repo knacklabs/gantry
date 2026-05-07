@@ -25,11 +25,24 @@ import {
   createSignedIpcRequestEnvelope,
   verifyIpcResponsePayload,
 } from './signing.js';
+import {
+  ensurePrivateDirSync,
+  writePrivateFileSync,
+} from '../../shared/private-fs.js';
+import { makeIpcId, makeIpcJsonFilename } from './ipc-ids.js';
+
+function removeStaleRequestFile(filePath: string): void {
+  try {
+    fs.rmSync(filePath, { force: true });
+  } catch {
+    // Best effort timeout cleanup.
+  }
+}
 
 export function writeIpcFile(dir: string, data: object): string {
-  fs.mkdirSync(dir, { recursive: true });
+  ensurePrivateDirSync(dir);
 
-  const filename = `${nowMs()}-${Math.random().toString(36).slice(2, 8)}.json`;
+  const filename = makeIpcJsonFilename();
   const filepath = path.join(dir, filename);
 
   // Atomic write: temp file then rename
@@ -50,7 +63,7 @@ export function writeIpcFile(dir: string, data: object): string {
         : {}),
   };
   const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload);
-  fs.writeFileSync(tempPath, JSON.stringify(envelope, null, 2));
+  writePrivateFileSync(tempPath, JSON.stringify(envelope, null, 2));
   fs.renameSync(tempPath, filepath);
 
   return filename;
@@ -80,10 +93,11 @@ export async function requestMemoryAction(
   data?: unknown;
   error?: string;
 }> {
-  fs.mkdirSync(MEMORY_REQUESTS_DIR, { recursive: true });
-  fs.mkdirSync(MEMORY_RESPONSES_DIR, { recursive: true });
+  ensurePrivateDirSync(MEMORY_REQUESTS_DIR);
+  ensurePrivateDirSync(MEMORY_RESPONSES_DIR);
 
-  const requestId = `mem-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+  const timeoutMs = getMemoryActionTimeoutMs(action);
+  const requestId = makeIpcId('mem');
   const reqPath = path.join(MEMORY_REQUESTS_DIR, `${requestId}.json`);
   const tmpReqPath = `${reqPath}.tmp`;
   const requestPayload = {
@@ -95,15 +109,15 @@ export async function requestMemoryAction(
       ...(memoryUserId ? { userId: memoryUserId } : {}),
       defaultScope: memoryDefaultScope,
     },
+    expiresAt: new Date(Date.now() + timeoutMs).toISOString(),
   };
   const requestEnvelope = createSignedIpcRequestEnvelope(
     MEMORY_IPC_AUTH_TOKEN,
     requestPayload,
   );
-  fs.writeFileSync(tmpReqPath, JSON.stringify(requestEnvelope, null, 2));
+  writePrivateFileSync(tmpReqPath, JSON.stringify(requestEnvelope, null, 2));
   fs.renameSync(tmpReqPath, reqPath);
 
-  const timeoutMs = getMemoryActionTimeoutMs(action);
   const deadline = nowMs() + timeoutMs;
   const responsePath = path.join(MEMORY_RESPONSES_DIR, `${requestId}.json`);
 
@@ -155,6 +169,7 @@ export async function requestMemoryAction(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
+  removeStaleRequestFile(reqPath);
   return { ok: false, error: formatMemoryTimeoutError(timeoutMs) };
 }
 
@@ -166,10 +181,11 @@ export async function requestBrowserAction(
   data?: unknown;
   error?: string;
 }> {
-  fs.mkdirSync(BROWSER_REQUESTS_DIR, { recursive: true });
-  fs.mkdirSync(BROWSER_RESPONSES_DIR, { recursive: true });
+  ensurePrivateDirSync(BROWSER_REQUESTS_DIR);
+  ensurePrivateDirSync(BROWSER_RESPONSES_DIR);
 
-  const requestId = `browser-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+  const timeoutMs = 30_000;
+  const requestId = makeIpcId('browser');
   const reqPath = path.join(BROWSER_REQUESTS_DIR, `${requestId}.json`);
   const tmpReqPath = `${reqPath}.tmp`;
 
@@ -181,15 +197,16 @@ export async function requestBrowserAction(
       chatJid,
       ...(threadId ? { threadId } : {}),
     },
+    expiresAt: new Date(Date.now() + timeoutMs).toISOString(),
   };
   const requestEnvelope = createSignedIpcRequestEnvelope(
     BROWSER_IPC_AUTH_TOKEN,
     requestPayload,
   );
-  fs.writeFileSync(tmpReqPath, JSON.stringify(requestEnvelope, null, 2));
+  writePrivateFileSync(tmpReqPath, JSON.stringify(requestEnvelope, null, 2));
   fs.renameSync(tmpReqPath, reqPath);
 
-  const deadline = nowMs() + 30_000;
+  const deadline = nowMs() + timeoutMs;
   const responsePath = path.join(BROWSER_RESPONSES_DIR, `${requestId}.json`);
 
   while (nowMs() < deadline) {
@@ -236,6 +253,7 @@ export async function requestBrowserAction(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
+  removeStaleRequestFile(reqPath);
   return { ok: false, error: 'Timed out waiting for browser service response' };
 }
 
@@ -288,7 +306,7 @@ export async function waitForTaskResponse(
   taskId: string,
   timeoutMs = 15_000,
 ): Promise<TaskResponseEnvelope | null> {
-  fs.mkdirSync(TASK_RESPONSES_DIR, { recursive: true });
+  ensurePrivateDirSync(TASK_RESPONSES_DIR);
   const responsePath = path.join(TASK_RESPONSES_DIR, `task-${taskId}.json`);
   const deadline = nowMs() + timeoutMs;
   while (nowMs() < deadline) {

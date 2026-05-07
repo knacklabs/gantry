@@ -1,5 +1,6 @@
 import fs from 'fs';
 
+import { PRIVATE_FILE_MODE } from '../shared/private-fs.js';
 import { logger } from '../infrastructure/logging/logger.js';
 
 export const TELEGRAM_MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
@@ -49,11 +50,11 @@ export async function writeTelegramFetchResponseToFile(
       );
       return false;
     }
-    await fs.promises.writeFile(destPath, buffer);
+    await fs.promises.writeFile(destPath, buffer, { mode: PRIVATE_FILE_MODE });
     return true;
   }
 
-  const file = await fs.promises.open(destPath, 'w');
+  const file = await fs.promises.open(destPath, 'w', PRIVATE_FILE_MODE);
   let totalBytes = 0;
   let shouldCleanup = false;
   try {

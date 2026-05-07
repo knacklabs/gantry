@@ -1,4 +1,9 @@
-import { DEFAULT_TRIGGER } from '../../config/index.js';
+import {
+  DEFAULT_TRIGGER,
+  MYCLAW_HOME,
+  getCredentialBrokerRuntimeConfig,
+} from '../../config/index.js';
+import { mirrorAgentToolRulesToRuntimeSettings } from '../../config/settings/runtime-settings.js';
 import {
   encodeGroupMessageCursor,
   toGroupMessageCursor,
@@ -25,10 +30,7 @@ import type {
   RuntimeMessageRepository,
   RuntimeRouterStateRepository,
 } from '../../domain/repositories/ops-repo.js';
-import {
-  getRuntimeRepositories,
-  getRuntimeStorage,
-} from '../../adapters/storage/postgres/runtime-store.js';
+import type { ToolCatalogRepository } from '../../domain/ports/repositories.js';
 import type { SessionMemoryCollector } from '../../domain/ports/session-memory-collector.js';
 import { ChannelWiring } from './channel-wiring.js';
 import { RuntimeApp } from './runtime-app.js';
@@ -51,22 +53,24 @@ interface RuntimeServicesDeps {
   logger: Pick<typeof logger, 'info' | 'warn' | 'fatal'>;
   mcpHostnameLookup?: HostnameLookup;
   collectSessionMemory: SessionMemoryCollector;
+  getToolRepository: () => ToolCatalogRepository;
   exit: (code: number) => never;
 }
+type RuntimeServicesDefaults = Omit<
+  RuntimeServicesDeps,
+  'opsRepository' | 'getToolRepository'
+>;
 
 export interface RuntimeServicesOptions {
   app: RuntimeApp;
   channelWiring: ChannelWiring;
 }
 
-function makeDefaultDeps(
-  injectedRuntimeRepository?: RuntimeBootstrapRepository,
-): RuntimeServicesDeps {
+function makeDefaultDeps(): RuntimeServicesDefaults {
   return {
     startSchedulerLoop,
     startIpcWatcher,
     writeGroupsSnapshot,
-    opsRepository: injectedRuntimeRepository ?? getRuntimeRepositories(),
     recoverPendingMessages,
     startMessagePollingLoop,
     logger,
@@ -124,10 +128,11 @@ function createGroupSnapshotSync(
 
 export async function startRuntimeServices(
   options: RuntimeServicesOptions,
-  deps: Partial<RuntimeServicesDeps> = {},
+  deps: Partial<RuntimeServicesDefaults> &
+    Pick<RuntimeServicesDeps, 'opsRepository' | 'getToolRepository'>,
 ): Promise<void> {
   const resolved: RuntimeServicesDeps = {
-    ...makeDefaultDeps(deps.opsRepository),
+    ...makeDefaultDeps(),
     ...deps,
   };
 
@@ -163,7 +168,7 @@ export async function startRuntimeServices(
     onSchedulerChanged,
     opsRepository: resolved.opsRepository,
     collectSessionMemory: resolved.collectSessionMemory,
-    getToolRepository: () => getRuntimeStorage().repositories.tools,
+    getToolRepository: resolved.getToolRepository,
   });
 
   resolved.startIpcWatcher({
@@ -189,7 +194,15 @@ export async function startRuntimeServices(
       ),
     onSchedulerChanged,
     opsRepository: resolved.opsRepository,
-    getToolRepository: () => getRuntimeStorage().repositories.tools,
+    getToolRepository: resolved.getToolRepository,
+    mirrorAgentToolRulesToSettings: (sourceAgentFolder, rules) =>
+      mirrorAgentToolRulesToRuntimeSettings({
+        runtimeHome: MYCLAW_HOME,
+        agentFolder: sourceAgentFolder,
+        rules,
+      }),
+    getCredentialBroker: app.getCredentialBroker,
+    getCredentialBrokerProfile: () => getCredentialBrokerRuntimeConfig().mode,
     requestPermissionApproval: channelWiring.requestPermissionApproval,
     requestUserAnswer: channelWiring.requestUserAnswer,
     mcpHostnameLookup: resolved.mcpHostnameLookup,

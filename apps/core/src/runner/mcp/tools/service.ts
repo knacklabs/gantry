@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { nowIso, nowMs } from '../../../infrastructure/time/datetime.js';
+import { nowIso } from '../../../infrastructure/time/datetime.js';
 import {
   capabilityStatusText,
   chatJid,
@@ -20,6 +20,7 @@ import {
   formatSkillProposalResponse,
 } from './service-formatters.js';
 import { registerSettingsTools } from './settings.js';
+import { makeIpcId } from '../ipc-ids.js';
 
 export function registerServiceTools(server: McpServer): void {
   registerSkillProposalTool(
@@ -262,7 +263,7 @@ export function registerServiceTools(server: McpServer): void {
       docsUrl: z.string().optional().describe('Optional documentation URL'),
     },
     async (args) => {
-      const taskId = `request-mcp-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+      const taskId = makeIpcId('request-mcp');
       writeIpcFile(TASKS_DIR, {
         type: 'request_mcp_server',
         taskId,
@@ -324,7 +325,7 @@ export function registerServiceTools(server: McpServer): void {
         .describe('Optional approved MCP server name to inspect'),
     },
     async (args) => {
-      const taskId = `mcp-list-tools-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+      const taskId = makeIpcId('mcp-list-tools');
       writeIpcFile(TASKS_DIR, {
         type: 'mcp_list_tools',
         taskId,
@@ -376,7 +377,7 @@ export function registerServiceTools(server: McpServer): void {
         .describe('JSON object arguments for the MCP tool'),
     },
     async (args) => {
-      const taskId = `mcp-call-tool-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+      const taskId = makeIpcId('mcp-call-tool');
       writeIpcFile(TASKS_DIR, {
         type: 'mcp_call_tool',
         taskId,
@@ -416,10 +417,10 @@ export function registerServiceTools(server: McpServer): void {
   if (isAdminMcpToolEnabled('service_restart')) {
     server.tool(
       'service_restart',
-      'Restart the MyClaw service with config validation. Requires selected agent capability tool:mcp__myclaw__service_restart.',
+      'Restart the MyClaw service with config validation. Requires selected agent tool grant mcp__myclaw__service_restart.',
       {},
       async () => {
-        const taskId = `service-restart-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+        const taskId = makeIpcId('service-restart');
         writeIpcFile(TASKS_DIR, {
           type: 'service_restart',
           taskId,
@@ -467,7 +468,7 @@ export function registerServiceTools(server: McpServer): void {
   if (isAdminMcpToolEnabled('register_agent')) {
     server.tool(
       'register_agent',
-      `Register a new chat/channel agent so MyClaw can respond to messages there. Requires selected agent capability tool:mcp__myclaw__register_agent.
+      `Register a new chat/channel agent so MyClaw can respond to messages there. Requires selected agent tool grant mcp__myclaw__register_agent.
 
 Use available_groups.json to find the JID for a conversation. The folder name must be channel-prefixed: "{channel}_{conversation-name}" (e.g., "telegram_dev-team", "slack_eng", "teams_engineering"). Use lowercase with hyphens for the conversation name part.`,
       {
@@ -489,7 +490,7 @@ Use available_groups.json to find the JID for a conversation. The folder name mu
           ),
       },
       async (args) => {
-        const taskId = `register-agent-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+        const taskId = makeIpcId('register-agent');
         const data = {
           type: 'register_agent',
           taskId,
@@ -553,10 +554,11 @@ async function submitCapabilityReviewTask(
   requestLabel: string,
   payload: Record<string, unknown>,
 ) {
-  const taskId = `${toolName.replaceAll('_', '-')}-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+  const taskId = makeIpcId(toolName.replaceAll('_', '-'));
   writeIpcFile(TASKS_DIR, {
     type: toolName,
     taskId,
+    runHandle: process.env.MYCLAW_AGENT_RUN_HANDLE || undefined,
     targetJid: chatJid,
     chatJid,
     authThreadId: threadId,
@@ -619,7 +621,7 @@ function registerSkillProposalTool(
       reason: z.string().describe('Why this skill is needed'),
     },
     async (args) => {
-      const taskId = `request-skill-${nowMs()}-${Math.random().toString(36).slice(2, 8)}`;
+      const taskId = makeIpcId('request-skill');
       writeIpcFile(TASKS_DIR, {
         type: toolName,
         taskId,

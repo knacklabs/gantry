@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { selectedMyClawMcpToolNames } from '@agent-runner-src/myclaw-mcp-tool-surface.js';
 import type { AgentRunnerInput } from '@core/runner/claude/types.js';
 
 const sdkState = vi.hoisted(() => ({
@@ -335,6 +336,46 @@ describe('Claude Agent SDK boundary integration', () => {
         'Agent',
       ]),
     );
+    expect(call?.options.tools).toEqual(
+      expect.arrayContaining([
+        'Read',
+        'Glob',
+        'Grep',
+        'Bash',
+        'Write',
+        'Edit',
+        'LS',
+        'MultiEdit',
+        'NotebookEdit',
+        'Agent',
+        'WebSearch',
+        'WebFetch',
+        'ToolSearch',
+        'Skill',
+      ]),
+    );
+    expect(call?.options.tools).not.toEqual(
+      expect.arrayContaining([
+        'AskUserQuestion',
+        'SendMessage',
+        'TaskOutput',
+        'TaskStop',
+        'EnterWorktree',
+        'ExitWorktree',
+        'Browser',
+      ]),
+    );
+    expect(call?.options.disallowedTools).toEqual(
+      expect.arrayContaining([
+        'AskUserQuestion',
+        'SendMessage',
+        'CronCreate',
+        'TaskOutput',
+        'TaskStop',
+        'EnterWorktree',
+        'ExitWorktree',
+      ]),
+    );
     expect(call?.options.allowedTools).not.toEqual(
       expect.arrayContaining([
         'Bash',
@@ -359,6 +400,9 @@ describe('Claude Agent SDK boundary integration', () => {
         MYCLAW_MEMORY_DEFAULT_SCOPE: 'group',
         MYCLAW_BROWSER_PROFILE_NAME: '',
         MYCLAW_ADMIN_MCP_TOOLS_JSON: '[]',
+        MYCLAW_MCP_TOOL_NAMES_JSON: JSON.stringify(
+          selectedMyClawMcpToolNames([]),
+        ),
         MYCLAW_IPC_DIR: path.join(env.root, 'ipc', 'group'),
         MYCLAW_IPC_AUTH_TOKEN: 'runner-ipc-token',
         MYCLAW_IPC_RESPONSE_VERIFY_KEY: 'runner-response-verify-key',

@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { _setRuntimeStorageForTest } from '@core/adapters/storage/postgres/runtime-store.js';
+import { quotePostgresIdentifier } from '@core/adapters/storage/postgres/storage-service.js';
 import { _resetSchedulerLoopForTests, runJob } from '@core/jobs/scheduler.js';
 import { AppMemoryService } from '@core/memory/app-memory-service.js';
 import { memoryAgentIdForGroupFolder } from '@core/memory/app-memory-boundaries.js';
+import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 import type { JobUpsertInput } from '@core/domain/repositories/ops-repo.js';
 import type { ConversationRoute } from '@core/domain/types.js';
 
@@ -301,5 +303,154 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
       ]),
     );
     expect(harness.channel.sent).toHaveLength(0);
+  });
+
+  it('filters owner-app run and event pages in Postgres without leaking other apps', async () => {
+    const appOneSession = await runtime.control.ensureAppSession({
+      appId: 'app-one',
+      conversationId: 'conversation-app-one',
+      chatJid: 'app:app-one:conversation',
+      groupFolder: 'app_one_agent',
+      title: 'App One',
+    });
+    const appTwoSession = await runtime.control.ensureAppSession({
+      appId: 'app-two',
+      conversationId: 'conversation-app-two',
+      chatJid: 'app:app-two:conversation',
+      groupFolder: 'app_two_agent',
+      title: 'App Two',
+    });
+    const appOneJob = makeJob('job:integration:owner-app-one', {
+      linked_sessions: ['app:app-one:conversation'],
+      session_id: appOneSession.sessionId,
+      group_scope: 'app_one_agent',
+      thread_id: null,
+    });
+    const appTwoJob = makeJob('job:integration:owner-app-two', {
+      linked_sessions: ['app:app-two:conversation'],
+      session_id: appTwoSession.sessionId,
+      group_scope: 'app_two_agent',
+      thread_id: null,
+    });
+    await runtime.ops.upsertJob(appOneJob);
+    await runtime.ops.upsertJob(appTwoJob);
+    await runtime.ops.createJobRun({
+      run_id: 'run:integration:owner-app-one',
+      job_id: appOneJob.id,
+      scheduled_for: '2026-04-28T00:00:01.000Z',
+      started_at: '2026-04-28T00:00:01.000Z',
+      ended_at: null,
+      status: 'running',
+      result_summary: null,
+      error_summary: null,
+      retry_count: 0,
+      notified_at: null,
+    });
+    await runtime.ops.createJobRun({
+      run_id: 'run:integration:owner-app-two',
+      job_id: appTwoJob.id,
+      scheduled_for: '2026-04-28T00:00:02.000Z',
+      started_at: '2026-04-28T00:00:02.000Z',
+      ended_at: null,
+      status: 'running',
+      result_summary: null,
+      error_summary: null,
+      retry_count: 0,
+      notified_at: null,
+    });
+    await runtime.repositories.runtimeEvents.appendRuntimeEvent({
+      appId: 'app-one' as never,
+      runId: 'run:integration:owner-app-one' as never,
+      jobId: appOneJob.id as never,
+      eventType: RUNTIME_EVENT_TYPES.JOB_RUN_STARTED,
+      actor: 'runtime',
+      payload: { job_id: appOneJob.id },
+      createdAt: '2026-04-28T00:00:01.000Z' as never,
+    });
+    await runtime.repositories.runtimeEvents.appendRuntimeEvent({
+      appId: 'app-two' as never,
+      runId: 'run:integration:owner-app-two' as never,
+      jobId: appTwoJob.id as never,
+      eventType: RUNTIME_EVENT_TYPES.JOB_RUN_STARTED,
+      actor: 'runtime',
+      payload: { job_id: appTwoJob.id },
+      createdAt: '2026-04-28T00:00:02.000Z' as never,
+    });
+
+    await expect(
+      runtime.ops.listJobRuns(undefined, 10, { ownerAppId: 'app-one' }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        run_id: 'run:integration:owner-app-one',
+        job_id: appOneJob.id,
+      }),
+    ]);
+    await expect(
+      runtime.ops.listJobRuns(undefined, 10, { ownerAppId: 'app-two' }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        run_id: 'run:integration:owner-app-two',
+        job_id: appTwoJob.id,
+      }),
+    ]);
+    await expect(
+      runtime.ops.listRecentJobEvents(10, { owner_app_id: 'app-one' }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        run_id: 'run:integration:owner-app-one',
+        job_id: appOneJob.id,
+      }),
+    ]);
+    await expect(
+      runtime.ops.listJobRuns(undefined, 10, { jobIds: [] }),
+    ).resolves.toEqual([]);
+    await expect(
+      runtime.ops.listRecentJobEvents(10, { job_ids: [] }),
+    ).resolves.toEqual([]);
+
+    const schema = quotePostgresIdentifier(runtime.schemaName);
+    await runtime.service.pool.query('BEGIN');
+    try {
+      await runtime.service.pool.query('SET LOCAL enable_seqscan = off');
+      const runPlan = await runtime.service.pool.query<{
+        'QUERY PLAN': string;
+      }>(
+        `EXPLAIN
+         SELECT r.id
+         FROM ${schema}.control_http_sessions s
+         JOIN ${schema}.jobs j
+           ON s.session_id = j.target_json::jsonb ->> 'sessionId'
+         JOIN ${schema}.agent_runs r
+           ON r.job_id = j.id
+         WHERE s.app_id = $1
+         ORDER BY r.started_at DESC NULLS LAST, r.created_at DESC
+         LIMIT 10`,
+        ['app-one'],
+      );
+      const eventPlan = await runtime.service.pool.query<{
+        'QUERY PLAN': string;
+      }>(
+        `EXPLAIN
+         SELECT e.event_id
+         FROM ${schema}.control_http_sessions s
+         JOIN ${schema}.jobs j
+           ON s.session_id = j.target_json::jsonb ->> 'sessionId'
+         JOIN ${schema}.runtime_events e
+           ON e.job_id = j.id
+         WHERE s.app_id = $1
+           AND e.event_type = 'job.run.started'
+         ORDER BY e.event_id DESC
+         LIMIT 10`,
+        ['app-one'],
+      );
+      expect(runPlan.rows.map((row) => row['QUERY PLAN']).join('\n')).toContain(
+        'idx_agent_runs_job_started',
+      );
+      expect(
+        eventPlan.rows.map((row) => row['QUERY PLAN']).join('\n'),
+      ).toContain('idx_runtime_events_job_cursor');
+    } finally {
+      await runtime.service.pool.query('ROLLBACK');
+    }
   });
 });

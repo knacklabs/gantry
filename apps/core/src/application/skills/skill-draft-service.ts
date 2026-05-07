@@ -226,15 +226,31 @@ export class SkillDraftService {
     agentId?: AgentId;
     contentHash: string;
   }): Promise<SkillCatalogItem | null> {
+    const statuses: SkillStatus[] = [
+      'draft',
+      'approved',
+      'rejected',
+      'disabled',
+    ];
+    if (this.skills.getSkillByContentHash) {
+      return this.skills.getSkillByContentHash({
+        appId: input.appId,
+        contentHash: input.contentHash,
+        agentId: input.agentId ?? null,
+        statuses,
+      });
+    }
     const existing = await this.skills.listSkills({
       appId: input.appId,
-      statuses: ['draft', 'approved', 'rejected', 'disabled'],
+      statuses,
     });
     return (
       existing.find(
         (skill) =>
           skill.storage?.contentHash === input.contentHash &&
-          (input.agentId ? skill.agentId === input.agentId : true),
+          (input.agentId
+            ? skill.agentId === input.agentId
+            : skill.agentId === undefined),
       ) ?? null
     );
   }

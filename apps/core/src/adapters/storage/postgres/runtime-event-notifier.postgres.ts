@@ -15,6 +15,7 @@ const PG_NOTIFY_PAYLOAD_SAFE_BYTES = 7_500;
 export interface RuntimeEventWakeup {
   eventId: RuntimeEvent['eventId'];
   appId: RuntimeEvent['appId'];
+  complete: boolean;
   sessionId?: RuntimeEvent['sessionId'];
   runId?: RuntimeEvent['runId'];
   jobId?: RuntimeEvent['jobId'];
@@ -28,6 +29,7 @@ function wakeupFromEvent(event: RuntimeEvent): RuntimeEventWakeup {
   return {
     eventId: event.eventId,
     appId: event.appId,
+    complete: true,
     sessionId: event.sessionId,
     runId: event.runId,
     jobId: event.jobId,
@@ -51,10 +53,36 @@ export function parseRuntimeEventWakeup(
       return null;
     }
     if (typeof parsed.eventType !== 'string') return null;
-    return parsed as RuntimeEventWakeup;
+    return {
+      ...parsed,
+      complete: parsed.complete === true,
+    } as RuntimeEventWakeup;
   } catch {
     return null;
   }
+}
+
+function wakeupShouldNotifyFilter(
+  wakeup: RuntimeEventWakeup,
+  filter: RuntimeEventFilter,
+): boolean {
+  if (wakeup.appId !== filter.appId) return false;
+  if (
+    filter.afterEventId !== undefined &&
+    wakeup.eventId <= filter.afterEventId
+  ) {
+    return false;
+  }
+  if (
+    filter.eventTypes?.length &&
+    !filter.eventTypes.includes(wakeup.eventType)
+  ) {
+    return false;
+  }
+  if (!wakeup.complete) {
+    return true;
+  }
+  return runtimeEventMatchesFilter(wakeup, filter);
 }
 
 export class PostgresRuntimeEventNotifier implements RuntimeEventNotifier {
@@ -77,6 +105,7 @@ export class PostgresRuntimeEventNotifier implements RuntimeEventNotifier {
         : JSON.stringify({
             eventId: event.eventId,
             appId: event.appId,
+            complete: false,
             eventType: event.eventType,
           });
     try {
@@ -143,7 +172,7 @@ export class PostgresRuntimeEventNotifier implements RuntimeEventNotifier {
         if (message.channel !== RUNTIME_EVENTS_CHANNEL) return;
         const wakeup = parseRuntimeEventWakeup(message.payload);
         for (const [listener, filter] of [...this.listeners]) {
-          if (wakeup && filter && !runtimeEventMatchesFilter(wakeup, filter)) {
+          if (wakeup && filter && !wakeupShouldNotifyFilter(wakeup, filter)) {
             continue;
           }
           listener();

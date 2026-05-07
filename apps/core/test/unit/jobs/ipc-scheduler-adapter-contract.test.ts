@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 
 import { ApplicationError } from '@core/application/common/application-error.js';
 import type { TaskContext, TaskIpcData } from '@core/jobs/ipc-types.js';
@@ -16,8 +16,18 @@ const mocks = vi.hoisted(() => ({
     pauseJob: vi.fn(),
     resumeJob: vi.fn(),
     runJobNowFromMcp: vi.fn(),
+    listJobEvents: vi.fn(),
   },
   jobServiceDeps: [] as unknown[],
+  runtimeControlRepository: {
+    getAppSessionById: vi.fn(),
+    getAppSessionsByIds: vi.fn(),
+    getAppSessionByChatJid: vi.fn(),
+    getAppSessionsByChatJids: vi.fn(),
+    createJobTrigger: vi.fn(),
+    markTriggerCompleted: vi.fn(),
+    getTriggerById: vi.fn(),
+  },
 }));
 
 vi.mock('@core/jobs/ipc-shared.js', async () => {
@@ -38,7 +48,6 @@ vi.mock('@core/application/jobs/job-management-service.js', () => ({
 }));
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
-  getRuntimeControlRepository: vi.fn(() => ({})),
   getRuntimeEventExchange: vi.fn(() => ({
     publish: vi.fn(),
   })),
@@ -46,7 +55,16 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
 
 import { schedulerCreateTaskHandlers } from '@core/jobs/ipc-scheduler-create-handlers.js';
 import { schedulerMutateTaskHandlers } from '@core/jobs/ipc-scheduler-mutate-handlers.js';
+import { schedulerQueryTaskHandlers } from '@core/jobs/ipc-scheduler-query-handlers.js';
 import { schedulerAccessFromContext } from '@core/jobs/ipc-scheduler-access.js';
+
+function adaptAppSession(session: any) {
+  if (!session) return undefined;
+  return {
+    ...session,
+    conversationJid: session.conversationJid ?? session.chatJid,
+  };
+}
 
 function makeContext(data: TaskIpcData): TaskContext {
   return {
@@ -73,6 +91,32 @@ function makeContext(data: TaskIpcData): TaskContext {
       requestPermissionApproval: vi.fn(async () => ({
         approved: true,
       })),
+      getJobControl: () => ({
+        getAppSessionById: async (sessionId: string) =>
+          adaptAppSession(
+            await mocks.runtimeControlRepository.getAppSessionById(sessionId),
+          ),
+        getAppSessionsByIds: async (sessionIds: readonly string[]) =>
+          (
+            await mocks.runtimeControlRepository.getAppSessionsByIds(sessionIds)
+          ).map(adaptAppSession),
+        getAppSessionByChatJid: async (chatJid: string) =>
+          adaptAppSession(
+            await mocks.runtimeControlRepository.getAppSessionByChatJid(
+              chatJid,
+            ),
+          ),
+        getAppSessionsByChatJids: async (chatJids: readonly string[]) =>
+          (
+            await mocks.runtimeControlRepository.getAppSessionsByChatJids(
+              chatJids,
+            )
+          ).map(adaptAppSession),
+        createJobTrigger: mocks.runtimeControlRepository.createJobTrigger,
+        markTriggerCompleted:
+          mocks.runtimeControlRepository.markTriggerCompleted,
+        getTriggerById: mocks.runtimeControlRepository.getTriggerById,
+      }),
     },
   } as unknown as TaskContext;
 }
@@ -81,6 +125,30 @@ describe('scheduler IPC adapter contracts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.jobServiceDeps.length = 0;
+    mocks.runtimeControlRepository.getAppSessionById.mockResolvedValue(
+      undefined,
+    );
+    mocks.runtimeControlRepository.getAppSessionsByIds.mockResolvedValue([]);
+    mocks.runtimeControlRepository.getAppSessionByChatJid.mockResolvedValue(
+      undefined,
+    );
+    mocks.runtimeControlRepository.getAppSessionsByChatJids.mockResolvedValue(
+      [],
+    );
+    mocks.runtimeControlRepository.createJobTrigger.mockResolvedValue({
+      triggerId: 'trigger-1',
+      jobId: 'job-1',
+      runId: null,
+      status: 'pending',
+    });
+    mocks.runtimeControlRepository.markTriggerCompleted.mockResolvedValue(
+      undefined,
+    );
+    mocks.runtimeControlRepository.getTriggerById.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('keeps missing upsert scheduleType as invalid_request', async () => {
@@ -175,6 +243,69 @@ describe('scheduler IPC adapter contracts', () => {
         access: expect.objectContaining({
           sourceAgentFolder: 'team',
           originConversationJid: 'tg:team',
+        }),
+      }),
+    );
+  });
+
+  it('injects canonical app session control for app-origin scheduler upserts', async () => {
+    mocks.runtimeControlRepository.getAppSessionByChatJid.mockResolvedValueOnce(
+      {
+        sessionId: 'sess-app-one',
+        appId: 'app-one',
+        conversationId: 'conv-1',
+        chatJid: 'app:app-one:conv-1',
+        workspaceKey: 'workspace-1',
+        title: 'App One',
+        defaultResponseMode: 'webhook',
+        defaultWebhookId: 'webhook-1',
+      },
+    );
+    mocks.jobService.upsertJobFromIpc.mockResolvedValueOnce({
+      jobId: 'job-1',
+      created: true,
+      modelAlias: null,
+    });
+    const context = makeContext({
+      type: 'scheduler_upsert_job',
+      name: 'Daily review',
+      prompt: 'Review memory',
+      scheduleType: 'once',
+      scheduleValue: '2026-05-04T00:00:00.000Z',
+      chatJid: 'app:app-one:conv-1',
+      targetJid: 'app:app-one:conv-1',
+    });
+    context.sourceAgentFolderJids = ['app:app-one:conv-1'];
+    context.conversationBindings = {
+      'app:app-one:conv-1': {
+        folder: 'team',
+        name: 'App One',
+        conversationKind: 'group',
+      },
+    };
+
+    await schedulerCreateTaskHandlers.scheduler_upsert_job(context);
+
+    const deps = mocks.jobServiceDeps.at(-1) as {
+      control?: {
+        getAppSessionByChatJid: (chatJid: string) => Promise<unknown>;
+      };
+    };
+    expect(deps.control).toBeDefined();
+    await expect(
+      deps.control?.getAppSessionByChatJid('app:app-one:conv-1'),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        sessionId: 'sess-app-one',
+        appId: 'app-one',
+        conversationJid: 'app:app-one:conv-1',
+        defaultWebhookId: 'webhook-1',
+      }),
+    );
+    expect(mocks.jobService.upsertJobFromIpc).toHaveBeenCalledWith(
+      expect.objectContaining({
+        access: expect.objectContaining({
+          originConversationJid: 'app:app-one:conv-1',
         }),
       }),
     );
@@ -418,6 +549,8 @@ describe('scheduler IPC adapter contracts', () => {
     expect(context.deps.requestPermissionApproval).toHaveBeenCalledWith(
       expect.objectContaining({
         decisionOptions: ['allow_job_policy', 'cancel'],
+        description:
+          'stored on this job only; inherited agent grants are shown separately.',
         toolInput: expect.objectContaining({
           persistence: 'target_json.capabilityPolicy.allowedTools',
         }),
@@ -535,5 +668,64 @@ describe('scheduler IPC adapter contracts', () => {
       'invalid_request',
     );
     expect(mocks.jobService.runJobNowFromMcp).not.toHaveBeenCalled();
+  });
+
+  it('waits for scheduler events until a matching event arrives', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    mocks.jobService.listJobEvents
+      .mockResolvedValueOnce({ events: [] })
+      .mockResolvedValueOnce({ events: [] })
+      .mockResolvedValueOnce({
+        events: [{ id: 3, job_id: 'job-1', event_type: 'run_started' }],
+      });
+
+    const waitPromise = schedulerQueryTaskHandlers.scheduler_wait_for_events(
+      makeContext({
+        type: 'scheduler_wait_for_events',
+        jobId: 'job-1',
+        eventType: 'run_started',
+        timeoutMs: 5_000,
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await waitPromise;
+
+    expect(Date.now()).toBe(2_000);
+    expect(mocks.jobService.listJobEvents).toHaveBeenCalledTimes(3);
+    expect(mocks.responder.acceptData).toHaveBeenCalledWith(
+      'Listed 1 scheduler event(s).',
+      {
+        events: [{ id: 3, job_id: 'job-1', event_type: 'run_started' }],
+      },
+    );
+  });
+
+  it('does not return an empty scheduler event wait before the requested timeout', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    mocks.jobService.listJobEvents.mockResolvedValue({ events: [] });
+
+    const waitPromise = schedulerQueryTaskHandlers.scheduler_wait_for_events(
+      makeContext({
+        type: 'scheduler_wait_for_events',
+        jobId: 'job-1',
+        timeoutMs: 2_500,
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(2_499);
+    expect(mocks.responder.acceptData).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await waitPromise;
+
+    expect(Date.now()).toBe(2_500);
+    expect(mocks.jobService.listJobEvents).toHaveBeenCalledTimes(4);
+    expect(mocks.responder.acceptData).toHaveBeenCalledWith(
+      'Listed 0 scheduler event(s).',
+      { events: [] },
+    );
   });
 });

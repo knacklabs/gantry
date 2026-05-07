@@ -118,6 +118,59 @@ describe('runtime preflight', () => {
     });
   });
 
+  it('uses process env before runtime .env for runtime-owned secrets', async () => {
+    const runtimeHome = makeRuntimeHome();
+    vi.stubEnv(
+      'ONECLI_DATABASE_URL',
+      'postgres://onecli_process:pass@localhost:15432/myclaw?schema=onecli',
+    );
+    vi.stubEnv(
+      'SECRET_ENCRYPTION_KEY',
+      'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+    );
+    vi.stubEnv(
+      'MYCLAW_DATABASE_URL',
+      'postgres://myclaw_process:pass@localhost:15432/myclaw',
+    );
+    const inspectOnecliPersistenceReadiness = vi.fn(async () => ({
+      status: 'pass',
+      message: 'OneCLI persistence is ready.',
+    }));
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
+      inspectRuntimeStorageReadiness: vi.fn(async () => ({
+        status: 'pass',
+        message: 'Postgres is ready.',
+      })),
+    }));
+    vi.doMock(
+      '@core/adapters/credentials/onecli/local/persistence.js',
+      async () => {
+        const actual = await vi.importActual<any>(
+          '@core/adapters/credentials/onecli/local/persistence.js',
+        );
+        return {
+          ...actual,
+          inspectOnecliPersistenceReadiness,
+        };
+      },
+    );
+
+    const { validateRuntimePreflightWithStorage } =
+      await import('@core/config/preflight.js');
+    const result = await validateRuntimePreflightWithStorage(runtimeHome);
+
+    expect(result).toEqual({ ok: true });
+    expect(inspectOnecliPersistenceReadiness).toHaveBeenCalledWith(
+      expect.objectContaining({
+        postgresUrl:
+          'postgres://onecli_process:pass@localhost:15432/myclaw?schema=onecli',
+        secretEncryptionKey: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+        myclawPostgresUrl:
+          'postgres://myclaw_process:pass@localhost:15432/myclaw',
+      }),
+    );
+  });
+
   it('fails on storage readiness before probing OneCLI persistence', async () => {
     const runtimeHome = makeRuntimeHome();
     const inspectOnecliPersistenceReadiness = vi.fn();
@@ -297,6 +350,29 @@ describe('runtime preflight', () => {
     );
     expect(result.failure?.details.join('\n')).toContain(
       'settings.yaml agent.default_model',
+    );
+  });
+
+  it('fails when process env contains settings-owned memory tuning', async () => {
+    const runtimeHome = makeRuntimeHome();
+    vi.stubEnv('MEMORY_DREAMING_CRON', '*/5 * * * *');
+    vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
+      inspectRuntimeStorageReadiness: vi.fn(async () => ({
+        status: 'pass',
+        message: 'Postgres is ready.',
+      })),
+    }));
+
+    const { validateRuntimePreflightWithStorage } =
+      await import('@core/config/preflight.js');
+    const result = await validateRuntimePreflightWithStorage(runtimeHome);
+
+    expect(result.ok).toBe(false);
+    expect(result.failure?.details.join('\n')).toContain(
+      'MEMORY_DREAMING_CRON is non-secret configuration',
+    );
+    expect(result.failure?.details.join('\n')).toContain(
+      'settings.yaml memory.dreaming.cron',
     );
   });
 

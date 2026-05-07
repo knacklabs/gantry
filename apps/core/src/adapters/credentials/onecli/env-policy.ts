@@ -7,13 +7,17 @@ import {
 import { validateOnecliUrl } from './policy.js';
 
 const ONECLI_ALLOWED_ENV_KEY_SET = new Set<string>(ONECLI_ALLOWED_ENV_KEYS);
+export const NATIVE_EMBED_API_KEY_ENV = 'OPENAI_API_KEY';
+const NATIVE_EMBED_ORG_ENV = 'OPENAI_ORG_ID';
+const NATIVE_EMBED_PROJECT_ENV = 'OPENAI_PROJECT';
+const NATIVE_EMBED_PROVIDER_MARKER = 'MYCLAW_OPENAI_API_KEY_PROVIDER';
 
 export const ONECLI_FORBIDDEN_SECRET_ENV_KEYS = new Set([
   'ANTHROPIC_AUTH_TOKEN',
   'CLAUDE_CODE_OAUTH_TOKEN',
-  'OPENAI_API_KEY',
-  'OPENAI_ORG_ID',
-  'OPENAI_PROJECT',
+  NATIVE_EMBED_API_KEY_ENV,
+  NATIVE_EMBED_ORG_ENV,
+  NATIVE_EMBED_PROJECT_ENV,
   'DATABASE_URL',
   'MYCLAW_DATABASE_URL',
   'ONECLI_DATABASE_URL',
@@ -70,10 +74,12 @@ const ONECLI_CREDENTIAL_PROVIDER_KEYS: Record<
     envKey: 'ANTHROPIC_AUTH_TOKEN',
     allowed: 'openrouter',
   },
+  [NATIVE_EMBED_PROVIDER_MARKER]: {
+    envKey: NATIVE_EMBED_API_KEY_ENV,
+    allowed: 'native',
+  },
 };
-const ONECLI_CONTAINER_LOOPBACK_HOST = ['host', 'do' + 'cker', 'internal'].join(
-  '.',
-);
+const ONECLI_CONTAINER_LOOPBACK_HOST = 'host.docker.internal';
 
 function validateAllowedOnecliEnvValue(key: string, value: string): string {
   if (FORBIDDEN_SECRET_VALUE_PATTERN.test(value)) {
@@ -204,6 +210,17 @@ export function filterTrustedOnecliEnv(
         if (/^sk-ant-/i.test(value)) {
           throw forbiddenValue(key);
         }
+        env[key] = value;
+        continue;
+      }
+      throw forbiddenKey(key);
+    }
+    if (key === NATIVE_EMBED_API_KEY_ENV) {
+      if (
+        credentialProviders[key] === 'native' &&
+        typeof value === 'string' &&
+        value.length > 0
+      ) {
         env[key] = value;
         continue;
       }

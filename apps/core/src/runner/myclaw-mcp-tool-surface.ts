@@ -1,0 +1,101 @@
+import { ADMIN_MCP_TOOL_NAMES } from '../shared/admin-mcp-tools.js';
+
+export const BASELINE_MYCLAW_MCP_TOOL_NAMES = [
+  'send_message',
+  'ask_user_question',
+  'memory_search',
+  'memory_save',
+  'procedure_save',
+  'browser_launch',
+  'browser_status',
+  'request_skill_install',
+  'request_skill_proposal',
+  'request_skill_dependency_install',
+  'request_mcp_server',
+  'request_permission',
+  'capability_status',
+  'mcp_list_tools',
+  'mcp_call_tool',
+] as const;
+
+export const OPTIONAL_MYCLAW_MCP_TOOL_NAMES = [
+  'memory_patch',
+  'procedure_patch',
+  'browser_profile_list',
+  'browser_close',
+  'scheduler_list_models',
+  'scheduler_upsert_job',
+  'scheduler_get_job',
+  'scheduler_list_jobs',
+  'scheduler_update_job',
+  'scheduler_delete_job',
+  'scheduler_pause_job',
+  'scheduler_resume_job',
+  'scheduler_run_now',
+  'scheduler_list_runs',
+  'scheduler_list_events',
+  'scheduler_wait_for_events',
+  'scheduler_get_dead_letter',
+] as const;
+
+export const DEFAULT_MYCLAW_MCP_TOOL_NAMES = [
+  ...BASELINE_MYCLAW_MCP_TOOL_NAMES,
+  ...OPTIONAL_MYCLAW_MCP_TOOL_NAMES,
+] as const;
+
+export const ALL_MYCLAW_MCP_TOOL_NAMES = [
+  ...DEFAULT_MYCLAW_MCP_TOOL_NAMES,
+  ...ADMIN_MCP_TOOL_NAMES,
+] as const;
+
+const ALL_MYCLAW_MCP_TOOL_NAME_SET = new Set<string>(ALL_MYCLAW_MCP_TOOL_NAMES);
+
+export function myclawMcpFullToolName(toolName: string): string {
+  return `mcp__myclaw__${toolName}`;
+}
+
+export function myclawMcpToolNameFromFullName(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('mcp__myclaw__')) return null;
+  const toolName = trimmed.slice('mcp__myclaw__'.length);
+  return ALL_MYCLAW_MCP_TOOL_NAME_SET.has(toolName) ? toolName : null;
+}
+
+export function selectedMyClawMcpToolNames(
+  configuredTools: readonly string[],
+): string[] {
+  const names = new Set<string>(DEFAULT_MYCLAW_MCP_TOOL_NAMES);
+  for (const configuredTool of configuredTools) {
+    const name = myclawMcpToolNameFromFullName(configuredTool);
+    if (name) names.add(name);
+  }
+  return [...names].sort();
+}
+
+export function selectedMyClawMcpFullToolNames(
+  configuredTools: readonly string[],
+): string[] {
+  return selectedMyClawMcpToolNames(configuredTools).map(myclawMcpFullToolName);
+}
+
+export function parseEnabledMyClawMcpToolNames(
+  raw: string | undefined,
+): Set<string> {
+  if (!raw?.trim()) {
+    return new Set(DEFAULT_MYCLAW_MCP_TOOL_NAMES);
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return new Set(DEFAULT_MYCLAW_MCP_TOOL_NAMES);
+    }
+    const enabled = new Set<string>(DEFAULT_MYCLAW_MCP_TOOL_NAMES);
+    for (const item of parsed) {
+      const toolName = typeof item === 'string' ? item.trim() : '';
+      if (ALL_MYCLAW_MCP_TOOL_NAME_SET.has(toolName)) enabled.add(toolName);
+    }
+    return enabled;
+  } catch {
+    return new Set(DEFAULT_MYCLAW_MCP_TOOL_NAMES);
+  }
+}

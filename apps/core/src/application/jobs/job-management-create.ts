@@ -86,7 +86,7 @@ export async function createManagedJob(
     schedule_value: schedule.scheduleValue,
     status: 'active',
     linked_sessions: [session.conversationJid],
-    session_id: null,
+    session_id: session.sessionId,
     thread_id: typeof input.threadId === 'string' ? input.threadId : null,
     group_scope: session.workspaceKey,
     created_by: 'human',

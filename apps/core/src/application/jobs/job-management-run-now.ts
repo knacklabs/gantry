@@ -1,6 +1,5 @@
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import { ApplicationError } from '../common/application-error.js';
-import { resolveJobRuntimeAppId } from './job-access.js';
 import { assertSchedulerJobAccess } from './job-management-access.js';
 import type {
   JobControlPort,
@@ -89,20 +88,29 @@ export async function runSchedulerJobNowFromMcp(
       err instanceof Error ? err.message : 'Failed to enqueue scheduler run',
     );
   }
-  await runtimeEvents.publish({
-    appId: resolveJobRuntimeAppId(job) as never,
-    eventType: RUNTIME_EVENT_TYPES.JOB_TRIGGERED,
-    payload: {
+  const appSession = job.session_id
+    ? await control.getAppSessionById(job.session_id)
+    : undefined;
+  const appId = appSession?.appId;
+  if (appId) {
+    await runtimeEvents.publish({
+      appId: appId as never,
+      eventType: RUNTIME_EVENT_TYPES.JOB_TRIGGERED,
+      payload: {
+        triggerId: trigger.triggerId,
+        jobId: job.id,
+        runId: input.runId,
+        triggeredBy: 'mcp',
+      },
+      actor: 'agent',
+      sessionId: appSession?.sessionId as never,
+      jobId: job.id as never,
+      runId: input.runId as never,
       triggerId: trigger.triggerId,
-      jobId: job.id,
-      runId: input.runId,
-      triggeredBy: 'mcp',
-    },
-    actor: 'agent',
-    jobId: job.id as never,
-    runId: input.runId as never,
-    triggerId: trigger.triggerId,
-  });
+      responseMode: appSession?.defaultResponseMode,
+      webhookId: appSession?.defaultWebhookId,
+    });
+  }
   return {
     runId: input.runId,
     queued: true,

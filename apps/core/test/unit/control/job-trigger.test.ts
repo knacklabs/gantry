@@ -67,7 +67,7 @@ const controlRepo = {
   })),
   getAppSessionById: vi.fn(async (sessionId: string) => ({
     sessionId,
-    appId: 'app-one',
+    appId: sessionId === 'session-app-two' ? 'app-two' : 'app-one',
     conversationId: 'conv-1',
     chatJid: 'chat-1',
     groupFolder: 'app-folder',
@@ -76,6 +76,19 @@ const controlRepo = {
     defaultResponseMode: 'sse',
     defaultWebhookId: null,
   })),
+  getAppSessionsByIds: vi.fn(async (sessionIds: string[]) =>
+    sessionIds.map((sessionId) => ({
+      sessionId,
+      appId: sessionId === 'session-app-two' ? 'app-two' : 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'chat-1',
+      groupFolder: 'app-folder',
+      workspaceKey: 'app-folder',
+      title: null,
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    })),
+  ),
   getAppSessionsByChatJids: vi.fn(async (chatJids: string[]) =>
     chatJids.map((chatJid) => ({
       sessionId: 'session-1',
@@ -163,7 +176,7 @@ beforeEach(() => {
   controlRepo.markTriggerCompleted.mockResolvedValue(undefined);
   controlRepo.getAppSessionById.mockImplementation(async (sessionId) => ({
     sessionId,
-    appId: 'app-one',
+    appId: sessionId === 'session-app-two' ? 'app-two' : 'app-one',
     conversationId: 'conv-1',
     chatJid: 'chat-1',
     groupFolder: 'app-folder',
@@ -172,6 +185,19 @@ beforeEach(() => {
     defaultResponseMode: 'sse',
     defaultWebhookId: null,
   }));
+  controlRepo.getAppSessionsByIds.mockImplementation(async (sessionIds) =>
+    sessionIds.map((sessionId) => ({
+      sessionId,
+      appId: sessionId === 'session-app-two' ? 'app-two' : 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'chat-1',
+      groupFolder: 'app-folder',
+      workspaceKey: 'app-folder',
+      title: null,
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    })),
+  );
   runtimeEvents.publish.mockResolvedValue({ eventId: 1 });
   opsRepo.getJobById.mockReset();
   opsRepo.getJobRunById.mockReset();
@@ -249,7 +275,7 @@ describe('control job trigger', () => {
       schedule_value: 'manual',
       status: 'active',
       linked_sessions: ['app:app-one:conv-1'],
-      session_id: null,
+      session_id: 'session-1',
       thread_id: null,
       group_scope: 'app-folder',
       created_by: 'human',
@@ -514,7 +540,10 @@ describe('control job trigger', () => {
       },
     ]);
     opsRepo.getJobById.mockResolvedValue(
-      makeJob({ linked_sessions: ['app:app-two:conv-1'] }),
+      makeJob({
+        linked_sessions: ['app:app-two:conv-1'],
+        session_id: 'session-app-two',
+      }),
     );
     const handle = startControlServer({
       app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
@@ -790,7 +819,7 @@ describe('control job trigger', () => {
     }
   });
 
-  it('resumes paused recurring jobs before manual trigger enqueue', async () => {
+  it('rejects paused recurring jobs before manual trigger enqueue', async () => {
     const port = await reservePort();
     process.env.MYCLAW_CONTROL_PORT = String(port);
     process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
@@ -821,17 +850,17 @@ describe('control job trigger', () => {
         { method: 'POST' },
       );
 
-      expect(response.status).toBe(202);
-      expect(opsRepo.updateJob).toHaveBeenCalledWith('job-1', {
-        status: 'active',
-        pause_reason: null,
-        next_run: expect.any(String),
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: 'CONFLICT',
+          message:
+            'Cannot trigger job while status is paused; resume the job explicitly first.',
+        },
       });
-      expect(schedulerMocks.requestSchedulerSync).toHaveBeenCalledWith('job-1');
-      expect(schedulerMocks.enqueueJobTrigger).toHaveBeenCalledWith(
-        'job-1',
-        'trigger-1',
-      );
+      expect(opsRepo.updateJob).not.toHaveBeenCalled();
+      expect(schedulerMocks.requestSchedulerSync).not.toHaveBeenCalled();
+      expect(schedulerMocks.enqueueJobTrigger).not.toHaveBeenCalled();
     } finally {
       await handle.close();
     }
@@ -852,6 +881,7 @@ describe('control job trigger', () => {
     opsRepo.getJobById.mockResolvedValue({
       id: 'job-1',
       linked_sessions: ['app:app-one:conv-1'],
+      session_id: 'session-1',
       status: 'active',
     });
     const handle = startControlServer({
@@ -893,6 +923,7 @@ describe('control job trigger', () => {
     opsRepo.getJobById.mockResolvedValue({
       id: 'job-1',
       linked_sessions: ['app:app-one:conv-1'],
+      session_id: 'session-1',
       status: 'active',
     });
     const handle = startControlServer({
@@ -934,6 +965,7 @@ describe('control job trigger', () => {
     opsRepo.getJobById.mockResolvedValue({
       id: 'job-1',
       linked_sessions: ['app:app-one:conv-1'],
+      session_id: 'session-1',
       status: 'running',
     });
     const handle = startControlServer({
@@ -1048,6 +1080,7 @@ describe('control job trigger', () => {
       }),
       makeJob({
         id: 'mixed',
+        session_id: 'session-app-two',
         linked_sessions: ['app:app-one:conv-1', 'app:app-two:conv-2'],
       }),
     ]);
@@ -1069,15 +1102,20 @@ describe('control job trigger', () => {
             jobId: 'visible',
             promptPreview: 'Run',
             staleness: 'missed_window',
-            inheritedToolCount: 0,
-            jobExtraToolCount: 1,
-            effectiveAllowedToolCount: 1,
+            toolAccess: expect.objectContaining({
+              inheritedAgentTools: [],
+              jobExtraTools: ['Read'],
+              effectiveAllowedTools: ['Read'],
+              source:
+                'inherited agent grants plus target_json.capabilityPolicy.allowedTools',
+            }),
           }),
         ],
       });
       expect(body.jobs[0]).not.toHaveProperty('prompt');
       expect(body.jobs[0]).not.toHaveProperty('fullPrompt');
       expect(body.jobs[0]).not.toHaveProperty('inheritedTools');
+      expect(body.jobs[0]).not.toHaveProperty('inheritedToolCount');
     } finally {
       await handle.close();
     }
@@ -1119,11 +1157,16 @@ describe('control job trigger', () => {
         prompt: 'Run',
         fullPrompt: 'Run',
         staleness: 'missed_window',
-        inheritedTools: [],
-        jobExtraTools: ['Read'],
-        effectiveAllowedTools: ['Read'],
+        toolAccess: expect.objectContaining({
+          inheritedAgentTools: [],
+          jobExtraTools: ['Read'],
+          effectiveAllowedTools: ['Read'],
+          source:
+            'inherited agent grants plus target_json.capabilityPolicy.allowedTools',
+        }),
         recentRunErrors: [],
       });
+      expect(body).not.toHaveProperty('inheritedTools');
       expect(body).not.toHaveProperty('inheritedToolCount');
     } finally {
       await handle.close();

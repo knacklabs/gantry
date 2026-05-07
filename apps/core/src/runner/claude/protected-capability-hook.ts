@@ -5,7 +5,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 
 const BLOCK_MESSAGE =
-  'MyClaw blocks direct edits to agent capability configuration. Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission so the change is reviewed, stored durably, and activated on a later run.';
+  'MyClaw blocks direct edits to agent capability configuration. Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission so the change is reviewed, stored durably, and activated through the approved capability flow.';
 const PROVIDER_CONFIG_DIR_SEGMENT = ['.clau', 'de'].join('');
 const PROVIDER_SKILLS_PATH_FRAGMENT = `${PROVIDER_CONFIG_DIR_SEGMENT}/skills`;
 const PROVIDER_MCP_PATH_FRAGMENT = `${PROVIDER_CONFIG_DIR_SEGMENT}/mcp`;

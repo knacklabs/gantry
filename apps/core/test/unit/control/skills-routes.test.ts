@@ -48,6 +48,7 @@ const opsRepo = {
 type StoredSkill = {
   id: string;
   appId: string;
+  agentId?: string;
   name: string;
   status: 'draft' | 'approved' | 'rejected' | 'disabled';
   version: string;
@@ -80,6 +81,18 @@ const skillsRepo = {
   saveSkill: vi.fn(async (skill: StoredSkill) => {
     skillsRepo.skills.set(skill.id, skill);
   }),
+  getSkillByContentHash: vi.fn(
+    async (input: any) =>
+      [...skillsRepo.skills.values()].find(
+        (skill) =>
+          skill.appId === input.appId &&
+          skill.storage?.contentHash === input.contentHash &&
+          (input.agentId === null
+            ? !skill.agentId
+            : !input.agentId || skill.agentId === input.agentId) &&
+          (!input.statuses || input.statuses.includes(skill.status)),
+      ) ?? null,
+  ),
   saveAgentSkillBinding: vi.fn(async (binding: any) => {
     skillsRepo.bindings.set(
       `${binding.appId}:${binding.agentId}:${binding.skillId}`,
@@ -248,6 +261,11 @@ beforeEach(() => {
         contentType: 'text/markdown',
         content: Buffer.from('Context\n'),
       },
+      {
+        path: 'images/pixel.png',
+        contentType: 'image/png',
+        content: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+      },
     ],
   });
   process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
@@ -347,6 +365,33 @@ describe('control skill routes', () => {
     }
   });
 
+  it('rejects draft upload when agent belongs to another app', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/skills/drafts/upload?agentId=agent%3Aother-app`,
+        'token-skills',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/zip' },
+          body: new Uint8Array([1, 2, 3]),
+        },
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.error?.message).toContain('Agent not found');
+      expect(skillArtifacts.putSkillArtifact).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('persists skill binding lifecycle for in-app agent', async () => {
     const port = await reservePort();
     process.env.MYCLAW_CONTROL_PORT = String(port);
@@ -440,6 +485,10 @@ describe('control skill routes', () => {
           path: 'references/context.md',
           contentHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         }),
+        expect.objectContaining({
+          path: 'images/pixel.png',
+          contentType: 'image/png',
+        }),
       ]);
 
       const read = await requestWithRetry(
@@ -452,6 +501,17 @@ describe('control skill routes', () => {
         path: 'references/context.md',
         encoding: 'utf-8',
         content: 'Context\n',
+      });
+      const readBinary = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/skills/skill%3Aapproved/files/images%2Fpixel.png`,
+        'token-skills',
+      );
+      const readBinaryBody = await readBinary.json();
+      expect(readBinary.status).toBe(200);
+      expect(readBinaryBody.file).toMatchObject({
+        path: 'images/pixel.png',
+        encoding: 'base64',
+        content: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64'),
       });
       expect(skillArtifacts.getSkillArtifact).toHaveBeenCalledWith(
         'skills/approved/hash',

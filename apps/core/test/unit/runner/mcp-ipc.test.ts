@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const tempRoots: string[] = [];
 
+function fileMode(filePath: string): number {
+  return fs.statSync(filePath).mode & 0o777;
+}
+
 function makeTempRoot(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'myclaw-runner-mcp-ipc-'));
   tempRoots.push(root);
@@ -63,11 +67,30 @@ async function loadIpcModule(tempRoot: string, responseVerifyKey: string) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.resetModules();
   vi.unstubAllEnvs();
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+describe('runner MCP IPC ids', () => {
+  it('generates UUID-backed request ids and JSON filenames', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-06T00:00:00.000Z'));
+    const { makeIpcId, makeIpcJsonFilename } =
+      await import('@core/runner/mcp/ipc-ids.js');
+    const uuidPattern =
+      '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+
+    expect(makeIpcId('service-restart')).toMatch(
+      new RegExp(`^service-restart-1778025600000-${uuidPattern}$`),
+    );
+    expect(makeIpcJsonFilename()).toMatch(
+      new RegExp(`^1778025600000-${uuidPattern}\\.json$`),
+    );
+  });
 });
 
 describe('runner MCP browser IPC signature verification', () => {
@@ -104,6 +127,8 @@ describe('runner MCP browser IPC signature verification', () => {
     expect(request.signature).toBe(
       signPayloadWithAuthToken('browser-test-auth-token', payload),
     );
+    expect(fileMode(path.dirname(requestPath))).toBe(0o700);
+    expect(fileMode(requestPath)).toBe(0o600);
 
     const responsePath = path.join(
       tempRoot,
@@ -316,5 +341,65 @@ describe('runner MCP browser IPC signature verification', () => {
       ok: false,
       error: 'Mismatched browser response requestId',
     });
+  });
+
+  it('removes stale browser requests when the service does not respond before timeout', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-06T00:00:00.000Z'));
+    const tempRoot = makeTempRoot();
+    const { publicKey } = generateKeyPairSync('ed25519');
+    const responseVerifyKey = publicKey
+      .export({ format: 'pem', type: 'spki' })
+      .toString();
+
+    const { requestBrowserAction } = await loadIpcModule(
+      tempRoot,
+      responseVerifyKey,
+    );
+    const requestPromise = requestBrowserAction('browser_status', {});
+    const requestDir = path.join(tempRoot, 'browser-requests');
+    const requestFiles = fs.readdirSync(requestDir);
+    expect(requestFiles).toHaveLength(1);
+    const requestPath = path.join(requestDir, requestFiles[0]!);
+
+    await vi.advanceTimersByTimeAsync(30_100);
+
+    await expect(requestPromise).resolves.toEqual({
+      ok: false,
+      error: 'Timed out waiting for browser service response',
+    });
+    expect(fs.existsSync(requestPath)).toBe(false);
+  });
+
+  it('removes stale memory requests when the service does not respond before timeout', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-06T00:00:00.000Z'));
+    const tempRoot = makeTempRoot();
+    const { publicKey } = generateKeyPairSync('ed25519');
+    const responseVerifyKey = publicKey
+      .export({ format: 'pem', type: 'spki' })
+      .toString();
+
+    const { requestMemoryAction } = await loadIpcModule(
+      tempRoot,
+      responseVerifyKey,
+    );
+    const requestPromise = requestMemoryAction('memory_search', {
+      query: 'status',
+    });
+    const requestDir = path.join(tempRoot, 'memory-requests');
+    const requestFiles = fs.readdirSync(requestDir);
+    expect(requestFiles).toHaveLength(1);
+    const requestPath = path.join(requestDir, requestFiles[0]!);
+    expect(fileMode(requestDir)).toBe(0o700);
+    expect(fileMode(requestPath)).toBe(0o600);
+
+    await vi.advanceTimersByTimeAsync(15_100);
+
+    await expect(requestPromise).resolves.toEqual({
+      ok: false,
+      error: 'Timed out waiting for memory service response (15000ms)',
+    });
+    expect(fs.existsSync(requestPath)).toBe(false);
   });
 });

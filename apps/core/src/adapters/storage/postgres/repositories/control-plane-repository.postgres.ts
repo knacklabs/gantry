@@ -25,6 +25,12 @@ import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import { ensureControlGraph } from './control-plane-graph.postgres.js';
 import { PostgresExternalIngressRepository } from './control-plane-external-ingress.postgres.js';
 import { PostgresJobTriggerRepository } from './control-plane-job-triggers.postgres.js';
+import {
+  getControlSessionByChatJid,
+  getControlSessionById,
+  getControlSessionsByChatJids,
+  getControlSessionsByIds,
+} from './control-plane-sessions.postgres.js';
 import { claimDueWebhookDeliveriesWithDrizzleLock } from './control-plane-webhook-claim.postgres.js';
 
 export class PostgresControlPlaneRepository {
@@ -135,44 +141,25 @@ export class PostgresControlPlaneRepository {
   async getAppSessionById(
     sessionId: string,
   ): Promise<AppSessionRecord | undefined> {
-    const rows = await this.db
-      .select()
-      .from(pgSchema.controlHttpSessionsPostgres)
-      .where(eq(pgSchema.controlHttpSessionsPostgres.sessionId, sessionId))
-      .limit(1);
-    return rows[0] ? mapSession(rows[0] as CanonicalControlRow) : undefined;
+    return getControlSessionById(this.db, sessionId);
+  }
+
+  async getAppSessionsByIds(
+    sessionIds: readonly string[],
+  ): Promise<AppSessionRecord[]> {
+    return getControlSessionsByIds(this.db, sessionIds);
   }
 
   async getAppSessionByChatJid(
     chatJid: string,
   ): Promise<AppSessionRecord | undefined> {
-    const rows = await this.db
-      .select()
-      .from(pgSchema.controlHttpSessionsPostgres)
-      .where(
-        sql`${pgSchema.controlHttpSessionsPostgres.externalRefJson}::jsonb->>'chatJid' = ${chatJid}`,
-      )
-      .limit(1);
-    return rows[0] ? mapSession(rows[0] as CanonicalControlRow) : undefined;
+    return getControlSessionByChatJid(this.db, chatJid);
   }
 
   async getAppSessionsByChatJids(
     chatJids: readonly string[],
   ): Promise<AppSessionRecord[]> {
-    const uniqueChatJids = Array.from(
-      new Set(chatJids.map((chatJid) => chatJid.trim()).filter(Boolean)),
-    );
-    if (uniqueChatJids.length === 0) return [];
-    const rows = await this.db
-      .select()
-      .from(pgSchema.controlHttpSessionsPostgres)
-      .where(
-        inArray(
-          sql`${pgSchema.controlHttpSessionsPostgres.externalRefJson}::jsonb->>'chatJid'`,
-          uniqueChatJids,
-        ),
-      );
-    return rows.map((row) => mapSession(row as CanonicalControlRow));
+    return getControlSessionsByChatJids(this.db, chatJids);
   }
 
   async upsertAppResponseRoute(input: {

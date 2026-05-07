@@ -81,6 +81,7 @@ describe('startRuntimeServices', () => {
           order.push('writeGroupsSnapshot');
         }) as any,
         opsRepository: {} as any,
+        getToolRepository: vi.fn(() => ({}) as any),
         recoverPendingMessages: vi.fn(() => {
           order.push('recoverPendingMessages');
         }) as any,
@@ -133,6 +134,7 @@ describe('startRuntimeServices', () => {
         startIpcWatcher: vi.fn() as any,
         writeGroupsSnapshot: vi.fn() as any,
         opsRepository: {} as any,
+        getToolRepository: vi.fn(() => ({}) as any),
         recoverPendingMessages: vi.fn() as any,
         startMessagePollingLoop: vi.fn((deps) => {
           capturedDeps = deps;
@@ -203,6 +205,7 @@ describe('startRuntimeServices', () => {
         startIpcWatcher: vi.fn() as any,
         writeGroupsSnapshot,
         opsRepository: {} as any,
+        getToolRepository: vi.fn(() => ({}) as any),
         recoverPendingMessages: vi.fn() as any,
         startMessagePollingLoop: vi.fn(
           () => new Promise<never>(() => {}),
@@ -244,6 +247,7 @@ describe('startRuntimeServices', () => {
         startIpcWatcher: vi.fn() as any,
         writeGroupsSnapshot: vi.fn() as any,
         opsRepository: {} as any,
+        getToolRepository: vi.fn(() => ({}) as any),
         recoverPendingMessages: vi.fn() as any,
         startMessagePollingLoop: vi.fn((deps) => {
           capturedDeps = deps;

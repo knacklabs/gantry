@@ -1,7 +1,7 @@
 import type { Job } from '../../domain/types.js';
 import type { ToolCatalogRepository } from '../../domain/ports/repositories.js';
 import type { RuntimeJobRepository } from '../../domain/repositories/ops-repo.js';
-import { resolveJobRuntimeAppId } from './job-access.js';
+import { DEFAULT_JOB_RUNTIME_APP_ID } from './job-access.js';
 import {
   agentIdForJobGroupScope,
   normalizeJobExtraTools,
@@ -12,6 +12,10 @@ import {
   schedulerJobStaleness,
   type SchedulerJobStaleness,
 } from '../../shared/scheduler-job-staleness.js';
+import {
+  buildJobToolAccessView,
+  type JobToolAccessView,
+} from '../../shared/tool-access-view.js';
 
 export interface JobVisibilityMetadata {
   target: {
@@ -31,9 +35,7 @@ export interface JobVisibilityMetadata {
   inheritedTools: string[];
   jobExtraTools: string[];
   effectiveAllowedTools: string[];
-  inheritedToolCount?: number;
-  jobExtraToolCount?: number;
-  effectiveAllowedToolCount?: number;
+  toolAccess: JobToolAccessView;
   recentRunErrors: Array<{
     runId: string;
     status: string;
@@ -47,10 +49,11 @@ export async function buildJobVisibilityMetadata(input: {
   job: Job;
   ops: Pick<RuntimeJobRepository, 'listJobRuns'>;
   toolRepository?: ToolCatalogRepository;
+  appId?: string;
   recentRunLimit?: number;
   nowMs?: number;
 }): Promise<JobVisibilityMetadata> {
-  const appId = resolveJobRuntimeAppId(input.job);
+  const appId = input.appId ?? DEFAULT_JOB_RUNTIME_APP_ID;
   const agentId = agentIdForJobGroupScope(input.job.group_scope);
   const policy = await resolveJobToolPolicy({
     job: input.job,
@@ -82,6 +85,11 @@ export async function buildJobVisibilityMetadata(input: {
     inheritedTools: policy.inheritedTools,
     jobExtraTools: policy.jobExtraTools,
     effectiveAllowedTools: policy.effectiveAllowedTools,
+    toolAccess: buildJobToolAccessView({
+      inheritedAgentTools: policy.inheritedTools,
+      jobExtraTools: policy.jobExtraTools,
+      effectiveAllowedTools: policy.effectiveAllowedTools,
+    }),
     staleness,
     recentRunErrors: runs
       .filter((run) => Boolean(run.error_summary))
@@ -97,6 +105,7 @@ export async function buildJobVisibilityMetadata(input: {
 export async function buildJobListVisibilityMetadata(input: {
   jobs: Job[];
   toolRepository?: ToolCatalogRepository;
+  appId?: string;
   nowMs?: number;
 }): Promise<Map<string, JobVisibilityMetadata>> {
   const nowMs = input.nowMs ?? Date.now();
@@ -118,7 +127,7 @@ export async function buildJobListVisibilityMetadata(input: {
   return new Map(
     await Promise.all(
       input.jobs.map(async (job) => {
-        const appId = resolveJobRuntimeAppId(job);
+        const appId = input.appId ?? DEFAULT_JOB_RUNTIME_APP_ID;
         const agentId = agentIdForJobGroupScope(job.group_scope);
         const inheritedTools = await loadInheritedTools(appId, agentId);
         const jobExtraTools = normalizeJobExtraTools(
@@ -142,12 +151,14 @@ export async function buildJobListVisibilityMetadata(input: {
             threadId: job.thread_id,
             silent: job.silent,
           },
-          inheritedTools: [],
-          jobExtraTools: [],
-          effectiveAllowedTools: [],
-          inheritedToolCount: inheritedTools.length,
-          jobExtraToolCount: jobExtraTools.length,
-          effectiveAllowedToolCount: effectiveAllowedTools.length,
+          inheritedTools,
+          jobExtraTools,
+          effectiveAllowedTools,
+          toolAccess: buildJobToolAccessView({
+            inheritedAgentTools: inheritedTools,
+            jobExtraTools,
+            effectiveAllowedTools,
+          }),
           staleness: schedulerJobStaleness(job, nowMs),
           recentRunErrors: [],
         };

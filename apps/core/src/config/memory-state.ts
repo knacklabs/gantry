@@ -24,3 +24,5 @@ if (runtimeMemorySettingsError) {
 }
 
 export const RUNTIME_MEMORY_ENABLED = runtimeMemorySettings.enabled ?? true;
+export const RUNTIME_MEMORY_DREAMING_ENABLED =
+  runtimeMemorySettings.dreamingEnabled ?? false;

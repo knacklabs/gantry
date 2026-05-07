@@ -5,24 +5,9 @@ import { getMyclawHome } from '../../shared/myclaw-home.js';
 
 export const CONFIG_ENV_KEYS = [
   'MYCLAW_HOME',
-  'ASSISTANT_NAME',
-  'ONECLI_URL',
   'ONECLI_DATABASE_URL',
   'SECRET_ENCRYPTION_KEY',
   'TZ',
-  'ANTHROPIC_MODEL',
-  'ANTHROPIC_BASE_URL',
-  'ANTHROPIC_DEFAULT_OPUS_MODEL',
-  'ANTHROPIC_DEFAULT_SONNET_MODEL',
-  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
-  'OPENAI_BASE_URL',
-  'OPENAI_DAILY_EMBED_LIMIT',
-  'MEMORY_EXTRACTOR_MAX_FACTS',
-  'MEMORY_EXTRACTOR_MIN_CONFIDENCE',
-  'MEMORY_DREAMING_CRON',
-  'MEMORY_EMBED_BATCH_SIZE',
-  'MEMORY_MAINTENANCE_MAX_PENDING',
-  'MYCLAW_CREDENTIAL_MODE',
   'MYCLAW_IPC_AUTH_SECRET',
   'REMOTE_CONTROL_AUTO_ACCEPT',
   'CHROME_PATH',
@@ -58,7 +43,7 @@ export function envValue(key: (typeof CONFIG_ENV_KEYS)[number]): string {
 }
 
 export function runtimeEnvValue(key: (typeof CONFIG_ENV_KEYS)[number]): string {
-  return envConfig[key]?.trim() || process.env[key]?.trim() || '';
+  return process.env[key]?.trim() || envConfig[key]?.trim() || '';
 }
 
 export function envValueDynamic(key: string): string {
@@ -66,5 +51,5 @@ export function envValueDynamic(key: string): string {
 }
 
 export function runtimeEnvValueDynamic(key: string): string {
-  return runtimeEnvConfig[key]?.trim() || process.env[key]?.trim() || '';
+  return process.env[key]?.trim() || runtimeEnvConfig[key]?.trim() || '';
 }

@@ -1,7 +1,7 @@
 import * as p from '@clack/prompts';
 import {
-  createEmbeddingProvider,
   isEmbeddingProviderRegistered,
+  validateEmbeddingProviderReady,
 } from '../memory/memory-embeddings.js';
 
 import { readEnvFile } from '../config/env/file.js';
@@ -99,16 +99,16 @@ function formatMemoryStatus(runtimeHome: string): string {
   ].join('\n');
 }
 
-function setEmbeddings(
+async function setEmbeddings(
   runtimeHome: string,
   provider: EmbeddingProviderName,
-): { ok: boolean; message?: string } {
+): Promise<{ ok: boolean; message?: string }> {
   const settings = loadRuntimeSettings(runtimeHome);
   if (provider === 'disabled') {
     settings.memory.embeddings.enabled = false;
   } else if (isEmbeddingProviderRegistered(provider)) {
     try {
-      createEmbeddingProvider(provider).validateConfiguration();
+      await validateEmbeddingProviderReady(provider);
     } catch (err) {
       return {
         ok: false,
@@ -197,7 +197,7 @@ export async function runMemoryCommand(
       p.log.error(usage());
       return 1;
     }
-    const result = setEmbeddings(
+    const result = await setEmbeddings(
       runtimeHome,
       normalized as EmbeddingProviderName,
     );

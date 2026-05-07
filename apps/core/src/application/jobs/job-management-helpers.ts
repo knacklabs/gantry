@@ -6,11 +6,66 @@ import type {
 import { ApplicationError } from '../common/application-error.js';
 import type { Clock } from '../common/clock.js';
 import type {
+  AppSessionRecord,
+  JobControlPort,
   JobSchedulePlanner,
   JobUpdatePatch,
+  SchedulerJobAccess,
 } from './job-management-types.js';
 
 const MAX_QUERY_LIMIT = 1_000;
+
+export function appIdFromConversationJid(
+  conversationJid: string,
+): string | null {
+  if (!conversationJid.startsWith('app:')) return null;
+  const rest = conversationJid.slice('app:'.length);
+  const delimiterIndex = rest.indexOf(':');
+  if (delimiterIndex <= 0 || rest.indexOf(':', delimiterIndex + 1) !== -1) {
+    return null;
+  }
+  return rest.slice(0, delimiterIndex);
+}
+
+export async function resolveCanonicalAppSessionForOrigin(input: {
+  access: SchedulerJobAccess;
+  control?: JobControlPort;
+}): Promise<{
+  originAppId: string | null;
+  canonicalSession?: AppSessionRecord;
+}> {
+  const originAppId = appIdFromConversationJid(
+    input.access.originConversationJid,
+  );
+  if (!originAppId) return { originAppId };
+  const canonicalSession = input.control
+    ? await input.control.getAppSessionByChatJid(
+        input.access.originConversationJid,
+      )
+    : undefined;
+  if (!canonicalSession) {
+    throw new ApplicationError(
+      'FORBIDDEN',
+      'Scheduler jobs from app conversations require a canonical app session.',
+    );
+  }
+  return { originAppId, canonicalSession };
+}
+
+export async function resolveJobPolicyAppId(input: {
+  appId?: string;
+  access?: SchedulerJobAccess;
+  control?: JobControlPort;
+}): Promise<string | undefined> {
+  if (input.appId) return input.appId;
+  if (!input.access) return undefined;
+  return (
+    await resolveCanonicalAppSessionForOrigin({
+      access: input.access,
+      control: input.control,
+    })
+  ).canonicalSession?.appId;
+}
 
 export function normalizeScheduleType(raw: unknown): JobScheduleType {
   if (

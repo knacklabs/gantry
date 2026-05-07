@@ -68,6 +68,10 @@ import {
 } from '@core/runtime/browser-capability.js';
 import { verifyIpcResponseAuthPayload } from '@core/infrastructure/ipc/response-signing.js';
 
+function fileMode(filePath: string): number {
+  return fs.statSync(filePath).mode & 0o777;
+}
+
 describe('ipc-browser-handler', () => {
   let tempDir: string;
 
@@ -208,6 +212,94 @@ describe('ipc-browser-handler', () => {
     });
   });
 
+  it('includes tool-capability broker health on browser launch', async () => {
+    const healthCheck = vi.fn(async () => ({
+      status: 'fail' as const,
+      message:
+        'Could not reach OneCLI at http://localhost:10254: connect ECONNREFUSED',
+      nextAction:
+        "Run `myclaw local doctor`. If you use MyClaw's provided local stack, start it from the directory containing the shipped stack file, or pass that stack file explicitly, then retry.",
+    }));
+
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-2b',
+        action: 'browser_launch',
+        payload: {},
+      },
+      {
+        sourceAgentFolder: 'main_agent',
+        isMain: true,
+        getCredentialBrokerProfile: () => 'onecli',
+        getCredentialBroker: async () => ({
+          getInjection: vi.fn(),
+          healthCheck,
+          getCapabilities: () => ({
+            profile: 'onecli',
+            supportsAgentBinding: true,
+            returnsRawSecrets: false,
+          }),
+        }),
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    expect(response.data).toMatchObject({
+      brokerHealthy: false,
+      brokerHealth: {
+        status: 'fail',
+        message:
+          'Could not reach OneCLI at http://localhost:10254: connect ECONNREFUSED',
+      },
+      warning: expect.stringContaining('third-party MCP tools can fail'),
+    });
+    expect(healthCheck).toHaveBeenCalledWith({
+      binding: {
+        profile: 'onecli',
+        purpose: 'tool_capability',
+        agentIdentifier: 'agent:main_agent',
+      },
+    });
+  });
+
+  it('keeps browser status available when broker health check throws', async () => {
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-2c',
+        action: 'browser_status',
+        payload: {},
+      },
+      {
+        sourceAgentFolder: 'main_agent',
+        isMain: true,
+        getCredentialBrokerProfile: () => 'onecli',
+        getCredentialBroker: async () => ({
+          getInjection: vi.fn(),
+          healthCheck: vi.fn(async () => {
+            throw new Error('broker temporarily unavailable');
+          }),
+          getCapabilities: () => ({
+            profile: 'onecli',
+            supportsAgentBinding: true,
+            returnsRawSecrets: false,
+          }),
+        }),
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    expect(response.data).toMatchObject({
+      running: true,
+      cdpReady: true,
+      brokerHealthy: false,
+      brokerHealth: {
+        status: 'fail',
+        message: 'Credential broker health check failed.',
+      },
+      warning: expect.stringContaining('third-party MCP tools can fail'),
+    });
+  });
+
   it('ignores main-agent profile overrides and uses host-derived profile', async () => {
     const response = await processBrowserIpcRequest(
       {
@@ -264,6 +356,8 @@ describe('ipc-browser-handler', () => {
       ok: true,
       data: { running: true },
     });
+    expect(fileMode(path.dirname(responsePath))).toBe(0o700);
+    expect(fileMode(responsePath)).toBe(0o600);
     expect(getBrowserStatus).not.toHaveBeenCalled();
   });
 

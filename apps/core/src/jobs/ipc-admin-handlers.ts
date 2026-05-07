@@ -1,3 +1,5 @@
+import path from 'path';
+
 import { McpServerService } from '../application/mcp/mcp-server-service.js';
 import { McpToolProxy } from '../application/mcp/mcp-tool-proxy.js';
 import { SkillDraftService } from '../application/skills/skill-draft-service.js';
@@ -399,7 +401,7 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
   const requestedTargetJid = validateSameChannelApprovalTarget({ data, sourceAgentFolderJids, requestKind: parsed.review.requestKind, reject });
   if (!requestedTargetJid) return;
   if (typeof deps.requestPermissionApproval !== 'function' || typeof deps.sendMessage !== 'function') { reject(`${parsed.review.requestKind} requests require a configured approval surface.`, 'preflight_failed'); return; }
-  startRequestOnlyCapabilityReview({ deps, sourceAgentFolder, targetJid: requestedTargetJid, threadId: data.authThreadId, review: parsed.review });
+  startRequestOnlyCapabilityReview({ deps, sourceAgentFolder, targetJid: requestedTargetJid, threadId: data.authThreadId, ipcDir: context.ipcBaseDir ? path.join(context.ipcBaseDir, sourceAgentFolder) : undefined, runHandle: data.runHandle, review: parsed.review });
   accept(requestOnlyCapabilityQueuedMessage(parsed.review), 'capability_request_recorded');
 };
 
@@ -511,7 +513,7 @@ function capabilityDisplayValue(payload: Record<string, unknown>, spec: (typeof 
 }
 
 // prettier-ignore
-function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>[0]['deps']; sourceAgentFolder: string; targetJid: string; threadId?: string; review: RequestOnlyCapabilityReview }): void {
+function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>[0]['deps']; sourceAgentFolder: string; targetJid: string; threadId?: string; ipcDir?: string; runHandle?: string; review: RequestOnlyCapabilityReview }): void {
   void (async () => {
     let message: string;
     try {
@@ -538,15 +540,11 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
       const reason = decision.approved ? 'missing approving principal' : decision.reason || 'not approved';
       let persistedRules: string[] = [];
       if (input.review.toolName === 'request_permission' && isPermanentPermissionDecision(decision)) {
-        persistedRules = await persistRequestPermissionRules({
-          deps: input.deps,
-          sourceAgentFolder: input.sourceAgentFolder,
-          updates: decision.updatedPermissions ?? [],
-        });
+        persistedRules = await persistRequestPermissionRules({ deps: input.deps, sourceAgentFolder: input.sourceAgentFolder, ipcDir: input.ipcDir, runHandle: input.runHandle, updates: decision.updatedPermissions ?? [] });
       }
       message = decision.approved && decision.decidedBy
         ? persistedRules.length
-          ? `Approved ${input.review.displayName}. Persistent permission rule enabled for future runs by ${decision.decidedBy}: ${persistedRules.join(', ')}.`
+          ? `Approved ${input.review.displayName}. Persistent permission rule enabled for this run and future runs by ${decision.decidedBy}: ${persistedRules.join(', ')}.`
           : `Approved ${input.review.displayName}. Permission review recorded by ${decision.decidedBy}; no capability was enabled by this request-only flow.`
         : `Rejected ${input.review.displayName}: ${reason}. No capability was enabled.`;
     } catch (err) {

@@ -5,6 +5,12 @@ import { App } from '@slack/bolt';
 
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
+  PRIVATE_FILE_MODE,
+  assertPrivateFileTargetSync,
+  ensurePrivateDirSync,
+  writePrivateFileSync,
+} from '../../shared/private-fs.js';
+import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   UserQuestionRequest,
@@ -15,6 +21,11 @@ import { ChannelOpts } from '../channel-provider.js';
 export const SLACK_STREAM_UPDATE_INTERVAL_MS = 900;
 export const SLACK_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 const SLACK_LIMITS = { buttonText: 75, actionValue: 2000 } as const;
+
+interface SlackAttachmentDownload {
+  filePath: string;
+  storageRef: string;
+}
 
 export interface ActiveStreamState {
   channelId: string;
@@ -556,11 +567,12 @@ export abstract class SlackChannelState {
         );
         return false;
       }
-      fs.writeFileSync(destPath, buffer);
+      writePrivateFileSync(destPath, buffer);
       return true;
     }
 
-    const fd = fs.openSync(destPath, 'w');
+    assertPrivateFileTargetSync(destPath);
+    const fd = fs.openSync(destPath, 'w', PRIVATE_FILE_MODE);
     let totalBytes = 0;
     let shouldCleanup = false;
     try {
@@ -592,6 +604,8 @@ export abstract class SlackChannelState {
         } catch {
           // ignore cleanup failures
         }
+      } else {
+        fs.chmodSync(destPath, PRIVATE_FILE_MODE);
       }
     }
   }
@@ -610,13 +624,13 @@ export abstract class SlackChannelState {
       url_private?: string;
       url_private_download?: string;
     },
-  ): Promise<string | null> {
+  ): Promise<SlackAttachmentDownload | null> {
     const url = file.url_private_download || file.url_private;
     if (!url) return null;
 
     const group = this.opts.conversationRoutes()[jid];
     if (!group) {
-      return url;
+      return null;
     }
 
     const filename = this.sanitizeFilename(
@@ -624,8 +638,9 @@ export abstract class SlackChannelState {
     );
     const groupDir = resolveGroupFolderPath(group.folder);
     const attachDir = path.join(groupDir, 'attachments');
-    fs.mkdirSync(attachDir, { recursive: true });
+    ensurePrivateDirSync(attachDir);
     const destPath = path.join(attachDir, filename);
+    const storageRef = path.posix.join('attachments', filename);
 
     try {
       const resp = await fetch(url, {
@@ -638,15 +653,15 @@ export abstract class SlackChannelState {
           { jid, status: resp.status, filename },
           'Failed to download Slack attachment',
         );
-        return url;
+        return null;
       }
 
       const wrote = await this.writeFetchResponseToFile(resp, destPath);
-      if (!wrote) return url;
-      return destPath;
+      if (!wrote) return null;
+      return { filePath: destPath, storageRef };
     } catch (err) {
       logger.warn({ jid, err, filename }, 'Slack attachment download failed');
-      return url;
+      return null;
     }
   }
 
@@ -668,16 +683,15 @@ export abstract class SlackChannelState {
 
     if (Array.isArray(event.files)) {
       for (const file of event.files) {
-        const location = await this.downloadSlackAttachment(jid, file);
-        if (!location) continue;
+        const download = await this.downloadSlackAttachment(jid, file);
         const label = file.name || file.title || 'attachment';
-        lines.push(`Attachment: ${label} (${location})`);
+        lines.push(`Attachment: ${label}`);
         attachments.push({
           id: file.id ? `slack-file:${file.id}` : undefined,
           kind: file.mimetype?.startsWith('image/') ? 'image' : 'file',
           contentType: file.mimetype,
           externalId: file.id,
-          storageRef: location,
+          storageRef: download?.storageRef,
         });
       }
     }

@@ -3,10 +3,16 @@ export interface RuntimeMemorySettingsSnapshot {
   embeddingsEnabled?: boolean;
   embeddingProvider?: string;
   embeddingModel?: string;
+  dailyEmbedLimit?: number;
+  embedBatchSize?: number;
   dreamingEnabled?: boolean;
+  dreamingCron?: string;
   llmExtractorModel?: string;
   llmDreamingModel?: string;
   llmConsolidationModel?: string;
+  extractorMaxFacts?: number;
+  extractorMinConfidence?: number;
+  maintenanceMaxPending?: number;
 }
 
 export interface RuntimeStorageSettingsSnapshot {
@@ -29,6 +35,45 @@ function parseOptionalString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   return trimmed || undefined;
+}
+
+function parseOptionalPositiveInteger(
+  value: unknown,
+  pathPrefix: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`${pathPrefix} must be a positive integer`);
+  }
+  return value;
+}
+
+function parseOptionalNonNegativeInteger(
+  value: unknown,
+  pathPrefix: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${pathPrefix} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function parseOptionalConfidence(
+  value: unknown,
+  pathPrefix: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim() !== ''
+        ? Number(value)
+        : Number.NaN;
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    throw new Error(`${pathPrefix} must be a number between 0 and 1`);
+  }
+  return parsed;
 }
 
 function parseOptionalPostgresSchema(value: unknown): string | undefined {
@@ -87,6 +132,17 @@ export function parseRuntimeMemorySnapshotFromRoot(
   }
   const dreaming = (dreamingRaw || {}) as Record<string, unknown>;
 
+  const maintenanceRaw = memory.maintenance;
+  if (
+    maintenanceRaw !== undefined &&
+    (typeof maintenanceRaw !== 'object' ||
+      maintenanceRaw === null ||
+      Array.isArray(maintenanceRaw))
+  ) {
+    throw new Error('memory.maintenance must be a mapping');
+  }
+  const maintenance = (maintenanceRaw || {}) as Record<string, unknown>;
+
   const llmRaw = memory.llm;
   if (
     llmRaw !== undefined &&
@@ -114,13 +170,34 @@ export function parseRuntimeMemorySnapshotFromRoot(
     ),
     embeddingProvider,
     embeddingModel: parseOptionalString(embeddings.model),
+    dailyEmbedLimit: parseOptionalNonNegativeInteger(
+      embeddings.daily_limit,
+      'memory.embeddings.daily_limit',
+    ),
+    embedBatchSize: parseOptionalPositiveInteger(
+      embeddings.batch_size,
+      'memory.embeddings.batch_size',
+    ),
     dreamingEnabled: parseOptionalBoolean(
       dreaming.enabled,
       'memory.dreaming.enabled',
     ),
+    dreamingCron: parseOptionalString(dreaming.cron),
     llmExtractorModel: parseOptionalString(llmModels.extractor),
     llmDreamingModel: parseOptionalString(llmModels.dreaming),
     llmConsolidationModel: parseOptionalString(llmModels.consolidation),
+    extractorMaxFacts: parseOptionalPositiveInteger(
+      llm.extractor_max_facts,
+      'memory.llm.extractor_max_facts',
+    ),
+    extractorMinConfidence: parseOptionalConfidence(
+      llm.extractor_min_confidence,
+      'memory.llm.extractor_min_confidence',
+    ),
+    maintenanceMaxPending: parseOptionalPositiveInteger(
+      maintenance.max_pending,
+      'memory.maintenance.max_pending',
+    ),
   };
 }
 

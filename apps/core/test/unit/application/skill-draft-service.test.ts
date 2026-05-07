@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   SkillDraftService,
@@ -15,12 +15,40 @@ import type {
 class MemorySkillRepository implements SkillCatalogRepository {
   readonly skills = new Map<string, SkillCatalogItem>();
   readonly bindings = new Map<string, AgentSkillBinding>();
+  readonly listSkillsSpy = vi.fn(this.listSkillsImpl.bind(this));
 
   async getSkill(id: SkillId): Promise<SkillCatalogItem | null> {
     return this.skills.get(id) ?? null;
   }
 
-  async listSkills(input: {
+  async getSkillByContentHash(input: {
+    appId: string;
+    contentHash: string;
+    agentId?: string | null;
+    statuses?: SkillCatalogItem['status'][];
+  }): Promise<SkillCatalogItem | null> {
+    return (
+      [...this.skills.values()].find(
+        (skill) =>
+          skill.appId === input.appId &&
+          skill.storage?.contentHash === input.contentHash &&
+          (input.agentId === null
+            ? skill.agentId === undefined
+            : input.agentId === undefined || skill.agentId === input.agentId) &&
+          (!input.statuses || input.statuses.includes(skill.status)),
+      ) ?? null
+    );
+  }
+
+  listSkills(input: {
+    appId: string;
+    agentId?: string;
+    statuses?: SkillCatalogItem['status'][];
+  }): Promise<SkillCatalogItem[]> {
+    return this.listSkillsSpy(input);
+  }
+
+  private async listSkillsImpl(input: {
     appId: string;
     agentId?: string;
     statuses?: SkillCatalogItem['status'][];
@@ -336,7 +364,7 @@ describe('SkillDraftService', () => {
   });
 
   it('deduplicates imports by app and content hash', async () => {
-    const { service } = createService();
+    const { repo, service } = createService();
 
     const first = await service.importDraft({
       appId: 'app:one' as never,
@@ -351,6 +379,7 @@ describe('SkillDraftService', () => {
 
     expect(second.id).toBe(first.id);
     expect(second.name).toBe('first-name');
+    expect(repo.listSkillsSpy).not.toHaveBeenCalled();
   });
 
   it('creates separate agent-originated drafts even when content hashes match', async () => {
@@ -374,6 +403,32 @@ describe('SkillDraftService', () => {
     expect(second.id).not.toBe(first.id);
     expect(second.agentId).toBe('agent:two');
     expect(second.name).toBe('second-name');
+  });
+
+  it('keeps admin and agent duplicate scopes separate for identical content', async () => {
+    const { service } = createService();
+
+    const agentDraft = await service.importDraft({
+      appId: 'app:one' as never,
+      agentId: 'agent:one' as never,
+      name: 'agent-owned',
+      assets: [asset],
+    });
+    const adminDraft = await service.importDraft({
+      appId: 'app:one' as never,
+      name: 'admin-owned',
+      assets: [asset],
+    });
+    const adminAgain = await service.importDraft({
+      appId: 'app:one' as never,
+      name: 'admin-owned-again',
+      assets: [asset],
+    });
+
+    expect(adminDraft.id).not.toBe(agentDraft.id);
+    expect(adminDraft.agentId).toBeUndefined();
+    expect(adminDraft.name).toBe('admin-owned');
+    expect(adminAgain.id).toBe(adminDraft.id);
   });
 
   it('uses the hosted publisher and stores Anthropic refs on hosted approval', async () => {

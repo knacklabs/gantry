@@ -11,25 +11,15 @@ export type ToolRisk = z.infer<typeof ToolRiskSchema>;
 
 export const ToolCatalogProviderToolNameSchema = z.enum([
   'Agent',
-  'AskUserQuestion',
   'Bash',
-  'Config',
   'Edit',
   'Read',
   'Write',
   'Glob',
   'Grep',
   'NotebookEdit',
-  'TaskOutput',
-  'TaskStop',
-  'TodoWrite',
   'WebFetch',
   'WebSearch',
-  'ExitPlanMode',
-  'EnterWorktree',
-  'ExitWorktree',
-  'ListMcpResources',
-  'ReadMcpResource',
   'Browser',
 ]);
 export type ToolCatalogProviderToolName = z.infer<

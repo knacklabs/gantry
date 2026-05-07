@@ -1,22 +1,22 @@
-import { envConfig } from './env/index.js';
 import { runtimeMemorySettings } from './memory-state.js';
+import {
+  DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS,
+  DEFAULT_MEMORY_EXTRACTOR_MIN_CONFIDENCE,
+  DEFAULT_OPENAI_DAILY_EMBED_LIMIT,
+} from './settings/runtime-settings-defaults.js';
 import {
   MEMORY_MODEL_DEFAULT_ALIASES,
   resolveCatalogRunnerModel,
 } from '../shared/model-catalog.js';
 
-export { RUNTIME_MEMORY_ENABLED } from './memory-state.js';
+export {
+  RUNTIME_MEMORY_DREAMING_ENABLED,
+  RUNTIME_MEMORY_ENABLED,
+} from './memory-state.js';
 export * from './memory-advanced.js';
 
-export const OPENAI_DAILY_EMBED_LIMIT = Math.max(
-  0,
-  parseInt(
-    process.env.OPENAI_DAILY_EMBED_LIMIT ||
-      envConfig.OPENAI_DAILY_EMBED_LIMIT ||
-      '500',
-    10,
-  ),
-);
+export const OPENAI_DAILY_EMBED_LIMIT =
+  runtimeMemorySettings.dailyEmbedLimit ?? DEFAULT_OPENAI_DAILY_EMBED_LIMIT;
 
 export const MEMORY_EMBED_MODEL =
   runtimeMemorySettings.embeddingModel || 'text-embedding-3-large';
@@ -26,25 +26,15 @@ export const MEMORY_EMBED_PROVIDER =
     ? 'disabled'
     : runtimeMemorySettings.embeddingProvider || 'disabled';
 
-export const MEMORY_EXTRACTOR_MAX_FACTS = Math.max(
-  1,
-  parseInt(
-    process.env.MEMORY_EXTRACTOR_MAX_FACTS ||
-      envConfig.MEMORY_EXTRACTOR_MAX_FACTS ||
-      '8',
-    10,
-  ) || 8,
-);
+export const MEMORY_EXTRACTOR_MAX_FACTS =
+  runtimeMemorySettings.extractorMaxFacts ?? DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS;
 
 export const MEMORY_EXTRACTOR_MIN_CONFIDENCE = Math.max(
   0,
   Math.min(
     1,
-    parseFloat(
-      process.env.MEMORY_EXTRACTOR_MIN_CONFIDENCE ||
-        envConfig.MEMORY_EXTRACTOR_MIN_CONFIDENCE ||
-        '0.6',
-    ) || 0.6,
+    runtimeMemorySettings.extractorMinConfidence ??
+      DEFAULT_MEMORY_EXTRACTOR_MIN_CONFIDENCE,
   ),
 );
 

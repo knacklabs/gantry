@@ -1,7 +1,7 @@
-import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { ensurePrivateDirSync } from '../shared/private-fs.js';
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
 
 const SOURCE_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -27,7 +27,8 @@ export function getHostAgentRunnerDistDir(): string {
 }
 
 export function ensureGroupIpcLayout(groupIpcDir: string): void {
+  ensurePrivateDirSync(groupIpcDir);
   for (const subdir of IPC_GROUP_SUBDIRS) {
-    fs.mkdirSync(path.join(groupIpcDir, subdir), { recursive: true });
+    ensurePrivateDirSync(path.join(groupIpcDir, subdir));
   }
 }

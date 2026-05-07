@@ -13,6 +13,7 @@ import {
   readTemplate,
   readVariables,
   renderTemplate,
+  validateIngressMetadata,
 } from './target-policy.js';
 
 type ExternalIngressRecord = {
@@ -138,12 +139,13 @@ export class ExternalIngressModule {
       throw new ApplicationError('INVALID_REQUEST', 'name is required');
     }
     const secret = this.deps.createSecret();
+    const metadata = validateIngressMetadata(input.metadata ?? {});
     const ingress = await this.deps.control.createExternalIngress({
       appId: input.appId,
       name: input.name.trim(),
       secret,
       enabled: input.enabled ?? true,
-      metadata: input.metadata ?? {},
+      metadata,
     });
     return { ...publicIngress(ingress), secret };
   }
@@ -167,10 +169,16 @@ export class ExternalIngressModule {
     ingressId: string;
     patch: { name?: string; enabled?: boolean; metadata?: unknown };
   }) {
+    const patch = {
+      ...input.patch,
+      ...(input.patch.metadata !== undefined
+        ? { metadata: validateIngressMetadata(input.patch.metadata) }
+        : {}),
+    };
     const ingress = await this.deps.control.updateExternalIngress(
       input.ingressId,
       input.appId,
-      input.patch,
+      patch,
     );
     if (!ingress) throw new ApplicationError('NOT_FOUND', 'Ingress not found');
     return publicIngress(ingress);
@@ -284,11 +292,11 @@ export class ExternalIngressModule {
       requestPath: input.path,
       requestTimestamp: new Date(timestampMs).toISOString(),
       bodyHash,
-      requestBody: input.rawBody,
-      signature: input.signature,
+      requestBody: `sha256:${bodyHash}`,
+      signature: 'redacted',
       status: 'pending',
       now,
-      expiresAt: addDaysIso(now, 30),
+      expiresAt: addDaysIso(now, 7),
     });
     if (!invocation.row) {
       throw new ApplicationError(

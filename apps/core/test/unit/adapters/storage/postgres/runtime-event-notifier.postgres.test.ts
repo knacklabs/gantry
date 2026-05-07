@@ -20,12 +20,14 @@ describe('PostgresRuntimeEventNotifier', () => {
         JSON.stringify({
           eventId: 1,
           appId: 'app:test',
+          complete: true,
           eventType: RUNTIME_EVENT_TYPES.JOB_COMPLETED,
         }),
       ),
     ).toMatchObject({
       eventId: 1,
       appId: 'app:test',
+      complete: true,
       eventType: RUNTIME_EVENT_TYPES.JOB_COMPLETED,
     });
     expect(parseRuntimeEventWakeup('{')).toBeNull();
@@ -47,7 +49,10 @@ describe('PostgresRuntimeEventNotifier', () => {
     const notifier = new PostgresRuntimeEventNotifier(pool as never);
     const listener = vi.fn();
 
-    notifier.subscribe(listener, { appId: 'app-one' as never });
+    notifier.subscribe(listener, {
+      appId: 'app-one' as never,
+      sessionId: 'session-one' as never,
+    });
     await vi.waitFor(() =>
       expect(first.query).toHaveBeenCalledWith('LISTEN myclaw_runtime_events'),
     );
@@ -57,6 +62,18 @@ describe('PostgresRuntimeEventNotifier', () => {
       payload: JSON.stringify({
         eventId: 1,
         appId: 'app-two',
+        complete: true,
+        eventType: RUNTIME_EVENT_TYPES.JOB_COMPLETED,
+      }),
+    });
+    expect(listener).not.toHaveBeenCalled();
+
+    first.emit('notification', {
+      channel: 'myclaw_runtime_events',
+      payload: JSON.stringify({
+        eventId: 1,
+        appId: 'app-one',
+        complete: true,
         eventType: RUNTIME_EVENT_TYPES.JOB_COMPLETED,
       }),
     });
@@ -67,6 +84,32 @@ describe('PostgresRuntimeEventNotifier', () => {
       payload: JSON.stringify({
         eventId: 2,
         appId: 'app-one',
+        complete: true,
+        sessionId: 'session-two',
+        eventType: RUNTIME_EVENT_TYPES.JOB_COMPLETED,
+      }),
+    });
+    expect(listener).not.toHaveBeenCalled();
+
+    first.emit('notification', {
+      channel: 'myclaw_runtime_events',
+      payload: JSON.stringify({
+        eventId: 3,
+        appId: 'app-one',
+        complete: true,
+        sessionId: 'session-one',
+        eventType: RUNTIME_EVENT_TYPES.JOB_COMPLETED,
+      }),
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
+    listener.mockClear();
+
+    first.emit('notification', {
+      channel: 'myclaw_runtime_events',
+      payload: JSON.stringify({
+        eventId: 4,
+        appId: 'app-one',
+        complete: false,
         eventType: RUNTIME_EVENT_TYPES.JOB_COMPLETED,
       }),
     });

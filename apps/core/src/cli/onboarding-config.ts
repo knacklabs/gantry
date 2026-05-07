@@ -125,6 +125,7 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
         input.memoryEnabled && input.embeddingsEnabled ? 'openai' : 'disabled',
     },
     dreaming: {
+      ...settings.memory.dreaming,
       enabled: input.memoryEnabled && input.dreamingEnabled,
     },
   };

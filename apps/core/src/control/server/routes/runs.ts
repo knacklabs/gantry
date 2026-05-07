@@ -1,9 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import type { Job } from '../../../domain/types.js';
+import { getRuntimeControlRepository } from '../../../adapters/storage/postgres/runtime-store.js';
 import { getRuntimeRepositories } from '../../../adapters/storage/postgres/runtime-store.js';
 import { getRuntimeEventExchange } from '../../../adapters/storage/postgres/runtime-store.js';
-import { jobBelongsToApp } from '../app-identity.js';
+import { resolveJobAppSession } from '../app-identity.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
@@ -24,19 +24,28 @@ export async function handleRunRoutes(
     if (!auth) return true;
     const jobId = url.searchParams.get('jobId') || undefined;
     const ops = getRuntimeRepositories();
-    const runs = await ops.listJobRuns(jobId, 100);
-    const jobs = jobId ? [await ops.getJobById(jobId)] : await ops.getAllJobs();
-    const visibleJobIds = new Set(
-      jobs
-        .filter((job): job is Job => Boolean(job))
-        .filter((job) => jobBelongsToApp(job, auth.appId))
-        .map((job) => job.id),
-    );
-    const visibleRuns = [];
-    for (const run of runs) {
-      if (visibleJobIds.has(run.job_id)) visibleRuns.push(run);
+    const control = getRuntimeControlRepository();
+    if (jobId) {
+      const job = await ops.getJobById(jobId);
+      const session = job
+        ? await resolveJobAppSession(control, job, auth.appId)
+        : undefined;
+      if (!job || session?.appId !== auth.appId) {
+        sendJson(res, 200, { runs: [] });
+        return true;
+      }
+      const runs = await ops.listJobRuns(jobId, 100);
+      sendJson(res, 200, { runs });
+      return true;
     }
-    sendJson(res, 200, { runs: visibleRuns });
+    const runs = await ops.listJobRuns(undefined, 100, {
+      ownerAppId: auth.appId,
+    });
+    if (runs.length === 0) {
+      sendJson(res, 200, { runs: [] });
+      return true;
+    }
+    sendJson(res, 200, { runs });
     return true;
   }
 
@@ -51,7 +60,11 @@ export async function handleRunRoutes(
       return true;
     }
     const job = await ops.getJobById(run.job_id);
-    if (!job || !jobBelongsToApp(job, auth.appId)) {
+    const control = getRuntimeControlRepository();
+    const session = job
+      ? await resolveJobAppSession(control, job, auth.appId)
+      : undefined;
+    if (!job || session?.appId !== auth.appId) {
       sendError(res, 403, 'FORBIDDEN', 'API key cannot access this run');
       return true;
     }
@@ -78,7 +91,11 @@ export async function handleRunRoutes(
       return true;
     }
     const job = await getRuntimeRepositories().getJobById(run.job_id);
-    if (!job || !jobBelongsToApp(job, auth.appId)) {
+    const control = getRuntimeControlRepository();
+    const session = job
+      ? await resolveJobAppSession(control, job, auth.appId)
+      : undefined;
+    if (!job || session?.appId !== auth.appId) {
       sendError(res, 403, 'FORBIDDEN', 'API key cannot access this run');
       return true;
     }

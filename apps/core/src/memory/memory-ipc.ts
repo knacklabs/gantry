@@ -3,6 +3,10 @@ import path from 'path';
 import { MemoryIpcRequest, MemoryIpcResponse } from '@myclaw/contracts';
 
 import { signIpcResponsePayload } from '../infrastructure/ipc/response-signing.js';
+import {
+  ensurePrivateDirSync,
+  writePrivateFileSync,
+} from '../shared/private-fs.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { isPlainObject } from '../shared/object.js';
 import { resolveGroupIpcPath } from '../platform/group-folder.js';
@@ -470,7 +474,7 @@ export function writeMemoryResponse(
   assertValidRequestId(requestId);
   const ipcDir = resolveGroupIpcPath(groupFolder);
   const responsesDir = path.join(ipcDir, 'memory-responses');
-  fs.mkdirSync(responsesDir, { recursive: true });
+  ensurePrivateDirSync(responsesDir);
 
   const filePath = path.join(responsesDir, `${requestId}.json`);
   const tmpPath = `${filePath}.tmp`;
@@ -485,6 +489,6 @@ export function writeMemoryResponse(
   if (signature) {
     payload.signature = signature;
   }
-  fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2));
+  writePrivateFileSync(tmpPath, JSON.stringify(payload, null, 2));
   fs.renameSync(tmpPath, filePath);
 }

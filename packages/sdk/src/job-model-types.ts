@@ -10,6 +10,13 @@ export type JobStatus =
   | 'archived';
 export type JobStaleness = 'missed_window';
 
+export interface JobToolAccess {
+  inheritedAgentTools: string[];
+  jobExtraTools: string[];
+  effectiveAllowedTools: string[];
+  source: string;
+}
+
 export interface JobRecord {
   jobId: string;
   name: string;
@@ -40,12 +47,7 @@ export interface JobRecord {
     conversationJids: string[];
     threadId: string | null;
   };
-  inheritedTools?: string[];
-  jobExtraTools?: string[];
-  effectiveAllowedTools?: string[];
-  inheritedToolCount?: number;
-  jobExtraToolCount?: number;
-  effectiveAllowedToolCount?: number;
+  toolAccess: JobToolAccess;
   recentRunErrors?: Array<{
     runId: string;
     status: string;

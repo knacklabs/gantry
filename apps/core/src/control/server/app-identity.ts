@@ -5,8 +5,7 @@ import type { JobVisibilityMetadata } from '../../application/jobs/job-visibilit
 import type { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import { nowIso as runtimeNowIso } from '../../infrastructure/time/datetime.js';
 import { resolveAppScopeAppId as applicationResolveAppScopeAppId } from '../../application/app-scope/resolve-app-scope.js';
-import { jobBelongsToApp as applicationJobBelongsToApp } from '../../application/jobs/job-access.js';
-import { resolveJobRuntimeAppId as applicationResolveJobRuntimeAppId } from '../../application/jobs/job-access.js';
+import type { AppSessionRecord as JobAppSessionRecord } from '../../application/jobs/job-management-types.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
 import { resolveModelSelection } from '../../shared/model-catalog.js';
 import type { ApiKeyRecord } from './auth.js';
@@ -70,27 +69,46 @@ export function resolveAppScopeAppId(
   });
 }
 
-export function jobBelongsToApp(job: Job, appId: string): boolean {
-  return applicationJobBelongsToApp(job, appId);
-}
-
-export function resolveJobRuntimeAppId(job: Job): string {
-  return applicationResolveJobRuntimeAppId(job);
-}
-
 export async function resolveJobAppSession(
   control: ReturnType<typeof getRuntimeControlRepository>,
   job: Job,
   appId: string,
 ) {
-  for (const chatJid of Array.isArray(job.linked_sessions)
-    ? job.linked_sessions
-    : []) {
-    if (!chatJid.startsWith(`app:${appId}:`)) continue;
-    const session = await control.getAppSessionByChatJid(chatJid);
-    if (session?.appId === appId) return session;
-  }
-  return undefined;
+  if (!job.session_id) return undefined;
+  const session = await control.getAppSessionById(job.session_id);
+  if (session?.appId !== appId) return undefined;
+  return {
+    sessionId: session.sessionId,
+    appId: session.appId,
+    conversationJid: session.chatJid,
+    workspaceKey: session.workspaceKey,
+    defaultResponseMode: session.defaultResponseMode,
+    defaultWebhookId: session.defaultWebhookId,
+  } satisfies JobAppSessionRecord;
+}
+
+export async function filterJobsByAppSession(
+  control: ReturnType<typeof getRuntimeControlRepository>,
+  jobs: readonly Job[],
+  appId: string,
+): Promise<Job[]> {
+  const sessionIds = Array.from(
+    new Set(
+      jobs
+        .map((job) => job.session_id?.trim())
+        .filter((sessionId): sessionId is string => Boolean(sessionId)),
+    ),
+  );
+  if (sessionIds.length === 0) return [];
+  const sessions = await control.getAppSessionsByIds(sessionIds);
+  const allowedSessionIds = new Set(
+    sessions
+      .filter((session) => session.appId === appId)
+      .map((session) => session.sessionId),
+  );
+  return jobs.filter((job) =>
+    job.session_id ? allowedSessionIds.has(job.session_id) : false,
+  );
 }
 
 export function encodeTriggerRequester(input: {
@@ -123,7 +141,7 @@ export async function resolveOwnedWebhookId(
 
 export function mapManualJobToStored(
   job: Job,
-  metadata?: JobVisibilityMetadata,
+  metadata: JobVisibilityMetadata,
   options: { detail?: boolean } = { detail: true },
 ): Record<string, unknown> {
   const isManual = job.schedule_type === 'manual';
@@ -133,8 +151,8 @@ export function mapManualJobToStored(
     jobId: job.id,
     name: job.name,
     ...(detail ? { prompt: job.prompt } : {}),
-    promptPreview: metadata?.promptPreview ?? previewPrompt(job.prompt),
-    ...(detail ? { fullPrompt: metadata?.fullPrompt ?? job.prompt } : {}),
+    promptPreview: metadata.promptPreview,
+    ...(detail ? { fullPrompt: metadata.fullPrompt ?? job.prompt } : {}),
     kind: isManual
       ? 'manual'
       : job.schedule_type === 'once'
@@ -152,7 +170,7 @@ export function mapManualJobToStored(
     linkedSessions: job.linked_sessions,
     nextRun: job.next_run,
     lastRun: job.last_run,
-    staleness: metadata?.staleness ?? null,
+    staleness: metadata.staleness,
     executionMode: job.execution_mode,
     modelAlias: job.model ?? null,
     modelProfileId: resolvedModel.ok ? resolvedModel.entry.id : null,
@@ -169,48 +187,13 @@ export function mapManualJobToStored(
     threadId: job.thread_id,
     groupScope: job.group_scope,
     sessionId: job.session_id,
-    target: metadata?.target ?? {
-      appId: resolveJobRuntimeAppId(job),
-      agentId: job.group_scope.startsWith('agent:')
-        ? job.group_scope
-        : `agent:${job.group_scope}`,
-      groupScope: job.group_scope,
-      conversationJids: job.linked_sessions,
-      threadId: job.thread_id,
-    },
-    notificationTarget: metadata?.notificationTarget ?? {
-      linkedSessions: job.linked_sessions,
-      threadId: job.thread_id,
-      silent: job.silent,
-    },
+    target: metadata.target,
+    notificationTarget: metadata.notificationTarget,
+    toolAccess: metadata.toolAccess,
     ...(detail
       ? {
-          inheritedTools: metadata?.inheritedTools ?? [],
-          jobExtraTools:
-            metadata?.jobExtraTools ??
-            job.capability_policy?.allowed_tools ??
-            [],
-          effectiveAllowedTools:
-            metadata?.effectiveAllowedTools ??
-            job.capability_policy?.allowed_tools ??
-            [],
-          recentRunErrors: metadata?.recentRunErrors ?? [],
+          recentRunErrors: metadata.recentRunErrors,
         }
-      : {
-          inheritedToolCount: metadata?.inheritedToolCount ?? 0,
-          jobExtraToolCount:
-            metadata?.jobExtraToolCount ??
-            job.capability_policy?.allowed_tools?.length ??
-            0,
-          effectiveAllowedToolCount:
-            metadata?.effectiveAllowedToolCount ??
-            job.capability_policy?.allowed_tools?.length ??
-            0,
-        }),
+      : {}),
   };
-}
-
-function previewPrompt(prompt: string): string {
-  const compact = prompt.replace(/\s+/g, ' ').trim();
-  return compact.length > 160 ? `${compact.slice(0, 157)}...` : compact;
 }

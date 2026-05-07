@@ -6,6 +6,7 @@ import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js'
 
 class FakeDrizzleDb {
   readonly operations: string[] = [];
+  insertedRuntimeEvent: Record<string, unknown> | null = null;
   failDeliveryInsert = false;
 
   async transaction<T>(fn: (tx: this) => Promise<T>): Promise<T> {
@@ -26,6 +27,7 @@ class FakeDrizzleDb {
       values(value: Record<string, unknown>) {
         if (table === pgSchema.runtimeEventsPostgres) {
           db.operations.push('insert:runtime_events');
+          db.insertedRuntimeEvent = value;
           return {
             async returning() {
               return [
@@ -148,5 +150,46 @@ describe('PostgresRuntimeEventRepository', () => {
       'insert:webhook_delivery',
       'transaction:rollback',
     ]);
+  });
+
+  it('rejects blank runtime event app ids before inserting', async () => {
+    const db = new FakeDrizzleDb();
+    const repository = createRepository(db);
+
+    await expect(
+      repository.appendRuntimeEvent({
+        appId: '' as never,
+        eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+        actor: 'agent',
+        payload: { text: 'done' },
+      }),
+    ).rejects.toThrow('Runtime event appId is required.');
+
+    expect(db.operations).toEqual([
+      'transaction:begin',
+      'transaction:rollback',
+    ]);
+  });
+
+  it('normalizes blank optional runtime event ids to null', async () => {
+    const db = new FakeDrizzleDb();
+    const repository = createRepository(db);
+
+    await repository.appendRuntimeEvent({
+      appId: 'app:test' as never,
+      agentId: '' as never,
+      sessionId: ' ' as never,
+      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+      actor: 'agent',
+      payload: { text: 'done' },
+    });
+
+    expect(db.insertedRuntimeEvent).toEqual(
+      expect.objectContaining({
+        appId: 'app:test',
+        agentId: null,
+        sessionId: null,
+      }),
+    );
   });
 });

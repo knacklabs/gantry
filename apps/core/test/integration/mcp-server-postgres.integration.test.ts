@@ -90,7 +90,9 @@ describe.runIf(hasPostgresIntegrationDatabase)(
             headers: { Authorization: 'broker-safe-linear-token' },
           },
           allowedToolNames: ['mcp__linear__search_issues'],
+          allowedToolPatterns: ['search_issues'],
           autoApproveToolNames: ['mcp__linear__search_issues'],
+          autoApproveToolPatterns: ['search_issues'],
           required: false,
         },
       ]);

@@ -190,6 +190,27 @@
       "when": 1777079400000,
       "tag": "0026_agent_runs_job_started_index",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1777083000000,
+      "tag": "0027_jobs_target_session_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1777086600000,
+      "tag": "0028_skill_catalog_owner_scoped_uniqueness",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1777090200000,
+      "tag": "0029_remove_unsupported_claude_builtins",
+      "breakpoints": true
     }
   ]
 }

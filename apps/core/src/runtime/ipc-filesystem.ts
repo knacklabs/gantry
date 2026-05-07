@@ -1,8 +1,13 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 
 import { nowIso, nowMs } from '../infrastructure/time/datetime.js';
 import { logger } from '../infrastructure/logging/logger.js';
+import {
+  ensurePrivateDirSync,
+  writePrivateFileSync,
+} from '../shared/private-fs.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import { IPC_GROUP_SUBDIRS } from './agent-spawn-layout.js';
 
@@ -25,8 +30,9 @@ export function ensureGroupIpcLayout(
   groupFolder: string,
 ): void {
   const groupDir = path.join(ipcBaseDir, groupFolder);
+  ensurePrivateDirSync(groupDir);
   for (const subdir of IPC_GROUP_SUBDIRS) {
-    fs.mkdirSync(path.join(groupDir, subdir), { recursive: true });
+    ensurePrivateDirSync(path.join(groupDir, subdir));
   }
 }
 
@@ -49,7 +55,7 @@ export function claimIpcFile(filePath: string): string {
   }
   const claimed = path.join(
     path.dirname(filePath),
-    `.processing-${process.pid}-${nowMs()}-${Math.random().toString(36).slice(2, 8)}-${path.basename(filePath)}`,
+    `.processing-${process.pid}-${nowMs()}-${randomUUID()}-${path.basename(filePath)}`,
   );
   fs.renameSync(filePath, claimed);
   return claimed;
@@ -66,7 +72,7 @@ export function archiveIpcErrorFile(
   claimedPath: string,
 ): void {
   const errorDir = path.join(ipcBaseDir, 'errors');
-  fs.mkdirSync(errorDir, { recursive: true });
+  ensurePrivateDirSync(errorDir);
   try {
     fs.renameSync(
       claimedPath,
@@ -148,7 +154,7 @@ export function recoverStaleIpcRootLock(
 
 export function acquireIpcRootLock(ipcBaseDir: string): string {
   const lockPath = path.join(ipcBaseDir, '.lock');
-  fs.writeFileSync(
+  writePrivateFileSync(
     lockPath,
     JSON.stringify({
       pid: process.pid,

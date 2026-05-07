@@ -142,6 +142,7 @@ const controlRepo = {
   deleteWebhook: vi.fn(async () => undefined),
   getWebhookById: vi.fn(async () => null),
   getAppSessionById: vi.fn(async () => null),
+  getAppSessionsByIds: vi.fn(async () => []),
   upsertAppResponseRoute: vi.fn(async () => undefined),
   replayWebhookDeadLetters: vi.fn(async () => 0),
   purgeWebhookDeadLetters: vi.fn(async () => 0),
@@ -203,6 +204,8 @@ const opsRepo = {
   storeMessage: vi.fn(async () => undefined),
   getJobRunById: vi.fn(async () => undefined),
   getJobById: vi.fn(async () => undefined),
+  listJobs: vi.fn(async () => []),
+  listJobRuns: vi.fn(async () => []),
 };
 const runtimeEvents = {
   publish: vi.fn(async () => ({ eventId: 1001 })),
@@ -427,6 +430,7 @@ beforeEach(() => {
   controlRepo.listWebhooks.mockResolvedValue([]);
   controlRepo.getWebhookById.mockResolvedValue(null);
   controlRepo.getAppSessionById.mockResolvedValue(null);
+  controlRepo.getAppSessionsByIds.mockResolvedValue([]);
   runtimeEvents.publish.mockResolvedValue({ eventId: 1001 });
   controlRepo.upsertAppResponseRoute.mockResolvedValue(undefined);
   controlRepo.replayWebhookDeadLetters.mockResolvedValue(0);
@@ -487,6 +491,8 @@ beforeEach(() => {
   opsRepo.storeMessage.mockResolvedValue(undefined);
   opsRepo.getJobRunById.mockResolvedValue(undefined);
   opsRepo.getJobById.mockResolvedValue(undefined);
+  opsRepo.listJobs.mockResolvedValue([]);
+  opsRepo.listJobRuns.mockResolvedValue([]);
   runtimeEvents.list.mockResolvedValue([]);
   runtimeEvents.subscribe.mockReset();
   domainRepositories.agents.getAgent.mockResolvedValue({
@@ -602,6 +608,37 @@ describe('control server auth key parsing', () => {
     expect(parseControlApiKeysFromEnv()).toEqual([]);
   });
 
+  it('fails strict parsing when MYCLAW_CONTROL_API_KEYS_JSON is malformed', () => {
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = '{"kid":"broken"';
+
+    expect(() =>
+      _testControlServer.parseControlApiKeysStrict({
+        rawJson: process.env.MYCLAW_CONTROL_API_KEYS_JSON,
+        rawSingle: process.env.MYCLAW_CONTROL_API_KEY,
+        singleAppId: process.env.MYCLAW_CONTROL_APP_ID,
+      }),
+    ).toThrow('MYCLAW_CONTROL_API_KEYS_JSON must be valid JSON');
+  });
+
+  it('fails strict parsing when a configured key has invalid scope data', () => {
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-bad-scope',
+        appId: 'app-one',
+        scopes: ['jobs:write', 'invalid:scope'],
+      },
+    ]);
+
+    expect(() =>
+      _testControlServer.parseControlApiKeysStrict({
+        rawJson: process.env.MYCLAW_CONTROL_API_KEYS_JSON,
+        rawSingle: process.env.MYCLAW_CONTROL_API_KEY,
+        singleAppId: process.env.MYCLAW_CONTROL_APP_ID,
+      }),
+    ).toThrow('unsupported scope invalid:scope');
+  });
+
   it('filters out JSON keys that are not app-bound', () => {
     process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
       {
@@ -641,6 +678,18 @@ describe('control server auth key parsing', () => {
     const keys = parseControlApiKeysFromEnv();
     expect(keys).toHaveLength(1);
     expect(keys[0]?.appId).toBe('app-two');
+  });
+
+  it('fails strict parsing when single-token auth omits app id', () => {
+    process.env.MYCLAW_CONTROL_API_KEY = 'single-token';
+
+    expect(() =>
+      _testControlServer.parseControlApiKeysStrict({
+        rawJson: process.env.MYCLAW_CONTROL_API_KEYS_JSON,
+        rawSingle: process.env.MYCLAW_CONTROL_API_KEY,
+        singleAppId: process.env.MYCLAW_CONTROL_APP_ID,
+      }),
+    ).toThrow('MYCLAW_CONTROL_APP_ID is required');
   });
 
   it('enforces strict app access matching', () => {
@@ -683,28 +732,6 @@ describe('control server auth key parsing', () => {
     expect(_testControlServer.isPrivateAddress('2606:4700:4700::1111')).toBe(
       false,
     );
-  });
-
-  it('does not authorize jobs by ambiguous app id prefix', () => {
-    const job = {
-      linked_sessions: ['app:foo:bar:conv'],
-    } as any;
-
-    expect(_testControlServer.jobBelongsToApp(job, 'foo')).toBe(false);
-    expect(_testControlServer.jobBelongsToApp(job, 'foo:bar')).toBe(false);
-    expect(_testControlServer.jobBelongsToApp(job, 'fo')).toBe(false);
-    expect(
-      _testControlServer.jobBelongsToApp(
-        { linked_sessions: ['app:foo:conv'] } as any,
-        'foo',
-      ),
-    ).toBe(true);
-    expect(
-      _testControlServer.jobBelongsToApp(
-        { linked_sessions: ['app:foo:conv', 'app:bar:conv'] } as any,
-        'foo',
-      ),
-    ).toBe(false);
   });
 
   it('keeps app group folders collision-resistant for distinct valid ids', () => {
@@ -787,7 +814,7 @@ describe('control server runtime hardening', () => {
         `http://127.0.0.1:${port}/v1/settings`,
         'read-key',
       );
-      expect(readOnlyResponse.status).toBe(401);
+      expect(readOnlyResponse.status).toBe(403);
 
       const getResponse = await requestWithRetry(
         `http://127.0.0.1:${port}/v1/settings`,
@@ -978,21 +1005,14 @@ describe('control server runtime hardening', () => {
       },
     ]);
 
-    const handle = startControlServer({
-      app: {
-        registerGroup: vi.fn(),
-        queue: { enqueueMessageCheck: vi.fn() },
-      } as any,
-    });
-    try {
-      const response = await requestWithRetry(
-        `http://127.0.0.1:${port}/v1/health`,
-        'bad-key',
-      );
-      expect(response.status).toBe(401);
-    } finally {
-      await handle.close();
-    }
+    expect(() =>
+      startControlServer({
+        app: {
+          registerGroup: vi.fn(),
+          queue: { enqueueMessageCheck: vi.fn() },
+        } as any,
+      }),
+    ).toThrow('appId must be a valid control id');
   });
 
   it('sets unix socket mode to 0600', async () => {
@@ -1044,6 +1064,18 @@ describe('control server runtime hardening', () => {
     chmod.mockRestore();
   });
 
+  it('fails startup when control key config is malformed', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = '{"kid":"broken"';
+
+    expect(() =>
+      startControlServer({
+        app: { queue: { enqueueMessageCheck: vi.fn() } } as any,
+      }),
+    ).toThrow('MYCLAW_CONTROL_API_KEYS_JSON must be valid JSON');
+  });
+
   it('blocks session ensure for mismatched app access', async () => {
     const port = await reservePort();
     process.env.MYCLAW_CONTROL_PORT = String(port);
@@ -1075,6 +1107,49 @@ describe('control server runtime hardening', () => {
         },
       );
       expect(response.status).toBe(403);
+      expect(app.registerGroup).not.toHaveBeenCalled();
+      expect(controlRepo.ensureAppSession).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('returns forbidden when an otherwise valid key lacks required scope', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-read-only',
+        scopes: ['sessions:read'],
+        appId: 'app-one',
+      },
+    ]);
+    const app = {
+      registerGroup: vi.fn(),
+      queue: { enqueueMessageCheck: vi.fn() },
+    };
+    const handle = startControlServer({ app: app as any });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/sessions/ensure`,
+        'token-read-only',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            appId: 'app-one',
+            conversationId: 'conv-1',
+          }),
+        },
+      );
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({
+        error: {
+          code: 'FORBIDDEN',
+        },
+      });
       expect(app.registerGroup).not.toHaveBeenCalled();
       expect(controlRepo.ensureAppSession).not.toHaveBeenCalled();
     } finally {
@@ -1523,7 +1598,7 @@ describe('control server runtime hardening', () => {
         `http://127.0.0.1:${port}/v1/providers`,
         'sessions-only-token',
       );
-      expect(response.status).toBe(401);
+      expect(response.status).toBe(403);
     } finally {
       await handle.close();
     }
@@ -2384,7 +2459,7 @@ describe('control server runtime hardening', () => {
           'insufficient-scope-token',
           init,
         );
-        expect(response.status).toBe(401);
+        expect(response.status).toBe(403);
       } finally {
         await handle.close();
       }
@@ -3559,6 +3634,19 @@ describe('control server runtime hardening', () => {
       retry_count: 0,
       notified_at: null,
     });
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      groupFolder: 'app_app_one_conv_1',
+      workspaceKey: 'app_app_one_conv_1',
+      title: null,
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    });
     opsRepo.getJobById.mockResolvedValue({
       id: 'job-1',
       name: 'Job',
@@ -3569,7 +3657,7 @@ describe('control server runtime hardening', () => {
       schedule_value: 'manual',
       status: 'active',
       linked_sessions: ['app:app-one:conv-1'],
-      session_id: null,
+      session_id: 'session-1',
       thread_id: null,
       group_scope: 'app_app_one_conv_1',
       created_by: 'human',
@@ -3637,6 +3725,95 @@ describe('control server runtime hardening', () => {
           runId: 'run-1',
         }),
       );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('lists app runs only after resolving visible canonical jobs', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-runs-list',
+        scopes: ['jobs:read'],
+        appId: 'app-one',
+      },
+    ]);
+    const job = {
+      id: 'job-1',
+      name: 'Job',
+      prompt: 'Run this',
+      model: null,
+      script: null,
+      schedule_type: 'manual',
+      schedule_value: 'manual',
+      status: 'active',
+      linked_sessions: ['app:app-one:conv-1'],
+      session_id: 'session-1',
+      thread_id: null,
+      group_scope: 'app_app_one_conv_1',
+      created_by: 'human',
+      created_at: new Date(0).toISOString(),
+      updated_at: new Date(0).toISOString(),
+      next_run: null,
+      last_run: null,
+      execution_mode: 'parallel',
+      lease_run_id: null,
+      lease_expires_at: null,
+      consecutive_failures: 0,
+      max_retries: 3,
+      retry_backoff_ms: 1000,
+    };
+    opsRepo.listJobs.mockResolvedValue([job]);
+    controlRepo.getAppSessionsByIds.mockResolvedValue([
+      {
+        sessionId: 'session-1',
+        appId: 'app-one',
+        conversationId: 'conv-1',
+        chatJid: 'app:app-one:conv-1',
+        groupFolder: 'app_app_one_conv_1',
+        workspaceKey: 'app_app_one_conv_1',
+        title: null,
+        defaultResponseMode: 'sse',
+        defaultWebhookId: null,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+      },
+    ]);
+    opsRepo.listJobRuns.mockResolvedValue([
+      {
+        run_id: 'run-1',
+        job_id: 'job-1',
+        scheduled_for: '2026-04-24T00:00:00.000Z',
+        started_at: '2026-04-24T00:00:00.000Z',
+        ended_at: null,
+        status: 'running',
+        result_summary: null,
+        error_summary: null,
+        retry_count: 0,
+        notified_at: null,
+      },
+    ]);
+    const handle = startControlServer({
+      app: { registerGroup: vi.fn(), queue: { enqueueMessageCheck: vi.fn() } },
+    } as any);
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/runs`,
+        'token-runs-list',
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        runs: [{ run_id: 'run-1', job_id: 'job-1' }],
+      });
+      expect(opsRepo.listJobs).not.toHaveBeenCalled();
+      expect(opsRepo.listJobRuns).toHaveBeenCalledWith(undefined, 100, {
+        ownerAppId: 'app-one',
+      });
     } finally {
       await handle.close();
     }

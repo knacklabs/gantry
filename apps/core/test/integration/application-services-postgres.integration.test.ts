@@ -219,6 +219,73 @@ maybeDescribe('application services with Postgres repositories', () => {
     });
   });
 
+  it('allows identical skill content in separate admin and agent ownership scopes', async () => {
+    const agentId = 'agent:skill-owner' as AgentId;
+    await runtime.repositories.agents.saveAgent({
+      id: agentId,
+      appId,
+      name: 'Skill Owner',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    const baseSkill = {
+      appId,
+      name: 'Shared Bundle',
+      description: 'Same bundle in separate owner scopes',
+      version: 'same-hash',
+      status: 'draft' as const,
+      promptRefs: [],
+      toolIds: [],
+      workflowRefs: [],
+      storage: {
+        storageType: 'local-filesystem' as const,
+        storageRef: 'skills/shared-bundle',
+        contentHash: 'sha256:shared-skill-bundle',
+        sizeBytes: 123,
+      },
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await runtime.repositories.skills.saveSkill({
+      ...baseSkill,
+      id: 'skill:agent-owned-duplicate' as never,
+      agentId,
+      source: 'agent_created',
+      createdBy: agentId,
+    });
+    await runtime.repositories.skills.saveSkill({
+      ...baseSkill,
+      id: 'skill:admin-owned-duplicate' as never,
+      source: 'admin_uploaded',
+      createdBy: 'admin-user',
+    });
+
+    await expect(
+      runtime.repositories.skills.getSkillByContentHash?.({
+        appId,
+        agentId,
+        contentHash: 'sha256:shared-skill-bundle',
+        statuses: ['draft'],
+      }),
+    ).resolves.toMatchObject({
+      id: 'skill:agent-owned-duplicate',
+      agentId,
+    });
+    await expect(
+      runtime.repositories.skills.getSkillByContentHash?.({
+        appId,
+        agentId: null,
+        contentHash: 'sha256:shared-skill-bundle',
+        statuses: ['draft'],
+      }),
+    ).resolves.toMatchObject({
+      id: 'skill:admin-owned-duplicate',
+      agentId: undefined,
+    });
+  });
+
   it('keeps memory writes isolated by agent and updates existing memory ids idempotently', async () => {
     const createAgent = new CreateAgentUseCase({
       agents: runtime.repositories.agents,

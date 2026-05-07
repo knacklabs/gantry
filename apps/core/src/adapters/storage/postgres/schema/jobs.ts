@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   index,
@@ -71,6 +72,11 @@ export const canonicalJobsPostgres = pgTable(
       table.appId,
       table.status,
       table.nextRunAt,
+    ),
+    targetSessionUpdatedIdx: index('idx_jobs_target_session_updated').on(
+      sql`(${table.targetJson}::jsonb ->> 'sessionId')`,
+      table.updatedAt.desc(),
+      table.createdAt.desc(),
     ),
   }),
 );

@@ -11,6 +11,7 @@ import { validateOnecliUrl } from '../../adapters/credentials/onecli/policy.js';
 import { validateExternalBrokerUrl } from '../credentials/broker-url-policy.js';
 import { validateRuntimeEnvPolicy } from '../source-classification.js';
 import { resolveModelSelection } from '../../shared/model-catalog.js';
+import { validateReadableAgentToolRule } from '../../shared/agent-tool-references.js';
 import { envFilePath, settingsFilePath } from './runtime-home.js';
 import type {
   RuntimeSettings,
@@ -68,7 +69,7 @@ export function validateLoadedRuntimeSettings(
   }
   const postgresUrlEnv = settings.storage.postgres.urlEnv;
   const postgresUrl =
-    env[postgresUrlEnv]?.trim() || process.env[postgresUrlEnv]?.trim() || '';
+    process.env[postgresUrlEnv]?.trim() || env[postgresUrlEnv]?.trim() || '';
   if (!postgresUrl) {
     details.push(`${postgresUrlEnv} is required for runtime storage.`);
   } else {
@@ -84,8 +85,8 @@ export function validateLoadedRuntimeSettings(
 
   const onecliDatabaseUrlEnv = settings.credentialBroker.onecli.postgres.urlEnv;
   const onecliDatabaseUrl =
-    env[onecliDatabaseUrlEnv]?.trim() ||
     process.env[onecliDatabaseUrlEnv]?.trim() ||
+    env[onecliDatabaseUrlEnv]?.trim() ||
     '';
   if (!onecliDatabaseUrl && credentialMode === 'onecli') {
     details.push(
@@ -129,8 +130,8 @@ export function validateLoadedRuntimeSettings(
     }
   }
   const onecliSecret =
-    env[ONECLI_SECRET_ENCRYPTION_KEY_ENV]?.trim() ||
-    process.env[ONECLI_SECRET_ENCRYPTION_KEY_ENV]?.trim();
+    process.env[ONECLI_SECRET_ENCRYPTION_KEY_ENV]?.trim() ||
+    env[ONECLI_SECRET_ENCRYPTION_KEY_ENV]?.trim();
   if (credentialMode === 'onecli') {
     const secretValidation = validateOnecliSecretEncryptionKey(onecliSecret);
     if (!secretValidation.ok) {
@@ -224,6 +225,17 @@ export function validateLoadedRuntimeSettings(
       details.push(
         `conversations.${conversationId}.control_approvers must include at least one conversation approver.`,
       );
+    }
+  }
+
+  for (const [agentId, agent] of Object.entries(settings.agents)) {
+    for (const toolRule of agent.capabilities.toolIds) {
+      const validation = validateReadableAgentToolRule(toolRule);
+      if (!validation.ok) {
+        details.push(
+          `agents.${agentId}.tools contains invalid tool rule "${toolRule}": ${validation.reason}`,
+        );
+      }
     }
   }
 

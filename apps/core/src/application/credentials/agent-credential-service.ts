@@ -1,5 +1,6 @@
 import type {
   AgentCredentialPurpose,
+  AgentCredentialBrokerBinding,
   AgentCredentialInjection,
   CredentialBrokerProfile,
 } from '../../domain/models/credentials.js';
@@ -29,6 +30,43 @@ export type AgentCredentialInjectionInput =
       agentIdentifier?: string;
     };
 
+function brokerBindingFor(input: {
+  mode: CredentialBrokerProfile;
+  purpose?: AgentCredentialPurpose;
+  agentIdentifier?: string;
+}): AgentCredentialBrokerBinding {
+  const purpose = input.purpose ?? 'model_runtime';
+  return {
+    profile: input.mode,
+    purpose,
+    ...(purpose === 'tool_capability'
+      ? { agentIdentifier: input.agentIdentifier }
+      : {}),
+  };
+}
+
+function describeBrokerError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  const code =
+    err && typeof err === 'object' && 'code' in err
+      ? String((err as { code?: unknown }).code || '')
+      : '';
+  return [code, message].filter(Boolean).join(': ') || 'unknown error';
+}
+
+function recoveryHintFor(mode: CredentialBrokerProfile): string {
+  if (mode === 'onecli') {
+    return [
+      'Run `myclaw doctor` and `myclaw local doctor`.',
+      "If you use MyClaw's provided local stack, start or recover OneCLI from the directory containing its shipped stack file, or pass that stack file explicitly.",
+    ].join(' ');
+  }
+  if (mode === 'external') {
+    return 'Run `myclaw doctor` and verify credential_broker.external.base_url points at a reachable broker endpoint.';
+  }
+  return 'Run `myclaw doctor` and configure credential_broker in settings.yaml if this agent needs brokered credentials.';
+}
+
 export async function getAgentCredentialInjection(
   input: AgentCredentialInjectionInput,
 ): Promise<AgentCredentialInjection> {
@@ -57,28 +95,33 @@ export async function getAgentCredentialInjection(
   }
 
   try {
-    const purpose = input.purpose ?? 'model_runtime';
     return await broker.getInjection({
-      binding: {
-        profile: input.mode,
-        purpose,
-        ...(purpose === 'tool_capability'
-          ? { agentIdentifier: input.agentIdentifier }
-          : {}),
-      },
+      binding: brokerBindingFor(input),
     });
   } catch (err) {
     if (isCredentialBrokerBoundaryError(err)) {
       throw err;
     }
+    const purpose = input.purpose ?? 'model_runtime';
     const suffix =
-      (input.purpose ?? 'model_runtime') === 'model_runtime'
+      purpose === 'model_runtime'
         ? ` for ${MODEL_RUNTIME_CREDENTIAL_NAME}`
         : input.agentIdentifier
           ? ` for agent ${input.agentIdentifier}`
           : '';
+    const health = await broker
+      .healthCheck({ binding: brokerBindingFor(input) })
+      .catch(() => undefined);
+    const details = [
+      `Reason: ${describeBrokerError(err)}.`,
+      health && health.status !== 'pass'
+        ? `Broker health: ${health.message}`
+        : undefined,
+      health?.nextAction ? `Next action: ${health.nextAction}` : undefined,
+      `Recovery: ${recoveryHintFor(input.mode)}`,
+    ].filter(Boolean);
     throw new Error(
-      `Credential broker mode is enabled but the credential broker is not reachable${suffix}.`,
+      `Credential broker mode is enabled but the credential broker is not reachable${suffix}. ${details.join(' ')}`,
       { cause: err },
     );
   }
@@ -87,6 +130,20 @@ export async function getAgentCredentialInjection(
 export async function ensureModelCredentialBinding(input: {
   mode: CredentialBrokerProfile;
   broker?: AgentCredentialBroker;
+}): Promise<{ created?: boolean } | undefined> {
+  return ensureAgentCredentialBinding({
+    mode: input.mode,
+    broker: input.broker,
+    name: MODEL_RUNTIME_CREDENTIAL_NAME,
+    identifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+  });
+}
+
+export async function ensureAgentCredentialBinding(input: {
+  mode: CredentialBrokerProfile;
+  broker?: AgentCredentialBroker;
+  name: string;
+  identifier: string;
 }): Promise<{ created?: boolean } | undefined> {
   if (input.mode !== 'onecli') return undefined;
   const broker = input.broker;
@@ -104,7 +161,7 @@ export async function ensureModelCredentialBinding(input: {
       })
     | undefined;
   return bindable?.ensureAgent?.({
-    name: MODEL_RUNTIME_CREDENTIAL_NAME,
-    identifier: MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+    name: input.name,
+    identifier: input.identifier,
   });
 }

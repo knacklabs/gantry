@@ -7,6 +7,13 @@ import {
   adminMcpToolNameFromFullName,
   isMyClawMcpWildcardRule,
 } from '../shared/admin-mcp-tools.js';
+import {
+  DEFAULT_MYCLAW_MCP_TOOL_NAMES,
+  myclawMcpFullToolName,
+  myclawMcpToolNameFromFullName,
+  selectedMyClawMcpFullToolNames,
+  selectedMyClawMcpToolNames,
+} from './myclaw-mcp-tool-surface.js';
 
 export interface AgentCapabilityContext {
   mcpServerPath: string;
@@ -44,6 +51,8 @@ export type McpServerConfig =
 
 export interface AgentCapabilityProfile {
   allowedTools: readonly string[];
+  availableTools: readonly string[];
+  disallowedTools: readonly string[];
   mcpServers: Record<string, McpServerConfig>;
   permissionMode: 'default' | 'bypassPermissions';
   alwaysAllowedTools: readonly string[];
@@ -54,100 +63,104 @@ export interface AgentCapabilityProvider {
   provide: (ctx: AgentCapabilityContext) => Partial<AgentCapabilityProfile>;
 }
 
-const SAFE_NATIVE_ALLOWED_TOOLS = [
+const SAFE_NATIVE_SDK_TOOLS = [
   'Agent',
-  'Browser',
   'WebSearch',
   'WebFetch',
   'ToolSearch',
   'Skill',
 ] as const;
 
-const DEVELOPER_NATIVE_ALLOWED_TOOLS = [
-  'Read',
-  'Glob',
-  'Grep',
+const DEVELOPER_NATIVE_SDK_TOOLS = ['Read', 'Glob', 'Grep'] as const;
+const PERMISSION_GATED_NATIVE_SDK_TOOLS = [
+  'Bash',
+  'Edit',
+  'Write',
+  'LS',
+  'MultiEdit',
+  'NotebookEdit',
+] as const;
+const AVAILABLE_NATIVE_SDK_TOOLS = [
+  ...DEVELOPER_NATIVE_SDK_TOOLS,
+  ...PERMISSION_GATED_NATIVE_SDK_TOOLS,
+  ...SAFE_NATIVE_SDK_TOOLS,
+] as const;
+
+const CONFIGURABLE_NATIVE_SDK_TOOL_NAMES = new Set<string>([
+  ...AVAILABLE_NATIVE_SDK_TOOLS,
+]);
+
+export const UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS = [
+  'AskUserQuestion',
+  'SendMessage',
+  'CronCreate',
+  'CronDelete',
+  'RemoteTrigger',
+  'ScheduleWakeup',
+  'PushNotification',
+  'TeamCreate',
+  'TeamDelete',
   'TaskOutput',
   'TaskStop',
+  'EnterPlanMode',
+  'ExitPlanMode',
   'EnterWorktree',
   'ExitWorktree',
+  'Monitor',
+  'TodoWrite',
+  'ListMcpResources',
+  'ReadMcpResource',
 ] as const;
 
-const MYCLAW_MCP_ALLOWED_TOOLS = [
-  'mcp__myclaw__send_message',
-  'mcp__myclaw__ask_user_question',
-  'mcp__myclaw__memory_search',
-  'mcp__myclaw__memory_save',
-  'mcp__myclaw__procedure_save',
-  'mcp__myclaw__browser_launch',
-  'mcp__myclaw__browser_status',
-  'mcp__myclaw__request_skill_install',
-  'mcp__myclaw__request_skill_proposal',
-  'mcp__myclaw__request_skill_dependency_install',
-  'mcp__myclaw__request_mcp_server',
-  'mcp__myclaw__request_permission',
-  'mcp__myclaw__capability_status',
-  'mcp__myclaw__mcp_list_tools',
-  'mcp__myclaw__mcp_call_tool',
-] as const;
+const MYCLAW_MCP_ALLOWED_TOOLS = DEFAULT_MYCLAW_MCP_TOOL_NAMES.map(
+  myclawMcpFullToolName,
+);
 
 const DEFAULT_ALLOWED_TOOLS = [
-  ...SAFE_NATIVE_ALLOWED_TOOLS,
+  ...SAFE_NATIVE_SDK_TOOLS,
   ...MYCLAW_MCP_ALLOWED_TOOLS,
 ] as const;
 
-const ALWAYS_ALLOWED_TOOLS = ['EnterWorktree', 'ExitWorktree'] as const;
 const DIRECT_RUNTIME_MCP_SERVER_NAMES = new Set(['agent_browser']);
-const NON_DEVELOPER_BLOCKED_TOOL_NAMES = new Set([
-  'Bash',
-  'Read',
-  'Glob',
-  'Grep',
-  'LS',
-  'Write',
-  'Edit',
-  'MultiEdit',
-  'NotebookEdit',
-  'EnterWorktree',
-  'ExitWorktree',
-]);
-
 function sdkToolName(toolRule: string): string {
   const paren = toolRule.indexOf('(');
   return (paren === -1 ? toolRule : toolRule.slice(0, paren)).trim();
 }
 
-function configuredToolAllowedForPersona(
-  toolRule: string,
-  persona: AgentPersona,
-): boolean {
+function configuredToolAllowedForPersona(toolRule: string): boolean {
   if (isMyClawMcpWildcardRule(toolRule)) return false;
-  if (persona === 'developer') return true;
-  return !NON_DEVELOPER_BLOCKED_TOOL_NAMES.has(sdkToolName(toolRule));
+  const myclawMcpToolName = myclawMcpToolNameFromFullName(toolRule);
+  if (myclawMcpToolName) return true;
+  const toolName = sdkToolName(toolRule);
+  return CONFIGURABLE_NATIVE_SDK_TOOL_NAMES.has(toolName);
+}
+
+function configuredToolAvailableSdkName(toolRule: string): string | null {
+  if (myclawMcpToolNameFromFullName(toolRule)) return null;
+  const toolName = sdkToolName(toolRule);
+  return CONFIGURABLE_NATIVE_SDK_TOOL_NAMES.has(toolName) ? toolName : null;
 }
 
 const sdkToolsProvider: AgentCapabilityProvider = {
   id: 'sdk-tools',
   provide: (ctx) => {
     const persona = resolveAgentPersona(ctx.persona);
-    const personaTools =
-      persona === 'developer'
-        ? [...DEVELOPER_NATIVE_ALLOWED_TOOLS, ...DEFAULT_ALLOWED_TOOLS]
-        : DEFAULT_ALLOWED_TOOLS;
     return {
-      allowedTools: personaTools,
+      allowedTools:
+        persona === 'developer'
+          ? [...DEVELOPER_NATIVE_SDK_TOOLS, ...DEFAULT_ALLOWED_TOOLS]
+          : DEFAULT_ALLOWED_TOOLS,
+      availableTools: AVAILABLE_NATIVE_SDK_TOOLS,
+      disallowedTools: UNSUPPORTED_CLAUDE_CODE_BUILTIN_TOOLS,
     };
   },
 };
 
 const permissionProvider: AgentCapabilityProvider = {
   id: 'permissions',
-  provide: (ctx) => ({
+  provide: () => ({
     permissionMode: 'default',
-    alwaysAllowedTools:
-      resolveAgentPersona(ctx.persona) === 'developer'
-        ? ALWAYS_ALLOWED_TOOLS
-        : [],
+    alwaysAllowedTools: [],
   }),
 };
 
@@ -163,6 +176,12 @@ const myclawMcpProvider: AgentCapabilityProvider = {
       MYCLAW_BROWSER_PROFILE_NAME: ctx.browserProfileName || '',
       MYCLAW_ADMIN_MCP_TOOLS_JSON: JSON.stringify(
         selectedAdminMcpToolNames(ctx.configuredAllowedTools ?? []),
+      ),
+      MYCLAW_CONFIGURED_ALLOWED_TOOLS_JSON: JSON.stringify(
+        ctx.configuredAllowedTools ?? [],
+      ),
+      MYCLAW_MCP_TOOL_NAMES_JSON: JSON.stringify(
+        selectedMyClawMcpToolNames(ctx.configuredAllowedTools ?? []),
       ),
       ...(ctx.ipcDir ? { MYCLAW_IPC_DIR: ctx.ipcDir } : {}),
       ...(ctx.ipcAuthToken ? { MYCLAW_IPC_AUTH_TOKEN: ctx.ipcAuthToken } : {}),
@@ -228,11 +247,18 @@ const configuredMcpProvider: AgentCapabilityProvider = {
 const configuredToolProvider: AgentCapabilityProvider = {
   id: 'configured-tools',
   provide: (ctx) => {
-    const persona = resolveAgentPersona(ctx.persona);
+    const allowedTools = (ctx.configuredAllowedTools ?? []).filter((toolRule) =>
+      configuredToolAllowedForPersona(toolRule),
+    );
+    const availableTools = allowedTools
+      .map(configuredToolAvailableSdkName)
+      .filter((toolName): toolName is string => toolName !== null);
     return {
-      allowedTools: (ctx.configuredAllowedTools ?? []).filter((toolRule) =>
-        configuredToolAllowedForPersona(toolRule, persona),
+      allowedTools: mergeUnique(
+        allowedTools,
+        selectedMyClawMcpFullToolNames(ctx.configuredAllowedTools ?? []),
       ),
+      availableTools,
     };
   },
 };
@@ -260,6 +286,8 @@ export function composeAgentCapabilities(
   providers: readonly AgentCapabilityProvider[] = BUILTIN_AGENT_CAPABILITY_PROVIDERS,
 ): AgentCapabilityProfile {
   let allowedTools: readonly string[] = [];
+  let availableTools: readonly string[] = [];
+  let disallowedTools: readonly string[] = [];
   let mcpServers: AgentCapabilityProfile['mcpServers'] = {};
   let permissionMode: AgentCapabilityProfile['permissionMode'] = 'default';
   let alwaysAllowedTools: readonly string[] = [];
@@ -268,6 +296,12 @@ export function composeAgentCapabilities(
     const partial = provider.provide(ctx);
     if (partial.allowedTools) {
       allowedTools = mergeUnique(allowedTools, partial.allowedTools);
+    }
+    if (partial.availableTools) {
+      availableTools = mergeUnique(availableTools, partial.availableTools);
+    }
+    if (partial.disallowedTools) {
+      disallowedTools = mergeUnique(disallowedTools, partial.disallowedTools);
     }
     if (partial.mcpServers) {
       mcpServers = { ...mcpServers, ...partial.mcpServers };
@@ -285,6 +319,8 @@ export function composeAgentCapabilities(
 
   return {
     allowedTools,
+    availableTools,
+    disallowedTools,
     mcpServers,
     permissionMode,
     alwaysAllowedTools,

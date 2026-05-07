@@ -59,8 +59,12 @@ export const agentRunsPostgres = pgTable(
   (table) => ({
     jobStartedIdx: index('idx_agent_runs_job_started').on(
       table.jobId,
-      table.startedAt,
-      table.createdAt,
+      table.startedAt.desc().nullsLast(),
+      table.createdAt.desc(),
+    ),
+    startedCreatedIdx: index('idx_agent_runs_started_created').on(
+      table.startedAt.desc().nullsLast(),
+      table.createdAt.desc(),
     ),
   }),
 );

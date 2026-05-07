@@ -1,10 +1,5 @@
 import type { ToolCatalogRepository } from '../domain/ports/repositories.js';
 
-function configuredAllowedToolName(toolId: unknown): string {
-  const value = String(toolId);
-  return value.startsWith('tool:') ? value.slice('tool:'.length) : value;
-}
-
 export async function resolveConfiguredAllowedTools(input: {
   repository?: ToolCatalogRepository;
   appId: string;
@@ -21,8 +16,8 @@ export async function resolveConfiguredAllowedTools(input: {
   const tools = await Promise.all(
     activeBindings.map((binding) => input.repository?.getTool(binding.toolId)),
   );
-  return activeBindings.map((binding, index) => {
-    const tool = tools[index];
-    return tool?.name || configuredAllowedToolName(binding.toolId);
+  return tools.flatMap((tool) => {
+    const name = tool?.name?.trim();
+    return name ? [name] : [];
   });
 }

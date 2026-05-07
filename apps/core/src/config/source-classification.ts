@@ -59,6 +59,30 @@ const CLASSIFIED_KEYS: Record<string, ClassifiedConfigKey> = {
     'ANTHROPIC_DEFAULT_HAIKU_MODEL',
     'settings.yaml agent.default_model or Claude Code defaults',
   ),
+  OPENAI_DAILY_EMBED_LIMIT: setting(
+    'OPENAI_DAILY_EMBED_LIMIT',
+    'settings.yaml memory.embeddings.daily_limit',
+  ),
+  MEMORY_EXTRACTOR_MAX_FACTS: setting(
+    'MEMORY_EXTRACTOR_MAX_FACTS',
+    'settings.yaml memory.llm.extractor_max_facts',
+  ),
+  MEMORY_EXTRACTOR_MIN_CONFIDENCE: setting(
+    'MEMORY_EXTRACTOR_MIN_CONFIDENCE',
+    'settings.yaml memory.llm.extractor_min_confidence',
+  ),
+  MEMORY_DREAMING_CRON: setting(
+    'MEMORY_DREAMING_CRON',
+    'settings.yaml memory.dreaming.cron',
+  ),
+  MEMORY_EMBED_BATCH_SIZE: setting(
+    'MEMORY_EMBED_BATCH_SIZE',
+    'settings.yaml memory.embeddings.batch_size',
+  ),
+  MEMORY_MAINTENANCE_MAX_PENDING: setting(
+    'MEMORY_MAINTENANCE_MAX_PENDING',
+    'settings.yaml memory.maintenance.max_pending',
+  ),
 
   ANTHROPIC_API_KEY: agentCredential('ANTHROPIC_API_KEY'),
   ANTHROPIC_AUTH_TOKEN: agentCredential('ANTHROPIC_AUTH_TOKEN'),

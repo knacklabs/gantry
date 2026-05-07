@@ -83,6 +83,25 @@ vi.mock(
       env.ANTHROPIC_API_KEY = '';
     },
     materializeClaudeRuntime: mockMaterializeClaudeRuntime,
+    projectClaudeModelCredentialEnv: (source: NodeJS.ProcessEnv) => {
+      const allowedKeys = new Set([
+        'ANTHROPIC_BASE_URL',
+        'ANTHROPIC_AUTH_TOKEN',
+        'ANTHROPIC_API_KEY',
+        'CLAUDE_CODE_OAUTH_TOKEN',
+        'HTTP_PROXY',
+        'HTTPS_PROXY',
+        'http_proxy',
+        'https_proxy',
+        'NODE_USE_ENV_PROXY',
+        'NODE_EXTRA_CA_CERTS',
+      ]);
+      return Object.fromEntries(
+        Object.entries(source).filter(
+          ([key, value]) => allowedKeys.has(key) && typeof value === 'string',
+        ),
+      );
+    },
   }),
 );
 
@@ -733,6 +752,34 @@ describe('agent-spawn timeout behavior', () => {
         'codeload.github.com',
       ]),
     );
+  });
+
+  it('keeps host-only brokered OpenAI embedding credentials out of the Claude runner input', async () => {
+    vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValueOnce({
+      env: {
+        OPENAI_API_KEY: 'brokered-openai-key',
+      },
+      credentialProviders: {
+        OPENAI_API_KEY: 'native',
+      },
+      brokerApplied: true,
+      brokerProfile: 'onecli',
+    });
+    const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
+
+    const resultPromise = spawnAgent(testGroup, testInput, () => {});
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    const runnerInput = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
+    expect(runnerInput.modelCredentialEnv).toBeUndefined();
   });
 
   it('does not expose approved third-party MCP servers through direct SDK MCP config', async () => {

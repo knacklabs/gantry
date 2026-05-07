@@ -49,12 +49,20 @@ export interface RuntimeMemorySettings {
     enabled: boolean;
     provider: EmbeddingProviderName;
     model: string;
+    dailyLimit: number;
+    batchSize: number;
   };
   dreaming: {
     enabled: boolean;
+    cron: string;
   };
   llm: {
     models: RuntimeMemoryLlmModels;
+    extractorMaxFacts: number;
+    extractorMinConfidence: number;
+  };
+  maintenance: {
+    maxPending: number;
   };
 }
 

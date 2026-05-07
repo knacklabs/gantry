@@ -6,6 +6,7 @@ import { CredentialBrokerPolicyError } from '@core/domain/models/credential-erro
 function makeBroker(
   overrides: {
     getInjection?: AgentCredentialBroker['getInjection'];
+    healthCheck?: AgentCredentialBroker['healthCheck'];
     ensureAgent?: (agent: {
       name: string;
       identifier: string;
@@ -37,6 +38,7 @@ function makeBroker(
       returnsRawSecrets: false,
       projectsProviderTokens: false,
     }),
+    ...(overrides.healthCheck ? { healthCheck: overrides.healthCheck } : {}),
     ...(overrides.ensureAgent ? { ensureAgent: overrides.ensureAgent } : {}),
   };
 }
@@ -272,7 +274,44 @@ describe('agent credential service', () => {
         broker: unreachableBroker,
       }),
     ).rejects.toThrow(
-      'Credential broker mode is enabled but the credential broker is not reachable for MyClaw Model Access.',
+      'Credential broker mode is enabled but the credential broker is not reachable for MyClaw Model Access. Reason: connect ECONNREFUSED.',
+    );
+  });
+
+  it('includes broker health and recovery guidance for tool capability broker outages', async () => {
+    const { getAgentCredentialInjection } = await loadCredentialService();
+    const error = Object.assign(
+      new Error('connect ECONNREFUSED 127.0.0.1:10254'),
+      { code: 'ECONNREFUSED' },
+    );
+    const broker = makeBroker({
+      getInjection: async () => {
+        throw error;
+      },
+      healthCheck: async () => ({
+        status: 'fail',
+        message:
+          'Could not reach OneCLI at http://localhost:10254: connect ECONNREFUSED 127.0.0.1:10254',
+        nextAction:
+          "Run `myclaw local doctor`. If you use MyClaw's provided local stack, start it from the directory containing the shipped stack file, or pass that stack file explicitly, then retry.",
+      }),
+    });
+
+    await expect(
+      getAgentCredentialInjection({
+        mode: 'onecli',
+        purpose: 'tool_capability',
+        agentIdentifier: 'agent:main_agent',
+        broker,
+      }),
+    ).rejects.toThrow(
+      [
+        'Credential broker mode is enabled but the credential broker is not reachable for agent agent:main_agent.',
+        'Reason: ECONNREFUSED: connect ECONNREFUSED 127.0.0.1:10254.',
+        'Broker health: Could not reach OneCLI at http://localhost:10254: connect ECONNREFUSED 127.0.0.1:10254',
+        "Next action: Run `myclaw local doctor`. If you use MyClaw's provided local stack, start it from the directory containing the shipped stack file, or pass that stack file explicitly, then retry.",
+        "Recovery: Run `myclaw doctor` and `myclaw local doctor`. If you use MyClaw's provided local stack, start or recover OneCLI from the directory containing its shipped stack file, or pass that stack file explicitly.",
+      ].join(' '),
     );
   });
 
@@ -290,7 +329,7 @@ describe('agent credential service', () => {
         broker,
       }),
     ).rejects.toThrow(
-      'Credential broker mode is enabled but the credential broker is not reachable for MyClaw Model Access.',
+      'Credential broker mode is enabled but the credential broker is not reachable for MyClaw Model Access. Reason: forbidden raw credential env key: OPENAI_API_KEY.',
     );
   });
 
@@ -309,6 +348,26 @@ describe('agent credential service', () => {
     expect(ensureAgent).toHaveBeenCalledWith({
       name: 'MyClaw Model Access',
       identifier: 'myclaw-model-access',
+    });
+  });
+
+  it('ensures agent-scoped credential profiles for tool capabilities', async () => {
+    const ensureAgent = vi.fn(async () => ({ created: false }));
+    const broker = makeBroker({ ensureAgent });
+    const { ensureAgentCredentialBinding } = await loadCredentialService();
+
+    await expect(
+      ensureAgentCredentialBinding({
+        mode: 'onecli',
+        broker,
+        name: 'Main Agent',
+        identifier: 'agent:main_agent',
+      }),
+    ).resolves.toEqual({ created: false });
+
+    expect(ensureAgent).toHaveBeenCalledWith({
+      name: 'Main Agent',
+      identifier: 'agent:main_agent',
     });
   });
 });

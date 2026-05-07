@@ -13,25 +13,16 @@ interface RuntimeControlSessionReader {
   getAppSessionById(
     sessionId: string,
   ): Promise<EventAppSession | null | undefined>;
-  getAppSessionByChatJid(
-    chatJid: string,
-  ): Promise<EventAppSession | null | undefined>;
 }
 
 export type SchedulerEventAppSession = EventAppSession | undefined;
 
 export async function resolveAppSessionForJob(
-  job: Pick<Job, 'session_id' | 'linked_sessions'>,
+  job: Pick<Job, 'session_id'>,
   control: RuntimeControlSessionReader,
 ): Promise<SchedulerEventAppSession> {
-  if (job.session_id) {
-    const session = await control.getAppSessionById(job.session_id);
-    if (session) return session;
-  }
-  const appJid = job.linked_sessions.find((jid) => jid.startsWith('app:'));
-  return appJid
-    ? (await control.getAppSessionByChatJid(appJid)) || undefined
-    : undefined;
+  if (!job.session_id) return undefined;
+  return (await control.getAppSessionById(job.session_id)) || undefined;
 }
 
 export async function resolveAppSessionForTrigger(

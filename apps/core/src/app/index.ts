@@ -100,7 +100,11 @@ export async function startMyClawRuntime(
       app,
       channelWiring,
     },
-    { mcpHostnameLookup },
+    {
+      mcpHostnameLookup,
+      opsRepository: storage.ops,
+      getToolRepository: () => storage.repositories.tools,
+    },
   );
   controlServerRef.current = startControlServer({ app });
 }

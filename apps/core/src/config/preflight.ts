@@ -66,8 +66,8 @@ export async function validateRuntimePreflightWithStorage(
   const settings = ensureRuntimeSettings(runtimeHome);
   const env = readEnvFile(envFilePath(runtimeHome));
   const runtimeSecretsSource = {
-    ...process.env,
     ...env,
+    ...process.env,
   };
   const runtimeSecrets = new EnvRuntimeSecretProvider(runtimeSecretsSource);
   const credentialMode = settings.credentialBroker.mode;

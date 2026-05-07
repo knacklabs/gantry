@@ -16,7 +16,6 @@ describe('job app session resolution', () => {
   it('prefers the stored session id when it resolves', async () => {
     const control = {
       getAppSessionById: vi.fn(async () => session),
-      getAppSessionByChatJid: vi.fn(),
     };
 
     await expect(
@@ -28,13 +27,11 @@ describe('job app session resolution', () => {
         control,
       ),
     ).resolves.toEqual(session);
-    expect(control.getAppSessionByChatJid).not.toHaveBeenCalled();
   });
 
-  it('falls back to app linked session when stored session id is stale', async () => {
+  it('fails closed when the stored session id is stale', async () => {
     const control = {
       getAppSessionById: vi.fn(async () => null),
-      getAppSessionByChatJid: vi.fn(async () => session),
     };
 
     await expect(
@@ -45,16 +42,12 @@ describe('job app session resolution', () => {
         } as never,
         control,
       ),
-    ).resolves.toEqual(session);
-    expect(control.getAppSessionByChatJid).toHaveBeenCalledWith(
-      'app:app-one:conv-1',
-    );
+    ).resolves.toBeUndefined();
   });
 
   it('resolves trigger requester session ids only when present', async () => {
     const control = {
       getAppSessionById: vi.fn(async () => session),
-      getAppSessionByChatJid: vi.fn(),
     };
 
     await expect(

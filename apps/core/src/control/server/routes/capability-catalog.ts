@@ -16,6 +16,7 @@ import type {
   SkillId,
 } from '../../../domain/skills/skills.js';
 import type { ToolCatalogItem, ToolId } from '../../../domain/tools/tools.js';
+import type { AgentToolAccessView } from '../../../shared/tool-access-view.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
@@ -101,6 +102,7 @@ function capabilitiesToResponse(input: {
   selectedToolIds: string[];
   selectedSkillIds: string[];
   selectedMcpServerIds: string[];
+  toolAccess: AgentToolAccessView;
   updatedAt: string;
 }) {
   return input;

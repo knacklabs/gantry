@@ -4,9 +4,15 @@ import {
   DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS,
   DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT,
   DEFAULT_EMBED_MODEL,
+  DEFAULT_MEMORY_DREAMING_CRON,
+  DEFAULT_MEMORY_EMBED_BATCH_SIZE,
+  DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS,
+  DEFAULT_MEMORY_EXTRACTOR_MIN_CONFIDENCE,
+  DEFAULT_MEMORY_MAINTENANCE_MAX_PENDING,
   DEFAULT_ONECLI_DATABASE_URL_ENV,
   DEFAULT_ONECLI_POSTGRES_SCHEMA,
   DEFAULT_ONECLI_URL,
+  DEFAULT_OPENAI_DAILY_EMBED_LIMIT,
   DEFAULT_STORAGE_POSTGRES_SCHEMA,
   DEFAULT_STORAGE_POSTGRES_URL_ENV,
   getMemoryModelProfileDefaults,
@@ -108,13 +114,20 @@ function renderMemorySettingsYaml(
     `    enabled: ${memory.embeddings.enabled ? 'true' : 'false'}`,
     `    provider: ${memory.embeddings.provider}`,
     `    model: ${quoteYamlString(memory.embeddings.model)}`,
+    `    daily_limit: ${memory.embeddings.dailyLimit}`,
+    `    batch_size: ${memory.embeddings.batchSize}`,
     '  dreaming:',
     `    enabled: ${memory.dreaming.enabled ? 'true' : 'false'}`,
+    `    cron: ${quoteYamlString(memory.dreaming.cron)}`,
     '  llm:',
+    `    extractor_max_facts: ${memory.llm.extractorMaxFacts}`,
+    `    extractor_min_confidence: ${memory.llm.extractorMinConfidence}`,
     '    models:',
     `      extractor: ${quoteYamlString(memory.llm.models.extractor)}`,
     `      dreaming: ${quoteYamlString(memory.llm.models.dreaming)}`,
     `      consolidation: ${quoteYamlString(memory.llm.models.consolidation)}`,
+    '  maintenance:',
+    `    max_pending: ${memory.maintenance.maxPending}`,
     '',
   );
 }
@@ -389,10 +402,17 @@ function isDefaultMemory(memory: RuntimeMemorySettings): boolean {
     memory.embeddings.enabled === false &&
     memory.embeddings.provider === 'disabled' &&
     memory.embeddings.model === DEFAULT_EMBED_MODEL &&
+    memory.embeddings.dailyLimit === DEFAULT_OPENAI_DAILY_EMBED_LIMIT &&
+    memory.embeddings.batchSize === DEFAULT_MEMORY_EMBED_BATCH_SIZE &&
     memory.dreaming.enabled === false &&
+    memory.dreaming.cron === DEFAULT_MEMORY_DREAMING_CRON &&
     memory.llm.models.extractor === models.extractor &&
     memory.llm.models.dreaming === models.dreaming &&
-    memory.llm.models.consolidation === models.consolidation
+    memory.llm.models.consolidation === models.consolidation &&
+    memory.llm.extractorMaxFacts === DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS &&
+    memory.llm.extractorMinConfidence ===
+      DEFAULT_MEMORY_EXTRACTOR_MIN_CONFIDENCE &&
+    memory.maintenance.maxPending === DEFAULT_MEMORY_MAINTENANCE_MAX_PENDING
   );
 }
 

@@ -1,0 +1,53 @@
+export interface PermissionRuleLike {
+  toolName?: unknown;
+  ruleContent?: unknown;
+}
+
+export interface PermissionUpdateLike {
+  type?: unknown;
+  behavior?: unknown;
+  rules?: unknown;
+}
+
+export function permissionUpdateAllowedToolRules(
+  updates: readonly unknown[] | undefined,
+): string[] {
+  const out = new Set<string>();
+  for (const update of updates ?? []) {
+    if (!isPermissionUpdateLike(update)) continue;
+    if (update.type !== 'addRules' && update.type !== 'replaceRules') {
+      continue;
+    }
+    if (update.behavior !== 'allow') continue;
+    const rules = Array.isArray(update.rules) ? update.rules : [];
+    for (const rule of rules) {
+      const allowedRule = permissionRuleAllowedToolRule(rule);
+      if (allowedRule) out.add(allowedRule);
+    }
+  }
+  return [...out];
+}
+
+function permissionRuleAllowedToolRule(rule: unknown): string | null {
+  if (!isPermissionRuleLike(rule)) return null;
+  const toolName = trimmedString(rule.toolName, 120);
+  if (!toolName) return null;
+  const ruleContent = trimmedString(rule.ruleContent, 2048);
+  if (ruleContent === null) return null;
+  return ruleContent ? `${toolName}(${ruleContent})` : toolName;
+}
+
+function isPermissionUpdateLike(value: unknown): value is PermissionUpdateLike {
+  return Boolean(value && typeof value === 'object');
+}
+
+function isPermissionRuleLike(value: unknown): value is PermissionRuleLike {
+  return Boolean(value && typeof value === 'object');
+}
+
+function trimmedString(value: unknown, maxLen: number): string | null {
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  return trimmed.length <= maxLen ? trimmed : null;
+}

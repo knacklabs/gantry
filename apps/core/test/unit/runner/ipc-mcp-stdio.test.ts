@@ -6,6 +6,8 @@ import { generateKeyPairSync } from 'crypto';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { ALL_MYCLAW_MCP_TOOL_NAMES } from '@agent-runner-src/myclaw-mcp-tool-surface.js';
+
 const tempRoots: string[] = [];
 
 afterEach(() => {
@@ -99,6 +101,14 @@ function createMcpFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/memory-timeouts.ts'),
     path.join(runnerDir, 'memory-timeouts.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/runner/myclaw-mcp-tool-surface.ts'),
+    path.join(runnerDir, 'myclaw-mcp-tool-surface.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/private-fs.ts'),
+    path.join(sharedDir, 'private-fs.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/infrastructure/time/datetime.ts'),
@@ -313,6 +323,7 @@ async function runMcpFixture(
         MYCLAW_CHAT_JID: 'tg:team',
         MYCLAW_GROUP_FOLDER: 'team',
         MYCLAW_ADMIN_MCP_TOOLS_JSON: '[]',
+        MYCLAW_MCP_TOOL_NAMES_JSON: JSON.stringify(ALL_MYCLAW_MCP_TOOL_NAMES),
         ...envOverrides,
         TEST_MCP_TOOL_NAME: toolName,
         TEST_MCP_TOOL_ARGS: JSON.stringify(args),
@@ -406,6 +417,9 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
     expect(result.exitCode, result.stderr).toBe(0);
     const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
     expect(record.result.content[0].text).toContain(
+      'available: mcp__myclaw__scheduler_list_jobs',
+    );
+    expect(record.result.content[0].text).toContain(
       'requestable: mcp__myclaw__service_restart',
     );
     expect(record.result.content[0].text).toContain(
@@ -466,6 +480,64 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain('tool not registered: service_restart');
+  });
+
+  it('keeps default first-party MCP tools registered despite stale runner projection', async () => {
+    const fixture = createMcpFixture();
+    const staleSurface = JSON.stringify([
+      'send_message',
+      'ask_user_question',
+      'memory_search',
+      'memory_save',
+      'procedure_save',
+      'browser_launch',
+      'browser_status',
+      'request_skill_install',
+      'request_skill_proposal',
+      'request_skill_dependency_install',
+      'request_mcp_server',
+      'request_permission',
+      'capability_status',
+      'mcp_list_tools',
+      'mcp_call_tool',
+    ]);
+
+    const scheduler = await runMcpFixture(
+      fixture,
+      'scheduler_list_models',
+      {},
+      { MYCLAW_MCP_TOOL_NAMES_JSON: staleSurface },
+    );
+
+    expect(scheduler.exitCode, scheduler.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.content[0].text).toContain('Supported models');
+
+    const hiddenAdmin = await runMcpFixture(
+      createMcpFixture(),
+      'service_restart',
+      {},
+      { MYCLAW_MCP_TOOL_NAMES_JSON: staleSurface },
+    );
+    expect(hiddenAdmin.exitCode).not.toBe(0);
+    expect(hiddenAdmin.stderr).toContain(
+      'tool not registered: service_restart',
+    );
+  });
+
+  it('defaults to first-party MCP tools when runner projection is missing', async () => {
+    const fixture = createMcpFixture();
+
+    const scheduler = await runMcpFixture(
+      fixture,
+      'scheduler_list_models',
+      {},
+      { MYCLAW_MCP_TOOL_NAMES_JSON: undefined },
+    );
+
+    expect(scheduler.exitCode, scheduler.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.content[0].text).toContain('Supported models');
   });
 
   it('defaults scheduler upsert delivery to the trusted runtime thread', async () => {

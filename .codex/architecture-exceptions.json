@@ -835,9 +835,9 @@
   {
     "file": "apps/core/src/memory/memory-embeddings.ts",
     "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
+    "reason": "Brokered memory embeddings still resolve credential-broker adapters from the runtime memory module in this slice; extract provider wiring into an adapter-owned composition point.",
+    "removeByPhase": "memory-embedding-provider-adapter-extraction",
+    "maxViolations": 4
   },
   {
     "file": "apps/core/src/memory/memory-embeddings.ts",

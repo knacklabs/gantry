@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 
 import type { SkillCatalogRepository } from '../../../../domain/ports/repositories.js';
 import type {
@@ -34,6 +34,38 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
       .limit(1);
     const row = rows[0];
     return row ? this.mapSkill(row) : null;
+  }
+
+  async getSkillByContentHash(input: {
+    appId: SkillCatalogItem['appId'];
+    contentHash: string;
+    agentId?: SkillCatalogItem['agentId'] | null;
+    statuses?: SkillCatalogItem['status'][];
+  }): Promise<SkillCatalogItem | null> {
+    const filters: SQL[] = [
+      eq(pgSchema.skillCatalogPostgres.appId, input.appId),
+      eq(pgSchema.skillCatalogPostgres.contentHash, input.contentHash),
+    ];
+    if (input.agentId !== undefined) {
+      filters.push(
+        eq(
+          sql<string>`coalesce(${pgSchema.skillCatalogPostgres.agentId}, '')`,
+          input.agentId ?? '',
+        ),
+      );
+    }
+    if (input.statuses?.length) {
+      filters.push(
+        inArray(pgSchema.skillCatalogPostgres.status, input.statuses),
+      );
+    }
+    const rows = await this.db
+      .select()
+      .from(pgSchema.skillCatalogPostgres)
+      .where(and(...filters))
+      .orderBy(desc(pgSchema.skillCatalogPostgres.updatedAt))
+      .limit(1);
+    return rows[0] ? this.mapSkill(rows[0]) : null;
   }
 
   async listSkills(input: {

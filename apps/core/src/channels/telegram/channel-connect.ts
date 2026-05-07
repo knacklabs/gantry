@@ -468,7 +468,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         const filename =
           opts.filename ||
           `${placeholder.replace(/[[\] ]/g, '').toLowerCase()}_${msgId}`;
-        const filePath = await this.downloadFile(
+        const downloaded = await this.downloadFile(
           opts.fileId,
           group.folder,
           filename,
@@ -481,11 +481,11 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
               : placeholder === '[Voice message]' || placeholder === '[Audio]'
                 ? 'audio'
                 : 'file';
-        if (filePath) {
-          await deliver(`${placeholder} (${filePath})${caption}`, {
+        if (downloaded) {
+          await deliver(`${placeholder} (${downloaded.storageRef})${caption}`, {
             kind,
             externalId: opts.fileId,
-            storageRef: filePath,
+            storageRef: downloaded.storageRef,
           });
         } else {
           await deliver(`${placeholder}${caption}`, {

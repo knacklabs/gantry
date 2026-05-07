@@ -37,6 +37,9 @@ export interface JobTriggerRecord {
 
 export interface JobControlPort {
   getAppSessionById(sessionId: string): Promise<AppSessionRecord | undefined>;
+  getAppSessionsByIds(
+    sessionIds: readonly string[],
+  ): Promise<AppSessionRecord[]>;
   getAppSessionByChatJid(
     conversationJid: string,
   ): Promise<AppSessionRecord | undefined>;

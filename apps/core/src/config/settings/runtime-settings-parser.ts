@@ -14,23 +14,18 @@ import {
   DEFAULT_AGENT_NAME,
   DEFAULT_AGENT_SESSION_MAX_MEMORY_CONTEXT_CHARS,
   DEFAULT_AGENT_SESSION_MEMORY_ITEM_LIMIT,
-  DEFAULT_EMBED_MODEL,
   DEFAULT_ONECLI_URL,
   DEFAULT_ONECLI_DATABASE_URL_ENV,
   DEFAULT_ONECLI_POSTGRES_SCHEMA,
   DEFAULT_STORAGE_POSTGRES_SCHEMA,
   DEFAULT_STORAGE_POSTGRES_URL_ENV,
-  getMemoryModelProfileDefaults,
 } from './runtime-settings-defaults.js';
 import type {
-  EmbeddingProviderName,
   RuntimeCredentialBrokerSettings,
   RuntimeCredentialBrokerMode,
   RuntimeAgentSettings,
   RuntimeConfiguredBinding,
   RuntimeConfiguredConversation,
-  RuntimeMemoryLlmModels,
-  RuntimeMemorySettings,
   RuntimeProcessSettings,
   RuntimeProviderConnectionSettings,
   RuntimeProviderSettings,
@@ -38,6 +33,7 @@ import type {
   RuntimeStorageSettings,
 } from './runtime-settings-types.js';
 import type { ChatAllowlistEntry } from './sender-allowlist.js';
+import { parseMemorySettings } from './runtime-settings-memory-parser.js';
 
 function parseStringArrayValue(raw: unknown, pathPrefix: string): string[] {
   if (!Array.isArray(raw)) {
@@ -466,22 +462,6 @@ function parseNonNegativeIntegerValue(
   return raw;
 }
 
-function parseEmbeddingProvider(
-  raw: unknown,
-  pathPrefix: string,
-): EmbeddingProviderName {
-  if (typeof raw !== 'string' || raw.trim().length === 0) {
-    throw new Error(`${pathPrefix} must be a non-empty provider id`);
-  }
-  const value = raw.trim();
-  if (!/^[a-z][a-z0-9_-]{0,62}$/.test(value)) {
-    throw new Error(
-      `${pathPrefix} must be a lowercase provider id such as disabled or openai`,
-    );
-  }
-  return value;
-}
-
 function parsePostgresSchema(
   raw: unknown,
   pathPrefix: string,
@@ -823,160 +803,6 @@ function parseStorageSettings(raw: unknown): RuntimeStorageSettings {
         DEFAULT_STORAGE_POSTGRES_URL_ENV,
       ),
       schema: parsePostgresSchema(postgres.schema, 'storage.postgres.schema'),
-    },
-  };
-}
-
-function parseMemoryLlmModels(
-  raw: unknown,
-  pathPrefix: string,
-): RuntimeMemoryLlmModels {
-  const defaults = getMemoryModelProfileDefaults('balanced');
-  if (raw === undefined) {
-    return defaults;
-  }
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    throw new Error(`${pathPrefix} must be a mapping`);
-  }
-  const map = raw as Record<string, unknown>;
-  const supportedKeys = new Set(['extractor', 'dreaming', 'consolidation']);
-  for (const key of Object.keys(map)) {
-    if (!supportedKeys.has(key)) {
-      throw new Error(
-        `${pathPrefix}.${key} is not supported. Use ${pathPrefix}.extractor, dreaming, or consolidation.`,
-      );
-    }
-  }
-  return {
-    extractor: parseStringValue(
-      map.extractor,
-      `${pathPrefix}.extractor`,
-      defaults.extractor,
-    ),
-    dreaming: parseStringValue(
-      map.dreaming,
-      `${pathPrefix}.dreaming`,
-      defaults.dreaming,
-    ),
-    consolidation: parseStringValue(
-      map.consolidation,
-      `${pathPrefix}.consolidation`,
-      defaults.consolidation,
-    ),
-  };
-}
-
-function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
-  if (raw === undefined) {
-    return {
-      enabled: true,
-      embeddings: {
-        enabled: false,
-        provider: 'disabled',
-        model: DEFAULT_EMBED_MODEL,
-      },
-      dreaming: {
-        enabled: false,
-      },
-      llm: {
-        models: getMemoryModelProfileDefaults('balanced'),
-      },
-    };
-  }
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    throw new Error('memory must be a mapping');
-  }
-
-  const map = raw as Record<string, unknown>;
-  const supportedKeys = new Set(['enabled', 'embeddings', 'dreaming', 'llm']);
-  for (const key of Object.keys(map)) {
-    if (!supportedKeys.has(key)) {
-      throw new Error(
-        `memory.${key} is not supported. Use memory.enabled/storage.* settings.`,
-      );
-    }
-  }
-  const embeddingsRaw = map.embeddings;
-  if (
-    typeof embeddingsRaw !== 'object' ||
-    embeddingsRaw === null ||
-    Array.isArray(embeddingsRaw)
-  ) {
-    throw new Error('memory.embeddings must be a mapping');
-  }
-  const dreamingRaw = map.dreaming;
-  if (
-    (dreamingRaw !== undefined && typeof dreamingRaw !== 'object') ||
-    dreamingRaw === null ||
-    Array.isArray(dreamingRaw)
-  ) {
-    throw new Error('memory.dreaming must be a mapping');
-  }
-
-  const embeddingsMap = embeddingsRaw as Record<string, unknown>;
-  const dreamingMap = (dreamingRaw || {}) as Record<string, unknown>;
-  const llmRaw = map.llm;
-  if (
-    llmRaw !== undefined &&
-    (typeof llmRaw !== 'object' || llmRaw === null || Array.isArray(llmRaw))
-  ) {
-    throw new Error('memory.llm must be a mapping');
-  }
-  const llmMap = (llmRaw || {}) as Record<string, unknown>;
-  const embeddingsKeys = new Set(['enabled', 'provider', 'model']);
-  for (const key of Object.keys(embeddingsMap)) {
-    if (!embeddingsKeys.has(key)) {
-      throw new Error(
-        `memory.embeddings.${key} is not supported. Use memory.embeddings.enabled, provider, or model.`,
-      );
-    }
-  }
-  const dreamingKeys = new Set(['enabled']);
-  for (const key of Object.keys(dreamingMap)) {
-    if (!dreamingKeys.has(key)) {
-      throw new Error(
-        `memory.dreaming.${key} is not supported. Use memory.dreaming.enabled.`,
-      );
-    }
-  }
-  const llmKeys = new Set(['models']);
-  for (const key of Object.keys(llmMap)) {
-    if (!llmKeys.has(key)) {
-      throw new Error(
-        `memory.llm.${key} is not supported. Use memory.llm.models.`,
-      );
-    }
-  }
-  const enabled = parseBooleanValue(map.enabled, 'memory.enabled');
-  const embeddingsEnabled = parseBooleanValue(
-    embeddingsMap.enabled,
-    'memory.embeddings.enabled',
-  );
-  const embeddingProvider = parseEmbeddingProvider(
-    embeddingsMap.provider,
-    'memory.embeddings.provider',
-  );
-
-  return {
-    enabled,
-    embeddings: {
-      enabled: embeddingsEnabled,
-      provider: embeddingsEnabled ? embeddingProvider : 'disabled',
-      model: parseStringValue(
-        embeddingsMap.model,
-        'memory.embeddings.model',
-        DEFAULT_EMBED_MODEL,
-      ),
-    },
-    dreaming: {
-      enabled: parseBooleanValue(
-        dreamingMap.enabled,
-        'memory.dreaming.enabled',
-        false,
-      ),
-    },
-    llm: {
-      models: parseMemoryLlmModels(llmMap.models, 'memory.llm.models'),
     },
   };
 }

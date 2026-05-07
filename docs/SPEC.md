@@ -193,12 +193,12 @@ Providers are registered via `apps/core/src/channels/register-builtins.ts`:
 
 ### Key Files
 
-| File                                            | Purpose                                                 |
-| ----------------------------------------------- | ------------------------------------------------------- |
-| `apps/core/src/channels/provider-registry.ts`   | Provider adapter registry                               |
-| `apps/core/src/channels/register-builtins.ts`   | Built-in provider registration                          |
-| `apps/core/src/channels/channel-provider.ts`    | `ChannelAdapter`, `ChannelOpts`, and provider factory   |
-| `apps/core/src/domain/types.ts`                 | Provider ports, message types, and group metadata       |
+| File                                            | Purpose                                                  |
+| ----------------------------------------------- | -------------------------------------------------------- |
+| `apps/core/src/channels/provider-registry.ts`   | Provider adapter registry                                |
+| `apps/core/src/channels/register-builtins.ts`   | Built-in provider registration                           |
+| `apps/core/src/channels/channel-provider.ts`    | `ChannelAdapter`, `ChannelOpts`, and provider factory    |
+| `apps/core/src/domain/types.ts`                 | Provider ports, message types, and group metadata        |
 | `apps/core/src/index.ts`                        | Orchestrator — instantiates providers, runs message loop |
 | `apps/core/src/app/bootstrap/channel-wiring.ts` | Owns provider output, streaming, progress, and approvals |
 
@@ -477,11 +477,11 @@ decisions. It stores app-grade memory in Postgres.
 
 Agents interact with memory via MCP tools over IPC:
 
-| Tool              | Purpose                                                                            |
-| ----------------- | ---------------------------------------------------------------------------------- |
-| `memory_save`     | Save a durable fact, decision, preference, correction, constraint, or context item |
-| `memory_search`   | Search scoped memory statements and source snippets                                |
-| `procedure_save`  | Save a reusable multi-step procedure                                               |
+| Tool             | Purpose                                                                            |
+| ---------------- | ---------------------------------------------------------------------------------- |
+| `memory_save`    | Save a durable fact, decision, preference, correction, constraint, or context item |
+| `memory_search`  | Search scoped memory statements and source snippets                                |
+| `procedure_save` | Save a reusable multi-step procedure                                               |
 
 Patch tools exist in the host protocol for reviewed/admin flows, but they are
 not part of the default agent capability bundle.
@@ -549,27 +549,29 @@ the memory store, canonical message history, or runtime continuation state.
 
 ### Memory Configuration Reference
 
-| Setting                                     | Default                  | Description                                                 |
-| ------------------------------------------- | ------------------------ | ----------------------------------------------------------- |
-| `storage.postgres.url_env`                  | `MYCLAW_DATABASE_URL`    | Env key for Postgres connection URL                         |
-| `storage.postgres.schema`                   | `myclaw`                 | Postgres schema name                                        |
-| `agent.default_model`                       | empty                    | Default Claude Code model alias/name                        |
+| Setting                                     | Default                  | Description                                                     |
+| ------------------------------------------- | ------------------------ | --------------------------------------------------------------- |
+| `storage.postgres.url_env`                  | `MYCLAW_DATABASE_URL`    | Env key for Postgres connection URL                             |
+| `storage.postgres.schema`                   | `myclaw`                 | Postgres schema name                                            |
+| `agent.default_model`                       | empty                    | Default Claude Code model alias/name                            |
 | `agent.one_time_job_default_model`          | empty                    | One-time/manual job model alias; inherits `agent.default_model` |
-| `agent.recurring_job_default_model`         | empty                    | Cron/interval job model alias; inherits `agent.default_model` |
-| `credential_broker.mode`                    | `onecli`                 | Agent credential broker mode (`onecli`, `external`, `none`) |
-| `credential_broker.onecli.url`              | `http://localhost:10254` | OneCLI gateway URL                                          |
-| `credential_broker.onecli.postgres.url_env` | `ONECLI_DATABASE_URL`    | Env key for the OneCLI Postgres URL with `schema=onecli`    |
-| `credential_broker.onecli.postgres.schema`  | `onecli`                 | OneCLI-owned Postgres schema                                |
-| `credential_broker.external.base_url`       | empty                    | External broker-safe endpoint URL for `external` mode       |
-| `memory.enabled`                            | `true`                   | Enables durable memory                                      |
-| `memory.embeddings.enabled`                 | `false`                  | Optional embedding toggle                                   |
-| `memory.embeddings.provider`                | `disabled`               | Embedding provider (`disabled` or `openai`)                 |
-| `memory.embeddings.model`                   | `text-embedding-3-large` | Embedding model                                             |
-| `MEMORY_EMBED_BATCH_SIZE`                   | `16`                     | Texts per embedding API call                                |
-| `MEMORY_EXTRACTOR_MAX_FACTS`                | `8`                      | Max candidate facts extracted per evidence batch            |
-| `MEMORY_EXTRACTOR_MIN_CONFIDENCE`           | `0.6`                    | Min confidence for extracted candidates                     |
-| `MEMORY_DREAMING_CRON`                      | `17 3 * * *`             | Dreaming maintenance schedule                               |
-| `MEMORY_MAINTENANCE_MAX_PENDING`            | `100`                    | Max pending memory maintenance items per pass               |
+| `agent.recurring_job_default_model`         | empty                    | Cron/interval job model alias; inherits `agent.default_model`   |
+| `credential_broker.mode`                    | `onecli`                 | Agent credential broker mode (`onecli`, `external`, `none`)     |
+| `credential_broker.onecli.url`              | `http://localhost:10254` | OneCLI gateway URL                                              |
+| `credential_broker.onecli.postgres.url_env` | `ONECLI_DATABASE_URL`    | Env key for the OneCLI Postgres URL with `schema=onecli`        |
+| `credential_broker.onecli.postgres.schema`  | `onecli`                 | OneCLI-owned Postgres schema                                    |
+| `credential_broker.external.base_url`       | empty                    | External broker-safe endpoint URL for `external` mode           |
+| `memory.enabled`                            | `true`                   | Enables durable memory                                          |
+| `memory.embeddings.enabled`                 | `false`                  | Optional embedding toggle                                       |
+| `memory.embeddings.provider`                | `disabled`               | Embedding provider (`disabled` or `openai`)                     |
+| `memory.embeddings.model`                   | `text-embedding-3-large` | Embedding model                                                 |
+| `memory.embeddings.batch_size`              | `16`                     | Texts per embedding API call                                    |
+| `memory.embeddings.daily_limit`             | `500`                    | Daily embedding API call limit                                  |
+| `memory.llm.extractor_max_facts`            | `8`                      | Max candidate facts extracted per evidence batch                |
+| `memory.llm.extractor_min_confidence`       | `0.6`                    | Min confidence for extracted candidates                         |
+| `memory.dreaming.enabled`                   | `false`                  | Enables scheduled dreaming maintenance                          |
+| `memory.dreaming.cron`                      | `15 3 * * *`             | Dreaming maintenance schedule                                   |
+| `memory.maintenance.max_pending`            | `5000`                   | Max pending memory maintenance items per pass                   |
 
 ---
 

@@ -10,6 +10,10 @@ function makeTmpRoot(roots: string[]): string {
   return root;
 }
 
+function fileMode(filePath: string): number {
+  return fs.statSync(filePath).mode & 0o777;
+}
+
 describe('ensureGroupIpcLayout', () => {
   const roots: string[] = [];
 
@@ -49,6 +53,10 @@ describe('ensureGroupIpcLayout', () => {
       'user-answers',
       'user-questions',
     ]);
+    expect(fileMode(ipcDir)).toBe(0o700);
+    for (const name of fs.readdirSync(ipcDir)) {
+      expect(fileMode(path.join(ipcDir, name))).toBe(0o700);
+    }
   });
 
   it('is idempotent', async () => {

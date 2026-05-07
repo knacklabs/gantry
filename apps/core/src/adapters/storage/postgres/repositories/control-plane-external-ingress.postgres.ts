@@ -1,7 +1,14 @@
-import { randomUUID } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  randomBytes,
+  randomUUID,
+} from 'node:crypto';
 
 import { and, desc, eq, sql } from 'drizzle-orm';
 
+import { EnvRuntimeSecretProvider } from '../../../credentials/env-runtime-secret-provider.js';
+import type { RuntimeSecretProvider } from '../../../../domain/ports/runtime-secret-provider.js';
 import { nowIso as currentIso } from '../../../../infrastructure/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
@@ -9,9 +16,14 @@ import { ensureControlGraph } from './control-plane-graph.postgres.js';
 
 const EXTERNAL_INGRESS_SWEEP_BATCH_SIZE = 1000;
 const EXTERNAL_INGRESS_SWEEP_MAX_DELETE_BATCHES = 10;
+const EXTERNAL_INGRESS_SECRET_PREFIX = 'enc:v1:';
+const SECRET_ENCRYPTION_KEY_ENV = 'SECRET_ENCRYPTION_KEY';
 
 export class PostgresExternalIngressRepository {
-  constructor(private readonly db: CanonicalDb) {}
+  constructor(
+    private readonly db: CanonicalDb,
+    private readonly runtimeSecrets: RuntimeSecretProvider = new EnvRuntimeSecretProvider(),
+  ) {}
 
   async create(input: {
     ingressId?: string;
@@ -34,14 +46,14 @@ export class PostgresExternalIngressRepository {
         ingressId: input.ingressId ?? randomUUID(),
         appId: input.appId,
         name: input.name,
-        secret: input.secret,
+        secret: encryptExternalIngressSecret(input.secret, this.runtimeSecrets),
         enabled: input.enabled ?? true,
         metadataJson: JSON.stringify(input.metadata ?? {}),
         createdAt: now,
         updatedAt: now,
       })
       .returning();
-    return mapExternalIngress(rows[0]!);
+    return mapExternalIngress(rows[0]!, this.runtimeSecrets);
   }
 
   async list(appId: string) {
@@ -50,7 +62,7 @@ export class PostgresExternalIngressRepository {
       .from(pgSchema.externalIngressesPostgres)
       .where(eq(pgSchema.externalIngressesPostgres.appId, appId))
       .orderBy(desc(pgSchema.externalIngressesPostgres.updatedAt));
-    return rows.map(mapExternalIngress);
+    return rows.map((row) => mapExternalIngress(row, this.runtimeSecrets));
   }
 
   async getById(ingressId: string, appId?: string) {
@@ -64,7 +76,9 @@ export class PostgresExternalIngressRepository {
       .from(pgSchema.externalIngressesPostgres)
       .where(and(...conditions))
       .limit(1);
-    return rows[0] ? mapExternalIngress(rows[0]) : undefined;
+    return rows[0]
+      ? mapExternalIngress(rows[0], this.runtimeSecrets)
+      : undefined;
   }
 
   async update(
@@ -77,18 +91,31 @@ export class PostgresExternalIngressRepository {
       metadata?: unknown;
     },
   ) {
-    const existing = await this.getById(ingressId, appId);
+    const existingRows = await this.db
+      .select()
+      .from(pgSchema.externalIngressesPostgres)
+      .where(
+        and(
+          eq(pgSchema.externalIngressesPostgres.ingressId, ingressId),
+          eq(pgSchema.externalIngressesPostgres.appId, appId),
+        ),
+      )
+      .limit(1);
+    const existing = existingRows[0];
     if (!existing) return undefined;
     const rows = await this.db
       .update(pgSchema.externalIngressesPostgres)
       .set({
         name: patch.name ?? existing.name,
-        secret: patch.secret ?? existing.secret,
+        secret:
+          patch.secret !== undefined
+            ? encryptExternalIngressSecret(patch.secret, this.runtimeSecrets)
+            : existing.secret,
         enabled: patch.enabled ?? existing.enabled,
         metadataJson:
           patch.metadata !== undefined
             ? JSON.stringify(patch.metadata)
-            : JSON.stringify(existing.metadata),
+            : existing.metadataJson,
         updatedAt: currentIso(),
       })
       .where(
@@ -98,7 +125,9 @@ export class PostgresExternalIngressRepository {
         ),
       )
       .returning();
-    return rows[0] ? mapExternalIngress(rows[0]) : undefined;
+    return rows[0]
+      ? mapExternalIngress(rows[0], this.runtimeSecrets)
+      : undefined;
   }
 
   async delete(ingressId: string, appId: string): Promise<boolean> {
@@ -364,26 +393,96 @@ export class PostgresExternalIngressRepository {
   }
 }
 
-function mapExternalIngress(row: {
-  ingressId: string;
-  appId: string;
-  name: string;
-  secret: string;
-  enabled: boolean;
-  metadataJson: string;
-  createdAt: string;
-  updatedAt: string;
-}) {
+function mapExternalIngress(
+  row: {
+    ingressId: string;
+    appId: string;
+    name: string;
+    secret: string;
+    enabled: boolean;
+    metadataJson: string;
+    createdAt: string;
+    updatedAt: string;
+  },
+  runtimeSecrets: RuntimeSecretProvider,
+) {
   return {
     ingressId: row.ingressId,
     appId: row.appId,
     name: row.name,
-    secret: row.secret,
+    secret: decryptExternalIngressSecret(row.secret, runtimeSecrets),
     enabled: row.enabled,
     metadata: parseJson(row.metadataJson, {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+export function resolveExternalIngressSecretKey(
+  runtimeSecrets: RuntimeSecretProvider,
+): Buffer {
+  const raw = runtimeSecrets
+    .getOptionalSecret({ env: SECRET_ENCRYPTION_KEY_ENV })
+    ?.trim();
+  if (!raw) {
+    throw new Error(
+      `${SECRET_ENCRYPTION_KEY_ENV} is required for external ingress secret encryption.`,
+    );
+  }
+  const decoded = Buffer.from(raw, 'base64');
+  if (decoded.length === 32) return decoded;
+  throw new Error(
+    `${SECRET_ENCRYPTION_KEY_ENV} must be a base64-encoded 32-byte secret for external ingress secret encryption.`,
+  );
+}
+
+export function encryptExternalIngressSecret(
+  secret: string,
+  runtimeSecrets: RuntimeSecretProvider,
+): string {
+  if (secret.startsWith(EXTERNAL_INGRESS_SECRET_PREFIX)) return secret;
+  const iv = randomBytes(12);
+  const cipher = createCipheriv(
+    'aes-256-gcm',
+    resolveExternalIngressSecretKey(runtimeSecrets),
+    iv,
+  );
+  const ciphertext = Buffer.concat([
+    cipher.update(secret, 'utf8'),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+  return [
+    EXTERNAL_INGRESS_SECRET_PREFIX.slice(0, -1),
+    iv.toString('base64url'),
+    tag.toString('base64url'),
+    ciphertext.toString('base64url'),
+  ].join(':');
+}
+
+export function decryptExternalIngressSecret(
+  stored: string,
+  runtimeSecrets: RuntimeSecretProvider,
+): string {
+  if (!stored.startsWith(EXTERNAL_INGRESS_SECRET_PREFIX)) {
+    throw new Error(
+      'External ingress secret is not encrypted. Rotate the ingress secret before use.',
+    );
+  }
+  const [_enc, _v1, ivRaw, tagRaw, ciphertextRaw] = stored.split(':');
+  if (!ivRaw || !tagRaw || !ciphertextRaw) {
+    throw new Error('External ingress secret ciphertext is malformed.');
+  }
+  const decipher = createDecipheriv(
+    'aes-256-gcm',
+    resolveExternalIngressSecretKey(runtimeSecrets),
+    Buffer.from(ivRaw, 'base64url'),
+  );
+  decipher.setAuthTag(Buffer.from(tagRaw, 'base64url'));
+  return Buffer.concat([
+    decipher.update(Buffer.from(ciphertextRaw, 'base64url')),
+    decipher.final(),
+  ]).toString('utf8');
 }
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
