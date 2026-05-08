@@ -11,7 +11,6 @@ import { AgentCapabilityAdministrationService } from '../../../application/agent
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import type { Agent, AgentId } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
-import type { ConversationId } from '../../../domain/conversation/conversation.js';
 import type { AgentConversationBinding } from '../../../domain/provider/provider.js';
 import {
   authorizeControlRequest,

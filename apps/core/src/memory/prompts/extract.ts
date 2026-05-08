@@ -33,7 +33,7 @@ For each fact return:
 {kind, scope, key, value, why, confidence, load_bearing, supersedes}
 
 - kind: preference | decision | fact | correction | constraint
-- scope: user (personal preferences) | group (project facts/decisions) | global (truly universal rules)
+- scope: user (personal preferences) | group (project facts/decisions)
 - key: stable slug, e.g. "decision:memory-extraction-boundary-triggered"
 - value: ONE human sentence, third-person, present tense, <220 chars.
 - why: a short quote from the arc that grounds the fact (from the user's turns primarily).

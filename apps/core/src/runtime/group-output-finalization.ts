@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
 import type { MessageSendOptions, NewMessage } from '../domain/types.js';
+import type { DeliverySettlement } from '../jobs/delivery.js';
 
 const NO_VISIBLE_OUTPUT_FALLBACK_MESSAGE =
   'I finished that run but did not generate a user-visible reply. Please send your message again.';
 
 export async function finalizeGroupAgentUserVisibleOutput(input: {
-  streamedOutputDelivered: boolean;
-  collectedOutput: string;
+  streamedTranscriptDeliveryStatus: 'none' | 'sent' | 'partially_sent';
+  boundedTranscript: string | null;
   chatJid: string;
   activeThreadId?: string;
   outputSentToUser: boolean;
@@ -22,13 +23,21 @@ export async function finalizeGroupAgentUserVisibleOutput(input: {
   sendMessageToChannel: (
     text: string,
     options?: MessageSendOptions,
-  ) => Promise<void>;
-}): Promise<boolean> {
+  ) => Promise<DeliverySettlement>;
+}): Promise<{
+  outputSentToUser: boolean;
+  terminalSettlement: DeliverySettlement;
+}> {
   let outputSentToUser = input.outputSentToUser;
+  let terminalSettlement: DeliverySettlement = 'sent';
+  const transcriptText = input.boundedTranscript?.trim() ?? '';
 
-  if (input.streamedOutputDelivered) {
-    const transcriptText = input.collectedOutput.trim();
+  if (input.streamedTranscriptDeliveryStatus !== 'none') {
     if (transcriptText) {
+      const deliveryStatus =
+        input.streamedTranscriptDeliveryStatus === 'sent'
+          ? 'sent'
+          : 'partially_sent';
       const transcriptMessage: NewMessage = {
         id: `streamed-outbound:${randomUUID()}`,
         chat_jid: input.chatJid,
@@ -39,7 +48,7 @@ export async function finalizeGroupAgentUserVisibleOutput(input: {
         is_from_me: true,
         is_bot_message: true,
         thread_id: input.activeThreadId,
-        delivery_status: 'sent',
+        delivery_status: deliveryStatus,
         delivered_at: new Date().toISOString(),
       };
       await input
@@ -53,18 +62,25 @@ export async function finalizeGroupAgentUserVisibleOutput(input: {
     }
   }
 
-  if (outputSentToUser) return outputSentToUser;
+  if (outputSentToUser) {
+    return { outputSentToUser, terminalSettlement };
+  }
 
-  const fallbackText = input.collectedOutput.trim();
+  const fallbackText = transcriptText;
   if (fallbackText) {
     try {
       const messageOptions = await input.buildMessageOptions();
-      await input.sendMessageToChannel(fallbackText, messageOptions);
-      outputSentToUser = true;
-      input.warn(
-        { group: input.groupName, fallbackChars: fallbackText.length },
-        'Streamed output was not confirmed as delivered; sent fallback message',
+      terminalSettlement = await input.sendMessageToChannel(
+        fallbackText,
+        messageOptions,
       );
+      outputSentToUser = terminalSettlement !== 'not_delivered';
+      if (outputSentToUser) {
+        input.warn(
+          { group: input.groupName, fallbackChars: fallbackText.length },
+          'Streamed output was not confirmed as delivered; sent fallback message',
+        );
+      }
     } catch (err) {
       input.warn(
         { err, group: input.groupName },
@@ -74,15 +90,17 @@ export async function finalizeGroupAgentUserVisibleOutput(input: {
   } else if (input.sawRawOutput) {
     try {
       const messageOptions = await input.buildMessageOptions();
-      await input.sendMessageToChannel(
+      terminalSettlement = await input.sendMessageToChannel(
         NO_VISIBLE_OUTPUT_FALLBACK_MESSAGE,
         messageOptions,
       );
-      outputSentToUser = true;
-      input.warn(
-        { group: input.groupName },
-        'Agent produced only non-displayable output; sent explicit fallback notice',
-      );
+      outputSentToUser = terminalSettlement !== 'not_delivered';
+      if (outputSentToUser) {
+        input.warn(
+          { group: input.groupName },
+          'Agent produced only non-displayable output; sent explicit fallback notice',
+        );
+      }
     } catch (err) {
       input.warn(
         { err, group: input.groupName },
@@ -91,5 +109,5 @@ export async function finalizeGroupAgentUserVisibleOutput(input: {
     }
   }
 
-  return outputSentToUser;
+  return { outputSentToUser, terminalSettlement };
 }

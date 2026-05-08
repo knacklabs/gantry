@@ -13,6 +13,7 @@ import {
 } from '../adapters/storage/postgres/runtime-store.js';
 import { startControlServer } from '../control/server/index.js';
 import { stopSchedulerLoop } from '../jobs/scheduler.js';
+import { stopOutboundDeliveryRecoveryLoop } from '../jobs/outbound-delivery-recovery.js';
 import { MYCLAW_HOME } from '../config/index.js';
 import { startSettingsReloadWatcher } from '../runtime/settings-reload-watcher.js';
 import {
@@ -59,6 +60,7 @@ export async function startMyClawRuntime(
     supportsProgress: channelWiring.supportsProgress,
     sendMessage: (chatJid, rawText, options) =>
       channelWiring.sendMessage(chatJid, rawText, {
+        durability: 'required',
         messageOptions: options,
       }),
     sendStreamingChunk: channelWiring.sendStreamingChunk,
@@ -84,6 +86,7 @@ export async function startMyClawRuntime(
     },
     closeStorage: closeRuntimeStorage,
     closeScheduler: stopSchedulerLoop,
+    closeOutboundDeliveryRecovery: stopOutboundDeliveryRecoveryLoop,
     closeSettingsWatcher: settingsWatcher.close,
   });
 
@@ -104,6 +107,8 @@ export async function startMyClawRuntime(
       mcpHostnameLookup,
       opsRepository: storage.ops,
       getToolRepository: () => storage.repositories.tools,
+      getOutboundDeliveryRepository: () =>
+        storage.repositories.outboundDeliveries,
     },
   );
   controlServerRef.current = startControlServer({ app });

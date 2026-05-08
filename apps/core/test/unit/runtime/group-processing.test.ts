@@ -7,7 +7,7 @@ import {
 } from '@core/shared/message-cursor.js';
 import type { AgentOutput } from '@core/runtime/agent-spawn-types.js';
 import type { GroupProcessingDeps } from '@core/runtime/group-processing-types.js';
-import { PartialMessageDeliveryError } from '@core/runtime/partial-delivery.js';
+import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -20,6 +20,15 @@ vi.mock('@core/config/index.js', () => ({
   MAX_MESSAGES_PER_PROMPT: 50,
   CHROME_PATH: undefined,
   TIMEZONE: 'UTC',
+  getRuntimeSettingsForConfig: () => ({
+    memory: {
+      enabled: true,
+      embeddings: {
+        enabled: false,
+        provider: 'disabled',
+      },
+    },
+  }),
   getDefaultModelConfig: () => ({ model: undefined }),
   getTriggerPattern: (trigger?: string) =>
     trigger ? new RegExp(`^@${trigger}\\b`, 'i') : /^@Andy\b/i,
@@ -88,6 +97,8 @@ vi.mock('@core/session/session-commands.js', () => ({
 
 const { createGroupProcessor } =
   await import('@core/runtime/group-processing.js');
+const { RUNTIME_RESULT_SUMMARY_MAX_CHARS } =
+  await import('@core/runtime/session-resume-runtime.js');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -172,6 +183,7 @@ function makeDeps(
     listRecentJobEvents: (...args: unknown[]) =>
       mockListRecentJobEvents(...args),
     getAllChats: vi.fn().mockResolvedValue([]),
+    storeMessage: vi.fn().mockResolvedValue(undefined),
     expireProviderSession: vi.fn(),
     setSession: vi.fn(),
   } as unknown as GroupProcessingDeps['opsRepository'];
@@ -592,14 +604,22 @@ describe('createGroupProcessor', () => {
 
       expect(deps.queue.notifyIdle).toHaveBeenCalledWith('group1@g.us');
       expect(channel.setTyping).toHaveBeenLastCalledWith('group1@g.us', false);
+      expect(
+        (
+          channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+        ).mock.calls.some(
+          (call) =>
+            typeof call[1] === 'string' && call[1].startsWith('Done in '),
+        ),
+      ).toBe(false);
+
+      liveRun.resolve({ status: 'success', result: null });
+      await processing;
       expect(channel.sendProgressUpdate).toHaveBeenCalledWith(
         'group1@g.us',
         expect.stringMatching(/^Done in /),
         { done: true, replaceOnly: true },
       );
-
-      liveRun.resolve({ status: 'success', result: null });
-      await processing;
     });
 
     it('drains unawaited output callbacks before clearing typing and marking idle', async () => {
@@ -771,10 +791,14 @@ describe('createGroupProcessor', () => {
       });
     });
 
-    it('treats partial channel delivery as output sent and avoids cursor rollback', async () => {
+    it('treats partial channel delivery as output sent, avoids rollback, and replaces completion with delivery-incomplete', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const messages = [makeMessage({ timestamp: '1700000001' })];
-      const { deps, channel } = setupHappyPath({ group, messages });
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath({ group, messages });
+      deps.channelRuntime = channel;
       const partialDeliveryError = new PartialMessageDeliveryError({
         cause: new Error('network failure on second chunk'),
         deliveredChunks: 1,
@@ -805,6 +829,17 @@ describe('createGroupProcessor', () => {
         timestamp: '1700000001',
         id: 'msg-1',
       });
+      expect(
+        (
+          channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+        ).mock.calls.some(
+          (call) =>
+            call[0] === 'group1@g.us' &&
+            typeof call[1] === 'string' &&
+            call[1].startsWith('Delivery incomplete after ') &&
+            call[2]?.done === true,
+        ),
+      ).toBe(true);
     });
   });
 
@@ -850,6 +885,13 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
+      expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentFolder: group.folder,
+          conversationJid: 'group1@g.us',
+          query: 'hello',
+        }),
+      );
       expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
         sessionId: 'claude-session-1',
         memoryContextBlock: expect.stringContaining(
@@ -882,7 +924,7 @@ describe('createGroupProcessor', () => {
         group.folder,
         'new-sess-123',
         null,
-        { conversationJid: 'group1@g.us' },
+        expect.objectContaining({ conversationJid: 'group1@g.us' }),
       );
     });
 
@@ -926,11 +968,54 @@ describe('createGroupProcessor', () => {
         group.folder,
         'streamed-sess',
         null,
-        { conversationJid: 'group1@g.us' },
+        expect.objectContaining({ conversationJid: 'group1@g.us' }),
       );
 
       releaseRunner.resolve({ status: 'success', result: 'text' });
       await processing;
+    });
+
+    it('passes direct conversation user scope when looking up and persisting provider sessions', async () => {
+      const agentOutput: AgentOutput = {
+        status: 'success',
+        result: 'response',
+        newSessionId: 'dm-sess-123',
+      };
+      const group = makeGroup({
+        requiresTrigger: false,
+        conversationKind: 'dm',
+      });
+      const messages = [makeMessage({ sender: 'sl:U123', content: 'hello' })];
+      const { deps } = setupHappyPath({ group, messages, agentOutput });
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:dm',
+        });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('sl:D123');
+
+      expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentFolder: group.folder,
+          conversationJid: 'sl:D123',
+          conversationKind: 'dm',
+          memoryUserId: 'sl:U123',
+        }),
+      );
+      expect(deps.opsRepository.setSession).toHaveBeenCalledWith(
+        group.folder,
+        'dm-sess-123',
+        null,
+        expect.objectContaining({
+          conversationJid: 'sl:D123',
+          conversationKind: 'dm',
+          memoryUserId: 'sl:U123',
+        }),
+      );
     });
   });
 
@@ -1106,7 +1191,7 @@ describe('createGroupProcessor', () => {
   describe('output handling', () => {
     it('finalizes streaming once when agent only emits text output', async () => {
       const streamingChannel = makeChannel({
-        sendStreamingChunk: vi.fn().mockResolvedValue(undefined),
+        sendStreamingChunk: vi.fn().mockResolvedValue(true),
       });
       const { deps } = setupHappyPath();
       deps.channelRuntime = streamingChannel;
@@ -1145,6 +1230,131 @@ describe('createGroupProcessor', () => {
           generation: firstCallGeneration,
         }),
       );
+    });
+
+    it('falls back to canonical message delivery when a streaming chunk is rejected as stale', async () => {
+      const streamingChannel = makeChannel({
+        sendStreamingChunk: vi.fn().mockResolvedValue(false),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = streamingChannel;
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: 'stream text' });
+          return { status: 'success', result: 'stream text' } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(streamingChannel.sendStreamingChunk).toHaveBeenCalledWith(
+        'group1@g.us',
+        'stream text',
+        expect.any(Object),
+      );
+      expect(streamingChannel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        'stream text',
+      );
+    });
+
+    it('redacts provider session handles for streaming live output delivery', async () => {
+      const streamingChannel = makeChannel({
+        sendStreamingChunk: vi.fn().mockResolvedValue(true),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = streamingChannel;
+      const rawOutput =
+        'visible-start provider-session:stream-handle claude-session-stream-handle sessionId=inline-stream {"newSessionId":"json-stream"} visible-end';
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: rawOutput });
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      const deliveredChunk = (
+        streamingChannel.sendStreamingChunk as ReturnType<typeof vi.fn>
+      ).mock.calls.find((call) => typeof call[1] === 'string' && call[1])?.[1];
+      expect(deliveredChunk).toContain('[REDACTED]');
+      expect(deliveredChunk).not.toContain('provider-session:stream-handle');
+      expect(deliveredChunk).not.toContain('claude-session-stream-handle');
+      expect(deliveredChunk).not.toContain('sessionId=inline-stream');
+      expect(deliveredChunk).not.toContain('"newSessionId":"json-stream"');
+    });
+
+    it('redacts provider session handles for non-streaming live output and transcript summaries', async () => {
+      const channel = makeChannel({
+        supportsStreaming: vi.fn().mockReturnValue(false),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = channel;
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+        });
+      (deps.opsRepository as any).createSessionAgentRun = vi
+        .fn()
+        .mockResolvedValue('run-1');
+      (deps.opsRepository as any).completeSessionAgentRun = vi.fn();
+      const rawOutput =
+        'visible-start provider-session:fallback-handle claude-session-fallback-handle sessionId=fallback-inline {"newSessionId":"fallback-json"} visible-end';
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: rawOutput });
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      const deliveredMessage = (
+        channel.sendMessage as ReturnType<typeof vi.fn>
+      ).mock.calls.find((call) => call[0] === 'group1@g.us')?.[1] as
+        | string
+        | undefined;
+      expect(deliveredMessage).toContain('[REDACTED]');
+      expect(deliveredMessage).not.toContain(
+        'provider-session:fallback-handle',
+      );
+      expect(deliveredMessage).not.toContain('claude-session-fallback-handle');
+      expect(deliveredMessage).not.toContain('sessionId=fallback-inline');
+      expect(deliveredMessage).not.toContain('"newSessionId":"fallback-json"');
+
+      const completion = (deps.opsRepository as any).completeSessionAgentRun
+        .mock.calls[0][0];
+      const summary = completion.resultSummary as string;
+      expect(summary).toContain('[REDACTED]');
+      expect(summary).not.toContain('provider-session:fallback-handle');
+      expect(summary).not.toContain('claude-session-fallback-handle');
+      expect(summary).not.toContain('sessionId=fallback-inline');
+      expect(summary).not.toContain('"newSessionId":"fallback-json"');
     });
 
     it('advances streaming generation for each completed live SDK turn', async () => {
@@ -1243,7 +1453,7 @@ describe('createGroupProcessor', () => {
 
     it('splits streaming messages around user interaction boundaries', async () => {
       const streamingChannel = makeChannel({
-        sendStreamingChunk: vi.fn().mockResolvedValue(undefined),
+        sendStreamingChunk: vi.fn().mockResolvedValue(true),
         sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
       });
       const { deps } = setupHappyPath();
@@ -1293,6 +1503,11 @@ describe('createGroupProcessor', () => {
         'Waiting for your input.',
         { replaceOnly: true },
       );
+      expect(streamingChannel.sendProgressUpdate).toHaveBeenCalledWith(
+        'group1@g.us',
+        'Response received. Continuing...',
+        { replaceOnly: true },
+      );
       expect(calls[2]).toEqual([
         'group1@g.us',
         'after approval',
@@ -1304,6 +1519,171 @@ describe('createGroupProcessor', () => {
         expect.objectContaining({ done: true, generation: afterGeneration }),
       ]);
       expect(deps.queue.notifyIdle).toHaveBeenCalledTimes(1);
+    });
+
+    it('durably sends pre-boundary output before waiting when streaming is disabled', async () => {
+      const streamingChannel = makeChannel({
+        supportsStreaming: vi.fn().mockReturnValue(false),
+        sendStreamingChunk: vi.fn().mockResolvedValue(true),
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = streamingChannel;
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: 'before approval' });
+          await onOutput?.({
+            status: 'success',
+            result: null,
+            interactionBoundary: 'user_interaction',
+          });
+          await onOutput?.({ status: 'success', result: 'after approval' });
+          await onOutput?.({ status: 'success', result: null });
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(streamingChannel.sendStreamingChunk).not.toHaveBeenCalled();
+      expect(streamingChannel.sendMessage).toHaveBeenCalledTimes(2);
+      expect(streamingChannel.sendMessage).toHaveBeenNthCalledWith(
+        1,
+        'group1@g.us',
+        'before approval',
+      );
+      expect(streamingChannel.sendMessage).toHaveBeenNthCalledWith(
+        2,
+        'group1@g.us',
+        'after approval',
+      );
+
+      const waitingProgressCallIndex = (
+        streamingChannel.sendProgressUpdate as ReturnType<typeof vi.fn>
+      ).mock.calls.findIndex((call) => call[1] === 'Waiting for your input.');
+      const beforeMessageCallOrder = (
+        streamingChannel.sendMessage as ReturnType<typeof vi.fn>
+      ).mock.invocationCallOrder[0];
+      const waitingProgressCallOrder =
+        waitingProgressCallIndex >= 0
+          ? (streamingChannel.sendProgressUpdate as ReturnType<typeof vi.fn>)
+              .mock.invocationCallOrder[waitingProgressCallIndex]
+          : Number.MAX_SAFE_INTEGER;
+      expect(beforeMessageCallOrder).toBeLessThan(waitingProgressCallOrder);
+    });
+
+    it('does not send a direct response receipt when progress is unavailable', async () => {
+      const channel = makeChannel({
+        supportsStreaming: vi.fn().mockReturnValue(false),
+        supportsProgress: vi.fn().mockReturnValue(false),
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = channel;
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: 'before question' });
+          await onOutput?.({
+            status: 'success',
+            result: null,
+            interactionBoundary: 'user_interaction',
+          });
+          await onOutput?.({ status: 'success', result: 'after question' });
+          await onOutput?.({ status: 'success', result: null });
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(channel.sendProgressUpdate).not.toHaveBeenCalled();
+      expect(channel.sendMessage).toHaveBeenCalledTimes(2);
+      expect(channel.sendMessage).toHaveBeenNthCalledWith(
+        1,
+        'group1@g.us',
+        'before question',
+      );
+      expect(channel.sendMessage).toHaveBeenNthCalledWith(
+        2,
+        'group1@g.us',
+        'after question',
+      );
+      expect(channel.sendMessage).not.toHaveBeenCalledWith(
+        'group1@g.us',
+        'Response received. Continuing...',
+      );
+    });
+
+    it('emits only one response receipt before continuation output chunks', async () => {
+      const streamingChannel = makeChannel({
+        sendStreamingChunk: vi.fn().mockResolvedValue(true),
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = streamingChannel;
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: 'before question' });
+          await onOutput?.({
+            status: 'success',
+            result: null,
+            interactionBoundary: 'user_interaction',
+          });
+          await onOutput?.({ status: 'success', result: 'after-1' });
+          await onOutput?.({ status: 'success', result: 'after-2' });
+          await onOutput?.({ status: 'success', result: null });
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      const receiptCalls = (
+        streamingChannel.sendProgressUpdate as ReturnType<typeof vi.fn>
+      ).mock.calls.filter(
+        (call) => call[1] === 'Response received. Continuing...',
+      );
+      expect(receiptCalls).toHaveLength(1);
+      const receiptOrder = (
+        streamingChannel.sendProgressUpdate as ReturnType<typeof vi.fn>
+      ).mock.invocationCallOrder[
+        (
+          streamingChannel.sendProgressUpdate as ReturnType<typeof vi.fn>
+        ).mock.calls.findIndex(
+          (call) => call[1] === 'Response received. Continuing...',
+        )
+      ];
+      const firstContinuationOrder = (
+        streamingChannel.sendStreamingChunk as ReturnType<typeof vi.fn>
+      ).mock.invocationCallOrder.find(
+        (_order, index) =>
+          (streamingChannel.sendStreamingChunk as ReturnType<typeof vi.fn>).mock
+            .calls[index]?.[1] === 'after-1',
+      );
+      expect(receiptOrder).toBeLessThan(
+        firstContinuationOrder ?? Number.MAX_SAFE_INTEGER,
+      );
     });
 
     it('persists delivered streaming output as canonical assistant context', async () => {
@@ -1360,6 +1740,263 @@ describe('createGroupProcessor', () => {
         status: 'completed',
         resultSummary: 'stream text',
       });
+    });
+
+    it('caps persisted streamed transcript while delivering all chunks', async () => {
+      const streamingChannel = makeChannel({
+        sendStreamingChunk: vi.fn().mockResolvedValue(true),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = streamingChannel;
+      (deps.opsRepository as any).storeMessage = vi
+        .fn()
+        .mockResolvedValue(undefined);
+
+      const tailChunk = `TAIL-${'z'.repeat(100)}END`;
+      const chunks = [
+        `HEAD-START${'a'.repeat(900)}`,
+        ...Array.from(
+          { length: 8 },
+          (_, index) => `MIDDLE-${index}-${'b'.repeat(900)}`,
+        ),
+        tailChunk,
+      ];
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          for (const chunk of chunks) {
+            await onOutput?.({ status: 'success', result: chunk });
+          }
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      const streamedChunks = (
+        streamingChannel.sendStreamingChunk as ReturnType<typeof vi.fn>
+      ).mock.calls
+        .map((call) => call[1])
+        .filter((text): text is string => Boolean(text));
+      expect(streamedChunks).toEqual(chunks);
+      const storedTranscript = (deps.opsRepository as any).storeMessage.mock
+        .calls[0][0].content as string;
+      expect(storedTranscript.length).toBeLessThanOrEqual(
+        RUNTIME_RESULT_SUMMARY_MAX_CHARS,
+      );
+      expect(storedTranscript).toMatch(/^\[output truncated; showing tail\]\n/);
+      expect(storedTranscript).not.toContain('HEAD-START');
+      expect(storedTranscript.endsWith(tailChunk)).toBe(true);
+    });
+
+    it('caps fallback transcript when streamed chunks are not delivered', async () => {
+      const streamingChannel = makeChannel({
+        sendMessage: vi.fn().mockResolvedValue(undefined),
+        sendStreamingChunk: vi.fn().mockResolvedValue(false),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = streamingChannel;
+
+      const tailChunk = `TAIL-${'z'.repeat(100)}END`;
+      const chunks = [
+        `HEAD-START${'a'.repeat(900)}`,
+        ...Array.from(
+          { length: 8 },
+          (_, index) => `MIDDLE-${index}-${'b'.repeat(900)}`,
+        ),
+        tailChunk,
+      ];
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          for (const chunk of chunks) {
+            await onOutput?.({ status: 'success', result: chunk });
+          }
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      const streamedChunks = (
+        streamingChannel.sendStreamingChunk as ReturnType<typeof vi.fn>
+      ).mock.calls
+        .map((call) => call[1])
+        .filter((text): text is string => Boolean(text));
+      expect(streamedChunks).toEqual(chunks);
+      const fallbackText = (
+        streamingChannel.sendMessage as ReturnType<typeof vi.fn>
+      ).mock.calls[0][1] as string;
+      expect(fallbackText.length).toBeLessThanOrEqual(
+        RUNTIME_RESULT_SUMMARY_MAX_CHARS,
+      );
+      expect(fallbackText).toMatch(/^\[output truncated; showing tail\]\n/);
+      expect(fallbackText).not.toContain('HEAD-START');
+      expect(fallbackText.endsWith(tailChunk)).toBe(true);
+    });
+
+    it('caps the persisted run summary for one long streamed delta while streaming the full delta', async () => {
+      const streamingChannel = makeChannel({
+        sendStreamingChunk: vi.fn().mockResolvedValue(true),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = streamingChannel;
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+        });
+      (deps.opsRepository as any).createSessionAgentRun = vi
+        .fn()
+        .mockResolvedValue('run-1');
+      (deps.opsRepository as any).completeSessionAgentRun = vi.fn();
+
+      const longDelta = `HEAD-START${'x'.repeat(
+        RUNTIME_RESULT_SUMMARY_MAX_CHARS + 250,
+      )}TAIL-END`;
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: longDelta });
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(streamingChannel.sendStreamingChunk).toHaveBeenCalledWith(
+        'group1@g.us',
+        longDelta,
+        expect.objectContaining({ generation: expect.any(Number) }),
+      );
+      const completion = (deps.opsRepository as any).completeSessionAgentRun
+        .mock.calls[0][0];
+      const summary = completion.resultSummary as string;
+      expect(summary.length).toBeLessThanOrEqual(
+        RUNTIME_RESULT_SUMMARY_MAX_CHARS,
+      );
+      expect(summary).toMatch(/^\[output truncated; showing tail\]\n/);
+      expect(summary).not.toContain('HEAD-START');
+      expect(summary.endsWith('TAIL-END')).toBe(true);
+    });
+
+    it('keeps a bounded tail summary across chunked streamed output', async () => {
+      const streamingChannel = makeChannel({
+        sendStreamingChunk: vi.fn().mockResolvedValue(true),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = streamingChannel;
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+        });
+      (deps.opsRepository as any).createSessionAgentRun = vi
+        .fn()
+        .mockResolvedValue('run-1');
+      (deps.opsRepository as any).completeSessionAgentRun = vi.fn();
+
+      const chunks = [
+        `HEAD-START${'a'.repeat(2_000)}`,
+        `MIDDLE${'b'.repeat(2_300)}`,
+        'TAIL-END',
+      ];
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          for (const chunk of chunks) {
+            await onOutput?.({ status: 'success', result: chunk });
+          }
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      for (const chunk of chunks) {
+        expect(streamingChannel.sendStreamingChunk).toHaveBeenCalledWith(
+          'group1@g.us',
+          chunk,
+          expect.objectContaining({ generation: expect.any(Number) }),
+        );
+      }
+      const completion = (deps.opsRepository as any).completeSessionAgentRun
+        .mock.calls[0][0];
+      const summary = completion.resultSummary as string;
+      expect(summary.length).toBeLessThanOrEqual(
+        RUNTIME_RESULT_SUMMARY_MAX_CHARS,
+      );
+      expect(summary).toMatch(/^\[output truncated; showing tail\]\n/);
+      expect(summary).not.toContain('HEAD-START');
+      expect(summary.endsWith('TAIL-END')).toBe(true);
+    });
+
+    it('marks streamed transcript and final progress as delivery_incomplete when done finalization fails', async () => {
+      const streamingChannel = makeChannel({
+        sendStreamingChunk: vi.fn(async (_jid, _text, options) => {
+          if (options?.done) {
+            throw new Error('done marker failed');
+          }
+          return true;
+        }),
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath();
+      deps.channelRuntime = streamingChannel;
+      (deps.opsRepository as any).storeMessage = vi
+        .fn()
+        .mockResolvedValue(undefined);
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: 'stream text' });
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(deps.opsRepository.storeMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: 'stream text',
+          delivery_status: 'partially_sent',
+        }),
+      );
+      expect(streamingChannel.sendProgressUpdate).toHaveBeenCalledWith(
+        'group1@g.us',
+        expect.stringMatching(/^Delivery incomplete after /),
+        { done: true, replaceOnly: true },
+      );
     });
 
     it('resets channel streaming state before running a new cycle', async () => {
@@ -1688,6 +2325,60 @@ describe('createGroupProcessor', () => {
       );
       expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
     });
+
+    it('passes channel conversation kind to getAgentTurnContext', async () => {
+      const group = makeGroup({
+        folder: 'my-group',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      });
+      const { deps } = setupHappyPath({ group });
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue(undefined);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      expect(
+        (deps.opsRepository as any).getAgentTurnContext,
+      ).toHaveBeenCalledWith({
+        agentFolder: 'my-group',
+        conversationJid: 'group1@g.us',
+        threadId: null,
+        conversationKind: 'channel',
+        memoryUserId: 'user1@s.whatsapp.net',
+        query: 'hello',
+      });
+    });
+
+    it('uses bounded user-visible message text as memory recall query', async () => {
+      const group = makeGroup({
+        folder: 'my-group',
+        requiresTrigger: false,
+        conversationKind: 'channel',
+      });
+      const longContent = `<myclaw_memory_context>${Array.from(
+        { length: 140 },
+        (_, index) => `term${index}`,
+      ).join(' ')}</myclaw_memory_context>`;
+      const { deps } = setupHappyPath({
+        group,
+        messages: [makeMessage({ content: longContent })],
+      });
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue(undefined);
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      const query = (deps.opsRepository as any).getAgentTurnContext.mock
+        .calls[0][0].query;
+      expect(query).not.toContain('myclaw_memory_context');
+      expect(query.split(/\s+/)).toHaveLength(80);
+      expect(query.length).toBeLessThanOrEqual(1200);
+    });
   });
 
   // =======================================================================
@@ -1715,6 +2406,13 @@ describe('createGroupProcessor', () => {
         channelRuntime: channel,
         getGroup: vi.fn().mockReturnValue(group),
       });
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:test',
+        });
       mockGetMessagesSince.mockReturnValue(messages);
       mockLoadSenderAllowlist.mockReturnValue({});
       mockIsTriggerAllowed.mockReturnValue(true);
@@ -1880,10 +2578,163 @@ describe('createGroupProcessor', () => {
 
       expect(mockSaveProcedure).toHaveBeenCalledWith(
         expect.objectContaining({
+          subjectType: 'channel',
+          channelId: 'conversation:group1@g.us',
           threadId: 'thread-procedure',
           key: 'procedure:Deploy flow',
           value: '1. Build\n2. Ship',
         }),
+      );
+    });
+
+    it('saveProcedure resolves DM/private commands to user memory without thread scope', async () => {
+      const { capturedDeps } = await captureSessionDeps({
+        group: makeGroup({ folder: 'dm-agent', conversationKind: 'dm' }),
+        messages: [
+          makeMessage({
+            id: 'dm-save-procedure',
+            sender: 'user-dm',
+            thread_id: 'ignored-dm-thread',
+          }),
+        ],
+        queueJid: 'dm-conversation::thread:ignored-dm-thread',
+      });
+      const saveProcedure = capturedDeps.saveProcedure as (input: {
+        title: string;
+        body: string;
+      }) => Promise<unknown>;
+
+      await saveProcedure({ title: 'Travel flow', body: 'Book direct.' });
+
+      expect(mockSaveProcedure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subjectType: 'user',
+          userId: 'user-dm',
+          key: 'procedure:Travel flow',
+          value: 'Book direct.',
+        }),
+      );
+      expect(mockSaveProcedure.mock.calls[0]?.[0]).not.toHaveProperty(
+        'threadId',
+      );
+      expect(mockSaveProcedure.mock.calls[0]?.[0]).not.toHaveProperty(
+        'channelId',
+      );
+    });
+
+    it('runMemoryDreaming carries active thread scope into triggerDreaming', async () => {
+      const { capturedDeps, group } = await captureSessionDeps({
+        group: makeGroup({ folder: 'threaded-group' }),
+        messages: [
+          makeMessage({
+            id: 'thread-dream',
+            content: '/dream',
+            thread_id: 'thread-dreaming',
+          }),
+        ],
+        queueJid: 'group1@g.us::thread:thread-dreaming',
+      });
+      const runMemoryDreaming =
+        capturedDeps.runMemoryDreaming as () => Promise<unknown>;
+
+      await runMemoryDreaming();
+
+      expect(mockRunDreamingSweep).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'default',
+          agentId: `agent:${group.folder}`,
+          subjectType: 'channel',
+          subjectId: 'conversation:group1@g.us',
+          channelId: 'conversation:group1@g.us',
+          threadId: 'thread-dreaming',
+          phase: 'all',
+        }),
+      );
+    });
+
+    it('runMemoryDreaming resolves DM/private commands to user subject without thread scope', async () => {
+      const { capturedDeps } = await captureSessionDeps({
+        group: makeGroup({ folder: 'dm-agent', conversationKind: 'dm' }),
+        messages: [
+          makeMessage({
+            id: 'dm-dream',
+            content: '/dream',
+            sender: 'user-dm',
+            thread_id: 'ignored-dm-thread',
+          }),
+        ],
+        queueJid: 'dm-conversation::thread:ignored-dm-thread',
+      });
+      const runMemoryDreaming =
+        capturedDeps.runMemoryDreaming as () => Promise<unknown>;
+
+      await runMemoryDreaming();
+
+      expect(mockRunDreamingSweep).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'default',
+          agentId: 'agent:dm-agent',
+          subjectType: 'user',
+          subjectId: 'user-dm',
+          userId: 'user-dm',
+          phase: 'all',
+        }),
+      );
+      expect(mockRunDreamingSweep.mock.calls[0]?.[0]).not.toHaveProperty(
+        'threadId',
+      );
+      expect(mockRunDreamingSweep.mock.calls[0]?.[0]).not.toHaveProperty(
+        'channelId',
+      );
+    });
+
+    it('getMemoryStatus reads only the resolved channel subject', async () => {
+      const { capturedDeps } = await captureSessionDeps({
+        group: makeGroup({ folder: 'status-agent' }),
+      });
+      const getMemoryStatus =
+        capturedDeps.getMemoryStatus as () => Promise<unknown>;
+
+      await getMemoryStatus();
+
+      expect(mockGetMemoryStatus).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'default',
+          agentId: 'agent:status-agent',
+          channelId: 'conversation:group1@g.us',
+          subjectTypes: ['channel'],
+          includeCommon: false,
+        }),
+      );
+      expect(mockGetMemoryStatus.mock.calls[0]?.[0]).not.toHaveProperty(
+        'groupId',
+      );
+    });
+
+    it('getMemoryStatus reads only the resolved DM user subject', async () => {
+      const { capturedDeps } = await captureSessionDeps({
+        group: makeGroup({ folder: 'status-dm', conversationKind: 'dm' }),
+        messages: [makeMessage({ sender: 'user-dm' })],
+      });
+      const getMemoryStatus =
+        capturedDeps.getMemoryStatus as () => Promise<unknown>;
+
+      await getMemoryStatus();
+
+      expect(mockGetMemoryStatus).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: 'default',
+          agentId: 'agent:status-dm',
+          userId: 'user-dm',
+          subjectTypes: ['user'],
+          includeCommon: false,
+        }),
+      );
+      expect(mockGetMemoryStatus.mock.calls[0]?.[0]).not.toHaveProperty(
+        'threadId',
+      );
+      expect(mockGetMemoryStatus.mock.calls[0]?.[0]).not.toHaveProperty(
+        'channelId',
       );
     });
 
@@ -1902,7 +2753,9 @@ describe('createGroupProcessor', () => {
 
       await archiveCurrentSession('new-session');
 
-      expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalled();
+      expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalledWith(
+        expect.objectContaining({ hydrateMemory: false }),
+      );
       expect(deps.collectSessionMemory).toHaveBeenCalledWith({
         agentSessionId: 'agent-session:test',
         trigger: 'session-end',
@@ -1942,18 +2795,24 @@ describe('createGroupProcessor', () => {
 
       await archiveCurrentSession();
 
-      expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalled();
+      expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalledWith(
+        expect.objectContaining({ hydrateMemory: false }),
+      );
       expect(deps.collectSessionMemory).not.toHaveBeenCalled();
     });
 
-    it('clearCurrentSession clears session and deletes from DB', async () => {
+    it('clearCurrentSession resets scoped provider session state', async () => {
       const { capturedDeps, deps } = await captureSessionDeps();
       const clearCurrentSession =
         capturedDeps.clearCurrentSession as () => Promise<void> | void;
 
       await clearCurrentSession();
 
-      expect(deps.clearSession).toHaveBeenCalledWith('grp-folder', undefined);
+      expect(deps.clearSession).toHaveBeenCalledWith(
+        'grp-folder',
+        undefined,
+        expect.objectContaining({ conversationJid: 'group1@g.us' }),
+      );
     });
 
     describe('canSenderInteract', () => {
@@ -2050,6 +2909,13 @@ describe('createGroupProcessor', () => {
         channelRuntime: channel,
         getGroup: vi.fn().mockReturnValue(group),
       });
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:test',
+        });
       mockGetMessagesSince.mockReturnValue(messages);
       mockGetAllJobs.mockReturnValue([]);
       mockGetRecentJobRuns.mockReturnValue([]);
@@ -2079,6 +2945,9 @@ describe('createGroupProcessor', () => {
 
       const result = await capturedRunAgent!('test prompt');
       expect(result).toBe('success');
+      expect(deps.opsRepository.getAgentTurnContext).toHaveBeenCalledWith(
+        expect.objectContaining({ query: undefined }),
+      );
       expect(mockSpawnAgent).toHaveBeenCalledWith(
         group,
         expect.objectContaining({ prompt: 'test prompt' }),
@@ -2241,7 +3110,7 @@ describe('createGroupProcessor', () => {
         group.folder,
         'session-42',
         null,
-        { conversationJid: 'group1@g.us' },
+        expect.objectContaining({ conversationJid: 'group1@g.us' }),
       );
     });
   });

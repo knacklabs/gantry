@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildExecutionTurnContextInput,
   resolveExecutionContext,
   resolveExecutionMemoryContext,
 } from '@core/jobs/execution-context.js';
@@ -39,37 +40,65 @@ function job(input: Partial<Job>): Job {
 }
 
 describe('resolveExecutionContext', () => {
-  it('uses linked session conversations before folder fallback', () => {
+  it('resolves execution using canonical execution_context', () => {
     const groups = {
       'chat-a': group('agent-folder', 'Conversation A'),
       'chat-b': group('agent-folder', 'Conversation B'),
     };
 
     const resolved = resolveExecutionContext(
-      job({ linked_sessions: ['chat-b'], group_scope: 'agent-folder' }),
+      job({
+        group_scope: 'agent-folder',
+        execution_context: {
+          conversationJid: 'chat-b',
+          threadId: 'thread-1',
+          groupScope: 'agent-folder',
+        },
+        notification_routes: [
+          { conversationJid: 'chat-a', threadId: null, label: 'backup' },
+          { conversationJid: 'chat-b', threadId: 'thread-1', label: 'primary' },
+        ],
+      }),
       groups,
     );
 
     expect(resolved).toMatchObject({
       group: groups['chat-b'],
       executionJid: 'chat-b',
-      stopAliasJids: ['chat-b'],
+      threadId: 'thread-1',
+      stopAliasJids: ['chat-b', 'chat-a'],
     });
   });
 
-  it('falls back to the first folder match only when no linked session exists', () => {
+  it('returns null without canonical execution context', () => {
     const groups = { 'chat-a': group('agent-folder', 'Conversation A') };
 
     const resolved = resolveExecutionContext(
-      job({ linked_sessions: [], group_scope: 'agent-folder' }),
+      job({ linked_sessions: ['chat-a'], group_scope: 'agent-folder' }),
       groups,
     );
 
-    expect(resolved).toMatchObject({
-      group: groups['chat-a'],
-      executionJid: 'chat-a',
-      stopAliasJids: ['chat-a'],
-    });
+    expect(resolved).toBeNull();
+  });
+
+  it('returns null when execution conversation is not bound in runtime routes', () => {
+    const groups = { 'chat-a': group('agent-folder', 'Conversation A') };
+
+    const resolved = resolveExecutionContext(
+      job({
+        execution_context: {
+          conversationJid: 'chat-missing',
+          threadId: null,
+          groupScope: 'agent-folder',
+        },
+        notification_routes: [
+          { conversationJid: 'chat-a', threadId: null, label: 'backup' },
+        ],
+      }),
+      groups,
+    );
+
+    expect(resolved).toBeNull();
   });
 });
 
@@ -93,5 +122,69 @@ describe('resolveExecutionMemoryContext', () => {
         executionJid: 'tg:-100',
       }),
     ).toEqual({ memoryDefaultScope: 'group' });
+  });
+});
+
+describe('buildExecutionTurnContextInput', () => {
+  it('passes first-run DM scheduled context with trusted memory user id', () => {
+    expect(
+      buildExecutionTurnContextInput({
+        agentFolder: 'team-folder',
+        executionJid: 'tg:575',
+        threadId: null,
+        conversationKind: 'dm',
+        memoryUserId: 'tg:575',
+        query: 'Summarize direct context',
+      }),
+    ).toEqual({
+      agentFolder: 'team-folder',
+      conversationJid: 'tg:575',
+      threadId: null,
+      conversationKind: 'dm',
+      memoryUserId: 'tg:575',
+      query: 'Summarize direct context',
+    });
+  });
+
+  it('passes first-run channel scheduled context without user override', () => {
+    expect(
+      buildExecutionTurnContextInput({
+        agentFolder: 'team-folder',
+        executionJid: 'sl:C123',
+        threadId: 'thread-1',
+        conversationKind: 'channel',
+        query: 'Summarize channel thread',
+      }),
+    ).toEqual({
+      agentFolder: 'team-folder',
+      conversationJid: 'sl:C123',
+      threadId: 'thread-1',
+      conversationKind: 'channel',
+      memoryUserId: undefined,
+      query: 'Summarize channel thread',
+    });
+  });
+
+  it('bounds and cleans scheduled prompt recall queries', () => {
+    const noisyPrompt = `<context timezone="UTC" />
+<messages>
+<message sender="User" time="today">${Array.from(
+      { length: 140 },
+      (_, index) => `term${index}`,
+    ).join(' ')}</message>
+</messages>`;
+
+    const result = buildExecutionTurnContextInput({
+      agentFolder: 'team-folder',
+      executionJid: 'sl:C123',
+      threadId: null,
+      conversationKind: 'channel',
+      query: noisyPrompt,
+    });
+
+    expect(result.query).not.toContain('<message');
+    expect(result.query).not.toContain('timezone=');
+    expect(result.query?.split(/\s+/)).toHaveLength(80);
+    expect(result.query?.length).toBeLessThanOrEqual(1200);
   });
 });

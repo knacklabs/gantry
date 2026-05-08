@@ -122,7 +122,7 @@ function ownedByAppClause(jobId: unknown, ownerAppId?: string) {
         select 1
         from ${pgSchema.canonicalJobsPostgres} owned_job
         join ${pgSchema.controlHttpSessionsPostgres} app_session
-          on app_session.session_id = owned_job.target_json::jsonb ->> 'sessionId'
+          on app_session.session_id = owned_job.target_json::jsonb #>> '{executionContext,sessionId}'
         where owned_job.id = ${jobId}
           and app_session.app_id = ${ownerAppId}
       )`
@@ -130,7 +130,23 @@ function ownedByAppClause(jobId: unknown, ownerAppId?: string) {
 }
 
 function canonicalJobSessionId() {
-  return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb ->> 'sessionId'`;
+  return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,sessionId}'`;
+}
+
+function canonicalJobGroupScope() {
+  return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,groupScope}'`;
+}
+
+function canonicalJobThreadId() {
+  return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,threadId}'`;
+}
+
+function canonicalJobThreadIdNormalized() {
+  return sql`coalesce(${canonicalJobThreadId()}, '')`;
+}
+
+function canonicalJobNotificationRoutes() {
+  return sql`coalesce(${pgSchema.canonicalJobsPostgres.targetJson}::jsonb -> 'notificationRoutes', '[]'::jsonb)`;
 }
 
 export class PostgresCanonicalJobRepository {
@@ -159,7 +175,7 @@ export class PostgresCanonicalJobRepository {
         ? sql`exists (
             select 1
             from ${pgSchema.controlHttpSessionsPostgres} app_session
-            where app_session.session_id = ${pgSchema.canonicalJobsPostgres.targetJson}::jsonb ->> 'sessionId'
+            where app_session.session_id = ${canonicalJobSessionId()}
               and app_session.app_id = ${filters.appId}
           )`
         : undefined,
@@ -167,29 +183,25 @@ export class PostgresCanonicalJobRepository {
         ? inArray(pgSchema.canonicalJobsPostgres.status, filters.statuses)
         : undefined,
       filters?.groupScope
-        ? sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb ->> 'groupScope' = ${filters.groupScope}`
+        ? sql`${canonicalJobGroupScope()} = ${filters.groupScope}`
         : undefined,
       filters?.threadId !== undefined
         ? filters.threadId
-          ? sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb ->> 'threadId' = ${filters.threadId}`
-          : sql`coalesce(${pgSchema.canonicalJobsPostgres.targetJson}::jsonb ->> 'threadId', '') = ''`
+          ? sql`${canonicalJobThreadIdNormalized()} = ${filters.threadId}`
+          : sql`${canonicalJobThreadIdNormalized()} = ''`
         : undefined,
       filters?.agentId
         ? sql`(
             ${pgSchema.canonicalJobsPostgres.agentId} = ${canonicalAgentId(filters.agentId)}
-            or ${pgSchema.canonicalJobsPostgres.targetJson}::jsonb ->> 'groupScope' = ${filters.agentId}
-            or ${pgSchema.canonicalJobsPostgres.targetJson}::jsonb ->> 'groupScope' = ${canonicalAgentId(filters.agentId)}
+            or ${canonicalJobGroupScope()} = ${filters.agentId}
+            or ${canonicalJobGroupScope()} = ${canonicalAgentId(filters.agentId)}
           )`
         : undefined,
       filters?.kind
         ? kindClause(filters.kind, pgSchema.canonicalJobsPostgres.scheduleJson)
         : undefined,
       filters?.conversationJid
-        ? sql`exists (
-            select 1
-            from jsonb_array_elements_text(coalesce(${pgSchema.canonicalJobsPostgres.targetJson}::jsonb -> 'linkedSessions', '[]'::jsonb)) as linked_session(value)
-            where linked_session.value = ${filters.conversationJid}
-          )`
+        ? sql`${canonicalJobNotificationRoutes()} @> ${JSON.stringify([{ conversationJid: filters.conversationJid }])}::jsonb`
         : undefined,
     ].filter(Boolean);
     const filtered = clauses.length > 0 ? query.where(and(...clauses)) : query;
@@ -637,8 +649,14 @@ export class PostgresCanonicalJobRepository {
     const target = row
       ? parseJson<Record<string, unknown>>(row.targetJson, {})
       : {};
+    const executionContext =
+      target.executionContext &&
+      typeof target.executionContext === 'object' &&
+      !Array.isArray(target.executionContext)
+        ? (target.executionContext as Record<string, unknown>)
+        : undefined;
     const folder = row
-      ? ((target.groupScope as string | undefined) ??
+      ? ((executionContext?.groupScope as string | undefined) ??
         row.agentId?.replace(/^agent:/, '') ??
         'system')
       : 'system';

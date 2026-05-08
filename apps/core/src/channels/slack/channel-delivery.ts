@@ -1,8 +1,8 @@
 import { App } from '@slack/bolt';
-
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
+  MessageDeliveryResult,
   MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
@@ -12,6 +12,10 @@ import {
   UserQuestionResponse,
 } from '../../domain/types.js';
 import {
+  getPartialMessageDeliveryMetadata,
+  isPartialMessageDeliveryError,
+} from '../../domain/messages/partial-delivery.js';
+import {
   formatOutboundForChannel,
   stripInternalTagsPreserveWhitespace,
 } from '../../messaging/router.js';
@@ -20,32 +24,43 @@ import {
   permissionDecisionOptions,
 } from '../permission-interaction.js';
 import {
-  channelProgressStateFilePath,
-  readProgressStateEntries,
-  writeProgressStateEntries,
-} from '../progress-state-file.js';
-
+  disconnectSlackDelivery,
+  loadPersistedSlackProgress,
+  persistSlackProgress,
+  sendSlackFallbackStreamParts,
+  sendSlackMessage,
+  sendSlackProgressUpdate,
+  syncSlackGroups,
+  waitForSlackUserQuestionSelection,
+} from './channel-delivery-helpers.js';
+import type {
+  SlackSnippetFallbackInput,
+  SlackSnippetFallbackResult,
+} from './channel-delivery-helpers.js';
 import { SlackChannelInteractions } from './channel-interactions.js';
 import {
+  SLACK_FALLBACK_CHUNK_MAX_LENGTH,
   SLACK_STREAM_UPDATE_INTERVAL_MS,
-  ActiveProgressState,
-  PendingUserQuestionState,
-} from './channel-state.js';
-
+  splitSlackTextByCodeUnits,
+} from './text-limits.js';
+import type { PendingUserQuestionState } from './channel-state.js';
+const SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS = 4;
 export abstract class SlackChannelDelivery extends SlackChannelInteractions {
+  protected async sendSnippetFallback(
+    _input: SlackSnippetFallbackInput,
+  ): Promise<SlackSnippetFallbackResult | null> {
+    return null;
+  }
   async connect(): Promise<void> {
     this.app = new App({
       token: this.botToken,
       appToken: this.appToken,
       socketMode: true,
     });
-
     this.registerBoltHandlers();
-
-    this.app.error(async (error: Error) => {
-      logger.error({ err: error }, 'Slack app error');
-    });
-
+    this.app.error(async (error: Error) =>
+      logger.error({ err: error }, 'Slack app error'),
+    );
     await this.app.start();
     try {
       const auth = (await this.app.client.auth.test()) as {
@@ -63,25 +78,24 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       logger.warn({ err }, 'Slack auth.test failed after Socket Mode start');
     }
   }
-
   async sendMessage(
     jid: string,
     text: string,
     options: MessageSendOptions = {},
-  ): Promise<{ externalMessageId?: string } | void> {
+  ): Promise<MessageDeliveryResult | void> {
     if (!this.app) return;
     const parsed = this.parseJid(jid);
     if (!parsed) return;
 
-    const formatted = formatOutboundForChannel(text, 'slack');
-    if (!formatted) return;
-
-    const posted = (await this.app.client.chat.postMessage({
-      channel: parsed.channelId,
-      text: formatted,
-      ...(options.threadId ? { thread_ts: options.threadId } : {}),
-    })) as { ts?: string };
-    return posted.ts ? { externalMessageId: posted.ts } : {};
+    return sendSlackMessage({
+      app: this.app,
+      jid,
+      channelId: parsed.channelId,
+      formattedText: formatOutboundForChannel(text, 'slack'),
+      options,
+      log: logger,
+      sendSnippetFallback: (fallback) => this.sendSnippetFallback(fallback),
+    });
   }
 
   async sendStreamingChunk(
@@ -93,7 +107,6 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     const parsed = this.parseJid(jid);
     if (!parsed) return false;
     if (!this.shouldAcceptStreamingChunk(jid, options.generation)) return false;
-
     const key = this.streamKey(jid, options.threadId);
     let state = this.activeStreams.get(key);
     if (!state) {
@@ -103,19 +116,17 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         rawBuffer: '',
         lastSentText: '',
         lastNativeText: '',
+        fallbackMessageTs: [],
         nativeEnabled: true,
         lastFlushAt: 0,
       };
       this.activeStreams.set(key, state);
     }
-
     if (text) state.rawBuffer += text;
-
     const rendered = formatOutboundForChannel(
       stripInternalTagsPreserveWhitespace(state.rawBuffer),
       'slack',
     );
-
     if (!rendered && options.done) {
       this.activeStreams.delete(key);
       this.markStreamingGenerationDone(jid, options.generation);
@@ -135,7 +146,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     let nextText = rendered;
     if (!nextText) nextText = state.lastSentText;
     let delivered = false;
-
+    let stopNativeStreamOnDoneAfterFallback = false;
     try {
       let startedNativeThisFlush = false;
       if (state.nativeEnabled && !state.nativeStreamTs && nextText) {
@@ -155,7 +166,6 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           state.nativeEnabled = false;
         }
       }
-
       if (state.nativeEnabled && state.nativeStreamTs) {
         const delta = startedNativeThisFlush
           ? ''
@@ -163,13 +173,20 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
             ? nextText.slice(state.lastSentText.length)
             : nextText;
         if (delta) {
-          const appended = await this.tryNativeStreamAppend(
+          const appendResult = await this.tryNativeStreamAppend(
             state.channelId,
             state.nativeStreamTs,
             delta,
           );
-          if (!appended) {
+          if (appendResult.sentPrefix) {
+            state.lastNativeText += appendResult.sentPrefix;
+            delivered = true;
+          }
+          if (!appendResult.completed) {
             state.nativeEnabled = false;
+            if (options.done && state.nativeStreamTs) {
+              stopNativeStreamOnDoneAfterFallback = true;
+            }
           } else {
             state.lastNativeText = nextText;
             delivered = true;
@@ -184,30 +201,40 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           if (stopped) delivered = true;
         }
       }
-
       if (!this.isCurrentStreamingGeneration(jid, options.generation)) {
         return delivered;
       }
       if (!state.nativeEnabled) {
-        const fallbackText =
+        const fallbackTextRaw =
           state.lastNativeText && nextText.startsWith(state.lastNativeText)
             ? nextText.slice(state.lastNativeText.length)
             : nextText;
-        if (!state.messageTs) {
-          if (fallbackText) {
-            const posted = (await this.app.client.chat.postMessage({
-              channel: state.channelId,
-              text: fallbackText,
-              ...(state.threadId ? { thread_ts: state.threadId } : {}),
-            })) as { ts?: string };
-            state.messageTs = posted.ts;
+        const fallbackParts = splitSlackTextByCodeUnits(
+          fallbackTextRaw,
+          SLACK_FALLBACK_CHUNK_MAX_LENGTH,
+        );
+        if (
+          options.done &&
+          fallbackParts.length >= SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS
+        ) {
+          const fallback = await this.sendSnippetFallback({
+            channelId: state.channelId,
+            text: fallbackTextRaw,
+            threadId: state.threadId,
+            reason: 'stream_output_too_large',
+          });
+          if (fallback) {
             delivered = true;
+            state.fallbackMessageTs = [];
           }
-        } else if (fallbackText) {
-          await this.app.client.chat.update({
-            channel: state.channelId,
-            ts: state.messageTs,
-            text: fallbackText,
+        }
+        if (!delivered && fallbackParts.length > 0) {
+          await sendSlackFallbackStreamParts({
+            app: this.app,
+            jid,
+            state,
+            fallbackParts,
+            log: logger,
           });
           delivered = true;
         }
@@ -216,12 +243,135 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
       state.lastSentText = nextText;
       state.lastFlushAt = now;
     } catch (err) {
+      if (isPartialMessageDeliveryError(err)) {
+        const partialMetadata = getPartialMessageDeliveryMetadata(err);
+        const sentPrefix = partialMetadata.sentPrefix ?? '';
+        if (sentPrefix.length > 0) {
+          const nativeTextWithPrefix = `${state.lastNativeText}${sentPrefix}`;
+          if (nextText.startsWith(nativeTextWithPrefix)) {
+            state.lastNativeText = nativeTextWithPrefix;
+          }
+          state.nativeEnabled = false;
+        }
+        if (options.done && sentPrefix.length > 0) {
+          const fallbackTextRaw =
+            state.lastNativeText && nextText.startsWith(state.lastNativeText)
+              ? nextText.slice(state.lastNativeText.length)
+              : nextText;
+          const fallbackParts = splitSlackTextByCodeUnits(
+            fallbackTextRaw,
+            SLACK_FALLBACK_CHUNK_MAX_LENGTH,
+          );
+          try {
+            if (
+              fallbackParts.length >= SLACK_STREAM_SNIPPET_FALLBACK_MIN_PARTS
+            ) {
+              const fallback = await this.sendSnippetFallback({
+                channelId: state.channelId,
+                text: fallbackTextRaw,
+                threadId: state.threadId,
+                reason: 'stream_output_too_large',
+              });
+              if (fallback) {
+                delivered = true;
+                state.fallbackMessageTs = [];
+              }
+            }
+            if (!delivered && fallbackParts.length > 0) {
+              await sendSlackFallbackStreamParts({
+                app: this.app,
+                jid,
+                state,
+                fallbackParts,
+                log: logger,
+              });
+              delivered = true;
+            }
+            state.lastSentText = nextText;
+            state.lastFlushAt = now;
+            this.activeStreams.delete(key);
+            this.markStreamingGenerationDone(jid, options.generation);
+            return (
+              delivered || Boolean(state.messageTs || state.nativeStreamTs)
+            );
+          } catch (fallbackErr) {
+            if (isPartialMessageDeliveryError(fallbackErr)) {
+              const fallbackMetadata =
+                getPartialMessageDeliveryMetadata(fallbackErr);
+              if (!fallbackMetadata.retryTail?.canonicalText) {
+                const deliveredParts = fallbackMetadata.deliveredParts;
+                if (
+                  typeof deliveredParts === 'number' &&
+                  Number.isSafeInteger(deliveredParts) &&
+                  deliveredParts >= 0 &&
+                  deliveredParts < fallbackParts.length
+                ) {
+                  const unsentTail = fallbackParts
+                    .slice(deliveredParts)
+                    .join('');
+                  if (unsentTail.trim()) {
+                    Object.assign(fallbackErr, {
+                      retryTail: {
+                        canonicalText: unsentTail,
+                        providerPayload: {
+                          provider: 'slack',
+                          channelId: state.channelId,
+                          ...(state.threadId
+                            ? { threadId: state.threadId }
+                            : {}),
+                        },
+                      },
+                    });
+                  }
+                }
+              }
+              throw fallbackErr;
+            }
+            if (fallbackTextRaw.trim()) {
+              Object.assign(err, {
+                retryTail: {
+                  canonicalText: fallbackTextRaw,
+                  providerPayload: {
+                    provider: 'slack',
+                    channelId: state.channelId,
+                    ...(state.threadId ? { threadId: state.threadId } : {}),
+                  },
+                },
+              });
+            }
+            throw err;
+          } finally {
+            if (state.nativeStreamTs) {
+              await this.tryNativeStreamStop(
+                state.channelId,
+                state.nativeStreamTs,
+              );
+              state.nativeEnabled = false;
+            }
+          }
+        }
+        if (options.done) {
+          this.activeStreams.delete(key);
+          this.markStreamingGenerationDone(jid, options.generation);
+        } else {
+          this.activeStreams.set(key, state);
+        }
+        throw err;
+      }
       logger.warn(
         { jid, err },
         'Slack streaming update failed; preserving current stream state',
       );
+    } finally {
+      if (
+        options.done &&
+        stopNativeStreamOnDoneAfterFallback &&
+        state.nativeStreamTs
+      ) {
+        await this.tryNativeStreamStop(state.channelId, state.nativeStreamTs);
+        state.nativeEnabled = false;
+      }
     }
-
     if (options.done) {
       this.activeStreams.delete(key);
       this.markStreamingGenerationDone(jid, options.generation);
@@ -230,7 +380,6 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     }
     return delivered || Boolean(state.messageTs || state.nativeStreamTs);
   }
-
   resetStreaming(jid: string): void {
     this.sealStreamingGenerationOnReset(jid);
     this.clearStreamingStateForJid(jid);
@@ -244,82 +393,17 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     if (!this.app) return;
     const parsed = this.parseJid(jid);
     if (!parsed) return;
-
-    const trimmed = text.trim();
     const key = this.progressKey(jid, options.threadId);
     this.loadPersistedProgress();
-    if (!trimmed) {
-      if (options.done) {
-        this.activeProgress.delete(key);
-        this.persistProgress();
-      }
-      return;
-    }
-
-    const existing = this.activeProgress.get(key);
-    if (!existing && options.replaceOnly) return;
-
-    if (options.threadId) {
-      try {
-        await this.app.client.apiCall('assistant.threads.setStatus', {
-          channel_id: parsed.channelId,
-          thread_ts: options.threadId,
-          status: trimmed,
-        });
-      } catch {
-        // Optional surface; fall through to message-based progress.
-      }
-    }
-
-    if (!existing) {
-      const sent = (await this.app.client.chat.postMessage({
-        channel: parsed.channelId,
-        text: trimmed,
-        ...(options.threadId ? { thread_ts: options.threadId } : {}),
-      })) as { ts?: string };
-
-      if (!options.done) {
-        this.activeProgress.set(key, {
-          channelId: parsed.channelId,
-          threadId: options.threadId,
-          messageTs: sent.ts,
-          lastText: trimmed,
-        });
-        this.persistProgress();
-      }
-      return;
-    }
-
-    if (existing.lastText === trimmed) {
-      if (options.done) {
-        this.activeProgress.delete(key);
-        this.persistProgress();
-      }
-      return;
-    }
-
-    if (existing.messageTs) {
-      await this.app.client.chat.update({
-        channel: existing.channelId,
-        ts: existing.messageTs,
-        text: trimmed,
-      });
-    } else {
-      const sent = (await this.app.client.chat.postMessage({
-        channel: existing.channelId,
-        text: trimmed,
-        ...(existing.threadId ? { thread_ts: existing.threadId } : {}),
-      })) as { ts?: string };
-      existing.messageTs = sent.ts;
-    }
-
-    existing.lastText = trimmed;
-    if (options.done) {
-      this.activeProgress.delete(key);
-    } else {
-      this.activeProgress.set(key, existing);
-    }
-    this.persistProgress();
+    await sendSlackProgressUpdate({
+      app: this.app,
+      channelId: parsed.channelId,
+      key,
+      text,
+      options,
+      activeProgress: this.activeProgress,
+      persistProgress: () => this.persistProgress(),
+    });
   }
 
   async requestPermissionApproval(
@@ -424,26 +508,11 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
   private loadPersistedProgress(): void {
     if (this.progressStateLoaded) return;
     this.progressStateLoaded = true;
-    const entries = readProgressStateEntries(
-      channelProgressStateFilePath('slack', this.botToken),
-      'Slack',
-    ) as unknown as Array<[string, ActiveProgressState]>;
-    for (const [key, state] of entries) {
-      if (
-        typeof state.channelId === 'string' &&
-        typeof state.lastText === 'string'
-      ) {
-        this.activeProgress.set(key, state);
-      }
-    }
+    loadPersistedSlackProgress(this.botToken, this.activeProgress);
   }
 
   private persistProgress(): void {
-    writeProgressStateEntries(
-      channelProgressStateFilePath('slack', this.botToken),
-      'Slack',
-      this.activeProgress.entries(),
-    );
+    persistSlackProgress(this.botToken, this.activeProgress);
   }
 
   async requestUserAnswer(
@@ -510,29 +579,18 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
           continue;
         }
 
-        const selection = await new Promise<{
-          selected: string | string[];
-          answeredBy?: string;
-        }>((resolve) => {
-          const timer = setTimeout(() => {
-            const timedOut = this.pendingUserQuestions.get(pendingKey);
-            if (!timedOut) return;
-            // Fire-and-forget is intentional: timer callback should never block
-            // while we cleanup stale pending prompts.
-            void this.finalizeUserQuestionPrompt(
+        const selection = await waitForSlackUserQuestionSelection({
+          pendingKey,
+          pendingState: { ...pendingState, messageTs },
+          pendingUserQuestions: this.pendingUserQuestions,
+          timeoutMs,
+          finalizeTimedOut: (timedOut) =>
+            this.finalizeUserQuestionPrompt(
               timedOut,
               timedOut.question.multiSelect ? [] : '',
               'system',
               'timed out',
-            );
-          }, timeoutMs);
-
-          this.pendingUserQuestions.set(pendingKey, {
-            ...pendingState,
-            messageTs,
-            timer,
-            resolve,
-          });
+            ),
         });
 
         const isEmptySelection = Array.isArray(selection.selected)
@@ -562,92 +620,34 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
   }
 
   async syncGroups(force = false): Promise<void> {
-    if (!this.app) return;
-
-    const now = new Date().toISOString();
-    let cursor: string | undefined;
-
-    do {
-      const page = (await this.app.client.conversations.list({
-        types: 'public_channel,private_channel,im,mpim',
-        exclude_archived: true,
-        limit: 200,
-        ...(cursor ? { cursor } : {}),
-      })) as {
-        channels?: Array<{ id?: string; name?: string; is_im?: boolean }>;
-        response_metadata?: { next_cursor?: string };
-      };
-
-      const channels = Array.isArray(page.channels) ? page.channels : [];
-      for (const channel of channels) {
-        const channelId = channel.id;
-        if (!channelId) continue;
-        if (!force && this.channelNameCache.has(channelId)) continue;
-        const name = channel.name || (await this.resolveChannelName(channelId));
-        this.channelNameCache.set(channelId, name);
-
-        await this.opts.onChatMetadata(
-          `sl:${channelId}`,
-          now,
-          name,
-          'slack',
-          !channel.is_im,
-        );
-      }
-
-      const nextCursor = page.response_metadata?.next_cursor?.trim() || '';
-      cursor = nextCursor || undefined;
-    } while (cursor);
+    await syncSlackGroups({
+      app: this.app,
+      force,
+      channelNameCache: this.channelNameCache,
+      resolveChannelName: (channelId) => this.resolveChannelName(channelId),
+      onChatMetadata: this.opts.onChatMetadata,
+    });
   }
 
   isConnected(): boolean {
     return this.app !== null;
   }
-
   ownsJid(jid: string): boolean {
     return jid.startsWith('sl:');
   }
-
   async disconnect(): Promise<void> {
-    for (const [
-      requestId,
-      pending,
-    ] of this.pendingPermissionPrompts.entries()) {
-      clearTimeout(pending.timer);
-      pending.resolve({
-        approved: false,
-        decidedBy: 'system',
-        reason: 'Slack channel disconnected',
-      });
-      this.pendingPermissionPrompts.delete(requestId);
-    }
-
-    for (const [key, pending] of this.pendingUserQuestions.entries()) {
-      if (pending.timer) clearTimeout(pending.timer);
-      pending.resolve({
-        selected: pending.question.multiSelect ? [] : '',
-        answeredBy: 'system',
-      });
-      this.pendingUserQuestions.delete(key);
-    }
-
-    for (const state of this.activeStreams.values()) {
-      if (state.nativeStreamTs) {
-        void this.tryNativeStreamStop(state.channelId, state.nativeStreamTs);
-      }
-    }
-    this.activeStreams.clear();
-    this.streamGenerationByJid.clear();
-    this.sealedStreamGenerationByJid.clear();
-    this.activeProgress.clear();
-
-    if (this.app) {
-      await this.app.stop();
-      this.app = null;
-    }
+    this.app = await disconnectSlackDelivery({
+      app: this.app,
+      activeStreams: this.activeStreams,
+      streamGenerationByJid: this.streamGenerationByJid,
+      sealedStreamGenerationByJid: this.sealedStreamGenerationByJid,
+      activeProgress: this.activeProgress,
+      pendingPermissionPrompts: this.pendingPermissionPrompts,
+      pendingUserQuestions: this.pendingUserQuestions,
+      stopNativeStream: (channelId, streamTs) =>
+        this.tryNativeStreamStop(channelId, streamTs),
+    });
   }
 
-  async setTyping(_jid: string, _isTyping: boolean): Promise<void> {
-    // Slack does not expose a generic typing indicator API for bot replies.
-  }
+  async setTyping(_jid: string, _isTyping: boolean): Promise<void> {}
 }

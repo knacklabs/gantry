@@ -30,6 +30,7 @@ export const agentSessionsPostgres = pgTable(
     ),
     jobId: text('job_id'),
     userId: text('user_id'),
+    scopeKey: text('scope_key'),
     latestProviderSessionId: text('latest_provider_session_id'),
     status: text('status').notNull().default('active'),
     model: text('model_override'),
@@ -48,6 +49,10 @@ export const agentSessionsPostgres = pgTable(
       table.conversationId,
       table.threadId,
       table.userId,
+    ),
+    appScopeKeyIdx: index('idx_agent_sessions_app_scope_key').on(
+      table.appId,
+      table.scopeKey,
     ),
   }),
 );
@@ -87,6 +92,15 @@ export const providerSessionsPostgres = pgTable(
       table.provider,
       table.externalSessionId,
     ),
+    resumeLookupIdx: index('idx_provider_sessions_resume_lookup').on(
+      table.agentSessionId,
+      table.provider,
+      table.status,
+      table.updatedAt.desc(),
+    ),
+    providerAgnosticResumeLookupIdx: index(
+      'idx_provider_sessions_agent_status_updated',
+    ).on(table.agentSessionId, table.status, table.updatedAt.desc()),
   }),
 );
 
@@ -158,6 +172,54 @@ export const agentSessionSummariesPostgres = pgTable(
   (table) => ({
     sessionCreatedIdx: index('idx_agent_session_summaries_session_created').on(
       table.agentSessionId,
+      table.createdAt,
+      table.id,
+    ),
+  }),
+);
+
+export const agentSessionDigestsPostgres = pgTable(
+  'agent_session_digests',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    agentSessionId: text('agent_session_id')
+      .notNull()
+      .references(() => agentSessionsPostgres.id, { onDelete: 'cascade' }),
+    trigger: text('trigger').notNull(),
+    digest: text('digest').notNull(),
+    messageCount: integer('message_count').notNull().default(0),
+    extractedFactCount: integer('extracted_fact_count').notNull().default(0),
+    metadataJson: text('metadata_json').notNull().default('{}'),
+    scopeAppId: text('scope_app_id'),
+    scopeAgentId: text('scope_agent_id'),
+    scopeConversationId: text('scope_conversation_id'),
+    scopeUserId: text('scope_user_id'),
+    scopeThreadId: text('scope_thread_id'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    sessionCreatedIdx: index('idx_agent_session_digests_session_created').on(
+      table.agentSessionId,
+      table.createdAt,
+      table.id,
+    ),
+    sessionTriggerIdx: index('idx_agent_session_digests_session_trigger').on(
+      table.agentSessionId,
+      table.trigger,
+      table.createdAt,
+    ),
+    sessionScopeCreatedIdx: index('idx_agent_session_digests_scope_created').on(
+      table.agentSessionId,
+      table.scopeAppId,
+      table.scopeAgentId,
+      table.scopeConversationId,
+      table.scopeUserId,
+      table.scopeThreadId,
       table.createdAt,
       table.id,
     ),

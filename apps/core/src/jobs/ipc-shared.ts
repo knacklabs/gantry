@@ -71,10 +71,7 @@ export function writeTaskIpcResponse(
   );
   const signature = signIpcResponsePayload(privateKeyPem, responsePayload);
   if (!signature) return;
-  writeJsonAtomic(
-    responsePath,
-    { ...responsePayload, signature },
-  );
+  writeJsonAtomic(responsePath, { ...responsePayload, signature });
 }
 
 export function createTaskResponder(

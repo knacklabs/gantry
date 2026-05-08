@@ -31,6 +31,7 @@ import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js'
 import type { MessageId } from '@core/domain/messages/messages.js';
 import type { PermissionDecisionId } from '@core/domain/permissions/permissions.js';
 import type {
+  AgentSessionDigestId,
   AgentSessionId,
   AgentSessionSummaryId,
   ProviderSessionId,
@@ -566,7 +567,235 @@ maybeDescribe('Postgres domain repositories', () => {
     });
   });
 
-  it('expires provider sessions by scoped row without expiring collisions', async () => {
+  it('filters digests by persisted scope fields before limiting rows', async () => {
+    const sessionId = 'agent-session:test:digest-scope' as AgentSessionId;
+    const digestScopeUserId = 'user:test:digest-scope' as UserId;
+    await repositories.agentSessions.saveAgentSession({
+      id: sessionId,
+      appId,
+      agentId,
+      conversationId,
+      threadId,
+      userId: digestScopeUserId,
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    for (let index = 0; index < 250; index += 1) {
+      await repositories.agentSessionDigests.saveAgentSessionDigest({
+        id: `agent-session-digest:test:wrong:${index}` as AgentSessionDigestId,
+        appId,
+        agentSessionId: sessionId,
+        trigger: 'session-end',
+        digest: `wrong-scope-${index}`,
+        messageCount: 1,
+        extractedFactCount: 0,
+        metadata: {
+          sessionScope: {
+            appId,
+            agentId,
+            conversationId: 'conversation:test:slack:C999',
+            userId: digestScopeUserId,
+            threadId,
+          },
+        },
+        createdAt: `2026-04-27T00:${String(index % 60).padStart(2, '0')}:00.000Z`,
+      });
+    }
+    await repositories.agentSessionDigests.saveAgentSessionDigest({
+      id: 'agent-session-digest:test:older-match' as AgentSessionDigestId,
+      appId,
+      agentSessionId: sessionId,
+      trigger: 'session-end',
+      digest: 'matching-scope-digest',
+      messageCount: 2,
+      extractedFactCount: 0,
+      metadata: {
+        sessionScope: {
+          appId,
+          agentId,
+          conversationId,
+          userId: digestScopeUserId,
+          threadId,
+        },
+      },
+      createdAt: '2026-04-26T23:59:59.000Z',
+    });
+
+    const scoped =
+      await repositories.agentSessionDigests.listAgentSessionDigests({
+        agentSessionId: sessionId,
+        sessionScope: {
+          appId,
+          agentId,
+          conversationId,
+          userId: digestScopeUserId,
+          threadId,
+        },
+        limit: 1,
+      });
+
+    expect(scoped).toHaveLength(1);
+    expect(scoped[0]?.id).toBe('agent-session-digest:test:older-match');
+    expect(scoped[0]?.digest).toBe('matching-scope-digest');
+  });
+
+  it('prevents provider-session ownership reassignment across agent sessions', async () => {
+    const ownerSessionId =
+      'agent-session:test:provider-owner' as AgentSessionId;
+    const otherSessionId =
+      'agent-session:test:provider-other' as AgentSessionId;
+    const providerSessionId =
+      'provider-session:test:ownership-guard' as ProviderSessionId;
+    await repositories.agentSessions.saveAgentSession({
+      id: ownerSessionId,
+      appId,
+      agentId,
+      conversationId,
+      threadId,
+      userId: 'user:test:provider-owner' as UserId,
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await repositories.agentSessions.saveAgentSession({
+      id: otherSessionId,
+      appId,
+      agentId,
+      conversationId,
+      threadId,
+      userId: 'user:test:provider-other' as UserId,
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await repositories.providerSessions.saveProviderSession({
+      id: providerSessionId,
+      appId,
+      agentSessionId: ownerSessionId,
+      provider: 'anthropic',
+      externalSessionId: 'ownership-guard-v1',
+      providerRef: {
+        kind: 'provider_session',
+        value: 'anthropic:ownership-guard-v1',
+      },
+      status: 'active',
+      createdAt: '2026-04-27T00:04:00.000Z',
+      updatedAt: '2026-04-27T00:04:00.000Z',
+    });
+
+    await expect(
+      repositories.providerSessions.saveProviderSession({
+        id: providerSessionId,
+        appId,
+        agentSessionId: otherSessionId,
+        provider: 'anthropic',
+        externalSessionId: 'ownership-guard-v2',
+        providerRef: {
+          kind: 'provider_session',
+          value: 'anthropic:ownership-guard-v2',
+        },
+        status: 'active',
+        createdAt: '2026-04-27T00:04:10.000Z',
+        updatedAt: '2026-04-27T00:04:10.000Z',
+      }),
+    ).rejects.toThrow(/already owned by another session/);
+
+    await expect(
+      repositories.providerSessions.getProviderSession(providerSessionId),
+    ).resolves.toMatchObject({
+      id: providerSessionId,
+      agentSessionId: ownerSessionId,
+      externalSessionId: 'ownership-guard-v1',
+      status: 'active',
+    });
+    await expect(
+      repositories.agentSessions.getAgentSession(otherSessionId),
+    ).resolves.not.toMatchObject({
+      latestProviderSessionId: providerSessionId,
+    });
+  });
+
+  it('prevents provider-session ownership reassignment across provider/external identities', async () => {
+    const ownerSessionId =
+      'agent-session:test:provider-owner-identity' as AgentSessionId;
+    const providerSessionId =
+      'provider-session:test:ownership-identity-guard' as ProviderSessionId;
+    await repositories.agentSessions.saveAgentSession({
+      id: ownerSessionId,
+      appId,
+      agentId,
+      conversationId,
+      threadId,
+      userId: 'user:test:provider-owner-identity' as UserId,
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await repositories.providerSessions.saveProviderSession({
+      id: providerSessionId,
+      appId,
+      agentSessionId: ownerSessionId,
+      provider: 'anthropic',
+      externalSessionId: 'ownership-identity-v1',
+      providerRef: {
+        kind: 'provider_session',
+        value: 'anthropic:ownership-identity-v1',
+      },
+      status: 'active',
+      createdAt: '2026-04-27T00:04:00.000Z',
+      updatedAt: '2026-04-27T00:04:00.000Z',
+    });
+
+    await expect(
+      repositories.providerSessions.saveProviderSession({
+        id: providerSessionId,
+        appId,
+        agentSessionId: ownerSessionId,
+        provider: 'openai',
+        externalSessionId: 'ownership-identity-v1',
+        providerRef: {
+          kind: 'provider_session',
+          value: 'openai:ownership-identity-v1',
+        },
+        status: 'active',
+        createdAt: '2026-04-27T00:04:10.000Z',
+        updatedAt: '2026-04-27T00:04:10.000Z',
+      }),
+    ).rejects.toThrow(/already owned by another session/);
+
+    await expect(
+      repositories.providerSessions.saveProviderSession({
+        id: providerSessionId,
+        appId,
+        agentSessionId: ownerSessionId,
+        provider: 'anthropic',
+        externalSessionId: 'ownership-identity-v2',
+        providerRef: {
+          kind: 'provider_session',
+          value: 'anthropic:ownership-identity-v2',
+        },
+        status: 'active',
+        createdAt: '2026-04-27T00:04:20.000Z',
+        updatedAt: '2026-04-27T00:04:20.000Z',
+      }),
+    ).rejects.toThrow(/already owned by another session/);
+
+    await expect(
+      repositories.providerSessions.getProviderSession(providerSessionId),
+    ).resolves.toMatchObject({
+      id: providerSessionId,
+      appId,
+      agentSessionId: ownerSessionId,
+      provider: 'anthropic',
+      externalSessionId: 'ownership-identity-v1',
+      status: 'active',
+    });
+  });
+
+  it('requires full ownership predicates before expiring provider sessions', async () => {
     const firstSessionId = 'agent-session:test:expire:first' as AgentSessionId;
     const secondSessionId =
       'agent-session:test:expire:second' as AgentSessionId;
@@ -624,10 +853,30 @@ maybeDescribe('Postgres domain repositories', () => {
     const canonicalSessions = new PostgresCanonicalSessionRepository(
       service.db,
     );
+    const firstProviderSessionId = 'provider-session:test:expire:first';
     await canonicalSessions.expireProviderSession({
-      providerSessionId: 'provider-session:test:expire:first',
+      providerSessionId: firstProviderSessionId,
+      agentSessionId: '',
+      provider: '',
+      externalSessionId: '',
     });
 
+    await expect(
+      repositories.providerSessions.getLatestProviderSession({
+        agentSessionId: firstSessionId,
+        provider: 'anthropic',
+      }),
+    ).resolves.toMatchObject({
+      id: firstProviderSessionId,
+      externalSessionId: 'shared-external-session',
+      status: 'active',
+    });
+    await canonicalSessions.expireProviderSession({
+      providerSessionId: firstProviderSessionId,
+      agentSessionId: firstSessionId,
+      provider: 'anthropic',
+      externalSessionId: 'shared-external-session',
+    });
     await expect(
       repositories.providerSessions.getLatestProviderSession({
         agentSessionId: firstSessionId,

@@ -26,6 +26,48 @@ Durable session resume changes should additionally run the focused unit checks:
 npm run test:unit -- apps/core/test/unit/application/session-resume-use-cases.test.ts apps/core/test/unit/runtime/group-processing.test.ts
 ```
 
+Postgres-backed continuity changes should add the focused repository and
+integration checks:
+
+```bash
+npm run test:unit -- apps/core/test/unit/application/session-resume-use-cases.test.ts apps/core/test/unit/runtime/session-resume-runtime.test.ts apps/core/test/unit/adapters/storage/postgres/canonical-session-repository.postgres.test.ts apps/core/test/unit/adapters/storage/postgres/canonical-ops-repo.postgres.test.ts
+npm run test:integration:postgres -- apps/core/test/integration/session-continuity-postgres.integration.test.ts apps/core/test/integration/postgres-domain-repositories.integration.test.ts
+```
+
+Provider-session artifact and redaction changes should run:
+
+```bash
+npm run test:unit -- apps/core/test/unit/session/provider-transcript-archive.test.ts apps/core/test/unit/adapters/postgres-provider-artifact-store.test.ts apps/core/test/unit/application/sessions/session-interaction-module.test.ts apps/core/test/unit/runner/claude-logging.test.ts
+```
+
+Clean-cut session continuity cleanup must also verify that unsupported legacy
+continuity paths did not return:
+
+```bash
+rg -n "legacyAgentSessionId|legacyDescendantIdLike|descendantUserIdLike|metadata_json::jsonb #>>|id LIKE 'agent-session|compatibility backfill|old-state import|repair old" apps/core/src apps/core/test docs --glob '!docs/architecture/current-verification-commands.md'
+rg -n "scope_key|agent_session_digests|ProviderSession.externalSessionId|provider-session" docs/architecture/session-resume.md docs/architecture/provider-session-artifacts.md apps/core/AGENTS.md apps/core/src/adapters/storage/postgres/AGENTS.md apps/core/src/adapters/storage/postgres/repositories apps/core/test/unit apps/core/test/integration
+```
+
+Expected cleanup-search interpretation:
+
+- stale legacy continuity identifiers, JSON metadata-derived scope lookups, old
+  state imports, and repair/backfill compatibility paths should have no active
+  runtime or repository matches;
+- `provider-session` remains expected in current provider metadata,
+  redaction/logging tests, artifact-store code, and docs because provider
+  artifacts and provider resume handles are adapter metadata, not canonical
+  continuity state;
+- migration or decision-history mentions are historical context only and must
+  not be referenced by active runtime startup, reset, or resume code.
+
+Architecture cleanup slices that touch outbound delivery contracts should also run:
+
+```bash
+rg -n "iterTelegramTextChunks|countTelegramTextChunks|sendWithPartialDeliveryGuard|PartialMessageDeliveryError|TELEGRAM_DRAFT_MAX_LENGTH|partially_sent" .
+rg -n "bot\\.api\\.sendMessage\\(|chat\\.postMessage\\(|sdkClient\\.sendMessage\\(" apps/core/src/app apps/core/src/runtime apps/core/src/jobs apps/core/src/session apps/core/src/domain apps/core/src/application
+python3 .codex/scripts/check_architecture.py
+```
+
 ## Default Test And Build
 
 ```bash

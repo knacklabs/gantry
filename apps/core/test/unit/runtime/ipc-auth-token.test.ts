@@ -37,9 +37,18 @@ describe('ipc auth token', () => {
     ).not.toBe(computeBrowserIpcAuthToken('team-alpha', 'tg:1', 'thread-b'));
   });
 
-  it('derives memory IPC tokens from group, user, default scope, and thread', () => {
+  it('derives memory IPC tokens from group, chat, user, default scope, thread, and allowed actions', () => {
     expect(computeMemoryIpcAuthToken('team-alpha', {})).not.toBe(
       computeIpcAuthToken('team-alpha'),
+    );
+    expect(
+      computeMemoryIpcAuthToken('team-alpha', {
+        chatJid: 'tg:1',
+      }),
+    ).not.toBe(
+      computeMemoryIpcAuthToken('team-alpha', {
+        chatJid: 'tg:2',
+      }),
     );
     expect(
       computeMemoryIpcAuthToken('team-alpha', {
@@ -61,6 +70,15 @@ describe('ipc auth token', () => {
       computeMemoryIpcAuthToken('team-alpha', {
         userId: 'u-1',
         defaultScope: 'group',
+      }),
+    );
+    expect(
+      computeMemoryIpcAuthToken('team-alpha', {
+        allowedActions: ['memory_search', 'memory_save'],
+      }),
+    ).not.toBe(
+      computeMemoryIpcAuthToken('team-alpha', {
+        allowedActions: ['memory_search', 'memory_patch'],
       }),
     );
   });

@@ -100,7 +100,9 @@ export async function exportCurrentDesiredState(input: {
   const toolBindingsByAgent = groupByAgentId(toolBindingRows);
   const skillBindingsByAgent = groupByAgentId(skillBindingRows);
   const mcpBindingsByAgent = groupByAgentId(mcpBindingRows);
-  const toolCatalogById = new Map(toolCatalogRows.map((tool) => [tool.id, tool]));
+  const toolCatalogById = new Map(
+    toolCatalogRows.map((tool) => [tool.id, tool]),
+  );
   const storedConversationsByExternal = new Map<string, Conversation>();
   for (const conversation of storedConversations) {
     const externalId = conversation.externalRef?.value?.trim();
@@ -395,7 +397,9 @@ function runtimeSecretRefsForConnection(
 ): Record<string, string> {
   const refs = new Set(connection.runtimeSecretRefs);
   const rendered: Record<string, string> = {};
-  for (const [key, value] of Object.entries(existing?.runtimeSecretRefs ?? {})) {
+  for (const [key, value] of Object.entries(
+    existing?.runtimeSecretRefs ?? {},
+  )) {
     if (refs.has(value)) rendered[key] = value;
   }
   for (const [key, value] of Object.entries(

@@ -117,8 +117,8 @@ Webhook URLs are registered by the app, signed with per-destination secrets, ret
 Postgres is the runtime store:
 
 - `pg-boss` schedules and claims jobs.
-- `pgvector` stores embeddings for semantic memory and dedupe.
-- Postgres full-text search handles lexical retrieval and filtering.
+- `pgvector` and embedding cache tables are available for future brokered embedding work, but active memory retrieval is lexical today.
+- Postgres full-text search handles current memory retrieval and filtering.
 - Control events, messages, jobs, runs, triggers, sessions, webhooks, deliveries, and memory records are first-party MyClaw tables.
 
 ## Event Contract

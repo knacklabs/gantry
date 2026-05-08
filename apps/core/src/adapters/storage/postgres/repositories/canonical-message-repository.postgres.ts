@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import type { NewMessage } from '../../../../domain/repositories/domain-types.js';
 import { normalizeProviderId } from '../../../../channels/provider-registry.js';
+import { sanitizeRetryTailProviderPayload } from '../../../../domain/messages/retry-tail-provider-payload.js';
 import * as pgSchema from '../schema/schema.js';
 import {
   CANONICAL_APP_ID,
@@ -37,6 +38,17 @@ function messageIdFor(chatJid: string, id: string): string {
 export function externalRefForMessage(
   msg: NewMessage,
 ): Record<string, unknown> {
+  const retryTailPayload = sanitizeRetryTailProviderPayload(
+    msg.delivery_retry_tail?.providerPayload,
+  );
+  const retryTail = msg.delivery_retry_tail
+    ? {
+        canonicalText: msg.delivery_retry_tail.canonicalText,
+        ...(retryTailPayload !== undefined
+          ? { providerPayload: retryTailPayload }
+          : {}),
+      }
+    : undefined;
   return {
     kind: 'message',
     id: msg.id,
@@ -46,6 +58,7 @@ export function externalRefForMessage(
     external_message_id: msg.external_message_id,
     reply_to_message_id: msg.reply_to_message_id,
     reply_to_sender_name: msg.reply_to_sender_name,
+    delivery_retry_tail: retryTail,
   };
 }
 

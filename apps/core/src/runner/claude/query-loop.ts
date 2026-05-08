@@ -351,7 +351,7 @@ export async function runQuery(
     if (message.type === 'system' && message.subtype === 'init') {
       newSessionId = message.session_id;
       assertRequiredMcpServerReady(message);
-      log(`Session initialized: ${newSessionId}`);
+      log('Session initialized: provider resume handle received');
     }
 
     if (

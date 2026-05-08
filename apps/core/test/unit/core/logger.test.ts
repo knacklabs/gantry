@@ -118,6 +118,51 @@ describe('logger', () => {
     });
   });
 
+  it('redacts provider session handle keys and raw text fields by default', () => {
+    const records: LogRecord[] = [];
+    const uuidSessionHandle = '9f1d4b44-8347-4f6a-90b1-7262bc4f0db4';
+    const shortSessionHandle = 'sess-abc';
+    const l = createLogger({
+      level: 'debug',
+      sink: { write: (record) => records.push(record) },
+      context: { latestProviderSessionId: uuidSessionHandle },
+    });
+
+    l.child({ externalSessionId: shortSessionHandle }).info(
+      {
+        sessionId: uuidSessionHandle,
+        newSessionId: shortSessionHandle,
+        providerSessionId: 'opaque-provider-handle',
+        nested: {
+          session_id: 'snake-opaque-handle',
+          message:
+            'runner framed {"newSessionId":"json-field-handle","providerSessionId":"provider-json-handle","externalSessionId":"external-json-handle","session_id":"snake-json-handle"} latestProviderSessionId: colon-field-handle sessionId=equals-field-handle newSessionId whitespace-field-handle standalone claude-session-raw-shape provider-session:raw-shape',
+        },
+      },
+      'completed with {"newSessionId":"message-json-handle"} session_id=message-snake-handle sessionId message-whitespace-handle and claude-session-message-shape',
+    );
+
+    const serialized = JSON.stringify(records[0]);
+    expect(serialized).toContain('[REDACTED]');
+    expect(serialized).not.toContain(uuidSessionHandle);
+    expect(serialized).not.toContain(shortSessionHandle);
+    expect(serialized).not.toContain('opaque-provider-handle');
+    expect(serialized).not.toContain('snake-opaque-handle');
+    expect(serialized).not.toContain('json-field-handle');
+    expect(serialized).not.toContain('provider-json-handle');
+    expect(serialized).not.toContain('external-json-handle');
+    expect(serialized).not.toContain('snake-json-handle');
+    expect(serialized).not.toContain('colon-field-handle');
+    expect(serialized).not.toContain('equals-field-handle');
+    expect(serialized).not.toContain('whitespace-field-handle');
+    expect(serialized).not.toContain('message-json-handle');
+    expect(serialized).not.toContain('message-snake-handle');
+    expect(serialized).not.toContain('message-whitespace-handle');
+    expect(serialized).not.toContain('claude-session-raw-shape');
+    expect(serialized).not.toContain('provider-session:raw-shape');
+    expect(serialized).not.toContain('claude-session-message-shape');
+  });
+
   it('redacts credential-bearing URLs and assignment strings', () => {
     const input =
       "postgresql://postgres:secret@localhost:5432/myclaw?sslmode=require POSTGRES_PASSWORD=secret ALTER ROLE myclaw_app PASSWORD 'role-secret' https://user:pass@example.com/path?token=secret";

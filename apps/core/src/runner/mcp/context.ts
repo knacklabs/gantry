@@ -3,6 +3,7 @@ import {
   myclawMcpFullToolName,
   parseEnabledMyClawMcpToolNames,
 } from '../myclaw-mcp-tool-surface.js';
+import { normalizeMemoryIpcActions } from '../../shared/memory-ipc-actions.js';
 import {
   ADMIN_MCP_TOOL_NAMES,
   isAdminMcpToolName,
@@ -38,8 +39,7 @@ export const MEMORY_IPC_AUTH_TOKEN =
   process.env.MYCLAW_MEMORY_IPC_AUTH_TOKEN || IPC_AUTH_TOKEN;
 export const IPC_RESPONSE_VERIFY_KEY =
   process.env.MYCLAW_IPC_RESPONSE_VERIFY_KEY || '';
-export const IPC_RESPONSE_KEY_ID =
-  process.env.MYCLAW_IPC_RESPONSE_KEY_ID || '';
+export const IPC_RESPONSE_KEY_ID = process.env.MYCLAW_IPC_RESPONSE_KEY_ID || '';
 
 export const chatJid = process.env.MYCLAW_CHAT_JID!;
 export const groupFolder = process.env.MYCLAW_GROUP_FOLDER!;
@@ -48,6 +48,9 @@ export const memoryUserId =
   process.env.MYCLAW_MEMORY_USER_ID?.trim() || undefined;
 export const memoryDefaultScope =
   process.env.MYCLAW_MEMORY_DEFAULT_SCOPE === 'user' ? 'user' : 'group';
+export const memoryIpcAllowedActions = normalizeMemoryIpcActions(
+  parseJsonStringArray(process.env.MYCLAW_MEMORY_IPC_ACTIONS_JSON),
+);
 export const browserProfileName =
   process.env.MYCLAW_BROWSER_PROFILE_NAME?.trim() || undefined;
 export const enabledAdminMcpTools = parseEnabledAdminMcpTools(
@@ -65,6 +68,10 @@ export function isAdminMcpToolEnabled(toolName: AdminMcpToolName): boolean {
 }
 
 function parseConfiguredAllowedTools(raw: string | undefined): string[] {
+  return parseJsonStringArray(raw);
+}
+
+function parseJsonStringArray(raw: string | undefined): string[] {
   if (!raw?.trim()) return [];
   try {
     const parsed = JSON.parse(raw);

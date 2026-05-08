@@ -1,4 +1,8 @@
 import { ADMIN_MCP_TOOL_NAMES } from '../shared/admin-mcp-tools.js';
+import {
+  selectedMemoryIpcActionsFromToolRules,
+  type MyClawMemoryIpcAction,
+} from '../shared/memory-ipc-actions.js';
 
 export const BASELINE_MYCLAW_MCP_TOOL_NAMES = [
   'send_message',
@@ -19,14 +23,13 @@ export const BASELINE_MYCLAW_MCP_TOOL_NAMES = [
 ] as const;
 
 export const OPTIONAL_MYCLAW_MCP_TOOL_NAMES = [
-  'memory_patch',
-  'procedure_patch',
   'browser_profile_list',
   'browser_close',
   'scheduler_list_models',
   'scheduler_upsert_job',
   'scheduler_get_job',
   'scheduler_list_jobs',
+  'scheduler_list_notification_targets',
   'scheduler_update_job',
   'scheduler_delete_job',
   'scheduler_pause_job',
@@ -38,6 +41,15 @@ export const OPTIONAL_MYCLAW_MCP_TOOL_NAMES = [
   'scheduler_get_dead_letter',
 ] as const;
 
+export const REVIEWED_MYCLAW_MCP_TOOL_NAMES = [
+  'memory_patch',
+  'procedure_patch',
+  'memory_dream',
+  'memory_consolidate',
+  'memory_review_pending',
+  'memory_review_decision',
+] as const;
+
 export const DEFAULT_MYCLAW_MCP_TOOL_NAMES = [
   ...BASELINE_MYCLAW_MCP_TOOL_NAMES,
   ...OPTIONAL_MYCLAW_MCP_TOOL_NAMES,
@@ -45,6 +57,7 @@ export const DEFAULT_MYCLAW_MCP_TOOL_NAMES = [
 
 export const ALL_MYCLAW_MCP_TOOL_NAMES = [
   ...DEFAULT_MYCLAW_MCP_TOOL_NAMES,
+  ...REVIEWED_MYCLAW_MCP_TOOL_NAMES,
   ...ADMIN_MCP_TOOL_NAMES,
 ] as const;
 
@@ -98,4 +111,10 @@ export function parseEnabledMyClawMcpToolNames(
   } catch {
     return new Set(DEFAULT_MYCLAW_MCP_TOOL_NAMES);
   }
+}
+
+export function selectedMemoryIpcActions(
+  configuredTools: readonly string[],
+): MyClawMemoryIpcAction[] {
+  return selectedMemoryIpcActionsFromToolRules(configuredTools);
 }

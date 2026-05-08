@@ -8,6 +8,7 @@ import {
 import {
   DEFAULT_MYCLAW_MCP_TOOL_NAMES,
   myclawMcpFullToolName,
+  selectedMemoryIpcActions,
   selectedMyClawMcpToolNames,
 } from '@agent-runner-src/myclaw-mcp-tool-surface.js';
 
@@ -138,6 +139,9 @@ describe('agent capability composition', () => {
         MYCLAW_MCP_TOOL_NAMES_JSON: JSON.stringify(
           selectedMyClawMcpToolNames([]),
         ),
+        MYCLAW_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(
+          selectedMemoryIpcActions([]),
+        ),
         MYCLAW_IPC_DIR: '/tmp/ipc/team',
         MYCLAW_IPC_AUTH_TOKEN: 'token',
         MYCLAW_BROWSER_IPC_AUTH_TOKEN: 'browser-token',
@@ -263,8 +267,6 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).toContain('mcp__myclaw__memory_search');
     expect(profile.allowedTools).toContain('mcp__myclaw__memory_save');
     expect(profile.allowedTools).toContain('mcp__myclaw__procedure_save');
-    expect(profile.allowedTools).toContain('mcp__myclaw__memory_patch');
-    expect(profile.allowedTools).toContain('mcp__myclaw__procedure_patch');
     expect(profile.allowedTools).toContain('mcp__myclaw__scheduler_list_jobs');
     expect(profile.allowedTools).not.toContain('Read');
     expect(profile.allowedTools).not.toContain('Glob');
@@ -273,6 +275,35 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).not.toContain('Bash');
     expect(profile.allowedTools).not.toContain('mcp__myclaw__service_restart');
     expect(profile.allowedTools).not.toContain('mcp__myclaw__register_agent');
+  });
+
+  it('exposes memory patch tools only when explicitly selected', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:sales',
+      groupFolder: 'sales',
+      persona: 'sales',
+      configuredAllowedTools: [
+        'mcp__myclaw__memory_patch',
+        'mcp__myclaw__procedure_patch',
+      ],
+    });
+
+    expect(profile.allowedTools).toContain('mcp__myclaw__memory_patch');
+    expect(profile.allowedTools).toContain('mcp__myclaw__procedure_patch');
+    expect(selectedMemoryIpcActions([])).not.toContain('memory_patch');
+    expect(
+      selectedMemoryIpcActions([
+        'mcp__myclaw__memory_patch',
+        'mcp__myclaw__procedure_patch',
+      ]),
+    ).toEqual([
+      'memory_search',
+      'memory_save',
+      'memory_patch',
+      'procedure_save',
+      'procedure_patch',
+    ]);
   });
 
   it('filters configured SDK tool rules to supported built-ins', () => {

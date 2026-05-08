@@ -108,6 +108,14 @@ function assertAllowedRuntimeSecretRefs(
   }
 }
 
+function explicitProviderIdForExternalId(externalId: string): string | null {
+  const separator = externalId.indexOf(':');
+  if (separator <= 0) return null;
+  const rawPrefix = externalId.slice(0, separator).trim().toLowerCase();
+  if (!rawPrefix) return null;
+  return /^[a-z][a-z0-9_-]{1,31}$/.test(rawPrefix) ? rawPrefix : null;
+}
+
 function normalizeProviderConnectionStatus(
   status: ProviderConnectionPatch['status'] | undefined,
 ): ProviderConnection['status'] | undefined {
@@ -364,6 +372,18 @@ export class DiscoverProviderConversationsService {
     const now = this.deps.clock.now();
     const conversations = [];
     for (const item of discovered) {
+      const explicitProviderId = explicitProviderIdForExternalId(
+        item.externalId,
+      );
+      if (
+        explicitProviderId &&
+        explicitProviderId !== providerConnection.providerId
+      ) {
+        throw new ApplicationError(
+          'INVALID_REQUEST',
+          `Discovered conversation externalId "${item.externalId}" has provider prefix "${explicitProviderId}:" but provider connection ${providerConnection.id} is ${providerConnection.providerId}.`,
+        );
+      }
       const existing =
         await this.deps.conversations.getConversationByExternalRef({
           appId: input.appId,

@@ -73,7 +73,7 @@ const DEFAULT_SHARED_TEMPLATE = `# Shared Agent Profile
 - Use current state to understand what work is active.
 - Use open commitments to avoid dropping promises.
 - Use recent digest context to understand what changed recently.
-- Dreaming currently stages candidates, marks items for review, and promotes reviewed memory; it does not automatically decay, retire, merge, rewrite, or rank memories by usefulness.
+- Dreaming stages candidates, applies safe promote/update decisions from validated staged candidates, and routes retire/rewrite/merge/contradiction proposals to memory review.
 - When the user says "continue", "resume", or similar, call memory_search for prior context instead of guessing.
 
 ## Privacy Rules

@@ -95,7 +95,8 @@ async function uploadSkillDraft(
     path: `/v1/skills/drafts/upload${uploadQuery(options)}`,
     body: zip,
     contentType: 'application/zip',
-    missingKeyMessage: 'MYCLAW_CONTROL_API_KEY is required for skill upload.',
+    missingKeyMessage:
+      'MYCLAW_CONTROL_API_KEYS_JSON with at least one complete key record is required for skill upload.',
   });
   const draft =
     isRecord(response) && isRecord(response.draft) ? response.draft : null;

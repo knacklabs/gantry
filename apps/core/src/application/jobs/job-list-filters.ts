@@ -22,7 +22,7 @@ export function isVisibleJob(job: Job, input: JobVisibilityFilter): boolean {
   if (input.kind && jobKindFor(job) !== input.kind) return false;
   if (
     input.conversationJid &&
-    !job.linked_sessions.includes(input.conversationJid)
+    !jobTargetsConversation(job, input.conversationJid)
   ) {
     return false;
   }
@@ -33,4 +33,16 @@ export function jobKindFor(job: Job): JobKind {
   if (job.schedule_type === 'manual') return 'manual';
   if (job.schedule_type === 'once') return 'once';
   return 'recurring';
+}
+
+function jobTargetsConversation(job: Job, conversationJid: string): boolean {
+  const notificationRoutes = Array.isArray(job.notification_routes)
+    ? job.notification_routes
+    : [];
+  if (notificationRoutes.length > 0) {
+    return notificationRoutes.some(
+      (route) => route.conversationJid === conversationJid,
+    );
+  }
+  return job.execution_context?.conversationJid === conversationJid;
 }

@@ -26,6 +26,21 @@ export const MEMORY_EMBED_PROVIDER =
     ? 'disabled'
     : runtimeMemorySettings.embeddingProvider || 'disabled';
 
+export const MEMORY_DREAMING_EMBEDDINGS_ENABLED =
+  runtimeMemorySettings.dreamingEmbeddingsEnabled === true;
+
+export const MEMORY_DREAMING_EMBED_PROVIDER =
+  runtimeMemorySettings.dreamingEmbeddingsEnabled === false
+    ? 'disabled'
+    : runtimeMemorySettings.dreamingEmbeddingProvider ||
+      runtimeMemorySettings.embeddingProvider ||
+      'disabled';
+
+export const MEMORY_DREAMING_EMBED_MODEL =
+  runtimeMemorySettings.dreamingEmbeddingModel ||
+  runtimeMemorySettings.embeddingModel ||
+  MEMORY_EMBED_MODEL;
+
 export const MEMORY_EXTRACTOR_MAX_FACTS =
   runtimeMemorySettings.extractorMaxFacts ?? DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS;
 

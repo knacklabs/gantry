@@ -18,16 +18,24 @@ interface EmbeddingResponse {
 export interface EmbeddingProvider {
   isEnabled(): boolean;
   validateConfiguration(): void;
-  validateReady?(): Promise<void>;
-  embedMany(texts: string[]): Promise<number[][]>;
-  embedOne(text: string): Promise<number[]>;
+  validateReady?(options?: { signal?: AbortSignal }): Promise<void>;
+  embedMany(
+    texts: string[],
+    options?: { signal?: AbortSignal },
+  ): Promise<number[][]>;
+  embedOne(text: string, options?: { signal?: AbortSignal }): Promise<number[]>;
 }
 
-type EmbeddingProviderFactory = () => EmbeddingProvider;
 type EmbeddingCredentialResolver = () => Promise<string | null>;
 type EmbeddingCredentialConfigurationValidator = () => void;
+interface EmbeddingProviderOptions {
+  model?: string;
+}
 
-const embeddingProviderFactories = new Map<string, EmbeddingProviderFactory>();
+const embeddingProviderFactories = new Map<
+  string,
+  (options?: EmbeddingProviderOptions) => EmbeddingProvider
+>();
 let embeddingCredentialBrokerPromise:
   | Promise<AgentCredentialBroker | undefined>
   | undefined;
@@ -86,14 +94,17 @@ export class OpenAIEmbeddingClient implements EmbeddingProvider {
     return apiKey;
   }
 
-  async validateReady(): Promise<void> {
+  async validateReady(_options?: { signal?: AbortSignal }): Promise<void> {
     this.validateConfiguration();
     if (typeof this.apiKey === 'function') {
       await this.resolveApiKey();
     }
   }
 
-  async embedMany(texts: string[]): Promise<number[][]> {
+  async embedMany(
+    texts: string[],
+    options?: { signal?: AbortSignal },
+  ): Promise<number[][]> {
     this.validateConfiguration();
     if (texts.length === 0) return [];
     const apiKey = await this.resolveApiKey();
@@ -107,6 +118,7 @@ export class OpenAIEmbeddingClient implements EmbeddingProvider {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
+        signal: options?.signal,
         body: JSON.stringify({
           model: this.model,
           input: batch,
@@ -139,8 +151,11 @@ export class OpenAIEmbeddingClient implements EmbeddingProvider {
     return all;
   }
 
-  async embedOne(text: string): Promise<number[]> {
-    const rows = await this.embedMany([text]);
+  async embedOne(
+    text: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<number[]> {
+    const rows = await this.embedMany([text], options);
     if (!rows[0]) {
       throw new Error('embedding response was empty');
     }
@@ -219,19 +234,25 @@ export class DisabledEmbeddingClient implements EmbeddingProvider {
     // Disabled provider intentionally requires no credentials.
   }
 
-  async embedMany(texts: string[]): Promise<number[][]> {
+  async embedMany(
+    texts: string[],
+    _options?: { signal?: AbortSignal },
+  ): Promise<number[][]> {
     if (texts.length === 0) return [];
     throw new Error('memory embeddings are disabled');
   }
 
-  async embedOne(_text: string): Promise<number[]> {
+  async embedOne(
+    _text: string,
+    _options?: { signal?: AbortSignal },
+  ): Promise<number[]> {
     throw new Error('memory embeddings are disabled');
   }
 }
 
 export function registerEmbeddingProvider(
   name: string,
-  factory: EmbeddingProviderFactory,
+  factory: (options?: EmbeddingProviderOptions) => EmbeddingProvider,
 ): void {
   embeddingProviderFactories.set(name, factory);
 }
@@ -246,6 +267,7 @@ export function listEmbeddingProviderNames(): string[] {
 
 export function createEmbeddingProvider(
   providerName = MEMORY_EMBED_PROVIDER,
+  options: EmbeddingProviderOptions = {},
 ): EmbeddingProvider {
   const factory = embeddingProviderFactories.get(providerName);
   if (!factory) {
@@ -253,7 +275,7 @@ export function createEmbeddingProvider(
       `Unknown memory embedding provider "${providerName}". Registered providers: ${[...embeddingProviderFactories.keys()].join(', ') || 'none'}`,
     );
   }
-  return factory();
+  return factory(options);
 }
 
 export async function validateEmbeddingProviderReady(
@@ -266,10 +288,10 @@ export async function validateEmbeddingProviderReady(
 
 registerEmbeddingProvider(
   ['open', 'ai'].join(''),
-  () =>
+  (options) =>
     new OpenAIEmbeddingClient(
       resolveBrokeredEmbeddingApiKey,
-      MEMORY_EMBED_MODEL,
+      options?.model || MEMORY_EMBED_MODEL,
       validateBrokeredEmbeddingConfiguration,
     ),
 );

@@ -41,9 +41,18 @@ let providersByJidPrefix: Provider[] = [];
 
 const builtInPrefixAliases = new Map<string, string>([
   ['app', 'app'],
+  ['telegram', 'telegram'],
+  ['slack', 'slack'],
+  ['teams', 'teams'],
   ['tg', 'telegram'],
   ['sl', 'slack'],
-  ['teams', 'teams'],
+]);
+
+const builtInProviderJidPrefixes = new Map<string, string>([
+  ['app', 'app:'],
+  ['telegram', 'tg:'],
+  ['slack', 'sl:'],
+  ['teams', 'teams:'],
 ]);
 
 function rebuildProviderPrefixCache(): void {
@@ -98,6 +107,16 @@ export function normalizeProviderId(id: string): string {
     if (prefixAlias === normalized) return provider.id;
   }
   return builtInPrefixAliases.get(normalized) ?? '';
+}
+
+export function providerJidPrefix(providerId: string): string {
+  const normalized = normalizeProviderId(providerId);
+  if (!normalized) return '';
+  return (
+    getProvider(normalized)?.jidPrefix ??
+    builtInProviderJidPrefixes.get(normalized) ??
+    ''
+  );
 }
 
 export function listChannelProviders(): readonly Provider[] {

@@ -16,8 +16,17 @@ export interface TaskIpcData {
   contextMode?: string;
   script?: string;
   jobId?: string;
-  linkedSessions?: string[];
-  deliverTo?: string[];
+  executionContext?: {
+    conversationJid: string;
+    threadId: string | null;
+    groupScope: string;
+    sessionId?: string | null;
+  };
+  notificationRoutes?: Array<{
+    conversationJid: string;
+    threadId: string | null;
+    label: string;
+  }>;
   groupScope?: string;
   threadId?: string | null;
   createdBy?: 'agent' | 'human';

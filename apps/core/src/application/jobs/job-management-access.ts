@@ -6,47 +6,6 @@ export function normalizeOptional(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-export function resolveLinkedSessions(
-  input: { linkedSessions?: string[]; deliverTo?: string[] },
-  access: SchedulerJobAccess,
-): string[] {
-  const originConversationJid = normalizeOptional(access.originConversationJid);
-  if (!originConversationJid) {
-    throw new ApplicationError(
-      'FORBIDDEN',
-      'Scheduler job access requires an originating conversation.',
-    );
-  }
-  const linkedSessions = Array.isArray(input.deliverTo)
-    ? input.deliverTo.map((item) => String(item).trim()).filter(Boolean)
-    : Array.isArray(input.linkedSessions)
-      ? input.linkedSessions.map((item) => String(item).trim()).filter(Boolean)
-      : [originConversationJid];
-  if (linkedSessions.length === 0) {
-    throw new ApplicationError(
-      'INVALID_REQUEST',
-      'scheduler_upsert_job requires at least one linked session.',
-    );
-  }
-  if (!linkedSessions.includes(originConversationJid)) {
-    throw new ApplicationError(
-      'FORBIDDEN',
-      'linked_sessions must include the originating conversation.',
-    );
-  }
-  const unauthorized = linkedSessions.some((jid) => {
-    const binding = access.conversationBindings[jid];
-    return !binding || binding.folder !== access.sourceAgentFolder;
-  });
-  if (unauthorized) {
-    throw new ApplicationError(
-      'FORBIDDEN',
-      'linked_sessions must belong to the source group.',
-    );
-  }
-  return linkedSessions;
-}
-
 export function canAccessSchedulerJob(
   job: Job,
   access: SchedulerJobAccess,
@@ -54,11 +13,22 @@ export function canAccessSchedulerJob(
   const originConversationJid = normalizeOptional(access.originConversationJid);
   if (!originConversationJid) return false;
   if (job.group_scope !== access.sourceAgentFolder) return false;
-  if (!job.linked_sessions.includes(originConversationJid)) return false;
-  return job.linked_sessions.every((jid) => {
-    const binding = access.conversationBindings[jid];
-    return !!binding && binding.folder === access.sourceAgentFolder;
-  });
+  const executionConversationJid = normalizeOptional(
+    job.execution_context?.conversationJid,
+  );
+  if (executionConversationJid) {
+    return executionConversationJid === originConversationJid;
+  }
+  const notificationRoutes = Array.isArray(job.notification_routes)
+    ? job.notification_routes
+    : [];
+  if (notificationRoutes.length > 0) {
+    return notificationRoutes.some(
+      (route) =>
+        normalizeOptional(route.conversationJid) === originConversationJid,
+    );
+  }
+  return true;
 }
 
 export function assertSchedulerJobAccess(
@@ -94,7 +64,26 @@ export function validateSchedulerUpdate(
       );
     }
   }
-  if (updates.linked_sessions) {
-    resolveLinkedSessions({ linkedSessions: updates.linked_sessions }, access);
+  if (updates.execution_context) {
+    const contextConversationJid = normalizeOptional(
+      updates.execution_context.conversationJid,
+    );
+    const contextThreadId =
+      normalizeOptional(updates.execution_context.threadId) ?? null;
+    const authThreadId = normalizeOptional(access.authThreadId) ?? null;
+    if (
+      contextConversationJid !== normalizeOptional(access.originConversationJid)
+    ) {
+      throw new ApplicationError(
+        'FORBIDDEN',
+        'executionContext conversation must match authenticated conversation.',
+      );
+    }
+    if (contextThreadId !== authThreadId) {
+      throw new ApplicationError(
+        'FORBIDDEN',
+        'executionContext threadId must match authenticated thread binding.',
+      );
+    }
   }
 }

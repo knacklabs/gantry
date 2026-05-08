@@ -1,7 +1,7 @@
 name = "quality-reviewer"
 description = "Framework-independent code reviewer for correctness, maintainability, regression risk, and missing tests."
 model = "gpt-5.5"
-model_reasoning_effort = "high"
+model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 nickname_candidates = ["Atlas", "Delta", "Echo"]
 developer_instructions = """

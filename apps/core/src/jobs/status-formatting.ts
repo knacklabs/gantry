@@ -9,24 +9,31 @@ export function formatRunStatusMessage(args: {
   retryCount: number;
   pauseReason?: string | null;
 }): string {
-  const base = [
-    `Scheduler Update`,
-    `job_id: ${args.job.id}`,
-    `run_id: ${args.runId}`,
-    `status: ${args.runStatus}`,
-    `summary: ${args.summary}`,
-  ];
+  const statusText = statusLabel(args.runStatus);
+  const runSuffix = args.runId.slice(0, 8);
+  const summary = compactSummary(args.summary);
   if (args.runStatus === 'completed') {
-    base.push(`next_run: ${args.nextRun || 'none'}`);
-  } else {
-    base.push(`retry_count: ${args.retryCount}`);
-    base.push(`retry_state: ${args.nextRun ? 'scheduled' : 'stopped'}`);
-    base.push(
-      `pause_state: ${args.runStatus === 'dead_lettered' ? 'paused' : 'active'}`,
-    );
-    if (args.pauseReason) {
-      base.push(`pause_reason: ${args.pauseReason}`);
-    }
+    return `Scheduler ${statusText}: ${args.job.name} (#${runSuffix}) • next=${args.nextRun || 'none'} • ${summary}`;
   }
-  return base.join('\n');
+  const retryState = args.nextRun ? 'scheduled' : 'stopped';
+  const pauseState = args.runStatus === 'dead_lettered' ? 'paused' : 'active';
+  const pauseReason = args.pauseReason
+    ? ` • pause=${compactSummary(args.pauseReason, 120)}`
+    : '';
+  return `Scheduler ${statusText}: ${args.job.name} (#${runSuffix}) • retry=${args.retryCount} (${retryState}) • state=${pauseState}${pauseReason} • ${summary}`;
+}
+
+function statusLabel(
+  status: 'completed' | 'failed' | 'timeout' | 'dead_lettered',
+): string {
+  if (status === 'completed') return 'completed';
+  if (status === 'timeout') return 'timed out';
+  if (status === 'dead_lettered') return 'dead-lettered';
+  return 'failed';
+}
+
+function compactSummary(summary: string, max = 180): string {
+  const normalized = summary.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, max - 3)}...`;
 }

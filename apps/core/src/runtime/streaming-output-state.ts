@@ -9,7 +9,7 @@ export function createStreamingOutputState(args: {
   finalizeChunk: (reason: StreamingOutputFinalizeReason) => Promise<void>;
 }): {
   markContent: () => void;
-  finalize: (reason: StreamingOutputFinalizeReason) => Promise<void>;
+  finalize: (reason: StreamingOutputFinalizeReason) => Promise<boolean>;
   startNext: () => void;
 } {
   let finalized = false;
@@ -19,9 +19,10 @@ export function createStreamingOutputState(args: {
       hasContent = true;
     },
     async finalize(reason) {
-      if (!args.enabled || finalized || !hasContent) return;
+      if (!args.enabled || finalized || !hasContent) return false;
       finalized = true;
       await args.finalizeChunk(reason);
+      return true;
     },
     startNext() {
       finalized = false;

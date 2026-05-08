@@ -147,6 +147,11 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
       dreaming: {
         enabled: false,
         cron: DEFAULT_MEMORY_DREAMING_CRON,
+        embeddings: {
+          enabled: false,
+          provider: 'disabled',
+          model: DEFAULT_EMBED_MODEL,
+        },
       },
       llm: {
         models: getMemoryModelProfileDefaults('balanced'),
@@ -196,6 +201,19 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
 
   const embeddingsMap = embeddingsRaw as Record<string, unknown>;
   const dreamingMap = (dreamingRaw || {}) as Record<string, unknown>;
+  const dreamingEmbeddingsRaw = dreamingMap.embeddings;
+  if (
+    dreamingEmbeddingsRaw !== undefined &&
+    (typeof dreamingEmbeddingsRaw !== 'object' ||
+      dreamingEmbeddingsRaw === null ||
+      Array.isArray(dreamingEmbeddingsRaw))
+  ) {
+    throw new Error('memory.dreaming.embeddings must be a mapping');
+  }
+  const dreamingEmbeddingsMap = (dreamingEmbeddingsRaw || {}) as Record<
+    string,
+    unknown
+  >;
   const llmRaw = map.llm;
   if (
     llmRaw !== undefined &&
@@ -228,11 +246,19 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
       );
     }
   }
-  const dreamingKeys = new Set(['enabled', 'cron']);
+  const dreamingKeys = new Set(['enabled', 'cron', 'embeddings']);
   for (const key of Object.keys(dreamingMap)) {
     if (!dreamingKeys.has(key)) {
       throw new Error(
-        `memory.dreaming.${key} is not supported. Use memory.dreaming.enabled or cron.`,
+        `memory.dreaming.${key} is not supported. Use memory.dreaming.enabled, cron, or embeddings.`,
+      );
+    }
+  }
+  const dreamingEmbeddingsKeys = new Set(['enabled', 'provider', 'model']);
+  for (const key of Object.keys(dreamingEmbeddingsMap)) {
+    if (!dreamingEmbeddingsKeys.has(key)) {
+      throw new Error(
+        `memory.dreaming.embeddings.${key} is not supported. Use memory.dreaming.embeddings.enabled, provider, or model.`,
       );
     }
   }
@@ -264,6 +290,15 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
   const embeddingProvider = parseEmbeddingProvider(
     embeddingsMap.provider,
     'memory.embeddings.provider',
+  );
+  const dreamingEmbeddingsEnabled = parseBooleanValue(
+    dreamingEmbeddingsMap.enabled,
+    'memory.dreaming.embeddings.enabled',
+    false,
+  );
+  const dreamingEmbeddingProvider = parseEmbeddingProvider(
+    dreamingEmbeddingsMap.provider ?? embeddingProvider,
+    'memory.dreaming.embeddings.provider',
   );
 
   return {
@@ -298,6 +333,17 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
         'memory.dreaming.cron',
         DEFAULT_MEMORY_DREAMING_CRON,
       ),
+      embeddings: {
+        enabled: dreamingEmbeddingsEnabled,
+        provider: dreamingEmbeddingsEnabled
+          ? dreamingEmbeddingProvider
+          : 'disabled',
+        model: parseStringValue(
+          dreamingEmbeddingsMap.model ?? embeddingsMap.model,
+          'memory.dreaming.embeddings.model',
+          DEFAULT_EMBED_MODEL,
+        ),
+      },
     },
     llm: {
       models: parseMemoryLlmModels(llmMap.models, 'memory.llm.models'),

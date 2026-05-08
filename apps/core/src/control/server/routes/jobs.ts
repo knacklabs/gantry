@@ -230,27 +230,38 @@ function modelPreviewFor(input: {
 }
 
 async function runtimeContextPreviewFor(input: {
-  sessionId: string;
-  conversationJid: string;
-  groupScope: string;
-  threadId: string | null;
+  executionContext: {
+    conversationJid: string;
+    threadId: string | null;
+    groupScope: string;
+    sessionId?: string | null;
+  };
+  notificationRoutes: Array<{
+    conversationJid: string;
+    threadId: string | null;
+    label: string;
+  }>;
   groups: ReturnType<ControlRouteContext['app']['getConversationRoutes']>;
 }) {
-  const group = input.groups[input.conversationJid];
+  const group = input.groups[input.executionContext.conversationJid];
   return {
-    sessionId: input.sessionId,
-    conversationJid: input.conversationJid,
-    groupScope: input.groupScope,
-    threadId: input.threadId,
-    notificationTarget: input.threadId ? 'conversation_thread' : 'conversation',
+    executionContext: {
+      conversationJid: input.executionContext.conversationJid,
+      threadId: input.executionContext.threadId,
+      groupScope: input.executionContext.groupScope,
+      ...(input.executionContext.sessionId !== undefined
+        ? { sessionId: input.executionContext.sessionId }
+        : {}),
+    },
+    notificationRoutes: input.notificationRoutes,
     browserProfileLabel: formatBrowserProfileLabel({
       agentName: group?.name,
       conversationKind: group?.conversationKind,
     }),
     browserProfileName: resolveConversationBrowserProfile({
-      agentId: group?.folder ?? input.groupScope,
-      workspaceKey: input.groupScope,
-      conversationId: input.conversationJid,
+      agentId: group?.folder ?? input.executionContext.groupScope,
+      workspaceKey: input.executionContext.groupScope,
+      conversationId: input.executionContext.conversationJid,
     }),
     persona: group?.agentConfig?.persona ?? 'developer',
   };
@@ -326,23 +337,42 @@ export async function handleJobRoutes(
         appId: auth.appId,
         name: String(body.name || ''),
         prompt: String(body.prompt || ''),
-        sessionId: typeof body.sessionId === 'string' ? body.sessionId : '',
+        sessionId: body.executionContext.sessionId,
+        executionContext: body.executionContext,
+        notificationRoutes: body.notificationRoutes,
         kind,
         runAt: typeof body.runAt === 'string' ? body.runAt : undefined,
         schedule: (body.schedule || {}) as { type?: unknown; value?: unknown },
         executionMode: body.executionMode,
-        threadId: body.threadId,
         modelAlias: resolvedModel.explicit
           ? resolvedModel.modelAlias
           : undefined,
         allowedTools: body.allowedTools,
         dryRun: body.dryRun,
       });
+      const runtimePreviewExecutionContext = {
+        conversationJid: created.runtimeContext.conversationJid,
+        threadId: created.runtimeContext.threadId,
+        groupScope: created.runtimeContext.groupScope,
+        sessionId: created.runtimeContext.sessionId,
+      };
+      const runtimePreviewNotificationRoutes =
+        Array.isArray(body.notificationRoutes) &&
+        body.notificationRoutes.length > 0
+          ? body.notificationRoutes
+          : [
+              {
+                conversationJid: runtimePreviewExecutionContext.conversationJid,
+                threadId: runtimePreviewExecutionContext.threadId,
+                label: 'primary',
+              },
+            ];
       sendJson(res, body.dryRun === true ? 200 : 201, {
         ...(body.dryRun === true ? {} : { jobId: created.jobId }),
         dryRun: body.dryRun === true,
         runtimeContext: await runtimeContextPreviewFor({
-          ...created.runtimeContext,
+          executionContext: runtimePreviewExecutionContext,
+          notificationRoutes: runtimePreviewNotificationRoutes,
           groups:
             typeof ctx.app.getConversationRoutes === 'function'
               ? ctx.app.getConversationRoutes()
@@ -461,10 +491,15 @@ export async function handleJobRoutes(
           body.executionMode === 'parallel'
             ? { executionMode: body.executionMode }
             : {}),
-          ...(typeof body.threadId === 'string' || body.threadId === null
-            ? { threadId: body.threadId }
+          ...(body.executionContext !== undefined
+            ? {
+                executionContext: body.executionContext,
+              }
             : {}),
           ...(requestedModel.specified ? { model: requestedModel.model } : {}),
+          ...(Array.isArray(body.notificationRoutes)
+            ? { notificationRoutes: body.notificationRoutes }
+            : {}),
           ...(Array.isArray(body.allowedTools)
             ? { allowedTools: body.allowedTools }
             : {}),

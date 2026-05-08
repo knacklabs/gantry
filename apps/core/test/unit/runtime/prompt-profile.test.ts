@@ -75,7 +75,7 @@ describe('PromptProfileService', () => {
       'Treat memory as durable evidence. Prefer recent, high-confidence, and directly relevant memory.',
     );
     expect(shared).toContain(
-      'Dreaming currently stages candidates, marks items for review, and promotes reviewed memory; it does not automatically decay, retire, merge, rewrite, or rank memories by usefulness.',
+      'Dreaming stages candidates, applies safe promote/update decisions from validated staged candidates, and routes retire/rewrite/merge/contradiction proposals to memory review.',
     );
     expect(shared).not.toContain('dream lifecycle signals');
     expect(shared).not.toContain('stale/decayed');

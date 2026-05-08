@@ -42,6 +42,40 @@ async function loadRuntimeApp() {
   return import('@core/app/bootstrap/runtime-app.js');
 }
 
+async function loadRuntimeAppWithGroupProcessorSpy() {
+  vi.resetModules();
+  const createGroupProcessor = vi.fn(() => ({
+    processGroupMessages: vi.fn(async () => true),
+  }));
+  vi.doMock('@core/config/index.js', async (importOriginal) => {
+    const actual =
+      await importOriginal<typeof import('@core/config/index.js')>();
+    return {
+      ...actual,
+      ASSISTANT_NAME: 'Default Agent',
+      DATA_DIR: '/tmp/myclaw-test',
+      MYCLAW_IPC_AUTH_SECRET: 'runtime-app-test-secret',
+      getCredentialBrokerRuntimeConfig: () => ({
+        mode: 'onecli',
+        onecliUrl: 'http://localhost:10254',
+        externalBrokerBaseUrl: undefined,
+      }),
+    };
+  });
+  vi.doMock('@core/runtime/group-processing.js', () => ({
+    createGroupProcessor,
+  }));
+  vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+    getRuntimeRepositories: vi.fn(() => {
+      throw new Error('ops repository should not be used by this test');
+    }),
+    getRuntimeSkillArtifactStore: vi.fn(),
+    getRuntimeStorage: vi.fn(),
+  }));
+  const runtimeApp = await import('@core/app/bootstrap/runtime-app.js');
+  return { ...runtimeApp, createGroupProcessor };
+}
+
 describe('runtime app credential binding', () => {
   it('ensures shared Model Access once and agent-scoped tool profiles for registered groups', async () => {
     const { createRuntimeApp } = await loadRuntimeApp();
@@ -117,5 +151,28 @@ describe('runtime app credential binding', () => {
         agentName: 'MyClaw Model Access',
       },
     ]);
+  });
+
+  it('disables provider-visible streaming in group processing until durable ordering is wired', async () => {
+    const { createRuntimeApp, createGroupProcessor } =
+      await loadRuntimeAppWithGroupProcessorSpy();
+    const app = createRuntimeApp();
+    const capturedDeps = vi.mocked(createGroupProcessor).mock.calls[0]?.[0];
+    expect(capturedDeps).toBeDefined();
+
+    app.setChannelRuntime({
+      hasChannel: vi.fn(() => true),
+      supportsStreaming: vi.fn(() => true),
+      supportsProgress: vi.fn(() => false),
+      sendMessage: vi.fn(async () => {}),
+      sendStreamingChunk: vi.fn(async () => true),
+      resetStreaming: vi.fn(),
+      setTyping: vi.fn(async () => {}),
+      sendProgressUpdate: vi.fn(async () => {}),
+    });
+
+    expect(capturedDeps?.channelRuntime.supportsStreaming('tg:primary')).toBe(
+      false,
+    );
   });
 });

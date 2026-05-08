@@ -79,6 +79,7 @@ function createRunnerFixture(): {
     .toString();
   const runnerDir = path.join(root, 'runner');
   const runnerClaudeDir = path.join(runnerDir, 'claude');
+  const infrastructureLoggingDir = path.join(root, 'infrastructure', 'logging');
   const infrastructureTimeDir = path.join(root, 'infrastructure', 'time');
   const sharedDir = path.join(root, 'shared');
   const runnerPath = path.join(runnerClaudeDir, 'index.ts');
@@ -95,6 +96,7 @@ function createRunnerFixture(): {
   fs.mkdirSync(sdkDir, { recursive: true });
   fs.mkdirSync(runnerDir, { recursive: true });
   fs.mkdirSync(runnerClaudeDir, { recursive: true });
+  fs.mkdirSync(infrastructureLoggingDir, { recursive: true });
   fs.mkdirSync(infrastructureTimeDir, { recursive: true });
   fs.mkdirSync(sharedDir, { recursive: true });
   for (const file of fs.readdirSync(
@@ -124,6 +126,10 @@ function createRunnerFixture(): {
     path.join(runnerClaudeDir, 'message-stream.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/infrastructure/logging/logger.ts'),
+    path.join(infrastructureLoggingDir, 'logger.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/infrastructure/time/datetime.ts'),
     path.join(infrastructureTimeDir, 'datetime.ts'),
   );
@@ -146,6 +152,10 @@ function createRunnerFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/admin-mcp-tools.ts'),
     path.join(sharedDir, 'admin-mcp-tools.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/memory-ipc-actions.ts'),
+    path.join(sharedDir, 'memory-ipc-actions.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/tool-rule-matcher.ts'),

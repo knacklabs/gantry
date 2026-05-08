@@ -17,9 +17,12 @@ import type {
   MemorySaveInput,
   MemorySearchInput,
   RequestOptions,
+  SessionEventEnvelope,
   SseEvent,
 } from './types.js';
+import { parseSessionSseEvent } from './session-events.js';
 import { createIngressesClient } from './ingresses.js';
+import { querySuffix } from './query-string.js';
 export type { RuntimeSettingsResponse } from './settings.js';
 import * as mcpServerClients from './mcp-servers.js';
 import { jobListQuery } from './job-list-query.js';
@@ -239,11 +242,11 @@ class Transport {
         const eventLine = lines.find((line) => line.startsWith('event: '));
         const dataLine = lines.find((line) => line.startsWith('data: '));
         if (!idLine || !eventLine || !dataLine) continue;
-        yield {
+        yield parseSessionSseEvent({
           eventId: Number(idLine.slice(4).trim()),
           eventType: eventLine.slice(7).trim(),
-          payload: JSON.parse(dataLine.slice(6)),
-        };
+          data: JSON.parse(dataLine.slice(6)),
+        });
       }
     }
   }
@@ -315,7 +318,7 @@ export class MyClawClient {
       }),
     listEvents: (sessionId: string, afterEventId?: number) =>
       this.transport.request<{
-        events: Array<{ eventId: number; eventType: string; payload: unknown }>;
+        events: SessionEventEnvelope[];
       }>({
         method: 'GET',
         path: `/v1/sessions/${encodeURIComponent(sessionId)}/events${afterEventId ? `?afterEventId=${afterEventId}` : ''}`,
@@ -335,6 +338,9 @@ export class MyClawClient {
       this.transport.request<{
         eventId: number;
         eventType: string;
+        sessionId: string | null;
+        threadId: string | null;
+        correlationId: string | null;
         payload: unknown;
         createdAt: string;
         afterEventId?: number;
@@ -471,16 +477,11 @@ export class MyClawClient {
   };
 
   readonly conversations = {
-    list: (input: { providerConnectionId?: string } = {}) => {
-      const params = new URLSearchParams();
-      if (input.providerConnectionId) {
-        params.set('providerConnectionId', input.providerConnectionId);
-      }
-      return this.transport.request<{ conversations: unknown[] }>({
+    list: (input: { providerConnectionId?: string } = {}) =>
+      this.transport.request<{ conversations: unknown[] }>({
         method: 'GET',
-        path: `/v1/conversations${params.toString() ? `?${params}` : ''}`,
-      });
-    },
+        path: `/v1/conversations${querySuffix(input)}`,
+      }),
     get: (conversationId: string) =>
       this.transport.request<Record<string, unknown>>({
         method: 'GET',
@@ -500,16 +501,11 @@ export class MyClawClient {
     messages: (
       conversationId: string,
       input: { threadId?: string; after?: string; limit?: number } = {},
-    ) => {
-      const params = new URLSearchParams();
-      if (input.threadId) params.set('threadId', input.threadId);
-      if (input.after) params.set('after', input.after);
-      if (input.limit) params.set('limit', String(input.limit));
-      return this.transport.request<{ messages: unknown[] }>({
+    ) =>
+      this.transport.request<{ messages: unknown[] }>({
         method: 'GET',
-        path: `/v1/conversations/${encodeURIComponent(conversationId)}/messages${params.toString() ? `?${params}` : ''}`,
-      });
-    },
+        path: `/v1/conversations/${encodeURIComponent(conversationId)}/messages${querySuffix(input)}`,
+      }),
   };
 
   readonly agents = {
@@ -548,16 +544,11 @@ export class MyClawClient {
         agentId: string,
         conversationId: string,
         input: { threadId?: string } = {},
-      ) => {
-        const params = new URLSearchParams();
-        if (input.threadId) params.set('threadId', input.threadId);
-        return this.transport.request<{ disabled: boolean; binding?: unknown }>(
-          {
-            method: 'DELETE',
-            path: `/v1/agents/${encodeURIComponent(agentId)}/conversation-bindings/${encodeURIComponent(conversationId)}${params.toString() ? `?${params}` : ''}`,
-          },
-        );
-      },
+      ) =>
+        this.transport.request<{ disabled: boolean; binding?: unknown }>({
+          method: 'DELETE',
+          path: `/v1/agents/${encodeURIComponent(agentId)}/conversation-bindings/${encodeURIComponent(conversationId)}${querySuffix(input)}`,
+        }),
     },
   };
 
@@ -627,37 +618,22 @@ export class MyClawClient {
         path: '/v1/memory/search',
         body: input,
       }),
-    list: (input: MemorySearchInput = {}) => {
-      const params = new URLSearchParams();
-      for (const [key, value] of Object.entries(input)) {
-        if (value === undefined) continue;
-        if (Array.isArray(value)) {
-          for (const entry of value) params.append(key, String(entry));
-          continue;
-        }
-        params.set(key, String(value));
-      }
-      return this.transport.request<{ memories: unknown[] }>({
+    list: (input: MemorySearchInput = {}) =>
+      this.transport.request<{ memories: unknown[] }>({
         method: 'GET',
-        path: `/v1/memory${params.toString() ? `?${params}` : ''}`,
-      });
-    },
+        path: `/v1/memory${querySuffix(input)}`,
+      }),
     patch: (memoryId: string, patch: MemoryPatchInput) =>
       this.transport.request<{ memory: unknown }>({
         method: 'PATCH',
         path: `/v1/memory/${encodeURIComponent(memoryId)}`,
         body: patch,
       }),
-    delete: (memoryId: string, input: MemoryContext = {}) => {
-      const params = new URLSearchParams();
-      for (const [key, value] of Object.entries(input)) {
-        if (value !== undefined) params.set(key, String(value));
-      }
-      return this.transport.request<{ deleted: boolean }>({
+    delete: (memoryId: string, input: MemoryContext = {}) =>
+      this.transport.request<{ deleted: boolean }>({
         method: 'DELETE',
-        path: `/v1/memory/${encodeURIComponent(memoryId)}${params.toString() ? `?${params}` : ''}`,
-      });
-    },
+        path: `/v1/memory/${encodeURIComponent(memoryId)}${querySuffix(input)}`,
+      }),
     dreaming: {
       trigger: (
         input: MemoryContext & {
@@ -672,16 +648,11 @@ export class MyClawClient {
           path: '/v1/memory/dreaming/trigger',
           body: input,
         }),
-      status: (input: MemoryContext = {}) => {
-        const params = new URLSearchParams();
-        for (const [key, value] of Object.entries(input)) {
-          if (value !== undefined) params.set(key, String(value));
-        }
-        return this.transport.request<{ runs: unknown[] }>({
+      status: (input: MemoryContext = {}) =>
+        this.transport.request<{ runs: unknown[] }>({
           method: 'GET',
-          path: `/v1/memory/dreaming/status${params.toString() ? `?${params}` : ''}`,
-        });
-      },
+          path: `/v1/memory/dreaming/status${querySuffix(input)}`,
+        }),
     },
   };
 }

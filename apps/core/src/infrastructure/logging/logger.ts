@@ -42,8 +42,30 @@ export interface CreateLoggerOptions {
 }
 
 const DEFAULT_REDACT_KEY_PATTERN =
-  /(token|secret|password|credential|api[_-]?key|authorization|auth)/i;
+  /(token|secret|password|credential|api[_-]?key|authorization|auth|^(?:sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id)$)/i;
+const PROVIDER_SESSION_FIELD_NAMES =
+  'sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id';
+const PROVIDER_SESSION_TEXT_PATTERNS: RegExp[] = [
+  new RegExp(
+    `(["'](?:${PROVIDER_SESSION_FIELD_NAMES})["']\\s*:\\s*")([^"\\r\\n]*)(")`,
+    'gi',
+  ),
+  new RegExp(
+    `(["'](?:${PROVIDER_SESSION_FIELD_NAMES})["']\\s*:\\s*')([^'\\r\\n]*)(')`,
+    'gi',
+  ),
+  new RegExp(
+    `\\b((?:${PROVIDER_SESSION_FIELD_NAMES})\\s*[:=]\\s*)([^\\s"',}\\]]+)`,
+    'gi',
+  ),
+  new RegExp(
+    `\\b((?:${PROVIDER_SESSION_FIELD_NAMES})\\s+)([^\\s"',}\\]]+)`,
+    'gi',
+  ),
+];
 const SECRET_VALUE_PATTERNS: RegExp[] = [
+  /\bclaude-session-[A-Za-z0-9._:-]+\b/g,
+  /\bprovider-session:[A-Za-z0-9._:-]+\b/g,
   /\bsk-ant-[A-Za-z0-9._-]+\b/g,
   /\bsk-[A-Za-z0-9]{20,}\b/g,
   /\bxox[baprs]-[A-Za-z0-9-]+\b/g,
@@ -94,6 +116,11 @@ function redactValue(value: unknown, depth: number): unknown {
 
 export function redactString(value: string): string {
   let out = value;
+  for (const pattern of PROVIDER_SESSION_TEXT_PATTERNS) {
+    out = out.replace(pattern, (_match, prefix, _secret, suffix = '') => {
+      return `${prefix}[REDACTED]${suffix}`;
+    });
+  }
   for (const pattern of SECRET_VALUE_PATTERNS) {
     out = out.replace(pattern, (_match, first) => {
       if (
@@ -204,20 +231,28 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
     childContext?: Record<string, unknown>,
   ) => {
     if (LOG_LEVEL_PRIORITY[currentLevel] < LOG_LEVEL_PRIORITY[level]) return;
+    const message =
+      typeof dataOrMsg === 'string'
+        ? redactString(dataOrMsg)
+        : redactString(msg || '');
     const record: LogRecord = {
       timestamp: nowIso(clock),
       level: currentLevel,
-      message: typeof dataOrMsg === 'string' ? dataOrMsg : msg || '',
+      message,
       pid: process.pid,
       ...(() => {
         if (typeof dataOrMsg === 'string') {
-          const context = mergeContexts(baseContext, childContext);
+          const context = redact(mergeContexts(baseContext, childContext)) as
+            | Record<string, unknown>
+            | undefined;
           return context ? { context } : {};
         }
-        const context = mergeContexts(
-          mergeContexts(baseContext, childContext),
-          redact(dataOrMsg) as Record<string, unknown>,
-        );
+        const context = redact(
+          mergeContexts(
+            mergeContexts(baseContext, childContext),
+            redact(dataOrMsg) as Record<string, unknown>,
+          ),
+        ) as Record<string, unknown> | undefined;
         return context ? { context } : {};
       })(),
     };

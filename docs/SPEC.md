@@ -447,9 +447,10 @@ Continuity is the runtime behavior that helps the agent resume current work:
 - open loops when commitment tracking is enabled
 
 Before a fresh agent run, the host builds a memory-only context block and passes
-it to the agent runner. Follow-up chat messages are then piped into the same
-live SDK stream until `/new`, stop, shutdown, or idle expiry. Postgres messages,
-run summaries, and session summaries are not replayed into every prompt.
+it to the agent runner with recent session digests first (when persisted),
+followed by active durable memory items. Follow-up chat messages are then piped
+into the same live SDK stream until `/new`, stop, shutdown, or idle expiry.
+Postgres messages and run logs are not replayed into every prompt.
 
 See [CONTINUITY.md](CONTINUITY.md) for the continuity model.
 
@@ -463,15 +464,18 @@ decisions. It stores app-grade memory in Postgres.
 
 | Component           | Technology                          | Purpose                                                             |
 | ------------------- | ----------------------------------- | ------------------------------------------------------------------- |
-| **Subjects**        | Postgres (`memory_subjects`)        | App/agent/user/group/channel/thread boundary registry               |
+| **Memory items**    | Postgres (`memory_items`)           | Canonical durable statements with flattened app/agent/subject columns, confidence, status, version metadata, and evidence links |
 | **Evidence**        | Postgres (`memory_evidence`)        | Grounding from sessions, messages, tools, manual saves, and sources |
 | **Candidates**      | Postgres (`memory_candidates`)      | Extracted facts awaiting promotion or review                        |
-| **Memory items**    | Postgres (`memory_items`)           | Durable statements with confidence, versioning, and evidence links  |
 | **Recall events**   | Postgres (`memory_recall_events`)   | Search/usefulness signals for future dreaming                       |
 | **Dream runs**      | Postgres (`memory_dream_runs`)      | Dreaming lifecycle runs per boundary                                |
 | **Dream decisions** | Postgres (`memory_dream_decisions`) | Auditable promotion, merge, rewrite, decay, retire, or review rows  |
-| **Lexical search**  | Postgres full-text search           | Keyword search and filtering                                        |
-| **Vector search**   | `pgvector`                          | Optional semantic similarity search when embeddings are enabled     |
+| **Lexical search**  | Postgres full-text search           | Always-on memory retrieval path                                     |
+| **Vector search**   | Future `pgvector` path              | Inactive until memory item embedding indexing and query are fully implemented |
+
+`memory_subjects` is not an active current-schema table. Subject identity is
+flattened into `memory_items` and preserved in item metadata for visibility
+checks.
 
 #### MCP Tools (Exposed to Agents)
 
@@ -479,12 +483,15 @@ Agents interact with memory via MCP tools over IPC:
 
 | Tool             | Purpose                                                                            |
 | ---------------- | ---------------------------------------------------------------------------------- |
-| `memory_save`    | Save a durable fact, decision, preference, correction, constraint, or context item |
+| `memory_save`    | Save a durable preference, decision, fact, correction, or constraint in user/group scope |
 | `memory_search`  | Search scoped memory statements and source snippets                                |
 | `procedure_save` | Save a reusable multi-step procedure                                               |
 
 Patch tools exist in the host protocol for reviewed/admin flows, but they are
 not part of the default agent capability bundle.
+Common/global memory writes are restricted to approved admin or service
+workflows; default agent IPC/MCP memory saves must not write shared common
+memory directly.
 
 #### Memory Boundaries
 
@@ -507,13 +514,17 @@ Provider ids are stored without changing the boundary meaning:
 - `threadId` is a topic or reply boundary such as Slack `thread_ts`, Telegram
   forum topic id, or Teams reply chain id.
 
-#### Search Architecture (Hybrid Retrieval)
+#### Search Architecture
 
-Search combines lexical recall with optional semantic recall using Reciprocal Rank Fusion (K=60):
+Search currently uses Postgres full-text lexical ranking plus keyword-style
+fallback over visible `memory_items`. This works when embeddings are disabled,
+which is the default local setup.
 
-1. **Lexical**: Postgres full-text rank.
-2. **Vector (Semantic)**: `pgvector` cosine similarity when embeddings are enabled.
-3. **Fusion**: RRF merges both ranked lists. For each result at rank i: `score += 1 / (K + i + 1)`. Top-K returned.
+Embedding providers and the `embedding_cache` table exist for brokered
+embedding work, but vector memory retrieval is inactive until the runtime has a
+complete memory item embedding index and query path. Do not describe current
+runtime recall as hybrid or RRF-based.
+Embedding work is limited to dreaming promotion/update workflows in this slice.
 
 #### Source Ingestion
 
@@ -523,16 +534,20 @@ candidates, durable items, recall events, and dream decisions in Postgres.
 
 #### Reflection (Auto-Capture)
 
-At session boundaries, the system extracts durable memory statements from the
-conversation. `/new` uses a `session-end` trigger, while manual `/compact` and
-observed SDK auto-compaction boundaries use a `precompact` trigger:
+At session boundaries, the system captures continuation digests and stages
+memory extraction output from the conversation. `/new` uses a `session-end`
+trigger, while manual `/compact` and observed SDK auto-compaction boundaries
+use a `precompact` trigger:
 
 - Uses a provider interface; the default extractor is rule-based and can be replaced without changing storage or recall.
 - Detects preferences, decisions, facts, corrections, and constraints.
-- Stores real human-readable statements with reflection-derived confidence scores.
+- Stores real human-readable extraction output with reflection-derived confidence scores.
 - Filters sensitive material (API keys, tokens, passwords)
 - Rejects prompt-injection style text before it becomes future context
 - Controlled by memory extractor settings and the app-grade memory service.
+- Automatic durable promotion/update is dreaming-only.
+- Does not install `PostCompact` hooks and does not persist `compact_summary`
+  records for prompt replay.
 
 ### Memory Storage
 
@@ -540,8 +555,9 @@ MyClaw memory uses Postgres tables in the configured runtime schema.
 
 - Runtime database: `MYCLAW_DATABASE_URL`
 - Runtime schema: `storage.postgres.schema` (default `myclaw`)
-- Vector search: `pgvector` when embeddings are enabled
 - Lexical search: Postgres full-text search
+- Vector search: inactive until memory item embeddings are fully indexed and
+  queried
 
 Provider transcript export artifacts may be stored through
 `ProviderArtifactStore` for explicit debugging/export workflows; they are not
@@ -685,13 +701,15 @@ This allows the agent to understand the conversation context even if it wasn't m
 | `@Assistant add group "Name"`    | `@Andy add group "Family Chat"`     | Register a new group   |
 | `@Assistant remove group "Name"` | `@Andy remove group "Work Team"`    | Unregister a group     |
 | `@Assistant list groups`         | `@Andy list groups`                 | Show registered groups |
-| `@Assistant remember [fact]`     | `@Andy remember I prefer dark mode` | Add to global memory   |
+| `@Assistant remember [fact]`     | `@Andy remember I prefer dark mode` | Add scoped durable memory |
 
 ---
 
 ## Scheduled Jobs
 
 MyClaw has a built-in scheduler that runs jobs as full agents in their group's context.
+Job definitions, job instances/runs, and notification routes are runtime
+Postgres state and are never written to `settings.yaml`.
 
 ### How Scheduling Works
 
@@ -721,7 +739,15 @@ Claude: [calls mcp__myclaw__scheduler_upsert_job]
           "prompt": "Send a reminder to review weekly metrics. Be encouraging!",
           "schedule_type": "cron",
           "schedule_value": "0 9 * * 1",
-          "linked_sessions": ["<current_chat_jid>"]
+          "executionContext": {
+            "conversationJid": "<current_chat_jid>"
+          },
+          "notificationRoutes": [
+            {
+              "conversationJid": "<current_chat_jid>",
+              "label": "primary"
+            }
+          ]
         }
 
 Claude: Done! I'll remind you every Monday at 9am.
@@ -738,7 +764,15 @@ Claude: [calls mcp__myclaw__scheduler_upsert_job]
           "prompt": "Search for today's emails, summarize the important ones, and send the summary to the group.",
           "schedule_type": "once",
           "schedule_value": "2024-01-31T17:00:00Z",
-          "linked_sessions": ["<current_chat_jid>"]
+          "executionContext": {
+            "conversationJid": "<current_chat_jid>"
+          },
+          "notificationRoutes": [
+            {
+              "conversationJid": "<current_chat_jid>",
+              "label": "primary"
+            }
+          ]
         }
 ```
 
@@ -781,9 +815,9 @@ The `myclaw` MCP server is created dynamically per agent call with the current g
 
 Scheduler MCP job visibility and mutation are scoped to both the calling
 agent's group and the current conversation: `group_scope` must match the
-agent, and `linked_sessions` must include the originating chat. Thread/topic
-ids may be checked to prevent delivery retargeting, but they do not grant job
-visibility or run authority.
+agent, and `executionContext.conversationJid` must match the originating chat.
+Thread/topic ids may be checked to prevent delivery retargeting, but they do
+not grant job visibility or run authority.
 
 ---
 
@@ -825,9 +859,9 @@ Linux systemd it is represented as `ExecStartPre`. The fallback script performs
 the same prestart step before launching the runtime.
 
 The Control API starts inside this same runtime process. Runtime control
-settings such as `MYCLAW_CONTROL_API_KEY`, `MYCLAW_CONTROL_API_KEYS_JSON`,
-`MYCLAW_CONTROL_APP_ID`, `MYCLAW_CONTROL_PORT`, and
-`MYCLAW_CONTROL_SOCKET_PATH` are read from process env or `~/myclaw/.env`. The
+settings such as `MYCLAW_CONTROL_API_KEYS_JSON`, `MYCLAW_CONTROL_PORT`, and
+`MYCLAW_CONTROL_SOCKET_PATH` are read from process env or `~/myclaw/.env`. Each
+API key entry must include `kid`, `token`, `appId`, and explicit `scopes`. The
 launchd plist should not contain control API secrets; it only needs enough
 environment to find the runtime home and executable path.
 

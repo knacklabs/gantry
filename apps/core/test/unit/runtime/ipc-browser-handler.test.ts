@@ -331,11 +331,16 @@ describe('ipc-browser-handler', () => {
 
   it('writes browser response files atomically', () => {
     const keys = createIpcResponseSigningKeyPair();
-    writeBrowserIpcResponse(tempDir, 'grp', {
-      requestId: 'req-4',
-      ok: true,
-      data: { running: true },
-    }, keys.privateKeyPem);
+    writeBrowserIpcResponse(
+      tempDir,
+      'grp',
+      {
+        requestId: 'req-4',
+        ok: true,
+        data: { running: true },
+      },
+      keys.privateKeyPem,
+    );
 
     const responsePath = path.join(
       tempDir,
@@ -391,15 +396,11 @@ describe('ipc-browser-handler', () => {
   });
 
   it('does not write browser responses without a run response signing key', () => {
-    writeBrowserIpcResponse(
-      tempDir,
-      'grp',
-      {
-        requestId: 'req-5',
-        ok: true,
-        data: { running: true },
-      },
-    );
+    writeBrowserIpcResponse(tempDir, 'grp', {
+      requestId: 'req-5',
+      ok: true,
+      data: { running: true },
+    });
 
     const responsePath = path.join(
       tempDir,

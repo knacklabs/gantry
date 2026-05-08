@@ -55,6 +55,11 @@ export interface RuntimeMemorySettings {
   dreaming: {
     enabled: boolean;
     cron: string;
+    embeddings: {
+      enabled: boolean;
+      provider: EmbeddingProviderName;
+      model: string;
+    };
   };
   llm: {
     models: RuntimeMemoryLlmModels;

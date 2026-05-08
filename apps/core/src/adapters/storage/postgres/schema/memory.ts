@@ -49,6 +49,7 @@ export const memoryItemsPostgres = pgTable(
         table.agentId,
         table.subjectType,
         table.subjectId,
+        sql`coalesce(${table.threadId}, '')`,
         table.kind,
         table.key,
       )
@@ -59,7 +60,8 @@ export const memoryItemsPostgres = pgTable(
       table.subjectType,
       table.subjectId,
       table.status,
-      table.updatedAt,
+      table.threadId,
+      table.updatedAt.desc(),
     ),
     searchIdx: index('idx_memory_items_search').using(
       'gin',

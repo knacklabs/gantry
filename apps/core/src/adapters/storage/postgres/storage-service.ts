@@ -17,6 +17,8 @@ export const postgresMigrationsFolder = path.join(
   'schema',
   'migrations',
 );
+const PGCRYPTO_EXTENSION_LOCK_NAMESPACE = 1_340_193_180;
+const PGCRYPTO_EXTENSION_LOCK_KEY = 1;
 
 export interface StorageCapabilities {
   lexicalSearch: boolean;
@@ -95,12 +97,46 @@ export class PostgresStorageService implements StorageService {
     await this.pool.query(
       `CREATE SCHEMA IF NOT EXISTS ${quotePostgresIdentifier(this.schemaName)}`,
     );
+    await this.ensurePgcryptoExtension();
     await migratePostgres(this.db, {
       migrationsFolder: postgresMigrationsFolder,
       migrationsSchema: this.schemaName,
     });
     await seedDefaultRuntimeData(this.db);
     await this.migratePgBoss();
+  }
+
+  private async ensurePgcryptoExtension(): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('SELECT pg_advisory_lock($1, $2)', [
+        PGCRYPTO_EXTENSION_LOCK_NAMESPACE,
+        PGCRYPTO_EXTENSION_LOCK_KEY,
+      ]);
+      const existing = await client.query<{ schema_name: string }>(
+        `SELECT n.nspname AS schema_name
+         FROM pg_extension e
+         JOIN pg_namespace n ON n.oid = e.extnamespace
+         WHERE e.extname = 'pgcrypto'`,
+      );
+      const currentSchema = existing.rows[0]?.schema_name;
+      if (!currentSchema) {
+        await client.query(
+          'CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public',
+        );
+      } else if (currentSchema !== 'public') {
+        await client.query('ALTER EXTENSION pgcrypto SET SCHEMA public');
+      }
+    } finally {
+      try {
+        await client.query('SELECT pg_advisory_unlock($1, $2)', [
+          PGCRYPTO_EXTENSION_LOCK_NAMESPACE,
+          PGCRYPTO_EXTENSION_LOCK_KEY,
+        ]);
+      } finally {
+        client.release();
+      }
+    }
   }
 
   private async migratePgBoss(): Promise<void> {

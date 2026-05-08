@@ -26,6 +26,10 @@ const SENSITIVE_TEXT_PATTERNS: RegExp[] = [
 ];
 const STREAM_PARSE_BUFFER_LIMIT = Math.max(AGENT_MAX_OUTPUT_SIZE * 4, 131_072);
 
+function formatResumeSessionStatus(sessionId?: string): string {
+  return sessionId ? 'present' : 'none';
+}
+
 function sanitizeLogText(value: string, maxChars = 4000): string {
   let text = redactString(value);
   for (const pattern of SENSITIVE_TEXT_PATTERNS) {
@@ -300,7 +304,7 @@ export function executeRunnerProcess(
             `=== Input Summary ===`,
             `Prompt length: ${input.prompt.length} chars`,
             `SDK session persistence: ${input.isScheduledJob ? 'disabled' : 'enabled'}`,
-            `Resume session: ${input.sessionId || '(none)'}`,
+            `Resume session: ${formatResumeSessionStatus(input.sessionId)}`,
             `Chat JID: ${input.chatJid}`,
             `Group Folder: ${input.groupFolder}`,
             '',
@@ -310,7 +314,7 @@ export function executeRunnerProcess(
             `=== Input Summary ===`,
             `Prompt length: ${input.prompt.length} chars`,
             `SDK session persistence: ${input.isScheduledJob ? 'disabled' : 'enabled'}`,
-            `Resume session: ${input.sessionId || '(none)'}`,
+            `Resume session: ${formatResumeSessionStatus(input.sessionId)}`,
             ``,
           );
         }
@@ -332,7 +336,7 @@ export function executeRunnerProcess(
           `=== Input Summary ===`,
           `Prompt length: ${input.prompt.length} chars`,
           `SDK session persistence: ${input.isScheduledJob ? 'disabled' : 'enabled'}`,
-          `Resume session: ${input.sessionId || '(none)'}`,
+          `Resume session: ${formatResumeSessionStatus(input.sessionId)}`,
           ``,
           `=== Runtime Details ===`,
           runtimeDetails.join('\n'),
@@ -369,7 +373,11 @@ export function executeRunnerProcess(
       if (onOutput) {
         outputChain.then(() => {
           logger.info(
-            { group: group.name, duration, newSessionId },
+            {
+              group: group.name,
+              duration,
+              providerSessionCreated: !!newSessionId,
+            },
             `${runnerLabel} completed (streaming mode)`,
           );
           resolve({

@@ -455,9 +455,9 @@ Cited at:
 ## 8. Scheduler + Job Lifecycle
 
 A MyClaw job is a first-party record (`Job` in
-`apps/core/src/domain/types.ts:98`) bound to one or more chat jids that share
-a group folder. pg-boss provides claim/dispatch and restart-safe scheduling,
-not the job model.
+`apps/core/src/domain/types.ts:98`) scoped by `group_scope` and runtime
+`execution_context`/`notification_routes` in Postgres. pg-boss provides
+claim/dispatch and restart-safe scheduling, not the job model.
 
 ```mermaid
 sequenceDiagram
@@ -468,16 +468,16 @@ sequenceDiagram
   participant Sched as "scheduler / execution"
   participant Proc as "Group processor"
   participant Agent as "Child runner"
-  participant Linked as "Linked sessions<br/>(conversation IDs)"
+  participant Routes as "Notification routes<br/>(conversation/thread IDs)"
 
   Caller->>Service: createJob({manual|once|recurring})
-  Service->>Jobs: upsertJob(linked_sessions=[conversationId])
+  Service->>Jobs: upsertJob(execution_context + notification_routes)
   Service->>PgB: requestSchedulerSync(jobId)
   PgB->>Sched: claim due run (cron / runAt / trigger)
   Sched->>Proc: dispatch under group processor
   Proc->>Agent: run prompt
   Agent->>Proc: final output
-  Proc->>Linked: deliver result to all linked sessions
+  Proc->>Routes: deliver result to notification routes
   Sched->>Jobs: write JobRun + JobEvent
   Sched->>PgB: release / dead-letter on failure
 ```
@@ -497,11 +497,12 @@ stateDiagram-v2
 
 Cited at:
 
-- Manual job creation binds `linked_sessions: [conversationId]` —
+- Manual job creation binds `execution_context.conversationJid` and
+  `notification_routes` for delivery —
   `apps/core/src/application/jobs/job-management-service.ts:99`.
 - Agent-facing scheduler MCP tools authorize by `group_scope` plus the
-  originating conversation in `linked_sessions`; thread ids are delivery
-  metadata and spoof-check inputs, not visibility authority.
+  originating conversation in `execution_context.conversationJid`; thread ids
+  are delivery metadata and spoof-check inputs, not visibility authority.
 - System (dreaming) jobs registered per `group.folder` —
   `apps/core/src/jobs/system-jobs.ts:44`-`apps/core/src/jobs/system-jobs.ts:50`.
 - Scheduler core — `apps/core/src/jobs/scheduler.ts`,
@@ -704,7 +705,7 @@ Control API surface (scopes from `apps/core/src/control/server/auth.ts:5`):
 | MCP           | `mcp:read`, `mcp:admin`                                      | mcp routes                                                            |
 | Webhooks      | `webhooks:read`, `webhooks:write`                            | `apps/core/src/control/server/routes/webhooks.ts`                     |
 | Ingresses     | `ingresses:read`, `ingresses:write`                          | `apps/core/src/control/server/routes/external-ingress.ts`             |
-| Memory        | `memory:read`, `memory:write`, `memory:admin`                | memory routes                                                         |
+| Memory        | `memory:read`, `memory:admin`                                | memory routes                                                         |
 
 Agent-driven changes go through MyClaw MCP `request_*` tools (§7) and produce
 the same writes after approval. The principle —

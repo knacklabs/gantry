@@ -189,8 +189,7 @@ describe('runtime admin IPC handlers', () => {
       startService,
       stopService: vi.fn(() => ({ ok: true, message: 'stopped' })),
     }));
-    const { serviceRestartHandler, taskData } =
-      await loadHandlers(runtimeHome);
+    const { serviceRestartHandler, taskData } = await loadHandlers(runtimeHome);
     const requestPermissionApproval = vi.fn(async () => ({
       approved: false,
       reason: 'not now',

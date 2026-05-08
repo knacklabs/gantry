@@ -7,6 +7,9 @@ export interface RuntimeMemorySettingsSnapshot {
   embedBatchSize?: number;
   dreamingEnabled?: boolean;
   dreamingCron?: string;
+  dreamingEmbeddingsEnabled?: boolean;
+  dreamingEmbeddingProvider?: string;
+  dreamingEmbeddingModel?: string;
   llmExtractorModel?: string;
   llmDreamingModel?: string;
   llmConsolidationModel?: string;
@@ -131,6 +134,30 @@ export function parseRuntimeMemorySnapshotFromRoot(
     throw new Error('memory.dreaming must be a mapping');
   }
   const dreaming = (dreamingRaw || {}) as Record<string, unknown>;
+  const dreamingEmbeddingsRaw = dreaming.embeddings;
+  if (
+    dreamingEmbeddingsRaw !== undefined &&
+    (typeof dreamingEmbeddingsRaw !== 'object' ||
+      dreamingEmbeddingsRaw === null ||
+      Array.isArray(dreamingEmbeddingsRaw))
+  ) {
+    throw new Error('memory.dreaming.embeddings must be a mapping');
+  }
+  const dreamingEmbeddings = (dreamingEmbeddingsRaw || {}) as Record<
+    string,
+    unknown
+  >;
+  const dreamingEmbeddingProvider = parseOptionalString(
+    dreamingEmbeddings.provider,
+  );
+  if (
+    dreamingEmbeddingProvider !== undefined &&
+    !/^[a-z][a-z0-9_-]{0,62}$/.test(dreamingEmbeddingProvider)
+  ) {
+    throw new Error(
+      'memory.dreaming.embeddings.provider must be a lowercase provider id such as disabled or openai',
+    );
+  }
 
   const maintenanceRaw = memory.maintenance;
   if (
@@ -183,6 +210,12 @@ export function parseRuntimeMemorySnapshotFromRoot(
       'memory.dreaming.enabled',
     ),
     dreamingCron: parseOptionalString(dreaming.cron),
+    dreamingEmbeddingsEnabled: parseOptionalBoolean(
+      dreamingEmbeddings.enabled,
+      'memory.dreaming.embeddings.enabled',
+    ),
+    dreamingEmbeddingProvider,
+    dreamingEmbeddingModel: parseOptionalString(dreamingEmbeddings.model),
     llmExtractorModel: parseOptionalString(llmModels.extractor),
     llmDreamingModel: parseOptionalString(llmModels.dreaming),
     llmConsolidationModel: parseOptionalString(llmModels.consolidation),

@@ -218,6 +218,118 @@
       "when": 1777093800000,
       "tag": "0030_drop_conversation_policy_legacy",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1777097400000,
+      "tag": "0031_session_memory_boundary_digests",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1777101000000,
+      "tag": "0032_memory_item_embeddings",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1777104600000,
+      "tag": "0033_memory_thread_scope_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1777108200000,
+      "tag": "0034_outbound_delivery_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1777111800000,
+      "tag": "0035_memory_dreaming_thread_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1777115400000,
+      "tag": "0036_outbound_delivery_idempotency_fingerprint_and_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1777119000000,
+      "tag": "0037_outbound_delivery_fingerprint_hash_normalization",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1777122600000,
+      "tag": "0038_memory_dream_guards_and_recall_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1777126200000,
+      "tag": "0039_memory_dream_run_leases",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1777129800000,
+      "tag": "0040_jobs_target_execution_context_notification_routes",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1777133400000,
+      "tag": "0041_outbound_claim_and_job_target_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1777137000000,
+      "tag": "0042_provider_session_resume_lookup_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1777140600000,
+      "tag": "0043_message_attachments_message_lookup_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1777144200000,
+      "tag": "0044_provider_session_provider_agnostic_resume_lookup_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1777147800000,
+      "tag": "0045_memory_review_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1777151400000,
+      "tag": "0046_session_scope_indexes_and_digest_scope_filters",
+      "breakpoints": true
     }
   ]
 }

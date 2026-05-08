@@ -17,6 +17,26 @@ export interface JobToolAccess {
   source: string;
 }
 
+export interface JobExecutionContext {
+  conversationJid: string;
+  threadId: string | null;
+  groupScope: string;
+  sessionId: string | null;
+}
+
+export interface JobRequestExecutionContext {
+  conversationJid: string;
+  threadId: string | null;
+  groupScope: string;
+  sessionId: string;
+}
+
+export interface JobNotificationRoute {
+  conversationJid: string;
+  threadId: string | null;
+  label: string;
+}
+
 export interface JobRecord {
   jobId: string;
   name: string;
@@ -29,7 +49,8 @@ export interface JobRecord {
     | null
     | { type: 'once'; runAt: string }
     | { type: 'cron' | 'interval'; value: string };
-  linkedSessions: string[];
+  executionContext: JobExecutionContext;
+  notificationRoutes: JobNotificationRoute[];
   nextRun: string | null;
   lastRun: string | null;
   staleness?: JobStaleness | null;
@@ -37,7 +58,6 @@ export interface JobRecord {
   modelAlias: string | null;
   modelProfileId: string | null;
   model: JobModelPreview | null;
-  threadId: string | null;
   groupScope: string;
   sessionId: string | null;
   target?: {
@@ -54,11 +74,7 @@ export interface JobRecord {
     errorSummary: string;
     endedAt: string | null;
   }>;
-  notificationTarget?: {
-    linkedSessions: string[];
-    threadId: string | null;
-    silent: boolean;
-  };
+  silent?: boolean;
 }
 
 export interface ModelRecord {
@@ -80,12 +96,12 @@ export interface ModelRecord {
 export interface CreateJobInput {
   name: string;
   prompt: string;
-  sessionId: string;
+  executionContext: JobRequestExecutionContext;
+  notificationRoutes?: JobNotificationRoute[];
   kind?: JobKind;
   runAt?: string;
   schedule?: { type: 'cron' | 'interval'; value: string };
   executionMode?: 'parallel' | 'serialized';
-  threadId?: string;
   modelAlias?: string;
   modelProfileId?: string;
   allowedTools?: string[];
@@ -96,7 +112,8 @@ export interface UpdateJobInput {
   name?: string;
   prompt?: string;
   executionMode?: 'parallel' | 'serialized';
-  threadId?: string | null;
+  executionContext?: JobRequestExecutionContext;
+  notificationRoutes?: JobNotificationRoute[];
   status?: 'active' | 'paused';
   modelAlias?: string | null;
   modelProfileId?: string | null;
@@ -122,11 +139,8 @@ export interface CreateJobResponse {
 }
 
 export interface JobRuntimeContextPreview {
-  sessionId: string;
-  conversationJid: string;
-  groupScope: string;
-  threadId: string | null;
-  notificationTarget: 'conversation' | 'conversation_thread';
+  executionContext: JobExecutionContext;
+  notificationRoutes: JobNotificationRoute[];
   browserProfileLabel: string;
   browserProfileName: string;
   persona:

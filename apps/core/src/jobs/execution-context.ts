@@ -2,6 +2,9 @@ import type {
   Job,
   ConversationRoute as RuntimeConversationRecord,
 } from '../domain/types.js';
+import type { RuntimeAgentSessionRepository } from '../domain/repositories/ops-repo.js';
+import { resolveJobNotificationRoutes } from './job-notification-routes.js';
+import { buildBoundedMemoryRecallQuery } from '../memory/app-memory-recall-query.js';
 
 export function resolveExecutionContext(
   job: Job,
@@ -9,34 +12,29 @@ export function resolveExecutionContext(
 ): {
   group: RuntimeConversationRecord;
   executionJid: string;
+  threadId: string | null;
   stopAliasJids: string[];
 } | null {
-  for (const linked of job.linked_sessions) {
-    const group = groups[linked];
-    if (group) {
-      return {
-        group,
-        executionJid: linked,
-        stopAliasJids: Array.from(new Set([...(job.linked_sessions || [])])),
-      };
-    }
-  }
-
-  const byFolder = Object.entries(groups).find(
-    ([, group]) => group.folder === job.group_scope,
+  const executionConversation = normalizeOptional(
+    job.execution_context?.conversationJid,
   );
-  if (byFolder) {
-    const stopAliasJids = Array.from(
-      new Set([...(job.linked_sessions || []), byFolder[0]]),
-    );
-    return {
-      group: byFolder[1],
-      executionJid: stopAliasJids[0] || byFolder[0],
-      stopAliasJids,
-    };
-  }
-
-  return null;
+  if (!executionConversation) return null;
+  const group = groups[executionConversation];
+  if (!group) return null;
+  const stopAliasJids = Array.from(
+    new Set([
+      executionConversation,
+      ...resolveJobNotificationRoutes(job).map(
+        (route) => route.conversationJid,
+      ),
+    ]),
+  );
+  return {
+    group,
+    executionJid: executionConversation,
+    threadId: normalizeOptional(job.execution_context?.threadId) ?? null,
+    stopAliasJids,
+  };
 }
 
 export function resolveExecutionMemoryContext(input: {
@@ -53,6 +51,32 @@ export function resolveExecutionMemoryContext(input: {
     };
   }
   return { memoryDefaultScope: 'group' };
+}
+
+function normalizeOptional(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+export function buildExecutionTurnContextInput(input: {
+  agentFolder: string;
+  executionJid: string;
+  threadId?: string | null;
+  conversationKind?: RuntimeConversationRecord['conversationKind'];
+  memoryUserId?: string;
+  query?: string;
+}): Parameters<
+  NonNullable<RuntimeAgentSessionRepository['getAgentTurnContext']>
+>[0] {
+  return {
+    agentFolder: input.agentFolder,
+    conversationJid: input.executionJid,
+    threadId: input.threadId ?? null,
+    conversationKind: input.conversationKind,
+    memoryUserId: input.memoryUserId,
+    query: buildBoundedMemoryRecallQuery(input.query),
+  };
 }
 
 export function parseTriggerRequesterSessionId(

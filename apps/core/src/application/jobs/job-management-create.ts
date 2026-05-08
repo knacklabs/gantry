@@ -6,6 +6,12 @@ import type {
 import { resolveRequestedJobModel } from './job-model-selection.js';
 import { requireJobExtraToolApproval } from './job-extra-tool-approval.js';
 import {
+  normalizeExecutionContext,
+  normalizeNotificationRoutes,
+  requireJobNotificationRouteApproval,
+  routesBeyondAuthenticatedContext,
+} from './job-management-helpers.js';
+import {
   agentIdForJobGroupScope,
   assertJobExtraToolsAllowedForTarget,
   normalizeJobExtraTools,
@@ -47,12 +53,59 @@ export async function createManagedJob(
     input.modelProfileId,
   );
   const jobId = deps.schedulePlanner.createManualJobId();
+  const sessionBoundContext = {
+    conversationJid: session.conversationJid,
+    groupScope: session.workspaceKey,
+  };
+  const executionContext =
+    input.executionContext !== undefined
+      ? normalizeExecutionContext(input.executionContext)
+      : {
+          ...sessionBoundContext,
+          threadId: null,
+          sessionId: session.sessionId,
+        };
+  if (
+    executionContext.conversationJid !== sessionBoundContext.conversationJid ||
+    executionContext.groupScope !== sessionBoundContext.groupScope
+  ) {
+    throw new ApplicationError(
+      'FORBIDDEN',
+      'executionContext must match authenticated job context.',
+    );
+  }
+  if (
+    executionContext.sessionId !== undefined &&
+    executionContext.sessionId !== session.sessionId
+  ) {
+    throw new ApplicationError(
+      'FORBIDDEN',
+      'executionContext.sessionId must match the authenticated app session.',
+    );
+  }
   const runtimeContext = {
     sessionId: session.sessionId,
     conversationJid: session.conversationJid,
     groupScope: session.workspaceKey,
-    threadId: typeof input.threadId === 'string' ? input.threadId : null,
+    threadId: executionContext.threadId ?? null,
   };
+  const notificationRoutes = normalizeNotificationRoutes(
+    input.notificationRoutes ?? [
+      {
+        conversationJid: sessionBoundContext.conversationJid,
+        threadId: executionContext.threadId ?? null,
+        label: 'primary',
+      },
+    ],
+  );
+  const authenticatedContext = {
+    ...sessionBoundContext,
+    threadId: executionContext.threadId ?? null,
+  };
+  const routesBeyondContext = routesBeyondAuthenticatedContext({
+    routes: notificationRoutes,
+    authenticatedContext,
+  });
   const allowedTools = normalizeJobExtraTools(input.allowedTools);
   const inheritedTools = await resolveAgentToolBindings({
     repository: deps.toolRepository,
@@ -66,6 +119,18 @@ export async function createManagedJob(
   if (input.dryRun === true) {
     return { jobId, created: false, modelAlias, runtimeContext };
   }
+  await requireJobNotificationRouteApproval({
+    deps: deps as never,
+    request: {
+      operation: 'create',
+      jobId,
+      jobName: input.name.trim(),
+      authenticatedContext,
+      requestedRoutes: notificationRoutes,
+      existingRoutes: [],
+      routesBeyondContext,
+    },
+  });
   await requireJobExtraToolApproval({
     deps,
     jobId,
@@ -85,15 +150,16 @@ export async function createManagedJob(
     schedule_type: schedule.scheduleType,
     schedule_value: schedule.scheduleValue,
     status: 'active',
-    linked_sessions: [session.conversationJid],
     session_id: session.sessionId,
-    thread_id: typeof input.threadId === 'string' ? input.threadId : null,
+    thread_id: executionContext.threadId ?? null,
     group_scope: session.workspaceKey,
     created_by: 'human',
     next_run: schedule.nextRun,
     execution_mode:
       input.executionMode === 'serialized' ? 'serialized' : 'parallel',
     capability_policy: { allowed_tools: allowedTools },
+    execution_context: executionContext,
+    notification_routes: notificationRoutes,
   });
   deps.scheduler.requestSchedulerSync(jobId);
   return { jobId, created: result.created, modelAlias, runtimeContext };

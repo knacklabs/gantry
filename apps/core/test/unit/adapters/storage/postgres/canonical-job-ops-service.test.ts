@@ -17,8 +17,20 @@ describe('CanonicalJobOpsService', () => {
       prompt: 'Run',
       schedule_type: 'interval',
       schedule_value: '60000',
-      linked_sessions: ['tg:1'],
-      group_scope: 'agent_one',
+      execution_context: {
+        conversationJid: 'tg:1',
+        threadId: null,
+        groupScope: 'agent_one',
+        sessionId: 'session-1',
+      },
+      notification_routes: [
+        {
+          conversationJid: 'tg:1',
+          threadId: null,
+          label: 'Primary',
+        },
+      ],
+      group_scope: '',
       capability_policy: {
         allowed_tools: ['Read', 'mcp__agent_browser__*'],
       },
@@ -27,9 +39,23 @@ describe('CanonicalJobOpsService', () => {
     const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
       targetJson: string;
     };
-    expect(JSON.parse(stored.targetJson).capabilityPolicy).toEqual({
+    const target = JSON.parse(stored.targetJson) as Record<string, unknown>;
+    expect(target.capabilityPolicy).toEqual({
       allowedTools: ['Read', 'mcp__agent_browser__*'],
     });
+    expect(target.executionContext).toEqual({
+      conversationJid: 'tg:1',
+      threadId: null,
+      groupScope: 'agent_one',
+      sessionId: 'session-1',
+    });
+    expect(target.notificationRoutes).toEqual([
+      {
+        conversationJid: 'tg:1',
+        threadId: null,
+        label: 'Primary',
+      },
+    ]);
   });
 
   it('defaults missing capability policy to an empty allowed-tools list', async () => {
@@ -44,8 +70,19 @@ describe('CanonicalJobOpsService', () => {
         status: 'active',
         executionMode: 'parallel',
         targetJson: JSON.stringify({
-          linkedSessions: ['tg:1'],
-          groupScope: 'agent_one',
+          executionContext: {
+            conversationJid: 'tg:1',
+            threadId: null,
+            groupScope: 'agent_one',
+            sessionId: 'session-1',
+          },
+          notificationRoutes: [
+            {
+              conversationJid: 'tg:1',
+              threadId: null,
+              label: 'Primary',
+            },
+          ],
         }),
         silent: false,
         timeoutMs: 300000,
@@ -63,6 +100,23 @@ describe('CanonicalJobOpsService', () => {
 
     await expect(service.getJobById('job-1')).resolves.toMatchObject({
       capability_policy: { allowed_tools: [] },
+      linked_sessions: [],
+      session_id: 'session-1',
+      thread_id: null,
+      group_scope: 'agent_one',
+      execution_context: {
+        conversationJid: 'tg:1',
+        threadId: null,
+        groupScope: 'agent_one',
+        sessionId: 'session-1',
+      },
+      notification_routes: [
+        {
+          conversationJid: 'tg:1',
+          threadId: null,
+          label: 'Primary',
+        },
+      ],
     });
   });
 
@@ -90,6 +144,30 @@ describe('CanonicalJobOpsService', () => {
     );
   });
 
+  it('redacts provider session handles before persisting completed run summaries', async () => {
+    const repository = {
+      updateRunCompletion: vi.fn(async () => undefined),
+    } as unknown as PostgresCanonicalJobRepository;
+    const service = new CanonicalJobOpsService(repository);
+
+    await service.completeJobRun(
+      'run-1',
+      'failed',
+      'done provider-session:raw-token sessionId=inline-token {"newSessionId":"json-token"}',
+      'boom claude-session-inline sessionId=error-token',
+    );
+
+    expect(repository.updateRunCompletion).toHaveBeenCalledTimes(1);
+    const input = vi.mocked(repository.updateRunCompletion).mock.calls[0]?.[1];
+    expect(input.resultSummary).toContain('[REDACTED]');
+    expect(input.errorSummary).toContain('[REDACTED]');
+    expect(input.resultSummary).not.toContain('provider-session:raw-token');
+    expect(input.resultSummary).not.toContain('inline-token');
+    expect(input.resultSummary).not.toContain('json-token');
+    expect(input.errorSummary).not.toContain('claude-session-inline');
+    expect(input.errorSummary).not.toContain('error-token');
+  });
+
   it('passes app ownership filters to repository run and event queries', async () => {
     const repository = {
       listRuns: vi.fn(async () => []),
@@ -110,5 +188,107 @@ describe('CanonicalJobOpsService', () => {
         ownerAppId: 'app-one',
       }),
     );
+  });
+
+  it('drops notification routes that do not match executionContext during writes', async () => {
+    const repository = {
+      findJobById: vi.fn(async () => null),
+      upsertJob: vi.fn(async () => undefined),
+    } as unknown as PostgresCanonicalJobRepository;
+    const service = new CanonicalJobOpsService(repository);
+
+    await service.upsertJob({
+      id: 'job-1',
+      name: 'Job',
+      prompt: 'Run',
+      schedule_type: 'interval',
+      schedule_value: '60000',
+      execution_context: {
+        conversationJid: 'tg:team',
+        threadId: null,
+        groupScope: 'agent_one',
+      },
+      notification_routes: [
+        {
+          conversationJid: 'tg:team',
+          threadId: null,
+          label: 'Primary',
+        },
+        {
+          conversationJid: 'tg:other',
+          threadId: null,
+          label: 'Linked',
+        },
+      ],
+      group_scope: '',
+    });
+
+    const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
+      targetJson: string;
+    };
+    const target = JSON.parse(stored.targetJson) as Record<string, unknown>;
+    expect(target.notificationRoutes).toEqual([
+      {
+        conversationJid: 'tg:team',
+        threadId: null,
+        label: 'Primary',
+      },
+    ]);
+  });
+
+  it('drops off-context stored notification routes when loading jobs', async () => {
+    const repository = {
+      findJobById: vi.fn(async () => ({
+        id: 'job-1',
+        agentId: 'agent:agent_one',
+        name: 'Job',
+        prompt: 'Run',
+        model: null,
+        scheduleJson: JSON.stringify({ type: 'interval', value: '60000' }),
+        status: 'active',
+        executionMode: 'parallel',
+        targetJson: JSON.stringify({
+          executionContext: {
+            conversationJid: 'tg:team',
+            threadId: null,
+            groupScope: 'agent_one',
+            sessionId: 'session-1',
+          },
+          notificationRoutes: [
+            {
+              conversationJid: 'tg:team',
+              threadId: null,
+              label: 'Primary',
+            },
+            {
+              conversationJid: 'tg:other',
+              threadId: null,
+              label: 'Linked',
+            },
+          ],
+        }),
+        silent: false,
+        timeoutMs: 300000,
+        maxRetries: 3,
+        retryBackoffMs: 5000,
+        nextRunAt: null,
+        lastRunAt: null,
+        leaseRunId: null,
+        leaseExpiresAt: null,
+        createdAt: '2026-04-24T00:00:00.000Z',
+        updatedAt: '2026-04-24T00:00:00.000Z',
+      })),
+    } as unknown as PostgresCanonicalJobRepository;
+    const service = new CanonicalJobOpsService(repository);
+
+    await expect(service.getJobById('job-1')).resolves.toMatchObject({
+      notification_routes: [
+        {
+          conversationJid: 'tg:team',
+          threadId: null,
+          label: 'Primary',
+        },
+      ],
+    });
   });
 });

@@ -87,6 +87,19 @@ function scheduleType(raw: unknown): JobScheduleType | undefined {
     : undefined;
 }
 
+function hasLegacySchedulerFields(data: TaskContext['data']): boolean {
+  const legacy = data as TaskContext['data'] & {
+    linkedSessions?: unknown;
+    deliverTo?: unknown;
+    threadId?: unknown;
+  };
+  return (
+    legacy.linkedSessions !== undefined ||
+    legacy.deliverTo !== undefined ||
+    legacy.threadId !== undefined
+  );
+}
+
 async function resumeDeadLetterDetails(
   context: TaskContext,
   jobId: string,
@@ -132,6 +145,13 @@ const schedulerUpdateJobHandler: TaskHandler = async (context) => {
     reject(
       'script mutation is not allowed for scheduler_update_job.',
       'forbidden',
+    );
+    return;
+  }
+  if (hasLegacySchedulerFields(data)) {
+    reject(
+      'Unsupported legacy scheduler fields. Use executionContext and notificationRoutes.',
+      'invalid_request',
     );
     return;
   }
@@ -184,18 +204,11 @@ const schedulerUpdateJobHandler: TaskHandler = async (context) => {
         data.serialize,
       ) as JobExecutionMode;
     }
-    if (data.threadId !== undefined) {
-      patch.threadId =
-        typeof data.threadId === 'string' && data.threadId.trim()
-          ? data.threadId.trim()
-          : null;
+    if (data.executionContext !== undefined) {
+      patch.executionContext = data.executionContext;
     }
-    if (Array.isArray(data.linkedSessions) || Array.isArray(data.deliverTo)) {
-      patch.linkedSessions = (
-        Array.isArray(data.deliverTo)
-          ? data.deliverTo
-          : data.linkedSessions || []
-      ).map((item) => String(item));
+    if (Array.isArray(data.notificationRoutes)) {
+      patch.notificationRoutes = data.notificationRoutes;
     }
     if (Array.isArray(data.allowedTools)) {
       patch.allowedTools = data.allowedTools.map((item) => String(item));

@@ -19,6 +19,7 @@ import {
   TASK_RESPONSES_DIR,
   chatJid,
   memoryDefaultScope,
+  memoryIpcAllowedActions,
   memoryUserId,
   threadId,
 } from './context.js';
@@ -80,11 +81,7 @@ export function hasValidIpcResponseSignature(
   if (!IPC_RESPONSE_VERIFY_KEY) return false;
   const signature =
     typeof raw.signature === 'string' ? raw.signature.trim() : '';
-  return verifyIpcResponsePayload(
-    IPC_RESPONSE_VERIFY_KEY,
-    payload,
-    signature,
-  );
+  return verifyIpcResponsePayload(IPC_RESPONSE_VERIFY_KEY, payload, signature);
 }
 
 export async function requestMemoryAction(
@@ -108,10 +105,12 @@ export async function requestMemoryAction(
     action,
     payload,
     context: {
+      chatJid,
       ...(threadId ? { threadId } : {}),
       ...(memoryUserId ? { userId: memoryUserId } : {}),
       ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
       defaultScope: memoryDefaultScope,
+      allowedActions: memoryIpcAllowedActions,
     },
     expiresAt: new Date(Date.now() + timeoutMs).toISOString(),
   };

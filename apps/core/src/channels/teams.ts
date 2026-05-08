@@ -1,5 +1,6 @@
 import type { ChannelAdapter, ChannelOpts } from './channel-provider.js';
 import type {
+  MessageDeliveryResult,
   MessageSendOptions,
   NewMessage,
   PermissionApprovalDecision,
@@ -15,6 +16,7 @@ import {
   permissionButtonLabel,
   permissionDecisionOptions,
 } from './permission-interaction.js';
+import { sendTeamsTextMessage } from './teams-delivery.js';
 
 export const TEAMS_JID_PREFIX = 'teams:';
 export const TEAMS_ADAPTIVE_CARD_CONTENT_TYPE =
@@ -93,9 +95,7 @@ export interface TeamsChannelDependencies {
   sdkClient?: TeamsSdkClient;
   credentials?: TeamsChannelCredentials;
 }
-
 const TEAMS_PERMISSION_APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
-
 export interface TeamsAdaptiveCardAction {
   type: 'Action.Execute';
   title: string;
@@ -109,7 +109,6 @@ export interface TeamsAdaptiveCardAction {
     threadId?: string;
   };
 }
-
 export interface TeamsAdaptiveCardPayload {
   $schema: 'http://adaptivecards.io/schemas/adaptive-card.json';
   type: 'AdaptiveCard';
@@ -117,7 +116,6 @@ export interface TeamsAdaptiveCardPayload {
   body: Array<Record<string, unknown>>;
   actions: TeamsAdaptiveCardAction[];
 }
-
 export interface TeamsAdaptiveCardDescriptorPayload {
   attachments: [
     {
@@ -126,7 +124,6 @@ export interface TeamsAdaptiveCardDescriptorPayload {
     },
   ];
 }
-
 export function normalizeTeamsJid(input: string): string | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
@@ -258,15 +255,11 @@ export class TeamsChannel implements ChannelAdapter {
     jid: string,
     text: string,
     options: MessageSendOptions = {},
-  ): Promise<TeamsSdkSendResult | void> {
+  ): Promise<MessageDeliveryResult | void> {
     if (!this.connected) return;
     const conversationId = teamsConversationIdFromJid(jid);
     if (!conversationId) return;
-    return await this.sdkClient.sendMessage({
-      conversationId,
-      text,
-      ...(options.threadId ? { threadId: options.threadId } : {}),
-    });
+    return sendTeamsTextMessage(this.sdkClient, conversationId, text, options);
   }
 
   async ingestMessage(message: TeamsInboundMessage): Promise<void> {

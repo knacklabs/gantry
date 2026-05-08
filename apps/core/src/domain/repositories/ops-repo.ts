@@ -16,7 +16,7 @@ export interface JobUpsertInput {
   schedule_type: Job['schedule_type'];
   schedule_value: string;
   status?: Job['status'];
-  linked_sessions: string[];
+  linked_sessions?: string[];
   session_id?: string | null;
   thread_id?: string | null;
   group_scope: string;
@@ -37,6 +37,8 @@ export interface JobUpsertInput {
   lease_expires_at?: string | null;
   pause_reason?: string | null;
   capability_policy?: Job['capability_policy'];
+  execution_context?: Job['execution_context'];
+  notification_routes?: Job['notification_routes'];
 }
 
 export interface JobListFilters {
@@ -69,11 +71,31 @@ export interface JobEventListFilters {
 export function makeSessionScopeKey(
   agentFolder: string,
   threadId?: string | null,
+  scope?: {
+    conversationJid?: string | null;
+    conversationKind?: 'dm' | 'channel';
+    userId?: string | null;
+  },
 ): string {
+  const conversationJid = scope?.conversationJid?.trim();
+  const dmUserId =
+    scope?.conversationKind === 'dm' ? scope.userId?.trim() : undefined;
   const normalizedThreadId = threadId?.trim();
-  return normalizedThreadId
-    ? `${agentFolder}::thread:${normalizedThreadId}`
-    : agentFolder;
+  const parts = [agentFolder];
+  if (conversationJid) {
+    parts.push(`conversation:${encodeSessionScopeComponent(conversationJid)}`);
+  }
+  if (dmUserId) {
+    parts.push(`user:${encodeSessionScopeComponent(dmUserId)}`);
+  }
+  if (normalizedThreadId) {
+    parts.push(`thread:${encodeSessionScopeComponent(normalizedThreadId)}`);
+  }
+  return parts.join('::');
+}
+
+function encodeSessionScopeComponent(value: string): string {
+  return encodeURIComponent(value);
 }
 
 export interface RuntimeChatMetadataRepository {
@@ -162,6 +184,10 @@ export interface RuntimeAgentSessionRepository {
     agentFolder: string;
     conversationJid: string;
     threadId?: string | null;
+    conversationKind?: 'dm' | 'channel';
+    memoryUserId?: string;
+    query?: string;
+    hydrateMemory?: boolean;
   }): Promise<{
     appId: string;
     agentId: string;
@@ -177,14 +203,16 @@ export interface RuntimeAgentSessionRepository {
     threadId?: string | null,
     metadata?: {
       conversationJid?: string;
+      conversationKind?: 'dm' | 'channel';
+      memoryUserId?: string;
       latestArtifactId?: string | null;
     },
   ): Promise<void>;
   expireProviderSession?(input: {
-    providerSessionId?: string;
-    agentSessionId?: string;
-    provider?: string;
-    externalSessionId?: string;
+    providerSessionId: string;
+    agentSessionId: string;
+    provider: string;
+    externalSessionId: string;
   }): Promise<void>;
   createSessionAgentRun?(input: {
     agentSessionId: string;
@@ -196,7 +224,16 @@ export interface RuntimeAgentSessionRepository {
     resultSummary?: string | null;
     errorSummary?: string | null;
   }): Promise<void>;
-  deleteSession(agentFolder: string, threadId?: string | null): Promise<void>;
+  deleteSession(
+    agentFolder: string,
+    threadId?: string | null,
+    metadata?: {
+      conversationJid?: string;
+      conversationKind?: 'dm' | 'channel';
+      memoryUserId?: string;
+      agentId?: string;
+    },
+  ): Promise<void>;
   deleteSessionsByAgentFolder(agentFolder: string): Promise<void>;
 }
 

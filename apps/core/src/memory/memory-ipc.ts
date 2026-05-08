@@ -1,6 +1,11 @@
 import fs from 'fs';
 import path from 'path';
-import { MemoryIpcRequest, MemoryIpcResponse } from '@myclaw/contracts';
+import {
+  MemoryIpcAction,
+  MEMORY_IPC_ACTIONS,
+  MemoryIpcRequest,
+  MemoryIpcResponse,
+} from '@myclaw/contracts';
 
 import { signIpcResponsePayload } from '../infrastructure/ipc/response-signing.js';
 import {
@@ -14,8 +19,14 @@ import {
   DEFAULT_MEMORY_APP_ID,
   memoryAgentIdForGroupFolder,
 } from './app-memory-boundaries.js';
+import {
+  resolveScopedMemorySubject,
+  canonicalConversationIdForMemory,
+  searchInputForResolvedMemorySubject,
+} from './app-memory-subject-resolver.js';
 import { AppMemoryService } from './app-memory-service.js';
 import {
+  isDirectSaveMemoryKind,
   PatchMemoryInput,
   PatchProcedureInput,
   SaveMemoryInput,
@@ -26,13 +37,21 @@ const MEMORY_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 
 interface TrustedMemoryContext {
   threadId?: string;
+  chatJid?: string;
   userId?: string;
   defaultScope?: 'user' | 'group';
 }
 
 type TrustedMemoryRequest = Omit<MemoryIpcRequest, 'context'> & {
   context?: TrustedMemoryContext;
+  allowedActions?: readonly MemoryIpcAction[];
 };
+
+const DEFAULT_ALLOWED_MEMORY_IPC_ACTIONS = new Set<MemoryIpcAction>([
+  'memory_search',
+  'memory_save',
+  'procedure_save',
+]);
 
 function parseOptionalString(
   value: unknown,
@@ -76,24 +95,19 @@ function parseMemoryScope(
 
 function parseMemoryKind(value: unknown): SaveMemoryInput['kind'] | undefined {
   const kind = parseOptionalString(value, { maxLen: 32 });
-  if (
-    kind === 'preference' ||
-    kind === 'decision' ||
-    kind === 'fact' ||
-    kind === 'correction' ||
-    kind === 'constraint'
-  ) {
-    return kind;
-  }
+  if (isDirectSaveMemoryKind(kind)) return kind;
   return undefined;
 }
 
-function subjectTypeFromScope(
-  scope: SaveMemoryInput['scope'] | SaveProcedureInput['scope'] | undefined,
-): 'user' | 'group' | 'common' {
-  if (scope === 'global') return 'common';
-  if (scope === 'user') return 'user';
-  return 'group';
+function parseDirectSaveMemoryKind(
+  payload: Record<string, unknown>,
+): SaveMemoryInput['kind'] | undefined {
+  if (!Object.prototype.hasOwnProperty.call(payload, 'kind')) return undefined;
+  const kind = parseMemoryKind(payload.kind);
+  if (kind) return kind;
+  throw new Error(
+    'memory_save.kind must be one of preference, decision, fact, correction, or constraint',
+  );
 }
 
 function parseSaveMemoryInput(payload: unknown): SaveMemoryInput {
@@ -106,7 +120,7 @@ function parseSaveMemoryInput(payload: unknown): SaveMemoryInput {
     throw new Error('memory_save requires key and value');
   }
   const scope = parseMemoryScope(payload.scope);
-  const kind = parseMemoryKind(payload.kind);
+  const kind = parseDirectSaveMemoryKind(payload);
   const groupFolder = parseOptionalString(payload.group_folder, {
     maxLen: 128,
   });
@@ -178,10 +192,77 @@ function parsePatchMemoryInput(payload: unknown): PatchMemoryInput {
   };
 }
 
+function parseReviewDecisionInput(payload: unknown): {
+  reviewId: string;
+  decision: 'approve' | 'reject' | 'edit_approve';
+  editedValue?: string;
+  editedReason?: string;
+} {
+  if (!isPlainObject(payload)) {
+    throw new Error('memory_review_decision payload must be an object');
+  }
+  const reviewId =
+    parseOptionalString(payload.review_id, { maxLen: 128 }) ||
+    parseOptionalString(payload.reviewId, { maxLen: 128 });
+  const decision = parseOptionalString(payload.decision, { maxLen: 32 });
+  if (!reviewId) throw new Error('memory_review_decision requires review_id');
+  if (
+    decision !== 'approve' &&
+    decision !== 'reject' &&
+    decision !== 'edit_approve'
+  ) {
+    throw new Error(
+      'memory_review_decision.decision must be approve, reject, or edit_approve',
+    );
+  }
+  const editedValue = parseOptionalString(payload.edited_value, {
+    maxLen: 10_000,
+  });
+  const editedReason = parseOptionalString(payload.edited_reason, {
+    maxLen: 500,
+  });
+  return {
+    reviewId,
+    decision,
+    ...(editedValue ? { editedValue } : {}),
+    ...(editedReason ? { editedReason } : {}),
+  };
+}
+
 function assertValidRequestId(requestId: string): void {
   if (!MEMORY_IPC_REQUEST_ID_PATTERN.test(requestId)) {
     throw new Error('Invalid memory IPC requestId');
   }
+}
+
+function assertMemoryActionAllowed(request: TrustedMemoryRequest): void {
+  if (!MEMORY_IPC_ACTIONS.includes(request.action)) {
+    throw new Error(`Unsupported memory action: ${request.action}`);
+  }
+  const allowedActions =
+    request.allowedActions && request.allowedActions.length > 0
+      ? new Set(request.allowedActions)
+      : DEFAULT_ALLOWED_MEMORY_IPC_ACTIONS;
+  if (!allowedActions.has(request.action)) {
+    throw new Error(`Memory IPC action is not allowed: ${request.action}`);
+  }
+}
+
+function resolveTrustedMemorySubject(
+  sourceAgentFolder: string,
+  context: TrustedMemoryContext | undefined,
+  scope?: SaveMemoryInput['scope'] | SaveProcedureInput['scope'],
+) {
+  return resolveScopedMemorySubject({
+    appId: DEFAULT_MEMORY_APP_ID,
+    agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
+    groupId: sourceAgentFolder,
+    conversationId: canonicalConversationIdForMemory(context?.chatJid),
+    userId: context?.userId,
+    threadId: context?.threadId,
+    defaultScope: context?.defaultScope,
+    ...(scope ? { scope } : {}),
+  }).subject;
 }
 
 function parseSaveProcedureInput(payload: unknown): SaveProcedureInput {
@@ -265,6 +346,7 @@ export async function processMemoryRequest(
 
   try {
     assertValidRequestId(request.requestId);
+    assertMemoryActionAllowed(request);
     const memory = AppMemoryService.getInstance();
     provider = 'postgres';
     logger.debug(
@@ -278,15 +360,15 @@ export async function processMemoryRequest(
         if (!query) {
           throw new Error('query is required');
         }
+        const subject = resolveTrustedMemorySubject(
+          sourceAgentFolder,
+          request.context,
+        );
         // IPC memory reads are always scoped to the source group to prevent
         // cross-group data access from agent processes.
         const results = await memory.search({
           query,
-          appId: DEFAULT_MEMORY_APP_ID,
-          agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
-          groupId: sourceAgentFolder,
-          userId: request.context?.userId,
-          threadId: request.context?.threadId,
+          ...searchInputForResolvedMemorySubject(subject),
           limit: request.payload.limit
             ? Number(request.payload.limit)
             : undefined,
@@ -305,19 +387,16 @@ export async function processMemoryRequest(
             ? { topic_id: request.context.threadId }
             : {}),
         };
-        const effectiveScope = input.scope || request.context?.defaultScope;
-        const effectiveUserId =
-          effectiveScope === 'user' ? request.context?.userId : undefined;
-        if (effectiveScope === 'user' && !effectiveUserId) {
-          throw new Error('user-scoped memory requires an authenticated user');
-        }
+        const subject = resolveTrustedMemorySubject(
+          sourceAgentFolder,
+          request.context,
+          input.scope,
+        );
         const saved = await memory.save({
-          appId: DEFAULT_MEMORY_APP_ID,
-          agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
-          groupId: sourceAgentFolder,
-          userId: effectiveUserId,
-          threadId: request.context?.threadId,
-          subjectType: subjectTypeFromScope(effectiveScope),
+          ...subject,
+          appId: subject.appId,
+          agentId: subject.agentId,
+          subjectType: subject.subjectType,
           kind: input.kind,
           key: input.key,
           value: input.value,
@@ -337,12 +416,17 @@ export async function processMemoryRequest(
       }
       case 'memory_patch': {
         const input = parsePatchMemoryInput(request.payload);
+        const subject = resolveTrustedMemorySubject(
+          sourceAgentFolder,
+          request.context,
+        );
         const patched = await memory.patch({
+          ...subject,
           id: input.id,
           appId: DEFAULT_MEMORY_APP_ID,
           agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
-          groupId: sourceAgentFolder,
-          threadId: request.context?.threadId,
+          subjectType: subject.subjectType,
+          subjectId: subject.subjectId,
           key: input.key,
           value: input.value,
           why: input.why,
@@ -359,10 +443,16 @@ export async function processMemoryRequest(
         };
       }
       case 'memory_consolidate': {
+        const subject = resolveTrustedMemorySubject(
+          sourceAgentFolder,
+          request.context,
+        );
         const result = await memory.triggerDreaming({
-          appId: DEFAULT_MEMORY_APP_ID,
-          agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
-          groupId: sourceAgentFolder,
+          ...subject,
+          appId: subject.appId,
+          agentId: subject.agentId,
+          subjectType: subject.subjectType,
+          subjectId: subject.subjectId,
           phase: 'deep',
           dryRun: false,
         });
@@ -374,10 +464,16 @@ export async function processMemoryRequest(
         };
       }
       case 'memory_dream': {
+        const subject = resolveTrustedMemorySubject(
+          sourceAgentFolder,
+          request.context,
+        );
         const result = await memory.triggerDreaming({
-          appId: DEFAULT_MEMORY_APP_ID,
-          agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
-          groupId: sourceAgentFolder,
+          ...subject,
+          appId: subject.appId,
+          agentId: subject.agentId,
+          subjectType: subject.subjectType,
+          subjectId: subject.subjectId,
           phase: 'all',
           dryRun: false,
         });
@@ -388,6 +484,52 @@ export async function processMemoryRequest(
           data: { dreaming: result },
         };
       }
+      case 'memory_review_pending': {
+        const subject = resolveTrustedMemorySubject(
+          sourceAgentFolder,
+          request.context,
+        );
+        const reviews = await memory.listPendingReviews({
+          ...subject,
+          appId: subject.appId,
+          agentId: subject.agentId,
+          subjectType: subject.subjectType,
+          subjectId: subject.subjectId,
+        });
+        return {
+          ok: true,
+          requestId: request.requestId,
+          provider,
+          data: { reviews },
+        };
+      }
+      case 'memory_review_decision': {
+        const input = parseReviewDecisionInput(request.payload);
+        const subject = resolveTrustedMemorySubject(
+          sourceAgentFolder,
+          request.context,
+        );
+        if (!request.context?.userId) {
+          throw new Error(
+            'memory_review_decision requires a trusted reviewer user id',
+          );
+        }
+        const review = await memory.decideReview({
+          ...subject,
+          appId: subject.appId,
+          agentId: subject.agentId,
+          subjectType: subject.subjectType,
+          subjectId: subject.subjectId,
+          ...input,
+          reviewerId: request.context.userId,
+        });
+        return {
+          ok: true,
+          requestId: request.requestId,
+          provider,
+          data: { review },
+        };
+      }
       case 'procedure_save': {
         const input = {
           ...parseSaveProcedureInput(request.payload),
@@ -395,21 +537,16 @@ export async function processMemoryRequest(
             ? { topic_id: request.context.threadId }
             : {}),
         };
-        const effectiveScope = input.scope || request.context?.defaultScope;
-        const effectiveUserId =
-          effectiveScope === 'user' ? request.context?.userId : undefined;
-        if (effectiveScope === 'user' && !effectiveUserId) {
-          throw new Error(
-            'user-scoped procedure requires an authenticated user',
-          );
-        }
+        const subject = resolveTrustedMemorySubject(
+          sourceAgentFolder,
+          request.context,
+          input.scope,
+        );
         const saved = await memory.save({
-          appId: DEFAULT_MEMORY_APP_ID,
-          agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
-          groupId: sourceAgentFolder,
-          userId: effectiveUserId,
-          threadId: request.context?.threadId,
-          subjectType: subjectTypeFromScope(effectiveScope),
+          ...subject,
+          appId: subject.appId,
+          agentId: subject.agentId,
+          subjectType: subject.subjectType,
           kind: 'reference',
           key: `procedure:${input.title}`,
           value: input.body,
@@ -429,12 +566,17 @@ export async function processMemoryRequest(
       }
       case 'procedure_patch': {
         const input = parsePatchProcedureInput(request.payload);
+        const subject = resolveTrustedMemorySubject(
+          sourceAgentFolder,
+          request.context,
+        );
         const patched = await memory.patch({
+          ...subject,
           id: input.id,
           appId: DEFAULT_MEMORY_APP_ID,
           agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
-          groupId: sourceAgentFolder,
-          threadId: request.context?.threadId,
+          subjectType: subject.subjectType,
+          subjectId: subject.subjectId,
           key: input.title ? `procedure:${input.title}` : undefined,
           value: input.body,
           why: input.trigger === null ? null : input.trigger,

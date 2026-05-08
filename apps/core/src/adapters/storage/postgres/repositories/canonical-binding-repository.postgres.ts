@@ -91,6 +91,9 @@ export class PostgresCanonicalBindingRepository {
         .onConflictDoUpdate({
           target: pgSchema.agentConversationBindingsPostgres.id,
           set: {
+            agentId,
+            providerConnectionId,
+            conversationId,
             displayName: group.name,
             status: 'active',
             triggerMode: group.requiresTrigger === false ? 'always' : 'keyword',

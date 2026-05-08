@@ -60,6 +60,11 @@ export interface GroupProcessingDeps {
   clearSession: (
     groupFolder: string,
     threadId?: string | null,
+    metadata?: {
+      conversationJid?: string;
+      conversationKind?: 'dm' | 'channel';
+      memoryUserId?: string;
+    },
   ) => Promise<void> | void;
   getCursor: (chatJid: string) => Promise<string> | string;
   setCursor: (chatJid: string, timestamp: string) => void;

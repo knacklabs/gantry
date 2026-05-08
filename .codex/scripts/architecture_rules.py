@@ -167,6 +167,55 @@ FORBIDDEN_IPC_ORCHESTRATOR_MONOLITH_PATTERNS = (
     ),
 )
 
+FORBIDDEN_DIRECT_PROVIDER_SEND_SOURCE_PREFIXES = (
+    "apps/core/src/app",
+    "apps/core/src/runtime",
+    "apps/core/src/jobs",
+    "apps/core/src/session",
+    "apps/core/src/application",
+    "apps/core/src/domain",
+)
+
+FORBIDDEN_DIRECT_PROVIDER_SEND_PATTERNS = (
+    (
+        re.compile(r"\b(?:this\.)?bot\.api\.sendMessage\s*\("),
+        "telegram bot api sendMessage",
+    ),
+    (
+        re.compile(r"\b(?:this\.)?telegramApi\.sendMessage\s*\("),
+        "telegram api sendMessage",
+    ),
+    (
+        re.compile(
+            r"\b(?:this\.)?(?:app\.client|client|slackClient)\.chat\.postMessage\s*\("
+        ),
+        "slack chat.postMessage",
+    ),
+    (
+        re.compile(r"\b(?:this\.)?sdkClient\.sendMessage\s*\("),
+        "teams sdkClient.sendMessage",
+    ),
+    (
+        re.compile(r"\b(?:this\.)?teamsClient\.sendMessage\s*\("),
+        "teams client sendMessage",
+    ),
+)
+
+RECOVERY_ONLY_CHANNEL_WIRING_CALL_ALLOWLIST = {
+    "apps/core/src/app/bootstrap/runtime-services.ts",
+}
+
+RECOVERY_ONLY_CHANNEL_WIRING_CALL_PATTERNS = (
+    (
+        re.compile(r"\bchannelWiring\.createRecoveryDispatchPermit\s*\("),
+        "channel wiring recovery dispatch permit minting",
+    ),
+    (
+        re.compile(r"\bchannelWiring\.sendProviderMessage\s*\("),
+        "channel wiring recovery provider send seam",
+    ),
+)
+
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 IMPORT_FROM_RE = re.compile(r"(?:^|\n)\s*(?:import|export)\b[^;]*?\bfrom\s*['\"]([^'\"]+)['\"]", re.MULTILINE)
@@ -1100,6 +1149,33 @@ def check_forbidden_ipc_orchestrator_monolith(root: Path) -> list[str]:
             violations.add(
                 f"{source_rel}:{line}: matched {description} ({pattern.pattern})"
             )
+    return sorted(violations)
+
+
+def check_forbidden_direct_provider_sends(production_files: list[Path], root: Path) -> list[str]:
+    violations: set[str] = set()
+    for source_file in production_files:
+        source_rel = source_file.relative_to(root).as_posix()
+        source_text = source_file.read_text()
+        if source_rel not in RECOVERY_ONLY_CHANNEL_WIRING_CALL_ALLOWLIST:
+            for pattern, description in RECOVERY_ONLY_CHANNEL_WIRING_CALL_PATTERNS:
+                for match in pattern.finditer(source_text):
+                    line = source_text.count("\n", 0, match.start()) + 1
+                    violations.add(
+                        f"{source_rel}:{line}: matched recovery-only channel wiring call `{description}` ({pattern.pattern}); only runtime recovery wiring may use this seam."
+                    )
+
+        if not any(
+            path_matches_prefix(source_rel, prefix)
+            for prefix in FORBIDDEN_DIRECT_PROVIDER_SEND_SOURCE_PREFIXES
+        ):
+            continue
+        for pattern, description in FORBIDDEN_DIRECT_PROVIDER_SEND_PATTERNS:
+            for match in pattern.finditer(source_text):
+                line = source_text.count("\n", 0, match.start()) + 1
+                violations.add(
+                    f"{source_rel}:{line}: matched direct provider send `{description}` ({pattern.pattern}); route through channel adapters."
+                )
     return sorted(violations)
 
 

@@ -405,6 +405,83 @@ class CheckArchitectureTests(unittest.TestCase):
             self.assertIn("[IPC Orchestrator]", result.stdout)
             self.assertIn("in-orchestrator task domain handler", result.stdout)
 
+    def test_direct_provider_send_outside_channel_adapter_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/direct-send-break.ts",
+                "export async function badSend(bot: any) {\n"
+                "  await bot.api.sendMessage('123', 'hello');\n"
+                "}\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Direct Provider Sends]", result.stdout)
+            self.assertIn("telegram bot api sendMessage", result.stdout)
+
+    def test_direct_provider_send_alias_receivers_outside_channel_adapter_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/direct-send-alias-break.ts",
+                "export async function badSendAliases(\n"
+                "  client: any,\n"
+                "  slackClient: any,\n"
+                "  teamsClient: any,\n"
+                "  telegramApi: any,\n"
+                ") {\n"
+                "  await client.chat.postMessage({ channel: 'C123', text: 'hello' });\n"
+                "  await slackClient.chat.postMessage({ channel: 'C123', text: 'hello' });\n"
+                "  await teamsClient.sendMessage('19:abc', 'hello');\n"
+                "  await telegramApi.sendMessage('123', 'hello');\n"
+                "}\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Direct Provider Sends]", result.stdout)
+            self.assertIn("slack chat.postMessage", result.stdout)
+            self.assertIn("teams client sendMessage", result.stdout)
+            self.assertIn("telegram api sendMessage", result.stdout)
+
+    def test_direct_provider_send_inside_channel_adapter_path_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/channels/telegram/channel-delivery.ts",
+                "export async function okSend(bot: any) {\n"
+                "  await bot.api.sendMessage('123', 'hello');\n"
+                "}\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+    def test_recovery_channel_wiring_send_outside_runtime_services_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/recovery-send-break.ts",
+                "export async function bad(channelWiring: any) {\n"
+                "  await channelWiring.sendProviderMessage('tg:1', 'hello', {});\n"
+                "}\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Direct Provider Sends]", result.stdout)
+            self.assertIn("recovery-only channel wiring call", result.stdout)
+
+    def test_recovery_channel_wiring_send_inside_runtime_services_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/app/bootstrap/runtime-services.ts",
+                "export async function ok(channelWiring: any) {\n"
+                "  const permit = channelWiring.createRecoveryDispatchPermit({});\n"
+                "  await channelWiring.sendProviderMessage('tg:1', 'hello', { permit });\n"
+                "}\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
     def test_stale_doc_reference_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))

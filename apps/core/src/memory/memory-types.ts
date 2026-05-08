@@ -1,6 +1,25 @@
 export type MemoryScope = 'user' | 'group' | 'global';
 export const MEMORY_GLOBAL_GROUP_FOLDER = '_global';
 
+export const DIRECT_SAVE_MEMORY_KINDS = [
+  'preference',
+  'decision',
+  'fact',
+  'correction',
+  'constraint',
+] as const satisfies readonly MemoryKind[];
+
+export type DirectSaveMemoryKind = (typeof DIRECT_SAVE_MEMORY_KINDS)[number];
+
+export function isDirectSaveMemoryKind(
+  value: unknown,
+): value is DirectSaveMemoryKind {
+  return (
+    typeof value === 'string' &&
+    (DIRECT_SAVE_MEMORY_KINDS as readonly string[]).includes(value)
+  );
+}
+
 export type MemorySubjectType = 'user' | 'group' | 'channel' | 'common';
 export type MemoryVisibility = MemorySubjectType;
 export type MemoryEvidenceSource =
@@ -13,6 +32,10 @@ export type DreamPhase = 'light' | 'rem' | 'deep' | 'all';
 export type DreamDecisionAction =
   | 'stage_candidate'
   | 'promote'
+  | 'update'
+  | 'skip'
+  | 'blocked'
+  | 'dry_run'
   | 'merge'
   | 'rewrite'
   | 'pin'
@@ -20,6 +43,62 @@ export type DreamDecisionAction =
   | 'retire'
   | 'needs_review'
   | 'no_op';
+
+export type MemoryReviewDecision = 'approve' | 'reject' | 'edit_approve';
+
+export type MemoryProposalAction =
+  | 'stage_candidate'
+  | 'promote'
+  | 'update'
+  | 'retire'
+  | 'needs_review'
+  | 'skip'
+  | 'keep'
+  | 'merge'
+  | 'rewrite';
+
+export interface MemoryLifecycleProposal {
+  action: MemoryProposalAction;
+  candidateId?: string;
+  itemId?: string;
+  itemIds?: string[];
+  targetItemId?: string;
+  kind?: MemoryKind;
+  key?: string;
+  value?: string;
+  reason: string;
+  confidence: number;
+  evidenceIds: string[];
+}
+
+export interface MemoryReviewRecord extends NormalizedMemorySubject {
+  id: string;
+  runId: string;
+  phase: DreamPhase;
+  proposal: MemoryLifecycleProposal;
+  status: 'pending_review' | 'approved' | 'rejected' | 'applied' | 'failed';
+  itemVersions: Record<string, number>;
+  candidateVersions: Record<string, string>;
+  validationSummary: string;
+  reviewerId?: string | null;
+  decision?: MemoryReviewDecision | null;
+  editedValue?: string | null;
+  editedReason?: string | null;
+  applyOutcome?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  decidedAt?: string | null;
+}
+
+export interface MemoryReviewDecisionInput extends Partial<MemoryBoundaryContext> {
+  reviewId: string;
+  decision: MemoryReviewDecision;
+  subjectType?: MemorySubjectType;
+  subjectId?: string;
+  editedValue?: string;
+  editedReason?: string;
+  reviewerId?: string;
+}
 
 export interface MemoryBoundaryContext {
   /** Application namespace. Personal setup uses the seeded "default" app; SDK apps provide their stable app id. */
@@ -54,6 +133,9 @@ export interface AppMemoryItem extends MemoryBoundaryContext {
   version: number;
   source: string;
   evidenceIds: string[];
+  retrievalCount?: number;
+  totalScore?: number;
+  maxScore?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -101,6 +183,8 @@ export interface AppMemorySearchInput extends Partial<MemoryBoundaryContext> {
 
 export interface PatchAppMemoryInput extends Partial<MemoryBoundaryContext> {
   id: string;
+  subjectType?: MemorySubjectType;
+  subjectId?: string;
   expectedVersion?: number;
   key?: string;
   value?: string;
@@ -112,6 +196,7 @@ export interface PatchAppMemoryInput extends Partial<MemoryBoundaryContext> {
 
 export interface DeleteAppMemoryInput extends Partial<MemoryBoundaryContext> {
   id: string;
+  expectedVersion?: number;
   isAdminWrite?: boolean;
 }
 
@@ -128,6 +213,7 @@ export interface DreamingRunStatus {
   agentId: string;
   subjectType: MemorySubjectType;
   subjectId: string;
+  threadId?: string;
   phase: DreamPhase;
   status: 'running' | 'completed' | 'failed';
   summary: Record<string, unknown>;
@@ -141,7 +227,6 @@ export type MemoryKind =
   | 'fact'
   | 'correction'
   | 'constraint'
-  | 'project_fact'
   | 'reference';
 
 export interface MemoryItem {

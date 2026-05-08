@@ -9,6 +9,7 @@ import type {
   NewMessage,
   ConversationRoute,
 } from '../../../../domain/repositories/domain-types.js';
+import type { AgentSession } from '../../../../domain/sessions/sessions.js';
 import type {
   JobEventListFilters,
   JobListFilters,
@@ -39,10 +40,25 @@ import { CanonicalBindingOpsService } from '../services/canonical-binding-ops-se
 import { CanonicalJobOpsService } from '../services/canonical-job-ops-service.js';
 import { CanonicalMessageOpsService } from '../services/canonical-message-ops-service.js';
 import { CanonicalSessionOpsService } from '../services/canonical-session-ops-service.js';
+import { redactProviderSessionHandlesInText } from '../../../../shared/provider-session-redaction.js';
 
 interface SessionRuntimeOptions {
   memoryItemLimit?: number;
   maxMemoryContextChars?: number;
+  loadAppMemoryItems?: (input: {
+    session: AgentSession;
+    limit: number;
+    conversationKind?: string;
+    query?: string;
+  }) => Promise<
+    Array<{
+      id: string;
+      kind: string;
+      key: string;
+      value: string;
+      subject: Record<string, unknown>;
+    }>
+  >;
 }
 
 interface RuntimeEventPublisher {
@@ -73,6 +89,7 @@ export class PostgresRuntimeRepositoryBundle
       sessions?: SessionRuntimeOptions;
     },
   ) {
+    const repositories = createPostgresDomainRepositories(this.db, this.pool);
     this.graph = new PostgresCanonicalGraphRepository(this.db);
     this.messages = new CanonicalMessageOpsService(
       new PostgresCanonicalMessageRepository(this.db),
@@ -82,7 +99,10 @@ export class PostgresRuntimeRepositoryBundle
     );
     this.sessions = new CanonicalSessionOpsService(
       new PostgresCanonicalSessionRepository(this.db),
-      createPostgresDomainRepositories(this.db, this.pool),
+      {
+        ...repositories,
+        loadAppMemoryItems: this.options.sessions?.loadAppMemoryItems,
+      },
       this.options.sessions,
     );
     this.bindings = new CanonicalBindingOpsService(
@@ -253,11 +273,15 @@ export class PostgresRuntimeRepositoryBundle
     threadId?: string | null,
     metadata: {
       conversationJid?: string;
+      conversationKind?: 'dm' | 'channel';
+      memoryUserId?: string;
       latestArtifactId?: string | null;
     } = {},
   ): Promise<void> {
     await this.sessions.setSession(agentFolder, sessionId, threadId, {
       chatJid: metadata.conversationJid,
+      conversationKind: metadata.conversationKind,
+      memoryUserId: metadata.memoryUserId,
       latestArtifactId: metadata.latestArtifactId,
     });
   }
@@ -266,6 +290,10 @@ export class PostgresRuntimeRepositoryBundle
     agentFolder: string;
     conversationJid: string;
     threadId?: string | null;
+    conversationKind?: 'dm' | 'channel';
+    memoryUserId?: string;
+    query?: string;
+    hydrateMemory?: boolean;
   }): Promise<{
     appId: string;
     agentId: string;
@@ -276,14 +304,18 @@ export class PostgresRuntimeRepositoryBundle
       groupFolder: input.agentFolder,
       chatJid: input.conversationJid,
       threadId: input.threadId,
+      conversationKind: input.conversationKind,
+      memoryUserId: input.memoryUserId,
+      query: input.query,
+      hydrateMemory: input.hydrateMemory,
     });
   }
 
   async expireProviderSession(input: {
-    providerSessionId?: string;
-    agentSessionId?: string;
-    provider?: string;
-    externalSessionId?: string;
+    providerSessionId: string;
+    agentSessionId: string;
+    provider: string;
+    externalSessionId: string;
   }): Promise<void> {
     await this.sessions.expireProviderSession(input);
   }
@@ -336,13 +368,21 @@ export class PostgresRuntimeRepositoryBundle
     const repositories = createPostgresDomainRepositories(this.db, this.pool);
     const run = await repositories.agentRuns.getAgentRun(input.runId as never);
     if (!run) return;
+    const resultSummary =
+      input.resultSummary == null
+        ? input.resultSummary
+        : redactProviderSessionHandlesInText(input.resultSummary);
+    const errorSummary =
+      input.errorSummary == null
+        ? input.errorSummary
+        : redactProviderSessionHandlesInText(input.errorSummary);
     const now = new Date().toISOString();
     await repositories.agentRuns.saveAgentRun({
       ...run,
       status: input.status,
       endedAt: now,
-      resultSummary: input.resultSummary ?? run.resultSummary,
-      errorSummary: input.errorSummary ?? run.errorSummary,
+      resultSummary: resultSummary ?? run.resultSummary,
+      errorSummary: errorSummary ?? run.errorSummary,
     });
     await this.options.runtimeEvents.publish({
       appId: run.appId,
@@ -356,8 +396,8 @@ export class PostgresRuntimeRepositoryBundle
             : RUNTIME_EVENT_TYPES.RUN_CANCELED,
       actor: 'runtime',
       payload: {
-        resultSummary: input.resultSummary ?? null,
-        errorSummary: input.errorSummary ?? null,
+        resultSummary: resultSummary ?? null,
+        errorSummary: errorSummary ?? null,
       },
       createdAt: now,
     });
@@ -366,8 +406,19 @@ export class PostgresRuntimeRepositoryBundle
   async deleteSession(
     agentFolder: string,
     threadId?: string | null,
+    metadata: {
+      conversationJid?: string;
+      conversationKind?: 'dm' | 'channel';
+      memoryUserId?: string;
+      agentId?: string;
+    } = {},
   ): Promise<void> {
-    await this.sessions.deleteSession(agentFolder, threadId);
+    await this.sessions.deleteSession(agentFolder, threadId, {
+      chatJid: metadata.conversationJid,
+      conversationKind: metadata.conversationKind,
+      memoryUserId: metadata.memoryUserId,
+      agentId: metadata.agentId,
+    });
   }
 
   async deleteSessionsByAgentFolder(agentFolder: string): Promise<void> {

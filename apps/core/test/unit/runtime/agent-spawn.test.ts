@@ -168,6 +168,8 @@ import type { ConversationRoute } from '@core/domain/types.js';
 import { getPromptProfileService } from '@core/runtime/prompt-profile.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 import { getHostRuntimeCredentialEnv } from '@core/runtime/agent-spawn-host.js';
+import { createSignedIpcRequestEnvelope } from '@core/runner/mcp/signing.js';
+import { parseMemoryIpcRequest } from '@core/runtime/ipc-parsing.js';
 import type {
   AgentMcpServerBinding,
   MaterializedMcpServer,
@@ -424,6 +426,78 @@ describe('agent-spawn timeout behavior', () => {
     expect(mockEnsureGroupIpcLayout).toHaveBeenCalledWith(
       '/tmp/myclaw-test-data/ipc/test-group',
     );
+  });
+
+  it('projects chat scope so spawned memory IPC signatures validate with runner context', async () => {
+    const input = {
+      ...testInput,
+      chatJid: 'tg:trusted-chat',
+      threadId: 'thread-a',
+      memoryUserId: 'user-a',
+      memoryDefaultScope: 'user' as const,
+    };
+    const resultPromise = spawnAgent(testGroup, input, () => {});
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.MYCLAW_CHAT_JID).toBe('tg:trusted-chat');
+    const allowedActions = JSON.parse(
+      env.MYCLAW_MEMORY_IPC_ACTIONS_JSON,
+    ) as string[];
+    const runnerContext = {
+      chatJid: env.MYCLAW_CHAT_JID,
+      threadId: env.MYCLAW_THREAD_ID,
+      userId: env.MYCLAW_MEMORY_USER_ID,
+      defaultScope: env.MYCLAW_MEMORY_DEFAULT_SCOPE,
+      allowedActions,
+      responseKeyId: env.MYCLAW_IPC_RESPONSE_KEY_ID,
+    };
+    const requestPayload = {
+      requestId: 'mem-spawn-chat-scope',
+      action: 'memory_save',
+      payload: { kind: 'fact', value: 'spawn memory IPC scope is aligned' },
+      context: runnerContext,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+
+    expect(
+      parseMemoryIpcRequest(
+        createSignedIpcRequestEnvelope(
+          env.MYCLAW_MEMORY_IPC_AUTH_TOKEN,
+          requestPayload,
+        ),
+        testGroup.folder,
+      ),
+    ).toMatchObject({
+      requestId: 'mem-spawn-chat-scope',
+      context: {
+        chatJid: 'tg:trusted-chat',
+        threadId: 'thread-a',
+        userId: 'user-a',
+        defaultScope: 'user',
+      },
+      allowedActions: ['memory_search', 'memory_save', 'procedure_save'],
+    });
+
+    expect(() =>
+      parseMemoryIpcRequest(
+        createSignedIpcRequestEnvelope(env.MYCLAW_MEMORY_IPC_AUTH_TOKEN, {
+          ...requestPayload,
+          requestId: 'mem-spawn-missing-chat-scope',
+          context: {
+            ...runnerContext,
+            chatJid: undefined,
+          },
+        }),
+        testGroup.folder,
+      ),
+    ).toThrow(/Invalid memory IPC signature/);
   });
 
   it('passes effective model to process env when configured', async () => {

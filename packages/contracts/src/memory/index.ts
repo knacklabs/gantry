@@ -24,7 +24,6 @@ export const MemoryKindSchema = z.enum([
   'fact',
   'correction',
   'constraint',
-  'project_fact',
   'reference',
   'procedure',
 ]);
@@ -84,6 +83,8 @@ export const MEMORY_IPC_ACTIONS = [
   'memory_patch',
   'memory_consolidate',
   'memory_dream',
+  'memory_review_pending',
+  'memory_review_decision',
   'procedure_save',
   'procedure_patch',
 ] as const;

@@ -14,11 +14,17 @@ export type RequestOptions = {
   signal?: AbortSignal;
 };
 
-export type SseEvent = {
+export type SessionEventEnvelope = {
   eventId: number;
   eventType: string;
+  sessionId?: string | null;
+  threadId?: string | null;
+  correlationId?: string | null;
+  createdAt?: string;
   payload: unknown;
 };
+
+export type SseEvent = SessionEventEnvelope;
 
 export type MemoryContext = {
   appId?: string;
@@ -33,14 +39,7 @@ export type MemorySaveInput = MemoryContext & {
   subjectType?: 'user' | 'group' | 'channel' | 'common';
   subjectId?: string;
   visibility?: 'user' | 'group' | 'channel' | 'common';
-  kind?:
-    | 'preference'
-    | 'decision'
-    | 'fact'
-    | 'correction'
-    | 'constraint'
-    | 'project_fact'
-    | 'reference';
+  kind?: 'preference' | 'decision' | 'fact' | 'correction' | 'constraint';
   key: string;
   value: string;
   why?: string;

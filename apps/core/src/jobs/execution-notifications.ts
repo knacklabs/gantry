@@ -1,8 +1,18 @@
 import type { Job, JobRunStatus } from '../domain/types.js';
 import type { SchedulerSendMessage } from './delivery.js';
-import { notifyLinkedSessions } from './delivery.js';
+import { sendJobNotification } from './delivery.js';
 import { formatRunStatusMessage } from './status-formatting.js';
 import { MEMORY_DREAM_SYSTEM_PROMPT } from './system-jobs.js';
+
+type TerminalRunStatus = Extract<
+  JobRunStatus,
+  'completed' | 'failed' | 'timeout' | 'dead_lettered'
+>;
+
+export type JobNotificationLifecycleUpdateResult =
+  | 'updated'
+  | 'unsupported'
+  | 'failed';
 
 export function logMemoryDreamJobFailure(input: {
   job: Job;
@@ -24,27 +34,39 @@ export function logMemoryDreamJobFailure(input: {
   );
 }
 
-export async function notifySchedulerRunFailure(input: {
+export async function notifySchedulerRunStart(input: {
   job: Job;
   runId: string;
-  runStatus: Extract<JobRunStatus, 'failed' | 'timeout' | 'dead_lettered'>;
+  sendMessage: SchedulerSendMessage;
+}): Promise<boolean> {
+  if (input.job.silent) return false;
+  return sendJobNotification({
+    job: input.job,
+    text: `Scheduler started: ${input.job.name} (#${input.runId.slice(0, 8)})`,
+    phase: 'start',
+    runId: input.runId,
+    sendMessage: input.sendMessage,
+  });
+}
+
+export async function notifySchedulerTerminalRunState(input: {
+  job: Job;
+  runId: string;
+  runStatus: TerminalRunStatus;
   summary: string;
   nextRun: string | null;
   retryCount: number;
   pauseReason: string | null;
   sendMessage: SchedulerSendMessage;
-  deliverMessage: (text: string) => Promise<boolean>;
-  error: string | null;
+  updateLifecycleNotification?: (input: {
+    job: Job;
+    runId: string;
+    runStatus: TerminalRunStatus;
+    summaryMessage: string;
+  }) => Promise<JobNotificationLifecycleUpdateResult>;
 }): Promise<boolean> {
-  let notified = false;
-  if (input.error && !input.job.silent) {
-    notified =
-      (await input.deliverMessage(
-        `⚠️ Scheduled task failed: ${input.summary}`,
-      )) || notified;
-  }
-  if (input.job.silent) return notified;
-  const message = formatRunStatusMessage({
+  if (input.job.silent) return false;
+  const summaryMessage = formatRunStatusMessage({
     job: input.job,
     runId: input.runId,
     runStatus: input.runStatus,
@@ -53,8 +75,21 @@ export async function notifySchedulerRunFailure(input: {
     retryCount: input.retryCount,
     pauseReason: input.pauseReason,
   });
-  return (
-    (await notifyLinkedSessions(input.job, message, input.sendMessage)) ||
-    notified
-  );
+  const updateResult =
+    input.updateLifecycleNotification === undefined
+      ? 'unsupported'
+      : await input.updateLifecycleNotification({
+          job: input.job,
+          runId: input.runId,
+          runStatus: input.runStatus,
+          summaryMessage,
+        });
+  if (updateResult === 'updated') return true;
+  return sendJobNotification({
+    job: input.job,
+    text: summaryMessage,
+    phase: 'summary',
+    runId: input.runId,
+    sendMessage: input.sendMessage,
+  });
 }

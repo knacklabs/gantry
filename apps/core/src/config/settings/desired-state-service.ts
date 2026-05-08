@@ -214,11 +214,15 @@ export class SettingsDesiredStateService {
           agentId: agent.id,
           updatedAt: now,
         });
-        await this.replaceCapabilities(agent.id, {
-          toolIds: [],
-          skillIds: [],
-          mcpServerIds: [],
-        }, now);
+        await this.replaceCapabilities(
+          agent.id,
+          {
+            toolIds: [],
+            skillIds: [],
+            mcpServerIds: [],
+          },
+          now,
+        );
         applied.push(`authoritative:disabled_absent_agent:${folder}`);
       }
     }

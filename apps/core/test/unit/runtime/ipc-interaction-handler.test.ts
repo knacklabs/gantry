@@ -91,11 +91,16 @@ describe('ipc-interaction-handler', () => {
 
   it('writes permission responses to permission-responses directory', () => {
     const keys = createIpcResponseSigningKeyPair();
-    writePermissionIpcResponse(tempDir, 'grp', {
-      requestId: 'perm-2',
-      approved: false,
-      reason: 'denied',
-    }, keys.privateKeyPem);
+    writePermissionIpcResponse(
+      tempDir,
+      'grp',
+      {
+        requestId: 'perm-2',
+        approved: false,
+        reason: 'denied',
+      },
+      keys.privateKeyPem,
+    );
 
     const responsePath = path.join(
       tempDir,
@@ -122,21 +127,26 @@ describe('ipc-interaction-handler', () => {
 
   it('writes persistent permission metadata for runner SDK responses', () => {
     const keys = createIpcResponseSigningKeyPair();
-    writePermissionIpcResponse(tempDir, 'grp', {
-      requestId: 'perm-3',
-      approved: true,
-      mode: 'allow_persistent_rule',
-      reason: 'persistent rule allowed',
-      updatedPermissions: [
-        {
-          type: 'addRules',
-          behavior: 'allow',
-          destination: 'session',
-          rules: [{ toolName: 'Bash', ruleContent: 'npm test *' }],
-        },
-      ],
-      decisionClassification: 'user_permanent',
-    }, keys.privateKeyPem);
+    writePermissionIpcResponse(
+      tempDir,
+      'grp',
+      {
+        requestId: 'perm-3',
+        approved: true,
+        mode: 'allow_persistent_rule',
+        reason: 'persistent rule allowed',
+        updatedPermissions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            destination: 'session',
+            rules: [{ toolName: 'Bash', ruleContent: 'npm test *' }],
+          },
+        ],
+        decisionClassification: 'user_permanent',
+      },
+      keys.privateKeyPem,
+    );
 
     const responsePath = path.join(
       tempDir,
@@ -169,11 +179,16 @@ describe('ipc-interaction-handler', () => {
       multi: ['a', 'b', 5, 'c'],
     } as unknown as Record<string, string | string[]>;
 
-    writeUserQuestionIpcResponse(tempDir, 'grp', {
-      requestId: 'q-2',
-      answers,
-      answeredBy: 'user',
-    }, keys.privateKeyPem);
+    writeUserQuestionIpcResponse(
+      tempDir,
+      'grp',
+      {
+        requestId: 'q-2',
+        answers,
+        answeredBy: 'user',
+      },
+      keys.privateKeyPem,
+    );
 
     const responsePath = path.join(tempDir, 'grp', 'user-answers', 'q-2.json');
     const payload = JSON.parse(fs.readFileSync(responsePath, 'utf-8'));

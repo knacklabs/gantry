@@ -61,7 +61,14 @@ describe('mcp CLI', () => {
         res.end(JSON.stringify({ server: { id: 'mcp:one', status: 'draft' } }));
       });
     });
-    process.env.MYCLAW_CONTROL_API_KEY = 'test-key';
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'cli-test',
+        token: 'test-key',
+        appId: 'default',
+        scopes: ['mcp:admin'],
+      },
+    ]);
     process.env.MYCLAW_CONTROL_PORT = String(port);
 
     const { runMcpCommand } = await import('@core/cli/mcp.js');
@@ -121,7 +128,14 @@ describe('mcp CLI', () => {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ servers: [] }));
     });
-    process.env.MYCLAW_CONTROL_API_KEY = 'test-key';
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'cli-test',
+        token: 'test-key',
+        appId: 'default',
+        scopes: ['mcp:read'],
+      },
+    ]);
     process.env.MYCLAW_CONTROL_BASE_URL = `http://127.0.0.1:${port}`;
     delete process.env.MYCLAW_CONTROL_PORT;
 

@@ -9,6 +9,7 @@ import { ensurePromptProfileBootstrapped } from '../../runtime/prompt-profile.js
 import { restoreRemoteControl } from '../../runtime/remote-control.js';
 import { initializeRuntimeStorage } from '../../adapters/storage/postgres/runtime-store.js';
 import { SettingsDesiredStateService } from '../../config/settings/desired-state-service.js';
+import { loadSessionAppMemoryItems } from '../../memory/app-memory-session-hydration.js';
 import { RuntimeApp } from './runtime-app.js';
 
 interface StartupDeps {
@@ -59,7 +60,9 @@ export async function runStartup(
   }
 
   const runtimeSettings = resolved.loadRuntimeSettings(MYCLAW_HOME);
-  const storage = await resolved.initializeRuntimeStorage();
+  const storage = await resolved.initializeRuntimeStorage({
+    loadSessionAppMemoryItems: loadSessionAppMemoryItems,
+  });
   resolved.logger.info('Database initialized');
   if (
     runtimeSettings.desiredState &&

@@ -30,17 +30,22 @@ MyClaw currently has these layers:
    - `~/myclaw/agents/<group>/CLAUDE.md`
 
 2. Structured memory in Postgres
-   - `memory_items` for durable facts and decisions
+   - flattened `memory_items` for durable facts, decisions, procedures, and
+     references
+   - recent session digests for continuation recall
    - `memory_candidates` for staged extracted facts
-   - `memory_items` for durable facts, procedures, and references
    - Postgres full-text search for lexical recall
-   - `pgvector` for semantic recall when embeddings are enabled
+   - vector recall inactive until memory item embeddings are fully indexed and
+     queried
 
 3. Host-driven continuity context
-   - Host runtime injects a fresh continuity block for every run.
+   - Host runtime injects a fresh digest-first continuity block for every run.
+   - Recent session digests are injected before active durable memory items when
+     persisted.
    - The agent can call memory search and save MCP tools during the run.
-   - `/new`, manual `/compact`, and observed SDK auto-compaction boundaries run
-     durable memory extraction.
+   - `/new`, manual `/compact`, and observed SDK auto-compaction boundaries
+     capture continuation digests and stage memory extraction evidence.
+   - Automatic durable promotion is dreaming-only.
 
 This gives the baseline for continuity today: remembered facts and relevant context can be injected into the next run.
 
@@ -136,7 +141,13 @@ Without embeddings, MyClaw uses:
 - memory kind priority
 - pinned/importance signals
 
-With embeddings enabled, vector search can improve recall and deduplication. It must never be required to save memory, search memory, inject context, or continue work.
+Embeddings are configuration and cache plumbing in this slice; enabling them
+does not activate vector memory retrieval. Future vector search can improve
+recall and deduplication only after the memory item embedding index and query
+path are complete. It must never be required to save memory, search memory,
+inject context, or continue work.
+Embedding computation is limited to dreaming promotion/update workflows, not
+normal turn-time recall.
 
 ## User Controls
 
@@ -146,7 +157,7 @@ Current user controls:
 - `myclaw doctor` for health checks
 - `/new` to reset session state while preserving memory
 - `/compact` to ask the Claude Agent SDK to compact active context and collect
-  durable memory at the compact boundary
+  continuation digests plus staged extraction evidence at the compact boundary
 - default memory MCP tools available to agents: `memory_search`,
   `memory_save`, and `procedure_save`; patch tools are reserved for reviewed
   admin flows

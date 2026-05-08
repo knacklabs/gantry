@@ -409,8 +409,48 @@ describe('memory IPC provider integration', () => {
     expect(response.ok).toBe(true);
     expect(saveMemory).toHaveBeenCalledWith(
       expect.objectContaining({
-        userId: undefined,
         subjectType: 'group',
+      }),
+    );
+    expect(saveMemory.mock.calls[0]?.[0]).not.toHaveProperty('userId');
+    vi.doUnmock('@core/memory/app-memory-service.js');
+  });
+
+  it('resolves group scope to channel subject when trusted conversation id exists', async () => {
+    const saveMemory = vi.fn().mockResolvedValue({ id: 'mem-channel' });
+    vi.resetModules();
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: {
+        getInstance: () => ({
+          save: saveMemory,
+        }),
+        resetForTest: () => undefined,
+      },
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-channel-save',
+        action: 'memory_save',
+        payload: {
+          key: 'decision:channel-policy',
+          value: 'Channel memories should bind to the conversation boundary.',
+          scope: 'group',
+        },
+        context: { chatJid: 'sl:C123', threadId: 'thread-7' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(saveMemory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectType: 'channel',
+        channelId: 'conversation:sl:C123',
+        subjectId: 'conversation:sl:C123',
+        threadId: 'thread-7',
       }),
     );
     vi.doUnmock('@core/memory/app-memory-service.js');
@@ -546,12 +586,20 @@ describe('processMemoryRequest additional branches', () => {
       overrides.consolidateGroupMemory ||
       overrides.runDreamingSweep ||
       vi.fn().mockResolvedValue({ runId: 'dream-1' });
+    const listPendingReviews =
+      overrides.listPendingReviews ||
+      vi.fn().mockResolvedValue([{ id: 'mrv-1' }]);
+    const decideReview =
+      overrides.decideReview ||
+      vi.fn().mockResolvedValue({ id: 'mrv-1', status: 'applied' });
     return {
       getInstance: () => ({
         search: vi.fn(),
         save,
         patch,
         triggerDreaming,
+        listPendingReviews,
+        decideReview,
         ...overrides,
       }),
       resetForTest: () => undefined,
@@ -572,6 +620,7 @@ describe('processMemoryRequest additional branches', () => {
       {
         requestId: 'req-patch',
         action: 'memory_patch',
+        allowedActions: ['memory_patch'],
         payload: { id: 'mem-1', expected_version: 1, value: 'updated' },
       },
       'team',
@@ -590,10 +639,124 @@ describe('processMemoryRequest additional branches', () => {
         id: 'mem-1',
         appId: 'default',
         agentId: 'agent:team',
+        subjectType: 'group',
+        subjectId: 'team',
+        groupId: 'team',
         value: 'updated',
         expectedVersion: 1,
       }),
     );
+  });
+
+  it('patches trusted DM user memory subject and ignores spoofed payload subject fields', async () => {
+    vi.resetModules();
+    const patchMemory = vi
+      .fn()
+      .mockReturnValue({ id: 'patched-user-mem', version: 2 });
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: mockMemoryService({ patchMemory }),
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-patch-user',
+        action: 'memory_patch',
+        allowedActions: ['memory_patch'],
+        payload: {
+          id: 'mem-user',
+          expected_version: 1,
+          value: 'trusted user value',
+          group_folder: 'attacker-group',
+          user_id: 'attacker-user',
+        },
+        context: {
+          chatJid: 'sl:D123',
+          userId: 'sl:U123',
+          defaultScope: 'user',
+          threadId: 'attacker-thread',
+        },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(patchMemory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'mem-user',
+        appId: 'default',
+        agentId: 'agent:team',
+        subjectType: 'user',
+        subjectId: 'sl:U123',
+        userId: 'sl:U123',
+      }),
+    );
+    expect(patchMemory.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
+    expect(patchMemory.mock.calls[0]?.[0]).not.toHaveProperty('channelId');
+  });
+
+  it('patches trusted channel thread memory subject', async () => {
+    vi.resetModules();
+    const patchMemory = vi
+      .fn()
+      .mockReturnValue({ id: 'patched-thread-mem', version: 2 });
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: mockMemoryService({ patchMemory }),
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-patch-channel-thread',
+        action: 'memory_patch',
+        allowedActions: ['memory_patch'],
+        payload: { id: 'mem-thread', expected_version: 1, value: 'updated' },
+        context: { chatJid: 'sl:C123', threadId: 'thread-7' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(patchMemory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'mem-thread',
+        appId: 'default',
+        agentId: 'agent:team',
+        subjectType: 'channel',
+        subjectId: 'conversation:sl:C123',
+        groupId: 'team',
+        channelId: 'conversation:sl:C123',
+        threadId: 'thread-7',
+      }),
+    );
+  });
+
+  it('rejects reviewed patch actions when the host allowlist omits them', async () => {
+    vi.resetModules();
+    const patchMemory = vi.fn().mockReturnValue({ id: 'should-not-patch' });
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: mockMemoryService({ patchMemory }),
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-patch-denied',
+        action: 'memory_patch',
+        allowedActions: ['memory_search', 'memory_save'],
+        payload: { id: 'mem-1', expected_version: 1, value: 'updated' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toContain(
+      'Memory IPC action is not allowed: memory_patch',
+    );
+    expect(patchMemory).not.toHaveBeenCalled();
   });
 
   it('handles memory_consolidate action from a conversation-scoped route', async () => {
@@ -608,7 +771,9 @@ describe('processMemoryRequest additional branches', () => {
       {
         requestId: 'req-consolidate',
         action: 'memory_consolidate',
+        allowedActions: ['memory_consolidate'],
         payload: { group_folder: 'other-group' },
+        context: { threadId: 'trusted-thread' },
       },
       'team',
       false, // conversation-scoped: should ignore requested group_folder
@@ -627,6 +792,7 @@ describe('processMemoryRequest additional branches', () => {
         appId: 'default',
         agentId: 'agent:team',
         groupId: 'team',
+        threadId: 'trusted-thread',
       }),
     );
   });
@@ -643,6 +809,7 @@ describe('processMemoryRequest additional branches', () => {
       {
         requestId: 'req-consolidate-main',
         action: 'memory_consolidate',
+        allowedActions: ['memory_consolidate'],
         payload: { group_folder: 'other-group' },
       },
       'team',
@@ -673,7 +840,9 @@ describe('processMemoryRequest additional branches', () => {
       {
         requestId: 'req-dream',
         action: 'memory_dream',
+        allowedActions: ['memory_dream'],
         payload: { group_folder: 'other-group' },
+        context: { threadId: 'trusted-thread' },
       },
       'team',
       false,
@@ -691,8 +860,142 @@ describe('processMemoryRequest additional branches', () => {
         appId: 'default',
         agentId: 'agent:team',
         groupId: 'team',
+        threadId: 'trusted-thread',
       }),
     );
+  });
+
+  it('lists pending memory reviews for the trusted subject', async () => {
+    vi.resetModules();
+    const listPendingReviews = vi
+      .fn()
+      .mockResolvedValue([{ id: 'mrv-1', status: 'pending_review' }]);
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: mockMemoryService({ listPendingReviews }),
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-review-pending',
+        action: 'memory_review_pending',
+        allowedActions: ['memory_review_pending'],
+        payload: {},
+        context: { chatJid: 'sl:C123', threadId: 'thread-7' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(listPendingReviews).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'default',
+        agentId: 'agent:team',
+        subjectType: 'channel',
+        subjectId: 'conversation:sl:C123',
+        threadId: 'thread-7',
+      }),
+    );
+  });
+
+  it('applies memory review decisions for the trusted subject', async () => {
+    vi.resetModules();
+    const decideReview = vi
+      .fn()
+      .mockResolvedValue({ id: 'mrv-1', status: 'applied' });
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: mockMemoryService({ decideReview }),
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-review-decision',
+        action: 'memory_review_decision',
+        allowedActions: ['memory_review_decision'],
+        payload: {
+          review_id: 'mrv-1',
+          decision: 'edit_approve',
+          edited_value: 'Updated value',
+          edited_reason: 'Reviewer corrected wording.',
+          reviewer_id: 'spoofed-reviewer',
+        },
+        context: { chatJid: 'sl:C123', userId: 'trusted-reviewer' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(decideReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reviewId: 'mrv-1',
+        decision: 'edit_approve',
+        editedValue: 'Updated value',
+        editedReason: 'Reviewer corrected wording.',
+        reviewerId: 'trusted-reviewer',
+        subjectType: 'channel',
+        subjectId: 'conversation:sl:C123',
+      }),
+    );
+  });
+
+  it('rejects memory review decisions without a trusted reviewer identity', async () => {
+    vi.resetModules();
+    const decideReview = vi.fn();
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: mockMemoryService({ decideReview }),
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-review-decision-no-reviewer',
+        action: 'memory_review_decision',
+        allowedActions: ['memory_review_decision'],
+        payload: {
+          review_id: 'mrv-1',
+          decision: 'approve',
+          reviewer_id: 'spoofed-reviewer',
+        },
+        context: { chatJid: 'sl:C123' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toContain(
+      'memory_review_decision requires a trusted reviewer user id',
+    );
+    expect(decideReview).not.toHaveBeenCalled();
+  });
+
+  it('rejects dreaming actions when the host allowlist omits them', async () => {
+    vi.resetModules();
+    const runDreamingSweep = vi.fn().mockResolvedValue({ promoted: 1 });
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: mockMemoryService({ runDreamingSweep }),
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-dream-denied',
+        action: 'memory_dream',
+        allowedActions: ['memory_search'],
+        payload: {},
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toContain(
+      'Memory IPC action is not allowed: memory_dream',
+    );
+    expect(runDreamingSweep).not.toHaveBeenCalled();
   });
 
   it('scopes memory_dream to source group even for main', async () => {
@@ -709,6 +1012,7 @@ describe('processMemoryRequest additional branches', () => {
       {
         requestId: 'req-dream-main',
         action: 'memory_dream',
+        allowedActions: ['memory_dream'],
         payload: { group_folder: 'special-group' },
       },
       'team',
@@ -723,6 +1027,117 @@ describe('processMemoryRequest additional branches', () => {
         groupId: 'team',
       }),
     );
+  });
+
+  it('runs memory_dream against trusted channel subject when chat context exists', async () => {
+    vi.resetModules();
+    const runDreamingSweep = vi
+      .fn()
+      .mockResolvedValue({ promoted: 1, decayed: 0 });
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: mockMemoryService({ runDreamingSweep }),
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-dream-channel',
+        action: 'memory_dream',
+        allowedActions: ['memory_dream'],
+        payload: {},
+        context: { chatJid: 'sl:C123', threadId: 'thread-7' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(runDreamingSweep).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'default',
+        agentId: 'agent:team',
+        subjectType: 'channel',
+        subjectId: 'conversation:sl:C123',
+        channelId: 'conversation:sl:C123',
+        threadId: 'thread-7',
+      }),
+    );
+  });
+
+  it('scopes channel memory_search to channel visibility only', async () => {
+    vi.resetModules();
+    const search = vi.fn().mockResolvedValue([]);
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: mockMemoryService({ search }),
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-search-channel-only',
+        action: 'memory_search',
+        payload: { query: 'deploy' },
+        context: { chatJid: 'sl:C123', threadId: 'thread-7' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(search).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: 'deploy',
+        appId: 'default',
+        agentId: 'agent:team',
+        channelId: 'conversation:sl:C123',
+        threadId: 'thread-7',
+        subjectTypes: ['channel'],
+        includeCommon: false,
+      }),
+    );
+    expect(search.mock.calls[0]?.[0]).not.toHaveProperty('groupId');
+  });
+
+  it('runs memory_dream against trusted DM user subject and ignores threads', async () => {
+    vi.resetModules();
+    const runDreamingSweep = vi
+      .fn()
+      .mockResolvedValue({ promoted: 1, decayed: 0 });
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: mockMemoryService({ runDreamingSweep }),
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-dream-dm',
+        action: 'memory_dream',
+        allowedActions: ['memory_dream'],
+        payload: {},
+        context: {
+          chatJid: 'sl:D123',
+          userId: 'sl:U123',
+          defaultScope: 'user',
+          threadId: 'attacker-thread',
+        },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(runDreamingSweep).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'default',
+        agentId: 'agent:team',
+        subjectType: 'user',
+        subjectId: 'sl:U123',
+        userId: 'sl:U123',
+        phase: 'all',
+      }),
+    );
+    expect(runDreamingSweep.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
+    expect(runDreamingSweep.mock.calls[0]?.[0]).not.toHaveProperty('channelId');
   });
 
   it('handles procedure_save action', async () => {
@@ -789,6 +1204,37 @@ describe('processMemoryRequest additional branches', () => {
     );
   });
 
+  it('retains procedure_save thread only for trusted channel context', async () => {
+    vi.resetModules();
+    const saveProcedure = vi
+      .fn()
+      .mockReturnValue({ id: 'proc-channel', title: 'Deploy' });
+    vi.doMock('@core/memory/app-memory-service.js', () => ({
+      AppMemoryService: mockMemoryService({ saveProcedure }),
+    }));
+
+    const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
+    const response = await processMemoryRequest(
+      {
+        requestId: 'req-proc-channel',
+        action: 'procedure_save',
+        payload: { title: 'Deploy', body: 'steps...' },
+        context: { chatJid: 'sl:C123', threadId: 'thread-7' },
+      },
+      'team',
+      false,
+    );
+
+    expect(response.ok).toBe(true);
+    expect(saveProcedure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectType: 'channel',
+        channelId: 'conversation:sl:C123',
+        threadId: 'thread-7',
+      }),
+    );
+  });
+
   it('uses trusted memory user context for user-scoped procedures', async () => {
     vi.resetModules();
     const saveProcedure = vi
@@ -822,6 +1268,7 @@ describe('processMemoryRequest additional branches', () => {
         subjectType: 'user',
       }),
     );
+    expect(saveProcedure.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
   });
 
   it('honors explicit group scope for procedures instead of DM default scope', async () => {
@@ -852,10 +1299,10 @@ describe('processMemoryRequest additional branches', () => {
     expect(response.ok).toBe(true);
     expect(saveProcedure).toHaveBeenCalledWith(
       expect.objectContaining({
-        userId: undefined,
         subjectType: 'group',
       }),
     );
+    expect(saveProcedure.mock.calls[0]?.[0]).not.toHaveProperty('userId');
   });
 
   it('handles procedure_patch action', async () => {
@@ -872,6 +1319,7 @@ describe('processMemoryRequest additional branches', () => {
       {
         requestId: 'req-proc-patch',
         action: 'procedure_patch',
+        allowedActions: ['procedure_patch'],
         payload: { id: 'proc-1', expected_version: 1, body: 'updated steps' },
       },
       'team',
@@ -889,6 +1337,9 @@ describe('processMemoryRequest additional branches', () => {
         id: 'proc-1',
         appId: 'default',
         agentId: 'agent:team',
+        subjectType: 'group',
+        subjectId: 'team',
+        groupId: 'team',
         value: 'updated steps',
         expectedVersion: 1,
       }),
@@ -910,6 +1361,7 @@ describe('processMemoryRequest additional branches', () => {
       {
         requestId: 'req-patch-err',
         action: 'memory_patch',
+        allowedActions: ['memory_patch'],
         payload: { id: 'mem-1', expected_version: 99 },
       },
       'team',
@@ -943,9 +1395,42 @@ describe('processMemoryRequest validation branches', () => {
     };
   }
 
-  it('rejects removed memory kind recent_work', async () => {
+  it.each(['context', 'recent_work', 'project_fact'] as const)(
+    'rejects unsupported memory kind %s before calling memory service',
+    async (kind) => {
+      vi.resetModules();
+      const saveMemory = vi.fn().mockResolvedValue({ id: `mem-${kind}` });
+      vi.doMock('@core/memory/app-memory-service.js', () => ({
+        AppMemoryService: mockValidatedService({ saveMemory }),
+      }));
+
+      const { processMemoryRequest } =
+        await import('@core/memory/memory-ipc.js');
+      const response = await processMemoryRequest(
+        {
+          requestId: 'req-recent-work',
+          action: 'memory_save',
+          payload: {
+            key: 'daily-work',
+            value: 'shipped IPC hardening',
+            kind,
+          },
+        },
+        'team',
+        false,
+      );
+
+      expect(response.ok).toBe(false);
+      expect(response.error).toContain(
+        'memory_save.kind must be one of preference, decision, fact, correction, or constraint',
+      );
+      expect(saveMemory).not.toHaveBeenCalled();
+    },
+  );
+
+  it('defaults omitted memory kind before calling memory service', async () => {
     vi.resetModules();
-    const saveMemory = vi.fn().mockResolvedValue({ id: 'mem-recent' });
+    const saveMemory = vi.fn().mockResolvedValue({ id: 'mem-default-kind' });
     vi.doMock('@core/memory/app-memory-service.js', () => ({
       AppMemoryService: mockValidatedService({ saveMemory }),
     }));
@@ -953,12 +1438,11 @@ describe('processMemoryRequest validation branches', () => {
     const { processMemoryRequest } = await import('@core/memory/memory-ipc.js');
     const response = await processMemoryRequest(
       {
-        requestId: 'req-recent-work',
+        requestId: 'req-default-kind',
         action: 'memory_save',
         payload: {
           key: 'daily-work',
           value: 'shipped IPC hardening',
-          kind: 'recent_work',
         },
       },
       'team',
@@ -967,7 +1451,7 @@ describe('processMemoryRequest validation branches', () => {
 
     expect(response.ok).toBe(true);
     expect(saveMemory).toHaveBeenCalledWith(
-      expect.not.objectContaining({ kind: 'recent_work' }),
+      expect.objectContaining({ kind: undefined }),
     );
   });
 
@@ -1003,6 +1487,7 @@ describe('processMemoryRequest validation branches', () => {
       {
         requestId: 'req-patch-non-object',
         action: 'memory_patch',
+        allowedActions: ['memory_patch'],
         payload: 'bad' as unknown as Record<string, unknown>,
       },
       'team',
@@ -1015,6 +1500,7 @@ describe('processMemoryRequest validation branches', () => {
       {
         requestId: 'req-patch-missing',
         action: 'memory_patch',
+        allowedActions: ['memory_patch'],
         payload: { id: '' },
       },
       'team',
@@ -1073,6 +1559,7 @@ describe('processMemoryRequest validation branches', () => {
       {
         requestId: 'req-proc-patch-non-object',
         action: 'procedure_patch',
+        allowedActions: ['procedure_patch'],
         payload: 'bad' as unknown as Record<string, unknown>,
       },
       'team',
@@ -1087,6 +1574,7 @@ describe('processMemoryRequest validation branches', () => {
       {
         requestId: 'req-proc-patch-missing',
         action: 'procedure_patch',
+        allowedActions: ['procedure_patch'],
         payload: { id: 'proc-1' },
       },
       'team',
@@ -1156,11 +1644,16 @@ describe('writeMemoryResponse', () => {
     expect(fs.existsSync(responsesDir)).toBe(false);
 
     const keys = createIpcResponseSigningKeyPair();
-    writeMemoryResponse('team', 'req-mkdir', {
-      ok: false,
-      requestId: 'req-mkdir',
-      error: 'boom',
-    }, keys.privateKeyPem);
+    writeMemoryResponse(
+      'team',
+      'req-mkdir',
+      {
+        ok: false,
+        requestId: 'req-mkdir',
+        error: 'boom',
+      },
+      keys.privateKeyPem,
+    );
 
     expect(fs.existsSync(responsesDir)).toBe(true);
     const written = JSON.parse(

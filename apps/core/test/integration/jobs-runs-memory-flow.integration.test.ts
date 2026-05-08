@@ -30,6 +30,19 @@ function makeJob(id: string, patch: Partial<JobUpsertInput> = {}) {
     linked_sessions: ['tg:scheduler'],
     session_id: null,
     thread_id: 'thread-scheduled',
+    execution_context: {
+      conversationJid: 'tg:scheduler',
+      threadId: 'thread-scheduled',
+      groupScope: 'scheduler_agent',
+      sessionId: null,
+    },
+    notification_routes: [
+      {
+        conversationJid: 'tg:scheduler',
+        threadId: 'thread-scheduled',
+        label: 'primary',
+      },
+    ],
     group_scope: 'scheduler_agent',
     created_by: 'human',
     created_at: now,
@@ -51,6 +64,7 @@ function makeConversationRoute(): ConversationRoute {
     trigger: '',
     added_at: now,
     requiresTrigger: false,
+    conversationKind: 'channel',
   };
 }
 
@@ -88,24 +102,24 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     expect(schedulerSyncs).toEqual([job.id]);
 
     const agentId = memoryAgentIdForGroupFolder(job.group_scope);
-    await runtime.repositories.memory.saveMemoryItem({
-      id: 'memory:integration:handoff' as never,
-      appId: 'default' as never,
-      agentId: agentId as never,
-      subject: {
-        kind: 'agent',
-        appId: 'default' as never,
-        agentId: agentId as never,
-      },
+    const memoryService = new AppMemoryService(runtime.service.db);
+    const savedMemory = await memoryService.save({
+      appId: 'default',
+      agentId,
+      channelId: 'conversation:tg:scheduler',
+      threadId: 'thread-scheduled',
       kind: 'fact',
       key: 'handoff',
       value: 'Previous run says keep user data private.',
       source: 'integration-test',
       confidence: 1,
-      isPinned: false,
-      isDeleted: false,
-      createdAt: now as never,
-      updatedAt: now as never,
+    });
+    expect(savedMemory).toMatchObject({
+      agentId,
+      subjectType: 'channel',
+      channelId: 'conversation:tg:scheduler',
+      threadId: 'thread-scheduled',
+      key: 'handoff',
     });
 
     await runJob(
@@ -115,8 +129,6 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
         queue: {} as never,
         onProcess: () => {},
         sendMessage: harness.channel.sendMessage,
-        sendStreamingChunk: harness.channel.sendStreamingChunk,
-        resetStreaming: harness.channel.resetStreaming,
         opsRepository: runtime.ops,
         runAgent: harness.runner.runAgent as never,
       },
@@ -162,7 +174,6 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     expect(harness.channel.sent.map((sent) => sent.threadId)).toContain(
       job.thread_id,
     );
-    expect(harness.channel.resets).toEqual(['tg:scheduler']);
   });
 
   it('does not use or update job session_id as an SDK session handle', async () => {
@@ -175,6 +186,12 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     });
     const job = makeJob('job:integration:canonical-session', {
       session_id: 'control-session-correlation-only',
+      execution_context: {
+        conversationJid: 'tg:scheduler',
+        threadId: 'thread-scheduled',
+        groupScope: 'scheduler_agent',
+        sessionId: 'control-session-correlation-only',
+      },
     });
     await runtime.ops.upsertJob(job);
 
@@ -185,8 +202,6 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
         queue: {} as never,
         onProcess: () => {},
         sendMessage: harness.channel.sendMessage,
-        sendStreamingChunk: harness.channel.sendStreamingChunk,
-        resetStreaming: harness.channel.resetStreaming,
         opsRepository: runtime.ops,
         runAgent: harness.runner.runAgent as never,
       },
@@ -198,6 +213,47 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     await expect(runtime.ops.getJobById(job.id)).resolves.toMatchObject({
       session_id: 'control-session-correlation-only',
     });
+  });
+
+  it('uses durable scheduler lifecycle notifications for scheduler runs', async () => {
+    const harness = createRuntimeFlowHarness({
+      runnerResult: {
+        status: 'success',
+        result: 'scheduled fallback durable send',
+      },
+    });
+    const job = makeJob('job:integration:streaming-fallback-durable');
+    await runtime.ops.upsertJob(job);
+
+    await runJob(
+      await runtime.ops.getJobById(job.id).then((saved) => saved!),
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeConversationRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: harness.channel.sendMessage,
+        opsRepository: runtime.ops,
+        runAgent: harness.runner.runAgent as never,
+      },
+      'tg:scheduler',
+      'serialized',
+    );
+
+    expect(harness.channel.streams).toHaveLength(0);
+    expect(harness.channel.sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          jid: 'tg:scheduler',
+          text: expect.stringContaining('Scheduler started: Job'),
+          threadId: job.thread_id,
+        }),
+        expect.objectContaining({
+          jid: 'tg:scheduler',
+          text: expect.stringContaining('Scheduler completed: Job'),
+          threadId: job.thread_id,
+        }),
+      ]),
+    );
   });
 
   it('persists failed scheduler runs without leaving a running lease', async () => {
@@ -324,12 +380,38 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
       session_id: appOneSession.sessionId,
       group_scope: 'app_one_agent',
       thread_id: null,
+      execution_context: {
+        conversationJid: 'app:app-one:conversation',
+        threadId: null,
+        groupScope: 'app_one_agent',
+        sessionId: appOneSession.sessionId,
+      },
+      notification_routes: [
+        {
+          conversationJid: 'app:app-one:conversation',
+          threadId: null,
+          label: 'primary',
+        },
+      ],
     });
     const appTwoJob = makeJob('job:integration:owner-app-two', {
       linked_sessions: ['app:app-two:conversation'],
       session_id: appTwoSession.sessionId,
       group_scope: 'app_two_agent',
       thread_id: null,
+      execution_context: {
+        conversationJid: 'app:app-two:conversation',
+        threadId: null,
+        groupScope: 'app_two_agent',
+        sessionId: appTwoSession.sessionId,
+      },
+      notification_routes: [
+        {
+          conversationJid: 'app:app-two:conversation',
+          threadId: null,
+          label: 'primary',
+        },
+      ],
     });
     await runtime.ops.upsertJob(appOneJob);
     await runtime.ops.upsertJob(appTwoJob);
@@ -445,9 +527,12 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
       expect(runPlan.rows.map((row) => row['QUERY PLAN']).join('\n')).toContain(
         'idx_agent_runs_job_started',
       );
-      expect(
-        eventPlan.rows.map((row) => row['QUERY PLAN']).join('\n'),
-      ).toContain('idx_runtime_events_job_cursor');
+      const eventPlanText = eventPlan.rows
+        .map((row) => row['QUERY PLAN'])
+        .join('\n');
+      expect(eventPlanText).toMatch(
+        /idx_runtime_events_(job_cursor|type_cursor)/,
+      );
     } finally {
       await runtime.service.pool.query('ROLLBACK');
     }

@@ -66,9 +66,11 @@ export function formatBrowserStatus(status: BrowserStatusSnapshot): string {
 
 export function formatMemoryStatus(status: MemoryStatusSnapshot): string {
   const kinds = Object.entries(status.items_by_kind || {})
+    .sort(([a], [b]) => a.localeCompare(b))
     .map(([kind, count]) => `${kind}:${count}`)
     .join(', ');
   const scopes = Object.entries(status.items_by_scope || {})
+    .sort(([a], [b]) => a.localeCompare(b))
     .map(([scope, count]) => `${scope}:${count}`)
     .join(', ');
   const used = (status.top10_most_used || [])
@@ -86,12 +88,10 @@ export function formatMemoryStatus(status: MemoryStatusSnapshot): string {
         .join(', ')
     : 'n/a';
   const retrieval = status.retrieval;
-  const searchMode =
-    retrieval?.searchMode === 'lexical_keyword'
-      ? 'lexical + keyword'
-      : 'lexical + keyword';
+  const searchMode = 'lexical + keyword';
   return [
     'Memory status',
+    'sample: latest 100 active memories; counts/top/stale are from this sample',
     `kinds: ${kinds || 'none'}`,
     `scopes: ${scopes || 'none'}`,
     `retrieval: ${searchMode}`,

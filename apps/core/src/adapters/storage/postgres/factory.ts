@@ -30,6 +30,7 @@ import { PostgresControlPlaneRepository } from './repositories/control-plane-rep
 import type { PostgresStorageService } from './storage-service.js';
 import { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
 import { PostgresRuntimeEventNotifier } from './runtime-event-notifier.postgres.js';
+import type { AgentSession } from '../../../domain/sessions/sessions.js';
 
 export type RuntimeOpsRepositories = RuntimeChatMetadataRepository &
   RuntimeMessageRepository &
@@ -49,6 +50,23 @@ export interface StorageRuntime {
   skillArtifacts: SkillArtifactStore;
 }
 
+export interface StorageRuntimeOptions {
+  loadSessionAppMemoryItems?: (input: {
+    session: AgentSession;
+    limit: number;
+    conversationKind?: string;
+    query?: string;
+  }) => Promise<
+    Array<{
+      id: string;
+      kind: string;
+      key: string;
+      value: string;
+      subject: Record<string, unknown>;
+    }>
+  >;
+}
+
 export function resolveStorageConfigFromRuntime(): ResolvedStorageConfig {
   return {
     postgresUrl: STORAGE_POSTGRES_URL,
@@ -59,6 +77,7 @@ export function resolveStorageConfigFromRuntime(): ResolvedStorageConfig {
 
 export function createStorageRuntime(
   config: ResolvedStorageConfig = resolveStorageConfigFromRuntime(),
+  options: StorageRuntimeOptions = {},
 ): StorageRuntime {
   const service = createStorageService(config);
   const sessionSettings = getRuntimeSettingsForConfig().agent.sessions;
@@ -77,7 +96,10 @@ export function createStorageRuntime(
     service.db,
     {
       runtimeEvents,
-      sessions: sessionSettings,
+      sessions: {
+        ...sessionSettings,
+        loadAppMemoryItems: options.loadSessionAppMemoryItems,
+      },
     },
   );
   const providerArtifacts = new PostgresProviderArtifactStore(service.db, {

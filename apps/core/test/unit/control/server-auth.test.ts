@@ -616,8 +616,6 @@ describe('control server auth key parsing', () => {
   function parseControlApiKeysFromEnv() {
     return _testControlServer.parseControlApiKeys({
       rawJson: process.env.MYCLAW_CONTROL_API_KEYS_JSON,
-      rawSingle: process.env.MYCLAW_CONTROL_API_KEY,
-      singleAppId: process.env.MYCLAW_CONTROL_APP_ID,
     });
   }
 
@@ -633,8 +631,6 @@ describe('control server auth key parsing', () => {
     expect(() =>
       _testControlServer.parseControlApiKeysStrict({
         rawJson: process.env.MYCLAW_CONTROL_API_KEYS_JSON,
-        rawSingle: process.env.MYCLAW_CONTROL_API_KEY,
-        singleAppId: process.env.MYCLAW_CONTROL_APP_ID,
       }),
     ).toThrow('MYCLAW_CONTROL_API_KEYS_JSON must be valid JSON');
   });
@@ -652,10 +648,25 @@ describe('control server auth key parsing', () => {
     expect(() =>
       _testControlServer.parseControlApiKeysStrict({
         rawJson: process.env.MYCLAW_CONTROL_API_KEYS_JSON,
-        rawSingle: process.env.MYCLAW_CONTROL_API_KEY,
-        singleAppId: process.env.MYCLAW_CONTROL_APP_ID,
       }),
     ).toThrow('unsupported scope invalid:scope');
+  });
+
+  it('fails strict parsing when a configured key uses obsolete memory write scope', () => {
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-obsolete-scope',
+        appId: 'app-one',
+        scopes: ['memory:write'],
+      },
+    ]);
+
+    expect(() =>
+      _testControlServer.parseControlApiKeysStrict({
+        rawJson: process.env.MYCLAW_CONTROL_API_KEYS_JSON,
+      }),
+    ).toThrow('unsupported scope memory:write');
   });
 
   it('filters out JSON keys that are not app-bound', () => {
@@ -686,7 +697,7 @@ describe('control server auth key parsing', () => {
     expect(keys[0]?.appId).toBe('app-one');
   });
 
-  it('requires MYCLAW_CONTROL_APP_ID for single-token auth', () => {
+  it('ignores legacy single-token auth even when an app id is present', () => {
     process.env.MYCLAW_CONTROL_API_KEY = 'single-token';
     expect(parseControlApiKeysFromEnv()).toHaveLength(0);
 
@@ -694,21 +705,47 @@ describe('control server auth key parsing', () => {
     expect(parseControlApiKeysFromEnv()).toHaveLength(0);
 
     process.env.MYCLAW_CONTROL_APP_ID = 'app-two';
-    const keys = parseControlApiKeysFromEnv();
-    expect(keys).toHaveLength(1);
-    expect(keys[0]?.appId).toBe('app-two');
+    expect(parseControlApiKeysFromEnv()).toHaveLength(0);
   });
 
-  it('fails strict parsing when single-token auth omits app id', () => {
+  it('strict parsing ignores legacy single-token auth', () => {
     process.env.MYCLAW_CONTROL_API_KEY = 'single-token';
 
-    expect(() =>
+    expect(
       _testControlServer.parseControlApiKeysStrict({
         rawJson: process.env.MYCLAW_CONTROL_API_KEYS_JSON,
-        rawSingle: process.env.MYCLAW_CONTROL_API_KEY,
-        singleAppId: process.env.MYCLAW_CONTROL_APP_ID,
       }),
-    ).toThrow('MYCLAW_CONTROL_APP_ID is required');
+    ).toEqual([]);
+  });
+
+  it('rejects legacy single-token auth on protected control routes', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEY = 'single-token';
+    process.env.MYCLAW_CONTROL_APP_ID = 'app-one';
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/agents`,
+        'single-token',
+      );
+
+      expect(response.status).toBe(401);
+      expect(await response.json()).toMatchObject({
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Missing or invalid API key',
+        },
+      });
+    } finally {
+      await handle.close();
+    }
   });
 
   it('enforces strict app access matching', () => {
@@ -1468,7 +1505,7 @@ describe('control server runtime hardening', () => {
       {
         kid: 'k',
         token: 'memory-token',
-        scopes: ['memory:write'],
+        scopes: ['memory:admin'],
         appId: 'app-one',
       },
     ]);
@@ -1502,6 +1539,52 @@ describe('control server runtime hardening', () => {
     }
   });
 
+  it('rejects direct HTTP memory writes with non-direct-save kinds', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'memory-token',
+        scopes: ['memory:admin'],
+        appId: 'app-one',
+      },
+    ]);
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/memory`,
+        'memory-token',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            appId: 'app-one',
+            agentId: 'agent',
+            groupId: 'group',
+            kind: 'reference',
+            key: 'reference:raw-log',
+            value: 'Internal references are not direct-save payloads.',
+          }),
+        },
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: { code: 'INVALID_REQUEST' },
+      });
+      expect(memoryService.save).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('passes admin authority only when memory:admin scope is present', async () => {
     const port = await reservePort();
     process.env.MYCLAW_CONTROL_PORT = String(port);
@@ -1509,7 +1592,7 @@ describe('control server runtime hardening', () => {
       {
         kid: 'k',
         token: 'memory-admin-token',
-        scopes: ['memory:write', 'memory:admin'],
+        scopes: ['memory:admin'],
         appId: 'app-one',
       },
     ]);
@@ -1556,7 +1639,7 @@ describe('control server runtime hardening', () => {
       {
         kid: 'k',
         token: 'memory-disabled-token',
-        scopes: ['memory:write'],
+        scopes: ['memory:admin'],
         appId: 'app-one',
       },
     ]);
@@ -2639,7 +2722,7 @@ describe('control server runtime hardening', () => {
       {
         kid: 'k',
         token: 'memory-all-token',
-        scopes: ['memory:read', 'memory:write', 'memory:admin'],
+        scopes: ['memory:read', 'memory:admin'],
         appId: 'app-one',
       },
     ]);
@@ -2754,7 +2837,7 @@ describe('control server runtime hardening', () => {
       {
         kid: 'k',
         token: 'memory-disabled-all-token',
-        scopes: ['memory:write', 'memory:admin'],
+        scopes: ['memory:admin'],
         appId: 'app-one',
       },
     ]);
@@ -3121,6 +3204,151 @@ describe('control server runtime hardening', () => {
     }
   });
 
+  it('returns session event envelopes with correlation metadata from list events', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-events-list',
+        scopes: ['sessions:read'],
+        appId: 'app-one',
+      },
+    ]);
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      groupFolder: 'app_app_one_conv_1',
+      title: 'Conversation',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    runtimeEvents.list.mockResolvedValue([
+      {
+        eventId: 21,
+        appId: 'app-one',
+        sessionId: 'session-1',
+        threadId: 'thread-1',
+        correlationId: 'corr-1',
+        eventType: 'session.message.outbound',
+        payload: { text: 'hello' },
+        createdAt: '2026-05-08T00:00:02.000Z',
+      },
+    ]);
+    const handle = startControlServer({
+      app: { registerGroup: vi.fn(), queue: { enqueueMessageCheck: vi.fn() } },
+    } as any);
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/sessions/session-1/events?afterEventId=20`,
+        'token-events-list',
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        events: [
+          {
+            eventId: 21,
+            eventType: 'session.message.outbound',
+            sessionId: 'session-1',
+            threadId: 'thread-1',
+            correlationId: 'corr-1',
+            createdAt: '2026-05-08T00:00:02.000Z',
+            payload: { text: 'hello' },
+          },
+        ],
+      });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('streams session event envelopes over SSE with metadata and payload', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-events-sse',
+        scopes: ['sessions:read'],
+        appId: 'app-one',
+      },
+    ]);
+    controlRepo.getAppSessionById.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-one',
+      conversationId: 'conv-1',
+      chatJid: 'app:app-one:conv-1',
+      groupFolder: 'app_app_one_conv_1',
+      title: 'Conversation',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    runtimeEvents.list.mockResolvedValue([
+      {
+        eventId: 22,
+        appId: 'app-one',
+        sessionId: 'session-1',
+        threadId: 'thread-1',
+        correlationId: 'corr-sse',
+        eventType: 'session.message.outbound',
+        payload: { text: 'hello from stream' },
+        createdAt: '2026-05-08T00:00:03.000Z',
+      },
+    ]);
+    runtimeEvents.subscribe.mockReturnValue({
+      next: vi.fn(
+        async () =>
+          await new Promise<never[]>((resolve) =>
+            setTimeout(() => resolve([]), 50),
+          ),
+      ),
+      close: vi.fn(),
+    });
+    const handle = startControlServer({
+      app: { registerGroup: vi.fn(), queue: { enqueueMessageCheck: vi.fn() } },
+    } as any);
+
+    try {
+      const controller = new AbortController();
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/sessions/session-1/events`,
+        'token-events-sse',
+        {
+          headers: { accept: 'text/event-stream' },
+          signal: controller.signal,
+        },
+      );
+      expect(response.status).toBe(200);
+
+      const reader = response.body?.getReader();
+      const first = await reader?.read();
+      const chunk = Buffer.from(first?.value ?? new Uint8Array()).toString(
+        'utf8',
+      );
+      const dataLine = chunk
+        .split('\n')
+        .find((line) => line.startsWith('data: '));
+      expect(dataLine).toBeDefined();
+      const payload = JSON.parse((dataLine ?? '').slice(6));
+      expect(payload).toMatchObject({
+        eventId: 22,
+        eventType: 'session.message.outbound',
+        sessionId: 'session-1',
+        threadId: 'thread-1',
+        correlationId: 'corr-sse',
+        createdAt: '2026-05-08T00:00:03.000Z',
+        payload: { text: 'hello from stream' },
+      });
+      controller.abort();
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('waits over the full session cursor while returning only visible events', async () => {
     const port = await reservePort();
     process.env.MYCLAW_CONTROL_PORT = String(port);
@@ -3156,6 +3384,8 @@ describe('control server runtime hardening', () => {
           eventId: 11,
           appId: 'app-one',
           sessionId: 'session-1',
+          threadId: 'thread-1',
+          correlationId: 'corr-wait',
           eventType: 'session.message.outbound',
           payload: { text: 'done' },
           createdAt: new Date(11).toISOString(),
@@ -3186,6 +3416,9 @@ describe('control server runtime hardening', () => {
       await expect(response.json()).resolves.toMatchObject({
         eventId: 11,
         eventType: 'session.message.outbound',
+        sessionId: 'session-1',
+        threadId: 'thread-1',
+        correlationId: 'corr-wait',
         payload: { text: 'done' },
         afterEventId: 11,
       });

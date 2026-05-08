@@ -166,7 +166,8 @@ export function mapManualJobToStored(
             type: job.schedule_type,
             value: job.schedule_value,
           },
-    linkedSessions: job.linked_sessions,
+    executionContext: metadata.executionContext,
+    notificationRoutes: metadata.notificationRoutes,
     nextRun: job.next_run,
     lastRun: job.last_run,
     staleness: metadata.staleness,
@@ -183,11 +184,9 @@ export function mapManualJobToStored(
           modelProfileId: resolvedModel.entry.id,
         }
       : null,
-    threadId: job.thread_id,
     groupScope: job.group_scope,
     sessionId: job.session_id,
     target: metadata.target,
-    notificationTarget: metadata.notificationTarget,
     toolAccess: metadata.toolAccess,
     ...(detail
       ? {

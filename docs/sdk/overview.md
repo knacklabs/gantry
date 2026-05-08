@@ -25,8 +25,8 @@ depend on those contracts instead of importing MyClaw runtime internals.
 
 Authentication is bearer-token based and scoped. The runtime reads keys from:
 
-- `MYCLAW_CONTROL_API_KEYS_JSON` for production scoped keys
-- `MYCLAW_CONTROL_API_KEY` only for local development full-access runtimes
+- `MYCLAW_CONTROL_API_KEYS_JSON`, where every key includes `kid`, `token`,
+  `appId`, and explicit `scopes`
 
 Production apps should use the narrowest key needed. A typical chat backend
 uses `sessions:read` and `sessions:write`; job dashboards add `jobs:read` and

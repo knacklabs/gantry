@@ -43,6 +43,8 @@ import { AsyncTaskQueue } from '@core/app/bootstrap/async-task-queue.js';
 import { createChannelPersistenceHandlers } from '@core/app/bootstrap/channel-persistence-handlers.js';
 import { createChannelWiring } from '@core/app/bootstrap/channel-wiring.js';
 import { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
+import { PartialMessageDeliveryError } from '@core/domain/messages/partial-delivery.js';
+import { AmbiguousDurableDeliveryError } from '@core/domain/messages/durable-delivery.js';
 
 function makeRuntimeSettings(enabled: {
   telegram: boolean;
@@ -444,7 +446,9 @@ describe('createChannelWiring', () => {
       makeRuntimeSettings({ telegram: true, slack: false }),
     );
 
-    await wiring.sendMessage('tg:123', '**done**');
+    await wiring.sendMessage('tg:123', '**done**', {
+      durability: 'best_effort',
+    });
     expect(outbound.sendMessage).toHaveBeenCalledWith('tg:123', '*done*');
   });
 
@@ -470,6 +474,7 @@ describe('createChannelWiring', () => {
     );
 
     await wiring.sendMessage('sl:C123', 'done', {
+      durability: 'best_effort',
       messageOptions: { threadId: '1700.1' },
     });
 
@@ -493,6 +498,132 @@ describe('createChannelWiring', () => {
         delivered_at: expect.any(String),
       }),
     );
+  });
+
+  it('requires a channel-minted recovery permit for provider-level recovery sends', async () => {
+    const app = makeApp();
+    const outbound = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'slack',
+          vi.fn(() => outbound),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    await expect(
+      wiring.sendProviderMessage('sl:C123', 'Recovered outbound', {
+        permit: {
+          deliveryId: 'delivery:1',
+          itemId: 'delivery-item:1',
+          destinationJid: 'sl:C123',
+          canonicalText: 'Recovered outbound',
+        } as any,
+      }),
+    ).rejects.toThrow(/recovery dispatch permit/);
+    expect(outbound.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('allows provider-level recovery sends only when permit scope matches destination payload', async () => {
+    const app = makeApp();
+    const storeMessage = vi.fn(async () => undefined);
+    const outbound = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+      sendMessage: vi.fn(async () => ({ externalMessageId: '171.123' })),
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'slack',
+          vi.fn(() => outbound),
+        ),
+      ],
+      opsRepository: { storeMessage } as any,
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    const permit = wiring.createRecoveryDispatchPermit({
+      deliveryId: 'delivery:1',
+      itemId: 'delivery-item:1',
+      destinationJid: 'sl:C123',
+      canonicalText: 'Recovered outbound',
+      threadId: '171.000',
+    });
+    await wiring.sendProviderMessage('sl:C123', 'Recovered outbound', {
+      permit,
+      messageOptions: { threadId: '171.000' },
+      throwOnMissing: true,
+    });
+
+    expect(outbound.sendMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      'Recovered outbound',
+      { threadId: '171.000' },
+    );
+    expect(storeMessage).not.toHaveBeenCalled();
+  });
+
+  it('fails closed before provider send when durable outbound delivery storage is unavailable', async () => {
+    const app = makeApp();
+    const outbound = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+    });
+
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'slack',
+          vi.fn(() => outbound),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    await expect(
+      wiring.sendMessage('sl:C123', 'durable', { durability: 'required' }),
+    ).rejects.toThrow(/Durable outbound delivery is required/);
+    expect(outbound.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('continues provider send when best-effort pending persistence fails', async () => {
+    const app = makeApp();
+    const storeMessage = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('db offline'))
+      .mockResolvedValueOnce(undefined);
+    const outbound = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+    });
+
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'slack',
+          vi.fn(() => outbound),
+        ),
+      ],
+      opsRepository: { storeMessage } as any,
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    await expect(
+      wiring.sendMessage('sl:C123', 'best-effort', {
+        durability: 'best_effort',
+      }),
+    ).resolves.toBeUndefined();
+    expect(outbound.sendMessage).toHaveBeenCalledWith('sl:C123', 'best-effort');
   });
 
   it('preserves provider send errors when failure-state persistence fails', async () => {
@@ -530,9 +661,9 @@ describe('createChannelWiring', () => {
       makeRuntimeSettings({ telegram: false, slack: true }),
     );
 
-    await expect(wiring.sendMessage('sl:C123', 'done')).rejects.toThrow(
-      providerErr,
-    );
+    await expect(
+      wiring.sendMessage('sl:C123', 'done', { durability: 'best_effort' }),
+    ).rejects.toThrow(providerErr);
 
     expect(storeMessage).toHaveBeenCalledTimes(2);
     expect(storeMessage).toHaveBeenNthCalledWith(
@@ -549,7 +680,290 @@ describe('createChannelWiring', () => {
     );
   });
 
-  it('streams group chunks with internal tags removed but without markdown conversion', async () => {
+  it('persists retry-tail metadata durably for partial live sends before bubbling the partial error', async () => {
+    const app = makeApp();
+    const storeMessage = vi.fn().mockResolvedValue(undefined);
+    const settlePartiallyDelivered = vi.fn(async () => undefined);
+    const partial = new PartialMessageDeliveryError({
+      cause: new Error('second chunk failed'),
+      deliveredChunks: 1,
+      totalChunks: 2,
+      name: 'PartialSlackDeliveryError',
+      message: 'first chunk visible',
+    });
+    Object.assign(partial, {
+      deliveredParts: 1,
+      totalParts: 2,
+      retryTail: {
+        canonicalText: 'unsent suffix',
+        providerPayload: {
+          provider: 'slack',
+          channelId: 'CWRONG',
+          threadId: 'thread-1',
+        },
+      },
+    });
+    const outbound = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+      sendMessage: vi.fn(async () => {
+        throw partial;
+      }),
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'slack',
+          vi.fn(() => outbound),
+        ),
+      ],
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+        error: vi.fn(),
+      },
+      opsRepository: { storeMessage } as any,
+    });
+    wiring.setDurableOutboundAttemptFactory(
+      vi.fn(async () => ({
+        settleSent: vi.fn(async () => undefined),
+        settleFailed: vi.fn(async () => undefined),
+        settlePartiallyDelivered,
+      })),
+    );
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    await expect(
+      wiring.sendMessage('sl:C123', 'done', {
+        durability: 'required',
+        messageOptions: { threadId: 'thread-1' },
+      }),
+    ).rejects.toThrow(partial);
+
+    expect(storeMessage).toHaveBeenCalledTimes(2);
+    expect(storeMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        chat_jid: 'sl:C123',
+        delivery_status: 'partially_sent',
+        delivery_retry_tail: {
+          canonicalText: 'unsent suffix',
+          providerPayload: { provider: 'slack', threadId: 'thread-1' },
+        },
+      }),
+    );
+    expect(settlePartiallyDelivered).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retryTail: {
+          canonicalText: 'unsent suffix',
+          providerPayload: { provider: 'slack', threadId: 'thread-1' },
+        },
+      }),
+    );
+  });
+
+  it('omits mismatched Telegram chatId retry-tail metadata before durable and legacy partial persistence', async () => {
+    const app = makeApp();
+    const storeMessage = vi.fn().mockResolvedValue(undefined);
+    const settlePartiallyDelivered = vi.fn(async () => undefined);
+    const partial = new PartialMessageDeliveryError({
+      cause: new Error('second chunk failed'),
+      deliveredChunks: 1,
+      totalChunks: 2,
+      name: 'PartialTelegramDeliveryError',
+      message: 'first chunk visible',
+    });
+    Object.assign(partial, {
+      deliveredParts: 1,
+      totalParts: 2,
+      retryTail: {
+        canonicalText: 'unsent suffix',
+        providerPayload: {
+          provider: 'telegram',
+          chatId: 'tg:-100999',
+          threadId: '42',
+        },
+      },
+    });
+    const outbound = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:-100123'),
+      sendMessage: vi.fn(async () => {
+        throw partial;
+      }),
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => outbound),
+        ),
+      ],
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+        error: vi.fn(),
+      },
+      opsRepository: { storeMessage } as any,
+    });
+    wiring.setDurableOutboundAttemptFactory(
+      vi.fn(async () => ({
+        settleSent: vi.fn(async () => undefined),
+        settleFailed: vi.fn(async () => undefined),
+        settlePartiallyDelivered,
+      })),
+    );
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    await expect(
+      wiring.sendMessage('tg:-100123', 'done', {
+        durability: 'required',
+        messageOptions: { threadId: '42' },
+      }),
+    ).rejects.toThrow(partial);
+
+    expect(storeMessage).toHaveBeenCalledTimes(2);
+    expect(storeMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        chat_jid: 'tg:-100123',
+        delivery_status: 'partially_sent',
+        delivery_retry_tail: {
+          canonicalText: 'unsent suffix',
+          providerPayload: { provider: 'telegram', threadId: '42' },
+        },
+      }),
+    );
+    expect(settlePartiallyDelivered).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retryTail: {
+          canonicalText: 'unsent suffix',
+          providerPayload: { provider: 'telegram', threadId: '42' },
+        },
+      }),
+    );
+  });
+
+  it('surfaces ambiguous durable state when durable sent settlement fails after visible send', async () => {
+    const app = makeApp();
+    const storeMessage = vi.fn().mockResolvedValueOnce(undefined);
+    const settleSent = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('sent status write failed'));
+    const settlePartiallyDelivered = vi.fn(async () => undefined);
+    const outbound = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+      sendMessage: vi.fn(async () => ({ externalMessageId: '171.123' })),
+    });
+
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'slack',
+          vi.fn(() => outbound),
+        ),
+      ],
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+        error: vi.fn(),
+      },
+      opsRepository: { storeMessage } as any,
+    });
+    wiring.setDurableOutboundAttemptFactory(
+      vi.fn(async () => ({
+        settleSent,
+        settleFailed: vi.fn(async () => undefined),
+        settlePartiallyDelivered,
+      })),
+    );
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    await expect(
+      wiring.sendMessage('sl:C123', 'done', { durability: 'required' }),
+    ).rejects.toBeInstanceOf(AmbiguousDurableDeliveryError);
+
+    expect(outbound.sendMessage).toHaveBeenCalledTimes(1);
+    expect(settleSent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerMessageId: '171.123',
+      }),
+    );
+    expect(settlePartiallyDelivered).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.stringContaining('cannot be blindly retried'),
+      }),
+    );
+    expect(storeMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('raises ambiguous outcome when partial retry-tail durable settlement cannot be persisted', async () => {
+    const app = makeApp();
+    const storeMessage = vi.fn().mockResolvedValue(undefined);
+    const partial = new PartialMessageDeliveryError({
+      cause: new Error('second chunk failed'),
+      deliveredChunks: 1,
+      totalChunks: 2,
+      name: 'PartialSlackDeliveryError',
+      message: 'first chunk visible',
+    });
+    Object.assign(partial, {
+      deliveredParts: 1,
+      totalParts: 2,
+      retryTail: {
+        canonicalText: 'unsent suffix',
+        providerPayload: { provider: 'slack', chunk: 2 },
+      },
+    });
+    const outbound = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'sl:C123'),
+      sendMessage: vi.fn(async () => {
+        throw partial;
+      }),
+    });
+
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'slack',
+          vi.fn(() => outbound),
+        ),
+      ],
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+        error: vi.fn(),
+      },
+      opsRepository: { storeMessage } as any,
+    });
+    wiring.setDurableOutboundAttemptFactory(
+      vi.fn(async () => ({
+        settleSent: vi.fn(async () => undefined),
+        settleFailed: vi.fn(async () => undefined),
+        settlePartiallyDelivered: vi.fn(async () => {
+          throw new Error('durable enqueue unavailable');
+        }),
+      })),
+    );
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: false, slack: true }),
+    );
+
+    await expect(
+      wiring.sendMessage('sl:C123', 'done', { durability: 'required' }),
+    ).rejects.toBeInstanceOf(AmbiguousDurableDeliveryError);
+    expect(storeMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not fallback to direct provider sends when channel has no streaming sink', async () => {
     const app = makeApp();
     const outbound = makeChannel({
       ownsJid: vi.fn((jid: string) => jid === 'tg:-123'),
@@ -572,13 +986,34 @@ describe('createChannelWiring', () => {
       '<internal>scratch</internal>**done**',
     );
 
-    expect(ok).toBe(true);
-    expect(outbound.sendMessage).toHaveBeenCalledWith('tg:-123', '**done**');
+    expect(ok).toBe(false);
+    expect(outbound.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('keeps streaming chunks transport-only so the processor persists one final transcript', async () => {
+  it('advertises supportsStreaming=false while provider-visible streaming is disabled', async () => {
     const app = makeApp();
-    const storeMessage = vi.fn(async () => {});
+    const outbound = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:123'),
+      sendStreamingChunk: vi.fn(async () => true),
+    });
+
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => outbound),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    expect(wiring.supportsStreaming('tg:123')).toBe(false);
+  });
+
+  it('does not call provider streaming sinks when sendStreamingChunk is invoked', async () => {
+    const app = makeApp();
     const streamSink = vi.fn(async () => true);
     const outbound = makeChannel({
       ownsJid: vi.fn((jid: string) => jid === 'tg:123'),
@@ -592,7 +1027,6 @@ describe('createChannelWiring', () => {
           vi.fn(() => outbound),
         ),
       ],
-      opsRepository: { storeMessage } as any,
     });
     await wiring.connectEnabledChannels(
       makeRuntimeSettings({ telegram: true, slack: false }),
@@ -602,16 +1036,12 @@ describe('createChannelWiring', () => {
       threadId: 'thread-1',
     });
 
-    expect(ok).toBe(true);
-    expect(streamSink).toHaveBeenCalledWith(
-      'tg:123',
-      'chunk',
-      expect.objectContaining({ threadId: 'thread-1' }),
-    );
-    expect(storeMessage).not.toHaveBeenCalled();
+    expect(ok).toBe(false);
+    expect(streamSink).not.toHaveBeenCalled();
+    expect(outbound.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('flushes done=true streaming callbacks even when visible text is empty', async () => {
+  it('keeps done=true streaming callbacks non-visible while durable ordering is disabled', async () => {
     const app = makeApp();
     const streamSink = vi.fn(async () => true);
     const outbound = makeChannel({
@@ -637,12 +1067,9 @@ describe('createChannelWiring', () => {
       { done: true },
     );
 
-    expect(ok).toBe(true);
-    expect(streamSink).toHaveBeenCalledWith(
-      'tg:123',
-      '',
-      expect.objectContaining({ done: true }),
-    );
+    expect(ok).toBe(false);
+    expect(streamSink).not.toHaveBeenCalled();
+    expect(outbound.sendMessage).not.toHaveBeenCalled();
   });
 
   it('routes permission approvals through the target conversation only', async () => {
@@ -930,6 +1357,84 @@ describe('createChannelWiring', () => {
         targetJid: 'tg:group',
       }),
     );
+    expect(questionChannel.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('keeps progress updates non-visible until durable progress delivery exists', async () => {
+    const app = makeApp({
+      'tg:group': { name: 'Group', folder: 'group' },
+    });
+    const sendProgressUpdate = vi.fn(async () => undefined);
+    const channel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:group'),
+      sendProgressUpdate,
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => channel),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    expect(wiring.supportsProgress('tg:group')).toBe(false);
+    await wiring.sendProgressUpdate('tg:group', 'Working on it...', {
+      threadId: 'thread-1',
+    });
+
+    expect(sendProgressUpdate).not.toHaveBeenCalled();
+  });
+
+  it('does not emit user-question receipts through progress or direct sends', async () => {
+    const app = makeApp({
+      'tg:group': { name: 'Group', folder: 'group' },
+    });
+
+    const requestUserAnswer = vi.fn(async () => ({
+      requestId: 'q-dup',
+      answers: { Choice: 'A' },
+      answeredBy: 'u-1',
+    }));
+    const questionChannel = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:group'),
+      requestUserAnswer,
+      sendProgressUpdate: vi.fn(async () => undefined),
+    });
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => questionChannel),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    const first = await wiring.requestUserAnswer({
+      requestId: 'q-dup',
+      sourceAgentFolder: 'group',
+      targetJid: 'tg:group',
+      threadId: 'thread-1',
+      questions: [],
+    });
+    const second = await wiring.requestUserAnswer({
+      requestId: 'q-dup',
+      sourceAgentFolder: 'group',
+      targetJid: 'tg:group',
+      threadId: 'thread-1',
+      questions: [],
+    });
+
+    expect(first).toEqual(second);
+    expect(requestUserAnswer).toHaveBeenCalledTimes(1);
+    expect(questionChannel.sendProgressUpdate).not.toHaveBeenCalled();
+    expect(questionChannel.sendMessage).not.toHaveBeenCalled();
   });
 
   it('returns empty answers when user-question flow fails', async () => {

@@ -49,7 +49,116 @@ describe('app channel', () => {
         responseMode: 'webhook',
         webhookId: 'webhook-1',
         correlationId: 'corr-1',
+        payload: expect.objectContaining({
+          text: 'done',
+          threadId: 'thread-1',
+          orderedEnvelope: expect.objectContaining({
+            sequence: 1,
+            kind: 'outbound',
+            partIndex: 1,
+            totalParts: 1,
+          }),
+          canonicalText: expect.objectContaining({
+            lengthChars: 4,
+            lengthBytes: 4,
+            hasContent: true,
+            hasTruncatedContent: false,
+          }),
+        }),
       }),
     );
+    const firstPublish = runtimeEvents.publish.mock.calls[0]?.[0] as {
+      payload: { canonicalText: { sha256: string } };
+    };
+    expect(firstPublish.payload.canonicalText.sha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('keeps canonicalText metadata bounded for large payloads', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue({
+      sessionId: 'session-1',
+      threadId: 'thread-2',
+      responseMode: 'sse',
+      webhookId: null,
+      correlationId: 'corr-2',
+    });
+    runtimeEvents.publish.mockResolvedValue({ eventId: 2 });
+    const channel = await createAppChannel({} as never);
+    const largeText = 'L'.repeat(8_192);
+
+    await channel.sendStreamingChunk('app:demo:conversation', largeText, {
+      threadId: 'thread-2',
+      done: false,
+      generation: 7,
+    });
+
+    const publishInput = runtimeEvents.publish.mock.calls.at(-1)?.[0];
+    expect(publishInput).toBeDefined();
+    expect(publishInput).toEqual(
+      expect.objectContaining({
+        eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_STREAMING,
+        payload: expect.objectContaining({
+          text: largeText,
+          canonicalText: expect.objectContaining({
+            lengthChars: largeText.length,
+            lengthBytes: Buffer.byteLength(largeText, 'utf8'),
+            hasContent: true,
+            hasTruncatedContent: true,
+          }),
+        }),
+      }),
+    );
+    const canonicalText = (
+      publishInput as {
+        payload: { canonicalText: Record<string, unknown> };
+      }
+    ).payload.canonicalText;
+    expect(canonicalText).not.toHaveProperty('text');
+    expect(canonicalText).not.toHaveProperty('preview');
+    expect(canonicalText).not.toHaveProperty('previewTruncated');
+    expect(canonicalText.sha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('does not copy secret-looking content into canonicalText metadata', async () => {
+    controlRepo.getAppSessionByChatJid.mockResolvedValue({
+      sessionId: 'session-1',
+      appId: 'app-1',
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    controlRepo.getAppResponseRoute.mockResolvedValue({
+      sessionId: 'session-1',
+      threadId: null,
+      responseMode: 'sse',
+      webhookId: null,
+      correlationId: 'corr-3',
+    });
+    runtimeEvents.publish.mockResolvedValue({ eventId: 3 });
+    const channel = await createAppChannel({} as never);
+    const secretText = 'token=sk-live-abc1234567890 super-secret body';
+
+    await channel.sendProgressUpdate('app:demo:conversation', secretText, {
+      done: false,
+    });
+
+    const publishInput = runtimeEvents.publish.mock.calls.at(-1)?.[0] as {
+      payload: { canonicalText: Record<string, unknown> };
+    };
+    const canonicalText = publishInput.payload.canonicalText;
+    const serializedMetadata = JSON.stringify(canonicalText);
+    expect(serializedMetadata).not.toContain(secretText);
+    expect(serializedMetadata).not.toContain('sk-live-abc1234567890');
+    expect(canonicalText).toEqual(
+      expect.objectContaining({
+        hasContent: true,
+      }),
+    );
+    expect(canonicalText).not.toHaveProperty('preview');
+    expect(canonicalText).not.toHaveProperty('previewTruncated');
   });
 });

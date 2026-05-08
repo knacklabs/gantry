@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { ProviderConnectionControlService } from '@core/application/provider-conversations/provider-conversation-control-use-cases.js';
+import {
+  DiscoverProviderConversationsService,
+  ProviderConnectionControlService,
+} from '@core/application/provider-conversations/provider-conversation-control-use-cases.js';
+import { ApplicationError } from '@core/application/common/application-error.js';
 
 const iso = '2026-05-02T00:00:00.000Z';
 
@@ -46,5 +50,54 @@ describe('ProviderConnectionControlService', () => {
         patch: expect.objectContaining({ externalInstallationRef: null }),
       }),
     );
+  });
+});
+
+describe('DiscoverProviderConversationsService', () => {
+  it('fails closed when discovered external ids use a mismatched explicit provider prefix', async () => {
+    const service = new DiscoverProviderConversationsService({
+      providerConnections: {
+        getProviderConnection: vi.fn(async () => ({
+          id: 'slack_default',
+          appId: 'default',
+          providerId: 'slack',
+          label: 'Slack',
+          status: 'active',
+          config: {},
+          runtimeSecretRefs: ['SLACK_BOT_TOKEN'],
+          createdAt: iso,
+          updatedAt: iso,
+        })),
+      } as never,
+      conversations: {
+        getConversationByExternalRef: vi.fn(async () => null),
+        saveConversation: vi.fn(async () => {}),
+      } as never,
+      discovery: {
+        discover: vi.fn(async () => [
+          {
+            externalId: 'tg:-100123',
+            kind: 'channel',
+          },
+        ]),
+      },
+      ids: { generate: vi.fn(() => 'id-1') },
+      clock: { now: () => iso },
+    });
+
+    await expect(
+      service.execute({
+        appId: 'default' as never,
+        providerConnectionId: 'slack_default' as never,
+      }),
+    ).rejects.toBeInstanceOf(ApplicationError);
+    await expect(
+      service.execute({
+        appId: 'default' as never,
+        providerConnectionId: 'slack_default' as never,
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+    });
   });
 });

@@ -38,6 +38,11 @@ Important constraints:
 - Transcript archive during `/new` is best-effort and must not block reset success.
 - Durable memory lives under the configured memory root; do not load `~/myclaw/agents/<folder>/memory/`.
 - Live channel turns must persist the provider SDK session ID as soon as the runner streams it. Do not wait for runner shutdown; launchd restarts can kill an active run before final completion.
+- Scheduler fallback delivery must accumulate bounded, already-redacted user-visible output snapshots; never retain or send unbounded raw streamed output.
+- Outbound durable delivery recovery startup must claim due items across app scopes; do not hard-code startup recovery claims to `appId: 'default'`.
+- Jobs must use canonical `execution_context` and `notification_routes` for runtime execution/delivery targeting; do not add or mirror legacy job-notification alias fields.
+- Postgres `pgcrypto` must be installed in `public` schema for shared test/runtime databases; schema-scoped extension installs break `digest()` lookups under per-schema `search_path`.
+- When using Drizzle Postgres upserts, do not assume `onConflictDoUpdate.target` supports SQL expressions; expression-index identities require explicit insert + unique-violation update flows.
 
 ## Architecture Rules
 
@@ -95,7 +100,7 @@ Important constraints:
 - Runtime bootstrap code must not call `getRuntimeStorage()` while constructing wiring objects before `runStartup()` initializes storage. Pass lazy repository accessors or instantiate storage-backed services inside request handlers after startup.
 - Runtime queue concurrency and retry policy belongs under `runtime.queue` in `settings.yaml` and should be injected into `GroupQueue`; tests should not depend on hard-coded queue timing or concurrency defaults.
 - Agents must use `send_message`, `ask_user_question`, `request_skill_install`, `request_skill_proposal`, `request_skill_dependency_install`, `request_mcp_server`, `request_permission`, `service_restart`, and `register_agent` instead of direct installs, config edits, or legacy tool-enable guidance. Permission decisions are `Allow once`, `Always allow <granular rule>`, or `Cancel`.
-- The control API is part of the runtime process. launchd/systemd service definitions should stay secret-free; `MYCLAW_CONTROL_API_KEY(S)_JSON`, `MYCLAW_CONTROL_APP_ID`, `MYCLAW_CONTROL_PORT`, and `MYCLAW_CONTROL_SOCKET_PATH` belong in process env or the runtime `.env`.
+- The control API is part of the runtime process. launchd/systemd service definitions should stay secret-free; `MYCLAW_CONTROL_API_KEYS_JSON`, `MYCLAW_CONTROL_PORT`, and `MYCLAW_CONTROL_SOCKET_PATH` belong in process env or the runtime `.env`. Control API keys must include explicit `kid`, `token`, `appId`, and `scopes`.
 
 ## Docs Rules
 

@@ -46,7 +46,7 @@ ACP/ACPS are harness/runtime integration concerns. They are not part of the agen
 | Tools and IPC              | `apps/core/src/runner/agent-capabilities.ts`, `apps/core/src/runner/mcp/server.ts`, `apps/core/src/runtime/ipc.ts`, `apps/core/src/runtime/ipc-parsing.ts`                                        | Defines allowed tools, exposes MyClaw MCP tools, validates signed IPC requests, and writes signed responses.                                             |
 | Control server and SDK     | `apps/core/src/control/server/index.ts`, `apps/core/src/control/server/routes/`, `packages/sdk/src/index.ts`                                                                                      | Exposes HTTP/SSE control APIs for backend apps; SDK wraps this API for server-side Node consumers.                                                       |
 | Scheduler                  | `apps/core/src/jobs/scheduler.ts`, `apps/core/src/jobs/execution.ts`, `apps/core/src/jobs/schedule-math.ts`, `apps/core/src/infrastructure/pgboss/scheduler-engine.ts`                            | Owns MyClaw job definitions, triggers, runs, events, pg-boss queueing, schedule sync, and dead-letter handling.                                          |
-| Memory and retrieval       | `apps/core/src/application/sessions/hydrate-agent-context-service.ts`, `apps/core/src/memory/app-memory-service.ts`, `apps/core/src/adapters/storage/postgres/schema/schema.ts`, `docs/MEMORY.md` | Stores app/agent/subject-boundary memory, records evidence and recall events, runs auditable dreaming, and builds bounded memory context for fresh runs. |
+| Memory and retrieval       | `apps/core/src/application/sessions/hydrate-agent-context-service.ts`, `apps/core/src/memory/app-memory-service.ts`, `apps/core/src/adapters/storage/postgres/schema/memory.ts`, `docs/MEMORY.md` | Stores flattened app/agent/subject-boundary memory in `memory_items`, records evidence and recall events, runs auditable dreaming, and builds bounded lexical memory context for fresh runs. |
 
 ## End-to-End Message Flow
 
@@ -90,7 +90,7 @@ sequenceDiagram
 5. Polling and recovery: the message loop polls for new messages during normal operation and calls recovery on startup so pending threads are not lost after a restart.
 6. Queueing: `GroupQueue` deduplicates checks per group/thread, limits concurrent containers, retries failed processing, and routes follow-up messages into an active child run when possible.
 7. Agent execution: the group processor resolves or creates the canonical session, hydrates scoped durable memory, then starts a live streaming child runner. Follow-up messages are piped into that runner until it is stopped or idles out.
-8. Streaming and final response: the processor forwards partial output, progress, typing, and final replies through channel wiring. Slack and Telegram send network responses; the app channel records durable runtime events for `wait()`, `stream()`, webhooks, and replay.
+8. Delivery visibility today: final replies are user-visible through durable required sends. Progress updates, interaction receipts, and streaming chunks remain non-visible until durable ordered progress/chunk delivery exists; the app channel still records durable runtime events for `wait()`, `stream()`, webhooks, and replay.
 
 ## Agent Runtime Deep Dive
 
@@ -109,7 +109,8 @@ Key runner inputs:
 
 - `allowedTools` from `apps/core/src/runner/agent-capabilities.ts`
 - MyClaw MCP server config from `apps/core/src/runner/mcp/server.ts`
-- `persistSession: false`; no SDK `resume`, `resumeSessionAt`, or `continue`
+- Claude live-chat session projection (`persistSession: true` and `resume`
+  when a scoped provider session handle exists; scheduled jobs do not resume)
 - working directory and extra directories
 - `canUseTool`, the permission callback that checks runtime policy before sensitive tools run
 
@@ -147,7 +148,8 @@ MyClaw MCP tools are grouped by capability:
   available tools plus exact requestable admin tool IDs and `request_permission`
   arguments
 - scheduler: create, inspect, mutate, pause, resume, list, and wait for jobs, runs, events, and dead letters
-- memory: search, save, and patch memory or procedures
+- memory: default tools include search/save for memory and procedures; patch
+  tools are reviewed/selected-only
 - browser: list profiles, launch, close, and inspect browser status
 - service control: request runtime restart
 - agent registration: register an agent with the runtime
@@ -234,12 +236,17 @@ Serialized execution is a queue policy tied to session or group affinity. It is 
 
 Postgres is mandatory runtime storage. The supported deployment model is one database with separate schemas and roles: `myclaw` for first-party runtime tables, `onecli` for OneCLI broker state, and `pgboss` for pg-boss internals. MyClaw provisions and verifies the schema boundary, but it does not query OneCLI-owned tables or run OneCLI migrations. `MYCLAW_DATABASE_URL` and `ONECLI_DATABASE_URL` must use different Postgres users; the OneCLI `schema=onecli` URL parameter is not treated as a permission boundary by itself.
 
-The MyClaw schema contains first-party tables for groups, chats, messages, sessions, jobs, runs, runtime events, webhooks, deliveries, memory subjects, evidence, candidates, items, recall events, dream runs, dream decisions, and audit records.
+The MyClaw schema contains first-party tables for groups, chats, messages,
+sessions, jobs, runs, runtime events, webhooks, deliveries, flattened memory
+items, memory evidence, candidates, recall events, dream runs, dream decisions,
+and audit records. `memory_subjects` is not active current schema; memory
+subject identity is stored directly on `memory_items` and in item metadata.
 
 Retrieval uses two Postgres-native paths:
 
 - Postgres full-text search for lexical matching, filtering, and ranking
-- pgvector for semantic memory lookup and dedupe when brokered embeddings are enabled
+- Future pgvector semantic lookup only after memory item embedding indexing and
+  querying are fully implemented
 
 Memory injected into a prompt is context, not trusted authority. The agent may use it to answer better, but runtime authorization still happens outside the model.
 

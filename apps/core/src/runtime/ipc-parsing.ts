@@ -36,8 +36,10 @@ export interface ParsedMemoryIpcRequest {
   action: MemoryIpcAction;
   payload: Record<string, unknown>;
   responseKeyId?: string;
+  allowedActions: readonly MemoryIpcAction[];
   context?: {
     threadId?: string;
+    chatJid?: string;
     userId?: string;
     defaultScope?: 'user' | 'group';
   };
@@ -219,9 +221,11 @@ export function parseMemoryIpcRequest(
   if (!isPlainObject(raw)) throw new Error('Invalid memory IPC payload');
   const {
     authThreadId: threadId,
+    chatJid,
     responseKeyId,
     userId,
     defaultScope,
+    allowedActions,
   } = validateMemoryIpcAuthRequest(raw, sourceAgentFolder, 'memory IPC');
   if (!responseKeyId) {
     throw new Error('memory IPC responseKeyId is required');
@@ -237,6 +241,9 @@ export function parseMemoryIpcRequest(
   if (!MEMORY_IPC_ACTIONS.includes(action as MemoryIpcAction)) {
     throw new Error(`Unsupported memory IPC action: ${action}`);
   }
+  if (!allowedActions.includes(action as MemoryIpcAction)) {
+    throw new Error(`Memory IPC action is not allowed: ${action}`);
+  }
   const payload = raw.payload === undefined ? {} : raw.payload;
   if (!isPlainObject(payload)) {
     throw new Error('Invalid memory IPC payload body');
@@ -245,11 +252,13 @@ export function parseMemoryIpcRequest(
     requestId,
     action: action as MemoryIpcAction,
     payload,
+    allowedActions,
     ...(responseKeyId ? { responseKeyId } : {}),
-    ...(threadId || userId || defaultScope
+    ...(threadId || chatJid || userId || defaultScope
       ? {
           context: {
             ...(threadId ? { threadId } : {}),
+            ...(chatJid ? { chatJid } : {}),
             ...(userId ? { userId } : {}),
             ...(defaultScope ? { defaultScope } : {}),
           },

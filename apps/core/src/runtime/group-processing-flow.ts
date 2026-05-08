@@ -27,6 +27,22 @@ export async function handleFailure(input: {
   return false;
 }
 
+export function resetGroupStreamingForTurn(input: {
+  chatJid: string;
+  groupName: string;
+  channelRuntime: { resetStreaming(jid: string): void };
+  logger: { debug(payload: Record<string, unknown>, message: string): void };
+}): void {
+  try {
+    input.channelRuntime.resetStreaming(input.chatJid);
+  } catch (err) {
+    input.logger.debug(
+      { err, group: input.groupName },
+      'Failed to reset channel streaming state before processing',
+    );
+  }
+}
+
 export async function waitOutput(input: {
   wait: () => Promise<void>;
   getError: () => unknown;

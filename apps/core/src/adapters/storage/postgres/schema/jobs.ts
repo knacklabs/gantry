@@ -74,9 +74,27 @@ export const canonicalJobsPostgres = pgTable(
       table.nextRunAt,
     ),
     targetSessionUpdatedIdx: index('idx_jobs_target_session_updated').on(
-      sql`(${table.targetJson}::jsonb ->> 'sessionId')`,
+      sql`(${table.targetJson}::jsonb #>> '{executionContext,sessionId}')`,
       table.updatedAt.desc(),
       table.createdAt.desc(),
+    ),
+    targetGroupScopeUpdatedIdx: index('idx_jobs_target_group_scope_updated').on(
+      sql`(${table.targetJson}::jsonb #>> '{executionContext,groupScope}')`,
+      table.updatedAt.desc(),
+      table.createdAt.desc(),
+    ),
+    targetThreadNormalizedUpdatedIdx: index(
+      'idx_jobs_target_thread_normalized_updated',
+    ).on(
+      sql`coalesce(${table.targetJson}::jsonb #>> '{executionContext,threadId}', '')`,
+      table.updatedAt.desc(),
+      table.createdAt.desc(),
+    ),
+    targetNotificationRoutesGinIdx: index(
+      'idx_jobs_target_notification_routes',
+    ).using(
+      'gin',
+      sql`coalesce(${table.targetJson}::jsonb -> 'notificationRoutes', '[]'::jsonb)`,
     ),
   }),
 );

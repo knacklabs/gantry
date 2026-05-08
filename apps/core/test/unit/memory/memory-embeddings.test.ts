@@ -40,6 +40,26 @@ describe('memory embedding providers', () => {
     expect(await provider.embedOne('hello')).toEqual([0.1, 0.2, 0.3, 0.4]);
   });
 
+  it('passes model overrides through provider factory creation', async () => {
+    const providerName = `test-model-override-${Date.now()}`;
+    const seen: Array<{ model?: string }> = [];
+    registerEmbeddingProvider(providerName, (options) => {
+      seen.push({ model: options?.model });
+      return {
+        isEnabled: () => true,
+        validateConfiguration: () => undefined,
+        embedMany: async () => [[0.1, 0.2, 0.3]],
+        embedOne: async () => [0.1, 0.2, 0.3],
+      } satisfies EmbeddingProvider;
+    });
+
+    const provider = createEmbeddingProvider(providerName, {
+      model: 'text-embedding-dream-test',
+    });
+    await provider.embedOne('hello');
+    expect(seen).toEqual([{ model: 'text-embedding-dream-test' }]);
+  });
+
   it('does not synthesize zero vectors when disabled', async () => {
     const provider = new DisabledEmbeddingClient();
 

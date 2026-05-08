@@ -87,7 +87,14 @@ describe('skill CLI', () => {
         );
       });
     });
-    process.env.MYCLAW_CONTROL_API_KEY = 'test-key';
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'cli-test',
+        token: 'test-key',
+        appId: 'default',
+        scopes: ['skills:admin'],
+      },
+    ]);
     process.env.MYCLAW_CONTROL_PORT = String(port);
 
     const { runSkillCommand } = await import('@core/cli/skills.js');

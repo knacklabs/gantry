@@ -1,6 +1,10 @@
 import type { Job } from '../../domain/types.js';
 import type { ToolCatalogRepository } from '../../domain/ports/repositories.js';
 import type { RuntimeJobRepository } from '../../domain/repositories/ops-repo.js';
+import type {
+  JobExecutionContextInput,
+  JobNotificationRouteInput,
+} from './job-management-types.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from './job-access.js';
 import {
   agentIdForJobGroupScope,
@@ -18,6 +22,8 @@ import {
 } from '../../shared/tool-access-view.js';
 
 export interface JobVisibilityMetadata {
+  executionContext: JobExecutionContextInput;
+  notificationRoutes: JobNotificationRouteInput[];
   target: {
     appId: string;
     agentId: string;
@@ -27,11 +33,6 @@ export interface JobVisibilityMetadata {
   };
   promptPreview: string;
   fullPrompt?: string;
-  notificationTarget: {
-    linkedSessions: string[];
-    threadId: string | null;
-    silent: boolean;
-  };
   inheritedTools: string[];
   jobExtraTools: string[];
   effectiveAllowedTools: string[];
@@ -54,6 +55,11 @@ export async function buildJobVisibilityMetadata(input: {
   nowMs?: number;
 }): Promise<JobVisibilityMetadata> {
   const appId = input.appId ?? DEFAULT_JOB_RUNTIME_APP_ID;
+  const executionContext = resolveExecutionContext(input.job);
+  const notificationRoutes = resolveNotificationRoutes(
+    input.job,
+    executionContext,
+  );
   const agentId = agentIdForJobGroupScope(input.job.group_scope);
   const policy = await resolveJobToolPolicy({
     job: input.job,
@@ -68,20 +74,17 @@ export async function buildJobVisibilityMetadata(input: {
       ? await input.ops.listJobRuns(input.job.id, input.recentRunLimit ?? 5)
       : [];
   return {
+    executionContext,
+    notificationRoutes,
     target: {
       appId,
       agentId,
       groupScope: input.job.group_scope,
-      conversationJids: input.job.linked_sessions,
-      threadId: input.job.thread_id,
+      conversationJids: dedupeConversationJids(notificationRoutes),
+      threadId: executionContext.threadId,
     },
     promptPreview: promptPreview(input.job.prompt),
     fullPrompt: input.job.prompt,
-    notificationTarget: {
-      linkedSessions: input.job.linked_sessions,
-      threadId: input.job.thread_id,
-      silent: input.job.silent,
-    },
     inheritedTools: policy.inheritedTools,
     jobExtraTools: policy.jobExtraTools,
     effectiveAllowedTools: policy.effectiveAllowedTools,
@@ -128,6 +131,11 @@ export async function buildJobListVisibilityMetadata(input: {
     await Promise.all(
       input.jobs.map(async (job) => {
         const appId = input.appId ?? DEFAULT_JOB_RUNTIME_APP_ID;
+        const executionContext = resolveExecutionContext(job);
+        const notificationRoutes = resolveNotificationRoutes(
+          job,
+          executionContext,
+        );
         const agentId = agentIdForJobGroupScope(job.group_scope);
         const inheritedTools = await loadInheritedTools(appId, agentId);
         const jobExtraTools = normalizeJobExtraTools(
@@ -138,19 +146,16 @@ export async function buildJobListVisibilityMetadata(input: {
           jobExtraTools,
         );
         const metadata: JobVisibilityMetadata = {
+          executionContext,
+          notificationRoutes,
           target: {
             appId,
             agentId,
             groupScope: job.group_scope,
-            conversationJids: job.linked_sessions,
-            threadId: job.thread_id,
+            conversationJids: dedupeConversationJids(notificationRoutes),
+            threadId: executionContext.threadId,
           },
           promptPreview: promptPreview(job.prompt),
-          notificationTarget: {
-            linkedSessions: job.linked_sessions,
-            threadId: job.thread_id,
-            silent: job.silent,
-          },
           inheritedTools,
           jobExtraTools,
           effectiveAllowedTools,
@@ -171,6 +176,77 @@ export async function buildJobListVisibilityMetadata(input: {
 function promptPreview(prompt: string): string {
   const compact = prompt.replace(/\s+/g, ' ').trim();
   return compact.length > 160 ? `${compact.slice(0, 157)}...` : compact;
+}
+
+function resolveExecutionContext(job: Job): JobExecutionContextInput {
+  const stored = job.execution_context;
+  if (
+    stored &&
+    typeof stored.conversationJid === 'string' &&
+    stored.conversationJid.trim() &&
+    typeof stored.groupScope === 'string' &&
+    stored.groupScope.trim()
+  ) {
+    return {
+      conversationJid: stored.conversationJid,
+      threadId: stored.threadId ?? null,
+      groupScope: stored.groupScope,
+      sessionId:
+        stored.sessionId === undefined ? job.session_id : stored.sessionId,
+    };
+  }
+  const fallbackConversationJid = Array.isArray(job.notification_routes)
+    ? job.notification_routes.find(
+        (route) =>
+          typeof route?.conversationJid === 'string' &&
+          route.conversationJid.trim().length > 0,
+      )?.conversationJid
+    : undefined;
+  return {
+    conversationJid: fallbackConversationJid ?? '',
+    threadId: job.thread_id,
+    groupScope: job.group_scope,
+    sessionId: job.session_id,
+  };
+}
+
+function resolveNotificationRoutes(
+  job: Job,
+  executionContext: JobExecutionContextInput,
+): JobNotificationRouteInput[] {
+  const stored = Array.isArray(job.notification_routes)
+    ? job.notification_routes
+    : [];
+  const normalized = stored
+    .filter(
+      (route): route is JobNotificationRouteInput =>
+        typeof route?.conversationJid === 'string' &&
+        route.conversationJid.trim().length > 0 &&
+        typeof route?.label === 'string' &&
+        route.label.trim().length > 0 &&
+        (route.threadId === null || typeof route.threadId === 'string'),
+    )
+    .map((route) => ({
+      conversationJid: route.conversationJid.trim(),
+      threadId: route.threadId ?? null,
+      label: route.label.trim(),
+    }));
+  if (normalized.length > 0) return normalized;
+  return [
+    {
+      conversationJid: executionContext.conversationJid,
+      threadId: executionContext.threadId,
+      label: 'primary',
+    },
+  ];
+}
+
+function dedupeConversationJids(routes: readonly JobNotificationRouteInput[]) {
+  const out = new Set<string>();
+  for (const route of routes) {
+    if (route.conversationJid) out.add(route.conversationJid);
+  }
+  return [...out];
 }
 
 function mergeUnique(

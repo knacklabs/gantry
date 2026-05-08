@@ -2,7 +2,6 @@ import { z } from 'zod';
 
 import {
   ContractMetadataSchema,
-  ExternalReferenceSchema,
   IsoDateTimeSchema,
 } from '../contract-primitives.js';
 
@@ -39,20 +38,15 @@ export const ResumeSessionRequestSchema = z
   .strict();
 export type ResumeSessionRequest = z.infer<typeof ResumeSessionRequestSchema>;
 
-export const ProviderSessionResponseSchema = z.object({
-  id: z.string(),
-  provider: z.string().optional(),
-  externalSessionId: z.string().optional(),
-  artifactRef: z.string().optional(),
-  sandboxId: z.string().nullable().optional(),
-  workspaceSnapshotId: z.string().nullable().optional(),
-  browserProfileId: z.string().nullable().optional(),
-  providerRef: ExternalReferenceSchema,
-  status: z.enum(['active', 'expired', 'reset']),
-  createdAt: IsoDateTimeSchema,
-  updatedAt: IsoDateTimeSchema,
-  metadata: ContractMetadataSchema.optional(),
-});
+export const ProviderSessionResponseSchema = z
+  .object({
+    provider: z.string().optional(),
+    status: z.enum(['active', 'expired', 'reset']),
+    hasProviderResume: z.boolean(),
+    createdAt: IsoDateTimeSchema,
+    updatedAt: IsoDateTimeSchema,
+  })
+  .strict();
 export type ProviderSessionResponse = z.infer<
   typeof ProviderSessionResponseSchema
 >;
@@ -65,7 +59,6 @@ export const AgentSessionResponseSchema = z.object({
   threadId: z.string().nullable().optional(),
   jobId: z.string().nullable().optional(),
   userId: z.string().nullable().optional(),
-  latestProviderSessionId: z.string().nullable().optional(),
   status: AgentSessionStatusSchema,
   providerSessions: z.array(ProviderSessionResponseSchema).optional(),
   createdAt: IsoDateTimeSchema,

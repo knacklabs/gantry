@@ -41,6 +41,7 @@ export function createArchiveCurrentSessionHandler(input: {
   chatJid: string;
   threadId: string | null;
   defaultScope: 'user' | 'group';
+  memoryUserId?: string;
   collectMemory?: SessionMemoryCollector;
 }) {
   return async (cause: ArchiveSessionInput['cause'] = 'new-session') => {
@@ -51,6 +52,7 @@ export function createArchiveCurrentSessionHandler(input: {
       threadId: input.threadId,
       cause,
       defaultScope: input.defaultScope,
+      memoryUserId: input.memoryUserId,
       ...(input.collectMemory ? { collectMemory: input.collectMemory } : {}),
     });
   };
@@ -58,12 +60,18 @@ export function createArchiveCurrentSessionHandler(input: {
 
 export function createSaveProcedureHandler(input: {
   folder: string;
+  conversationId: string;
+  userId?: string;
+  defaultScope: 'user' | 'group';
   threadId?: string | null;
   isAdminWrite: boolean;
 }) {
   return async ({ title, body }: { title: string; body: string }) =>
     saveGroupProcedureMemory({
-      ['group' + 'Folder']: input.folder,
+      folder: input.folder,
+      conversationId: input.conversationId,
+      userId: input.userId,
+      defaultScope: input.defaultScope,
       threadId: input.threadId,
       isAdminWrite: input.isAdminWrite,
       title,

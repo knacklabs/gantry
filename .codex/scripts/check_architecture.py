@@ -15,6 +15,7 @@ from architecture_rules import (
     check_doc_references,
     check_direct_risky_execution,
     check_empty_folders,
+    check_forbidden_direct_provider_sends,
     check_external_imports_by_layer,
     check_file_size_budget,
     check_framework_boundary_imports,
@@ -65,6 +66,7 @@ def print_grouped_failures(issues: dict[str, list[str]]) -> None:
         ("forbidden_channel_registration_surface", "Channel Registration Surface"),
         ("forbidden_ipc_contract_surface", "IPC Contract Surface"),
         ("forbidden_ipc_orchestrator_monolith", "IPC Orchestrator"),
+        ("forbidden_direct_provider_sends", "Direct Provider Sends"),
         ("forbidden_runtime_runner_materialization", "Runtime Runner Materialization"),
         ("doc_references", "Active Doc References"),
     )
@@ -159,6 +161,9 @@ def main() -> int:
         ),
         "forbidden_ipc_orchestrator_monolith": check_forbidden_ipc_orchestrator_monolith(
             root
+        ),
+        "forbidden_direct_provider_sends": check_forbidden_direct_provider_sends(
+            production_files, root
         ),
         "forbidden_runtime_runner_materialization": check_forbidden_runtime_runner_materialization(
             production_files, root

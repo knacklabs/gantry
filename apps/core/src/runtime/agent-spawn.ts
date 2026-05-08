@@ -60,6 +60,7 @@ import {
   AgentOutput,
   RunAgentOptions,
 } from './agent-spawn-types.js';
+import { selectedMemoryIpcActionsFromToolRules } from '../shared/memory-ipc-actions.js';
 
 type RunnerAgentInput = AgentInput & {
   modelCredentialEnv?: Record<string, string>;
@@ -273,6 +274,9 @@ export async function spawnAgent(
   const args = [hostRunnerPath];
   const ipcInputDir = getContinuationInputDir(group.folder, input.threadId);
   const ipcAuth = createIpcAuthEnvelope(group.folder, input.threadId);
+  const memoryIpcAllowedActions = selectedMemoryIpcActionsFromToolRules(
+    input.allowedTools ?? [],
+  );
   const modelCredentialEnv = projectClaudeModelCredentialEnv(
     hostCredentials.env,
   );
@@ -292,16 +296,20 @@ export async function spawnAgent(
     MYCLAW_IPC_DIR: hostRuntime.groupIpcDir,
     MYCLAW_IPC_INPUT_DIR: ipcInputDir,
     MYCLAW_IPC_AUTH_TOKEN: ipcAuth.authToken,
+    MYCLAW_CHAT_JID: input.chatJid,
     MYCLAW_BROWSER_IPC_AUTH_TOKEN: computeBrowserIpcAuthToken(
       group.folder,
       input.chatJid,
       input.threadId,
     ),
     MYCLAW_MEMORY_IPC_AUTH_TOKEN: computeMemoryIpcAuthToken(group.folder, {
+      chatJid: input.chatJid,
       userId: input.memoryUserId,
       defaultScope: input.memoryDefaultScope || 'group',
       threadId: input.threadId,
+      allowedActions: memoryIpcAllowedActions,
     }),
+    MYCLAW_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(memoryIpcAllowedActions),
     MYCLAW_IPC_RESPONSE_VERIFY_KEY: ipcAuth.responseVerifyKey,
     MYCLAW_IPC_RESPONSE_KEY_ID: ipcAuth.responseKeyId,
     MYCLAW_THREAD_ID: input.threadId || '',

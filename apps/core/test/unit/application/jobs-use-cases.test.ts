@@ -5,7 +5,6 @@ import { isVisibleJob } from '@core/application/jobs/job-list-filters.js';
 import {
   assertSchedulerJobAccess,
   canAccessSchedulerJob,
-  resolveLinkedSessions,
   validateSchedulerUpdate,
 } from '@core/application/jobs/job-management-access.js';
 import type { JobControlPort } from '@core/application/jobs/job-management-types.js';
@@ -136,7 +135,6 @@ describe('job application use cases', () => {
 
     expect(upsertJob).toHaveBeenCalledWith(
       expect.objectContaining({
-        linked_sessions: ['app:app-one:conversation'],
         session_id: 'session-app-one',
         group_scope: 'app-one-workspace',
       }),
@@ -419,6 +417,36 @@ describe('job application use cases', () => {
     expect(ops.updateJob).not.toHaveBeenCalled();
   });
 
+  it('rejects PATCH executionContext retargeting to another app session', async () => {
+    const ops = makeOps(makeJob({ thread_id: 'thread-1' }));
+    const service = new JobManagementService({
+      ops: ops as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeControl({
+        'session-app-one': { sessionId: 'session-app-one', appId: 'app-one' },
+        'session-app-two': { sessionId: 'session-app-two', appId: 'app-two' },
+      }),
+    });
+
+    await expect(
+      service.updateJob({
+        appId: 'app-one',
+        jobId: 'job-1',
+        patch: {
+          executionContext: {
+            conversationJid: 'app:app-two:conversation',
+            threadId: null,
+            groupScope: 'app-two-workspace',
+            sessionId: 'session-app-two',
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+    expect(ops.updateJob).not.toHaveBeenCalled();
+  });
+
   it('uses canonical session ownership instead of linked session strings for app access', async () => {
     const job = makeJob({
       linked_sessions: ['app:app-one:conv-1'],
@@ -504,7 +532,7 @@ describe('job application use cases', () => {
     });
   });
 
-  it('enforces scheduler access by source group and originating conversation', () => {
+  it('enforces scheduler access by source group and canonical execution context', () => {
     const access = {
       sourceAgentFolder: 'team',
       originConversationJid: 'tg:team',
@@ -521,8 +549,11 @@ describe('job application use cases', () => {
       canAccessSchedulerJob(
         makeJob({
           group_scope: 'team',
-          linked_sessions: ['tg:team'],
-          thread_id: 'thread-1',
+          execution_context: {
+            conversationJid: 'tg:team',
+            threadId: 'thread-1',
+            groupScope: 'team',
+          },
         }),
         access,
       ),
@@ -531,8 +562,11 @@ describe('job application use cases', () => {
       canAccessSchedulerJob(
         makeJob({
           group_scope: 'other',
-          linked_sessions: ['tg:team'],
-          thread_id: 'thread-1',
+          execution_context: {
+            conversationJid: 'tg:team',
+            threadId: 'thread-1',
+            groupScope: 'other',
+          },
         }),
         access,
       ),
@@ -541,8 +575,11 @@ describe('job application use cases', () => {
       canAccessSchedulerJob(
         makeJob({
           group_scope: 'team',
-          linked_sessions: ['tg:other'],
-          thread_id: 'thread-1',
+          execution_context: {
+            conversationJid: 'tg:other',
+            threadId: 'thread-1',
+            groupScope: 'team',
+          },
         }),
         access,
       ),
@@ -551,8 +588,11 @@ describe('job application use cases', () => {
       canAccessSchedulerJob(
         makeJob({
           group_scope: 'team',
-          linked_sessions: ['tg:team'],
-          thread_id: 'other-thread',
+          execution_context: {
+            conversationJid: 'tg:team',
+            threadId: 'other-thread',
+            groupScope: 'team',
+          },
         }),
         access,
       ),
@@ -561,8 +601,13 @@ describe('job application use cases', () => {
       canAccessSchedulerJob(
         makeJob({
           group_scope: 'team',
-          linked_sessions: ['tg:sibling'],
-          thread_id: 'thread-1',
+          notification_routes: [
+            {
+              conversationJid: 'tg:sibling',
+              threadId: 'thread-1',
+              label: 'sibling',
+            },
+          ],
         }),
         access,
       ),
@@ -571,8 +616,18 @@ describe('job application use cases', () => {
       canAccessSchedulerJob(
         makeJob({
           group_scope: 'team',
-          linked_sessions: ['tg:team', 'tg:sibling'],
-          thread_id: 'thread-1',
+          notification_routes: [
+            {
+              conversationJid: 'tg:sibling',
+              threadId: 'thread-1',
+              label: 'sibling',
+            },
+            {
+              conversationJid: 'tg:team',
+              threadId: 'thread-1',
+              label: 'primary',
+            },
+          ],
         }),
         access,
       ),
@@ -582,8 +637,11 @@ describe('job application use cases', () => {
         assertSchedulerJobAccess(
           makeJob({
             group_scope: 'other',
-            linked_sessions: ['tg:team'],
-            thread_id: 'thread-1',
+            execution_context: {
+              conversationJid: 'tg:team',
+              threadId: 'thread-1',
+              groupScope: 'other',
+            },
           }),
           access,
         ),
@@ -591,7 +649,34 @@ describe('job application use cases', () => {
     );
   });
 
-  it('validates scheduler linked sessions and thread mutations', () => {
+  it('does not derive scheduler access from linked_sessions membership', () => {
+    const access = {
+      sourceAgentFolder: 'team',
+      originConversationJid: 'tg:team',
+      conversationBindings: {
+        'tg:team': { folder: 'team' },
+        'tg:other': { folder: 'other' },
+      },
+      sourceAgentFolderJids: ['tg:team'],
+    };
+
+    expect(
+      canAccessSchedulerJob(
+        makeJob({
+          group_scope: 'team',
+          linked_sessions: ['tg:other'],
+          execution_context: {
+            conversationJid: 'tg:team',
+            threadId: null,
+            groupScope: 'team',
+          },
+        }),
+        access,
+      ),
+    ).toBe(true);
+  });
+
+  it('validates scheduler thread mutations', () => {
     const access = {
       sourceAgentFolder: 'team',
       originConversationJid: 'tg:team',
@@ -604,21 +689,6 @@ describe('job application use cases', () => {
       authThreadId: 'thread-1',
     };
 
-    expect(resolveLinkedSessions({}, access)).toEqual(['tg:team']);
-    expect(
-      resolveLinkedSessions(
-        { linkedSessions: ['tg:team', 'tg:sibling'] },
-        access,
-      ),
-    ).toEqual(['tg:team', 'tg:sibling']);
-    expectThrowsCode(
-      () => resolveLinkedSessions({ linkedSessions: ['tg:other'] }, access),
-      'FORBIDDEN',
-    );
-    expectThrowsCode(
-      () => resolveLinkedSessions({ linkedSessions: ['tg:sibling'] }, access),
-      'FORBIDDEN',
-    );
     expectThrowsCode(
       () =>
         validateSchedulerUpdate(
@@ -688,7 +758,7 @@ describe('job application use cases', () => {
     });
   });
 
-  it('pushes linked-session access into the bounded repository query', async () => {
+  it('pushes scheduler access group scope into the bounded repository query', async () => {
     const ops = {
       listJobs: vi.fn(async () => []),
     };
@@ -714,7 +784,7 @@ describe('job application use cases', () => {
     expect(ops.listJobs).toHaveBeenCalledWith(
       expect.objectContaining({
         groupScope: 'team',
-        conversationJid: 'tg:team',
+        conversationJid: undefined,
         limit: 100,
       }),
     );
@@ -736,6 +806,11 @@ describe('job application use cases', () => {
       group_scope: 'team',
       linked_sessions: ['tg:team'],
       thread_id: '2771',
+      execution_context: {
+        conversationJid: 'tg:team',
+        threadId: '2771',
+        groupScope: 'team',
+      },
     });
     const ops = {
       getJobById: vi.fn(async () => threadedJob),
@@ -1327,7 +1402,7 @@ describe('job application use cases', () => {
     expect(ops.listRecentJobEvents).not.toHaveBeenCalled();
   });
 
-  it('rejects scoped run reads when the originating conversation is not linked', async () => {
+  it('rejects scoped run reads when execution context conversation differs', async () => {
     const access = {
       sourceAgentFolder: 'team',
       originConversationJid: 'tg:team',
@@ -1342,7 +1417,11 @@ describe('job application use cases', () => {
         makeJob({
           id: 'sibling-job',
           group_scope: 'team',
-          linked_sessions: ['tg:sibling'],
+          execution_context: {
+            conversationJid: 'tg:sibling',
+            threadId: null,
+            groupScope: 'team',
+          },
         }),
       ),
       listJobRuns: vi.fn(async () => []),
@@ -1398,6 +1477,11 @@ describe('job application use cases', () => {
       id: 'job-1',
       group_scope: 'team',
       linked_sessions: ['tg:team'],
+      execution_context: {
+        conversationJid: 'tg:team',
+        threadId: null,
+        groupScope: 'team',
+      },
     });
     const ops = {
       listJobs: vi.fn(async () => [visibleJob]),
@@ -1428,7 +1512,7 @@ describe('job application use cases', () => {
     expect(ops.listJobs).toHaveBeenCalledWith(
       expect.objectContaining({
         groupScope: 'team',
-        conversationJid: 'tg:team',
+        conversationJid: undefined,
       }),
     );
     expect(ops.listJobRuns).toHaveBeenCalledWith(undefined, 10, {

@@ -1,6 +1,7 @@
 import {
   getProvider,
   listChannelProviders,
+  normalizeProviderId,
 } from '../../channels/provider-registry.js';
 import { resolveModelSelection } from '../../shared/model-catalog.js';
 import { parseSenderAllowlistConfig } from './sender-allowlist.js';
@@ -281,6 +282,11 @@ function parseConversations(
       map.external_id,
       `${pathPrefix}.external_id`,
     );
+    assertExternalIdProviderPrefixMatchesConnection({
+      externalId,
+      providerId: connection.provider,
+      pathPrefix: `${pathPrefix}.external_id`,
+    });
     const externalKey = `${connection.provider}:${externalId}`;
     if (seenExternal.has(externalKey)) {
       throw new Error(`${pathPrefix}.external_id duplicates ${externalKey}`);
@@ -306,6 +312,28 @@ function parseConversations(
     };
   }
   return conversations;
+}
+
+function assertExternalIdProviderPrefixMatchesConnection(input: {
+  externalId: string;
+  providerId: string;
+  pathPrefix: string;
+}): void {
+  const explicitProviderId = explicitProviderIdForExternalId(input.externalId);
+  if (!explicitProviderId) return;
+  const normalizedConnectionProviderId = normalizeProviderId(input.providerId);
+  if (!normalizedConnectionProviderId) return;
+  if (explicitProviderId === normalizedConnectionProviderId) return;
+  throw new Error(
+    `${input.pathPrefix} uses explicit provider prefix "${explicitProviderId}:" that does not match provider connection "${normalizedConnectionProviderId}".`,
+  );
+}
+
+function explicitProviderIdForExternalId(value: string): string | null {
+  const separator = value.indexOf(':');
+  if (separator <= 0) return null;
+  const explicitProviderId = normalizeProviderId(value.slice(0, separator));
+  return explicitProviderId || null;
 }
 
 function parseConfiguredBindings(

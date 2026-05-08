@@ -212,6 +212,10 @@ agents:
   dreaming:
     enabled: true
     cron: "*/15 * * * *"
+    embeddings:
+      enabled: true
+      provider: openai
+      model: text-embedding-3-small
   llm:
     extractor_max_facts: 5
     extractor_min_confidence: 0.75
@@ -226,6 +230,11 @@ agents:
     expect(parsed.memory.embeddings.dailyLimit).toBe(42);
     expect(parsed.memory.embeddings.batchSize).toBe(7);
     expect(parsed.memory.dreaming.cron).toBe('*/15 * * * *');
+    expect(parsed.memory.dreaming.embeddings).toEqual({
+      enabled: true,
+      provider: 'openai',
+      model: 'text-embedding-3-small',
+    });
     expect(parsed.memory.llm.extractorMaxFacts).toBe(5);
     expect(parsed.memory.llm.extractorMinConfidence).toBe(0.75);
     expect(parsed.memory.maintenance.maxPending).toBe(250);
@@ -268,6 +277,59 @@ provider_connections:
     );
     expect(result.failure?.details.join('\n')).toContain(
       'agent.one_time_job_default_model is invalid: Unknown model "sonet". Did you mean "sonnet"?',
+    );
+  });
+
+  it('rejects desired-state external ids whose explicit prefix mismatches provider connection', () => {
+    expect(() =>
+      parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+    bot_token_env: SLACK_BOT_TOKEN
+
+provider_connections:
+  slack_default:
+    provider: slack
+    runtime_secret_refs:
+      bot_token: SLACK_BOT_TOKEN
+
+conversations:
+  team:
+    provider_connection: slack_default
+    external_id: "tg:-100123"
+    kind: channel
+`),
+    ).toThrow(
+      'conversations.team.external_id uses explicit provider prefix "telegram:" that does not match provider connection "slack".',
+    );
+  });
+
+  it('flags mismatched explicit conversation prefixes during runtime validation', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.slack.enabled = true;
+    settings.providers.slack.defaultConnection = 'slack_default';
+    settings.providerConnections.slack_default = {
+      provider: 'slack',
+      label: 'Slack Default',
+      runtimeSecretRefs: { bot_token: 'SLACK_BOT_TOKEN' },
+    };
+    settings.conversations.team = {
+      providerConnection: 'slack_default',
+      externalId: 'tg:-100123',
+      kind: 'channel',
+      displayName: 'Team',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['U123'],
+    };
+
+    const result = validateLoadedRuntimeSettings(
+      '/tmp/myclaw-prefix-validation',
+      settings,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.failure?.details.join('\n')).toContain(
+      'conversations.team.external_id prefix "telegram:" does not match provider connection slack_default (slack).',
     );
   });
 
@@ -798,10 +860,7 @@ conversations:
     expect(yaml).toContain('skill:3014949c-a616-4b2c-80e7-0bc61bb31e85');
     expect(yaml).toContain('company-handbook');
     expect(parseRuntimeSettings(yaml).agents.kai.capabilities.skillIds).toEqual(
-      [
-        'skill:3014949c-a616-4b2c-80e7-0bc61bb31e85',
-        'company-handbook',
-      ],
+      ['skill:3014949c-a616-4b2c-80e7-0bc61bb31e85', 'company-handbook'],
     );
   });
 });

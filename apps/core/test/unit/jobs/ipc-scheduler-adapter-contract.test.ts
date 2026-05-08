@@ -247,6 +247,72 @@ describe('scheduler IPC adapter contracts', () => {
     );
   });
 
+  it('passes canonical scheduler upsert target context through to the job service', async () => {
+    mocks.jobService.upsertJobFromIpc.mockResolvedValueOnce({
+      jobId: 'job-1',
+      created: true,
+      modelAlias: null,
+    });
+
+    await schedulerCreateTaskHandlers.scheduler_upsert_job(
+      makeContext({
+        type: 'scheduler_upsert_job',
+        name: 'Daily review',
+        prompt: 'Review memory',
+        scheduleType: 'once',
+        scheduleValue: '2026-05-04T00:00:00.000Z',
+        executionContext: {
+          conversationJid: 'tg:team',
+          threadId: null,
+          groupScope: 'team',
+        },
+        notificationRoutes: [
+          {
+            conversationJid: 'tg:team',
+            threadId: null,
+            label: 'primary',
+          },
+        ],
+      }),
+    );
+
+    expect(mocks.jobService.upsertJobFromIpc).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionContext: {
+          conversationJid: 'tg:team',
+          threadId: null,
+          groupScope: 'team',
+        },
+        notificationRoutes: [
+          {
+            conversationJid: 'tg:team',
+            threadId: null,
+            label: 'primary',
+          },
+        ],
+      }),
+    );
+  });
+
+  it('rejects legacy scheduler upsert fields in IPC payloads', async () => {
+    await schedulerCreateTaskHandlers.scheduler_upsert_job(
+      makeContext({
+        type: 'scheduler_upsert_job',
+        name: 'Daily review',
+        prompt: 'Review memory',
+        scheduleType: 'once',
+        scheduleValue: '2026-05-04T00:00:00.000Z',
+        ...({ linkedSessions: ['tg:team'] } as unknown as TaskIpcData),
+      }),
+    );
+
+    expect(mocks.responder.reject).toHaveBeenCalledWith(
+      'Unsupported legacy scheduler fields. Use executionContext and notificationRoutes.',
+      'invalid_request',
+    );
+    expect(mocks.jobService.upsertJobFromIpc).not.toHaveBeenCalled();
+  });
+
   it('injects canonical app session control for app-origin scheduler upserts', async () => {
     mocks.runtimeControlRepository.getAppSessionByChatJid.mockResolvedValueOnce(
       {
@@ -442,6 +508,22 @@ describe('scheduler IPC adapter contracts', () => {
       access: expect.any(Object),
       patch: { allowedTools: ['Read'] },
     });
+  });
+
+  it('rejects legacy scheduler update fields in IPC payloads', async () => {
+    await schedulerMutateTaskHandlers.scheduler_update_job(
+      makeContext({
+        type: 'scheduler_update_job',
+        jobId: 'job-1',
+        ...({ deliverTo: ['tg:team'] } as unknown as TaskIpcData),
+      }),
+    );
+
+    expect(mocks.responder.reject).toHaveBeenCalledWith(
+      'Unsupported legacy scheduler fields. Use executionContext and notificationRoutes.',
+      'invalid_request',
+    );
+    expect(mocks.jobService.updateJob).not.toHaveBeenCalled();
   });
 
   it('routes scheduler update job tool approvals to the originating conversation', async () => {
@@ -726,5 +808,89 @@ describe('scheduler IPC adapter contracts', () => {
       'Listed 0 scheduler event(s).',
       { events: [] },
     );
+  });
+
+  it('lists scheduler notification targets from the authenticated conversation scope', async () => {
+    const context = makeContext({
+      type: 'scheduler_list_notification_targets',
+      chatJid: 'tg:team',
+    });
+    context.conversationBindings = {
+      'tg:team': {
+        folder: 'team',
+        name: 'Team Channel',
+        conversationKind: 'channel',
+      },
+      'tg:dm-user': {
+        folder: 'team',
+        name: 'Direct Chat',
+        conversationKind: 'dm',
+      },
+    };
+    context.sourceAgentFolderJids = ['tg:team', 'tg:dm-user'];
+
+    await schedulerQueryTaskHandlers.scheduler_list_notification_targets(
+      context,
+    );
+
+    expect(mocks.responder.acceptData).toHaveBeenCalledWith(
+      expect.stringContaining('Listed'),
+      expect.objectContaining({
+        targets: expect.arrayContaining([
+          expect.objectContaining({ shortcut: 'here' }),
+        ]),
+      }),
+    );
+    const targets = mocks.responder.acceptData.mock.calls[0]?.[1]?.targets as
+      | Array<Record<string, unknown>>
+      | undefined;
+    expect(targets?.some((target) => target.shortcut === 'me_dm')).toBe(false);
+    expect(
+      targets?.some((target) => target.kind === 'bound_conversation'),
+    ).toBe(false);
+  });
+
+  it('shows me_dm shortcut only when origin conversation is a DM', async () => {
+    const context = makeContext({
+      type: 'scheduler_list_notification_targets',
+      chatJid: 'tg:dm-user',
+    });
+    context.conversationBindings = {
+      'tg:team': {
+        folder: 'team',
+        name: 'Team Channel',
+        conversationKind: 'channel',
+      },
+      'tg:dm-user': {
+        folder: 'team',
+        name: 'Direct Chat',
+        conversationKind: 'dm',
+      },
+    };
+    context.sourceAgentFolderJids = ['tg:team', 'tg:dm-user'];
+
+    await schedulerQueryTaskHandlers.scheduler_list_notification_targets(
+      context,
+    );
+
+    const targets = mocks.responder.acceptData.mock.calls[0]?.[1]?.targets as
+      | Array<Record<string, unknown>>
+      | undefined;
+    expect(targets).toEqual(
+      expect.arrayContaining([expect.objectContaining({ shortcut: 'me_dm' })]),
+    );
+    const dmTarget = targets?.find((target) => target.shortcut === 'me_dm');
+    expect(dmTarget).toMatchObject({
+      executionContext: {
+        conversationJid: 'tg:dm-user',
+      },
+      notificationRoutes: [
+        {
+          conversationJid: 'tg:dm-user',
+          threadId: null,
+          label: 'me_dm',
+        },
+      ],
+    });
   });
 });

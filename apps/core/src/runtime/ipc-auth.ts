@@ -2,6 +2,7 @@ import { createHash, createHmac, timingSafeEqual, randomBytes } from 'crypto';
 import { createIpcResponseSigningKeyPair } from '../infrastructure/ipc/response-signing.js';
 import { MYCLAW_IPC_AUTH_SECRET } from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
+import { normalizeMemoryIpcActions } from '../shared/memory-ipc-actions.js';
 
 const IPC_AUTH_SECRET =
   MYCLAW_IPC_AUTH_SECRET ||
@@ -60,16 +61,22 @@ export function computeBrowserIpcAuthToken(
 export function computeMemoryIpcAuthToken(
   workspaceKey: string,
   input: {
+    chatJid?: string | null;
     userId?: string | null;
     defaultScope?: 'user' | 'group' | null;
     threadId?: string | null;
+    allowedActions?: readonly string[] | null;
   },
 ): string {
+  const normalizedChatJid = input.chatJid?.trim() || '';
   const normalizedUserId = input.userId?.trim() || '';
   const normalizedDefaultScope = input.defaultScope || 'group';
+  const normalizedAllowedActions = normalizeMemoryIpcActions(
+    input.allowedActions ?? undefined,
+  ).join(',');
   return createHmac('sha256', IPC_AUTH_SECRET)
     .update(
-      `memory\0${authScope(workspaceKey, input.threadId)}\0user\0${normalizedUserId}\0scope\0${normalizedDefaultScope}`,
+      `memory\0${authScope(workspaceKey, input.threadId)}\0chat\0${normalizedChatJid}\0user\0${normalizedUserId}\0scope\0${normalizedDefaultScope}\0actions\0${normalizedAllowedActions}`,
     )
     .digest('hex');
 }

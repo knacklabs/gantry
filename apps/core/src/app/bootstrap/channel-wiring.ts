@@ -6,12 +6,9 @@ import {
   GroupDiscoverySource,
   MessageDeliveryResult,
   MessageSendOptions,
-  PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
   StreamingChunkOptions,
-  UserQuestionRequest,
-  UserQuestionResponse,
 } from '../../domain/types.js';
 import {
   findChannel,
@@ -30,7 +27,11 @@ import {
   asRemoteControlCommand,
   handleRemoteControlCommand,
 } from '../../runtime/remote-control-command.js';
-import { isPartialMessageDeliveryError } from '../../runtime/partial-delivery.js';
+import {
+  getPartialMessageDeliveryMetadata,
+  isPartialMessageDeliveryError,
+} from '../../domain/messages/partial-delivery.js';
+import { AmbiguousDurableDeliveryError } from '../../domain/messages/durable-delivery.js';
 import {
   getRuntimeStorage,
   getRuntimeRepositories,
@@ -45,7 +46,6 @@ import type { AppId } from '../../domain/app/app.js';
 import {
   asGroupDiscoverySource,
   asPermissionApprovalSurface,
-  asProgressSink,
   asStreamingSink,
   asStreamingStateSink,
   asTypingSink,
@@ -58,27 +58,24 @@ import {
 import type {
   ChannelWiring,
   ChannelWiringDeps,
+  DurableOutboundAttemptFactory,
+  RecoveryDispatchPermit,
+  RetryTailRecoveryEnqueue,
 } from './channel-wiring-types.js';
 import { AsyncTaskQueue } from './async-task-queue.js';
 import { createChannelPersistenceHandlers } from './channel-persistence-handlers.js';
+import {
+  createPermissionApprovalRequester,
+  createUserQuestionResponder,
+} from './channel-wiring-interactions.js';
+import {
+  assertRecoveryDispatchPermit,
+  createRecoveryDispatchPermit,
+  sanitizeDeliveryError,
+} from './channel-wiring-delivery-guards.js';
+import { sanitizeRetryTailForCanonicalDestination } from './runtime-services-destination-hints.js';
 
 export type { ChannelWiring } from './channel-wiring-types.js';
-
-function sanitizeDeliveryError(err: unknown, provider: string): string {
-  const raw =
-    err instanceof Error
-      ? err.message
-      : typeof err === 'string'
-        ? err
-        : String(err);
-  return (
-    raw
-      .replace(/xox[baprs]-[A-Za-z0-9-]+/g, '[REDACTED_SLACK_TOKEN]')
-      .replace(/\b\d{6,}:[A-Za-z0-9_-]{20,}\b/g, '[REDACTED_TELEGRAM_TOKEN]')
-      .slice(0, 500)
-      .trim() || `${provider} delivery failed`
-  );
-}
 
 export function createChannelWiring(
   app: RuntimeApp,
@@ -101,6 +98,8 @@ export function createChannelWiring(
   };
 
   const connectedChannels: ChannelAdapter[] = [];
+  let enqueueRetryTailRecovery: RetryTailRecoveryEnqueue | undefined;
+  let durableOutboundAttemptFactory: DurableOutboundAttemptFactory | undefined;
   const persistenceQueue = new AsyncTaskQueue(4, 5_000);
   const ops = () => resolved.opsRepository ?? getRuntimeRepositories();
   const optionalOps = () => {
@@ -115,274 +114,10 @@ export function createChannelWiring(
     }
   };
 
-  const channelOpts = {
-    ...createChannelPersistenceHandlers({
-      app,
-      resolved,
-      ops,
-      findBoundChannel,
-      persistenceQueue,
-    }),
-    conversationRoutes: () => app.getConversationRoutes(),
-    runtimeSettings: () => currentRuntimeSettings,
-    runtimeLease: {
-      tryAcquire: tryAcquireRuntimeAdvisoryLease,
-    },
-    runtimeSecrets: resolved.runtimeSecrets,
-    isControlApproverAllowed: authorizeConversationApprover,
-  };
   let currentRuntimeSettings: RuntimeSettings;
 
   function findBoundChannel(jid: string): ChannelAdapter | undefined {
     return findChannel(connectedChannels, jid);
-  }
-
-  async function connectEnabledChannels(
-    runtimeSettings: RuntimeSettings,
-  ): Promise<void> {
-    currentRuntimeSettings = runtimeSettings;
-    for (const provider of resolved.providerIds) {
-      if (!provider.isEnabled(runtimeSettings)) {
-        resolved.logger.info(
-          { channel: provider.id },
-          'Channel disabled in settings.yaml — skipping connect',
-        );
-        continue;
-      }
-
-      const channel = await provider.create(channelOpts);
-      if (!channel) {
-        if (provider.controlCapabilityFlags?.includes('runtime-placeholder')) {
-          throw new Error(
-            `${provider.label} channel runtime transport is not implemented; this provider currently supports setup/discovery only. Disable providers.${provider.id}.enabled before starting the runtime.`,
-          );
-        }
-        resolved.logger.warn(
-          { channel: provider.id },
-          'Channel installed but credentials missing — skipping. Check .env or re-run the channel skill.',
-        );
-        continue;
-      }
-      connectedChannels.push(channel);
-      await channel.connect();
-    }
-  }
-
-  function hasConnectedChannels(): boolean {
-    return connectedChannels.length > 0;
-  }
-
-  function hasChannel(jid: string): boolean {
-    return findBoundChannel(jid) !== undefined;
-  }
-
-  function supportsStreaming(jid: string): boolean {
-    const channel = findBoundChannel(jid);
-    if (!channel) return false;
-    return asStreamingSink(channel) !== undefined;
-  }
-
-  function supportsProgress(jid: string): boolean {
-    const channel = findBoundChannel(jid);
-    if (!channel) return false;
-    return asProgressSink(channel) !== undefined;
-  }
-
-  async function sendMessage(
-    jid: string,
-    rawText: string,
-    options: {
-      throwOnMissing?: boolean;
-      messageOptions?: MessageSendOptions;
-    } = {},
-  ): Promise<void> {
-    const channel = findBoundChannel(jid);
-    if (!channel) {
-      if (options.throwOnMissing) {
-        throw new Error(`No channel for JID: ${jid}`);
-      }
-      resolved.logger.warn({ jid }, 'No channel owns JID, cannot send message');
-      return;
-    }
-
-    const formatted = formatOutboundForChannel(
-      rawText,
-      providerForJid(jid)?.id ?? channel.name,
-    );
-    if (!formatted) return;
-    const provider = providerForJid(jid)?.id ?? channel.name;
-    const now = new Date().toISOString();
-    const messageId = `outbound:${randomUUID()}`;
-    const baseMessage = {
-      id: messageId,
-      chat_jid: jid,
-      provider: provider,
-      sender: 'myclaw',
-      sender_name: 'MyClaw',
-      content: formatted,
-      timestamp: now,
-      is_from_me: true,
-      is_bot_message: true,
-      thread_id: options.messageOptions?.threadId,
-    };
-
-    const outboundOps = optionalOps();
-    await outboundOps?.storeMessage({
-      ...baseMessage,
-      delivery_status: 'pending',
-    });
-
-    try {
-      const delivery = options.messageOptions
-        ? await channel.sendMessage(jid, formatted, options.messageOptions)
-        : await channel.sendMessage(jid, formatted);
-      const result = delivery as MessageDeliveryResult | undefined;
-      await outboundOps?.storeMessage({
-        ...baseMessage,
-        external_message_id: result?.externalMessageId,
-        delivery_status: 'sent',
-        delivered_at: new Date().toISOString(),
-      });
-    } catch (err) {
-      const partial = isPartialMessageDeliveryError(err);
-      try {
-        await outboundOps?.storeMessage({
-          ...baseMessage,
-          delivery_status: partial ? 'partially_sent' : 'failed',
-          delivered_at: partial ? new Date().toISOString() : undefined,
-          delivery_error: sanitizeDeliveryError(err, provider),
-        });
-      } catch (persistErr) {
-        resolved.logger.error(
-          { err: persistErr, jid },
-          'Failed to persist outbound delivery failure',
-        );
-      }
-      throw err;
-    }
-  }
-
-  async function sendStreamingChunk(
-    jid: string,
-    rawText: string,
-    options?: StreamingChunkOptions,
-  ): Promise<boolean> {
-    const channel = findBoundChannel(jid);
-    if (!channel) {
-      resolved.logger.warn(
-        { jid },
-        'No channel owns JID, cannot stream message',
-      );
-      return false;
-    }
-
-    const provider = providerForJid(jid);
-    const isGroup = provider?.isGroupJid(jid) ?? false;
-    const text = isGroup
-      ? stripInternalTagsPreserveWhitespace(rawText)
-      : formatOutboundForChannel(rawText, provider?.id ?? channel.name);
-    if (!text && !options?.done) return false;
-
-    const streamingSink = asStreamingSink(channel);
-    if (streamingSink) {
-      return streamingSink.sendStreamingChunk(jid, text || '', options);
-    }
-
-    if (!text) return false;
-    const messageOptions: MessageSendOptions | undefined = options?.threadId
-      ? { threadId: options.threadId }
-      : undefined;
-    if (messageOptions) {
-      await channel.sendMessage(jid, text, messageOptions);
-      return true;
-    }
-    await channel.sendMessage(jid, text);
-    return true;
-  }
-
-  function resetStreaming(jid: string): void {
-    const channel = findBoundChannel(jid);
-    if (!channel) return;
-    const stateSink = asStreamingStateSink(channel);
-    stateSink?.resetStreaming(jid);
-  }
-
-  async function setTyping(jid: string, isTyping: boolean): Promise<void> {
-    const channel = findBoundChannel(jid);
-    if (!channel) return;
-    const typingSink = asTypingSink(channel);
-    if (!typingSink) return;
-    await typingSink.setTyping(jid, isTyping);
-  }
-
-  async function sendProgressUpdate(
-    jid: string,
-    text: string,
-    options?: ProgressUpdateOptions,
-  ): Promise<void> {
-    const channel = findBoundChannel(jid);
-    if (!channel) return;
-    const progressSink = asProgressSink(channel);
-    if (!progressSink) return;
-    await progressSink.sendProgressUpdate(jid, text, options);
-  }
-
-  async function syncGroups(force: boolean): Promise<void> {
-    const syncSources = connectedChannels
-      .map(asGroupDiscoverySource)
-      .filter((source): source is GroupDiscoverySource => source !== undefined);
-    await Promise.all(syncSources.map((source) => source.syncGroups(force)));
-  }
-
-  async function requestPermissionApproval(
-    request: PermissionApprovalRequest,
-  ): Promise<PermissionApprovalDecision> {
-    if (request.targetJid) {
-      const routed = await resolvePermissionApprovalTarget(request);
-      if ('blockedReason' in routed) {
-        return { approved: false, reason: routed.blockedReason };
-      }
-      const channel = findBoundChannel(routed.targetJid);
-      const approvalSurface = channel
-        ? asPermissionApprovalSurface(channel)
-        : undefined;
-      if (!approvalSurface) {
-        return {
-          approved: false,
-          reason: 'Target channel does not support permission approvals',
-        };
-      }
-      try {
-        return await approvalSurface.requestPermissionApproval(
-          routed.targetJid,
-          routed.request,
-        );
-      } catch (err) {
-        resolved.logger.error(
-          { err, targetJid: routed.targetJid, requestId: request.requestId },
-          'Target channel permission approval flow failed',
-        );
-        return { approved: false, reason: 'Permission approval flow failed' };
-      }
-    }
-
-    return {
-      approved: false,
-      reason: 'Permission approval target is missing',
-    };
-  }
-
-  async function resolvePermissionApprovalTarget(
-    request: PermissionApprovalRequest,
-  ): Promise<
-    | { targetJid: string; request: PermissionApprovalRequest }
-    | { blockedReason: string }
-  > {
-    const targetJid = request.targetJid;
-    if (!targetJid) {
-      return { blockedReason: 'Permission approval target is missing' };
-    }
-    return { targetJid, request };
   }
 
   async function authorizeConversationApprover(input: {
@@ -424,33 +159,506 @@ export function createChannelWiring(
       return false;
     }
   }
+  const requestPermissionApproval = createPermissionApprovalRequester({
+    findBoundChannel,
+    asPermissionApprovalSurface: (channel) =>
+      asPermissionApprovalSurface(channel as ChannelAdapter),
+    logger: resolved.logger,
+  });
+  const userQuestionResponder = createUserQuestionResponder({
+    findBoundChannel,
+    asUserQuestionSurface: (channel) =>
+      asUserQuestionSurface(channel as ChannelAdapter),
+    logger: resolved.logger,
+  });
+  const channelOpts = {
+    ...createChannelPersistenceHandlers({
+      app,
+      resolved,
+      ops,
+      findBoundChannel,
+      persistenceQueue,
+    }),
+    conversationRoutes: () => app.getConversationRoutes(),
+    runtimeSettings: () => currentRuntimeSettings,
+    runtimeLease: {
+      tryAcquire: tryAcquireRuntimeAdvisoryLease,
+    },
+    runtimeSecrets: resolved.runtimeSecrets,
+    isControlApproverAllowed: authorizeConversationApprover,
+  };
 
-  async function requestUserAnswer(
-    request: UserQuestionRequest,
-  ): Promise<UserQuestionResponse> {
-    if (request.targetJid) {
-      const channel = findBoundChannel(request.targetJid);
-      const questionSurface = channel
-        ? asUserQuestionSurface(channel)
-        : undefined;
-      if (!questionSurface) {
-        return { requestId: request.requestId, answers: {} };
+  async function connectEnabledChannels(
+    runtimeSettings: RuntimeSettings,
+  ): Promise<void> {
+    currentRuntimeSettings = runtimeSettings;
+    for (const provider of resolved.providerIds) {
+      if (!provider.isEnabled(runtimeSettings)) {
+        resolved.logger.info(
+          { channel: provider.id },
+          'Channel disabled in settings.yaml — skipping connect',
+        );
+        continue;
+      }
+
+      const channel = await provider.create(channelOpts);
+      if (!channel) {
+        if (provider.controlCapabilityFlags?.includes('runtime-placeholder')) {
+          throw new Error(
+            `${provider.label} channel runtime transport is not implemented; this provider currently supports setup/discovery only. Disable providers.${provider.id}.enabled before starting the runtime.`,
+          );
+        }
+        resolved.logger.warn(
+          { channel: provider.id },
+          'Channel installed but credentials missing — skipping. Check .env or re-run the channel skill.',
+        );
+        continue;
+      }
+      connectedChannels.push(channel);
+      await channel.connect();
+    }
+  }
+
+  function hasConnectedChannels(): boolean {
+    return connectedChannels.length > 0;
+  }
+
+  function describeDestinationJid(jid: string) {
+    const provider = providerForJid(jid);
+    return provider
+      ? {
+          providerId: provider.id,
+          internal: provider.internal === true,
+          runtimeAppId: resolved.appId,
+        }
+      : { internal: false, runtimeAppId: resolved.appId };
+  }
+
+  function hasChannel(jid: string): boolean {
+    return findBoundChannel(jid) !== undefined;
+  }
+
+  function supportsStreaming(jid: string): boolean {
+    const channel = findBoundChannel(jid);
+    if (!channel) return false;
+    const hasStreamingSink = asStreamingSink(channel) !== undefined;
+    if (hasStreamingSink) {
+      resolved.logger.debug(
+        { jid },
+        'Provider-visible streaming capability is present but intentionally disabled until durable ordered chunk delivery is available',
+      );
+    }
+    return false;
+  }
+
+  function supportsProgress(jid: string): boolean {
+    const channel = findBoundChannel(jid);
+    if (!channel) return false;
+    resolved.logger.debug(
+      { jid },
+      'Provider-visible progress updates are intentionally non-visible until they use durable outbound delivery',
+    );
+    return false;
+  }
+
+  async function sendMessage(
+    jid: string,
+    rawText: string,
+    options: {
+      durability: 'required' | 'best_effort';
+      throwOnMissing?: boolean;
+      messageOptions?: MessageSendOptions;
+    },
+  ): Promise<void> {
+    await sendProviderMessageInternal(jid, rawText, {
+      ...options,
+      persistence: 'legacy_message_row',
+    });
+  }
+
+  async function sendProviderMessage(
+    jid: string,
+    rawText: string,
+    options: {
+      permit: RecoveryDispatchPermit;
+      throwOnMissing?: boolean;
+      messageOptions?: MessageSendOptions;
+    },
+  ): Promise<MessageDeliveryResult | undefined> {
+    assertRecoveryDispatchPermit(options.permit, {
+      jid,
+      rawText,
+      threadId: options.messageOptions?.threadId,
+    });
+
+    return sendProviderMessageInternal(jid, rawText, {
+      durability: 'best_effort',
+      ...options,
+      persistence: 'none',
+    });
+  }
+
+  async function sendProviderMessageInternal(
+    jid: string,
+    rawText: string,
+    options: {
+      durability: 'required' | 'best_effort';
+      throwOnMissing?: boolean;
+      messageOptions?: MessageSendOptions;
+      persistence: 'legacy_message_row' | 'none';
+    },
+  ): Promise<MessageDeliveryResult | undefined> {
+    const channel = findBoundChannel(jid);
+    if (!channel) {
+      if (options.throwOnMissing) {
+        throw new Error(`No channel for JID: ${jid}`);
+      }
+      resolved.logger.warn({ jid }, 'No channel owns JID, cannot send message');
+      return;
+    }
+
+    const formatted = formatOutboundForChannel(
+      rawText,
+      providerForJid(jid)?.id ?? channel.name,
+    );
+    if (!formatted) return;
+    const provider = providerForJid(jid)?.id ?? channel.name;
+    const now = new Date().toISOString();
+    const messageId = `outbound:${randomUUID()}`;
+    const baseMessage = {
+      id: messageId,
+      chat_jid: jid,
+      provider: provider,
+      sender: 'myclaw',
+      sender_name: 'MyClaw',
+      content: formatted,
+      timestamp: now,
+      is_from_me: true,
+      is_bot_message: true,
+      thread_id: options.messageOptions?.threadId,
+    };
+
+    let durableAttempt:
+      | Awaited<ReturnType<DurableOutboundAttemptFactory>>
+      | undefined;
+    if (options.durability === 'required') {
+      if (!durableOutboundAttemptFactory) {
+        throw new Error(
+          `Durable outbound delivery is required before sending to ${jid}, but outbound delivery storage is unavailable.`,
+        );
       }
       try {
-        return await questionSurface.requestUserAnswer(
-          request.targetJid,
-          request,
-        );
+        durableAttempt = await durableOutboundAttemptFactory({
+          appId: resolved.appId,
+          chatJid: jid,
+          threadId: options.messageOptions?.threadId,
+          sourceMessageId: messageId,
+          provider,
+          canonicalText: formatted,
+        });
       } catch (err) {
-        resolved.logger.error(
-          { err, targetJid: request.targetJid, requestId: request.requestId },
-          'Target channel user question flow failed',
+        throw new Error(
+          `Failed to initialize durable outbound delivery before sending to ${jid}; refusing provider send.`,
+          { cause: err },
         );
-        return { requestId: request.requestId, answers: {} };
       }
     }
 
-    return { requestId: request.requestId, answers: {} };
+    let outboundOps = (() => {
+      if (options.persistence !== 'legacy_message_row') return undefined;
+      return optionalOps();
+    })();
+    try {
+      await outboundOps?.storeMessage({
+        ...baseMessage,
+        delivery_status: 'pending',
+      });
+    } catch (err) {
+      resolved.logger.warn(
+        { err, jid },
+        'Legacy outbound pending projection persistence failed; continuing with provider send',
+      );
+      outboundOps = undefined;
+    }
+
+    let result: MessageDeliveryResult | undefined;
+    try {
+      const delivery = options.messageOptions
+        ? await channel.sendMessage(jid, formatted, options.messageOptions)
+        : await channel.sendMessage(jid, formatted);
+      result = delivery as MessageDeliveryResult | undefined;
+    } catch (err) {
+      const partial = isPartialMessageDeliveryError(err);
+      const partialMetadata = partial
+        ? getPartialMessageDeliveryMetadata(err)
+        : undefined;
+      const retryTail = partialMetadata?.retryTail;
+      const sanitizedRetryTail = partial
+        ? sanitizeRetryTailForCanonicalDestination(retryTail, jid)
+        : undefined;
+      let thrownError: unknown = err;
+      if (options.durability === 'required' && durableAttempt) {
+        try {
+          if (partial) {
+            await durableAttempt.settlePartiallyDelivered({
+              partialAt: new Date().toISOString(),
+              error:
+                err instanceof Error
+                  ? err.message
+                  : 'Outbound provider send was partially delivered.',
+              deliveredParts: partialMetadata?.deliveredParts,
+              totalParts: partialMetadata?.totalParts,
+              retryTail: sanitizedRetryTail,
+            });
+          } else {
+            await durableAttempt.settleFailed({
+              failedAt: new Date().toISOString(),
+              error: sanitizeDeliveryError(err, provider),
+            });
+          }
+        } catch (persistErr) {
+          if (partial) {
+            thrownError = new AmbiguousDurableDeliveryError({
+              provider,
+              conversationJid: jid,
+              cause: persistErr,
+              message:
+                'Provider send ended in partial visibility but durable retry-tail persistence failed. Delivery may be incomplete and recovery is unavailable.',
+            });
+          } else {
+            thrownError = new Error(
+              'Provider send failed and durable failure-state persistence failed; recovery availability is unknown.',
+              {
+                cause: {
+                  providerError: err,
+                  persistenceError: persistErr,
+                },
+              },
+            );
+          }
+        }
+      } else if (
+        partial &&
+        sanitizedRetryTail &&
+        options.durability === 'required' &&
+        enqueueRetryTailRecovery
+      ) {
+        try {
+          await enqueueRetryTailRecovery({
+            appId: resolved.appId,
+            chatJid: jid,
+            threadId: options.messageOptions?.threadId,
+            sourceMessageId: messageId,
+            provider,
+            retryTail: sanitizedRetryTail,
+          });
+        } catch (enqueueErr) {
+          resolved.logger.error(
+            {
+              err: enqueueErr,
+              jid,
+              provider,
+              sourceMessageId: messageId,
+            },
+            'Failed to enqueue durable retry-tail recovery item',
+          );
+          thrownError = new AmbiguousDurableDeliveryError({
+            provider,
+            conversationJid: jid,
+            cause: enqueueErr,
+            message:
+              'Provider send ended in partial visibility but retry-tail recovery enqueue failed. Delivery may be incomplete and recovery is unavailable.',
+          });
+        }
+      }
+      try {
+        await outboundOps?.storeMessage({
+          ...baseMessage,
+          delivery_status: partial ? 'partially_sent' : 'failed',
+          delivered_at: partial ? new Date().toISOString() : undefined,
+          delivery_error: sanitizeDeliveryError(err, provider),
+          delivery_retry_tail: sanitizedRetryTail,
+        });
+      } catch (persistErr) {
+        resolved.logger.error(
+          { err: persistErr, jid },
+          'Failed to persist outbound delivery failure',
+        );
+      }
+      throw thrownError;
+    }
+
+    if (options.durability === 'required' && durableAttempt) {
+      const ambiguousSentSettlementError =
+        'Provider send succeeded but durable sent-status persistence failed. Delivery may already be visible and cannot be blindly retried.';
+      try {
+        await durableAttempt.settleSent({
+          sentAt: new Date().toISOString(),
+          providerMessageId: result?.externalMessageId,
+          providerPayload: result,
+        });
+      } catch (err) {
+        const partialAt = new Date().toISOString();
+        try {
+          await durableAttempt.settlePartiallyDelivered({
+            partialAt,
+            error: ambiguousSentSettlementError,
+          });
+        } catch (partialPersistErr) {
+          resolved.logger.error(
+            {
+              err: partialPersistErr,
+              settleSentError: err,
+              jid,
+              provider,
+              sourceMessageId: messageId,
+            },
+            'Failed to persist ambiguous durable outbound state after sent settlement failure',
+          );
+          throw new AmbiguousDurableDeliveryError({
+            provider,
+            conversationJid: jid,
+            cause: {
+              settleSentError: err,
+              settlePartiallyDeliveredError: partialPersistErr,
+            },
+            message:
+              'Provider send succeeded but both sent and ambiguous partial durable settlements failed. Delivery may already be visible and cannot be blindly retried.',
+            externalMessageId: result?.externalMessageId,
+            externalMessageIds: result?.externalMessageIds,
+          });
+        }
+        throw new AmbiguousDurableDeliveryError({
+          provider,
+          conversationJid: jid,
+          cause: err,
+          message: ambiguousSentSettlementError,
+          externalMessageId: result?.externalMessageId,
+          externalMessageIds: result?.externalMessageIds,
+        });
+      }
+    }
+
+    try {
+      await outboundOps?.storeMessage({
+        ...baseMessage,
+        external_message_id: result?.externalMessageId,
+        delivery_status: 'sent',
+        delivered_at: new Date().toISOString(),
+      });
+    } catch (err) {
+      const ambiguousError =
+        'Provider send succeeded but durable sent-status persistence failed. Delivery may already be visible and cannot be blindly retried.';
+      resolved.logger.warn(
+        {
+          err,
+          jid,
+          provider,
+          durability: options.durability,
+          externalMessageId: result?.externalMessageId,
+          externalMessageIds: result?.externalMessageIds,
+          deliveryWarnings: result?.warnings,
+        },
+        options.durability === 'required'
+          ? 'Provider send succeeded but legacy outbound sent-status projection failed'
+          : 'Provider send succeeded but outbound sent-status persistence failed',
+      );
+      if (options.durability === 'required') {
+        try {
+          await outboundOps?.storeMessage({
+            ...baseMessage,
+            external_message_id: result?.externalMessageId,
+            delivery_status: 'partially_sent',
+            delivered_at: new Date().toISOString(),
+            delivery_error: ambiguousError,
+          });
+        } catch (ambiguousPersistErr) {
+          resolved.logger.error(
+            {
+              err: ambiguousPersistErr,
+              jid,
+              provider,
+              sourceMessageId: messageId,
+            },
+            'Failed to persist ambiguous durable outbound status after sent-status write failure',
+          );
+        }
+      }
+    }
+    return result;
+  }
+
+  function setRetryTailRecoveryEnqueue(
+    enqueue: RetryTailRecoveryEnqueue | undefined,
+  ): void {
+    enqueueRetryTailRecovery = enqueue;
+  }
+
+  function setDurableOutboundAttemptFactory(
+    factory: DurableOutboundAttemptFactory | undefined,
+  ): void {
+    durableOutboundAttemptFactory = factory;
+  }
+
+  async function sendStreamingChunk(
+    jid: string,
+    rawText: string,
+    options?: StreamingChunkOptions,
+  ): Promise<boolean> {
+    const channel = findBoundChannel(jid);
+    if (!channel) {
+      resolved.logger.warn(
+        { jid },
+        'No channel owns JID, cannot stream message',
+      );
+      return false;
+    }
+    const provider = providerForJid(jid);
+    const isGroup = provider?.isGroupJid(jid) ?? false;
+    const text = isGroup
+      ? stripInternalTagsPreserveWhitespace(rawText)
+      : formatOutboundForChannel(rawText, provider?.id ?? channel.name);
+    if (!text && !options?.done) return false;
+
+    resolved.logger.debug(
+      { jid, done: options?.done === true },
+      'Provider-visible streaming disabled until durable ordered chunk delivery is available',
+    );
+    return false;
+  }
+
+  function resetStreaming(jid: string): void {
+    const channel = findBoundChannel(jid);
+    if (!channel) return;
+    const stateSink = asStreamingStateSink(channel);
+    stateSink?.resetStreaming(jid);
+  }
+
+  async function setTyping(jid: string, isTyping: boolean): Promise<void> {
+    const channel = findBoundChannel(jid);
+    if (!channel) return;
+    const typingSink = asTypingSink(channel);
+    if (!typingSink) return;
+    await typingSink.setTyping(jid, isTyping);
+  }
+
+  async function sendProgressUpdate(
+    jid: string,
+    text: string,
+    options?: ProgressUpdateOptions,
+  ): Promise<void> {
+    resolved.logger.debug(
+      { jid, hasThread: typeof options?.threadId === 'string' },
+      'Suppressed provider-visible progress update because durable progress delivery is not available',
+    );
+    void text;
+  }
+
+  async function syncGroups(force: boolean): Promise<void> {
+    const syncSources = connectedChannels
+      .map(asGroupDiscoverySource)
+      .filter((source): source is GroupDiscoverySource => source !== undefined);
+    await Promise.all(syncSources.map((source) => source.syncGroups(force)));
   }
 
   async function disconnectChannels(): Promise<void> {
@@ -464,22 +672,28 @@ export function createChannelWiring(
       await channel.disconnect();
     }
     connectedChannels.length = 0;
+    userQuestionResponder.clear();
   }
 
   return {
+    describeDestinationJid,
     connectEnabledChannels,
     hasConnectedChannels,
     hasChannel,
     supportsStreaming,
     supportsProgress,
     sendMessage,
+    sendProviderMessage,
+    createRecoveryDispatchPermit,
+    setRetryTailRecoveryEnqueue,
+    setDurableOutboundAttemptFactory,
     sendStreamingChunk,
     resetStreaming,
     setTyping,
     sendProgressUpdate,
     syncGroups,
     requestPermissionApproval,
-    requestUserAnswer,
+    requestUserAnswer: userQuestionResponder.requestUserAnswer,
     disconnectChannels,
   };
 }

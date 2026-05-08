@@ -1,10 +1,26 @@
-import { makeSessionScopeKey } from '../../../../domain/repositories/ops-repo.js';
-import type {
-  AgentSessionRepository,
-  MemoryRepository,
-} from '../../../../domain/ports/repositories.js';
 import { HydrateAgentContextService } from '../../../../application/sessions/hydrate-agent-context-service.js';
+import type {
+  AgentSessionDigestRepository,
+  AgentSessionRepository,
+  ConversationRepository,
+} from '../../../../domain/ports/repositories.js';
+import { makeSessionScopeKey } from '../../../../domain/repositories/ops-repo.js';
+import type { AgentSession } from '../../../../domain/sessions/sessions.js';
 import type { PostgresCanonicalSessionRepository } from '../repositories/canonical-session-repository.postgres.js';
+
+type SessionAppMemoryLoaderInput = {
+  session: AgentSession;
+  limit: number;
+  conversationKind?: string;
+  query?: string;
+};
+type HydratedAppMemoryItem = {
+  id: string;
+  kind: string;
+  key: string;
+  value: string;
+  subject: Record<string, unknown>;
+};
 
 export class CanonicalSessionOpsService {
   private readonly hydrateService?: HydrateAgentContextService;
@@ -13,7 +29,11 @@ export class CanonicalSessionOpsService {
     private readonly repository: PostgresCanonicalSessionRepository,
     repositories?: {
       agentSessions: AgentSessionRepository;
-      memory: MemoryRepository;
+      agentSessionDigests?: AgentSessionDigestRepository;
+      conversations?: ConversationRepository;
+      loadAppMemoryItems?: (
+        input: SessionAppMemoryLoaderInput,
+      ) => Promise<HydratedAppMemoryItem[]>;
     },
     options: {
       memoryItemLimit?: number;
@@ -23,10 +43,32 @@ export class CanonicalSessionOpsService {
     if (repositories) {
       this.hydrateService = new HydrateAgentContextService(
         repositories.agentSessions,
-        repositories.memory,
         {
           memoryItemLimit: options.memoryItemLimit,
           maxChars: options.maxMemoryContextChars,
+        },
+        {
+          digests: repositories.agentSessionDigests,
+          loadAppMemoryItems: repositories.loadAppMemoryItems
+            ? async ({ session, limit, conversationKind, query }) => {
+                const resolvedConversationKind = conversationKind
+                  ? conversationKind
+                  : session.conversationId
+                    ? await repositories.conversations?.getConversation(
+                        session.conversationId,
+                      )
+                    : null;
+                return repositories.loadAppMemoryItems!({
+                  session,
+                  limit,
+                  query,
+                  conversationKind:
+                    typeof resolvedConversationKind === 'string'
+                      ? resolvedConversationKind
+                      : resolvedConversationKind?.kind,
+                });
+              }
+            : undefined,
         },
       );
     }
@@ -38,15 +80,23 @@ export class CanonicalSessionOpsService {
     threadId?: string | null,
     metadata: {
       chatJid?: string;
+      conversationKind?: 'dm' | 'channel';
+      memoryUserId?: string;
       latestArtifactId?: string | null;
     } = {},
   ): Promise<void> {
     await this.repository.setProviderSession({
       groupFolder,
       sessionId,
-      scopeKey: makeSessionScopeKey(groupFolder, threadId),
+      scopeKey: makeSessionScopeKey(groupFolder, threadId, {
+        conversationJid: metadata.chatJid,
+        conversationKind: metadata.conversationKind,
+        userId: metadata.memoryUserId,
+      }),
       chatJid: metadata.chatJid,
       threadId,
+      conversationKind: metadata.conversationKind,
+      memoryUserId: metadata.memoryUserId,
       latestArtifactId: metadata.latestArtifactId,
     });
   }
@@ -55,6 +105,10 @@ export class CanonicalSessionOpsService {
     groupFolder: string;
     chatJid: string;
     threadId?: string | null;
+    conversationKind?: 'dm' | 'channel';
+    memoryUserId?: string;
+    query?: string;
+    hydrateMemory?: boolean;
   }): Promise<{
     appId: string;
     agentId: string;
@@ -68,11 +122,22 @@ export class CanonicalSessionOpsService {
       groupFolder: input.groupFolder,
       chatJid: input.chatJid,
       threadId: input.threadId,
-      scopeKey: makeSessionScopeKey(input.groupFolder, input.threadId),
+      scopeKey: makeSessionScopeKey(input.groupFolder, input.threadId, {
+        conversationJid: input.chatJid,
+        conversationKind: input.conversationKind,
+        userId: input.memoryUserId,
+      }),
+      conversationKind: input.conversationKind,
+      memoryUserId: input.memoryUserId,
     });
-    const hydrated = await this.hydrateService?.hydrate({
-      sessionId: context.agentSessionId as never,
-    });
+    const hydrated =
+      input.hydrateMemory === false
+        ? undefined
+        : await this.hydrateService?.hydrate({
+            sessionId: context.agentSessionId as never,
+            conversationKind: input.conversationKind,
+            query: input.query,
+          });
     return {
       ...context,
       memoryContextBlock: hydrated?.block || undefined,
@@ -80,10 +145,10 @@ export class CanonicalSessionOpsService {
   }
 
   async expireProviderSession(input: {
-    providerSessionId?: string;
-    agentSessionId?: string;
-    provider?: string;
-    externalSessionId?: string;
+    providerSessionId: string;
+    agentSessionId: string;
+    provider: string;
+    externalSessionId: string;
   }): Promise<void> {
     await this.repository.expireProviderSession(input);
   }
@@ -91,10 +156,23 @@ export class CanonicalSessionOpsService {
   async deleteSession(
     groupFolder: string,
     threadId?: string | null,
+    metadata: {
+      chatJid?: string;
+      conversationKind?: 'dm' | 'channel';
+      memoryUserId?: string;
+      agentId?: string;
+    } = {},
   ): Promise<void> {
-    await this.repository.deleteScope(
-      makeSessionScopeKey(groupFolder, threadId),
-    );
+    await this.repository.resetScope({
+      scopeKey: makeSessionScopeKey(groupFolder, threadId, {
+        conversationJid: metadata.chatJid,
+        conversationKind: metadata.conversationKind,
+        userId: metadata.memoryUserId,
+      }),
+      chatJid: metadata.chatJid,
+      threadId,
+      agentId: metadata.agentId,
+    });
   }
 
   async deleteSessionsByGroupFolder(groupFolder: string): Promise<void> {

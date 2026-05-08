@@ -49,11 +49,25 @@ export const JobModelPreviewSchema = z.object({
 export type JobModelPreview = z.infer<typeof JobModelPreviewSchema>;
 
 export const JobRuntimeContextPreviewSchema = z.object({
-  sessionId: z.string(),
-  conversationJid: z.string(),
-  groupScope: z.string(),
-  threadId: z.string().nullable(),
-  notificationTarget: z.enum(['conversation', 'conversation_thread']),
+  executionContext: z
+    .object({
+      conversationJid: z.string(),
+      threadId: z.string().nullable(),
+      groupScope: z.string(),
+      sessionId: z.string().nullable().optional(),
+    })
+    .strict(),
+  notificationRoutes: z
+    .array(
+      z
+        .object({
+          conversationJid: z.string(),
+          threadId: z.string().nullable(),
+          label: z.string().min(1),
+        })
+        .strict(),
+    )
+    .default([]),
   browserProfileLabel: z.string(),
   browserProfileName: z.string(),
   persona: AgentPersonaSchema,
@@ -61,6 +75,29 @@ export const JobRuntimeContextPreviewSchema = z.object({
 export type JobRuntimeContextPreview = z.infer<
   typeof JobRuntimeContextPreviewSchema
 >;
+
+export const JobExecutionContextSchema = z
+  .object({
+    conversationJid: z.string(),
+    threadId: z.string().nullable(),
+    groupScope: z.string(),
+    sessionId: z.string().nullable(),
+  })
+  .strict();
+export type JobExecutionContext = z.infer<typeof JobExecutionContextSchema>;
+
+const JobRequestExecutionContextSchema = JobExecutionContextSchema.extend({
+  sessionId: z.string(),
+}).strict();
+
+export const JobNotificationRouteSchema = z
+  .object({
+    conversationJid: z.string(),
+    threadId: z.string().nullable(),
+    label: z.string().min(1),
+  })
+  .strict();
+export type JobNotificationRoute = z.infer<typeof JobNotificationRouteSchema>;
 
 export const JobTargetSchema = z.object({
   sessionId: z.string().optional(),
@@ -103,7 +140,8 @@ export const CreateJobRequestSchema = z
   .object({
     name: z.string().min(1),
     prompt: z.string().min(1),
-    sessionId: z.string().min(1),
+    executionContext: JobRequestExecutionContextSchema,
+    notificationRoutes: z.array(JobNotificationRouteSchema).optional(),
     kind: z.enum(['manual', 'once', 'recurring']).optional(),
     runAt: IsoDateTimeSchema.optional(),
     schedule: z
@@ -113,7 +151,6 @@ export const CreateJobRequestSchema = z
       })
       .optional(),
     executionMode: JobExecutionModeSchema.optional(),
-    threadId: z.string().optional(),
     modelAlias: z.string().optional(),
     modelProfileId: z.string().optional(),
     allowedTools: z.array(z.string()).optional(),
@@ -131,7 +168,8 @@ export const UpdateJobRequestSchema = z
     name: z.string().min(1).optional(),
     prompt: z.string().min(1).optional(),
     executionMode: JobExecutionModeSchema.optional(),
-    threadId: z.string().nullable().optional(),
+    executionContext: JobRequestExecutionContextSchema.optional(),
+    notificationRoutes: z.array(JobNotificationRouteSchema).optional(),
     status: z.enum(['active', 'paused']).optional(),
     modelAlias: z.string().nullable().optional(),
     modelProfileId: z.string().nullable().optional(),
@@ -164,7 +202,8 @@ export const JobResponseSchema = z
         z.object({ type: z.enum(['cron', 'interval']), value: z.string() }),
       ])
       .nullable(),
-    linkedSessions: z.array(z.string()),
+    executionContext: JobExecutionContextSchema,
+    notificationRoutes: z.array(JobNotificationRouteSchema),
     nextRun: IsoDateTimeSchema.nullable(),
     lastRun: IsoDateTimeSchema.nullable(),
     staleness: JobStalenessSchema.nullable().optional(),
@@ -172,19 +211,12 @@ export const JobResponseSchema = z
     modelAlias: z.string().nullable().optional(),
     modelProfileId: z.string().nullable().optional(),
     model: JobModelPreviewSchema.nullable().optional(),
-    threadId: z.string().nullable(),
     groupScope: z.string(),
     sessionId: z.string().nullable(),
     target: JobResolvedTargetSchema.optional(),
     toolAccess: JobToolAccessSchema,
     recentRunErrors: z.array(JobRecentRunErrorSchema).optional(),
-    notificationTarget: z
-      .object({
-        linkedSessions: z.array(z.string()),
-        threadId: z.string().nullable(),
-        silent: z.boolean(),
-      })
-      .optional(),
+    silent: z.boolean().optional(),
   })
   .strict();
 export type JobResponse = z.infer<typeof JobResponseSchema>;

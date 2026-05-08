@@ -110,6 +110,11 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     dreaming: {
       enabled: false,
       cron: DEFAULT_MEMORY_DREAMING_CRON,
+      embeddings: {
+        enabled: false,
+        provider: 'disabled',
+        model: DEFAULT_EMBED_MODEL,
+      },
     },
     llm: {
       models: getMemoryModelProfileDefaults('balanced'),

@@ -13,6 +13,79 @@ import type {
   MemoryBoundaryDefaultScope,
   SessionMemoryCollector,
 } from '../domain/ports/session-memory-collector.js';
+import { redactProviderSessionHandlesInText } from '../shared/provider-session-redaction.js';
+
+export const RUNTIME_RESULT_SUMMARY_MAX_CHARS = 4_000;
+
+const RUNTIME_RESULT_SUMMARY_TRUNCATION_PREFIX =
+  '[output truncated; showing tail]\n';
+
+function truncateRuntimeResultSummary(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  if (maxChars <= 0) return '';
+  const prefix =
+    maxChars > RUNTIME_RESULT_SUMMARY_TRUNCATION_PREFIX.length
+      ? RUNTIME_RESULT_SUMMARY_TRUNCATION_PREFIX
+      : '';
+  const tailChars = Math.max(0, maxChars - prefix.length);
+  return `${prefix}${value.slice(-tailChars)}`;
+}
+
+export function summarizeRuntimeResultForPersistence(
+  value: string | null | undefined,
+): string | null {
+  if (value == null) return null;
+  return truncateRuntimeResultSummary(
+    redactProviderSessionHandlesInText(value),
+    RUNTIME_RESULT_SUMMARY_MAX_CHARS,
+  );
+}
+
+export function createRuntimeResultSummaryAccumulator(input?: {
+  maxChars?: number;
+}): {
+  append: (delta: string) => void;
+  snapshot: () => string | null;
+} {
+  const maxChars = Math.max(
+    0,
+    Math.floor(input?.maxChars ?? RUNTIME_RESULT_SUMMARY_MAX_CHARS),
+  );
+  const prefix =
+    maxChars > RUNTIME_RESULT_SUMMARY_TRUNCATION_PREFIX.length
+      ? RUNTIME_RESULT_SUMMARY_TRUNCATION_PREFIX
+      : '';
+  const tailCapacity = Math.max(0, maxChars - prefix.length);
+  let tail = '';
+  let truncated = false;
+  let hasNonWhitespace = false;
+
+  return {
+    append(delta) {
+      if (!delta || maxChars <= 0) return;
+      hasNonWhitespace ||= /\S/.test(delta);
+      if (!truncated && tail.length + delta.length <= maxChars) {
+        tail += delta;
+        return;
+      }
+      truncated = true;
+      if (tailCapacity <= 0) {
+        tail = '';
+        return;
+      }
+      if (delta.length >= tailCapacity) {
+        tail = delta.slice(-tailCapacity);
+        return;
+      }
+      tail = `${tail.slice(-(tailCapacity - delta.length))}${delta}`;
+    },
+    snapshot() {
+      if (!hasNonWhitespace) return null;
+      const summary = truncated ? `${prefix}${tail}` : tail;
+      return summary.trim() || null;
+    },
+  };
+}
 
 export async function archiveCurrentRuntimeSession(input: {
   ops: RuntimeAgentSessionRepository;
@@ -21,12 +94,16 @@ export async function archiveCurrentRuntimeSession(input: {
   threadId: string | null;
   cause?: 'new-session' | 'manual-compact';
   defaultScope?: MemoryBoundaryDefaultScope;
+  memoryUserId?: string;
   collectMemory?: SessionMemoryCollector;
 }): Promise<void> {
   const turnContext = await input.ops.getAgentTurnContext?.({
     agentFolder: input.group.folder,
     conversationJid: input.chatJid,
     threadId: input.threadId,
+    conversationKind: input.group.conversationKind,
+    memoryUserId: input.memoryUserId,
+    hydrateMemory: false,
   });
   const collectMemory = input.collectMemory;
   if (turnContext?.agentSessionId && collectMemory) {
@@ -120,6 +197,8 @@ export async function completeSuccessfulRuntimeSessionRun(input: {
   group: ConversationRoute;
   chatJid?: string;
   threadId?: string | null;
+  conversationKind?: 'dm' | 'channel';
+  memoryUserId?: string;
   agentSessionId?: string;
   providerSessionId?: string;
   runId?: string;
@@ -129,7 +208,7 @@ export async function completeSuccessfulRuntimeSessionRun(input: {
     await input.ops.completeSessionAgentRun?.({
       runId: input.runId,
       status: 'completed',
-      resultSummary: input.result ?? null,
+      resultSummary: summarizeRuntimeResultForPersistence(input.result),
     });
   }
   if (input.agentSessionId) {
@@ -140,6 +219,8 @@ export async function completeSuccessfulRuntimeSessionRun(input: {
         input.threadId,
         {
           conversationJid: input.chatJid,
+          conversationKind: input.conversationKind,
+          memoryUserId: input.memoryUserId,
         },
       );
     }
@@ -163,7 +244,7 @@ export async function completeFailedRuntimeSessionRun(input: {
   await input.ops.completeSessionAgentRun?.({
     runId: input.runId,
     status: 'failed',
-    errorSummary: input.errorSummary,
+    errorSummary: summarizeRuntimeResultForPersistence(input.errorSummary),
   });
 }
 

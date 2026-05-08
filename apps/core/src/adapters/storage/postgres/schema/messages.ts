@@ -64,6 +64,11 @@ export const messagesPostgres = pgTable(
       table.createdAt,
       table.id,
     ),
+    conversationRecentIdx: index('idx_messages_conversation_recent').on(
+      table.conversationId,
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
     redeliveryUnique: uniqueIndex('idx_messages_external_redelivery_unique')
       .on(
         table.providerId,
@@ -95,15 +100,24 @@ export const messagePartsPostgres = pgTable(
   }),
 );
 
-export const messageAttachmentsPostgres = pgTable('message_attachments', {
-  id: text('id').primaryKey(),
-  messageId: text('message_id')
-    .notNull()
-    .references(() => messagesPostgres.id, { onDelete: 'cascade' }),
-  kind: text('kind').notNull(),
-  contentType: text('content_type'),
-  sizeBytes: integer('size_bytes'),
-  externalRefJson: text('external_ref_json'),
-  storageRef: text('storage_ref'),
-  trust: text('trust').notNull(),
-});
+export const messageAttachmentsPostgres = pgTable(
+  'message_attachments',
+  {
+    id: text('id').primaryKey(),
+    messageId: text('message_id')
+      .notNull()
+      .references(() => messagesPostgres.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    contentType: text('content_type'),
+    sizeBytes: integer('size_bytes'),
+    externalRefJson: text('external_ref_json'),
+    storageRef: text('storage_ref'),
+    trust: text('trust').notNull(),
+  },
+  (table) => ({
+    messageLookupIdx: index('idx_message_attachments_message_id').on(
+      table.messageId,
+      table.id,
+    ),
+  }),
+);

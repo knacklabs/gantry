@@ -1,4 +1,7 @@
-import { getProvider } from '../../channels/provider-registry.js';
+import {
+  getProvider,
+  normalizeProviderId,
+} from '../../channels/provider-registry.js';
 import {
   ONECLI_SECRET_ENCRYPTION_KEY_ENV,
   validateSharedPostgresDatabase,
@@ -226,6 +229,21 @@ export function validateLoadedRuntimeSettings(
         `conversations.${conversationId}.control_approvers must include at least one conversation approver.`,
       );
     }
+    const explicitProviderId = explicitProviderIdForExternalId(
+      conversation.externalId,
+    );
+    const expectedProviderId = connection
+      ? normalizeProviderId(connection.provider)
+      : '';
+    if (
+      explicitProviderId &&
+      expectedProviderId &&
+      explicitProviderId !== expectedProviderId
+    ) {
+      details.push(
+        `conversations.${conversationId}.external_id prefix "${explicitProviderId}:" does not match provider connection ${conversation.providerConnection} (${expectedProviderId}).`,
+      );
+    }
   }
 
   for (const [agentId, agent] of Object.entries(settings.agents)) {
@@ -250,6 +268,14 @@ export function validateLoadedRuntimeSettings(
   if (settings.memory.dreaming.enabled && !settings.memory.enabled) {
     details.push('memory.dreaming.enabled requires memory.enabled=true.');
   }
+  if (
+    settings.memory.dreaming.embeddings.enabled &&
+    settings.memory.dreaming.embeddings.provider === 'disabled'
+  ) {
+    details.push(
+      'memory.dreaming.embeddings.provider cannot be disabled when memory.dreaming.embeddings.enabled is true.',
+    );
+  }
 
   if (details.length > 0) {
     return {
@@ -263,6 +289,13 @@ export function validateLoadedRuntimeSettings(
   }
 
   return { ok: true, settings };
+}
+
+function explicitProviderIdForExternalId(value: string): string | null {
+  const separator = value.indexOf(':');
+  if (separator <= 0) return null;
+  const providerId = normalizeProviderId(value.slice(0, separator));
+  return providerId || null;
 }
 
 export function runtimeSettingsValidationError(

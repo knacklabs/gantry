@@ -18,6 +18,7 @@ export interface InstallShutdownHandlersOptions {
   closeStorage?: () => Promise<void>;
   closeControlServer?: () => Promise<void>;
   closeScheduler?: () => Promise<void>;
+  closeOutboundDeliveryRecovery?: () => Promise<void>;
   closeSettingsWatcher?: () => void;
 }
 
@@ -63,6 +64,16 @@ export function installShutdownHandlers(
         resolved.logger.warn(
           { err },
           'Failed to close scheduler during shutdown',
+        );
+      }
+    }
+    if (options.closeOutboundDeliveryRecovery) {
+      try {
+        await options.closeOutboundDeliveryRecovery();
+      } catch (err) {
+        resolved.logger.warn(
+          { err },
+          'Failed to stop outbound delivery recovery during shutdown',
         );
       }
     }

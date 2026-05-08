@@ -2,6 +2,7 @@ import { Bot } from 'grammy';
 import { ChannelAdapter, ChannelOpts } from '../channel-provider.js';
 import type { RuntimeLease } from '../../domain/ports/runtime-lease.js';
 import {
+  MessageDeliveryResult,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
   ProgressUpdateOptions,
@@ -10,12 +11,12 @@ import {
   UserQuestionResponse,
   MessageSendOptions,
 } from '../../domain/types.js';
+import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
 import { AsyncTaskQueue } from '../../app/bootstrap/async-task-queue.js';
 import {
   TELEGRAM_MEDIA_DOWNLOAD_CONCURRENCY,
   TELEGRAM_MEDIA_DOWNLOAD_QUEUE_MAX,
   TELEGRAM_GROUP_EDIT_INTERVAL_MS,
-  TELEGRAM_DRAFT_MAX_LENGTH,
   TelegramContext,
   TelegramStreamApi,
   ActiveDraftStreamState,
@@ -25,6 +26,7 @@ import {
   formatTelegramStreamingText,
   sendTelegramMessageWithResult,
   editTelegramMessage,
+  splitTelegramDeliveryText,
 } from './channel-shared.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
@@ -312,10 +314,13 @@ export abstract class TelegramChannelState implements ChannelAdapter {
       options.done ||
       !state.messageId ||
       now - state.lastFlushAt >= TELEGRAM_GROUP_EDIT_INTERVAL_MS;
+    const parts = splitTelegramDeliveryText(renderedBuffer);
+    const headText = parts[0] ?? '';
+    const overflowParts = parts.slice(1).filter((part) => part.length > 0);
+    const overflowText = parts.slice(1).join('');
 
     try {
       if (shouldFlush) {
-        const headText = renderedBuffer.slice(0, TELEGRAM_DRAFT_MAX_LENGTH);
         if (!state.messageId) {
           // First message — send as plain text during streaming, formatted on done
           const sendOptions = state.threadId
@@ -327,6 +332,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
               numericId,
               headText,
               sendOptions,
+              { preserveStyleMarkers: true },
             );
             if (messageId) {
               state.messageId = messageId;
@@ -355,6 +361,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
             numericId,
             state.messageId,
             headText,
+            { preserveStyleMarkers: true },
           );
           delivered = true;
           logger.info(
@@ -393,17 +400,23 @@ export abstract class TelegramChannelState implements ChannelAdapter {
         );
         if (options.done) {
           this.activeGroupStreams.delete(key);
-          const overflowText = renderedBuffer
-            .slice(TELEGRAM_DRAFT_MAX_LENGTH)
-            .trim();
           if (
-            overflowText &&
+            overflowParts.length > 0 &&
             this.isCurrentStreamingGeneration(jid, options.generation)
           ) {
-            await this.sendMessage(jid, overflowText, {
-              threadId: options.threadId,
-            });
-            delivered = true;
+            const sendOptions = state.threadId
+              ? { message_thread_id: state.threadId }
+              : {};
+            for (const part of overflowParts) {
+              await sendTelegramMessageWithResult(
+                this.bot.api,
+                numericId,
+                part,
+                sendOptions,
+                { preserveStyleMarkers: true },
+              );
+              delivered = true;
+            }
           }
           this.markStreamingGenerationDone(jid, options.generation);
         }
@@ -414,6 +427,116 @@ export abstract class TelegramChannelState implements ChannelAdapter {
         'Telegram group stream update failed',
       );
       if (options.done) {
+        if (state.messageId) {
+          const headExternalMessageId = String(state.messageId);
+          const visibleExternalMessageIds = [headExternalMessageId];
+          const sendOptions = state.threadId
+            ? { message_thread_id: state.threadId }
+            : {};
+          if (
+            overflowParts.length > 0 &&
+            this.isCurrentStreamingGeneration(jid, options.generation)
+          ) {
+            const sentOverflowMessageIds: string[] = [];
+            try {
+              for (const part of overflowParts) {
+                const messageId = await sendTelegramMessageWithResult(
+                  this.bot.api,
+                  numericId,
+                  part,
+                  sendOptions,
+                  { preserveStyleMarkers: true },
+                );
+                if (messageId !== undefined) {
+                  const externalMessageId = String(messageId);
+                  sentOverflowMessageIds.push(externalMessageId);
+                  visibleExternalMessageIds.push(externalMessageId);
+                }
+                delivered = true;
+              }
+              this.activeGroupStreams.delete(key);
+              this.markStreamingGenerationDone(jid, options.generation);
+              return delivered || Boolean(state.messageId);
+            } catch (tailErr) {
+              const unsentOverflowText = overflowParts
+                .slice(sentOverflowMessageIds.length)
+                .join('');
+              const deliveredVisibleParts = visibleExternalMessageIds.length;
+              const totalVisibleParts = 1 + overflowParts.length;
+              const partial = new PartialMessageDeliveryError({
+                cause: tailErr,
+                deliveredChunks: deliveredVisibleParts,
+                name: 'PartialTelegramGroupFinalEditDeliveryError',
+                message:
+                  'Telegram group stream partially delivered after final edit failure',
+                totalChunks: totalVisibleParts,
+              });
+              Object.assign(partial, {
+                deliveredParts: deliveredVisibleParts,
+                totalParts: totalVisibleParts,
+                externalMessageId: headExternalMessageId,
+                externalMessageIds: visibleExternalMessageIds,
+                ...(unsentOverflowText.trim()
+                  ? {
+                      retryTail: {
+                        canonicalText: unsentOverflowText,
+                        providerPayload: {
+                          provider: 'telegram',
+                          chatId: numericId,
+                          externalMessageId: headExternalMessageId,
+                          externalMessageIds: visibleExternalMessageIds,
+                          ...(state.threadId
+                            ? { threadId: String(state.threadId) }
+                            : {}),
+                        },
+                      },
+                    }
+                  : {}),
+              });
+              this.activeGroupStreams.delete(key);
+              this.markStreamingGenerationDone(jid, options.generation);
+              throw partial;
+            }
+          }
+          const partial = new PartialMessageDeliveryError({
+            cause: err,
+            deliveredChunks: 1,
+            name: 'PartialTelegramGroupFinalEditDeliveryError',
+            message:
+              'Telegram group stream partially delivered after final edit failure',
+            totalChunks: 2,
+          });
+          if (overflowText.trim()) {
+            Object.assign(partial, {
+              deliveredParts: 1,
+              totalParts: 2,
+              externalMessageId: headExternalMessageId,
+              externalMessageIds: visibleExternalMessageIds,
+              retryTail: {
+                canonicalText: overflowText,
+                providerPayload: {
+                  provider: 'telegram',
+                  chatId: numericId,
+                  externalMessageId: headExternalMessageId,
+                  externalMessageIds: visibleExternalMessageIds,
+                  ...(state.threadId
+                    ? { threadId: String(state.threadId) }
+                    : {}),
+                },
+              },
+            });
+          } else {
+            Object.assign(partial, {
+              deliveredParts: 1,
+              totalParts: 2,
+              externalMessageId: headExternalMessageId,
+              externalMessageIds: visibleExternalMessageIds,
+            });
+          }
+          this.activeGroupStreams.delete(key);
+          this.markStreamingGenerationDone(jid, options.generation);
+          throw partial;
+        }
         if (this.isCurrentStreamingGeneration(jid, options.generation)) {
           await this.sendMessage(jid, renderedBuffer, {
             threadId: options.threadId,
@@ -428,17 +551,23 @@ export abstract class TelegramChannelState implements ChannelAdapter {
 
     if (options.done) {
       this.activeGroupStreams.delete(key);
-      const overflowText = renderedBuffer
-        .slice(TELEGRAM_DRAFT_MAX_LENGTH)
-        .trim();
       if (
-        overflowText &&
+        overflowParts.length > 0 &&
         this.isCurrentStreamingGeneration(jid, options.generation)
       ) {
-        await this.sendMessage(jid, overflowText, {
-          threadId: options.threadId,
-        });
-        delivered = true;
+        const sendOptions = state.threadId
+          ? { message_thread_id: state.threadId }
+          : {};
+        for (const part of overflowParts) {
+          await sendTelegramMessageWithResult(
+            this.bot.api,
+            numericId,
+            part,
+            sendOptions,
+            { preserveStyleMarkers: true },
+          );
+          delivered = true;
+        }
       }
       this.markStreamingGenerationDone(jid, options.generation);
     }
@@ -461,7 +590,7 @@ export abstract class TelegramChannelState implements ChannelAdapter {
     jid: string,
     text: string,
     options?: MessageSendOptions,
-  ): Promise<{ externalMessageId?: string }>;
+  ): Promise<MessageDeliveryResult>;
   abstract sendStreamingChunk(
     jid: string,
     text: string,

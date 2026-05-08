@@ -4,6 +4,7 @@ import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
 } from '../../domain/types.js';
+import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
 import {
   decisionForMode,
   formatPermissionPromptText as formatSharedPermissionPromptText,
@@ -12,8 +13,68 @@ import {
 } from '../permission-interaction.js';
 
 import { SlackChannelState, SlackMessageLike } from './channel-state.js';
+import {
+  SLACK_NATIVE_APPEND_MAX_LENGTH,
+  splitSlackTextByCodeUnits,
+} from './text-limits.js';
+const SLACK_RETRY_DELAY_FALLBACK_MS = 1000;
+const SLACK_RETRY_DELAY_MAX_MS = 5000;
+
+function clampSlackRetryDelayMs(delayMs: number): number {
+  if (!Number.isFinite(delayMs) || delayMs <= 0) {
+    return SLACK_RETRY_DELAY_FALLBACK_MS;
+  }
+  return Math.min(SLACK_RETRY_DELAY_MAX_MS, Math.max(1, Math.round(delayMs)));
+}
 
 export abstract class SlackChannelInteractions extends SlackChannelState {
+  private rateLimitRetryDelayMs(input: unknown): number | null {
+    const candidate = input as {
+      retry_after?: unknown;
+      retryAfter?: unknown;
+      data?: { retry_after?: unknown; retryAfter?: unknown };
+      headers?: { retry_after?: unknown; retryAfter?: unknown };
+      status?: unknown;
+      statusCode?: unknown;
+      code?: unknown;
+      error?: unknown;
+    };
+    const values = [
+      candidate.retry_after,
+      candidate.retryAfter,
+      candidate.data?.retry_after,
+      candidate.data?.retryAfter,
+      candidate.headers?.retry_after,
+      candidate.headers?.retryAfter,
+    ];
+    for (const value of values) {
+      if (typeof value === 'number' && value > 0) {
+        return clampSlackRetryDelayMs(value * 1000);
+      }
+      if (typeof value === 'string') {
+        const parsed = Number.parseFloat(value);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          return clampSlackRetryDelayMs(parsed * 1000);
+        }
+      }
+    }
+    if (
+      candidate.status === 429 ||
+      candidate.statusCode === 429 ||
+      candidate.code === 429 ||
+      candidate.error === 'ratelimited'
+    ) {
+      return SLACK_RETRY_DELAY_FALLBACK_MS;
+    }
+    return null;
+  }
+
+  private async waitForRetry(delayMs: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, clampSlackRetryDelayMs(delayMs));
+    });
+  }
+
   protected async ingestSlackMessage(event: SlackMessageLike): Promise<void> {
     if (!event.channel || !event.ts) return;
     if (event.bot_id) return;
@@ -91,18 +152,89 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
     channelId: string,
     streamTs: string,
     text: string,
-  ): Promise<boolean> {
-    if (!this.app || !text.trim()) return true;
-    try {
-      const result = (await this.app.client.apiCall('chat.appendStream', {
-        channel: channelId,
-        ts: streamTs,
-        markdown_text: text,
-      })) as { ok?: boolean };
-      return result.ok === true;
-    } catch {
-      return false;
+  ): Promise<{ completed: boolean; sentPrefix: string }> {
+    if (!this.app || !text.trim()) {
+      return { completed: true, sentPrefix: '' };
     }
+    const chunks = splitSlackTextByCodeUnits(
+      text,
+      SLACK_NATIVE_APPEND_MAX_LENGTH,
+    );
+    if (chunks.length > 1) {
+      logger.warn(
+        {
+          channelId,
+          streamTs,
+          parts: chunks.length,
+          limit: SLACK_NATIVE_APPEND_MAX_LENGTH,
+        },
+        'Slack streaming append split to respect payload limits',
+      );
+    }
+
+    let sentPrefix = '';
+    let appendedChunks = 0;
+    for (const chunk of chunks) {
+      let appended = false;
+      let lastFailure: unknown;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const result = (await this.app.client.apiCall('chat.appendStream', {
+            channel: channelId,
+            ts: streamTs,
+            markdown_text: chunk,
+          })) as { ok?: boolean; error?: string; retry_after?: number };
+          if (result.ok === true) {
+            appended = true;
+            break;
+          }
+          const retryDelayMs = this.rateLimitRetryDelayMs(result);
+          if (retryDelayMs === null || attempt >= 2) {
+            lastFailure = result;
+            break;
+          }
+          logger.warn(
+            { channelId, streamTs, attempt: attempt + 1, retryDelayMs },
+            'Slack append stream rate-limited; retrying',
+          );
+          await this.waitForRetry(retryDelayMs);
+        } catch (err) {
+          const retryDelayMs = this.rateLimitRetryDelayMs(err);
+          if (retryDelayMs === null || attempt >= 2) {
+            lastFailure = err;
+            break;
+          }
+          logger.warn(
+            { channelId, streamTs, attempt: attempt + 1, retryDelayMs },
+            'Slack append stream errored with rate limit; retrying',
+          );
+          await this.waitForRetry(retryDelayMs);
+        }
+      }
+      if (!appended) {
+        if (appendedChunks > 0) {
+          const partial = new PartialMessageDeliveryError({
+            cause:
+              lastFailure ?? new Error('Slack native stream append failed'),
+            deliveredChunks: appendedChunks,
+            name: 'PartialSlackNativeStreamAppendDeliveryError',
+            message: `Slack native stream append partially delivered (${appendedChunks}/${chunks.length} chunks)`,
+            totalChunks: chunks.length,
+          });
+          Object.assign(partial, {
+            deliveredParts: appendedChunks,
+            totalParts: chunks.length,
+            sentPrefix,
+            warnings: ['slack.native_stream_append_partial_delivery'],
+          });
+          throw partial;
+        }
+        return { completed: false, sentPrefix };
+      }
+      sentPrefix += chunk;
+      appendedChunks += 1;
+    }
+    return { completed: true, sentPrefix };
   }
 
   protected async tryNativeStreamStop(

@@ -1,4 +1,6 @@
-import { sql, type SQL } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+
+import { and, eq, type SQL } from 'drizzle-orm';
 
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
 import type {
@@ -15,8 +17,21 @@ export function memoryAgentIdForGroupFolder(groupFolder: string): string {
     ? groupFolder
     : `agent:${groupFolder}`;
 }
+
+function hashText(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+export function subjectIdFor(subject: NormalizedMemorySubject): string {
+  return `msu_${hashText(`${subject.appId}:${subject.agentId}:${subject.subjectType}:${subject.subjectId}`).slice(0, 32)}`;
+}
+
 const DEFAULT_GROUP_ID = 'default';
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/;
+
+function supportsThreadScope(subjectType: MemorySubjectType): boolean {
+  return subjectType === 'group' || subjectType === 'channel';
+}
 
 function normalizeId(value: string | undefined, fallback: string): string {
   const next = value?.trim() || fallback;
@@ -63,7 +78,7 @@ export function normalizeSubject(
     ...(userId ? { userId } : {}),
     ...(groupId ? { groupId } : {}),
     ...(channelId ? { channelId } : {}),
-    ...(threadId ? { threadId } : {}),
+    ...(threadId && supportsThreadScope(subjectType) ? { threadId } : {}),
   };
 }
 
@@ -71,10 +86,14 @@ function subjectFilterSql(
   i: typeof pgSchema.memoryItemsPostgres,
   subject: Pick<
     NormalizedMemorySubject,
-    'agentId' | 'subjectType' | 'subjectId'
+    'appId' | 'agentId' | 'subjectType' | 'subjectId'
   >,
 ): SQL {
-  return sql`${i.sourceRefJson}::jsonb @> ${JSON.stringify({ subject })}::jsonb`;
+  return and(
+    eq(i.agentId, subject.agentId),
+    eq(i.subjectType, subject.subjectType),
+    eq(i.subjectId, subjectIdFor(subject)),
+  )!;
 }
 
 export function visibleSubjectFilters(
@@ -92,6 +111,7 @@ export function visibleSubjectFilters(
   if (input.includeCommon !== false && allowed.has('common')) {
     filters.push(
       subjectFilterSql(i, {
+        appId: context.appId,
         agentId: context.agentId,
         subjectType: 'common',
         subjectId: 'common',
@@ -101,6 +121,7 @@ export function visibleSubjectFilters(
   if (context.userId && allowed.has('user')) {
     filters.push(
       subjectFilterSql(i, {
+        appId: context.appId,
         agentId: context.agentId,
         subjectType: 'user',
         subjectId: context.userId,
@@ -110,6 +131,7 @@ export function visibleSubjectFilters(
   if (context.groupId && allowed.has('group')) {
     filters.push(
       subjectFilterSql(i, {
+        appId: context.appId,
         agentId: context.agentId,
         subjectType: 'group',
         subjectId: context.groupId,
@@ -119,6 +141,7 @@ export function visibleSubjectFilters(
   if (context.channelId && allowed.has('channel')) {
     filters.push(
       subjectFilterSql(i, {
+        appId: context.appId,
         agentId: context.agentId,
         subjectType: 'channel',
         subjectId: context.channelId,
@@ -128,6 +151,7 @@ export function visibleSubjectFilters(
   if (filters.length === 0 && allowed.has(context.subjectType)) {
     filters.push(
       subjectFilterSql(i, {
+        appId: context.appId,
         agentId: context.agentId,
         subjectType: context.subjectType,
         subjectId: context.subjectId,

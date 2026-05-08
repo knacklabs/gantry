@@ -46,10 +46,6 @@ export function parseJsonObject(
   }
 }
 
-export function subjectIdFor(subject: NormalizedMemorySubject): string {
-  return `msu_${hashText(`${subject.appId}:${subject.agentId}:${subject.subjectType}:${subject.subjectId}`).slice(0, 32)}`;
-}
-
 export function parseItemValue(row: CanonicalMemoryItemRow): {
   value: string;
   why: string | null;
@@ -67,9 +63,9 @@ export function parseItemSource(row: CanonicalMemoryItemRow): {
   evidenceIds: string[];
   isPinned: boolean;
   version: number;
-  retrievalCount: number;
-  totalScore: number;
-  maxScore: number;
+  retrievalCount?: number;
+  totalScore?: number;
+  maxScore?: number;
 } {
   const payload = parseJsonObject(row.sourceRefJson);
   const subjectPayload = parseJsonObject(JSON.stringify(payload.subject ?? {}));
@@ -117,9 +113,19 @@ export function parseItemSource(row: CanonicalMemoryItemRow): {
         ? payload.version
         : 1,
     retrievalCount:
-      typeof payload.retrievalCount === 'number' ? payload.retrievalCount : 0,
-    totalScore: typeof payload.totalScore === 'number' ? payload.totalScore : 0,
-    maxScore: typeof payload.maxScore === 'number' ? payload.maxScore : 0,
+      typeof payload.retrievalCount === 'number' &&
+      Number.isFinite(payload.retrievalCount)
+        ? payload.retrievalCount
+        : undefined,
+    totalScore:
+      typeof payload.totalScore === 'number' &&
+      Number.isFinite(payload.totalScore)
+        ? payload.totalScore
+        : undefined,
+    maxScore:
+      typeof payload.maxScore === 'number' && Number.isFinite(payload.maxScore)
+        ? payload.maxScore
+        : undefined,
   };
 }
 
@@ -160,7 +166,6 @@ export function normalizeKind(value: string | undefined): MemoryKind {
     'fact',
     'correction',
     'constraint',
-    'project_fact',
     'reference',
   ]);
   return allowed.has(value as MemoryKind) ? (value as MemoryKind) : 'fact';
@@ -189,6 +194,13 @@ export function toAppItem(row: CanonicalMemoryItemRow): AppMemoryItem {
     version: source.version,
     source: source.source,
     evidenceIds: source.evidenceIds,
+    ...(source.retrievalCount !== undefined
+      ? { retrievalCount: source.retrievalCount }
+      : {}),
+    ...(source.totalScore !== undefined
+      ? { totalScore: source.totalScore }
+      : {}),
+    ...(source.maxScore !== undefined ? { maxScore: source.maxScore } : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

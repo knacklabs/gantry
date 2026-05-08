@@ -72,6 +72,10 @@ export interface NewMessage {
   delivery_status?: MessageDeliveryStatus;
   delivered_at?: string;
   delivery_error?: string;
+  delivery_retry_tail?: {
+    canonicalText: string;
+    providerPayload?: unknown;
+  };
   attachments?: NewMessageAttachment[];
 }
 
@@ -93,6 +97,19 @@ export type JobStatus =
   | 'running'
   | 'completed'
   | 'dead_lettered';
+
+export interface JobExecutionContext {
+  conversationJid: string;
+  threadId: string | null;
+  groupScope: string;
+  sessionId?: string | null;
+}
+
+export interface JobNotificationRoute {
+  conversationJid: string;
+  threadId: string | null;
+  label: string;
+}
 
 export interface Job {
   id: string;
@@ -126,6 +143,8 @@ export interface Job {
   capability_policy?: {
     allowed_tools: string[];
   };
+  execution_context?: JobExecutionContext;
+  notification_routes?: JobNotificationRoute[];
 }
 
 export type JobRunStatus =
@@ -365,8 +384,18 @@ export type MessageDeliveryStatus =
   | 'failed'
   | 'partially_sent';
 
+export type OutboundDeliverySettlementStatus =
+  | 'sent'
+  | 'partially_delivered'
+  | 'failed';
+
 export interface MessageDeliveryResult {
   externalMessageId?: string;
+  externalMessageIds?: string[];
+  deliveredParts?: number;
+  totalParts?: number;
+  warnings?: string[];
+  fallbackArtifactId?: string;
 }
 
 // Callback type that channels use to deliver inbound messages

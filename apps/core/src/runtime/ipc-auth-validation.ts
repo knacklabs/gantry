@@ -6,6 +6,10 @@ import {
 import { nowMs } from '../infrastructure/time/datetime.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import {
+  normalizeMemoryIpcActions,
+  type MyClawMemoryIpcAction,
+} from '../shared/memory-ipc-actions.js';
+import {
   computeBrowserIpcAuthToken,
   computeIpcAuthToken,
   computeMemoryIpcAuthToken,
@@ -22,8 +26,10 @@ interface IpcBrowserBinding extends IpcThreadBinding {
 }
 
 interface IpcMemoryBinding extends IpcThreadBinding {
+  chatJid?: string;
   userId?: string;
   defaultScope?: 'user' | 'group';
+  allowedActions: readonly MyClawMemoryIpcAction[];
 }
 
 const consumedIpcRequestIds = new Map<string, number>();
@@ -191,6 +197,7 @@ export function validateMemoryIpcAuthRequest(
 ): IpcMemoryBinding {
   const binding = readTrustedThreadBinding(raw, label);
   const context = isPlainObject(raw.context) ? raw.context : undefined;
+  const chatJid = toTrimmedString(context?.chatJid, { maxLen: 255 });
   const userId = toTrimmedString(context?.userId, { maxLen: 255 });
   const defaultScopeRaw = toTrimmedString(context?.defaultScope, {
     maxLen: 16,
@@ -199,14 +206,23 @@ export function validateMemoryIpcAuthRequest(
     defaultScopeRaw === 'user' || defaultScopeRaw === 'group'
       ? defaultScopeRaw
       : undefined;
+  const allowedActions = normalizeMemoryIpcActions(
+    Array.isArray(context?.allowedActions)
+      ? context.allowedActions.filter(
+          (action): action is string => typeof action === 'string',
+        )
+      : undefined,
+  );
   const signature = toTrimmedString(raw.signature, { maxLen: 512 }) || '';
   const payload = { ...raw };
   delete payload.signature;
   delete payload.authToken;
   const requestSigningKey = computeMemoryIpcAuthToken(sourceAgentFolder, {
+    ...(chatJid ? { chatJid } : {}),
     ...(userId ? { userId } : {}),
     defaultScope: defaultScope || 'group',
     threadId: binding.authThreadId,
+    allowedActions,
   });
   if (!verifyIpcRequestPayload(requestSigningKey, payload, signature)) {
     throw new Error(`Invalid ${label} signature`);
@@ -226,7 +242,9 @@ export function validateMemoryIpcAuthRequest(
   }
   return {
     ...binding,
+    ...(chatJid ? { chatJid } : {}),
     ...(userId ? { userId } : {}),
     ...(defaultScope ? { defaultScope } : {}),
+    allowedActions,
   };
 }

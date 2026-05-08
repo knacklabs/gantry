@@ -73,12 +73,42 @@ const DISALLOWED_TASK_FIELDS = [
   'since_id',
 ] as const;
 
+const LEGACY_JOB_TASK_FIELDS = [
+  'linked_sessions',
+  'linkedSessions',
+  'deliver_to',
+  'deliverTo',
+  'notificationTarget',
+  'thread_id',
+] as const;
+
+function isSchedulerJobMutationTask(type: string): boolean {
+  return type === 'scheduler_upsert_job' || type === 'scheduler_update_job';
+}
+
 function findDisallowedTaskFields(raw: Record<string, unknown>): string[] {
   const found: string[] = [];
   for (const key of DISALLOWED_TASK_FIELDS) {
     if (Object.prototype.hasOwnProperty.call(raw, key)) {
       found.push(key);
     }
+  }
+  return found;
+}
+
+function findLegacyJobTaskFields(
+  raw: Record<string, unknown>,
+  type: string,
+): string[] {
+  if (!isSchedulerJobMutationTask(type)) return [];
+  const found: string[] = [];
+  for (const key of LEGACY_JOB_TASK_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(raw, key)) {
+      found.push(key);
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, 'threadId')) {
+    found.push('threadId');
   }
   return found;
 }
@@ -91,6 +121,114 @@ function assertNoDisallowedTaskFields(raw: Record<string, unknown>): void {
       ', ',
     )}. IPC tasks accept camelCase fields only.`,
   );
+}
+
+function assertNoLegacyJobTaskFields(
+  raw: Record<string, unknown>,
+  type: string,
+): void {
+  const fields = findLegacyJobTaskFields(raw, type);
+  if (fields.length === 0) return;
+  throw new Error(
+    `Unsupported legacy scheduler job fields: ${fields.join(
+      ', ',
+    )}. Use executionContext and notificationRoutes.`,
+  );
+}
+
+function toOptionalExecutionContext(value: unknown):
+  | {
+      conversationJid: string;
+      threadId: string | null;
+      groupScope: string;
+      sessionId?: string | null;
+    }
+  | undefined {
+  if (value === undefined) return undefined;
+  if (!isPlainObject(value)) {
+    throw new Error('executionContext must be an object');
+  }
+  const conversationJid = toTrimmedString(value.conversationJid, {
+    maxLen: 255,
+  });
+  const groupScope = toTrimmedString(value.groupScope, { maxLen: 128 });
+  const hasThreadId = Object.prototype.hasOwnProperty.call(value, 'threadId');
+  const threadIdRaw = value.threadId;
+  const threadId =
+    threadIdRaw === null ? null : toTrimmedString(threadIdRaw, { maxLen: 255 });
+  const hasSessionId = Object.prototype.hasOwnProperty.call(value, 'sessionId');
+  const sessionIdRaw = value.sessionId;
+  const sessionId =
+    sessionIdRaw === null
+      ? null
+      : toTrimmedString(sessionIdRaw, { maxLen: 255 });
+  if (!conversationJid || !groupScope || !hasThreadId) {
+    throw new Error(
+      'executionContext requires conversationJid, groupScope, and threadId.',
+    );
+  }
+  if (threadIdRaw !== null && !threadId) {
+    throw new Error('executionContext.threadId must be a string or null.');
+  }
+  if (hasSessionId && sessionIdRaw !== null && !sessionId) {
+    throw new Error('executionContext.sessionId must be a string or null.');
+  }
+  const normalizedThreadId: string | null =
+    threadIdRaw === null ? null : (threadId as string);
+  const normalizedSessionId: string | null =
+    sessionIdRaw === null ? null : (sessionId as string);
+  return {
+    conversationJid,
+    groupScope,
+    threadId: normalizedThreadId,
+    ...(hasSessionId ? { sessionId: normalizedSessionId } : {}),
+  };
+}
+
+function toOptionalNotificationRoutes(value: unknown):
+  | Array<{
+      conversationJid: string;
+      threadId: string | null;
+      label: string;
+    }>
+  | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error('notificationRoutes must be an array');
+  }
+  const routes: Array<{
+    conversationJid: string;
+    threadId: string | null;
+    label: string;
+  }> = [];
+  for (const entry of value) {
+    if (!isPlainObject(entry)) {
+      throw new Error('notificationRoutes entries must be objects');
+    }
+    const conversationJid = toTrimmedString(entry.conversationJid, {
+      maxLen: 255,
+    });
+    const hasThreadId = Object.prototype.hasOwnProperty.call(entry, 'threadId');
+    const threadId =
+      entry.threadId === null
+        ? null
+        : toTrimmedString(entry.threadId, { maxLen: 255 });
+    const label = toTrimmedString(entry.label, { maxLen: 80 });
+    if (!conversationJid || !label || !hasThreadId) {
+      throw new Error(
+        'notificationRoutes entries require conversationJid, threadId, and label.',
+      );
+    }
+    if (entry.threadId !== null && !threadId) {
+      throw new Error(
+        'notificationRoutes entries threadId must be a string or null.',
+      );
+    }
+    const normalizedThreadId: string | null =
+      entry.threadId === null ? null : (threadId as string);
+    routes.push({ conversationJid, threadId: normalizedThreadId, label });
+  }
+  return routes;
 }
 
 function parseAgentConfigPayload(
@@ -131,6 +269,7 @@ export function parseTaskIpcData(
   }
   const type = toTrimmedString(raw.type, { maxLen: 80 });
   if (!type) throw new Error('IPC task type is required');
+  assertNoLegacyJobTaskFields(raw, type);
   const parsed: TaskIpcData = { type };
   const taskId = toTrimmedString(raw.taskId, { maxLen: 128 });
   const prompt = toTrimmedString(raw.prompt, { maxLen: 20000 });
@@ -158,12 +297,11 @@ export function parseTaskIpcData(
     allowEmpty: true,
   });
   const jobId = toTrimmedString(raw.jobId, { maxLen: 128 });
-  const linkedSessions = toOptionalStringArray(raw.linkedSessions, 200, 255);
   const allowedTools = toOptionalStringArray(raw.allowedTools, 200, 255);
-  const deliverToArray = toOptionalStringArray(raw.deliverTo, 200, 255);
-  const deliverToSingle = toTrimmedString(raw.deliverTo, { maxLen: 255 });
-  const deliverTo =
-    deliverToArray || (deliverToSingle ? [deliverToSingle] : undefined);
+  const executionContext = toOptionalExecutionContext(raw.executionContext);
+  const notificationRoutes = toOptionalNotificationRoutes(
+    raw.notificationRoutes,
+  );
   const groupScope = toTrimmedString(raw.groupScope, { maxLen: 128 });
   const silent = toOptionalBoolean(raw.silent);
   const serialize = toOptionalBoolean(raw.serialize);
@@ -219,9 +357,21 @@ export function parseTaskIpcData(
   if (contextMode) parsed.contextMode = contextMode;
   if (script !== undefined) parsed.script = script;
   if (jobId) parsed.jobId = jobId;
-  if (linkedSessions !== undefined) parsed.linkedSessions = linkedSessions;
   if (allowedTools !== undefined) parsed.allowedTools = allowedTools;
-  if (deliverTo !== undefined) parsed.deliverTo = deliverTo;
+  if (executionContext !== undefined) {
+    (
+      parsed as TaskIpcData & {
+        executionContext?: typeof executionContext;
+      }
+    ).executionContext = executionContext;
+  }
+  if (notificationRoutes !== undefined) {
+    (
+      parsed as TaskIpcData & {
+        notificationRoutes?: typeof notificationRoutes;
+      }
+    ).notificationRoutes = notificationRoutes;
+  }
   if (groupScope) parsed.groupScope = groupScope;
   if (threadBinding.authThreadId) {
     parsed.authThreadId = threadBinding.authThreadId;

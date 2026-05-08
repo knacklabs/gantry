@@ -1,6 +1,7 @@
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
+  MessageDeliveryResult,
   MessageSendOptions,
   PermissionApprovalDecision,
   PermissionApprovalRequest,
@@ -9,34 +10,41 @@ import {
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../../domain/types.js';
-import { PartialMessageDeliveryError } from '../../runtime/partial-delivery.js';
+import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
 
 import { TelegramChannelConnect } from './channel-connect.js';
 import {
-  TELEGRAM_DRAFT_MAX_LENGTH,
   TELEGRAM_MEDIA_DRAIN_TIMEOUT_MS,
   TELEGRAM_MESSAGE_MAX_LENGTH,
   TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
   TELEGRAM_USER_QUESTION_TIMEOUT_MS,
   ActiveDraftStreamState,
-  countTelegramTextChunks,
   editTelegramMessage,
   escapeTelegramMarkdownV2,
-  iterTelegramTextChunks,
   sendTelegramMessageWithResult,
+  splitTelegramDeliveryText,
   telegramThreadOptionsFromString,
 } from './channel-shared.js';
+import { sendTelegramPlannedChunk } from './send-planned-chunk.js';
 import {
   permissionButtonLabel,
   permissionDecisionOptions,
 } from '../permission-interaction.js';
+
+const TELEGRAM_ESCAPED_MARKDOWN_V2_CHAR_PATTERN =
+  /\\([_*~[\]()`>#+\-=|{}.!\\])/g;
+
+function unescapeTelegramEscapedMarkdownV2(text: string): string {
+  if (!text) return text;
+  return text.replace(TELEGRAM_ESCAPED_MARKDOWN_V2_CHAR_PATTERN, '$1');
+}
 
 export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
   async sendMessage(
     jid: string,
     text: string,
     options: MessageSendOptions = {},
-  ): Promise<{ externalMessageId?: string }> {
+  ): Promise<MessageDeliveryResult> {
     if (!this.bot) {
       logger.warn('Telegram bot not initialized');
       throw new Error('Telegram bot not initialized');
@@ -46,36 +54,84 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       const numericId = jid.replace(/^tg:/, '');
       const sendOptions = telegramThreadOptionsFromString(options.threadId);
 
-      // Telegram has a 4096 character limit per message. Split on code-point
-      // boundaries so emoji/surrogate pairs are not corrupted between chunks.
-      let deliveredChunks = 0;
-      let firstMessageId: number | undefined;
-      for (const chunk of iterTelegramTextChunks(
-        text,
+      // Split after escaping so each outbound envelope already matches the
+      // exact payload Telegram receives.
+      const escapedText = escapeTelegramMarkdownV2(text);
+      const escapedChunks = splitTelegramDeliveryText(
+        escapedText,
+        TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
         TELEGRAM_MESSAGE_MAX_LENGTH,
-      )) {
+      );
+      const chunks = escapedChunks.map((escapedChunk) => ({
+        escapedText: escapedChunk,
+        canonicalText: unescapeTelegramEscapedMarkdownV2(escapedChunk),
+      }));
+      if (chunks.length === 0) return {};
+
+      const warnings: string[] = [];
+      if (chunks.length > 1) {
+        warnings.push(
+          `telegram.message.chunked:${chunks.length}:${TELEGRAM_STREAM_CHUNK_MAX_LENGTH}`,
+        );
+      }
+
+      const externalMessageIds: string[] = [];
+      let deliveredChunks = 0;
+      let usePlainText = false;
+      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+        const chunk = chunks[chunkIndex];
         try {
-          const messageId = await sendTelegramMessageWithResult(
+          const sent = await sendTelegramPlannedChunk(
             this.bot.api,
             numericId,
-            chunk,
-            sendOptions,
+            chunk.escapedText,
+            {
+              sendOptions,
+              plainText: chunk.canonicalText,
+              allowPlainTextFallback: !usePlainText,
+              forcePlainText: usePlainText,
+            },
           );
-          firstMessageId ??= messageId;
+          usePlainText = sent.usedPlainText || usePlainText;
+          const messageId = sent.messageId;
+          if (messageId !== undefined) {
+            externalMessageIds.push(String(messageId));
+          }
           deliveredChunks += 1;
         } catch (err) {
           if (deliveredChunks > 0) {
-            const totalChunks = countTelegramTextChunks(
-              text,
-              TELEGRAM_MESSAGE_MAX_LENGTH,
-            );
-            throw new PartialMessageDeliveryError({
+            const unsentCanonicalTail = chunks
+              .slice(deliveredChunks)
+              .map((planned) => planned.canonicalText)
+              .join('');
+            const partial = new PartialMessageDeliveryError({
               cause: err,
               deliveredChunks,
               name: 'PartialTelegramDeliveryError',
-              message: `Telegram message partially delivered (${deliveredChunks}/${totalChunks} chunks)`,
-              totalChunks,
+              message: `Telegram message partially delivered (${deliveredChunks}/${chunks.length} chunks)`,
+              totalChunks: chunks.length,
             });
+            Object.assign(partial, {
+              deliveredParts: deliveredChunks,
+              totalParts: chunks.length,
+              externalMessageIds,
+              ...(unsentCanonicalTail.trim()
+                ? {
+                    retryTail: {
+                      canonicalText: unsentCanonicalTail,
+                      providerPayload: {
+                        provider: 'telegram',
+                        chatId: numericId,
+                        ...(options.threadId
+                          ? { threadId: options.threadId }
+                          : {}),
+                      },
+                    },
+                  }
+                : {}),
+              ...(warnings.length > 0 ? { warnings } : {}),
+            });
+            throw partial;
           }
           throw err;
         }
@@ -84,9 +140,15 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         { jid, length: text.length, threadId: options.threadId },
         'Telegram message sent',
       );
-      return firstMessageId !== undefined
-        ? { externalMessageId: String(firstMessageId) }
-        : {};
+      return {
+        ...(externalMessageIds[0]
+          ? { externalMessageId: externalMessageIds[0] }
+          : {}),
+        ...(externalMessageIds.length > 0 ? { externalMessageIds } : {}),
+        deliveredParts: deliveredChunks,
+        totalParts: chunks.length,
+        ...(warnings.length > 0 ? { warnings } : {}),
+      };
     } catch (err) {
       logger.error(
         { jid, error: this.sanitizeErrorMessage(err) },
@@ -186,11 +248,11 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     if (text) {
       state.rawBuffer += text;
       const escaped = escapeTelegramMarkdownV2(text);
-      for (const chunk of iterTelegramTextChunks(
+      for (const chunk of splitTelegramDeliveryText(
         escaped,
         TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
       )) {
-        if (chunk.length > TELEGRAM_DRAFT_MAX_LENGTH) {
+        if (chunk.length > TELEGRAM_MESSAGE_MAX_LENGTH) {
           logger.warn(
             { jid, length: chunk.length },
             'Skipping oversize Telegram stream chunk',

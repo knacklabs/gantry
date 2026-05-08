@@ -23,8 +23,13 @@ import type {
   JobRecordInput,
   PostgresCanonicalJobRepository,
 } from '../repositories/canonical-job-repository.postgres.js';
+import { redactProviderSessionHandlesInText } from '../../../../shared/provider-session-redaction.js';
 
 type JobRecordSource = Omit<JobUpsertInput, 'id'> | JobUpsertInput | Job;
+type CanonicalExecutionContext = NonNullable<Job['execution_context']>;
+type CanonicalNotificationRoute = NonNullable<
+  Job['notification_routes']
+>[number];
 
 export class CanonicalJobOpsService {
   constructor(private readonly repository: PostgresCanonicalJobRepository) {}
@@ -44,7 +49,6 @@ export class CanonicalJobOpsService {
         schedule_type: job.schedule_type,
         schedule_value: job.schedule_value,
         status,
-        linked_sessions: job.linked_sessions,
         session_id: job.session_id,
         thread_id: job.thread_id,
         group_scope: job.group_scope,
@@ -64,6 +68,8 @@ export class CanonicalJobOpsService {
         silent: job.silent,
         pause_reason: job.pause_reason,
         capability_policy: job.capability_policy,
+        execution_context: job.execution_context,
+        notification_routes: job.notification_routes,
         created_at: job.created_at || now,
         updated_at: job.updated_at || now,
       }),
@@ -172,11 +178,19 @@ export class CanonicalJobOpsService {
     resultSummary: string | null = null,
     errorSummary: string | null = null,
   ): Promise<void> {
+    const redactedResultSummary =
+      resultSummary == null
+        ? resultSummary
+        : redactProviderSessionHandlesInText(resultSummary);
+    const redactedErrorSummary =
+      errorSummary == null
+        ? errorSummary
+        : redactProviderSessionHandlesInText(errorSummary);
     await this.repository.updateRunCompletion(runId, {
       status,
       endedAt: currentIso(),
-      resultSummary,
-      errorSummary,
+      resultSummary: redactedResultSummary,
+      errorSummary: redactedErrorSummary,
     });
   }
 
@@ -253,6 +267,16 @@ export class CanonicalJobOpsService {
       {},
     );
     const target = parseJson<Record<string, unknown>>(row.targetJson, {});
+    const executionContext = parseExecutionContext(target.executionContext) ?? {
+      conversationJid: '',
+      threadId: null,
+      groupScope: row.agentId?.replace(/^agent:/, '') || 'system',
+      sessionId: null,
+    };
+    const notificationRoutes = resolveNotificationRoutesFromTarget({
+      targetRoutes: target.notificationRoutes,
+      executionContext,
+    });
     const capabilityPolicy = parseCapabilityPolicy(target.capabilityPolicy);
     return {
       id: row.id,
@@ -263,13 +287,10 @@ export class CanonicalJobOpsService {
       schedule_type: (schedule.type as Job['schedule_type']) || 'manual',
       schedule_value: schedule.value || '',
       status: row.status as Job['status'],
-      linked_sessions: (target.linkedSessions as string[] | undefined) ?? [],
-      session_id: (target.sessionId as string | null | undefined) ?? null,
-      thread_id: (target.threadId as string | null | undefined) ?? null,
-      group_scope:
-        (target.groupScope as string | undefined) ||
-        row.agentId?.replace(/^agent:/, '') ||
-        'system',
+      linked_sessions: [],
+      session_id: executionContext.sessionId ?? null,
+      thread_id: executionContext.threadId ?? null,
+      group_scope: executionContext.groupScope,
       created_by: (target.createdBy as Job['created_by']) || 'agent',
       created_at: row.createdAt,
       updated_at: row.updatedAt,
@@ -287,6 +308,8 @@ export class CanonicalJobOpsService {
       lease_expires_at: row.leaseExpiresAt,
       pause_reason: (target.pauseReason as string | null | undefined) ?? null,
       capability_policy: capabilityPolicy,
+      execution_context: executionContext,
+      notification_routes: notificationRoutes,
     };
   }
 
@@ -296,6 +319,8 @@ export class CanonicalJobOpsService {
     job: JobRecordSource,
   ): JobRecordInput {
     const now = currentIso();
+    const executionContext = resolveExecutionContext(job, agentId);
+    const notificationRoutes = resolveNotificationRoutes(job, executionContext);
     return {
       id,
       agentId,
@@ -309,10 +334,8 @@ export class CanonicalJobOpsService {
       status: job.status || 'active',
       executionMode: job.execution_mode || 'parallel',
       targetJson: json({
-        linkedSessions: job.linked_sessions,
-        sessionId: job.session_id ?? null,
-        threadId: job.thread_id ?? null,
-        groupScope: job.group_scope,
+        executionContext,
+        notificationRoutes,
         createdBy: job.created_by || 'agent',
         script: job.script ?? null,
         cleanupAfterMs: job.cleanup_after_ms ?? 86400000,
@@ -387,4 +410,125 @@ function parseCapabilityPolicy(input: unknown): Job['capability_policy'] {
   if (!input || typeof input !== 'object') return { allowed_tools: [] };
   const allowedTools = (input as { allowedTools?: unknown }).allowedTools;
   return { allowed_tools: normalizeAllowedTools(allowedTools) };
+}
+
+function parseExecutionContext(
+  input: unknown,
+): CanonicalExecutionContext | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  const value = input as Record<string, unknown>;
+  const conversationJid = normalizeString(value.conversationJid);
+  const groupScope = normalizeString(value.groupScope);
+  if (!conversationJid || !groupScope) return undefined;
+  return {
+    conversationJid,
+    threadId: normalizeNullableString(value.threadId),
+    groupScope,
+    sessionId: normalizeNullableString(value.sessionId),
+  };
+}
+
+function parseNotificationRoutes(input: unknown): CanonicalNotificationRoute[] {
+  if (!Array.isArray(input)) return [];
+  const routes: CanonicalNotificationRoute[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== 'object') continue;
+    const value = item as Record<string, unknown>;
+    const conversationJid = normalizeString(value.conversationJid);
+    const label = normalizeString(value.label);
+    if (!conversationJid || !label) continue;
+    routes.push({
+      conversationJid,
+      threadId: normalizeNullableString(value.threadId),
+      label,
+    });
+  }
+  return routes;
+}
+
+function resolveExecutionContext(
+  job: JobRecordSource,
+  agentId: string,
+): CanonicalExecutionContext {
+  const parsed = parseExecutionContext(job.execution_context);
+  if (parsed) return parsed;
+
+  const firstRouteConversation = parseNotificationRoutes(
+    job.notification_routes,
+  )[0]?.conversationJid;
+  const fallbackConversation = normalizeString(firstRouteConversation);
+  if (!fallbackConversation) {
+    throw new Error(
+      `Job ${'id' in job ? String(job.id) : '<unknown>'} is missing execution context conversation.`,
+    );
+  }
+  return {
+    conversationJid: fallbackConversation,
+    threadId: normalizeNullableString(job.thread_id),
+    groupScope:
+      normalizeString(job.group_scope) ?? agentId.replace(/^agent:/, ''),
+    sessionId: normalizeNullableString(job.session_id),
+  };
+}
+
+function resolveNotificationRoutes(
+  job: JobRecordSource,
+  executionContext: CanonicalExecutionContext,
+): CanonicalNotificationRoute[] {
+  const explicitRoutes = parseNotificationRoutes(job.notification_routes);
+  const canonicalRoutes = matchingExecutionRoutes(
+    explicitRoutes,
+    executionContext,
+  );
+  if (canonicalRoutes.length > 0) return canonicalRoutes;
+
+  return [
+    {
+      conversationJid: executionContext.conversationJid,
+      threadId: executionContext.threadId,
+      label: 'Primary',
+    },
+  ];
+}
+
+function normalizeString(input: unknown): string | undefined {
+  if (typeof input !== 'string') return undefined;
+  const trimmed = input.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function resolveNotificationRoutesFromTarget(input: {
+  targetRoutes: unknown;
+  executionContext: CanonicalExecutionContext;
+}): CanonicalNotificationRoute[] {
+  const explicitRoutes = parseNotificationRoutes(input.targetRoutes);
+  const canonicalRoutes = matchingExecutionRoutes(
+    explicitRoutes,
+    input.executionContext,
+  );
+  if (canonicalRoutes.length > 0) return canonicalRoutes;
+  if (!input.executionContext.conversationJid) return [];
+  return [
+    {
+      conversationJid: input.executionContext.conversationJid,
+      threadId: input.executionContext.threadId,
+      label: 'Primary',
+    },
+  ];
+}
+
+function matchingExecutionRoutes(
+  routes: readonly CanonicalNotificationRoute[],
+  executionContext: CanonicalExecutionContext,
+): CanonicalNotificationRoute[] {
+  return routes.filter(
+    (route) =>
+      route.conversationJid === executionContext.conversationJid &&
+      (route.threadId ?? null) === (executionContext.threadId ?? null),
+  );
+}
+
+function normalizeNullableString(input: unknown): string | null {
+  if (input === null || input === undefined) return null;
+  return normalizeString(input) ?? null;
 }

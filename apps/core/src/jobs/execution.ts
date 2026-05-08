@@ -23,27 +23,32 @@ import { AgentOutput, spawnAgent } from '../runtime/agent-spawn.js';
 import {
   completeFailedRuntimeSessionRun,
   completeSuccessfulRuntimeSessionRun,
+  createRuntimeResultSummaryAccumulator,
 } from '../runtime/session-resume-runtime.js';
+import { redactProviderSessionHandlesInText } from '../shared/provider-session-redaction.js';
 import {
   collectCompactBoundaryMemory,
   collectJobCompletionMemory,
 } from './compact-memory.js';
 import { normalizeCleanupAfterMs } from './cleanup.js';
 import {
+  buildExecutionTurnContextInput,
   resolveExecutionContext,
   resolveExecutionMemoryContext,
 } from './execution-context.js';
 import { computeNextJobRun } from './schedule-math.js';
+import { isDeliverySent, settleDeliveryAttempt } from './delivery.js';
+import {
+  resolveJobNotificationRoutes,
+  type NormalizedJobNotificationRoute,
+} from './job-notification-routes.js';
 import {
   logMemoryDreamJobFailure,
-  notifySchedulerRunFailure,
+  notifySchedulerRunStart,
+  notifySchedulerTerminalRunState,
 } from './execution-notifications.js';
 import { handleSystemJob } from './system-jobs.js';
-import {
-  buildJobStreamingOptions,
-  nextJobStreamingGeneration,
-} from './streaming-options.js';
-export { resetJobStreamingGenerationForTests as resetSchedulerExecutionStateForTests } from './streaming-options.js';
+import { createJobExecutionDeletionGuard } from './execution-deletion-guard.js';
 import { runtimeEventTypeForRunStatus } from './run-status-event.js';
 import {
   jobCompletedModelPayload,
@@ -63,7 +68,8 @@ import type {
   SchedulerDependencies,
   SchedulerDispatchPayload,
 } from './types.js';
-const JOB_DELETION_CHECK_INTERVAL_MS = 1_000;
+
+export function resetSchedulerExecutionStateForTests(): void {}
 export async function runJob(
   job: Job,
   deps: SchedulerDependencies,
@@ -80,9 +86,11 @@ export async function runJob(
   const groups = deps.conversationRoutes();
   const execution = resolveExecutionContext(currentJob, groups);
   if (!execution) {
+    const unresolvedConversation =
+      currentJob.execution_context?.conversationJid || 'unknown';
     await deps.opsRepository.updateJob(currentJob.id, {
       status: 'dead_lettered',
-      pause_reason: `Group scope not found: ${currentJob.group_scope}`,
+      pause_reason: `Execution context route not found: ${unresolvedConversation}`,
       next_run: null,
     });
     deps.onSchedulerChanged?.(currentJob.id);
@@ -147,50 +155,18 @@ export async function runJob(
       });
     }
   } catch {} // eslint-disable-line no-empty
-  let jobDeletedDuringRun = false;
-  let lastJobDeletionCheckAt = 0;
-  let firstDeliveryDeletionCheckDone = false;
-  const isJobDeleted = async (force = false): Promise<boolean> => {
-    if (jobDeletedDuringRun) return true;
-    const now = currentTimeMs();
-    if (
-      !force &&
-      now - lastJobDeletionCheckAt < JOB_DELETION_CHECK_INTERVAL_MS
-    ) {
-      return false;
-    }
-    lastJobDeletionCheckAt = now;
-    let jobStillExists: boolean;
-    try {
-      jobStillExists = Boolean(
-        await deps.opsRepository.getJobById(currentJob.id),
-      );
-    } catch (err) {
-      jobDeletedDuringRun = true;
-      logger.debug(
-        { jobId: currentJob.id, runId, err },
-        'Scheduler run observed closed storage while checking job state',
-      );
-      return true;
-    }
-    if (jobStillExists) return false;
-    jobDeletedDuringRun = true;
-    logger.info(
-      { jobId: currentJob.id, runId },
-      'Scheduler job deleted while run was active',
-    );
-    return true;
-  };
-  const shouldSuppressDelivery = async (): Promise<boolean> => {
-    const force = !firstDeliveryDeletionCheckDone;
-    firstDeliveryDeletionCheckDone = true;
-    return isJobDeleted(force);
-  };
+  const deletionGuard = createJobExecutionDeletionGuard({
+    jobId: currentJob.id,
+    runId,
+    nowMs: currentTimeMs,
+    getJobById: (jobId) => deps.opsRepository.getJobById(jobId),
+    log: logger,
+  });
   const emitJobEvent = async (
     eventType: RuntimeEventType,
     payload: Record<string, unknown> | null,
   ): Promise<void> => {
-    if (await isJobDeleted(true)) return;
+    if (await deletionGuard.isJobDeleted(true)) return;
     try {
       const control = getRuntimeControlRepository();
       const appSession =
@@ -225,137 +201,130 @@ export async function runJob(
   });
   let result: string | null = null;
   let error: string | null = null;
-  let collectedResult = '';
+  const resultSummaryAccumulator = createRuntimeResultSummaryAccumulator();
+  const userVisibleFallbackAccumulator =
+    createRuntimeResultSummaryAccumulator();
+  let hasStreamedResult = false;
+  let attemptedStreamingOutputDelivery = false;
+  let streamedOutputDelivered = false;
+  const appendResultSummary = (delta: string | null | undefined): void => {
+    if (!delta) return;
+    resultSummaryAccumulator.append(delta);
+    result = resultSummaryAccumulator.snapshot();
+  };
+  const notificationRoutes = resolveJobNotificationRoutes(currentJob);
+  const resetStreamingRoutes = (): void => {
+    if (!deps.resetStreaming) return;
+    for (const route of notificationRoutes) {
+      try {
+        deps.resetStreaming(route.conversationJid);
+      } catch (err) {
+        logger.warn(
+          {
+            err,
+            jobId: currentJob.id,
+            conversationJid: route.conversationJid,
+          },
+          'Failed to reset scheduler streaming state',
+        );
+      }
+    }
+  };
+  const deliverStreamingChunk = async (
+    route: NormalizedJobNotificationRoute,
+    rawText: string,
+    options: { done?: boolean } = {},
+  ): Promise<boolean> => {
+    const sendStreamingChunk = deps.sendStreamingChunk;
+    if (!sendStreamingChunk) return false;
+    const safeText = redactProviderSessionHandlesInText(rawText);
+    const settlement = await settleDeliveryAttempt(
+      () =>
+        sendStreamingChunk(route.conversationJid, safeText, {
+          ...(route.threadId ? { threadId: route.threadId } : {}),
+          ...(options.done ? { done: true } : {}),
+        }),
+      { scope: 'job-streaming-output', target: route.conversationJid },
+    ).catch((err) => {
+      logger.warn(
+        {
+          err,
+          jobId: currentJob.id,
+          runId,
+          conversationJid: route.conversationJid,
+          done: options.done === true,
+        },
+        'Failed to send scheduler streaming output',
+      );
+      return 'not_delivered' as const;
+    });
+    return isDeliverySent(settlement);
+  };
+  const deliverFullResultFallback = async (text: string): Promise<boolean> => {
+    if (!text.trim() || notificationRoutes.length === 0) return false;
+    let delivered = false;
+    for (const route of notificationRoutes) {
+      try {
+        const settlement = await settleDeliveryAttempt(
+          () =>
+            deps.sendMessage(
+              route.conversationJid,
+              text,
+              route.threadId ? { threadId: route.threadId } : undefined,
+            ),
+          { scope: 'job-output-fallback', target: route.conversationJid },
+        );
+        if (isDeliverySent(settlement)) delivered = true;
+      } catch (err) {
+        logger.warn(
+          {
+            err,
+            jobId: currentJob.id,
+            runId,
+            conversationJid: route.conversationJid,
+          },
+          'Failed to send scheduler full output fallback',
+        );
+      }
+    }
+    return delivered;
+  };
   let latestUsage: NormalizedModelUsage | undefined;
+  let startNotified = false;
   try {
     const groupDir = resolveGroupFolderPath(execution.group.folder);
     fs.mkdirSync(groupDir, { recursive: true });
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
   }
-
-  const linkedSessions = Array.from(new Set(currentJob.linked_sessions));
-  const shouldDeliverToChat = !currentJob.silent && linkedSessions.length > 0;
-  const streamGeneration = nextJobStreamingGeneration();
-  const buildStreamingOptions = (done?: boolean) =>
-    buildJobStreamingOptions({
-      generation: streamGeneration,
-      threadId: currentJob.thread_id,
-      done,
-    });
-  const resetDeliveryStreams = () => {
-    if (!deps.resetStreaming || !shouldDeliverToChat) return;
-    for (const jid of linkedSessions) {
-      try {
-        deps.resetStreaming(jid);
-      } catch (err) {
-        logger.debug(
-          { err, jid, jobId: currentJob.id },
-          'Failed to reset scheduler stream state',
-        );
-      }
-    }
-  };
-  const deliverMessage = async (text: string): Promise<boolean> => {
-    if (!shouldDeliverToChat || !text || (await shouldSuppressDelivery()))
-      return false;
-    const options = currentJob.thread_id
-      ? { threadId: currentJob.thread_id }
-      : undefined;
-    let delivered = false;
-    for (const jid of linkedSessions) {
-      try {
-        await (options
-          ? deps.sendMessage(jid, text, options)
-          : deps.sendMessage(jid, text));
-        delivered = true;
-      } catch (err) {
-        logger.warn(
-          { jobId: currentJob.id, jid, err },
-          'Failed to deliver scheduler message',
-        );
-      }
-    }
-    return delivered;
-  };
-  const deliverStreamingChunk = async (text: string): Promise<boolean> => {
-    if (!shouldDeliverToChat || !text || (await shouldSuppressDelivery()))
-      return false;
-    if (!deps.sendStreamingChunk) {
-      return deliverMessage(text);
-    }
-
-    let delivered = false;
-    for (const jid of linkedSessions) {
-      try {
-        const accepted = await deps.sendStreamingChunk(
-          jid,
-          text,
-          buildStreamingOptions(),
-        );
-        if (accepted) delivered = true;
-      } catch (err) {
-        logger.warn(
-          { jobId: currentJob.id, jid, err },
-          'Failed to deliver scheduler stream chunk',
-        );
-      }
-    }
-    return delivered;
-  };
-  let streamFinalized = false;
-  const finalizeStreaming = async (): Promise<boolean> => {
-    if (
-      !shouldDeliverToChat ||
-      !deps.sendStreamingChunk ||
-      streamFinalized ||
-      (await shouldSuppressDelivery())
-    ) {
-      return false;
-    }
-    streamFinalized = true;
-    let delivered = false;
-    for (const jid of linkedSessions) {
-      try {
-        const accepted = await deps.sendStreamingChunk(
-          jid,
-          '',
-          buildStreamingOptions(true),
-        );
-        if (accepted) delivered = true;
-      } catch (err) {
-        logger.warn(
-          { jobId: currentJob.id, jid, err },
-          'Failed to finalize scheduler stream',
-        );
-      }
-    }
-    return delivered;
-  };
   const { memoryDefaultScope, memoryUserId } = resolveExecutionMemoryContext({
     conversationKind: execution.group.conversationKind,
     executionJid: execution.executionJid,
   });
-  if (shouldDeliverToChat) {
-    resetDeliveryStreams();
-    await deliverMessage(`🔔 Scheduled task: ${currentJob.name}`);
-    firstDeliveryDeletionCheckDone = false;
+  if (!(await deletionGuard.shouldSuppressDelivery())) {
+    resetStreamingRoutes();
+    startNotified = await notifySchedulerRunStart({
+      job: currentJob,
+      runId,
+      sendMessage: deps.sendMessage,
+    });
+    deletionGuard.resetDeliveryDeletionCheck();
   }
-
   if (!error && currentJob.prompt.startsWith('__system:')) {
     try {
-      const systemResult = await handleSystemJob(
-        currentJob,
-        execution.group.folder,
-      );
-      result = JSON.stringify(systemResult);
-      collectedResult = result;
+      const systemResult = await handleSystemJob(currentJob, {
+        folder: execution.group.folder,
+        conversationId: execution.executionJid,
+        conversationKind: execution.group.conversationKind,
+        userId: memoryUserId,
+        threadId: execution.threadId,
+      });
+      appendResultSummary(JSON.stringify(systemResult));
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
   } else {
     if (!error) {
-      let deliveredAnyOutput = false;
       let bufferedStreamingChars = 0;
       let totalStreamingChars = 0;
       let lastStreamingEventMs = 0;
@@ -373,11 +342,16 @@ export async function runJob(
         lastStreamingEventMs = nowMs;
       };
       try {
-        turnContext = await deps.opsRepository.getAgentTurnContext?.({
-          agentFolder: execution.group.folder,
-          conversationJid: execution.executionJid,
-          threadId: currentJob.thread_id ?? null,
-        });
+        turnContext = await deps.opsRepository.getAgentTurnContext?.(
+          buildExecutionTurnContextInput({
+            agentFolder: execution.group.folder,
+            executionJid: execution.executionJid,
+            threadId: execution.threadId,
+            conversationKind: execution.group.conversationKind,
+            memoryUserId,
+            query: currentJob.prompt,
+          }),
+        );
         const effectiveAllowedTools = await resolveExecutionAllowedTools({
           job: currentJob,
           appId: turnContext?.appId ?? eventAppSession?.appId ?? runtimeAppId,
@@ -399,7 +373,7 @@ export async function runJob(
             model: resolvedModel.selectedModel,
             groupFolder: execution.group.folder,
             chatJid: execution.executionJid,
-            threadId: currentJob.thread_id || undefined,
+            threadId: execution.threadId || undefined,
             persona: execution.group.agentConfig?.persona,
             memoryUserId,
             memoryDefaultScope,
@@ -429,28 +403,37 @@ export async function runJob(
               context: { jobId: currentJob.id, runId },
             });
             if (streamedOutput.result) {
-              result = streamedOutput.result;
-              collectedResult += streamedOutput.result;
+              hasStreamedResult = true;
+              userVisibleFallbackAccumulator.append(
+                redactProviderSessionHandlesInText(streamedOutput.result),
+              );
+              appendResultSummary(streamedOutput.result);
+              if (
+                !currentJob.silent &&
+                !(await deletionGuard.shouldSuppressDelivery())
+              ) {
+                for (const route of notificationRoutes) {
+                  attemptedStreamingOutputDelivery = true;
+                  if (
+                    await deliverStreamingChunk(route, streamedOutput.result)
+                  ) {
+                    streamedOutputDelivered = true;
+                  }
+                }
+                deletionGuard.resetDeliveryDeletionCheck();
+              }
               const chunkChars = streamedOutput.result.length;
               bufferedStreamingChars += chunkChars;
               totalStreamingChars += chunkChars;
               flushStreamingEvent();
-              if (await deliverStreamingChunk(streamedOutput.result)) {
-                deliveredAnyOutput = true;
-              }
-            }
-            if (streamedOutput.status === 'success' && !streamedOutput.usage) {
-              if (await finalizeStreaming()) deliveredAnyOutput = true;
             }
             if (streamedOutput.status === 'error') {
               error = streamedOutput.error || 'Unknown error';
-              if (await finalizeStreaming()) deliveredAnyOutput = true;
             }
           },
           { timeoutMs },
         );
         flushStreamingEvent(true);
-
         if (output.status === 'error') {
           error = output.error || 'Unknown error';
           await completeFailedRuntimeSessionRun({
@@ -458,24 +441,32 @@ export async function runJob(
             runId: agentRunId,
             errorSummary: error,
           });
-        } else if (output.result) {
-          result = output.result;
-          if (!collectedResult) collectedResult = output.result;
+        } else if (output.result && !hasStreamedResult) {
+          userVisibleFallbackAccumulator.append(
+            redactProviderSessionHandlesInText(output.result),
+          );
+          appendResultSummary(output.result);
+        }
+        if (hasStreamedResult && deps.sendStreamingChunk) {
+          for (const route of notificationRoutes) {
+            await deliverStreamingChunk(route, '', { done: true });
+          }
         }
         if (!error) {
+          const boundedResultSummary = resultSummaryAccumulator.snapshot();
           await completeSuccessfulRuntimeSessionRun({
             ops: deps.opsRepository,
             group: execution.group,
             agentSessionId: turnContext?.agentSessionId,
             runId: agentRunId,
-            result: output.result,
+            result: boundedResultSummary,
           });
           await collectJobCompletionMemory({
             agentSessionId: turnContext?.agentSessionId,
             collectMemory: deps.collectSessionMemory,
             defaultScope: memoryDefaultScope,
             prompt: currentJob.prompt,
-            result: result || collectedResult || output.result,
+            result: boundedResultSummary,
             logger,
             context: { jobId: currentJob.id, runId },
           });
@@ -486,15 +477,6 @@ export async function runJob(
             errorSummary: error,
           });
         }
-
-        if (!error) {
-          const fallbackText = result || collectedResult;
-          if (fallbackText && !deliveredAnyOutput) {
-            if (await deliverMessage(fallbackText)) {
-              deliveredAnyOutput = true;
-            }
-          }
-        }
       } catch (err) {
         error = err instanceof Error ? err.message : String(err);
         await completeFailedRuntimeSessionRun({
@@ -502,17 +484,13 @@ export async function runJob(
           runId: agentRunId,
           errorSummary: error,
         });
-      } finally {
-        await finalizeStreaming();
       }
     }
   }
-
   const now = currentIso();
-  await isJobDeleted(true);
-  if (jobDeletedDuringRun) {
+  await deletionGuard.isJobDeleted(true);
+  if (deletionGuard.deletedDuringRun) {
     result = null;
-    collectedResult = '';
     error = null;
   }
   const nextRunOnSuccess = computeNextJobRun(currentJob, scheduledFor);
@@ -521,8 +499,11 @@ export async function runJob(
   let nextRun: string | null = nextRunOnSuccess;
   let retryCount = currentJob.consecutive_failures;
   let pauseReason: string | null = null;
+  const safeErrorSummary = error
+    ? redactProviderSessionHandlesInText(error)
+    : null;
 
-  if (jobDeletedDuringRun) {
+  if (deletionGuard.deletedDuringRun) {
     nextRun = null;
   } else if (error) {
     retryCount += 1;
@@ -545,7 +526,7 @@ export async function runJob(
       if (exceededRetry || exceededConsecutive) {
         runStatus = 'dead_lettered';
         nextRun = null;
-        pauseReason = `Paused after ${retryCount} failures. Last error: ${error}`;
+        pauseReason = `Paused after ${retryCount} failures. Last error: ${safeErrorSummary || 'Unknown error'}`;
         await deps.opsRepository.updateJob(currentJob.id, {
           status: 'dead_lettered',
           next_run: null,
@@ -591,12 +572,33 @@ export async function runJob(
     });
   }
 
-  const resultSummary = result || collectedResult || null;
+  const resultSummary = deletionGuard.deletedDuringRun
+    ? null
+    : result || resultSummaryAccumulator.snapshot();
+  const safeResultSummary = resultSummary
+    ? redactProviderSessionHandlesInText(resultSummary)
+    : null;
+  const userVisibleFallbackSnapshot = userVisibleFallbackAccumulator.snapshot();
+  let fullResultFallbackDelivered = false;
+  if (
+    runStatus === 'completed' &&
+    !currentJob.silent &&
+    !deletionGuard.deletedDuringRun &&
+    !streamedOutputDelivered &&
+    userVisibleFallbackSnapshot
+  ) {
+    fullResultFallbackDelivered = await deliverFullResultFallback(
+      userVisibleFallbackSnapshot,
+    );
+  }
+  if (attemptedStreamingOutputDelivery || fullResultFallbackDelivered) {
+    resetStreamingRoutes();
+  }
   await deps.opsRepository.completeJobRun(
     runId,
     runStatus,
-    resultSummary ? resultSummary.slice(0, 500) : null,
-    error ? error.slice(0, 500) : null,
+    safeResultSummary ? safeResultSummary.slice(0, 500) : null,
+    safeErrorSummary ? safeErrorSummary.slice(0, 500) : null,
   );
 
   await emitJobEvent(runtimeEventTypeForRunStatus(runStatus), {
@@ -606,30 +608,27 @@ export async function runJob(
   });
   if (error?.includes('tool not on autonomous job allowlist'))
     await emitJobEvent(RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED, {
-      error_summary: error.slice(0, 500),
+      error_summary: safeErrorSummary ? safeErrorSummary.slice(0, 500) : null,
     });
 
-  const summary = error
-    ? error.slice(0, 240)
-    : resultSummary
-      ? resultSummary.slice(0, 4000)
+  const summary = safeErrorSummary
+    ? safeErrorSummary.slice(0, 240)
+    : safeResultSummary
+      ? safeResultSummary.slice(0, 240)
       : 'Completed';
   logMemoryDreamJobFailure({ job: currentJob, runId, error, logger });
   const notified =
-    runStatus === 'completed'
-      ? false
-      : await notifySchedulerRunFailure({
-          job: currentJob,
-          runId,
-          runStatus,
-          summary,
-          nextRun,
-          retryCount,
-          pauseReason,
-          sendMessage: deps.sendMessage,
-          deliverMessage,
-          error,
-        });
+    !(await deletionGuard.shouldSuppressDelivery()) &&
+    (await notifySchedulerTerminalRunState({
+      job: currentJob,
+      runId,
+      runStatus,
+      summary,
+      nextRun,
+      retryCount,
+      pauseReason,
+      sendMessage: deps.sendMessage,
+    }));
   if (notified) {
     await deps.opsRepository.markJobRunNotified(runId);
   }
@@ -639,6 +638,8 @@ export async function runJob(
       : RUNTIME_EVENT_TYPES.JOB_FAILED,
     {
       status: runStatus,
+      delivery_state: notified ? 'sent' : 'not_sent',
+      start_notification_state: startNotified ? 'sent' : 'not_sent',
       next_run: nextRun,
       retry_count: retryCount,
       pause_reason: pauseReason,
@@ -669,6 +670,8 @@ export async function runJob(
           jobId: currentJob.id,
           runId,
           status: runStatus,
+          deliveryState: notified ? 'sent' : 'not_sent',
+          startNotificationState: startNotified ? 'sent' : 'not_sent',
           summary,
           nextRun,
         },
@@ -685,7 +688,7 @@ export async function runJob(
   deps.onSchedulerChanged?.(currentJob.id);
 
   if (
-    !jobDeletedDuringRun &&
+    !deletionGuard.deletedDuringRun &&
     currentJob.schedule_type === 'once' &&
     (runStatus === 'completed' || runStatus === 'dead_lettered') &&
     normalizeCleanupAfterMs(currentJob.cleanup_after_ms) === 0

@@ -470,6 +470,183 @@ describe('Slack channel', () => {
     );
   });
 
+  it('chunks outbound Slack messages to 4000-char parts and returns delivery metadata', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    const result = await channel.sendMessage(
+      'sl:C1234567890',
+      'x'.repeat(4500),
+    );
+
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(2);
+    expect(appRef.current.client.chat.postMessage).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        channel: 'C1234567890',
+        text: 'x'.repeat(4000),
+      }),
+    );
+    expect(appRef.current.client.chat.postMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        channel: 'C1234567890',
+        text: 'x'.repeat(500),
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        deliveredParts: 2,
+        totalParts: 2,
+        warnings: ['slack.message.chunked:2'],
+      }),
+    );
+  });
+
+  it('marks chunked Slack partial failures with retry-tail metadata for only unsent suffix', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    vi.mocked(appRef.current.client.chat.postMessage)
+      .mockResolvedValueOnce({
+        ok: true,
+        ts: '1710000000.100200',
+      } as any)
+      .mockRejectedValueOnce(new Error('second chunk failed'));
+
+    await expect(
+      channel.sendMessage('sl:C1234567890', 'x'.repeat(4500)),
+    ).rejects.toMatchObject({
+      name: 'PartialSlackDeliveryError',
+      partialMessageDelivery: true,
+      deliveredChunks: 1,
+      totalChunks: 2,
+      retryTail: {
+        canonicalText: 'x'.repeat(500),
+        providerPayload: expect.objectContaining({
+          provider: 'slack',
+          channelId: 'C1234567890',
+        }),
+      },
+    });
+  });
+
+  it('retries Slack outbound posts on rate limit responses', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    vi.mocked(appRef.current.client.chat.postMessage)
+      .mockResolvedValueOnce({
+        ok: false,
+        error: 'ratelimited',
+        retry_after: 0.001,
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        ts: '1710000000.200300',
+      } as any);
+
+    const result = await channel.sendMessage('sl:C1234567890', 'hello');
+
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(2);
+    expect(result).toEqual(
+      expect.objectContaining({
+        deliveredParts: 1,
+        totalParts: 1,
+        warnings: ['slack.rate_limited_retry'],
+      }),
+    );
+  });
+
+  it('clamps Slack outbound retry_after waits to a bounded maximum', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+    vi.useFakeTimers();
+
+    try {
+      vi.mocked(appRef.current.client.chat.postMessage)
+        .mockResolvedValueOnce({
+          ok: false,
+          error: 'ratelimited',
+          retry_after: 999_999,
+        } as any)
+        .mockResolvedValueOnce({
+          ok: true,
+          ts: '1710000000.200300',
+        } as any);
+
+      const sendPromise = channel.sendMessage('sl:C1234567890', 'hello');
+      await Promise.resolve();
+      expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(4999);
+      expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      const result = await sendPromise;
+      expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(2);
+      expect(result).toEqual(
+        expect.objectContaining({
+          deliveredParts: 1,
+          totalParts: 1,
+          warnings: ['slack.rate_limited_retry'],
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses the Slack snippet fallback hook for oversized payload failures', async () => {
+    class SlackChannelWithSnippetFallback extends SlackChannel {
+      protected override async sendSnippetFallback() {
+        return {
+          fallbackArtifactId: 'slack-artifact-1',
+          externalMessageId: '1710000000.400500',
+        };
+      }
+    }
+
+    const channel = new SlackChannelWithSnippetFallback(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    vi.mocked(appRef.current.client.chat.postMessage).mockRejectedValueOnce({
+      status: 413,
+      message: 'payload too large',
+    } as any);
+
+    const result = await channel.sendMessage('sl:C1234567890', 'hello');
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        deliveredParts: 1,
+        fallbackArtifactId: 'slack-artifact-1',
+        externalMessageId: '1710000000.400500',
+        warnings: ['slack.snippet_fallback'],
+      }),
+    );
+  });
+
   it('does not create Slack progress for replace-only updates without existing state', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
@@ -1178,6 +1355,350 @@ describe('Slack channel', () => {
     expect(appendCalls).toHaveLength(0);
   });
 
+  it('splits native Slack stream append payloads to <=12000 chars', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    vi.mocked(appRef.current.client.apiCall).mockImplementation(
+      async (method: string, payload: Record<string, unknown>) => {
+        if (method === 'chat.startStream') {
+          return { ok: true, stream_ts: '1710000000.222333' };
+        }
+        if (method === 'chat.appendStream') {
+          return { ok: true, payload };
+        }
+        if (method === 'chat.stopStream') {
+          return { ok: true };
+        }
+        return { ok: false };
+      },
+    );
+
+    const nowSpy = vi.spyOn(Date, 'now');
+    nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+    await channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050));
+
+    const appendCalls = vi
+      .mocked(appRef.current.client.apiCall)
+      .mock.calls.filter(
+        ([method]: [string]) => method === 'chat.appendStream',
+      );
+    expect(appendCalls).toHaveLength(2);
+    expect((appendCalls[0]?.[1] as any).markdown_text.length).toBe(12000);
+    expect((appendCalls[1]?.[1] as any).markdown_text.length).toBe(1050);
+  });
+
+  it('clamps native Slack append retry_after waits to a bounded maximum', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+    vi.useFakeTimers();
+
+    let appendCallCount = 0;
+    vi.mocked(appRef.current.client.apiCall).mockImplementation(
+      async (method: string) => {
+        if (method === 'chat.startStream') {
+          return { ok: true, stream_ts: '1710000000.222333' };
+        }
+        if (method === 'chat.appendStream') {
+          appendCallCount += 1;
+          if (appendCallCount === 1) {
+            return { ok: false, error: 'ratelimited', retry_after: 999_999 };
+          }
+          return { ok: true };
+        }
+        if (method === 'chat.stopStream') {
+          return { ok: true };
+        }
+        return { ok: false };
+      },
+    );
+
+    try {
+      const nowSpy = vi.spyOn(Date, 'now');
+      nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+
+      await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+      const flushPromise = channel.sendStreamingChunk('sl:C1234567890', 'x', {
+        done: true,
+      });
+
+      await Promise.resolve();
+      const appendCallsBeforeWait = vi
+        .mocked(appRef.current.client.apiCall)
+        .mock.calls.filter(
+          ([method]: [string]) => method === 'chat.appendStream',
+        );
+      expect(appendCallsBeforeWait).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(4999);
+      const appendCallsBeforeClamp = vi
+        .mocked(appRef.current.client.apiCall)
+        .mock.calls.filter(
+          ([method]: [string]) => method === 'chat.appendStream',
+        );
+      expect(appendCallsBeforeClamp).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(flushPromise).resolves.toBe(true);
+
+      const appendCalls = vi
+        .mocked(appRef.current.client.apiCall)
+        .mock.calls.filter(
+          ([method]: [string]) => method === 'chat.appendStream',
+        );
+      expect(appendCalls).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drains unsent suffix through fallback when done append fails mid-delta', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    let appendCallCount = 0;
+    vi.mocked(appRef.current.client.apiCall).mockImplementation(
+      async (method: string, payload: Record<string, unknown>) => {
+        if (method === 'chat.startStream') {
+          return { ok: true, stream_ts: '1710000000.222333' };
+        }
+        if (method === 'chat.appendStream') {
+          appendCallCount += 1;
+          if (appendCallCount === 1) return { ok: true, payload };
+          return { ok: false, error: 'append_failed' };
+        }
+        if (method === 'chat.stopStream') {
+          return { ok: true };
+        }
+        return { ok: false };
+      },
+    );
+
+    const nowSpy = vi.spyOn(Date, 'now');
+    nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+
+    const delivered = await channel.sendStreamingChunk(
+      'sl:C1234567890',
+      'x'.repeat(13050),
+      {
+        done: true,
+      },
+    );
+
+    expect(delivered).toBe(true);
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C1234567890',
+        text: 'x'.repeat(1050),
+      }),
+    );
+    const appendCalls = vi
+      .mocked(appRef.current.client.apiCall)
+      .mock.calls.filter(
+        ([method]: [string]) => method === 'chat.appendStream',
+      );
+    expect(appendCalls).toHaveLength(2);
+    expect((appendCalls[0]?.[1] as any).markdown_text.length).toBe(12000);
+    expect((appendCalls[1]?.[1] as any).markdown_text.length).toBe(1050);
+    expect(appRef.current.client.apiCall).toHaveBeenCalledWith(
+      'chat.stopStream',
+      expect.objectContaining({
+        channel: 'C1234567890',
+        ts: '1710000000.222333',
+      }),
+    );
+  });
+
+  it('best-effort stops native stream on done when append degrades with no sent prefix', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    vi.mocked(appRef.current.client.apiCall).mockImplementation(
+      async (method: string) => {
+        if (method === 'chat.startStream') {
+          return { ok: true, stream_ts: '1710000000.222333' };
+        }
+        if (method === 'chat.appendStream') {
+          return { ok: false, error: 'append_failed' };
+        }
+        if (method === 'chat.stopStream') {
+          return { ok: true };
+        }
+        return { ok: false };
+      },
+    );
+
+    const nowSpy = vi.spyOn(Date, 'now');
+    nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+
+    const delta = 'snake_case *literal* ~literal~';
+    const delivered = await channel.sendStreamingChunk(
+      'sl:C1234567890',
+      delta,
+      {
+        done: true,
+      },
+    );
+
+    expect(delivered).toBe(true);
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(1);
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C1234567890',
+        text: 'snake_case _literal_ ~literal~',
+      }),
+    );
+    expect(appRef.current.client.apiCall).toHaveBeenCalledWith(
+      'chat.stopStream',
+      expect.objectContaining({
+        channel: 'C1234567890',
+        ts: '1710000000.222333',
+      }),
+    );
+  });
+
+  it('adds retry-tail metadata when done append fallback cannot send remaining suffix', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    let appendCallCount = 0;
+    vi.mocked(appRef.current.client.apiCall).mockImplementation(
+      async (method: string, payload: Record<string, unknown>) => {
+        if (method === 'chat.startStream') {
+          return { ok: true, stream_ts: '1710000000.222333' };
+        }
+        if (method === 'chat.appendStream') {
+          appendCallCount += 1;
+          if (appendCallCount === 1) return { ok: true, payload };
+          return { ok: false, error: 'append_failed' };
+        }
+        if (method === 'chat.stopStream') {
+          return { ok: true };
+        }
+        return { ok: false };
+      },
+    );
+    vi.mocked(appRef.current.client.chat.postMessage).mockRejectedValueOnce(
+      new Error('fallback delivery unavailable'),
+    );
+
+    const nowSpy = vi.spyOn(Date, 'now');
+    nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+
+    await expect(
+      channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050), {
+        done: true,
+      }),
+    ).rejects.toMatchObject({
+      name: 'PartialSlackNativeStreamAppendDeliveryError',
+      partialMessageDelivery: true,
+      retryTail: {
+        canonicalText: 'x'.repeat(1050),
+        providerPayload: expect.objectContaining({
+          provider: 'slack',
+          channelId: 'C1234567890',
+        }),
+      },
+    });
+    expect(appRef.current.client.apiCall).toHaveBeenCalledWith(
+      'chat.stopStream',
+      expect.objectContaining({
+        channel: 'C1234567890',
+        ts: '1710000000.222333',
+      }),
+    );
+  });
+
+  it('resumes fallback streaming from unsent suffix after native append partial failure', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    let appendCallCount = 0;
+    vi.mocked(appRef.current.client.apiCall).mockImplementation(
+      async (method: string, payload: Record<string, unknown>) => {
+        if (method === 'chat.startStream') {
+          return { ok: true, stream_ts: '1710000000.222333' };
+        }
+        if (method === 'chat.appendStream') {
+          appendCallCount += 1;
+          if (appendCallCount === 1) return { ok: true, payload };
+          return { ok: false, error: 'append_failed' };
+        }
+        if (method === 'chat.stopStream') {
+          return { ok: true };
+        }
+        return { ok: false };
+      },
+    );
+
+    const nowSpy = vi.spyOn(Date, 'now');
+    nowSpy
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(2200)
+      .mockReturnValueOnce(3400);
+
+    await channel.sendStreamingChunk('sl:C1234567890', 'seed');
+
+    await expect(
+      channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(13050)),
+    ).rejects.toMatchObject({
+      name: 'PartialSlackNativeStreamAppendDeliveryError',
+      partialMessageDelivery: true,
+      deliveredChunks: 1,
+      totalChunks: 2,
+      sentPrefix: 'x'.repeat(12000),
+    });
+
+    await channel.sendStreamingChunk('sl:C1234567890', 'y', {
+      done: true,
+    });
+
+    const appendCalls = vi
+      .mocked(appRef.current.client.apiCall)
+      .mock.calls.filter(
+        ([method]: [string]) => method === 'chat.appendStream',
+      );
+    expect(appendCalls).toHaveLength(2);
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C1234567890',
+        text: `${'x'.repeat(1050)}y`,
+      }),
+    );
+  });
+
   it('throttles native Slack stream appends by update interval', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
@@ -1258,6 +1779,169 @@ describe('Slack channel', () => {
         text: ' world',
       }),
     );
+  });
+
+  it('sends all Slack fallback stream parts in order', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
+
+    await channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(4500), {
+      done: true,
+    });
+
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(2);
+    expect(appRef.current.client.chat.postMessage).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        channel: 'C1234567890',
+        text: 'x'.repeat(4000),
+      }),
+    );
+    expect(appRef.current.client.chat.postMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        channel: 'C1234567890',
+        text: 'x'.repeat(500),
+      }),
+    );
+  });
+
+  it('uses snippet fallback hook for very large Slack stream fallback output when configured', async () => {
+    class SlackChannelWithStreamSnippetFallback extends SlackChannel {
+      fallbackCalls: Array<Record<string, unknown>> = [];
+
+      protected override async sendSnippetFallback(input: {
+        channelId: string;
+        text: string;
+        threadId?: string;
+        reason: string;
+      }) {
+        this.fallbackCalls.push(input);
+        return {
+          fallbackArtifactId: 'slack-stream-artifact-1',
+          externalMessageId: '1710000000.888999',
+        };
+      }
+    }
+
+    const channel = new SlackChannelWithStreamSnippetFallback(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
+
+    const delivered = await channel.sendStreamingChunk(
+      'sl:C1234567890',
+      'x'.repeat(20000),
+      { done: true },
+    );
+
+    expect(delivered).toBe(true);
+    expect(channel.fallbackCalls).toEqual([
+      expect.objectContaining({
+        channelId: 'C1234567890',
+        reason: 'stream_output_too_large',
+      }),
+    ]);
+    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('surfaces partial delivery when Slack fallback stream part delivery fails', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
+    vi.mocked(appRef.current.client.chat.postMessage)
+      .mockResolvedValueOnce({
+        ok: true,
+        ts: '1710000000.200300',
+      } as any)
+      .mockRejectedValueOnce(new Error('fallback second part failed'));
+
+    await expect(
+      channel.sendStreamingChunk('sl:C1234567890', 'x'.repeat(4500), {
+        done: true,
+      }),
+    ).rejects.toMatchObject({
+      name: 'PartialSlackStreamingFallbackDeliveryError',
+      partialMessageDelivery: true,
+      deliveredChunks: 1,
+      totalChunks: 2,
+      retryTail: {
+        canonicalText: 'x'.repeat(500),
+        providerPayload: expect.objectContaining({
+          provider: 'slack',
+          channelId: 'C1234567890',
+        }),
+      },
+    });
+  });
+
+  it('throws retry-tail partial delivery when a stale fallback message update fails', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOpts() as any,
+    );
+    await channel.connect();
+
+    vi.mocked(appRef.current.client.apiCall).mockResolvedValue({ ok: false });
+    vi.mocked(appRef.current.client.chat.postMessage).mockResolvedValue({
+      ok: true,
+      ts: '1710000000.200300',
+    } as any);
+    vi.mocked(appRef.current.client.chat.update).mockRejectedValueOnce(
+      new Error('fallback update failed'),
+    );
+
+    const nowSpy = vi.spyOn(Date, 'now');
+    nowSpy.mockReturnValueOnce(1000).mockReturnValueOnce(2200);
+
+    await channel.sendStreamingChunk('sl:C1234567890', 'visible');
+
+    await expect(
+      channel.sendStreamingChunk('sl:C1234567890', ' suffix', {
+        done: true,
+      }),
+    ).rejects.toMatchObject({
+      name: 'PartialSlackStreamingFallbackDeliveryError',
+      partialMessageDelivery: true,
+      deliveredChunks: 1,
+      totalChunks: 2,
+      deliveredParts: 0,
+      totalParts: 2,
+      externalMessageId: '1710000000.200300',
+      externalMessageIds: ['1710000000.200300'],
+      retryTail: {
+        canonicalText: ' suffix',
+        providerPayload: expect.objectContaining({
+          provider: 'slack',
+          channelId: 'C1234567890',
+          externalMessageId: '1710000000.200300',
+          externalMessageIds: ['1710000000.200300'],
+          deliveredParts: 0,
+          totalParts: 2,
+        }),
+      },
+    });
+    expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      ts: '1710000000.200300',
+      text: 'visible suffix',
+    });
   });
 
   it('ignores stale streaming generations for the same chat', async () => {

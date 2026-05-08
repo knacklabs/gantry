@@ -56,9 +56,11 @@ function signedMemoryPayload(
   payload: Record<string, unknown>,
   sourceAgentFolder = 'team',
   input: {
+    chatJid?: string;
     userId?: string;
     defaultScope?: 'user' | 'group';
     threadId?: string;
+    allowedActions?: readonly string[];
   } = {},
 ): Record<string, unknown> {
   const signingKey = computeMemoryIpcAuthToken(sourceAgentFolder, input);
@@ -94,7 +96,7 @@ describe('validateIpcAuthRequest', () => {
     });
   });
 
-  it('keeps authenticated thread context when a task payload clears threadId', () => {
+  it('keeps authenticated thread context when scheduler payload uses executionContext thread routing', () => {
     const payload = {
       requestId: 'perm-clear-thread',
       nonce: randomUUID(),
@@ -102,7 +104,11 @@ describe('validateIpcAuthRequest', () => {
       type: 'scheduler_update_job',
       jobId: 'job-1',
       context: { threadId: 'thread-1', responseKeyId: TEST_RESPONSE_KEY_ID },
-      threadId: null,
+      executionContext: {
+        conversationJid: 'tg:team',
+        threadId: null,
+        groupScope: 'team',
+      },
     };
 
     const result = validateIpcAuthRequest(
@@ -113,7 +119,6 @@ describe('validateIpcAuthRequest', () => {
 
     expect(result).toEqual({
       authThreadId: 'thread-1',
-      payloadThreadId: null,
       responseKeyId: TEST_RESPONSE_KEY_ID,
     });
     expect(
@@ -134,10 +139,67 @@ describe('validateIpcAuthRequest', () => {
       type: 'scheduler_update_job',
       jobId: 'job-1',
       authThreadId: 'thread-1',
-      threadId: null,
+      executionContext: {
+        conversationJid: 'tg:team',
+        threadId: null,
+        groupScope: 'team',
+      },
       modelAlias: null,
       modelProfileId: null,
     });
+  });
+
+  it('rejects legacy scheduler job routing fields at task parsing boundary', () => {
+    const basePayload = {
+      requestId: 'task-legacy-job-fields',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      type: 'scheduler_upsert_job',
+      context: { threadId: 'thread-1', responseKeyId: TEST_RESPONSE_KEY_ID },
+      name: 'Job',
+      prompt: 'Run it',
+      scheduleType: 'interval',
+      scheduleValue: '60000',
+      executionContext: {
+        conversationJid: 'tg:team',
+        threadId: 'thread-1',
+        groupScope: 'team',
+      },
+      notificationRoutes: [
+        {
+          conversationJid: 'tg:team',
+          threadId: 'thread-1',
+          label: 'primary',
+        },
+      ],
+    };
+
+    const assertRejected = (extra: Record<string, unknown>) => {
+      const requestId = `task-legacy-job-fields-${Math.random().toString(36).slice(2)}`;
+      expect(() =>
+        parseTaskIpcData(
+          signedPayload(
+            {
+              ...basePayload,
+              requestId,
+              nonce: randomUUID(),
+              ...extra,
+            },
+            'team',
+            'thread-1',
+          ),
+          'team',
+        ),
+      ).toThrow(/Unsupported (legacy scheduler job fields|IPC task fields)/);
+    };
+
+    assertRejected({ linked_sessions: ['tg:team'] });
+    assertRejected({ linkedSessions: ['tg:team'] });
+    assertRejected({ deliver_to: ['tg:team'] });
+    assertRejected({ deliverTo: ['tg:team'] });
+    assertRejected({ notificationTarget: { linkedSessions: ['tg:team'] } });
+    assertRejected({ thread_id: 'thread-1' });
+    assertRejected({ threadId: 'thread-1' });
   });
 
   it('preserves scheduler job allowedTools creates, replaces, and clears', () => {
@@ -220,6 +282,7 @@ describe('validateIpcAuthRequest', () => {
       context: {
         userId: 'u-1',
         defaultScope: 'user',
+        allowedActions: ['memory_search'],
         responseKeyId: TEST_RESPONSE_KEY_ID,
       },
     };
@@ -229,12 +292,14 @@ describe('validateIpcAuthRequest', () => {
         signedMemoryPayload(payload, 'team', {
           userId: 'u-1',
           defaultScope: 'user',
+          allowedActions: ['memory_search'],
         }),
         'team',
       ),
     ).toMatchObject({
       requestId: 'mem-1',
       context: { userId: 'u-1', defaultScope: 'user' },
+      allowedActions: ['memory_search'],
     });
     expect(() => parseMemoryIpcRequest(signedPayload(payload), 'team')).toThrow(
       /Invalid memory IPC signature/,
@@ -244,7 +309,55 @@ describe('validateIpcAuthRequest', () => {
         signedMemoryPayload(payload, 'team', {
           userId: 'u-2',
           defaultScope: 'user',
+          allowedActions: ['memory_search'],
         }),
+        'team',
+      ),
+    ).toThrow(/Invalid memory IPC signature/);
+  });
+
+  it('rejects memory IPC actions outside the host-signed action allowlist', () => {
+    const payload = {
+      requestId: 'mem-denied-action',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      action: 'memory_patch',
+      payload: { id: 'mem-1', expected_version: 1 },
+      context: {
+        chatJid: 'tg:team',
+        defaultScope: 'group',
+        allowedActions: ['memory_search', 'memory_save'],
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+      },
+    };
+
+    expect(() =>
+      parseMemoryIpcRequest(
+        signedMemoryPayload(payload, 'team', {
+          chatJid: 'tg:team',
+          defaultScope: 'group',
+          allowedActions: ['memory_search', 'memory_save'],
+        }),
+        'team',
+      ),
+    ).toThrow(/Memory IPC action is not allowed: memory_patch/);
+    expect(() =>
+      parseMemoryIpcRequest(
+        signedMemoryPayload(
+          {
+            ...payload,
+            context: {
+              ...(payload.context as Record<string, unknown>),
+              allowedActions: ['memory_search', 'memory_save', 'memory_patch'],
+            },
+          },
+          'team',
+          {
+            chatJid: 'tg:team',
+            defaultScope: 'group',
+            allowedActions: ['memory_search', 'memory_save'],
+          },
+        ),
         'team',
       ),
     ).toThrow(/Invalid memory IPC signature/);
@@ -339,11 +452,7 @@ describe('validateIpcAuthRequest', () => {
     const run = createIpcAuthEnvelope('team', 'thread-1');
 
     expect(
-      getIpcResponseSigningPrivateKey(
-        'team',
-        'thread-1',
-        run.responseKeyId,
-      ),
+      getIpcResponseSigningPrivateKey('team', 'thread-1', run.responseKeyId),
     ).toBeTruthy();
     expect(
       revokeIpcResponseSigningKey(run.responseKeyId, 'team', 'other-thread'),
@@ -352,11 +461,7 @@ describe('validateIpcAuthRequest', () => {
       revokeIpcResponseSigningKey(run.responseKeyId, 'team', 'thread-1'),
     ).toBe(true);
     expect(
-      getIpcResponseSigningPrivateKey(
-        'team',
-        'thread-1',
-        run.responseKeyId,
-      ),
+      getIpcResponseSigningPrivateKey('team', 'thread-1', run.responseKeyId),
     ).toBeUndefined();
   });
 

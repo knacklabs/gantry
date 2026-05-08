@@ -22,7 +22,6 @@ export type Scope =
   | 'ingresses:read'
   | 'ingresses:write'
   | 'memory:read'
-  | 'memory:write'
   | 'memory:admin';
 
 export type ApiKeyRecord = {
@@ -37,7 +36,7 @@ export type AuthenticationResult =
   | { status: 'missing' | 'invalid' }
   | { status: 'forbidden'; key: ApiKeyRecord; missingScopes: Scope[] };
 
-const ALL_SCOPES: Scope[] = [
+export const CONTROL_API_SCOPES: readonly Scope[] = [
   'sessions:read',
   'sessions:write',
   'jobs:read',
@@ -57,7 +56,6 @@ const ALL_SCOPES: Scope[] = [
   'ingresses:read',
   'ingresses:write',
   'memory:read',
-  'memory:write',
   'memory:admin',
 ];
 
@@ -74,12 +72,8 @@ function isApiKeyJsonEntry(value: unknown): value is {
 
 export function parseControlApiKeys(input: {
   rawJson?: string;
-  rawSingle?: string;
-  singleAppId?: string;
 }): ApiKeyRecord[] {
   const rawJson = input.rawJson?.trim() || '';
-  const rawSingle = input.rawSingle?.trim() || '';
-  const singleAppId = input.singleAppId?.trim() || '';
   if (rawJson) {
     let parsed: unknown;
     try {
@@ -96,34 +90,20 @@ export function parseControlApiKeys(input: {
         tokenHash: createHash('sha256').update(String(entry.token)).digest(),
         scopes: new Set(
           (entry.scopes || []).filter((scope: string): scope is Scope =>
-            ALL_SCOPES.includes(scope as Scope),
+            CONTROL_API_SCOPES.includes(scope as Scope),
           ),
         ),
         appId: typeof entry.appId === 'string' ? entry.appId.trim() : '',
       }))
       .filter((entry) => isValidControlId(entry.appId));
   }
-  if (rawSingle && isValidControlId(singleAppId)) {
-    return [
-      {
-        kid: 'default',
-        tokenHash: createHash('sha256').update(rawSingle).digest(),
-        scopes: new Set(ALL_SCOPES),
-        appId: singleAppId,
-      },
-    ];
-  }
   return [];
 }
 
 export function parseControlApiKeysStrict(input: {
   rawJson?: string;
-  rawSingle?: string;
-  singleAppId?: string;
 }): ApiKeyRecord[] {
   const rawJson = input.rawJson?.trim() || '';
-  const rawSingle = input.rawSingle?.trim() || '';
-  const singleAppId = input.singleAppId?.trim() || '';
   if (rawJson) {
     let parsed: unknown;
     try {
@@ -166,7 +146,7 @@ export function parseControlApiKeysStrict(input: {
         );
       }
       const invalidScopes = entry.scopes.filter(
-        (scope) => !ALL_SCOPES.includes(scope as Scope),
+        (scope) => !CONTROL_API_SCOPES.includes(scope as Scope),
       );
       if (invalidScopes.length > 0) {
         throw new Error(
@@ -182,21 +162,6 @@ export function parseControlApiKeysStrict(input: {
         appId,
       };
     });
-  }
-  if (rawSingle) {
-    if (!isValidControlId(singleAppId)) {
-      throw new Error(
-        'MYCLAW_CONTROL_APP_ID is required and must be a valid control id when MYCLAW_CONTROL_API_KEY is set.',
-      );
-    }
-    return [
-      {
-        kid: 'default',
-        tokenHash: createHash('sha256').update(rawSingle).digest(),
-        scopes: new Set(ALL_SCOPES),
-        appId: singleAppId,
-      },
-    ];
   }
   return [];
 }

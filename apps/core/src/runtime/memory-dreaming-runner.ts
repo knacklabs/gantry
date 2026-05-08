@@ -1,24 +1,56 @@
 import { getMemoryMaintenanceQueue } from '../memory/maintenance-queue.js';
 import {
   DEFAULT_MEMORY_APP_ID,
-  memoryAgentIdForGroupFolder,
+  memoryAgentIdForGroupFolder as memoryAgentIdForGroup,
 } from '../memory/app-memory-boundaries.js';
+import { resolveScopedMemorySubject } from '../memory/app-memory-subject-resolver.js';
 import { AppMemoryService } from '../memory/app-memory-service.js';
 
 const memoryMaintenanceQueue = getMemoryMaintenanceQueue();
 
-export async function runDreamingForGroup(groupFolder: string) {
+function dreamingDedupeKey(input: {
+  subjectType: string;
+  subjectId: string;
+  activeThreadId?: string;
+}): string {
+  const base = `dream:${input.subjectType}:${input.subjectId}`;
+  if (!input.activeThreadId) return base;
+  return `${base}:thread:${input.activeThreadId}`;
+}
+
+export async function runDreamingForGroup(input: {
+  folder: string;
+  conversationId?: string;
+  userId?: string;
+  defaultScope?: 'user' | 'group';
+  activeThreadId?: string;
+}) {
+  const { subject } = resolveScopedMemorySubject({
+    appId: DEFAULT_MEMORY_APP_ID,
+    agentId: memoryAgentIdForGroup(input.folder),
+    groupId: input.folder,
+    conversationId: input.conversationId,
+    userId: input.userId,
+    threadId: input.activeThreadId,
+    defaultScope: input.defaultScope,
+  });
   const result = await memoryMaintenanceQueue.enqueueAndWait(
-    groupFolder,
+    input.folder,
     async () => {
       await AppMemoryService.getInstance().triggerDreaming({
-        appId: DEFAULT_MEMORY_APP_ID,
-        agentId: memoryAgentIdForGroupFolder(groupFolder),
-        groupId: groupFolder,
+        ...subject,
+        appId: subject.appId,
+        agentId: subject.agentId,
+        subjectType: subject.subjectType,
+        subjectId: subject.subjectId,
         phase: 'all',
       });
     },
-    `dream:${groupFolder}`,
+    dreamingDedupeKey({
+      subjectType: subject.subjectType,
+      subjectId: subject.subjectId,
+      activeThreadId: subject.threadId,
+    }),
   );
   if (!result.queued) {
     if (result.reason === 'full')

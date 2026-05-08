@@ -127,8 +127,6 @@ export function startControlServer(input: {
 }): ControlServerHandle {
   const keys = parseControlApiKeysStrict({
     rawJson: getControlEnvValue('MYCLAW_CONTROL_API_KEYS_JSON'),
-    rawSingle: getControlEnvValue('MYCLAW_CONTROL_API_KEY'),
-    singleAppId: getControlEnvValue('MYCLAW_CONTROL_APP_ID'),
   });
   const socketPath =
     getControlEnvValue('MYCLAW_CONTROL_SOCKET_PATH') ||

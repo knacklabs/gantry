@@ -32,6 +32,8 @@ const KNOWN_SECRET_PATTERNS: Array<{ reason: string; pattern: RegExp }> = [
 const HIGH_RISK_CONTEXT_PATTERN =
   /\b(token|secret|password|passphrase|credential|auth|authorization|api[_-]?key|session|cookie|bearer)\b/i;
 const CANDIDATE_TOKEN_PATTERN = /[A-Za-z0-9._~+/\-=]{24,}/g;
+const REDACTION_MARKER_PATTERN =
+  /\[REDACTED_(?:SECRET|POTENTIALLY_SENSITIVE)\]/g;
 
 function shannonEntropy(value: string): number {
   if (!value) return 0;
@@ -77,8 +79,9 @@ export function classifySensitiveMemoryMaterial(text: string): string | null {
 }
 
 export function detectPotentialUnredactedSecret(text: string): string | null {
-  const trimmed = text.trim();
-  if (!trimmed || trimmed.includes('[REDACTED_SECRET]')) return null;
+  const scanText = text.replace(REDACTION_MARKER_PATTERN, ' ');
+  const trimmed = scanText.trim();
+  if (!trimmed) return null;
   const candidates = trimmed.match(CANDIDATE_TOKEN_PATTERN) || [];
   for (const token of candidates) {
     if (!looksLikeOpaqueSecretToken(token)) continue;

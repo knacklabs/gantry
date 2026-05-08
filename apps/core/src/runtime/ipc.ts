@@ -4,7 +4,6 @@ import path from 'path';
 import { DATA_DIR, IPC_POLL_INTERVAL } from '../config/index.js';
 import { nowMs } from '../infrastructure/time/datetime.js';
 import { ensurePrivateDirSync } from '../shared/private-fs.js';
-import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import { logger } from '../infrastructure/logging/logger.js';
 // prettier-ignore
@@ -438,6 +437,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   requestId: request.requestId,
                   action: request.action,
                   payload: request.payload || {},
+                  allowedActions: request.allowedActions,
                   ...(request.context ? { context: request.context } : {}),
                 },
                 sourceAgentFolder,
@@ -610,6 +610,16 @@ export function startIpcWatcher(deps: IpcDeps): void {
               requestId = request.requestId;
               requestThreadId = request.threadId;
               responseKeyId = request.responseKeyId;
+              const responsePath = path.join(
+                ipcBaseDir,
+                sourceAgentFolder,
+                'user-answers',
+                `${request.requestId}.json`,
+              );
+              if (fs.existsSync(responsePath)) {
+                fs.unlinkSync(claimedPath);
+                continue;
+              }
               if (
                 inFlightInteractionIpc.size >= MAX_IN_FLIGHT_INTERACTION_IPC
               ) {
@@ -722,7 +732,9 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 file,
                 claimedPath,
                 logger,
-              }).finally(() => inFlightInteractionIpc.delete(inFlightKey));
+              }).finally(() => {
+                inFlightInteractionIpc.delete(inFlightKey);
+              });
             } catch (err) {
               if (requestId) {
                 writeUserQuestionInteractionFailure({

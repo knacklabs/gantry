@@ -99,6 +99,10 @@ function createMcpFixture(): {
     path.join(sharedDir, 'admin-mcp-tools.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/memory-ipc-actions.ts'),
+    path.join(sharedDir, 'memory-ipc-actions.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/runner/memory-timeouts.ts'),
     path.join(runnerDir, 'memory-timeouts.ts'),
   );
@@ -363,7 +367,7 @@ async function runMcpFixture(
   return { exitCode, stderr };
 }
 
-describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
+describe('agent-runner MCP stdio tools', { timeout: 20_000 }, () => {
   it('consumes ask_user_question responses, formats answers, and unlinks the response file', async () => {
     const fixture = createMcpFixture();
 
@@ -478,7 +482,7 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
     expect(statusRecord.result.content[0].text).toContain(
       'requestable: mcp__myclaw__register_agent',
     );
-  });
+  }, 20_000);
 
   it('keeps unselected admin tools out of the MCP surface', async () => {
     const fixture = createMcpFixture();
@@ -576,7 +580,21 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
     expect(task.chatJid).toBe('tg:team');
     expect(task.targetJid).toBe('tg:team');
     expect(task.authThreadId).toBe('trusted-thread');
-    expect(task.threadId).toBe('trusted-thread');
+    expect(task.executionContext).toEqual(
+      expect.objectContaining({
+        conversationJid: 'tg:team',
+        threadId: 'trusted-thread',
+        groupScope: 'team',
+      }),
+    );
+    expect(task.notificationRoutes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          conversationJid: 'tg:team',
+          threadId: 'trusted-thread',
+        }),
+      ]),
+    );
     expect(task.context.threadId).toBe('trusted-thread');
     expect(task.requestId).toEqual(expect.any(String));
     expect(task.nonce).toEqual(expect.any(String));
@@ -872,7 +890,7 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
     });
   });
 
-  it('rejects scheduler upsert thread targets outside the current runtime thread', async () => {
+  it('rejects legacy scheduler thread_id field on upsert', async () => {
     const fixture = createMcpFixture();
 
     const result = await runMcpFixture(
@@ -895,7 +913,7 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
     const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
     expect(record.result.isError).toBe(true);
     expect(record.result.content[0].text).toContain(
-      'thread_id can only target the current thread/topic',
+      'Unsupported legacy scheduler field "thread_id". Use execution_context and notification_routes.',
     );
   });
 
@@ -936,7 +954,7 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
       {
         job_id: 'job-1',
         prompt: 'Updated prompt',
-        thread_id: 'trusted-thread',
+        target: 'this_thread',
       },
       { MYCLAW_THREAD_ID: 'trusted-thread' },
     );
@@ -950,7 +968,22 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
         'utf-8',
       ),
     );
-    expect(task.threadId).toBe('trusted-thread');
+    expect(task.executionContext).toEqual(
+      expect.objectContaining({
+        conversationJid: 'tg:team',
+        threadId: 'trusted-thread',
+        groupScope: 'team',
+      }),
+    );
+    expect(task.notificationRoutes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          conversationJid: 'tg:team',
+          threadId: 'trusted-thread',
+          label: 'this_thread',
+        }),
+      ]),
+    );
   });
 
   it('forwards explicit null thread updates for host authorization', async () => {
@@ -962,7 +995,18 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
       {
         job_id: 'job-1',
         prompt: 'Updated prompt',
-        thread_id: null,
+        execution_context: {
+          conversation_jid: 'tg:team',
+          thread_id: null,
+          group_scope: 'team',
+        },
+        notification_routes: [
+          {
+            conversation_jid: 'tg:team',
+            thread_id: null,
+            label: 'primary',
+          },
+        ],
       },
       { MYCLAW_THREAD_ID: 'trusted-thread' },
     );
@@ -977,7 +1021,22 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
       ),
     );
     expect(task.context.threadId).toBe('trusted-thread');
-    expect(task.threadId).toBeNull();
+    expect(task.executionContext).toEqual(
+      expect.objectContaining({
+        conversationJid: 'tg:team',
+        threadId: null,
+        groupScope: 'team',
+      }),
+    );
+    expect(task.notificationRoutes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          conversationJid: 'tg:team',
+          threadId: null,
+          label: 'primary',
+        }),
+      ]),
+    );
   });
 
   it('allows scheduler updates to clear explicit model selection', async () => {
@@ -1006,7 +1065,7 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
     expect(task.modelAlias).toBeNull();
   });
 
-  it('rejects scheduler thread targets outside the current runtime thread', async () => {
+  it('rejects legacy scheduler thread_id field on update', async () => {
     const fixture = createMcpFixture();
 
     const result = await runMcpFixture(
@@ -1027,7 +1086,7 @@ describe('agent-runner MCP stdio tools', { timeout: 10_000 }, () => {
     const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
     expect(record.result.isError).toBe(true);
     expect(record.result.content[0].text).toContain(
-      'thread_id can only target the current thread/topic',
+      'Unsupported legacy scheduler field "thread_id". Use execution_context and notification_routes.',
     );
   });
 });

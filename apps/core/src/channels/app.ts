@@ -18,6 +18,23 @@ import {
 } from '../adapters/storage/postgres/runtime-store.js';
 import { adaptSessionControlPort } from '../control/server/session-control-port.js';
 
+function canonicalTextMetadata(text: string): {
+  lengthChars: number;
+  lengthBytes: number;
+  hasContent: boolean;
+  hasTruncatedContent: boolean;
+  sha256: string;
+} {
+  const metadataContentWindowChars = 160;
+  return {
+    lengthChars: text.length,
+    lengthBytes: Buffer.byteLength(text, 'utf8'),
+    hasContent: text.trim().length > 0,
+    hasTruncatedContent: text.length > metadataContentWindowChars,
+    sha256: createHash('sha256').update(text).digest('hex'),
+  };
+}
+
 async function emitSessionEvent(
   chatJid: string,
   eventType: RuntimeEventType,
@@ -53,6 +70,14 @@ export async function createAppChannel(
   _opts: ChannelOpts,
 ): Promise<ChannelAdapter> {
   let connected = false;
+  let outboundSequence = 0;
+
+  const orderedEnvelope = (kind: string) => ({
+    sequence: ++outboundSequence,
+    kind,
+    partIndex: 1,
+    totalParts: 1,
+  });
 
   const sendMessage = async (
     jid: string,
@@ -65,6 +90,8 @@ export async function createAppChannel(
       {
         text,
         threadId: options?.threadId ?? null,
+        orderedEnvelope: orderedEnvelope('outbound'),
+        canonicalText: canonicalTextMetadata(text),
       },
     );
     return result.eventId !== undefined
@@ -100,6 +127,8 @@ export async function createAppChannel(
           threadId: options?.threadId ?? null,
           done: options?.done === true,
           generation: options?.generation ?? null,
+          orderedEnvelope: orderedEnvelope('streaming'),
+          canonicalText: canonicalTextMetadata(text),
         },
       );
       return result.emitted;
@@ -108,6 +137,7 @@ export async function createAppChannel(
     async setTyping(jid: string, isTyping: boolean): Promise<void> {
       await emitSessionEvent(jid, RUNTIME_EVENT_TYPES.SESSION_TYPING, {
         isTyping,
+        orderedEnvelope: orderedEnvelope('typing'),
       });
     },
     async sendProgressUpdate(
@@ -119,6 +149,8 @@ export async function createAppChannel(
         text,
         threadId: options?.threadId ?? null,
         done: options?.done === true,
+        orderedEnvelope: orderedEnvelope('progress'),
+        canonicalText: canonicalTextMetadata(text),
       });
     },
   };

@@ -20,14 +20,15 @@ LaunchAgent.
 Control API settings are read from process env and from `~/myclaw/.env`:
 
 ```env
-MYCLAW_CONTROL_API_KEY=dev-key
-MYCLAW_CONTROL_APP_ID=default
+MYCLAW_CONTROL_API_KEYS_JSON=[{"kid":"local-admin","token":"dev-key","appId":"default","scopes":["sessions:read","sessions:write","jobs:read","jobs:write","providers:read","providers:admin","conversations:read","conversations:admin","messages:read","agents:admin","skills:read","skills:admin","mcp:read","mcp:admin","webhooks:read","webhooks:write","ingresses:read","ingresses:write","memory:read","memory:admin"]}]
 MYCLAW_CONTROL_PORT=8787
 ```
 
 `MYCLAW_CONTROL_PORT` is optional. Without it, the local SDK and CLI use the
 Unix socket at `~/myclaw/run/control.sock`. Do not put control API secrets in
 the launchd plist; keep the plist limited to `MYCLAW_HOME`, `HOME`, and `PATH`.
+Every Control API token must be listed in `MYCLAW_CONTROL_API_KEYS_JSON` with
+an explicit `kid`, `token`, `appId`, and `scopes` array.
 
 ## Settings
 
@@ -228,6 +229,24 @@ client.sessions.stream(sessionId, { afterEventId?, signal? })
 client.sessions.wait(sessionId, { afterEventId?, timeoutMs? })
 ```
 
+`client.sessions.sendMessage` resolves after the runtime accepts and persists the
+inbound session message. The response shape is:
+
+```ts
+{
+  accepted: boolean
+  messageId: string
+  acceptedEventId: number
+}
+```
+
+`accepted: true` and `acceptedEventId` mean the message was durably accepted
+into the session event stream and queued for runtime processing. They do not
+mean the model run has completed, a provider accepted outbound delivery, or the
+user-facing channel has received a response synchronously. Observe delivery and
+model progress through `client.sessions.stream`, `client.sessions.wait`,
+`client.sessions.listEvents`, or the configured outbound webhook events.
+
 Read-only history endpoints are available over the control API. SDK helpers are
 not exposed for these endpoints yet.
 
@@ -305,12 +324,17 @@ const signature = signIngressRequest({
 client.jobs.create({
   name,
   prompt,
-  sessionId,
+  executionContext: {
+    conversationJid,
+    threadId,  // null for whole-conversation jobs
+    groupScope,
+    sessionId, // required canonical app session id
+  },
+  notificationRoutes?, // defaults to primary execution context route
   kind?, // manual | once | recurring
   runAt?, // once
   schedule?, // recurring
   executionMode?, // parallel | serialized
-  threadId?,
   modelAlias?,    // friendly catalog alias, e.g. opus, sonnet, kimi
   modelProfileId?,
   dryRun?,        // preview model plus runtime context without scheduling
@@ -322,7 +346,13 @@ client.jobs.update(jobId, {
   name?,
   prompt?,
   executionMode?,
-  threadId?,
+  executionContext?: {
+    conversationJid,
+    threadId,
+    groupScope,
+    sessionId, // required when executionContext is provided
+  },
+  notificationRoutes?,
   status?,
   modelAlias?,    // use null to clear back to inherited defaults
   modelProfileId?,
@@ -339,10 +369,13 @@ cache policy, and provider labels. API job creation rejects raw provider model
 IDs unless they are registered catalog aliases.
 
 Job create and dry-run responses include `runtimeContext`: source conversation,
-thread target, notification target, resolved persona, and conversation-scoped
-browser profile. Jobs created from a DM/channel inherit that place's context; API
-or CLI callers should pass a session id for the conversation that should receive
-job notifications and permission issues.
+resolved `executionContext`, resolved `notificationRoutes`, resolved persona,
+and conversation-scoped browser profile. Jobs created from a DM/channel inherit
+that place's context; API or CLI callers should pass a session id for the
+conversation that should receive job notifications and permission issues.
+
+Job definitions, job instances, run history, and notification routes are
+runtime Postgres state. They are not written to `settings.yaml`.
 
 ## Runs
 
@@ -545,7 +578,9 @@ API version.
 
 Memory APIs are app-bound by the API key. Pass stable `appId`, `agentId`,
 `userId`, `groupId`, `channelId`, and `threadId` when your application has them.
-`common` memory is app-wide and requires admin memory scope to write.
+`common` memory is app-wide and requires admin/service authority to write. Agent
+MCP/IPC `memory_save` defaults to user or group scope and cannot directly write
+common/global memory.
 
 ```ts
 client.memory.save({
@@ -557,7 +592,7 @@ client.memory.save({
   threadId?,
   subjectType?, // user | group | channel | common
   subjectId?,
-  kind?,        // fact | preference | decision | correction | constraint | project_fact | reference
+  kind?,        // preference | decision | fact | correction | constraint
   key,
   value,
   why?,
@@ -584,6 +619,9 @@ client.memory.delete(memoryId, { appId?, agentId? })
 client.memory.dreaming.trigger({ appId?, agentId?, subjectType?, subjectId?, phase?, dryRun? })
 client.memory.dreaming.status({ appId?, agentId? })
 ```
+
+`reference` memory is reserved for procedure/knowledge-source flows instead of
+direct `memory_save` payloads.
 
 ## Webhooks
 

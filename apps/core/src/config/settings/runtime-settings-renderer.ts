@@ -113,6 +113,10 @@ function renderMemorySettingsYaml(
     '  dreaming:',
     `    enabled: ${memory.dreaming.enabled ? 'true' : 'false'}`,
     `    cron: ${quoteYamlString(memory.dreaming.cron)}`,
+    '    embeddings:',
+    `      enabled: ${memory.dreaming.embeddings.enabled ? 'true' : 'false'}`,
+    `      provider: ${memory.dreaming.embeddings.provider}`,
+    `      model: ${quoteYamlString(memory.dreaming.embeddings.model)}`,
     '  llm:',
     `    extractor_max_facts: ${memory.llm.extractorMaxFacts}`,
     `    extractor_min_confidence: ${memory.llm.extractorMinConfidence}`,
@@ -379,6 +383,9 @@ function isDefaultMemory(memory: RuntimeMemorySettings): boolean {
     memory.embeddings.batchSize === DEFAULT_MEMORY_EMBED_BATCH_SIZE &&
     memory.dreaming.enabled === false &&
     memory.dreaming.cron === DEFAULT_MEMORY_DREAMING_CRON &&
+    memory.dreaming.embeddings.enabled === false &&
+    memory.dreaming.embeddings.provider === 'disabled' &&
+    memory.dreaming.embeddings.model === DEFAULT_EMBED_MODEL &&
     memory.llm.models.extractor === models.extractor &&
     memory.llm.models.dreaming === models.dreaming &&
     memory.llm.models.consolidation === models.consolidation &&

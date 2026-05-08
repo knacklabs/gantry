@@ -19,6 +19,19 @@ import type { SchedulerCoordinationPort } from './scheduler-coordination-port.js
 
 export type JobKind = 'manual' | 'once' | 'recurring';
 
+export interface JobExecutionContextInput {
+  conversationJid: string;
+  threadId: string | null;
+  groupScope: string;
+  sessionId?: string | null;
+}
+
+export interface JobNotificationRouteInput {
+  conversationJid: string;
+  threadId: string | null;
+  label: string;
+}
+
 export interface AppSessionRecord {
   sessionId: string;
   appId: string;
@@ -139,11 +152,12 @@ export interface CreateManagedJobInput {
   name: string;
   prompt: string;
   sessionId: string;
+  executionContext?: JobExecutionContextInput;
+  notificationRoutes?: JobNotificationRouteInput[];
   kind?: JobKind;
   runAt?: string;
   schedule?: { type?: unknown; value?: unknown };
   executionMode?: unknown;
-  threadId?: unknown;
   modelAlias?: unknown;
   modelProfileId?: unknown;
   allowedTools?: unknown;
@@ -159,8 +173,8 @@ export interface UpsertJobFromIpcInput {
   modelProfileId?: string | null;
   scheduleType: unknown;
   scheduleValue: string;
-  linkedSessions?: string[];
-  deliverTo?: string[];
+  executionContext?: JobExecutionContextInput;
+  notificationRoutes?: JobNotificationRouteInput[];
   threadId?: string;
   silent?: boolean;
   cleanupAfterMs?: number;
@@ -177,6 +191,8 @@ export interface UpsertJobFromIpcInput {
 
 export interface ConversationBinding {
   folder: string;
+  name?: string;
+  conversationKind?: 'dm' | 'channel';
 }
 
 export interface SchedulerJobAccess {
@@ -193,7 +209,8 @@ export type JobUpdatePatch = Partial<{
   model: string | null;
   scheduleType: JobScheduleType;
   scheduleValue: string;
-  linkedSessions: string[];
+  executionContext: JobExecutionContextInput;
+  notificationRoutes: JobNotificationRouteInput[];
   threadId: string | null;
   groupScope: string;
   silent: boolean;
@@ -221,6 +238,40 @@ export interface JobLookupInput {
   jobId: string;
   appId?: string;
   access?: SchedulerJobAccess;
+}
+
+export type ManagedJobLookupInput = JobLookupInput;
+
+export interface ManagedJobListInput extends JobListInput {
+  limit?: number;
+}
+
+export interface ManagedJobUpdateInput extends JobLookupInput {
+  patch: JobUpdatePatch;
+}
+
+export type ManagedJobDeleteInput = JobLookupInput;
+
+export interface ManagedJobPauseInput extends JobLookupInput {
+  reason?: string;
+}
+
+export interface ManagedJobResumeInput extends JobLookupInput {
+  invalidSchedulePolicy?: 'resume_now' | 'dead_letter';
+}
+
+export interface ManagedJobTriggerInput {
+  appId: string;
+  jobId: string;
+  consumeRateLimit?: (key: string, limit: number) => boolean;
+  perAppLimit: number;
+  perJobLimit: number;
+}
+
+export interface ManagedJobTriggerWaitInput {
+  appId: string;
+  triggerId: string;
+  timeoutMs: number;
 }
 
 export interface JobRunListInput {

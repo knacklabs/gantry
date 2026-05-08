@@ -5,7 +5,10 @@ export class SaveMemoryUseCase {
   constructor(private readonly memory: MemoryRepository) {}
 
   async execute(input: { item: MemoryItem }) {
-    await this.memory.saveMemoryItem(input.item);
-    return { item: input.item };
+    void input;
+    void this.memory;
+    throw new Error(
+      'Legacy SaveMemoryUseCase is disabled. Use AppMemoryService.save through app-grade memory boundaries.',
+    );
   }
 }

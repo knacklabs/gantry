@@ -13,6 +13,7 @@ import {
   myclawMcpToolNameFromFullName,
   selectedMyClawMcpFullToolNames,
   selectedMyClawMcpToolNames,
+  selectedMemoryIpcActions,
 } from './myclaw-mcp-tool-surface.js';
 
 export interface AgentCapabilityContext {
@@ -182,6 +183,9 @@ const myclawMcpProvider: AgentCapabilityProvider = {
       ),
       MYCLAW_MCP_TOOL_NAMES_JSON: JSON.stringify(
         selectedMyClawMcpToolNames(ctx.configuredAllowedTools ?? []),
+      ),
+      MYCLAW_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(
+        selectedMemoryIpcActions(ctx.configuredAllowedTools ?? []),
       ),
       ...(ctx.ipcDir ? { MYCLAW_IPC_DIR: ctx.ipcDir } : {}),
       ...(ctx.ipcAuthToken ? { MYCLAW_IPC_AUTH_TOKEN: ctx.ipcAuthToken } : {}),

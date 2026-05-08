@@ -23,8 +23,7 @@ export const IPC_INTERACTION_BOUNDARY_DIR = path.join(
 export const IPC_AUTH_TOKEN = process.env.MYCLAW_IPC_AUTH_TOKEN || '';
 export const IPC_RESPONSE_VERIFY_KEY =
   process.env.MYCLAW_IPC_RESPONSE_VERIFY_KEY || '';
-export const IPC_RESPONSE_KEY_ID =
-  process.env.MYCLAW_IPC_RESPONSE_KEY_ID || '';
+export const IPC_RESPONSE_KEY_ID = process.env.MYCLAW_IPC_RESPONSE_KEY_ID || '';
 export const PERMISSION_REQUEST_TIMEOUT_MS = Math.max(
   10_000,
   parseInt(process.env.MYCLAW_PERMISSION_TIMEOUT_MS || '300000', 10) || 300_000,

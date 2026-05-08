@@ -1,5 +1,6 @@
 import {
   createStorageRuntime,
+  type StorageRuntimeOptions,
   type RuntimeOpsRepositories,
   type StorageRuntime,
 } from './factory.js';
@@ -12,8 +13,10 @@ import type { RuntimeLease } from '../../../domain/ports/runtime-lease.js';
 
 let runtime: StorageRuntime | null = null;
 
-export async function initializeRuntimeStorage(): Promise<StorageRuntime> {
-  const nextRuntime = createStorageRuntime();
+export async function initializeRuntimeStorage(
+  options: StorageRuntimeOptions = {},
+): Promise<StorageRuntime> {
+  const nextRuntime = createStorageRuntime(undefined, options);
   try {
     await nextRuntime.service.migrate();
     const capabilities = await nextRuntime.service.healthCheck();

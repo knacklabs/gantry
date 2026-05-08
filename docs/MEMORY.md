@@ -27,27 +27,34 @@ Boundary names are provider-neutral:
 to admin/service flows. Agents cannot promote private user, group, or channel
 facts into `common` by themselves.
 
-Personal setup uses:
+Host-managed personal setup uses the internal runtime default app namespace:
 
 ```text
-appId=personal
+appId=default
 agentId=<group folder>
 groupId=<group folder>
 channelId=<Telegram/Slack/Teams/app conversation id>
 ```
 
+This `appId=default` value is the runtime's internal default memory app id.
 SDK applications should pass stable external ids for `appId`, `agentId`,
 `userId`, `groupId`, `channelId`, and `threadId`. Two apps never share memory
 unless the host explicitly writes separate records into both apps.
 
 ## Storage
 
-Postgres is the source of truth. The memory tables are:
+Postgres is the source of truth. The first shipped app-grade slice uses a
+flattened canonical `memory_items` schema for durable memory:
 
-- `memory_subjects`
+- `memory_items` stores `app_id`, `agent_id`, `subject_type`, `subject_id`,
+  optional user/conversation/thread columns, the memory `kind` and `key`,
+  `value_json`, `source_ref_json`, confidence, status, and timestamps.
+- Active memory uniqueness is enforced directly on `memory_items` by
+  `(app_id, agent_id, subject_type, subject_id, kind, key)` for active rows.
+- The original subject boundary is preserved in `source_ref_json`; there is no
+  active `memory_subjects` table in the current schema.
 - `memory_evidence`
 - `memory_candidates`
-- `memory_items`
 - `memory_recall_events`
 - `memory_dream_runs`
 - `memory_dream_decisions`
@@ -61,30 +68,50 @@ The current runtime pipeline is:
 
 1. collect evidence from sessions, messages, tool outcomes, manual saves, or
    knowledge-source ingestion
-2. extract grounded durable facts at explicit boundaries such as `/new`,
-   `/compact`, stale-session archival, job completion, or SDK compact
-3. reject sensitive or ungrounded material
-4. upsert durable memory by stable key
-5. retrieve visible memory for an app/agent/subject context with lexical search
+2. automatically capture a recent session digest at explicit continuation
+   boundaries such as `/new`, `/compact`, stale-session archival, job
+   completion, or observed SDK compact boundaries
+3. extract and stage grounded candidate facts from boundary evidence
+4. reject sensitive or ungrounded material
+5. run dreaming promotion/update passes; automatic durable promotion is
+   dreaming-only
+6. retrieve visible active memory items for an app/agent/subject context with lexical search
    and keyword fallback
 
-Embeddings are optional index configuration today. Runtime search remains
-lexical plus keyword fallback whether embeddings are disabled or configured;
-vector retrieval will be enabled only when the runtime has an actual embedding
-indexing and query path. A disabled embedding provider must not synthesize zero
-vectors.
+Lexical retrieval is the always-on path. Runtime search remains lexical plus
+keyword fallback whether embeddings are disabled or configured. Vector retrieval
+is inactive in this slice because there is no complete memory item embedding
+indexing and query path yet. A disabled embedding provider must not synthesize
+zero vectors.
+
+`compact_summary` and `PostCompact` behavior are not part of the current
+runtime. `/compact` and observed SDK compact boundaries may capture recent
+digests and stage memory evidence, but they do not directly create active
+durable memories and MyClaw does not persist compact summaries for prompt
+replay.
+
+Embedding work is scoped to dreaming promotion/update workflows. Runtime recall
+and context injection continue to use active memory items through lexical search
+until memory item embedding indexing and query paths are complete.
 
 ## Dreaming
 
 Dreaming is boundary-aware lifecycle maintenance, not a hidden summarizer.
 
-Current dreaming stages candidates, marks likely corrections for review, and
-promotes reviewed memory. It does not automatically decay, retire, merge,
-rewrite, pin, or rank memories by usefulness yet.
+Current dreaming stages candidates, calls the configured dreaming model for
+advisory lifecycle proposals, calls the configured consolidation model for
+active-item overlap proposals, and keeps every LLM output as untrusted JSON.
+Host validation is the only durable mutation path.
+
+Safe promotions and same-key updates can be applied by the host after
+validation. Retire, rewrite, contradiction, and merge proposals are stored in
+`memory_review_requests` as `pending_review` until a reviewer uses
+`memory_review_decision` with `approve`, `reject`, or `edit_approve`.
 
 Every dream run writes durable audit rows in `memory_dream_runs` and
-`memory_dream_decisions`. Destructive or corrective actions must be grounded in
-evidence and auditable.
+`memory_dream_decisions`. Review-gated proposals additionally record proposal
+JSON, target versions, validation results, reviewer decisions, and apply
+outcomes in `memory_review_requests`.
 
 ### Dreaming end-to-end
 
@@ -180,6 +207,11 @@ instruction authority, tool authority, or policy.
 
 ## SDK APIs
 
+Memory management is API-first. The server-side SDK/control API is the stable
+management direction for backend apps, and agent-facing MCP tools call the same
+host-owned memory service. A future UI, if built, should be a separate adapter
+over these APIs rather than a separate source of memory truth.
+
 The server-side SDK exposes:
 
 - `client.memory.save()`
@@ -192,3 +224,19 @@ The server-side SDK exposes:
 
 The caller's API key app binding controls `appId` access. `common` writes require
 admin memory scope.
+
+## First-Slice Surface Impact Matrix
+
+| Surface | Classification | Reason |
+| --- | --- | --- |
+| Runtime behavior | Changed | Durable memory reads and writes use flattened `memory_items`; retrieval is lexical plus keyword fallback. |
+| `settings.yaml` | Read-only/observable | Existing `memory.enabled`, `memory.embeddings.*`, and `memory.dreaming.*` settings are read; this slice does not write settings. |
+| Postgres/runtime projection | Changed | `memory_items` is the canonical durable item table; `memory_review_requests` stores pending review proposals and decisions. |
+| Control API | Changed | Memory save/search/list/patch/delete and dreaming routes operate over the app-bound memory service. |
+| SDK/contracts | Changed | Server-side SDK memory methods are the API-first management surface. |
+| CLI | Read-only/observable | `myclaw memory-status`, `status`, and `doctor` report memory, embeddings, dreaming, and vector inactivity; they do not manage memory items. |
+| MyClaw MCP tools/admin skill | Changed | Agent tools can search, save, request reviewed memory changes, list pending memory reviews, and apply review decisions through host IPC/MCP. |
+| Channel/provider adapters | Unchanged by design | Channels only provide source identity and conversation scope; memory storage stays channel-neutral. |
+| Docs/prompts | Changed | Active docs must state flattened memory items, lexical retrieval, inactive vector retrieval, and no compact-summary replay. |
+| Audit/events | Changed | Evidence, recall, dream run, dream decision, review proposal, reviewer decision, and apply outcome rows remain audit surfaces for memory lifecycle decisions. |
+| Tests/verification | Changed | Memory unit and integration checks should verify lexical retrieval works without embeddings and vector search remains inactive until implemented. |

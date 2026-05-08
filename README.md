@@ -278,12 +278,22 @@ separate and is retrieved only when it matches the current query:
 
 Embeddings are off by default. Memory search and context injection work without embeddings today through lexical search and keyword fallback. Configuring embeddings prepares provider access, but vector retrieval is not active until the runtime indexing/query path is enabled.
 
-Host runtime injects a memory-only block when a fresh chat runner or scheduled
-job starts. Follow-up chat messages continue through the same live Claude SDK
-stream while the runner is alive, so MyClaw does not replay summaries, recent
-messages, or recent run summaries into every prompt. The memory block is sent
-as structured untrusted data with a system-level boundary policy that forbids
+Host runtime injects a digest-first memory context block when a fresh chat
+runner or scheduled job starts: recent session digests (when persisted), then
+active durable memory items. Follow-up chat messages continue through the same
+live Claude SDK stream while the runner is alive, so MyClaw does not replay raw
+message history or run logs into every prompt. The memory block is sent as
+structured untrusted data with a system-level boundary policy that forbids
 treating memory records as instructions or tool-use authority.
+
+Automatic boundaries such as `/new`, manual `/compact`, and observed SDK
+compact boundaries capture continuation digests and extraction evidence. Durable
+memory auto-promotion remains dreaming-only.
+
+Embedding work runs only during dreaming promotion/update passes. Runtime recall
+and context injection continue to use active memory items through lexical search
+and keyword fallback until memory item embedding indexing/querying is fully
+implemented.
 
 Memory boundaries:
 
@@ -410,7 +420,7 @@ MyClaw uses a provider-neutral catalog. Normal users choose aliases; provider sl
 - OpenRouter choices: `kimi` / `kimi 2.6` for Kimi K2.6
 - Job defaults: `agent.one_time_job_default_model` and `agent.recurring_job_default_model` inherit `agent.default_model` when empty
 - Memory LLM API defaults: extractor Haiku 4.5, dreaming Sonnet 4.6, consolidation Sonnet 4.6
-- The generated Claude settings JSON includes `model`, `availableModels`, and memory hooks.
+- The generated Claude settings JSON includes `model` and `availableModels`; memory hooks are not installed in runtime materialization.
 
 The model catalog is centralized in `apps/core/src/shared/model-catalog.ts`. OpenRouter uses the Anthropic SDK route at `https://openrouter.ai/api`; its API key must come from `AgentCredentialBroker` as child-process `ANTHROPIC_AUTH_TOKEN`, with `ANTHROPIC_API_KEY` explicitly blank for that run.
 

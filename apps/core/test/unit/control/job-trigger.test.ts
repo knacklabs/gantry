@@ -278,6 +278,12 @@ describe('control job trigger', () => {
       linked_sessions: ['app:app-one:conv-1'],
       session_id: 'session-1',
       thread_id: null,
+      execution_context: {
+        conversationJid: 'chat-1',
+        threadId: null,
+        groupScope: 'app-folder',
+        sessionId: 'session-1',
+      },
       group_scope: 'app-folder',
       created_by: 'human',
       created_at: '2026-04-24T00:00:00.000Z',
@@ -344,7 +350,12 @@ describe('control job trigger', () => {
           body: JSON.stringify({
             name: 'Nightly',
             prompt: 'Summarize',
-            sessionId: 'session-1',
+            executionContext: {
+              conversationJid: 'chat-1',
+              threadId: null,
+              groupScope: 'app-folder',
+              sessionId: 'session-1',
+            },
           }),
         },
       );
@@ -360,9 +371,19 @@ describe('control job trigger', () => {
           modelProfileId: 'anthropic:opus-4.7',
         },
         runtimeContext: {
-          conversationJid: 'chat-1',
-          groupScope: 'app-folder',
-          notificationTarget: 'conversation',
+          executionContext: {
+            conversationJid: 'chat-1',
+            groupScope: 'app-folder',
+            threadId: null,
+            sessionId: 'session-1',
+          },
+          notificationRoutes: [
+            {
+              conversationJid: 'chat-1',
+              threadId: null,
+              label: 'primary',
+            },
+          ],
           persona: 'personal_assistant',
           browserProfileLabel: 'App Folder conversation browser',
           browserProfileName: expect.stringMatching(
@@ -415,7 +436,12 @@ describe('control job trigger', () => {
           body: JSON.stringify({
             name: 'Preview',
             prompt: 'Preview only',
-            sessionId: 'session-1',
+            executionContext: {
+              conversationJid: 'chat-1',
+              threadId: null,
+              groupScope: 'app-folder',
+              sessionId: 'session-1',
+            },
             modelAlias: 'haiku',
             dryRun: true,
           }),
@@ -429,8 +455,12 @@ describe('control job trigger', () => {
         modelAlias: 'haiku',
         modelSource: 'explicit',
         runtimeContext: {
-          conversationJid: 'chat-1',
-          notificationTarget: 'conversation',
+          executionContext: {
+            conversationJid: 'chat-1',
+            groupScope: 'app-folder',
+            threadId: null,
+            sessionId: 'session-1',
+          },
         },
       });
       expect(body.jobId).toBeUndefined();
@@ -466,7 +496,12 @@ describe('control job trigger', () => {
           body: JSON.stringify({
             name: 'Bad',
             prompt: 'Nope',
-            sessionId: 'session-1',
+            executionContext: {
+              conversationJid: 'chat-1',
+              threadId: null,
+              groupScope: 'app-folder',
+              sessionId: 'session-1',
+            },
             model: 'claude-opus-4-7',
           }),
         },
@@ -477,6 +512,53 @@ describe('control job trigger', () => {
         error: {
           code: 'INVALID_REQUEST',
           message: 'Unsupported job request field "model".',
+        },
+      });
+      expect(opsRepo.upsertJob).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects job creation without executionContext.sessionId', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs`,
+        'token-jobs',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Nightly',
+            prompt: 'Summarize',
+            executionContext: {
+              conversationJid: 'chat-1',
+              threadId: null,
+              groupScope: 'app-folder',
+            },
+          }),
+        },
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: expect.stringContaining('executionContext.sessionId'),
         },
       });
       expect(opsRepo.upsertJob).not.toHaveBeenCalled();
@@ -590,7 +672,12 @@ describe('control job trigger', () => {
             name: 'Updated',
             prompt: 'New prompt',
             executionMode: 'serialized',
-            threadId: 'thread-1',
+            executionContext: {
+              conversationJid: 'chat-1',
+              threadId: 'thread-1',
+              groupScope: 'app-folder',
+              sessionId: 'session-1',
+            },
             status: 'paused',
           }),
         },
@@ -603,19 +690,86 @@ describe('control job trigger', () => {
         name: 'Updated',
         prompt: 'New prompt',
         executionMode: 'serialized',
-        threadId: 'thread-1',
+        executionContext: {
+          threadId: 'thread-1',
+        },
         status: 'paused',
       });
       expect(opsRepo.updateJob).toHaveBeenCalledWith('job-1', {
         name: 'Updated',
         prompt: 'New prompt',
         execution_mode: 'serialized',
+        execution_context: {
+          conversationJid: 'chat-1',
+          groupScope: 'app-folder',
+          threadId: 'thread-1',
+          sessionId: 'session-1',
+        },
         thread_id: 'thread-1',
         status: 'paused',
         pause_reason: 'Paused by SDK',
         next_run: null,
       });
       expect(schedulerMocks.requestSchedulerSync).toHaveBeenCalledWith('job-1');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects PATCH executionContext retargeting to another app session', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    controlRepo.getAppSessionById.mockImplementation(async (sessionId) => ({
+      sessionId,
+      appId: sessionId === 'session-app-two' ? 'app-two' : 'app-one',
+      conversationId: sessionId === 'session-app-two' ? 'conv-2' : 'conv-1',
+      chatJid: sessionId === 'session-app-two' ? 'chat-2' : 'chat-1',
+      groupFolder:
+        sessionId === 'session-app-two' ? 'other-folder' : 'app-folder',
+      workspaceKey:
+        sessionId === 'session-app-two' ? 'other-folder' : 'app-folder',
+      title: null,
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    }));
+    mockMutableJob(makeJob({ session_id: 'session-1' }));
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs/job-1`,
+        'token-jobs',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            executionContext: {
+              conversationJid: 'chat-2',
+              threadId: null,
+              groupScope: 'other-folder',
+              sessionId: 'session-app-two',
+            },
+          }),
+        },
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: 'FORBIDDEN',
+        },
+      });
+      expect(opsRepo.updateJob).not.toHaveBeenCalled();
     } finally {
       await handle.close();
     }
@@ -725,14 +879,27 @@ describe('control job trigger', () => {
         {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ threadId: null }),
+          body: JSON.stringify({
+            executionContext: {
+              conversationJid: 'chat-1',
+              threadId: null,
+              groupScope: 'app-folder',
+              sessionId: 'session-1',
+            },
+          }),
         },
       );
       const body = await response.json();
 
       expect(response.status).toBe(200);
-      expect(body.threadId).toBeNull();
+      expect(body.executionContext?.threadId).toBeNull();
       expect(opsRepo.updateJob).toHaveBeenCalledWith('job-1', {
+        execution_context: {
+          conversationJid: 'chat-1',
+          groupScope: 'app-folder',
+          threadId: null,
+          sessionId: 'session-1',
+        },
         thread_id: null,
       });
     } finally {
@@ -1115,6 +1282,9 @@ describe('control job trigger', () => {
       expect(body.jobs[0]).not.toHaveProperty('fullPrompt');
       expect(body.jobs[0]).not.toHaveProperty('inheritedTools');
       expect(body.jobs[0]).not.toHaveProperty('inheritedToolCount');
+      expect(body.jobs[0]).not.toHaveProperty('linkedSessions');
+      expect(body.jobs[0]).not.toHaveProperty('notificationTarget');
+      expect(body.jobs[0]).not.toHaveProperty('threadId');
     } finally {
       await handle.close();
     }
@@ -1167,6 +1337,9 @@ describe('control job trigger', () => {
       });
       expect(body).not.toHaveProperty('inheritedTools');
       expect(body).not.toHaveProperty('inheritedToolCount');
+      expect(body).not.toHaveProperty('linkedSessions');
+      expect(body).not.toHaveProperty('notificationTarget');
+      expect(body).not.toHaveProperty('threadId');
     } finally {
       await handle.close();
     }

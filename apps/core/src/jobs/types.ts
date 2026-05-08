@@ -27,7 +27,7 @@ export interface SchedulerDependencies {
   sendMessage: SchedulerSendMessage;
   sendStreamingChunk?: (
     jid: string,
-    text: string,
+    rawText: string,
     options?: StreamingChunkOptions,
   ) => Promise<boolean>;
   resetStreaming?: (jid: string) => void;

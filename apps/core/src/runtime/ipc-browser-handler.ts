@@ -3,9 +3,7 @@ import path from 'path';
 
 import { BrowserIpcAction } from '@myclaw/contracts';
 
-import {
-  signIpcResponsePayload,
-} from '../infrastructure/ipc/response-signing.js';
+import { signIpcResponsePayload } from '../infrastructure/ipc/response-signing.js';
 import {
   ensurePrivateDirSync,
   writePrivateFileSync,

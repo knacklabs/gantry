@@ -7,7 +7,10 @@ import {
   getRuntimeRepositories,
   getRuntimeStorage,
 } from '../adapters/storage/postgres/runtime-store.js';
-import { MYCLAW_HOME, syncRuntimeSettingsFromProjection } from '../config/index.js';
+import {
+  MYCLAW_HOME,
+  syncRuntimeSettingsFromProjection,
+} from '../config/index.js';
 import { nowIso } from '../infrastructure/time/datetime.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
@@ -47,7 +50,7 @@ function createContextTaskResponder(context: TaskContext) {
 }
 
 const refreshGroupsHandler: TaskHandler = async (context) => {
-  const { data, sourceAgentFolder, deps, conversationBindings } = context;
+  const { sourceAgentFolder, deps, conversationBindings } = context;
   const { accept, reject } = createContextTaskResponder(context);
 
   try {
@@ -784,7 +787,12 @@ async function completeSkillPermissionReview(
 }
 
 async function syncApprovedCapabilitySettings(): Promise<void> {
-  await syncRuntimeSettingsFromProjection({ runtimeHome: MYCLAW_HOME, ops: getRuntimeRepositories(), repositories: getRuntimeStorage().repositories, appId: DEFAULT_MEMORY_APP_ID as never });
+  await syncRuntimeSettingsFromProjection({
+    runtimeHome: MYCLAW_HOME,
+    ops: getRuntimeRepositories(),
+    repositories: getRuntimeStorage().repositories,
+    appId: DEFAULT_MEMORY_APP_ID as never,
+  });
 }
 
 async function rejectSkillDraftFromPermission(

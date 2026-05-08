@@ -79,6 +79,7 @@ export interface RuntimeApp {
   clearSessionForChatJid: (
     chatJid: string,
     threadId?: string | null,
+    metadata?: { memoryUserId?: string },
   ) => Promise<void>;
   processGroupMessages: (
     chatJid: string,
@@ -417,16 +418,23 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   async function clearSessionForChatJid(
     chatJid: string,
     threadId?: string | null,
+    metadata: { memoryUserId?: string } = {},
   ): Promise<void> {
     const group = conversationRoutes[chatJid];
     if (!group) return;
-    await ops().deleteSession(group.folder, threadId);
+    await ops().deleteSession(group.folder, threadId, {
+      conversationJid: chatJid,
+      conversationKind: group.conversationKind,
+      memoryUserId: metadata.memoryUserId,
+    });
   }
 
   const groupProcessor = createGroupProcessor({
     channelRuntime: {
       hasChannel: (chatJid) => channelRuntime.hasChannel(chatJid),
-      supportsStreaming: (chatJid) => channelRuntime.supportsStreaming(chatJid),
+      // Provider-visible streaming stays disabled until chunk ordering is
+      // durably recorded before dispatch.
+      supportsStreaming: () => false,
       supportsProgress: (chatJid) => channelRuntime.supportsProgress(chatJid),
       sendMessage: (chatJid, rawText, options) =>
         channelRuntime.sendMessage(chatJid, rawText, options),
@@ -439,8 +447,8 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
         channelRuntime.sendProgressUpdate(chatJid, text, options),
     },
     getGroup: (chatJid) => conversationRoutes[chatJid],
-    clearSession: async (groupFolder, threadId) => {
-      await ops().deleteSession(groupFolder, threadId);
+    clearSession: async (groupFolder, threadId, metadata) => {
+      await ops().deleteSession(groupFolder, threadId, metadata);
     },
     getCursor: getOrRecoverCursor,
     setCursor: (chatJid, timestamp) => {

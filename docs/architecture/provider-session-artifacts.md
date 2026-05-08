@@ -15,6 +15,13 @@ Provider artifacts hold provider-specific bytes for explicit export,
 inspection, or debugging. Claude JSONL transcripts and session indexes may be
 stored as artifacts, but the runtime does not replay them.
 
+Artifact rows and files are not continuity state. They must not be used to
+import old continuity, rebuild `AgentSession.scope_key`, create or backfill
+session digests, repair missing provider-session rows, or override the current
+provider-session ownership checks. Unsupported historical artifact layouts fail
+closed: they can remain as inert debug/export material, but runtime resume and
+fresh-run hydration ignore them.
+
 ## Artifact Store Contract
 
 Runtime code reads and writes provider artifacts only through
@@ -42,11 +49,19 @@ and metadata in Postgres. Provider latest artifact pointers are metadata only.
 Claude runs use a temporary `CLAUDE_CONFIG_DIR` containing generated
 `settings.json`, materialized `skills/`, and an SDK project scratch directory.
 MyClaw does not restore `claude-jsonl` artifacts before a run, does not pass SDK
-`resume`, and does not capture SDK session files after a run.
+`resume` from artifact files, and does not capture SDK session files as durable
+runtime truth after a run.
+
+For live chat turns, the current Claude adapter may still pass a scoped
+`ProviderSession.externalSessionId` to SDK `resume`; that handle comes from
+canonical Postgres session metadata, not from replayed artifact files.
 
 Session continuity uses a live SDK streaming-input query while the runner is
 alive. Cold starts hydrate durable MyClaw memory only; canonical messages, runs,
 and summaries are audit/observability state and are not replayed into prompts.
+Current continuity is therefore governed by canonical `scope_key` resolution and
+digest scope filtering, not by artifact filenames, provider transcript ids, or
+legacy provider-session indexes.
 
 ## Local Filesystem Backend
 

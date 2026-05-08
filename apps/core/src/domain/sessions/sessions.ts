@@ -13,6 +13,7 @@ import type { ProviderSessionArtifactId } from './provider-session-artifact.js';
 export type AgentSessionId = BrandedId<'AgentSessionId'>;
 export type ProviderSessionId = BrandedId<'ProviderSessionId'>;
 export type AgentSessionSummaryId = BrandedId<'AgentSessionSummaryId'>;
+export type AgentSessionDigestId = BrandedId<'AgentSessionDigestId'>;
 
 export interface AgentSession {
   id: AgentSessionId;
@@ -56,4 +57,44 @@ export interface AgentSessionSummary {
   messageCount: number;
   runCount: number;
   createdAt: IsoTimestamp;
+}
+
+export interface AgentSessionDigest {
+  id: AgentSessionDigestId;
+  appId: AppId;
+  agentSessionId: AgentSessionId;
+  trigger: 'precompact' | 'session-end';
+  digest: string;
+  messageCount: number;
+  extractedFactCount: number;
+  metadata?: Record<string, unknown>;
+  createdAt: IsoTimestamp;
+}
+
+export type AgentSessionDigestScopeMetadata = {
+  sessionScope: {
+    appId: string | null;
+    agentId: string | null;
+    conversationId: string | null;
+    userId: string | null;
+    threadId: string | null;
+  };
+};
+
+export function scopedDigestMetadataForSession(
+  session: AgentSession,
+): AgentSessionDigestScopeMetadata {
+  return {
+    sessionScope: {
+      appId: scopedSessionValue(session.appId),
+      agentId: scopedSessionValue(session.agentId),
+      conversationId: scopedSessionValue(session.conversationId),
+      userId: scopedSessionValue(session.userId),
+      threadId: scopedSessionValue(session.threadId),
+    },
+  };
+}
+
+function scopedSessionValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
 }

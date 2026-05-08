@@ -11,7 +11,6 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import type { Pool } from 'pg';
-
 import type {
   Agent,
   AgentConfigVersion,
@@ -49,6 +48,7 @@ import type {
   AgentConfigRepository,
   AgentRepository,
   AgentRunRepository,
+  AgentSessionDigestRepository,
   AgentSessionRepository,
   AgentSessionSummaryRepository,
   AppRepository,
@@ -65,6 +65,7 @@ import type {
   SandboxRepository,
   SkillCatalogRepository,
   ToolCatalogRepository,
+  OutboundDeliveryRepository,
 } from '../../../../domain/ports/repositories.js';
 import type {
   SandboxLease,
@@ -77,6 +78,7 @@ import * as pgSchema from '../schema/schema.js';
 import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
 import {
   PostgresAgentSessionRepository,
+  PostgresAgentSessionDigestRepository,
   PostgresAgentSessionSummaryRepository,
   PostgresProviderSessionRepository,
 } from './session-repositories.postgres.js';
@@ -85,7 +87,7 @@ import { PostgresSkillCatalogRepository } from './skill-repository.postgres.js';
 import { PostgresRuntimeEventRepository } from './runtime-event-repository.postgres.js';
 import { PostgresToolCatalogRepository } from './tool-repository.postgres.js';
 import { PostgresAgentRepository } from './agent-repository.postgres.js';
-
+import { PostgresOutboundDeliveryRepository } from './outbound-delivery-repository.postgres.js';
 export interface PostgresDomainRepositoryBundle {
   apps: AppRepository;
   agents: AgentRepository;
@@ -94,6 +96,7 @@ export interface PostgresDomainRepositoryBundle {
   conversations: ConversationRepository;
   messages: MessageRepository;
   agentSessions: AgentSessionRepository;
+  agentSessionDigests: AgentSessionDigestRepository;
   providerSessions: ProviderSessionRepository;
   agentSessionSummaries: AgentSessionSummaryRepository;
   agentRuns: AgentRunRepository;
@@ -106,18 +109,15 @@ export interface PostgresDomainRepositoryBundle {
   permissions: PermissionRepository;
   sandboxes: SandboxRepository;
   browserProfiles: BrowserProfileRepository;
+  outboundDeliveries: OutboundDeliveryRepository;
 }
-
 type JsonRecord = Record<string, unknown>;
-
 function encodeJson(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
-
 function encodeJsonOrNull(value: unknown | undefined): string | null {
   return value === undefined ? null : encodeJson(value);
 }
-
 function parseJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== 'string' || value.length === 0) return fallback;
   try {
@@ -129,7 +129,6 @@ function parseJson<T>(value: unknown, fallback: T): T {
     return fallback;
   }
 }
-
 function isUniqueViolation(err: unknown): boolean {
   return (
     typeof err === 'object' &&
@@ -138,25 +137,21 @@ function isUniqueViolation(err: unknown): boolean {
     err.code === '23505'
   );
 }
-
 function parseJsonArray<T extends string>(value: unknown): T[] {
   const parsed = parseJson<unknown>(value, []);
   return Array.isArray(parsed)
     ? (parsed.filter((v) => typeof v === 'string') as T[])
     : [];
 }
-
 function safeIdPart(value: string): string {
   return value.trim().replace(/[^a-zA-Z0-9._:@-]/g, '_');
 }
-
 function channelControlApproverId(
   conversationId: string,
   externalUserId: string,
 ): string {
   return `channel-control:${safeIdPart(conversationId)}:${safeIdPart(externalUserId)}`;
 }
-
 function externalRef<Kind extends string>(
   value: unknown,
   fallbackKind: Kind,
@@ -178,65 +173,12 @@ function externalRef<Kind extends string>(
     ? { kind: fallbackKind, value: fallbackRefValue }
     : undefined;
 }
-
 function jsonTextEquals(column: unknown, keys: string[], value: string): SQL {
   return sql`(${column} IS NOT NULL AND (${sql.join(
     keys.map((key) => sql`${column}::jsonb->>${key} = ${value}`),
     sql` OR `,
   )}))`;
 }
-
-function toMemorySubjectFields(subject: MemorySubject): {
-  subjectType: string;
-  subjectId: string;
-  userId: string | null;
-  conversationId: string | null;
-  threadId: string | null;
-} {
-  switch (subject.kind) {
-    case 'app':
-      return {
-        subjectType: 'app',
-        subjectId: subject.appId,
-        userId: null,
-        conversationId: null,
-        threadId: null,
-      };
-    case 'agent':
-      return {
-        subjectType: 'agent',
-        subjectId: subject.agentId,
-        userId: null,
-        conversationId: null,
-        threadId: null,
-      };
-    case 'user':
-      return {
-        subjectType: 'user',
-        subjectId: subject.userId,
-        userId: subject.userId,
-        conversationId: null,
-        threadId: null,
-      };
-    case 'conversation':
-      return {
-        subjectType: 'conversation',
-        subjectId: subject.conversationId,
-        userId: null,
-        conversationId: subject.conversationId,
-        threadId: null,
-      };
-    case 'thread':
-      return {
-        subjectType: 'thread',
-        subjectId: subject.threadId,
-        userId: null,
-        conversationId: subject.conversationId,
-        threadId: subject.threadId,
-      };
-  }
-}
-
 function memorySubjectFromRow(row: {
   appId: string;
   agentId: string | null;
@@ -277,7 +219,6 @@ function memorySubjectFromRow(row: {
   }
   return { kind: 'app', appId: row.appId } as MemorySubject;
 }
-
 function messagePartToPayload(part: MessagePart): string {
   switch (part.kind) {
     case 'text':
@@ -294,7 +235,6 @@ function messagePartToPayload(part: MessagePart): string {
       return encodeJson({ reason: part.reason });
   }
 }
-
 function payloadToMessagePart(kind: string, payloadJson: string): MessagePart {
   const payload = parseJson<JsonRecord>(payloadJson, {});
   switch (kind) {
@@ -321,10 +261,8 @@ function payloadToMessagePart(kind: string, payloadJson: string): MessagePart {
       return { kind: 'text', text: String(payload.text ?? '') };
   }
 }
-
 export class PostgresAppRepository implements AppRepository {
   constructor(private readonly db: CanonicalDb) {}
-
   async getApp(id: App['id']): Promise<App | null> {
     const rows = await this.db
       .select()
@@ -333,7 +271,6 @@ export class PostgresAppRepository implements AppRepository {
       .limit(1);
     return (rows[0] as App | undefined) ?? null;
   }
-
   async saveApp(app: App): Promise<void> {
     await this.db
       .insert(pgSchema.appsPostgres)
@@ -349,10 +286,8 @@ export class PostgresAppRepository implements AppRepository {
       });
   }
 }
-
 export class PostgresAgentConfigRepository implements AgentConfigRepository {
   constructor(private readonly db: CanonicalDb) {}
-
   async getConfigVersion(
     id: AgentConfigVersion['id'],
   ): Promise<AgentConfigVersion | null> {
@@ -382,7 +317,6 @@ export class PostgresAgentConfigRepository implements AgentConfigRepository {
       createdAt: row.createdAt,
     } as AgentConfigVersion;
   }
-
   async saveConfigVersion(version: AgentConfigVersion): Promise<void> {
     await this.db
       .insert(pgSchema.agentConfigVersionsPostgres)
@@ -404,10 +338,8 @@ export class PostgresAgentConfigRepository implements AgentConfigRepository {
       .onConflictDoNothing();
   }
 }
-
 export class PostgresProviderConnectionRepository implements ProviderConnectionRepository {
   constructor(private readonly db: CanonicalDb) {}
-
   async listProviderConnections(
     appId: ProviderConnection['appId'],
   ): Promise<ProviderConnection[]> {
@@ -418,7 +350,6 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
       .orderBy(asc(pgSchema.providerConnectionsPostgres.createdAt));
     return rows.map((row) => this.providerConnectionFromRow(row));
   }
-
   async getProviderConnection(
     id: ProviderConnection['id'],
   ): Promise<ProviderConnection | null> {
@@ -431,7 +362,6 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
     if (!row) return null;
     return this.providerConnectionFromRow(row);
   }
-
   private providerConnectionFromRow(
     row: typeof pgSchema.providerConnectionsPostgres.$inferSelect,
   ): ProviderConnection {
@@ -451,7 +381,6 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
       updatedAt: row.updatedAt,
     } as unknown as ProviderConnection;
   }
-
   async saveProviderConnection(
     providerConnection: ProviderConnection,
   ): Promise<void> {
@@ -498,7 +427,6 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
         });
     });
   }
-
   async updateProviderConnection(input: {
     appId: ProviderConnection['appId'];
     id: ProviderConnection['id'];
@@ -531,7 +459,6 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
         input.patch.externalInstallationRef ?? undefined,
       );
     }
-
     const rows = await this.db
       .update(pgSchema.providerConnectionsPostgres)
       .set(set)
@@ -544,7 +471,6 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
       .returning();
     return rows[0] ? this.providerConnectionFromRow(rows[0]) : null;
   }
-
   async disableProviderConnection(input: {
     appId: ProviderConnection['appId'];
     id: ProviderConnection['id'];
@@ -561,7 +487,6 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
       );
     return await this.getProviderConnection(input.id);
   }
-
   async saveAgentConversationBinding(
     binding: AgentConversationBinding,
   ): Promise<void> {
@@ -606,7 +531,6 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
         },
       });
   }
-
   async disableAgentConversationBinding(input: {
     appId: App['id'];
     agentId: Agent['id'];
@@ -630,7 +554,6 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
       .returning();
     return rows[0] ? this.bindingFromRow(rows[0]) : null;
   }
-
   async getAgentConversationBinding(input: {
     appId: App['id'];
     agentId: Agent['id'];
@@ -661,7 +584,6 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
       .limit(1);
     return rows[0] ? this.bindingFromRow(rows[0]) : null;
   }
-
   async isAgentEnabledInConversation(input: {
     appId: App['id'];
     agentId: Agent['id'];
@@ -693,7 +615,6 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
       .limit(1);
     return rows.length > 0;
   }
-
   async listAgentConversationBindings(
     appId: App['id'],
     agentId?: Agent['id'],
@@ -712,7 +633,6 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
       .orderBy(asc(b.createdAt));
     return rows.map((row) => this.bindingFromRow(row));
   }
-
   async listAgentConversationBindingsByConversation(input: {
     appId: App['id'];
     conversationId: Conversation['id'];
@@ -731,7 +651,6 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
       .orderBy(asc(b.createdAt));
     return rows.map((row) => this.bindingFromRow(row));
   }
-
   private bindingFromRow(
     row: typeof pgSchema.agentConversationBindingsPostgres.$inferSelect,
   ): AgentConversationBinding {
@@ -764,10 +683,8 @@ export class PostgresProviderConnectionRepository implements ProviderConnectionR
     } as AgentConversationBinding;
   }
 }
-
 export class PostgresConversationRepository implements ConversationRepository {
   constructor(private readonly db: CanonicalDb) {}
-
   async listConversations(input: {
     appId: Conversation['appId'];
     providerConnectionId?: ProviderConnection['id'];
@@ -789,7 +706,6 @@ export class PostgresConversationRepository implements ConversationRepository {
       .orderBy(asc(pgSchema.conversationsPostgres.createdAt));
     return rows.map((row) => this.conversationFromRow(row));
   }
-
   async getConversation(id: Conversation['id']): Promise<Conversation | null> {
     const rows = await this.db
       .select()
@@ -798,7 +714,6 @@ export class PostgresConversationRepository implements ConversationRepository {
       .limit(1);
     return rows[0] ? this.conversationFromRow(rows[0]) : null;
   }
-
   async getConversationByExternalRef(input: {
     appId: App['id'];
     providerId: ProviderId;
@@ -826,7 +741,6 @@ export class PostgresConversationRepository implements ConversationRepository {
       .limit(1);
     return rows[0] ? this.conversationFromRow(rows[0].conversation) : null;
   }
-
   async findConversationByExternalValue(input: {
     appId: App['id'];
     externalConversationId: string;
@@ -848,7 +762,6 @@ export class PostgresConversationRepository implements ConversationRepository {
       .limit(1);
     return rows[0] ? this.conversationFromRow(rows[0]) : null;
   }
-
   async getThread(
     id: ConversationThread['id'],
   ): Promise<ConversationThread | null> {
@@ -859,7 +772,6 @@ export class PostgresConversationRepository implements ConversationRepository {
       .limit(1);
     return rows[0] ? this.threadFromRow(rows[0]) : null;
   }
-
   async getThreadByExternalRef(input: {
     appId: App['id'];
     providerId: ProviderId;
@@ -889,7 +801,6 @@ export class PostgresConversationRepository implements ConversationRepository {
       .limit(1);
     return rows[0] ? this.threadFromRow(rows[0].thread) : null;
   }
-
   async saveConversation(conversation: Conversation): Promise<void> {
     await this.db
       .insert(pgSchema.conversationsPostgres)
@@ -916,7 +827,6 @@ export class PostgresConversationRepository implements ConversationRepository {
         },
       });
   }
-
   async saveThread(thread: ConversationThread): Promise<void> {
     await this.db
       .insert(pgSchema.conversationThreadsPostgres)
@@ -940,7 +850,6 @@ export class PostgresConversationRepository implements ConversationRepository {
         },
       });
   }
-
   async listThreads(
     conversationId: Conversation['id'],
   ): Promise<ConversationThread[]> {
@@ -953,7 +862,6 @@ export class PostgresConversationRepository implements ConversationRepository {
       .orderBy(asc(pgSchema.conversationThreadsPostgres.createdAt));
     return rows.map((row) => this.threadFromRow(row));
   }
-
   async listParticipantExternalUserIds(
     conversationId: Conversation['id'],
   ): Promise<string[]> {
@@ -977,19 +885,16 @@ export class PostgresConversationRepository implements ConversationRepository {
       .map((row) => row.externalUserId?.trim() || '')
       .filter((id) => id.length > 0);
   }
-
   async listConversationApprovers(
     conversationId: Conversation['id'],
   ): Promise<ConversationApprover[]> {
     return this.listConversationApproverRows([conversationId]);
   }
-
   async listConversationApproversForConversations(
     conversationIds: readonly Conversation['id'][],
   ): Promise<ConversationApprover[]> {
     return this.listConversationApproverRows(conversationIds);
   }
-
   private async listConversationApproverRows(
     conversationIds: readonly Conversation['id'][],
   ): Promise<ConversationApprover[]> {
@@ -1015,7 +920,6 @@ export class PostgresConversationRepository implements ConversationRepository {
       updatedAt: row.updatedAt,
     })) as ConversationApprover[];
   }
-
   async replaceConversationApprovers(input: {
     appId: App['id'];
     conversationId: Conversation['id'];
@@ -1048,7 +952,6 @@ export class PostgresConversationRepository implements ConversationRepository {
     });
     return this.listConversationApprovers(input.conversationId);
   }
-
   private conversationFromRow(
     row: typeof pgSchema.conversationsPostgres.$inferSelect,
   ): Conversation {
@@ -1064,7 +967,6 @@ export class PostgresConversationRepository implements ConversationRepository {
       updatedAt: row.updatedAt,
     } as unknown as Conversation;
   }
-
   private threadFromRow(
     row: typeof pgSchema.conversationThreadsPostgres.$inferSelect,
   ): ConversationThread {
@@ -1080,10 +982,8 @@ export class PostgresConversationRepository implements ConversationRepository {
     } as unknown as ConversationThread;
   }
 }
-
 export class PostgresMessageRepository implements MessageRepository {
   constructor(private readonly db: CanonicalDb) {}
-
   async getMessage(id: Message['id']): Promise<Message | null> {
     const m = pgSchema.messagesPostgres;
     const rows = await this.db.select().from(m).where(eq(m.id, id)).limit(1);
@@ -1101,7 +1001,6 @@ export class PostgresMessageRepository implements MessageRepository {
       .orderBy(asc(pgSchema.messageAttachmentsPostgres.id));
     return this.messageFromRows(row, parts, attachments);
   }
-
   async saveMessage(message: Message): Promise<void> {
     try {
       await this.writeMessage(message);
@@ -1112,7 +1011,6 @@ export class PostgresMessageRepository implements MessageRepository {
       await this.writeMessage(message);
     }
   }
-
   private async writeMessage(message: Message): Promise<void> {
     await this.db.transaction(async (tx) => {
       const c = pgSchema.conversationsPostgres;
@@ -1132,7 +1030,6 @@ export class PostgresMessageRepository implements MessageRepository {
           `Cannot save message ${message.id}: conversation ${message.conversationId} was not found`,
         );
       }
-
       const externalMessageId = message.externalRef?.value ?? null;
       let targetMessageId: Message['id'] = message.id;
       if (externalMessageId) {
@@ -1162,7 +1059,6 @@ export class PostgresMessageRepository implements MessageRepository {
           .limit(1);
         targetMessageId = (duplicateRows[0]?.id ?? message.id) as Message['id'];
       }
-
       await tx
         .insert(pgSchema.messagesPostgres)
         .values({
@@ -1199,7 +1095,6 @@ export class PostgresMessageRepository implements MessageRepository {
             deliveryError: message.deliveryError ?? null,
           },
         });
-
       await tx
         .delete(pgSchema.messagePartsPostgres)
         .where(eq(pgSchema.messagePartsPostgres.messageId, targetMessageId));
@@ -1234,7 +1129,6 @@ export class PostgresMessageRepository implements MessageRepository {
       }
     });
   }
-
   async listMessages(input: {
     conversationId: Conversation['id'];
     threadId?: ConversationThread['id'];
@@ -1313,7 +1207,6 @@ export class PostgresMessageRepository implements MessageRepository {
       ),
     );
   }
-
   async listRecentMessages(input: {
     conversationId: Conversation['id'];
     threadId?: ConversationThread['id'];
@@ -1393,7 +1286,6 @@ export class PostgresMessageRepository implements MessageRepository {
       ),
     );
   }
-
   private messageFromRows(
     row: typeof pgSchema.messagesPostgres.$inferSelect,
     parts: Array<typeof pgSchema.messagePartsPostgres.$inferSelect>,
@@ -1440,10 +1332,8 @@ export class PostgresMessageRepository implements MessageRepository {
     } as unknown as Message;
   }
 }
-
 export class PostgresAgentRunRepository implements AgentRunRepository {
   constructor(private readonly db: CanonicalDb) {}
-
   async getAgentRun(id: AgentRun['id']): Promise<AgentRun | null> {
     const rows = await this.db
       .select()
@@ -1452,7 +1342,6 @@ export class PostgresAgentRunRepository implements AgentRunRepository {
       .limit(1);
     return rows[0] ? this.runFromRow(rows[0]) : null;
   }
-
   async saveAgentRun(run: AgentRun): Promise<void> {
     await this.db
       .insert(pgSchema.agentRunsPostgres)
@@ -1492,7 +1381,6 @@ export class PostgresAgentRunRepository implements AgentRunRepository {
         },
       });
   }
-
   async listAgentRunsBySession(input: {
     sessionId: AgentSession['id'];
     limit?: number;
@@ -1508,7 +1396,6 @@ export class PostgresAgentRunRepository implements AgentRunRepository {
       .limit(input.limit ?? 100);
     return rows.map((row) => this.runFromRow(row));
   }
-
   private runFromRow(
     row: typeof pgSchema.agentRunsPostgres.$inferSelect,
   ): AgentRun {
@@ -1536,10 +1423,8 @@ export class PostgresAgentRunRepository implements AgentRunRepository {
     } as AgentRun;
   }
 }
-
 export class PostgresMemoryRepository implements MemoryRepository {
   constructor(private readonly db: CanonicalDb) {}
-
   async getMemoryItem(id: MemoryItem['id']): Promise<MemoryItem | null> {
     const rows = await this.db
       .select()
@@ -1548,69 +1433,12 @@ export class PostgresMemoryRepository implements MemoryRepository {
       .limit(1);
     return rows[0] ? this.memoryFromRow(rows[0]) : null;
   }
-
   async saveMemoryItem(item: MemoryItem): Promise<void> {
-    const fields = toMemorySubjectFields(item.subject);
-    await this.db
-      .insert(pgSchema.memoryItemsPostgres)
-      .values({
-        id: item.id,
-        appId: item.appId,
-        agentId:
-          item.agentId ??
-          (item.subject.kind === 'agent' ? item.subject.agentId : null),
-        subjectType: fields.subjectType,
-        subjectId: fields.subjectId,
-        userId: fields.userId,
-        conversationId: fields.conversationId,
-        threadId: fields.threadId,
-        kind: item.kind,
-        key: item.key,
-        valueJson: encodeJson({ value: item.value }),
-        confidence: item.confidence,
-        sourceRefJson: encodeJson({
-          source: item.source,
-          isPinned: item.isPinned,
-        }),
-        status: item.isDeleted ? 'deleted' : 'active',
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.memoryItemsPostgres.id,
-        set: {
-          valueJson: encodeJson({ value: item.value }),
-          confidence: item.confidence,
-          sourceRefJson: encodeJson({
-            source: item.source,
-            isPinned: item.isPinned,
-          }),
-          status: item.isDeleted ? 'deleted' : 'active',
-          updatedAt: item.updatedAt,
-        },
-      });
+    void item;
+    throw new Error(
+      'Legacy memory repository writes are disabled. Use AppMemoryService.save.',
+    );
   }
-
-  async listMemoryItems(
-    subject: MemorySubject,
-    limit = 100,
-  ): Promise<MemoryItem[]> {
-    const fields = toMemorySubjectFields(subject);
-    const rows = await this.db
-      .select()
-      .from(pgSchema.memoryItemsPostgres)
-      .where(
-        and(
-          eq(pgSchema.memoryItemsPostgres.appId, subject.appId),
-          eq(pgSchema.memoryItemsPostgres.subjectType, fields.subjectType),
-          eq(pgSchema.memoryItemsPostgres.subjectId, fields.subjectId),
-        ),
-      )
-      .orderBy(desc(pgSchema.memoryItemsPostgres.updatedAt))
-      .limit(limit);
-    return rows.map((row) => this.memoryFromRow(row));
-  }
-
   private memoryFromRow(
     row: typeof pgSchema.memoryItemsPostgres.$inferSelect,
   ): MemoryItem {
@@ -1636,10 +1464,8 @@ export class PostgresMemoryRepository implements MemoryRepository {
     } as MemoryItem;
   }
 }
-
 export class PostgresJobRepository implements JobRepository {
   constructor(private readonly db: CanonicalDb) {}
-
   async getJob(id: Job['id']): Promise<Job | null> {
     const rows = await this.db
       .select()
@@ -1648,7 +1474,6 @@ export class PostgresJobRepository implements JobRepository {
       .limit(1);
     return rows[0] ? this.jobFromRow(rows[0]) : null;
   }
-
   async saveJob(job: Job): Promise<void> {
     await this.db
       .insert(pgSchema.canonicalJobsPostgres)
@@ -1700,7 +1525,6 @@ export class PostgresJobRepository implements JobRepository {
         },
       });
   }
-
   async listJobs(appId: App['id']): Promise<Job[]> {
     const rows = await this.db
       .select()
@@ -1709,7 +1533,6 @@ export class PostgresJobRepository implements JobRepository {
       .orderBy(desc(pgSchema.canonicalJobsPostgres.updatedAt));
     return rows.map((row) => this.jobFromRow(row));
   }
-
   async saveJobTrigger(trigger: JobTrigger): Promise<void> {
     await this.db
       .insert(pgSchema.canonicalJobTriggersPostgres)
@@ -1733,7 +1556,6 @@ export class PostgresJobRepository implements JobRepository {
         },
       });
   }
-
   private jobFromRow(
     row: typeof pgSchema.canonicalJobsPostgres.$inferSelect,
   ): Job {
@@ -1763,10 +1585,8 @@ export class PostgresJobRepository implements JobRepository {
     } as Job;
   }
 }
-
 export class PostgresPermissionRepository implements PermissionRepository {
   constructor(private readonly db: CanonicalDb) {}
-
   async savePolicy(policy: PermissionPolicy): Promise<void> {
     await this.db
       .insert(pgSchema.permissionPoliciesPostgres)
@@ -1781,7 +1601,6 @@ export class PostgresPermissionRepository implements PermissionRepository {
         },
       });
   }
-
   async saveRule(rule: PermissionRule): Promise<void> {
     await this.db
       .insert(pgSchema.permissionRulesPostgres)
@@ -1805,7 +1624,6 @@ export class PostgresPermissionRepository implements PermissionRepository {
         },
       });
   }
-
   async saveDecision(decision: PermissionDecision): Promise<void> {
     await this.db
       .insert(pgSchema.permissionDecisionsPostgres)
@@ -1840,7 +1658,6 @@ export class PostgresPermissionRepository implements PermissionRepository {
         },
       });
   }
-
   async getDecision(
     id: PermissionDecision['id'],
   ): Promise<PermissionDecision | null> {
@@ -1870,10 +1687,8 @@ export class PostgresPermissionRepository implements PermissionRepository {
     } as PermissionDecision;
   }
 }
-
 export class PostgresSandboxRepository implements SandboxRepository {
   constructor(private readonly db: CanonicalDb) {}
-
   async getSandboxProfile(
     id: SandboxProfile['id'],
   ): Promise<SandboxProfile | null> {
@@ -1884,7 +1699,6 @@ export class PostgresSandboxRepository implements SandboxRepository {
       .limit(1);
     return (rows[0] as SandboxProfile | undefined) ?? null;
   }
-
   async saveSandboxProfile(profile: SandboxProfile): Promise<void> {
     await this.db
       .insert(pgSchema.sandboxProfilesPostgres)
@@ -1903,7 +1717,6 @@ export class PostgresSandboxRepository implements SandboxRepository {
         },
       });
   }
-
   async getSandboxLease(id: SandboxLease['id']): Promise<SandboxLease | null> {
     const rows = await this.db
       .select()
@@ -1912,7 +1725,6 @@ export class PostgresSandboxRepository implements SandboxRepository {
       .limit(1);
     return (rows[0] as SandboxLease | undefined) ?? null;
   }
-
   async saveSandboxLease(lease: SandboxLease): Promise<void> {
     await this.db
       .insert(pgSchema.sandboxLeasesPostgres)
@@ -1935,7 +1747,6 @@ export class PostgresSandboxRepository implements SandboxRepository {
         },
       });
   }
-
   async saveWorkspaceSnapshot(snapshot: WorkspaceSnapshot): Promise<void> {
     await this.db
       .insert(pgSchema.workspaceSnapshotsPostgres)
@@ -1950,7 +1761,6 @@ export class PostgresSandboxRepository implements SandboxRepository {
       })
       .onConflictDoNothing();
   }
-
   async getWorkspaceSnapshot(
     id: WorkspaceSnapshot['id'],
   ): Promise<WorkspaceSnapshot | null> {
@@ -1972,10 +1782,8 @@ export class PostgresSandboxRepository implements SandboxRepository {
     } as unknown as WorkspaceSnapshot;
   }
 }
-
 export class PostgresBrowserProfileRepository implements BrowserProfileRepository {
   constructor(private readonly db: CanonicalDb) {}
-
   async getBrowserProfile(
     id: BrowserProfile['id'],
   ): Promise<BrowserProfile | null> {
@@ -1999,7 +1807,6 @@ export class PostgresBrowserProfileRepository implements BrowserProfileRepositor
       updatedAt: row.updatedAt,
     } as BrowserProfile;
   }
-
   async saveBrowserProfile(profile: BrowserProfile): Promise<void> {
     await this.db
       .insert(pgSchema.browserProfilesPostgres)
@@ -2028,7 +1835,6 @@ export class PostgresBrowserProfileRepository implements BrowserProfileRepositor
       });
   }
 }
-
 export function createPostgresDomainRepositories(
   db: CanonicalDb,
   _pool?: Pool,
@@ -2041,6 +1847,7 @@ export function createPostgresDomainRepositories(
     conversations: new PostgresConversationRepository(db),
     messages: new PostgresMessageRepository(db),
     agentSessions: new PostgresAgentSessionRepository(db),
+    agentSessionDigests: new PostgresAgentSessionDigestRepository(db),
     providerSessions: new PostgresProviderSessionRepository(db),
     agentSessionSummaries: new PostgresAgentSessionSummaryRepository(db),
     agentRuns: new PostgresAgentRunRepository(db),
@@ -2053,5 +1860,6 @@ export function createPostgresDomainRepositories(
     permissions: new PostgresPermissionRepository(db),
     sandboxes: new PostgresSandboxRepository(db),
     browserProfiles: new PostgresBrowserProfileRepository(db),
+    outboundDeliveries: new PostgresOutboundDeliveryRepository(db),
   };
 }

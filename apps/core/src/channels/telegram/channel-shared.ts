@@ -6,13 +6,23 @@ import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import type { ChannelOpts } from '../channel-provider.js';
 import { parseTextStyles } from '../../text-styles.js';
+import { splitTelegramDeliveryTextWithLimits } from './channel-delivery-text-splitting.js';
+import { escapeTelegramMarkdownV2 } from './telegram-markdown-v2-escape.js';
+
+export { splitTelegramTextByCodeUnits } from './channel-delivery-text-splitting.js';
+export {
+  escapeTelegramMarkdownV2,
+  escapeTelegramMarkdownV2CodeSegment,
+  escapeTelegramMarkdownV2LinkSegment,
+  escapeTelegramMarkdownV2Literal,
+  escapeTelegramMarkdownV2Plain,
+} from './telegram-markdown-v2-escape.js';
 
 export type TelegramChannelOpts = ChannelOpts;
 
 export const TELEGRAM_MEDIA_DOWNLOAD_CONCURRENCY = 2;
 export const TELEGRAM_MEDIA_DOWNLOAD_QUEUE_MAX = 512;
 export const TELEGRAM_MEDIA_DRAIN_TIMEOUT_MS = 5000;
-export const TELEGRAM_DRAFT_MAX_LENGTH = 4096;
 export const TELEGRAM_MESSAGE_MAX_LENGTH = 4096;
 export const TELEGRAM_STREAM_CHUNK_MAX_LENGTH = 3500;
 export const TELEGRAM_GROUP_EDIT_INTERVAL_MS = 900;
@@ -69,110 +79,16 @@ export type PendingUserQuestionState = {
   }) => void;
 };
 
-export function escapeTelegramMarkdownV2Plain(text: string): string {
-  return text.replace(/[[\]()`>#+\-=|{}.!\\]/g, '\\$&');
-}
-
-export function escapeTelegramMarkdownV2Literal(text: string): string {
-  return text.replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
-}
-
-export function escapeTelegramMarkdownV2CodeSegment(segment: string): string {
-  if (segment.startsWith('```') && segment.endsWith('```')) {
-    const body = segment.slice(3, -3);
-    const firstNewline = body.indexOf('\n');
-    if (firstNewline === -1) {
-      return `\`\`\`${body.replace(/[\\`]/g, '\\$&')}\`\`\``;
-    }
-    const language = body.slice(0, firstNewline);
-    const code = body.slice(firstNewline + 1).replace(/[\\`]/g, '\\$&');
-    return `\`\`\`${language}\n${code}\`\`\``;
-  }
-  const code = segment.slice(1, -1).replace(/[\\`]/g, '\\$&');
-  return `\`${code}\``;
-}
-
-export function escapeTelegramMarkdownV2LinkSegment(segment: string): string {
-  const match = /^\[([\s\S]+)]\(([\s\S]+)\)$/.exec(segment);
-  if (!match) return escapeTelegramMarkdownV2Plain(segment);
-  const escapedText = escapeTelegramMarkdownV2Plain(match[1]);
-  const escapedUrl = match[2].replace(/[)\\]/g, '\\$&');
-  return `[${escapedText}](${escapedUrl})`;
-}
-
-/**
- * Escape text for Telegram MarkdownV2 while preserving markdown formatting
- * markers produced by parseTextStyles (bold/italic/strikethrough/links/code).
- */
-export function escapeTelegramMarkdownV2(text: string): string {
-  if (!text) return text;
-  const protectedPattern =
-    /```[\s\S]*?```|`[^`\n]+`|\[[^\]\n]+\]\((?:\\.|[^\\\n)])+\)/g;
-  let out = '';
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = protectedPattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      out += escapeTelegramMarkdownV2Plain(text.slice(lastIndex, match.index));
-    }
-    const token = match[0];
-    if (token.startsWith('`')) {
-      out += escapeTelegramMarkdownV2CodeSegment(token);
-    } else {
-      out += escapeTelegramMarkdownV2LinkSegment(token);
-    }
-    lastIndex = match.index + token.length;
-  }
-  if (lastIndex < text.length) {
-    out += escapeTelegramMarkdownV2Plain(text.slice(lastIndex));
-  }
-  return out;
-}
-
-export function* iterTelegramTextChunks(
+export function splitTelegramDeliveryText(
   text: string,
-  maxCodeUnits: number,
-): Generator<string> {
-  if (text.length <= maxCodeUnits) {
-    yield text;
-    return;
-  }
-
-  let chunkStart = 0;
-  let chunkLength = 0;
-  for (const codePoint of text) {
-    const codePointLength = codePoint.length;
-    if (chunkLength > 0 && chunkLength + codePointLength > maxCodeUnits) {
-      yield text.slice(chunkStart, chunkStart + chunkLength);
-      chunkStart += chunkLength;
-      chunkLength = 0;
-    }
-    chunkLength += codePointLength;
-  }
-  if (chunkStart < text.length) {
-    yield text.slice(chunkStart);
-  }
-}
-
-export function countTelegramTextChunks(
-  text: string,
-  maxCodeUnits: number,
-): number {
-  if (text.length <= maxCodeUnits) return 1;
-  let count = 0;
-  let chunkLength = 0;
-  for (const codePoint of text) {
-    const codePointLength = codePoint.length;
-    if (chunkLength > 0 && chunkLength + codePointLength > maxCodeUnits) {
-      count += 1;
-      chunkLength = 0;
-    }
-    chunkLength += codePointLength;
-  }
-  if (chunkLength > 0) {
-    count += 1;
-  }
-  return count;
+  softCodeUnitBudget = TELEGRAM_STREAM_CHUNK_MAX_LENGTH,
+  hardCodeUnitLimit = TELEGRAM_MESSAGE_MAX_LENGTH,
+): string[] {
+  return splitTelegramDeliveryTextWithLimits(
+    text,
+    softCodeUnitBudget,
+    hardCodeUnitLimit,
+  );
 }
 
 export function truncateText(text: string, maxLen: number): string {
@@ -233,11 +149,16 @@ export async function sendTelegramMessage(
   await sendTelegramMessageWithResult(api, chatId, text, options);
 }
 
+type TelegramMarkdownEscapeOptions = {
+  preserveStyleMarkers?: boolean;
+};
+
 export async function sendTelegramMessageWithResult(
   api: { sendMessage: Api['sendMessage'] },
   chatId: string | number,
   text: string,
   options: { message_thread_id?: number } = {},
+  escapeOptions: TelegramMarkdownEscapeOptions = {},
 ): Promise<number | undefined> {
   try {
     const sent = await api.sendMessage(chatId, text, {
@@ -253,10 +174,14 @@ export async function sendTelegramMessageWithResult(
   }
 
   try {
-    const sent = await api.sendMessage(chatId, escapeTelegramMarkdownV2(text), {
-      ...options,
-      parse_mode: 'MarkdownV2',
-    });
+    const sent = await api.sendMessage(
+      chatId,
+      escapeTelegramMarkdownV2(text, escapeOptions),
+      {
+        ...options,
+        parse_mode: 'MarkdownV2',
+      },
+    );
     return (sent as { message_id?: number })?.message_id;
   } catch (errV2Escaped) {
     logger.debug(
@@ -274,6 +199,7 @@ export async function editTelegramMessage(
   chatId: string | number,
   messageId: number,
   text: string,
+  escapeOptions: TelegramMarkdownEscapeOptions = {},
 ): Promise<void> {
   try {
     await api.editMessageText(chatId, messageId, text, {
@@ -293,7 +219,7 @@ export async function editTelegramMessage(
     await api.editMessageText(
       chatId,
       messageId,
-      escapeTelegramMarkdownV2(text),
+      escapeTelegramMarkdownV2(text, escapeOptions),
       {
         parse_mode: 'MarkdownV2',
       },

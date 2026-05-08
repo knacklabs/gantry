@@ -4,6 +4,7 @@ import { SessionInteractionModule } from '@core/application/sessions/session-int
 
 function makeModule(overrides?: {
   control?: Record<string, unknown>;
+  repositories?: Record<string, unknown>;
   runtimeEvents?: Record<string, unknown>;
 }) {
   const control = {
@@ -50,7 +51,7 @@ function makeModule(overrides?: {
       storeChatMetadata: vi.fn(async () => undefined),
       storeMessage: vi.fn(async () => undefined),
     } as never,
-    repositories: {} as never,
+    repositories: (overrides?.repositories ?? {}) as never,
     runtimeEvents: runtimeEvents as never,
     now: () => '2026-04-30T00:00:00.000Z' as never,
     createId: () => 'id-1',
@@ -102,6 +103,122 @@ describe('SessionInteractionModule', () => {
       message: 'API key cannot access this session',
     });
     expect(runtimeEvents.subscribe).not.toHaveBeenCalled();
+  });
+
+  it('redacts provider session identifiers from default session details', async () => {
+    const { module } = makeModule({
+      repositories: {
+        agentSessions: {
+          getAgentSession: vi.fn(async () => ({
+            id: 'session-1',
+            appId: 'app-one',
+            agentId: 'agent-one',
+            conversationId: 'conv-1',
+            status: 'active',
+            createdAt: '2026-04-30T00:00:00.000Z',
+            updatedAt: '2026-04-30T00:00:00.000Z',
+          })),
+        },
+        providerSessions: {
+          getLatestProviderSession: vi.fn(async () => ({
+            id: 'provider-session-sdk-resume-handle',
+            appId: 'app-one',
+            agentSessionId: 'session-1',
+            provider: 'anthropic',
+            externalSessionId: 'claude-session-secret',
+            latestArtifactId: 'provider-artifact-secret',
+            providerRef: {
+              kind: 'provider_session',
+              value: 'anthropic:claude-session-secret',
+            },
+            status: 'active',
+            metadata: { resumeHandle: 'claude-session-secret' },
+            createdAt: '2026-04-30T00:00:00.000Z',
+            updatedAt: '2026-04-30T00:00:00.000Z',
+          })),
+        },
+      },
+    });
+
+    const details = (await module.getSessionDetails({
+      appId: 'app-one',
+      sessionId: 'session-1',
+    })) as { providerSession: Record<string, unknown> | null };
+
+    expect(details.providerSession).toMatchObject({
+      provider: 'anthropic',
+      status: 'active',
+      hasProviderResume: true,
+      createdAt: '2026-04-30T00:00:00.000Z',
+      updatedAt: '2026-04-30T00:00:00.000Z',
+    });
+    expect(details.providerSession).not.toHaveProperty('id');
+    expect(details.providerSession).not.toHaveProperty('appId');
+    expect(details.providerSession).not.toHaveProperty('agentSessionId');
+    expect(details.providerSession).not.toHaveProperty('externalSessionId');
+    expect(details.providerSession).not.toHaveProperty('providerRef');
+    expect(details.providerSession).not.toHaveProperty('latestArtifactId');
+    expect(details.providerSession).not.toHaveProperty('metadata');
+  });
+
+  it('summarizes provider resume state without exposing raw metadata handles', async () => {
+    const { module } = makeModule({
+      repositories: {
+        agentSessions: {
+          getAgentSession: vi.fn(async () => ({
+            id: 'session-1',
+            appId: 'app-one',
+            agentId: 'agent-one',
+            conversationId: 'conv-1',
+            status: 'active',
+            createdAt: '2026-04-30T00:00:00.000Z',
+            updatedAt: '2026-04-30T00:00:00.000Z',
+          })),
+        },
+        providerSessions: {
+          getLatestProviderSession: vi.fn(async () => ({
+            id: 'provider-session-opaque',
+            appId: 'app-one',
+            agentSessionId: 'session-1',
+            provider: 'anthropic',
+            externalSessionId: '',
+            latestArtifactId: '',
+            providerRef: {
+              kind: 'provider_session',
+              value: '',
+            },
+            status: 'active',
+            metadata: {
+              resume: {
+                session_id: 'short-handle-from-metadata',
+              },
+            },
+            createdAt: '2026-04-30T00:00:00.000Z',
+            updatedAt: '2026-04-30T00:00:00.000Z',
+          })),
+        },
+      },
+    });
+
+    const details = (await module.getSessionDetails({
+      appId: 'app-one',
+      sessionId: 'session-1',
+    })) as { providerSession: Record<string, unknown> | null };
+
+    expect(details.providerSession).toMatchObject({
+      provider: 'anthropic',
+      status: 'active',
+      hasProviderResume: true,
+      createdAt: '2026-04-30T00:00:00.000Z',
+      updatedAt: '2026-04-30T00:00:00.000Z',
+    });
+    expect(JSON.stringify(details.providerSession)).not.toContain(
+      'short-handle-from-metadata',
+    );
+    expect(details.providerSession).not.toHaveProperty('externalSessionId');
+    expect(details.providerSession).not.toHaveProperty('latestArtifactId');
+    expect(details.providerSession).not.toHaveProperty('providerRef');
+    expect(details.providerSession).not.toHaveProperty('metadata');
   });
 
   it('times out session waits and closes the subscription', async () => {

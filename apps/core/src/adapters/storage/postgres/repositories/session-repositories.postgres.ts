@@ -8,10 +8,13 @@ import type {
 } from '../../../../domain/conversation/conversation.js';
 import type {
   AgentSessionRepository,
+  AgentSessionDigestRepository,
   AgentSessionSummaryRepository,
   ProviderSessionRepository,
 } from '../../../../domain/ports/repositories.js';
 import type {
+  AgentSessionDigest,
+  AgentSessionDigestScopeMetadata,
   AgentSession,
   AgentSessionSummary,
   ProviderSession,
@@ -74,6 +77,45 @@ function externalSessionIdFromProviderRef(
 ): string {
   const idx = ref.value.indexOf(':');
   return idx > 0 ? ref.value.slice(idx + 1) : ref.value;
+}
+
+function scopedValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function digestScopeFromMetadata(
+  metadata?: Record<string, unknown>,
+): AgentSessionDigestScopeMetadata['sessionScope'] {
+  const scope = metadata?.sessionScope;
+  if (!scope || typeof scope !== 'object' || Array.isArray(scope)) {
+    return {
+      appId: null,
+      agentId: null,
+      conversationId: null,
+      userId: null,
+      threadId: null,
+    };
+  }
+  const record = scope as Record<string, unknown>;
+  return {
+    appId: scopedValue(record.appId),
+    agentId: scopedValue(record.agentId),
+    conversationId: scopedValue(record.conversationId),
+    userId: scopedValue(record.userId),
+    threadId: scopedValue(record.threadId),
+  };
+}
+
+function scopePredicate(
+  column:
+    | typeof pgSchema.agentSessionDigestsPostgres.scopeAppId
+    | typeof pgSchema.agentSessionDigestsPostgres.scopeAgentId
+    | typeof pgSchema.agentSessionDigestsPostgres.scopeConversationId
+    | typeof pgSchema.agentSessionDigestsPostgres.scopeUserId
+    | typeof pgSchema.agentSessionDigestsPostgres.scopeThreadId,
+  value: string | null,
+) {
+  return value === null ? isNull(column) : eq(column, value);
 }
 
 export class PostgresAgentSessionRepository implements AgentSessionRepository {
@@ -238,18 +280,56 @@ export class PostgresProviderSessionRepository implements ProviderSessionReposit
           createdAt: session.createdAt,
           updatedAt: session.updatedAt,
         })
-        .onConflictDoUpdate({
-          target: pgSchema.providerSessionsPostgres.id,
-          set: {
-            provider,
-            externalSessionId,
-            latestArtifactId,
-            providerRefJson: encodeJson(session.providerRef),
-            metadataJson: encodeJson(session.metadata ?? {}),
-            status: session.status,
-            updatedAt: session.updatedAt,
-          },
-        });
+        .onConflictDoNothing();
+      const [existing] = await tx
+        .select({
+          appId: pgSchema.providerSessionsPostgres.appId,
+          agentSessionId: pgSchema.providerSessionsPostgres.agentSessionId,
+          provider: pgSchema.providerSessionsPostgres.provider,
+          externalSessionId:
+            pgSchema.providerSessionsPostgres.externalSessionId,
+        })
+        .from(pgSchema.providerSessionsPostgres)
+        .where(eq(pgSchema.providerSessionsPostgres.id, session.id))
+        .for('update')
+        .limit(1);
+      if (
+        !existing ||
+        existing.appId !== session.appId ||
+        existing.agentSessionId !== session.agentSessionId ||
+        existing.provider !== provider ||
+        existing.externalSessionId !== externalSessionId
+      ) {
+        throw new Error(
+          `Provider session id is already owned by another session: ${session.id}`,
+        );
+      }
+      await tx
+        .update(pgSchema.providerSessionsPostgres)
+        .set({
+          provider,
+          externalSessionId,
+          latestArtifactId,
+          providerRefJson: encodeJson(session.providerRef),
+          metadataJson: encodeJson(session.metadata ?? {}),
+          status: session.status,
+          updatedAt: session.updatedAt,
+        })
+        .where(
+          and(
+            eq(pgSchema.providerSessionsPostgres.id, session.id),
+            eq(pgSchema.providerSessionsPostgres.appId, session.appId),
+            eq(
+              pgSchema.providerSessionsPostgres.agentSessionId,
+              session.agentSessionId,
+            ),
+            eq(pgSchema.providerSessionsPostgres.provider, provider),
+            eq(
+              pgSchema.providerSessionsPostgres.externalSessionId,
+              externalSessionId,
+            ),
+          ),
+        );
       await tx
         .update(pgSchema.agentSessionsPostgres)
         .set({
@@ -339,6 +419,20 @@ export class PostgresAgentSessionSummaryRepository implements AgentSessionSummar
     return rows[0] ? this.summaryFromRow(rows[0]) : null;
   }
 
+  async listRecentAgentSessionSummaries(input: {
+    agentSessionId: AgentSession['id'];
+    limit?: number;
+  }): Promise<AgentSessionSummary[]> {
+    const s = pgSchema.agentSessionSummariesPostgres;
+    const rows = await this.db
+      .select()
+      .from(s)
+      .where(eq(s.agentSessionId, input.agentSessionId))
+      .orderBy(desc(s.createdAt), desc(s.id))
+      .limit(Math.max(1, Math.min(input.limit ?? 3, 10)));
+    return rows.map((row) => this.summaryFromRow(row));
+  }
+
   async saveAgentSessionSummary(summary: AgentSessionSummary): Promise<void> {
     await this.db
       .insert(pgSchema.agentSessionSummariesPostgres)
@@ -388,5 +482,110 @@ export class PostgresAgentSessionSummaryRepository implements AgentSessionSummar
       runCount: row.runCount,
       createdAt: row.createdAt,
     } as AgentSessionSummary;
+  }
+}
+
+export class PostgresAgentSessionDigestRepository implements AgentSessionDigestRepository {
+  constructor(private readonly db: CanonicalDb) {}
+
+  async getAgentSessionDigest(
+    id: AgentSessionDigest['id'],
+  ): Promise<AgentSessionDigest | null> {
+    const rows = await this.db
+      .select()
+      .from(pgSchema.agentSessionDigestsPostgres)
+      .where(eq(pgSchema.agentSessionDigestsPostgres.id, id))
+      .limit(1);
+    return rows[0] ? this.digestFromRow(rows[0]) : null;
+  }
+
+  async listAgentSessionDigests(input: {
+    agentSessionId: AgentSession['id'];
+    trigger?: AgentSessionDigest['trigger'];
+    sessionScope?: AgentSessionDigestScopeMetadata['sessionScope'];
+    limit?: number;
+  }): Promise<AgentSessionDigest[]> {
+    const d = pgSchema.agentSessionDigestsPostgres;
+    const sessionScope = input.sessionScope;
+    const rows = await this.db
+      .select()
+      .from(d)
+      .where(
+        and(
+          eq(d.agentSessionId, input.agentSessionId),
+          input.trigger ? eq(d.trigger, input.trigger) : undefined,
+          sessionScope
+            ? scopePredicate(d.scopeAppId, sessionScope.appId)
+            : undefined,
+          sessionScope
+            ? scopePredicate(d.scopeAgentId, sessionScope.agentId)
+            : undefined,
+          sessionScope
+            ? scopePredicate(d.scopeConversationId, sessionScope.conversationId)
+            : undefined,
+          sessionScope
+            ? scopePredicate(d.scopeUserId, sessionScope.userId)
+            : undefined,
+          sessionScope
+            ? scopePredicate(d.scopeThreadId, sessionScope.threadId)
+            : undefined,
+        ),
+      )
+      .orderBy(desc(d.createdAt), desc(d.id))
+      .limit(Math.max(1, Math.min(input.limit ?? 20, 200)));
+    return rows.map((row) => this.digestFromRow(row));
+  }
+
+  async saveAgentSessionDigest(digest: AgentSessionDigest): Promise<void> {
+    const scope = digestScopeFromMetadata(digest.metadata);
+    await this.db
+      .insert(pgSchema.agentSessionDigestsPostgres)
+      .values({
+        id: digest.id,
+        appId: digest.appId,
+        agentSessionId: digest.agentSessionId,
+        trigger: digest.trigger,
+        digest: digest.digest,
+        messageCount: digest.messageCount,
+        extractedFactCount: digest.extractedFactCount,
+        metadataJson: encodeJson(digest.metadata ?? {}),
+        scopeAppId: scope.appId,
+        scopeAgentId: scope.agentId,
+        scopeConversationId: scope.conversationId,
+        scopeUserId: scope.userId,
+        scopeThreadId: scope.threadId,
+        createdAt: digest.createdAt,
+      })
+      .onConflictDoUpdate({
+        target: pgSchema.agentSessionDigestsPostgres.id,
+        set: {
+          trigger: digest.trigger,
+          digest: digest.digest,
+          messageCount: digest.messageCount,
+          extractedFactCount: digest.extractedFactCount,
+          metadataJson: encodeJson(digest.metadata ?? {}),
+          scopeAppId: scope.appId,
+          scopeAgentId: scope.agentId,
+          scopeConversationId: scope.conversationId,
+          scopeUserId: scope.userId,
+          scopeThreadId: scope.threadId,
+        },
+      });
+  }
+
+  private digestFromRow(
+    row: typeof pgSchema.agentSessionDigestsPostgres.$inferSelect,
+  ): AgentSessionDigest {
+    return {
+      id: row.id,
+      appId: row.appId,
+      agentSessionId: row.agentSessionId,
+      trigger: row.trigger as AgentSessionDigest['trigger'],
+      digest: row.digest,
+      messageCount: row.messageCount,
+      extractedFactCount: row.extractedFactCount,
+      metadata: parseJson<Record<string, unknown>>(row.metadataJson, {}),
+      createdAt: row.createdAt,
+    } as AgentSessionDigest;
   }
 }

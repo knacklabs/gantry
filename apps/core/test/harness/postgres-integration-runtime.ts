@@ -19,6 +19,7 @@ import {
   quotePostgresIdentifier,
 } from '@core/adapters/storage/postgres/storage-service.js';
 import type { StorageRuntime } from '@core/adapters/storage/postgres/factory.js';
+import { loadSessionAppMemoryItems } from '@core/memory/app-memory-session-hydration.js';
 
 export const POSTGRES_TEST_DATABASE_URL_ENV = 'MYCLAW_TEST_DATABASE_URL';
 export const hasPostgresIntegrationDatabase = Boolean(
@@ -73,6 +74,9 @@ export async function createPostgresIntegrationRuntime(options?: {
   );
   const ops = new PostgresRuntimeRepositoryBundle(service.pool, service.db, {
     runtimeEvents,
+    sessions: {
+      loadAppMemoryItems: loadSessionAppMemoryItems,
+    },
   });
   const canonicalSessionRepository = new PostgresCanonicalSessionRepository(
     service.db,

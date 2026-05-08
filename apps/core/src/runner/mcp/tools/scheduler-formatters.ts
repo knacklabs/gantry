@@ -9,6 +9,14 @@ export function schedulerJobSummary(job: unknown): string {
     typeof visibility.target === 'object' && visibility.target !== null
       ? (visibility.target as Record<string, any>)
       : {};
+  const executionContext =
+    typeof visibility.executionContext === 'object' &&
+    visibility.executionContext !== null
+      ? (visibility.executionContext as Record<string, any>)
+      : {};
+  const notificationRoutes = Array.isArray(visibility.notificationRoutes)
+    ? visibility.notificationRoutes
+    : [];
   const recentErrors = Array.isArray(visibility.recentRunErrors)
     ? visibility.recentRunErrors.length
     : 0;
@@ -21,6 +29,8 @@ export function schedulerJobSummary(job: unknown): string {
   return [
     `Job: ${String(record.name ?? record.id ?? 'unknown')}`,
     `Target: ${String(target.agentId ?? record.group_scope ?? 'unknown')} in ${String(target.conversationJids?.[0] ?? 'no conversation')}`,
+    `Execution context: ${String(executionContext.conversationJid ?? 'unknown')} | thread ${String(executionContext.threadId ?? 'none')} | group ${String(executionContext.groupScope ?? record.group_scope ?? 'unknown')}`,
+    `Notification routes: ${notificationRoutes.length}`,
     `Kind/status: ${String(record.schedule_type ?? 'unknown')} / ${String(record.status ?? 'unknown')}`,
     `Next/last run: ${String(record.next_run ?? 'none')} / ${String(record.last_run ?? 'none')}`,
     `Staleness: ${staleness}`,
@@ -46,11 +56,16 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
       typeof visibility.target === 'object' && visibility.target !== null
         ? (visibility.target as Record<string, any>)
         : {};
+    const executionContext =
+      typeof visibility.executionContext === 'object' &&
+      visibility.executionContext !== null
+        ? (visibility.executionContext as Record<string, any>)
+        : {};
     const toolAccess = toolAccessRecord(visibility.toolAccess);
     const toolsLabel = toolAccess.present
       ? formatTools(toolAccess.effectiveAllowedTools)
       : '(missing toolAccess)';
-    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${String(record.schedule_type ?? '')} | ${String(record.status ?? '')} | ${String(target.agentId ?? record.group_scope ?? '')} | tools: ${toolsLabel}`;
+    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${String(record.schedule_type ?? '')} | ${String(record.status ?? '')} | ${String(executionContext.conversationJid ?? target.conversationJids?.[0] ?? '')} | tools: ${toolsLabel}`;
   });
   return [
     `Scheduler jobs (${jobs.length})`,

@@ -274,12 +274,7 @@ export async function handleSessionRoutes(
       return true;
     }
     sendJson(res, 200, {
-      events: events.map((event) => ({
-        eventId: event.eventId,
-        eventType: event.eventType,
-        payload: event.payload,
-        createdAt: event.createdAt,
-      })),
+      events: events.map(serializeSessionEventEnvelope),
     });
     return true;
   }
@@ -307,10 +302,7 @@ export async function handleSessionRoutes(
           timeoutMs: Math.max(0, timeoutMs - (Date.now() - startedAt)),
         });
       sendJson(res, 200, {
-        eventId: visible.eventId,
-        eventType: visible.eventType,
-        payload: visible.payload,
-        createdAt: visible.createdAt,
+        ...serializeSessionEventEnvelope(visible),
         afterEventId: visible.eventId,
       });
       return true;
@@ -334,7 +326,7 @@ async function writeSseEvent(
   const chunk = [
     `id: ${event.eventId}`,
     `event: ${sanitizeSseEventType(event.eventType)}`,
-    `data: ${JSON.stringify(event.payload)}`,
+    `data: ${JSON.stringify(serializeSessionEventEnvelope(event))}`,
     '',
     '',
   ].join('\n');
@@ -358,6 +350,26 @@ async function writeSseEvent(
 
 function sanitizeSseEventType(eventType: string): string {
   return /^[a-z0-9._-]+$/.test(eventType) ? eventType : 'runtime_event';
+}
+
+function serializeSessionEventEnvelope(event: RuntimeEvent): {
+  eventId: RuntimeEvent['eventId'];
+  eventType: RuntimeEvent['eventType'];
+  sessionId: RuntimeEvent['sessionId'] | null;
+  threadId: RuntimeEvent['threadId'] | null;
+  correlationId: RuntimeEvent['correlationId'] | null;
+  createdAt: RuntimeEvent['createdAt'];
+  payload: RuntimeEvent['payload'];
+} {
+  return {
+    eventId: event.eventId,
+    eventType: event.eventType,
+    sessionId: event.sessionId ?? null,
+    threadId: event.threadId ?? null,
+    correlationId: event.correlationId ?? null,
+    createdAt: event.createdAt,
+    payload: event.payload,
+  };
 }
 
 function delay(ms: number): Promise<void> {

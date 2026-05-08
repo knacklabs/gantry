@@ -4,7 +4,10 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { selectedMyClawMcpToolNames } from '@agent-runner-src/myclaw-mcp-tool-surface.js';
+import {
+  selectedMemoryIpcActions,
+  selectedMyClawMcpToolNames,
+} from '@agent-runner-src/myclaw-mcp-tool-surface.js';
 import type { AgentRunnerInput } from '@core/runner/claude/types.js';
 
 const sdkState = vi.hoisted(() => ({
@@ -403,6 +406,9 @@ describe('Claude Agent SDK boundary integration', () => {
         MYCLAW_MCP_TOOL_NAMES_JSON: JSON.stringify(
           selectedMyClawMcpToolNames([]),
         ),
+        MYCLAW_MEMORY_IPC_ACTIONS_JSON: JSON.stringify(
+          selectedMemoryIpcActions([]),
+        ),
         MYCLAW_IPC_DIR: path.join(env.root, 'ipc', 'group'),
         MYCLAW_IPC_AUTH_TOKEN: 'runner-ipc-token',
         MYCLAW_IPC_RESPONSE_VERIFY_KEY: 'runner-response-verify-key',
@@ -415,6 +421,9 @@ describe('Claude Agent SDK boundary integration', () => {
     expect(call?.options.env).toEqual({
       CLAUDE_CONFIG_DIR: path.join(env.root, 'claude-config'),
     });
+    expect(call?.options.env).not.toHaveProperty(
+      'MYCLAW_MEMORY_IPC_ACTIONS_JSON',
+    );
     expect(call?.options.hooks?.PreToolUse).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

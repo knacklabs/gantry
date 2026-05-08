@@ -1465,26 +1465,34 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('splits messages exceeding 4096 characters', async () => {
+    it('splits messages near the 3500 soft budget', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
       const longText = 'x'.repeat(5000);
-      await channel.sendMessage('tg:100200300', longText);
+      const result = await channel.sendMessage('tg:100200300', longText);
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
       expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
         1,
         '100200300',
-        'x'.repeat(4096),
+        'x'.repeat(3500),
         { parse_mode: 'MarkdownV2' },
       );
       expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
         2,
         '100200300',
-        'x'.repeat(904),
+        'x'.repeat(1500),
         { parse_mode: 'MarkdownV2' },
+      );
+      expect(result).toEqual(
+        expect.objectContaining({
+          deliveredParts: 2,
+          totalParts: 2,
+          externalMessageIds: ['987', '987'],
+          warnings: ['telegram.message.chunked:2:3500'],
+        }),
       );
     });
 
@@ -1494,25 +1502,17 @@ describe('TelegramChannel', () => {
       await channel.connect();
 
       const emoji = '🙂';
-      const longText = `${'x'.repeat(4095)}${emoji}tail`;
+      const longText = `${'x'.repeat(3499)}${emoji}tail`;
       await channel.sendMessage('tg:100200300', longText);
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
-      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
-        1,
-        '100200300',
-        'x'.repeat(4095),
-        { parse_mode: 'MarkdownV2' },
-      );
-      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
-        2,
-        '100200300',
-        `${emoji}tail`,
-        { parse_mode: 'MarkdownV2' },
-      );
+      const firstChunk = currentBot().api.sendMessage.mock.calls[0]?.[1];
+      const secondChunk = currentBot().api.sendMessage.mock.calls[1]?.[1];
+      expect(firstChunk).toBe('x'.repeat(3499));
+      expect(secondChunk).toBe(`${emoji}tail`);
     });
 
-    it('sends exactly one message at 4096 characters', async () => {
+    it('splits 4096-character messages to stay near the soft budget', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
@@ -1520,7 +1520,19 @@ describe('TelegramChannel', () => {
       const exactText = 'y'.repeat(4096);
       await channel.sendMessage('tg:100200300', exactText);
 
-      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        1,
+        '100200300',
+        'y'.repeat(3500),
+        { parse_mode: 'MarkdownV2' },
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        2,
+        '100200300',
+        'y'.repeat(596),
+        { parse_mode: 'MarkdownV2' },
+      );
     });
 
     it.each([799, 800, 801])(
@@ -1543,19 +1555,177 @@ describe('TelegramChannel', () => {
       },
     );
 
-    it('falls back when the first send attempt fails', async () => {
+    it('escapes MarkdownV2 text before sending', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      currentBot().api.sendMessage.mockRejectedValueOnce(
-        new Error('Network error'),
+      await channel.sendMessage('tg:100200300', 'Hello (world)');
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+        '100200300',
+        'Hello \\(world\\)',
+        { parse_mode: 'MarkdownV2' },
+      );
+    });
+
+    it.each(['2 * 3', 'snake_case', 'stray ~ marker'])(
+      'falls back to plain text when first MarkdownV2 chunk parse fails: %s',
+      async (input) => {
+        const opts = createTestOpts();
+        const channel = new TelegramChannel('test-token', opts);
+        await channel.connect();
+
+        currentBot()
+          .api.sendMessage.mockReset()
+          .mockRejectedValueOnce(
+            new Error("Bad Request: can't parse entities: parse error"),
+          )
+          .mockResolvedValueOnce({ message_id: 987 });
+
+        await channel.sendMessage('tg:100200300', input);
+
+        const expectedEscaped = input
+          .replaceAll('\\', '\\\\')
+          .replaceAll('_', '\\_')
+          .replaceAll('*', '\\*')
+          .replaceAll('~', '\\~');
+        expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
+        expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+          1,
+          '100200300',
+          expectedEscaped,
+          { parse_mode: 'MarkdownV2' },
+        );
+        expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+          2,
+          '100200300',
+          input,
+          {},
+        );
+      },
+    );
+
+    it('falls back to plain text for planned chunks when first MarkdownV2 chunk parse fails', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const parseError = new Error(
+        "Bad Request: can't parse entities: Can't find end of the entity",
+      );
+      currentBot()
+        .api.sendMessage.mockReset()
+        .mockRejectedValueOnce(parseError)
+        .mockResolvedValueOnce({ message_id: 101 })
+        .mockResolvedValueOnce({ message_id: 102 });
+
+      const result = await channel.sendMessage(
+        'tg:100200300',
+        'x'.repeat(5000),
       );
 
-      await expect(
-        channel.sendMessage('tg:100200300', 'Will fail'),
-      ).resolves.toEqual({ externalMessageId: '987' });
-      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(3);
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        1,
+        '100200300',
+        'x'.repeat(3500),
+        { parse_mode: 'MarkdownV2' },
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        2,
+        '100200300',
+        'x'.repeat(3500),
+        {},
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        '100200300',
+        'x'.repeat(1500),
+        {},
+      );
+      expect(result).toEqual(
+        expect.objectContaining({
+          deliveredParts: 2,
+          totalParts: 2,
+          externalMessageIds: ['101', '102'],
+          warnings: ['telegram.message.chunked:2:3500'],
+        }),
+      );
+    });
+
+    it('falls back to plain text from chunk 2 onward when a later MarkdownV2 parse fails', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      const parseError = new Error(
+        "Bad Request: can't parse entities: Can't find end of the entity",
+      );
+      const chunkedWithLiteralMarkers = `${'a'.repeat(3600)}snake_case *literal* ~literal~${'b'.repeat(3600)}`;
+      currentBot()
+        .api.sendMessage.mockReset()
+        .mockResolvedValueOnce({ message_id: 201 })
+        .mockRejectedValueOnce(parseError)
+        .mockResolvedValueOnce({ message_id: 202 })
+        .mockResolvedValueOnce({ message_id: 203 });
+
+      const result = await channel.sendMessage(
+        'tg:100200300',
+        chunkedWithLiteralMarkers,
+      );
+
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(4);
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        1,
+        '100200300',
+        expect.any(String),
+        { parse_mode: 'MarkdownV2' },
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        2,
+        '100200300',
+        expect.any(String),
+        { parse_mode: 'MarkdownV2' },
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        '100200300',
+        expect.not.stringContaining('\\_'),
+        {},
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        '100200300',
+        expect.stringContaining('snake_case'),
+        {},
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        '100200300',
+        expect.stringContaining('*literal*'),
+        {},
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        3,
+        '100200300',
+        expect.stringContaining('~literal~'),
+        {},
+      );
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        4,
+        '100200300',
+        expect.any(String),
+        {},
+      );
+      expect(result).toEqual(
+        expect.objectContaining({
+          deliveredParts: 3,
+          totalParts: 3,
+          externalMessageIds: ['201', '202', '203'],
+          warnings: ['telegram.message.chunked:3:3500'],
+        }),
+      );
     });
 
     it('marks long message failures after an earlier chunk as partial delivery', async () => {
@@ -1578,34 +1748,46 @@ describe('TelegramChannel', () => {
         partialMessageDelivery: true,
         deliveredChunks: 1,
         totalChunks: 2,
+        retryTail: {
+          canonicalText: 'x'.repeat(1500),
+          providerPayload: expect.objectContaining({
+            provider: 'telegram',
+            chatId: '100200300',
+          }),
+        },
       });
-      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(4);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
     });
 
-    it('falls back to escaped MarkdownV2 when raw MarkdownV2 fails', async () => {
+    it('keeps Telegram retry-tail canonical text unescaped for chunked partials', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      currentBot().api.sendMessage.mockReset();
+      const apiError = new Error('Network lost on second chunk');
       currentBot()
-        .api.sendMessage.mockRejectedValueOnce(new Error('Bad MarkdownV2'))
-        .mockResolvedValueOnce({ message_id: 1 });
+        .api.sendMessage.mockReset()
+        .mockResolvedValueOnce({ message_id: 1 })
+        .mockRejectedValueOnce(apiError)
+        .mockRejectedValueOnce(apiError)
+        .mockRejectedValueOnce(apiError);
 
-      await channel.sendMessage('tg:100200300', 'Hello (world)');
-
-      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
-        1,
-        '100200300',
-        'Hello (world)',
-        { parse_mode: 'MarkdownV2' },
-      );
-      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
-        2,
-        '100200300',
-        'Hello \\(world\\)',
-        { parse_mode: 'MarkdownV2' },
-      );
+      const tail = '_tail_.[]()';
+      await expect(
+        channel.sendMessage('tg:100200300', `${'x'.repeat(3500)}${tail}`),
+      ).rejects.toMatchObject({
+        name: 'PartialTelegramDeliveryError',
+        partialMessageDelivery: true,
+        deliveredChunks: 1,
+        totalChunks: 2,
+        retryTail: {
+          canonicalText: tail,
+          providerPayload: expect.objectContaining({
+            provider: 'telegram',
+            chatId: '100200300',
+          }),
+        },
+      });
     });
 
     it('rejects when bot is not initialized', async () => {
@@ -1698,6 +1880,78 @@ describe('TelegramChannel', () => {
         {},
       );
       expect(currentBot().api.editMessageText).toHaveBeenCalled();
+    });
+
+    it('throws partial delivery on final group edit failure after visible head without resending full content', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      currentBot().api.editMessageText.mockRejectedValue(
+        new Error('Bad Request: failed to edit message'),
+      );
+
+      await channel.sendStreamingChunk('tg:-1001234567890', 'group update');
+      await expect(
+        channel.sendStreamingChunk('tg:-1001234567890', '', { done: true }),
+      ).rejects.toMatchObject({
+        name: 'PartialTelegramGroupFinalEditDeliveryError',
+        partialMessageDelivery: true,
+        deliveredChunks: 1,
+        totalChunks: 2,
+        deliveredParts: 1,
+        totalParts: 2,
+        externalMessageId: '987',
+        externalMessageIds: ['987'],
+      });
+
+      // first chunk creates the visible stream message; done path must not
+      // resend the whole rendered buffer after final edit failure.
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(1);
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+        '-1001234567890',
+        'group update',
+        {},
+      );
+    });
+
+    it('includes visible Telegram message ids in final group edit retry-tail metadata', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      currentBot()
+        .api.sendMessage.mockReset()
+        .mockResolvedValueOnce({ message_id: 321 })
+        .mockRejectedValueOnce(new Error('overflow markdown send failed'))
+        .mockRejectedValueOnce(new Error('overflow escaped send failed'))
+        .mockRejectedValueOnce(new Error('overflow plain send failed'));
+      currentBot().api.editMessageText.mockRejectedValue(
+        new Error('Bad Request: failed to edit message'),
+      );
+
+      await channel.sendStreamingChunk('tg:-1001234567890', 'x'.repeat(4500));
+      await expect(
+        channel.sendStreamingChunk('tg:-1001234567890', '', { done: true }),
+      ).rejects.toMatchObject({
+        name: 'PartialTelegramGroupFinalEditDeliveryError',
+        partialMessageDelivery: true,
+        deliveredChunks: 1,
+        totalChunks: 2,
+        deliveredParts: 1,
+        totalParts: 2,
+        externalMessageId: '321',
+        externalMessageIds: ['321'],
+        retryTail: {
+          canonicalText: 'x'.repeat(1000),
+          providerPayload: expect.objectContaining({
+            provider: 'telegram',
+            chatId: '-1001234567890',
+            externalMessageId: '321',
+            externalMessageIds: ['321'],
+          }),
+        },
+      });
     });
 
     it('ignores stale streaming generations for the same chat', async () => {
@@ -2523,10 +2777,10 @@ describe('TelegramChannel', () => {
     });
   });
 
-  // --- sendMessage outer catch (line 434) ---
+  // --- sendMessage outer catch ---
 
   describe('sendMessage outer catch', () => {
-    it('logs error when both Markdown and plain text sends fail', async () => {
+    it('logs error when Telegram message send fails', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();

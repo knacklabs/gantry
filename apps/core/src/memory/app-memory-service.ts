@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
-
-import { and, desc, eq, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import {
+  MEMORY_DREAMING_EMBED_MODEL,
+  MEMORY_DREAMING_EMBED_PROVIDER,
+  MEMORY_DREAMING_EMBEDDINGS_ENABLED,
   RUNTIME_MEMORY_DREAMING_ENABLED,
   RUNTIME_MEMORY_ENABLED,
-} from '../config/memory-state.js';
+} from '../config/memory.js';
 import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
 import type { PostgresStorageService } from '../adapters/storage/postgres/storage-service.js';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
@@ -14,25 +16,22 @@ import type { SessionMemoryCollector } from '../domain/ports/session-memory-coll
 import { ApplicationError } from '../application/common/application-error.js';
 import { classifySensitiveMemoryMaterial } from './sensitive-material.js';
 import { runAppMemoryDreamPass } from './app-memory-dreaming.js';
+import { normalizeSubject, subjectIdFor } from './app-memory-boundaries.js';
+import { collectDurableMemoryAtBoundary } from './app-memory-session-boundary-collector.js';
 import {
-  normalizeSubject,
-  visibleSubjectFilters,
-} from './app-memory-boundaries.js';
-import { collectDurableMemoryFromRepositories } from './boundary-extraction-core.js';
-import { createLlmMemoryExtractionProvider } from './extractor-llm.js';
-import {
-  type CanonicalMemoryItemRow,
   clampConfidence,
   encodeItemSource,
-  hashText,
   itemMatchesSubjectBoundary,
-  normalizeKind,
   parseItemSource,
   parseItemValue,
   parseJsonObject,
-  subjectIdFor,
   toAppItem,
 } from './app-memory-canonical-codec.js';
+import {
+  conversationIdForChannel,
+  toEvidence,
+  toRun,
+} from './app-memory-service-record-mappers.js';
 import type {
   AppMemoryItem,
   AppMemorySearchInput,
@@ -40,89 +39,61 @@ import type {
   DeleteAppMemoryInput,
   DreamingRunStatus,
   DreamingTriggerInput,
+  MemoryReviewDecisionInput,
+  MemoryReviewRecord,
   MemoryBoundaryContext,
   MemoryEvidenceRecord,
   MemorySubjectType,
-  NormalizedMemorySubject,
   PatchAppMemoryInput,
   SaveAppMemoryInput,
 } from './memory-types.js';
 import {
+  buildMemoryItemWriteBase,
   isUniqueViolation,
   memoryContentHash,
 } from './app-memory-service-helpers.js';
+import {
+  createSqlThreadIdentityFilter,
+  nowIso,
+} from './app-memory-service-query-helpers.js';
+import {
+  queryAppMemoryItems,
+  recordAppMemoryRecallEvents,
+} from './app-memory-recall.js';
+import {
+  hasDreamingStatusSubjectScope,
+  summarizeDreamDecisions,
+} from './app-memory-service-dreaming.js';
+import { createEmbeddingProvider } from './memory-embeddings.js';
+import {
+  DREAM_EMBEDDING_DEADLINE_MS,
+  runWithTimeout,
+  storeDreamItemEmbedding,
+} from './app-memory-dream-embeddings.js';
+import {
+  proposeMemoryConsolidationActions,
+  proposeMemoryDreamingActions,
+} from './extractor-llm.js';
+import {
+  createPendingMemoryReview,
+  decideMemoryReview,
+  listPendingMemoryReviews,
+} from './app-memory-review.js';
+import {
+  deleteOwnedMemoryItem,
+  findActiveMemoryByKey,
+  getOwnedMemoryItem,
+} from './app-memory-item-queries.js';
 
 type Db = NodePgDatabase<typeof pgSchema>;
-type MemoryItemRow = CanonicalMemoryItemRow;
-type MemoryEvidenceRow = typeof pgSchema.memoryEvidencePostgres.$inferSelect;
-type MemoryDreamRunRow = typeof pgSchema.memoryDreamRunsPostgres.$inferSelect;
-
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
-function conversationIdForChannel(
-  channelId: string | undefined,
-): string | null {
-  return channelId ? `conversation:${channelId}` : null;
-}
-
-function toEvidence(row: MemoryEvidenceRow): MemoryEvidenceRecord {
-  return {
-    id: row.id,
-    appId: row.appId,
-    agentId: row.agentId,
-    subjectType: row.subjectType as MemorySubjectType,
-    subjectId: row.subjectId,
-    ...(row.userId ? { userId: row.userId } : {}),
-    ...(row.groupId ? { groupId: row.groupId } : {}),
-    ...(row.channelId ? { channelId: row.channelId } : {}),
-    ...(row.threadId ? { threadId: row.threadId } : {}),
-    sourceType: row.sourceType as MemoryEvidenceRecord['sourceType'],
-    sourceId: row.sourceId,
-    actorId: row.actorId,
-    text: row.text,
-    metadata: parseJsonObject(row.metadataJson),
-    createdAt: row.createdAt,
-  };
-}
-
-function toRun(row: MemoryDreamRunRow): DreamingRunStatus {
-  return {
-    runId: row.id,
-    appId: row.appId,
-    agentId: row.agentId,
-    subjectType: row.subjectType as MemorySubjectType,
-    subjectId: row.subjectId,
-    phase: row.phase as DreamingRunStatus['phase'],
-    status: row.status as DreamingRunStatus['status'],
-    summary: parseJsonObject(row.summaryJson),
-    startedAt: row.startedAt,
-    completedAt: row.completedAt,
-  };
-}
-
-function sqlThreadVisibilityFilter(
-  i: typeof pgSchema.memoryItemsPostgres,
-  threadId: string | undefined,
-) {
-  return threadId
-    ? or(
-        sql`${i.sourceRefJson}::jsonb->'subject'->>'threadId' = ${threadId}`,
-        sql`NOT (${i.sourceRefJson}::jsonb->'subject' ? 'threadId')`,
-      )
-    : sql`NOT (${i.sourceRefJson}::jsonb->'subject' ? 'threadId')`;
-}
-
-function sqlThreadIdentityFilter(
-  i: typeof pgSchema.memoryItemsPostgres,
-  threadId: string | undefined,
-) {
-  return threadId
-    ? sql`${i.sourceRefJson}::jsonb->'subject'->>'threadId' = ${threadId}`
-    : sql`NOT (${i.sourceRefJson}::jsonb->'subject' ? 'threadId')`;
-}
-
+const APP_MEMORY_RECALL_DEPS = {
+  schema: {
+    memoryItemsPostgres: pgSchema.memoryItemsPostgres,
+    memoryRecallEventsPostgres: pgSchema.memoryRecallEventsPostgres,
+  },
+  sqlOps: { and, asc, desc, eq, isNull, or, sql },
+} as const;
+const sqlThreadIdentityFilter = createSqlThreadIdentityFilter({ eq, isNull });
 export class AppMemoryService {
   private static singleton: AppMemoryService | null = null;
 
@@ -230,79 +201,80 @@ export class AppMemoryService {
       });
       evidenceIds.push(evidence.id);
     }
+    const key = input.key.trim();
+    const value = input.value.trim();
+    const existing = await findActiveMemoryByKey({
+      db: this.db,
+      subject,
+      key,
+    });
     const now = nowIso();
-    const existing = await this.findActiveByKey(subject, input.key);
-    const nextEvidenceIds = Array.from(
-      new Set([
-        ...(existing ? parseItemSource(existing).evidenceIds : []),
-        ...evidenceIds,
-      ]),
-    );
-    const existingSource = existing ? parseItemSource(existing) : null;
-    const nextVersion = existingSource ? existingSource.version + 1 : 1;
-    const base = {
-      appId: subject.appId,
-      agentId: subject.agentId,
-      subjectType: subject.subjectType,
-      subjectId: subjectIdFor(subject),
-      userId: subject.userId ?? null,
-      conversationId: conversationIdForChannel(subject.channelId),
-      threadId: subject.threadId ?? null,
-      kind: normalizeKind(input.kind),
-      key: input.key.trim(),
-      valueJson: JSON.stringify({
-        value: input.value.trim(),
-        why: input.why?.trim() || null,
-        contentHash: memoryContentHash({
-          appId: subject.appId,
-          agentId: subject.agentId,
-          subjectType: subject.subjectType,
-          subjectId: subject.subjectId,
-          key: input.key.trim(),
-          value: input.value.trim(),
-        }),
-      }),
-      sourceRefJson: encodeItemSource({
+    const base = buildMemoryItemWriteBase({
+      subject,
+      saveInput: input,
+      key,
+      value,
+      evidenceIds,
+      existingSource: existing ? parseItemSource(existing) : null,
+      timestamp: now,
+    });
+    try {
+      const [row] = await this.db
+        .insert(pgSchema.memoryItemsPostgres)
+        .values({
+          id: `mem_${randomUUID().replace(/-/g, '')}`,
+          ...base,
+          createdAt: now,
+        })
+        .returning();
+      return toAppItem(row!);
+    } catch (err) {
+      if (!isUniqueViolation(err)) {
+        throw err;
+      }
+      const conflicting = await findActiveMemoryByKey({
+        db: this.db,
         subject,
-        source: input.source || 'sdk',
-        evidenceIds: nextEvidenceIds,
-        isPinned: existingSource?.isPinned ?? false,
-        version: nextVersion,
-        retrievalCount: existingSource?.retrievalCount,
-        totalScore: existingSource?.totalScore,
-        maxScore: existingSource?.maxScore,
-      }),
-      confidence: clampConfidence(input.confidence),
-      status: 'active',
-      lastObservedAt: now,
-      updatedAt: now,
-    };
-    const [row] = await this.db
-      .insert(pgSchema.memoryItemsPostgres)
-      .values({
-        id: `mem_${randomUUID().replace(/-/g, '')}`,
-        ...base,
-        createdAt: now,
-      })
-      .onConflictDoUpdate({
-        target: [
-          pgSchema.memoryItemsPostgres.appId,
-          pgSchema.memoryItemsPostgres.agentId,
-          pgSchema.memoryItemsPostgres.subjectType,
-          pgSchema.memoryItemsPostgres.subjectId,
-          pgSchema.memoryItemsPostgres.kind,
-          pgSchema.memoryItemsPostgres.key,
-        ],
-        targetWhere: sql`${pgSchema.memoryItemsPostgres.status} = 'active'`,
-        set: base,
-      })
-      .returning();
-    return toAppItem(row!);
+        key,
+      });
+      if (!conflicting) {
+        throw err;
+      }
+      const conflictNow = nowIso();
+      const conflictBase = buildMemoryItemWriteBase({
+        subject,
+        saveInput: input,
+        key,
+        value,
+        evidenceIds,
+        existingSource: parseItemSource(conflicting),
+        timestamp: conflictNow,
+      });
+      const [row] = await this.db
+        .update(pgSchema.memoryItemsPostgres)
+        .set(conflictBase)
+        .where(
+          and(
+            eq(pgSchema.memoryItemsPostgres.id, conflicting.id),
+            eq(pgSchema.memoryItemsPostgres.status, 'active'),
+          ),
+        )
+        .returning();
+      if (!row) {
+        throw err;
+      }
+      return toAppItem(row);
+    }
   }
 
   async list(input: AppMemorySearchInput = {}): Promise<AppMemoryItem[]> {
     if (!this.isEnabled()) return [];
-    const rows = await this.queryItems(input, false);
+    const rows = await queryAppMemoryItems(
+      this.db,
+      input,
+      false,
+      APP_MEMORY_RECALL_DEPS,
+    );
     return rows.map((row) => toAppItem(row.row));
   }
 
@@ -310,7 +282,12 @@ export class AppMemoryService {
     input: AppMemorySearchInput = {},
   ): Promise<AppMemorySearchResult[]> {
     if (!this.isEnabled()) return [];
-    const rows = await this.queryItems(input, true);
+    const rows = await queryAppMemoryItems(
+      this.db,
+      input,
+      true,
+      APP_MEMORY_RECALL_DEPS,
+    );
     const results = rows.map((row) => ({
       item: toAppItem(row.row),
       score: row.score,
@@ -318,13 +295,56 @@ export class AppMemoryService {
       vectorScore: row.vectorScore,
       reasons: row.reasons,
     }));
-    await this.recordRecallEvents(input, results);
+    await recordAppMemoryRecallEvents(
+      this.db,
+      input,
+      results,
+      APP_MEMORY_RECALL_DEPS,
+    );
     return results;
+  }
+
+  async listForHydrationReadOnly(
+    input: AppMemorySearchInput = {},
+  ): Promise<AppMemoryItem[]> {
+    if (!this.isEnabled()) return [];
+    const rows = await queryAppMemoryItems(
+      this.db,
+      input,
+      false,
+      APP_MEMORY_RECALL_DEPS,
+      { threadScope: 'exact' },
+    );
+    return rows.map((row) => toAppItem(row.row));
+  }
+
+  async searchForHydrationReadOnly(
+    input: AppMemorySearchInput = {},
+  ): Promise<AppMemorySearchResult[]> {
+    if (!this.isEnabled()) return [];
+    const rows = await queryAppMemoryItems(
+      this.db,
+      input,
+      true,
+      APP_MEMORY_RECALL_DEPS,
+      { threadScope: 'exact' },
+    );
+    return rows.map((row) => ({
+      item: toAppItem(row.row),
+      score: row.score,
+      lexicalScore: row.lexicalScore,
+      vectorScore: row.vectorScore,
+      reasons: row.reasons,
+    }));
   }
 
   async patch(input: PatchAppMemoryInput): Promise<AppMemoryItem> {
     this.assertEnabled();
-    const current = await this.getOwnedItem(input);
+    const current = await getOwnedMemoryItem({
+      db: this.db,
+      context: normalizeSubject(input),
+      id: input.id,
+    });
     if (!current) throw new Error('memory item not found');
     const currentSource = parseItemSource(current);
     if (currentSource.subject.subjectType === 'common' && !input.isAdminWrite) {
@@ -349,10 +369,11 @@ export class AppMemoryService {
     const nextValue =
       input.value !== undefined ? input.value.trim() : currentValue.value;
     if (nextKey !== current.key) {
-      const collision = await this.findActiveByKey(
-        currentSource.subject,
-        nextKey,
-      );
+      const collision = await findActiveMemoryByKey({
+        db: this.db,
+        subject: currentSource.subject,
+        key: nextKey,
+      });
       if (collision && collision.id !== current.id) {
         throw new ApplicationError(
           'CONFLICT',
@@ -374,7 +395,7 @@ export class AppMemoryService {
         value: nextValue,
       }),
     });
-    let row: MemoryItemRow | undefined;
+    let row: typeof pgSchema.memoryItemsPostgres.$inferSelect | undefined;
     try {
       [row] = await this.db
         .update(pgSchema.memoryItemsPostgres)
@@ -416,19 +437,13 @@ export class AppMemoryService {
 
   async delete(input: DeleteAppMemoryInput): Promise<{ deleted: boolean }> {
     this.assertEnabled();
-    const current = await this.getOwnedItem(input);
-    if (!current) return { deleted: false };
-    if (
-      parseItemSource(current).subject.subjectType === 'common' &&
-      !input.isAdminWrite
-    ) {
-      throw new Error('common memory deletes require admin/service authority');
-    }
-    await this.db
-      .update(pgSchema.memoryItemsPostgres)
-      .set({ status: 'deleted', updatedAt: nowIso() })
-      .where(eq(pgSchema.memoryItemsPostgres.id, current.id));
-    return { deleted: true };
+    return deleteOwnedMemoryItem({
+      db: this.db,
+      context: normalizeSubject(input),
+      id: input.id,
+      expectedVersion: input.expectedVersion,
+      isAdminWrite: input.isAdminWrite,
+    });
   }
 
   async triggerDreaming(
@@ -444,54 +459,184 @@ export class AppMemoryService {
     const subject = normalizeSubject(input);
     const phase = input.phase || 'all';
     const now = nowIso();
-    const runId = `mdr_${randomUUID().replace(/-/g, '')}`;
-    await this.db.insert(pgSchema.memoryDreamRunsPostgres).values({
-      id: runId,
-      appId: subject.appId,
-      agentId: subject.agentId,
-      subjectType: subject.subjectType,
-      subjectId: subject.subjectId,
-      phase,
-      status: 'running',
-      summaryJson: '{}',
-      startedAt: now,
-    });
-    const decisions = await runAppMemoryDreamPass({
+    const running = await pgSchema.findRunningDreamRun({
       db: this.db,
-      runId,
       subject,
       phase,
-      dryRun: Boolean(input.dryRun),
-      listItems: () => this.queryItems({ ...subject, limit: 100 }, false),
-      save: (value) => this.save(value),
+      now,
     });
-    const completedAt = nowIso();
-    const summary = {
-      decisions: decisions.length,
-      promoted: decisions.filter((decision) => decision.action === 'promote')
-        .length,
-      needsReview: decisions.filter(
-        (decision) => decision.action === 'needs_review',
-      ).length,
-      dryRun: Boolean(input.dryRun),
+    if (running) return toRun(running);
+    await pgSchema.expireStaleDreamRuns({ db: this.db, subject, phase, now });
+    const runningAfterExpiry = await pgSchema.findRunningDreamRun({
+      db: this.db,
+      subject,
+      phase,
+      now,
+    });
+    if (runningAfterExpiry) return toRun(runningAfterExpiry);
+    const runId = `mdr_${randomUUID().replace(/-/g, '')}`;
+    const finalizeRun = async (
+      status: DreamingRunStatus['status'],
+      summary: Record<string, unknown>,
+    ): Promise<DreamingRunStatus> => {
+      const [row] = await this.db
+        .update(pgSchema.memoryDreamRunsPostgres)
+        .set({
+          status,
+          summaryJson: JSON.stringify(summary),
+          completedAt: nowIso(),
+        })
+        .where(eq(pgSchema.memoryDreamRunsPostgres.id, runId))
+        .returning();
+      return toRun(row!);
     };
-    const [row] = await this.db
-      .update(pgSchema.memoryDreamRunsPostgres)
-      .set({
-        status: 'completed',
-        summaryJson: JSON.stringify(summary),
-        completedAt,
-      })
-      .where(eq(pgSchema.memoryDreamRunsPostgres.id, runId))
-      .returning();
-    return toRun(row!);
+    try {
+      await this.db.insert(pgSchema.memoryDreamRunsPostgres).values({
+        id: runId,
+        appId: subject.appId,
+        agentId: subject.agentId,
+        subjectType: subject.subjectType,
+        subjectId: subject.subjectId,
+        threadId: subject.threadId ?? null,
+        phase,
+        status: 'running',
+        summaryJson: '{}',
+        startedAt: now,
+        leaseExpiresAt: pgSchema.dreamRunLeaseExpiresAt(now),
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        const conflictNow = nowIso();
+        await pgSchema.expireStaleDreamRuns({
+          db: this.db,
+          subject,
+          phase,
+          now: conflictNow,
+        });
+        const runningAfterConflict = await pgSchema.findRunningDreamRun({
+          db: this.db,
+          subject,
+          phase,
+          now: conflictNow,
+        });
+        if (runningAfterConflict) return toRun(runningAfterConflict);
+      }
+      throw error;
+    }
+    const embeddingsEnabled =
+      MEMORY_DREAMING_EMBEDDINGS_ENABLED &&
+      MEMORY_DREAMING_EMBED_PROVIDER !== 'disabled';
+    const embeddingProvider = embeddingsEnabled
+      ? createEmbeddingProvider(MEMORY_DREAMING_EMBED_PROVIDER, {
+          model: MEMORY_DREAMING_EMBED_MODEL,
+        })
+      : null;
+    if (embeddingProvider) {
+      try {
+        await runWithTimeout(async (signal) => {
+          embeddingProvider.validateConfiguration();
+          await embeddingProvider.validateReady?.({ signal });
+        }, DREAM_EMBEDDING_DEADLINE_MS);
+      } catch (error) {
+        const reason =
+          error instanceof Error ? error.message : 'unknown readiness error';
+        return finalizeRun('failed', {
+          stage: 'embedding_readiness',
+          error: reason,
+          embeddingsEnabled: true,
+          embeddingProvider: MEMORY_DREAMING_EMBED_PROVIDER,
+          embeddingModel: MEMORY_DREAMING_EMBED_MODEL,
+          dryRun: Boolean(input.dryRun),
+        });
+      }
+    }
+    let decisions: Awaited<ReturnType<typeof runAppMemoryDreamPass>>;
+    try {
+      decisions = await runAppMemoryDreamPass({
+        db: this.db,
+        runId,
+        subject,
+        phase,
+        dryRun: Boolean(input.dryRun),
+        listItems: () =>
+          queryAppMemoryItems(
+            this.db,
+            { ...subject, limit: 100 },
+            false,
+            APP_MEMORY_RECALL_DEPS,
+            { threadScope: 'exact' },
+          ),
+        save: (value) => this.save(value),
+        retire: (value) => this.delete(value),
+        storeDreamEmbedding: async (value) => {
+          if (!embeddingProvider) return { status: 'disabled' as const };
+          return storeDreamItemEmbedding({
+            db: this.db,
+            schema: {
+              memoryItemEmbeddingsPostgres:
+                pgSchema.memoryItemEmbeddingsPostgres,
+            },
+            sqlOps: { and, eq },
+            now: nowIso,
+            provider: embeddingProvider,
+            providerName: MEMORY_DREAMING_EMBED_PROVIDER,
+            model: MEMORY_DREAMING_EMBED_MODEL,
+            ...value,
+          });
+        },
+        proposeDreaming: ({ evidence, candidates, activeItems }) =>
+          proposeMemoryDreamingActions({
+            subject,
+            evidence,
+            candidates,
+            activeItems,
+          }),
+        proposeConsolidation: ({ activeItems }) =>
+          proposeMemoryConsolidationActions({
+            subject,
+            activeItems,
+          }),
+        createPendingReview: (proposal) =>
+          createPendingMemoryReview({
+            db: this.db,
+            runId,
+            subject,
+            phase,
+            proposal,
+          }),
+      });
+    } catch (error) {
+      const reason =
+        error instanceof Error ? error.message : 'unknown dreaming error';
+      return finalizeRun('failed', {
+        stage: 'dreaming_pass',
+        error: reason,
+        dryRun: Boolean(input.dryRun),
+      });
+    }
+    const summary = summarizeDreamDecisions(decisions, Boolean(input.dryRun));
+    return finalizeRun('completed', summary);
   }
 
   async dreamingStatus(
-    input: Partial<MemoryBoundaryContext> = {},
+    input: Partial<MemoryBoundaryContext> & {
+      subjectType?: MemorySubjectType;
+      subjectId?: string;
+    } = {},
   ): Promise<DreamingRunStatus[]> {
     if (!this.isEnabled()) return [];
+    const hasSubjectScope = hasDreamingStatusSubjectScope(input);
     const subject = normalizeSubject(input);
+    const subjectFilters = hasSubjectScope
+      ? [
+          eq(pgSchema.memoryDreamRunsPostgres.subjectType, subject.subjectType),
+          eq(pgSchema.memoryDreamRunsPostgres.subjectId, subject.subjectId),
+          sqlThreadIdentityFilter(
+            pgSchema.memoryDreamRunsPostgres,
+            subject.threadId,
+          ),
+        ]
+      : [];
     const rows = await this.db
       .select()
       .from(pgSchema.memoryDreamRunsPostgres)
@@ -499,6 +644,7 @@ export class AppMemoryService {
         and(
           eq(pgSchema.memoryDreamRunsPostgres.appId, subject.appId),
           eq(pgSchema.memoryDreamRunsPostgres.agentId, subject.agentId),
+          ...subjectFilters,
         ),
       )
       .orderBy(desc(pgSchema.memoryDreamRunsPostgres.startedAt))
@@ -506,187 +652,48 @@ export class AppMemoryService {
     return rows.map(toRun);
   }
 
-  private async findActiveByKey(
-    subject: NormalizedMemorySubject,
-    key: string,
-  ): Promise<MemoryItemRow | null> {
-    const rows = await this.db
-      .select()
-      .from(pgSchema.memoryItemsPostgres)
-      .where(
-        and(
-          eq(pgSchema.memoryItemsPostgres.status, 'active'),
-          eq(pgSchema.memoryItemsPostgres.appId, subject.appId),
-          eq(pgSchema.memoryItemsPostgres.agentId, subject.agentId),
-          eq(pgSchema.memoryItemsPostgres.subjectType, subject.subjectType),
-          eq(pgSchema.memoryItemsPostgres.subjectId, subjectIdFor(subject)),
-          sql`${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb @> ${JSON.stringify({ subject: { agentId: subject.agentId, subjectType: subject.subjectType, subjectId: subject.subjectId } })}::jsonb`,
-          sqlThreadIdentityFilter(
-            pgSchema.memoryItemsPostgres,
-            subject.threadId,
-          ),
-          eq(pgSchema.memoryItemsPostgres.key, key.trim()),
-        ),
-      )
-      .limit(1);
-    return rows[0] ?? null;
+  async listPendingReviews(
+    input: Partial<MemoryBoundaryContext> & {
+      subjectType?: MemorySubjectType;
+      subjectId?: string;
+    } = {},
+  ): Promise<MemoryReviewRecord[]> {
+    if (!this.isEnabled()) return [];
+    const subject = normalizeSubject(input);
+    return listPendingMemoryReviews({ db: this.db, subject });
   }
 
-  private async getOwnedItem(
-    input: { id: string } & Partial<MemoryBoundaryContext>,
-  ): Promise<MemoryItemRow | null> {
-    const context = normalizeSubject(input);
-    const rows = await this.db
-      .select()
-      .from(pgSchema.memoryItemsPostgres)
-      .where(
-        and(
-          eq(pgSchema.memoryItemsPostgres.id, input.id),
-          eq(pgSchema.memoryItemsPostgres.status, 'active'),
-          eq(pgSchema.memoryItemsPostgres.appId, context.appId),
-        ),
-      )
-      .limit(1);
-    const row = rows[0] ?? null;
-    return row && itemMatchesSubjectBoundary(row, context) ? row : null;
-  }
-
-  private async queryItems(
-    input: AppMemorySearchInput,
-    ranked: boolean,
-  ): Promise<
-    Array<{
-      row: MemoryItemRow;
-      score: number;
-      lexicalScore: number;
-      vectorScore: number;
-      reasons: string[];
-    }>
-  > {
-    const context = normalizeSubject(input);
-    const query = input.query?.trim() || '';
-    const i = pgSchema.memoryItemsPostgres;
-    const valueText = sql<string>`${i.valueJson}::jsonb->>'value'`;
-    const whyText = sql<string>`${i.valueJson}::jsonb->>'why'`;
-    const document = sql`to_tsvector('english', ${i.key} || ' ' || COALESCE(${valueText}, '') || ' ' || COALESCE(${whyText}, ''))`;
-    const searchQuery = sql`plainto_tsquery('english', ${query})`;
-    const lexicalScore = query
-      ? sql<number>`ts_rank_cd(${document}, ${searchQuery})`
-      : sql<number>`0`;
-    const visible = visibleSubjectFilters(i, input);
-    const threadFilter = sqlThreadVisibilityFilter(i, context.threadId);
-    const vectorScore = sql<number>`0`;
-    const combinedScore = sql<number>`(${lexicalScore} * 0.65) + (${i.confidence} * 0.10)`;
-    const rows = await this.db
-      .select({
-        row: i,
-        lexicalScore,
-        vectorScore,
-        score: ranked ? combinedScore : sql<number>`${i.confidence}`,
-      })
-      .from(i)
-      .where(
-        and(
-          eq(i.status, 'active'),
-          eq(i.appId, context.appId),
-          visible.length === 0
-            ? sql`false`
-            : visible.length === 1
-              ? visible[0]
-              : or(...visible),
-          threadFilter,
-          query ? sql`${document} @@ ${searchQuery}` : undefined,
-        ),
-      )
-      .orderBy(ranked ? desc(combinedScore) : desc(i.updatedAt))
-      .limit(Math.max(1, Math.min(input.limit || 20, 100)));
-    return rows.map((row) => ({
-      row: row.row,
-      score: Number(row.score || 0),
-      lexicalScore: Number(row.lexicalScore || 0),
-      vectorScore: Number(row.vectorScore || 0),
-      reasons: [
-        row.lexicalScore
-          ? Number(row.lexicalScore) < 0.01
-            ? 'keyword'
-            : 'lexical'
-          : '',
-        row.vectorScore ? 'semantic' : '',
-        parseItemSource(row.row).isPinned ? 'pinned' : '',
-      ].filter(Boolean),
-    }));
-  }
-
-  private async recordRecallEvents(
-    input: AppMemorySearchInput,
-    results: AppMemorySearchResult[],
-  ): Promise<void> {
-    if (results.length === 0) return;
-    const context = normalizeSubject(input);
-    const queryHash = hashText(input.query || '');
-    const createdAt = nowIso();
-    await this.db.insert(pgSchema.memoryRecallEventsPostgres).values(
-      results.map((result) => ({
-        appId: context.appId,
-        agentId: context.agentId,
-        itemId: result.item.id,
-        queryHash,
-        score: result.score,
-        subjectJson: JSON.stringify(context),
-        createdAt,
-      })),
-    );
-    const uniqueResults = new Map<string, number>();
-    for (const result of results) {
-      uniqueResults.set(
-        result.item.id,
-        Math.max(result.score, uniqueResults.get(result.item.id) ?? 0),
-      );
-    }
-    const idColumn = pgSchema.memoryItemsPostgres.id;
-    const scoreCases = [...uniqueResults].map(
-      ([id, score]) => sql`WHEN ${idColumn} = ${id} THEN ${score}`,
-    );
-    const ids = [...uniqueResults.keys()].map((id) => sql`${id}`);
-    await this.db
-      .update(pgSchema.memoryItemsPostgres)
-      .set({
-        sourceRefJson: sql<string>`jsonb_set(
-          jsonb_set(
-            jsonb_set(
-              ${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb,
-              '{retrievalCount}',
-              to_jsonb(COALESCE((${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'retrievalCount')::int, 0) + 1)
-            ),
-            '{totalScore}',
-            to_jsonb(COALESCE((${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'totalScore')::double precision, 0) + (CASE ${sql.join(scoreCases, sql` `)} ELSE 0 END))
-          ),
-          '{maxScore}',
-          to_jsonb(GREATEST(COALESCE((${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'maxScore')::double precision, 0), (CASE ${sql.join(scoreCases, sql` `)} ELSE 0 END)))
-        )::text`,
-      })
-      .where(sql`${idColumn} IN (${sql.join(ids, sql`, `)})`);
+  async decideReview(
+    input: MemoryReviewDecisionInput,
+  ): Promise<MemoryReviewRecord> {
+    this.assertEnabled();
+    const subject = normalizeSubject(input);
+    return decideMemoryReview({
+      db: this.db,
+      subject,
+      decision: input,
+      patch: (value) => this.patch(value),
+      delete: (value) => this.delete(value),
+    });
   }
 }
 
 export const collectDurableMemoryAtSessionBoundary: SessionMemoryCollector =
   async (input) => {
     const { repositories } = getRuntimeStorage();
-    const extractor = createLlmMemoryExtractionProvider();
-    return collectDurableMemoryFromRepositories({
-      ...input,
+    const memoryService = AppMemoryService.getInstance();
+    return collectDurableMemoryAtBoundary(input, {
       repositories,
-      extractFacts: (extractInput) => extractor.extractFacts(extractInput),
-      defaultScope: input.defaultScope,
-      additionalTurns: input.additionalTurns,
+      memory: {
+        recordEvidence: (value) => memoryService.recordEvidence(value),
+      },
     });
   };
 
 export const _testAppMemory = {
   conversationIdForChannel,
+  conflictingDreamPhases: pgSchema.conflictingDreamPhases,
   itemMatchesSubjectBoundary,
-  sqlThreadIdentityFilter,
-  sqlThreadVisibilityFilter,
   normalizeSubject,
-  visibleSubjectFilters,
+  subjectIdFor,
 };

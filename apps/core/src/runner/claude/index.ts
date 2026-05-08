@@ -221,7 +221,7 @@ async function runInteractiveQueryLoop(opts: {
 
   try {
     log(
-      `Starting live streaming query with ${opts.agentInput.sessionId ? `resumed SDK session ${opts.agentInput.sessionId}` : 'new persistent SDK session'}...`,
+      `Starting live streaming query with ${opts.agentInput.sessionId ? 'resumed SDK session' : 'new persistent SDK session'}...`,
     );
     const queryResult = await runQuery(
       opts.prompt,

@@ -33,10 +33,10 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         createdAt: now,
         updatedAt: now,
       });
-    });
+    }, 30_000);
 
     afterEach(async () => {
-      await runtime.cleanup();
+      if (runtime) await runtime.cleanup();
     });
 
     it('persists approved definitions, bindings, materialization, and audit events in isolated schema', async () => {

@@ -197,7 +197,9 @@ describe('TeamsChannel adapter scaffold', () => {
       channel.sendMessage('teams:19:abc@thread.v2', 'response', {
         threadId: 'root-message',
       }),
-    ).resolves.toEqual({ externalMessageId: 'teams-msg-1' });
+    ).resolves.toEqual(
+      expect.objectContaining({ externalMessageId: 'teams-msg-1' }),
+    );
     expect(sdkClient.sendMessage).toHaveBeenCalledWith({
       conversationId: '19:abc@thread.v2',
       text: 'response',
@@ -208,6 +210,172 @@ describe('TeamsChannel adapter scaffold', () => {
 
     expect(channel.isConnected()).toBe(false);
     expect(sdkClient.stop).toHaveBeenCalled();
+  });
+
+  it('splits large Teams outbound text and returns delivery part metadata', async () => {
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage: vi.fn(async ({ text }) => ({
+        externalMessageId: `teams:${text.length}`,
+      })),
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+
+    const result = await channel.sendMessage(
+      'teams:19:abc@thread.v2',
+      'x'.repeat(90000),
+    );
+
+    expect(sdkClient.sendMessage).toHaveBeenCalledTimes(2);
+    expect(
+      vi.mocked(sdkClient.sendMessage).mock.calls[0]?.[0].text.length,
+    ).toBeLessThanOrEqual(90000);
+    expect(result).toEqual(
+      expect.objectContaining({
+        deliveredParts: 2,
+        totalParts: 2,
+        warnings: ['teams.message.chunked:2:79872'],
+      }),
+    );
+  });
+
+  it('retries Teams outbound payloads by splitting after 413 errors', async () => {
+    const sendMessage = vi
+      .fn(async () => ({ externalMessageId: 'unused' }))
+      .mockRejectedValueOnce({ status: 413, message: 'payload too large' })
+      .mockResolvedValueOnce({ externalMessageId: 'teams-msg-a' })
+      .mockResolvedValueOnce({ externalMessageId: 'teams-msg-b' });
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage,
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+
+    const result = await channel.sendMessage(
+      'teams:19:abc@thread.v2',
+      'x'.repeat(10000),
+    );
+
+    expect(sendMessage).toHaveBeenCalledTimes(3);
+    expect(result).toEqual(
+      expect.objectContaining({
+        deliveredParts: 2,
+        totalParts: 2,
+        warnings: ['teams.payload_413_split_retry'],
+      }),
+    );
+  });
+
+  it('retries Teams 413 payloads with code-point-safe byte-budget splits', async () => {
+    const emojiHeavy = '🙂'.repeat(2501);
+    const sendMessage = vi
+      .fn(async () => ({ externalMessageId: 'teams-msg' }))
+      .mockRejectedValueOnce({ status: 413, message: 'payload too large' });
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage,
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+
+    const result = await channel.sendMessage(
+      'teams:19:abc@thread.v2',
+      emojiHeavy,
+    );
+
+    expect(sendMessage).toHaveBeenCalledTimes(4);
+    const retryParts = vi
+      .mocked(sendMessage)
+      .mock.calls.slice(1)
+      .map(([input]) => input.text);
+    expect(retryParts.join('')).toBe(emojiHeavy);
+    for (const part of retryParts) {
+      expect(part).not.toContain('\uFFFD');
+      expect(Buffer.byteLength(part, 'utf8')).toBeLessThanOrEqual(5002);
+      const firstCodeUnit = part.charCodeAt(0);
+      const lastCodeUnit = part.charCodeAt(part.length - 1);
+      expect(firstCodeUnit >= 0xdc00 && firstCodeUnit <= 0xdfff).toBe(false);
+      expect(lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff).toBe(false);
+    }
+    expect(result).toEqual(
+      expect.objectContaining({
+        deliveredParts: 3,
+        totalParts: 3,
+        warnings: ['teams.payload_413_split_retry'],
+      }),
+    );
+  });
+
+  it('throws partial delivery classification when a later Teams chunk fails', async () => {
+    const sendMessage = vi
+      .fn(async ({ text }) => ({ externalMessageId: `teams:${text.length}` }))
+      .mockResolvedValueOnce({ externalMessageId: 'teams-msg-a' })
+      .mockRejectedValueOnce(new Error('second part failed'));
+    const sdkClient: TeamsSdkClient = {
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      sendMessage,
+    };
+    const channel = new TeamsChannel(
+      {
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        tenantId: 'tenant-id',
+      },
+      makeOpts(),
+      sdkClient,
+    );
+    await channel.connect();
+
+    let thrown: unknown;
+    try {
+      await channel.sendMessage('teams:19:abc@thread.v2', 'x'.repeat(90000));
+    } catch (err) {
+      thrown = err;
+    }
+    const unsentSuffix = vi.mocked(sendMessage).mock.calls[1]?.[0]?.text;
+    expect(thrown).toMatchObject({
+      name: 'PartialTeamsDeliveryError',
+      partialMessageDelivery: true,
+      deliveredChunks: 1,
+      totalChunks: 2,
+      retryTail: {
+        canonicalText: unsentSuffix,
+        providerPayload: expect.objectContaining({
+          provider: 'teams',
+          conversationId: '19:abc@thread.v2',
+        }),
+      },
+    });
   });
 
   it('sends Teams approval cards and accepts Action.Execute decisions from conversation approvers', async () => {

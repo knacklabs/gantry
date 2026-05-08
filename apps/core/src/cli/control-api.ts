@@ -3,6 +3,11 @@ import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
 
+import {
+  CONTROL_API_SCOPES,
+  isValidControlId,
+} from '../control/server/auth.js';
+
 export async function controlApiRequest(
   runtimeHome: string,
   input: {
@@ -17,7 +22,8 @@ export async function controlApiRequest(
   const apiKey = controlApiKey(env);
   if (!apiKey) {
     throw new Error(
-      input.missingKeyMessage || 'MYCLAW_CONTROL_API_KEY is required.',
+      input.missingKeyMessage ||
+        'MYCLAW_CONTROL_API_KEYS_JSON with at least one complete key record is required.',
     );
   }
   const body = requestBody(input.body);
@@ -108,16 +114,45 @@ function readEnvFile(filePath: string): Record<string, string> {
 }
 
 function controlApiKey(env: Record<string, string>): string {
-  const single = env.MYCLAW_CONTROL_API_KEY?.trim();
-  if (single) return single;
   const rawJson = env.MYCLAW_CONTROL_API_KEYS_JSON?.trim();
   if (!rawJson) return '';
   try {
-    const parsed = JSON.parse(rawJson) as Array<{ token?: string }>;
-    return parsed.find((entry) => entry.token?.trim())?.token?.trim() || '';
+    const parsed = JSON.parse(rawJson);
+    if (!Array.isArray(parsed)) return '';
+    return (
+      parsed
+        .find((entry) => isCompleteControlApiKeyEntry(entry))
+        ?.token.trim() || ''
+    );
   } catch {
     return '';
   }
+}
+
+function isCompleteControlApiKeyEntry(input: unknown): input is {
+  kid: string;
+  token: string;
+  appId: string;
+  scopes: string[];
+} {
+  if (!isRecord(input)) return false;
+  return (
+    typeof input.kid === 'string' &&
+    input.kid.trim().length > 0 &&
+    typeof input.token === 'string' &&
+    input.token.trim().length > 0 &&
+    typeof input.appId === 'string' &&
+    isValidControlId(input.appId.trim()) &&
+    Array.isArray(input.scopes) &&
+    input.scopes.length > 0 &&
+    input.scopes.every(
+      (scope) =>
+        typeof scope === 'string' &&
+        CONTROL_API_SCOPES.includes(
+          scope.trim() as (typeof CONTROL_API_SCOPES)[number],
+        ),
+    )
+  );
 }
 
 function controlBaseUrl(env: Record<string, string>): string {

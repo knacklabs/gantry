@@ -14,6 +14,7 @@ import {
   appIdFromConversationJid,
   resolveCanonicalAppSessionForOrigin,
 } from '../application/jobs/job-management-helpers.js';
+import { normalizeOptional } from '../application/jobs/job-management-access.js';
 
 const SCHEDULER_WAIT_MIN_TIMEOUT_MS = 1_000;
 const SCHEDULER_WAIT_MAX_TIMEOUT_MS = 300_000;
@@ -176,10 +177,11 @@ const schedulerListJobsHandler: TaskHandler = async (context) => {
 
 function publicJobVisibility(metadata: JobVisibilityMetadata) {
   return {
+    executionContext: metadata.executionContext,
+    notificationRoutes: metadata.notificationRoutes,
     target: metadata.target,
     promptPreview: metadata.promptPreview,
     fullPrompt: metadata.fullPrompt,
-    notificationTarget: metadata.notificationTarget,
     toolAccess: metadata.toolAccess,
     recentRunErrors: metadata.recentRunErrors,
     staleness: metadata.staleness,
@@ -313,9 +315,117 @@ const schedulerGetDeadLetterHandler: TaskHandler = async (context) => {
   }
 };
 
+const schedulerListNotificationTargetsHandler: TaskHandler = async (
+  context,
+) => {
+  const { data, sourceAgentFolder } = context;
+  const { acceptData, reject } = createTaskResponder(
+    sourceAgentFolder,
+    data.taskId,
+    data.authThreadId,
+    data.responseKeyId,
+  );
+  try {
+    const access = schedulerAccessFromContext(context);
+    const authThreadId = normalizeOptional(access.authThreadId) ?? null;
+    const originConversationJid = access.originConversationJid;
+    const originConversation =
+      access.conversationBindings[originConversationJid] ?? null;
+    const originIsDm = originConversation?.conversationKind === 'dm';
+
+    const targets: Array<Record<string, unknown>> = [
+      {
+        shortcut: 'here',
+        label: authThreadId
+          ? 'Current thread/topic in this conversation'
+          : 'Current conversation',
+        executionContext: {
+          conversationJid: originConversationJid,
+          threadId: authThreadId,
+          groupScope: access.sourceAgentFolder,
+        },
+        notificationRoutes: [
+          {
+            conversationJid: originConversationJid,
+            threadId: authThreadId,
+            label: 'primary',
+          },
+        ],
+      },
+    ];
+    if (authThreadId) {
+      targets.push({
+        shortcut: 'this_thread',
+        label: 'Current thread/topic',
+        executionContext: {
+          conversationJid: originConversationJid,
+          threadId: authThreadId,
+          groupScope: access.sourceAgentFolder,
+        },
+        notificationRoutes: [
+          {
+            conversationJid: originConversationJid,
+            threadId: authThreadId,
+            label: 'this_thread',
+          },
+        ],
+      });
+      targets.push({
+        shortcut: 'this_topic',
+        label: 'Current topic',
+        executionContext: {
+          conversationJid: originConversationJid,
+          threadId: authThreadId,
+          groupScope: access.sourceAgentFolder,
+        },
+        notificationRoutes: [
+          {
+            conversationJid: originConversationJid,
+            threadId: authThreadId,
+            label: 'this_thread',
+          },
+        ],
+      });
+    }
+    if (originIsDm) {
+      targets.push({
+        shortcut: 'me_dm',
+        label: 'Direct message conversation',
+        executionContext: {
+          conversationJid: originConversationJid,
+          threadId: null,
+          groupScope: access.sourceAgentFolder,
+        },
+        notificationRoutes: [
+          {
+            conversationJid: originConversationJid,
+            threadId: null,
+            label: 'me_dm',
+          },
+        ],
+      });
+    }
+
+    acceptData(`Listed ${targets.length} scheduler notification target(s).`, {
+      targets,
+    });
+  } catch (err) {
+    const mapped = mapApplicationError(
+      err,
+      'Failed to list scheduler notification targets.',
+    );
+    logger.error(
+      { err, sourceAgentFolder },
+      'scheduler_list_notification_targets failed unexpectedly',
+    );
+    reject(mapped.message, mapped.code);
+  }
+};
+
 export const schedulerQueryTaskHandlers: Record<string, TaskHandler> = {
   scheduler_get_job: schedulerGetJobHandler,
   scheduler_list_jobs: schedulerListJobsHandler,
+  scheduler_list_notification_targets: schedulerListNotificationTargetsHandler,
   scheduler_list_runs: schedulerListRunsHandler,
   scheduler_list_events: schedulerListEventsHandler,
   scheduler_wait_for_events: schedulerWaitForEventsHandler,

@@ -10,7 +10,7 @@
     "apps/core/src/config/settings/runtime-settings-parser.ts": 1120,
     "apps/core/src/jobs/ipc-admin-handlers.ts": 883,
     "apps/core/src/runner/mcp/tools/service.ts": 850,
-    "apps/core/src/runtime/group-processing.ts": 744,
+    "apps/core/src/runtime/group-processing.ts": 738,
     "apps/core/src/runtime/ipc.ts": 794
   },
   "layers": {

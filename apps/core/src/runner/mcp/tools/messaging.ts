@@ -182,7 +182,9 @@ export function registerMessagingTools(server: McpServer): void {
         questions: args.questions,
         context: {
           ...(threadId ? { threadId } : {}),
-          ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
+          ...(IPC_RESPONSE_KEY_ID
+            ? { responseKeyId: IPC_RESPONSE_KEY_ID }
+            : {}),
         },
         timestamp: nowIso(),
         expiresAt: new Date(

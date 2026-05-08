@@ -16,6 +16,14 @@ import {
 import { readJson, sendError, sendJson } from '../http.js';
 import { isValidControlId, type ApiKeyRecord } from '../auth.js';
 
+const DIRECT_SAVE_MEMORY_KINDS = new Set([
+  'preference',
+  'decision',
+  'fact',
+  'correction',
+  'constraint',
+]);
+
 function parseMemoryId(pathname: string): string | null {
   const match = /^\/v1\/memory\/([^/]+)$/.exec(pathname);
   return match ? decodeURIComponent(match[1]!) : null;
@@ -72,6 +80,25 @@ function sendMemoryDisabled(res: ServerResponse): void {
   );
 }
 
+function validateDirectSaveKind(
+  res: ServerResponse,
+  input: Record<string, unknown>,
+): boolean {
+  if (
+    !Object.prototype.hasOwnProperty.call(input, 'kind') ||
+    (typeof input.kind === 'string' && DIRECT_SAVE_MEMORY_KINDS.has(input.kind))
+  ) {
+    return true;
+  }
+  sendError(
+    res,
+    400,
+    'INVALID_REQUEST',
+    'memory kind must be one of preference, decision, fact, correction, or constraint',
+  );
+  return false;
+}
+
 export async function handleMemoryRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -82,7 +109,7 @@ export async function handleMemoryRoutes(
   const service = AppMemoryService.getInstance();
 
   if (pathname === '/v1/memory' && req.method === 'POST') {
-    const auth = authorizeControlRequest(req, res, ctx.keys, ['memory:write']);
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['memory:admin']);
     if (!auth) return true;
     if (!service.isEnabled()) {
       sendMemoryDisabled(res);
@@ -91,6 +118,7 @@ export async function handleMemoryRoutes(
     const body = (await readJson(req)) as Record<string, unknown>;
     const appId = readAppId(body, auth.appId);
     if (!assertAppAccess(res, appId, auth)) return true;
+    if (!validateDirectSaveKind(res, body)) return true;
     const saved = await service.save({
       ...(body as unknown as SaveAppMemoryInput),
       appId,
@@ -126,7 +154,7 @@ export async function handleMemoryRoutes(
 
   const memoryId = parseMemoryId(pathname);
   if (memoryId && req.method === 'PATCH') {
-    const auth = authorizeControlRequest(req, res, ctx.keys, ['memory:write']);
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['memory:admin']);
     if (!auth) return true;
     if (!service.isEnabled()) {
       sendMemoryDisabled(res);
@@ -146,7 +174,7 @@ export async function handleMemoryRoutes(
   }
 
   if (memoryId && req.method === 'DELETE') {
-    const auth = authorizeControlRequest(req, res, ctx.keys, ['memory:write']);
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['memory:admin']);
     if (!auth) return true;
     if (!service.isEnabled()) {
       sendMemoryDisabled(res);
@@ -191,6 +219,8 @@ export async function handleMemoryRoutes(
     if (!auth) return true;
     const appId = url.searchParams.get('appId') || auth.appId;
     if (!assertAppAccess(res, appId, auth)) return true;
+    // Control API is the explicit admin-readable app/agent-wide dreaming status
+    // surface. Channel runtime status callers pass resolved subject scope.
     const runs = await service.dreamingStatus({
       appId,
       agentId: url.searchParams.get('agentId') || undefined,

@@ -37,6 +37,24 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
   logger: mockLogger,
   redactString: (value: string) =>
     value
+      .replace(
+        /(["'](?:sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id)["']\s*:\s*")([^"\r\n]*)(")/gi,
+        '$1[REDACTED]$3',
+      )
+      .replace(
+        /(["'](?:sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id)["']\s*:\s*')([^'\r\n]*)(')/gi,
+        '$1[REDACTED]$3',
+      )
+      .replace(
+        /\b((?:sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id)\s*[:=]\s*)([^\s"',}\]]+)/gi,
+        '$1[REDACTED]',
+      )
+      .replace(
+        /\b((?:sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id)\s+)([^\s"',}\]]+)/gi,
+        '$1[REDACTED]',
+      )
+      .replace(/\bclaude-session-[A-Za-z0-9._:-]+\b/g, '[REDACTED]')
+      .replace(/\bprovider-session:[A-Za-z0-9._:-]+\b/g, '[REDACTED]')
       .replace(/\bxox[baprs]-[A-Za-z0-9-]+\b/g, '[REDACTED]')
       .replace(/\b\d{6,12}:[A-Za-z0-9_-]{20,}\b/g, '[REDACTED]'),
 }));
@@ -250,6 +268,58 @@ describe('executeRunnerProcess', () => {
       expect(errorPayload).not.toContain('xoxb-secret-token');
       expect(errorPayload).not.toContain('telegramSecretTokenValue');
       expect(errorPayload).not.toContain('super-secret-value');
+    });
+
+    it('does not write provider resume handles to durable runner logs', async () => {
+      const uuidHandle = '9f1d4b44-8347-4f6a-90b1-7262bc4f0db4';
+      const framedHandle = '31f0f0b0-aad5-4ffc-a9b3-c449d25bb425';
+      const shortHandle = 'sess-abc';
+      const spec = makeSpec({
+        input: {
+          prompt: 'test prompt',
+          groupFolder: 'test-group',
+          chatJid: 'test@g.us',
+          sessionId: uuidHandle,
+        },
+      });
+      const resultP = executeRunnerProcess(spec);
+
+      fakeProc.stdout.push(
+        `${OUTPUT_START_MARKER}\n${JSON.stringify({
+          status: 'success',
+          result: 'ok',
+          newSessionId: framedHandle,
+          providerSessionId: shortHandle,
+          externalSessionId: 'external-short',
+        })}\n${OUTPUT_END_MARKER}\n`,
+      );
+      fakeProc.stderr.push(
+        'resume failed latestProviderSessionId: latest-short session_id=snake-short sessionId short-field-handle claude-session-shape-secret\n',
+      );
+      fakeProc.emit('close', 1);
+
+      await vi.advanceTimersByTimeAsync(10);
+      await resultP;
+
+      const logContent = String(mockWriteFileSync.mock.calls[0]?.[1] ?? '');
+      expect(logContent).toContain('Resume session: present');
+      expect(logContent).not.toContain(uuidHandle);
+      expect(logContent).not.toContain(framedHandle);
+      expect(logContent).not.toContain(shortHandle);
+      expect(logContent).not.toContain('external-short');
+      expect(logContent).not.toContain('latest-short');
+      expect(logContent).not.toContain('snake-short');
+      expect(logContent).not.toContain('short-field-handle');
+      expect(logContent).not.toContain('claude-session-shape-secret');
+
+      const errorPayload = JSON.stringify(mockLogger.error.mock.calls);
+      expect(errorPayload).not.toContain(framedHandle);
+      expect(errorPayload).not.toContain(shortHandle);
+      expect(errorPayload).not.toContain('external-short');
+      expect(errorPayload).not.toContain('latest-short');
+      expect(errorPayload).not.toContain('snake-short');
+      expect(errorPayload).not.toContain('short-field-handle');
+      expect(errorPayload).not.toContain('claude-session-shape-secret');
     });
   });
 
@@ -608,6 +678,39 @@ describe('executeRunnerProcess', () => {
       expect(result.status).toBe('success');
       expect(result.result).toBeNull();
       expect(result.newSessionId).toBe('sess-abc');
+    });
+
+    it('does not log structured provider resume handles on completion', async () => {
+      const onOutput = vi.fn(async () => {});
+      const spec = makeSpec({ onOutput });
+      const resultP = executeRunnerProcess(spec);
+      const shortStreamingHandle = 'sess-stream-short';
+
+      const json = JSON.stringify({
+        status: 'success',
+        result: 'streamed',
+        newSessionId: shortStreamingHandle,
+      });
+      fakeProc.stdout.push(
+        `${OUTPUT_START_MARKER}\n${json}\n${OUTPUT_END_MARKER}\n`,
+      );
+      await vi.advanceTimersByTimeAsync(10);
+
+      fakeProc.emit('close', 0);
+      await vi.advanceTimersByTimeAsync(10);
+
+      const result = await resultP;
+      expect(result.newSessionId).toBe(shortStreamingHandle);
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          group: 'Test Group',
+          providerSessionCreated: true,
+        }),
+        'test-runner completed (streaming mode)',
+      );
+      expect(JSON.stringify(mockLogger.info.mock.calls)).not.toContain(
+        shortStreamingHandle,
+      );
     });
 
     it('warns but continues on malformed streaming JSON', async () => {
