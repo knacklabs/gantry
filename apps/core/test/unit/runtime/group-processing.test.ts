@@ -1514,7 +1514,9 @@ describe('createGroupProcessor', () => {
       expect(streamingChannel.sendStreamingChunk).toHaveBeenCalledTimes(3);
       const deliveredChunk = (
         streamingChannel.sendStreamingChunk as ReturnType<typeof vi.fn>
-      ).mock.calls.map((call) => call[1]).join('');
+      ).mock.calls
+        .map((call) => call[1])
+        .join('');
       expect(deliveredChunk).toBe('visibledone');
       expect(deliveredChunk).not.toContain('hidden');
       expect(deliveredChunk).not.toContain('provider-session:split-handle');
@@ -2023,10 +2025,12 @@ describe('createGroupProcessor', () => {
       const calls = (
         streamingChannel.sendStreamingChunk as ReturnType<typeof vi.fn>
       ).mock.calls;
-      const beforeGeneration = calls.find((call) => call[1] === 'before approval')?.[2]
-        ?.generation;
-      const afterGeneration = calls.find((call) => call[1] === 'after approval')?.[2]
-        ?.generation;
+      const beforeGeneration = calls.find(
+        (call) => call[1] === 'before approval',
+      )?.[2]?.generation;
+      const afterGeneration = calls.find(
+        (call) => call[1] === 'after approval',
+      )?.[2]?.generation;
       expect(afterGeneration).not.toBe(beforeGeneration);
       vi.useRealTimers();
     });

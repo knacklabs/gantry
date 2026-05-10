@@ -1122,7 +1122,6 @@ describe('agent-spawn timeout behavior', () => {
     expect(spawn).not.toHaveBeenCalled();
   });
 
-
   it('keeps browser action backend private when Browser is selected', async () => {
     const originalNoProxy = process.env.NO_PROXY;
     const originalLowerNoProxy = process.env.no_proxy;

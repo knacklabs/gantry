@@ -383,7 +383,7 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
           lastText: nextText,
           ...(options.generation !== undefined
             ? { generation: options.generation }
-          : {}),
+            : {}),
         });
         this.persistProgressMessages();
       }
@@ -489,7 +489,8 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       );
     }
     existing.lastText = nextText;
-    if (options.generation !== undefined) existing.generation = options.generation;
+    if (options.generation !== undefined)
+      existing.generation = options.generation;
     if (options.done) {
       this.activeProgressMessages.delete(key);
     } else {

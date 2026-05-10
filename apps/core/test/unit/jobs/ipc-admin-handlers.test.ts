@@ -190,7 +190,8 @@ describe('admin IPC handlers', () => {
       path.join(os.tmpdir(), 'myclaw-admin-ipc-'),
     );
     runtimeHomes.push(runtimeHome);
-    const { adminTaskHandlers, taskData } = await loadAdminHandlers(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
     const requestPermissionApproval = vi.fn(async () => ({
       approved: true,
       decidedBy: 'U_APPROVER',
@@ -213,15 +214,15 @@ describe('admin IPC handlers', () => {
       sourceAgentFolderJids: ['sl:C123'],
     });
 
-    expect(readResponse(runtimeHome, 'request-projected-browser')).toMatchObject(
-      {
-        ok: false,
-        code: 'invalid_request',
-        error: expect.stringContaining(
-          'runtime projections, not durable capabilities',
-        ),
-      },
-    );
+    expect(
+      readResponse(runtimeHome, 'request-projected-browser'),
+    ).toMatchObject({
+      ok: false,
+      code: 'invalid_request',
+      error: expect.stringContaining(
+        'runtime projections, not durable capabilities',
+      ),
+    });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
 });

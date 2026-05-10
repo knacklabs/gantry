@@ -163,7 +163,9 @@ describe('autonomous tool rule matcher', () => {
       }),
     ).toMatchObject({
       allowed: false,
-      reason: expect.stringContaining('Unsupported autonomous tool rule Browser'),
+      reason: expect.stringContaining(
+        'Unsupported autonomous tool rule Browser',
+      ),
     });
   });
 

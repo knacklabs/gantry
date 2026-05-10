@@ -188,7 +188,10 @@ describe('browser tool proxy file policy', () => {
         { filename },
         {
           content: [
-            { type: 'text', text: `${toolName} output that should be compacted` },
+            {
+              type: 'text',
+              text: `${toolName} output that should be compacted`,
+            },
           ],
         },
       );
@@ -263,7 +266,11 @@ describe('browser tool proxy file policy', () => {
         structuredContent: {
           tabs: [
             { index: 0, title: 'Example', url: 'https://example.test/' },
-            { index: 1, title: 'omnibox', url: 'chrome://omnibox-popup.top-chrome/' },
+            {
+              index: 1,
+              title: 'omnibox',
+              url: 'chrome://omnibox-popup.top-chrome/',
+            },
             { index: 2, title: 'New tab', url: 'chrome://new-tab-page/' },
           ],
         },
@@ -284,9 +291,7 @@ describe('browser tool proxy file policy', () => {
         },
       ],
       structuredContent: {
-        tabs: [
-          { index: 0, title: 'Example', url: 'https://example.test/' },
-        ],
+        tabs: [{ index: 0, title: 'Example', url: 'https://example.test/' }],
       },
     });
   });
@@ -306,9 +311,17 @@ describe('browser tool proxy file policy', () => {
       ],
       structuredContent: {
         tabs: [
-          { index: 0, title: 'New Links | Hacker News', url: 'https://news.ycombinator.com/newest' },
+          {
+            index: 0,
+            title: 'New Links | Hacker News',
+            url: 'https://news.ycombinator.com/newest',
+          },
           { index: 1, title: 'New tab', url: 'chrome://new-tab-page/' },
-          { index: 2, title: 'chrome://omnibox-popup.top-chrome', url: 'chrome://omnibox-popup.top-chrome/' },
+          {
+            index: 2,
+            title: 'chrome://omnibox-popup.top-chrome',
+            url: 'chrome://omnibox-popup.top-chrome/',
+          },
           { index: 4, title: 'Example', url: 'https://example.test/' },
         ],
       },

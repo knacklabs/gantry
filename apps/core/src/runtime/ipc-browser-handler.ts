@@ -246,15 +246,12 @@ async function handleBrowserToolAction(
   }
   const session = await ensureBrowserReady({ profileName });
   if (session.port) await ensureBrowserTarget(session.port);
-  console.info(
-    'Browser tool action started',
-    {
-      sourceAgentFolder: context.sourceAgentFolder,
-      profileName,
-      toolName: request.action,
-      url: sanitizeUrlForLog(request.payload.url),
-    },
-  );
+  console.info('Browser tool action started', {
+    sourceAgentFolder: context.sourceAgentFolder,
+    profileName,
+    toolName: request.action,
+    url: sanitizeUrlForLog(request.payload.url),
+  });
   const result = await context.callBrowserTool({
     toolName: request.action,
     arguments: request.payload,
@@ -267,15 +264,12 @@ async function handleBrowserToolAction(
     ),
     timeoutMs: context.timeoutMs,
   });
-  console.info(
-    'Browser tool action completed',
-    {
-      sourceAgentFolder: context.sourceAgentFolder,
-      profileName,
-      toolName: request.action,
-      url: sanitizeUrlForLog(request.payload.url),
-    },
-  );
+  console.info('Browser tool action completed', {
+    sourceAgentFolder: context.sourceAgentFolder,
+    profileName,
+    toolName: request.action,
+    url: sanitizeUrlForLog(request.payload.url),
+  });
   return { ok: true, data: result };
 }
 

@@ -24,7 +24,9 @@ function browserTimeoutMs(args: Record<string, unknown>): number | undefined {
   return Math.max(1_000, Math.min(120_000, Math.trunc(raw)));
 }
 
-function stripRuntimeArgs(args: Record<string, unknown>): Record<string, unknown> {
+function stripRuntimeArgs(
+  args: Record<string, unknown>,
+): Record<string, unknown> {
   const { timeout_ms: _timeoutMs, ...payload } = args;
   return payload;
 }
@@ -90,21 +92,41 @@ const element = z
   .describe('Human-readable element description for audit context.');
 
 export function registerBrowserTools(server: McpServer): void {
-  register(server, 'browser_status', 'Inspect browser status without launching Chrome.', {});
-  register(server, 'browser_launch', 'Launch or reuse the headed browser profile.', {
-    headless: z.boolean().optional(),
-    keep_alive_ms: z.number().optional(),
-  });
+  register(
+    server,
+    'browser_status',
+    'Inspect browser status without launching Chrome.',
+    {},
+  );
+  register(
+    server,
+    'browser_launch',
+    'Launch or reuse the headed browser profile.',
+    {
+      headless: z.boolean().optional(),
+      keep_alive_ms: z.number().optional(),
+    },
+  );
   register(server, 'browser_close', 'Close the browser profile session.', {});
   register(server, 'browser_navigate', 'Navigate to a URL.', {
     url: z.string(),
   });
-  register(server, 'browser_navigate_back', 'Go back to the previous page.', {});
-  register(server, 'browser_tabs', 'List, create, close, or select a browser tab.', {
-    action: z.enum(['list', 'new', 'select', 'close']),
-    index: z.number().optional(),
-    url: z.string().optional(),
-  });
+  register(
+    server,
+    'browser_navigate_back',
+    'Go back to the previous page.',
+    {},
+  );
+  register(
+    server,
+    'browser_tabs',
+    'List, create, close, or select a browser tab.',
+    {
+      action: z.enum(['list', 'new', 'select', 'close']),
+      index: z.number().optional(),
+      url: z.string().optional(),
+    },
+  );
   register(server, 'browser_snapshot', 'Capture an accessibility snapshot.', {
     target: optionalTarget,
     filename: fileName,
@@ -118,18 +140,28 @@ export function registerBrowserTools(server: McpServer): void {
     filename: fileName,
     fullPage: z.boolean().optional(),
   });
-  register(server, 'browser_console_messages', 'Return browser console messages.', {
-    level: z.string().optional(),
-    all: z.boolean().optional(),
-    filename: fileName,
-  });
-  register(server, 'browser_network_requests', 'Return browser network requests.', {
-    static: z.boolean().optional(),
-    requestBody: z.boolean().optional(),
-    requestHeaders: z.boolean().optional(),
-    filter: z.string().optional(),
-    filename: fileName,
-  });
+  register(
+    server,
+    'browser_console_messages',
+    'Return browser console messages.',
+    {
+      level: z.string().optional(),
+      all: z.boolean().optional(),
+      filename: fileName,
+    },
+  );
+  register(
+    server,
+    'browser_network_requests',
+    'Return browser network requests.',
+    {
+      static: z.boolean().optional(),
+      requestBody: z.boolean().optional(),
+      requestHeaders: z.boolean().optional(),
+      filter: z.string().optional(),
+      filename: fileName,
+    },
+  );
   register(server, 'browser_click', 'Click an element.', {
     element,
     target,

@@ -49,7 +49,9 @@ async function closeInternalTargets(
   );
 }
 
-async function listPageTargets(port: number): Promise<Record<string, unknown>[]> {
+async function listPageTargets(
+  port: number,
+): Promise<Record<string, unknown>[]> {
   const list = await cdpJsonRequest(port, '/json/list');
   if (!Array.isArray(list)) return [];
   return list.filter((entry) => {
@@ -83,7 +85,8 @@ export async function ensureBrowserTarget(
     for (const row of pageTargets) {
       const id = typeof row.id === 'string' ? row.id : '';
       const url = typeof row.url === 'string' ? row.url : '';
-      if (id && isInternalChromeTarget(url)) await closeInternalTargets(port, [id]);
+      if (id && isInternalChromeTarget(url))
+        await closeInternalTargets(port, [id]);
     }
     const firstContentPage = pageTargets.find((row) => {
       const url = typeof row.url === 'string' ? row.url : '';

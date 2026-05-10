@@ -126,11 +126,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         : {}),
       ...(args.done !== undefined ? { done: args.done } : {}),
     });
-    const buildProgressOptions = (args: {
-      threadId?: string;
-      done?: boolean;
-      replaceOnly?: boolean;
-    } = {}): ProgressUpdateOptions => ({
+    const buildProgressOptions = (
+      args: {
+        threadId?: string;
+        done?: boolean;
+        replaceOnly?: boolean;
+      } = {},
+    ): ProgressUpdateOptions => ({
       ...(resolveThreadId(args.threadId)
         ? { threadId: resolveThreadId(args.threadId) }
         : {}),
@@ -375,15 +377,15 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let lastAgentProgressAt = startedAt;
     let typingHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let progressTimer: ReturnType<typeof setInterval> | null = null;
-    let progressHeartbeat:
-      | ReturnType<typeof startGroupProgressHeartbeats>
-      | null = null;
+    let progressHeartbeat: ReturnType<
+      typeof startGroupProgressHeartbeats
+    > | null = null;
     let backgroundDemoteTimer: ReturnType<typeof setTimeout> | null = null;
     let backgroundDemoted = false;
     const turnUiToken = Symbol(queueJid);
     const supportsProgress = deps.channelRuntime.supportsProgress(chatJid);
-    const sendDoneProgress = async (state: FinalProgressState) =>
-      (logger.info(
+    const sendDoneProgress = async (state: FinalProgressState) => (
+      logger.info(
         {
           chatJid,
           group: group.name,
@@ -410,7 +412,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             { err, chatJid, group: group.name, state },
             'Progress lifecycle final failed',
           ),
-      }));
+      })
+    );
     let activeGenerationHasOutput = false;
     let sentAnyTurnDoneProgress = false;
     let sentTurnDoneProgressGeneration: number | null = null;

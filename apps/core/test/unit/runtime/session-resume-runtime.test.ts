@@ -69,9 +69,9 @@ describe('session-resume-runtime', () => {
     expect(truncateRuntimeResultSummary('important body', 8)).toBe(
       'important body',
     );
-    expect(
-      truncateRuntimeResultSummary('important body', 8),
-    ).not.toBe('[output truncated; showing tail]');
+    expect(truncateRuntimeResultSummary('important body', 8)).not.toBe(
+      '[output truncated; showing tail]',
+    );
   });
 
   it('redacts completion summaries before storing successful runs', async () => {

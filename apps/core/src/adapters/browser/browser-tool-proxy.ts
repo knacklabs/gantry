@@ -316,9 +316,7 @@ async function getBackendClient(input: {
     .then(async (backend) => {
       if (!pendingEntry.closeOnResolve) return backend;
       await closeCachedBackend(input.key);
-      throw new Error(
-        'Browser backend was closed before it became ready.',
-      );
+      throw new Error('Browser backend was closed before it became ready.');
     })
     .finally(() => {
       pendingBackends.delete(input.key);
