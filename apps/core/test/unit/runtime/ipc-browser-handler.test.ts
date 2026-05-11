@@ -181,6 +181,7 @@ describe('ipc-browser-handler', () => {
     expect(response.ok).toBe(true);
     expect(ensureBrowserReady).toHaveBeenCalledWith({
       profileName: 'c-main-abc123abc123',
+      deadlineAtMs: undefined,
     });
     expect(callBrowserTool).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -831,6 +832,7 @@ describe('ipc-browser-handler', () => {
       profileName: 'default',
       headless: true,
       keepAliveMs: undefined,
+      deadlineAtMs: undefined,
     });
   });
 
@@ -854,6 +856,32 @@ describe('ipc-browser-handler', () => {
     expect(response.ok).toBe(false);
     expect(response.error).toContain('Browser IPC deadline exceeded');
     expect(ensureBrowserReady).not.toHaveBeenCalled();
+  });
+
+  it('passes signed browser IPC deadlines into launch work', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+
+    const response = await processBrowserIpcRequest(
+      {
+        requestId: 'req-launch-deadline',
+        action: 'browser_launch',
+        payload: { headless: true },
+      },
+      {
+        sourceAgentFolder: 'main',
+        browserIpcAuthorized: true,
+        timeoutMs: 2_000,
+      },
+    );
+
+    expect(response.ok).toBe(true);
+    expect(ensureBrowserReady).toHaveBeenCalledWith({
+      profileName: 'default',
+      headless: true,
+      keepAliveMs: undefined,
+      deadlineAtMs: 3_000,
+    });
   });
 
   it('includes tool-capability broker health on browser launch', async () => {
@@ -889,13 +917,14 @@ describe('ipc-browser-handler', () => {
 
     expect(response.ok).toBe(true);
     expect(response.data).toMatchObject({
+      cdpReady: false,
       brokerHealthy: false,
       brokerHealth: {
         status: 'fail',
         message:
           'Could not reach OneCLI at http://localhost:10254: connect ECONNREFUSED',
       },
-      warning: expect.stringContaining('third-party MCP tools can fail'),
+      warning: expect.stringContaining('CDP is not driveable'),
     });
     expect(healthCheck).toHaveBeenCalledWith({
       binding: {
@@ -933,13 +962,13 @@ describe('ipc-browser-handler', () => {
     expect(response.ok).toBe(true);
     expect(response.data).toMatchObject({
       running: true,
-      cdpReady: true,
+      cdpReady: false,
       brokerHealthy: false,
       brokerHealth: {
         status: 'fail',
         message: 'Credential broker health check failed.',
       },
-      warning: expect.stringContaining('third-party MCP tools can fail'),
+      warning: expect.stringContaining('CDP is not driveable'),
     });
   });
 

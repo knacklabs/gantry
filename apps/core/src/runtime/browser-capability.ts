@@ -81,7 +81,7 @@ async function waitForCdpHttp(port: number, timeoutMs: number): Promise<void> {
   const startedAt = currentTimeMs();
   while (currentTimeMs() - startedAt < timeoutMs) {
     if (await isCdpHttpHealthy(port)) return;
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await sleepWithinDeadline(startedAt, timeoutMs, 500);
   }
 
   throw new Error(
@@ -107,12 +107,39 @@ async function waitForDevToolsActivePort(
     } catch {
       // Chrome creates DevToolsActivePort asynchronously after process launch.
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await sleepWithinDeadline(startedAt, timeoutMs, 100);
   }
 
   throw new Error(
     `Chrome did not publish DevToolsActivePort within ${timeoutMs}ms`,
   );
+}
+
+async function sleepWithinDeadline(
+  startedAt: number,
+  timeoutMs: number,
+  maxSleepMs: number,
+): Promise<void> {
+  const elapsedMs = currentTimeMs() - startedAt;
+  const remainingMs = Math.max(0, timeoutMs - elapsedMs);
+  await new Promise((resolve) =>
+    setTimeout(resolve, Math.max(1, Math.min(maxSleepMs, remainingMs))),
+  );
+}
+
+function browserLaunchTimeoutMs(
+  opts: LaunchBrowserOptions,
+  maxTimeoutMs: number,
+): number {
+  const deadlineAtMs = opts.deadlineAtMs;
+  if (typeof deadlineAtMs !== 'number' || !Number.isFinite(deadlineAtMs)) {
+    return maxTimeoutMs;
+  }
+  const remainingMs = Math.trunc(deadlineAtMs - currentTimeMs());
+  if (remainingMs <= 0) {
+    throw new Error('Browser launch deadline exceeded');
+  }
+  return Math.min(maxTimeoutMs, remainingMs);
 }
 
 function isChromeAlive(session: BrowserSession): boolean {
@@ -384,9 +411,17 @@ export async function launchBrowser(
       throw new Error('Failed to launch Chrome process');
     }
 
-    const port = await waitForDevToolsActivePort(profile.userDataDir, 10_000);
-    await waitForCdpHttp(port, 10_000);
-    const targetId = await ensureBrowserTarget(port);
+    const port = await waitForDevToolsActivePort(
+      profile.userDataDir,
+      browserLaunchTimeoutMs(opts, 10_000),
+    );
+    await waitForCdpHttp(port, browserLaunchTimeoutMs(opts, 10_000));
+    const targetId = await ensureBrowserTarget(
+      port,
+      typeof opts.deadlineAtMs === 'number'
+        ? { deadlineAtMs: opts.deadlineAtMs }
+        : undefined,
+    );
 
     const session: BrowserSession = {
       profileName,

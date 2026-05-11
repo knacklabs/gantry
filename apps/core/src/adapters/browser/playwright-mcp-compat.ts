@@ -103,6 +103,7 @@ function parsePlaywrightMcpTabLine(
   const rest = match[2]?.trim() || '';
   const urlMatch = rest.match(/\s((?:https?:\/\/|file:\/\/|about:)[^\s]+)\s*$/);
   const url = urlMatch?.[1] || '';
+  if (!url) return undefined;
   const title = url ? rest.slice(0, -url.length).trim() : rest;
   return {
     index,

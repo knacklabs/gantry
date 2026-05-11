@@ -264,8 +264,9 @@ async function attachToolCapabilityBrokerHealth(
     brokerHealth,
   };
   if (brokerHealth.status !== 'pass') {
+    next.cdpReady = false;
     next.warning = [
-      'Browser CDP may be ready, but third-party MCP tools can fail because the tool-capability credential broker is not healthy.',
+      'Browser CDP is not driveable because the tool-capability credential broker is not healthy.',
       brokerHealth.nextAction,
     ]
       .filter(Boolean)
@@ -310,6 +311,7 @@ async function handleBrowserToolAction(
           min: 10_000,
           max: 3_600_000,
         }),
+        deadlineAtMs: deadline.deadlineAtMs,
       });
       return {
         ok: true,
@@ -328,7 +330,10 @@ async function handleBrowserToolAction(
   }
 
   browserIpcRemainingMs(deadline);
-  const session = await ensureBrowserReady({ profileName });
+  const session = await ensureBrowserReady({
+    profileName,
+    deadlineAtMs: deadline.deadlineAtMs,
+  });
   const cdpOptions = browserCdpOptions(deadline);
   const targetId = session.port
     ? cdpOptions

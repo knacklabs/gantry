@@ -75,7 +75,7 @@ export function projectBrowserTabsResult(
         sessionKey,
       );
     }
-    if (isBrowserTabsMutation && sessionKey)
+    if ((isBrowserTabsList || isBrowserTabsMutation) && sessionKey)
       tabIndexMappings.delete(sessionKey);
     if (isBrowserTabsList) return unsafeBrowserTabsListResult(sessionKey);
     return result;
@@ -92,7 +92,7 @@ export function projectBrowserTabsResult(
         sessionKey,
       );
     }
-    if (isBrowserTabsMutation && sessionKey)
+    if ((isBrowserTabsList || isBrowserTabsMutation) && sessionKey)
       tabIndexMappings.delete(sessionKey);
     if (isBrowserTabsList) return unsafeBrowserTabsListResult(sessionKey);
     return result;

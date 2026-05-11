@@ -3,9 +3,35 @@ import path from 'node:path';
 
 import type { BrowserIpcAction } from '@myclaw/contracts';
 
+const MAX_INLINE_UPLOAD_FILES = 8;
+const MAX_INLINE_UPLOAD_FILE_BYTES = 8 * 1024 * 1024;
+const MAX_INLINE_UPLOAD_TOTAL_BYTES = 32 * 1024 * 1024;
+
 export function ensureBrowserArtifactRoot(dir: string): string {
   fs.mkdirSync(dir, { recursive: true });
   return fs.realpathSync.native(dir);
+}
+
+export function writeBrowserArtifactFileSync(
+  filename: string,
+  content: Buffer | string,
+  encoding?: BufferEncoding,
+): void {
+  const flags =
+    fs.constants.O_WRONLY |
+    fs.constants.O_CREAT |
+    fs.constants.O_TRUNC |
+    (fs.constants.O_NOFOLLOW ?? 0);
+  const fd = fs.openSync(filename, flags, 0o600);
+  try {
+    if (typeof content === 'string') {
+      fs.writeFileSync(fd, content, encoding);
+    } else {
+      fs.writeFileSync(fd, content);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 export function normalizeBrowserFilePayload(
@@ -45,21 +71,39 @@ function materializeBrowserUploadFiles(
   if (!Array.isArray(value)) {
     throw new Error('Browser upload/drop files must be an array.');
   }
-  return value.map((item, index) =>
-    materializeBrowserUploadFile(item, index, fileAccessRoot),
+  if (value.length > MAX_INLINE_UPLOAD_FILES) {
+    throw new Error(
+      `Browser inline uploads are limited to ${MAX_INLINE_UPLOAD_FILES} files.`,
+    );
+  }
+  const files = value.map((item, index) =>
+    parseBrowserUploadFile(item, index, fileAccessRoot),
   );
+  const totalBytes = files.reduce((sum, file) => sum + file.sizeBytes, 0);
+  if (totalBytes > MAX_INLINE_UPLOAD_TOTAL_BYTES) {
+    throw new Error(
+      `Browser inline uploads are limited to ${MAX_INLINE_UPLOAD_TOTAL_BYTES} decoded bytes per request.`,
+    );
+  }
+  return files.map((file) => {
+    writeBrowserArtifactFileSync(file.outputPath, file.bytes);
+    return path.relative(
+      ensureBrowserArtifactRoot(fileAccessRoot),
+      file.outputPath,
+    );
+  });
 }
 
-function materializeBrowserUploadFile(
+function parseBrowserUploadFile(
   value: unknown,
   index: number,
   fileAccessRoot: string,
-): string {
+): { outputPath: string; bytes: Buffer; sizeBytes: number } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Browser upload/drop file entries must be objects.');
   }
   const row = value as Record<string, unknown>;
-  const rawName = stringValue(row.name) || `upload-${index + 1}.txt`;
+  const rawName = uploadFileName(row.name, index);
   const filename = path.join('uploads', rawName);
   const outputPath = resolveBrowserOutputPath(filename, fileAccessRoot);
   const content = row.content;
@@ -67,8 +111,46 @@ function materializeBrowserUploadFile(
     throw new Error('Browser upload/drop file content must be a string.');
   }
   const encoding = row.encoding === 'base64' ? 'base64' : 'utf8';
-  fs.writeFileSync(outputPath, Buffer.from(content, encoding));
-  return path.relative(ensureBrowserArtifactRoot(fileAccessRoot), outputPath);
+  const normalizedContent =
+    encoding === 'base64' ? content.replace(/\s/g, '') : content;
+  if (encoding === 'base64' && !isValidBase64(normalizedContent)) {
+    throw new Error('Browser inline upload base64 content is invalid.');
+  }
+  const sizeBytes = Buffer.byteLength(normalizedContent, encoding);
+  if (sizeBytes > MAX_INLINE_UPLOAD_FILE_BYTES) {
+    throw new Error(
+      `Browser inline upload files are limited to ${MAX_INLINE_UPLOAD_FILE_BYTES} decoded bytes each.`,
+    );
+  }
+  return {
+    outputPath,
+    bytes: Buffer.from(normalizedContent, encoding),
+    sizeBytes,
+  };
+}
+
+function uploadFileName(value: unknown, index: number): string {
+  const raw = stringValue(value) || `upload-${index + 1}.txt`;
+  if (
+    raw !== path.basename(raw) ||
+    raw.includes('/') ||
+    raw.includes('\\') ||
+    raw === '.' ||
+    raw === '..'
+  ) {
+    throw new Error(
+      'Browser inline upload file names must be plain filenames.',
+    );
+  }
+  return raw;
+}
+
+function isValidBase64(value: string): boolean {
+  return (
+    value.length % 4 === 0 &&
+    /^[A-Za-z0-9+/]*={0,2}$/.test(value) &&
+    !/=.+[^=]/.test(value)
+  );
 }
 
 function arrayValue(value: unknown): unknown[] {

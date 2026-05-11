@@ -91,8 +91,11 @@ model, and translates `browser_tabs` select and close requests from those
 visible indices back to the backend's raw tab indices internally. Raw backend
 tab indices must not leak into model-facing structured or text results. Numeric
 select and close requests fail closed unless a current visible-to-backend tab
-mapping exists. Text-only tab lists without `structuredContent.tabs` also fail
-closed instead of presenting backend indices as stable model-facing indices.
+mapping exists. If a backend returns tab metadata only as provider-specific
+text, the browser adapter must first parse it into adapter-owned structured
+metadata, then apply the same visible-index projection; unparseable text-only
+tab lists fail closed instead of presenting backend indices as stable
+model-facing indices.
 Successful tab-set mutations such as close and new invalidate that mapping
 unless the backend returns a fresh structured tab list, which replaces it.
 

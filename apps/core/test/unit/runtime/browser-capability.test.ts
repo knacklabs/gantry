@@ -223,6 +223,24 @@ describe('browser-capability', () => {
     expect(mocks.release).not.toHaveBeenCalled();
   });
 
+  it('fails browser launch when the startup deadline is exhausted', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const manager = await import('@core/runtime/browser-capability.js');
+
+    await expect(manager.launchBrowser({ deadlineAtMs: 999 })).rejects.toThrow(
+      'Browser launch deadline exceeded',
+    );
+
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    const launched = mocks.spawn.mock.results[0]?.value as
+      | { pid: number }
+      | undefined;
+    expect(launched?.pid).toEqual(expect.any(Number));
+    expect(killSpy).toHaveBeenCalledWith(launched?.pid, 'SIGTERM');
+    expect(mocks.release).toHaveBeenCalledTimes(1);
+  });
+
   it('relaunches instead of reusing a process with an unhealthy CDP endpoint', async () => {
     const manager = await import('@core/runtime/browser-capability.js');
     queueHealthyContentTarget('target-1');

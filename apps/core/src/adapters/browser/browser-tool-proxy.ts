@@ -10,7 +10,10 @@ import {
   createBrowserActionMcpServerConfig,
   type BrowserActionMcpServerConfig,
 } from './action-mcp.js';
-import { ensureBrowserArtifactRoot } from './browser-artifact-policy.js';
+import {
+  ensureBrowserArtifactRoot,
+  writeBrowserArtifactFileSync,
+} from './browser-artifact-policy.js';
 import {
   clearBrowserTabIndexMappings,
   projectBrowserTabsResult,
@@ -45,6 +48,7 @@ const TARGET_RESOLUTION_RETRY_ACTIONS = new Set<BrowserIpcAction>([
   'browser_drop',
   'browser_select_option',
   'browser_fill_form',
+  'browser_snapshot',
   'browser_take_screenshot',
   'browser_evaluate',
 ]);
@@ -67,9 +71,6 @@ export async function callBrowserTool(input: {
     options: { outputDir?: string; actionTimeoutMs?: number },
   ) => BrowserActionMcpServerConfig;
 }): Promise<unknown> {
-  const args = normalizePlaywrightMcpPayload(input.toolName, input.arguments, {
-    fileAccessRoot: input.fileAccessRoot,
-  });
   if (
     !input.session.running ||
     !input.session.cdpReady ||
@@ -80,6 +81,9 @@ export async function callBrowserTool(input: {
 
   const cdpEndpoint = `http://127.0.0.1:${input.session.port}`;
   const outputDir = ensureBrowserArtifactRoot(input.fileAccessRoot);
+  const args = normalizePlaywrightMcpPayload(input.toolName, input.arguments, {
+    fileAccessRoot: outputDir,
+  });
   const actionTimeoutMs = browserActionTimeoutMs(input.timeoutMs);
   const deadline = nowMs() + actionTimeoutMs;
   const sessionKey = `${input.session.profileName || 'default'}\0${cdpEndpoint}`;
@@ -204,7 +208,7 @@ function compactLargeBrowserSnapshot(result: unknown, artifactRoot: string) {
   }
   const root = ensureBrowserArtifactRoot(artifactRoot);
   const filename = path.join(root, `snapshot-${nowMs()}.txt`);
-  fs.writeFileSync(filename, text, 'utf8');
+  writeBrowserArtifactFileSync(filename, text, 'utf8');
   const stat = fs.statSync(filename);
   const preview = truncateUtf8(text, SNAPSHOT_PREVIEW_BYTES);
   return {
@@ -355,7 +359,7 @@ function persistInlineScreenshot(
 ): { wroteFile: boolean; mimeType?: string } {
   const image = firstInlineImage(result);
   if (!image) return { wroteFile: false };
-  fs.writeFileSync(filename, Buffer.from(image.data, 'base64'));
+  writeBrowserArtifactFileSync(filename, Buffer.from(image.data, 'base64'));
   return { wroteFile: true, mimeType: image.mimeType };
 }
 

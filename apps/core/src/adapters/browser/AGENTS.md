@@ -34,9 +34,19 @@
 - `browser_file_upload` should accept inline file content and materialize it
   under the run artifact root. Requiring agents to pre-create files there is
   not usable from restricted tool sandboxes.
+- Check browser readiness before materializing inline upload files. A timed-out
+  or unhealthy browser action must not leave background-created files behind.
+  Inline uploads need bounded file count, per-file bytes, total bytes, and plain
+  filenames only.
 - Keep artifact path policy separate from provider argument compatibility.
   File confinement is MyClaw-owned safety policy; Playwright MCP field-shape
   enrichment is backend projection.
+- Text-only backend tab lists are not trusted UI state unless the compatibility
+  layer can parse them into adapter-owned tab metadata. Unparseable tab lists
+  must fail closed and clear stale visible-index mappings.
+- Treat an unhealthy tool-capability broker as a non-driveable browser status
+  for agent tools. Reporting `cdpReady: true` while the credential broker is
+  down is misleading because backend browser actions still cannot run.
 - Browser deadline and artifact timestamp code should use the shared
   datetime helpers (`nowMs`/`nowIso`) instead of direct `Date.now()` or
   `new Date()` current-time reads so runtime timeout behavior stays

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 const requestBrowserAction = vi.hoisted(() => vi.fn());
 
@@ -160,5 +161,36 @@ describe('runner browser MCP projected tools', () => {
     );
     expect(server.schemas.get('browser_fill_form')).toHaveProperty('fields');
     expect(server.schemas.get('browser_file_upload')).toHaveProperty('files');
+  });
+
+  it('keeps projected browser tool schemas parseable for simplified inputs', () => {
+    const server = new TestMcpServer();
+    registerBrowserTools(server as never);
+
+    const fillFormSchema = z.object(
+      server.schemas.get('browser_fill_form') as z.ZodRawShape,
+    );
+    const uploadSchema = z.object(
+      server.schemas.get('browser_file_upload') as z.ZodRawShape,
+    );
+    const snapshotSchema = z.object(
+      server.schemas.get('browser_snapshot') as z.ZodRawShape,
+    );
+
+    expect(
+      fillFormSchema.safeParse({
+        fields: [{ target: 'e1', value: 'Ravi' }],
+      }).success,
+    ).toBe(true);
+    expect(
+      uploadSchema.safeParse({
+        paths: ['existing.txt'],
+        files: [{ name: 'note.txt', content: 'hello' }],
+      }).success,
+    ).toBe(true);
+    expect(
+      snapshotSchema.safeParse({ target: 'e1', filename: 'snapshot.json' })
+        .success,
+    ).toBe(true);
   });
 });

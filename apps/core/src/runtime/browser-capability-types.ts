@@ -2,6 +2,7 @@ export interface LaunchBrowserOptions {
   profileName?: string;
   headless?: boolean;
   keepAliveMs?: number;
+  deadlineAtMs?: number;
 }
 
 export interface BrowserSessionStatus {
