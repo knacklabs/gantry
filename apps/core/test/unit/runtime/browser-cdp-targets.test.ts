@@ -80,8 +80,15 @@ describe('browser CDP target cleanup', () => {
           { id: 'content', type: 'page', url: 'https://example.com' },
           { id: 'omnibox-1', type: 'page', url: 'chrome://omnibox-popup/' },
           { id: 'omnibox-2', type: 'page', url: 'chrome://omnibox-popup/2' },
+          {
+            id: 'omnibox-3',
+            type: 'page',
+            title: 'Omnibox Popup',
+            url: 'about:blank',
+          },
         ]),
       )
+      .mockResolvedValueOnce(textResponse())
       .mockResolvedValueOnce(textResponse())
       .mockResolvedValueOnce(textResponse())
       .mockResolvedValueOnce(
@@ -115,6 +122,10 @@ describe('browser CDP target cleanup', () => {
     );
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:9222/json/close/omnibox-2',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:9222/json/close/omnibox-3',
       expect.objectContaining({ method: 'GET' }),
     );
     expect(cdp.urls).toEqual(['ws://127.0.0.1:9222/devtools/browser/root']);
@@ -392,7 +403,7 @@ describe('browser CDP target cleanup', () => {
         method: 'Browser.setWindowBounds',
         params: {
           windowId: 42,
-          bounds: { width: 1200, height: 800 },
+          bounds: { windowState: 'normal', width: 1200, height: 800 },
         },
       },
     ]);

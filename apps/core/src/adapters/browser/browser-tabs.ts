@@ -1,5 +1,7 @@
 import type { BrowserIpcAction } from '@myclaw/contracts';
 
+import { parsePlaywrightMcpTabListText } from './playwright-mcp-compat.js';
+
 const tabIndexMappings = new Map<string, Map<number, number>>();
 
 export function clearBrowserTabIndexMappings(profileName?: string): void {
@@ -30,13 +32,13 @@ export function translateBrowserTabsInput(
   const mapping = tabIndexMappings.get(sessionKey);
   if (!mapping) {
     throw new Error(
-      `Browser tab ${action} requires a current tab list for index ${visibleIndex}.`,
+      `Browser tab ${action} needs a fresh browser_tabs list before using visible index ${visibleIndex}.`,
     );
   }
   const backendIndex = mapping.get(visibleIndex);
   if (backendIndex === undefined) {
     throw new Error(
-      `Browser tab ${action} index ${visibleIndex} is not visible.`,
+      `Browser tab ${action} index ${visibleIndex} is not in the current visible tab list. Run browser_tabs list to refresh.`,
     );
   }
   return { ...args, index: backendIndex };
@@ -53,6 +55,7 @@ export function projectBrowserTabsResult(
   const record = result as Record<string, unknown>;
   const isBrowserTabsList =
     toolName === 'browser_tabs' && args.action === 'list';
+  const isBrowserTabsAction = toolName === 'browser_tabs';
   const isBrowserTabsMutation =
     toolName === 'browser_tabs' &&
     (args.action === 'close' || args.action === 'new');
@@ -62,6 +65,16 @@ export function projectBrowserTabsResult(
     typeof structuredContent !== 'object' ||
     Array.isArray(structuredContent)
   ) {
+    const parsedTabs = isBrowserTabsAction
+      ? parsePlaywrightMcpTabListText(record.content)
+      : [];
+    if (parsedTabs.length > 0) {
+      return projectStructuredBrowserTabsResult(
+        record,
+        { tabs: parsedTabs },
+        sessionKey,
+      );
+    }
     if (isBrowserTabsMutation && sessionKey)
       tabIndexMappings.delete(sessionKey);
     if (isBrowserTabsList) return unsafeBrowserTabsListResult(sessionKey);
@@ -69,12 +82,35 @@ export function projectBrowserTabsResult(
   }
   const tabs = (structuredContent as { tabs?: unknown }).tabs;
   if (!Array.isArray(tabs)) {
+    const parsedTabs = isBrowserTabsAction
+      ? parsePlaywrightMcpTabListText(record.content)
+      : [];
+    if (parsedTabs.length > 0) {
+      return projectStructuredBrowserTabsResult(
+        record,
+        { ...(structuredContent as Record<string, unknown>), tabs: parsedTabs },
+        sessionKey,
+      );
+    }
     if (isBrowserTabsMutation && sessionKey)
       tabIndexMappings.delete(sessionKey);
     if (isBrowserTabsList) return unsafeBrowserTabsListResult(sessionKey);
     return result;
   }
+  return projectStructuredBrowserTabsResult(
+    record,
+    structuredContent as Record<string, unknown>,
+    sessionKey,
+  );
+}
 
+function projectStructuredBrowserTabsResult(
+  record: Record<string, unknown>,
+  structuredContent: Record<string, unknown>,
+  sessionKey?: string,
+): unknown {
+  const tabs = structuredContent.tabs;
+  if (!Array.isArray(tabs)) return record;
   const indexProjection = new Map<number, number>();
   const userToBackend = new Map<number, number>();
   const projectedTabs = tabs.map((tab, userIndex) => {

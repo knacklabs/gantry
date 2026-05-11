@@ -423,11 +423,19 @@ async function cdpBrowserSessionCommand(
   });
 }
 
-function isInternalChromeTarget(url: string): boolean {
-  const normalized = url.trim().toLowerCase();
+function isInternalChromeTargetText(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
   return (
     normalized.startsWith('chrome://new-tab-page') ||
-    normalized.startsWith('chrome://omnibox-popup')
+    normalized.startsWith('chrome://omnibox-popup') ||
+    normalized === 'omnibox popup' ||
+    normalized.includes('omnibox popup')
+  );
+}
+
+function isInternalChromeTarget(row: Record<string, unknown>): boolean {
+  return [row.url, row.title].some(
+    (value) => typeof value === 'string' && isInternalChromeTargetText(value),
   );
 }
 
@@ -498,6 +506,7 @@ export async function resizeHeadedBrowserWindow(
     {
       windowId,
       bounds: {
+        windowState: 'normal',
         width: normalizedWidth,
         height: normalizedHeight,
       },
@@ -543,8 +552,7 @@ async function closeInternalPageTargets(
     const targets = await listPageTargets(port, options);
     const internalTargets = targets.flatMap((row) => {
       const id = typeof row.id === 'string' ? row.id : '';
-      const url = typeof row.url === 'string' ? row.url : '';
-      return id && isInternalChromeTarget(url) ? [id] : [];
+      return id && isInternalChromeTarget(row) ? [id] : [];
     });
     if (internalTargets.length === 0) return;
     await closeInternalTargets(port, internalTargets, options);
@@ -560,13 +568,11 @@ export async function ensureBrowserTarget(
   if (pageTargets.length > 0) {
     for (const row of pageTargets) {
       const id = typeof row.id === 'string' ? row.id : '';
-      const url = typeof row.url === 'string' ? row.url : '';
-      if (id && isInternalChromeTarget(url))
+      if (id && isInternalChromeTarget(row))
         await closeInternalTargets(port, [id], options);
     }
     const firstContentPage = pageTargets.find((row) => {
-      const url = typeof row.url === 'string' ? row.url : '';
-      return !isInternalChromeTarget(url);
+      return !isInternalChromeTarget(row);
     });
     const id =
       firstContentPage && typeof firstContentPage.id === 'string'

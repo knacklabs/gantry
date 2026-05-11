@@ -88,13 +88,30 @@ const fileName = z
 const target = z
   .string()
   .describe(
-    'Exact target element reference from browser_snapshot, or a unique selector.',
+    'Target handle from the latest browser inspection, or a unique selector.',
   );
 const optionalTarget = target.optional();
 const element = z
   .string()
   .optional()
   .describe('Human-readable element description for audit context.');
+const browserUploadFile = z.object({
+  name: z
+    .string()
+    .optional()
+    .describe('Safe relative filename to create under browser uploads.'),
+  content: z.string().describe('File contents.'),
+  encoding: z.enum(['utf8', 'base64']).optional(),
+});
+const browserFillField = z.object({
+  target,
+  value: z.union([z.string(), z.number(), z.boolean()]),
+  element,
+  name: z.string().optional(),
+  type: z
+    .enum(['textbox', 'checkbox', 'radio', 'combobox', 'slider'])
+    .optional(),
+});
 
 export function registerBrowserTools(server: McpServer): void {
   register(
@@ -206,7 +223,7 @@ export function registerBrowserTools(server: McpServer): void {
     values: z.array(z.string()),
   });
   register(server, 'browser_fill_form', 'Fill multiple form fields.', {
-    fields: z.array(z.record(z.string(), z.unknown())),
+    fields: z.array(browserFillField),
   });
   register(server, 'browser_wait_for', 'Wait for text or time.', {
     time: z.number().optional(),
@@ -221,6 +238,7 @@ export function registerBrowserTools(server: McpServer): void {
   });
   register(server, 'browser_file_upload', 'Upload one or more files.', {
     paths: z.array(z.string()).optional(),
+    files: z.array(browserUploadFile).optional(),
   });
   register(server, 'browser_handle_dialog', 'Handle a browser dialog.', {
     accept: z.boolean(),
