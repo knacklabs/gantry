@@ -1763,6 +1763,14 @@ describe('browser tool proxy file policy', () => {
         fileAccessRoot: root,
       }),
     ).rejects.toThrow('needs a fresh browser_tabs list');
+    await expect(
+      callBrowserTool({
+        toolName: 'browser_tabs',
+        arguments: { action: 'close', index: 0 },
+        session,
+        fileAccessRoot: root,
+      }),
+    ).rejects.toThrow('needs a fresh browser_tabs list');
     expect(browserMcpMocks.clients[0]?.callTool).toHaveBeenCalledTimes(2);
   });
 
