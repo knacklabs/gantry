@@ -22,6 +22,7 @@ import {
 import { isCanonicalBrowserCapabilityRule } from '../../shared/agent-tool-references.js';
 import {
   persistentPermissionToolId,
+  parseReadableScopedToolRule,
   validateReadableAgentToolRule,
 } from '../../shared/agent-tool-references.js';
 import { appendLiveToolRules } from '../../shared/live-tool-rules.js';
@@ -286,20 +287,18 @@ function canonicalPersistentPermissionRules(
 
 function adminMcpToolFullNameFromRule(allowedRule: string): string | null {
   const trimmed = allowedRule.trim();
-  const toolName = trimmed.includes('(')
-    ? trimmed.slice(0, trimmed.indexOf('('))
-    : trimmed;
+  const scoped = parseReadableScopedToolRule(trimmed);
+  const toolName = scoped ? scoped.toolName : trimmed;
   return isAdminMcpToolFullName(toolName) ? toolName : null;
 }
 
 function isBroadHostToolRule(allowedRule: string): boolean {
   const trimmed = allowedRule.trim();
-  const scoped = /^([^()\s]+)\(([^()]*)\)$/.exec(trimmed);
+  const scoped = parseReadableScopedToolRule(trimmed);
   if (scoped) {
-    const toolName = scoped[1]?.trim();
-    const pattern = scoped[2]?.trim();
+    const toolName = scoped.toolName;
+    const pattern = scoped.scope;
     return (
-      !!toolName &&
       BROAD_HOST_TOOL_GRANTS.has(toolName) &&
       (pattern === '*' ||
         pattern === '**' ||

@@ -46,6 +46,20 @@ describe('autonomous tool rule matcher', () => {
     });
   });
 
+  it('matches scoped Bash commands that contain parentheses in the command', () => {
+    const rule = 'Bash(git -C ~/Workdir/myclaw log --grep="fix(permissions)")';
+    expect(validateAutonomousToolRule(rule)).toMatchObject({ ok: true });
+    expect(
+      evaluateAutonomousToolUse({
+        rules: [rule],
+        toolName: 'Bash',
+        toolInput: {
+          command: 'git -C ~/Workdir/myclaw log --grep="fix(permissions)"',
+        },
+      }),
+    ).toMatchObject({ allowed: true, matchedRule: rule });
+  });
+
   it('allows exact Bash to cover any Bash input only when configured', () => {
     expect(
       evaluateAutonomousToolUse({

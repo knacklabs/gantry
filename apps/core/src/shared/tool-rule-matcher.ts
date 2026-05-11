@@ -1,11 +1,11 @@
 import {
   isCanonicalBrowserCapabilityRule,
   isKnownProjectedBrowserMcpToolName,
+  parseReadableScopedToolRule,
 } from './agent-tool-references.js';
 
 const MCP_WILDCARD_RE = /^mcp__([A-Za-z0-9_-]+)__\*$/;
 const MCP_EXACT_RE = /^mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+$/;
-const SCOPED_RULE_RE = /^([^()\s]+)\(([^()]*)\)$/;
 
 type ScopeValueKind = 'literal' | 'url';
 
@@ -246,12 +246,12 @@ export function evaluateAutonomousToolUse(input: {
 function parseToolRule(rule: string): ParsedToolRule | null {
   const value = rule.trim();
   if (!value) return null;
-  const scoped = SCOPED_RULE_RE.exec(value);
+  const scoped = parseReadableScopedToolRule(value);
   if (scoped) {
     return {
       kind: 'scoped',
-      toolName: scoped[1].trim(),
-      scope: scoped[2].trim(),
+      toolName: scoped.toolName,
+      scope: scoped.scope,
     };
   }
   if (value.includes('(') || value.includes(')')) return null;

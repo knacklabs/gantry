@@ -88,6 +88,47 @@ describe('request permission review helpers', () => {
     expect(repository.saveTool.mock.calls[0]?.[0].id).not.toBe('tool:Bash');
   });
 
+  it('persists scoped Bash permission rules whose command contains parentheses', async () => {
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+    const repository = {
+      getTool: vi.fn(async () => null),
+      listTools: vi.fn(async () => []),
+      saveTool: vi.fn(async () => undefined),
+      saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+
+    const ruleContent =
+      'git -C ~/Workdir/myclaw log --format=%s --grep="fix(permissions)"';
+    const persisted = await persistRequestPermissionRules({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      deps: {
+        getToolRepository: () => repository as never,
+        mirrorAgentToolRulesToSettings,
+      },
+      sourceAgentFolder: 'main_agent',
+      updates: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'Bash', ruleContent }],
+        },
+      ],
+    });
+
+    const readableRule = `Bash(${ruleContent})`;
+    expect(persisted).toEqual([readableRule]);
+    expect(repository.saveTool).toHaveBeenCalledWith(
+      expect.objectContaining({ name: readableRule }),
+    );
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      [readableRule],
+      { appId: 'app:test' },
+    );
+  });
+
   it('binds exact admin MCP tools without creating synthetic wildcard grants', async () => {
     const repository = {
       getTool: vi.fn(async () => ({

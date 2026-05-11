@@ -6,7 +6,6 @@ import {
 } from './admin-mcp-tools.js';
 
 const MCP_WILDCARD_RE = /^mcp__[A-Za-z0-9_-]+__\*$/;
-const SCOPED_RULE_RE = /^([^()\s]+)\(([^()]*)\)$/;
 const RAW_BROWSER_BACKEND_MCP_TOOL_PREFIXES = [
   'mcp__agent_browser__',
   'mcp__playwright__',
@@ -49,22 +48,34 @@ export const BROWSER_ACTION_MCP_RULE_REJECTION_REASON =
 export const BROWSER_PROJECTED_MCP_RULE_REJECTION_REASON =
   'Concrete MyClaw browser tools are runtime projections, not durable capabilities; persist the canonical Browser tool capability instead.';
 
+export function parseReadableScopedToolRule(
+  value: string,
+): { toolName: string; scope: string } | null {
+  const rule = value.trim();
+  const open = rule.indexOf('(');
+  if (open <= 0 || !rule.endsWith(')')) return null;
+  const toolName = rule.slice(0, open).trim();
+  const scope = rule.slice(open + 1, -1).trim();
+  if (!toolName || /\s/.test(toolName)) return null;
+  return { toolName, scope };
+}
+
 export function isBrowserActionMcpToolRule(value: string): boolean {
   const rule = value.trim();
-  const scoped = SCOPED_RULE_RE.exec(rule);
-  const toolName = scoped ? scoped[1]?.trim() : rule;
+  const scoped = parseReadableScopedToolRule(rule);
+  const toolName = scoped ? scoped.toolName : rule;
   return RAW_BROWSER_BACKEND_MCP_TOOL_PREFIXES.some((prefix) =>
-    toolName?.startsWith(prefix),
+    toolName.startsWith(prefix),
   );
 }
 
 export function isProjectedBrowserMcpToolRule(value: string): boolean {
   const rule = value.trim();
-  const scoped = SCOPED_RULE_RE.exec(rule);
-  const toolName = scoped ? scoped[1]?.trim() : rule;
+  const scoped = parseReadableScopedToolRule(rule);
+  const toolName = scoped ? scoped.toolName : rule;
   return (
     toolName === MYCLAW_BROWSER_TOOL_PREFIX ||
-    Boolean(toolName?.startsWith(`${MYCLAW_BROWSER_TOOL_PREFIX}_`))
+    toolName.startsWith(`${MYCLAW_BROWSER_TOOL_PREFIX}_`)
   );
 }
 
@@ -138,12 +149,12 @@ export function validateReadableAgentToolRule(
         'Persistent MyClaw MCP wildcard grants are not supported; request one exact mcp__myclaw__ tool.',
     };
   }
-  const scoped = SCOPED_RULE_RE.exec(rule);
+  const scoped = parseReadableScopedToolRule(rule);
   if (scoped) {
-    if (!scoped[1]?.trim() || !scoped[2]?.trim()) {
+    if (!scoped.scope) {
       return { ok: false, reason: 'Scoped tool rule cannot be empty.' };
     }
-    if (isAdminMcpToolFullName(scoped[1].trim())) {
+    if (isAdminMcpToolFullName(scoped.toolName)) {
       return {
         ok: false,
         reason:
@@ -170,9 +181,9 @@ export function validateReadableAgentToolRule(
 
 function isBrowserAliasOrScopedRule(rule: string): boolean {
   if (rule === BROWSER_CANONICAL_TOOL_NAME) return false;
-  const scoped = SCOPED_RULE_RE.exec(rule);
-  const toolName = scoped ? scoped[1]?.trim() : rule;
-  const normalized = toolName?.toLowerCase();
+  const scoped = parseReadableScopedToolRule(rule);
+  const toolName = scoped ? scoped.toolName : rule;
+  const normalized = toolName.toLowerCase();
   return (
     normalized === BROWSER_CANONICAL_TOOL_NAME.toLowerCase() ||
     normalized === `tool:${BROWSER_CANONICAL_TOOL_NAME.toLowerCase()}`
