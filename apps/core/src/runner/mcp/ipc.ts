@@ -21,6 +21,8 @@ import {
   MEMORY_REQUESTS_DIR,
   MEMORY_RESPONSES_DIR,
   TASK_RESPONSES_DIR,
+  agentId,
+  appId,
   chatJid,
   memoryDefaultScope,
   memoryIpcAllowedActions,
@@ -63,6 +65,8 @@ export function writeIpcFile(dir: string, data: object): string {
       : {};
   const requestContext = {
     ...existingContext,
+    ...(appId ? { appId } : {}),
+    ...(agentId ? { agentId } : {}),
     ...(threadId ? { threadId } : {}),
     ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
   };

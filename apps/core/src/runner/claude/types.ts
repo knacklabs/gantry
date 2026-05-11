@@ -7,6 +7,8 @@ import type { AgentPersona } from '../../shared/agent-persona.js';
 
 export interface AgentRunnerInput {
   prompt: string;
+  appId?: string;
+  agentId?: string;
   sessionId?: string;
   groupFolder: string;
   chatJid: string;

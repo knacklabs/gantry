@@ -14,11 +14,19 @@ const IPC_AUTH_SECRET =
     return generated;
   })();
 
-function authScope(workspaceKey: string, threadId?: string | null): string {
+function authScope(
+  workspaceKey: string,
+  threadId?: string | null,
+  scope?: { appId?: string | null; agentId?: string | null },
+): string {
   const normalizedThreadId = threadId?.trim();
-  return normalizedThreadId
+  const threadScope = normalizedThreadId
     ? `${workspaceKey}\0thread\0${normalizedThreadId}`
     : workspaceKey;
+  const normalizedAppId = scope?.appId?.trim();
+  const normalizedAgentId = scope?.agentId?.trim();
+  if (!normalizedAppId && !normalizedAgentId) return threadScope;
+  return `${threadScope}\0app\0${normalizedAppId || ''}\0agent\0${normalizedAgentId || ''}`;
 }
 
 function normalizedThreadId(threadId?: string | null): string {
@@ -43,9 +51,10 @@ export function responseSigningKeyId(publicKeyPem: string): string {
 export function computeIpcAuthToken(
   workspaceKey: string,
   threadId?: string | null,
+  scope?: { appId?: string | null; agentId?: string | null },
 ): string {
   return createHmac('sha256', IPC_AUTH_SECRET)
-    .update(authScope(workspaceKey, threadId))
+    .update(authScope(workspaceKey, threadId, scope))
     .digest('hex');
 }
 
@@ -132,9 +141,10 @@ export function validateIpcAuthToken(
   workspaceKey: string,
   candidateToken: string,
   threadId?: string | null,
+  scope?: { appId?: string | null; agentId?: string | null },
 ): boolean {
   if (!candidateToken) return false;
-  const expected = computeIpcAuthToken(workspaceKey, threadId);
+  const expected = computeIpcAuthToken(workspaceKey, threadId, scope);
   if (candidateToken.length !== expected.length) return false;
   return timingSafeEqual(Buffer.from(candidateToken), Buffer.from(expected));
 }
@@ -142,6 +152,7 @@ export function validateIpcAuthToken(
 export function createIpcAuthEnvelope(
   workspaceKey: string,
   threadId?: string | null,
+  scope?: { appId?: string | null; agentId?: string | null },
 ): {
   authToken: string;
   responseVerifyKey: string;
@@ -155,7 +166,7 @@ export function createIpcAuthEnvelope(
     ...keys,
   });
   return {
-    authToken: computeIpcAuthToken(workspaceKey, threadId),
+    authToken: computeIpcAuthToken(workspaceKey, threadId, scope),
     responseVerifyKey: keys.publicKeyPem,
     responseKeyId,
   };

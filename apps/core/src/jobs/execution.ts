@@ -355,12 +355,15 @@ export async function runJob(
             query: currentJob.prompt,
           }),
         );
+        const executionAppId =
+          turnContext?.appId ?? eventAppSession?.appId ?? runtimeAppId;
+        const executionAgentId =
+          turnContext?.agentId ??
+          agentIdForJobGroupScope(execution.group.folder);
         const effectiveAllowedTools = await resolveExecutionAllowedTools({
           job: currentJob,
-          appId: turnContext?.appId ?? eventAppSession?.appId ?? runtimeAppId,
-          agentId:
-            turnContext?.agentId ??
-            agentIdForJobGroupScope(execution.group.folder),
+          appId: executionAppId,
+          agentId: executionAgentId,
           toolRepository: deps.getToolRepository?.(),
         });
         agentRunId = turnContext?.agentSessionId
@@ -377,6 +380,8 @@ export async function runJob(
             groupFolder: execution.group.folder,
             chatJid: execution.executionJid,
             threadId: execution.threadId || undefined,
+            appId: executionAppId,
+            agentId: executionAgentId,
             persona: execution.group.agentConfig?.persona,
             memoryUserId,
             memoryDefaultScope,

@@ -76,8 +76,13 @@ export function isCanonicalBrowserCapabilityRule(value: string): boolean {
   return value.trim() === BROWSER_CANONICAL_TOOL_NAME;
 }
 
-export function persistentPermissionToolId(allowedRule: string): string {
-  const digest = createHash('sha256').update(allowedRule).digest('hex');
+export function persistentPermissionToolId(
+  appId: string,
+  allowedRule: string,
+): string {
+  const digest = createHash('sha256')
+    .update(`${appId}\0${allowedRule}`)
+    .digest('hex');
   return `tool:permission-rule:${digest}`;
 }
 

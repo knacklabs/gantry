@@ -15,6 +15,8 @@ import type { AgentPersona } from '../shared/agent-persona.js';
 
 export interface AgentInput {
   prompt: string;
+  appId?: string;
+  agentId?: string;
   model?: string;
   sessionId?: string;
   groupFolder: string;

@@ -285,12 +285,16 @@ export function parsePermissionIpcRequest(
   sourceAgentFolder: string,
 ): PermissionApprovalRequest {
   if (!isPlainObject(raw)) throw new Error('Invalid permission IPC payload');
-  const { authThreadId: threadId, responseKeyId } = validateIpcAuthRequest(
+  const binding = validateIpcAuthRequest(
     raw,
     sourceAgentFolder,
     'permission IPC',
   );
-  if (!responseKeyId) {
+  const appId = binding.appId;
+  if (!appId) {
+    throw new Error('permission IPC context.appId is required');
+  }
+  if (!binding.responseKeyId) {
     throw new Error('permission IPC responseKeyId is required');
   }
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
@@ -307,16 +311,19 @@ export function parsePermissionIpcRequest(
   const blockedPath = toTrimmedString(raw.blockedPath, { maxLen: 2048 });
   const toolUseID = toTrimmedString(raw.toolUseID, { maxLen: 200 });
   const agentID = toTrimmedString(raw.agentID, { maxLen: 200 });
+  const agentId = binding.agentId;
   const subagentType = toTrimmedString(raw.subagentType, { maxLen: 200 });
   const toolInput = sanitizeToolInput(raw.toolInput);
   const suggestions = parsePermissionApprovalUpdates(raw.suggestions);
 
   return {
     requestId,
+    appId,
+    ...(agentId ? { agentId } : {}),
     ...(responseNonce ? { responseNonce } : {}),
     sourceAgentFolder,
-    ...(threadId ? { threadId } : {}),
-    ...(responseKeyId ? { responseKeyId } : {}),
+    ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
+    ...(binding.responseKeyId ? { responseKeyId: binding.responseKeyId } : {}),
     toolName,
     ...(toolUseID ? { toolUseID } : {}),
     ...(agentID ? { agentID } : {}),

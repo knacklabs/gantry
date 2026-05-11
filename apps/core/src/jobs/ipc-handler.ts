@@ -65,6 +65,15 @@ export async function processTaskIpc(
           return undefined;
         }
       }),
+    getPermissionRepository:
+      deps.getPermissionRepository ??
+      (() => {
+        try {
+          return getRuntimeStorage().repositories.permissions;
+        } catch {
+          return undefined;
+        }
+      }),
     getJobControl:
       deps.getJobControl ??
       (() => adaptJobControl(getRuntimeControlRepository())),

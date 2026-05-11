@@ -22,6 +22,7 @@ import {
   adminCapabilityRequiredMessage,
   sourceAgentHasAdminToolCapability,
 } from './ipc-admin-authorization.js';
+import { memoryAgentIdForGroupFolder } from '../memory/app-memory-boundaries.js';
 
 function validateSameChannelApprovalTarget(input: {
   data: Parameters<TaskHandler>[0]['data'];
@@ -110,6 +111,8 @@ export const serviceRestartHandler: TaskHandler = async (context) => {
       'Agent requested a runtime service restart.';
     const decision = await deps.requestPermissionApproval({
       requestId: `service-restart-${randomUUID()}`,
+      appId: data.appId as never,
+      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
       sourceAgentFolder,
       targetJid: requestedTargetJid,
       threadId: data.authThreadId,
@@ -299,6 +302,8 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
     try {
       const decision = await deps.requestPermissionApproval({
         requestId: `settings-${randomUUID()}`,
+        appId: data.appId as never,
+        agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
         sourceAgentFolder,
         targetJid: requestedTargetJid,
         threadId: data.authThreadId,

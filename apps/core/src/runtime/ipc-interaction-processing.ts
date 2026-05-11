@@ -4,6 +4,7 @@ import type {
   PermissionApprovalRequest,
   UserQuestionRequest,
 } from '../domain/types.js';
+import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
 import { archiveIpcErrorFile } from './ipc-filesystem.js';
 import { getIpcResponseSigningPrivateKey } from './ipc-auth.js';
 import type { IpcDeps } from './ipc-domain-types.js';
@@ -118,6 +119,50 @@ export async function processPermissionInteractionIpc(input: {
     const decision = await processPermissionIpcRequest(input.request, {
       requestPermissionApproval: input.deps.requestPermissionApproval,
     });
+    const permissionService = new PermissionManagementService();
+    if (
+      decision.approved === true &&
+      decision.mode === 'allow_persistent_rule' &&
+      decision.decisionClassification === 'user_permanent' &&
+      (decision.updatedPermissions?.length ?? 0) > 0
+    ) {
+      const updatedPermissions = decision.updatedPermissions ?? [];
+      const toolRepository = input.deps.getToolRepository?.();
+      const mirrorAgentToolRulesToSettings =
+        input.deps.mirrorAgentToolRulesToSettings;
+      if (!toolRepository || !mirrorAgentToolRulesToSettings) {
+        throw new Error(
+          'Persistent permission approval requires tool repository and settings mirror',
+        );
+      }
+      await permissionService.applyPersistentToolRuleGrant({
+        appId: input.request.appId as never,
+        agentId: (input.request.agentId ??
+          `agent:${input.sourceAgentFolder}`) as never,
+        sourceAgentFolder: input.sourceAgentFolder,
+        updates: updatedPermissions,
+        toolRepository,
+        mirrorAgentToolRulesToSettings,
+        permissionRepository: input.deps.getPermissionRepository?.(),
+        ipcDir: pathForGroupIpc(input.ipcBaseDir, input.sourceAgentFolder),
+        requestId: input.request.requestId,
+        actor: decision.decidedBy,
+        conversationId: input.request.targetJid,
+        threadId: input.request.threadId,
+        reason: decision.reason,
+      });
+    } else {
+      await permissionService.recordDecision({
+        appId: input.request.appId as never,
+        agentId: input.request.agentId as never,
+        requestId: input.request.requestId,
+        toolName: input.request.toolName,
+        decision,
+        permissionRepository: input.deps.getPermissionRepository?.(),
+        conversationId: input.request.targetJid,
+        threadId: input.request.threadId,
+      });
+    }
     writePermissionIpcResponse(
       input.ipcBaseDir,
       input.sourceAgentFolder,
@@ -159,6 +204,13 @@ export async function processPermissionInteractionIpc(input: {
       input.claimedPath,
     );
   }
+}
+
+function pathForGroupIpc(
+  ipcBaseDir: string,
+  sourceAgentFolder: string,
+): string {
+  return `${ipcBaseDir}/${sourceAgentFolder}`;
 }
 
 export async function processUserQuestionInteractionIpc(input: {

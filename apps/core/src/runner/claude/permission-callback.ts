@@ -7,13 +7,19 @@ import { hasValidIpcResponseSignature } from './ipc-signing.js';
 import { createSignedIpcRequestEnvelope } from './ipc-signing.js';
 import {
   IPC_AUTH_TOKEN,
+  AGENT_ID,
+  APP_ID,
   IPC_RESPONSE_KEY_ID,
   PERMISSION_REQUEST_TIMEOUT_MS,
   resolveGroupIpcDir,
 } from './runtime-env.js';
 import type { PermissionDecision } from './types.js';
 
+const DEFAULT_RUNNER_APP_ID = 'default';
+
 export async function requestPermissionApproval(options: {
+  appId?: string;
+  agentId?: string;
   groupFolder: string;
   toolName: string;
   title?: string;
@@ -28,6 +34,8 @@ export async function requestPermissionApproval(options: {
   threadId?: string;
 }): Promise<PermissionDecision> {
   try {
+    const appId = options.appId?.trim() || APP_ID || DEFAULT_RUNNER_APP_ID;
+    const agentId = options.agentId?.trim() || AGENT_ID;
     const groupIpcDir = resolveGroupIpcDir(options.groupFolder);
     const permissionRequestsDir = path.join(groupIpcDir, 'permission-requests');
     const permissionResponsesDir = path.join(
@@ -42,6 +50,8 @@ export async function requestPermissionApproval(options: {
     const requestTmpPath = `${requestPath}.tmp`;
     const payload = {
       requestId,
+      appId,
+      ...(agentId ? { agentId } : {}),
       responseNonce,
       sourceAgentFolder: options.groupFolder,
       toolName: options.toolName,
@@ -60,6 +70,8 @@ export async function requestPermissionApproval(options: {
       ...(options.suggestions ? { suggestions: options.suggestions } : {}),
       ...(options.threadId ? { threadId: options.threadId } : {}),
       context: {
+        appId,
+        ...(agentId ? { agentId } : {}),
         ...(options.threadId ? { threadId: options.threadId } : {}),
         ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
       },

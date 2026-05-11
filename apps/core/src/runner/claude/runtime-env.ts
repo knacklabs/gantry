@@ -22,6 +22,8 @@ export const IPC_INTERACTION_BOUNDARY_DIR = path.join(
   'interaction-boundaries',
 );
 export const IPC_AUTH_TOKEN = process.env.MYCLAW_IPC_AUTH_TOKEN || '';
+export const APP_ID = process.env.MYCLAW_APP_ID?.trim() || '';
+export const AGENT_ID = process.env.MYCLAW_AGENT_ID?.trim() || '';
 export const IPC_RESPONSE_VERIFY_KEY =
   process.env.MYCLAW_IPC_RESPONSE_VERIFY_KEY || '';
 export const IPC_RESPONSE_KEY_ID = process.env.MYCLAW_IPC_RESPONSE_KEY_ID || '';

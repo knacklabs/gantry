@@ -28,6 +28,7 @@ async function loadHandlers(runtimeHome: string) {
       const envelope = ipcAuth.createIpcAuthEnvelope('main_agent', threadId);
       return {
         taskId,
+        appId: 'app:test',
         ...(threadId ? { authThreadId: threadId } : {}),
         responseKeyId: envelope.responseKeyId,
         ...extra,
@@ -74,14 +75,20 @@ function depsWithAdminTools(
   extra: Record<string, unknown> = {},
 ) {
   return {
-    ...extra,
     getToolRepository: () => ({
       listAgentToolBindings: async () =>
         toolNames.map((toolName) => ({
           status: 'active',
           toolId: `tool:${toolName}`,
         })),
+      getTool: async (toolId: string) => ({
+        id: toolId,
+        appId: 'app:test',
+        status: 'active',
+        selectable: true,
+      }),
     }),
+    ...extra,
   };
 }
 

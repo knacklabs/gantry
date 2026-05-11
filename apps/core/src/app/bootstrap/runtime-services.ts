@@ -36,6 +36,7 @@ import type {
 } from '../../domain/repositories/ops-repo.js';
 import type {
   OutboundDeliveryRepository,
+  PermissionRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
 import type { SessionMemoryCollector } from '../../domain/ports/session-memory-collector.js';
@@ -79,6 +80,7 @@ interface Deps {
   mcpHostnameLookup?: HostnameLookup;
   collectSessionMemory: SessionMemoryCollector;
   getToolRepository: () => ToolCatalogRepository;
+  getPermissionRepository?: () => PermissionRepository;
   settingsRepositories?: AgentToolRuleSettingsRepositories;
   getOutboundDeliveryRepository?: () => OutboundDeliveryRepository | undefined;
   startOutboundDeliveryRecoveryLoop: typeof startOutboundDeliveryRecoveryLoop;
@@ -88,7 +90,7 @@ interface Deps {
 }
 type RuntimeServicesDefaults = Omit<
   Deps,
-  'opsRepository' | 'getToolRepository'
+  'opsRepository' | 'getToolRepository' | 'getPermissionRepository'
 >;
 export type RuntimeServicesOptions = {
   app: RuntimeApp;
@@ -153,7 +155,8 @@ function createGroupSnapshotSync(app: RuntimeApp, deps: Deps): () => void {
 export async function startRuntimeServices(
   options: RuntimeServicesOptions,
   deps: Partial<RuntimeServicesDefaults> &
-    Pick<Deps, 'opsRepository' | 'getToolRepository'>,
+    Pick<Deps, 'opsRepository' | 'getToolRepository'> &
+    Partial<Pick<Deps, 'getPermissionRepository'>>,
 ): Promise<void> {
   const resolved: Deps = {
     ...makeDefaultDeps(),
@@ -209,6 +212,7 @@ export async function startRuntimeServices(
     onSchedulerChanged,
     opsRepository: resolved.opsRepository,
     getToolRepository: resolved.getToolRepository,
+    getPermissionRepository: resolved.getPermissionRepository,
     mirrorAgentToolRulesToSettings: createAgentToolRuleSettingsMirror({
       opsRepository: resolved.opsRepository,
       repositories: resolved.settingsRepositories,

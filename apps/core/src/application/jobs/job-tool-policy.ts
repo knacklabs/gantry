@@ -152,6 +152,7 @@ export async function resolveAgentToolBindings(input: {
     activeBindings.map((binding) => input.repository?.getTool(binding.toolId)),
   );
   const rules = tools.flatMap((tool) => {
+    if (tool?.appId && tool.appId !== input.appId) return [];
     const name = tool?.name?.trim();
     return name ? [name] : [];
   });

@@ -103,6 +103,7 @@ export class AgentCapabilityAdministrationService {
     );
     const configuredTools = activeToolBindings.flatMap((binding, index) => {
       const tool = selectedTools[index];
+      if (tool?.appId && tool.appId !== input.appId) return [];
       return tool
         ? [displayToolReference({ toolId: binding.toolId, tool })]
         : [];

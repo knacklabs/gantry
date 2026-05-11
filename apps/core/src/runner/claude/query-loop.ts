@@ -294,6 +294,8 @@ export async function runQuery(
         }
         emitInteractionBoundary();
         const decision = await requestPermissionApproval({
+          appId: agentInput.appId,
+          agentId: agentInput.agentId,
           groupFolder: agentInput.groupFolder,
           toolName,
           title: permissionOpts.title,

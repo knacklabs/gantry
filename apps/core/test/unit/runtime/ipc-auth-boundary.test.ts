@@ -18,6 +18,7 @@ import { stopIpcWatcher, validateIpcAuthRequest } from '@core/runtime/ipc.js';
 import {
   parseBrowserIpcRequest,
   parseMemoryIpcRequest,
+  parsePermissionIpcRequest,
 } from '@core/runtime/ipc-parsing.js';
 import { parseTaskIpcData } from '@core/runtime/ipc-task-parsing.js';
 
@@ -28,7 +29,26 @@ function signedPayload(
   sourceAgentFolder = 'team',
   threadId?: string,
 ): Record<string, unknown> {
-  const signingKey = computeIpcAuthToken(sourceAgentFolder, threadId);
+  const context =
+    payload.context &&
+    typeof payload.context === 'object' &&
+    !Array.isArray(payload.context)
+      ? (payload.context as Record<string, unknown>)
+      : {};
+  const signingKey = computeIpcAuthToken(sourceAgentFolder, threadId, {
+    appId:
+      typeof context.appId === 'string'
+        ? context.appId
+        : typeof payload.appId === 'string'
+          ? payload.appId
+          : undefined,
+    agentId:
+      typeof context.agentId === 'string'
+        ? context.agentId
+        : typeof payload.agentId === 'string'
+          ? payload.agentId
+          : undefined,
+  });
   return {
     ...payload,
     signature: signIpcRequestPayload(signingKey, payload),
@@ -505,6 +525,63 @@ describe('validateIpcAuthRequest', () => {
         { ...signed, requestId: 'perm-2-tampered' },
         'team',
         'permission IPC',
+      ),
+    ).toThrow(/Invalid permission IPC signature/);
+  });
+
+  it('requires signed app scope for permission IPC payloads', () => {
+    const base = {
+      requestId: 'perm-app-scope',
+      responseNonce: randomUUID(),
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      sourceAgentFolder: 'team',
+      toolName: 'Bash',
+      context: { responseKeyId: TEST_RESPONSE_KEY_ID },
+    };
+
+    expect(() =>
+      parsePermissionIpcRequest(signedPayload(base), 'team'),
+    ).toThrow(/context\.appId is required/);
+
+    const scoped = {
+      ...base,
+      requestId: 'perm-app-scope-mismatch',
+      appId: 'app:one',
+      context: { responseKeyId: TEST_RESPONSE_KEY_ID, appId: 'app:two' },
+    };
+    expect(() =>
+      parsePermissionIpcRequest(signedPayload(scoped), 'team'),
+    ).toThrow(/appId mismatch/);
+  });
+
+  it('rejects permission IPC app scope tampering after signing', () => {
+    const payload = {
+      requestId: 'perm-app-signed',
+      responseNonce: randomUUID(),
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      sourceAgentFolder: 'team',
+      toolName: 'Bash',
+      context: {
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        appId: 'app:one',
+        agentId: 'agent:one',
+      },
+    };
+    const signed = signedPayload(payload);
+
+    expect(() =>
+      parsePermissionIpcRequest(
+        {
+          ...signed,
+          context: {
+            responseKeyId: TEST_RESPONSE_KEY_ID,
+            appId: 'app:two',
+            agentId: 'agent:one',
+          },
+        },
+        'team',
       ),
     ).toThrow(/Invalid permission IPC signature/);
   });

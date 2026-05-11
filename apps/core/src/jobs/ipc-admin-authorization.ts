@@ -1,7 +1,4 @@
-import {
-  DEFAULT_MEMORY_APP_ID,
-  memoryAgentIdForGroupFolder,
-} from '../memory/app-memory-boundaries.js';
+import { memoryAgentIdForGroupFolder } from '../memory/app-memory-boundaries.js';
 import type { TaskContext } from './ipc-types.js';
 import {
   adminMcpToolFullName,
@@ -10,20 +7,27 @@ import {
 } from '../shared/admin-mcp-tools.js';
 
 export async function sourceAgentHasAdminToolCapability(
-  context: Pick<TaskContext, 'deps' | 'sourceAgentFolder'>,
+  context: Pick<TaskContext, 'data' | 'deps' | 'sourceAgentFolder'>,
   toolName: AdminMcpToolName,
 ): Promise<boolean> {
   const repository = context.deps.getToolRepository?.();
-  if (!repository) return false;
+  if (!repository || !context.data.appId) return false;
   const fullName = adminMcpToolFullName(toolName);
   const toolId = adminMcpToolIdForFullName(fullName);
   const bindings = await repository.listAgentToolBindings({
-    appId: DEFAULT_MEMORY_APP_ID as never,
+    appId: context.data.appId as never,
     agentId: memoryAgentIdForGroupFolder(context.sourceAgentFolder) as never,
   });
-  return bindings.some(
+  const hasActiveBinding = bindings.some(
     (binding) =>
       binding.status === 'active' && String(binding.toolId) === toolId,
+  );
+  if (!hasActiveBinding) return false;
+  const tool = await repository.getTool(toolId as never);
+  return (
+    tool?.appId === context.data.appId &&
+    tool.status === 'active' &&
+    tool.selectable === true
   );
 }
 

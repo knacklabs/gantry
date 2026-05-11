@@ -32,6 +32,7 @@ async function loadAdminHandlers(runtimeHome: string) {
       const envelope = ipcAuth.createIpcAuthEnvelope('main_agent', threadId);
       return {
         taskId,
+        appId: 'app:test',
         ...(threadId ? { authThreadId: threadId } : {}),
         responseKeyId: envelope.responseKeyId,
         ...extra,
@@ -69,14 +70,20 @@ function depsWithAdminTools(
     onSchedulerChanged: vi.fn(() => undefined),
     requestUserAnswer: vi.fn(async () => ({ response: '' })),
     opsRepository: {},
-    ...extra,
     getToolRepository: () => ({
       listAgentToolBindings: async () =>
         toolNames.map((toolName) => ({
           status: 'active',
           toolId: `tool:${toolName}`,
         })),
+      getTool: async (toolId: string) => ({
+        id: toolId,
+        appId: 'app:test',
+        status: 'active',
+        selectable: true,
+      }),
     }),
+    ...extra,
   };
 }
 
@@ -222,6 +229,91 @@ describe('admin IPC handlers', () => {
       error: expect.stringContaining(
         'runtime projections, not durable capabilities',
       ),
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('rejects request_skill_proposal without signed app scope before importing a draft', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'U_APPROVER',
+    }));
+    const data = taskData('skill-missing-app', {
+      type: 'request_skill_proposal',
+      chatJid: 'sl:C123',
+      payload: {
+        reason: 'missing app scope',
+        files: [{ path: 'SKILL.md', content: '# Test skill' }],
+      },
+    });
+    delete data.appId;
+
+    await adminTaskHandlers.request_skill_proposal({
+      data: data as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], { requestPermissionApproval }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(readResponse(runtimeHome, 'skill-missing-app')).toMatchObject({
+      ok: false,
+      code: 'forbidden',
+      error: 'Skill draft requests require signed app scope.',
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('rejects admin capability when the selected tool belongs to another app', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'U_APPROVER',
+    }));
+
+    await adminTaskHandlers.register_agent({
+      data: taskData('register-cross-app', {
+        chatJid: 'sl:C123',
+        jid: 'sl:C123',
+        name: 'Ops',
+        folder: 'ops_agent',
+        trigger: '@Ops',
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools(['mcp__myclaw__register_agent'], {
+        requestPermissionApproval,
+        getToolRepository: () => ({
+          listAgentToolBindings: async () => [
+            {
+              status: 'active',
+              toolId: 'tool:mcp__myclaw__register_agent',
+            },
+          ],
+          getTool: async () => ({
+            appId: 'other-app',
+            status: 'active',
+            selectable: true,
+          }),
+        }),
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(readResponse(runtimeHome, 'register-cross-app')).toMatchObject({
+      ok: false,
+      code: 'missing_capability',
     });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });

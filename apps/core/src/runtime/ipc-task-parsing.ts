@@ -375,6 +375,9 @@ export function parseTaskIpcData(
   if (threadBinding.authThreadId) {
     parsed.authThreadId = threadBinding.authThreadId;
   }
+  if (threadBinding.appId) {
+    parsed.appId = threadBinding.appId;
+  }
   if (threadBinding.responseKeyId) {
     parsed.responseKeyId = threadBinding.responseKeyId;
   }

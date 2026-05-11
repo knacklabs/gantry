@@ -15,12 +15,10 @@ import { nowIso } from '../shared/time/datetime.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import { TaskContext, TaskHandler } from './ipc-types.js';
-import {
-  DEFAULT_MEMORY_APP_ID,
-  memoryAgentIdForGroupFolder,
-} from '../memory/app-memory-boundaries.js';
+import { memoryAgentIdForGroupFolder } from '../memory/app-memory-boundaries.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { parseSkillDraftAssets } from './skill-draft-ipc.js';
+import { startSkillPermissionReview } from './ipc-skill-permission-review.js';
 import { getHostRuntimeCredentialEnv } from '../runtime/agent-spawn-host.js';
 import {
   isPermanentPermissionDecision,
@@ -88,6 +86,7 @@ const refreshGroupsHandler: TaskHandler = async (context) => {
 const registerAgentHandler: TaskHandler = async (context) => {
   const { data, sourceAgentFolder, deps, sourceAgentFolderJids } = context;
   const { accept, reject } = createContextTaskResponder(context);
+  if (!data.appId) { reject('Agent registration requires signed app scope.', 'forbidden'); return; }
   if (!(await sourceAgentHasAdminToolCapability(context, 'register_agent'))) { logger.warn({ sourceAgentFolder }, 'Unauthorized register_agent attempt blocked'); reject(adminCapabilityRequiredMessage('register_agent'), 'missing_capability'); return; }
   if (!data.jid || !data.name || !data.folder || !data.trigger) { logger.warn({ data }, 'Invalid register_agent request - missing required fields'); reject('Missing required fields: jid, name, folder, trigger.', 'invalid_request'); return; }
   const requestedTargetJid = validateSameChannelApprovalTarget({ data, sourceAgentFolderJids, requestKind: 'Agent registration', reject });
@@ -98,6 +97,8 @@ const registerAgentHandler: TaskHandler = async (context) => {
   const reason = toTrimmedString(data.payload?.reason, { maxLen: 2000 }) || `Register ${data.name} for ${data.jid}.`;
   const decision = await deps.requestPermissionApproval({
     requestId: `register-agent-${globalThis.crypto.randomUUID()}`,
+    appId: data.appId as never,
+    agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
     sourceAgentFolder,
     targetJid: requestedTargetJid,
     threadId: data.authThreadId,
@@ -111,14 +112,26 @@ const registerAgentHandler: TaskHandler = async (context) => {
   });
   if (!decision.approved || !decision.decidedBy) { const message = `Rejected agent registration: ${decision.reason || 'not approved'}.`; reject(message, 'permission_denied'); await deps.sendMessage(requestedTargetJid, message, data.authThreadId ? { threadId: data.authThreadId } : undefined); return; }
   await deps.registerGroup(data.jid, { name: data.name, folder: data.folder, trigger: data.trigger, added_at: nowIso(), agentConfig: data.agentConfig, requiresTrigger: data.requiresTrigger });
-  await syncApprovedCapabilitySettings();
+  await syncApprovedCapabilitySettings(data.appId as never);
   accept(`Agent "${data.name}" registered.`);
 };
 
 const requestMcpServerHandler: TaskHandler = async (context) => {
   const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
   const { acceptData, reject } = createContextTaskResponder(context);
+  if (!data.appId) {
+    reject('MCP tool listing requires signed app scope.', 'forbidden');
+    return;
+  }
   const payload = data.payload || {};
+  if (!data.appId) {
+    reject('Skill draft requests require signed app scope.', 'forbidden');
+    return;
+  }
+  if (!data.appId) {
+    reject('MCP server requests require signed app scope.', 'forbidden');
+    return;
+  }
   const name = toTrimmedString(payload.name, { maxLen: 80 });
   const transport = toTrimmedString(payload.transport, { maxLen: 32 });
   const origin = toTrimmedString(payload.origin, { maxLen: 2048 });
@@ -170,7 +183,7 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
   try {
     const config = { transport, url: origin };
     const created = await service.createDraft({
-      appId: DEFAULT_MEMORY_APP_ID as never,
+      appId: data.appId as never,
       name,
       createdBy: `agent:${sourceAgentFolder}`,
       createdSource: 'agent_request',
@@ -188,6 +201,8 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
       deps,
       responder: { acceptData, reject },
       service,
+      appId: data.appId as never,
+      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
       sourceAgentFolder,
       targetJid: requestedTargetJid,
       threadId: data.authThreadId,
@@ -209,6 +224,10 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
 const mcpListToolsHandler: TaskHandler = async (context) => {
   const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
   const { acceptData, reject } = createContextTaskResponder(context);
+  if (!data.appId) {
+    reject('MCP tool listing requires signed app scope.', 'forbidden');
+    return;
+  }
   const requestedTargetJid = validateSameChannelApprovalTarget({
     data,
     sourceAgentFolderJids,
@@ -221,7 +240,7 @@ const mcpListToolsHandler: TaskHandler = async (context) => {
     const serverName = toTrimmedString(payload.serverName, { maxLen: 80 });
     const proxy = await createMcpProxyForSourceGroup(sourceAgentFolder, deps);
     const result = await proxy.listTools({
-      appId: DEFAULT_MEMORY_APP_ID as never,
+      appId: data.appId as never,
       agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
       ...(serverName ? { serverName } : {}),
     });
@@ -237,6 +256,10 @@ const mcpListToolsHandler: TaskHandler = async (context) => {
 const mcpCallToolHandler: TaskHandler = async (context) => {
   const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
   const { acceptData, reject } = createContextTaskResponder(context);
+  if (!data.appId) {
+    reject('MCP tool calls require signed app scope.', 'forbidden');
+    return;
+  }
   const requestedTargetJid = validateSameChannelApprovalTarget({
     data,
     sourceAgentFolderJids,
@@ -263,7 +286,7 @@ const mcpCallToolHandler: TaskHandler = async (context) => {
         : {};
     const proxy = await createMcpProxyForSourceGroup(sourceAgentFolder, deps);
     const result = await proxy.callTool({
-      appId: DEFAULT_MEMORY_APP_ID as never,
+      appId: data.appId as never,
       agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
       serverName,
       toolName,
@@ -282,6 +305,10 @@ const requestSkillDraftHandler: TaskHandler = async (context) => {
   const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
   const { acceptData, reject } = createContextTaskResponder(context);
   const payload = data.payload || {};
+  if (!data.appId) {
+    reject('Skill draft requests require signed app scope.', 'forbidden');
+    return;
+  }
   const reason = toTrimmedString(payload.reason, { maxLen: 2000 }) || '';
   if (!reason) {
     reject('Missing required field: reason.', 'invalid_request');
@@ -318,7 +345,7 @@ const requestSkillDraftHandler: TaskHandler = async (context) => {
   );
   try {
     const draft = await service.importDraft({
-      appId: DEFAULT_MEMORY_APP_ID as never,
+      appId: data.appId as never,
       agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
       fallbackName: 'agent-created-skill',
       createdBy: `agent:${sourceAgentFolder}`,
@@ -329,6 +356,9 @@ const requestSkillDraftHandler: TaskHandler = async (context) => {
       deps,
       responder,
       service,
+      syncApprovedCapabilitySettings,
+      appId: data.appId as never,
+      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
       sourceAgentFolder,
       targetJid: requestedTargetJid,
       threadId: data.authThreadId,
@@ -371,10 +401,11 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
   const toolName = data.type as RequestOnlyCapabilityToolName;
   const parsed = parseRequestOnlyCapabilityReview(toolName, data.payload || {});
   if (!parsed.ok) { reject(parsed.error, 'invalid_request'); return; }
+  if (!data.appId) { reject(`${parsed.review.requestKind} requests require signed app scope.`, 'forbidden'); return; }
   const requestedTargetJid = validateSameChannelApprovalTarget({ data, sourceAgentFolderJids, requestKind: parsed.review.requestKind, reject });
   if (!requestedTargetJid) return;
   if (typeof deps.requestPermissionApproval !== 'function' || typeof deps.sendMessage !== 'function') { reject(`${parsed.review.requestKind} requests require a configured approval surface.`, 'preflight_failed'); return; }
-  startRequestOnlyCapabilityReview({ deps, sourceAgentFolder, targetJid: requestedTargetJid, threadId: data.authThreadId, ipcDir: context.ipcBaseDir ? path.join(context.ipcBaseDir, sourceAgentFolder) : undefined, runHandle: data.runHandle, review: parsed.review });
+  startRequestOnlyCapabilityReview({ deps, appId: data.appId as never, agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never, sourceAgentFolder, targetJid: requestedTargetJid, threadId: data.authThreadId, ipcDir: context.ipcBaseDir ? path.join(context.ipcBaseDir, sourceAgentFolder) : undefined, runHandle: data.runHandle, review: parsed.review });
   accept(requestOnlyCapabilityQueuedMessage(parsed.review), 'capability_request_recorded');
 };
 
@@ -502,12 +533,15 @@ function capabilityDisplayValue(payload: Record<string, unknown>, spec: (typeof 
 }
 
 // prettier-ignore
-function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>[0]['deps']; sourceAgentFolder: string; targetJid: string; threadId?: string; ipcDir?: string; runHandle?: string; review: RequestOnlyCapabilityReview }): void {
+function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>[0]['deps']; appId: import('../domain/app/app.js').AppId; agentId: import('../domain/agent/agent.js').AgentId; sourceAgentFolder: string; targetJid: string; threadId?: string; ipcDir?: string; runHandle?: string; review: RequestOnlyCapabilityReview }): void {
   void (async () => {
     let message: string;
     try {
+      const requestId = `capability-${input.review.toolName}-${globalThis.crypto.randomUUID()}`;
       const decision = await input.deps.requestPermissionApproval({
-        requestId: `capability-${input.review.toolName}-${globalThis.crypto.randomUUID()}`,
+        requestId,
+        appId: input.appId,
+        agentId: input.agentId,
         sourceAgentFolder: input.sourceAgentFolder,
         targetJid: input.targetJid,
         threadId: input.threadId,
@@ -529,7 +563,7 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
       const reason = decision.approved ? 'missing approving principal' : decision.reason || 'not approved';
       let persistedRules: string[] = [];
       if (input.review.toolName === 'request_permission' && isPermanentPermissionDecision(decision)) {
-        persistedRules = await persistRequestPermissionRules({ deps: input.deps, sourceAgentFolder: input.sourceAgentFolder, ipcDir: input.ipcDir, runHandle: input.runHandle, updates: decision.updatedPermissions ?? [] });
+        persistedRules = await persistRequestPermissionRules({ deps: input.deps, appId: input.appId, agentId: input.agentId, sourceAgentFolder: input.sourceAgentFolder, ipcDir: input.ipcDir, runHandle: input.runHandle, requestId, updates: decision.updatedPermissions ?? [], actor: decision.decidedBy, conversationId: input.targetJid, threadId: input.threadId, reason: decision.reason });
       }
       message = decision.approved && decision.decidedBy
         ? persistedRules.length
@@ -572,7 +606,7 @@ function headerNameForCredentialNeed(credentialNeed: string): string {
 }
 
 // prettier-ignore
-function startMcpPermissionReview(input: { deps: Parameters<TaskHandler>[0]['deps']; responder: Pick<ReturnType<typeof createTaskResponder>, 'acceptData' | 'reject'>; service: McpServerService; sourceAgentFolder: string; targetJid: string; threadId?: string; server: { id: string; name: string }; transport: string; origin: string; requestedToolPatterns: string[]; credentialNeeds: string[]; reason: string }): void {
+function startMcpPermissionReview(input: { deps: Parameters<TaskHandler>[0]['deps']; responder: Pick<ReturnType<typeof createTaskResponder>, 'acceptData' | 'reject'>; service: McpServerService; appId: import('../domain/app/app.js').AppId; agentId: import('../domain/agent/agent.js').AgentId; sourceAgentFolder: string; targetJid: string; threadId?: string; server: { id: string; name: string }; transport: string; origin: string; requestedToolPatterns: string[]; credentialNeeds: string[]; reason: string }): void {
   void completeMcpPermissionReview(input).catch((err) => {
     logger.error(
       { err, serverId: input.server.id, sourceAgentFolder: input.sourceAgentFolder },
@@ -590,6 +624,8 @@ async function completeMcpPermissionReview(
 ): Promise<void> {
   const decision = await input.deps.requestPermissionApproval({
     requestId: `mcp-${globalThis.crypto.randomUUID()}`,
+    appId: input.appId,
+    agentId: input.agentId,
     sourceAgentFolder: input.sourceAgentFolder,
     targetJid: input.targetJid,
     threadId: input.threadId,
@@ -621,16 +657,16 @@ async function completeMcpPermissionReview(
   }
 
   await input.service.approveDraft({
-    appId: DEFAULT_MEMORY_APP_ID as never,
+    appId: input.appId,
     serverId: input.server.id as never,
     approvedBy: decision.decidedBy,
   });
   await input.service.bindToAgent({
-    appId: DEFAULT_MEMORY_APP_ID as never,
-    agentId: memoryAgentIdForGroupFolder(input.sourceAgentFolder) as never,
+    appId: input.appId,
+    agentId: input.agentId,
     serverId: input.server.id as never,
   });
-  await syncApprovedCapabilitySettings();
+  await syncApprovedCapabilitySettings(input.appId);
   const sameSessionContext = {
     type: 'approved_mcp_context',
     activation: 'current_and_future_sessions',
@@ -664,7 +700,7 @@ async function rejectMcpDraftFromPermission(
   reason?: string,
 ): Promise<void> {
   await input.service.rejectDraft({
-    appId: DEFAULT_MEMORY_APP_ID as never,
+    appId: input.appId,
     serverId: input.server.id as never,
     rejectedBy: 'permission_review',
     reason,
@@ -696,186 +732,13 @@ async function createMcpProxyForSourceGroup(
   });
 }
 
-function startSkillPermissionReview(input: {
-  deps: Parameters<TaskHandler>[0]['deps'];
-  responder: Pick<
-    ReturnType<typeof createTaskResponder>,
-    'acceptData' | 'reject'
-  >;
-  service: SkillDraftService;
-  sourceAgentFolder: string;
-  targetJid: string;
-  threadId?: string;
-  skill: {
-    id: string;
-    name: string;
-    description?: string;
-    contentHash?: string;
-  };
-  assets: Array<{
-    path: string;
-    contentType?: string;
-    content: Uint8Array;
-  }>;
-  fileSummaries: Array<{
-    path: string;
-    sizeBytes: number;
-    contentHash: string;
-  }>;
-  skillMarkdownPreview: {
-    path: string;
-    content: string;
-    truncated: boolean;
-    contentHash: string;
-  };
-  totalSizeBytes: number;
-  reason: string;
-  requestToolName: 'request_skill_proposal';
-}): void {
-  void completeSkillPermissionReview(input).catch((err) => {
-    logger.error(
-      {
-        err,
-        skillId: input.skill.id,
-        sourceAgentFolder: input.sourceAgentFolder,
-      },
-      'Skill permission review failed',
-    );
-    input.responder.reject(
-      err instanceof Error ? err.message : 'Skill permission review failed.',
-      'permission_review_failed',
-    );
-  });
-}
-
-async function completeSkillPermissionReview(
-  input: Parameters<typeof startSkillPermissionReview>[0],
+async function syncApprovedCapabilitySettings(
+  appId: import('../domain/app/app.js').AppId,
 ): Promise<void> {
-  const decision = await input.deps.requestPermissionApproval({
-    requestId: `skill-${globalThis.crypto.randomUUID()}`,
-    sourceAgentFolder: input.sourceAgentFolder,
-    targetJid: input.targetJid,
-    threadId: input.threadId,
-    decisionPolicy: 'same_channel',
-    toolName: input.requestToolName,
-    displayName: `Skill: ${input.skill.name}`,
-    title: 'Approve skill for this agent',
-    description:
-      'Only configured approvers can decide this request. Approving binds this skill, returns it to the current agent run, and materializes it for future runs.',
-    decisionReason: input.reason,
-    toolInput: {
-      skillId: input.skill.id,
-      name: input.skill.name,
-      description: input.skill.description,
-      packageContentHash: input.skill.contentHash,
-      skillMarkdownPreview: input.skillMarkdownPreview,
-      files: input.fileSummaries,
-      totalSizeBytes: input.totalSizeBytes,
-      activation: 'current_and_future_sessions',
-    },
-  });
-
-  if (!decision.approved) {
-    await rejectSkillDraftFromPermission(input, decision.reason);
-    return;
-  }
-  if (!decision.decidedBy) {
-    await rejectSkillDraftFromPermission(input, 'missing approving principal');
-    return;
-  }
-
-  await input.service.approveDraft({
-    appId: DEFAULT_MEMORY_APP_ID as never,
-    skillId: input.skill.id as never,
-    approvedBy: decision.decidedBy,
-  });
-  await input.service.bindSkillToAgent({
-    appId: DEFAULT_MEMORY_APP_ID as never,
-    agentId: memoryAgentIdForGroupFolder(input.sourceAgentFolder) as never,
-    skillId: input.skill.id as never,
-  });
-  await syncApprovedCapabilitySettings();
-  const sameSessionContext = buildApprovedSkillSameSessionContext(input);
-  await input.deps.sendMessage(
-    input.targetJid,
-    `Approved skill ${input.skill.name}. It has been returned to the running agent and will also be available in future sessions.`,
-    input.threadId ? { threadId: input.threadId } : undefined,
-  );
-  input.responder.acceptData(
-    `Approved skill ${input.skill.name}. It is available in this current run and future sessions.`,
-    sameSessionContext,
-    'skill_approved',
-  );
-}
-
-async function syncApprovedCapabilitySettings(): Promise<void> {
   await syncRuntimeSettingsFromProjection({
     runtimeHome: MYCLAW_HOME,
     ops: getRuntimeRepositories(),
     repositories: getRuntimeStorage().repositories,
-    appId: DEFAULT_MEMORY_APP_ID as never,
+    appId,
   });
-}
-
-async function rejectSkillDraftFromPermission(
-  input: Parameters<typeof startSkillPermissionReview>[0],
-  reason?: string,
-): Promise<void> {
-  await input.service.rejectDraft({
-    appId: DEFAULT_MEMORY_APP_ID as never,
-    skillId: input.skill.id as never,
-    rejectedBy: 'permission_review',
-  });
-  await input.deps.sendMessage(
-    input.targetJid,
-    `Rejected skill ${input.skill.name}: ${reason || 'not approved'}.`,
-    input.threadId ? { threadId: input.threadId } : undefined,
-  );
-  input.responder.reject(
-    `Rejected skill ${input.skill.name}: ${reason || 'not approved'}.`,
-    'permission_denied',
-  );
-}
-
-function buildApprovedSkillSameSessionContext(
-  input: Parameters<typeof startSkillPermissionReview>[0],
-): {
-  type: 'approved_skill_context';
-  activation: 'current_and_future_sessions';
-  skill: {
-    id: string;
-    name: string;
-    description?: string;
-    contentHash?: string;
-  };
-  files: Array<{
-    path: string;
-    contentType?: string;
-    content: string;
-    contentHash?: string;
-    sizeBytes?: number;
-  }>;
-} {
-  const summariesByPath = new Map(
-    input.fileSummaries.map((summary) => [summary.path, summary]),
-  );
-  return {
-    type: 'approved_skill_context',
-    activation: 'current_and_future_sessions',
-    skill: input.skill,
-    files: input.assets.map((asset) => {
-      const summary = summariesByPath.get(asset.path);
-      return {
-        path: asset.path,
-        ...(asset.contentType ? { contentType: asset.contentType } : {}),
-        content: Buffer.from(asset.content).toString('utf-8'),
-        ...(summary
-          ? {
-              contentHash: summary.contentHash,
-              sizeBytes: summary.sizeBytes,
-            }
-          : {}),
-      };
-    }),
-  };
 }

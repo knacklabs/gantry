@@ -44,6 +44,8 @@ export const IPC_RESPONSE_KEY_ID = process.env.MYCLAW_IPC_RESPONSE_KEY_ID || '';
 
 export const chatJid = process.env.MYCLAW_CHAT_JID!;
 export const groupFolder = process.env.MYCLAW_GROUP_FOLDER!;
+export const appId = process.env.MYCLAW_APP_ID?.trim() || undefined;
+export const agentId = process.env.MYCLAW_AGENT_ID?.trim() || undefined;
 export const threadId = process.env.MYCLAW_THREAD_ID?.trim() || undefined;
 export const memoryUserId =
   process.env.MYCLAW_MEMORY_USER_ID?.trim() || undefined;

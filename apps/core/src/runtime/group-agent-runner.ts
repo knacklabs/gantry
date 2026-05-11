@@ -306,6 +306,8 @@ export function createGroupAgentRunner(input: {
           group,
           {
             prompt,
+            ...(turnContext?.appId ? { appId: turnContext.appId } : {}),
+            ...(turnContext?.agentId ? { agentId: turnContext.agentId } : {}),
             chatJid,
             threadId: options?.memoryContext?.threadId,
             memoryUserId: options?.memoryContext?.userId,

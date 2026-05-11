@@ -25,7 +25,7 @@ export async function ensureAgentToolCatalogItem(input: {
   const validation = validateReadableAgentToolRule(allowedRule);
   if (!validation.ok) throw new Error(validation.reason);
   const item: ToolCatalogItem = {
-    id: persistentPermissionToolId(allowedRule) as ToolId,
+    id: persistentPermissionToolId(input.appId, allowedRule) as ToolId,
     appId: input.appId,
     name: allowedRule,
     kind: 'host',

@@ -57,6 +57,8 @@ async function requestJobExtraToolApproval(
   }
   const decision = await context.deps.requestPermissionApproval({
     requestId: `job-tools-${randomUUID()}`,
+    appId: request.target.appId as never,
+    agentId: request.target.agentId as never,
     sourceAgentFolder: context.sourceAgentFolder,
     targetJid: approvalTarget.targetJid,
     threadId: context.data.authThreadId,

@@ -119,6 +119,7 @@ export async function startMyClawRuntime(
       mcpHostnameLookup,
       opsRepository: storage.ops,
       getToolRepository: () => storage.repositories.tools,
+      getPermissionRepository: () => storage.repositories.permissions,
       settingsRepositories: storage.repositories,
       getOutboundDeliveryRepository: () =>
         storage.repositories.outboundDeliveries,

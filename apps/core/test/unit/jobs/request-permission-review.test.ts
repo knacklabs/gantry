@@ -45,7 +45,7 @@ describe('request permission review helpers', () => {
     ).toBeUndefined();
   });
 
-  it('stores synthetic permission tools under namespaced ids without widening oversized rules', async () => {
+  it('stores scoped synthetic permission tools under namespaced ids without widening oversized rules', async () => {
     const repository = {
       getTool: vi.fn(async () => null),
       listTools: vi.fn(async () => []),
@@ -55,13 +55,15 @@ describe('request permission review helpers', () => {
     };
 
     const persisted = await persistRequestPermissionRules({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
       deps: depsWith(repository),
       sourceAgentFolder: 'agent:one',
       updates: [
         {
           type: 'addRules',
           behavior: 'allow',
-          rules: [{ toolName: 'Bash' }],
+          rules: [{ toolName: 'Bash', ruleContent: 'npm test *' }],
         },
         {
           type: 'addRules',
@@ -76,11 +78,11 @@ describe('request permission review helpers', () => {
       ],
     });
 
-    expect(persisted).toEqual(['Bash']);
+    expect(persisted).toEqual(['Bash(npm test *)']);
     expect(repository.saveTool).toHaveBeenCalledWith(
       expect.objectContaining({
         id: expect.stringMatching(/^tool:permission-rule:/),
-        name: 'Bash',
+        name: 'Bash(npm test *)',
       }),
     );
     expect(repository.saveTool.mock.calls[0]?.[0].id).not.toBe('tool:Bash');
@@ -90,6 +92,7 @@ describe('request permission review helpers', () => {
     const repository = {
       getTool: vi.fn(async () => ({
         id: 'tool:mcp__myclaw__service_restart',
+        appId: 'app:test',
         status: 'active',
         selectable: true,
       })),
@@ -99,6 +102,8 @@ describe('request permission review helpers', () => {
     };
 
     const persisted = await persistRequestPermissionRules({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
       deps: depsWith(repository),
       sourceAgentFolder: 'main_agent',
       updates: [
@@ -130,7 +135,7 @@ describe('request permission review helpers', () => {
       listTools: vi.fn(async () => [
         {
           id: 'tool:Browser',
-          appId: 'default',
+          appId: 'app:test',
           name: 'Browser',
           status: 'active',
           selectable: true,
@@ -142,6 +147,8 @@ describe('request permission review helpers', () => {
     };
 
     const persisted = await persistRequestPermissionRules({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
       deps: {
         getToolRepository: () => repository as never,
         mirrorAgentToolRulesToSettings,
@@ -160,14 +167,48 @@ describe('request permission review helpers', () => {
     expect(repository.saveTool).not.toHaveBeenCalled();
     expect(repository.saveAgentToolBinding).toHaveBeenCalledWith(
       expect.objectContaining({
-        agentId: 'agent:main_agent',
+        agentId: 'agent:test',
         toolId: 'tool:Browser',
         status: 'active',
       }),
     );
-    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith('main_agent', [
-      'Browser',
-    ]);
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      ['Browser'],
+      { appId: 'app:test' },
+    );
+  });
+
+  it('rejects exact catalog approvals from a different app', async () => {
+    const repository = {
+      getTool: vi.fn(async () => ({
+        id: 'tool:Browser',
+        appId: 'default',
+        status: 'active',
+        selectable: true,
+      })),
+      listTools: vi.fn(async () => []),
+      saveTool: vi.fn(async () => undefined),
+      saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+
+    await expect(
+      persistRequestPermissionRules({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
+        deps: depsWith(repository),
+        sourceAgentFolder: 'main_agent',
+        updates: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'Browser' }],
+          },
+        ],
+      }),
+    ).rejects.toThrow('unavailable for persistent approval');
+    expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
   });
 
   it('does not suggest persistent grants for raw agent_browser request_permission', () => {
@@ -204,7 +245,7 @@ describe('request permission review helpers', () => {
       listTools: vi.fn(async () => [
         {
           id: 'tool:Browser',
-          appId: 'default',
+          appId: 'app:test',
           name: 'Browser',
           status: 'active',
           selectable: true,
@@ -217,6 +258,8 @@ describe('request permission review helpers', () => {
 
     await expect(
       persistRequestPermissionRules({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
         deps: {
           getToolRepository: () => repository as never,
           mirrorAgentToolRulesToSettings,
@@ -249,6 +292,8 @@ describe('request permission review helpers', () => {
 
     await expect(
       persistRequestPermissionRules({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
         deps: {
           getToolRepository: () => repository as never,
           mirrorAgentToolRulesToSettings,
@@ -276,7 +321,7 @@ describe('request permission review helpers', () => {
       listTools: vi.fn(async () => [
         {
           id: 'tool:Browser',
-          appId: 'default',
+          appId: 'app:test',
           name: 'Browser',
           status: 'active',
           selectable: true,
@@ -288,6 +333,8 @@ describe('request permission review helpers', () => {
     };
 
     const persisted = await persistRequestPermissionRules({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
       deps: {
         getToolRepository: () => repository as never,
         mirrorAgentToolRulesToSettings,
@@ -307,9 +354,11 @@ describe('request permission review helpers', () => {
     expect(repository.saveAgentToolBinding).toHaveBeenCalledWith(
       expect.objectContaining({ toolId: 'tool:Browser' }),
     );
-    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith('main_agent', [
-      'Browser',
-    ]);
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      ['Browser'],
+      { appId: 'app:test' },
+    );
   });
 
   it('writes approved persistent rules to the current run live permission file', async () => {
@@ -325,6 +374,8 @@ describe('request permission review helpers', () => {
     };
 
     const persisted = await persistRequestPermissionRules({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
       deps: depsWith(repository),
       sourceAgentFolder: 'main_agent',
       ipcDir,
@@ -360,18 +411,53 @@ describe('request permission review helpers', () => {
 
     await expect(
       persistRequestPermissionRules({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
         deps: { getToolRepository: () => repository as never },
         sourceAgentFolder: 'main_agent',
         updates: [
           {
             type: 'addRules',
             behavior: 'allow',
-            rules: [{ toolName: 'Bash' }],
+            rules: [{ toolName: 'Bash', ruleContent: 'npm test *' }],
           },
         ],
       }),
     ).rejects.toThrow('Settings mirror unavailable');
     expect(repository.saveTool).not.toHaveBeenCalled();
+    expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
+  });
+
+  it('rejects broad scoped host-tool grants from chat approval', async () => {
+    const repository = {
+      getTool: vi.fn(async () => null),
+      listTools: vi.fn(async () => []),
+      saveTool: vi.fn(async () => undefined),
+      saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+
+    for (const [toolName, ruleContent] of [
+      ['Bash', '*'],
+      ['Read', '**'],
+      ['Write', '/**'],
+    ] as const) {
+      await expect(
+        persistRequestPermissionRules({
+          appId: 'app:test' as never,
+          agentId: 'agent:test' as never,
+          deps: depsWith(repository),
+          sourceAgentFolder: 'main_agent',
+          updates: [
+            {
+              type: 'addRules',
+              behavior: 'allow',
+              rules: [{ toolName, ruleContent }],
+            },
+          ],
+        }),
+      ).rejects.toThrow('Broad persistent host-tool grants');
+    }
     expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
   });
 
@@ -392,6 +478,8 @@ describe('request permission review helpers', () => {
 
     await expect(
       persistRequestPermissionRules({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
         deps: {
           getToolRepository: () => repository as never,
           mirrorAgentToolRulesToSettings,
@@ -403,7 +491,7 @@ describe('request permission review helpers', () => {
           {
             type: 'addRules',
             behavior: 'allow',
-            rules: [{ toolName: 'Bash' }],
+            rules: [{ toolName: 'Bash', ruleContent: 'npm test *' }],
           },
         ],
       }),
@@ -411,7 +499,7 @@ describe('request permission review helpers', () => {
     expect(repository.saveAgentToolBinding).toHaveBeenCalledOnce();
     expect(repository.disableAgentToolBinding).toHaveBeenCalledWith(
       expect.objectContaining({
-        agentId: 'agent:main_agent',
+        agentId: 'agent:test',
         toolId: expect.stringMatching(/^tool:permission-rule:/),
       }),
     );
@@ -430,6 +518,8 @@ describe('request permission review helpers', () => {
 
     await expect(
       persistRequestPermissionRules({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
         deps: depsWith(repository),
         sourceAgentFolder: 'main_agent',
         updates: [
@@ -454,6 +544,8 @@ describe('request permission review helpers', () => {
 
     await expect(
       persistRequestPermissionRules({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
         deps: depsWith(repository),
         sourceAgentFolder: 'main_agent',
         updates: [
@@ -487,6 +579,8 @@ describe('request permission review helpers', () => {
 
     await expect(
       persistRequestPermissionRules({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
         deps: depsWith(repository),
         sourceAgentFolder: 'main_agent',
         updates: [

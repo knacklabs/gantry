@@ -8,7 +8,10 @@ import {
 } from '../domain/types.js';
 import type { RuntimeJobRepository } from '../domain/repositories/ops-repo.js';
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
-import type { ToolCatalogRepository } from '../domain/ports/repositories.js';
+import type {
+  PermissionRepository,
+  ToolCatalogRepository,
+} from '../domain/ports/repositories.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 import type { CredentialBrokerProfile } from '../domain/models/credentials.js';
 import type { JobControlPort } from '../application/jobs/job-management-types.js';
@@ -43,10 +46,12 @@ export interface IpcDeps {
   mcpHostnameLookup?: HostnameLookup;
   opsRepository: RuntimeJobRepository;
   getToolRepository?: () => ToolCatalogRepository | undefined;
+  getPermissionRepository?: () => PermissionRepository | undefined;
   getJobControl?: () => JobControlPort | undefined;
   mirrorAgentToolRulesToSettings?: (
     sourceAgentFolder: string,
     rules: string[],
+    options?: { appId?: string },
   ) => Promise<void> | void;
   reloadRuntimeState?: () => Promise<void>;
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;

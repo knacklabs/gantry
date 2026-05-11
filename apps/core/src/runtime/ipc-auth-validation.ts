@@ -16,6 +16,8 @@ import {
 } from './ipc-auth.js';
 
 interface IpcThreadBinding {
+  appId?: string;
+  agentId?: string;
   authThreadId?: string;
   payloadThreadId?: string | null;
   responseKeyId?: string;
@@ -62,6 +64,28 @@ function readResponseKeyIdField(
   return parsed;
 }
 
+function readAppIdField(value: unknown, label: string): string | undefined {
+  const parsed = toTrimmedString(value, { maxLen: 128 });
+  if (parsed === undefined) {
+    throw new Error(`${label} must be a string up to 128 characters`);
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/.test(parsed)) {
+    throw new Error(`${label} is invalid`);
+  }
+  return parsed;
+}
+
+function readAgentIdField(value: unknown, label: string): string | undefined {
+  const parsed = toTrimmedString(value, { maxLen: 200 });
+  if (parsed === undefined) {
+    throw new Error(`${label} must be a string up to 200 characters`);
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,199}$/.test(parsed)) {
+    throw new Error(`${label} is invalid`);
+  }
+  return parsed;
+}
+
 function readTrustedThreadBinding(
   raw: Record<string, unknown>,
   label: string,
@@ -96,7 +120,29 @@ function readTrustedThreadBinding(
     context && Object.prototype.hasOwnProperty.call(context, 'responseKeyId')
       ? readResponseKeyIdField(context.responseKeyId, `${label} responseKeyId`)
       : undefined;
+  const contextAppId =
+    context && Object.prototype.hasOwnProperty.call(context, 'appId')
+      ? readAppIdField(context.appId, `${label} context.appId`)
+      : undefined;
+  const payloadAppId = Object.prototype.hasOwnProperty.call(raw, 'appId')
+    ? readAppIdField(raw.appId, `${label} appId`)
+    : undefined;
+  if (contextAppId && payloadAppId && contextAppId !== payloadAppId) {
+    throw new Error(`${label} appId mismatch`);
+  }
+  const contextAgentId =
+    context && Object.prototype.hasOwnProperty.call(context, 'agentId')
+      ? readAgentIdField(context.agentId, `${label} context.agentId`)
+      : undefined;
+  const payloadAgentId = Object.prototype.hasOwnProperty.call(raw, 'agentId')
+    ? readAgentIdField(raw.agentId, `${label} agentId`)
+    : undefined;
+  if (contextAgentId && payloadAgentId && contextAgentId !== payloadAgentId) {
+    throw new Error(`${label} agentId mismatch`);
+  }
   return {
+    appId: contextAppId ?? payloadAppId,
+    agentId: contextAgentId ?? payloadAgentId,
     authThreadId:
       typeof trustedThreadId === 'string' && trustedThreadId
         ? trustedThreadId
@@ -132,6 +178,7 @@ export function validateIpcAuthRequest(
   const requestSigningKey = computeIpcAuthToken(
     sourceAgentFolder,
     binding.authThreadId,
+    { appId: binding.appId, agentId: binding.agentId },
   );
   if (!verifyIpcRequestPayload(requestSigningKey, payload, signature)) {
     throw new Error(`Invalid ${label} signature`);

@@ -1,31 +1,17 @@
-import { createHash } from 'node:crypto';
-
 import type {
   PermissionApprovalDecision,
   PermissionApprovalUpdate,
 } from '../domain/types.js';
-import type { AgentToolBinding } from '../domain/tools/tools.js';
-import {
-  DEFAULT_MEMORY_APP_ID,
-  memoryAgentIdForGroupFolder,
-} from '../memory/app-memory-boundaries.js';
+import type { AppId } from '../domain/app/app.js';
+import type { AgentId } from '../domain/agent/agent.js';
 import type { IpcDeps } from '../runtime/ipc-domain-types.js';
 import { toTrimmedString } from './ipc-shared.js';
-import {
-  adminMcpToolIdForFullName,
-  isAdminMcpToolFullName,
-  isMyClawMcpWildcardRule,
-} from '../shared/admin-mcp-tools.js';
-import { appendLiveToolRules } from '../shared/live-tool-rules.js';
 import { permissionUpdateAllowedToolRules } from '../shared/permission-tool-rules.js';
-import { ensureAgentToolCatalogItem } from '../domain/tools/agent-tool-catalog-references.js';
 import {
   isBrowserActionMcpToolRule,
   isProjectedBrowserMcpToolRule,
-  persistentPermissionToolId,
-  validateReadableAgentToolRule,
 } from '../shared/agent-tool-references.js';
-import { nowIso } from '../shared/time/datetime.js';
+import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
 
 export interface RequestPermissionReview {
   toolName: 'request_permission';
@@ -52,16 +38,32 @@ export function requestPermissionReviewEffect(
 }
 
 export async function persistRequestPermissionRules(input: {
-  deps: Pick<IpcDeps, 'getToolRepository' | 'mirrorAgentToolRulesToSettings'>;
+  deps: Pick<
+    IpcDeps,
+    | 'getToolRepository'
+    | 'getPermissionRepository'
+    | 'mirrorAgentToolRulesToSettings'
+  >;
+  appId?: AppId;
+  agentId?: AgentId;
   sourceAgentFolder: string;
   updates: PermissionApprovalUpdate[];
   ipcDir?: string;
   runHandle?: string;
+  requestId?: string;
+  actor?: string;
+  conversationId?: string;
+  threadId?: string;
+  reason?: string;
+  allowBroadHostToolGrant?: boolean;
 }): Promise<string[]> {
-  const allowedRules = canonicalPersistentPermissionRules(
-    permissionUpdateAllowedToolRules(input.updates),
-  );
+  const allowedRules = permissionUpdateAllowedToolRules(input.updates);
   if (allowedRules.length === 0) return [];
+  if (!input.appId || !input.agentId) {
+    throw new Error(
+      'Persistent permission approval requires explicit appId and agentId',
+    );
+  }
   const repository = input.deps.getToolRepository?.();
   if (!repository) {
     throw new Error(
@@ -75,86 +77,23 @@ export async function persistRequestPermissionRules(input: {
       'Settings mirror unavailable for persistent permission approval',
     );
   }
-  if (allowedRules.length !== 1) {
-    throw new Error('Persistent permission approval must contain one rule');
-  }
-  const appId = DEFAULT_MEMORY_APP_ID as never;
-  const agentId = memoryAgentIdForGroupFolder(input.sourceAgentFolder) as never;
-  const timestamp = nowIso();
-  const savedBindings: AgentToolBinding[] = [];
-  for (const allowedRule of allowedRules) {
-    if (isMyClawMcpWildcardRule(allowedRule)) {
-      throw new Error(
-        'Persistent MyClaw MCP wildcard grants are not supported; request one exact mcp__myclaw__ tool.',
-      );
-    }
-    const readableValidation = validateReadableAgentToolRule(allowedRule);
-    if (!readableValidation.ok) {
-      throw new Error(readableValidation.reason);
-    }
-    const adminMcpTool = adminMcpToolFullNameFromRule(allowedRule);
-    if (adminMcpTool && adminMcpTool !== allowedRule) {
-      throw new Error(
-        'Persistent MyClaw admin MCP tool grants must request the exact tool name without a scoped rule.',
-      );
-    }
-    let toolId = (
-      adminMcpTool
-        ? adminMcpToolIdForFullName(adminMcpTool)
-        : persistentPermissionToolId(allowedRule)
-    ) as AgentToolBinding['toolId'];
-    if (adminMcpTool) {
-      const existing = await repository.getTool(toolId);
-      if (!existing || existing.status !== 'active' || !existing.selectable) {
-        throw new Error(
-          `Tool catalog row ${toolId} is unavailable for persistent approval.`,
-        );
-      }
-    } else {
-      const tool = await ensureAgentToolCatalogItem({
-        repository,
-        appId,
-        reference: allowedRule,
-        now: timestamp,
-        description:
-          'Persistent permission rule approved from request_permission.',
-        adapterRef: 'permission/request_permission',
-      });
-      toolId = tool.id as AgentToolBinding['toolId'];
-    }
-    const binding: AgentToolBinding = {
-      id: persistentPermissionBindingId(appId, agentId, toolId),
-      appId,
-      agentId,
-      toolId,
-      status: 'active',
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    await repository.saveAgentToolBinding(binding);
-    savedBindings.push(binding);
-  }
-  try {
-    await mirrorAgentToolRulesToSettings(input.sourceAgentFolder, allowedRules);
-  } catch (err) {
-    await Promise.allSettled(
-      savedBindings.map((binding) =>
-        repository.disableAgentToolBinding({
-          appId: binding.appId,
-          agentId: binding.agentId,
-          toolId: binding.toolId,
-          updatedAt: nowIso(),
-        }),
-      ),
-    );
-    throw err;
-  }
-  appendLiveToolRules({
+  return new PermissionManagementService().applyPersistentToolRuleGrant({
+    appId: input.appId,
+    agentId: input.agentId,
+    sourceAgentFolder: input.sourceAgentFolder,
+    updates: input.updates,
+    toolRepository: repository,
+    mirrorAgentToolRulesToSettings,
+    permissionRepository: input.deps.getPermissionRepository?.(),
     ipcDir: input.ipcDir,
     runHandle: input.runHandle,
-    rules: allowedRules,
+    requestId: input.requestId,
+    actor: input.actor,
+    conversationId: input.conversationId,
+    threadId: input.threadId,
+    reason: input.reason,
+    allowBroadHostToolGrant: input.allowBroadHostToolGrant,
   });
-  return allowedRules;
 }
 
 export function isPermanentPermissionDecision(
@@ -204,38 +143,12 @@ export function requestPermissionReviewSuggestions(
   ];
 }
 
-function canonicalPersistentPermissionRules(
-  rules: readonly string[],
-): string[] {
-  return [...new Set(rules)];
-}
-
-function adminMcpToolFullNameFromRule(allowedRule: string): string | null {
-  const trimmed = allowedRule.trim();
-  const toolName = trimmed.includes('(')
-    ? trimmed.slice(0, trimmed.indexOf('('))
-    : trimmed;
-  return isAdminMcpToolFullName(toolName) ? toolName : null;
-}
-
 function strictRuleContent(value: unknown): string | undefined | null {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   return trimmed.length <= 2048 ? trimmed : null;
-}
-
-function persistentPermissionBindingId(
-  appId: string,
-  agentId: string,
-  toolId: string,
-): AgentToolBinding['id'] {
-  const digest = createHash('sha256')
-    .update(`${appId}\0${agentId}\0${toolId}`)
-    .digest('base64url')
-    .slice(0, 32);
-  return `agent-tool-binding:permission:${digest}` as AgentToolBinding['id'];
 }
 
 function sanitizedStringList(values: unknown[]): string[] {

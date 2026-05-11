@@ -12,6 +12,7 @@ describe('configured agent tools', () => {
         },
       ],
       getTool: async () => ({
+        appId: 'default',
         name: 'Bash(npm test)',
       }),
     };
@@ -59,8 +60,8 @@ describe('configured agent tools', () => {
       ],
       getTool: async (toolId: string) =>
         toolId === 'tool:Read'
-          ? { name: 'Read' }
-          : { name: 'mcp__agent_browser__*' },
+          ? { appId: 'default', name: 'Read' }
+          : { appId: 'default', name: 'mcp__agent_browser__*' },
     };
 
     await expect(
@@ -81,6 +82,7 @@ describe('configured agent tools', () => {
         },
       ],
       getTool: async () => ({
+        appId: 'default',
         name: 'mcp__myclaw__browser_click',
       }),
     };
@@ -92,5 +94,28 @@ describe('configured agent tools', () => {
         agentId: 'agent:one',
       }),
     ).rejects.toThrow('runtime projections, not durable capabilities');
+  });
+
+  it('drops bindings whose catalog row belongs to a different app', async () => {
+    const repository = {
+      listAgentToolBindings: async () => [
+        {
+          status: 'active',
+          toolId: 'tool:Browser',
+        },
+      ],
+      getTool: async () => ({
+        appId: 'default',
+        name: 'Browser',
+      }),
+    };
+
+    await expect(
+      resolveConfiguredAllowedTools({
+        repository: repository as never,
+        appId: 'app:one',
+        agentId: 'agent:one',
+      }),
+    ).resolves.toEqual([]);
   });
 });

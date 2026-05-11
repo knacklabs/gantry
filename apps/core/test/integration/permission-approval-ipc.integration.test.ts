@@ -80,7 +80,10 @@ describe('permission approval IPC boundary', () => {
     vi.resetModules();
     const { createIpcAuthEnvelope, getIpcResponseSigningPrivateKey } =
       await import('@core/runtime/ipc-auth.js');
-    const envelope = createIpcAuthEnvelope(groupFolder, threadId);
+    const envelope = createIpcAuthEnvelope(groupFolder, threadId, {
+      appId: 'app:team',
+      agentId: 'agent:team-main',
+    });
     const responseSigningKey = getIpcResponseSigningPrivateKey(
       groupFolder,
       threadId,
@@ -102,6 +105,8 @@ describe('permission approval IPC boundary', () => {
       await import('@core/runtime/ipc-interaction-handler.js');
 
     const pendingDecision = requestPermissionApproval({
+      appId: 'app:team',
+      agentId: 'agent:team-main',
       groupFolder,
       threadId,
       toolName: 'WebFetch',
@@ -139,6 +144,8 @@ describe('permission approval IPC boundary', () => {
 
     expect(parsedRequest).toMatchObject({
       requestId: pendingRequest.requestId,
+      appId: 'app:team',
+      agentId: 'agent:team-main',
       responseNonce: expect.any(String),
       sourceAgentFolder: groupFolder,
       threadId,
@@ -212,7 +219,10 @@ describe('permission approval IPC boundary', () => {
 
     vi.resetModules();
     const { createIpcAuthEnvelope } = await import('@core/runtime/ipc-auth.js');
-    const envelope = createIpcAuthEnvelope(groupFolder);
+    const envelope = createIpcAuthEnvelope(groupFolder, undefined, {
+      appId: 'app:team',
+      agentId: 'agent:team-main',
+    });
     vi.stubEnv('MYCLAW_IPC_AUTH_TOKEN', envelope.authToken);
     vi.stubEnv('MYCLAW_IPC_RESPONSE_VERIFY_KEY', envelope.responseVerifyKey);
     vi.stubEnv('MYCLAW_IPC_RESPONSE_KEY_ID', envelope.responseKeyId);
@@ -223,6 +233,8 @@ describe('permission approval IPC boundary', () => {
       await import('@core/runner/claude/permission-callback.js');
 
     const pendingDecision = requestPermissionApproval({
+      appId: 'app:team',
+      agentId: 'agent:team-main',
       groupFolder,
       toolName: 'edit_file',
     });

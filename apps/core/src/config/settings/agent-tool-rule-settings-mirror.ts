@@ -11,8 +11,12 @@ export function createAgentToolRuleSettingsMirror(input: {
   opsRepository: RuntimeConversationRouteRepository;
   repositories?: AgentToolRuleSettingsRepositories;
   reloadRuntimeState: () => Promise<void>;
-}): (sourceAgentFolder: string, rules: string[]) => Promise<void> | void {
-  return (sourceAgentFolder, rules) =>
+}): (
+  sourceAgentFolder: string,
+  rules: string[],
+  options?: { appId?: string },
+) => Promise<void> | void {
+  return (sourceAgentFolder, rules, options) =>
     input.repositories
       ? addAgentToolRulesToSyncedRuntimeSettings({
           runtimeHome: MYCLAW_HOME,
@@ -20,6 +24,7 @@ export function createAgentToolRuleSettingsMirror(input: {
           rules,
           ops: input.opsRepository,
           repositories: input.repositories,
+          appId: options?.appId as never,
           reloadRuntimeState: input.reloadRuntimeState,
         })
       : mirrorAgentToolRulesToRuntimeSettings({

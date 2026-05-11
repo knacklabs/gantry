@@ -73,6 +73,7 @@ type RunnerAgentInput = AgentInput & {
 };
 
 const PROTECTED_FILESYSTEM_PATHS_ENV = 'MYCLAW_PROTECTED_FILESYSTEM_PATHS_JSON';
+const DEFAULT_RUNNER_APP_ID = 'default';
 
 export { writeGroupsSnapshot } from './agent-spawn-snapshots.js';
 export type {
@@ -299,7 +300,11 @@ export async function spawnAgent(
   const command = process.execPath;
   const args = [hostRunnerPath];
   const ipcInputDir = getContinuationInputDir(group.folder, input.threadId);
-  const ipcAuth = createIpcAuthEnvelope(group.folder, input.threadId);
+  const runnerAppId = input.appId || DEFAULT_RUNNER_APP_ID;
+  const ipcAuth = createIpcAuthEnvelope(group.folder, input.threadId, {
+    appId: runnerAppId,
+    agentId: input.agentId,
+  });
   const memoryIpcAllowedActions = selectedMemoryIpcActionsFromToolRules(
     trustedAllowedTools ?? [],
   );
@@ -312,6 +317,8 @@ export async function spawnAgent(
     MYCLAW_WORKSPACE_GROUP_DIR: hostRuntime.groupDir,
     MYCLAW_WORKSPACE_GLOBAL_DIR: hostRuntime.globalDir || '',
     MYCLAW_GROUP_FOLDER: group.folder,
+    MYCLAW_APP_ID: runnerAppId,
+    ...(input.agentId ? { MYCLAW_AGENT_ID: input.agentId } : {}),
     MYCLAW_AGENT_RUN_HANDLE: processName,
     MYCLAW_WORKSPACE_EXTRA_DIR: path.join(
       DATA_DIR,

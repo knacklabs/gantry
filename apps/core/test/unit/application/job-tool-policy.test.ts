@@ -89,7 +89,11 @@ describe('job tool policy', () => {
           listAgentToolBindings: async () => [
             { toolId: 'tool:Browser', status: 'active' },
           ],
-          getTool: async () => ({ id: 'tool:Browser', name: 'Browser' }),
+          getTool: async () => ({
+            id: 'tool:Browser',
+            appId: 'default',
+            name: 'Browser',
+          }),
         } as never,
       }),
     ).resolves.toMatchObject({

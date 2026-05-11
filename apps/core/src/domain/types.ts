@@ -164,6 +164,8 @@ export interface JobEvent {
 // --- Channel capability ports ---
 export interface PermissionApprovalRequest {
   requestId: string;
+  appId?: string;
+  agentId?: string;
   responseNonce?: string;
   sourceAgentFolder: string;
   targetJid?: string;
