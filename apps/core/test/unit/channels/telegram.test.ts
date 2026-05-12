@@ -2041,6 +2041,15 @@ describe('TelegramChannel', () => {
         done: true,
       });
 
+      expect(currentBot().api.sendMessage).toHaveBeenCalledTimes(2);
+      expect(currentBot().api.sendMessage).toHaveBeenNthCalledWith(
+        2,
+        '100200300',
+        'Done in 10s.',
+        expect.objectContaining({ parse_mode: 'MarkdownV2' }),
+      );
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
+
       currentBot().api.sendMessage.mockClear();
       currentBot().api.editMessageText.mockClear();
 

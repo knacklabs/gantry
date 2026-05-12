@@ -463,12 +463,10 @@ export async function sendSlackProgressUpdate(input: {
     existing &&
     input.options.generation !== undefined &&
     existing.generation !== undefined &&
-    existing.generation !== input.options.generation
+    existing.generation !== input.options.generation &&
+    !(input.options.done && input.options.generation > existing.generation)
   ) {
-    if (input.options.done && input.options.generation > existing.generation) {
-      // Let terminal progress close the visible handle if runtime advanced an
-      // internal generation before finalizing the same user-visible turn.
-    } else if (input.options.done || input.options.replaceOnly) {
+    if (input.options.done || input.options.replaceOnly) {
       logger.info(
         {
           channelId: input.channelId,
@@ -521,13 +519,12 @@ export async function sendSlackProgressUpdate(input: {
     }
   }
 
-  if (!existing) {
+  if (!existing || (input.options.done && !input.options.replaceOnly)) {
     const sent = (await input.app.client.chat.postMessage({
       channel: input.channelId,
       text: trimmed,
       ...(input.options.threadId ? { thread_ts: input.options.threadId } : {}),
     })) as { ts?: string };
-
     if (!input.options.done) {
       input.activeProgress.set(input.key, {
         channelId: input.channelId,
@@ -538,6 +535,9 @@ export async function sendSlackProgressUpdate(input: {
           ? { generation: input.options.generation }
           : {}),
       });
+      input.persistProgress();
+    } else if (existing) {
+      input.activeProgress.delete(input.key);
       input.persistProgress();
     }
     logger.info(
