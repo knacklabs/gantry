@@ -1,7 +1,5 @@
 import type { BrowserIpcAction } from '@myclaw/contracts';
 
-import { parsePlaywrightMcpTabListText } from './playwright-mcp-compat.js';
-
 const tabIndexMappings = new Map<string, Map<number, number>>();
 
 export function clearBrowserTabIndexMappings(profileName?: string): void {
@@ -55,7 +53,6 @@ export function projectBrowserTabsResult(
   const record = result as Record<string, unknown>;
   const isBrowserTabsList =
     toolName === 'browser_tabs' && args.action === 'list';
-  const isBrowserTabsAction = toolName === 'browser_tabs';
   const isBrowserTabsMutation =
     toolName === 'browser_tabs' &&
     (args.action === 'close' || args.action === 'new');
@@ -65,16 +62,6 @@ export function projectBrowserTabsResult(
     typeof structuredContent !== 'object' ||
     Array.isArray(structuredContent)
   ) {
-    const parsedTabs = isBrowserTabsAction
-      ? parsePlaywrightMcpTabListText(record.content)
-      : [];
-    if (parsedTabs.length > 0) {
-      return projectStructuredBrowserTabsResult(
-        record,
-        { tabs: parsedTabs },
-        sessionKey,
-      );
-    }
     if ((isBrowserTabsList || isBrowserTabsMutation) && sessionKey)
       tabIndexMappings.delete(sessionKey);
     if (isBrowserTabsList) return unsafeBrowserTabsListResult(sessionKey);
@@ -82,16 +69,6 @@ export function projectBrowserTabsResult(
   }
   const tabs = (structuredContent as { tabs?: unknown }).tabs;
   if (!Array.isArray(tabs)) {
-    const parsedTabs = isBrowserTabsAction
-      ? parsePlaywrightMcpTabListText(record.content)
-      : [];
-    if (parsedTabs.length > 0) {
-      return projectStructuredBrowserTabsResult(
-        record,
-        { ...(structuredContent as Record<string, unknown>), tabs: parsedTabs },
-        sessionKey,
-      );
-    }
     if ((isBrowserTabsList || isBrowserTabsMutation) && sessionKey)
       tabIndexMappings.delete(sessionKey);
     if (isBrowserTabsList) return unsafeBrowserTabsListResult(sessionKey);

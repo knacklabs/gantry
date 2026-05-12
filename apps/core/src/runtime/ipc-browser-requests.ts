@@ -88,15 +88,23 @@ function processOneBrowserRequest(input: {
   let authThreadId: string | undefined;
   let responseKeyId: string | undefined;
   try {
-    if (!canProcessIpcFile(sourceAgentFolder, 'browser')) {
-      throw new Error('Browser IPC rate limit exceeded');
-    }
     claimedPath = claimIpcFile(filePath);
     const rawRequest = JSON.parse(fs.readFileSync(claimedPath, 'utf-8'));
     const request = parseBrowserIpcRequest(rawRequest, sourceAgentFolder);
     requestId = request.requestId;
     authThreadId = request.threadId;
     responseKeyId = request.responseKeyId;
+    const browserIpcAuthorized = isBrowserIpcAuthorized({
+      workspaceKey: sourceAgentFolder,
+      chatJid: request.chatJid,
+      threadId: authThreadId,
+    });
+    if (
+      browserIpcAuthorized &&
+      !canProcessIpcFile(sourceAgentFolder, 'browser')
+    ) {
+      throw new Error('Browser IPC rate limit exceeded');
+    }
     if (inFlightBrowserIpc >= MAX_IN_FLIGHT_BROWSER_IPC) {
       throw new Error('Browser IPC concurrency limit exceeded');
     }
@@ -107,11 +115,7 @@ function processOneBrowserRequest(input: {
         workspaceKey: sourceAgentFolder,
         conversationId: request.chatJid,
       }),
-      browserIpcAuthorized: isBrowserIpcAuthorized({
-        workspaceKey: sourceAgentFolder,
-        chatJid: request.chatJid,
-        threadId: authThreadId,
-      }),
+      browserIpcAuthorized,
       getCredentialBroker: deps.getCredentialBroker,
       getCredentialBrokerProfile: deps.getCredentialBrokerProfile,
       callBrowserTool: deps.callBrowserTool,

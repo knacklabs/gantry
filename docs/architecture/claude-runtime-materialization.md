@@ -75,9 +75,9 @@ runtime-installed `agent-browser` skill into that same temp directory. It is not
 stored under the repo-bundled `.claude/skills` tree and does not require user
 `.claude` edits. The skill always points the model at the projected public
 `mcp__myclaw__browser_*` tools. Raw Playwright, Puppeteer, or `agent_browser`
-MCP servers may be used only as host-private backend implementation details and
-must not appear in model-visible MCP handoff, requestable capability lists, or
-persisted tool rules.
+MCP servers must not appear in model-visible MCP handoff, requestable
+capability lists, or persisted tool rules; browser actions are handled by the
+host-owned direct Chrome/CDP driver behind the projected MyClaw tools.
 
 Durable user-installed files under the runtime-home Claude skills directory are
 not read or copied by enterprise runtime.

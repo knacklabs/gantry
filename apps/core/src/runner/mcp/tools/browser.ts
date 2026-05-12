@@ -151,8 +151,6 @@ export function registerBrowserTools(server: McpServer): void {
   register(server, 'browser_snapshot', 'Capture an accessibility snapshot.', {
     target: optionalTarget,
     filename: fileName,
-    depth: z.number().optional(),
-    boxes: z.boolean().optional(),
   });
   register(server, 'browser_take_screenshot', 'Take a screenshot.', {
     element,
@@ -166,8 +164,6 @@ export function registerBrowserTools(server: McpServer): void {
     'browser_console_messages',
     'Return browser console messages.',
     {
-      level: z.string().optional(),
-      all: z.boolean().optional(),
       filename: fileName,
     },
   );
@@ -176,10 +172,6 @@ export function registerBrowserTools(server: McpServer): void {
     'browser_network_requests',
     'Return browser network requests.',
     {
-      static: z.boolean().optional(),
-      requestBody: z.boolean().optional(),
-      requestHeaders: z.boolean().optional(),
-      filter: z.string().optional(),
       filename: fileName,
     },
   );
@@ -210,10 +202,9 @@ export function registerBrowserTools(server: McpServer): void {
     endElement: z.string().optional(),
     endTarget: z.string(),
   });
-  register(server, 'browser_drop', 'Drop files or data onto an element.', {
+  register(server, 'browser_drop', 'Drop data onto an element.', {
     element,
     target,
-    paths: z.array(z.string()).optional(),
     data: z.record(z.string(), z.string()).optional(),
   });
   register(server, 'browser_select_option', 'Select dropdown option values.', {
@@ -236,7 +227,6 @@ export function registerBrowserTools(server: McpServer): void {
     filename: fileName,
   });
   register(server, 'browser_file_upload', 'Upload one or more files.', {
-    paths: z.array(z.string()).optional(),
     files: z.array(browserUploadFile).optional(),
   });
   register(server, 'browser_handle_dialog', 'Handle a browser dialog.', {

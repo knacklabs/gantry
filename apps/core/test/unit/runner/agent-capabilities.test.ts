@@ -490,9 +490,9 @@ describe('agent capability composition', () => {
       externalMcpServers: {
         agent_browser: {
           type: 'stdio',
-          command: '/tmp/playwright-mcp',
-          args: ['--shared-browser-context'],
-          env: { PLAYWRIGHT_MCP_CDP_ENDPOINT: 'http://127.0.0.1:4567' },
+          command: '/tmp/raw-browser-backend',
+          args: ['--unsafe-shared-context'],
+          env: { RAW_BROWSER_BACKEND_ENDPOINT: 'http://127.0.0.1:4567' },
         },
       },
       externalMcpAllowedTools: ['mcp__agent_browser__*'],

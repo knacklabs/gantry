@@ -78,7 +78,7 @@ place.
 | Third-party MCP  | Definition, reviewed version, credential refs, allowed tool patterns, binding. | SDK `mcpServers` plus exact allowed MCP tool names.                                    |
 | SDK tool         | Tool catalog entry, risk, permission policy, sandbox profile, binding.         | Exact SDK tool name in `allowedTools` and `canUseTool` policy gate.                    |
 | Host tool        | Built-in MyClaw MCP tool entry, risk, binding, audit behavior.                 | Exact `mcp__myclaw__<tool>` name.                                                      |
-| Browser tool     | Canonical `Browser` capability and sandbox policy.                             | Gated MyClaw-owned `mcp__myclaw__browser_*` tools backed by native backend schemas.   |
+| Browser tool     | Canonical `Browser` capability and sandbox policy.                             | Gated MyClaw-owned `mcp__myclaw__browser_*` tools with MyClaw-owned schemas.           |
 | Channel tool     | Provider capability enum, scopes, affected conversations, binding.             | Provider adapter enables only the named Slack/Telegram/Teams/Web capability.           |
 | Channel binding  | Agent-to-conversation/thread binding and control policy.                       | Message routing, trigger handling, and same-channel approval target.                   |
 

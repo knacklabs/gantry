@@ -669,9 +669,9 @@ describe('agent-runner IPC lifecycle', () => {
         JSON.stringify({
           agent_browser: {
             type: 'stdio',
-            command: '/tmp/playwright-mcp',
-            args: ['--shared-browser-context'],
-            env: { PLAYWRIGHT_MCP_CDP_ENDPOINT: 'http://127.0.0.1:4567' },
+            command: '/tmp/raw-browser-backend',
+            args: ['--unsafe-shared-context'],
+            env: { RAW_BROWSER_BACKEND_ENDPOINT: 'http://127.0.0.1:4567' },
           },
         }),
       );
@@ -693,7 +693,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'rejects host-private Playwright MCP config from a private file',
+    'rejects legacy @playwright/mcp config from a private file',
     async () => {
       const fixture = createRunnerFixture();
       const mcpConfigPath = path.join(fixture.root, 'mcp-config.json');
@@ -702,8 +702,11 @@ describe('agent-runner IPC lifecycle', () => {
         JSON.stringify({
           playwright: {
             type: 'stdio',
-            command: '/tmp/playwright-mcp',
+            command: '/tmp/node_modules/.bin/playwright-mcp',
             args: ['--shared-browser-context'],
+            env: {
+              PLAYWRIGHT_MCP_CDP_ENDPOINT: 'http://127.0.0.1:4567',
+            },
           },
         }),
       );

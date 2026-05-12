@@ -6,18 +6,14 @@
   0-based visible tab indices after filtering internal Chrome targets, and
   select/close requests translate those visible indices to backend indices
   inside the adapter. Numeric select/close must fail closed when that mapping
-  is missing or stale. Backend-specific output compatibility, such as
-  Playwright MCP markdown tab lists, belongs in a clearly named provider
-  compatibility helper before the neutral tab projection consumes it.
+  is missing or stale. Direct driver tab lists must return structured tab
+  metadata; unstructured tab text is not trusted UI state.
 - Treat Chrome internal targets by both URL and title. Omnibox popups can
   surface with a non-`chrome://` URL but title `Omnibox Popup`.
-- `timeout_ms` must reach both budgets: the signed IPC/backend call timeout and
-  the private Playwright MCP action budget. Keep backend process identity
-  stable across per-call timeout changes; use a stable backend max/default
-  action timeout and pass the clamped request timeout to `callTool`. The
-  runner-facing browser MCP tools should default omitted `timeout_ms` to the
-  same max/default budget so the signed IPC deadline cannot cut off the backend
-  before Playwright's retry loop finishes.
+- `timeout_ms` must reach both budgets: the signed IPC deadline and the direct
+  Playwright action deadline. Keep CDP connection identity stable across
+  per-call timeout changes and pass the clamped request timeout to the direct
+  action dispatch.
 - Tab-set mutations such as `browser_tabs` close and new make any previous
   visible-index mapping stale unless the backend returns a fresh structured
   tab list that replaces the mapping.
@@ -25,10 +21,11 @@
   immediately before backend dispatch with CDP `Target.activateTarget` plus
   page-level `Page.bringToFront`; target setup done earlier in the request is
   not enough for reliable headed Chrome interaction.
-- Browser launch must set a nonzero initial page viewport through the
-  Playwright MCP backend. A 0x0 inner viewport makes Playwright report every
-  target outside the viewport and causes click, hover, and screenshot failures
-  downstream.
+- Browser launch must rely on Chrome launch args, not a launch-time
+  `browser_resize` backend call. Use a nonzero `--window-size`, do not use
+  `--remote-debugging-port=0`, and do not add
+  `--disable-blink-features=AutomationControlled` because Chrome can show it as
+  an unsupported command-line flag in the visible browser.
 - Agent-facing browser launch is visible by default and must not expose a
   headless option. Any non-visible mode is an internal test harness detail, not
   a durable setting or browser tool argument.
@@ -49,19 +46,15 @@
   metering. Internal or local URLs such as `about:blank`, `chrome://...`, or
   `file://...` must fail closed instead of falling back to stale remembered
   site state.
-- `browser_resize` viewport ownership belongs to the Playwright MCP backend.
-  Do not split viewport state between sidecar CDP `Browser.setWindowBounds`
-  calls and backend `page.setViewportSize`; explicit resize should stay
-  backend-native across internal browser modes.
-- `browser_take_screenshot` should dispatch directly to the Playwright MCP
-  screenshot tool. Do not auto-resize before screenshots; screenshot failures
-  should reset the cached backend instead of trying to repair page state in the
-  runtime wrapper.
-- Headed Playwright MCP backends must start with an explicit
-  `--viewport-size`. The bundled backend defaults headed shared-browser
-  contexts to `viewport: null` unless configured, so late CDP window sizing or
-  late `browser_resize` calls can still let the first page/screenshot observe a
-  0x0 or unusably tiny viewport.
+- Direct browser navigation must not add adapter-level URL gates. Let the
+  owner-managed Chrome profile navigate normally; only apply explicit owner
+  browser-usage policy outside the direct Playwright driver.
+- `browser_resize` viewport ownership belongs to the direct Playwright page
+  after a page target exists. Do not use browser-level CDP
+  `Emulation.setDeviceMetricsOverride` for viewport resize.
+- `browser_take_screenshot` should use the direct Playwright page screenshot
+  path, persist the image under the run browser artifact root, and return a
+  compact file reference without inline base64.
 - `browser_file_upload` should accept inline file content and materialize it
   under the run artifact root. Requiring agents to pre-create files there is
   not usable from restricted tool sandboxes.
@@ -72,16 +65,12 @@
 - Inline upload materialization must use collision-safe per-request paths.
   Duplicate filenames in one request, same-name concurrent requests, and
   existing files under `uploads/` must not overwrite or alias each other.
-- Keep artifact path policy separate from provider argument compatibility.
-  File confinement is MyClaw-owned safety policy; Playwright MCP field-shape
-  enrichment is backend projection.
-- Text-only backend tab lists are not trusted UI state unless the compatibility
-  layer can parse them into adapter-owned tab metadata. Unparseable tab lists
-  must fail closed and clear stale visible-index mappings.
-- Playwright MCP tab lists render as Markdown links such as
-  `- 0: (current) [Title](https://example.test/)`. Keep that backend-specific
-  shape in the compatibility parser, then feed only structured tab metadata to
-  the neutral visible-index projection.
+- Keep artifact path policy separate from action argument handling. File
+  confinement is MyClaw-owned safety policy; direct Playwright calls should see
+  only already-confined absolute paths.
+- Text-only backend tab lists are not trusted UI state. Tab projection consumes
+  adapter-owned structured metadata only; missing metadata fails closed and
+  clears stale visible-index mappings.
 - Treat an unhealthy tool-capability broker as a non-driveable browser status
   for agent tools. Reporting `cdpReady: true` while the credential broker is
   down is misleading because backend browser actions still cannot run.
