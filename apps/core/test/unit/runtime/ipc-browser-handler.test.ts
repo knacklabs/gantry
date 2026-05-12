@@ -105,6 +105,7 @@ describe('ipc-browser-handler', () => {
     expect(response.data).not.toHaveProperty('port');
     expect(response.data).not.toHaveProperty('pid');
     expect(response.data).not.toHaveProperty('targetId');
+    expect(ensureBrowserReady).not.toHaveBeenCalled();
   });
 
   it('ignores conversation-scoped profile overrides and uses the host-derived profile', async () => {
@@ -163,7 +164,7 @@ describe('ipc-browser-handler', () => {
     expect(getBrowserStatus).toHaveBeenCalledWith('c-child-abc123abc123');
   });
 
-  it('dispatches browser tools through the private backend after lazy launch', async () => {
+  it('dispatches browser tools through the direct backend after lazy launch', async () => {
     const callBrowserTool = vi.fn(async () => ({ content: 'tool-result' }));
     const response = await processBrowserIpcRequest(
       {
@@ -927,7 +928,7 @@ describe('ipc-browser-handler', () => {
     );
   });
 
-  it('resizes headed browser viewport through the private backend', async () => {
+  it('resizes browser viewport after ensuring a page target exists', async () => {
     vi.mocked(ensureBrowserReady).mockResolvedValueOnce({
       profile: 'c-main-abc123abc123',
       profileName: 'c-main-abc123abc123',
@@ -955,7 +956,9 @@ describe('ipc-browser-handler', () => {
     );
 
     expect(response.ok).toBe(true);
-    expect(ensureBrowserTarget).not.toHaveBeenCalled();
+    expect(ensureBrowserTarget).toHaveBeenCalledWith(9333, {
+      deadlineAtMs: expect.any(Number),
+    });
     expect(callBrowserTool).toHaveBeenCalledWith(
       expect.objectContaining({
         toolName: 'browser_resize',
@@ -968,7 +971,7 @@ describe('ipc-browser-handler', () => {
     });
   });
 
-  it('clamps oversized headed browser resize dimensions before backend dispatch', async () => {
+  it('clamps oversized browser resize dimensions before dispatch', async () => {
     vi.mocked(ensureBrowserReady).mockResolvedValueOnce({
       profile: 'c-main-abc123abc123',
       profileName: 'c-main-abc123abc123',
@@ -995,7 +998,7 @@ describe('ipc-browser-handler', () => {
     );
 
     expect(response.ok).toBe(true);
-    expect(ensureBrowserTarget).not.toHaveBeenCalled();
+    expect(ensureBrowserTarget).toHaveBeenCalledWith(9333);
     expect(callBrowserTool).toHaveBeenCalledWith(
       expect.objectContaining({
         toolName: 'browser_resize',
@@ -1175,7 +1178,7 @@ describe('ipc-browser-handler', () => {
     expect(callBrowserTool).not.toHaveBeenCalled();
   });
 
-  it('keeps headless resize delegated to the private backend', async () => {
+  it('keeps resize delegated to direct browser action backend', async () => {
     vi.mocked(ensureBrowserReady).mockResolvedValueOnce({
       profile: 'c-main-abc123abc123',
       profileName: 'c-main-abc123abc123',
@@ -1203,7 +1206,7 @@ describe('ipc-browser-handler', () => {
     );
 
     expect(response.ok).toBe(true);
-    expect(ensureBrowserTarget).not.toHaveBeenCalled();
+    expect(ensureBrowserTarget).toHaveBeenCalledWith(9333);
     expect(callBrowserTool).toHaveBeenCalledWith(
       expect.objectContaining({
         toolName: 'browser_resize',
@@ -1215,7 +1218,7 @@ describe('ipc-browser-handler', () => {
     });
   });
 
-  it('keeps oversized headless resize delegated to the private backend', async () => {
+  it('keeps oversized resize delegated to direct browser action backend', async () => {
     vi.mocked(ensureBrowserReady).mockResolvedValueOnce({
       profile: 'c-main-abc123abc123',
       profileName: 'c-main-abc123abc123',
@@ -1243,7 +1246,7 @@ describe('ipc-browser-handler', () => {
     );
 
     expect(response.ok).toBe(true);
-    expect(ensureBrowserTarget).not.toHaveBeenCalled();
+    expect(ensureBrowserTarget).toHaveBeenCalledWith(9333);
     expect(callBrowserTool).toHaveBeenCalledWith(
       expect.objectContaining({
         toolName: 'browser_resize',
@@ -1328,7 +1331,7 @@ describe('ipc-browser-handler', () => {
     expect(ensureBrowserReady).not.toHaveBeenCalled();
   });
 
-  it('sets headed launch viewport through the action backend', async () => {
+  it('launches headed browser without backend viewport resize', async () => {
     vi.mocked(ensureBrowserReady).mockResolvedValueOnce({
       profile: 'c-main-abc123abc123',
       profileName: 'c-main-abc123abc123',
@@ -1355,46 +1358,24 @@ describe('ipc-browser-handler', () => {
 
     expect(response.ok).toBe(true);
     expect(ensureBrowserTarget).not.toHaveBeenCalled();
-    expect(callBrowserTool).toHaveBeenCalledWith(
-      expect.objectContaining({
-        toolName: 'browser_resize',
-        arguments: { width: 1280, height: 900 },
-      }),
-    );
+    expect(callBrowserTool).not.toHaveBeenCalled();
+    expect(closeBrowser).not.toHaveBeenCalled();
+    expect(ensureBrowserReady).toHaveBeenCalledTimes(1);
   });
 
-  it('relaunches once when launch viewport setup hits a stale backend target', async () => {
-    vi.mocked(ensureBrowserReady)
-      .mockResolvedValueOnce({
-        profile: 'c-main-abc123abc123',
-        profileName: 'c-main-abc123abc123',
-        running: true,
-        cdpReady: true,
-        port: 9333,
-        targetId: 'stale-target',
-        headless: false,
-      })
-      .mockResolvedValueOnce({
-        profile: 'c-main-abc123abc123',
-        profileName: 'c-main-abc123abc123',
-        running: true,
-        cdpReady: true,
-        port: 9444,
-        targetId: 'fresh-target',
-        headless: false,
-      });
-    const callBrowserTool = vi
-      .fn()
-      .mockResolvedValueOnce({
-        content: [
-          {
-            type: 'text',
-            text: 'Emulation.setDeviceMetricsOverride: Target does not support metrics override',
-          },
-        ],
-        isError: true,
-      })
-      .mockResolvedValueOnce({ content: 'resized' });
+  it('does not run launch-time resize recovery for backend failures', async () => {
+    vi.mocked(ensureBrowserReady).mockResolvedValueOnce({
+      profile: 'c-main-abc123abc123',
+      profileName: 'c-main-abc123abc123',
+      running: true,
+      cdpReady: true,
+      port: 9333,
+      targetId: 'page-target',
+      headless: false,
+    });
+    const callBrowserTool = vi.fn(async () => {
+      throw new Error('stale backend target');
+    });
     const closeBrowserToolBackends = vi.fn(async () => undefined);
 
     const response = await processBrowserIpcRequest(
@@ -1413,19 +1394,10 @@ describe('ipc-browser-handler', () => {
     );
 
     expect(response.ok).toBe(true);
-    expect(closeBrowserToolBackends).toHaveBeenCalledWith(
-      'c-main-abc123abc123',
-    );
-    expect(closeBrowser).toHaveBeenCalledWith('c-main-abc123abc123');
-    expect(ensureBrowserReady).toHaveBeenCalledTimes(2);
-    expect(callBrowserTool).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        session: expect.objectContaining({ port: 9444 }),
-        toolName: 'browser_resize',
-        arguments: { width: 1280, height: 900 },
-      }),
-    );
+    expect(callBrowserTool).not.toHaveBeenCalled();
+    expect(closeBrowserToolBackends).not.toHaveBeenCalled();
+    expect(closeBrowser).not.toHaveBeenCalled();
+    expect(ensureBrowserReady).toHaveBeenCalledTimes(1);
   });
 
   it('fails closed before launch when the signed deadline is already exhausted', async () => {

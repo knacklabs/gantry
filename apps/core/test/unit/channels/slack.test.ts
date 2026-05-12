@@ -714,6 +714,40 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
   });
 
+  it('edits normal Slack done progress and clears the active handle', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+
+    await channel.sendProgressUpdate('sl:C1234567890', 'Working on it...');
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 10s.', {
+      done: true,
+    });
+
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(1);
+    expect(appRef.current.client.chat.postMessage).toHaveBeenNthCalledWith(1, {
+      channel: 'C1234567890',
+      text: 'Working on it...',
+    });
+    expect(appRef.current.client.chat.update).toHaveBeenCalledTimes(1);
+    expect(appRef.current.client.chat.update).toHaveBeenCalledWith({
+      channel: 'C1234567890',
+      ts: '1710000000.100200',
+      text: 'Done in 10s.',
+    });
+
+    appRef.current.client.chat.postMessage.mockClear();
+    appRef.current.client.chat.update.mockClear();
+
+    await channel.sendProgressUpdate('sl:C1234567890', 'Working on it...');
+
+    expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(1);
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+  });
+
   it('starts a fresh Slack progress handle when generation changes under the same chat key', async () => {
     const channel = new SlackChannel(
       'xoxb-token',

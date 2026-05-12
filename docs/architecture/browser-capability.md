@@ -13,21 +13,23 @@ At runtime, `Browser` projects into MyClaw-owned browser tools such as
 `mcp__myclaw__browser_close`. These tool names are audited as concrete
 actions, but they are runtime projections, not durable authority.
 
-The projected tools use backend-native schemas. Element actions use the
-backend's `element` and `target` fields directly; MyClaw does not translate
-model-facing `ref`, `selector`, or action-dispatch fields. Long-running tools
-may pass `timeout_ms`; MyClaw clamps it and applies the resulting budget to the
-signed IPC/backend call timeout. The private Playwright MCP process is reused by
-profile, CDP endpoint, and output root with a stable maximum action timeout, so
-per-call timeout changes do not fan out subprocesses while longer requests still
-fit inside the backend budget. Timeout errors name whether the IPC layer or
-backend layer timed out.
+The projected tools use MyClaw-owned schemas. Element actions use `element` for
+audit context and `target` for either a snapshot ref or selector. Long-running
+tools may pass `timeout_ms`; MyClaw clamps it and applies the resulting budget
+to the signed IPC and direct Playwright action dispatch. The host caches direct
+Playwright `connectOverCDP` connections by profile and CDP endpoint, de-dupes
+concurrent connection attempts, and reconnects once when page, context, or
+browser handles are stale.
 
 MyClaw is an assistive browser controller for an owner-managed Chrome profile,
 not an undetectable automation system. Browser launch is visible by default and
 the agent-facing `browser_launch` tool does not expose a headless option. MyClaw
 does not override user agent, client hints, `Accept-Language`, or fetch headers
 as a browser hardening feature.
+
+Direct browser navigation does not add an adapter-level URL gate. MyClaw lets
+the owner-managed Chrome profile navigate normally and keeps browser usage
+policy outside the direct Playwright driver.
 
 Browser tools that accept `filename` write only under the run browser artifact
 root. When `browser_take_screenshot`, `browser_snapshot`,
@@ -37,8 +39,12 @@ with path, optional MIME type, and size. Screenshot responses must strip inline
 base64 image data after persisting the file, because screenshots can exceed the
 model context budget.
 
-Raw Playwright, Puppeteer, or `agent_browser` tools are host-private backend
-details. They must not be persisted, requested, advertised, or projected into
+Downloads are intentionally deferred in this slice. The direct driver does not
+add download tools until download roots, retention, and result disclosure have a
+separate scoped policy and test plan.
+
+Raw Playwright, Puppeteer, or `agent_browser` tools are not MyClaw browser
+authority. They must not be persisted, requested, advertised, or projected into
 the model-facing tool surface.
 
 ## Capability Doctrine
@@ -68,7 +74,7 @@ sequenceDiagram
   participant Runner as "Claude Child Runner"
   participant Tool as "mcp__myclaw__browser_*"
   participant Browser as "Persistent Chrome Profile"
-  participant Backend as "Private Browser Backend"
+  participant Driver as "Direct Playwright CDP Driver"
 
   User->>Host: Message/job for Browser-selected agent
   Host->>Runner: Spawn with MyClaw MCP server and host-derived browser context
@@ -79,8 +85,8 @@ sequenceDiagram
   Tool->>Host: Signed IPC tool request
   Host->>Browser: Lazily launch or reuse scoped profile
   Host->>Browser: Close internal Chrome tabs and activate content tab
-  Host->>Backend: Invoke private backend-native tool
-  Backend->>Browser: Attach through host-owned CDP endpoint
+  Host->>Driver: Invoke direct browser action
+  Driver->>Browser: Attach through host-owned CDP endpoint
   Host-->>Tool: Sanitized result
 ```
 
@@ -97,30 +103,38 @@ model, and translates `browser_tabs` select and close requests from those
 visible indices back to the backend's raw tab indices internally. Raw backend
 tab indices must not leak into model-facing structured or text results. Numeric
 select and close requests fail closed unless a current visible-to-backend tab
-mapping exists. If a backend returns tab metadata only as provider-specific
-text, the browser adapter must first parse it into adapter-owned structured
-metadata, then apply the same visible-index projection; unparseable text-only
-tab lists fail closed instead of presenting backend indices as stable
-model-facing indices.
+mapping exists. The direct driver returns adapter-owned structured tab metadata;
+text-only tab lists are not trusted and fail closed instead of being treated as
+stable model-facing indices.
 Successful tab-set mutations such as close and new invalidate that mapping
 unless the backend returns a fresh structured tab list, which replaces it.
 
-`browser_resize` must preserve the user's visible browser session. The action is
-delegated to the private browser backend so viewport state has one owner; any
-non-visible browser mode remains an internal test harness detail and is not
-exposed as a launch mode to agents.
+`browser_resize` must preserve the user's visible browser session. The action
+ensures a page target exists and then uses Playwright `page.setViewportSize`.
+MyClaw does not call browser-level CDP `Emulation.setDeviceMetricsOverride`,
+and any non-visible browser mode remains an internal test harness detail rather
+than an agent-facing launch option.
 
 ## Runtime Responsibilities
 
 The host browser capability owns persistent browser profiles, headed Chrome
 launch, CDP readiness checks, profile locks, persisted session records, crash
 adoption, orphan cleanup, signed IPC handling, browser artifact file roots,
-per-action audit logging, and redaction of backend details from model-visible
-responses.
+direct Playwright CDP connection caching, per-action audit logging, and
+redaction of backend details from model-visible responses.
 
 The model cannot choose browser profile paths or arbitrary profile names. The
 profile comes from the agent, conversation, thread/job context, and host routing
 metadata.
+
+Chrome launch uses a concrete loopback CDP port instead of
+`--remote-debugging-port=0`; Chrome exposes `navigator.webdriver=true` when the
+debugging port is `0`. The visible headed launch path must not use
+`--disable-blink-features=AutomationControlled` because Chrome can show Blink
+feature toggles as unsupported command-line flags. Rebrowser/Playwright patches
+can improve other automation-detection signals later, but the first-party launch
+path should avoid Chrome's standardized webdriver trigger without adding visible
+unsupported-flag warnings.
 
 Browser status reports the persistent profile path, Chrome executable, visible
 mode, stored state markers, and detected auth markers without launching a new

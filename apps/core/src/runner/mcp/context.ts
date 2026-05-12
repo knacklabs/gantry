@@ -3,9 +3,11 @@ import {
   myclawMcpFullToolName,
   parseEnabledMyClawMcpToolNames,
 } from '../myclaw-mcp-tool-surface.js';
+import { readLiveToolRules } from '../../shared/live-tool-rules.js';
 import { normalizeMemoryIpcActions } from '../../shared/memory-ipc-actions.js';
 import {
   ADMIN_MCP_TOOL_NAMES,
+  adminMcpToolNameFromFullName,
   isAdminMcpToolName,
   type AdminMcpToolName,
 } from '../../shared/admin-mcp-tools.js';
@@ -75,7 +77,19 @@ export const selectedMcpServerIds = parseJsonStringArray(
 );
 
 export function isAdminMcpToolEnabled(toolName: AdminMcpToolName): boolean {
-  return enabledAdminMcpTools.has(toolName);
+  return currentEnabledAdminMcpTools().has(toolName);
+}
+
+export function currentEnabledAdminMcpTools(): Set<AdminMcpToolName> {
+  const enabled = new Set(enabledAdminMcpTools);
+  for (const rule of readLiveToolRules({
+    ipcDir: IPC_DIR,
+    runHandle: process.env.MYCLAW_AGENT_RUN_HANDLE,
+  })) {
+    const adminToolName = adminMcpToolNameFromFullName(rule);
+    if (adminToolName) enabled.add(adminToolName);
+  }
+  return enabled;
 }
 
 function parseConfiguredAllowedTools(raw: string | undefined): string[] {
@@ -117,10 +131,11 @@ function parseEnabledAdminMcpTools(
 }
 
 export function capabilityStatusText(): string {
+  const currentAdminTools = currentEnabledAdminMcpTools();
   const availableToolNames = [...enabledMyClawMcpTools].filter(
     (toolName) => !isAdminMcpToolName(toolName),
   );
-  for (const adminToolName of enabledAdminMcpTools) {
+  for (const adminToolName of currentAdminTools) {
     availableToolNames.push(adminToolName);
   }
   const requestableBrowserTools = buildRequestableBrowserToolAccess({
@@ -135,7 +150,7 @@ export function capabilityStatusText(): string {
     'MyClaw admin tool capabilities:',
     ...ADMIN_MCP_TOOL_NAMES.map((toolName) => {
       const fullName = `mcp__myclaw__${toolName}`;
-      if (enabledAdminMcpTools.has(toolName)) {
+      if (currentAdminTools.has(toolName)) {
         return `- available: ${fullName}`;
       }
       return [
@@ -193,7 +208,7 @@ export function capabilityStatusText(): string {
         ),
     ),
     requestableAdminTools: [
-      ...buildRequestableAdminToolAccess(enabledAdminMcpTools),
+      ...buildRequestableAdminToolAccess(currentAdminTools),
       ...requestableBrowserTools,
     ],
     source: 'settings.yaml current agent tools plus runtime defaults',

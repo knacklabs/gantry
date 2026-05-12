@@ -168,6 +168,7 @@ export interface PermissionApprovalRequest {
   agentId?: string;
   responseNonce?: string;
   sourceAgentFolder: string;
+  runHandle?: string;
   targetJid?: string;
   approvalContextJid?: string;
   threadId?: string;

@@ -339,6 +339,70 @@ provider_connections:
     });
   });
 
+  it('accepts durable provider connection ids exported from runtime storage', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  telegram:
+    enabled: true
+
+provider_connections:
+  "channel-providerConnection:default:telegram":
+    provider: telegram
+    label: Telegram
+
+conversations:
+  main_telegram_group:
+    provider_connection: "channel-providerConnection:default:telegram"
+    external_id: "telegram:-1003986348737"
+    type: channel
+    agent: main_agent
+
+agents:
+  main_agent:
+    name: "Main Agent"
+`);
+
+    expect(
+      parsed.providerConnections['channel-providerConnection:default:telegram'],
+    ).toMatchObject({
+      provider: 'telegram',
+      label: 'Telegram',
+    });
+    expect(parsed.conversations.main_telegram_group.providerConnection).toBe(
+      'channel-providerConnection:default:telegram',
+    );
+  });
+
+  it('accepts opaque provider connection ids used by control APIs', () => {
+    const parsed = parseRuntimeSettings(`providers:
+  slack:
+    enabled: true
+
+provider_connections:
+  "providerConnection/1":
+    provider: slack
+    label: Slack
+
+conversations:
+  team:
+    provider_connection: "providerConnection/1"
+    external_id: "slack:C123"
+    type: channel
+    agent: main_agent
+
+agents:
+  main_agent:
+    name: "Main Agent"
+`);
+
+    expect(parsed.providerConnections['providerConnection/1']).toMatchObject({
+      provider: 'slack',
+      label: 'Slack',
+    });
+    expect(parsed.conversations.team.providerConnection).toBe(
+      'providerConnection/1',
+    );
+  });
+
   it('validates model defaults against the model catalog', () => {
     const settings = createDefaultRuntimeSettings();
     settings.agent.defaultModel = 'claude-opus-4-7';

@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { ChildProcess, spawn } from 'child_process';
-import path from 'path';
+import { createServer } from 'net';
 
 import { logger } from '../infrastructure/logging/logger.js';
 import { DEFAULT_CHROME_ARGS } from './browser-config.js';
@@ -52,6 +52,7 @@ interface BrowserSession {
 }
 
 const sessions = new Map<string, BrowserSession>();
+const pendingLaunches = new Map<string, Promise<BrowserSessionStatus>>();
 
 function cleanupChromeSingletonArtifacts(userDataDir: string): void {
   for (const lockFile of [
@@ -94,32 +95,6 @@ async function waitForCdpHttp(port: number, timeoutMs: number): Promise<void> {
 
   throw new Error(
     `Chrome CDP did not become healthy on port ${port} within ${timeoutMs}ms`,
-  );
-}
-
-async function waitForDevToolsActivePort(
-  userDataDir: string,
-  timeoutMs: number,
-): Promise<number> {
-  const activePortPath = path.join(userDataDir, 'DevToolsActivePort');
-  const startedAt = currentTimeMs();
-  while (currentTimeMs() - startedAt < timeoutMs) {
-    try {
-      const [portLine] = fs
-        .readFileSync(activePortPath, 'utf-8')
-        .split(/\r?\n/);
-      const port = Number(portLine);
-      if (Number.isInteger(port) && port > 0 && port <= 65535) {
-        return port;
-      }
-    } catch {
-      // Chrome creates DevToolsActivePort asynchronously after process launch.
-    }
-    await sleepWithinDeadline(startedAt, timeoutMs, 100);
-  }
-
-  throw new Error(
-    `Chrome did not publish DevToolsActivePort within ${timeoutMs}ms`,
   );
 }
 
@@ -167,6 +142,34 @@ async function isCdpHttpHealthy(port: number): Promise<boolean> {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function reserveLoopbackPort(): Promise<number> {
+  const server = createServer();
+  server.unref();
+  await new Promise<void>((resolve, reject) => {
+    const fail = (err: Error) => reject(err);
+    server.once('error', fail);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', fail);
+      resolve();
+    });
+  });
+  const address = server.address();
+  const port =
+    address && typeof address === 'object' ? address.port : undefined;
+  await new Promise<void>((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+  if (
+    typeof port !== 'number' ||
+    !Number.isInteger(port) ||
+    port <= 0 ||
+    port > 65_535
+  ) {
+    throw new Error('Failed to reserve Chrome CDP port');
+  }
+  return port;
 }
 
 async function isSessionHealthy(session: BrowserSession): Promise<boolean> {
@@ -329,6 +332,33 @@ export async function launchBrowser(
 ): Promise<BrowserSessionStatus> {
   const profileName = resolveProfileName(opts.profileName);
   const keepAliveMs = resolveBrowserKeepAliveMs(opts.keepAliveMs);
+  const pending = pendingLaunches.get(profileName);
+  if (pending) return await waitForPendingLaunch(pending, opts);
+  const launch = launchBrowserInner(profileName, keepAliveMs, {
+    ...opts,
+    deadlineAtMs: undefined,
+  });
+  pendingLaunches.set(profileName, launch);
+  launch.then(
+    () => {
+      if (pendingLaunches.get(profileName) === launch) {
+        pendingLaunches.delete(profileName);
+      }
+    },
+    () => {
+      if (pendingLaunches.get(profileName) === launch) {
+        pendingLaunches.delete(profileName);
+      }
+    },
+  );
+  return await waitForPendingLaunch(launch, opts);
+}
+
+async function launchBrowserInner(
+  profileName: string,
+  keepAliveMs: number,
+  opts: LaunchBrowserOptions,
+): Promise<BrowserSessionStatus> {
   const existing = sessions.get(profileName);
   if (existing && (await isSessionHealthy(existing))) {
     existing.keepAliveMs = keepAliveMs;
@@ -354,10 +384,11 @@ export async function launchBrowser(
     if (recovered) return toRunningStatus(recovered);
 
     cleanupChromeSingletonArtifacts(profile.userDataDir);
+    const debuggingPort = await reserveLoopbackPort();
     const chromeFlags = [
       ...DEFAULT_CHROME_ARGS,
       `--user-data-dir=${profile.userDataDir}`,
-      '--remote-debugging-port=0',
+      `--remote-debugging-port=${debuggingPort}`,
     ];
 
     chromeProcess = spawn(findChrome(), chromeFlags, {
@@ -371,13 +402,9 @@ export async function launchBrowser(
       throw new Error('Failed to launch Chrome process');
     }
 
-    const port = await waitForDevToolsActivePort(
-      profile.userDataDir,
-      browserLaunchTimeoutMs(opts, 10_000),
-    );
-    await waitForCdpHttp(port, browserLaunchTimeoutMs(opts, 10_000));
+    await waitForCdpHttp(debuggingPort, browserLaunchTimeoutMs(opts, 10_000));
     const targetId = await ensureBrowserTarget(
-      port,
+      debuggingPort,
       typeof opts.deadlineAtMs === 'number'
         ? { deadlineAtMs: opts.deadlineAtMs }
         : undefined,
@@ -385,7 +412,7 @@ export async function launchBrowser(
 
     const session: BrowserSession = {
       profileName,
-      port,
+      port: debuggingPort,
       targetId,
       chromeProcess,
       pid,
@@ -399,7 +426,10 @@ export async function launchBrowser(
     sessions.set(profileName, session);
     touchSession(session);
 
-    logger.info({ profileName, port }, 'Launched browser profile session');
+    logger.info(
+      { profileName, port: debuggingPort },
+      'Launched browser profile session',
+    );
 
     return toRunningStatus(session);
   } catch (err) {
@@ -413,6 +443,35 @@ export async function launchBrowser(
     lock.release();
     throw err;
   }
+}
+
+async function waitForPendingLaunch(
+  launch: Promise<BrowserSessionStatus>,
+  opts: LaunchBrowserOptions,
+): Promise<BrowserSessionStatus> {
+  const deadlineAtMs = opts.deadlineAtMs;
+  if (typeof deadlineAtMs !== 'number' || !Number.isFinite(deadlineAtMs)) {
+    return await launch;
+  }
+  const remainingMs = Math.trunc(deadlineAtMs - currentTimeMs());
+  if (remainingMs <= 0) throw new Error('Browser launch deadline exceeded');
+  return await new Promise<BrowserSessionStatus>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('Browser launch deadline exceeded')),
+      remainingMs,
+    );
+    timer.unref?.();
+    launch.then(
+      (status) => {
+        clearTimeout(timer);
+        resolve(status);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }
 
 export async function ensureBrowserReady(

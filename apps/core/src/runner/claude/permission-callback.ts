@@ -54,6 +54,9 @@ export async function requestPermissionApproval(options: {
       ...(agentId ? { agentId } : {}),
       responseNonce,
       sourceAgentFolder: options.groupFolder,
+      ...(process.env.MYCLAW_AGENT_RUN_HANDLE
+        ? { runHandle: process.env.MYCLAW_AGENT_RUN_HANDLE }
+        : {}),
       toolName: options.toolName,
       ...(options.title ? { title: options.title } : {}),
       ...(options.displayName ? { displayName: options.displayName } : {}),

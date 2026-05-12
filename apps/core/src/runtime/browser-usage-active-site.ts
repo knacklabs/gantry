@@ -208,6 +208,7 @@ export async function resolveActiveBrowserUrlForUsage(input: {
         `Browser usage policy could not verify the active page site before ${input.action}: ${
           err instanceof Error ? err.message : String(err)
         }`,
+        { cause: err },
       );
     }
     console.warn('Browser usage audit could not resolve active page URL', {

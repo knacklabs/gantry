@@ -82,7 +82,7 @@ export async function startMyClawRuntime(
     '..',
     'adapters',
     'browser',
-    'browser-tool-proxy.js',
+    'browser-direct-driver.js',
   ].join('/');
   let browserToolModule: Promise<any> | undefined;
   const loadBrowserToolModule = () =>

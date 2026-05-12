@@ -119,6 +119,10 @@ function createMcpFixture(): {
     path.join(sharedDir, 'private-fs.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/live-tool-rules.ts'),
+    path.join(sharedDir, 'live-tool-rules.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/tool-access-view.ts'),
     path.join(sharedDir, 'tool-access-view.ts'),
   );
@@ -338,6 +342,7 @@ async function runMcpFixture(
         TEST_IPC_RESPONSE_SIGNING_KEY: fixture.responseSigningKey,
         MYCLAW_CHAT_JID: 'tg:team',
         MYCLAW_GROUP_FOLDER: 'team',
+        MYCLAW_AGENT_RUN_HANDLE: 'mcp-test-run',
         MYCLAW_ADMIN_MCP_TOOLS_JSON: '[]',
         MYCLAW_MCP_TOOL_NAMES_JSON: JSON.stringify(ALL_MYCLAW_MCP_TOOL_NAMES),
         ...envOverrides,
@@ -522,13 +527,47 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     );
   }, 40_000);
 
-  it('keeps unselected admin tools out of the MCP surface', async () => {
+  it('keeps unselected admin tools gated at call time', async () => {
     const fixture = createMcpFixture();
 
     const result = await runMcpFixture(fixture, 'service_restart', {});
 
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain('tool not registered: service_restart');
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.isError).toBe(true);
+    expect(record.result.content[0].text).toContain(
+      'mcp__myclaw__service_restart is not selected for this agent yet.',
+    );
+    expect(record.result.content[0].text).toContain(
+      'request_permission with permissionKind=tool toolName=mcp__myclaw__service_restart temporaryOnly=false',
+    );
+    expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
+  });
+
+  it('activates admin MCP tools from live persistent approval rules', async () => {
+    const fixture = createMcpFixture();
+    const liveRuleDir = path.join(fixture.ipcDir, 'live-tool-rules');
+    fs.mkdirSync(liveRuleDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(liveRuleDir, 'mcp-test-run.json'),
+      JSON.stringify(['mcp__myclaw__service_restart']),
+    );
+
+    const statusResult = await runMcpFixture(fixture, 'capability_status', {});
+    expect(statusResult.exitCode, statusResult.stderr).toBe(0);
+    const statusRecord = JSON.parse(
+      fs.readFileSync(fixture.resultPath, 'utf-8'),
+    );
+    expect(statusRecord.result.content[0].text).toContain(
+      'available: mcp__myclaw__service_restart',
+    );
+
+    const result = await runMcpFixture(fixture, 'service_restart', {});
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.content[0].text).toContain(
+      'Scheduler task confirmed.',
+    );
   });
 
   it('keeps default first-party MCP tools registered despite stale runner projection', async () => {
@@ -562,14 +601,18 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     expect(record.result.content[0].text).toContain('Supported models');
 
     const hiddenAdmin = await runMcpFixture(
-      createMcpFixture(),
+      fixture,
       'service_restart',
       {},
       { MYCLAW_MCP_TOOL_NAMES_JSON: staleSurface },
     );
-    expect(hiddenAdmin.exitCode).not.toBe(0);
-    expect(hiddenAdmin.stderr).toContain(
-      'tool not registered: service_restart',
+    expect(hiddenAdmin.exitCode, hiddenAdmin.stderr).toBe(0);
+    const adminRecord = JSON.parse(
+      fs.readFileSync(fixture.resultPath, 'utf-8'),
+    );
+    expect(adminRecord.result.isError).toBe(true);
+    expect(adminRecord.result.content[0].text).toContain(
+      'mcp__myclaw__service_restart is not selected for this agent yet.',
     );
   });
 

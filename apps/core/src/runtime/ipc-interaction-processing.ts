@@ -145,6 +145,7 @@ export async function processPermissionInteractionIpc(input: {
         mirrorAgentToolRulesToSettings,
         permissionRepository: input.deps.getPermissionRepository?.(),
         ipcDir: pathForGroupIpc(input.ipcBaseDir, input.sourceAgentFolder),
+        runHandle: input.request.runHandle,
         requestId: input.request.requestId,
         actor: decision.decidedBy,
         conversationId: input.request.targetJid,

@@ -21,6 +21,7 @@ import {
 } from './service-formatters.js';
 import { registerSettingsTools } from './settings.js';
 import { makeIpcId } from '../ipc-ids.js';
+import type { AdminMcpToolName } from '../../../shared/admin-mcp-tools.js';
 
 export function registerServiceTools(server: McpServer): void {
   registerSkillProposalTool(
@@ -445,138 +446,159 @@ export function registerServiceTools(server: McpServer): void {
     },
   );
 
-  if (isAdminMcpToolEnabled('service_restart')) {
-    server.tool(
-      'service_restart',
-      'Restart the MyClaw service with config validation. Requires selected agent tool grant mcp__myclaw__service_restart.',
-      {},
-      async () => {
-        const taskId = makeIpcId('service-restart');
-        writeIpcFile(TASKS_DIR, {
-          type: 'service_restart',
-          taskId,
-          targetJid: chatJid,
-          chatJid,
-          timestamp: nowIso(),
-        });
+  server.tool(
+    'service_restart',
+    'Restart the MyClaw service with config validation. Requires selected agent tool grant mcp__myclaw__service_restart.',
+    {},
+    async () => {
+      if (!isAdminMcpToolEnabled('service_restart')) {
+        return adminToolUnavailable('service_restart');
+      }
+      const taskId = makeIpcId('service-restart');
+      writeIpcFile(TASKS_DIR, {
+        type: 'service_restart',
+        taskId,
+        targetJid: chatJid,
+        chatJid,
+        timestamp: nowIso(),
+      });
 
-        const response = await waitForTaskResponse(taskId, 20_000);
-        if (!response) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: 'Service restart requested, but host response timed out.',
-              },
-            ],
-            isError: true,
-          };
-        }
-
-        if (!response.ok) {
-          const lines = [
-            response.error || 'Service restart failed.',
-            ...(response.details && response.details.length > 0
-              ? response.details.map((item) => `- ${item}`)
-              : []),
-          ];
-          return {
-            content: [{ type: 'text' as const, text: lines.join('\n') }],
-            isError: true,
-          };
-        }
-
+      const response = await waitForTaskResponse(taskId, 20_000);
+      if (!response) {
         return {
           content: [
             {
               type: 'text' as const,
-              text: response.message || 'Service restart completed.',
+              text: 'Service restart requested, but host response timed out.',
             },
           ],
+          isError: true,
         };
-      },
-    );
-  }
+      }
 
-  if (isAdminMcpToolEnabled('register_agent')) {
-    server.tool(
-      'register_agent',
-      `Register the current chat/channel agent so MyClaw can respond to messages there. Requires selected agent tool grant mcp__myclaw__register_agent and same-conversation approver approval.
+      if (!response.ok) {
+        const lines = [
+          response.error || 'Service restart failed.',
+          ...(response.details && response.details.length > 0
+            ? response.details.map((item) => `- ${item}`)
+            : []),
+        ];
+        return {
+          content: [{ type: 'text' as const, text: lines.join('\n') }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: response.message || 'Service restart completed.',
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    'register_agent',
+    `Register the current chat/channel agent so MyClaw can respond to messages there. Requires selected agent tool grant mcp__myclaw__register_agent and same-conversation approver approval.
 
 The JID must be the current conversation. The folder name must be channel-prefixed: "{channel}_{conversation-name}" (e.g., "telegram_dev-team", "slack_eng", "teams_engineering"). Use lowercase with hyphens for the conversation name part.`,
-      {
-        jid: z
-          .string()
-          .describe(
-            'The chat JID (e.g., "tg:-1001234567890", "sl:C0123456789", "teams:19:abc@thread.v2")',
-          ),
-        name: z.string().describe('Display name for the agent'),
-        folder: z
-          .string()
-          .describe('Channel-prefixed folder name (e.g., "teams_engineering")'),
-        trigger: z.string().describe('Trigger word (e.g., "@Default Agent")'),
-        requiresTrigger: z
-          .boolean()
-          .optional()
-          .describe(
-            'Whether messages must start with the trigger word. Default: false (respond to all messages). Set to true for busy groups with many participants where you only want the agent to respond when explicitly mentioned.',
-          ),
-      },
-      async (args) => {
-        const taskId = makeIpcId('register-agent');
-        const data = {
-          type: 'register_agent',
-          taskId,
-          jid: args.jid,
-          targetJid: chatJid,
-          chatJid,
-          name: args.name,
-          folder: args.folder,
-          trigger: args.trigger,
-          requiresTrigger: args.requiresTrigger ?? false,
-          timestamp: nowIso(),
-        };
+    {
+      jid: z
+        .string()
+        .describe(
+          'The chat JID (e.g., "tg:-1001234567890", "sl:C0123456789", "teams:19:abc@thread.v2")',
+        ),
+      name: z.string().describe('Display name for the agent'),
+      folder: z
+        .string()
+        .describe('Channel-prefixed folder name (e.g., "teams_engineering")'),
+      trigger: z.string().describe('Trigger word (e.g., "@Default Agent")'),
+      requiresTrigger: z
+        .boolean()
+        .optional()
+        .describe(
+          'Whether messages must start with the trigger word. Default: false (respond to all messages). Set to true for busy groups with many participants where you only want the agent to respond when explicitly mentioned.',
+        ),
+    },
+    async (args) => {
+      if (!isAdminMcpToolEnabled('register_agent')) {
+        return adminToolUnavailable('register_agent');
+      }
+      const taskId = makeIpcId('register-agent');
+      const data = {
+        type: 'register_agent',
+        taskId,
+        jid: args.jid,
+        targetJid: chatJid,
+        chatJid,
+        name: args.name,
+        folder: args.folder,
+        trigger: args.trigger,
+        requiresTrigger: args.requiresTrigger ?? false,
+        timestamp: nowIso(),
+      };
 
-        writeIpcFile(TASKS_DIR, data);
+      writeIpcFile(TASKS_DIR, data);
 
-        const response = await waitForTaskResponse(taskId, 300_000);
-        if (!response) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: 'Agent registration requested, but host response timed out.',
-              },
-            ],
-            isError: true,
-          };
-        }
-        if (!response.ok) {
-          const lines = [
-            response.error || 'Agent registration failed.',
-            ...(response.details && response.details.length > 0
-              ? response.details.map((item) => `- ${item}`)
-              : []),
-          ];
-          return {
-            content: [{ type: 'text' as const, text: lines.join('\n') }],
-            isError: true,
-          };
-        }
-
+      const response = await waitForTaskResponse(taskId, 300_000);
+      if (!response) {
         return {
           content: [
             {
               type: 'text' as const,
-              text:
-                response.message ||
-                `Agent "${args.name}" registered. It will start receiving messages immediately.`,
+              text: 'Agent registration requested, but host response timed out.',
             },
           ],
+          isError: true,
         };
+      }
+      if (!response.ok) {
+        const lines = [
+          response.error || 'Agent registration failed.',
+          ...(response.details && response.details.length > 0
+            ? response.details.map((item) => `- ${item}`)
+            : []),
+        ];
+        return {
+          content: [{ type: 'text' as const, text: lines.join('\n') }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text:
+              response.message ||
+              `Agent "${args.name}" registered. It will start receiving messages immediately.`,
+          },
+        ],
+      };
+    },
+  );
+}
+
+function adminToolUnavailable(toolName: AdminMcpToolName): {
+  content: { type: 'text'; text: string }[];
+  isError: true;
+} {
+  const fullName = `mcp__myclaw__${toolName}`;
+  return {
+    content: [
+      {
+        type: 'text',
+        text: [
+          `${fullName} is not selected for this agent yet.`,
+          `Use request_permission with permissionKind=tool toolName=${fullName} temporaryOnly=false.`,
+        ].join(' '),
       },
-    );
-  }
+    ],
+    isError: true,
+  };
 }
 
 const BROWSER_WRONG_LANE_GUIDANCE = [

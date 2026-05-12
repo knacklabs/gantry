@@ -311,12 +311,10 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       existing &&
       options.generation !== undefined &&
       existing.generation !== undefined &&
-      existing.generation !== options.generation
+      existing.generation !== options.generation &&
+      !(options.done && options.generation > existing.generation)
     ) {
-      if (options.done && options.generation > existing.generation) {
-        // Let terminal progress close the visible handle if runtime advanced an
-        // internal generation before finalizing the same user-visible turn.
-      } else if (options.done || options.replaceOnly) {
+      if (options.done || options.replaceOnly) {
         logger.info(
           {
             jid,
@@ -355,7 +353,6 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       }
       return;
     }
-
     const sendOptions = Number.isFinite(parsedThreadId)
       ? { message_thread_id: parsedThreadId }
       : {};

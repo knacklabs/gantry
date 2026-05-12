@@ -122,7 +122,10 @@ function parseProviderConnections(
     raw as Record<string, unknown>,
   )) {
     const pathPrefix = `provider_connections.${connectionId}`;
-    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/.test(connectionId)) {
+    if (
+      connectionId.trim().length === 0 ||
+      /[\u0000-\u001f\u007f]/.test(connectionId)
+    ) {
       throw new Error(`${pathPrefix} must use a stable connection id`);
     }
     if (

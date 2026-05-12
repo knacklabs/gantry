@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
   let nextPid = 5000;
+  let nextPort = 4567;
   const processes = new Map<
     number,
     EventEmitter & { pid: number; unref: ReturnType<typeof vi.fn> }
@@ -13,6 +14,42 @@ const mocks = vi.hoisted(() => {
   return {
     processes,
     commandLines,
+    resetPorts: () => {
+      nextPort = 4567;
+    },
+    createServer: vi.fn(() => {
+      const server = new EventEmitter() as EventEmitter & {
+        address: ReturnType<typeof vi.fn>;
+        close: ReturnType<typeof vi.fn>;
+        listen: ReturnType<typeof vi.fn>;
+        off: ReturnType<typeof vi.fn>;
+        unref: ReturnType<typeof vi.fn>;
+      };
+      const port = nextPort++;
+      server.address = vi.fn(() => ({
+        address: '127.0.0.1',
+        family: 'IPv4',
+        port,
+      }));
+      server.close = vi.fn((callback?: (err?: Error) => void) => {
+        queueMicrotask(() => callback?.());
+        return server;
+      });
+      server.listen = vi.fn(
+        (_port: number, _host: string, callback?: () => void) => {
+          queueMicrotask(() => callback?.());
+          return server;
+        },
+      );
+      server.off = vi.fn(
+        (event: string, listener: (...args: unknown[]) => void) => {
+          EventEmitter.prototype.off.call(server, event, listener);
+          return server;
+        },
+      );
+      server.unref = vi.fn(() => server);
+      return server;
+    }),
     execFileSync: vi.fn((_: string, args: string[]) => {
       const pidArg = args[args.indexOf('-p') + 1];
       return commandLines.get(Number(pidArg)) ?? '';
@@ -36,6 +73,10 @@ const mocks = vi.hoisted(() => {
 vi.mock('child_process', () => ({
   spawn: mocks.spawn,
   execFileSync: mocks.execFileSync,
+}));
+
+vi.mock('net', () => ({
+  createServer: mocks.createServer,
 }));
 
 vi.mock('@core/runtime/browser-config.js', () => ({
@@ -99,6 +140,16 @@ function cdpVersionResponse(port = 4567): Response {
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return { promise, resolve, reject };
+}
+
 function stubCdpWebSocket() {
   const sent: Array<Record<string, unknown>> = [];
   class FakeWebSocket {
@@ -154,6 +205,8 @@ describe('browser-capability', () => {
     );
     mocks.processes.clear();
     mocks.commandLines.clear();
+    mocks.resetPorts();
+    mocks.createServer.mockClear();
     mocks.spawn.mockClear();
     mocks.execFileSync.mockClear();
     mocks.release.mockClear();
@@ -212,7 +265,13 @@ describe('browser-capability', () => {
       { force: true },
     );
     expect(mocks.spawn.mock.calls[0][1]).toEqual(
-      expect.arrayContaining(['--remote-debugging-port=0']),
+      expect.arrayContaining(['--remote-debugging-port=4567']),
+    );
+    expect(mocks.spawn.mock.calls[0][1]).not.toContain(
+      '--remote-debugging-port=0',
+    );
+    expect(mocks.spawn.mock.calls[0][1]).not.toContain(
+      '--disable-blink-features=AutomationControlled',
     );
     expect(mocks.spawn.mock.calls[0][1]).not.toContain('--headless=new');
     const status = await manager.getBrowserStatus();
@@ -231,7 +290,71 @@ describe('browser-capability', () => {
     expect(mocks.release).not.toHaveBeenCalled();
   });
 
-  it('fails browser launch when the startup deadline is exhausted', async () => {
+  it('shares one cold launch across concurrent callers for the same profile', async () => {
+    const manager = await import('@core/runtime/browser-capability.js');
+    const profiles = await import('@core/runtime/browser-profiles.js');
+    const lockCallsBefore = vi.mocked(profiles.acquireProfileLock).mock.calls
+      .length;
+    const cdpReady = deferred<Response>();
+    const target = { id: 'target-1', type: 'page' };
+    mocks.fetch
+      .mockReturnValueOnce(cdpReady.promise)
+      .mockResolvedValueOnce(cdpResponse([target]))
+      .mockResolvedValueOnce(cdpResponse([target]))
+      .mockResolvedValueOnce(cdpVersionResponse())
+      .mockResolvedValueOnce(cdpResponse([target]));
+
+    const first = manager.launchBrowser();
+    const second = manager.launchBrowser();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(profiles.acquireProfileLock).toHaveBeenCalledTimes(
+      lockCallsBefore + 1,
+    );
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(1));
+
+    cdpReady.resolve(cdpVersionResponse());
+
+    await expect(first).resolves.toMatchObject({ running: true });
+    await expect(second).resolves.toMatchObject({ running: true });
+    expect(profiles.acquireProfileLock).toHaveBeenCalledTimes(
+      lockCallsBefore + 1,
+    );
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let one caller deadline poison a shared cold launch', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const manager = await import('@core/runtime/browser-capability.js');
+    const cdpReady = deferred<Response>();
+    const target = { id: 'target-1', type: 'page' };
+    mocks.fetch
+      .mockReturnValueOnce(cdpReady.promise)
+      .mockResolvedValueOnce(cdpResponse([target]))
+      .mockResolvedValueOnce(cdpResponse([target]))
+      .mockResolvedValueOnce(cdpVersionResponse())
+      .mockResolvedValueOnce(cdpResponse([target]));
+
+    const short = manager.launchBrowser({ deadlineAtMs: 1_100 });
+    const shortResult = short.catch((err) => err);
+    const long = manager.launchBrowser({ deadlineAtMs: 9_000 });
+    await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledTimes(1));
+
+    await vi.advanceTimersByTimeAsync(101);
+    expect(await shortResult).toMatchObject({
+      message: 'Browser launch deadline exceeded',
+    });
+
+    vi.setSystemTime(1_200);
+    cdpReady.resolve(cdpVersionResponse());
+    await expect(long).resolves.toMatchObject({ running: true });
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails the caller when the startup deadline is exhausted', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
     const manager = await import('@core/runtime/browser-capability.js');
@@ -241,12 +364,8 @@ describe('browser-capability', () => {
     );
 
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
-    const launched = mocks.spawn.mock.results[0]?.value as
-      | { pid: number }
-      | undefined;
-    expect(launched?.pid).toEqual(expect.any(Number));
-    expect(killSpy).toHaveBeenCalledWith(launched?.pid, 'SIGTERM');
-    expect(mocks.release).toHaveBeenCalledTimes(1);
+    expect(killSpy).not.toHaveBeenCalledWith(expect.any(Number), 'SIGTERM');
+    expect(mocks.release).not.toHaveBeenCalled();
   });
 
   it('relaunches instead of reusing a process with an unhealthy CDP endpoint', async () => {
@@ -303,6 +422,12 @@ describe('browser-capability', () => {
 
     expect(status.targetId).toBe('target-1');
     expect(mocks.spawn.mock.calls[0][1]).toContain('--window-size=1280,900');
+    expect(mocks.spawn.mock.calls[0][1]).not.toContain(
+      '--disable-blink-features=AutomationControlled',
+    );
+    expect(mocks.spawn.mock.calls[0][1]).not.toContain(
+      '--remote-debugging-port=0',
+    );
     expect(mocks.spawn.mock.calls[0][1]).not.toContain('--headless=new');
     expect(mocks.fetch).toHaveBeenCalledWith(
       'http://127.0.0.1:4567/json/new?about:blank',

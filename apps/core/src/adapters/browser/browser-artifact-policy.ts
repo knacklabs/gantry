@@ -43,6 +43,7 @@ export function normalizeBrowserFilePayload(
   options: { fileAccessRoot: string },
 ): Record<string, unknown> {
   const next = { ...payload };
+  const rawPathsPresent = arrayValue(next.paths).length > 0;
   if (next.filename !== undefined) {
     next.filename = resolveBrowserOutputPath(
       next.filename,
@@ -50,11 +51,20 @@ export function normalizeBrowserFilePayload(
     );
   }
   if (toolName === 'browser_file_upload' && next.files !== undefined) {
-    next.paths = [
-      ...arrayValue(next.paths),
-      ...materializeBrowserUploadFiles(next.files, options.fileAccessRoot),
-    ];
+    if (rawPathsPresent) {
+      throw new Error('browser_file_upload accepts inline files only.');
+    }
+    next.paths = materializeBrowserUploadFiles(
+      next.files,
+      options.fileAccessRoot,
+    );
     delete next.files;
+  }
+  if (
+    (toolName === 'browser_file_upload' || toolName === 'browser_drop') &&
+    rawPathsPresent
+  ) {
+    throw new Error('Browser upload/drop filesystem paths are not accepted.');
   }
   if (next.paths !== undefined) {
     if (!Array.isArray(next.paths)) {
@@ -93,10 +103,7 @@ function materializeBrowserUploadFiles(
     writeBrowserArtifactFileSync(file.outputPath, file.bytes, undefined, {
       exclusive: true,
     });
-    return path.relative(
-      ensureBrowserArtifactRoot(fileAccessRoot),
-      file.outputPath,
-    );
+    return file.outputPath;
   });
 }
 

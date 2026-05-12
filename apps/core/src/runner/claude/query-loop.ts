@@ -128,6 +128,7 @@ export async function runQuery(
     threadId: agentInput.threadId,
     memoryUserId: agentInput.memoryUserId,
     memoryDefaultScope: agentInput.memoryDefaultScope,
+    memoryReviewerIsControlApprover: agentInput.memoryReviewerIsControlApprover,
     persona: agentInput.persona,
     browserProfileName: agentInput.browserProfileName,
     configuredAllowedTools: agentInput.allowedTools,

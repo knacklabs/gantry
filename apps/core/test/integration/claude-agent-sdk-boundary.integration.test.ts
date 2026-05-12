@@ -488,6 +488,26 @@ describe('Claude Agent SDK boundary integration', () => {
     ).rejects.toThrow(/Required MyClaw MCP server is not ready/);
   });
 
+  it('passes memory reviewer authority into the MyClaw MCP server env', async () => {
+    const env = prepareRuntimeEnv();
+    const { runQuery } = await importRunQuery();
+
+    await runQuery(
+      'hello',
+      env.mcpServerPath,
+      runnerInput({ memoryReviewerIsControlApprover: true }),
+      {},
+      undefined,
+      undefined,
+      undefined,
+    );
+
+    expect(
+      sdkState.calls[0]?.options.mcpServers.myclaw?.env
+        ?.MYCLAW_MEMORY_REVIEWER_IS_CONTROL_APPROVER,
+    ).toBe('1');
+  });
+
   it('fails closed when Claude init omits the required MyClaw MCP server', async () => {
     const env = prepareRuntimeEnv();
     sdkState.mode = 'mcp-missing';

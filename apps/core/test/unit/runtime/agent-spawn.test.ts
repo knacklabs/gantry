@@ -1058,7 +1058,7 @@ describe('agent-spawn timeout behavior', () => {
     >;
     expect(mockEnsureBrowserReady).not.toHaveBeenCalled();
     expect(mockGetBrowserStatus).not.toHaveBeenCalled();
-    expect(env.PLAYWRIGHT_MCP_CDP_ENDPOINT).toBeUndefined();
+    expect(env.RAW_BROWSER_BACKEND_ENDPOINT).toBeUndefined();
     expect(env.MYCLAW_MCP_CONFIG_FILE).toBeUndefined();
     expect(env.MYCLAW_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
     expect(env.MYCLAW_BROWSER_IPC_AUTH_TOKEN).toBeUndefined();
@@ -1081,7 +1081,7 @@ describe('agent-spawn timeout behavior', () => {
     >;
     expect(mockEnsureBrowserReady).not.toHaveBeenCalled();
     expect(mockGetBrowserStatus).not.toHaveBeenCalled();
-    expect(env.PLAYWRIGHT_MCP_CDP_ENDPOINT).toBeUndefined();
+    expect(env.RAW_BROWSER_BACKEND_ENDPOINT).toBeUndefined();
     expect(env.MYCLAW_MCP_CONFIG_FILE).toBeUndefined();
     expect(env.MYCLAW_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
     expect(env.MYCLAW_BROWSER_IPC_AUTH_TOKEN).toEqual(expect.any(String));
@@ -1154,7 +1154,7 @@ describe('agent-spawn timeout behavior', () => {
       string
     >;
     expect(mockEnsureBrowserReady).not.toHaveBeenCalled();
-    expect(env.PLAYWRIGHT_MCP_CDP_ENDPOINT).toBeUndefined();
+    expect(env.RAW_BROWSER_BACKEND_ENDPOINT).toBeUndefined();
     expect(env.MYCLAW_MCP_CONFIG_FILE).toBeUndefined();
     expect(env.MYCLAW_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
     expect(env.MYCLAW_MCP_ALWAYS_ALLOWED_TOOLS_JSON).toBeUndefined();
@@ -1211,7 +1211,7 @@ describe('agent-spawn timeout behavior', () => {
     >;
     expect(mockEnsureBrowserReady).not.toHaveBeenCalled();
     expect(mockGetBrowserStatus).not.toHaveBeenCalled();
-    expect(env.PLAYWRIGHT_MCP_CDP_ENDPOINT).toBeUndefined();
+    expect(env.RAW_BROWSER_BACKEND_ENDPOINT).toBeUndefined();
     expect(env.MYCLAW_MCP_CONFIG_FILE).toBeUndefined();
   });
 

@@ -47,20 +47,6 @@ function writeJson(filePath: string, value: unknown): void {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
 }
 
-function symlinkPackage(
-  root: string,
-  packageName: string,
-  target: string,
-): void {
-  const packagePath = path.join(
-    root,
-    'node_modules',
-    ...packageName.split('/'),
-  );
-  fs.mkdirSync(path.dirname(packagePath), { recursive: true });
-  fs.symlinkSync(path.resolve(target), packagePath, 'dir');
-}
-
 function createRunnerFixture(): {
   root: string;
   runnerPath: string;
@@ -669,9 +655,9 @@ describe('agent-runner IPC lifecycle', () => {
         JSON.stringify({
           agent_browser: {
             type: 'stdio',
-            command: '/tmp/playwright-mcp',
-            args: ['--shared-browser-context'],
-            env: { PLAYWRIGHT_MCP_CDP_ENDPOINT: 'http://127.0.0.1:4567' },
+            command: '/tmp/raw-browser-backend',
+            args: ['--unsafe-shared-context'],
+            env: { RAW_BROWSER_BACKEND_ENDPOINT: 'http://127.0.0.1:4567' },
           },
         }),
       );
@@ -693,7 +679,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'rejects host-private Playwright MCP config from a private file',
+    'rejects legacy @playwright/mcp config from a private file',
     async () => {
       const fixture = createRunnerFixture();
       const mcpConfigPath = path.join(fixture.root, 'mcp-config.json');
@@ -702,8 +688,11 @@ describe('agent-runner IPC lifecycle', () => {
         JSON.stringify({
           playwright: {
             type: 'stdio',
-            command: '/tmp/playwright-mcp',
+            command: '/tmp/node_modules/.bin/playwright-mcp',
             args: ['--shared-browser-context'],
+            env: {
+              PLAYWRIGHT_MCP_CDP_ENDPOINT: 'http://127.0.0.1:4567',
+            },
           },
         }),
       );
@@ -1113,6 +1102,7 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.permissionRequest).toEqual(
         expect.objectContaining({
           sourceAgentFolder: 'team',
+          runHandle: 'runner-test-run',
           toolName: 'Bash',
           signature: expect.any(String),
         }),

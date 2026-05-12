@@ -184,10 +184,10 @@ describe('runner browser MCP projected tools', () => {
     ).toBe(true);
     expect(
       uploadSchema.safeParse({
-        paths: ['existing.txt'],
         files: [{ name: 'note.txt', content: 'hello' }],
       }).success,
     ).toBe(true);
+    expect(uploadSchema.shape).not.toHaveProperty('paths');
     expect(
       snapshotSchema.safeParse({ target: 'e1', filename: 'snapshot.json' })
         .success,

@@ -6,8 +6,8 @@ import { registerSchedulerTools } from './tools/scheduler.js';
 import { registerServiceTools } from './tools/service.js';
 import { parseEnabledMyClawMcpToolNames } from '../myclaw-mcp-tool-surface.js';
 import {
+  ADMIN_MCP_TOOL_NAMES,
   isAdminMcpToolName,
-  type AdminMcpToolName,
 } from '../../shared/admin-mcp-tools.js';
 
 type McpToolRegistrar = {
@@ -84,26 +84,7 @@ function effectiveEnabledMcpToolNames(
     ),
   );
 
-  for (const toolName of parseEnabledAdminMcpToolNames(rawAdminToolNames)) {
-    enabledTools.add(toolName);
-  }
+  for (const toolName of ADMIN_MCP_TOOL_NAMES) enabledTools.add(toolName);
 
   return enabledTools;
-}
-
-function parseEnabledAdminMcpToolNames(
-  raw: string | undefined,
-): Set<AdminMcpToolName> {
-  if (!raw?.trim()) return new Set();
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(
-      parsed
-        .map((item) => (typeof item === 'string' ? item.trim() : ''))
-        .filter((item): item is AdminMcpToolName => isAdminMcpToolName(item)),
-    );
-  } catch {
-    return new Set();
-  }
 }

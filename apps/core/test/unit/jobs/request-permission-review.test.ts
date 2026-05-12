@@ -130,6 +130,9 @@ describe('request permission review helpers', () => {
   });
 
   it('binds exact admin MCP tools without creating synthetic wildcard grants', async () => {
+    const ipcDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-admin-live-tool-rules-'),
+    );
     const repository = {
       getTool: vi.fn(async () => ({
         id: 'tool:mcp__myclaw__service_restart',
@@ -147,6 +150,8 @@ describe('request permission review helpers', () => {
       agentId: 'agent:test' as never,
       deps: depsWith(repository),
       sourceAgentFolder: 'main_agent',
+      ipcDir,
+      runHandle: 'agent-run-1',
       updates: [
         {
           type: 'addRules',
@@ -167,6 +172,14 @@ describe('request permission review helpers', () => {
         status: 'active',
       }),
     );
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(ipcDir, 'live-tool-rules', 'agent-run-1.json'),
+          'utf-8',
+        ),
+      ),
+    ).toEqual(['mcp__myclaw__service_restart']);
   });
 
   it('binds persistent Browser approvals to the catalog Browser tool and mirrors settings', async () => {

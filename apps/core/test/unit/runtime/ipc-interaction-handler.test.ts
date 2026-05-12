@@ -14,6 +14,7 @@ import {
   writePermissionIpcResponse,
   writeUserQuestionIpcResponse,
 } from '@core/runtime/ipc-interaction-handler.js';
+import { processPermissionInteractionIpc } from '@core/runtime/ipc-interaction-processing.js';
 
 function fileMode(filePath: string): number {
   return fs.statSync(filePath).mode & 0o777;
@@ -169,6 +170,76 @@ describe('ipc-interaction-handler', () => {
       ],
       decisionClassification: 'user_permanent',
     });
+  });
+
+  it('writes persistent SDK permission approvals to the active run live-rule file', async () => {
+    const claimedPath = path.join(tempDir, 'claimed-permission.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const toolRepository = {
+      getTool: vi.fn(async () => ({
+        id: 'tool:mcp__myclaw__service_restart',
+        appId: 'app:test',
+        status: 'active',
+        selectable: true,
+      })),
+      saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: 'perm-live-admin',
+        appId: 'app:test',
+        agentId: 'agent:test',
+        responseNonce: 'nonce',
+        sourceAgentFolder: 'main_agent',
+        runHandle: 'agent-run-1',
+        targetJid: 'tg:team',
+        toolName: 'mcp__myclaw__service_restart',
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        requestPermissionApproval: vi.fn(async () => ({
+          approved: true,
+          mode: 'allow_persistent_rule',
+          decidedBy: 'owner',
+          decisionClassification: 'user_permanent',
+          updatedPermissions: [
+            {
+              type: 'addRules',
+              behavior: 'allow',
+              rules: [{ toolName: 'mcp__myclaw__service_restart' }],
+            },
+          ],
+        })),
+        getToolRepository: () => toolRepository as never,
+        mirrorAgentToolRulesToSettings,
+      },
+      ipcBaseDir: tempDir,
+      file: 'claimed-permission.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn() },
+    });
+
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(
+            tempDir,
+            'main_agent',
+            'live-tool-rules',
+            'agent-run-1.json',
+          ),
+          'utf-8',
+        ),
+      ),
+    ).toEqual(['mcp__myclaw__service_restart']);
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      ['mcp__myclaw__service_restart'],
+      { appId: 'app:test' },
+    );
   });
 
   it('sanitizes user answer keys and values when writing responses', () => {

@@ -15,6 +15,7 @@ export interface AgentRunnerInput {
   threadId?: string;
   memoryUserId?: string;
   memoryDefaultScope?: 'user' | 'group';
+  memoryReviewerIsControlApprover?: boolean;
   persona?: AgentPersona;
   browserProfileName?: string;
   allowedTools?: string[];
