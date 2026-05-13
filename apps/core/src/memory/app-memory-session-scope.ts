@@ -1,6 +1,5 @@
 import type { AgentSession } from '../domain/sessions/sessions.js';
 
-const SCOPE_THREAD_MARKER = '::thread:';
 const CONVERSATION_ID_PREFIX = 'conversation:';
 const THREAD_ID_PREFIX = 'thread:';
 
@@ -11,17 +10,14 @@ export function parseSessionScopeKey(input: { session: AgentSession }): {
 } {
   const raw = input.session.userId?.trim();
   if (!raw) return { isScopeKey: false };
-  const markerIndex = raw.indexOf(SCOPE_THREAD_MARKER);
-  if (markerIndex > 0) {
-    const groupId = decodeSessionScopeComponent(
-      raw.slice(0, markerIndex).trim(),
-    );
-    const threadId = decodeSessionScopeComponent(
-      raw.slice(markerIndex + SCOPE_THREAD_MARKER.length).trim(),
-    );
-    if (groupId && threadId) {
-      return { isScopeKey: true, groupId, threadId };
-    }
+  const parts = raw.split('::');
+  if (parts.length > 1) {
+    const groupId = decodeSessionScopeComponent(parts[0]?.trim() ?? '');
+    const threadPart = parts.find((part) => part.startsWith('thread:'));
+    const threadId = threadPart
+      ? decodeSessionScopeComponent(threadPart.slice('thread:'.length).trim())
+      : undefined;
+    if (groupId) return { isScopeKey: true, groupId, threadId };
   }
   if (input.session.agentId === `agent:${raw}`) {
     return { isScopeKey: true, groupId: raw };

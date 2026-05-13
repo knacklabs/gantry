@@ -10,6 +10,7 @@ import {
 } from '../config/index.js';
 import { logger, redactString } from '../infrastructure/logging/logger.js';
 import { AgentOutput, RunnerProcessSpec } from './agent-spawn-types.js';
+import { formatDuration } from '../shared/human-format.js';
 import { nowIso, nowMs as currentTimeMs } from '../shared/time/datetime.js';
 
 const OUTPUT_START_MARKER = '---MYCLAW_OUTPUT_START---';
@@ -48,8 +49,9 @@ function sanitizeLogText(value: string, maxChars = 4000): string {
 }
 
 function parseBufferedRunnerOutput(stdout: string): AgentOutput {
-  const startIdx = stdout.indexOf(OUTPUT_START_MARKER);
-  const endIdx = stdout.indexOf(OUTPUT_END_MARKER);
+  const endIdx = stdout.lastIndexOf(OUTPUT_END_MARKER);
+  const startIdx =
+    endIdx === -1 ? -1 : stdout.lastIndexOf(OUTPUT_START_MARKER, endIdx);
 
   let jsonLine: string;
   if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
@@ -242,7 +244,7 @@ export function executeRunnerProcess(
             `Timestamp: ${nowIso()}`,
             `Group: ${group.name}`,
             `Process: ${processName}`,
-            `Duration: ${duration}ms`,
+            `Duration: ${formatDuration(duration)}`,
             `Exit Code: ${code}`,
             `Had Streaming Output: ${hadStreamingOutput}`,
           ].join('\n'),
@@ -281,7 +283,7 @@ export function executeRunnerProcess(
             status: 'error',
             result: null,
             newSessionId,
-            error: `${runnerLabel} timed out after ${timeoutMs}ms`,
+            error: `${runnerLabel} timed out after ${formatDuration(timeoutMs)}`,
           });
         });
         return;
@@ -295,7 +297,7 @@ export function executeRunnerProcess(
         `=== Agent Run Log ===`,
         `Timestamp: ${nowIso()}`,
         `Group: ${group.name}`,
-        `Duration: ${duration}ms`,
+        `Duration: ${formatDuration(duration)}`,
         `Exit Code: ${code}`,
         `Stdout Truncated: ${stdoutTruncated}`,
         `Stderr Truncated: ${stderrTruncated}`,

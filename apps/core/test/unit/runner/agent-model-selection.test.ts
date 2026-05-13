@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   requestedModelFromAgentInput,
-  subagentTypeFromAgentInput,
   unsupportedAgentConfigurationField,
   validateAgentToolInput,
   validateAgentModelRequest,
@@ -43,18 +42,15 @@ describe('Agent model selection', () => {
     expect(requestedModelFromAgentInput(null)).toBeUndefined();
   });
 
-  it('rejects native Agent subagent_type until MyClaw projects definitions', () => {
+  it('allows native Agent subagent_type when the Agent capability is granted', () => {
     const sonnet = findModelByRunnerModel('claude-sonnet-4-6');
 
-    expect(subagentTypeFromAgentInput({ subagent_type: ' elevated ' })).toBe(
-      'elevated',
-    );
     expect(
       validateAgentToolInput(
         { prompt: 'review', subagent_type: 'elevated' },
         sonnet,
       ),
-    ).toContain('not enabled for this MyClaw run');
+    ).toBeNull();
   });
 
   it('rejects overrides when the parent run model is not cataloged', () => {
@@ -87,6 +83,15 @@ describe('Agent model selection', () => {
         sonnet,
       ),
     ).toContain('configured subagent definition');
+    expect(
+      unsupportedAgentConfigurationField({ mode: 'bypassPermissions' }),
+    ).toBe('mode');
+    expect(
+      validateAgentToolInput(
+        { prompt: 'review', mode: 'bypassPermissions' },
+        sonnet,
+      ),
+    ).toContain('permission mode overrides can expand authority');
   });
 
   it('accepts only native SDK aliases for per-invocation Agent model overrides', () => {

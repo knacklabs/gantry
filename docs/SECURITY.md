@@ -98,11 +98,16 @@ tables or database roles. MyClaw owns the `myclaw` schema, OneCLI owns the
 secret so broker state survives stateless restarts. General agent tool, script,
 browser, and MCP environments do not receive `MYCLAW_DATABASE_URL`,
 `ONECLI_DATABASE_URL`, raw provider keys, broker-provided proxy variables, or
-broker-provided CA certificate variables. Model broker projection is limited to
-the model SDK credential lane. `NO_PROXY`/`no_proxy` values are compatibility
-hints for cooperative tools, not protection against malicious or vulnerable
-tools; that protection belongs to capability selection, permission policy,
-sandbox policy, and audit.
+provider credentials. Model broker projection is limited to the model SDK
+credential lane. When that lane includes `NODE_EXTRA_CA_CERTS`, the SDK process
+and approved Bash commands receive only the CA bundle path as neutral TLS trust
+aliases (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`,
+`GIT_SSL_CAINFO`, `PIP_CERT`, `AWS_CA_BUNDLE`, `CARGO_HTTP_CAINFO`, and
+`DENO_CERT`).
+`NO_PROXY`/`no_proxy` values are compatibility hints for
+cooperative tools, not protection against malicious or vulnerable tools; that
+protection belongs to capability selection, permission policy, sandbox policy,
+and audit.
 
 ## Security Architecture (Host Runtime)
 

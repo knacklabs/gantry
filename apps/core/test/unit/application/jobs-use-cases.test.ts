@@ -36,7 +36,6 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     retry_backoff_ms: 0,
     max_consecutive_failures: 3,
     consecutive_failures: 0,
-    execution_mode: 'parallel',
     lease_run_id: null,
     lease_expires_at: null,
     pause_reason: null,
@@ -157,7 +156,6 @@ describe('job application use cases', () => {
       patch: {
         name: 'Updated',
         prompt: 'New prompt',
-        executionMode: 'serialized',
         threadId: 'thread-1',
         status: 'paused',
       },
@@ -166,7 +164,6 @@ describe('job application use cases', () => {
     expect(result.job).toMatchObject({
       name: 'Updated',
       prompt: 'New prompt',
-      execution_mode: 'serialized',
       thread_id: 'thread-1',
       status: 'paused',
       pause_reason: 'Paused by SDK',
@@ -175,7 +172,6 @@ describe('job application use cases', () => {
     expect(ops.updateJob).toHaveBeenCalledWith('job-1', {
       name: 'Updated',
       prompt: 'New prompt',
-      execution_mode: 'serialized',
       thread_id: 'thread-1',
       status: 'paused',
       pause_reason: 'Paused by SDK',

@@ -343,7 +343,6 @@ export async function handleJobRoutes(
         kind,
         runAt: typeof body.runAt === 'string' ? body.runAt : undefined,
         schedule: (body.schedule || {}) as { type?: unknown; value?: unknown },
-        executionMode: body.executionMode,
         modelAlias: resolvedModel.explicit
           ? resolvedModel.modelAlias
           : undefined,
@@ -487,10 +486,6 @@ export async function handleJobRoutes(
         patch: {
           ...(typeof body.name === 'string' ? { name: body.name } : {}),
           ...(typeof body.prompt === 'string' ? { prompt: body.prompt } : {}),
-          ...(body.executionMode === 'serialized' ||
-          body.executionMode === 'parallel'
-            ? { executionMode: body.executionMode }
-            : {}),
           ...(body.executionContext !== undefined
             ? {
                 executionContext: body.executionContext,

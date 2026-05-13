@@ -63,6 +63,12 @@ All complex logic — the agent loop, tool execution, background tasks, teammate
 
 Full `Options` type from the official docs:
 
+This section is a reverse-engineering reference for the upstream SDK surface,
+not active MyClaw configuration guidance. MyClaw must project
+`permissionMode: 'default'`, must never set `bypassPermissions` or
+`allowDangerouslySkipPermissions`, and must keep durable authority in semantic
+capabilities plus deterministic `canUseTool` enforcement.
+
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `abortController` | `AbortController` | `new AbortController()` | Controller for cancelling operations |
@@ -298,22 +304,21 @@ Claude responded with text only — it decided it has completed the task. The AP
 | Stop hook blocking error | Feed error back, recurse | continues |
 | Model fallback error | Retry with fallback model (one-time) | continues |
 
-## Subagent Execution Modes
+## Subagent Execution Contract
 
-### Case 1: Synchronous Subagents (`run_in_background: false`) — BLOCKS
+MyClaw treats native SDK `Agent` and `Task` tool calls as background-only.
+The runner coerces their tool input to `run_in_background: true` before model
+validation, permission checks, sandbox/network gates, and SDK allow responses.
+This keeps subagent work from occupying the parent conversation's active turn.
 
-Parent agent calls Task tool → `VR()` runs `EZ()` for subagent → parent waits for full result → tool result returned to parent → parent continues.
-
-The subagent runs the full recursive EZ loop. The parent's tool execution is suspended via `await`. There is a mid-execution "promotion" mechanism: a synchronous subagent can be promoted to background via `Promise.race()` against a `backgroundSignal` promise.
-
-### Case 2: Background Tasks (`run_in_background: true`) — DOES NOT WAIT
+### Background Tasks (`run_in_background: true`) — DOES NOT WAIT
 
 - **Bash tool:** Command spawned, tool returns immediately with empty result + `backgroundTaskId`
 - **Task/Agent tool:** Subagent launched in fire-and-forget wrapper (`g01()`), tool returns immediately with `status: "async_launched"` + `outputFile` path
 
 Zero "wait for background tasks" logic before emitting the `type: "result"` message. When a background task completes, an `SDKTaskNotificationMessage` is emitted separately.
 
-### Case 3: Agent Teams (TeammateTool / SendMessage) — RESULT FIRST, THEN POLLING
+### Agent Teams (TeammateTool / SendMessage) — RESULT FIRST, THEN POLLING
 
 The team leader runs its normal EZ loop, which includes spawning teammates. When the leader's EZ loop finishes, `type: "result"` is emitted. Then the leader enters a post-result polling loop:
 

@@ -135,7 +135,7 @@ describe('ipc-interaction-handler', () => {
         requestId: 'perm-3',
         approved: true,
         mode: 'allow_persistent_rule',
-        reason: 'persistent rule allowed',
+        reason: 'persistent tool allowed',
         updatedPermissions: [
           {
             type: 'addRules',
@@ -182,10 +182,12 @@ describe('ipc-interaction-handler', () => {
         status: 'active',
         selectable: true,
       })),
+      listTools: vi.fn(async () => []),
       saveAgentToolBinding: vi.fn(async () => undefined),
       disableAgentToolBinding: vi.fn(async () => null),
     };
     const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+    const sendMessage = vi.fn(async () => undefined);
 
     await processPermissionInteractionIpc({
       request: {
@@ -213,6 +215,7 @@ describe('ipc-interaction-handler', () => {
             },
           ],
         })),
+        sendMessage,
         getToolRepository: () => toolRepository as never,
         mirrorAgentToolRulesToSettings,
       },
@@ -239,6 +242,83 @@ describe('ipc-interaction-handler', () => {
       'main_agent',
       ['mcp__myclaw__service_restart'],
       { appId: 'app:test' },
+    );
+    expect(sendMessage).toHaveBeenCalledWith(
+      'tg:team',
+      expect.stringContaining('Persistent permission applied:'),
+      expect.any(Object),
+    );
+  });
+
+  it('emits structured permission events and redacted Bash command telemetry', async () => {
+    const claimedPath = path.join(tempDir, 'claimed-bash-permission.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const command =
+      'OPENAI_API_KEY=sk-ant-testtoken123456789012345 npm test -- --runInBand';
+
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: 'perm-bash-once',
+        appId: 'app:test',
+        agentId: 'agent:test',
+        responseNonce: 'nonce',
+        sourceAgentFolder: 'main_agent',
+        runHandle: 'agent-run-1',
+        runId: 'run:test',
+        jobId: 'job:test',
+        targetJid: 'tg:team',
+        threadId: 'thread:test',
+        toolName: 'Bash',
+        toolInput: { command },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        requestPermissionApproval: vi.fn(async () => ({
+          approved: true,
+          mode: 'allow_once',
+          decidedBy: 'owner',
+          reason: 'safe for this run',
+          decisionClassification: 'user_temporary',
+        })),
+        publishRuntimeEvent,
+      },
+      ipcBaseDir: tempDir,
+      file: 'claimed-bash-permission.json',
+      claimedPath,
+      logger,
+    });
+
+    expect(
+      publishRuntimeEvent.mock.calls.map((call) => call[0].eventType),
+    ).toEqual([
+      'permission.requested',
+      'permission.allowed',
+      'permission.resumed',
+      'permission.final_outcome',
+    ]);
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'app:test',
+        agentId: 'agent:test',
+        runId: 'run:test',
+        jobId: 'job:test',
+        conversationId: 'tg:team',
+        threadId: 'thread:test',
+        correlationId: 'perm-bash-once',
+        payload: expect.objectContaining({
+          toolName: 'Bash',
+          canonicalCapability: 'Bash',
+          commandPreview:
+            'OPENAI_API_KEY=[REDACTED_SECRET] npm test -- --runInBand',
+          commandHash: expect.any(String),
+        }),
+      }),
+    );
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain('sk-ant');
+    expect(JSON.stringify(publishRuntimeEvent.mock.calls)).not.toContain(
+      'sk-ant',
     );
   });
 

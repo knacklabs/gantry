@@ -10,8 +10,23 @@ import { permissionUpdateAllowedToolRules } from '../shared/permission-tool-rule
 import {
   isBrowserActionMcpToolRule,
   isProjectedBrowserMcpToolRule,
+  validateReadableAgentToolRule,
 } from '../shared/agent-tool-references.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
+import {
+  formatPersistentPermissionRulesForUser,
+  isPersistentRequestPermissionRuleAllowed,
+} from '../shared/persistent-permission-rules.js';
+import {
+  buildLocalCliSemanticCapability,
+  getBuiltinSemanticCapability,
+  type SemanticCapabilityDefinition,
+  validateSemanticCapabilityDefinition,
+} from '../shared/semantic-capabilities.js';
+import {
+  isValidSemanticCapabilityId,
+  semanticCapabilityRule,
+} from '../shared/semantic-capability-ids.js';
 
 export interface RequestPermissionReview {
   toolName: 'request_permission';
@@ -48,14 +63,16 @@ export async function persistRequestPermissionRules(input: {
   agentId?: AgentId;
   sourceAgentFolder: string;
   updates: PermissionApprovalUpdate[];
+  toolInput?: Record<string, unknown>;
   ipcDir?: string;
   runHandle?: string;
   requestId?: string;
   actor?: string;
   conversationId?: string;
   threadId?: string;
+  runId?: string;
+  jobId?: string;
   reason?: string;
-  allowBroadHostToolGrant?: boolean;
 }): Promise<string[]> {
   const allowedRules = permissionUpdateAllowedToolRules(input.updates);
   if (allowedRules.length === 0) return [];
@@ -85,14 +102,18 @@ export async function persistRequestPermissionRules(input: {
     toolRepository: repository,
     mirrorAgentToolRulesToSettings,
     permissionRepository: input.deps.getPermissionRepository?.(),
+    semanticCapabilityDefinitions: input.toolInput
+      ? semanticCapabilityDefinitionsForToolInput(input.toolInput)
+      : undefined,
     ipcDir: input.ipcDir,
     runHandle: input.runHandle,
     requestId: input.requestId,
     actor: input.actor,
     conversationId: input.conversationId,
     threadId: input.threadId,
+    runId: input.runId,
+    jobId: input.jobId,
     reason: input.reason,
-    allowBroadHostToolGrant: input.allowBroadHostToolGrant,
   });
 }
 
@@ -114,20 +135,68 @@ export function requestPermissionReviewSuggestions(
   if (toolInput.permissionKind && toolInput.permissionKind !== 'tool') {
     return undefined;
   }
+  const capabilityId = toTrimmedString(toolInput.capabilityId, {
+    maxLen: 160,
+  });
+  if (capabilityId) {
+    if (!isValidSemanticCapabilityId(capabilityId)) return undefined;
+    const definitions = semanticCapabilityDefinitionsForToolInput(toolInput);
+    if (
+      !getBuiltinSemanticCapability(capabilityId) &&
+      !definitions?.[capabilityId]
+    ) {
+      return undefined;
+    }
+    const publicToolRule = semanticCapabilityRule(capabilityId);
+    if (
+      !isPersistentRequestPermissionRuleAllowed(publicToolRule, {
+        semanticCapabilityDefinitions: definitions,
+      })
+    ) {
+      return undefined;
+    }
+    const [publicToolName, publicRuleContent] =
+      splitReadableToolRule(publicToolRule);
+    return [
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [
+          {
+            toolName: publicToolName,
+            ...(publicRuleContent ? { ruleContent: publicRuleContent } : {}),
+          },
+        ],
+      },
+    ];
+  }
   const toolNames = sanitizedStringList(
     Array.isArray(toolInput.toolNames)
       ? toolInput.toolNames
       : [toolInput.toolName],
   );
   if (toolNames.length !== 1) return undefined;
+  const toolName = toolNames[0];
+  if (toolName.includes('(') || toolName.includes(')')) return undefined;
   const ruleContent = strictRuleContent(toolInput.rule);
   if (ruleContent === null) return undefined;
-  if (
-    isBrowserActionMcpToolRule(toolNames[0]) ||
-    isProjectedBrowserMcpToolRule(toolNames[0])
-  ) {
+  if (isBrowserActionMcpToolRule(toolName)) {
     return undefined;
   }
+  const publicToolRule = isProjectedBrowserMcpToolRule(toolName)
+    ? 'Browser'
+    : toolName === 'Bash' && ruleContent
+      ? `${toolName}(${ruleContent})`
+      : toolName;
+  if (!validateReadableAgentToolRule(publicToolRule).ok) {
+    return undefined;
+  }
+  if (!isPersistentRequestPermissionRuleAllowed(publicToolRule)) {
+    return undefined;
+  }
+  const [publicToolName, publicRuleContent] =
+    splitReadableToolRule(publicToolRule);
   return [
     {
       type: 'addRules',
@@ -135,12 +204,91 @@ export function requestPermissionReviewSuggestions(
       destination: 'session',
       rules: [
         {
-          toolName: toolNames[0],
-          ...(ruleContent ? { ruleContent } : {}),
+          toolName: publicToolName,
+          ...(publicRuleContent ? { ruleContent: publicRuleContent } : {}),
         },
       ],
     },
   ];
+}
+
+export { formatPersistentPermissionRulesForUser };
+
+export function validateRequestPermissionSemanticCapability(
+  toolInput: Record<string, unknown>,
+): string | undefined {
+  const capabilityId = toTrimmedString(toolInput.capabilityId, {
+    maxLen: 160,
+  });
+  if (!capabilityId) return undefined;
+  if (!isValidSemanticCapabilityId(capabilityId)) {
+    return 'Capability id must use lowercase dot-separated words such as google.sheets.write.';
+  }
+  const definitions = semanticCapabilityDefinitionsForToolInput(toolInput);
+  const definition = definitions?.[capabilityId];
+  if (!definition) return undefined;
+  const validation = validateSemanticCapabilityDefinition(definition);
+  return validation.ok ? undefined : validation.reason;
+}
+
+export function semanticCapabilityDefinitionsForToolInput(
+  toolInput: Record<string, unknown>,
+): Record<string, SemanticCapabilityDefinition> | undefined {
+  const capabilityId = toTrimmedString(toolInput.capabilityId, {
+    maxLen: 160,
+  });
+  if (!capabilityId || getBuiltinSemanticCapability(capabilityId)) {
+    return undefined;
+  }
+  if (toolInput.credentialSource !== 'local_cli') return undefined;
+  const commandTemplates = sanitizedStringList(
+    Array.isArray(toolInput.commandTemplates)
+      ? toolInput.commandTemplates
+      : [toolInput.commandTemplate],
+  );
+  const capability = buildLocalCliSemanticCapability({
+    capabilityId,
+    displayName:
+      toTrimmedString(toolInput.capabilityDisplayName, { maxLen: 200 }) ||
+      toTrimmedString(toolInput.displayName, { maxLen: 200 }) ||
+      capabilityId,
+    category:
+      toTrimmedString(toolInput.category, { maxLen: 120 }) || 'Local CLI',
+    risk:
+      toolInput.risk === 'read' ||
+      toolInput.risk === 'write' ||
+      toolInput.risk === 'admin'
+        ? toolInput.risk
+        : 'read',
+    accountLabel: toTrimmedString(toolInput.accountLabel, { maxLen: 200 }),
+    can:
+      toTrimmedString(toolInput.can, { maxLen: 1000 }) ||
+      'Review the proposed local CLI command templates and account context.',
+    cannot:
+      toTrimmedString(toolInput.cannot, { maxLen: 1000 }) ||
+      'Run CLI commands until runtime enforcement exists, receive raw tokens, or write credential stores.',
+    executablePath:
+      toTrimmedString(toolInput.executablePath, { maxLen: 2048 }) || '',
+    executableVersion: toTrimmedString(toolInput.executableVersion, {
+      maxLen: 200,
+    }),
+    executableHash: toTrimmedString(toolInput.executableHash, {
+      maxLen: 200,
+    }),
+    commandTemplates,
+    authPreflightCommand: toTrimmedString(toolInput.authPreflightCommand, {
+      maxLen: 2048,
+    }),
+    protectedPaths: sanitizedStringList(
+      Array.isArray(toolInput.protectedPaths) ? toolInput.protectedPaths : [],
+    ),
+    deniedEnvPatterns: sanitizedStringList(
+      Array.isArray(toolInput.deniedEnvPatterns)
+        ? toolInput.deniedEnvPatterns
+        : [],
+    ),
+  });
+  return { [capability.capabilityId]: capability };
 }
 
 function strictRuleContent(value: unknown): string | undefined | null {
@@ -149,6 +297,12 @@ function strictRuleContent(value: unknown): string | undefined | null {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   return trimmed.length <= 2048 ? trimmed : null;
+}
+
+function splitReadableToolRule(rule: string): [string, string | undefined] {
+  const open = rule.indexOf('(');
+  if (open <= 0 || !rule.endsWith(')')) return [rule, undefined];
+  return [rule.slice(0, open), rule.slice(open + 1, -1)];
 }
 
 function sanitizedStringList(values: unknown[]): string[] {

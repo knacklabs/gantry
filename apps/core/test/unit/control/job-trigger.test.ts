@@ -296,7 +296,6 @@ describe('control job trigger', () => {
       retry_backoff_ms: 0,
       max_consecutive_failures: 3,
       consecutive_failures: 0,
-      execution_mode: 'parallel',
       lease_run_id: null,
       lease_expires_at: null,
       pause_reason: null,
@@ -669,7 +668,6 @@ describe('control job trigger', () => {
           body: JSON.stringify({
             name: 'Updated',
             prompt: 'New prompt',
-            executionMode: 'serialized',
             executionContext: {
               conversationJid: 'chat-1',
               threadId: 'thread-1',
@@ -687,7 +685,6 @@ describe('control job trigger', () => {
         jobId: 'job-1',
         name: 'Updated',
         prompt: 'New prompt',
-        executionMode: 'serialized',
         executionContext: {
           threadId: 'thread-1',
         },
@@ -696,7 +693,6 @@ describe('control job trigger', () => {
       expect(opsRepo.updateJob).toHaveBeenCalledWith('job-1', {
         name: 'Updated',
         prompt: 'New prompt',
-        execution_mode: 'serialized',
         execution_context: {
           conversationJid: 'chat-1',
           groupScope: 'app-folder',

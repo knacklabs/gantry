@@ -17,6 +17,7 @@ import type {
 } from '../../../domain/skills/skills.js';
 import type { ToolCatalogItem, ToolId } from '../../../domain/tools/tools.js';
 import type { AgentToolAccessView } from '../../../shared/tool-access-view.js';
+import { semanticCapabilityFromToolCatalogItem } from '../../../shared/semantic-capabilities.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
@@ -110,6 +111,10 @@ function capabilitiesToResponse(input: {
 }
 
 function toolToResponse(tool: ToolCatalogItem) {
+  const semanticCapability = semanticCapabilityFromToolCatalogItem({
+    name: tool.name,
+    inputSchema: tool.inputSchema,
+  });
   return {
     id: tool.id,
     appId: tool.appId,
@@ -130,6 +135,7 @@ function toolToResponse(tool: ToolCatalogItem) {
     permissionPolicyId: tool.permissionPolicyId,
     sandboxProfileId: tool.sandboxProfileId,
     adapterRef: tool.adapterRef,
+    ...(semanticCapability ? { semanticCapability } : {}),
     createdAt: tool.createdAt,
     updatedAt: tool.updatedAt,
   };

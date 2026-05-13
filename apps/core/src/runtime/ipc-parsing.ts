@@ -8,6 +8,8 @@ import {
 import {
   PermissionApprovalRequest,
   PermissionApprovalUpdate,
+  InteractionDescriptor,
+  InteractionDetail,
   UserQuestionRequest,
 } from '../domain/types.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
@@ -61,6 +63,7 @@ export interface ParsedBrowserIpcRequest {
 }
 
 const TOOL_INPUT_MAX_DEPTH = 2;
+const TOOL_INPUT_MAX_KEYS = 40;
 const TOOL_INPUT_MAX_STRING_LENGTH = 500;
 const SECRET_KEY_PATTERN =
   /(secret|token|password|credential|api[_-]?key|key)/i;
@@ -99,7 +102,15 @@ function sanitizeToolInputValue(value: unknown, depth: number): unknown {
   }
   if (isPlainObject(value)) {
     const out: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value)) {
+    let seen = 0;
+    for (const key in value) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+      if (seen >= TOOL_INPUT_MAX_KEYS) {
+        out.__omitted_keys = 'more';
+        break;
+      }
+      seen += 1;
+      const entry = (value as Record<string, unknown>)[key];
       if (SECRET_KEY_PATTERN.test(key)) {
         out[key] = '[REDACTED]';
         continue;
@@ -193,6 +204,75 @@ function parsePermissionApprovalUpdates(
     updates.push(update);
   }
   return updates.length ? updates : undefined;
+}
+
+function parseClosestPermissionRule(
+  raw: unknown,
+): PermissionApprovalRequest['closestRule'] | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  const rule = toTrimmedString(raw.rule, { maxLen: 500 });
+  const reason = toTrimmedString(raw.reason, { maxLen: 2000 });
+  return rule && reason ? { rule, reason } : undefined;
+}
+
+function parseInteractionDetails(
+  raw: unknown,
+): InteractionDetail[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const details: InteractionDetail[] = [];
+  for (const item of raw.slice(0, 40)) {
+    if (!isPlainObject(item)) continue;
+    const label = toTrimmedString(item.label, { maxLen: 120 });
+    const value = toTrimmedString(item.value, { maxLen: 2000 });
+    if (!label || !value) continue;
+    details.push({
+      label,
+      value,
+      ...(typeof item.mono === 'boolean' ? { mono: item.mono } : {}),
+    });
+  }
+  return details.length ? details : undefined;
+}
+
+function parseInteractionDescriptor(
+  raw: unknown,
+): InteractionDescriptor | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  const id = toTrimmedString(raw.id, { maxLen: 128 });
+  const title = toTrimmedString(raw.title, { maxLen: 200 });
+  if (!id || !title) return undefined;
+  const body = toTrimmedString(raw.body, { maxLen: 4000 });
+  const details = parseInteractionDetails(raw.details);
+  const requestContext = isPlainObject(raw.requestContext)
+    ? raw.requestContext
+    : undefined;
+  const capabilityId = toTrimmedString(requestContext?.capabilityId, {
+    maxLen: 160,
+  });
+  const capabilityDisplayName = toTrimmedString(
+    requestContext?.capabilityDisplayName,
+    { maxLen: 200 },
+  );
+  const toolName = toTrimmedString(requestContext?.toolName, { maxLen: 120 });
+  const capabilityType = toTrimmedString(requestContext?.capabilityType, {
+    maxLen: 120,
+  });
+  return {
+    id,
+    title,
+    ...(body ? { body } : {}),
+    ...(details ? { details } : {}),
+    ...(capabilityId || capabilityDisplayName || toolName || capabilityType
+      ? {
+          requestContext: {
+            ...(capabilityId ? { capabilityId } : {}),
+            ...(capabilityDisplayName ? { capabilityDisplayName } : {}),
+            ...(toolName ? { toolName } : {}),
+            ...(capabilityType ? { capabilityType } : {}),
+          },
+        }
+      : {}),
+  };
 }
 
 export function parseIpcMessage(
@@ -340,6 +420,8 @@ export function parsePermissionIpcRequest(
   const subagentType = toTrimmedString(raw.subagentType, { maxLen: 200 });
   const toolInput = sanitizeToolInput(raw.toolInput);
   const suggestions = parsePermissionApprovalUpdates(raw.suggestions);
+  const closestRule = parseClosestPermissionRule(raw.closestRule);
+  const interaction = parseInteractionDescriptor(raw.interaction);
 
   return {
     requestId,
@@ -360,9 +442,11 @@ export function parsePermissionIpcRequest(
     ...(displayName ? { displayName } : {}),
     ...(description ? { description } : {}),
     ...(decisionReason ? { decisionReason } : {}),
+    ...(closestRule ? { closestRule } : {}),
     ...(blockedPath ? { blockedPath } : {}),
     ...(toolInput ? { toolInput } : {}),
     ...(suggestions ? { suggestions } : {}),
+    ...(interaction ? { interaction } : {}),
   };
 }
 

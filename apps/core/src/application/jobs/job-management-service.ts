@@ -18,7 +18,6 @@ import {
   buildJobUpdates,
   encodeTriggerRequester,
   normalizeExecutionContext,
-  normalizeExecutionMode,
   normalizeNotificationRoutes,
   normalizeStoredNotificationRoutes,
   normalizeScheduleType,
@@ -207,10 +206,6 @@ export class JobManagementService {
       max_retries: input.maxRetries,
       retry_backoff_ms: input.retryBackoffMs,
       max_consecutive_failures: input.maxConsecutiveFailures,
-      execution_mode: normalizeExecutionMode(
-        input.executionMode,
-        input.serialize,
-      ),
       execution_context: executionContext,
       notification_routes: requestedNotificationRoutes,
     };

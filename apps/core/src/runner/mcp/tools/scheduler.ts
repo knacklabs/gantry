@@ -3,12 +3,16 @@ import { z } from 'zod';
 import { CronExpressionParser } from 'cron-parser';
 import { parseIso } from '../../../shared/time/datetime.js';
 import { makeIpcId } from '../ipc-ids.js';
-import { normalizeExecutionMode } from '../scheduler-utils.js';
 import { formatModelCatalog } from '../../../shared/model-catalog.js';
 import {
   schedulerJobSummary,
   schedulerJobsSummary,
 } from './scheduler-formatters.js';
+import {
+  formatSchedulerJobPlan,
+  schedulerJobConfirmationToken,
+  type SchedulerJobPlanInput,
+} from '../../../shared/scheduler-job-plan.js';
 import {
   canonicalTargetFromArgs,
   normalizeSchedulerWaitTimeoutMs,
@@ -36,8 +40,8 @@ const SCHEDULER_UPSERT_ARG_KEYS = new Set([
   'max_retries',
   'retry_backoff_ms',
   'max_consecutive_failures',
-  'execution_mode',
-  'serialize',
+  'confirm',
+  'confirmation_token',
 ]);
 
 const SCHEDULER_UPDATE_ARG_KEYS = new Set([
@@ -57,8 +61,6 @@ const SCHEDULER_UPDATE_ARG_KEYS = new Set([
   'max_retries',
   'retry_backoff_ms',
   'max_consecutive_failures',
-  'execution_mode',
-  'serialize',
 ]);
 
 function unsupportedSchedulerArgError(
@@ -160,8 +162,18 @@ export function registerSchedulerTools(server: McpServer): void {
       max_retries: z.number().optional(),
       retry_backoff_ms: z.number().optional(),
       max_consecutive_failures: z.number().optional(),
-      execution_mode: z.enum(['parallel', 'serialized']).optional(),
-      serialize: z.boolean().optional(),
+      confirm: z
+        .boolean()
+        .optional()
+        .describe(
+          'Set true only after reviewing the returned plan and passing confirmation_token.',
+        ),
+      confirmation_token: z
+        .string()
+        .optional()
+        .describe(
+          'Token returned by the explain-before-confirm scheduler job plan.',
+        ),
     },
     async (args) => {
       const unsupportedArgError = unsupportedSchedulerArgError(
@@ -181,32 +193,57 @@ export function registerSchedulerTools(server: McpServer): void {
           isError: true,
         };
       }
+      const planInput: SchedulerJobPlanInput = {
+        jobId: args.job_id,
+        name: args.name,
+        prompt: args.prompt,
+        modelAlias: args.model_alias,
+        modelProfileId: args.model_profile_id,
+        scheduleType: args.schedule_type,
+        scheduleValue: args.schedule_value,
+        executionContext: canonicalTarget.executionContext,
+        notificationRoutes: canonicalTarget.notificationRoutes,
+        silent: args.silent,
+        cleanupAfterMs: args.cleanup_after_ms,
+        timeoutMs: args.timeout_ms,
+        maxRetries: args.max_retries,
+        retryBackoffMs: args.retry_backoff_ms,
+        maxConsecutiveFailures: args.max_consecutive_failures,
+        createdBy: 'agent',
+      };
+      const confirmationToken = schedulerJobConfirmationToken(planInput);
+      if (args.confirm !== true) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: formatSchedulerJobPlan({
+                ...planInput,
+                confirmationToken,
+              }),
+            },
+          ],
+        };
+      }
+      if (args.confirmation_token !== confirmationToken) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Scheduler upsert confirmation token is missing or does not match the current job plan. Re-run with confirm=false to get a fresh plan.',
+            },
+          ],
+          isError: true,
+        };
+      }
       const taskId = makeIpcId('scheduler-upsert');
       return submitSchedulerMutationTask({
         taskType: 'scheduler_upsert_job',
         taskId,
         payload: {
-          jobId: args.job_id,
-          name: args.name,
-          prompt: args.prompt,
-          modelAlias: args.model_alias,
-          modelProfileId: args.model_profile_id,
-          scheduleType: args.schedule_type,
-          scheduleValue: args.schedule_value,
-          executionContext: canonicalTarget.executionContext,
-          notificationRoutes: canonicalTarget.notificationRoutes,
-          silent: args.silent,
-          cleanupAfterMs: args.cleanup_after_ms,
-          timeoutMs: args.timeout_ms,
-          maxRetries: args.max_retries,
-          retryBackoffMs: args.retry_backoff_ms,
-          maxConsecutiveFailures: args.max_consecutive_failures,
-          executionMode: normalizeExecutionMode(
-            args.execution_mode,
-            args.serialize,
-          ),
-          serialize: args.serialize,
-          createdBy: 'agent',
+          ...planInput,
+          confirm: true,
+          confirmationToken,
         },
         timeoutText:
           'Scheduler upsert timed out waiting for host confirmation.',
@@ -319,8 +356,6 @@ export function registerSchedulerTools(server: McpServer): void {
       max_retries: z.number().optional(),
       retry_backoff_ms: z.number().optional(),
       max_consecutive_failures: z.number().optional(),
-      execution_mode: z.enum(['parallel', 'serialized']).optional(),
-      serialize: z.boolean().optional(),
     },
     async (args) => {
       const unsupportedArgError = unsupportedSchedulerArgError(
@@ -328,10 +363,6 @@ export function registerSchedulerTools(server: McpServer): void {
         SCHEDULER_UPDATE_ARG_KEYS,
       );
       if (unsupportedArgError) return unsupportedArgError;
-      const executionMode =
-        args.execution_mode !== undefined || args.serialize !== undefined
-          ? normalizeExecutionMode(args.execution_mode, args.serialize)
-          : undefined;
       const canonicalTarget = canonicalTargetFromArgs(
         args as Record<string, unknown>,
         false,
@@ -367,8 +398,6 @@ export function registerSchedulerTools(server: McpServer): void {
           maxRetries: args.max_retries,
           retryBackoffMs: args.retry_backoff_ms,
           maxConsecutiveFailures: args.max_consecutive_failures,
-          executionMode,
-          serialize: args.serialize,
         },
         timeoutText:
           'Scheduler update timed out waiting for host confirmation.',

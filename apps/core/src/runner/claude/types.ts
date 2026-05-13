@@ -7,6 +7,7 @@ import type { AgentPersona } from '../../shared/agent-persona.js';
 
 export interface AgentRunnerInput {
   prompt: string;
+  runMode?: 'prime' | 'execute';
   appId?: string;
   agentId?: string;
   sessionId?: string;
@@ -47,6 +48,37 @@ export interface AgentRunnerOutput {
   usageEventId?: string;
   contextUsage?: RuntimeContextUsageSnapshot;
   error?: string;
+  runtimeEvents?: AgentRunnerRuntimeEventOutput[];
+  primeToolAttempts?: AgentRunnerToolAttemptOutput[];
+}
+
+export interface AgentRunnerToolAttemptOutput {
+  runMode: 'prime';
+  requestedToolName: string;
+  toolName: string;
+  title?: string;
+  displayName?: string;
+  description?: string;
+  decisionReason?: string;
+  blockedPath?: string;
+  toolUseID?: string;
+  agentID?: string;
+  toolInput?: unknown;
+  suggestions?: unknown[];
+  deniedReason: string;
+}
+
+export interface AgentRunnerRuntimeEventOutput {
+  appId?: string;
+  agentId?: string;
+  runId?: string;
+  jobId?: string;
+  conversationId?: string;
+  threadId?: string;
+  eventType: string;
+  actor?: string;
+  responseMode?: 'sse' | 'webhook' | 'both' | 'none';
+  payload: unknown;
 }
 
 export interface PermissionDecision {

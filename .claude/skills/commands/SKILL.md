@@ -32,11 +32,26 @@ These are handled by the MyClaw host runtime, not by skill files:
 
 ## Runtime Browser Capability
 
-- `agent-browser` -- Runtime-installed browser action guidance for the Main Agent
+- `Browser` -- Canonical browser capability selected per agent
+- `agent-browser` -- Runtime-installed browser action guidance
 
-MyClaw launches the persistent `myclaw` browser profile headed by default and
-passes its CDP endpoint to the runtime `mcp__agent_browser__*` action tools.
-Users do not install or edit browser skills manually.
+MyClaw launches the persistent browser profile headed by default. Durable
+authority is the canonical `Browser` capability; runtime projects it to
+MyClaw-owned `mcp__myclaw__browser_*` action tools. Users do not install or edit
+browser skills manually.
+
+## Semantic Tool Capabilities
+
+- `capability_search` -- Find built-in semantic capabilities such as `google.sheets.write`
+- `request_capability` -- Request a reviewed semantic capability for durable reuse
+- `propose_local_cli_capability` -- Propose an authenticated local CLI capability with pinned executable, templates, preflight, and protected paths
+- `manage_capability` -- View, revoke, change, test, or inspect audit history for approved capabilities
+
+Use semantic capability tools before asking for raw scoped Bash fallback for
+app workflows such as Google Sheets, Gmail, or business CLIs. Durable exact
+low-level tool grants are limited to canonical `Browser` and selected
+first-party MyClaw admin tools; broad SDK/native tools and exact third-party
+MCP tools are not persistent authority.
 
 ## Built-In Memory Behavior
 

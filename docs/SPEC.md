@@ -722,9 +722,9 @@ Postgres state and are never written to `settings.yaml`.
 ### How Scheduling Works
 
 1. **Group Context**: Jobs created in a group run with that group's working directory and memory
-2. **Scoped Agent Capabilities**: Scheduled jobs inherit the selected agent
-   capabilities plus reviewed job-specific extras. They do not receive all
-   tools by default.
+2. **Agent Capabilities**: Scheduled jobs inherit the selected target agent's
+   selected tools, skills, and MCP servers. They do not carry job-specific
+   capability grants or receive all tools by default.
 3. **Optional Messaging**: Jobs can send messages to their group using the `send_message` tool, or complete silently
 4. **Admin Privileges**: Admin-wide job management belongs to the Control API
    and local/admin CLI surfaces. Normal agent-facing scheduler MCP tools stay

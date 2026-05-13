@@ -13,7 +13,7 @@ Runtime responsibilities:
 - accept inbound messages from Slack, Telegram, and the SDK app channel
 - persist chats, messages, sessions, jobs, runs, runtime events, memory, and webhook delivery state in Postgres
 - recover pending messages after restart
-- serialize work per group or thread through `GroupQueue`
+- admit interactive and background work through separate `GroupQueue` lanes
 - spawn and supervise child agent runners
 - enforce IPC, MCP tool, sender, control, and scheduler permissions
 - expose the internal control server used by `@myclaw/sdk`
@@ -175,11 +175,12 @@ MyClaw MCP tools are grouped by capability:
 
 - messaging and user interaction: send a message, ask a question
 - capability requests: skill install/proposal/dependency install, MCP server,
-  and the unified `request_permission` approval flow for scoped SDK, host,
-  browser, memory, service, provider, and MCP actions
-- capability visibility: `capability_status` and `mcp_list_tools` show
-  available tools plus exact requestable admin tool IDs and `request_permission`
-  arguments
+  semantic capability search/request, local CLI capability proposal,
+  capability management, and the unified `request_permission` approval flow for
+  one-off scoped SDK, host, browser, memory, service, provider, and MCP actions
+- capability visibility: `capability_status`, `capability_search`, and
+  `mcp_list_tools` show available tools plus exact requestable admin tool IDs
+  and semantic capability request arguments
 - scheduler: create, inspect, mutate, pause, resume, list, and wait for jobs, runs, events, and dead letters
 - memory: default tools include search/save for memory and procedures; patch
   tools are reviewed/selected-only
@@ -248,7 +249,7 @@ are treated as `missed_window`: scheduler sync re-enqueues them immediately,
 throttled to one reissue per minute, and job visibility surfaces the derived
 staleness state for operators.
 
-Job execution modes:
+Job schedule types:
 
 - `manual`: persisted definition, app or runtime triggered
 - `once`: scheduled for a specific time
@@ -260,11 +261,13 @@ The public lifecycle is:
 2. enqueue or schedule through the pg-boss engine
 3. return `triggerId` immediately for manual triggers
 4. claim execution and create or bind `runId`
-5. run the prompt through the normal group processor and agent runner
+5. run the prompt through the background job lane and agent runner
 6. write run events and final result
 7. deliver matching SDK events or webhooks
 
-Serialized execution is a queue policy tied to session or group affinity. It is not a second queue system.
+Jobs have no serialized execution mode. Interactive message admission stays in
+`GroupQueue`; scheduler work enters the background pg-boss lane and uses
+`runtime.queue.max_job_runs` as its worker concurrency bound.
 
 ## Storage And Retrieval
 

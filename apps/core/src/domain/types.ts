@@ -76,7 +76,6 @@ export interface NewMessageAttachment {
 }
 
 export type JobScheduleType = 'manual' | 'cron' | 'interval' | 'once';
-export type JobExecutionMode = 'parallel' | 'serialized';
 
 export type JobStatus =
   | 'active'
@@ -121,7 +120,6 @@ export interface Job {
   retry_backoff_ms: number;
   max_consecutive_failures: number;
   consecutive_failures: number;
-  execution_mode: JobExecutionMode;
   lease_run_id: string | null;
   lease_expires_at: string | null;
   pause_reason: string | null;
@@ -138,6 +136,7 @@ export type JobRunStatus =
 
 export interface JobRun {
   run_id: string;
+  short_id?: number | null;
   job_id: string;
   scheduled_for: string;
   started_at: string;
@@ -181,6 +180,10 @@ export interface PermissionApprovalRequest {
   displayName?: string;
   description?: string;
   decisionReason?: string;
+  closestRule?: {
+    rule: string;
+    reason: string;
+  };
   blockedPath?: string;
   toolInput?: Record<string, unknown>;
   suggestions?: PermissionApprovalUpdate[];
@@ -337,6 +340,8 @@ export interface InteractionDescriptor {
     threadId?: string;
     toolName?: string;
     capabilityType?: string;
+    capabilityId?: string;
+    capabilityDisplayName?: string;
   };
   options?: InteractionOption[];
   selectionMode?: InteractionSelectionMode;
@@ -361,8 +366,22 @@ export interface ProgressUpdateOptions {
   generation?: number;
 }
 
+export type MessageActionAffordanceKind =
+  | 'scheduler_run_now'
+  | 'scheduler_show_last_logs'
+  | 'scheduler_pause_job'
+  | 'scheduler_open';
+
+export interface MessageActionAffordance {
+  kind: MessageActionAffordanceKind;
+  label: string;
+  jobId: string;
+  runId?: string | null;
+}
+
 export interface MessageSendOptions {
   threadId?: string;
+  actionAffordances?: MessageActionAffordance[];
 }
 
 export type MessageDeliveryStatus =

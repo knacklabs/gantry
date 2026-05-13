@@ -289,12 +289,16 @@ function mcpRecord(): MaterializedMcpServer {
     appId: 'app-one' as never,
     serverId: definition.id,
     version: 1,
-    transport: 'http',
-    config: { transport: 'http', url: 'https://mcp.example.com/github' },
+    transport: 'stdio_template',
+    config: {
+      transport: 'stdio_template',
+      templateId: 'npx-package',
+      args: ['@modelcontextprotocol/server-github'],
+    },
     allowedToolPatterns: ['search_repositories'],
     autoApproveToolPatterns: ['search_repositories'],
     credentialRefs: [
-      { name: 'GITHUB_TOKEN_REF', target: 'header', key: 'Authorization' },
+      { name: 'GITHUB_TOKEN_REF', target: 'env', key: 'GITHUB_TOKEN' },
     ],
     configHash: 'hash',
     createdAt: new Date(0).toISOString(),
@@ -888,7 +892,7 @@ describe('agent-spawn timeout behavior', () => {
     expect(runnerInput.modelCredentialEnv).toBeUndefined();
   });
 
-  it('materializes approved third-party MCP servers through direct SDK MCP config', async () => {
+  it('materializes approved third-party stdio MCP servers through direct SDK MCP config', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     const rmSyncSpy = vi
       .spyOn(fs, 'rmSync')
@@ -959,9 +963,10 @@ describe('agent-spawn timeout behavior', () => {
     expect(mcpConfigWrite).toBeDefined();
     expect(JSON.parse(String(mcpConfigWrite?.[1]))).toEqual({
       github: {
-        type: 'http',
-        url: 'https://mcp.example.com/github',
-        headers: { Authorization: 'broker-token' },
+        type: 'stdio',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-github'],
+        env: { GITHUB_TOKEN: 'broker-token' },
       },
     });
     expect(repository.auditEvents).toEqual(
@@ -1211,6 +1216,38 @@ describe('agent-spawn timeout behavior', () => {
     expect(mockGetBrowserStatus).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [
+      'SDK sandbox network access',
+      ['Read', 'SandboxNetworkAccess'],
+      'SDK sandbox network prompts are internal',
+    ],
+    [
+      'exact third-party MCP tool',
+      ['Read', 'mcp__github__search_repositories'],
+      'Third-party MCP tool names are not selected directly',
+    ],
+    [
+      'bare Bash',
+      ['Read', 'Bash'],
+      'Persistent bare Bash grants are too broad',
+    ],
+  ])(
+    'fails closed on stale %s rules during spawn',
+    async (_label, rules, reason) => {
+      const result = await spawnAgent(
+        testGroup,
+        { ...testInput, allowedTools: rules },
+        () => {},
+      );
+      expect(result).toMatchObject({
+        status: 'error',
+        error: expect.stringContaining(reason),
+      });
+      expect(spawn).not.toHaveBeenCalled();
+    },
+  );
 
   it('keeps browser action backend private when Browser is selected', async () => {
     const originalNoProxy = process.env.NO_PROXY;

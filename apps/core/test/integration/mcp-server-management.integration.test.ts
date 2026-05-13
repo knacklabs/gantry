@@ -322,7 +322,7 @@ describe('MCP server management integration flow', () => {
     vi.clearAllMocks();
   });
 
-  it('creates, approves, binds, materializes, and disables an admin-managed MCP server through control SDK and services', async () => {
+  it('creates, approves, binds, materializes, and disables an admin-managed stdio MCP server through control SDK and services', async () => {
     const server = await startTestControlServer({
       token: 'token-mcp',
       appId: 'app-one',
@@ -338,14 +338,16 @@ describe('MCP server management integration flow', () => {
       const created = await client.mcpServers.drafts.create({
         name: 'github',
         displayName: 'GitHub MCP',
-        transport: 'http',
+        transport: 'stdio_template',
         config: {
-          transport: 'http',
-          url: 'https://93.184.216.34/github',
+          transport: 'stdio_template',
+          templateId: 'npx-package',
+          args: ['@modelcontextprotocol/server-github'],
         },
         credentialRefs: [
-          { name: 'GITHUB_TOKEN_REF', target: 'header', key: 'Authorization' },
+          { name: 'GITHUB_TOKEN_REF', target: 'env', key: 'GITHUB_TOKEN' },
         ],
+        sandboxProfileId: 'sandbox:approved',
         allowedToolPatterns: ['search_repositories'],
         autoApproveToolPatterns: ['search_repositories'],
         createdBy: 'admin-user',
@@ -400,9 +402,10 @@ describe('MCP server management integration flow', () => {
         {
           name: 'github',
           config: {
-            type: 'http',
-            url: 'https://93.184.216.34/github',
-            headers: { Authorization: 'broker-safe-token' },
+            type: 'stdio',
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/server-github'],
+            env: { GITHUB_TOKEN: 'broker-safe-token' },
           },
           allowedToolPatterns: ['search_repositories'],
           allowedToolNames: ['mcp__github__search_repositories'],
@@ -559,9 +562,11 @@ describe('MCP server management integration flow', () => {
         appId: 'app-one' as never,
         name: 'bad_tool_scope',
         transportConfig: {
-          transport: 'http',
-          url: 'https://93.184.216.34/bad-tool-scope',
+          transport: 'stdio_template',
+          templateId: 'npx-package',
+          args: ['@modelcontextprotocol/server-github'],
         },
+        sandboxProfileId: 'sandbox:approved',
         allowedToolPatterns: ['read_issue'],
         autoApproveToolPatterns: ['write_issue'],
       }),
@@ -571,9 +576,11 @@ describe('MCP server management integration flow', () => {
       appId: 'app-one' as never,
       name: 'tool_scope',
       transportConfig: {
-        transport: 'http',
-        url: 'https://93.184.216.34/tool-scope',
+        transport: 'stdio_template',
+        templateId: 'npx-package',
+        args: ['@modelcontextprotocol/server-github'],
       },
+      sandboxProfileId: 'sandbox:approved',
       allowedToolPatterns: ['read_issue'],
       autoApproveToolPatterns: ['read_issue'],
     });
@@ -725,7 +732,7 @@ describe('MCP server management integration flow', () => {
     ).rejects.toThrow(/Only approved/);
   });
 
-  it('skips optional MCP DNS materialization failures and audits them', async () => {
+  it('skips optional remote MCP materialization failures and audits them', async () => {
     const { McpServerService } =
       await import('@core/application/mcp/mcp-server-service.js');
     const lookupHostname = vi
@@ -779,16 +786,12 @@ describe('MCP server management integration flow', () => {
         appId: 'app-one' as never,
         agentId: 'agent:one' as never,
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        name: 'valid_dns',
-      }),
-    ]);
+    ).resolves.toEqual([]);
     expect(
       state.mcpServers.auditEvents.filter(
         (event) => event.eventType === 'startup_failure',
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
   });
 
   it('tests approved stdio template MCP servers with the stored sandbox profile', async () => {
@@ -1147,15 +1150,14 @@ describe('MCP server management integration flow', () => {
         agentId: 'agent:one' as never,
         credentialEnv: { MCP_GITHUB_GITHUB_TOKEN_REF: 'broker-safe-token' },
       }),
-    ).resolves.toEqual([
-      expect.objectContaining({
-        name: 'github',
-        config: expect.objectContaining({
-          headers: { Authorization: 'broker-safe-token' },
-        }),
-        required: false,
-      }),
-    ]);
+    ).resolves.toEqual([]);
+    expect(
+      state.mcpServers.auditEvents.filter(
+        (event) =>
+          event.eventType === 'startup_failure' &&
+          event.metadata.name === 'github',
+      ),
+    ).toHaveLength(1);
     expect(sendMessage).toHaveBeenCalledWith(
       'chat-1',
       expect.stringContaining('Approved MCP server github'),

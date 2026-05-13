@@ -3,10 +3,12 @@ import {
   parseAutonomousToolDenial,
   type AutonomousToolDenial,
 } from '../shared/autonomous-tool-denial.js';
+import { formatDuration, formatRunLabel } from '../shared/human-format.js';
 
 export function formatRunStatusMessage(args: {
   job: Job;
   runId: string;
+  runShortId?: number | null;
   runStatus: 'completed' | 'failed' | 'timeout' | 'dead_lettered';
   summary: string;
   nextRun: string | null;
@@ -16,11 +18,15 @@ export function formatRunStatusMessage(args: {
 }): string {
   const denial = parseAutonomousToolDenial(args.summary);
   const statusText = statusLabel(args.runStatus, args.summary, denial);
-  const runSuffix = args.runId.slice(0, 8);
-  const duration = formatDuration(args.durationMs);
+  const runLabel = formatRunLabel({
+    id: args.runId,
+    shortId: args.runShortId,
+  });
+  const duration =
+    args.durationMs === undefined ? '' : `, ${formatDuration(args.durationMs)}`;
   const summary = notificationOutcome(args.summary, args.runStatus, denial);
   const lines = [
-    `${statusText}: ${args.job.name} (#${runSuffix}${duration})`,
+    `${statusText}: ${args.job.name} (${runLabel}${duration})`,
     `Outcome: ${summary}`,
   ];
   const action = notificationAction(args.runStatus, denial, args.pauseReason);
@@ -100,13 +106,4 @@ function nextRunLabel(
 function hasReportableSummary(summary: string): boolean {
   const normalized = summary.replace(/\s+/g, ' ').trim();
   return Boolean(normalized) && normalized.toLowerCase() !== 'completed';
-}
-
-function formatDuration(durationMs: number | undefined): string {
-  if (durationMs === undefined || !Number.isFinite(durationMs)) return '';
-  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
-  if (totalSeconds < 60) return `, ${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `, ${minutes}m ${seconds}s`;
 }

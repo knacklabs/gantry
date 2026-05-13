@@ -1,14 +1,17 @@
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import { ASSISTANT_NAME, getEffectiveModelConfig } from '../config/index.js';
-import type { Job, JobExecutionMode } from '../domain/types.js';
+import type { Job } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import {
   getRuntimeControlRepository,
   getRuntimeEventExchange,
 } from '../adapters/storage/postgres/runtime-store.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from '../application/jobs/job-access.js';
-import { agentIdForJobGroupScope } from '../application/jobs/job-tool-policy.js';
+import {
+  agentIdForJobGroupScope,
+  resolveJobToolPolicy,
+} from '../application/jobs/job-tool-policy.js';
 import {
   RUNTIME_EVENT_TYPES,
   type RuntimeEventType,
@@ -54,7 +57,6 @@ import {
   resolveJobModel,
   type NormalizedModelUsage,
 } from './model-resolution.js';
-import { resolveExecutionAllowedTools } from './execution-tool-policy.js';
 import { parseAutonomousToolDenial } from '../shared/autonomous-tool-denial.js';
 import {
   resolveAppSessionForJob,
@@ -68,11 +70,14 @@ import type {
   SchedulerDispatchPayload,
 } from './types.js';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 export async function runJob(
   job: Job,
   deps: SchedulerDependencies,
   queueJid: string,
-  executionModeHint?: JobExecutionMode,
   dispatch?: SchedulerDispatchPayload,
 ): Promise<void> {
   const runAgentImpl = deps.runAgent ?? spawnAgent;
@@ -105,10 +110,6 @@ export async function runJob(
     return;
   }
   const timeoutMs = Math.max(30_000, currentJob.timeout_ms || 300_000);
-  const executionMode: JobExecutionMode =
-    (executionModeHint ?? currentJob.execution_mode) === 'serialized'
-      ? 'serialized'
-      : 'parallel';
   const leaseExpiresAt = toIso(nowMs() + timeoutMs + 30_000);
   const jobModelUseKind = modelUseKindForJobSchedule(currentJob.schedule_type);
   const resolvedModel = resolveJobModel(
@@ -126,6 +127,8 @@ export async function runJob(
       currentJob.schedule_type !== 'manual' && !dispatch?.triggerId,
   });
   if (!claimed) return;
+  const claimedRun = await deps.opsRepository.getJobRunById(runId);
+  const runShortId = claimedRun?.short_id ?? null;
   let boundTriggerId: string | undefined;
   let eventAppSession: SchedulerEventAppSession;
   try {
@@ -146,6 +149,7 @@ export async function runJob(
         payload: {
           jobId: currentJob.id,
           runId,
+          short_id: runShortId,
           scheduledFor,
         },
         actor: 'scheduler',
@@ -197,7 +201,6 @@ export async function runJob(
   };
   await emitJobEvent(RUNTIME_EVENT_TYPES.JOB_STARTED, {
     queue_jid: queueJid,
-    execution_mode: executionMode,
     scheduled_for: scheduledFor,
     timeout_ms: timeoutMs,
     ...jobStartedModelPayload(resolvedModel),
@@ -226,6 +229,7 @@ export async function runJob(
     startNotified = await notifySchedulerRunStart({
       job: currentJob,
       runId,
+      runShortId,
       sendMessage: deps.sendMessage,
     });
     deletionGuard.resetDeliveryDeletionCheck();
@@ -281,12 +285,12 @@ export async function runJob(
           turnContext?.agentId ??
           agentIdForJobGroupScope(execution.group.folder);
         const [
-          effectiveAllowedTools,
+          toolPolicy,
           selectedSkillIds,
           selectedMcpServerIds,
           credentialBroker,
         ] = await Promise.all([
-          resolveExecutionAllowedTools({
+          resolveJobToolPolicy({
             job: currentJob,
             appId: executionAppId,
             agentId: executionAgentId,
@@ -367,7 +371,7 @@ export async function runJob(
             jobModelUseKind,
             assistantName: ASSISTANT_NAME,
             memoryContextBlock: turnContext?.memoryContextBlock,
-            allowedTools: effectiveAllowedTools.allowedTools,
+            allowedTools: toolPolicy.effectiveAllowedTools,
             selectedSkillIds,
             selectedMcpServerIds,
           },
@@ -380,6 +384,15 @@ export async function runJob(
               execution.stopAliasJids,
             ),
           async (streamedOutput: AgentOutput) => {
+            if (streamedOutput.runtimeEvents?.length) {
+              for (const event of streamedOutput.runtimeEvents) {
+                if (event.eventType !== RUNTIME_EVENT_TYPES.JOB_HEARTBEAT)
+                  continue;
+                await emitJobEvent(RUNTIME_EVENT_TYPES.JOB_HEARTBEAT, {
+                  ...(isRecord(event.payload) ? event.payload : {}),
+                });
+              }
+            }
             if (streamedOutput.usage) latestUsage = streamedOutput.usage;
             if (
               streamedOutput.status !== 'error' &&
@@ -595,6 +608,7 @@ export async function runJob(
       retryCount,
       pauseReason,
       durationMs: Math.max(0, nowMs() - startedAtMs),
+      runShortId,
       sendMessage: deps.sendMessage,
     }));
   if (notified) {

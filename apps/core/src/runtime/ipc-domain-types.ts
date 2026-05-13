@@ -18,6 +18,7 @@ import type { JobControlPort } from '../application/jobs/job-management-types.js
 import type { BrowserIpcAction } from '@myclaw/contracts';
 import type { BrowserSessionStatus } from './browser-capability-types.js';
 import type { BrowserUsageSettings } from './browser-usage-governor.js';
+import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 
 export interface IpcDeps {
   sendMessage: (
@@ -48,6 +49,7 @@ export interface IpcDeps {
   opsRepository: RuntimeJobRepository;
   getToolRepository?: () => ToolCatalogRepository | undefined;
   getPermissionRepository?: () => PermissionRepository | undefined;
+  publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
   getJobControl?: () => JobControlPort | undefined;
   mirrorAgentToolRulesToSettings?: (
     sourceAgentFolder: string,

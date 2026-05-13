@@ -12,10 +12,90 @@ permission settings, edit MyClaw settings, or change generated runtime config.
 When a user asks for a new skill, MCP server, dependency, SDK tool, host tool,
 or channel capability, the agent calls the matching MyClaw request tool.
 
-The model is intentionally typed. Skills, MCP servers, SDK tools, host tools,
-browser tools, provider-native channel tools, and conversation bindings have separate schemas and
-validation rules. They share lifecycle, policy, audit, and config-version
-activation, but they are not collapsed into one untyped blob.
+The user-facing permission model is `Agent -> Capability -> Access level`.
+Raw permission ids, command hashes, scoped Bash rules, sandbox profiles, and
+executable paths are implementation details that belong in Details/audit
+surfaces. The model is intentionally typed. Skills, MCP servers, semantic tool
+capabilities, SDK tools, host tools, browser tools, provider-native channel
+tools, and conversation bindings have separate schemas and validation rules.
+They share lifecycle, policy, audit, and config-version activation, but they
+are not collapsed into one untyped blob.
+
+## Semantic Tool Capabilities
+
+Semantic capabilities are stable user-facing grants such as
+`google.sheets.write`, `gmail.read`, or `acme.invoices.read`. The durable
+settings representation is readable:
+
+```yaml
+agents:
+  main_agent:
+    tools:
+      - capability:google.sheets.write
+      - Browser
+      - Bash(npm test *)
+```
+
+Each semantic capability record includes:
+
+- `capabilityId`, `displayName`, `category`, `risk`, and optional
+  `accountLabel`
+- `can` and `cannot` user-facing scope statements
+- `credentialSource`: `onecli`, `external_broker`, `local_cli`, or `none`
+- low-level implementation bindings such as exact tools, scoped
+  `Bash(<template>)`, MCP tools, adapter refs, or local CLI command templates
+- optional preflight metadata, protected credential/config paths, redaction
+  policy, and sandbox needs
+
+Runtime expands a selected semantic capability to deterministic low-level
+rules for the current run, but management and prompts keep the semantic name
+primary. For example, `capability:google.sheets.write` may project to a scoped
+OneCLI command rule while the approval prompt says `Allow Google Sheets write?`.
+
+Built-ins cover common brokered app capabilities such as Google Sheets read,
+Google Sheets write, and Gmail read. Unknown business tools are not accepted as
+ad hoc raw commands. They must be promoted through a reviewed user-defined
+semantic capability first.
+
+## Local CLI Capabilities
+
+`local_cli` is a first-class credential source for authenticated CLIs such as
+`gog`, `gws`, `gh`, `gcloud`, or a company CLI. User-defined local CLI
+capabilities are reviewable drafts until the runtime local-CLI gate can verify
+the pinned executable, version/hash, denied environment overrides, preflight,
+and protected paths at execution time. They must not project to runnable Bash
+authority before that gate exists.
+
+A durable local CLI capability must pin:
+
+- absolute executable path
+- executable version and hash when practical
+- scoped command templates, never broad `cli *`
+- denied environment override patterns for token, credential, config, proxy,
+  keychain/keyring, CA, and authority variables
+- auth/preflight command and non-secret account label
+- protected credential/config paths that agents cannot write
+- safe command preview/hash rules and mapped scoped enforcement rules
+
+Default-denied environment overrides include token and secret keys, credential
+file/config directory keys, proxy keys, keychain/keyring overrides, and CA/proxy
+authority keys unless the capability explicitly models them.
+
+Example user-defined capability:
+
+```yaml
+agents:
+  main_agent:
+    tools:
+      - capability:acme.invoices.read
+```
+
+The reviewed definition pins `/usr/local/bin/acme`, allows only
+`/usr/local/bin/acme invoices read *`, runs
+`/usr/local/bin/acme auth status` as preflight, protects `~/.config/acme`, and
+shows `Acme invoices read` in prompts and management views. Until runtime
+enforcement exists, approval records the reviewed draft only; it does not create
+durable runnable authority or an SDK `Bash(...)` projection.
 
 ## Administration Model
 
@@ -54,33 +134,37 @@ place.
 
 ## Tool Matrix
 
-| Tool                               | Use                                                                                                                                                                                                             | Never use for                                                                                           |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `send_message`                     | Progress updates or direct channel messages while the agent is still running.                                                                                                                                   | Persistent capability changes.                                                                          |
-| `ask_user_question`                | Structured choices with content, options, single-select, multi-select, preview/details, and channel-native buttons.                                                                                             | Open-ended chat or approval of persistent capabilities.                                                 |
-| `request_skill_install`            | Provider-backed skill installs such as `clawhub:<slug>@<version>`.                                                                                                                                              | Downloading or installing the skill directly.                                                           |
-| `request_skill_proposal`           | Agent-created or modified `SKILL.md` bundles for review.                                                                                                                                                        | Writing directly to `.claude/skills`, `.agents/skills`, or agent-local `skills/`.                       |
-| `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies needed by a reviewed skill.                                                                                                                                         | Running dependency commands from the agent.                                                             |
-| `request_mcp_server`               | Third-party MCP server drafts with transport, origin, allowed tool patterns, credential needs, and reason.                                                                                                      | Editing `.mcp.json` or Claude `mcpServers`.                                                             |
-| `request_permission`               | SDK, host, browser, scheduler, memory, service, MCP, or provider/channel capability permission requests.                                                                                                        | Changing permission settings directly or treating provider SDK permissions as already approved.         |
-| `capability_status`                | Lists current tool access, readable configured rules, selected skills, selected MCP servers, default tools, gated tools, and unavailable-but-requestable admin tools with exact `request_permission` arguments. | Guessing hidden admin tools or requesting broad MyClaw MCP wildcards.                                   |
-| `settings_desired_state`           | Selected-capability reading of the current local desired-state settings before proposing a reviewed config change.                                                                                              | Unselected access, mutating settings, or exposing raw secrets.                                          |
-| `request_settings_update`          | Selected-capability reviewed host-side edits to non-secret local `settings.yaml` desired state.                                                                                                                 | Unselected access, direct file edits, raw provider secrets, skill source injection, or MCP definitions. |
-| `service_restart`                  | Selected-capability restart after approved config or capability changes that require host restart.                                                                                                              | Restarting to activate unapproved changes.                                                              |
-| `register_agent`                   | Selected-capability binding of a new channel conversation to an agent.                                                                                                                                          | Letting an unselected agent bind arbitrary chats.                                                       |
+| Tool                               | Use                                                                                                                                                                                              | Never use for                                                                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `send_message`                     | Progress updates or direct channel messages while the agent is still running.                                                                                                                    | Persistent capability changes.                                                                          |
+| `ask_user_question`                | Structured choices with content, options, single-select, multi-select, preview/details, and channel-native buttons.                                                                              | Open-ended chat or approval of persistent capabilities.                                                 |
+| `request_skill_install`            | Provider-backed skill installs such as `clawhub:<slug>@<version>`.                                                                                                                               | Downloading or installing the skill directly.                                                           |
+| `request_skill_proposal`           | Agent-created or modified `SKILL.md` bundles for review.                                                                                                                                         | Writing directly to `.claude/skills`, `.agents/skills`, or agent-local `skills/`.                       |
+| `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies needed by a reviewed skill.                                                                                                                          | Running dependency commands from the agent.                                                             |
+| `request_mcp_server`               | Third-party MCP server drafts with transport, origin, allowed tool patterns, credential needs, and reason.                                                                                       | Editing `.mcp.json` or Claude `mcpServers`.                                                             |
+| `request_permission`               | SDK, host, browser, scheduler, memory, service, MCP, or provider/channel capability permission requests.                                                                                         | Changing permission settings directly or treating provider SDK permissions as already approved.         |
+| `capability_search`                | Finds built-in semantic capabilities by id, provider/app, risk, or allowed action.                                                                                                               | Guessing raw command rules or provider-specific implementation names.                                   |
+| `request_capability`               | Requests a named semantic capability such as `google.sheets.write` for review and durable agent binding.                                                                                         | Requesting raw provider tokens, broad Bash, or unrelated app access.                                    |
+| `propose_local_cli_capability`     | Requests a reviewed user-defined local CLI capability with pinned executable, command templates, preflight, account label, and protected paths.                                                  | Running the CLI directly or approving `Bash(cli *)`.                                                    |
+| `manage_capability`                | Presents view/change/revoke/test/audit guidance for existing semantic capabilities.                                                                                                              | Silent DB-only edits, raw token inspection, or bypassing settings sync.                                 |
+| `capability_status`                | Lists current tool access, readable configured rules, selected skills, selected MCP servers, default tools, gated tools, semantic capability tools, and unavailable-but-requestable admin tools. | Guessing hidden admin tools or requesting broad MyClaw MCP wildcards.                                   |
+| `settings_desired_state`           | Selected-capability reading of the current local desired-state settings before proposing a reviewed config change.                                                                               | Unselected access, mutating settings, or exposing raw secrets.                                          |
+| `request_settings_update`          | Selected-capability reviewed host-side edits to non-secret local `settings.yaml` desired state.                                                                                                  | Unselected access, direct file edits, raw provider secrets, skill source injection, or MCP definitions. |
+| `service_restart`                  | Selected-capability restart after approved config or capability changes that require host restart.                                                                                               | Restarting to activate unapproved changes.                                                              |
+| `register_agent`                   | Selected-capability binding of a new channel conversation to an agent.                                                                                                                           | Letting an unselected agent bind arbitrary chats.                                                       |
 
 ## Capability Types
 
-| Type             | Durable truth                                                                  | Runtime projection                                                                     |
-| ---------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| Skill            | Skill catalog row, readable files, provider ref, hash, binding.                | Per-run Claude `skills/<slug>/...` folder and `Skill` tool exposure.                   |
-| Skill dependency | Dependency spec, approval decision, execution result, audit.                   | Optional per-skill tools directory or approved host package; never direct agent shell. |
-| Third-party MCP  | Definition, reviewed version, credential refs, allowed tool patterns, binding. | SDK `mcpServers` plus exact allowed MCP tool names.                                    |
-| SDK tool         | Tool catalog entry, risk, permission policy, sandbox profile, binding.         | Exact SDK tool name in `allowedTools` and `canUseTool` policy gate.                    |
-| Host tool        | Built-in MyClaw MCP tool entry, risk, binding, audit behavior.                 | Exact `mcp__myclaw__<tool>` name.                                                      |
-| Browser tool     | Canonical `Browser` capability and sandbox policy.                             | Gated MyClaw-owned `mcp__myclaw__browser_*` tools with MyClaw-owned schemas.           |
-| Channel tool     | Provider capability enum, scopes, affected conversations, binding.             | Provider adapter enables only the named Slack/Telegram/Teams/Web capability.           |
-| Channel binding  | Agent-to-conversation/thread binding and control policy.                       | Message routing, trigger handling, and same-channel approval target.                   |
+| Type             | Durable truth                                                                  | Runtime projection                                                                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Skill            | Skill catalog row, readable files, provider ref, hash, binding.                | Per-run Claude `skills/<slug>/...` folder and `Skill` tool exposure.                                                                                     |
+| Skill dependency | Dependency spec, approval decision, execution result, audit.                   | Optional per-skill tools directory or approved host package; never direct agent shell.                                                                   |
+| Third-party MCP  | Definition, reviewed version, credential refs, allowed tool patterns, binding. | SDK `mcpServers` for host-safe stdio transports plus exact allowed MCP tool names. Remote HTTP/SSE requires host DNS-pinned transport before projection. |
+| SDK tool         | Tool catalog entry, risk, permission policy, sandbox profile, binding.         | Exact non-Bash SDK tool names in `allowedTools`; scoped `Bash(<pattern>)` is enforced only in `canUseTool` and never projected as bare `Bash`.           |
+| Host tool        | Built-in MyClaw MCP tool entry, risk, binding, audit behavior.                 | Exact `mcp__myclaw__<tool>` name.                                                                                                                        |
+| Browser tool     | Canonical `Browser` capability and sandbox policy.                             | Gated MyClaw-owned `mcp__myclaw__browser_*` tools with MyClaw-owned schemas.                                                                             |
+| Channel tool     | Provider capability enum, scopes, affected conversations, binding.             | Provider adapter enables only the named Slack/Telegram/Teams/Web capability.                                                                             |
+| Channel binding  | Agent-to-conversation/thread binding and control policy.                       | Message routing, trigger handling, and same-channel approval target.                                                                                     |
 
 ## Durable Model
 
@@ -96,11 +180,30 @@ credential reference names, permission decisions, audit events, and disablement
 state.
 
 Agent-owned persistent tool grants are also mirrored into `settings.yaml` as
-readable `agents.<id>.tools` entries. Use rules such as `Bash(git status *)`,
-`Read(/repo/**)`, or `mcp__myclaw__service_restart`; do not expose opaque
-permission-rule hashes in settings. Settings reconciliation resolves those
-readable rules back into Postgres tool catalog rows and agent bindings
+readable `agents.<id>.tools` entries. Prefer semantic capability entries such
+as `capability:google.sheets.write` for app workflows. `request_permission`
+durable fallback is intentionally narrow: canonical `Browser`, exact selected
+MyClaw admin tools, and scoped Bash rules such as `Bash(npm test *)`. Broad
+exact SDK/native tools such as `Read`, `Write`, `Edit`, `WebFetch`, `LS`, exact
+third-party MCP tools, secret-bearing Bash, shell-control Bash, and
+`SandboxNetworkAccess` are not durable `request_permission` authority. Do not
+expose opaque permission-rule hashes in settings. Settings
+reconciliation resolves those readable names back into Postgres tool catalog
+rows and agent bindings
 immediately and after restart.
+
+Scoped Bash rules match parsed argv leaves, not whole shell strings. Compound
+commands require every safe, stateless leaf to match a separate durable rule;
+state-changing leaves such as `cd` are one-time approval only because they
+change the trust context for later leaves. Matching is positional:
+`Bash(curl https://api.example.com/*)` does not cover
+`curl -sSf https://api.example.com/x`; approve
+`Bash(curl -sSf https://api.example.com/*)` or an explicit argv wildcard such
+as `Bash(curl * https://api.example.com/*)`. Unsupported shell grammar,
+environment assignments, command substitution, background execution, shell
+keywords, meta-executors such as `sh -c`, stateful shell builtins, broad
+interpreter wildcard scopes, and destructive redirects are one-time approval
+only and must not be synthesized as durable Bash rules.
 
 Control API capability replacement and other DB/admin-side capability writes
 must export the readable Postgres projection back into `settings.yaml`, then
@@ -120,18 +223,21 @@ When an autonomous job fails because a capability is missing, recovery output
 uses the same reviewed request tools as interactive agents:
 
 ```text
-request_permission { "permissionKind": "tool", "toolName": "Bash", "temporaryOnly": false, "reason": "This scheduled job needs Bash access." }
+request_capability { "capabilityId": "google.sheets.write", "reason": "This scheduled job writes the weekly status sheet." }
+request_permission { "permissionKind": "tool", "toolName": "Bash", "rule": "npm test *", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }
 request_mcp_server { "name": "github", "transport": "http", "reason": "This scheduled job needs the github MCP server capability." }
 ```
 
 Approved requests update the target agent's durable selected tools, skills, or
 MCP server bindings and export the readable projection to `settings.yaml`.
 Tool permission approval can resume the blocked active tool call immediately:
-`Allow once` is current-run only, while `Always allow` also applies the approved
-rule to the active run and future runs. New skill or MCP materialization occurs
-on the next scheduled run or a manual rerun. Browser remains a single public
-`Browser` tool capability; projected browser tools and admin MyClaw MCP tools
-are not job-local grants.
+`Allow once` is current-run only and does not create durable semantic
+authority, while `Always allow` stores either the approved semantic capability,
+canonical `Browser`, exact MyClaw admin tool, or scoped Bash rule for the active
+run and future runs. New skill or MCP materialization occurs on the next
+scheduled run or a manual rerun. Browser remains a single public `Browser` tool
+capability; projected browser tools and admin MyClaw MCP tools are not
+job-local grants.
 
 Direct writes to `settings.json`, `settings.local.json`, `.mcp.json`,
 generated provider MCP directories, and skill capability files are protected
@@ -169,7 +275,7 @@ not durable MyClaw truth.
    credential refs, sandbox profile, tool patterns, and provider metadata.
 3. Review: same-channel review renders the request, but authority still comes
    from configured admin/control policy.
-4. Decide: `Allow once`, `Always allow <granular rule>`, or `Cancel` is recorded with actor, reason, and audit summary.
+4. Decide: `Allow once`, `Always allow for this agent/job` for semantic capabilities, `Always allow Browser`, `Always allow mcp__myclaw__<admin_tool>`, `Always allow Bash(<pattern>)`, or `Cancel` is recorded with actor, reason, and audit summary.
 5. Bind: approval creates or updates the agent binding and a new config version.
 6. Same-session handoff: approved skill proposals are returned to the running
    agent as reviewed skill files; approved MCP servers are reachable through the
@@ -266,3 +372,45 @@ Before calling a cutover complete, run targeted searches for:
 - `.mcp.json` mutation instructions
 - base64 skill artifact serialization
 - direct dependency-install guidance in active docs
+
+## Adding A New Local CLI Capability
+
+1. Discover the executable path and version, for example
+   `/usr/local/bin/gog --version`.
+2. Hash the executable when practical, then define the semantic capability:
+   `capabilityId: google.sheets.write`, display name `Google Sheets write`,
+   category `Google Sheets`, risk `write`, and account label such as
+   `ravi@example.com`.
+3. Set narrow command templates such as
+   `/usr/local/bin/gog sheets write *`. Do not approve `Bash(gog *)`,
+   `Bash(gog sheets *)`, or other raw CLI Bash grants as a substitute for a
+   semantic local CLI capability.
+4. Configure auth preflight, for example
+   `/usr/local/bin/gog auth status`, and protect credential/config paths such
+   as `~/.config/gog` from writes.
+5. Submit `propose_local_cli_capability` with the definition and reason.
+6. After review, run `capability_status` to confirm the draft is visible. Do
+   not enable recurring-job reuse until runtime local-CLI enforcement verifies
+   executable identity, preflight, protected paths, and denied env overrides.
+
+Examples:
+
+- Google Sheets through OneCLI: request `request_capability` with
+  `capabilityId=google.sheets.write`. The prompt shows `Google Sheets write`;
+  OneCLI broker details and command hashes stay in Details.
+- Google Sheets through `gog`: propose a `local_cli` capability with pinned
+  `/usr/local/bin/gog`, command template `/usr/local/bin/gog sheets write *`,
+  auth preflight `/usr/local/bin/gog auth status`, and protected
+  `~/.config/gog`. This is a reviewed draft until the runtime gate can enforce
+  it; do not approve `Bash(gog *)` as a substitute.
+- Unknown business CLI: propose `capabilityId=acme.invoices.read`,
+  display name `Acme invoices read`, command template
+  `/usr/local/bin/acme invoices read *`, and a non-secret account label.
+- Revoking or changing an existing permission: use the capability management
+  API/admin surface to remove `capability:<id>` from the agent tools list or
+  replace it with a different account-specific capability, then sync
+  `settings.yaml` and the Postgres projection.
+
+Do not use raw token env, `Bash(cli *)`, broad proxy injection, direct
+credential-store writes, raw provider model credentials, raw browser backend
+tools, or `SandboxNetworkAccess` as durable authority.

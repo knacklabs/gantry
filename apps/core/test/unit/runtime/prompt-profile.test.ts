@@ -83,9 +83,9 @@ describe('PromptProfileService', () => {
       'absence means no relevant memory was auto-retrieved',
     );
     expect(shared).toContain(
-      'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission for capability changes.',
+      'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, capability_search, request_capability, propose_local_cli_capability, manage_capability, or request_permission for capability changes.',
     );
-    expect(shared).toContain('scoped persistent permission rules');
+    expect(shared).toContain('search and request semantic capabilities first');
     expect(shared).not.toContain('Anthropic permission rules');
     expect(shared).toContain(
       'Never edit .claude/skills, .mcp.json, settings.yaml, generated Claude config, or permission files directly.',

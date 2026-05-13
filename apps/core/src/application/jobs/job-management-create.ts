@@ -127,8 +127,6 @@ export async function createManagedJob(
     group_scope: session.workspaceKey,
     created_by: 'human',
     next_run: schedule.nextRun,
-    execution_mode:
-      input.executionMode === 'serialized' ? 'serialized' : 'parallel',
     execution_context: executionContext,
     notification_routes: notificationRoutes,
   });

@@ -1,0 +1,62 @@
+import type { MessageActionAffordance } from '../../domain/types.js';
+
+const SLACK_ACTION_VALUE_MAX_BYTES = 2000;
+const SCHEDULER_ACTION_KINDS = new Set<MessageActionAffordance['kind']>([
+  'scheduler_run_now',
+  'scheduler_show_last_logs',
+  'scheduler_pause_job',
+  'scheduler_open',
+]);
+
+function truncateSlackButtonLabel(label: string): string {
+  const trimmed = label.trim();
+  if (trimmed.length <= 75) return trimmed;
+  return `${trimmed.slice(0, 72)}...`;
+}
+
+function slackActionValue(action: MessageActionAffordance): string | undefined {
+  if (!SCHEDULER_ACTION_KINDS.has(action.kind)) return undefined;
+  const value = JSON.stringify({
+    kind: action.kind,
+    jobId: action.jobId,
+    runId: action.runId ?? null,
+  });
+  return Buffer.byteLength(value, 'utf8') <= SLACK_ACTION_VALUE_MAX_BYTES
+    ? value
+    : undefined;
+}
+
+export function slackMessageActionBlocks(
+  text: string,
+  actions?: MessageActionAffordance[],
+): Array<Record<string, unknown>> | undefined {
+  const elements = (actions ?? [])
+    .map((action) => {
+      const value = slackActionValue(action);
+      if (!value) return null;
+      return {
+        type: 'button',
+        action_id: 'myclaw_message_action',
+        text: {
+          type: 'plain_text',
+          text: truncateSlackButtonLabel(action.label),
+        },
+        ...(action.kind === 'scheduler_pause_job'
+          ? { style: 'danger' as const }
+          : {}),
+        value,
+      };
+    })
+    .filter((action) => action !== null) as Array<Record<string, unknown>>;
+  if (elements.length === 0) return undefined;
+  return [
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text },
+    },
+    {
+      type: 'actions',
+      elements,
+    },
+  ];
+}

@@ -1,8 +1,4 @@
-import type {
-  Job,
-  JobExecutionMode,
-  JobScheduleType,
-} from '../../domain/types.js';
+import type { Job, JobScheduleType } from '../../domain/types.js';
 import { ApplicationError } from '../common/application-error.js';
 import type { Clock } from '../common/clock.js';
 import type {
@@ -92,18 +88,6 @@ export function normalizeScheduleType(raw: unknown): JobScheduleType {
     return raw;
   }
   throw new ApplicationError('INVALID_SCHEDULE', 'Unsupported schedule type.');
-}
-
-export function normalizeExecutionMode(
-  executionMode: unknown,
-  serialize: unknown,
-  fallback: JobExecutionMode = 'parallel',
-): JobExecutionMode {
-  if (executionMode === 'serialized') return 'serialized';
-  if (executionMode === 'parallel') return 'parallel';
-  if (typeof serialize === 'boolean')
-    return serialize ? 'serialized' : 'parallel';
-  return fallback;
 }
 
 export function resolveLimit(raw: unknown, fallback: number): number {
@@ -313,8 +297,6 @@ export function buildJobUpdates(
     );
     updates.notification_routes = notificationRoutes;
   }
-  if (patch.executionMode !== undefined)
-    updates.execution_mode = patch.executionMode;
   if (patch.silent !== undefined) updates.silent = patch.silent;
   if (patch.cleanupAfterMs !== undefined)
     updates.cleanup_after_ms = patch.cleanupAfterMs;

@@ -12,13 +12,16 @@ optional `sessionId`). The job inherits that target agent's currently selected
 tool bindings, skills, and MCP server bindings for the run. Job records do not
 carry separate tool, skill, or MCP capability grants.
 
-The inherited tool rules still support exact tool names, registered scoped SDK
-tool rules such as `Tool(scope-pattern)`, and `mcp__server__*`. Scoped rules are
-evaluated by `apps/core/src/shared/tool-rule-matcher.ts`; new tools must be
-registered there with allow/deny tests before they can be used by scheduled
-runs. Empty rules, global `*`, unregistered scoped tools, raw Browser action MCP
-rules, and projected `mcp__myclaw__browser_*` rules are invalid as persistent
-agent capabilities.
+Inherited tool grants are semantic capability entries such as
+`capability:google.sheets.write`, canonical `Browser`, selected first-party
+catalog tools, exact MyClaw admin tools, approved third-party MCP server
+bindings, or scoped Bash rules such as `Bash(npm test *)`. Runtime expands
+semantic capabilities and may still project approved third-party MCP server
+bindings into SDK allowances for that run. Empty rules, global `*`, broad exact
+SDK/native request_permission grants, exact third-party MCP tool grants, bare
+`Bash`, `Bash(*)`, leading-wildcard Bash scopes, scoped non-Bash rules, raw
+Browser action MCP rules, and projected `mcp__myclaw__browser_*` rules are
+invalid as persistent request_permission authority.
 
 Browser is one durable public capability: `Browser`. A job with an inherited
 `Browser` grant receives the projected MyClaw browser tools for that run. A job
@@ -33,24 +36,31 @@ before autonomous allowance. If a tool is outside the effective job allowlist,
 the runner uses the same permission IPC path as interactive agent runs: it sends
 the approval prompt to the job's source conversation/thread or topic and waits
 at the tool boundary. `Allow once` resumes that tool call in the current job run.
-`Always allow` applies the approved rule to the target agent, mirrors it to
-`settings.yaml`, appends the live rule for the active run, and resumes the same
-tool call so recurring jobs do not need the same approval next time.
+`Always allow` stores a semantic `capability:<id>` grant when the request names
+one; otherwise it may apply canonical `Browser`, an exact MyClaw admin tool, or
+a scoped Bash rule to the target agent. Broad exact SDK/native tools and exact
+third-party MCP tool names remain one-off only. The grant is mirrored to
+`settings.yaml`, expanded into live runtime rules for the active run, and
+resumes the same tool call so recurring jobs do not need the same approval next
+time.
 
 If the approval surface is unavailable, denied, or times out, the runner fails
 the tool call with recovery guidance such as:
 
 ```text
 Tool not on autonomous job allowlist: Bash.
-Recovery: request_permission { "permissionKind": "tool", "toolName": "Bash", "temporaryOnly": false, "reason": "This scheduled job needs Bash access." }
+Recovery: request_capability { "capabilityId": "google.sheets.write", "reason": "This scheduled job writes the weekly status sheet." }
+Recovery: request_permission { "permissionKind": "tool", "toolName": "Bash", "rule": "npm test *", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }
 ```
 
 Missing capability recovery uses the same reviewed request tools as interactive
-agents: `request_permission` for tools and Browser, `request_skill_install` or
-`request_skill_proposal` for skills, and `request_mcp_server` for third-party
-MCP servers. Approval updates the target agent's durable bindings, exports the
-readable projection to `settings.yaml`, and activates on the next scheduled run
-or a manual rerun.
+agents: `capability_search` / `request_capability` for semantic app/tool
+access, `propose_local_cli_capability` for reviewed authenticated CLIs,
+`request_permission` for one-off exact tools, Browser, or scoped Bash fallback,
+`request_skill_install` or `request_skill_proposal` for skills, and
+`request_mcp_server` for third-party MCP servers. Approval updates the target
+agent's durable bindings, exports the readable projection to `settings.yaml`,
+and activates on the next scheduled run or a manual rerun.
 
 The scheduler records the failure summary, emits `job.tool_denied`, pauses
 recurring jobs that need a missing persistent capability, and notifies the
@@ -75,8 +85,9 @@ part of job creation or update; the host derives the share target from
 Host-owned job scripts are not supported. Raw host Bash is not equivalent to
 Claude SDK Bash because it does not inherit the SDK filesystem sandbox,
 provider tool lifecycle, or per-tool permission callback. Move job logic into
-the scheduled prompt and grant exact SDK tools to the target agent through the
-normal capability request flow. Any future script-like job runner must first
+the scheduled prompt and grant semantic capabilities first, with scoped SDK
+Bash only as a fallback low-level durable grant, through the normal capability
+request flow. Any future script-like job runner must first
 provide the same protected-path deny-write boundary on macOS, Linux, and Docker
 deployments.
 
@@ -90,8 +101,8 @@ object:
 ```json
 {
   "toolAccess": {
-    "inheritedAgentTools": ["Read", "Bash(git status *)"],
-    "effectiveAllowedTools": ["Read", "Bash(git status *)"],
+    "inheritedAgentTools": ["Read", "Bash(npm test *)"],
+    "effectiveAllowedTools": ["Read", "Bash(npm test *)"],
     "projectedRuntimeTools": ["mcp__myclaw__browser_navigate"],
     "source": "inherited target agent capabilities"
   },

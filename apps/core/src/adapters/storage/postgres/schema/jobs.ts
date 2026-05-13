@@ -39,7 +39,6 @@ export const canonicalJobsPostgres = pgTable(
     model: text('model_override'),
     scheduleJson: text('schedule_json').notNull(),
     status: text('status').notNull().default('active'),
-    executionMode: text('execution_mode').notNull().default('parallel'),
     targetJson: text('target_json').notNull().default('{}'),
     silent: boolean('silent').notNull().default(false),
     timeoutMs: integer('timeout_ms').notNull().default(300000),

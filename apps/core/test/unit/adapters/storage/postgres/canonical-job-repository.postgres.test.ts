@@ -142,7 +142,6 @@ describe('PostgresCanonicalJobRepository', () => {
       model: null,
       scheduleJson: JSON.stringify({ type: 'cron', value: '0 * * * *' }),
       status: 'active',
-      executionMode: 'serialized',
       targetJson: JSON.stringify({
         executionContext: {
           conversationJid: 'tg:5759865942',

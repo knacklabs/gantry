@@ -23,11 +23,13 @@ import {
   splitSlackTextByCodeUnits,
 } from './text-limits.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { slackMessageActionBlocks } from './message-action-affordances.js';
 
 type SlackPostMessagePayload = {
   channel: string;
   text: string;
   thread_ts?: string;
+  blocks?: Array<Record<string, unknown>>;
 };
 type SlackDeliveryLogger = {
   warn(metadata: Record<string, unknown>, message: string): void;
@@ -197,6 +199,10 @@ export async function sendSlackMessage(input: {
   let deliveredParts = 0;
   for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
     const part = parts[partIndex];
+    const actionBlocks =
+      partIndex === parts.length - 1
+        ? slackMessageActionBlocks(part, input.options.actionAffordances)
+        : undefined;
     try {
       const posted = await postSlackMessageWithRetry(
         input.app,
@@ -206,6 +212,7 @@ export async function sendSlackMessage(input: {
           ...(input.options.threadId
             ? { thread_ts: input.options.threadId }
             : {}),
+          ...(actionBlocks ? { blocks: actionBlocks } : {}),
         },
         { jid: input.jid, part: partIndex + 1, totalParts: parts.length },
         warnings,

@@ -6,6 +6,7 @@ import {
   nowMs as currentTimeMs,
   sleep,
 } from '../../shared/time/datetime.js';
+import { formatDuration } from '../../shared/human-format.js';
 import {
   formatMemoryTimeoutError,
   getMemoryActionTimeoutMs,
@@ -288,7 +289,7 @@ export async function requestBrowserAction(
   removeStaleRequestFile(reqPath);
   return {
     ok: false,
-    error: `Browser IPC timeout after ${timeoutMs}ms waiting for browser service response`,
+    error: `Browser IPC timeout after ${formatDuration(timeoutMs)} waiting for browser service response`,
   };
 }
 

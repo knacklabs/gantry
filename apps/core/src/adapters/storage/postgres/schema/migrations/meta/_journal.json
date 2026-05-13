@@ -344,6 +344,20 @@
       "when": 1777158600000,
       "tag": "0048_event_bus_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1777162200000,
+      "tag": "0049_agent_run_short_ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1777165800000,
+      "tag": "0050_drop_job_execution_mode",
+      "breakpoints": true
     }
   ]
 }

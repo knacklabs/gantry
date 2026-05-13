@@ -1,10 +1,35 @@
+import { createHash } from 'node:crypto';
+
 import type {
   PermissionApprovalDecision,
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
+  PermissionApprovalRuleValue,
   PermissionApprovalUpdate,
 } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
+import { firstDestructiveRedirectTarget } from '../shared/bash-command-parser.js';
+import {
+  formatPersistentPermissionRulesForUser,
+  validatePersistentRequestPermissionRule,
+} from '../shared/persistent-permission-rules.js';
+import {
+  redactSensitiveText,
+  sanitizeOutboundLlmText,
+} from '../shared/sensitive-material.js';
+import {
+  getBuiltinSemanticCapability,
+  type SemanticCapabilityDefinition,
+} from '../shared/semantic-capabilities.js';
+import { parseSemanticCapabilityRule } from '../shared/semantic-capability-ids.js';
+
+const PERMISSION_MESSAGE_BUDGET = 2800;
+const PERMISSION_JSON_MAX_DEPTH = 2;
+const PERMISSION_JSON_MAX_KEYS = 12;
+const PERMISSION_JSON_MAX_ARRAY_ITEMS = 8;
+const PERSISTENT_RULE_APPROVAL_MAX_RULES = 5;
+const SENSITIVE_INPUT_KEY_PATTERN =
+  /(secret|token|password|credential|api[_-]?key|private[_-]?key|session|cookie|authorization)/i;
 
 export type PermissionActionToken =
   | PermissionApprovalDecisionMode
@@ -30,21 +55,37 @@ export function persistentPermissionUpdates(
       Array.isArray(update.rules) &&
       update.rules.length > 0,
   );
-  if (candidates.length !== 1 || candidates[0].rules?.length !== 1) {
-    return [];
-  }
-  return candidates;
+  if (candidates.length !== 1) return [];
+  const rules = candidates[0].rules ?? [];
+  if (rules.length > PERSISTENT_RULE_APPROVAL_MAX_RULES) return [];
+  return rules.every((rule) => persistentRuleForSuggestion(rule))
+    ? candidates
+    : [];
+}
+
+export function persistentRules(request: PermissionApprovalRequest): string[] {
+  const [update] = persistentPermissionUpdates(request);
+  return (update?.rules || [])
+    .map(persistentRuleForSuggestion)
+    .filter((rule): rule is string => Boolean(rule));
 }
 
 export function firstPersistentRule(
   request: PermissionApprovalRequest,
 ): string | undefined {
-  const [update] = persistentPermissionUpdates(request);
-  const [rule] = update?.rules || [];
+  return persistentRules(request)[0];
+}
+
+function persistentRuleForSuggestion(
+  rule: PermissionApprovalRuleValue,
+): string | undefined {
   if (!rule?.toolName) return undefined;
-  return rule.ruleContent
+  const persistentRule = rule.ruleContent
     ? `${rule.toolName}(${rule.ruleContent})`
     : rule.toolName;
+  return validatePersistentRequestPermissionRule(persistentRule).ok
+    ? persistentRule
+    : undefined;
 }
 
 export function permissionDecisionOptions(
@@ -83,7 +124,10 @@ function persistentOptionDropReason(
       update.rules.length > 0,
   );
   if (candidates.length !== 1) return 'expected exactly one allow rule update';
-  if (candidates[0].rules?.length !== 1) return 'expected exactly one rule';
+  if (!candidates[0].rules?.length) return 'expected at least one rule';
+  if (candidates[0].rules.length > PERSISTENT_RULE_APPROVAL_MAX_RULES) {
+    return `expected at most ${PERSISTENT_RULE_APPROVAL_MAX_RULES} rules`;
+  }
   return 'rule missing toolName';
 }
 
@@ -95,9 +139,11 @@ export function permissionButtonLabel(
   if (mode === 'cancel') return 'Cancel';
   const rule = firstPersistentRule(request);
   if (!rule) return 'Always allow';
-  return isBroadPermissionRule(rule)
-    ? 'Always allow broad access'
-    : `Always allow ${truncateText(rule, 34)}`;
+  const capabilityName = semanticCapabilityName(request, rule);
+  if (capabilityName) return 'Always allow for this agent';
+  const rules = persistentRules(request);
+  if (rules.length > 1) return `Always allow ${rules.length} rules`;
+  return `Always allow ${headTailTruncate(rule, 24, 9)}`;
 }
 
 export function decisionForMode(
@@ -151,11 +197,24 @@ export function formatPermissionPromptText(
   timeoutMs: number,
 ): string {
   const timeoutMinutes = Math.max(1, Math.round(timeoutMs / 60000));
+  if (request.interaction) {
+    return formatInteractionPermissionPrompt(request, timeoutMinutes);
+  }
+  const rule = firstPersistentRule(request);
+  const capabilityName = semanticCapabilityName(request, rule);
+  if (capabilityName) {
+    return formatSemanticPermissionPrompt(
+      request,
+      capabilityName,
+      timeoutMinutes,
+      rule,
+    );
+  }
   const title =
     request.title || request.displayName || `${request.toolName} request`;
   const lines = [
-    'Permission request',
-    `Action: ${title}`,
+    sanitizePermissionText(title, 160, 40),
+    '',
     `Tool: ${request.displayName || request.toolName}`,
     `Agent: ${request.sourceAgentFolder}`,
   ];
@@ -165,16 +224,34 @@ export function formatPermissionPromptText(
     );
   }
   if (request.threadId)
-    lines.push(`Thread: ${truncateText(request.threadId, 80)}`);
-  const rule = firstPersistentRule(request);
-  if (rule) lines.push(`Persistent rule option: ${rule}`);
-  if (request.blockedPath) lines.push(`Path: ${request.blockedPath}`);
-  if (request.decisionReason) lines.push(`Reason: ${request.decisionReason}`);
-  if (request.description) lines.push(`Details: ${request.description}`);
-  lines.push(...formatPermissionToolInputLines(request));
-  lines.push(...formatPermissionBoundaryLines(request));
-  lines.push(`Reply timeout: ${timeoutMinutes} minute(s)`);
-  return lines.join('\n');
+    lines.push(`Thread: ${sanitizePermissionText(request.threadId, 60, 20)}`);
+  const inputLines = formatPermissionToolInputLines(request);
+  if (inputLines.length > 0) lines.push('', ...inputLines);
+  if (request.blockedPath)
+    lines.push(
+      `Path: ${sanitizePermissionText(request.blockedPath, 250, 100)}`,
+    );
+  if (request.decisionReason)
+    lines.push(
+      `Reason: ${sanitizePermissionText(request.decisionReason, 260, 100)}`,
+    );
+  const closestRule = formatClosestRuleLine(request);
+  if (closestRule) lines.push(closestRule);
+  if (request.description)
+    lines.push(
+      `Details: ${sanitizePermissionText(request.description, 260, 100)}`,
+    );
+  const rules = persistentRules(request);
+  if (rules.length > 0) {
+    lines.push(
+      '',
+      'Approving persistent will grant:',
+      ...formatRuleList(rules),
+    );
+  }
+  lines.push('', ...formatPermissionBoundaryLines(request));
+  lines.push('', `Reply within ${timeoutMinutes} minute(s).`);
+  return limitPermissionMessage(lines.join('\n'));
 }
 
 export function formatPermissionReceiptText(
@@ -187,19 +264,60 @@ export function formatPermissionReceiptText(
     ? request.displayName || request.title || request.toolName
     : 'permission request';
   if (!decision.approved || decision.mode === 'cancel') {
-    return `Canceled: no permission changed\nAction: ${action}\nBy: ${actor}`;
+    return limitPermissionMessage(
+      `Canceled: no permission changed\nAction: ${sanitizePermissionText(action, 160, 40)}\nBy: ${sanitizePermissionText(actor, 120, 40)}`,
+    );
   }
   if (decision.mode === 'allow_persistent_rule') {
-    const rule = request ? firstPersistentRule(request) : undefined;
-    return `Allowed persistent rule: ${rule || action}\nBy: ${actor}\nRequest ID: ${requestId}`;
+    const rules = request ? persistentRules(request) : [];
+    const lines = ['Persistent permission approval received'];
+    if (rules.length > 0) {
+      lines.push('Requested grants:');
+      lines.push(...formatRuleList(rules));
+    }
+    lines.push(`For tool: ${formatPermissionActionSummary(request)}`);
+    lines.push(`By: ${sanitizePermissionText(actor, 120, 40)}`);
+    lines.push(
+      'Applying persistent grants now; final success or failure will be reported separately.',
+    );
+    lines.push('If applied, revoke with: /permissions remove <rule>');
+    lines.push(`Request ID: \`${sanitizePermissionText(requestId, 160, 40)}\``);
+    return limitPermissionMessage(lines.join('\n'));
   }
-  return `Allowed once: ${action}\nBy: ${actor}\nRequest ID: ${requestId}`;
+  return limitPermissionMessage(
+    [
+      'Allowed once',
+      `For tool: ${formatPermissionActionSummary(request)}`,
+      `By: ${sanitizePermissionText(actor, 120, 40)}`,
+      `Request ID: \`${sanitizePermissionText(requestId, 160, 40)}\``,
+    ].join('\n'),
+  );
 }
 
-export function truncateText(input: string, maxLength: number): string {
-  return input.length <= maxLength
-    ? input
-    : `${input.slice(0, maxLength - 1)}…`;
+function headTailTruncate(input: string, head: number, tail: number): string {
+  if (input.length <= head + tail + 1) return input;
+  return `${input.slice(0, head)}…${input.slice(-tail)}`;
+}
+
+function sanitizePermissionText(
+  input: string,
+  head: number,
+  tail: number,
+): string {
+  return headTailTruncate(sanitizeOutboundLlmText(input).text, head, tail);
+}
+
+function limitPermissionMessage(input: string): string {
+  if (input.length <= PERMISSION_MESSAGE_BUDGET) return input;
+  return `${input.slice(0, PERMISSION_MESSAGE_BUDGET - 44)}\n\n[additional permission details omitted]`;
+}
+
+function formatRuleList(rules: string[]): string[] {
+  const shown = rules
+    .slice(0, 5)
+    .map((rule) => `  • ${sanitizePermissionText(rule, 260, 100)}`);
+  const remaining = rules.length - shown.length;
+  return remaining > 0 ? [...shown, `  …and ${remaining} more`] : shown;
 }
 
 function formatPermissionToolInputLines(
@@ -212,47 +330,372 @@ function formatPermissionToolInputLines(
     typeof input.command === 'string' &&
     input.command.trim()
   ) {
-    return [`Command: \`${truncateText(input.command.trim(), 300)}\``];
+    const command = sanitizePermissionText(input.command.trim(), 900, 300);
+    const redirectTarget = firstDestructiveRedirectTarget(input.command);
+    return [
+      'Command:',
+      '```',
+      command,
+      '```',
+      ...(redirectTarget ? [`Redirect: ${redirectTarget}`] : []),
+    ];
   }
   if (request.toolName === 'Edit' || request.toolName === 'Write') {
     const lines: string[] = [];
     if (typeof input.file_path === 'string' && input.file_path.trim()) {
-      lines.push(`File: ${truncateText(input.file_path.trim(), 250)}`);
+      lines.push(
+        `File: ${sanitizePermissionText(input.file_path.trim(), 200, 80)}`,
+      );
     }
-    if (typeof input.old_string === 'string' && input.old_string.trim()) {
-      lines.push(`Replacing: ${truncateText(input.old_string.trim(), 150)}`);
+    const diffLines: string[] = [];
+    if (request.toolName === 'Edit') {
+      if (typeof input.old_string === 'string' && input.old_string.trim()) {
+        diffLines.push(
+          `-${sanitizePermissionText(input.old_string.trim(), 200, 100)}`,
+        );
+      }
+      if (typeof input.new_string === 'string' && input.new_string.trim()) {
+        diffLines.push(
+          `+${sanitizePermissionText(input.new_string.trim(), 200, 100)}`,
+        );
+      }
+    } else if (typeof input.content === 'string' && input.content.trim()) {
+      diffLines.push(
+        `+${sanitizePermissionText(input.content.trim(), 200, 100)}`,
+      );
     }
-    if (typeof input.new_string === 'string' && input.new_string.trim()) {
-      lines.push(`With: ${truncateText(input.new_string.trim(), 150)}`);
+    if (diffLines.length > 0) {
+      lines.push('Change:', '```diff', ...diffLines, '```');
     }
     if (lines.length > 0) return lines;
   }
+  const fieldLines = formatKnownToolInputFields(request.toolName, input);
+  if (fieldLines.length > 0) return fieldLines;
   try {
-    return [`Input: ${truncateText(JSON.stringify(input), 300)}`];
+    const json = sanitizePermissionText(boundedJsonPreview(input), 450, 150);
+    return ['Input:', '```json', json, '```'];
   } catch {
     return ['Input: [unserializable]'];
   }
+}
+
+function boundedJsonPreview(input: Record<string, unknown>): string {
+  return JSON.stringify(boundedJsonValue(input, 0), null, 2);
+}
+
+function boundedJsonValue(value: unknown, depth: number): unknown {
+  if (typeof value === 'string') {
+    return sanitizePermissionText(value, 160, 80);
+  }
+  if (
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    value === null
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const items = value
+      .slice(0, PERMISSION_JSON_MAX_ARRAY_ITEMS)
+      .map((item) => boundedJsonValue(item, depth + 1));
+    if (value.length > items.length) {
+      items.push(`... ${value.length - items.length} more item(s) omitted`);
+    }
+    return items;
+  }
+  if (value && typeof value === 'object') {
+    if (depth >= PERMISSION_JSON_MAX_DEPTH) return '[nested object omitted]';
+    const out: Record<string, unknown> = {};
+    let seen = 0;
+    for (const key in value as Record<string, unknown>) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+      if (seen >= PERMISSION_JSON_MAX_KEYS) {
+        out.__omitted_keys = 'more';
+        break;
+      }
+      seen += 1;
+      const entry = (value as Record<string, unknown>)[key];
+      out[key] = SENSITIVE_INPUT_KEY_PATTERN.test(key)
+        ? '[REDACTED_SECRET]'
+        : boundedJsonValue(entry, depth + 1);
+    }
+    return out;
+  }
+  return sanitizePermissionText(String(value), 160, 80);
+}
+
+function formatKnownToolInputFields(
+  toolName: string,
+  input: Record<string, unknown>,
+): string[] {
+  const lines: string[] = [];
+  const add = (label: string, value: unknown, limit = 300) => {
+    if (typeof value !== 'string' && typeof value !== 'number') return;
+    const text = String(value).trim();
+    if (!text) return;
+    lines.push(`${label}: ${sanitizePermissionText(text, limit, 100)}`);
+  };
+  if (toolName === 'Read') add('Path', input.file_path);
+  if (toolName === 'LS') add('Path', input.path);
+  if (toolName === 'Glob') {
+    add('Pattern', input.pattern);
+    add('Path', input.path);
+  }
+  if (toolName === 'Grep') {
+    add('Pattern', input.pattern);
+    add('Path', input.path);
+    add('Include', input.include);
+  }
+  if (toolName === 'WebFetch') {
+    add('URL', input.url);
+    add('Prompt', input.prompt, 300);
+  }
+  if (toolName.startsWith('mcp__myclaw__browser_')) {
+    add('URL', input.url);
+    add('Selector', input.selector);
+    add('Text', input.text);
+    add('Path', input.path);
+    add('Key', input.key);
+  }
+  if (
+    toolName.startsWith('mcp__myclaw__scheduler_') ||
+    toolName.startsWith('scheduler_')
+  ) {
+    add('Job ID', input.job_id ?? input.jobId);
+    add('Name', input.name);
+    add(
+      'Schedule',
+      input.schedule ?? input.schedule_value ?? input.scheduleValue,
+    );
+    add('Prompt', input.prompt, 300);
+  }
+  return lines;
+}
+
+function formatInteractionPermissionPrompt(
+  request: PermissionApprovalRequest,
+  timeoutMinutes: number,
+): string {
+  const interaction = request.interaction!;
+  const rule = firstPersistentRule(request);
+  const capabilityName = semanticCapabilityName(request, rule);
+  const title = capabilityName
+    ? `Allow ${capabilityName}?`
+    : sanitizePermissionText(interaction.title, 160, 40);
+  const lines = [title, `Agent: ${request.sourceAgentFolder}`];
+  const accountLabel = request.toolInput?.accountLabel;
+  if (typeof accountLabel === 'string' && accountLabel.trim()) {
+    lines.push(
+      `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
+    );
+  }
+  if (interaction.body)
+    lines.push('', sanitizePermissionText(interaction.body, 500, 160));
+  lines.push('', ...formatPermissionBoundaryLines(request));
+  lines.push(...formatPermissionAdvancedDetails(request, rule));
+  if (interaction.details?.length) {
+    lines.push(
+      '',
+      'Details:',
+      ...interaction.details.map((detail) =>
+        formatInteractionDetailLine(detail.label, detail.value, detail.mono),
+      ),
+    );
+  }
+  lines.push(`Reply within ${timeoutMinutes} minute(s).`);
+  return limitPermissionMessage(lines.join('\n'));
+}
+
+function formatSemanticPermissionPrompt(
+  request: PermissionApprovalRequest,
+  capabilityName: string,
+  timeoutMinutes: number,
+  rule: string | undefined,
+): string {
+  const definition = semanticCapabilityDefinition(request, rule);
+  const lines = [
+    `Allow ${capabilityName}?`,
+    `Agent: ${request.sourceAgentFolder}`,
+  ];
+  const capabilityId =
+    definition?.capabilityId ?? semanticCapabilityId(request, rule);
+  if (capabilityId) lines.push(`Capability: capability:${capabilityId}`);
+  if (definition?.risk) lines.push(`Risk: ${definition.risk}`);
+  const accountLabel =
+    definition?.accountLabel ?? request.toolInput?.accountLabel;
+  if (typeof accountLabel === 'string' && accountLabel.trim()) {
+    lines.push(
+      `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
+    );
+  }
+  const can = definition?.can ?? request.toolInput?.can;
+  if (typeof can === 'string' && can.trim()) {
+    lines.push('', `Allows: ${sanitizePermissionText(can.trim(), 300, 100)}`);
+  }
+  const cannot = definition?.cannot ?? request.toolInput?.cannot;
+  if (typeof cannot === 'string' && cannot.trim()) {
+    lines.push(
+      `Does not allow: ${sanitizePermissionText(cannot.trim(), 300, 100)}`,
+    );
+  }
+  lines.push('', ...formatPermissionBoundaryLines(request));
+  lines.push(...formatPermissionAdvancedDetails(request, rule));
+  lines.push(`Reply within ${timeoutMinutes} minute(s).`);
+  return limitPermissionMessage(lines.join('\n'));
+}
+
+function formatInteractionDetailLine(
+  label: string,
+  value: string,
+  mono?: boolean,
+): string {
+  const text = sanitizePermissionText(value, 200, 100);
+  return `${label}: ${mono ? '`' : ''}${text}${mono ? '`' : ''}`;
 }
 
 function formatPermissionBoundaryLines(
   request: PermissionApprovalRequest,
 ): string[] {
   const rule = firstPersistentRule(request);
+  const capabilityName = semanticCapabilityName(request, rule);
   if (!rule) {
     return ['What this changes: Allow once applies only to this tool call.'];
   }
+  if (capabilityName) {
+    return [
+      'Choices: Allow once, Always allow for this agent, or Cancel.',
+      'What this changes: Allow once applies only to this invocation.',
+      `Always allow grants the named capability for matching future runs: ${capabilityName}.`,
+      'What this does not allow: unrelated apps, credentials, settings edits, or access outside the capability.',
+    ];
+  }
   return [
     'What this changes: Allow once applies only to this tool call.',
-    `Always allow applies this rule to matching future tool calls: ${rule}`,
+    `Always allow applies ${persistentRules(request).length > 1 ? 'these rules' : 'this rule'} to matching future tool calls: ${persistentRules(request).join(', ')}`,
     'What this does not allow: unrelated tools, secrets, settings edits, or broader access outside the rule.',
   ];
 }
 
-function isBroadPermissionRule(rule: string): boolean {
-  const trimmed = rule.trim();
-  const match = /^([A-Za-z][A-Za-z0-9_]*)(?:\((.*)\))?$/.exec(trimmed);
-  if (!match) return false;
-  const content = match[2]?.trim();
-  if (content === undefined) return true;
-  return /(^|[/\\])\*\*($|[/\\])|^\*$|^\.\*$|^\/?\*\*$/.test(content);
+function semanticCapabilityName(
+  request: PermissionApprovalRequest,
+  rule?: string,
+): string | undefined {
+  const fromInteraction =
+    request.interaction?.requestContext?.capabilityDisplayName?.trim();
+  const definition = semanticCapabilityDefinition(request, rule);
+  if (definition) return definition.displayName;
+  const capabilityId = semanticCapabilityId(request, rule);
+  if (capabilityId) return capabilityId;
+  if (fromInteraction) return sanitizePermissionText(fromInteraction, 120, 40);
+  const fromInput = request.toolInput?.capabilityDisplayName;
+  if (typeof fromInput === 'string' && fromInput.trim()) {
+    return sanitizePermissionText(fromInput.trim(), 120, 40);
+  }
+  return undefined;
+}
+
+function semanticCapabilityDefinition(
+  request: PermissionApprovalRequest,
+  rule?: string,
+): SemanticCapabilityDefinition | undefined {
+  const capabilityId = semanticCapabilityId(request, rule);
+  return capabilityId ? getBuiltinSemanticCapability(capabilityId) : undefined;
+}
+
+function semanticCapabilityId(
+  request: PermissionApprovalRequest,
+  rule?: string,
+): string | undefined {
+  if (rule) {
+    const ruleId = parseSemanticCapabilityRule(rule);
+    if (ruleId) return ruleId;
+  }
+  const fromContext = request.interaction?.requestContext?.capabilityId;
+  if (fromContext) return fromContext;
+  const fromInput = request.toolInput?.capabilityId;
+  return typeof fromInput === 'string' && fromInput.trim()
+    ? fromInput.trim()
+    : undefined;
+}
+
+function formatPermissionAdvancedDetails(
+  request: PermissionApprovalRequest,
+  rule?: string,
+): string[] {
+  const details = [
+    '',
+    'Details:',
+    `Request ID: ${request.requestId}`,
+    `Raw tool: ${request.toolName}`,
+  ];
+  if (rule) details.push(`Raw rule: ${rule}`);
+  const rules = persistentRules(request);
+  if (rules.length > 1) details.push(`Raw rules: ${rules.join(', ')}`);
+  const closestRule = formatClosestRuleLine(request);
+  if (closestRule) details.push(closestRule);
+  const command = permissionCommand(request);
+  if (command) {
+    details.push(
+      `Command preview: \`${sanitizePermissionText(command, 200, 100)}\``,
+      `Command hash: ${createHash('sha256').update(command).digest('hex')}`,
+    );
+  }
+  const executablePath = request.toolInput?.executablePath;
+  if (typeof executablePath === 'string' && executablePath.trim()) {
+    details.push(
+      `Executable: ${sanitizePermissionText(executablePath.trim(), 180, 60)}`,
+    );
+  }
+  const executableVersion = request.toolInput?.executableVersion;
+  if (typeof executableVersion === 'string' && executableVersion.trim()) {
+    details.push(
+      `Executable version: ${sanitizePermissionText(executableVersion.trim(), 100, 40)}`,
+    );
+  }
+  const sandboxProfile = request.toolInput?.sandboxProfile;
+  if (typeof sandboxProfile === 'string' && sandboxProfile.trim()) {
+    details.push(
+      `Sandbox: ${sanitizePermissionText(sandboxProfile.trim(), 120, 40)}`,
+    );
+  }
+  return details;
+}
+
+function formatClosestRuleLine(
+  request: PermissionApprovalRequest,
+): string | undefined {
+  return request.closestRule
+    ? `Closest existing rule: ${formatPersistentPermissionRulesForUser([request.closestRule.rule])} (did not match: ${sanitizePermissionText(request.closestRule.reason, 220, 80)})`
+    : undefined;
+}
+function permissionCommand(request: PermissionApprovalRequest): string | null {
+  if (!request.toolInput) return null;
+  const command = request.toolInput.command ?? request.toolInput.cmd;
+  return typeof command === 'string' && command.trim() ? command.trim() : null;
+}
+
+function formatPermissionActionSummary(
+  request: PermissionApprovalRequest | undefined,
+): string {
+  if (!request) return 'permission request';
+  const tool = request.displayName || request.toolName;
+  const input = request.toolInput;
+  if (!input || typeof input !== 'object') return tool;
+  const command = permissionCommand(request);
+  if (command) {
+    return `${tool} (${sanitizePermissionText(command, 200, 100)})`;
+  }
+  const filePath = input.file_path;
+  if (typeof filePath === 'string' && filePath.trim()) {
+    return `${tool} (${sanitizePermissionText(filePath.trim(), 200, 100)})`;
+  }
+  const url = input.url;
+  if (typeof url === 'string' && url.trim()) {
+    return `${tool} (${sanitizePermissionText(url.trim(), 200, 100)})`;
+  }
+  const pattern = input.pattern;
+  if (typeof pattern === 'string' && pattern.trim()) {
+    return `${tool} (${sanitizePermissionText(pattern.trim(), 200, 100)})`;
+  }
+  return tool;
 }

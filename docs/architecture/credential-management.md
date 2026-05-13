@@ -63,7 +63,13 @@ must not contain non-secret settings such as credential mode or broker URLs.
 
 Agent-accessed credentials are credentials an agent may use after policy allows
 the action. They include LLM provider access and tool or API credentials, but
-those two categories are not scoped the same way.
+those two categories are not scoped the same way. OneCLI is the preferred local
+broker for personal setups, but it is not mandatory for every tool capability:
+reviewed `local_cli` capability drafts are valid when the CLI already owns its
+own authenticated account state and MyClaw pins the executable, command
+templates, preflight, protected paths, and denied environment overrides. They
+do not become runnable durable authority until runtime enforcement verifies
+those bindings per invocation.
 
 Model-provider access is account-level Model Access. MyClaw always requests it
 with `purpose=model_runtime` through the reserved broker profile
@@ -80,6 +86,17 @@ provider credential lane. Tool/API credential lanes must use
 `purpose=tool_capability` with an explicit agent/capability context; they must
 never reuse the shared Model Access profile or become runner-wide ambient
 process environment.
+
+For local authenticated CLIs, MyClaw does not copy raw OAuth tokens or broker
+proxies into generic Bash. The approved semantic capability maps to narrow
+scoped command templates and protected credential/config paths. User-defined
+local CLI capabilities are reviewable drafts until runtime enforcement verifies
+the pinned executable identity, version/hash, auth preflight, protected paths,
+and denied environment overrides for each invocation. Agents may use the
+reviewed CLI command surface only after that gate exists, and may not override
+token, credential file, config directory, proxy, keychain/keyring, CA, or
+authority environment keys unless a future capability explicitly models that
+behavior.
 
 Raw provider credentials such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and
 `CLAUDE_CODE_OAUTH_TOKEN` must be configured through OneCLI or the selected
@@ -154,9 +171,16 @@ OneCLI may return local provider proxy variables such as `HTTP_PROXY`,
 accepts only OneCLI-shaped local HTTP proxy endpoints, normalizes Docker-only
 loopback aliases such as `host.docker.internal` to `127.0.0.1` for host
 runners, and passes the result only to the Claude SDK process through a private
-model-credential handoff. General runner, scheduled-script, tool, browser, and
-MCP process environments must not receive broker proxy variables or
-broker-provided CA certificate variables. The Claude SDK runner sets
+model-credential handoff. General runner, scheduled-script, browser, and MCP
+process environments must not receive broker proxy variables. When the
+model-credential lane includes `NODE_EXTRA_CA_CERTS`, the Claude SDK process
+also receives only neutral CA trust aliases (`SSL_CERT_FILE`,
+`REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`, `PIP_CERT`,
+`AWS_CA_BUNDLE`, `CARGO_HTTP_CAINFO`, and `DENO_CERT`) derived from that same
+bundle path. Approved Bash tool calls get the same aliases as a command prefix
+for cooperative host CLIs and language package managers; explicit `env -i`
+commands intentionally clear env and are not treated as supported trust
+propagation. The Claude SDK runner sets
 `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` so provider credentials remain with the
 Claude process and are stripped from Bash, hooks, and MCP stdio subprocesses.
 Git/tool-specific proxy controls remain forbidden in the broker lane.
@@ -176,8 +200,11 @@ OneCLI is only a credential broker. It never executes tools, approves
 permissions, owns scheduler policy, or evaluates protected capability changes.
 Model credential env is passed only to the Claude SDK process private model
 credential handoff. Bash tools, MCP stdio subprocesses, and browser tools
-receive scrubbed tool env without OneCLI model proxy, provider token, or broker
-CA variables. Host-owned scheduler scripts are not supported.
+receive scrubbed tool env without OneCLI model proxy or provider tokens.
+Approved Bash commands may receive the non-secret CA bundle path as neutral TLS
+trust aliases for host CLI trust stores; MCP stdio subprocesses and browser
+tools do not receive broker CA variables. Host-owned scheduler scripts are not
+supported.
 
 The SDK process receives sandbox policy and model credentials as separate
 adapter projections. Protected filesystem paths are passed through
@@ -189,12 +216,12 @@ future scheduler script env to carry sandbox authority or provider credentials.
 ## Permission Boundary
 
 Credential injection is not permission approval. Agent actions must still pass
-through `PermissionPolicyService` before credentials are injected or used for a
-tool/API action.
+through `ToolExecutionPolicyService` and the permission/capability binding
+checks before credentials are injected or used for a tool/API action.
 
 ```mermaid
 flowchart LR
-  Runtime["Runtime agent run"] --> Policy["PermissionPolicyService"]
+  Runtime["Runtime agent run"] --> Policy["ToolExecutionPolicyService"]
   Policy --> Broker["AgentCredentialBroker"]
   Broker --> Injection["AgentCredentialInjection"]
   Injection --> Runner["Private model SDK credential handoff"]

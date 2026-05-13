@@ -1,4 +1,5 @@
 import { MemoryIpcAction } from '@myclaw/contracts';
+import { formatDuration } from '../shared/human-format.js';
 
 export function getMemoryActionTimeoutMs(action: MemoryIpcAction): number {
   return action === 'memory_consolidate' ||
@@ -9,5 +10,5 @@ export function getMemoryActionTimeoutMs(action: MemoryIpcAction): number {
 }
 
 export function formatMemoryTimeoutError(timeoutMs: number): string {
-  return `Timed out waiting for memory service response (${timeoutMs}ms)`;
+  return `Timed out waiting for memory service response (${formatDuration(timeoutMs)})`;
 }

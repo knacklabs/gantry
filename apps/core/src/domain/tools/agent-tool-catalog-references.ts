@@ -7,8 +7,19 @@ import {
 } from '../../shared/admin-mcp-tools.js';
 import {
   persistentPermissionToolId,
+  parseReadableScopedToolRule,
   validateReadableAgentToolRule,
 } from '../../shared/agent-tool-references.js';
+import {
+  getBuiltinSemanticCapability,
+  semanticCapabilityInputSchema,
+  type SemanticCapabilityDefinition,
+  validateSemanticCapabilityDefinition,
+} from '../../shared/semantic-capabilities.js';
+import {
+  parseSemanticCapabilityRule,
+  semanticCapabilityRule,
+} from '../../shared/semantic-capability-ids.js';
 
 export async function ensureAgentToolCatalogItem(input: {
   repository: ToolCatalogRepository;
@@ -17,13 +28,66 @@ export async function ensureAgentToolCatalogItem(input: {
   now: string;
   description?: string;
   adapterRef?: string;
+  semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
 }): Promise<ToolCatalogItem> {
+  const reference = input.reference.trim();
+  const requestedSemanticCapabilityId = parseSemanticCapabilityRule(reference);
   const resolved = await resolveAgentToolReference(input);
   if (resolved.tool) return resolved.tool;
-  if (resolved.error) throw new Error(resolved.error);
-  const allowedRule = input.reference.trim();
+  if (
+    resolved.error &&
+    !(
+      requestedSemanticCapabilityId &&
+      input.semanticCapabilityDefinitions?.[requestedSemanticCapabilityId]
+    )
+  ) {
+    throw new Error(resolved.error);
+  }
+  const allowedRule = reference;
   const validation = validateReadableAgentToolRule(allowedRule);
   if (!validation.ok) throw new Error(validation.reason);
+  const semanticCapabilityId = parseSemanticCapabilityRule(allowedRule);
+  if (semanticCapabilityId) {
+    const capability =
+      input.semanticCapabilityDefinitions?.[semanticCapabilityId] ??
+      getBuiltinSemanticCapability(semanticCapabilityId);
+    if (!capability) {
+      throw new Error(
+        `Unknown semantic capability ${semanticCapabilityId}. Review and register a user-defined capability before selecting it.`,
+      );
+    }
+    const capabilityValidation =
+      validateSemanticCapabilityDefinition(capability);
+    if (!capabilityValidation.ok) {
+      throw new Error(capabilityValidation.reason);
+    }
+    const item: ToolCatalogItem = {
+      id: `tool:capability:${semanticCapabilityId}` as ToolId,
+      appId: input.appId,
+      name: semanticCapabilityRule(semanticCapabilityId),
+      kind: capability.credentialSource === 'local_cli' ? 'local_cli' : 'host',
+      provider:
+        capability.credentialSource === 'local_cli' ? 'local_cli' : 'myclaw',
+      displayName: capability.displayName,
+      description: `${capability.can} Cannot: ${capability.cannot}`,
+      category: 'productivity',
+      risk: capability.risk === 'read' ? 'low' : 'high',
+      selectable: true,
+      status: 'active',
+      inputSchema: semanticCapabilityInputSchema(capability),
+      adapterRef: `capability/${semanticCapabilityId}`,
+      createdAt: input.now as never,
+      updatedAt: input.now as never,
+    };
+    await input.repository.saveTool(item);
+    return item;
+  }
+  const scoped = parseReadableScopedToolRule(allowedRule);
+  if (!scoped || scoped.toolName !== 'Bash') {
+    throw new Error(
+      `Unknown tool capability ${allowedRule}. Select a catalog tool, semantic capability, or scoped Bash(...) rule.`,
+    );
+  }
   const item: ToolCatalogItem = {
     id: persistentPermissionToolId(input.appId, allowedRule) as ToolId,
     appId: input.appId,
@@ -33,7 +97,7 @@ export async function ensureAgentToolCatalogItem(input: {
     displayName: allowedRule,
     description:
       input.description ??
-      'Persistent permission rule approved from settings.yaml.',
+      'Persistent permission tool approved from settings.yaml.',
     category: 'admin',
     risk: 'high',
     selectable: true,
@@ -56,12 +120,9 @@ export async function resolveAgentToolReference(input: {
   if (reference.startsWith('tool:')) {
     return {
       error:
-        'Tool rule must be readable; use a tool name or scoped rule, not an internal tool ID.',
+        'Tool rule must be readable; use a tool name or scoped Bash rule, not an internal tool ID.',
     };
   }
-
-  const direct = await input.repository.getTool(reference as ToolId);
-  if (direct) return validateCatalogTool(input.appId, reference, direct);
 
   const activeTools = await input.repository.listTools({
     appId: input.appId,
@@ -70,7 +131,7 @@ export async function resolveAgentToolReference(input: {
   const byName = activeTools.find(
     (tool) => tool.selectable && tool.name === reference,
   );
-  if (byName) return { tool: byName };
+  if (byName) return validateCatalogTool(input.appId, byName.id, byName);
 
   if (isAdminMcpToolFullName(reference)) {
     const adminId = adminMcpToolIdForFullName(reference);
@@ -83,7 +144,24 @@ export async function resolveAgentToolReference(input: {
 
   const validation = validateReadableAgentToolRule(reference);
   if (!validation.ok) return { error: validation.reason };
-  return {};
+  const semanticCapabilityId = parseSemanticCapabilityRule(reference);
+  if (semanticCapabilityId) {
+    if (getBuiltinSemanticCapability(semanticCapabilityId)) return {};
+    return {
+      error: `Unknown semantic capability ${semanticCapabilityId}. Review and register a user-defined capability before selecting it.`,
+    };
+  }
+  const scoped = parseReadableScopedToolRule(reference);
+  if (scoped?.toolName === 'Bash') return {};
+  if (reference.startsWith('mcp__')) {
+    return {
+      error:
+        'Third-party MCP tool names are not selected directly; request and bind the MCP server capability.',
+    };
+  }
+  return {
+    error: `Unknown tool capability ${reference}. Select a catalog tool, semantic capability, or scoped Bash(...) rule.`,
+  };
 }
 
 function validateCatalogTool(

@@ -44,7 +44,6 @@ function createJob(overrides: Partial<Job> = {}): Job {
     retry_backoff_ms: 5_000,
     max_consecutive_failures: 5,
     consecutive_failures: 0,
-    execution_mode: 'parallel',
     lease_run_id: null,
     lease_expires_at: null,
     pause_reason: null,
@@ -97,7 +96,7 @@ describe('PgBossSchedulerEngine', () => {
 
       expect(send).toHaveBeenCalledTimes(1);
       expect(send).toHaveBeenLastCalledWith(
-        'myclaw.jobs.parallel',
+        'myclaw.jobs',
         { jobId: 'job-1', scheduledFor: '2026-04-24T09:00:00.000Z' },
         expect.objectContaining({
           id: expect.stringMatching(UUID_PATTERN),
@@ -113,7 +112,7 @@ describe('PgBossSchedulerEngine', () => {
 
       expect(send).toHaveBeenCalledTimes(2);
       expect(send).toHaveBeenLastCalledWith(
-        'myclaw.jobs.parallel',
+        'myclaw.jobs',
         { jobId: 'job-1', scheduledFor: '2026-04-24T09:00:00.000Z' },
         expect.objectContaining({
           id: send.mock.calls[0][2].id,
@@ -222,11 +221,10 @@ describe('PgBossSchedulerEngine', () => {
     }
   });
 
-  it('schedules cron jobs with pg-boss using serialized queue affinity', async () => {
+  it('schedules cron jobs with the single durable pg-boss job queue', async () => {
     const cronJob = createJob({
       schedule_type: 'cron',
       schedule_value: '0 9 * * *',
-      execution_mode: 'serialized',
       next_run: '2026-04-25T09:00:00.000Z',
       group_scope: 'sl:team',
     });
@@ -260,7 +258,7 @@ describe('PgBossSchedulerEngine', () => {
     ).syncAllJobs();
 
     expect(boss.schedule).toHaveBeenCalledWith(
-      'myclaw.jobs.serialized',
+      'myclaw.jobs',
       '0 9 * * *',
       { jobId: 'job-1' },
       expect.objectContaining({
@@ -355,7 +353,7 @@ describe('PgBossSchedulerEngine', () => {
     );
 
     expect(boss.send).toHaveBeenCalledWith(
-      'myclaw.jobs.parallel',
+      'myclaw.jobs',
       {
         jobId: 'job-1',
         runId: '55cda2f6-e553-486a-867f-b9c78a742217',
@@ -371,9 +369,8 @@ describe('PgBossSchedulerEngine', () => {
     expect(boss.send.mock.calls[0][2].id).not.toContain('myclaw.send.');
   });
 
-  it('dispatches serialized jobs through a group-scoped queue key and releases the slot', async () => {
+  it('dispatches jobs through a job-scoped scheduler queue key and releases the slot', async () => {
     const job = createJob({
-      execution_mode: 'serialized',
       group_scope: 'tg:team',
     });
     const callbacks = {
@@ -403,19 +400,16 @@ describe('PgBossSchedulerEngine', () => {
           jobs: Array<{
             data: { jobId: string; triggerId?: string; runId?: string };
           }>,
-          mode: 'serialized',
         ) => Promise<void>;
       }
-    ).processBossJobs(
-      [{ data: { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' } }],
-      'serialized',
-    );
+    ).processBossJobs([
+      { data: { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' } },
+    ]);
 
     expect(callbacks.runJob).toHaveBeenCalledWith(
       job,
       expect.any(Object),
-      '__scheduler__:tg:team',
-      'serialized',
+      '__scheduler__:tg:team:job-1',
       { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' },
     );
     expect(requestSync).toHaveBeenCalledWith();

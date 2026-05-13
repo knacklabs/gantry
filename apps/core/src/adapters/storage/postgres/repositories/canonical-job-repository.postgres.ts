@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 
 import type { JobRun } from '../../../../domain/repositories/domain-types.js';
 import type {
@@ -30,7 +30,6 @@ export interface CanonicalJobRecord {
   model: string | null;
   scheduleJson: string;
   status: string;
-  executionMode: string;
   targetJson: string;
   silent: boolean;
   timeoutMs: number;
@@ -52,7 +51,6 @@ export interface JobRecordInput {
   model: string | null;
   scheduleJson: string;
   status: string;
-  executionMode: string;
   targetJson: string;
   silent: boolean;
   timeoutMs: number;
@@ -68,6 +66,7 @@ export interface JobRecordInput {
 
 export interface CanonicalRunRecord {
   id: string;
+  shortId: number | null;
   jobId: string | null;
   status: string;
   createdAt: string;
@@ -93,6 +92,7 @@ const CANONICAL_JOB_EVENT_TYPES = [
   RUNTIME_EVENT_TYPES.JOB_RUN_STARTED,
   RUNTIME_EVENT_TYPES.JOB_STARTED,
   RUNTIME_EVENT_TYPES.JOB_STREAMING,
+  RUNTIME_EVENT_TYPES.JOB_HEARTBEAT,
   RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
   RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
   RUNTIME_EVENT_TYPES.RUN_COMPLETED,
@@ -238,7 +238,6 @@ export class PostgresCanonicalJobRepository {
           model: record.model,
           scheduleJson: record.scheduleJson,
           status: record.status,
-          executionMode: record.executionMode,
           targetJson: record.targetJson,
           silent: record.silent,
           timeoutMs: record.timeoutMs,
@@ -324,10 +323,15 @@ export class PostgresCanonicalJobRepository {
       | Parameters<Parameters<CanonicalDb['transaction']>[0]>[0] = this.db,
   ): Promise<boolean> {
     const graph = await this.ensureJobRunGraph(run.job_id, executor);
+    const shortId =
+      run.short_id ??
+      (run.job_id ? await this.nextRunShortId(run.job_id, executor) : null);
+    run.short_id = shortId;
     const rows = await executor
       .insert(pgSchema.agentRunsPostgres)
       .values({
         id: run.run_id,
+        shortId,
         appId: CANONICAL_APP_ID,
         agentId: graph.agentId,
         configVersionId: graph.configVersionId,
@@ -395,6 +399,7 @@ export class PostgresCanonicalJobRepository {
     const query = this.db.select().from(pgSchema.agentRunsPostgres).$dynamic();
     const clauses = [
       jobId ? eq(pgSchema.agentRunsPostgres.jobId, jobId) : undefined,
+      isNull(pgSchema.agentRunsPostgres.sessionId),
       !jobId && filters?.jobIds?.length
         ? inArray(pgSchema.agentRunsPostgres.jobId, filters.jobIds)
         : undefined,
@@ -421,6 +426,7 @@ export class PostgresCanonicalJobRepository {
   ): Promise<CanonicalRunRecord[]> {
     const clauses = [
       eq(pgSchema.controlHttpSessionsPostgres.appId, ownerAppId),
+      isNull(pgSchema.agentRunsPostgres.sessionId),
       filters?.jobIds?.length
         ? inArray(pgSchema.agentRunsPostgres.jobId, filters.jobIds)
         : undefined,
@@ -428,6 +434,7 @@ export class PostgresCanonicalJobRepository {
     return this.db
       .select({
         id: pgSchema.agentRunsPostgres.id,
+        shortId: pgSchema.agentRunsPostgres.shortId,
         jobId: pgSchema.agentRunsPostgres.jobId,
         status: pgSchema.agentRunsPostgres.status,
         createdAt: pgSchema.agentRunsPostgres.createdAt,
@@ -458,7 +465,12 @@ export class PostgresCanonicalJobRepository {
     return this.db
       .select()
       .from(pgSchema.agentRunsPostgres)
-      .where(eq(pgSchema.agentRunsPostgres.status, 'dead_lettered'))
+      .where(
+        and(
+          eq(pgSchema.agentRunsPostgres.status, 'dead_lettered'),
+          isNull(pgSchema.agentRunsPostgres.sessionId),
+        ),
+      )
       .orderBy(
         sql`${pgSchema.agentRunsPostgres.startedAt} DESC NULLS LAST`,
         desc(pgSchema.agentRunsPostgres.createdAt),
@@ -646,6 +658,22 @@ export class PostgresCanonicalJobRepository {
       executor,
     );
     return { agentId, configVersionId: configVersionIdForAgent(agentId) };
+  }
+
+  private async nextRunShortId(
+    jobId: string,
+    executor:
+      | CanonicalDb
+      | Parameters<Parameters<CanonicalDb['transaction']>[0]>[0],
+  ): Promise<number> {
+    const rows = await executor
+      .select({
+        nextShortId: sql<number>`coalesce(max(${pgSchema.agentRunsPostgres.shortId}), 0) + 1`,
+      })
+      .from(pgSchema.agentRunsPostgres)
+      .where(eq(pgSchema.agentRunsPostgres.jobId, jobId))
+      .limit(1);
+    return Number(rows[0]?.nextShortId ?? 1);
   }
 
   private async ensureAgentForRecord(input: {

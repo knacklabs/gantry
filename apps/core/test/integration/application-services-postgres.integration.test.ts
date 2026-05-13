@@ -253,24 +253,29 @@ maybeDescribe('application services with Postgres repositories', () => {
   });
 
   it('keeps app memory writes isolated by agent and updates existing memory keys idempotently', async () => {
-    const createAgent = new CreateAgentUseCase({
-      agents: runtime.repositories.agents,
-      ids,
-      clock,
-    });
-    const primary = await createAgent.execute({
+    const primaryAgentId = 'agent:memory-primary' as AgentId;
+    const secondaryAgentId = 'agent:memory-secondary' as AgentId;
+    await runtime.repositories.agents.saveAgent({
+      id: primaryAgentId,
       appId,
       name: 'Primary Memory Agent',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
     });
-    const secondary = await createAgent.execute({
+    await runtime.repositories.agents.saveAgent({
+      id: secondaryAgentId,
       appId,
       name: 'Secondary Memory Agent',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
     });
 
     const memoryService = new AppMemoryService(runtime.service.db);
     const primaryFirst = await memoryService.save({
       appId,
-      agentId: primary.agent.id as AgentId,
+      agentId: primaryAgentId,
       groupId: 'shared-memory-group',
       kind: 'fact',
       key: 'shared-key',
@@ -280,7 +285,7 @@ maybeDescribe('application services with Postgres repositories', () => {
     });
     const secondaryFirst = await memoryService.save({
       appId,
-      agentId: secondary.agent.id as AgentId,
+      agentId: secondaryAgentId,
       groupId: 'shared-memory-group',
       kind: 'fact',
       key: 'shared-key',
@@ -290,7 +295,7 @@ maybeDescribe('application services with Postgres repositories', () => {
     });
     const primaryUpdated = await memoryService.save({
       appId,
-      agentId: primary.agent.id as AgentId,
+      agentId: primaryAgentId,
       groupId: 'shared-memory-group',
       kind: 'fact',
       key: 'shared-key',
@@ -305,7 +310,7 @@ maybeDescribe('application services with Postgres repositories', () => {
     await expect(
       memoryService.list({
         appId,
-        agentId: primary.agent.id as AgentId,
+        agentId: primaryAgentId,
         groupId: 'shared-memory-group',
         includeCommon: false,
       }),
@@ -321,7 +326,7 @@ maybeDescribe('application services with Postgres repositories', () => {
     await expect(
       memoryService.list({
         appId,
-        agentId: secondary.agent.id as AgentId,
+        agentId: secondaryAgentId,
         groupId: 'shared-memory-group',
         includeCommon: false,
       }),

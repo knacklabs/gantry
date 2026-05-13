@@ -42,7 +42,6 @@ export type {
 export type {
   CreateJobInput,
   CreateJobResponse,
-  JobExecutionMode,
   JobHealth,
   JobHealthState,
   JobKind,

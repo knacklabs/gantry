@@ -348,18 +348,29 @@ describe('agent capability composition', () => {
     ]);
   });
 
-  it('filters configured SDK tool rules to supported built-ins', () => {
+  it('keeps scoped Bash available but does not project it as SDK always-allowed', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:team',
       groupFolder: 'telegram_team',
-      configuredAllowedTools: ['Bash(git status)', 'ToolName(scope-pattern)'],
+      configuredAllowedTools: [
+        'Bash(npm test *)',
+        'ToolName(scope-pattern)',
+        'Bash(npm test',
+        'Read(/repo/**)',
+      ],
     });
 
-    expect(profile.allowedTools).toContain('Bash(git status)');
+    expect(profile.allowedTools).not.toContain('Bash');
+    expect(profile.allowedTools).not.toContain('Bash(npm test *)');
     expect(profile.availableTools).toContain('Bash');
     expect(profile.allowedTools).not.toContain('ToolName(scope-pattern)');
     expect(profile.availableTools).not.toContain('ToolName');
+    expect(profile.allowedTools).not.toContain('Bash(npm test');
+    expect(
+      profile.availableTools.filter((tool) => tool === 'Bash'),
+    ).toHaveLength(1);
+    expect(profile.allowedTools).not.toContain('Read(/repo/**)');
   });
 
   it('allows exact selected admin and native tools but filters unsupported wildcard rules for non-developer personas', () => {
@@ -371,14 +382,14 @@ describe('agent capability composition', () => {
       configuredAllowedTools: [
         'Agent',
         'Browser',
-        'Bash(git status)',
-        'Read(/repo/**)',
-        'Glob(**/*.ts)',
-        'Grep(todo)',
-        'LS(/repo)',
-        'Write(/repo/**)',
-        'Edit(/repo/**)',
-        'MultiEdit(/repo/**)',
+        'Bash',
+        'Read',
+        'Glob',
+        'Grep',
+        'LS',
+        'Write',
+        'Edit',
+        'MultiEdit',
         'NotebookEdit',
         'mcp__myclaw__service_restart',
         'mcp__myclaw__settings_desired_state',
@@ -395,14 +406,14 @@ describe('agent capability composition', () => {
     expect(profile.allowedTools).toContain(
       'mcp__myclaw__settings_desired_state',
     );
-    expect(profile.allowedTools).toContain('Bash(git status)');
-    expect(profile.allowedTools).toContain('Read(/repo/**)');
-    expect(profile.allowedTools).toContain('Glob(**/*.ts)');
-    expect(profile.allowedTools).toContain('Grep(todo)');
-    expect(profile.allowedTools).toContain('LS(/repo)');
-    expect(profile.allowedTools).toContain('Write(/repo/**)');
-    expect(profile.allowedTools).toContain('Edit(/repo/**)');
-    expect(profile.allowedTools).toContain('MultiEdit(/repo/**)');
+    expect(profile.allowedTools).not.toContain('Bash');
+    expect(profile.allowedTools).toContain('Read');
+    expect(profile.allowedTools).toContain('Glob');
+    expect(profile.allowedTools).toContain('Grep');
+    expect(profile.allowedTools).toContain('LS');
+    expect(profile.allowedTools).toContain('Write');
+    expect(profile.allowedTools).toContain('Edit');
+    expect(profile.allowedTools).toContain('MultiEdit');
     expect(profile.allowedTools).toContain('NotebookEdit');
     expect(profile.allowedTools).not.toContain('mcp__myclaw__*');
     expect(profile.allowedTools).not.toContain(
@@ -456,7 +467,61 @@ describe('agent capability composition', () => {
     expect(profile.alwaysAllowedTools).toContain('CustomTool');
   });
 
-  it('exposes approved third-party MCP servers through direct SDK MCP config', () => {
+  it('exposes approved third-party stdio MCP servers through direct SDK MCP config', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:team',
+      groupFolder: 'telegram_team',
+      externalMcpServers: {
+        github: {
+          type: 'stdio',
+          command: '/tmp/github-mcp',
+          args: ['--stdio'],
+          env: { GITHUB_TOKEN: 'broker-safe-token' },
+        },
+      },
+      externalMcpAllowedTools: [
+        'Bash',
+        'Read',
+        'Browser',
+        'mcp__agent_browser__*',
+        'mcp__myclaw__service_restart',
+        'mcp__github__search_repositories',
+        'mcp__github__*',
+        'mcp__linear__search',
+      ],
+      externalMcpAlwaysAllowedTools: [
+        'mcp__github__search_repositories',
+        'mcp__myclaw__service_restart',
+      ],
+    });
+
+    expect(profile.mcpServers.myclaw).toMatchObject({
+      command: 'node',
+    });
+    expect(profile.mcpServers.github).toEqual({
+      type: 'stdio',
+      command: '/tmp/github-mcp',
+      args: ['--stdio'],
+      env: { GITHUB_TOKEN: 'broker-safe-token' },
+    });
+    expect(profile.allowedTools).toEqual([
+      ...DEVELOPER_ALLOWED_TOOLS,
+      'mcp__github__search_repositories',
+      'mcp__github__*',
+    ]);
+    expect(profile.allowedTools).not.toContain('Bash');
+    expect(profile.allowedTools).not.toContain('Browser');
+    expect(profile.allowedTools).not.toContain('mcp__agent_browser__*');
+    expect(profile.allowedTools).not.toContain('mcp__myclaw__service_restart');
+    expect(profile.allowedTools).not.toContain('mcp__linear__search');
+    expect(profile.availableTools).toEqual(DEVELOPER_AVAILABLE_TOOLS);
+    expect(profile.alwaysAllowedTools).toEqual([
+      'mcp__github__search_repositories',
+    ]);
+  });
+
+  it('does not expose remote MCP servers directly to the SDK', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:team',
@@ -465,29 +530,17 @@ describe('agent capability composition', () => {
         github: {
           type: 'http',
           url: 'https://mcp.example.test/github',
-          headers: { Authorization: 'broker-safe-token' },
         },
       },
       externalMcpAllowedTools: ['mcp__github__search_repositories'],
       externalMcpAlwaysAllowedTools: ['mcp__github__search_repositories'],
     });
 
-    expect(profile.mcpServers.myclaw).toMatchObject({
-      command: 'node',
-    });
-    expect(profile.mcpServers.github).toEqual({
-      type: 'http',
-      url: 'https://mcp.example.test/github',
-      headers: { Authorization: 'broker-safe-token' },
-    });
-    expect(profile.allowedTools).toEqual([
-      ...DEVELOPER_ALLOWED_TOOLS,
-      'mcp__github__search_repositories',
-    ]);
-    expect(profile.availableTools).toEqual(DEVELOPER_AVAILABLE_TOOLS);
-    expect(profile.alwaysAllowedTools).toContain(
+    expect(profile.mcpServers.github).toBeUndefined();
+    expect(profile.allowedTools).not.toContain(
       'mcp__github__search_repositories',
     );
+    expect(profile.alwaysAllowedTools).toEqual([]);
   });
 
   it('does not expose raw runtime browser MCP servers as configured MCP input', () => {

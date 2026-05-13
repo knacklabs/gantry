@@ -18,7 +18,7 @@ describe('denyProtectedCapabilityToolUse', () => {
       {
         file_path: '/repo/.claude/settings.json',
         old_string: '{}',
-        new_string: '{"permissions":{"allow":["Bash"]}}',
+        new_string: '{"permissions":{"allow":["Bash(npm test *)"]}}',
       },
     ],
     ['MultiEdit', { file_path: '/repo/.agents/skills/tool/SKILL.md' }],

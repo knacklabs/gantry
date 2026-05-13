@@ -2,14 +2,10 @@ import { randomUUID } from 'node:crypto';
 
 import { ApplicationError } from '../application/common/application-error.js';
 import { JobManagementService } from '../application/jobs/job-management-service.js';
-import type { JobExecutionMode, JobScheduleType } from '../domain/types.js';
+import type { JobScheduleType } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { TaskContext, TaskHandler } from './ipc-types.js';
-import {
-  createTaskResponder,
-  normalizeIpcExecutionMode,
-  toTrimmedString,
-} from './ipc-shared.js';
+import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { mapApplicationError } from './ipc-application-error.js';
 import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 import { invalidateSystemJobRegistrationSignature } from './system-registration-cache.js';
@@ -124,12 +120,6 @@ const schedulerUpdateJobHandler: TaskHandler = async (context) => {
     if (data.silent !== undefined) patch.silent = data.silent;
     if (data.cleanupAfterMs !== undefined) {
       patch.cleanupAfterMs = data.cleanupAfterMs;
-    }
-    if (data.executionMode !== undefined || data.serialize !== undefined) {
-      patch.executionMode = normalizeIpcExecutionMode(
-        data.executionMode,
-        data.serialize,
-      ) as JobExecutionMode;
     }
     if (data.executionContext !== undefined) {
       patch.executionContext = data.executionContext;

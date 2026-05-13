@@ -32,6 +32,7 @@ function permissionRuleAllowedToolRule(rule: unknown): string | null {
   if (!isPermissionRuleLike(rule)) return null;
   const toolName = trimmedString(rule.toolName, 120);
   if (!toolName) return null;
+  if (toolName.includes('(') || toolName.includes(')')) return null;
   const ruleContent = trimmedString(rule.ruleContent, 2048);
   if (ruleContent === null) return null;
   return ruleContent ? `${toolName}(${ruleContent})` : toolName;

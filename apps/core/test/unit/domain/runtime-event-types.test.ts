@@ -8,6 +8,10 @@ import {
 } from '@core/domain/events/runtime-event-types.js';
 
 describe('runtime event types', () => {
+  it('defines the scheduled job heartbeat primitive', () => {
+    expect(RUNTIME_EVENT_TYPES.JOB_HEARTBEAT).toBe('job.heartbeat');
+  });
+
   it('accepts every canonical runtime event type', () => {
     for (const eventType of Object.values(RUNTIME_EVENT_TYPES)) {
       expect(isRuntimeEventType(eventType)).toBe(true);

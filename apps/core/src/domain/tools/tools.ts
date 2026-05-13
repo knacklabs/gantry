@@ -7,7 +7,12 @@ import type { IsoTimestamp } from '../../shared/time/primitives.js';
 export type ToolId = BrandedId<'ToolId'>;
 export type AgentToolBindingId = BrandedId<'AgentToolBindingId'>;
 
-export type ToolCatalogKind = 'anthropic_sdk' | 'host' | 'browser' | 'channel';
+export type ToolCatalogKind =
+  | 'anthropic_sdk'
+  | 'host'
+  | 'browser'
+  | 'channel'
+  | 'local_cli';
 export type ToolCatalogProvider = string;
 export type ToolCatalogCategory =
   | 'files'
@@ -17,7 +22,8 @@ export type ToolCatalogCategory =
   | 'agent'
   | 'mcp'
   | 'channel'
-  | 'admin';
+  | 'admin'
+  | 'productivity';
 export type ToolCatalogStatus = 'active' | 'disabled' | 'error';
 export type ToolCatalogProviderToolName =
   | 'Agent'
@@ -30,6 +36,10 @@ export type ToolCatalogProviderToolName =
   | 'NotebookEdit'
   | 'WebFetch'
   | 'WebSearch'
+  | 'ToolSearch'
+  | 'Skill'
+  | 'LS'
+  | 'MultiEdit'
   | 'Browser';
 
 export interface ToolCatalogItem {

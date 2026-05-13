@@ -60,7 +60,6 @@ export class CanonicalJobOpsService {
         retry_backoff_ms: job.retry_backoff_ms,
         max_consecutive_failures: job.max_consecutive_failures,
         consecutive_failures: job.consecutive_failures,
-        execution_mode: job.execution_mode,
         lease_run_id: job.lease_run_id,
         lease_expires_at: job.lease_expires_at,
         next_run: job.next_run,
@@ -303,7 +302,6 @@ export class CanonicalJobOpsService {
       retry_backoff_ms: row.retryBackoffMs,
       max_consecutive_failures: Number(target.maxConsecutiveFailures ?? 5),
       consecutive_failures: Number(target.consecutiveFailures ?? 0),
-      execution_mode: row.executionMode as Job['execution_mode'],
       lease_run_id: row.leaseRunId,
       lease_expires_at: row.leaseExpiresAt,
       pause_reason: (target.pauseReason as string | null | undefined) ?? null,
@@ -331,7 +329,6 @@ export class CanonicalJobOpsService {
         value: job.schedule_value,
       }),
       status: job.status || 'active',
-      executionMode: job.execution_mode || 'parallel',
       targetJson: json({
         executionContext,
         notificationRoutes,
@@ -357,6 +354,7 @@ export class CanonicalJobOpsService {
   private mapRun(row: CanonicalRunRecord): JobRun {
     return {
       run_id: row.id,
+      short_id: row.shortId,
       job_id: row.jobId || '',
       scheduled_for: row.createdAt,
       started_at: row.startedAt || row.createdAt,

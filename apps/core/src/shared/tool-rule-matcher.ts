@@ -6,46 +6,44 @@ import {
   isKnownProjectedBrowserMcpToolName,
   isProjectedBrowserMcpToolRule,
   parseReadableScopedToolRule,
+  hasBashShellControlSyntax,
+  validatePersistentBashScope,
 } from './agent-tool-references.js';
 import { isMyClawMcpWildcardRule } from './admin-mcp-tools.js';
+import {
+  type BashCommandLeaf,
+  bashLeafRuleContent,
+  parseBashCommand,
+} from './bash-command-parser.js';
 
 const MCP_WILDCARD_RE = /^mcp__([A-Za-z0-9_-]+)__\*$/;
 const MCP_EXACT_RE = /^mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+$/;
 
-type ScopeValueKind = 'literal' | 'url';
-
 interface ScopedToolSpec {
   fields: readonly string[];
-  valueKind: ScopeValueKind;
 }
 
 const SCOPED_TOOL_REGISTRY: Record<string, ScopedToolSpec> = {
-  Agent: { fields: ['subagent_type', 'agent_type'], valueKind: 'literal' },
-  Bash: { fields: ['command', 'cmd'], valueKind: 'literal' },
-  Edit: { fields: ['file_path', 'filePath', 'path'], valueKind: 'literal' },
-  Glob: { fields: ['pattern'], valueKind: 'literal' },
-  Grep: { fields: ['pattern'], valueKind: 'literal' },
-  LS: { fields: ['path'], valueKind: 'literal' },
-  MultiEdit: {
-    fields: ['file_path', 'filePath', 'path'],
-    valueKind: 'literal',
-  },
-  NotebookEdit: {
-    fields: ['notebook_path', 'notebookPath', 'file_path', 'filePath', 'path'],
-    valueKind: 'literal',
-  },
-  Read: { fields: ['file_path', 'filePath', 'path'], valueKind: 'literal' },
-  Skill: {
-    fields: ['skill', 'skill_name', 'skillName', 'name'],
-    valueKind: 'literal',
-  },
-  ToolSearch: { fields: ['query'], valueKind: 'literal' },
-  WebFetch: { fields: ['url'], valueKind: 'url' },
-  WebSearch: { fields: ['query'], valueKind: 'literal' },
-  Write: { fields: ['file_path', 'filePath', 'path'], valueKind: 'literal' },
+  Bash: { fields: ['command', 'cmd'] },
 };
 
-const REGISTERED_NATIVE_TOOLS = new Set(Object.keys(SCOPED_TOOL_REGISTRY));
+const REGISTERED_NATIVE_TOOLS = new Set([
+  'Agent',
+  'Bash',
+  'Browser',
+  'Edit',
+  'Glob',
+  'Grep',
+  'LS',
+  'MultiEdit',
+  'NotebookEdit',
+  'Read',
+  'Skill',
+  'ToolSearch',
+  'WebFetch',
+  'WebSearch',
+  'Write',
+]);
 
 type ParsedToolRule =
   | { kind: 'exact'; toolName: string }
@@ -60,6 +58,10 @@ export interface ToolRuleValidationResult {
 export interface ToolRuleEvaluationResult {
   allowed: boolean;
   matchedRule?: string;
+  closestRule?: {
+    rule: string;
+    reason: string;
+  };
   reason?: string;
 }
 
@@ -110,11 +112,15 @@ export function validateAutonomousToolRule(
     if (!parsed.scope.trim()) {
       return { ok: false, reason: 'Scoped tool rule cannot be empty.' };
     }
-    if (!REGISTERED_NATIVE_TOOLS.has(parsed.toolName)) {
+    if (!SCOPED_TOOL_REGISTRY[parsed.toolName]) {
       return {
         ok: false,
         reason: `Scoped tool rule uses unsupported tool ${parsed.toolName}.`,
       };
+    }
+    if (parsed.toolName === 'Bash') {
+      const bashScope = validatePersistentBashScope(parsed.scope);
+      if (!bashScope.ok) return bashScope;
     }
     return { ok: true };
   }
@@ -124,6 +130,13 @@ export function validateAutonomousToolRule(
       ok: false,
       reason:
         'Wildcard tool rules must use mcp__server__* form or Tool(scope-pattern).',
+    };
+  }
+  if (parsed.toolName === 'Bash') {
+    return {
+      ok: false,
+      reason:
+        'Persistent bare Bash grants are too broad; request a scoped Bash(<pattern>) rule.',
     };
   }
   if (!isRegisteredExactTool(parsed.toolName)) {
@@ -193,13 +206,20 @@ export function toolRuleCoversRule(
 export function evaluateAutonomousToolUse(input: {
   rules: readonly string[];
   toolName: string;
-  toolInput: unknown;
+  toolInput?: unknown;
 }): ToolRuleEvaluationResult {
   const toolName = input.toolName.trim();
   if (!toolName) return { allowed: false, reason: 'Tool name is required.' };
+  if (toolName === 'Bash') {
+    return evaluateBashToolUse({
+      rules: normalizeToolRules(input.rules),
+      toolInput: input.toolInput,
+    });
+  }
 
   let firstInvalidRuleReason: string | undefined;
   let firstRelevantScopedReason: string | undefined;
+  let closestRule: ToolRuleEvaluationResult['closestRule'];
   for (const rule of normalizeToolRules(input.rules)) {
     if (
       isCanonicalBrowserCapabilityRule(rule) &&
@@ -234,30 +254,118 @@ export function evaluateAutonomousToolUse(input: {
     if (parsed.toolName !== toolName) continue;
     const spec = SCOPED_TOOL_REGISTRY[parsed.toolName];
     if (!spec) {
-      firstRelevantScopedReason ??= `Scoped autonomous tool rule uses unsupported tool ${parsed.toolName}.`;
+      const reason = `Scoped autonomous tool rule uses unsupported tool ${parsed.toolName}.`;
+      firstRelevantScopedReason ??= reason;
+      closestRule ??= { rule, reason };
       continue;
     }
     const candidates = scopedCandidateValues(input.toolInput, spec.fields);
     if (candidates.length === 0) {
-      firstRelevantScopedReason ??= `Scoped autonomous tool rule ${rule} cannot be evaluated for ${toolName}; expected one of ${spec.fields.join(', ')} string fields.`;
+      const reason = `Scoped autonomous tool rule cannot be evaluated for ${toolName}; expected one of ${spec.fields.join(', ')} string fields.`;
+      firstRelevantScopedReason ??= reason;
+      closestRule ??= { rule, reason };
       continue;
     }
     if (
       candidates.some((candidate) =>
-        scopePatternMatches(parsed.scope, candidate, spec.valueKind),
+        scopePatternMatches(parsed.scope, candidate),
       )
     ) {
       return { allowed: true, matchedRule: rule };
     }
-    firstRelevantScopedReason ??= `Tool ${toolName} input did not match scoped autonomous rule ${rule}.`;
+    const reason = `Tool ${toolName} input did not match scoped autonomous rule.`;
+    firstRelevantScopedReason ??= reason;
+    closestRule ??= { rule, reason };
   }
 
   return {
     allowed: false,
+    ...(closestRule ? { closestRule } : {}),
     reason:
       firstRelevantScopedReason ??
       firstInvalidRuleReason ??
       `No autonomous tool rule matched ${toolName}.`,
+  };
+}
+
+function evaluateBashToolUse(input: {
+  rules: readonly string[];
+  toolInput?: unknown;
+}): ToolRuleEvaluationResult {
+  const candidates = scopedCandidateValues(input.toolInput, ['command', 'cmd']);
+  const command = candidates[0];
+  if (!command) {
+    return {
+      allowed: false,
+      reason:
+        'Scoped autonomous tool rule cannot be evaluated for Bash; expected one of command, cmd string fields.',
+    };
+  }
+  const parsedCommand = parseBashCommand(command);
+  if (!parsedCommand.ok) {
+    return {
+      allowed: false,
+      reason: `Bash command could not be parsed safely: ${parsedCommand.reason}`,
+    };
+  }
+  const parsedRules = input.rules
+    .map((rule) => ({ rule, parsed: parseToolRule(rule) }))
+    .filter(
+      (
+        entry,
+      ): entry is {
+        rule: string;
+        parsed: Extract<ParsedToolRule, { kind: 'scoped' }>;
+      } =>
+        entry.parsed?.kind === 'scoped' &&
+        entry.parsed.toolName === 'Bash' &&
+        validateAutonomousToolRule(entry.rule).ok,
+    );
+  let firstInvalidRuleReason: string | undefined;
+  for (const rule of input.rules) {
+    const validation = validateAutonomousToolRule(rule);
+    if (!validation.ok) {
+      firstInvalidRuleReason ??= `${validation.reason || 'Invalid tool rule'} (${rule})`;
+    }
+  }
+
+  const matchedRules = new Set<string>();
+  for (const leaf of parsedCommand.leaves) {
+    const destructiveRedirect = leaf.redirects.find(
+      (redirect) => redirect.destructive,
+    );
+    if (destructiveRedirect) {
+      return {
+        allowed: false,
+        reason: `Redirect: ${destructiveRedirect.operator} ${destructiveRedirect.target}`,
+      };
+    }
+    const matched = parsedRules.find((entry) =>
+      bashScopeMatchesLeaf(entry.parsed.scope, leaf),
+    );
+    if (!matched) {
+      const nearestRule = parsedRules[0]?.rule;
+      const reason = `Bash leaf ${bashLeafRuleContent(leaf)} did not match any scoped autonomous rule.`;
+      return {
+        allowed: false,
+        ...(nearestRule ? { closestRule: { rule: nearestRule, reason } } : {}),
+        reason,
+      };
+    }
+    matchedRules.add(matched.rule);
+  }
+  if (parsedCommand.leaves.length === 0) {
+    return { allowed: false, reason: 'Bash command has no executable leaves.' };
+  }
+  if (matchedRules.size === 0) {
+    return {
+      allowed: false,
+      reason: firstInvalidRuleReason ?? 'No autonomous tool rule matched Bash.',
+    };
+  }
+  return {
+    allowed: true,
+    matchedRule: [...matchedRules].join(', '),
   };
 }
 
@@ -296,33 +404,40 @@ function scopedCandidateValues(
   return values;
 }
 
-function scopePatternMatches(
-  scope: string,
-  candidate: string,
-  valueKind: ScopeValueKind,
-): boolean {
+function scopePatternMatches(scope: string, candidate: string): boolean {
   const normalizedScope = scope.trim();
   const normalizedCandidate = candidate.trim();
-  if (valueKind === 'url' && normalizedScope.startsWith('domain:')) {
-    return domainScopeMatches(
-      normalizedScope.slice('domain:'.length),
-      normalizedCandidate,
-    );
+  if (
+    normalizedScope.includes('*') &&
+    hasBashShellControlSyntax(normalizedCandidate)
+  ) {
+    return false;
   }
   return globPatternMatches(normalizedScope, normalizedCandidate);
 }
 
-function domainScopeMatches(
-  scopeDomain: string,
-  candidateUrl: string,
-): boolean {
-  const normalizedScope = scopeDomain.trim().toLowerCase();
-  if (!normalizedScope) return false;
-  if (!URL.canParse(candidateUrl)) return false;
-  const hostname = new URL(candidateUrl).hostname.toLowerCase();
-  return (
-    hostname === normalizedScope || hostname.endsWith(`.${normalizedScope}`)
-  );
+function bashScopeMatchesLeaf(scope: string, leaf: BashCommandLeaf): boolean {
+  const parsedScope = parseBashCommand(scope.trim());
+  if (!parsedScope.ok || parsedScope.leaves.length !== 1) return false;
+  const patternArgs = parsedScope.leaves[0]?.argv ?? [];
+  if (patternArgs.length === 0) return false;
+  if (patternArgs[0].includes('*')) return false;
+  const argv = leaf.argv;
+  const hasTrailingRestWildcard = patternArgs.at(-1) === '*';
+  if (hasTrailingRestWildcard) {
+    if (argv.length < patternArgs.length - 1) return false;
+  } else if (argv.length !== patternArgs.length) {
+    return false;
+  }
+  for (let index = 0; index < patternArgs.length; index += 1) {
+    const pattern = patternArgs[index];
+    if (pattern === '*' && index === patternArgs.length - 1) return true;
+    const value = argv[index];
+    if (value === undefined) return false;
+    if (pattern === '*') continue;
+    if (!globPatternMatches(pattern, value)) return false;
+  }
+  return argv.length === patternArgs.length || hasTrailingRestWildcard;
 }
 
 function globPatternMatches(pattern: string, value: string): boolean {

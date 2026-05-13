@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 
 import { ApplicationError } from '@core/application/common/application-error.js';
 import type { TaskContext, TaskIpcData } from '@core/jobs/ipc-types.js';
+import { schedulerJobConfirmationToken } from '@core/shared/scheduler-job-plan.js';
 
 const mocks = vi.hoisted(() => ({
   responder: {
@@ -208,6 +209,13 @@ describe('scheduler IPC adapter contracts', () => {
         prompt: 'Review memory',
         scheduleType: 'once',
         scheduleValue: '2026-05-04T00:00:00.000Z',
+        confirm: true,
+        confirmationToken: schedulerJobConfirmationToken({
+          name: 'Daily review',
+          prompt: 'Review memory',
+          scheduleType: 'once',
+          scheduleValue: '2026-05-04T00:00:00.000Z',
+        }),
       }),
     );
 
@@ -216,6 +224,28 @@ describe('scheduler IPC adapter contracts', () => {
     expect(message).toContain('Model:');
     expect(message).toContain('Runtime: notifications this conversation');
     expect(message).toContain('team conversation browser');
+  });
+
+  it('returns a scheduler upsert plan without creating when confirmation is omitted', async () => {
+    await schedulerCreateTaskHandlers.scheduler_upsert_job(
+      makeContext({
+        type: 'scheduler_upsert_job',
+        name: 'Daily review',
+        prompt: 'Review memory',
+        scheduleType: 'once',
+        scheduleValue: '2026-05-04T00:00:00.000Z',
+      }),
+    );
+
+    expect(mocks.jobService.upsertJobFromIpc).not.toHaveBeenCalled();
+    expect(mocks.responder.acceptData).toHaveBeenCalledWith(
+      expect.stringContaining('Scheduler job plan'),
+      expect.objectContaining({
+        type: 'scheduler_job_plan',
+        confirmationToken: expect.any(String),
+      }),
+      'confirmation_required',
+    );
   });
 
   it('passes canonical scheduler upsert target context through to the job service', async () => {
@@ -232,6 +262,7 @@ describe('scheduler IPC adapter contracts', () => {
         prompt: 'Review memory',
         scheduleType: 'once',
         scheduleValue: '2026-05-04T00:00:00.000Z',
+        confirm: true,
         executionContext: {
           conversationJid: 'tg:team',
           threadId: null,
@@ -244,6 +275,24 @@ describe('scheduler IPC adapter contracts', () => {
             label: 'primary',
           },
         ],
+        confirmationToken: schedulerJobConfirmationToken({
+          name: 'Daily review',
+          prompt: 'Review memory',
+          scheduleType: 'once',
+          scheduleValue: '2026-05-04T00:00:00.000Z',
+          executionContext: {
+            conversationJid: 'tg:team',
+            threadId: null,
+            groupScope: 'team',
+          },
+          notificationRoutes: [
+            {
+              conversationJid: 'tg:team',
+              threadId: null,
+              label: 'primary',
+            },
+          ],
+        }),
       }),
     );
 
@@ -289,6 +338,13 @@ describe('scheduler IPC adapter contracts', () => {
       prompt: 'Review memory',
       scheduleType: 'once',
       scheduleValue: '2026-05-04T00:00:00.000Z',
+      confirm: true,
+      confirmationToken: schedulerJobConfirmationToken({
+        name: 'Daily review',
+        prompt: 'Review memory',
+        scheduleType: 'once',
+        scheduleValue: '2026-05-04T00:00:00.000Z',
+      }),
       chatJid: 'app:app-one:conv-1',
       targetJid: 'app:app-one:conv-1',
     });

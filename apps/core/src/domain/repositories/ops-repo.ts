@@ -31,7 +31,6 @@ export interface JobUpsertInput {
   retry_backoff_ms?: number;
   max_consecutive_failures?: number;
   consecutive_failures?: number;
-  execution_mode?: Job['execution_mode'];
   lease_run_id?: string | null;
   lease_expires_at?: string | null;
   pause_reason?: string | null;

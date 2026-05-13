@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { resolveJobToolPolicy } from '@core/application/jobs/job-tool-policy.js';
 import type { Job } from '@core/domain/types.js';
+import { resolveConfiguredAllowedTools } from '@core/runtime/configured-agent-tools.js';
 
 function makeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -26,7 +27,6 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     retry_backoff_ms: 1,
     max_consecutive_failures: 3,
     consecutive_failures: 0,
-    execution_mode: 'serialized',
     lease_run_id: null,
     lease_expires_at: null,
     pause_reason: null,
@@ -92,5 +92,66 @@ describe('job tool policy', () => {
         toolRepository: toolRepositoryFor(['mcp__myclaw__*']),
       }),
     ).rejects.toThrowError(/wildcard grants are not supported/);
+  });
+
+  it('rejects stale inherited Bash wildcard rules from agent tool bindings', async () => {
+    await expect(
+      resolveJobToolPolicy({
+        job: makeJob(),
+        appId: 'default',
+        agentId: 'agent:team',
+        toolRepository: toolRepositoryFor(['Bash(*)']),
+      }),
+    ).rejects.toThrowError(/Persistent Bash scope is too broad/);
+  });
+
+  it('rejects stale inherited third-party MCP wildcard rules from agent tool bindings', async () => {
+    await expect(
+      resolveJobToolPolicy({
+        job: makeJob(),
+        appId: 'default',
+        agentId: 'agent:team',
+        toolRepository: toolRepositoryFor(['mcp__github__*']),
+      }),
+    ).rejects.toThrowError(/request the MCP server capability/);
+  });
+
+  it('rejects stale inherited exact third-party MCP tool rules from agent tool bindings', async () => {
+    await expect(
+      resolveJobToolPolicy({
+        job: makeJob(),
+        appId: 'default',
+        agentId: 'agent:team',
+        toolRepository: toolRepositoryFor(['mcp__github__search_repositories']),
+      }),
+    ).rejects.toThrowError(/request and bind the MCP server capability/);
+  });
+
+  it('matches the interactive runtime resolver for the same agent bindings', async () => {
+    const repository = toolRepositoryFor([
+      'capability:google.sheets.write',
+      'Browser',
+      'Bash(npm test *)',
+    ]);
+
+    const jobPolicy = await resolveJobToolPolicy({
+      job: makeJob(),
+      appId: 'default',
+      agentId: 'agent:team',
+      toolRepository: repository,
+    });
+    const configuredTools = await resolveConfiguredAllowedTools({
+      repository,
+      appId: 'default',
+      agentId: 'agent:team',
+    });
+
+    expect(jobPolicy.effectiveAllowedTools).toEqual(configuredTools);
+    expect(jobPolicy.effectiveAllowedTools).toEqual([
+      'capability:google.sheets.write',
+      'Bash(onecli google sheets write *)',
+      'Browser',
+      'Bash(npm test *)',
+    ]);
   });
 });

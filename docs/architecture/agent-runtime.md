@@ -126,13 +126,13 @@ classDiagram
     +string agentFolder
     +AgentPersona? persona
     +McpServerConfigs externalMcpServers
-    +string[] configuredAllowedTools
+    +string[] selectedCapabilityRules
   }
   class AgentCapabilityProfile {
-    +string[] allowedTools
+    +string[] projectedAllowedTools
     +McpServerConfigs mcpServers
-    +'default'|'bypassPermissions' permissionMode
-    +string[] alwaysAllowedTools
+    +'default' permissionMode
+    +string[] internalSdkToolProjection
   }
 
   Agent "1" --> "many" AgentConfigVersion : versioned
@@ -168,16 +168,13 @@ Sources:
 ### Subagents
 
 Native Anthropic-SDK subagents inherit the parent run by default. MyClaw
-projects which `subagent_type` names are allowed for the current agent and
-rejects cross-provider models, custom `tools`/`mcpServers`/`skills` input on
-the Agent tool call, and unknown subagent types. See
-`subagentTypeFromAgentInput`, `validateAgentModelRequest`, and
-`validateAgentToolInput` at
-`apps/core/src/runner/claude/agent-model-selection.ts:39`,
-`apps/core/src/runner/claude/agent-model-selection.ts:45`, and
-`apps/core/src/runner/claude/agent-model-selection.ts:71`. The rejection
-message points the agent at a configured subagent definition for any input
-that exceeds the native Agent override surface.
+uses the exact `Agent` capability to gate native subagent delegation. Once
+`Agent` is granted, the runtime does not add a second `subagent_type`
+allowlist. It still rejects cross-provider models and custom
+`tools`/`mcpServers`/`skills` input on the Agent tool call because those mutate
+the runner projection instead of using the selected parent-agent capabilities.
+See `validateAgentModelRequest` and `validateAgentToolInput` in
+`apps/core/src/runner/claude/agent-model-selection.ts`.
 
 ## Provider And Conversation Onboarding Control Surface
 

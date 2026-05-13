@@ -51,6 +51,9 @@ export async function startMyClawRuntime(
 
   const app = getDefaultRuntimeApp({
     mcpHostnameLookup: () => mcpHostnameLookup,
+    publishRuntimeEvent: async (event) => {
+      await getRuntimeEventExchange().publish(event);
+    },
   });
   const channelWiring = createChannelWiring(app);
   const controlServerRef: {
@@ -130,6 +133,9 @@ export async function startMyClawRuntime(
       settingsRepositories: storage.repositories,
       getOutboundDeliveryRepository: () =>
         storage.repositories.outboundDeliveries,
+      publishRuntimeEvent: async (event) => {
+        await getRuntimeEventExchange().publish(event);
+      },
       callBrowserTool: async (input) =>
         (await loadBrowserToolModule()).callBrowserTool(input),
       publishBrowserJobActivity: async (input) => {

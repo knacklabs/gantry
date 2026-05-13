@@ -95,6 +95,7 @@ interface Deps {
   getOutboundDeliveryRepository?: () => OutboundDeliveryRepository | undefined;
   startOutboundDeliveryRecoveryLoop: typeof startOutboundDeliveryRecoveryLoop;
   callBrowserTool: IpcDeps['callBrowserTool'];
+  publishRuntimeEvent: IpcDeps['publishRuntimeEvent'];
   publishBrowserJobActivity: IpcDeps['publishBrowserJobActivity'];
   closeBrowserToolBackends: IpcDeps['closeBrowserToolBackends'];
   exit: (code: number) => never;
@@ -118,6 +119,7 @@ function makeDefaultDeps(): RuntimeServicesDefaults {
     collectSessionMemory: collectRuntimeSessionMemory,
     startOutboundDeliveryRecoveryLoop,
     callBrowserTool: undefined,
+    publishRuntimeEvent: undefined,
     publishBrowserJobActivity: undefined,
     closeBrowserToolBackends: undefined,
     exit: (code: number) => process.exit(code),
@@ -235,6 +237,7 @@ export async function startRuntimeServices(
     opsRepository: resolved.opsRepository,
     getToolRepository: resolved.getToolRepository,
     getPermissionRepository: resolved.getPermissionRepository,
+    publishRuntimeEvent: resolved.publishRuntimeEvent,
     mirrorAgentToolRulesToSettings: createAgentToolRuleSettingsMirror({
       opsRepository: resolved.opsRepository,
       repositories: resolved.settingsRepositories,

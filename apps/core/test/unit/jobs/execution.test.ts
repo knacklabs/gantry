@@ -90,7 +90,6 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     retry_backoff_ms: 1,
     consecutive_failures: 0,
     max_consecutive_failures: 3,
-    execution_mode: 'serialized',
     cleanup_after_ms: null,
     ...overrides,
   } as Job;
@@ -109,6 +108,12 @@ function makeRoute(): ConversationRoute {
 function makeOpsRepository(job: Job) {
   return {
     getJobById: vi.fn(async () => job),
+    getJobRunById: vi.fn(async () => ({
+      run_id: 'run-1',
+      job_id: job.id,
+      short_id: 1,
+      status: 'running',
+    })),
     claimDueJobRunStart: vi.fn(async () => true),
     createJobRun: vi.fn(async () => true),
     updateJob: vi.fn(async () => undefined),
@@ -165,7 +170,7 @@ describe('jobs/execution', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:scheduler',
       expect.stringContaining('Paused after failures: Daily summary'),
-      { threadId: 'thread-scheduled' },
+      expect.objectContaining({ threadId: 'thread-scheduled' }),
     );
     expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -200,7 +205,6 @@ describe('jobs/execution', () => {
         })) as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     const completionSummary = vi.mocked(opsRepository.completeJobRun).mock
@@ -271,7 +275,6 @@ describe('jobs/execution', () => {
         })) as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     expect(opsRepository.updateJob).toHaveBeenCalledWith(
@@ -325,7 +328,6 @@ describe('jobs/execution', () => {
         })) as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     const completionError = vi.mocked(opsRepository.completeJobRun).mock
@@ -431,7 +433,6 @@ describe('jobs/execution', () => {
         })) as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     expect(sendMessage).toHaveBeenCalledTimes(2);
@@ -502,7 +503,6 @@ describe('jobs/execution', () => {
         runAgent: runAgent as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     expect(opsRepository.getAgentTurnContext).toHaveBeenCalledWith(
@@ -577,7 +577,6 @@ describe('jobs/execution', () => {
         runAgent: runAgent as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     expect(opsRepository.setSession).toHaveBeenCalledTimes(1);
@@ -634,7 +633,6 @@ describe('jobs/execution', () => {
         runAgent: runAgent as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     expect(runAgent).toHaveBeenCalledWith(
@@ -701,7 +699,6 @@ describe('jobs/execution', () => {
         runAgent: runAgent as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     expect(skillRepository.listAgentSkillBindings).toHaveBeenCalledWith({
@@ -751,7 +748,6 @@ describe('jobs/execution', () => {
         })) as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     expect(sendMessage.mock.calls).toEqual(
@@ -799,7 +795,6 @@ describe('jobs/execution', () => {
         runAgent: runAgent as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     const completionSummary = vi.mocked(opsRepository.completeJobRun).mock
@@ -862,7 +857,6 @@ describe('jobs/execution', () => {
         runAgent: runAgent as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     expect(sendStreamingChunk).not.toHaveBeenCalled();
@@ -883,6 +877,58 @@ describe('jobs/execution', () => {
       'completed',
       'first visible chunk second visible chunk',
       null,
+    );
+  });
+
+  it('publishes scheduled runner heartbeat events with status payload', async () => {
+    const job = makeJob();
+    const opsRepository = makeOpsRepository(job);
+    const runAgent = vi.fn(async (_group, _input, _onProcess, onStream) => {
+      await onStream({
+        status: 'success',
+        result: null,
+        runtimeEvents: [
+          {
+            eventType: 'job.heartbeat',
+            payload: {
+              currentTool: 'Bash',
+              lastActivityAgoMs: 16_000,
+              pendingPermissionRequests: 1,
+              totalToolCalls: 3,
+            },
+          },
+        ],
+      } as never);
+      return {
+        status: 'success',
+        result: 'done',
+      };
+    });
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: runAgent as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'job.heartbeat',
+        jobId: 'job-1',
+        payload: {
+          currentTool: 'Bash',
+          lastActivityAgoMs: 16_000,
+          pendingPermissionRequests: 1,
+          totalToolCalls: 3,
+        },
+      }),
     );
   });
 });

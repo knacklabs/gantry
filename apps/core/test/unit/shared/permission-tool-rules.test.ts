@@ -34,7 +34,11 @@ describe('permission tool rule extraction', () => {
         {
           type: 'addRules',
           behavior: 'allow',
-          rules: [{ toolName: '' }, { nope: 'Bash' }],
+          rules: [
+            { toolName: '' },
+            { nope: 'Bash' },
+            { toolName: 'Bash(npm test *)' },
+          ],
         },
       ]),
     ).toEqual([]);

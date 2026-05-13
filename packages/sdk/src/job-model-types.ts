@@ -1,5 +1,4 @@
 export type JobKind = 'manual' | 'once' | 'recurring';
-export type JobExecutionMode = 'parallel' | 'serialized';
 export type JobStatus =
   | 'active'
   | 'paused'
@@ -76,7 +75,6 @@ export interface JobRecord {
   lastRun: string | null;
   staleness?: JobStaleness | null;
   health?: JobHealth;
-  executionMode: JobExecutionMode;
   modelAlias: string | null;
   modelProfileId: string | null;
   model: JobModelPreview | null;
@@ -123,7 +121,6 @@ export interface CreateJobInput {
   kind?: JobKind;
   runAt?: string;
   schedule?: { type: 'cron' | 'interval'; value: string };
-  executionMode?: 'parallel' | 'serialized';
   modelAlias?: string;
   modelProfileId?: string;
   dryRun?: boolean;
@@ -132,7 +129,6 @@ export interface CreateJobInput {
 export interface UpdateJobInput {
   name?: string;
   prompt?: string;
-  executionMode?: 'parallel' | 'serialized';
   executionContext?: JobRequestExecutionContext;
   notificationRoutes?: JobNotificationRoute[];
   status?: 'active' | 'paused';

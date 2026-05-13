@@ -23,7 +23,6 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     retry_backoff_ms: 30_000,
     max_consecutive_failures: 3,
     consecutive_failures: 0,
-    execution_mode: 'serialized',
     lease_run_id: null,
     lease_expires_at: null,
     pause_reason: null,

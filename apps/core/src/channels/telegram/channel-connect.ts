@@ -14,6 +14,7 @@ import {
 import { TelegramChannelPrompts } from './channel-prompts.js';
 import {
   TELEGRAM_PERMISSION_CALLBACK_PATTERN,
+  TELEGRAM_DEAD_LETTER_ACTION_CALLBACK_PATTERN,
   TELEGRAM_USER_QUESTION_CALLBACK_PATTERN,
   TelegramContext,
   escapeTelegramMarkdownV2Literal,
@@ -170,6 +171,16 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         return;
       }
 
+      const deadLetterActionMatch =
+        TELEGRAM_DEAD_LETTER_ACTION_CALLBACK_PATTERN.exec(data);
+      if (deadLetterActionMatch) {
+        await ctx.answerCallbackQuery({
+          text: 'Open the scheduler surface or use scheduler tools to run this action.',
+          show_alert: true,
+        });
+        return;
+      }
+
       const permissionMatch = TELEGRAM_PERMISSION_CALLBACK_PATTERN.exec(data);
       if (!permissionMatch) return;
       const mode = normalizePermissionAction(permissionMatch[1]);
@@ -271,7 +282,7 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
           mode === 'allow_once'
             ? 'Allowed once.'
             : mode === 'allow_persistent_rule'
-              ? 'Always allowed.'
+              ? 'Approval received; applying.'
               : 'Canceled.',
       });
     });

@@ -63,7 +63,6 @@ describe('CanonicalJobOpsService', () => {
         model: null,
         scheduleJson: JSON.stringify({ type: 'interval', value: '60000' }),
         status: 'active',
-        executionMode: 'parallel',
         targetJson: JSON.stringify({
           executionContext: {
             conversationJid: 'tg:1',
@@ -239,7 +238,6 @@ describe('CanonicalJobOpsService', () => {
         model: null,
         scheduleJson: JSON.stringify({ type: 'interval', value: '60000' }),
         status: 'active',
-        executionMode: 'parallel',
         targetJson: JSON.stringify({
           executionContext: {
             conversationJid: 'tg:team',

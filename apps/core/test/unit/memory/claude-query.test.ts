@@ -171,7 +171,7 @@ describe('runClaudeQuery', () => {
     expect(queryMock).not.toHaveBeenCalled();
   });
 
-  it('drops container-local certificate paths returned by OneCLI', async () => {
+  it('derives neutral SDK CA aliases from brokered NODE_EXTRA_CA_CERTS', async () => {
     queryMock.mockImplementation(() =>
       (async function* () {
         yield {
@@ -185,8 +185,9 @@ describe('runClaudeQuery', () => {
     getContainerConfigMock.mockResolvedValue({
       env: {
         ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
-        NODE_EXTRA_CA_CERTS: '/tmp/onecli-ca.pem',
       },
+      caCertificate:
+        '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----',
     });
 
     const { runClaudeQuery } = await import('@core/memory/claude-query.js');
@@ -205,10 +206,25 @@ describe('runClaudeQuery', () => {
           };
         }
       | undefined;
+    const caPath = path.join(
+      runtimeRoot,
+      'data',
+      'onecli',
+      'gateway-ca-72ce4c290ee39d60.pem',
+    );
     expect(call?.options?.env).toMatchObject({
       ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
       ANTHROPIC_API_KEY: '',
       CLAUDE_CODE_OAUTH_TOKEN: '',
+      NODE_EXTRA_CA_CERTS: caPath,
+      SSL_CERT_FILE: caPath,
+      REQUESTS_CA_BUNDLE: caPath,
+      CURL_CA_BUNDLE: caPath,
+      GIT_SSL_CAINFO: caPath,
+      PIP_CERT: caPath,
+      AWS_CA_BUNDLE: caPath,
+      CARGO_HTTP_CAINFO: caPath,
+      DENO_CERT: caPath,
     });
   });
 

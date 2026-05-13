@@ -25,9 +25,6 @@ export const JobStatusSchema = z.enum([
 ]);
 export type JobStatus = z.infer<typeof JobStatusSchema>;
 
-export const JobExecutionModeSchema = z.enum(['parallel', 'serialized']);
-export type JobExecutionMode = z.infer<typeof JobExecutionModeSchema>;
-
 export const JobModelSourceSchema = z.union([
   z.literal('explicit'),
   z.literal('system default'),
@@ -173,7 +170,6 @@ export const CreateJobRequestSchema = z
         value: z.string().optional(),
       })
       .optional(),
-    executionMode: JobExecutionModeSchema.optional(),
     modelAlias: z.string().optional(),
     modelProfileId: z.string().optional(),
     dryRun: z.boolean().optional(),
@@ -189,7 +185,6 @@ export const UpdateJobRequestSchema = z
   .object({
     name: z.string().min(1).optional(),
     prompt: z.string().min(1).optional(),
-    executionMode: JobExecutionModeSchema.optional(),
     executionContext: JobRequestExecutionContextSchema.optional(),
     notificationRoutes: z.array(JobNotificationRouteSchema).optional(),
     status: z.enum(['active', 'paused']).optional(),
@@ -229,7 +224,6 @@ export const JobResponseSchema = z
     lastRun: IsoDateTimeSchema.nullable(),
     staleness: JobStalenessSchema.nullable().optional(),
     health: JobHealthSchema.optional(),
-    executionMode: JobExecutionModeSchema,
     modelAlias: z.string().nullable().optional(),
     modelProfileId: z.string().nullable().optional(),
     model: JobModelPreviewSchema.nullable().optional(),

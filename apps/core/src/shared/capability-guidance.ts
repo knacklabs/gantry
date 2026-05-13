@@ -1,5 +1,5 @@
 export const REQUEST_TOOL_ENABLE_SCOPE_GUIDANCE =
-  'For request_permission, ask for the narrowest useful access: one-time for rare or exploratory actions, scoped persistent permission rules for repeated bounded actions, and broad whole-tool access only when scoped rules cannot work. This applies to every tool type, not just Bash.';
+  'For app or tool access, search and request semantic capabilities first with capability_search, request_capability, propose_local_cli_capability, or manage_capability. Use request_permission for one-off exact tool access or scoped Bash rules such as Bash(npm test *) only when no reviewed semantic capability fits. Browser is always the canonical whole browser capability.';
 
 export function renderDefaultCapabilityRules(options?: {
   includeSettingsTools?: boolean;
@@ -7,7 +7,7 @@ export function renderDefaultCapabilityRules(options?: {
   const lines = [
     'Capability rules:',
     '- Use send_message for progress updates and ask_user_question for structured choices.',
-    '- Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission for capability changes.',
+    '- Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, capability_search, request_capability, propose_local_cli_capability, manage_capability, or request_permission for capability changes.',
     `- ${REQUEST_TOOL_ENABLE_SCOPE_GUIDANCE}`,
   ];
   if (options?.includeSettingsTools) {

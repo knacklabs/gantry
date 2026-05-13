@@ -5,7 +5,6 @@ import { DATA_DIR } from '../config/index.js';
 import { nowIso } from '../shared/time/datetime.js';
 import { writeFileAtomic } from '../infrastructure/filesystem/paths.js';
 import { signIpcResponsePayload } from '../infrastructure/ipc/response-signing.js';
-import { JobExecutionMode } from '../domain/types.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
 import {
   getServiceStatus,
@@ -17,19 +16,6 @@ import { getIpcResponseSigningPrivateKey } from '../runtime/ipc-auth.js';
 
 const TASK_IPC_RESPONSE_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 export { toTrimmedString };
-
-export function normalizeIpcExecutionMode(
-  executionMode: unknown,
-  serialize: unknown,
-  fallback: JobExecutionMode = 'parallel',
-): JobExecutionMode {
-  if (executionMode === 'serialized') return 'serialized';
-  if (executionMode === 'parallel') return 'parallel';
-  if (typeof serialize === 'boolean') {
-    return serialize ? 'serialized' : 'parallel';
-  }
-  return fallback;
-}
 
 function writeJsonAtomic(filePath: string, value: unknown): void {
   writeFileAtomic(filePath, JSON.stringify(value, null, 2));

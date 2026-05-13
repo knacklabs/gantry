@@ -84,8 +84,9 @@ describe('ToolExecutionPolicyService', () => {
     expect(policy.evaluate({ request, schedulerAllowedToolRules: [] })).toEqual(
       expect.objectContaining({
         status: 'deny',
-        reason:
+        reason: expect.stringContaining(
           'Tool not on autonomous job allowlist: mcp__myclaw__browser_navigate.',
+        ),
         recoveryAction: expect.stringContaining('"toolName": "Browser"'),
       }),
     );
@@ -282,7 +283,10 @@ describe('ToolExecutionPolicyService', () => {
     });
 
     expect(
-      policy.evaluate({ request, schedulerAllowedToolRules: ['Bash'] }),
+      policy.evaluate({
+        request,
+        schedulerAllowedToolRules: ['Bash(cat > ~/myclaw/settings.yaml)'],
+      }),
     ).toMatchObject({
       status: 'deny',
       reason: expect.stringContaining('protected capability target'),
@@ -374,9 +378,11 @@ describe('ToolExecutionPolicyService', () => {
     expect(result).toEqual(
       expect.objectContaining({
         status: 'deny',
-        reason: 'Tool not on autonomous job allowlist: Bash.',
+        reason: expect.stringContaining(
+          'Tool not on autonomous job allowlist: Bash.',
+        ),
         recoveryAction:
-          'request_permission { "permissionKind": "tool", "toolName": "Bash", "temporaryOnly": false, "reason": "This scheduled job needs Bash access." }',
+          'request_permission { "permissionKind": "tool", "toolName": "Bash", "rule": "npm test", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }',
       }),
     );
     expect(result.recoveryAction).not.toContain('scheduler_grant_tool');
@@ -397,7 +403,27 @@ describe('ToolExecutionPolicyService', () => {
       expect.objectContaining({
         status: 'deny',
         recoveryAction:
-          'request_permission { "permissionKind": "tool", "toolName": "Bash", "temporaryOnly": false, "reason": "This scheduled job needs Bash access." }',
+          'request_permission { "permissionKind": "tool", "toolName": "Bash", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }',
+      }),
+    );
+  });
+
+  it('does not suggest obsolete whole-command Bash recovery for compound commands', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: {
+        command: 'cd /tmp/evil && npm test',
+      },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-2' },
+    });
+
+    expect(policy.evaluate({ request, schedulerAllowedToolRules: [] })).toEqual(
+      expect.objectContaining({
+        status: 'deny',
+        recoveryAction:
+          'request_permission { "permissionKind": "tool", "toolName": "Bash", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }',
       }),
     );
   });
@@ -417,8 +443,32 @@ describe('ToolExecutionPolicyService', () => {
       expect.objectContaining({
         status: 'deny',
         recoveryAction:
-          'request_permission { "permissionKind": "tool", "toolName": "Bash", "temporaryOnly": false, "reason": "This scheduled job needs Bash access." }',
+          'request_permission { "permissionKind": "tool", "toolName": "Bash", "rule": "node -e console.log(process.cwd())", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }',
       }),
     );
+  });
+
+  it('preserves closest-rule mismatch details on autonomous denials', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: { command: 'npm test -- --runInBand' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-closest' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        schedulerAllowedToolRules: ['Bash(npm run build)'],
+      }),
+    ).toMatchObject({
+      status: 'deny',
+      reason: expect.stringContaining('npm test -- --runInBand'),
+      closestRule: {
+        rule: 'Bash(npm run build)',
+        reason: expect.stringContaining('npm test -- --runInBand'),
+      },
+    });
   });
 });

@@ -32,6 +32,7 @@ import {
   runSessionSlashCommand,
 } from './session-slash.js';
 import type { AgentRunnerInput } from './types.js';
+import { sdkSandboxBlockedRuntimeEvents } from './sandbox-events.js';
 
 const SCHEDULED_JOB_REPORT_INSTRUCTIONS = [
   '[SCHEDULED JOB - The following message was sent automatically and is not coming directly from the user or group.]',
@@ -167,6 +168,9 @@ async function runScheduledQuery(opts: {
       status: 'success',
       result: null,
       newSessionId: diagnosticSessionId,
+      ...(queryResult.primeToolAttempts.length > 0
+        ? { primeToolAttempts: queryResult.primeToolAttempts }
+        : {}),
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -176,6 +180,10 @@ async function runScheduledQuery(opts: {
       result: null,
       newSessionId: diagnosticSessionId,
       error: errorMessage,
+      runtimeEvents: sdkSandboxBlockedRuntimeEvents(
+        opts.agentInput,
+        errorMessage,
+      ),
     });
     process.exit(1);
   }
@@ -218,6 +226,9 @@ async function runInteractiveQueryLoop(opts: {
       status: 'success',
       result: null,
       newSessionId: diagnosticSessionId,
+      ...(queryResult.primeToolAttempts.length > 0
+        ? { primeToolAttempts: queryResult.primeToolAttempts }
+        : {}),
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -227,6 +238,10 @@ async function runInteractiveQueryLoop(opts: {
       result: null,
       newSessionId: diagnosticSessionId,
       error: errorMessage,
+      runtimeEvents: sdkSandboxBlockedRuntimeEvents(
+        opts.agentInput,
+        errorMessage,
+      ),
     });
     process.exit(1);
   }

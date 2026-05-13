@@ -6,7 +6,10 @@ import {
   loadBoundaryExtractionAppMemoryItems,
   loadSessionAppMemoryItems,
 } from '@core/memory/app-memory-session-hydration.js';
-import { rawThreadIdFromSession } from '@core/memory/app-memory-session-scope.js';
+import {
+  parseSessionScopeKey,
+  rawThreadIdFromSession,
+} from '@core/memory/app-memory-session-scope.js';
 
 type FakeMemoryItem = {
   id: string;
@@ -15,6 +18,7 @@ type FakeMemoryItem = {
   subjectType: 'user' | 'channel';
   subjectId: string;
   userId?: string;
+  groupId?: string;
   channelId?: string;
   threadId?: string;
   kind: 'decision' | 'preference';
@@ -30,6 +34,7 @@ function installMemoryServiceRows(rows: FakeMemoryItem[]) {
       if (row.agentId !== input.agentId) return false;
       if (subjectType && row.subjectType !== subjectType) return false;
       if (input.userId && row.userId !== input.userId) return false;
+      if (input.groupId && row.groupId !== input.groupId) return false;
       if (input.channelId && row.channelId !== input.channelId) return false;
       if (input.threadId) return row.threadId === input.threadId;
       return !row.threadId;
@@ -182,6 +187,7 @@ describe('app memory session hydration scope', () => {
         agentId: 'agent:a',
         subjectType: 'channel',
         subjectId: 'conversation:teams:general',
+        groupId: 'agent:a',
         channelId: 'conversation:teams:general',
         threadId: '19:abc@thread.v2',
         kind: 'decision',
@@ -197,6 +203,11 @@ describe('app memory session hydration scope', () => {
     });
 
     expect(rawThreadIdFromSession(session)).toBe('19:abc@thread.v2');
+    expect(parseSessionScopeKey({ session })).toMatchObject({
+      isScopeKey: true,
+      groupId: 'agent:a',
+      threadId: '19:abc@thread.v2',
+    });
     expect(service.listForHydrationReadOnly).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: 'default',

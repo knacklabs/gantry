@@ -25,3 +25,7 @@
 - Runtime events must be appended only through `PostgresRuntimeEventRepository`.
   Broker readiness belongs in `event_bus_outbox`; do not add direct
   `runtime_events` inserts, dual event tables, or retired event aliases.
+- Scheduler jobs are background-only. Do not add `jobs.execution_mode`,
+  serialized/parallel job modes, or repository DTO fields that project an
+  execution mode; pg-boss scheduling uses one durable jobs queue and runtime
+  concurrency is handled outside the persisted job shape.

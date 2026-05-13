@@ -51,9 +51,11 @@ the model-facing tool surface.
 
 This rule is general, not browser-specific:
 
-- Durable authorization stores human-level capabilities: `Browser`, scoped
-  `Bash(...)`, approved MCP server ids, skill ids, scheduler grants, and future
-  tool-family grants.
+- Durable authorization stores human-level capabilities: `Browser`, exact
+  semantic capability entries such as `capability:google.sheets.write`, exact
+  non-Bash SDK tool names, scoped Bash rules such as `Bash(npm test *)`,
+  approved MCP server ids, skill ids, scheduler grants, and future tool-family
+  grants.
 - Runtime projects approved capabilities into concrete tools for that run.
 - Concrete backend tool names are audited but are not persisted as durable
   authority.

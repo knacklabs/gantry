@@ -11,6 +11,7 @@ import { createAgentCredentialBroker } from '../adapters/credentials/agent-crede
 import { createExternalAgentCredentialInjection } from '../adapters/llm/external-credential-injection.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 import { AGENT_CREDENTIAL_ENV_KEYS } from '../config/source-classification.js';
+import { applyNeutralCaTrustAliases } from '../shared/neutral-ca-trust-env.js';
 
 export interface ClaudeQueryOpts {
   model: string;
@@ -179,10 +180,12 @@ async function runWithOnecli(opts: ClaudeQueryOpts): Promise<string> {
 function scrubAmbientAgentCredentials(
   brokerEnv: Record<string, string>,
 ): Record<string, string> {
-  return {
+  const env = {
     ...Object.fromEntries(AGENT_CREDENTIAL_ENV_KEYS.map((key) => [key, ''])),
     ...brokerEnv,
   };
+  applyNeutralCaTrustAliases(env);
+  return env;
 }
 
 export async function runClaudeQuery(opts: ClaudeQueryOpts): Promise<string> {

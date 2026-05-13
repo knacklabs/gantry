@@ -1,7 +1,6 @@
 import type {
   Job,
   JobEvent,
-  JobExecutionMode,
   JobRun,
   JobScheduleType,
 } from '../../domain/types.js';
@@ -136,7 +135,6 @@ export interface CreateManagedJobInput {
   kind?: JobKind;
   runAt?: string;
   schedule?: { type?: unknown; value?: unknown };
-  executionMode?: unknown;
   modelAlias?: unknown;
   modelProfileId?: unknown;
   dryRun?: unknown;
@@ -160,8 +158,6 @@ export interface UpsertJobFromIpcInput {
   maxRetries?: number;
   retryBackoffMs?: number;
   maxConsecutiveFailures?: number;
-  executionMode?: unknown;
-  serialize?: unknown;
   groupScope?: string;
   createdBy?: 'agent' | 'human';
 }
@@ -196,7 +192,6 @@ export type JobUpdatePatch = Partial<{
   maxRetries: number;
   retryBackoffMs: number;
   maxConsecutiveFailures: number;
-  executionMode: JobExecutionMode;
   status: Extract<Job['status'], 'active' | 'paused'>;
 }>;
 
@@ -270,5 +265,5 @@ export interface SchedulerRunNowInput {
   runId: string;
 }
 
-export type { Job, JobEvent, JobExecutionMode, JobRun, JobScheduleType };
+export type { Job, JobEvent, JobRun, JobScheduleType };
 export type { JobUpsertInput };

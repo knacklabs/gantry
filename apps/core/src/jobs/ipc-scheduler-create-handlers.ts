@@ -13,6 +13,13 @@ import {
 } from '../shared/model-catalog.js';
 import { formatBrowserProfileLabel } from '../shared/browser-profile-scope.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
+import {
+  formatSchedulerJobPlan,
+  schedulerJobConfirmationToken,
+  type SchedulerJobPlanInput,
+} from './job-plan-formatter.js';
+
+type SchedulerCreateScheduleType = Exclude<JobScheduleType, 'manual'>;
 
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
@@ -23,7 +30,7 @@ function makeJobService(context: TaskContext): JobManagementService {
   });
 }
 
-function scheduleType(raw: unknown): JobScheduleType | undefined {
+function scheduleType(raw: unknown): SchedulerCreateScheduleType | undefined {
   return raw === 'cron' || raw === 'interval' || raw === 'once'
     ? raw
     : undefined;
@@ -36,7 +43,7 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
     conversationBindings,
     sourceAgentFolderJids,
   } = context;
-  const { accept, reject } = createTaskResponder(
+  const { accept, acceptData, reject } = createTaskResponder(
     sourceAgentFolder,
     data.taskId,
     data.authThreadId,
@@ -58,6 +65,44 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
   }
 
   try {
+    const planInput: SchedulerJobPlanInput = {
+      jobId: data.jobId,
+      name: data.name || '',
+      prompt: data.prompt || '',
+      modelAlias: data.modelAlias || null,
+      modelProfileId: data.modelProfileId || null,
+      scheduleType: normalizedScheduleType,
+      scheduleValue: data.scheduleValue || '',
+      executionContext: data.executionContext,
+      notificationRoutes: data.notificationRoutes,
+      silent: data.silent,
+      cleanupAfterMs: data.cleanupAfterMs,
+      timeoutMs: data.timeoutMs,
+      maxRetries: data.maxRetries,
+      retryBackoffMs: data.retryBackoffMs,
+      maxConsecutiveFailures: data.maxConsecutiveFailures,
+      createdBy: data.createdBy,
+    };
+    const confirmationToken = schedulerJobConfirmationToken(planInput);
+    if (data.confirm !== true) {
+      acceptData(
+        formatSchedulerJobPlan({ ...planInput, confirmationToken }),
+        {
+          type: 'scheduler_job_plan',
+          confirmationToken,
+        },
+        'confirmation_required',
+      );
+      return;
+    }
+    if (data.confirmationToken !== confirmationToken) {
+      reject(
+        'Scheduler upsert confirmation token is missing or does not match the current job plan.',
+        'confirmation_mismatch',
+      );
+      return;
+    }
+
     const result = await makeJobService(context).upsertJobFromIpc({
       access: schedulerAccessFromContext(context),
       jobId: data.jobId,
@@ -75,8 +120,6 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
       maxRetries: data.maxRetries,
       retryBackoffMs: data.retryBackoffMs,
       maxConsecutiveFailures: data.maxConsecutiveFailures,
-      executionMode: data.executionMode,
-      serialize: data.serialize,
       createdBy: data.createdBy,
     });
 

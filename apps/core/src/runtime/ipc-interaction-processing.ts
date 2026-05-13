@@ -1,10 +1,19 @@
 import fs from 'fs';
+import { createHash } from 'node:crypto';
 
 import type {
+  PermissionApprovalDecision,
   PermissionApprovalRequest,
   UserQuestionRequest,
 } from '../domain/types.js';
+import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
+import {
+  formatPersistentPermissionRuleForEvent,
+  formatPersistentPermissionRulesForUser,
+} from '../shared/persistent-permission-rules.js';
+import { permissionUpdateAllowedToolRules } from '../shared/permission-tool-rules.js';
+import { redactSensitiveText } from '../shared/sensitive-material.js';
 import { archiveIpcErrorFile } from './ipc-filesystem.js';
 import { getIpcResponseSigningPrivateKey } from './ipc-auth.js';
 import type { IpcDeps } from './ipc-domain-types.js';
@@ -17,6 +26,7 @@ import {
 
 type LogContext = Record<string, unknown>;
 type IpcInteractionLogger = {
+  info?(context: LogContext, message: string): void;
   warn(context: LogContext, message: string): void;
   error(context: LogContext, message: string): void;
 };
@@ -116,8 +126,28 @@ export async function processPermissionInteractionIpc(input: {
   logger: IpcInteractionLogger;
 }): Promise<void> {
   try {
+    const requestedContext = permissionTelemetryContext(input.request, {
+      sourceAgentFolder: input.sourceAgentFolder,
+      decision: 'requested',
+    });
+    input.logger.info?.(requestedContext, 'Permission requested');
+    await publishPermissionRuntimeEvent(input.deps, input.request, {
+      eventType: RUNTIME_EVENT_TYPES.PERMISSION_REQUESTED,
+      payload: requestedContext,
+    });
     const decision = await processPermissionIpcRequest(input.request, {
       requestPermissionApproval: input.deps.requestPermissionApproval,
+    });
+    const decisionContext = permissionTelemetryContext(input.request, {
+      sourceAgentFolder: input.sourceAgentFolder,
+      decision: permissionDecisionName(decision),
+      decisionMode: decision.mode,
+      decidedBy: decision.decidedBy,
+    });
+    input.logger.info?.(decisionContext, 'Permission decided');
+    await publishPermissionRuntimeEvent(input.deps, input.request, {
+      eventType: permissionDecisionEventType(decision),
+      payload: decisionContext,
     });
     const permissionService = new PermissionManagementService();
     if (
@@ -150,7 +180,24 @@ export async function processPermissionInteractionIpc(input: {
         actor: decision.decidedBy,
         conversationId: input.request.targetJid,
         threadId: input.request.threadId,
+        runId: input.request.runId,
+        jobId: input.request.jobId,
         reason: decision.reason,
+      });
+      const persistedContext = permissionTelemetryContext(input.request, {
+        sourceAgentFolder: input.sourceAgentFolder,
+        decision: 'persisted',
+        persistedRules: permissionUpdateAllowedToolRules(
+          decision.updatedPermissions,
+        ).map(formatPersistentPermissionRuleForEvent),
+      });
+      input.logger.info?.(persistedContext, 'Permission persisted');
+      await publishPermissionRuntimeEvent(input.deps, input.request, {
+        eventType: RUNTIME_EVENT_TYPES.PERMISSION_PERSISTED,
+        payload: persistedContext,
+      });
+      await sendPermissionOutcomeMessage(input.deps, input.request, {
+        text: `Persistent permission applied: ${formatPersistentPermissionRulesForUser(permissionUpdateAllowedToolRules(decision.updatedPermissions))}.`,
       });
     } else {
       await permissionService.recordDecision({
@@ -162,8 +209,34 @@ export async function processPermissionInteractionIpc(input: {
         permissionRepository: input.deps.getPermissionRepository?.(),
         conversationId: input.request.targetJid,
         threadId: input.request.threadId,
+        runId: input.request.runId,
+        jobId: input.request.jobId,
       });
     }
+    if (decision.approved) {
+      const resumedContext = permissionTelemetryContext(input.request, {
+        sourceAgentFolder: input.sourceAgentFolder,
+        decision: 'resumed',
+        decisionMode: decision.mode,
+      });
+      input.logger.info?.(
+        resumedContext,
+        'Permission resumed current tool call',
+      );
+      await publishPermissionRuntimeEvent(input.deps, input.request, {
+        eventType: RUNTIME_EVENT_TYPES.PERMISSION_RESUMED,
+        payload: resumedContext,
+      });
+    }
+    await publishPermissionRuntimeEvent(input.deps, input.request, {
+      eventType: RUNTIME_EVENT_TYPES.PERMISSION_FINAL_OUTCOME,
+      payload: permissionTelemetryContext(input.request, {
+        sourceAgentFolder: input.sourceAgentFolder,
+        decision: permissionDecisionName(decision),
+        decisionMode: decision.mode,
+        approved: decision.approved,
+      }),
+    });
     writePermissionIpcResponse(
       input.ipcBaseDir,
       input.sourceAgentFolder,
@@ -195,9 +268,27 @@ export async function processPermissionInteractionIpc(input: {
       logger: input.logger,
     });
     input.logger.error(
-      { file: input.file, sourceAgentFolder: input.sourceAgentFolder, err },
+      {
+        file: input.file,
+        ...permissionTelemetryContext(input.request, {
+          sourceAgentFolder: input.sourceAgentFolder,
+          decision: 'failed',
+        }),
+        err,
+      },
       'Error processing permission IPC request',
     );
+    await publishPermissionRuntimeEvent(input.deps, input.request, {
+      eventType: RUNTIME_EVENT_TYPES.PERMISSION_FINAL_OUTCOME,
+      payload: permissionTelemetryContext(input.request, {
+        sourceAgentFolder: input.sourceAgentFolder,
+        decision: 'failed',
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    });
+    await sendPermissionOutcomeMessage(input.deps, input.request, {
+      text: `Permission request failed: ${err instanceof Error ? redactSensitiveText(err.message) : 'processing failed'}. No persistent permission was applied.`,
+    });
     archiveIpcErrorFile(
       input.ipcBaseDir,
       input.sourceAgentFolder,
@@ -205,6 +296,129 @@ export async function processPermissionInteractionIpc(input: {
       input.claimedPath,
     );
   }
+}
+
+export type PermissionInteractionIpcBatchItem = Parameters<
+  typeof processPermissionInteractionIpc
+>[0];
+
+export async function processPermissionInteractionIpcBatchWithDecision(input: {
+  items: PermissionInteractionIpcBatchItem[];
+  decision: PermissionApprovalDecision;
+}): Promise<void> {
+  for (const item of input.items) {
+    await processPermissionInteractionIpc({
+      ...item,
+      deps: {
+        ...item.deps,
+        requestPermissionApproval: async () => input.decision,
+      },
+    });
+  }
+}
+
+async function sendPermissionOutcomeMessage(
+  deps: IpcDeps,
+  request: PermissionApprovalRequest,
+  input: { text: string },
+): Promise<void> {
+  if (!request.targetJid) return;
+  try {
+    await deps.sendMessage(request.targetJid, input.text, {
+      ...(request.threadId ? { threadId: request.threadId } : {}),
+    });
+  } catch {
+    // Permission IPC response delivery and events are the authoritative path;
+    // user-visible follow-up messages are best effort.
+  }
+}
+
+function permissionDecisionName(
+  decision: PermissionApprovalDecision,
+): 'allowed' | 'cancelled' | 'denied' {
+  if (decision.approved) return 'allowed';
+  return decision.mode === 'cancel' ? 'cancelled' : 'denied';
+}
+
+function permissionDecisionEventType(decision: PermissionApprovalDecision) {
+  if (decision.approved) return RUNTIME_EVENT_TYPES.PERMISSION_ALLOWED;
+  return decision.mode === 'cancel'
+    ? RUNTIME_EVENT_TYPES.PERMISSION_CANCELLED
+    : RUNTIME_EVENT_TYPES.PERMISSION_DENIED;
+}
+
+async function publishPermissionRuntimeEvent(
+  deps: IpcDeps,
+  request: PermissionApprovalRequest,
+  input: {
+    eventType: (typeof RUNTIME_EVENT_TYPES)[keyof typeof RUNTIME_EVENT_TYPES];
+    payload: Record<string, unknown>;
+  },
+): Promise<void> {
+  if (!deps.publishRuntimeEvent || !request.appId) return;
+  try {
+    await deps.publishRuntimeEvent({
+      appId: request.appId as never,
+      agentId: request.agentId as never,
+      runId: request.runId as never,
+      jobId: request.jobId as never,
+      conversationId: request.targetJid as never,
+      threadId: request.threadId as never,
+      eventType: input.eventType,
+      actor: 'permission',
+      correlationId: request.requestId,
+      payload: input.payload,
+    });
+  } catch {
+    // Runtime-event telemetry is best-effort; permission IPC response delivery
+    // must not fail because event persistence is temporarily unavailable.
+  }
+}
+
+function permissionTelemetryContext(
+  request: PermissionApprovalRequest,
+  extra: Record<string, unknown>,
+): Record<string, unknown> {
+  const command = permissionCommand(request);
+  return {
+    appId: request.appId,
+    agentId: request.agentId,
+    runId: request.runId,
+    jobId: request.jobId,
+    conversationId: request.targetJid,
+    threadId: request.threadId,
+    requestId: request.requestId,
+    toolName: request.toolName,
+    canonicalCapability: permissionCanonicalCapability(request),
+    ...safeCommandTelemetry(command),
+    ...extra,
+  };
+}
+
+function permissionCanonicalCapability(
+  request: PermissionApprovalRequest,
+): string {
+  const capabilityId = request.interaction?.requestContext?.capabilityId;
+  if (capabilityId) return capabilityId;
+  const toolInputCapabilityId = request.toolInput?.capabilityId;
+  if (typeof toolInputCapabilityId === 'string' && toolInputCapabilityId) {
+    return toolInputCapabilityId;
+  }
+  return request.toolName;
+}
+
+function permissionCommand(request: PermissionApprovalRequest): string | null {
+  if (request.toolName !== 'Bash') return null;
+  const command = request.toolInput?.command ?? request.toolInput?.cmd;
+  return typeof command === 'string' && command.trim() ? command.trim() : null;
+}
+
+function safeCommandTelemetry(command: string | null): Record<string, unknown> {
+  if (!command) return {};
+  return {
+    commandPreview: redactSensitiveText(command).slice(0, 160),
+    commandHash: createHash('sha256').update(command).digest('hex'),
+  };
 }
 
 function pathForGroupIpc(

@@ -508,7 +508,6 @@ export class ExternalIngressModule {
       sessionId: template.sessionId,
       kind: 'once',
       runAt: this.deps.now(),
-      executionMode: 'serialized',
     });
     const trigger = await this.deps.jobs.triggerJob({
       appId,

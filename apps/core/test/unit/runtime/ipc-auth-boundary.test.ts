@@ -584,6 +584,10 @@ describe('validateIpcAuthRequest', () => {
       jobId: 'job-1',
       runId: 'run-1',
       toolName: 'Bash',
+      closestRule: {
+        rule: 'Bash(npm run build)',
+        reason: 'Bash leaf npm test did not match any scoped rule.',
+      },
       context: {
         responseKeyId: TEST_RESPONSE_KEY_ID,
         appId: 'app:one',
@@ -601,8 +605,45 @@ describe('validateIpcAuthRequest', () => {
         runId: 'run-1',
         appId: 'app:one',
         agentId: 'agent:team',
+        closestRule: {
+          rule: 'Bash(npm run build)',
+          reason: 'Bash leaf npm test did not match any scoped rule.',
+        },
       }),
     );
+  });
+
+  it('caps wide signed permission tool input during parsing', () => {
+    const toolInput: Record<string, unknown> = {
+      command: 'npm test',
+      apiToken: 'secret-token-value',
+    };
+    for (let index = 0; index < 100; index += 1) {
+      toolInput[`extra_${index}`] = `value_${index}`;
+    }
+    const payload = {
+      requestId: 'perm-wide-tool-input',
+      responseNonce: randomUUID(),
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      sourceAgentFolder: 'team',
+      toolName: 'mcp__thirdparty__unknown',
+      toolInput,
+      context: {
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        appId: 'app:one',
+        agentId: 'agent:team',
+      },
+    };
+
+    const parsed = parsePermissionIpcRequest(signedPayload(payload), 'team');
+
+    expect(parsed.toolInput).toMatchObject({
+      command: 'npm test',
+      apiToken: '[REDACTED]',
+      __omitted_keys: 'more',
+    });
+    expect(parsed.toolInput).not.toHaveProperty('extra_99');
   });
 
   it('rejects permission IPC approval target mismatches', () => {

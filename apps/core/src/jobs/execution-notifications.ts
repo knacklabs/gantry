@@ -1,8 +1,13 @@
-import type { Job, JobRunStatus } from '../domain/types.js';
+import type {
+  Job,
+  JobRunStatus,
+  MessageActionAffordance,
+} from '../domain/types.js';
 import type { SchedulerSendMessage } from './delivery.js';
 import { sendJobNotification } from './delivery.js';
 import { formatRunStatusMessage } from './status-formatting.js';
 import { MEMORY_DREAM_SYSTEM_PROMPT } from './system-jobs.js';
+import { formatRunLabel } from '../shared/human-format.js';
 
 type TerminalRunStatus = Extract<
   JobRunStatus,
@@ -13,6 +18,38 @@ export type JobNotificationLifecycleUpdateResult =
   | 'updated'
   | 'unsupported'
   | 'failed';
+
+function deadLetterActionAffordances(input: {
+  job: Job;
+  runId: string;
+}): MessageActionAffordance[] {
+  return [
+    {
+      kind: 'scheduler_run_now',
+      label: 'Retry now',
+      jobId: input.job.id,
+      runId: input.runId,
+    },
+    {
+      kind: 'scheduler_show_last_logs',
+      label: 'Show last 50 log lines',
+      jobId: input.job.id,
+      runId: input.runId,
+    },
+    {
+      kind: 'scheduler_pause_job',
+      label: 'Pause job',
+      jobId: input.job.id,
+      runId: input.runId,
+    },
+    {
+      kind: 'scheduler_open',
+      label: 'Open in scheduler',
+      jobId: input.job.id,
+      runId: input.runId,
+    },
+  ];
+}
 
 export function logMemoryDreamJobFailure(input: {
   job: Job;
@@ -37,12 +74,16 @@ export function logMemoryDreamJobFailure(input: {
 export async function notifySchedulerRunStart(input: {
   job: Job;
   runId: string;
+  runShortId?: number | null;
   sendMessage: SchedulerSendMessage;
 }): Promise<boolean> {
   if (input.job.silent) return false;
   return sendJobNotification({
     job: input.job,
-    text: `Running: ${input.job.name} (#${input.runId.slice(0, 8)})`,
+    text: `Running: ${input.job.name} (${formatRunLabel({
+      id: input.runId,
+      shortId: input.runShortId,
+    })})`,
     phase: 'start',
     runId: input.runId,
     sendMessage: input.sendMessage,
@@ -52,6 +93,7 @@ export async function notifySchedulerRunStart(input: {
 export async function notifySchedulerTerminalRunState(input: {
   job: Job;
   runId: string;
+  runShortId?: number | null;
   runStatus: TerminalRunStatus;
   summary: string;
   nextRun: string | null;
@@ -70,6 +112,7 @@ export async function notifySchedulerTerminalRunState(input: {
   const summaryMessage = formatRunStatusMessage({
     job: input.job,
     runId: input.runId,
+    runShortId: input.runShortId,
     runStatus: input.runStatus,
     summary: input.summary,
     nextRun: input.nextRun,
@@ -87,11 +130,16 @@ export async function notifySchedulerTerminalRunState(input: {
           summaryMessage,
         });
   if (updateResult === 'updated') return true;
+  const actionAffordances =
+    input.runStatus === 'dead_lettered'
+      ? deadLetterActionAffordances({ job: input.job, runId: input.runId })
+      : undefined;
   return sendJobNotification({
     job: input.job,
     text: summaryMessage,
     phase: 'summary',
     runId: input.runId,
+    actionAffordances,
     sendMessage: input.sendMessage,
   });
 }

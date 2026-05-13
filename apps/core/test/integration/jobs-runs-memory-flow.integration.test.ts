@@ -54,7 +54,6 @@ function makeJob(id: string, patch: Partial<JobUpsertInput> = {}) {
     timeout_ms: 30_000,
     max_retries: 1,
     retry_backoff_ms: 1,
-    execution_mode: 'serialized',
     ...patch,
   } satisfies JobUpsertInput;
 }
@@ -108,6 +107,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     const savedMemory = await memoryService.save({
       appId: 'default',
       agentId,
+      groupId: job.group_scope,
       channelId: 'conversation:tg:scheduler',
       threadId: 'thread-scheduled',
       kind: 'fact',
@@ -119,6 +119,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     expect(savedMemory).toMatchObject({
       agentId,
       subjectType: 'channel',
+      groupId: job.group_scope,
       channelId: 'conversation:tg:scheduler',
       threadId: 'thread-scheduled',
       key: 'handoff',
@@ -135,7 +136,6 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
         runAgent: harness.runner.runAgent as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     expect(harness.runner.calls).toHaveLength(1);
@@ -208,7 +208,6 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
         runAgent: harness.runner.runAgent as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     expect(harness.runner.calls[0]?.input).not.toHaveProperty('sessionId');
@@ -270,7 +269,6 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
         runAgent: harness.runner.runAgent as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     expect(harness.channel.streams).toHaveLength(0);
@@ -362,7 +360,6 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
         runAgent: harness.runner.runAgent as never,
       },
       'tg:scheduler',
-      'serialized',
       {
         triggerId: 'trigger:job:integration:dead-letter',
         scheduledFor: now,

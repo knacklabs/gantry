@@ -2,6 +2,7 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import {
   PermissionApprovalDecision,
   PermissionApprovalRequest,
+  type MessageActionAffordanceKind,
 } from '../../domain/types.js';
 import { PartialMessageDeliveryError } from '../../domain/messages/partial-delivery.js';
 import {
@@ -18,6 +19,12 @@ import {
 import { nowIso } from '../../shared/time/datetime.js';
 const SLACK_RETRY_DELAY_FALLBACK_MS = 1000;
 const SLACK_RETRY_DELAY_MAX_MS = 5000;
+const SCHEDULER_MESSAGE_ACTION_KINDS = new Set<MessageActionAffordanceKind>([
+  'scheduler_run_now',
+  'scheduler_show_last_logs',
+  'scheduler_pause_job',
+  'scheduler_open',
+]);
 function clampSlackRetryDelayMs(delayMs: number): number {
   if (!Number.isFinite(delayMs) || delayMs <= 0) {
     return SLACK_RETRY_DELAY_FALLBACK_MS;
@@ -564,6 +571,47 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         selectedLabels,
         answeredBy,
       );
+    });
+    this.app.action('myclaw_message_action', async (args: any) => {
+      await args.ack();
+      const action = args.action as { value?: string };
+      const body = args.body as {
+        channel?: { id?: string };
+        user?: { id?: string };
+      };
+      let payload:
+        | {
+            kind?: unknown;
+            jobId?: unknown;
+          }
+        | undefined;
+      try {
+        payload = action.value ? JSON.parse(action.value) : undefined;
+      } catch {
+        return;
+      }
+      if (
+        !payload ||
+        typeof payload.kind !== 'string' ||
+        !SCHEDULER_MESSAGE_ACTION_KINDS.has(
+          payload.kind as MessageActionAffordanceKind,
+        ) ||
+        typeof payload.jobId !== 'string' ||
+        payload.jobId.trim().length === 0 ||
+        !body.channel?.id ||
+        !body.user?.id
+      ) {
+        return;
+      }
+      try {
+        await this.app?.client.chat.postEphemeral({
+          channel: body.channel.id,
+          user: body.user.id,
+          text: 'Scheduler action buttons are visible hints only in this channel. Open the scheduler surface or use scheduler tools to run this action.',
+        });
+      } catch {
+        // ignore callback feedback failures
+      }
     });
   }
 }

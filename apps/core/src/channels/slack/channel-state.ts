@@ -20,7 +20,6 @@ import { resolveGroupFolderPath } from '../../platform/group-folder.js';
 import { ChannelOpts } from '../channel-provider.js';
 import {
   encodeSlackActionValue,
-  formatSlackPermissionToolInputLines,
   formatSlackUserQuestionPromptText,
   parseSlackUserQuestionActionValue,
   truncateSlackButtonText,
@@ -166,12 +165,6 @@ export abstract class SlackChannelState {
     questionIndex: number,
   ): string {
     return `${requestId}:${questionIndex}`;
-  }
-
-  protected formatPermissionToolInputLines(
-    request: PermissionApprovalRequest,
-  ): string[] {
-    return formatSlackPermissionToolInputLines(request);
   }
 
   protected formatUserQuestionPromptText(

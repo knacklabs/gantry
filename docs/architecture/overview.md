@@ -103,7 +103,8 @@ Layer-by-layer summary (one sentence each):
 - **Channels** translate provider-native events into normalized inbound
   messages and outbound replies through `ChannelAdapter` ports.
 - **Message loop + GroupQueue** poll for new durable messages, recover pending
-  threads on startup, and serialize work per group/thread.
+  threads on startup, and admit interactive and background work through
+  separate lanes.
 - **Group processor** loads unread messages, hydrates memory context, decides
   whether to start a new run or pipe a follow-up into a live one.
 - **Agent spawn** builds the child process environment, working directory,
@@ -173,13 +174,13 @@ classDiagram
     +string agentFolder
     +AgentPersona? persona
     +McpServerConfigs externalMcpServers
-    +string[] configuredAllowedTools
+    +string[] selectedCapabilityRules
   }
   class AgentCapabilityProfile {
-    +string[] allowedTools
+    +string[] projectedAllowedTools
     +McpServerConfigs mcpServers
-    +'default'|'bypassPermissions' permissionMode
-    +string[] alwaysAllowedTools
+    +'default' permissionMode
+    +string[] internalSdkToolProjection
   }
 
   Agent "1" --> "many" AgentConfigVersion : versioned
@@ -237,13 +238,11 @@ Selected-capability admin agents add four additional admin tools
 ### Subagents
 
 Native Anthropic-SDK subagents inherit the parent run by default. MyClaw
-projects which `subagent_type` names are allowed for the current agent and
-rejects cross-provider models, custom tool/MCP/skill input, and unknown
-subagent types — see `subagentTypeFromAgentInput`,
-`validateAgentModelRequest`, and `validateAgentToolInput` at
-`apps/core/src/runner/claude/agent-model-selection.ts:39`,
-`apps/core/src/runner/claude/agent-model-selection.ts:45`, and
-`apps/core/src/runner/claude/agent-model-selection.ts:71`.
+uses the exact `Agent` capability to gate native subagent delegation. Once
+`Agent` is granted, there is no second `subagent_type` allowlist. The runner
+still rejects cross-provider models and custom tool/MCP/skill input on the
+Agent call; see `validateAgentModelRequest` and `validateAgentToolInput` in
+`apps/core/src/runner/claude/agent-model-selection.ts`.
 
 Detail: [agent-runtime.md](./agent-runtime.md).
 
@@ -303,11 +302,11 @@ flowchart LR
 
 DM vs channel/group routing differs on three axes:
 
-| Axis                 | DM                                                          | Channel / group                                                        |
-| -------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Trigger requirement  | `requiresTrigger=false` by default                          | `requiresTrigger=true` by default                                      |
-| Default memory scope | `'user'` — see `domain/ports/session-memory-collector.ts:2` | `'group'` — same file, same toggle                                     |
-| Approval authority   | Bound agent's per-provider conversation approver (`ConversationApprover`)     | Conversation control approvers; see channel-interactions.md §approvers |
+| Axis                 | DM                                                                        | Channel / group                                                        |
+| -------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Trigger requirement  | `requiresTrigger=false` by default                                        | `requiresTrigger=true` by default                                      |
+| Default memory scope | `'user'` — see `domain/ports/session-memory-collector.ts:2`               | `'group'` — same file, same toggle                                     |
+| Approval authority   | Bound agent's per-provider conversation approver (`ConversationApprover`) | Conversation control approvers; see channel-interactions.md §approvers |
 
 `conversationKind: 'dm' | 'channel'` is carried by `ConversationRoute`
 while active domain and application ports use canonical conversation/session

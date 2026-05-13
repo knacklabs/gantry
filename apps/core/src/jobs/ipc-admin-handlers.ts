@@ -22,11 +22,13 @@ import { startSkillPermissionReview } from './ipc-skill-permission-review.js';
 import { getHostRuntimeCredentialEnv } from '../runtime/agent-spawn-host.js';
 import {
   isPermanentPermissionDecision,
+  formatPersistentPermissionRulesForUser,
   persistRequestPermissionRules,
   requestPermissionDescription,
   requestPermissionQueuedMessage,
   requestPermissionReviewEffect,
   requestPermissionReviewSuggestions,
+  validateRequestPermissionSemanticCapability,
 } from './request-permission-review.js';
 import {
   requestSettingsUpdateHandler,
@@ -43,6 +45,7 @@ import {
   isBrowserActionMcpToolRule,
   isProjectedBrowserMcpToolRule,
 } from '../shared/agent-tool-references.js';
+import { getBuiltinSemanticCapability } from '../shared/semantic-capabilities.js';
 
 function createContextTaskResponder(context: TaskContext) {
   return createTaskResponder(
@@ -391,7 +394,7 @@ interface RequestOnlyCapabilityReview { toolName: RequestOnlyCapabilityToolName;
 const requestOnlyCapabilitySpecs: Record<RequestOnlyCapabilityToolName, { kind: string; required: string[]; any?: string[]; display: string; effect: string }> = {
   request_skill_install: { kind: 'Skill install', required: ['spec'], display: 'spec', effect: 'review_only_no_direct_install' },
   request_skill_dependency_install: { kind: 'Skill dependency install', required: ['ecosystem'], any: ['packages', 'commandArgv'], display: 'ecosystem', effect: 'review_only_no_command_execution' },
-  request_permission: { kind: 'Permission', required: [], any: ['toolName', 'toolNames', 'channelTool'], display: 'toolName', effect: 'review_only_no_permission_change' },
+  request_permission: { kind: 'Permission', required: [], any: ['capabilityId', 'toolName', 'toolNames', 'channelTool'], display: 'capabilityDisplayName', effect: 'review_only_no_permission_change' },
 };
 
 // prettier-ignore
@@ -444,6 +447,10 @@ function parseRequestOnlyCapabilityReview(toolName: RequestOnlyCapabilityToolNam
     }
   }
   if (toolName === 'request_skill_dependency_install' && !['npm', 'brew', 'go', 'uv', 'download'].includes(String(toolInput.ecosystem))) return { ok: false, error: 'ecosystem must be npm, brew, go, uv, or download.' };
+  if (toolName === 'request_permission') {
+    const semanticError = validateRequestPermissionSemanticCapability(toolInput);
+    if (semanticError) return { ok: false, error: semanticError };
+  }
   return {
     ok: true,
     review: {
@@ -552,6 +559,9 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
         description: input.review.toolName === 'request_permission' ? requestPermissionDescription() : 'Only configured approvers can decide this request. This records the permission review only and does not enable the capability directly.',
         decisionReason: input.review.reason,
         toolInput: input.review.toolInput,
+        ...(semanticCapabilityInteraction(input.review, requestId)
+          ? { interaction: semanticCapabilityInteraction(input.review, requestId) }
+          : {}),
         ...(input.review.toolName === 'request_permission'
           ? {
               suggestions: requestPermissionReviewSuggestions(
@@ -563,11 +573,11 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
       const reason = decision.approved ? 'missing approving principal' : decision.reason || 'not approved';
       let persistedRules: string[] = [];
       if (input.review.toolName === 'request_permission' && isPermanentPermissionDecision(decision)) {
-        persistedRules = await persistRequestPermissionRules({ deps: input.deps, appId: input.appId, agentId: input.agentId, sourceAgentFolder: input.sourceAgentFolder, ipcDir: input.ipcDir, runHandle: input.runHandle, requestId, updates: decision.updatedPermissions ?? [], actor: decision.decidedBy, conversationId: input.targetJid, threadId: input.threadId, reason: decision.reason });
+        persistedRules = await persistRequestPermissionRules({ deps: input.deps, appId: input.appId, agentId: input.agentId, sourceAgentFolder: input.sourceAgentFolder, ipcDir: input.ipcDir, runHandle: input.runHandle, requestId, updates: decision.updatedPermissions ?? [], toolInput: input.review.toolInput, actor: decision.decidedBy, conversationId: input.targetJid, threadId: input.threadId, reason: decision.reason });
       }
       message = decision.approved && decision.decidedBy
         ? persistedRules.length
-          ? `Approved ${input.review.displayName}. Persistent permission rule enabled for this run and future runs by ${decision.decidedBy}: ${persistedRules.join(', ')}.`
+          ? `Approved ${input.review.displayName}. Persistent permission tool enabled for this run and future runs by ${decision.decidedBy}: ${formatPersistentPermissionRulesForUser(persistedRules)}.`
           : `Approved ${input.review.displayName}. Permission review recorded by ${decision.decidedBy}; no capability was enabled by this request-only flow.`
         : `Rejected ${input.review.displayName}: ${reason}. No capability was enabled.`;
     } catch (err) {
@@ -579,6 +589,71 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
     }
     await input.deps.sendMessage(input.targetJid, message, input.threadId ? { threadId: input.threadId } : undefined);
   })().catch((err) => logger.error({ err, sourceAgentFolder: input.sourceAgentFolder, toolName: input.review.toolName }, 'Capability permission review final message failed'));
+}
+
+function semanticCapabilityInteraction(
+  review: RequestOnlyCapabilityReview,
+  requestId: string,
+) {
+  if (review.toolName !== 'request_permission') return undefined;
+  const capabilityId = toTrimmedString(review.toolInput.capabilityId, {
+    maxLen: 160,
+  });
+  if (!capabilityId) return undefined;
+  const displayName =
+    getBuiltinSemanticCapability(capabilityId)?.displayName ||
+    toTrimmedString(review.toolInput.capabilityDisplayName, { maxLen: 200 }) ||
+    capabilityId;
+  return {
+    id: requestId,
+    title: `Allow ${displayName}?`,
+    details: semanticCapabilityInteractionDetails(review.toolInput),
+    requestContext: {
+      requestId,
+      capabilityId,
+      capabilityDisplayName: displayName,
+      toolName: review.toolName,
+      capabilityType: String(review.toolInput.credentialSource || 'semantic'),
+    },
+  };
+}
+
+function semanticCapabilityInteractionDetails(
+  toolInput: Record<string, unknown>,
+) {
+  const capabilityId = toTrimmedString(toolInput.capabilityId, {
+    maxLen: 160,
+  });
+  const builtin = capabilityId
+    ? getBuiltinSemanticCapability(capabilityId)
+    : undefined;
+  if (builtin) {
+    return [
+      { label: 'Capability', value: `capability:${builtin.capabilityId}` },
+      { label: 'Risk', value: builtin.risk },
+      { label: 'Account', value: builtin.accountLabel ?? 'Configured account' },
+      { label: 'Allows', value: builtin.can },
+      { label: 'Does not allow', value: builtin.cannot },
+    ];
+  }
+  return [
+    detailFromToolInput(toolInput, 'Capability', 'capabilityId', 160),
+    detailFromToolInput(toolInput, 'Account', 'accountLabel', 200),
+    detailFromToolInput(toolInput, 'Allows', 'can', 1000),
+    detailFromToolInput(toolInput, 'Does not allow', 'cannot', 1000),
+  ].filter((detail): detail is { label: string; value: string } =>
+    Boolean(detail),
+  );
+}
+
+function detailFromToolInput(
+  toolInput: Record<string, unknown>,
+  label: string,
+  key: string,
+  maxLen: number,
+): { label: string; value: string } | undefined {
+  const value = toTrimmedString(toolInput[key], { maxLen });
+  return value ? { label, value } : undefined;
 }
 
 // prettier-ignore

@@ -1,4 +1,9 @@
 import { evaluateAutonomousToolUse } from './tool-rule-matcher.js';
+import {
+  nonDurableBashLeafReason,
+  normalizeBashLeafRuleContent,
+  parseBashCommand,
+} from './bash-command-parser.js';
 import { isAdminMcpToolFullName } from './admin-mcp-tools.js';
 import { isKnownProjectedBrowserMcpToolName } from './agent-tool-references.js';
 import {
@@ -87,6 +92,10 @@ export interface ToolPolicyDecision {
   };
   recoveryAction?: string;
   matchedRule?: string;
+  closestRule?: {
+    rule: string;
+    reason: string;
+  };
 }
 
 const CAPABILITY_REQUEST_TOOLS = new Set([
@@ -151,8 +160,9 @@ export class ToolExecutionPolicyService {
         });
       }
       return decision(input.request, 'deny', {
-        reason: `Tool not on autonomous job allowlist: ${input.request.toolName}.`,
+        reason: autonomousDenyReason(input.request.toolName, toolPolicy.reason),
         recoveryAction: schedulerGrantRecovery(input.request),
+        closestRule: toolPolicy.closestRule,
       });
     }
 
@@ -168,6 +178,10 @@ export class ToolExecutionPolicyService {
           matchedRule: toolPolicy.matchedRule,
         });
       }
+      return decision(input.request, 'not_applicable', {
+        reason: selectedCapabilityMissReason(toolPolicy.reason),
+        closestRule: toolPolicy.closestRule,
+      });
     }
 
     return decision(input.request, 'not_applicable', {
@@ -293,6 +307,7 @@ function decision(
     reason: string;
     recoveryAction?: string;
     matchedRule?: string;
+    closestRule?: ToolPolicyDecision['closestRule'];
   },
 ): ToolPolicyDecision {
   return {
@@ -314,7 +329,24 @@ function decision(
       ? { recoveryAction: options.recoveryAction }
       : {}),
     ...(options.matchedRule ? { matchedRule: options.matchedRule } : {}),
+    ...(options.closestRule ? { closestRule: options.closestRule } : {}),
   };
+}
+
+function autonomousDenyReason(
+  toolName: string,
+  mismatchReason: string | undefined,
+): string {
+  const prefix = `Tool not on autonomous job allowlist: ${toolName}.`;
+  return mismatchReason ? `${prefix} ${mismatchReason}` : prefix;
+}
+
+function selectedCapabilityMissReason(
+  mismatchReason: string | undefined,
+): string {
+  return mismatchReason
+    ? `No canonical tool execution policy matched. ${mismatchReason}`
+    : 'No canonical tool execution policy matched.';
 }
 
 function classifyToolKind(toolName: string): ToolExecutionKind {
@@ -388,6 +420,11 @@ function schedulerGrantRecovery(request: ToolExecutionRequest): string {
   if (isKnownProjectedBrowserMcpToolName(request.toolName)) {
     return 'request_permission { "permissionKind": "tool", "toolName": "Browser", "toolCategory": "browser", "temporaryOnly": false, "reason": "This scheduled job needs browser access." }';
   }
+  if (request.toolName === 'Bash') {
+    const command = commandText(request.input);
+    const rule = command ? persistentBashRecoveryRule(command) : undefined;
+    return `request_permission { "permissionKind": "tool", "toolName": "Bash"${rule ? `, "rule": "${escapeJson(rule)}"` : ''}, "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }`;
+  }
   if (isAdminMcpToolFullName(request.toolName)) {
     return `request_permission { "permissionKind": "tool", "toolName": "${request.toolName}", "temporaryOnly": false, "reason": "This scheduled job needs ${request.toolName} access." }`;
   }
@@ -410,4 +447,13 @@ function thirdPartyMcpToolServerName(toolName: string): string | undefined {
 
 function escapeJson(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+}
+
+function persistentBashRecoveryRule(command: string): string | undefined {
+  const parsed = parseBashCommand(command);
+  if (!parsed.ok || parsed.leaves.length !== 1) return undefined;
+  const [leaf] = parsed.leaves;
+  if (!leaf || nonDurableBashLeafReason(leaf)) return undefined;
+  if (leaf.redirects.some((redirect) => redirect.destructive)) return undefined;
+  return normalizeBashLeafRuleContent(leaf);
 }

@@ -73,7 +73,7 @@ Cross-cutting:
 A grant is a tuple: `{ scope, rule, granted_by, granted_at, reason }`.
 
 - `scope`: `org | agent:<id> | run:<id>` — merged in that order, narrowest wins on conflict, additive otherwise. Scheduled jobs resolve the target agent scope at run time instead of carrying separate job grants.
-- `rule`: a string like `Bash(python3 /Users/.../scripts/dedup-append-lead.py:*)` or `WebFetch(https://api.github.com/*)`. Glob, not substring.
+- `rule`: a semantic capability entry such as `capability:google.sheets.write`, canonical `Browser`, an exact MyClaw admin tool, or a scoped Bash fallback rule such as `Bash(npm test *)`. Broad exact SDK/native request_permission grants and exact third-party MCP tool names are not durable authority. Browser remains the canonical whole browser capability.
 - Persisted in the agent capability stores and mirrored to readable `settings.yaml` capability entries.
 - `scheduler_get_job` returns the **effective** target-agent rule set for the job, not a job-local grant slice.
 

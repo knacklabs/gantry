@@ -47,7 +47,6 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     retry_backoff_ms: 5_000,
     max_consecutive_failures: 5,
     consecutive_failures: 0,
-    execution_mode: 'parallel',
     lease_run_id: null,
     lease_expires_at: null,
     pause_reason: null,

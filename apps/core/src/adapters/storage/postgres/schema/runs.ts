@@ -1,4 +1,11 @@
-import { index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import {
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 
 import {
   agentConfigVersionsPostgres,
@@ -17,6 +24,7 @@ export const agentRunsPostgres = pgTable(
   'agent_runs',
   {
     id: text('id').primaryKey(),
+    shortId: integer('short_id'),
     appId: text('app_id')
       .notNull()
       .references(() => appsPostgres.id, { onDelete: 'cascade' }),
@@ -65,6 +73,10 @@ export const agentRunsPostgres = pgTable(
       table.jobId,
       table.startedAt.desc().nullsLast(),
       table.createdAt.desc(),
+    ),
+    jobShortIdUnique: uniqueIndex('idx_agent_runs_job_short_id_unique').on(
+      table.jobId,
+      table.shortId,
     ),
     startedCreatedIdx: index('idx_agent_runs_started_created').on(
       table.startedAt.desc().nullsLast(),

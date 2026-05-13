@@ -62,13 +62,8 @@ import {
   RunAgentOptions,
 } from './agent-spawn-types.js';
 import { selectedMemoryIpcActionsFromToolRules } from '../shared/memory-ipc-actions.js';
-import {
-  BROWSER_ACTION_MCP_RULE_REJECTION_REASON,
-  BROWSER_PROJECTED_MCP_RULE_REJECTION_REASON,
-  isBrowserActionMcpToolRule,
-  isCanonicalBrowserCapabilityRule,
-  isProjectedBrowserMcpToolRule,
-} from '../shared/agent-tool-references.js';
+import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
+import { validateAgentToolRuntimeRules } from '../application/agents/agent-tool-runtime-rules.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 
 type RunnerAgentInput = AgentInput & {
@@ -112,6 +107,18 @@ function pickSafeHostEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env;
 }
 
+function validateRunnerAllowedTools(rules: readonly string[]): string | null {
+  try {
+    validateAgentToolRuntimeRules({
+      rules,
+      errorSubject: 'Configured agent tool',
+    });
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
 export async function spawnAgent(
   group: ConversationRoute,
   input: AgentInput,
@@ -150,24 +157,14 @@ export async function spawnAgent(
   const effectiveModelEntry =
     (resolvedModel?.ok ? resolvedModel.entry : undefined) ??
     findModelByRunnerModel(effectiveModel);
-  const rawBrowserActionRule = input.allowedTools?.find(
-    isBrowserActionMcpToolRule,
+  const allowedToolValidationError = validateRunnerAllowedTools(
+    input.allowedTools ?? [],
   );
-  if (rawBrowserActionRule) {
+  if (allowedToolValidationError) {
     return {
       status: 'error',
       result: null,
-      error: `Configured agent tool ${rawBrowserActionRule} is invalid. ${BROWSER_ACTION_MCP_RULE_REJECTION_REASON}`,
-    };
-  }
-  const projectedBrowserRule = input.allowedTools?.find(
-    isProjectedBrowserMcpToolRule,
-  );
-  if (projectedBrowserRule) {
-    return {
-      status: 'error',
-      result: null,
-      error: `Configured agent tool ${projectedBrowserRule} is invalid. ${BROWSER_PROJECTED_MCP_RULE_REJECTION_REASON}`,
+      error: allowedToolValidationError,
     };
   }
   const promptProfileService = getPromptProfileService();
@@ -251,7 +248,7 @@ export async function spawnAgent(
         'Host runtime is missing required runner files. Reinstall MyClaw from npm and restart.',
     };
   }
-  let claudeRuntimeMaterialization: Awaited<
+  let llmRuntimeMaterialization: Awaited<
     ReturnType<typeof materializeClaudeRuntime>
   >;
   let packageRoot = '';
@@ -280,7 +277,7 @@ export async function spawnAgent(
         ),
       );
     }
-    claudeRuntimeMaterialization = await materializeClaudeRuntime({
+    llmRuntimeMaterialization = await materializeClaudeRuntime({
       groupDir,
       globalDir: hostRuntime.globalDir,
       baseTempDir: path.join(groupDir, '.llm-runtime'),
@@ -338,6 +335,7 @@ export async function spawnAgent(
   const modelCredentialEnv = projectClaudeModelCredentialEnv(
     hostCredentials.env,
   );
+  const { claudeConfigDir } = llmRuntimeMaterialization;
   const env: NodeJS.ProcessEnv = {
     ...pickSafeHostEnv(process.env),
     TZ: TIMEZONE,
@@ -388,7 +386,7 @@ export async function spawnAgent(
       PERMISSION_APPROVAL_TIMEOUT_MS,
     ),
     MYCLAW_PERMISSION_TIMEOUT_MS: String(PERMISSION_APPROVAL_TIMEOUT_MS),
-    CLAUDE_CONFIG_DIR: claudeRuntimeMaterialization.claudeConfigDir,
+    CLAUDE_CONFIG_DIR: claudeConfigDir,
   };
   applyAgentEgressNoProxyEnv(env);
   // Job-level model overrides group-level model.
@@ -424,11 +422,8 @@ export async function spawnAgent(
   }
   env[PROTECTED_FILESYSTEM_PATHS_ENV] = JSON.stringify(
     mcpConfigPath
-      ? [
-          ...claudeRuntimeMaterialization.protectedFilesystemPaths,
-          mcpConfigPath,
-        ]
-      : claudeRuntimeMaterialization.protectedFilesystemPaths,
+      ? [...llmRuntimeMaterialization.protectedFilesystemPaths, mcpConfigPath]
+      : llmRuntimeMaterialization.protectedFilesystemPaths,
   );
 
   const runtimeDetails = [
@@ -500,7 +495,7 @@ export async function spawnAgent(
       });
     }
     cleanupRunnerMcpConfigFile(mcpConfigPath);
-    claudeRuntimeMaterialization.cleanup();
+    llmRuntimeMaterialization.cleanup();
     revokeIpcResponseSigningKey(
       ipcAuth.responseKeyId,
       group.folder,

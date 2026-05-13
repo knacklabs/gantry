@@ -66,6 +66,8 @@ const DISALLOWED_TASK_FIELDS = [
   'retry_backoff_ms',
   'max_consecutive_failures',
   'execution_mode',
+  'executionMode',
+  'serialize',
   'run_id',
   'event_type',
   'group_folder',
@@ -85,6 +87,8 @@ const UNSUPPORTED_SCHEDULER_JOB_TASK_FIELDS = [
   'sessionId',
   'groupScope',
   'allowedTools',
+  'executionMode',
+  'serialize',
 ] as const;
 
 function isSchedulerJobMutationTask(type: string): boolean {
@@ -304,12 +308,10 @@ export function parseTaskIpcData(
   );
   const groupScope = toTrimmedString(raw.groupScope, { maxLen: 128 });
   const silent = toOptionalBoolean(raw.silent);
-  const serialize = toOptionalBoolean(raw.serialize);
-  const executionModeRaw = toTrimmedString(raw.executionMode, { maxLen: 32 });
-  const executionMode =
-    executionModeRaw === 'parallel' || executionModeRaw === 'serialized'
-      ? executionModeRaw
-      : undefined;
+  const confirm = toOptionalBoolean(raw.confirm);
+  const confirmationToken = toTrimmedString(raw.confirmationToken, {
+    maxLen: 512,
+  });
   const createdByRaw = toTrimmedString(raw.createdBy, { maxLen: 16 });
   const statuses = toOptionalStringArray(raw.statuses, 50, 64);
   const runId = toTrimmedString(raw.runId, { maxLen: 128 });
@@ -384,8 +386,8 @@ export function parseTaskIpcData(
     parsed.threadId = threadBinding.payloadThreadId;
   }
   if (silent !== undefined) parsed.silent = silent;
-  if (serialize !== undefined) parsed.serialize = serialize;
-  if (executionMode !== undefined) parsed.executionMode = executionMode;
+  if (confirm !== undefined) parsed.confirm = confirm;
+  if (confirmationToken) parsed.confirmationToken = confirmationToken;
   if (createdByRaw === 'agent' || createdByRaw === 'human') {
     parsed.createdBy = createdByRaw;
   }

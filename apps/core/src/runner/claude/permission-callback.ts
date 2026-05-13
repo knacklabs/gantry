@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { nowIso, nowMs, sleep } from '../../shared/time/datetime.js';
+import { formatDuration } from '../../shared/human-format.js';
 import { isPlainObject } from '../../shared/object.js';
 import { hasValidIpcResponseSignature } from './ipc-signing.js';
 import { createSignedIpcRequestEnvelope } from './ipc-signing.js';
@@ -29,6 +30,10 @@ export async function requestPermissionApproval(options: {
   displayName?: string;
   description?: string;
   decisionReason?: string;
+  closestRule?: {
+    rule: string;
+    reason: string;
+  };
   blockedPath?: string;
   toolInput?: unknown;
   toolUseID?: string;
@@ -41,6 +46,14 @@ export async function requestPermissionApproval(options: {
     const appId = options.appId?.trim() || APP_ID || DEFAULT_RUNNER_APP_ID;
     const agentId = options.agentId?.trim() || AGENT_ID;
     const targetJid = options.targetJid?.trim() || CHAT_JID;
+    if (PERMISSION_REQUEST_TIMEOUT_MS <= 0) {
+      return {
+        approved: false,
+        reason:
+          'Autonomous permission approval is disabled for unattended jobs. The host denied this tool call immediately; approve a persistent capability rule before the next scheduled run.',
+        decisionClassification: 'user_reject',
+      };
+    }
     const groupIpcDir = resolveGroupIpcDir(options.groupFolder);
     const permissionRequestsDir = path.join(groupIpcDir, 'permission-requests');
     const permissionResponsesDir = path.join(
@@ -72,6 +85,7 @@ export async function requestPermissionApproval(options: {
       ...(options.decisionReason
         ? { decisionReason: options.decisionReason }
         : {}),
+      ...(options.closestRule ? { closestRule: options.closestRule } : {}),
       ...(options.blockedPath ? { blockedPath: options.blockedPath } : {}),
       ...(isPlainObject(options.toolInput)
         ? { toolInput: options.toolInput }
@@ -158,6 +172,18 @@ export async function requestPermissionApproval(options: {
                 reason: 'Permission response signature verification failed',
               };
             }
+            const mode =
+              responsePayload.mode === 'allow_once' ||
+              responsePayload.mode === 'allow_persistent_rule' ||
+              responsePayload.mode === 'cancel'
+                ? responsePayload.mode
+                : undefined;
+            const decisionClassification =
+              responsePayload.decisionClassification === 'user_temporary' ||
+              responsePayload.decisionClassification === 'user_permanent' ||
+              responsePayload.decisionClassification === 'user_reject'
+                ? responsePayload.decisionClassification
+                : undefined;
             return {
               approved: responsePayload.approved as boolean,
               decidedBy:
@@ -168,19 +194,13 @@ export async function requestPermissionApproval(options: {
                 typeof responsePayload.reason === 'string'
                   ? responsePayload.reason
                   : undefined,
-              mode:
-                typeof responsePayload.mode === 'string'
-                  ? (responsePayload.mode as never)
-                  : undefined,
+              mode,
               updatedPermissions: Array.isArray(
                 responsePayload.updatedPermissions,
               )
                 ? (responsePayload.updatedPermissions as never)
                 : undefined,
-              decisionClassification:
-                typeof responsePayload.decisionClassification === 'string'
-                  ? (responsePayload.decisionClassification as never)
-                  : undefined,
+              decisionClassification,
             };
           }
           return { approved: false, reason: 'Malformed permission response' };
@@ -198,7 +218,7 @@ export async function requestPermissionApproval(options: {
     }
     return {
       approved: false,
-      reason: `Timed out waiting ${PERMISSION_REQUEST_TIMEOUT_MS}ms for host permission approval. The host watchdog denied this tool call; retry only if the channel is healthy or request a persistent capability rule.`,
+      reason: `Timed out waiting ${formatDuration(PERMISSION_REQUEST_TIMEOUT_MS)} for host permission approval. The host watchdog denied this tool call; retry only if the channel is healthy or request a persistent capability rule.`,
       decisionClassification: 'user_reject',
     };
   } catch (err) {

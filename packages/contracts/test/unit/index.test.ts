@@ -338,6 +338,18 @@ describe('contracts package', () => {
       ...sdkCreatePayload,
       threadId: 'legacy-thread',
     });
+    expectInvalid(CreateJobRequestSchema, {
+      ...sdkCreatePayload,
+      executionMode: 'serialized',
+    });
+    expectInvalid(CreateJobRequestSchema, {
+      ...sdkCreatePayload,
+      execution_mode: 'serialized',
+    });
+    expectInvalid(CreateJobRequestSchema, {
+      ...sdkCreatePayload,
+      serialize: true,
+    });
 
     const sdkUpdatePayload = {
       modelAlias: null,
@@ -381,6 +393,15 @@ describe('contracts package', () => {
     expectInvalid(UpdateJobRequestSchema, {
       threadId: 'legacy-thread',
     });
+    expectInvalid(UpdateJobRequestSchema, {
+      executionMode: 'serialized',
+    });
+    expectInvalid(UpdateJobRequestSchema, {
+      execution_mode: 'serialized',
+    });
+    expectInvalid(UpdateJobRequestSchema, {
+      serialize: true,
+    });
     expect(
       JobResponseSchema.parse({
         jobId: 'job-1',
@@ -413,7 +434,6 @@ describe('contracts package', () => {
           leaseExpiresAt: null,
           nextAction: 'Approve Browser access, then rerun the job.',
         },
-        executionMode: 'parallel',
         modelAlias: null,
         modelProfileId: null,
         model: null,
@@ -444,7 +464,6 @@ describe('contracts package', () => {
       notificationRoutes: [],
       nextRun: iso,
       lastRun: null,
-      executionMode: 'parallel',
       modelAlias: null,
       modelProfileId: null,
       model: null,
@@ -472,7 +491,6 @@ describe('contracts package', () => {
       nextRun: iso,
       lastRun: null,
       staleness: 'delayed',
-      executionMode: 'parallel',
       modelAlias: null,
       modelProfileId: null,
       model: null,
@@ -489,7 +507,6 @@ describe('contracts package', () => {
       notificationRoutes: [],
       nextRun: iso,
       lastRun: null,
-      executionMode: 'parallel',
       modelAlias: null,
       modelProfileId: null,
       model: null,

@@ -116,8 +116,8 @@ describe('SettingsDesiredStateService', () => {
 
     expect([...errors].sort()).toEqual(
       [
-        'agents.main_agent.capabilities.tool_ids contains unavailable tool: tool:read',
-        'agents.main_agent.capabilities.tool_ids contains unavailable tool: *',
+        'agents.main_agent.capabilities.tool_ids contains unavailable tool *: Global wildcard tool rule is not allowed.',
+        'agents.main_agent.capabilities.tool_ids contains unavailable tool tool:read: Tool rule must be readable; use a tool name or scoped Bash rule, not an internal tool ID.',
       ].sort(),
     );
   });

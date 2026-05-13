@@ -22,6 +22,7 @@ import type {
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import type { RemoteMcpDnsValidationCache } from '../application/mcp/mcp-server-policy.js';
 import type { SessionMemoryCollector } from '../domain/ports/session-memory-collector.js';
+import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 
 export type GroupProcessingRepository = RuntimeAgentSessionRepository &
   RuntimeMessageRepository;
@@ -111,6 +112,9 @@ export interface GroupProcessingDeps {
   getMcpDnsValidationCache?: () => RemoteMcpDnsValidationCache | undefined;
   getSkillArtifactStore?: () => SkillArtifactStore | undefined;
   collectSessionMemory?: SessionMemoryCollector;
+  publishRuntimeEvent?: (
+    event: RuntimeEventPublishInput,
+  ) => Promise<void> | void;
   opsRepository?: GroupProcessingRepository;
   getRuntimeRepository?: () => GroupProcessingRepository;
 }

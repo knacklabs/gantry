@@ -24,6 +24,8 @@ interface RunnerRecord {
     streamEnded?: boolean;
     permissionRequest?: Record<string, unknown>;
     permissionDecision?: Record<string, unknown>;
+    permissionDecisions?: Record<string, Record<string, unknown>>;
+    primeToolDecisions?: Record<string, Record<string, unknown>>;
     tools?: string[];
     allowedTools?: string[];
     sdkEnv?: Record<string, string>;
@@ -67,6 +69,7 @@ function createRunnerFixture(): {
   const runnerDir = path.join(root, 'runner');
   const runnerClaudeDir = path.join(runnerDir, 'claude');
   const infrastructureLoggingDir = path.join(root, 'infrastructure', 'logging');
+  const domainEventsDir = path.join(root, 'domain', 'events');
   const sharedDir = path.join(root, 'shared');
   const sharedTimeDir = path.join(sharedDir, 'time');
   const runnerPath = path.join(runnerClaudeDir, 'index.ts');
@@ -84,6 +87,7 @@ function createRunnerFixture(): {
   fs.mkdirSync(runnerDir, { recursive: true });
   fs.mkdirSync(runnerClaudeDir, { recursive: true });
   fs.mkdirSync(infrastructureLoggingDir, { recursive: true });
+  fs.mkdirSync(domainEventsDir, { recursive: true });
   fs.mkdirSync(sharedDir, { recursive: true });
   fs.mkdirSync(sharedTimeDir, { recursive: true });
   for (const file of fs.readdirSync(
@@ -117,12 +121,20 @@ function createRunnerFixture(): {
     path.join(infrastructureLoggingDir, 'logger.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/domain/events/runtime-event-types.ts'),
+    path.join(domainEventsDir, 'runtime-event-types.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/time/datetime.ts'),
     path.join(sharedTimeDir, 'datetime.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/no-proxy.ts'),
     path.join(sharedDir, 'no-proxy.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/neutral-ca-trust-env.ts'),
+    path.join(sharedDir, 'neutral-ca-trust-env.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/object.ts'),
@@ -143,6 +155,18 @@ function createRunnerFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/agent-tool-references.ts'),
     path.join(sharedDir, 'agent-tool-references.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/bash-command-parser.ts'),
+    path.join(sharedDir, 'bash-command-parser.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/semantic-capability-ids.ts'),
+    path.join(sharedDir, 'semantic-capability-ids.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/semantic-capabilities.ts'),
+    path.join(sharedDir, 'semantic-capabilities.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/memory-ipc-actions.ts'),
@@ -181,8 +205,20 @@ function createRunnerFixture(): {
     path.join(sharedDir, 'permission-tool-rules.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/persistent-permission-rules.ts'),
+    path.join(sharedDir, 'persistent-permission-rules.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/sensitive-material.ts'),
+    path.join(sharedDir, 'sensitive-material.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/permission-timeout.ts'),
     path.join(sharedDir, 'permission-timeout.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/human-format.ts'),
+    path.join(sharedDir, 'human-format.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/myclaw-home.ts'),
@@ -286,6 +322,35 @@ export async function* query({ prompt, options }) {
     );
   }
 
+  if (process.env.TEST_AGENT_BACKGROUND_INPUT === '1') {
+    call.permissionDecision = await options.canUseTool(
+      'Agent',
+      { prompt: 'delegate', run_in_background: false },
+      {
+        signal: new AbortController().signal,
+        title: 'Run subagent',
+        displayName: 'Agent',
+        description: 'Needs subagent access',
+        decisionReason: 'Agent wants a subagent',
+      },
+    );
+  }
+
+  if (process.env.TEST_AUTONOMOUS_PERMISSION_REQUEST) {
+    call.permissionDecision = await options.canUseTool(
+      process.env.TEST_PERMISSION_TOOL_NAME || 'Bash',
+      { cmd: 'npm test', apiToken: 'secret-token' },
+      {
+        signal: new AbortController().signal,
+        title: 'Run command',
+        displayName: process.env.TEST_PERMISSION_TOOL_NAME || 'Bash',
+        description: 'Needs shell access',
+        decisionReason: 'Agent wants to verify tests',
+        blockedPath: process.env.MYCLAW_WORKSPACE_GROUP_DIR,
+      },
+    );
+  }
+
   if (process.env.TEST_PERMISSION_DECISION) {
     const permissionToolName = process.env.TEST_PERMISSION_TOOL_NAME || 'Bash';
     const permissionInput = process.env.TEST_PERMISSION_SCOPE
@@ -301,6 +366,23 @@ export async function* query({ prompt, options }) {
         description: 'Needs shell access',
         decisionReason: 'Agent wants to verify tests',
         blockedPath: process.env.MYCLAW_WORKSPACE_GROUP_DIR,
+        ...(process.env.TEST_PERMISSION_SDK_SUGGESTION_TOOL_NAME
+          ? {
+              suggestions: [
+                {
+                  type: 'addRules',
+                  behavior: 'allow',
+                  destination: 'session',
+                  rules: [
+                    {
+                      toolName:
+                        process.env.TEST_PERMISSION_SDK_SUGGESTION_TOOL_NAME,
+                    },
+                  ],
+                },
+              ],
+            }
+          : {}),
       },
     );
     const requestDir = path.join(process.env.MYCLAW_IPC_DIR, 'permission-requests');
@@ -340,6 +422,87 @@ export async function* query({ prompt, options }) {
     call.permissionDecision = await decisionPromise;
   }
 
+  if (process.env.TEST_SDK_NETWORK_AFTER_BASH === '1') {
+    const bashDecision = await options.canUseTool(
+      'Bash',
+      { cmd: process.env.TEST_TOOL_USE_CMD || 'npm test --runInBand' },
+      {
+        signal: new AbortController().signal,
+        title: 'Run command',
+        displayName: 'Bash',
+        description: 'Needs shell access',
+        decisionReason: 'Agent wants to run a command',
+        blockedPath: process.env.MYCLAW_WORKSPACE_GROUP_DIR,
+        toolUseID: 'toolu_bash_1',
+      },
+    );
+    const networkDecision = await options.canUseTool(
+      'SandboxNetworkAccess',
+      { host: 'registry.npmjs.org' },
+      {
+        signal: new AbortController().signal,
+        title: 'Network request outside of sandbox',
+        displayName: 'SandboxNetworkAccess',
+        description: 'Allow network connection to registry.npmjs.org?',
+        decisionReason: 'Sandboxed Bash command attempted outbound network access',
+        toolUseID: 'toolu_network_1',
+      },
+    );
+    const secondNetworkDecision =
+      process.env.TEST_SECOND_SDK_NETWORK_AFTER_BASH === '1'
+        ? await options.canUseTool(
+            'SandboxNetworkAccess',
+            { host: 'example.com' },
+            {
+              signal: new AbortController().signal,
+              title: 'Network request outside of sandbox',
+              displayName: 'SandboxNetworkAccess',
+              description: 'Allow network connection to example.com?',
+              decisionReason:
+                'Sandboxed Bash command attempted outbound network access',
+              toolUseID: 'toolu_network_2',
+            },
+          )
+        : undefined;
+    call.permissionDecisions = {
+      bash: bashDecision,
+      network: networkDecision,
+      ...(secondNetworkDecision ? { network2: secondNetworkDecision } : {}),
+    };
+  }
+
+  if (process.env.TEST_PRIME_TWO_TOOL_ATTEMPTS === '1') {
+    const bashDecision = await options.canUseTool(
+      'Bash',
+      { cmd: 'npm test --runInBand' },
+      {
+        signal: new AbortController().signal,
+        title: 'Run command',
+        displayName: 'Bash',
+        description: 'Needs shell access',
+        decisionReason: 'Agent wants to verify tests',
+        blockedPath: process.env.MYCLAW_WORKSPACE_GROUP_DIR,
+        toolUseID: 'toolu_prime_bash',
+      },
+    );
+    const browserDecision = await options.canUseTool(
+      'mcp__myclaw__browser_navigate',
+      { url: 'https://example.com' },
+      {
+        signal: new AbortController().signal,
+        title: 'Navigate browser',
+        displayName: 'browser_navigate',
+        description: 'Needs browser access',
+        decisionReason: 'Agent wants to inspect a page',
+        toolUseID: 'toolu_prime_browser',
+      },
+    );
+    call.primeToolDecisions = {
+      bash: bashDecision,
+      browser: browserDecision,
+    };
+  }
+
 	  if (process.env.TEST_TOOL_USE_ONLY) {
 	    if (process.env.TEST_LIVE_TOOL_RULE) {
 	      const runHandle = process.env.MYCLAW_AGENT_RUN_HANDLE;
@@ -362,6 +525,10 @@ export async function* query({ prompt, options }) {
         blockedPath: process.env.MYCLAW_WORKSPACE_GROUP_DIR,
       },
     );
+  }
+
+  if (process.env.TEST_WAIT_FOR_HEARTBEAT === '1') {
+    await delay(16000);
   }
 
   if (typeof prompt === 'string') {
@@ -422,6 +589,15 @@ export async function* query({ prompt, options }) {
   if (process.env.TEST_COMPACT_BOUNDARY === '1') {
     yield { type: 'system', subtype: 'compact_boundary', uuid: 'compact-1' };
   }
+  if (process.env.TEST_TASK_NOTIFICATION === '1') {
+    yield {
+      type: 'system',
+      subtype: 'task_notification',
+      task_id: 'task-1',
+      status: 'completed',
+      summary: 'subagent done',
+    };
+  }
   yield { type: 'result', subtype: 'success', result: 'runner-ok' };
 
   if (process.env.TEST_EXIT_AFTER_QUERY === '1') {
@@ -478,6 +654,12 @@ async function runRunner(
         MYCLAW_WORKSPACE_GROUP_DIR: path.join(fixture.root, 'group'),
         MYCLAW_WORKSPACE_EXTRA_DIR: path.join(fixture.root, 'extra'),
         TEST_SDK_RECORD_PATH: fixture.recordPath,
+        ...(typeof input.jobId === 'string'
+          ? { MYCLAW_JOB_ID: input.jobId }
+          : {}),
+        ...(typeof input.runId === 'string'
+          ? { MYCLAW_JOB_RUN_ID: input.runId }
+          : {}),
         ...extraEnv,
       },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -518,6 +700,15 @@ function readRecord(recordPath: string): RunnerRecord {
   return JSON.parse(fs.readFileSync(recordPath, 'utf-8')) as RunnerRecord;
 }
 
+function readRunnerOutputs(stdout: string): Array<Record<string, unknown>> {
+  const matches = [
+    ...stdout.matchAll(
+      /---MYCLAW_OUTPUT_START---\n([\s\S]*?)\n---MYCLAW_OUTPUT_END---/g,
+    ),
+  ];
+  return matches.map((match) => JSON.parse(match[1] ?? '{}'));
+}
+
 const RUNNER_IPC_TEST_TIMEOUT_MS = 35_000;
 
 describe('agent-runner IPC lifecycle', () => {
@@ -553,7 +744,7 @@ describe('agent-runner IPC lifecycle', () => {
         },
       );
 
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.stderr).toBe(0);
       const sdkEnv = readRecord(fixture.recordPath).calls[0]?.sdkEnv || {};
       expect(sdkEnv.ANTHROPIC_BASE_URL).toBe('https://broker.local/anthropic');
       expect(sdkEnv.ANTHROPIC_API_KEY).toBeUndefined();
@@ -563,6 +754,14 @@ describe('agent-runner IPC lifecycle', () => {
       expect(sdkEnv.NODE_USE_ENV_PROXY).toBe('1');
       expect(sdkEnv.GIT_HTTP_PROXY_AUTHMETHOD).toBeUndefined();
       expect(sdkEnv.NODE_EXTRA_CA_CERTS).toBe('/tmp/onecli-ca.pem');
+      expect(sdkEnv.SSL_CERT_FILE).toBe('/tmp/onecli-ca.pem');
+      expect(sdkEnv.REQUESTS_CA_BUNDLE).toBe('/tmp/onecli-ca.pem');
+      expect(sdkEnv.CURL_CA_BUNDLE).toBe('/tmp/onecli-ca.pem');
+      expect(sdkEnv.GIT_SSL_CAINFO).toBe('/tmp/onecli-ca.pem');
+      expect(sdkEnv.PIP_CERT).toBe('/tmp/onecli-ca.pem');
+      expect(sdkEnv.AWS_CA_BUNDLE).toBe('/tmp/onecli-ca.pem');
+      expect(sdkEnv.CARGO_HTTP_CAINFO).toBe('/tmp/onecli-ca.pem');
+      expect(sdkEnv.DENO_CERT).toBe('/tmp/onecli-ca.pem');
       expect(sdkEnv.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1');
       expect(sdkEnv.NO_PROXY?.split(',')).toEqual(
         expect.arrayContaining([
@@ -588,6 +787,118 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
+    'forces native Agent tool calls to run in background',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_AGENT_BACKGROUND_INPUT: '1',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionDecision).toMatchObject({
+        behavior: 'allow',
+        updatedInput: {
+          prompt: 'delegate',
+          run_in_background: true,
+        },
+      });
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'records prime-mode native Agent attempts as background work',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          runMode: 'prime',
+          appId: 'app-1',
+          agentId: 'agent-1',
+          jobId: 'job-1',
+          runId: 'run-1',
+        }),
+        {
+          TEST_AGENT_BACKGROUND_INPUT: '1',
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      const outputs = readRunnerOutputs(result.stdout);
+      const attemptEvents = outputs.flatMap((output) =>
+        Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
+      ) as Array<{ eventType?: string; payload?: Record<string, unknown> }>;
+      expect(attemptEvents).toEqual([
+        expect.objectContaining({
+          eventType: 'permission.requested',
+          payload: expect.objectContaining({
+            requestedToolName: 'Agent',
+            toolInput: {
+              prompt: 'delegate',
+              run_in_background: true,
+            },
+          }),
+        }),
+      ]);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'emits SDK task notifications as structured runtime events',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          appId: 'app-one',
+          agentId: 'agent:team',
+          runId: 'run-1',
+          jobId: 'job-1',
+          threadId: 'thread-1',
+        }),
+        {
+          TEST_TASK_NOTIFICATION: '1',
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      const outputs = readRunnerOutputs(result.stdout);
+      expect(outputs).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            runtimeEvents: [
+              expect.objectContaining({
+                eventType: 'task.notification',
+                appId: 'app-one',
+                agentId: 'agent:team',
+                runId: 'run-1',
+                jobId: 'job-1',
+                conversationId: 'tg:team',
+                threadId: 'thread-1',
+                payload: {
+                  taskId: 'task-1',
+                  status: 'completed',
+                  summary: 'subagent done',
+                },
+              }),
+            ],
+          }),
+        ]),
+      );
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
     'enables SDK filesystem sandboxing with protected deny-write paths',
     async () => {
       const fixture = createRunnerFixture();
@@ -602,7 +913,7 @@ describe('agent-runner IPC lifecycle', () => {
         ]),
       });
 
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode, result.stderr).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.sandbox).toMatchObject({
         enabled: true,
@@ -827,6 +1138,91 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
+    'denies and surfaces every attempted tool in prime mode',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          runMode: 'prime',
+          appId: 'app-1',
+          agentId: 'agent-1',
+          jobId: 'job-1',
+          runId: 'run-1',
+        }),
+        {
+          TEST_PRIME_TWO_TOOL_ATTEMPTS: '1',
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.primeToolDecisions).toEqual({
+        bash: expect.objectContaining({
+          behavior: 'deny',
+          interrupt: false,
+        }),
+        browser: expect.objectContaining({
+          behavior: 'deny',
+          interrupt: false,
+        }),
+      });
+      expect(
+        fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
+      ).toBe(false);
+
+      const outputs = readRunnerOutputs(result.stdout);
+      const attemptEvents = outputs.flatMap((output) =>
+        Array.isArray(output.runtimeEvents) ? output.runtimeEvents : [],
+      ) as Array<{ eventType?: string; payload?: Record<string, unknown> }>;
+      expect(attemptEvents).toHaveLength(2);
+      expect(attemptEvents.map((event) => event.eventType)).toEqual([
+        'permission.requested',
+        'permission.requested',
+      ]);
+      expect(attemptEvents.map((event) => event.payload?.toolName)).toEqual([
+        'Bash',
+        'Browser',
+      ]);
+
+      const finalOutput = outputs.at(-1);
+      expect(finalOutput?.primeToolAttempts).toEqual([
+        expect.objectContaining({
+          toolName: 'Bash',
+          suggestions: [
+            {
+              type: 'addRules',
+              behavior: 'allow',
+              destination: 'session',
+              rules: [
+                {
+                  toolName: 'Bash',
+                  ruleContent: 'npm test --runInBand',
+                },
+              ],
+            },
+          ],
+        }),
+        expect.objectContaining({
+          requestedToolName: 'mcp__myclaw__browser_navigate',
+          toolName: 'Browser',
+          suggestions: [
+            {
+              type: 'addRules',
+              behavior: 'allow',
+              destination: 'session',
+              rules: [{ toolName: 'Browser' }],
+            },
+          ],
+        }),
+      ]);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
     'removes stale _close at startup before starting the SDK query',
     async () => {
       const fixture = createRunnerFixture();
@@ -957,6 +1353,37 @@ describe('agent-runner IPC lifecycle', () => {
 
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('"compactBoundary":true');
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'emits scheduled job heartbeat runtime events during quiet query windows',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          appId: 'app-1',
+          agentId: 'agent-1',
+          isScheduledJob: true,
+          jobId: 'job-1',
+          runId: 'run-1',
+          threadId: 'thread-1',
+        }),
+        {
+          TEST_WAIT_FOR_HEARTBEAT: '1',
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode, result.stderr).toBe(0);
+      expect(result.stdout).toContain('"eventType":"job.heartbeat"');
+      expect(result.stdout).toContain('"jobId":"job-1"');
+      expect(result.stdout).toContain('"runId":"run-1"');
+      expect(result.stdout).toContain('"pendingPermissionRequests":0');
+      expect(result.stdout).toContain('"totalToolCalls":0');
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -1124,7 +1551,7 @@ describe('agent-runner IPC lifecycle', () => {
           rules: [
             {
               toolName: 'Bash',
-              ruleContent: call.permissionRequest.blockedPath,
+              ruleContent: 'npm test',
             },
           ],
         },
@@ -1141,13 +1568,13 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'synthesizes persistent permission suggestions from host blockedPath, not agent input',
+    'synthesizes exact persistent permission suggestions for MyClaw admin tools',
     async () => {
       const fixture = createRunnerFixture();
 
       const result = await runRunner(fixture, baseInput(), {
         TEST_PERMISSION_DECISION: 'approve',
-        TEST_PERMISSION_TOOL_NAME: 'mcp__internal__deploy_preview',
+        TEST_PERMISSION_TOOL_NAME: 'mcp__myclaw__service_restart',
         TEST_PERMISSION_SCOPE: 'environment:staging',
         TEST_EXIT_AFTER_QUERY: '1',
       });
@@ -1156,18 +1583,13 @@ describe('agent-runner IPC lifecycle', () => {
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.permissionRequest).toEqual(
         expect.objectContaining({
-          toolName: 'mcp__internal__deploy_preview',
+          toolName: 'mcp__myclaw__service_restart',
           suggestions: [
             {
               type: 'addRules',
               behavior: 'allow',
               destination: 'session',
-              rules: [
-                {
-                  toolName: 'mcp__internal__deploy_preview',
-                  ruleContent: call.permissionRequest.blockedPath,
-                },
-              ],
+              rules: [{ toolName: 'mcp__myclaw__service_restart' }],
             },
           ],
         }),
@@ -1176,6 +1598,38 @@ describe('agent-runner IPC lifecycle', () => {
         behavior: 'allow',
         updatedInput: { scope: 'environment:staging' },
       });
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'canonicalizes interactive SDK permission suggestions to exact public tools',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput(), {
+        TEST_PERMISSION_DECISION: 'approve',
+        TEST_PERMISSION_TOOL_NAME: 'mcp__myclaw__browser_navigate',
+        TEST_PERMISSION_SDK_SUGGESTION_TOOL_NAME:
+          'mcp__myclaw__browser_navigate',
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionRequest).toEqual(
+        expect.objectContaining({
+          toolName: 'Browser',
+          suggestions: [
+            {
+              type: 'addRules',
+              behavior: 'allow',
+              destination: 'session',
+              rules: [{ toolName: 'Browser' }],
+            },
+          ],
+        }),
+      );
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -1265,7 +1719,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'scheduled jobs allow scoped Bash rules without writing permission IPC',
+    'scheduled jobs allow matching scoped Bash without writing permission IPC',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -1297,7 +1751,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'scheduled jobs request permission for nonmatching scoped Bash rules and resume after approval',
+    'adds neutral CA trust aliases to allowed Bash tool calls',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -1306,9 +1760,139 @@ describe('agent-runner IPC lifecycle', () => {
         baseInput({
           isScheduledJob: true,
           jobId: 'job-1',
-          allowedTools: ['Bash(dedup-append-lead.py *)'],
+          allowedTools: ['Bash(gog sheets *)'],
+          modelCredentialEnv: {
+            NODE_EXTRA_CA_CERTS: '/tmp/onecli-ca.pem',
+          },
         }),
         {
+          TEST_TOOL_USE_ONLY: 'Bash',
+          TEST_TOOL_USE_CMD: 'gog sheets get budget',
+        },
+      );
+
+      const trustPrefix = [
+        "SSL_CERT_FILE='/tmp/onecli-ca.pem'",
+        "REQUESTS_CA_BUNDLE='/tmp/onecli-ca.pem'",
+        "CURL_CA_BUNDLE='/tmp/onecli-ca.pem'",
+        "GIT_SSL_CAINFO='/tmp/onecli-ca.pem'",
+        "PIP_CERT='/tmp/onecli-ca.pem'",
+        "AWS_CA_BUNDLE='/tmp/onecli-ca.pem'",
+        "CARGO_HTTP_CAINFO='/tmp/onecli-ca.pem'",
+        "DENO_CERT='/tmp/onecli-ca.pem'",
+      ].join(' ');
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionDecision).toEqual({
+        behavior: 'allow',
+        updatedInput: {
+          cmd: `${trustPrefix} gog sheets get budget`,
+        },
+      });
+      expect(
+        fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
+      ).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'suppresses SDK sandbox network prompts after MyClaw allowed scoped Bash',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          isScheduledJob: true,
+          jobId: 'job-1',
+          allowedTools: ['Bash(npm test *)'],
+        }),
+        {
+          TEST_SDK_NETWORK_AFTER_BASH: '1',
+          TEST_TOOL_USE_CMD: 'npm test --runInBand',
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('"eventType":"sandbox.blocked"');
+      expect(result.stdout).toContain('sdk_network_gate_suppressed');
+      expect(result.stdout).toContain('"networkToolUseID":"toolu_network_1"');
+      expect(result.stdout).toContain('"bashToolUseID":"toolu_bash_1"');
+      expect(result.stdout).toContain('"commandHash"');
+      expect(result.stdout).toContain('"hostHash"');
+      expect(result.stdout).not.toContain('registry.npmjs.org');
+      expect(result.stdout).not.toContain('npm test --runInBand');
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionDecisions?.bash).toEqual(
+        expect.objectContaining({
+          behavior: 'allow',
+        }),
+      );
+      expect(call?.permissionDecisions?.network).toEqual({
+        behavior: 'allow',
+        updatedInput: { host: 'registry.npmjs.org' },
+      });
+      expect(
+        fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
+      ).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'suppresses only one SDK sandbox network prompt per allowed Bash invocation',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          isScheduledJob: true,
+          jobId: 'job-1',
+          allowedTools: ['Bash(npm test *)'],
+        }),
+        {
+          TEST_SDK_NETWORK_AFTER_BASH: '1',
+          TEST_SECOND_SDK_NETWORK_AFTER_BASH: '1',
+          TEST_TOOL_USE_CMD: 'npm test --runInBand',
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionDecisions?.network).toEqual({
+        behavior: 'allow',
+        updatedInput: { host: 'registry.npmjs.org' },
+      });
+      expect(call?.permissionDecisions?.network2).toEqual({
+        behavior: 'deny',
+        message:
+          'SDK requested sandbox network access before any Bash tool call was allowed by MyClaw. Approve the scoped Bash(...) command through MyClaw first.',
+        interrupt: false,
+      });
+      expect(
+        fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
+      ).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'scheduled jobs request permission when Bash is missing and resume after approval',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          isScheduledJob: true,
+          jobId: 'job-1',
+          allowedTools: ['Read'],
+        }),
+        {
+          MYCLAW_AUTONOMOUS_PERMISSION_TIMEOUT_MS: '5000',
           TEST_PERMISSION_DECISION: 'approve',
           TEST_PERMISSION_TOOL_NAME: 'Bash',
           TEST_EXIT_AFTER_QUERY: '1',
@@ -1352,6 +1936,7 @@ describe('agent-runner IPC lifecycle', () => {
           allowedTools: ['Read'],
         }),
         {
+          MYCLAW_AUTONOMOUS_PERMISSION_TIMEOUT_MS: '5000',
           TEST_PERMISSION_DECISION: 'approve',
           TEST_PERMISSION_MODE: 'allow_persistent_rule',
           TEST_PERMISSION_CLASSIFICATION: 'user_permanent',
@@ -1377,7 +1962,7 @@ describe('agent-runner IPC lifecycle', () => {
           rules: [
             {
               toolName: 'Bash',
-              ruleContent: call.permissionRequest.blockedPath,
+              ruleContent: 'npm test',
             },
           ],
         },
@@ -1402,9 +1987,8 @@ describe('agent-runner IPC lifecycle', () => {
           allowedTools: [],
         }),
         {
-          TEST_PERMISSION_DECISION: 'deny',
+          TEST_AUTONOMOUS_PERMISSION_REQUEST: '1',
           TEST_PERMISSION_TOOL_NAME: 'WebSearch',
-          TEST_PERMISSION_CLASSIFICATION: 'user_reject',
           TEST_EXIT_AFTER_QUERY: '1',
         },
       );
@@ -1419,10 +2003,46 @@ describe('agent-runner IPC lifecycle', () => {
         }),
       );
       expect(String(call?.permissionDecision?.message)).toContain(
-        'Permission denied: deny',
+        'Autonomous permission approval is disabled for unattended jobs.',
       );
       expect(String(call?.permissionDecision?.message)).toContain(
         'request_permission { "permissionKind": "tool", "toolName": "WebSearch", "temporaryOnly": false, "reason": "This scheduled job needs WebSearch access." }',
+      );
+      expect(
+        fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
+      ).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'scheduled jobs allow materialized selected MCP server tools',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          isScheduledJob: true,
+          jobId: 'job-1',
+          allowedTools: [],
+          selectedMcpServerIds: ['mcp:github'],
+        }),
+        {
+          MYCLAW_MCP_ALLOWED_TOOLS_JSON: JSON.stringify([
+            'mcp__github__search_repositories',
+          ]),
+          TEST_TOOL_USE_ONLY: 'mcp__github__search_repositories',
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionDecision).toEqual(
+        expect.objectContaining({
+          behavior: 'allow',
+        }),
       );
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,

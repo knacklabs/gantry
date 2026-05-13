@@ -51,6 +51,20 @@ export interface AgentOutput {
   usageEventId?: string;
   contextUsage?: RuntimeContextUsageSnapshot;
   error?: string;
+  runtimeEvents?: AgentOutputRuntimeEvent[];
+}
+
+export interface AgentOutputRuntimeEvent {
+  appId?: string;
+  agentId?: string;
+  runId?: string;
+  jobId?: string;
+  conversationId?: string;
+  threadId?: string;
+  eventType: string;
+  actor?: string;
+  responseMode?: 'sse' | 'webhook' | 'both' | 'none';
+  payload: unknown;
 }
 
 export interface RunAgentOptions {
