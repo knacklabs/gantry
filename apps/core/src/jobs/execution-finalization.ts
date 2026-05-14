@@ -61,7 +61,14 @@ export async function finalizeSchedulerJobRun(input: {
   const safePrimaryErrorSummary = input.error
     ? redactProviderSessionHandlesInText(input.error)
     : null;
-  const toolDenial = parseAutonomousToolDenial(safePrimaryErrorSummary);
+  const diagnosticToolDenial = diagnostics.terminalToolDenial
+    ? {
+        toolName: diagnostics.terminalToolDenial.toolName,
+        recoveryAction: diagnostics.terminalToolDenial.recoveryAction,
+      }
+    : null;
+  const toolDenial =
+    parseAutonomousToolDenial(safePrimaryErrorSummary) ?? diagnosticToolDenial;
   const transientPermissionApproval =
     diagnostics.transientPermissionApprovals[0] ?? null;
   const safeErrorSummary = safePrimaryErrorSummary

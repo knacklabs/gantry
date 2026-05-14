@@ -139,7 +139,7 @@ describe('sdk sandbox network gate', () => {
     });
   });
 
-  it('requires a parent Bash tool-use id when multiple network tokens are active', () => {
+  it('uses the most recent Bash approval when SDK omits a parent id', () => {
     const now = { value: 1_000 };
     const gate = makeGate(now);
 
@@ -148,22 +148,27 @@ describe('sdk sandbox network gate', () => {
       { command: 'npm test first' },
       { toolUseID: 'toolu_bash_1' },
     );
+    now.value = 2_000;
     gate.rememberAllowedTool(
       'Bash',
       { command: 'npm test second' },
       { toolUseID: 'toolu_bash_2' },
     );
 
-    const ambiguous = gate.decide(
+    const latest = gate.decide(
       'SandboxNetworkAccess',
       { host: 'registry.npmjs.org' },
       { toolUseID: 'toolu_network_1' },
     );
-    expect(ambiguous).toEqual({
-      behavior: 'deny',
-      message:
-        'SDK requested sandbox network access while multiple Bash approvals were active and no parent Bash tool-use id was provided. Approve the scoped Bash(...) command through MyClaw first.',
-      interrupt: false,
+    expect(latest).toEqual({
+      behavior: 'allow',
+      updatedInput: { host: 'registry.npmjs.org' },
+    });
+    expect(latestPayload()).toMatchObject({
+      decision: 'sdk_network_gate_suppressed',
+      bashToolUseID: 'toolu_bash_2',
+      networkToolUseID: 'toolu_network_1',
+      commandHash: sha256('npm test second'),
     });
 
     const matched = gate.decide(

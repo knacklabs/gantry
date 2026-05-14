@@ -140,14 +140,17 @@ export function createSdkSandboxNetworkGate(
         ? activeTokens.find(
             (candidate) => candidate.bashToolUseID === parentToolUseID,
           )
-        : activeTokens.length === 1
-          ? activeTokens[0]
+        : activeTokens.length > 0
+          ? latestToken(activeTokens)
           : undefined;
       if (token) {
+        const matchedWithoutParent =
+          !parentToolUseID && activeTokens.length > 1;
         writeEvent({
           decision: 'sdk_network_gate_suppressed',
-          reason:
-            'SDK requested network approval for a recently approved Bash invocation; suppressing duplicate user approval.',
+          reason: matchedWithoutParent
+            ? 'SDK requested network approval without a parent Bash tool-use id; suppressing duplicate user approval for the most recent allowed Bash invocation.'
+            : 'SDK requested network approval for a recently approved Bash invocation; suppressing duplicate user approval.',
           networkToolUseID: permissionOpts.toolUseID,
           bashToolUseID: token.bashToolUseID,
           hostHash,
@@ -159,12 +162,9 @@ export function createSdkSandboxNetworkGate(
         return { behavior: 'allow', updatedInput: input };
       }
 
-      const reason =
-        activeTokens.length > 1 && !parentToolUseID
-          ? 'SDK requested sandbox network access while multiple Bash approvals were active and no parent Bash tool-use id was provided.'
-          : parentToolUseID
-            ? 'SDK requested sandbox network access for a Bash tool-use id MyClaw did not approve.'
-            : 'SDK requested sandbox network access before any Bash tool call was allowed by MyClaw.';
+      const reason = parentToolUseID
+        ? 'SDK requested sandbox network access for a Bash tool-use id MyClaw did not approve.'
+        : 'SDK requested sandbox network access before any Bash tool call was allowed by MyClaw.';
       writeEvent({
         decision: 'sdk_network_gate_denied',
         reason,
@@ -204,6 +204,16 @@ function sandboxNetworkParentToolUseID(input: unknown): string | undefined {
     record.bashToolUseID ??
     record.bash_tool_use_id;
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function latestToken(
+  tokens: readonly SdkSandboxNetworkApprovalToken[],
+): SdkSandboxNetworkApprovalToken | undefined {
+  return tokens.reduce<SdkSandboxNetworkApprovalToken | undefined>(
+    (latest, token) =>
+      !latest || token.createdAtMs >= latest.createdAtMs ? token : latest,
+    undefined,
+  );
 }
 
 function hashString(value: string): string {

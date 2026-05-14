@@ -1318,6 +1318,106 @@ describe('jobs/execution', () => {
     );
   });
 
+  it('pauses recurring jobs for setup when a durable tool denial is followed by a generic SDK error', async () => {
+    const job = makeJob({
+      schedule_type: 'recurring',
+      schedule: '*/15 * * * *',
+      next_run: '2026-05-08T00:00:00.000Z',
+      max_consecutive_failures: 1,
+      required_tools: ['Browser'],
+    });
+    const opsRepository = makeOpsRepository(job);
+    const toolRepository = makeToolRepository(['Browser']);
+    const runAgent = vi.fn(async (_group, _input, _onProcess, onStream) => {
+      await onStream({
+        status: 'success',
+        result: null,
+        runtimeEvents: [
+          {
+            eventType: 'job.tool_activity',
+            payload: {
+              phase: 'permission_wait',
+              tool: 'Bash',
+              ok: false,
+              reason:
+                'Tool not on autonomous job allowlist: Bash. Bash leaf ls scripts did not match any scoped autonomous rule.',
+              recovery_action:
+                'request_permission { "permissionKind": "tool", "toolName": "Bash" }',
+            },
+          },
+          {
+            eventType: 'job.tool_activity',
+            payload: {
+              phase: 'permission_denied',
+              tool: 'Bash',
+              ok: false,
+              reason:
+                'Autonomous permission approval is disabled for unattended jobs.',
+            },
+          },
+        ],
+      } as never);
+      return {
+        status: 'error',
+        error:
+          'Claude Code returned an error result: [ede_diagnostic] stop_reason=tool_use; AxiosError: Request failed with status code 403',
+      };
+    });
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        getToolRepository: () => toolRepository as never,
+        getBrowserStatus: vi.fn(async () => ({ hasState: true })),
+        runAgent: runAgent as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(opsRepository.updateJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        status: 'paused',
+        next_run: null,
+        pause_reason: 'Setup required',
+        setup_state: expect.objectContaining({
+          state: 'missing_capability',
+          blockers: [
+            expect.objectContaining({
+              requirementType: 'tool',
+              requirementId: 'Bash',
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+      expect.any(String),
+      'failed',
+      null,
+      expect.stringContaining('Claude Code returned an error result'),
+    );
+    expect(opsRepository.completeJobRun).not.toHaveBeenCalledWith(
+      expect.any(String),
+      'dead_lettered',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'job.setup_required',
+        payload: expect.objectContaining({
+          setup_state: 'missing_capability',
+        }),
+      }),
+    );
+  });
+
   it('satisfies required Browser from durable browser IPC activity', async () => {
     const job = makeJob({ required_tools: ['Browser'] });
     const opsRepository = makeOpsRepository(job);

@@ -1878,7 +1878,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'suppresses only one SDK sandbox network prompt per allowed Bash invocation',
+    'suppresses repeated SDK sandbox network prompts for an allowed Bash invocation',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -1903,10 +1903,8 @@ describe('agent-runner IPC lifecycle', () => {
         updatedInput: { host: 'registry.npmjs.org' },
       });
       expect(call?.permissionDecisions?.network2).toEqual({
-        behavior: 'deny',
-        message:
-          'SDK requested sandbox network access before any Bash tool call was allowed by MyClaw. Approve the scoped Bash(...) command through MyClaw first.',
-        interrupt: false,
+        behavior: 'allow',
+        updatedInput: { host: 'example.com' },
       });
       expect(
         fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
