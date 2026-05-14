@@ -6,6 +6,10 @@ import { log } from './logging.js';
 
 const PROTECTED_FILESYSTEM_PATHS_ENV = 'MYCLAW_PROTECTED_FILESYSTEM_PATHS_JSON';
 
+interface BuildSdkFilesystemSandboxOptions {
+  platform?: NodeJS.Platform;
+}
+
 export function readProtectedFilesystemPaths(): string[] {
   const raw = process.env[PROTECTED_FILESYSTEM_PATHS_ENV]?.trim();
   if (!raw) return [];
@@ -24,12 +28,16 @@ export function readProtectedFilesystemPaths(): string[] {
 
 export function buildSdkFilesystemSandbox(
   paths: readonly string[],
+  options: BuildSdkFilesystemSandboxOptions = {},
 ): SandboxSettings {
+  const platform = options.platform ?? process.platform;
   return {
     enabled: true,
     failIfUnavailable: true,
     autoAllowBashIfSandboxed: false,
     allowUnsandboxedCommands: false,
+    network: { allowLocalBinding: true },
+    ...(platform === 'darwin' ? { enableWeakerNetworkIsolation: true } : {}),
     filesystem: { denyWrite: normalizeProtectedPaths(paths) },
   };
 }

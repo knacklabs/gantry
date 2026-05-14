@@ -54,6 +54,12 @@ export interface SchedulerDependencies {
   getBrowserStatus?: (
     profileName: string,
   ) => Promise<JobReadinessBrowserStatus | undefined>;
+  closeBrowserSession?: (profileName: string) => Promise<{
+    closed: boolean;
+    reason?: string;
+    elapsedMs?: number;
+  }>;
+  closeBrowserToolBackends?: (profileName: string) => Promise<void>;
 }
 
 export type JobTurnContext = Awaited<

@@ -67,6 +67,7 @@ import {
 import { resolveAppSessionForJob } from './app-session-resolution.js';
 import { finalizeSchedulerJobRun } from './execution-finalization.js';
 import { assertRequiredToolsReadyForRun } from './execution-required-tools.js';
+import { closeBrowserAfterJobRun } from './execution-browser-cleanup.js';
 import type {
   JobTurnContext,
   SchedulerDependencies,
@@ -569,6 +570,15 @@ export async function runJob(
     retry_count: retryCount,
     pause_reason: pauseReason,
     diagnostics: terminalDiagnosticsPayload(diagnostics),
+  });
+  await closeBrowserAfterJobRun({
+    currentJob,
+    executionGroupFolder: execution?.group.folder,
+    executionJid: execution?.executionJid,
+    diagnostics,
+    deps,
+    emitJobEvent,
+    logger,
   });
   if (toolDenial)
     await emitJobEvent(RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED, {

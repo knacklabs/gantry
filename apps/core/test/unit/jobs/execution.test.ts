@@ -1371,6 +1371,66 @@ describe('jobs/execution', () => {
     );
   });
 
+  it('closes the dedicated browser profile after a Browser job reaches terminal state', async () => {
+    const job = makeJob({ required_tools: ['Browser'] });
+    const opsRepository = makeOpsRepository(job);
+    vi.mocked(opsRepository.listRecentJobEvents).mockResolvedValue([
+      {
+        id: 1,
+        job_id: 'job-1',
+        run_id: 'run-1',
+        event_type: 'job.tool_activity',
+        payload: JSON.stringify({ tool: 'browser_click', ok: true }),
+        created_at: '2026-05-08T00:00:01.000Z',
+      },
+    ]);
+    const toolRepository = makeToolRepository(['Browser']);
+    const closeBrowserToolBackends = vi.fn(async () => undefined);
+    const closeBrowserSession = vi.fn(async () => ({
+      closed: true,
+      reason: 'terminated',
+      elapsedMs: 12,
+    }));
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        getToolRepository: () => toolRepository as never,
+        getBrowserStatus: vi.fn(async () => ({ hasState: true })),
+        closeBrowserToolBackends,
+        closeBrowserSession,
+        runAgent: vi.fn(async () => ({
+          status: 'success',
+          result: 'browser done',
+        })) as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(closeBrowserToolBackends).toHaveBeenCalledWith(
+      expect.stringMatching(/^c-scheduler_agent-/),
+    );
+    expect(closeBrowserSession).toHaveBeenCalledWith(
+      expect.stringMatching(/^c-scheduler_agent-/),
+    );
+    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'job.tool_activity',
+        payload: expect.objectContaining({
+          phase: 'browser_cleanup',
+          tool: 'Browser',
+          ok: true,
+          reason: 'terminated',
+        }),
+      }),
+    );
+  });
+
   it('keeps Browser activity diagnostics when a required-Browser run fails later', async () => {
     const job = makeJob({ required_tools: ['Browser'] });
     const opsRepository = makeOpsRepository(job);

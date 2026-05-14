@@ -203,8 +203,13 @@ credential handoff. Bash tools, MCP stdio subprocesses, and browser tools
 receive scrubbed tool env without OneCLI model proxy or provider tokens.
 Approved Bash commands may receive the non-secret CA bundle path as neutral TLS
 trust aliases for host CLI trust stores; MCP stdio subprocesses and browser
-tools do not receive broker CA variables. Host-owned scheduler scripts are not
-supported.
+tools do not receive broker CA variables. Approved Bash commands also receive
+`GODEBUG=netdns=go` so Go-based CLIs use Go DNS resolution instead of macOS
+resolver services that are blocked inside the sandbox. The Claude SDK sandbox
+enables local binding for its own network proxy path, and on macOS also enables
+its trustd lookup exception for sandboxed Bash so approved Go-based CLIs can
+verify TLS certificates through the OS trust service without becoming
+unsandboxed. Host-owned scheduler scripts are not supported.
 
 The SDK process receives sandbox policy and model credentials as separate
 adapter projections. Protected filesystem paths are passed through

@@ -4,6 +4,7 @@ import { applyBashTrustEnv } from '../../../src/runner/claude/bash-trust-env.js'
 
 const CA_PATH = '/tmp/myclaw/onecli-ca.pem';
 const TRUST_PREFIX = [
+  'GODEBUG=netdns=go',
   `SSL_CERT_FILE='${CA_PATH}'`,
   `REQUESTS_CA_BUNDLE='${CA_PATH}'`,
   `CURL_CA_BUNDLE='${CA_PATH}'`,
@@ -44,7 +45,7 @@ describe('applyBashTrustEnv', () => {
     });
   });
 
-  it('leaves non-Bash tools and missing CA input unchanged', () => {
+  it('leaves non-Bash tools unchanged and adds Go DNS resolver mode without CA input', () => {
     const nonBashInput = { command: 'gog sheets get budget' };
     const missingCaInput = { command: 'gog sheets get budget' };
 
@@ -53,7 +54,9 @@ describe('applyBashTrustEnv', () => {
         NODE_EXTRA_CA_CERTS: CA_PATH,
       }),
     ).toBe(nonBashInput);
-    expect(applyBashTrustEnv('Bash', missingCaInput, {})).toBe(missingCaInput);
+    expect(applyBashTrustEnv('Bash', missingCaInput, {})).toEqual({
+      command: 'GODEBUG=netdns=go gog sheets get budget',
+    });
   });
 
   it('shell-quotes CA paths before prefixing the command', () => {
@@ -65,6 +68,7 @@ describe('applyBashTrustEnv', () => {
 
     expect(updated).toEqual({
       command:
+        'GODEBUG=netdns=go ' +
         "SSL_CERT_FILE='/tmp/myclaw/gateway ca'\\''s.pem' " +
         "REQUESTS_CA_BUNDLE='/tmp/myclaw/gateway ca'\\''s.pem' " +
         "CURL_CA_BUNDLE='/tmp/myclaw/gateway ca'\\''s.pem' " +

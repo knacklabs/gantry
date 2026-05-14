@@ -142,7 +142,8 @@ function ownedByAppClause(jobId: unknown, ownerAppId?: string) {
         select 1
         from ${pgSchema.canonicalJobsPostgres} owned_job
         join ${pgSchema.controlHttpSessionsPostgres} app_session
-          on app_session.session_id = owned_job.target_json::jsonb #>> '{executionContext,sessionId}'
+          on (app_session.session_id = owned_job.target_json::jsonb #>> '{executionContext,sessionId}'
+            or app_session.external_ref_json::jsonb->>'chatJid' = owned_job.target_json::jsonb #>> '{executionContext,conversationJid}')
         where owned_job.id = ${jobId}
           and app_session.app_id = ${ownerAppId}
       )`
@@ -151,6 +152,10 @@ function ownedByAppClause(jobId: unknown, ownerAppId?: string) {
 
 function canonicalJobSessionId() {
   return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,sessionId}'`;
+}
+
+function canonicalJobConversationJid() {
+  return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,conversationJid}'`;
 }
 
 function canonicalJobGroupScope() {
@@ -195,7 +200,8 @@ export class PostgresCanonicalJobRepository {
         ? sql`exists (
             select 1
             from ${pgSchema.controlHttpSessionsPostgres} app_session
-            where app_session.session_id = ${canonicalJobSessionId()}
+            where (app_session.session_id = ${canonicalJobSessionId()}
+              or app_session.external_ref_json::jsonb->>'chatJid' = ${canonicalJobConversationJid()})
               and app_session.app_id = ${filters.appId}
           )`
         : undefined,
@@ -466,7 +472,8 @@ export class PostgresCanonicalJobRepository {
       .from(pgSchema.controlHttpSessionsPostgres)
       .innerJoin(
         pgSchema.canonicalJobsPostgres,
-        sql`${pgSchema.controlHttpSessionsPostgres.sessionId} = ${canonicalJobSessionId()}`,
+        sql`(${pgSchema.controlHttpSessionsPostgres.sessionId} = ${canonicalJobSessionId()}
+          or ${pgSchema.controlHttpSessionsPostgres.externalRefJson}::jsonb->>'chatJid' = ${canonicalJobConversationJid()})`,
       )
       .innerJoin(
         pgSchema.agentRunsPostgres,

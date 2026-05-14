@@ -21,6 +21,22 @@ export async function resolveJobAppSession(input: {
     if (session?.appId === appId) return session;
     return undefined;
   }
+  const conversationJid = job.execution_context?.conversationJid?.trim();
+  if (conversationJid) {
+    const session = await control.getAppSessionByChatJid(conversationJid);
+    if (session?.appId === appId) return session;
+    if (session) return undefined;
+  }
+  if (isDefaultRuntimeJobScope(appId)) {
+    return {
+      sessionId: '',
+      appId,
+      conversationJid: conversationJid ?? '',
+      workspaceKey: job.group_scope,
+      defaultResponseMode: 'none',
+      defaultWebhookId: null,
+    };
+  }
   return undefined;
 }
 
@@ -48,9 +64,45 @@ export async function filterJobsByCanonicalAppSession(input: {
       .filter((session) => session.appId === input.appId)
       .map((session) => session.sessionId),
   );
+  const sessionlessJobs = input.jobs.filter((job) => !job.session_id);
+  const sessionlessConversationJids = Array.from(
+    new Set(
+      sessionlessJobs
+        .map((job) => job.execution_context?.conversationJid?.trim())
+        .filter((jid): jid is string => Boolean(jid)),
+    ),
+  );
+  const conversationSessions =
+    sessionlessConversationJids.length > 0
+      ? input.control.getAppSessionsByChatJids
+        ? await input.control.getAppSessionsByChatJids(
+            sessionlessConversationJids,
+          )
+        : (
+            await Promise.all(
+              sessionlessConversationJids.map((jid) =>
+                input.control.getAppSessionByChatJid(jid),
+              ),
+            )
+          ).filter(
+            (session): session is AppSessionRecord => session !== undefined,
+          )
+      : [];
+  const allowedConversationJids = new Set(
+    conversationSessions
+      .filter((session) => session.appId === input.appId)
+      .map((session) => session.conversationJid),
+  );
+  const knownConversationJids = new Set(
+    conversationSessions.map((session) => session.conversationJid),
+  );
   return input.jobs.filter((job) =>
     job.session_id
       ? allowedSessionIds.has(job.session_id)
-      : includeHostOwnedJobs,
+      : job.execution_context?.conversationJid
+        ? allowedConversationJids.has(job.execution_context.conversationJid) ||
+          (includeHostOwnedJobs &&
+            !knownConversationJids.has(job.execution_context.conversationJid))
+        : includeHostOwnedJobs,
   );
 }

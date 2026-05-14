@@ -54,7 +54,10 @@ import {
 } from '../../domain/messages/partial-delivery.js';
 import { isAmbiguousDurableDeliveryError } from '../../domain/messages/durable-delivery.js';
 import { startOutboundDeliveryRecoveryLoop } from '../../jobs/outbound-delivery-recovery.js';
-import { getBrowserStatus } from '../../runtime/browser-capability.js';
+import {
+  closeBrowser,
+  getBrowserStatus,
+} from '../../runtime/browser-capability.js';
 import type { OutboundDeliveryProfile } from '../../domain/outbound-delivery/planner.js';
 import {
   LIVE_SEND_PROFILE_ID,
@@ -218,6 +221,8 @@ export async function startRuntimeServices(
     getSkillArtifactStore: resolved.getSkillArtifactStore,
     getToolRepository: resolved.getToolRepository,
     getBrowserStatus,
+    closeBrowserSession: closeBrowser,
+    closeBrowserToolBackends: resolved.closeBrowserToolBackends,
   });
 
   resolved.startIpcWatcher({

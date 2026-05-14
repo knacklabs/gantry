@@ -1563,7 +1563,10 @@ describe('agent-runner IPC lifecycle', () => {
       ]);
       expect(call?.permissionDecision).toEqual({
         behavior: 'allow',
-        updatedInput: { cmd: 'npm test', apiToken: 'secret-token' },
+        updatedInput: {
+          cmd: 'GODEBUG=netdns=go npm test',
+          apiToken: 'secret-token',
+        },
       });
       expect(
         fs.readdirSync(path.join(fixture.ipcDir, 'permission-responses')),
@@ -1655,7 +1658,10 @@ describe('agent-runner IPC lifecycle', () => {
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.permissionDecision).toEqual({
         behavior: 'allow',
-        updatedInput: { cmd: 'npm test', apiToken: 'secret-token' },
+        updatedInput: {
+          cmd: 'GODEBUG=netdns=go npm test',
+          apiToken: 'secret-token',
+        },
         decisionClassification: 'user_temporary',
       });
     },
@@ -1801,6 +1807,7 @@ describe('agent-runner IPC lifecycle', () => {
       );
 
       const trustPrefix = [
+        'GODEBUG=netdns=go',
         "SSL_CERT_FILE='/tmp/onecli-ca.pem'",
         "REQUESTS_CA_BUNDLE='/tmp/onecli-ca.pem'",
         "CURL_CA_BUNDLE='/tmp/onecli-ca.pem'",

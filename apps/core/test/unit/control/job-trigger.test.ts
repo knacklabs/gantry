@@ -1374,6 +1374,169 @@ describe('control job trigger', () => {
     }
   });
 
+  it('triggers a legacy sessionless job through its canonical conversation session', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    opsRepo.getJobById.mockResolvedValue(
+      makeJob({
+        session_id: null,
+        execution_context: {
+          conversationJid: 'chat-1',
+          threadId: null,
+          groupScope: 'app-folder',
+          sessionId: null,
+        },
+      }),
+    );
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs/job-1/trigger`,
+        'token-jobs',
+        { method: 'POST' },
+      );
+
+      expect(response.status).toBe(202);
+      expect(controlRepo.getAppSessionByChatJid).toHaveBeenCalledWith('chat-1');
+      expect(controlRepo.createJobTrigger).toHaveBeenCalledWith({
+        jobId: 'job-1',
+        requestedBy: JSON.stringify({
+          kind: 'sdk',
+          appId: 'app-one',
+          sessionId: 'session-1',
+        }),
+      });
+      expect(schedulerMocks.enqueueJobTrigger).toHaveBeenCalledWith(
+        'job-1',
+        'trigger-1',
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects a sessionless job when its conversation belongs to another app', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    controlRepo.getAppSessionByChatJid.mockResolvedValueOnce({
+      sessionId: 'session-app-two',
+      appId: 'app-two',
+      conversationId: 'conv-2',
+      chatJid: 'chat-2',
+      groupFolder: 'other-folder',
+      workspaceKey: 'other-folder',
+      title: null,
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    opsRepo.getJobById.mockResolvedValue(
+      makeJob({
+        session_id: null,
+        execution_context: {
+          conversationJid: 'chat-2',
+          threadId: null,
+          groupScope: 'other-folder',
+          sessionId: null,
+        },
+      }),
+    );
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs/job-1/trigger`,
+        'token-jobs',
+        { method: 'POST' },
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: 'FORBIDDEN',
+          message: 'API key cannot access this job session',
+        },
+      });
+      expect(controlRepo.createJobTrigger).not.toHaveBeenCalled();
+      expect(schedulerMocks.enqueueJobTrigger).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('lets the default runtime API key trigger a host-owned sessionless job without control session rows', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'default',
+      },
+    ]);
+    controlRepo.getAppSessionByChatJid.mockResolvedValueOnce(undefined);
+    opsRepo.getJobById.mockResolvedValue(
+      makeJob({
+        session_id: null,
+        group_scope: 'main_agent',
+        execution_context: {
+          conversationJid: 'tg:-1003986348737',
+          threadId: null,
+          groupScope: 'main_agent',
+          sessionId: null,
+        },
+      }),
+    );
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs/job-1/trigger`,
+        'token-jobs',
+        { method: 'POST' },
+      );
+
+      expect(response.status).toBe(202);
+      expect(controlRepo.createJobTrigger).toHaveBeenCalledWith({
+        jobId: 'job-1',
+        requestedBy: JSON.stringify({
+          kind: 'sdk',
+          appId: 'default',
+          sessionId: '',
+        }),
+      });
+      expect(schedulerMocks.enqueueJobTrigger).toHaveBeenCalledWith(
+        'job-1',
+        'trigger-1',
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('preserves trigger rate-limit wire code', async () => {
     const port = await reservePort();
     process.env.MYCLAW_CONTROL_PORT = String(port);
