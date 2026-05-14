@@ -51,15 +51,3 @@ export function routeLabelForShortcut(
       return 'primary';
   }
 }
-
-export function normalizeExecutionMode(
-  executionMode: unknown,
-  serialize: unknown,
-): 'parallel' | 'serialized' {
-  if (executionMode === 'serialized') return 'serialized';
-  if (executionMode === 'parallel') return 'parallel';
-  if (typeof serialize === 'boolean') {
-    return serialize ? 'serialized' : 'parallel';
-  }
-  return 'parallel';
-}

@@ -28,12 +28,26 @@ class TestMcpServer {
   }
 }
 
-describe('runner browser MCP projected tools', () => {
+describe('runner browser MCP gateway tools', () => {
   beforeEach(() => {
     requestBrowserAction.mockReset();
   });
 
-  it('delegates browser tools to signed IPC without direct CDP probing', async () => {
+  it('registers only the compact public browser gateway tools', () => {
+    const server = new TestMcpServer();
+    registerBrowserTools(server as never);
+
+    expect([...server.tools.keys()].sort()).toEqual([
+      'browser_act',
+      'browser_close',
+      'browser_inspect',
+      'browser_open',
+      'browser_status',
+    ]);
+    expect([...server.tools.keys()]).not.toContain('browser');
+  });
+
+  it('delegates browser status to signed IPC without direct CDP probing', async () => {
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);
     requestBrowserAction.mockResolvedValueOnce({
@@ -51,13 +65,10 @@ describe('runner browser MCP projected tools', () => {
 
     const result = await server.tools.get('browser_status')?.({});
 
-    expect([...server.tools.keys()]).toContain('browser_status');
-    expect([...server.tools.keys()]).toContain('browser_navigate');
-    expect([...server.tools.keys()]).not.toContain('browser');
     expect(requestBrowserAction).toHaveBeenCalledWith(
-      'browser_status',
+      'status',
       {},
-      { timeoutMs: 120_000 },
+      { timeoutMs: 120_000, publicToolName: 'browser_status' },
     );
     expect(fetch).not.toHaveBeenCalled();
     expect(result).toEqual({
@@ -80,32 +91,173 @@ describe('runner browser MCP projected tools', () => {
     vi.unstubAllGlobals();
   });
 
-  it('clamps and forwards browser action timeout_ms to signed IPC', async () => {
-    requestBrowserAction.mockResolvedValue({
-      ok: true,
-      data: { ok: true },
-    });
+  it('opens the backend browser and then navigates when a url is provided', async () => {
+    requestBrowserAction
+      .mockResolvedValueOnce({ ok: true, data: { opened: true } })
+      .mockResolvedValueOnce({ ok: true, data: { navigated: true } });
     const server = new TestMcpServer();
     registerBrowserTools(server as never);
 
-    await server.tools.get('browser_take_screenshot')?.({
+    const result = await server.tools.get('browser_open')?.({
+      url: 'https://example.com',
+      keep_alive_ms: 60_000,
       timeout_ms: 250_000,
     });
 
-    expect(requestBrowserAction).toHaveBeenCalledWith(
-      'browser_take_screenshot',
-      {},
-      { timeoutMs: 120_000 },
+    expect(requestBrowserAction).toHaveBeenNthCalledWith(
+      1,
+      'open',
+      { keep_alive_ms: 60_000 },
+      { timeoutMs: 120_000, publicToolName: 'browser_open' },
     );
+    expect(requestBrowserAction).toHaveBeenNthCalledWith(
+      2,
+      'navigate',
+      { url: 'https://example.com' },
+      { timeoutMs: 120_000, publicToolName: 'browser_open' },
+    );
+    expect(result).toEqual({
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ ok: true, data: { navigated: true } }),
+        },
+      ],
+    });
+  });
 
-    await server.tools.get('browser_take_screenshot')?.({
+  it('maps compact inspect modes to backend actions', async () => {
+    requestBrowserAction.mockResolvedValue({ ok: true, data: { ok: true } });
+    const server = new TestMcpServer();
+    registerBrowserTools(server as never);
+
+    await server.tools.get('browser_inspect')?.({
+      mode: 'snapshot',
+      target: 'e1',
+      filename: 'snapshot.json',
+    });
+    await server.tools.get('browser_inspect')?.({ mode: 'tabs' });
+    await server.tools.get('browser_inspect')?.({
+      mode: 'screenshot',
+      filename: 'shot.png',
       timeout_ms: 500,
     });
 
-    expect(requestBrowserAction).toHaveBeenLastCalledWith(
-      'browser_take_screenshot',
+    expect(requestBrowserAction).toHaveBeenNthCalledWith(
+      1,
+      'snapshot',
+      { target: 'e1', filename: 'snapshot.json' },
+      { timeoutMs: 120_000, publicToolName: 'browser_inspect' },
+    );
+    expect(requestBrowserAction).toHaveBeenNthCalledWith(
+      2,
+      'tabs',
+      { action: 'list' },
+      { timeoutMs: 120_000, publicToolName: 'browser_inspect' },
+    );
+    expect(requestBrowserAction).toHaveBeenNthCalledWith(
+      3,
+      'screenshot',
+      { filename: 'shot.png' },
+      { timeoutMs: 1_000, publicToolName: 'browser_inspect' },
+    );
+  });
+
+  it('requires full profile and reason for full inspect modes', async () => {
+    requestBrowserAction.mockResolvedValue({ ok: true, data: { ok: true } });
+    const server = new TestMcpServer();
+    registerBrowserTools(server as never);
+
+    const blocked = await server.tools.get('browser_inspect')?.({
+      mode: 'console_messages',
+    });
+    await server.tools.get('browser_inspect')?.({
+      mode: 'network_requests',
+      profile: 'full',
+      reason: 'Debug failing request.',
+      filename: 'network.json',
+    });
+
+    expect(blocked).toMatchObject({ isError: true });
+    expect(requestBrowserAction).toHaveBeenCalledTimes(1);
+    expect(requestBrowserAction).toHaveBeenCalledWith(
+      'network_requests',
+      { filename: 'network.json' },
+      { timeoutMs: 120_000, publicToolName: 'browser_inspect' },
+    );
+  });
+
+  it('maps compact basic browser actions to backend actions', async () => {
+    requestBrowserAction.mockResolvedValue({ ok: true, data: { ok: true } });
+    const server = new TestMcpServer();
+    registerBrowserTools(server as never);
+
+    await server.tools.get('browser_act')?.({
+      action: 'navigate',
+      payload: { url: 'https://example.com' },
+    });
+    await server.tools.get('browser_act')?.({
+      action: 'tab_select',
+      payload: { index: 1 },
+    });
+    await server.tools.get('browser_act')?.({
+      action: 'click',
+      payload: { target: 'button[name=save]' },
+    });
+    await server.tools.get('browser_act')?.({
+      action: 'back',
+      payload: { ignored: true },
+    });
+
+    expect(requestBrowserAction).toHaveBeenNthCalledWith(
+      1,
+      'navigate',
+      { url: 'https://example.com' },
+      { timeoutMs: 120_000, publicToolName: 'browser_act' },
+    );
+    expect(requestBrowserAction).toHaveBeenNthCalledWith(
+      2,
+      'tabs',
+      { index: 1, action: 'select' },
+      { timeoutMs: 120_000, publicToolName: 'browser_act' },
+    );
+    expect(requestBrowserAction).toHaveBeenNthCalledWith(
+      3,
+      'click',
+      { target: 'button[name=save]' },
+      { timeoutMs: 120_000, publicToolName: 'browser_act' },
+    );
+    expect(requestBrowserAction).toHaveBeenNthCalledWith(
+      4,
+      'back',
       {},
-      { timeoutMs: 1_000 },
+      { timeoutMs: 120_000, publicToolName: 'browser_act' },
+    );
+  });
+
+  it('requires full profile and reason for full browser actions', async () => {
+    requestBrowserAction.mockResolvedValue({ ok: true, data: { ok: true } });
+    const server = new TestMcpServer();
+    registerBrowserTools(server as never);
+
+    const blocked = await server.tools.get('browser_act')?.({
+      action: 'evaluate',
+      payload: { function: '() => document.title' },
+      profile: 'full',
+    });
+    await server.tools.get('browser_act')?.({
+      action: 'evaluate',
+      profile: 'full',
+      reason: 'Read page title for verification.',
+      payload: { function: '() => document.title' },
+    });
+
+    expect(blocked).toMatchObject({ isError: true });
+    expect(requestBrowserAction).toHaveBeenCalledTimes(1);
+    expect(requestBrowserAction).toHaveBeenCalledWith(
+      'evaluate',
+      { function: '() => document.title' },
+      { timeoutMs: 120_000, publicToolName: 'browser_act' },
     );
   });
 
@@ -125,79 +277,45 @@ describe('runner browser MCP projected tools', () => {
     const server = new TestMcpServer();
     registerBrowserTools(server as never);
 
-    const result = await server.tools.get('browser_take_screenshot')?.({
-      filename: 'shot.png',
+    const result = await server.tools.get('browser_act')?.({
+      action: 'screenshot',
+      payload: { filename: 'shot.png' },
     });
 
     expect(result).toBe(compactResult);
   });
 
-  it('passes simpler fill form fields and inline upload files through IPC', async () => {
-    requestBrowserAction.mockResolvedValue({
-      ok: true,
-      data: { content: [{ type: 'text', text: 'ok' }] },
-    });
+  it('keeps public browser gateway schemas parseable', () => {
     const server = new TestMcpServer();
     registerBrowserTools(server as never);
 
-    await server.tools.get('browser_fill_form')?.({
-      fields: [{ target: 'e1', value: 'Ravi' }],
-    });
-    await server.tools.get('browser_file_upload')?.({
-      files: [{ name: 'note.txt', content: 'hello' }],
-    });
-
-    expect(requestBrowserAction).toHaveBeenNthCalledWith(
-      1,
-      'browser_fill_form',
-      { fields: [{ target: 'e1', value: 'Ravi' }] },
-      { timeoutMs: 120_000 },
+    const openSchema = z.object(
+      server.schemas.get('browser_open') as z.ZodRawShape,
     );
-    expect(requestBrowserAction).toHaveBeenNthCalledWith(
-      2,
-      'browser_file_upload',
-      { files: [{ name: 'note.txt', content: 'hello' }] },
-      { timeoutMs: 120_000 },
+    const inspectSchema = z.object(
+      server.schemas.get('browser_inspect') as z.ZodRawShape,
     );
-    expect(server.schemas.get('browser_fill_form')).toHaveProperty('fields');
-    expect(server.schemas.get('browser_file_upload')).toHaveProperty('files');
-  });
-
-  it('keeps projected browser tool schemas parseable for simplified inputs', () => {
-    const server = new TestMcpServer();
-    registerBrowserTools(server as never);
-
-    const fillFormSchema = z.object(
-      server.schemas.get('browser_fill_form') as z.ZodRawShape,
-    );
-    const uploadSchema = z.object(
-      server.schemas.get('browser_file_upload') as z.ZodRawShape,
-    );
-    const snapshotSchema = z.object(
-      server.schemas.get('browser_snapshot') as z.ZodRawShape,
+    const actSchema = z.object(
+      server.schemas.get('browser_act') as z.ZodRawShape,
     );
 
+    expect(openSchema.safeParse({ url: 'https://example.com' }).success).toBe(
+      true,
+    );
     expect(
-      fillFormSchema.safeParse({
-        fields: [{ target: 'e1', value: 'Ravi' }],
+      inspectSchema.safeParse({
+        mode: 'screenshot',
+        filename: 'snapshot.png',
       }).success,
     ).toBe(true);
     expect(
-      uploadSchema.safeParse({
-        files: [{ name: 'note.txt', content: 'hello' }],
+      actSchema.safeParse({
+        action: 'fill_form',
+        profile: 'full',
+        reason: 'Fill required checkout fields.',
+        payload: { fields: [{ target: 'e1', value: 'Ravi' }] },
       }).success,
     ).toBe(true);
-    expect(uploadSchema.shape).not.toHaveProperty('paths');
-    expect(
-      snapshotSchema.safeParse({ target: 'e1', filename: 'snapshot.json' })
-        .success,
-    ).toBe(true);
-  });
-
-  it('does not expose a headless launch option to agents', () => {
-    const server = new TestMcpServer();
-    registerBrowserTools(server as never);
-
-    expect(server.schemas.get('browser_launch')).not.toHaveProperty('headless');
+    expect(openSchema.shape).not.toHaveProperty('headless');
   });
 });

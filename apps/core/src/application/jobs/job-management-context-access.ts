@@ -1,5 +1,8 @@
 import { ApplicationError } from '../common/application-error.js';
-import { resolveJobAppSession } from './job-access.js';
+import {
+  isDefaultRuntimeJobScope,
+  resolveJobAppSession,
+} from './job-access.js';
 import {
   assertExecutionContextMatchesAuthenticatedContext,
   authenticatedContextFromAccess,
@@ -73,6 +76,7 @@ export async function assertJobAppAccess(input: {
   job: Job;
   appId: string;
 }): Promise<void> {
+  if (!input.job.session_id && isDefaultRuntimeJobScope(input.appId)) return;
   if (!input.deps.control) {
     throw new ApplicationError(
       'UNAVAILABLE',

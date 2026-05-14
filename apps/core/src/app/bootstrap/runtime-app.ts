@@ -105,6 +105,7 @@ export interface RuntimeAppOptions {
   skillArtifactStore?: GroupProcessingDeps['getSkillArtifactStore'];
   mcpHostnameLookup?: GroupProcessingDeps['getMcpHostnameLookup'];
   collectSessionMemory?: GroupProcessingDeps['collectSessionMemory'];
+  publishRuntimeEvent?: GroupProcessingDeps['publishRuntimeEvent'];
   opsRepository?: RuntimeAppRepository;
 }
 
@@ -495,6 +496,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
       options.skillArtifactStore ?? getRuntimeSkillArtifactStore,
     collectSessionMemory:
       options.collectSessionMemory ?? collectRuntimeSessionMemory,
+    publishRuntimeEvent: options.publishRuntimeEvent,
   });
 
   return {

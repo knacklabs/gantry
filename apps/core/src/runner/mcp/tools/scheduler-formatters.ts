@@ -23,17 +23,43 @@ export function schedulerJobSummary(job: unknown): string {
   const staleness =
     typeof visibility.staleness === 'string' ? visibility.staleness : 'none';
   const toolAccess = toolAccessRecord(visibility.toolAccess);
+  const requiredTools = stringArray(
+    Array.isArray(record.required_tools)
+      ? record.required_tools
+      : visibility.requiredTools,
+  );
+  const requiredMcpServers = stringArray(
+    Array.isArray(record.required_mcp_servers)
+      ? record.required_mcp_servers
+      : visibility.requiredMcpServers,
+  );
+  const health =
+    typeof visibility.health === 'object' && visibility.health !== null
+      ? (visibility.health as Record<string, any>)
+      : {};
+  const setup =
+    typeof visibility.setup === 'object' && visibility.setup !== null
+      ? (visibility.setup as Record<string, any>)
+      : {};
   const toolAccessLine = toolAccess.present
-    ? `Tool access: inherited ${formatTools(toolAccess.inheritedAgentTools)}, job extra ${formatTools(toolAccess.jobExtraTools)}, effective ${formatTools(toolAccess.effectiveAllowedTools)}`
+    ? `Tool access: inherited ${formatTools(toolAccess.inheritedAgentTools)}, effective ${formatTools(toolAccess.effectiveAllowedTools)}, projected ${formatTools(toolAccess.projectedRuntimeTools)}`
     : 'Tool access: missing canonical toolAccess';
+  const nextAction =
+    typeof health.nextAction === 'string' && health.nextAction.trim()
+      ? health.nextAction
+      : 'none';
   return [
     `Job: ${String(record.name ?? record.id ?? 'unknown')}`,
+    `Health: ${String(health.state ?? 'unknown')} | latest ${String(health.latestRunStatus ?? 'none')} | action ${nextAction}`,
+    `Setup: ${String(setup.state ?? 'ready')} | action ${String(setup.nextAction ?? 'none')}`,
     `Target: ${String(target.agentId ?? record.group_scope ?? 'unknown')} in ${String(target.conversationJids?.[0] ?? 'no conversation')}`,
     `Execution context: ${String(executionContext.conversationJid ?? 'unknown')} | thread ${String(executionContext.threadId ?? 'none')} | group ${String(executionContext.groupScope ?? record.group_scope ?? 'unknown')}`,
     `Notification routes: ${notificationRoutes.length}`,
     `Kind/status: ${String(record.schedule_type ?? 'unknown')} / ${String(record.status ?? 'unknown')}`,
     `Next/last run: ${String(record.next_run ?? 'none')} / ${String(record.last_run ?? 'none')}`,
     `Staleness: ${staleness}`,
+    `Required tools: ${formatTools(requiredTools)}`,
+    `Required MCP servers: ${formatTools(requiredMcpServers)}`,
     toolAccessLine,
     `Recent run errors: ${recentErrors}`,
     '',
@@ -62,10 +88,28 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
         ? (visibility.executionContext as Record<string, any>)
         : {};
     const toolAccess = toolAccessRecord(visibility.toolAccess);
+    const requiredTools = stringArray(
+      Array.isArray(record.required_tools)
+        ? record.required_tools
+        : visibility.requiredTools,
+    );
+    const requiredMcpServers = stringArray(
+      Array.isArray(record.required_mcp_servers)
+        ? record.required_mcp_servers
+        : visibility.requiredMcpServers,
+    );
+    const health =
+      typeof visibility.health === 'object' && visibility.health !== null
+        ? (visibility.health as Record<string, any>)
+        : {};
+    const setup =
+      typeof visibility.setup === 'object' && visibility.setup !== null
+        ? (visibility.setup as Record<string, any>)
+        : {};
     const toolsLabel = toolAccess.present
       ? formatTools(toolAccess.effectiveAllowedTools)
       : '(missing toolAccess)';
-    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${String(record.schedule_type ?? '')} | ${String(record.status ?? '')} | ${String(executionContext.conversationJid ?? target.conversationJids?.[0] ?? '')} | tools: ${toolsLabel}`;
+    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${String(setup.state !== 'ready' ? setup.state : (health.state ?? record.status ?? ''))} | ${String(executionContext.conversationJid ?? target.conversationJids?.[0] ?? '')} | required: ${formatTools(requiredTools)} | mcp: ${formatTools(requiredMcpServers)} | tools: ${toolsLabel}`;
   });
   return [
     `Scheduler jobs (${jobs.length})`,
@@ -76,11 +120,40 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
   ].join('\n');
 }
 
+export function schedulerEventsSummary(events: unknown[]): string {
+  const lines = events.map((event) => {
+    const record =
+      typeof event === 'object' && event !== null
+        ? (event as Record<string, any>)
+        : {};
+    const payload = parsePayload(record.payload);
+    const phase = typeof payload.phase === 'string' ? payload.phase : '';
+    const tool = typeof payload.tool === 'string' ? payload.tool : '';
+    const diagnostic = [phase, tool].filter(Boolean).join(' ');
+    const browserCount =
+      typeof payload.browser_activity_count === 'number'
+        ? ` browser_activity=${payload.browser_activity_count}`
+        : '';
+    const error =
+      typeof payload.error === 'string' && payload.error.trim()
+        ? ` error=${payload.error.slice(0, 160)}`
+        : '';
+    return `- ${String(record.id ?? 'unknown')} | ${String(record.event_type ?? '')} | run ${String(record.run_id ?? 'none')} | ${diagnostic || 'event'}${browserCount}${error}`;
+  });
+  return [
+    `Scheduler events (${events.length})`,
+    ...lines,
+    '',
+    'Structured JSON:',
+    JSON.stringify(events, null, 2),
+  ].join('\n');
+}
+
 function toolAccessRecord(value: unknown): {
   present: boolean;
   inheritedAgentTools: string[];
-  jobExtraTools: string[];
   effectiveAllowedTools: string[];
+  projectedRuntimeTools: string[];
 } {
   const present = typeof value === 'object' && value !== null;
   const record =
@@ -90,8 +163,8 @@ function toolAccessRecord(value: unknown): {
   return {
     present,
     inheritedAgentTools: stringArray(record.inheritedAgentTools),
-    jobExtraTools: stringArray(record.jobExtraTools),
     effectiveAllowedTools: stringArray(record.effectiveAllowedTools),
+    projectedRuntimeTools: stringArray(record.projectedRuntimeTools),
   };
 }
 
@@ -103,4 +176,16 @@ function stringArray(value: unknown): string[] {
 
 function formatTools(values: readonly string[]): string {
   return values.length > 0 ? values.join(', ') : '(none)';
+}
+
+function parsePayload(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'string' || !value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === 'object' && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
 }

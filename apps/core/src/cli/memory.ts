@@ -21,7 +21,6 @@ import {
   type EmbeddingProviderName,
 } from '../config/settings/runtime-settings.js';
 import { resolveModelSelection } from '../shared/model-catalog.js';
-import { controlApiRequest } from './control-api.js';
 
 function usage(): string {
   return [

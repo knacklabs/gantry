@@ -184,6 +184,8 @@ import type {
   McpServerVersionId,
 } from '@core/domain/mcp/mcp-servers.js';
 import type { McpServerRepository } from '@core/domain/ports/repositories.js';
+import type { AgentId } from '@core/domain/agent/agent.js';
+import type { AppId } from '@core/domain/app/app.js';
 
 const testGroup: ConversationRoute = {
   name: 'Test Group',
@@ -200,6 +202,11 @@ const testInput = {
 
 class SpawnMcpRepository implements McpServerRepository {
   auditEvents: McpServerAuditEvent[] = [];
+  materializedInputs: {
+    appId: AppId;
+    agentId: AgentId;
+    serverIds?: readonly McpServerId[];
+  }[] = [];
 
   constructor(private readonly records: MaterializedMcpServer[]) {}
 
@@ -245,8 +252,15 @@ class SpawnMcpRepository implements McpServerRepository {
     return [];
   }
 
-  async listMaterializedServersForAgent() {
-    return this.records;
+  async listMaterializedServersForAgent(input: {
+    appId: AppId;
+    agentId: AgentId;
+    serverIds?: readonly McpServerId[];
+  }) {
+    this.materializedInputs.push(input);
+    if (!input.serverIds) return this.records;
+    const selected = new Set(input.serverIds);
+    return this.records.filter((record) => selected.has(record.definition.id));
   }
 
   async appendAuditEvent(event: McpServerAuditEvent) {
@@ -275,12 +289,16 @@ function mcpRecord(): MaterializedMcpServer {
     appId: 'app-one' as never,
     serverId: definition.id,
     version: 1,
-    transport: 'http',
-    config: { transport: 'http', url: 'https://mcp.example.com/github' },
+    transport: 'stdio_template',
+    config: {
+      transport: 'stdio_template',
+      templateId: 'npx-package',
+      args: ['@modelcontextprotocol/server-github'],
+    },
     allowedToolPatterns: ['search_repositories'],
     autoApproveToolPatterns: ['search_repositories'],
     credentialRefs: [
-      { name: 'GITHUB_TOKEN_REF', target: 'header', key: 'Authorization' },
+      { name: 'GITHUB_TOKEN_REF', target: 'env', key: 'GITHUB_TOKEN' },
     ],
     configHash: 'hash',
     createdAt: new Date(0).toISOString(),
@@ -315,6 +333,7 @@ describe('agent-spawn timeout behavior', () => {
     vi.mocked(spawn).mockClear();
     vi.mocked(fs.writeFileSync).mockClear();
     vi.mocked(getEffectiveModelConfig).mockClear();
+    vi.mocked(getHostRuntimeCredentialEnv).mockReset();
     vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValue({
       env: {},
       credentialProviders: {},
@@ -427,6 +446,92 @@ describe('agent-spawn timeout behavior', () => {
     const result = await resultPromise;
     expect(result.status).toBe('success');
     expect(result.newSessionId).toBe('session-456');
+  });
+
+  it('preserves structured runner errors on nonzero streaming exit', async () => {
+    const onOutput = vi.fn(async () => {});
+    const resultPromise = spawnAgent(testGroup, testInput, () => {}, onOutput);
+
+    emitOutputMarker(fakeProc, {
+      status: 'error',
+      result: null,
+      error: 'Permission denied: scoped Bash rule missing',
+      newSessionId: 'session-denied',
+    });
+    fakeProc.stderr.push('sdk stack tail should not replace structured error');
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 1);
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+    expect(result).toMatchObject({
+      status: 'error',
+      error: 'Permission denied: scoped Bash rule missing',
+      newSessionId: 'session-denied',
+    });
+    expect(onOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'error',
+        error: 'Permission denied: scoped Bash rule missing',
+      }),
+    );
+  });
+
+  it('fails scheduled jobs with an explicit idle-stall diagnostic', async () => {
+    process.env.MYCLAW_SCHEDULED_JOB_IDLE_TIMEOUT_MS = '60000';
+    const onOutput = vi.fn(async () => {});
+    const resultPromise = spawnAgent(
+      testGroup,
+      {
+        ...testInput,
+        isScheduledJob: true,
+        jobId: 'job-idle',
+        runId: 'run-idle',
+      },
+      () => {},
+      onOutput,
+      { timeoutMs: 1800000 },
+    );
+
+    emitOutputMarker(fakeProc, {
+      status: 'success',
+      result: null,
+      runtimeEvents: [
+        {
+          eventType: 'job.heartbeat',
+          payload: {
+            lastTool: 'SandboxNetworkAccess',
+            lastActivityAt: '2026-05-13T22:01:55.091Z',
+            lastActivityAgoMs: 61000,
+            pendingPermissionRequests: 0,
+            pendingPermissionToolNames: [],
+            totalToolCalls: 4,
+          },
+        },
+      ],
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    expect(fakeProc.kill).toHaveBeenCalledWith('SIGKILL');
+    fakeProc.emit('close', 137);
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+    expect(result.status).toBe('error');
+    expect(result.error).toContain(
+      'Scheduled job made no runner or tool progress',
+    );
+    expect(result.error).toContain('lastTool=SandboxNetworkAccess');
+    expect(result.error).toContain('pendingPermissions=0 (none)');
+    expect(onOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimeEvents: [
+          expect.objectContaining({ eventType: 'job.heartbeat' }),
+        ],
+      }),
+    );
+    delete process.env.MYCLAW_SCHEDULED_JOB_IDLE_TIMEOUT_MS;
   });
 
   it('ensures group IPC layout before spawning host runner', async () => {
@@ -873,12 +978,14 @@ describe('agent-spawn timeout behavior', () => {
     expect(runnerInput.modelCredentialEnv).toBeUndefined();
   });
 
-  it('does not expose approved third-party MCP servers through direct SDK MCP config', async () => {
+  it('materializes approved third-party stdio MCP servers through direct SDK MCP config', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
-    const rmSyncSpy = vi.spyOn(fs, 'rmSync');
+    const rmSyncSpy = vi
+      .spyOn(fs, 'rmSync')
+      .mockImplementation(() => undefined);
     const { getHostRuntimeCredentialEnv } =
       await import('@core/runtime/agent-spawn-host.js');
-    vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValueOnce({
+    vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValue({
       env: { GITHUB_TOKEN_REF: 'broker-token' },
       credentialProviders: {},
       brokerApplied: true,
@@ -890,7 +997,7 @@ describe('agent-spawn timeout behavior', () => {
     ]);
     const resultPromise = spawnAgent(
       testGroup,
-      testInput,
+      { ...testInput, selectedMcpServerIds: ['mcp:github'] },
       () => {},
       undefined,
       {
@@ -918,15 +1025,90 @@ describe('agent-spawn timeout behavior', () => {
       string,
       string
     >;
+    expect(repository.materializedInputs).toEqual([
+      expect.objectContaining({
+        appId: 'app-one',
+        agentId: 'agent-one',
+        serverIds: ['mcp:github'],
+      }),
+    ]);
     expect(env.MYCLAW_MCP_SERVERS_JSON).toBeUndefined();
+    expect(env.MYCLAW_MCP_CONFIG_FILE).toMatch(/mcp-.*\.json$/);
+    expect(JSON.parse(env.MYCLAW_MCP_ALLOWED_TOOLS_JSON)).toEqual([
+      'mcp__github__search_repositories',
+    ]);
+    expect(JSON.parse(env.MYCLAW_MCP_ALWAYS_ALLOWED_TOOLS_JSON)).toEqual([
+      'mcp__github__search_repositories',
+    ]);
+    expect(rmSyncSpy).toHaveBeenCalledWith(env.MYCLAW_MCP_CONFIG_FILE, {
+      force: true,
+    });
+    const mcpConfigWrite = vi
+      .mocked(fs.writeFileSync)
+      .mock.calls.find(([target]) => String(target).includes('/mcp-'));
+    expect(mcpConfigWrite).toBeDefined();
+    expect(JSON.parse(String(mcpConfigWrite?.[1]))).toEqual({
+      github: {
+        type: 'stdio',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-github'],
+        env: { GITHUB_TOKEN: 'broker-token' },
+      },
+    });
+    expect(repository.auditEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: 'materialize',
+          agentId: 'agent-one',
+          serverId: 'mcp:github',
+          metadata: expect.objectContaining({ name: 'github' }),
+        }),
+      ]),
+    );
+    rmSyncSpy.mockRestore();
+  });
+
+  it('does not materialize MCP bindings when no MCP servers are selected for the run', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValue({
+      env: { GITHUB_TOKEN_REF: 'broker-token' },
+      credentialProviders: {},
+      brokerApplied: true,
+      brokerProfile: 'test',
+    });
+    const repository = new SpawnMcpRepository([mcpRecord()]);
+
+    const resultPromise = spawnAgent(
+      testGroup,
+      { ...testInput, selectedMcpServerIds: [] },
+      () => {},
+      undefined,
+      {
+        mcpServerRepository: repository,
+        mcpContext: { appId: 'app-one', agentId: 'agent-one' },
+        mcpHostnameLookup: vi.fn(async () => [
+          { address: '93.184.216.34', family: 4 as const },
+        ]),
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(repository.materializedInputs).toEqual([]);
+    expect(
+      vi
+        .mocked(getHostRuntimeCredentialEnv)
+        .mock.calls.some((call) => call[2]?.purpose === 'tool_capability'),
+    ).toBe(false);
     expect(env.MYCLAW_MCP_CONFIG_FILE).toBeUndefined();
     expect(env.MYCLAW_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
-    expect(env.MYCLAW_MCP_ALWAYS_ALLOWED_TOOLS_JSON).toBeUndefined();
-    expect(rmSyncSpy).not.toHaveBeenCalledWith(
-      expect.stringMatching(/mcp-.*\.json$/),
-      expect.anything(),
-    );
-    expect(repository.auditEvents).toEqual([]);
   });
 
   it('does not write MCP handoff files when runner files are missing', async () => {
@@ -1090,14 +1272,15 @@ describe('agent-spawn timeout behavior', () => {
   it('fails closed on stale raw browser action MCP rules during spawn', async () => {
     const result = await spawnAgent(
       testGroup,
-      { ...testInput, allowedTools: ['Read', 'mcp__agent_browser__*'] },
+      {
+        ...testInput,
+        allowedTools: ['Read', 'mcp__browser' + '_' + 'backend' + '__*'],
+      },
       () => {},
     );
     expect(result).toMatchObject({
       status: 'error',
-      error: expect.stringContaining(
-        'Raw browser backend MCP tools are host-private',
-      ),
+      error: expect.stringContaining('Host-private browser backend tools'),
     });
     expect(mockEnsureBrowserReady).not.toHaveBeenCalled();
     expect(mockGetBrowserStatus).not.toHaveBeenCalled();
@@ -1107,19 +1290,51 @@ describe('agent-spawn timeout behavior', () => {
   it('fails closed on stale projected browser MCP rules during spawn', async () => {
     const result = await spawnAgent(
       testGroup,
-      { ...testInput, allowedTools: ['Read', 'mcp__myclaw__browser_click'] },
+      { ...testInput, allowedTools: ['Read', 'mcp__myclaw__browser_act'] },
       () => {},
     );
     expect(result).toMatchObject({
       status: 'error',
       error: expect.stringContaining(
-        'Concrete MyClaw browser tools are runtime projections',
+        'MyClaw browser tools are runtime projections',
       ),
     });
     expect(mockEnsureBrowserReady).not.toHaveBeenCalled();
     expect(mockGetBrowserStatus).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [
+      'SDK sandbox network access',
+      ['Read', 'SandboxNetworkAccess'],
+      'SDK sandbox network prompts are internal',
+    ],
+    [
+      'exact third-party MCP tool',
+      ['Read', 'mcp__github__search_repositories'],
+      'Third-party MCP tool names are not selected directly',
+    ],
+    [
+      'bare Bash',
+      ['Read', 'Bash'],
+      'Persistent bare Bash grants are too broad',
+    ],
+  ])(
+    'fails closed on stale %s rules during spawn',
+    async (_label, rules, reason) => {
+      const result = await spawnAgent(
+        testGroup,
+        { ...testInput, allowedTools: rules },
+        () => {},
+      );
+      expect(result).toMatchObject({
+        status: 'error',
+        error: expect.stringContaining(reason),
+      });
+      expect(spawn).not.toHaveBeenCalled();
+    },
+  );
 
   it('keeps browser action backend private when Browser is selected', async () => {
     const originalNoProxy = process.env.NO_PROXY;

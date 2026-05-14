@@ -63,8 +63,10 @@ function runtimeEnv(): Record<string, string | undefined> {
           : [];
       });
     return (runtimeEnvCache = Object.fromEntries(entries));
-  } catch {}
-  return (runtimeEnvCache = {});
+  } catch {
+    runtimeEnvCache = {};
+  }
+  return runtimeEnvCache;
 }
 export const PERMISSION_APPROVAL_TIMEOUT_MS =
   resolvePermissionApprovalTimeoutMs();

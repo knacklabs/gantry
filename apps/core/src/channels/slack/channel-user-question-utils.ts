@@ -1,7 +1,4 @@
-import {
-  PermissionApprovalRequest,
-  UserQuestionRequest,
-} from '../../domain/types.js';
+import { UserQuestionRequest } from '../../domain/types.js';
 
 const SLACK_LIMITS = { buttonText: 75, actionValue: 2000 } as const;
 
@@ -92,38 +89,4 @@ export function formatSlackUserQuestionPromptText(
   }
   lines.push(`Reply timeout: ${timeoutMinutes} minute(s)`);
   return lines.join('\n');
-}
-
-export function formatSlackPermissionToolInputLines(
-  request: PermissionApprovalRequest,
-): string[] {
-  if (!request.toolInput || typeof request.toolInput !== 'object') return [];
-  const input = request.toolInput;
-  if (
-    request.toolName === 'Bash' &&
-    typeof input.command === 'string' &&
-    input.command.trim()
-  ) {
-    return [`Command: \`${truncateSlackText(input.command.trim(), 300)}\``];
-  }
-  if (request.toolName === 'Edit' || request.toolName === 'Write') {
-    const lines: string[] = [];
-    if (typeof input.file_path === 'string' && input.file_path.trim()) {
-      lines.push(`File: ${truncateSlackText(input.file_path.trim(), 250)}`);
-    }
-    if (typeof input.old_string === 'string' && input.old_string.trim()) {
-      lines.push(
-        `Replacing: ${truncateSlackText(input.old_string.trim(), 150)}`,
-      );
-    }
-    if (typeof input.new_string === 'string' && input.new_string.trim()) {
-      lines.push(`With: ${truncateSlackText(input.new_string.trim(), 150)}`);
-    }
-    if (lines.length > 0) return lines;
-  }
-  try {
-    return [`Input: ${truncateSlackText(JSON.stringify(input), 300)}`];
-  } catch {
-    return ['Input: [unserializable]'];
-  }
 }

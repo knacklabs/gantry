@@ -74,6 +74,7 @@ export class PostgresCanonicalSessionRepository {
     scopeKey: string;
     conversationKind?: 'dm' | 'channel';
     memoryUserId?: string;
+    jobId?: string;
   }): Promise<{
     appId: string;
     agentId: string;
@@ -125,6 +126,7 @@ export class PostgresCanonicalSessionRepository {
     scopeKey: string;
     conversationKind?: 'dm' | 'channel';
     memoryUserId?: string;
+    jobId?: string;
   }): Promise<{
     agentSessionId: string;
     agentId: string;
@@ -137,7 +139,9 @@ export class PostgresCanonicalSessionRepository {
       scopeKey,
       conversationKind,
       memoryUserId,
+      jobId,
     } = input;
+    const normalizedJobId = jobId?.trim() || null;
     const resolvedMemoryUserId = memoryUserId?.trim() || null;
     const sessionUserId =
       conversationKind === 'dm' && resolvedMemoryUserId
@@ -173,6 +177,7 @@ export class PostgresCanonicalSessionRepository {
           agentId,
           conversationId,
           threadId: canonicalThreadId,
+          jobId: normalizedJobId,
           userId: sessionUserId,
           scopeKey,
           status: 'active',
@@ -183,6 +188,7 @@ export class PostgresCanonicalSessionRepository {
             agentId,
             conversationId,
             threadId: canonicalThreadId,
+            jobId: normalizedJobId,
             ...(shouldUpdateMemoryUserId ? { userId: sessionUserId } : {}),
             scopeKey,
             status: 'active',
@@ -279,6 +285,7 @@ export class PostgresCanonicalSessionRepository {
     threadId?: string | null;
     conversationKind?: 'dm' | 'channel';
     memoryUserId?: string;
+    jobId?: string;
     latestArtifactId?: string | null;
     expectedAgentSessionId?: string;
     expectedAgentSessionResetAt?: string | null;
@@ -292,10 +299,12 @@ export class PostgresCanonicalSessionRepository {
       threadId,
       conversationKind,
       memoryUserId,
+      jobId,
       latestArtifactId,
       expectedAgentSessionId,
       expectedAgentSessionResetAt,
     } = input;
+    const normalizedJobId = jobId?.trim() || null;
     const resolvedMemoryUserId = memoryUserId?.trim() || null;
     const sessionUserId =
       conversationKind === 'dm' && resolvedMemoryUserId
@@ -333,6 +342,7 @@ export class PostgresCanonicalSessionRepository {
           agentId,
           conversationId,
           threadId: canonicalThreadId,
+          jobId: normalizedJobId,
           userId: sessionUserId,
           scopeKey,
           status: 'active',
@@ -343,6 +353,7 @@ export class PostgresCanonicalSessionRepository {
             agentId,
             conversationId,
             threadId: canonicalThreadId,
+            jobId: normalizedJobId,
             userId: sessionUserId,
             scopeKey,
             status: 'active',

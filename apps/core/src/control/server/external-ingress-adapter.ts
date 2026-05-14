@@ -39,7 +39,7 @@ export function createExternalIngressModule(
   return new ExternalIngressModule({
     control,
     sessions,
-    jobs: createJobManagementService(),
+    jobs: createJobManagementService(ctx),
     now: nowIso,
     createSecret: () => randomBytes(32).toString('hex'),
     createInvocationId: randomUUID,

@@ -5,7 +5,7 @@ export type SessionRoute = {
 
 export type JobRoute =
   | { jobId: string; action: 'pause' | 'resume' | 'trigger' }
-  | { jobId: string; action: 'get' | 'delete' | 'update' };
+  | { jobId: string; action: 'get' | 'delete' | 'update' | 'events' };
 
 export type WebhookRoute = {
   webhookId: string;
@@ -51,6 +51,13 @@ export function parseSessionRoute(pathname: string): SessionRoute | null {
 }
 
 export function parseJobRoute(pathname: string): JobRoute | null {
+  const eventsMatch = /^\/v1\/jobs\/([^/]+)\/events$/.exec(pathname);
+  if (eventsMatch) {
+    return {
+      jobId: decodeURIComponent(eventsMatch[1]!),
+      action: 'events',
+    };
+  }
   const actionMatch = /^\/v1\/jobs\/([^/]+)\/(pause|resume|trigger)$/.exec(
     pathname,
   );

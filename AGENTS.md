@@ -38,7 +38,11 @@ Important constraints:
 - Transcript archive during `/new` is best-effort and must not block reset success.
 - Durable memory lives under the configured memory root; do not load `~/myclaw/agents/<folder>/memory/`.
 - Live channel turns must persist the provider SDK session ID as soon as the runner streams it. Do not wait for runner shutdown; launchd restarts can kill an active run before final completion.
-- Scheduler fallback delivery must accumulate bounded, already-redacted user-visible output snapshots; never retain or send unbounded raw streamed output.
+- Progress/status messages for long-lived live runs are per user-visible turn: reset elapsed timers and progress generations when continuation input is piped, and do not send follow-up progress from the polling loop.
+- Scheduler notification routes are lifecycle/outcome routes. Do not stream or fallback-deliver raw assistant output to them; send one concise terminal outcome message unless the job is silent.
+- Scheduler maintenance must periodically full-sync active jobs so expired leases are released even when no new pg-boss job fires.
+- Scheduler terminal states must leave durable user-visible evidence: persist a `JobRun`, emit terminal runtime events, send a concise outcome notification when routes exist, and persist `notified_at` after successful delivery.
+- Jobs paused for missing capabilities must surface one clear user action in job list/status metadata, such as approving `Browser`; do not require users to inspect logs to discover the blocker.
 - Outbound durable delivery recovery startup must claim due items across app scopes; do not hard-code startup recovery claims to `appId: 'default'`.
 - Jobs must use canonical `execution_context` and `notification_routes` for runtime execution/delivery targeting; do not add or mirror legacy job-notification alias fields.
 - Postgres `pgcrypto` must be installed in `public` schema for shared test/runtime databases; schema-scoped extension installs break `digest()` lookups under per-schema `search_path`.
@@ -51,6 +55,7 @@ Important constraints:
 - Hide LLM and model-provider behavior behind provider ports.
 - Route all risky tool execution through deterministic permission evaluation and sandbox policy.
 - SDK-managed Bash/file/MCP execution must receive Claude SDK sandbox settings with fail-closed availability and protected-path `denyWrite` entries; direct host-owned scheduler scripts are not supported.
+- When `NODE_EXTRA_CA_CERTS` is present in the Claude SDK model credential lane, the SDK process and already-approved Bash tool calls may receive only neutral TLS trust aliases (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`, `PIP_CERT`, `AWS_CA_BUNDLE`, `CARGO_HTTP_CAINFO`, and `DENO_CERT`) for that same CA bundle path; do not pass broker proxies or provider tokens into tool subprocesses.
 - Domain must not import adapters, runtime, CLI, HTTP, Postgres, Slack, Telegram, Teams, WhatsApp, Claude, Anthropic SDK, OpenAI, Gemini, or provider-specific packages.
 - Application may depend on domain and ports, not provider implementations.
 - Adapters implement ports and may depend on external systems.
@@ -101,9 +106,12 @@ Important constraints:
 - Teams is a first-class channel. Use `teams:` conversation IDs, Teams runtime secrets through `RuntimeSecretProvider`, and Adaptive Card `Action.Execute` approval flows.
 - Runtime bootstrap code must not call `getRuntimeStorage()` while constructing wiring objects before `runStartup()` initializes storage. Pass lazy repository accessors or instantiate storage-backed services inside request handlers after startup.
 - Runtime queue concurrency and retry policy belongs under `runtime.queue` in `settings.yaml` and should be injected into `GroupQueue`; tests should not depend on hard-coded queue timing or concurrency defaults.
-- Agents must use `send_message`, `ask_user_question`, `request_skill_install`, `request_skill_proposal`, `request_skill_dependency_install`, `request_mcp_server`, `request_permission`, `service_restart`, and `register_agent` instead of direct installs, config edits, or legacy tool-enable guidance. Permission decisions are `Allow once`, `Always allow <granular rule>`, or `Cancel`.
-- Browser grants persist only as canonical `Browser`. Runtime projects that capability into MyClaw-owned `browser_*` tools with MyClaw-owned schemas; direct Playwright/CDP is an internal implementation detail. Do not persist or expose raw `agent_browser`, Playwright, Puppeteer, or per-action browser tool names as durable authority.
+- Agents must use `send_message`, `ask_user_question`, `request_skill_install`, `request_skill_proposal`, `request_skill_dependency_install`, `request_mcp_server`, `capability_search`, `request_capability`, `propose_local_cli_capability`, `manage_capability`, `request_permission`, `service_restart`, and `register_agent` instead of direct installs, config edits, or legacy tool-enable guidance. Permission decisions are `Allow once`, `Always allow for this agent/job` for semantic capabilities, `Always allow Browser`, `Always allow mcp__myclaw__<admin_tool>`, `Always allow Bash(<literal command prefix pattern>)`, and `Cancel`; broad exact SDK/native tools, exact third-party MCP tools, bare persistent `Bash`, `Bash(*)`, and leading-wildcard Bash scopes are not durable `request_permission` authority. User-defined `local_cli` capabilities are reviewable drafts until runtime enforcement verifies executable identity, preflight, protected paths, and denied environment overrides.
+- Prefer semantic capability requests (`capability_search`, `request_capability`, `propose_local_cli_capability`, and `manage_capability`) for app/tool access such as Google Sheets, Gmail, or business CLIs. Fall back to raw scoped `Bash(...)` only for one-off exact commands or when no reviewed semantic capability exists.
+- `SandboxNetworkAccess` is an SDK-internal defense-in-depth prompt, never durable authority. Suppress it only with a short-lived run-local token created by an already-approved Bash tool call; persist the scoped Bash rule or semantic capability instead.
+- Browser grants persist only as canonical `Browser`. Runtime projects that capability into MyClaw-owned gateway tools (`browser_status`, `browser_open`, `browser_inspect`, `browser_act`, and `browser_close`) with MyClaw-owned schemas. Private browser backend details are internal implementation details. Do not persist or expose per-action browser tool names as durable authority.
 - The control API is part of the runtime process. launchd/systemd service definitions should stay secret-free; `MYCLAW_CONTROL_API_KEYS_JSON`, `MYCLAW_CONTROL_PORT`, and `MYCLAW_CONTROL_SOCKET_PATH` belong in process env or the runtime `.env`. Control API keys must include explicit `kid`, `token`, `appId`, and `scopes`.
+- Don't fight errors! Whenever you encounter the same error twice, research the web and find 3-5 possible ways to fix it. Then choose the most efficient solution and implement it.
 
 ## Docs Rules
 
@@ -119,6 +127,12 @@ Important constraints:
 - Discover and document exact verification commands before changing implementation behavior.
 - Run the smallest relevant checks after each change.
 - Run full checks at the end of a phase.
+- For Postgres-backed verification, use a disposable Docker Postgres container
+  for each task instead of the developer's persistent `~/myclaw/postgres` data.
+  The disposable database must enable the same bootstrap extensions as local
+  Compose before migrations run: `CREATE EXTENSION IF NOT EXISTS vector;` and
+  `CREATE EXTENSION IF NOT EXISTS pg_trgm;`. Point tests at it with
+  `MYCLAW_TEST_DATABASE_URL`, then stop/remove the container after the check.
 - Before validating `~/myclaw`, build/restart from this checkout, confirm `myclaw status`, and treat older generated logs/state as stale.
 - Archive stale generated state under `~/myclaw/cleanup-archive/<timestamp>/`; keep secrets, settings, Postgres, OneCLI data, artifacts, and active agent folders unless reset is requested.
 - Architecture exceptions must be time-bounded ratchets with max counts; never relax the checker globally to hide new debt.

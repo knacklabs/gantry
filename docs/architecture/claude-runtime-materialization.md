@@ -37,7 +37,7 @@ Durable state stays outside Claude runtime files:
 - Package or configured local skill folders provide file-based Claude skills.
 - MyClaw may add runtime-installed skills into the generated per-run config
   when they are part of host-owned capability wiring. The local Claude browser
-  path uses this for `agent-browser`.
+  path uses this for `myclaw-browser`.
 - Hosted Anthropic managed skills are referenced by provider skill ids and are
   resolved through the Anthropic SDK adapter, not through local files.
 
@@ -71,13 +71,14 @@ directory for that run, then the Claude Agent SDK loads them from
 `CLAUDE_CONFIG_DIR`.
 
 For each persona with browser capability, MyClaw also materializes a pinned
-runtime-installed `agent-browser` skill into that same temp directory. It is not
+runtime-installed `myclaw-browser` skill into that same temp directory. It is not
 stored under the repo-bundled `.claude/skills` tree and does not require user
 `.claude` edits. The skill always points the model at the projected public
-`mcp__myclaw__browser_*` tools. Raw Playwright, Puppeteer, or `agent_browser`
-MCP servers must not appear in model-visible MCP handoff, requestable
-capability lists, or persisted tool rules; browser actions are handled by the
-host-owned direct Chrome/CDP driver behind the projected MyClaw tools.
+Browser gateway tools: `browser_status`, `browser_open`, `browser_inspect`,
+`browser_act`, and `browser_close`. Private browser backend tools must not
+appear in model-visible MCP handoff, requestable capability lists, or persisted
+tool rules; browser actions are handled by the host-owned browser driver behind
+the projected MyClaw gateway.
 
 Durable user-installed files under the runtime-home Claude skills directory are
 not read or copied by enterprise runtime.

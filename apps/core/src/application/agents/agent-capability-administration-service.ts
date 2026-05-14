@@ -24,7 +24,10 @@ import type {
   ToolCatalogItem,
   ToolId,
 } from '../../domain/tools/tools.js';
-import { displayToolReference } from '../../shared/agent-tool-references.js';
+import {
+  displayToolReference,
+  validateReadableAgentToolRule,
+} from '../../shared/agent-tool-references.js';
 import {
   buildAgentToolAccessView,
   buildRequestableAdminToolAccess,
@@ -334,6 +337,14 @@ export class AgentCapabilityAdministrationService {
           throw new ApplicationError(
             'INVALID_REQUEST',
             `Tool is not selectable: ${toolId}`,
+          );
+        }
+        const readableRule = displayToolReference({ toolId, tool });
+        const validation = validateReadableAgentToolRule(readableRule);
+        if (!validation.ok) {
+          throw new ApplicationError(
+            'INVALID_REQUEST',
+            `Tool is not selectable: ${readableRule}: ${validation.reason}`,
           );
         }
         tools.set(toolId, tool);

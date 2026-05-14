@@ -75,7 +75,7 @@ describe('browser MCP IPC response signatures', () => {
       throw new Error('Timed out waiting for browser request');
     })();
 
-    const response = await requestBrowserAction('browser_status', {});
+    const response = await requestBrowserAction('status', {});
     await responder;
 
     expect(response).toEqual({

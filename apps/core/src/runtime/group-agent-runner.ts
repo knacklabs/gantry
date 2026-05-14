@@ -25,6 +25,7 @@ import { createRuntimeModelStatusAccess } from './model-status-store.js';
 import { recordRuntimeModelUsage } from './model-status-output.js';
 import { buildBoundedMemoryRecallQuery } from '../memory/app-memory-recall-query.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
+import { isRuntimeEventType } from '../domain/events/runtime-event-types.js';
 const DEFAULT_ASSISTANT_NAME = 'MyClaw';
 const DEFAULT_MODEL_ALIAS = 'opus';
 const MEMORY_REVIEW_APPROVER_CACHE_TTL_MS = 60_000;
@@ -73,6 +74,25 @@ function redactRuntimeLogValue(value: unknown, depth: number): unknown {
   if (typeof value === 'string') return redactRuntimeLogString(value);
   if (Array.isArray(value)) {
     return value.map((entry) => redactRuntimeLogValue(entry, depth + 1));
+  }
+  if (value instanceof Error) {
+    const errorPayload: Record<string, unknown> = {
+      type: value.constructor?.name || 'Error',
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+    };
+    const withCause = value as Error & {
+      cause?: unknown;
+      code?: unknown;
+    };
+    if ('code' in withCause) {
+      errorPayload.code = withCause.code;
+    }
+    if ('cause' in withCause) {
+      errorPayload.cause = withCause.cause;
+    }
+    return redactRuntimeLogValue(errorPayload, depth + 1);
   }
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
@@ -245,6 +265,35 @@ export function createGroupAgentRunner(input: {
           }
           if (output.status !== 'error' && output.result) {
             streamedResult.append(String(output.result));
+          }
+          if (output.runtimeEvents?.length && deps.publishRuntimeEvent) {
+            for (const event of output.runtimeEvents) {
+              if (!isRuntimeEventType(event.eventType)) continue;
+              const appId = event.appId ?? turnContext?.appId;
+              if (!appId) continue;
+              await deps.publishRuntimeEvent({
+                appId: appId as never,
+                ...((event.agentId ?? turnContext?.agentId)
+                  ? {
+                      agentId: (event.agentId ?? turnContext?.agentId) as never,
+                    }
+                  : {}),
+                ...((event.runId ?? runId)
+                  ? { runId: (event.runId ?? runId) as never }
+                  : {}),
+                ...(event.jobId ? { jobId: event.jobId as never } : {}),
+                conversationId: (event.conversationId ?? chatJid) as never,
+                ...((event.threadId ?? sessionThreadId)
+                  ? {
+                      threadId: (event.threadId ?? sessionThreadId) as never,
+                    }
+                  : {}),
+                eventType: event.eventType,
+                actor: event.actor ?? 'runner',
+                responseMode: event.responseMode ?? 'none',
+                payload: event.payload,
+              });
+            }
           }
           if (
             output.compactBoundary &&

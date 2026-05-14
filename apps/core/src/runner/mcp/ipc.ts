@@ -1,11 +1,13 @@
 import fs from 'fs';
 import path from 'path';
-import { BrowserIpcAction, MemoryIpcAction } from '@myclaw/contracts';
+import { MemoryIpcAction } from '@myclaw/contracts';
+import type { BrowserBackendAction } from '../../shared/browser-backend-actions.js';
 import {
   nowMs,
   nowMs as currentTimeMs,
   sleep,
 } from '../../shared/time/datetime.js';
+import { formatDuration } from '../../shared/human-format.js';
 import {
   formatMemoryTimeoutError,
   getMemoryActionTimeoutMs,
@@ -192,9 +194,9 @@ export async function requestMemoryAction(
 }
 
 export async function requestBrowserAction(
-  action: BrowserIpcAction,
+  action: BrowserBackendAction,
   payload: Record<string, unknown>,
-  options: { timeoutMs?: number } = {},
+  options: { timeoutMs?: number; publicToolName?: string } = {},
 ): Promise<{
   ok: boolean;
   data?: unknown;
@@ -215,7 +217,16 @@ export async function requestBrowserAction(
     context: {
       chatJid,
       timeoutMs,
+      ...(process.env.MYCLAW_JOB_ID
+        ? { jobId: process.env.MYCLAW_JOB_ID }
+        : {}),
+      ...(process.env.MYCLAW_JOB_RUN_ID
+        ? { runId: process.env.MYCLAW_JOB_RUN_ID }
+        : {}),
       ...(threadId ? { threadId } : {}),
+      ...(options.publicToolName
+        ? { publicToolName: options.publicToolName }
+        : {}),
       ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
     },
     expiresAt: new Date(currentTimeMs() + timeoutMs).toISOString(),
@@ -282,7 +293,7 @@ export async function requestBrowserAction(
   removeStaleRequestFile(reqPath);
   return {
     ok: false,
-    error: `Browser IPC timeout after ${timeoutMs}ms waiting for browser service response`,
+    error: `Browser IPC timeout after ${formatDuration(timeoutMs)} waiting for browser service response`,
   };
 }
 

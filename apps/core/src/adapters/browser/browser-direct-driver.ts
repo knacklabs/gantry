@@ -1,4 +1,4 @@
-import type { BrowserIpcAction } from '@myclaw/contracts';
+import type { BrowserBackendAction } from '../../shared/browser-backend-actions.js';
 import { type Browser, type Page } from 'playwright-core';
 import type { Locator } from 'playwright-core';
 
@@ -63,7 +63,7 @@ interface BrowserToolSession {
 
 const selectedBackendIndexBySession = new Map<string, number>();
 export async function callBrowserTool(input: {
-  toolName: BrowserIpcAction;
+  toolName: BrowserBackendAction;
   arguments: Record<string, unknown>;
   session: BrowserToolSession;
   fileAccessRoot: string;
@@ -121,7 +121,7 @@ export async function callBrowserTool(input: {
     if (shouldReturnSnapshotAfterNavigateBackTimeout(input.toolName, err)) {
       return await callBrowserTool({
         ...input,
-        toolName: 'browser_snapshot',
+        toolName: 'snapshot',
         arguments: {},
       });
     }
@@ -135,7 +135,7 @@ async function dispatchBrowserToolWithReconnect(input: {
   connection: BrowserConnection;
   sessionKey: string;
   cdpEndpoint: string;
-  toolName: BrowserIpcAction;
+  toolName: BrowserBackendAction;
   args: Record<string, unknown>;
   outputDir: string;
   deadline: number;
@@ -160,7 +160,7 @@ async function dispatchBrowserTool(input: {
   connection: BrowserConnection;
   sessionKey: string;
   cdpEndpoint: string;
-  toolName: BrowserIpcAction;
+  toolName: BrowserBackendAction;
   args: Record<string, unknown>;
   outputDir: string;
   deadline: number;
@@ -175,17 +175,17 @@ async function dispatchBrowserTool(input: {
 async function dispatchBrowserToolInner(input: {
   connection: BrowserConnection;
   sessionKey: string;
-  toolName: BrowserIpcAction;
+  toolName: BrowserBackendAction;
   args: Record<string, unknown>;
   outputDir: string;
   deadline: number;
 }): Promise<unknown> {
   switch (input.toolName) {
-    case 'browser_tabs':
+    case 'tabs':
       return await runBrowserTabs(input);
-    case 'browser_navigate':
+    case 'navigate':
       return await runWithActivePage(input, async (page) => {
-        const url = requiredString(input.args.url, 'browser_navigate.url');
+        const url = requiredString(input.args.url, 'navigate.url');
         const response = await page.goto(url, {
           waitUntil: 'domcontentloaded',
           timeout: actionOperationTimeout(input.deadline),
@@ -194,7 +194,7 @@ async function dispatchBrowserToolInner(input: {
           `Navigated to ${page.url()}${response ? ` (${response.status()})` : ''}.`,
         );
       });
-    case 'browser_navigate_back':
+    case 'back':
       return await runWithActivePage(input, async (page) => {
         await page.goBack({
           waitUntil: 'commit',
@@ -202,32 +202,32 @@ async function dispatchBrowserToolInner(input: {
         });
         return textResult(`Navigated back to ${page.url()}.`);
       });
-    case 'browser_snapshot':
+    case 'snapshot':
       return await runWithActivePage(input, async (page) =>
         writeOptionalTextOutput(
           await snapshotPage(page, input.args),
           input.args,
         ),
       );
-    case 'browser_take_screenshot':
+    case 'screenshot':
       return await runWithActivePage(input, async (page) =>
         takeScreenshot(page, input.args, input.outputDir),
       );
-    case 'browser_console_messages':
+    case 'console_messages':
       return await runWithActivePage(input, async (page) =>
         writeOptionalTextOutput(
           JSON.stringify(pageState(page).console, null, 2),
           input.args,
         ),
       );
-    case 'browser_network_requests':
+    case 'network_requests':
       return await runWithActivePage(input, async (page) =>
         writeOptionalTextOutput(
           JSON.stringify(pageState(page).network, null, 2),
           input.args,
         ),
       );
-    case 'browser_click':
+    case 'click':
       return await runWithTarget(input, async (locator) => {
         const button = stringValue(input.args.button) as
           | 'left'
@@ -243,14 +243,14 @@ async function dispatchBrowserToolInner(input: {
         });
         return textResult('Clicked element.');
       });
-    case 'browser_hover':
+    case 'hover':
       return await runWithTarget(input, async (locator) => {
         await locator.hover({
           timeout: actionOperationTimeout(input.deadline),
         });
         return textResult('Hovered element.');
       });
-    case 'browser_type':
+    case 'type':
       return await runWithTarget(input, async (locator, page) => {
         await locator.click({
           timeout: actionOperationTimeout(input.deadline),
@@ -261,12 +261,12 @@ async function dispatchBrowserToolInner(input: {
         if (input.args.submit === true) await page.keyboard.press('Enter');
         return textResult('Typed text.');
       });
-    case 'browser_press_key':
+    case 'press_key':
       return await runWithActivePage(input, async (page) => {
         await page.keyboard.press(requiredString(input.args.key, 'key'));
         return textResult('Pressed key.');
       });
-    case 'browser_drag':
+    case 'drag':
       return await runWithActivePage(input, async (page) => {
         const start = await resolveTargetLocator(
           page,
@@ -281,15 +281,15 @@ async function dispatchBrowserToolInner(input: {
         });
         return textResult('Dragged element.');
       });
-    case 'browser_drop':
+    case 'drop':
       return await runWithTarget(input, async (locator) => {
         const paths = arrayOfStrings(input.args.paths);
         if (paths.length > 0) {
-          throw new Error('browser_drop does not accept filesystem paths.');
+          throw new Error('drop does not accept filesystem paths.');
         }
         const data = stringRecord(input.args.data);
         if (Object.keys(data).length === 0) {
-          throw new Error('browser_drop requires data.');
+          throw new Error('drop requires data.');
         }
         await locator.evaluate((element, payload) => {
           const transfer = new (globalThis as any).DataTransfer();
@@ -306,14 +306,14 @@ async function dispatchBrowserToolInner(input: {
         }, data);
         return textResult('Dropped data.');
       });
-    case 'browser_select_option':
+    case 'select_option':
       return await runWithTarget(input, async (locator) => {
         await locator.selectOption(arrayOfStrings(input.args.values), {
           timeout: actionOperationTimeout(input.deadline),
         });
         return textResult('Selected option.');
       });
-    case 'browser_fill_form':
+    case 'fill_form':
       return await runWithActivePage(input, async (page) => {
         for (const field of formFields(input.args.fields)) {
           const locator = await resolveTargetLocator(page, field.target);
@@ -340,7 +340,7 @@ async function dispatchBrowserToolInner(input: {
         }
         return textResult('Filled form.');
       });
-    case 'browser_wait_for':
+    case 'wait_for':
       return await runWithActivePage(input, async (page) => {
         const time = toOptionalPositiveNumber(input.args.time);
         const text = stringValue(input.args.text);
@@ -363,7 +363,7 @@ async function dispatchBrowserToolInner(input: {
         }
         return textResult('Wait completed.');
       });
-    case 'browser_evaluate':
+    case 'evaluate':
       return await runWithActivePage(input, async (page) => {
         const source = requiredString(input.args.function, 'function');
         const target = stringValue(input.args.target);
@@ -386,18 +386,18 @@ async function dispatchBrowserToolInner(input: {
           input.args,
         );
       });
-    case 'browser_file_upload':
+    case 'file_upload':
       return await runWithActivePage(input, async (page) => {
         const paths = arrayOfStrings(input.args.paths);
         if (paths.length === 0) {
-          throw new Error('browser_file_upload requires at least one path.');
+          throw new Error('file_upload requires at least one path.');
         }
         await page.setInputFiles('input[type=file]', paths, {
           timeout: actionOperationTimeout(input.deadline),
         });
         return textResult(`Uploaded ${paths.length} file(s).`);
       });
-    case 'browser_handle_dialog':
+    case 'handle_dialog':
       return await runWithActivePage(input, async (page) => {
         const accept = input.args.accept !== false;
         const promptText = stringValue(input.args.promptText);
@@ -407,7 +407,7 @@ async function dispatchBrowserToolInner(input: {
         });
         return textResult('Dialog handler armed for the next dialog.');
       });
-    case 'browser_resize':
+    case 'resize':
       return await runWithActivePage(input, async (page) => {
         const width = requiredPositiveInteger(input.args.width, 'width');
         const height = requiredPositiveInteger(input.args.height, 'height');
@@ -423,7 +423,7 @@ async function runWithTarget(
   input: {
     connection: BrowserConnection;
     sessionKey: string;
-    toolName: BrowserIpcAction;
+    toolName: BrowserBackendAction;
     args: Record<string, unknown>;
     deadline: number;
   },
@@ -444,7 +444,7 @@ async function runWithActivePage<T>(
   input: {
     connection: BrowserConnection;
     sessionKey: string;
-    toolName: BrowserIpcAction;
+    toolName: BrowserBackendAction;
     deadline: number;
   },
   fn: (page: Page) => Promise<T>,
@@ -458,7 +458,7 @@ async function runWithActivePage<T>(
 async function runBrowserTabs(input: {
   connection: BrowserConnection;
   sessionKey: string;
-  toolName: BrowserIpcAction;
+  toolName: BrowserBackendAction;
   args: Record<string, unknown>;
   deadline: number;
 }): Promise<unknown> {
@@ -515,7 +515,7 @@ async function runBrowserTabs(input: {
       );
     }
     default:
-      throw new Error(`Unsupported browser_tabs action: ${action}`);
+      throw new Error(`Unsupported tabs action: ${action}`);
   }
 }
 
@@ -546,7 +546,7 @@ async function tabsResult(pages: Page[], sessionKey: string): Promise<unknown> {
       structuredContent: { tabs },
     },
     sessionKey,
-    'browser_tabs',
+    'tabs',
     { action: 'list' },
   );
 }
@@ -599,13 +599,10 @@ function formatBackendError(toolName: string, err: unknown): string {
 export { formatBackendError };
 
 function shouldReturnSnapshotAfterNavigateBackTimeout(
-  toolName: BrowserIpcAction,
+  toolName: BrowserBackendAction,
   err: unknown,
 ): boolean {
-  return (
-    toolName === 'browser_navigate_back' &&
-    /timed? out|timeout/i.test(errorMessage(err))
-  );
+  return toolName === 'back' && /timed? out|timeout/i.test(errorMessage(err));
 }
 
 function isStaleBrowserError(err: unknown): boolean {

@@ -32,6 +32,15 @@ import {
   runSessionSlashCommand,
 } from './session-slash.js';
 import type { AgentRunnerInput } from './types.js';
+import { sdkSandboxBlockedRuntimeEvents } from './sandbox-events.js';
+
+const SCHEDULED_JOB_REPORT_INSTRUCTIONS = [
+  '[SCHEDULED JOB - The following message was sent automatically and is not coming directly from the user or group.]',
+  '',
+  'Before finishing, include a short user-facing section titled "Final Job Report".',
+  'Report what happened, what changed, and what should happen next. Include counts when relevant, such as found, added, skipped, and errors. If nothing changed, say "Completed, no changes."',
+  'Keep the report concise and avoid implementation details unless the job is blocked and needs user or agent action.',
+].join('\n');
 
 async function main(): Promise<void> {
   let agentInput: AgentRunnerInput;
@@ -66,7 +75,7 @@ async function main(): Promise<void> {
     prepareInteractiveIpcInputDir();
   }
 
-  let prompt = buildInitialPrompt(agentInput);
+  const prompt = buildInitialPrompt(agentInput);
   const compiledSystemPrompt = agentInput.compiledSystemPrompt?.trim();
   const sessionSlashCommand = parseSessionSlashCommand(prompt);
 
@@ -116,7 +125,7 @@ async function main(): Promise<void> {
 function buildInitialPrompt(agentInput: AgentRunnerInput): string {
   let prompt = agentInput.prompt;
   if (agentInput.isScheduledJob) {
-    prompt = `[SCHEDULED JOB - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
+    prompt = `${SCHEDULED_JOB_REPORT_INSTRUCTIONS}\n\n${prompt}`;
   }
   if (!agentInput.isScheduledJob) {
     const pending = drainIpcInput();
@@ -159,6 +168,9 @@ async function runScheduledQuery(opts: {
       status: 'success',
       result: null,
       newSessionId: diagnosticSessionId,
+      ...(queryResult.primeToolAttempts.length > 0
+        ? { primeToolAttempts: queryResult.primeToolAttempts }
+        : {}),
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -168,6 +180,10 @@ async function runScheduledQuery(opts: {
       result: null,
       newSessionId: diagnosticSessionId,
       error: errorMessage,
+      runtimeEvents: sdkSandboxBlockedRuntimeEvents(
+        opts.agentInput,
+        errorMessage,
+      ),
     });
     process.exit(1);
   }
@@ -210,6 +226,9 @@ async function runInteractiveQueryLoop(opts: {
       status: 'success',
       result: null,
       newSessionId: diagnosticSessionId,
+      ...(queryResult.primeToolAttempts.length > 0
+        ? { primeToolAttempts: queryResult.primeToolAttempts }
+        : {}),
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -219,6 +238,10 @@ async function runInteractiveQueryLoop(opts: {
       result: null,
       newSessionId: diagnosticSessionId,
       error: errorMessage,
+      runtimeEvents: sdkSandboxBlockedRuntimeEvents(
+        opts.agentInput,
+        errorMessage,
+      ),
     });
     process.exit(1);
   }

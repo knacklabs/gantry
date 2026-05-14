@@ -14,7 +14,11 @@ import {
   signIpcResponsePayload,
   verifyIpcResponsePayload,
 } from '@core/infrastructure/ipc/response-signing.js';
-import { stopIpcWatcher, validateIpcAuthRequest } from '@core/runtime/ipc.js';
+import {
+  stopIpcWatcher,
+  validateIpcAuthRequest,
+  validatePermissionIpcJobExecutionTarget,
+} from '@core/runtime/ipc.js';
 import {
   parseBrowserIpcRequest,
   parseMemoryIpcRequest,
@@ -224,9 +228,10 @@ describe('validateIpcAuthRequest', () => {
     assertRejected({ sessionId: 'session-1' });
     assertRejected({ group_scope: 'team' });
     assertRejected({ groupScope: 'team' });
+    assertRejected({ required_mcp_servers: ['mcp:legacy'] });
   });
 
-  it('preserves scheduler job allowedTools creates, replaces, and clears', () => {
+  it('rejects scheduler job allowedTools because jobs inherit agent capabilities', () => {
     const createPayload = signedPayload({
       requestId: 'task-allowed-tools-create',
       nonce: randomUUID(),
@@ -246,31 +251,36 @@ describe('validateIpcAuthRequest', () => {
       type: 'scheduler_update_job',
       context: { responseKeyId: TEST_RESPONSE_KEY_ID },
       jobId: 'job-1',
-      allowedTools: ['Read', 'mcp__agent_browser__*'],
-    });
-    const clearPayload = signedPayload({
-      requestId: 'task-allowed-tools-clear',
-      nonce: randomUUID(),
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      type: 'scheduler_update_job',
-      context: { responseKeyId: TEST_RESPONSE_KEY_ID },
-      jobId: 'job-1',
-      allowedTools: [],
+      allowedTools: ['Read', 'mcp__browser' + '_' + 'backend' + '__*'],
     });
 
-    expect(parseTaskIpcData(createPayload, 'team')).toMatchObject({
+    expect(() => parseTaskIpcData(createPayload, 'team')).toThrow(
+      /Unsupported scheduler job fields: allowedTools/,
+    );
+    expect(() => parseTaskIpcData(replacePayload, 'team')).toThrow(
+      /Unsupported scheduler job fields: allowedTools/,
+    );
+  });
+
+  it('preserves scheduler required MCP server assertions at the IPC boundary', () => {
+    const payload = signedPayload({
+      requestId: 'task-required-mcp-servers',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
       type: 'scheduler_upsert_job',
-      allowedTools: ['Read'],
+      context: { responseKeyId: TEST_RESPONSE_KEY_ID },
+      name: 'Job',
+      prompt: 'Run',
+      scheduleType: 'interval',
+      scheduleValue: '60000',
+      requiredTools: ['Browser'],
+      requiredMcpServers: ['mcp:company-crm'],
     });
-    expect(parseTaskIpcData(replacePayload, 'team')).toMatchObject({
-      type: 'scheduler_update_job',
-      jobId: 'job-1',
-      allowedTools: ['Read', 'mcp__agent_browser__*'],
-    });
-    expect(parseTaskIpcData(clearPayload, 'team')).toMatchObject({
-      type: 'scheduler_update_job',
-      jobId: 'job-1',
-      allowedTools: [],
+
+    expect(parseTaskIpcData(payload, 'team')).toMatchObject({
+      type: 'scheduler_upsert_job',
+      requiredTools: ['Browser'],
+      requiredMcpServers: ['mcp:company-crm'],
     });
   });
 
@@ -280,7 +290,7 @@ describe('validateIpcAuthRequest', () => {
       requestId: 'browser-1',
       nonce: randomUUID(),
       expiresAt,
-      action: 'browser_status',
+      action: 'status',
       payload: { profile_name: 'c-team-abc123abc123' },
       context: { chatJid: 'tg:team', responseKeyId: TEST_RESPONSE_KEY_ID },
     };
@@ -290,12 +300,55 @@ describe('validateIpcAuthRequest', () => {
     ).toMatchObject({
       requestId: 'browser-1',
       chatJid: 'tg:team',
-      action: 'browser_status',
+      action: 'status',
       deadlineAtMs: Date.parse(expiresAt),
     });
     expect(() =>
       parseBrowserIpcRequest(signedPayload(payload), 'team'),
     ).toThrow(/Invalid browser IPC signature/);
+  });
+
+  it('parses neutral backend browser actions at the IPC boundary', () => {
+    const payload = {
+      requestId: 'browser-public-tool-name',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      action: 'navigate',
+      payload: { url: 'https://example.test' },
+      context: {
+        chatJid: 'tg:team',
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        publicToolName: 'browser_act',
+      },
+    };
+
+    expect(
+      parseBrowserIpcRequest(signedBrowserPayload(payload), 'team'),
+    ).toMatchObject({
+      requestId: 'browser-public-tool-name',
+      action: 'navigate',
+      publicToolName: 'browser_act',
+      payload: { url: 'https://example.test' },
+    });
+  });
+
+  it('rejects unsupported public browser gateway names at the IPC boundary', () => {
+    const payload = {
+      requestId: 'browser-unsupported-public-tool-name',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      action: 'navigate',
+      payload: { url: 'https://example.test' },
+      context: {
+        chatJid: 'tg:team',
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        publicToolName: 'browser_fake',
+      },
+    };
+
+    expect(() =>
+      parseBrowserIpcRequest(signedBrowserPayload(payload), 'team'),
+    ).toThrow(/Unsupported browser public tool/);
   });
 
   it('requires memory IPC signatures to match trusted user scope', () => {
@@ -584,6 +637,199 @@ describe('validateIpcAuthRequest', () => {
         'team',
       ),
     ).toThrow(/Invalid permission IPC signature/);
+  });
+
+  it('parses signed permission IPC approval targets from the request context', () => {
+    const payload = {
+      requestId: 'perm-target-jid',
+      responseNonce: randomUUID(),
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      sourceAgentFolder: 'team',
+      targetJid: 'tg:team',
+      jobId: 'job-1',
+      runId: 'run-1',
+      toolName: 'Bash',
+      closestRule: {
+        rule: 'Bash(npm run build)',
+        reason: 'Bash leaf npm test did not match any scoped rule.',
+      },
+      context: {
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        appId: 'app:one',
+        agentId: 'agent:team',
+        chatJid: 'tg:team',
+        jobId: 'job-1',
+        runId: 'run-1',
+      },
+    };
+
+    expect(parsePermissionIpcRequest(signedPayload(payload), 'team')).toEqual(
+      expect.objectContaining({
+        targetJid: 'tg:team',
+        jobId: 'job-1',
+        runId: 'run-1',
+        appId: 'app:one',
+        agentId: 'agent:team',
+        closestRule: {
+          rule: 'Bash(npm run build)',
+          reason: 'Bash leaf npm test did not match any scoped rule.',
+        },
+      }),
+    );
+  });
+
+  it('caps wide signed permission tool input during parsing', () => {
+    const toolInput: Record<string, unknown> = {
+      command: 'npm test',
+      apiToken: 'secret-token-value',
+    };
+    for (let index = 0; index < 100; index += 1) {
+      toolInput[`extra_${index}`] = `value_${index}`;
+    }
+    const payload = {
+      requestId: 'perm-wide-tool-input',
+      responseNonce: randomUUID(),
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      sourceAgentFolder: 'team',
+      toolName: 'mcp__thirdparty__unknown',
+      toolInput,
+      context: {
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        appId: 'app:one',
+        agentId: 'agent:team',
+      },
+    };
+
+    const parsed = parsePermissionIpcRequest(signedPayload(payload), 'team');
+
+    expect(parsed.toolInput).toMatchObject({
+      command: 'npm test',
+      apiToken: '[REDACTED]',
+      __omitted_keys: 'more',
+    });
+    expect(parsed.toolInput).not.toHaveProperty('extra_99');
+  });
+
+  it('rejects permission IPC approval target mismatches', () => {
+    const payload = {
+      requestId: 'perm-target-jid-mismatch',
+      responseNonce: randomUUID(),
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      sourceAgentFolder: 'team',
+      targetJid: 'tg:other',
+      toolName: 'Bash',
+      context: {
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        appId: 'app:one',
+        chatJid: 'tg:team',
+      },
+    };
+
+    expect(() =>
+      parsePermissionIpcRequest(signedPayload(payload), 'team'),
+    ).toThrow(/targetJid mismatch/);
+  });
+
+  it('rejects permission IPC job and run context mismatches', () => {
+    const base = {
+      requestId: 'perm-job-mismatch',
+      responseNonce: randomUUID(),
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      sourceAgentFolder: 'team',
+      targetJid: 'tg:team',
+      toolName: 'Bash',
+      context: {
+        responseKeyId: TEST_RESPONSE_KEY_ID,
+        appId: 'app:one',
+        chatJid: 'tg:team',
+        jobId: 'job-1',
+        runId: 'run-1',
+      },
+    };
+    const withFreshEnvelope = (extra: Record<string, unknown>) => ({
+      ...base,
+      requestId: `perm-job-mismatch-${randomUUID()}`,
+      nonce: randomUUID(),
+      ...extra,
+    });
+
+    expect(() =>
+      parsePermissionIpcRequest(
+        signedPayload(withFreshEnvelope({ jobId: 'job-2' }), 'team'),
+        'team',
+      ),
+    ).toThrow(/jobId mismatch/);
+    expect(() =>
+      parsePermissionIpcRequest(
+        signedPayload(withFreshEnvelope({ runId: 'run-2' }), 'team'),
+        'team',
+      ),
+    ).toThrow(/runId mismatch/);
+  });
+
+  it('validates scheduled permission IPC against the stored job execution context', async () => {
+    const deps = {
+      opsRepository: {
+        getJobById: async (id: string) =>
+          id === 'job-1'
+            ? {
+                id: 'job-1',
+                group_scope: 'team',
+                execution_context: {
+                  conversationJid: 'tg:team',
+                  threadId: 'topic-1',
+                  groupScope: 'team',
+                },
+              }
+            : undefined,
+        getJobRunById: async (id: string) =>
+          id === 'run-1' ? { run_id: 'run-1', job_id: 'job-1' } : undefined,
+      },
+    };
+    const request = {
+      requestId: 'perm-job-target',
+      appId: 'app:one',
+      responseKeyId: TEST_RESPONSE_KEY_ID,
+      sourceAgentFolder: 'team',
+      targetJid: 'tg:team',
+      threadId: 'topic-1',
+      jobId: 'job-1',
+      runId: 'run-1',
+      toolName: 'Bash',
+    };
+
+    await expect(
+      validatePermissionIpcJobExecutionTarget({
+        request,
+        sourceAgentFolder: 'team',
+        deps: deps as never,
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      validatePermissionIpcJobExecutionTarget({
+        request: { ...request, targetJid: 'tg:other' },
+        sourceAgentFolder: 'team',
+        deps: deps as never,
+      }),
+    ).rejects.toThrow(/target does not match job execution context/);
+    await expect(
+      validatePermissionIpcJobExecutionTarget({
+        request: { ...request, threadId: 'topic-2' },
+        sourceAgentFolder: 'team',
+        deps: deps as never,
+      }),
+    ).rejects.toThrow(/thread does not match job execution context/);
+    await expect(
+      validatePermissionIpcJobExecutionTarget({
+        request: { ...request, runId: 'run-2' },
+        sourceAgentFolder: 'team',
+        deps: deps as never,
+      }),
+    ).rejects.toThrow(/run does not match job/);
   });
 
   it('rejects expired requests and replayed request ids', () => {

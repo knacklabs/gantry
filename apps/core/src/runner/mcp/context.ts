@@ -147,6 +147,12 @@ export function capabilityStatusText(): string {
       .sort()
       .map((toolName) => `- available: ${myclawMcpFullToolName(toolName)}`),
     '',
+    'Semantic capability tools:',
+    '- capability_search: find built-in capabilities such as google.sheets.write',
+    '- request_capability: request a named semantic capability for this agent',
+    '- propose_local_cli_capability: review a user-defined authenticated local CLI capability draft; it is not runnable Bash authority until runtime enforcement exists',
+    '- manage_capability: view/change/revoke/test/audit guidance for selected capabilities',
+    '',
     'MyClaw admin tool capabilities:',
     ...ADMIN_MCP_TOOL_NAMES.map((toolName) => {
       const fullName = `mcp__myclaw__${toolName}`;

@@ -327,7 +327,24 @@ export class PostgresMcpServerRepository implements McpServerRepository {
   async listMaterializedServersForAgent(input: {
     appId: AgentMcpServerBinding['appId'];
     agentId: AgentMcpServerBinding['agentId'];
+    serverIds?: readonly McpServerId[];
   }): Promise<MaterializedMcpServer[]> {
+    if (input.serverIds && input.serverIds.length === 0) {
+      return [];
+    }
+    const filters = [
+      eq(pgSchema.agentMcpServerBindingsPostgres.appId, input.appId),
+      eq(pgSchema.agentMcpServerBindingsPostgres.agentId, input.agentId),
+      eq(pgSchema.agentMcpServerBindingsPostgres.status, 'active'),
+      eq(pgSchema.mcpServersPostgres.status, 'approved'),
+    ];
+    if (input.serverIds) {
+      filters.push(
+        inArray(pgSchema.agentMcpServerBindingsPostgres.serverId, [
+          ...input.serverIds,
+        ]),
+      );
+    }
     const rows = await this.db
       .select({
         binding: pgSchema.agentMcpServerBindingsPostgres,
@@ -349,14 +366,7 @@ export class PostgresMcpServerRepository implements McpServerRepository {
           pgSchema.mcpServerVersionsPostgres.id,
         ),
       )
-      .where(
-        and(
-          eq(pgSchema.agentMcpServerBindingsPostgres.appId, input.appId),
-          eq(pgSchema.agentMcpServerBindingsPostgres.agentId, input.agentId),
-          eq(pgSchema.agentMcpServerBindingsPostgres.status, 'active'),
-          eq(pgSchema.mcpServersPostgres.status, 'approved'),
-        ),
-      )
+      .where(and(...filters))
       .orderBy(asc(pgSchema.mcpServersPostgres.name));
     return rows.map((row) => ({
       binding: this.mapBinding(row.binding),

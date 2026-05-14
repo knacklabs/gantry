@@ -76,7 +76,7 @@ export function createMyClawMcpServer(): McpServer {
 
 function effectiveEnabledMcpToolNames(
   rawToolNames: string | undefined,
-  rawAdminToolNames: string | undefined,
+  _rawAdminToolNames: string | undefined,
 ): Set<string> {
   const enabledTools = new Set(
     [...parseEnabledMyClawMcpToolNames(rawToolNames)].filter(

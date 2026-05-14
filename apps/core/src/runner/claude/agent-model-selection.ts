@@ -30,16 +30,16 @@ export function unsupportedAgentConfigurationField(
 ): string | undefined {
   if (typeof input !== 'object' || input === null) return undefined;
   const record = input as Record<string, unknown>;
-  for (const field of ['tools', 'mcpServers', 'skills', 'disallowedTools']) {
+  for (const field of [
+    'tools',
+    'mcpServers',
+    'skills',
+    'disallowedTools',
+    'mode',
+  ]) {
     if (field in record) return field;
   }
   return undefined;
-}
-
-export function subagentTypeFromAgentInput(input: unknown): string | undefined {
-  if (typeof input !== 'object' || input === null) return undefined;
-  const value = (input as { subagent_type?: unknown }).subagent_type;
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 export function validateAgentModelRequest(
@@ -72,12 +72,11 @@ export function validateAgentToolInput(
   input: unknown,
   currentModel: ModelCatalogEntry | undefined,
 ): string | null {
-  const subagentType = subagentTypeFromAgentInput(input);
-  if (subagentType) {
-    return `Agent subagent_type "${subagentType}" is not enabled for this MyClaw run. Native Agent subagents inherit the parent run by default; configured subagent definitions require an explicit MyClaw capability projection before use.`;
-  }
   const unsupportedField = unsupportedAgentConfigurationField(input);
   if (unsupportedField) {
+    if (unsupportedField === 'mode') {
+      return 'Agent field "mode" is not supported in native Agent tool input. Subagents inherit the parent run permission model; permission mode overrides can expand authority and must use configured subagent definitions instead.';
+    }
     return `Agent field "${unsupportedField}" is not supported in native Agent tool input. Define tools, MCP servers, skills, and disallowed tools in a configured subagent definition, then invoke it with subagent_type.`;
   }
   return (

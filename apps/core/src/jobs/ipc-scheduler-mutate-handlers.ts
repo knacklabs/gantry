@@ -2,20 +2,14 @@ import { randomUUID } from 'node:crypto';
 
 import { ApplicationError } from '../application/common/application-error.js';
 import { JobManagementService } from '../application/jobs/job-management-service.js';
-import type { JobExtraToolApprovalRequest } from '../application/jobs/job-management-types.js';
-import type { JobExecutionMode, JobScheduleType } from '../domain/types.js';
+import type { JobScheduleType } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { TaskContext, TaskHandler } from './ipc-types.js';
-import {
-  createTaskResponder,
-  normalizeIpcExecutionMode,
-  toTrimmedString,
-} from './ipc-shared.js';
+import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { mapApplicationError } from './ipc-application-error.js';
 import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
 import { invalidateSystemJobRegistrationSignature } from './system-registration-cache.js';
 import { resolveRequestedJobModelPatch } from '../application/jobs/job-model-selection.js';
-import { resolveSchedulerApprovalTarget } from './ipc-scheduler-approval-target.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
 import { getRuntimeEventExchange } from '../adapters/storage/postgres/runtime-store.js';
 import { enqueueJobTrigger, isSchedulerReady } from './scheduler.js';
@@ -27,8 +21,9 @@ function makeJobService(context: TaskContext): JobManagementService {
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
     toolRepository: context.deps.getToolRepository?.(),
-    approveJobExtraTools: (request) =>
-      requestJobExtraToolApproval(context, request),
+    mcpServerRepository: context.deps.getMcpServerRepository?.(),
+    getCredentialBroker: context.deps.getCredentialBroker,
+    getBrowserStatus: context.deps.getBrowserStatus,
   });
 }
 
@@ -37,50 +32,17 @@ function makeRunNowJobService(context: TaskContext): JobManagementService {
     ops: context.deps.opsRepository,
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
-    toolRepository: context.deps.getToolRepository?.(),
     control: context.deps.getJobControl?.(),
     runtimeEvents: getRuntimeEventExchange(),
     triggerQueue: {
       isReady: isSchedulerReady,
       enqueue: enqueueJobTrigger,
     },
+    toolRepository: context.deps.getToolRepository?.(),
+    mcpServerRepository: context.deps.getMcpServerRepository?.(),
+    getCredentialBroker: context.deps.getCredentialBroker,
+    getBrowserStatus: context.deps.getBrowserStatus,
   });
-}
-
-async function requestJobExtraToolApproval(
-  context: TaskContext,
-  request: JobExtraToolApprovalRequest,
-): Promise<{ approved: boolean; reason?: string }> {
-  const approvalTarget = resolveSchedulerApprovalTarget(context);
-  if (!approvalTarget.ok) {
-    return { approved: false, reason: approvalTarget.reason };
-  }
-  const decision = await context.deps.requestPermissionApproval({
-    requestId: `job-tools-${randomUUID()}`,
-    appId: request.target.appId as never,
-    agentId: request.target.agentId as never,
-    sourceAgentFolder: context.sourceAgentFolder,
-    targetJid: approvalTarget.targetJid,
-    threadId: context.data.authThreadId,
-    decisionPolicy: 'same_channel',
-    toolName: 'scheduler_job_tools',
-    displayName: 'Autonomous job tools',
-    title: 'Approve job-scoped autonomous tools',
-    description:
-      'stored on this job only; inherited agent grants are shown separately.',
-    decisionReason: `Update scheduler job ${request.jobName} with job-scoped extra tools.`,
-    toolInput: {
-      jobId: request.jobId,
-      target: request.target,
-      inheritedTools: request.inheritedTools,
-      existingJobExtraTools: request.existingJobExtraTools,
-      requestedJobExtraTools: request.requestedJobExtraTools,
-      extrasBeyondInherited: request.extrasBeyondInherited,
-      persistence: 'target_json.capabilityPolicy.allowedTools',
-    },
-    decisionOptions: ['allow_job_policy', 'cancel'],
-  });
-  return { approved: decision.approved, reason: decision.reason };
 }
 
 function scheduleType(raw: unknown): JobScheduleType | undefined {
@@ -167,29 +129,27 @@ const schedulerUpdateJobHandler: TaskHandler = async (context) => {
     if (data.cleanupAfterMs !== undefined) {
       patch.cleanupAfterMs = data.cleanupAfterMs;
     }
-    if (data.executionMode !== undefined || data.serialize !== undefined) {
-      patch.executionMode = normalizeIpcExecutionMode(
-        data.executionMode,
-        data.serialize,
-      ) as JobExecutionMode;
-    }
     if (data.executionContext !== undefined) {
       patch.executionContext = data.executionContext;
     }
     if (Array.isArray(data.notificationRoutes)) {
       patch.notificationRoutes = data.notificationRoutes;
     }
-    if (Array.isArray(data.allowedTools)) {
-      patch.allowedTools = data.allowedTools.map((item) => String(item));
+    if (Array.isArray(data.requiredTools)) {
+      patch.requiredTools = data.requiredTools;
     }
-
-    await makeJobService(context).updateJob({
+    if (Array.isArray(data.requiredMcpServers)) {
+      patch.requiredMcpServers = data.requiredMcpServers;
+    }
+    const result = await makeJobService(context).updateJob({
       jobId,
       access: schedulerAccessFromContext(context),
       patch,
     });
     invalidateSystemJobRegistrationSignature(context.deps.opsRepository);
-    accept(`Scheduler job updated (${jobId}).`);
+    accept(
+      `Scheduler job updated (${jobId}).${formatSetupOutcome(result?.job)}`,
+    );
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to mutate scheduler job.');
     logger.error(
@@ -275,13 +235,17 @@ const schedulerResumeJobHandler: TaskHandler = async (context) => {
     return;
   }
   try {
-    await makeJobService(context).resumeJob({
+    const result = await makeJobService(context).resumeJob({
       jobId,
       access: schedulerAccessFromContext(context),
       invalidSchedulePolicy: 'dead_letter',
     });
     invalidateSystemJobRegistrationSignature(context.deps.opsRepository);
-    accept(`Scheduler job resumed (${jobId}).`);
+    accept(
+      result?.resumed !== false
+        ? `Scheduler job resumed (${jobId}).`
+        : `Scheduler job remains paused (${jobId}).${formatSetupOutcome(result.job)}`,
+    );
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to mutate scheduler job.');
     const details = await resumeDeadLetterDetails(context, jobId, err);
@@ -327,6 +291,20 @@ const schedulerRunNowHandler: TaskHandler = async (context) => {
     reject(mapped.message, mapped.code);
   }
 };
+
+function formatSetupOutcome(job?: { setup_state?: unknown }): string {
+  const setupState = job?.setup_state;
+  if (!setupState || typeof setupState !== 'object') return '';
+  const state = (setupState as { state?: unknown }).state;
+  if (state === 'ready') return '';
+  const blockers = (setupState as { blockers?: unknown }).blockers;
+  const firstBlocker = Array.isArray(blockers) ? blockers[0] : undefined;
+  const nextAction =
+    firstBlocker && typeof firstBlocker === 'object'
+      ? (firstBlocker as { nextAction?: unknown }).nextAction
+      : undefined;
+  return ` Setup required: ${typeof nextAction === 'string' ? nextAction : String(state ?? 'unknown')}.`;
+}
 
 export const schedulerMutateTaskHandlers: Record<string, TaskHandler> = {
   scheduler_update_job: schedulerUpdateJobHandler,

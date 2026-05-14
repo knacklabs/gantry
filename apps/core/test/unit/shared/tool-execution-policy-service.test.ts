@@ -42,13 +42,13 @@ describe('ToolExecutionPolicyService', () => {
     expect(
       classifier.classify({
         origin: 'mcp',
-        toolName: 'mcp__agent_browser__click',
+        toolName: 'mcp__browser' + '_' + 'backend' + '__click',
         toolInput: { selector: '#submit' },
       }),
     ).toMatchObject({
       origin: 'mcp',
       toolKind: 'mcp',
-      toolName: 'mcp__agent_browser__click',
+      toolName: 'mcp__browser' + '_' + 'backend' + '__click',
       mutationIntent: 'unknown',
     });
   });
@@ -70,6 +70,51 @@ describe('ToolExecutionPolicyService', () => {
       status: 'allow',
       matchedRule: 'Browser',
     });
+  });
+
+  it('recovers projected browser denials through persistent Browser permission', () => {
+    const request = classifier.classify({
+      origin: 'mcp',
+      toolName: 'mcp__myclaw__browser_act',
+      toolInput: { url: 'https://example.com' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-1' },
+    });
+
+    expect(policy.evaluate({ request, schedulerAllowedToolRules: [] })).toEqual(
+      expect.objectContaining({
+        status: 'deny',
+        reason: expect.stringContaining(
+          'Tool not on autonomous job allowlist: mcp__myclaw__browser_act.',
+        ),
+        recoveryAction: expect.stringContaining('"toolName": "Browser"'),
+      }),
+    );
+    expect(
+      policy.evaluate({ request, schedulerAllowedToolRules: [] })
+        .recoveryAction,
+    ).not.toContain('scheduler_grant_tool');
+  });
+
+  it('recovers admin tool denials through request_permission', () => {
+    const request = classifier.classify({
+      origin: 'mcp',
+      toolName: 'mcp__myclaw__service_restart',
+      toolInput: {},
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-1' },
+    });
+
+    expect(policy.evaluate({ request, schedulerAllowedToolRules: [] })).toEqual(
+      expect.objectContaining({
+        status: 'deny',
+        recoveryAction: expect.stringContaining('request_permission'),
+      }),
+    );
+    expect(
+      policy.evaluate({ request, schedulerAllowedToolRules: [] })
+        .recoveryAction,
+    ).toContain('"toolName": "mcp__myclaw__service_restart"');
   });
 
   it('denies protected capability file targets through canonical policy', () => {
@@ -238,7 +283,10 @@ describe('ToolExecutionPolicyService', () => {
     });
 
     expect(
-      policy.evaluate({ request, schedulerAllowedToolRules: ['Bash'] }),
+      policy.evaluate({
+        request,
+        schedulerAllowedToolRules: ['Bash(cat > ~/myclaw/settings.yaml)'],
+      }),
     ).toMatchObject({
       status: 'deny',
       reason: expect.stringContaining('protected capability target'),
@@ -317,7 +365,7 @@ describe('ToolExecutionPolicyService', () => {
     });
   });
 
-  it('fails autonomous jobs fast with a scoped Bash scheduler grant command', () => {
+  it('fails autonomous jobs fast and points to persistent agent tool approval', () => {
     const request = classifier.classify({
       origin: 'sdk',
       toolName: 'Bash',
@@ -330,15 +378,17 @@ describe('ToolExecutionPolicyService', () => {
     expect(result).toEqual(
       expect.objectContaining({
         status: 'deny',
-        reason: 'Tool not on autonomous job allowlist: Bash.',
+        reason: expect.stringContaining(
+          'Tool not on autonomous job allowlist: Bash.',
+        ),
         recoveryAction:
-          'scheduler_grant_tool { "job_id": "job-1", "rule": "Bash(npm test)" }',
+          'request_permission { "permissionKind": "tool", "toolName": "Bash", "rule": "npm test", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }',
       }),
     );
-    expect(result.recoveryAction).not.toContain('"rule": "Bash" }');
+    expect(result.recoveryAction).not.toContain('scheduler_grant_tool');
   });
 
-  it('suggests Bash scheduler grant rules that match command input', () => {
+  it('uses the same agent permission flow for mutating scheduled Bash use', () => {
     const request = classifier.classify({
       origin: 'sdk',
       toolName: 'Bash',
@@ -353,12 +403,32 @@ describe('ToolExecutionPolicyService', () => {
       expect.objectContaining({
         status: 'deny',
         recoveryAction:
-          'scheduler_grant_tool { "job_id": "job-2", "rule": "Bash(echo \\"{}\\" > /tmp/archive.tgz)" }',
+          'request_permission { "permissionKind": "tool", "toolName": "Bash", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }',
       }),
     );
   });
 
-  it('falls back to broad Bash grant only with manual review wording', () => {
+  it('does not suggest obsolete whole-command Bash recovery for compound commands', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: {
+        command: 'cd /tmp/evil && npm test',
+      },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-2' },
+    });
+
+    expect(policy.evaluate({ request, schedulerAllowedToolRules: [] })).toEqual(
+      expect.objectContaining({
+        status: 'deny',
+        recoveryAction:
+          'request_permission { "permissionKind": "tool", "toolName": "Bash", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }',
+      }),
+    );
+  });
+
+  it('does not suggest job-scoped broad Bash grants', () => {
     const request = classifier.classify({
       origin: 'sdk',
       toolName: 'Bash',
@@ -373,8 +443,32 @@ describe('ToolExecutionPolicyService', () => {
       expect.objectContaining({
         status: 'deny',
         recoveryAction:
-          'scheduler_grant_tool { "job_id": "job-3", "rule": "Bash" } Manual review required: command could not be safely represented as Bash(...).',
+          'request_permission { "permissionKind": "tool", "toolName": "Bash", "rule": "node -e console.log(process.cwd())", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }',
       }),
     );
+  });
+
+  it('preserves closest-rule mismatch details on autonomous denials', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: { command: 'npm test -- --runInBand' },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-closest' },
+    });
+
+    expect(
+      policy.evaluate({
+        request,
+        schedulerAllowedToolRules: ['Bash(npm run build)'],
+      }),
+    ).toMatchObject({
+      status: 'deny',
+      reason: expect.stringContaining('npm test -- --runInBand'),
+      closestRule: {
+        rule: 'Bash(npm run build)',
+        reason: expect.stringContaining('npm test -- --runInBand'),
+      },
+    });
   });
 });

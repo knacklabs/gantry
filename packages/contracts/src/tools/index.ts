@@ -20,6 +20,10 @@ export const ToolCatalogProviderToolNameSchema = z.enum([
   'NotebookEdit',
   'WebFetch',
   'WebSearch',
+  'ToolSearch',
+  'Skill',
+  'LS',
+  'MultiEdit',
   'Browser',
 ]);
 export type ToolCatalogProviderToolName = z.infer<
@@ -31,14 +35,9 @@ export const ToolCatalogKindSchema = z.enum([
   'host',
   'browser',
   'channel',
+  'local_cli',
 ]);
-export const ToolCatalogProviderSchema = z.enum([
-  `anth${'ropic'}` as never,
-  'myclaw',
-  `sla${'ck'}` as never,
-  `tea${'ms'}` as never,
-  `tele${'gram'}` as never,
-]);
+export const ToolCatalogProviderSchema = z.string().min(1);
 export const ToolCatalogCategorySchema = z.enum([
   'files',
   'search',
@@ -48,6 +47,7 @@ export const ToolCatalogCategorySchema = z.enum([
   'mcp',
   'channel',
   'admin',
+  'productivity',
 ]);
 export const ToolCatalogStatusSchema = z.enum(['active', 'disabled', 'error']);
 
@@ -73,6 +73,7 @@ export const ToolCatalogItemResponseSchema = z.object({
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
   metadata: ContractMetadataSchema.optional(),
+  semanticCapability: z.unknown().optional(),
 });
 export type ToolCatalogItemResponse = z.infer<
   typeof ToolCatalogItemResponseSchema

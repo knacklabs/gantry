@@ -78,6 +78,7 @@ export type AgentSessionDigestScopeMetadata = {
     conversationId: string | null;
     userId: string | null;
     threadId: string | null;
+    jobId: string | null;
   };
 };
 
@@ -91,6 +92,7 @@ export function scopedDigestMetadataForSession(
       conversationId: scopedSessionValue(session.conversationId),
       userId: scopedSessionValue(session.userId),
       threadId: scopedSessionValue(session.threadId),
+      jobId: scopedSessionValue(session.jobId),
     },
   };
 }

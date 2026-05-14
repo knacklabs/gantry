@@ -85,50 +85,54 @@ export class ArtifactClaudeSkillSource implements SkillSource {
   }
 }
 
-export const RUNTIME_AGENT_BROWSER_SKILL_ID = 'agent-browser';
-export const RUNTIME_AGENT_BROWSER_SKILL_VERSION = 'myclaw-runtime-v1';
+export const RUNTIME_MYCLAW_BROWSER_SKILL_ID = 'myclaw-browser';
+export const RUNTIME_MYCLAW_BROWSER_SKILL_VERSION = 'myclaw-runtime-v1';
 
-const RUNTIME_AGENT_BROWSER_SKILL = `---
-name: agent-browser
+const RUNTIME_MYCLAW_BROWSER_SKILL = `---
+name: myclaw-browser
 description: Use the MyClaw-managed persistent browser profile for web tasks that require navigation, login state, cookies, or browser actions.
 ---
 
-# Agent Browser
+# MyClaw Browser
 
 Use this skill when a task needs a real browser session.
 
 MyClaw owns the persistent browser lifecycle and gives each agent conversation its own default profile:
 
-- Use MyClaw-owned browser tools such as \`mcp__myclaw__browser_status\`, \`mcp__myclaw__browser_launch\`, \`mcp__myclaw__browser_navigate\`, \`mcp__myclaw__browser_snapshot\`, \`mcp__myclaw__browser_click\`, \`mcp__myclaw__browser_type\`, \`mcp__myclaw__browser_wait_for\`, \`mcp__myclaw__browser_take_screenshot\`, \`mcp__myclaw__browser_console_messages\`, and \`mcp__myclaw__browser_close\`.
-- The Browser capability exposes projected MyClaw browser tools. Do not request Playwright, Puppeteer, agent_browser, or raw browser MCP tools.
+- Use the compact Browser gateway: \`browser_status\`, \`browser_open\`, \`browser_inspect\`, \`browser_act\`, and \`browser_close\`.
+- Search first when the destination is unknown. Use \`browser_open\` directly only when the user provided a URL or you have selected a search result.
+- Inspect before acting. Use \`browser_inspect\` to understand the current page before each \`browser_act\` interaction.
+- Use basic inspection by default. Request full inspection only with a concise reason when basic output is insufficient.
+- Close the browser with \`browser_close\` after scheduled jobs or other unattended browser work completes.
+- The Browser capability exposes only the MyClaw gateway. Do not request private browser backends or alternate automation tools.
 - MyClaw launches the backing browser lazily when an action needs it; \`browser_status\` is read-only and does not launch Chrome.
 - Do not install browser skills or edit user \`.claude/skills\` paths.
 
 If a site requires login, launch the headed browser and ask the user to complete authentication in that persistent profile. Do not scrape credentials or bypass normal site authentication.
 `;
 
-export class RuntimeInstalledAgentBrowserSkillSource implements SkillSource {
+export class RuntimeInstalledMyClawBrowserSkillSource implements SkillSource {
   async listSkills(input?: {
     enabledSkillIds?: string[];
   }): Promise<ClaudeSkillSourceItem[]> {
     const enabled = input?.enabledSkillIds
-      ? input.enabledSkillIds.includes(RUNTIME_AGENT_BROWSER_SKILL_ID)
+      ? input.enabledSkillIds.includes(RUNTIME_MYCLAW_BROWSER_SKILL_ID)
       : true;
     return [
       {
-        id: RUNTIME_AGENT_BROWSER_SKILL_ID,
-        name: RUNTIME_AGENT_BROWSER_SKILL_ID,
+        id: RUNTIME_MYCLAW_BROWSER_SKILL_ID,
+        name: RUNTIME_MYCLAW_BROWSER_SKILL_ID,
         sourceType: 'runtime',
         enabled,
         assets: [
           {
             path: 'SKILL.md',
-            content: Buffer.from(RUNTIME_AGENT_BROWSER_SKILL, 'utf-8'),
+            content: Buffer.from(RUNTIME_MYCLAW_BROWSER_SKILL, 'utf-8'),
           },
           {
             path: 'VERSION',
             content: Buffer.from(
-              `${RUNTIME_AGENT_BROWSER_SKILL_VERSION}\n`,
+              `${RUNTIME_MYCLAW_BROWSER_SKILL_VERSION}\n`,
               'utf-8',
             ),
           },

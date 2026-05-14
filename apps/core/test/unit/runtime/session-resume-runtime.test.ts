@@ -96,4 +96,35 @@ describe('session-resume-runtime', () => {
     expect(summary).not.toContain('session-inline-success');
     expect(summary).not.toContain('provider-session:standalone-success');
   });
+
+  it('persists provider resume handles under the job-owned session scope', async () => {
+    const setSession = vi.fn().mockResolvedValue(true);
+    const ops = {
+      setSession,
+    } as unknown as RuntimeAgentSessionRepository;
+
+    await completeSuccessfulRuntimeSessionRun({
+      ops,
+      group: { name: 'Scheduler', folder: 'scheduler_agent' } as never,
+      chatJid: 'tg:scheduler',
+      threadId: 'topic-1',
+      conversationKind: 'channel',
+      jobId: 'job-1',
+      agentSessionId: 'agent-session:job-1',
+      providerSessionId: 'claude-session-job-1',
+      result: 'ok',
+    });
+
+    expect(setSession).toHaveBeenCalledWith(
+      'scheduler_agent',
+      'claude-session-job-1',
+      'topic-1',
+      expect.objectContaining({
+        conversationJid: 'tg:scheduler',
+        conversationKind: 'channel',
+        jobId: 'job-1',
+        expectedAgentSessionId: 'agent-session:job-1',
+      }),
+    );
+  });
 });

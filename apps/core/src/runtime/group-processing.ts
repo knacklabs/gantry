@@ -65,6 +65,7 @@ import { buildMemoryRecallQueryFromMessages } from '../memory/app-memory-recall-
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
+type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
 const activeTurnUiCleanupByQueue = new Map<
   string,
   { token: symbol; cancel: () => void }
@@ -149,41 +150,24 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       void (await (options
         ? deps.channelRuntime.sendMessage(chatJid, text, options)
         : deps.channelRuntime.sendMessage(chatJid, text)));
+    const finalizingProgressGenerations = new Set<number>();
     const sendProgressToChannel = async (
       text: string,
       options?: ProgressUpdateOptions,
     ): Promise<void> => {
-      logger.info(
-        {
-          chatJid,
-          group: group.name,
-          progressText: text,
-          supportsProgress: deps.channelRuntime.supportsProgress(chatJid),
-          done: options?.done ?? false,
-          replaceOnly: options?.replaceOnly ?? false,
-          generation: options?.generation,
-          threadId: options?.threadId,
-        },
-        'Progress lifecycle runtime send attempt',
-      );
+      if (
+        options?.done !== true &&
+        options?.generation !== undefined &&
+        finalizingProgressGenerations.has(options.generation)
+      ) {
+        return;
+      }
       try {
         if (options) {
           await deps.channelRuntime.sendProgressUpdate(chatJid, text, options);
         } else {
           await deps.channelRuntime.sendProgressUpdate(chatJid, text);
         }
-        logger.info(
-          {
-            chatJid,
-            group: group.name,
-            progressText: text,
-            done: options?.done ?? false,
-            replaceOnly: options?.replaceOnly ?? false,
-            generation: options?.generation,
-            threadId: options?.threadId,
-          },
-          'Progress lifecycle runtime send complete',
-        );
       } catch (err) {
         logger.warn(
           {
@@ -361,12 +345,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     };
 
     let typingActive = false;
-    const setTypingState = async (isTyping: boolean) => {
-      typingActive = isTyping;
-      await deps.channelRuntime.setTyping(chatJid, isTyping);
-    };
+    const setTypingState = (isTyping: boolean) => (
+      (typingActive = isTyping),
+      deps.channelRuntime.setTyping(chatJid, isTyping)
+    );
     await setTypingState(true);
-    const startedAt = currentTimeMs();
+    let startedAt = currentTimeMs();
     let pausedAt: number | null = null;
     let pausedTotalMs = 0;
     const activeElapsedMs = () =>
@@ -377,27 +361,21 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     let lastAgentProgressAt = startedAt;
     let typingHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let progressTimer: ReturnType<typeof setInterval> | null = null;
-    let progressHeartbeat: ReturnType<
-      typeof startGroupProgressHeartbeats
-    > | null = null;
+    let progressHeartbeat: ProgressHeartbeat | null = null;
+    const resetActiveElapsed = () => {
+      startedAt = currentTimeMs();
+      pausedAt = null;
+      pausedTotalMs = 0;
+      lastAgentProgressAt = startedAt;
+      progressHeartbeat?.reset();
+    };
     let backgroundDemoteTimer: ReturnType<typeof setTimeout> | null = null;
     let backgroundDemoted = false;
     const turnUiToken = Symbol(queueJid);
     const supportsProgress = deps.channelRuntime.supportsProgress(chatJid);
-    const sendDoneProgress = async (state: FinalProgressState) => (
-      logger.info(
-        {
-          chatJid,
-          group: group.name,
-          state,
-          supportsProgress,
-          elapsed: formatElapsed(activeElapsedMs()),
-          generation: progressGeneration,
-          threadId: activeThreadId,
-        },
-        'Progress lifecycle final requested',
-      ),
-      sendFinalProgressUpdate({
+    const sendDoneProgress = async (state: FinalProgressState) => {
+      finalizingProgressGenerations.add(progressGeneration);
+      await sendFinalProgressUpdate({
         enabled: supportsProgress,
         state,
         elapsed: formatElapsed(activeElapsedMs()),
@@ -412,8 +390,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
             { err, chatJid, group: group.name, state },
             'Progress lifecycle final failed',
           ),
-      })
-    );
+      });
+    };
     let activeGenerationHasOutput = false;
     let sentAnyTurnDoneProgress = false;
     let sentTurnDoneProgressGeneration: number | null = null;
@@ -427,6 +405,25 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       sentTurnDoneProgressGeneration = progressGeneration;
       sentAnyTurnDoneProgress = true;
       await sendDoneProgress(state);
+    };
+    const startUserVisibleTurn = () => {
+      streamGeneration = streamingGenerationCounter += 1;
+      progressGeneration = streamGeneration;
+      activeGenerationHasOutput = false;
+      resetActiveElapsed();
+      typingActive = true;
+      progressHeartbeat?.resume();
+      void deps.channelRuntime
+        .setTyping(chatJid, true)
+        .catch((err) =>
+          logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
+        );
+      if (supportsProgress) {
+        void sendProgressToChannel(
+          'Working on it...',
+          buildProgressOptions(),
+        ).catch(() => undefined);
+      }
     };
     const { sendResponseReceipt } = createResponseProgressSenders({
       supportsProgress,
@@ -460,6 +457,8 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       log: logger,
     });
     ({ typingHeartbeatTimer, progressTimer } = progressHeartbeat);
+    const unregisterContinuationHandler =
+      deps.queue.registerContinuationHandler?.(queueJid, startUserVisibleTurn);
     const cancelTurnUiTimers = () => {
       if (typingHeartbeatTimer) {
         clearInterval(typingHeartbeatTimer);
@@ -733,6 +732,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         notifyTurnIdle();
       }
       cancelTurnUiTimers();
+      unregisterContinuationHandler?.();
       const activeCleanup = activeTurnUiCleanupByQueue.get(queueJid);
       if (activeCleanup?.token === turnUiToken) {
         activeTurnUiCleanupByQueue.delete(queueJid);

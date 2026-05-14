@@ -2,13 +2,18 @@ import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { nowIso, nowMs, sleep } from '../../shared/time/datetime.js';
+import { formatDuration } from '../../shared/human-format.js';
 import { isPlainObject } from '../../shared/object.js';
+import { persistentPermissionUpdates } from '../../shared/permission-tool-rules.js';
 import { hasValidIpcResponseSignature } from './ipc-signing.js';
 import { createSignedIpcRequestEnvelope } from './ipc-signing.js';
 import {
   IPC_AUTH_TOKEN,
   AGENT_ID,
   APP_ID,
+  CHAT_JID,
+  JOB_ID,
+  JOB_RUN_ID,
   IPC_RESPONSE_KEY_ID,
   PERMISSION_REQUEST_TIMEOUT_MS,
   resolveGroupIpcDir,
@@ -26,16 +31,30 @@ export async function requestPermissionApproval(options: {
   displayName?: string;
   description?: string;
   decisionReason?: string;
+  closestRule?: {
+    rule: string;
+    reason: string;
+  };
   blockedPath?: string;
   toolInput?: unknown;
   toolUseID?: string;
   agentID?: string;
   suggestions?: unknown[];
+  targetJid?: string;
   threadId?: string;
 }): Promise<PermissionDecision> {
   try {
     const appId = options.appId?.trim() || APP_ID || DEFAULT_RUNNER_APP_ID;
     const agentId = options.agentId?.trim() || AGENT_ID;
+    const targetJid = options.targetJid?.trim() || CHAT_JID;
+    if (PERMISSION_REQUEST_TIMEOUT_MS <= 0) {
+      return {
+        approved: false,
+        reason:
+          'Autonomous permission approval is disabled for unattended jobs. The host denied this tool call immediately; approve a persistent capability rule before the next scheduled run.',
+        decisionClassification: 'user_reject',
+      };
+    }
     const groupIpcDir = resolveGroupIpcDir(options.groupFolder);
     const permissionRequestsDir = path.join(groupIpcDir, 'permission-requests');
     const permissionResponsesDir = path.join(
@@ -54,9 +73,12 @@ export async function requestPermissionApproval(options: {
       ...(agentId ? { agentId } : {}),
       responseNonce,
       sourceAgentFolder: options.groupFolder,
+      ...(targetJid ? { targetJid } : {}),
       ...(process.env.MYCLAW_AGENT_RUN_HANDLE
         ? { runHandle: process.env.MYCLAW_AGENT_RUN_HANDLE }
         : {}),
+      ...(JOB_ID ? { jobId: JOB_ID } : {}),
+      ...(JOB_RUN_ID ? { runId: JOB_RUN_ID } : {}),
       toolName: options.toolName,
       ...(options.title ? { title: options.title } : {}),
       ...(options.displayName ? { displayName: options.displayName } : {}),
@@ -64,6 +86,7 @@ export async function requestPermissionApproval(options: {
       ...(options.decisionReason
         ? { decisionReason: options.decisionReason }
         : {}),
+      ...(options.closestRule ? { closestRule: options.closestRule } : {}),
       ...(options.blockedPath ? { blockedPath: options.blockedPath } : {}),
       ...(isPlainObject(options.toolInput)
         ? { toolInput: options.toolInput }
@@ -75,6 +98,9 @@ export async function requestPermissionApproval(options: {
       context: {
         appId,
         ...(agentId ? { agentId } : {}),
+        ...(targetJid ? { chatJid: targetJid } : {}),
+        ...(JOB_ID ? { jobId: JOB_ID } : {}),
+        ...(JOB_RUN_ID ? { runId: JOB_RUN_ID } : {}),
         ...(options.threadId ? { threadId: options.threadId } : {}),
         ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
       },
@@ -126,6 +152,14 @@ export async function requestPermissionApproval(options: {
                     ).decisionClassification,
                   }
                 : {}),
+              ...(typeof (raw as { timedGrantExpiresAtMs?: unknown })
+                .timedGrantExpiresAtMs === 'number'
+                ? {
+                    timedGrantExpiresAtMs: (
+                      raw as { timedGrantExpiresAtMs: number }
+                    ).timedGrantExpiresAtMs,
+                  }
+                : {}),
             };
             if (
               (raw as { responseNonce?: unknown }).responseNonce !==
@@ -147,8 +181,31 @@ export async function requestPermissionApproval(options: {
                 reason: 'Permission response signature verification failed',
               };
             }
-            return {
+            const mode =
+              responsePayload.mode === 'allow_once' ||
+              responsePayload.mode === 'allow_persistent_rule' ||
+              responsePayload.mode === 'allow_timed_grant' ||
+              responsePayload.mode === 'cancel'
+                ? responsePayload.mode
+                : undefined;
+            const decisionClassification =
+              responsePayload.decisionClassification === 'user_temporary' ||
+              responsePayload.decisionClassification === 'user_permanent' ||
+              responsePayload.decisionClassification === 'user_reject'
+                ? responsePayload.decisionClassification
+                : undefined;
+            const sanitizedDecision = {
               approved: responsePayload.approved as boolean,
+              mode,
+              decisionClassification,
+              updatedPermissions: Array.isArray(
+                responsePayload.updatedPermissions,
+              )
+                ? (responsePayload.updatedPermissions as never)
+                : undefined,
+            };
+            return {
+              approved: sanitizedDecision.approved,
               decidedBy:
                 typeof responsePayload.decidedBy === 'string'
                   ? responsePayload.decidedBy
@@ -157,18 +214,14 @@ export async function requestPermissionApproval(options: {
                 typeof responsePayload.reason === 'string'
                   ? responsePayload.reason
                   : undefined,
-              mode:
-                typeof responsePayload.mode === 'string'
-                  ? (responsePayload.mode as never)
-                  : undefined,
-              updatedPermissions: Array.isArray(
-                responsePayload.updatedPermissions,
-              )
-                ? (responsePayload.updatedPermissions as never)
-                : undefined,
-              decisionClassification:
-                typeof responsePayload.decisionClassification === 'string'
-                  ? (responsePayload.decisionClassification as never)
+              mode,
+              updatedPermissions: persistentPermissionUpdates(
+                sanitizedDecision,
+              ) as never,
+              decisionClassification,
+              timedGrantExpiresAtMs:
+                typeof responsePayload.timedGrantExpiresAtMs === 'number'
+                  ? (responsePayload.timedGrantExpiresAtMs as number)
                   : undefined,
             };
           }
@@ -187,7 +240,7 @@ export async function requestPermissionApproval(options: {
     }
     return {
       approved: false,
-      reason: `Timed out waiting ${PERMISSION_REQUEST_TIMEOUT_MS}ms for host permission approval. The host watchdog denied this tool call; retry only if the channel is healthy or request a persistent capability rule.`,
+      reason: `Timed out waiting ${formatDuration(PERMISSION_REQUEST_TIMEOUT_MS)} for host permission approval. The host watchdog denied this tool call; retry only if the channel is healthy or request a persistent capability rule.`,
       decisionClassification: 'user_reject',
     };
   } catch (err) {

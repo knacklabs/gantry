@@ -229,11 +229,12 @@ agents see requestable tool IDs and `request_permission` arguments through
 
 Persistent agent tool grants are visible in `settings.yaml` under
 `agents.<id>.tools` as readable rules such as `Bash(git status *)`,
-`Write(/repo/**)`, or `mcp__myclaw__service_restart`. Job-specific tool grants
-are not settings; they stay on that job only as
-`target_json.capabilityPolicy.allowedTools` and are shown through the canonical
-`toolAccess` view in MCP, CLI, SDK, and Control API responses. Skill source is
-stored as readable skill folders with `SKILL.md` plus supporting files;
+`Write(/repo/**)`, or `mcp__myclaw__service_restart`. Jobs are scheduled agent
+runs and inherit the target agent's selected tools, skills, and MCP servers at
+execution time; job records do not carry a separate tool grant surface. The
+canonical `toolAccess` view in MCP, CLI, SDK, and Control API responses shows
+the inherited agent capability projection. Skill source is stored as readable
+skill folders with `SKILL.md` plus supporting files;
 Postgres stores metadata, source, hash, provider refs, binding, and audit
 records. ClawHub is the default provider-backed skill source, but provider
 verification never bypasses approval.

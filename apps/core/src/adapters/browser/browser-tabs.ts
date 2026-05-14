@@ -1,4 +1,4 @@
-import type { BrowserIpcAction } from '@myclaw/contracts';
+import type { BrowserBackendAction } from '../../shared/browser-backend-actions.js';
 
 const tabIndexMappings = new Map<string, Map<number, number>>();
 
@@ -11,11 +11,11 @@ export function clearBrowserTabIndexMappings(profileName?: string): void {
 }
 
 export function translateBrowserTabsInput(
-  toolName: BrowserIpcAction,
+  toolName: BrowserBackendAction,
   args: Record<string, unknown>,
   sessionKey: string,
 ): Record<string, unknown> {
-  if (toolName !== 'browser_tabs') return args;
+  if (toolName !== 'tabs') return args;
   const action = args.action;
   if (action !== 'select' && action !== 'close') return args;
   const index = args.index;
@@ -30,13 +30,13 @@ export function translateBrowserTabsInput(
   const mapping = tabIndexMappings.get(sessionKey);
   if (!mapping) {
     throw new Error(
-      `Browser tab ${action} needs a fresh browser_tabs list before using visible index ${visibleIndex}.`,
+      `Browser tab ${action} needs a fresh tabs list before using visible index ${visibleIndex}.`,
     );
   }
   const backendIndex = mapping.get(visibleIndex);
   if (backendIndex === undefined) {
     throw new Error(
-      `Browser tab ${action} index ${visibleIndex} is not in the current visible tab list. Run browser_tabs list to refresh.`,
+      `Browser tab ${action} index ${visibleIndex} is not in the current visible tab list. Run tabs list to refresh.`,
     );
   }
   return { ...args, index: backendIndex };
@@ -45,17 +45,15 @@ export function translateBrowserTabsInput(
 export function projectBrowserTabsResult(
   result: unknown,
   sessionKey?: string,
-  toolName?: BrowserIpcAction,
+  toolName?: BrowserBackendAction,
   args: Record<string, unknown> = {},
 ): unknown {
   if (!result || typeof result !== 'object' || Array.isArray(result))
     return result;
   const record = result as Record<string, unknown>;
-  const isBrowserTabsList =
-    toolName === 'browser_tabs' && args.action === 'list';
+  const isBrowserTabsList = toolName === 'tabs' && args.action === 'list';
   const isBrowserTabsMutation =
-    toolName === 'browser_tabs' &&
-    (args.action === 'close' || args.action === 'new');
+    toolName === 'tabs' && (args.action === 'close' || args.action === 'new');
   const structuredContent = record.structuredContent;
   if (
     !structuredContent ||

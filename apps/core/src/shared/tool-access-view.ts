@@ -4,7 +4,10 @@ import {
   adminMcpToolIdForFullName,
   type AdminMcpToolName,
 } from './admin-mcp-tools.js';
-import { isCanonicalBrowserCapabilityRule } from './agent-tool-references.js';
+import {
+  PROJECTED_BROWSER_MCP_TOOL_NAMES,
+  isCanonicalBrowserCapabilityRule,
+} from './agent-tool-references.js';
 
 export interface RequestableAdminToolAccess {
   tool: string;
@@ -23,8 +26,8 @@ export interface AgentToolAccessView {
 
 export interface JobToolAccessView {
   inheritedAgentTools: string[];
-  jobExtraTools: string[];
   effectiveAllowedTools: string[];
+  projectedRuntimeTools: string[];
   source: string;
 }
 
@@ -96,17 +99,21 @@ export function buildAgentToolAccessView(input: {
 
 export function buildJobToolAccessView(input: {
   inheritedAgentTools?: readonly string[];
-  jobExtraTools?: readonly string[];
   effectiveAllowedTools?: readonly string[];
+  projectedRuntimeTools?: readonly string[];
   source?: string;
 }): JobToolAccessView {
+  const effectiveAllowedTools = uniqueStrings(
+    input.effectiveAllowedTools ?? [],
+  );
   return {
     inheritedAgentTools: uniqueStrings(input.inheritedAgentTools ?? []),
-    jobExtraTools: uniqueStrings(input.jobExtraTools ?? []),
-    effectiveAllowedTools: uniqueStrings(input.effectiveAllowedTools ?? []),
-    source:
-      input.source ??
-      'inherited agent grants plus target_json.capabilityPolicy.allowedTools',
+    effectiveAllowedTools,
+    projectedRuntimeTools: uniqueStrings(
+      input.projectedRuntimeTools ??
+        projectedRuntimeToolsForRules(effectiveAllowedTools),
+    ),
+    source: input.source ?? 'inherited target agent capabilities',
   };
 }
 
@@ -128,8 +135,8 @@ export function formatJobToolAccess(view: JobToolAccessView): string {
     'Tool Access:',
     `  Source: ${view.source}`,
     `  Inherited agent tools: ${formatList(view.inheritedAgentTools)}`,
-    `  Job extra tools: ${formatList(view.jobExtraTools)}`,
     `  Effective allowed tools: ${formatList(view.effectiveAllowedTools)}`,
+    `  Projected runtime tools: ${formatList(view.projectedRuntimeTools)}`,
   ].join('\n');
 }
 
@@ -172,4 +179,10 @@ function isBrowserCapabilitySelected(
   configuredTools: readonly string[],
 ): boolean {
   return configuredTools.some(isCanonicalBrowserCapabilityRule);
+}
+
+function projectedRuntimeToolsForRules(rules: readonly string[]): string[] {
+  return isBrowserCapabilitySelected(rules)
+    ? [...PROJECTED_BROWSER_MCP_TOOL_NAMES]
+    : [];
 }

@@ -1,5 +1,4 @@
 export type JobKind = 'manual' | 'once' | 'recurring';
-export type JobExecutionMode = 'parallel' | 'serialized';
 export type JobStatus =
   | 'active'
   | 'paused'
@@ -10,11 +9,61 @@ export type JobStatus =
   | 'archived';
 export type JobStaleness = 'missed_window';
 
+export type JobHealthState =
+  | 'ready'
+  | 'missing_capability'
+  | 'broker_unreachable'
+  | 'credential_unknown'
+  | 'browser_login_may_be_required'
+  | 'mcp_missing_credential'
+  | 'draft_only'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'needs_permission'
+  | 'timed_out'
+  | 'dead_lettered'
+  | 'stale_lease'
+  | 'missed_window';
+
+export interface JobHealth {
+  state: JobHealthState;
+  latestRunId: string | null;
+  latestRunStatus: string | null;
+  latestSummary: string | null;
+  activeRunId: string | null;
+  leaseExpiresAt: string | null;
+  nextAction: string | null;
+}
+
 export interface JobToolAccess {
   inheritedAgentTools: string[];
-  jobExtraTools: string[];
   effectiveAllowedTools: string[];
+  projectedRuntimeTools?: string[];
   source: string;
+}
+
+export interface JobSetup {
+  state: Extract<
+    JobHealthState,
+    | 'ready'
+    | 'missing_capability'
+    | 'broker_unreachable'
+    | 'credential_unknown'
+    | 'browser_login_may_be_required'
+    | 'mcp_missing_credential'
+    | 'draft_only'
+  >;
+  checkedAt: string | null;
+  fingerprint: string | null;
+  blockers: Array<{
+    state: string;
+    message: string;
+    nextAction: string;
+    requirementType: string;
+    requirementId: string;
+  }>;
+  nextAction: string | null;
 }
 
 export interface JobExecutionContext {
@@ -51,10 +100,13 @@ export interface JobRecord {
     | { type: 'cron' | 'interval'; value: string };
   executionContext: JobExecutionContext;
   notificationRoutes: JobNotificationRoute[];
+  requiredTools: string[];
+  requiredMcpServers: string[];
+  setup?: JobSetup;
   nextRun: string | null;
   lastRun: string | null;
   staleness?: JobStaleness | null;
-  executionMode: JobExecutionMode;
+  health?: JobHealth;
   modelAlias: string | null;
   modelProfileId: string | null;
   model: JobModelPreview | null;
@@ -75,6 +127,15 @@ export interface JobRecord {
     endedAt: string | null;
   }>;
   silent?: boolean;
+}
+
+export interface JobEventRecord {
+  id: number;
+  job_id: string;
+  run_id: string | null;
+  event_type: string;
+  payload: string | null;
+  created_at: string;
 }
 
 export interface ModelRecord {
@@ -98,26 +159,26 @@ export interface CreateJobInput {
   prompt: string;
   executionContext: JobRequestExecutionContext;
   notificationRoutes?: JobNotificationRoute[];
+  requiredTools?: string[];
+  requiredMcpServers?: string[];
   kind?: JobKind;
   runAt?: string;
   schedule?: { type: 'cron' | 'interval'; value: string };
-  executionMode?: 'parallel' | 'serialized';
   modelAlias?: string;
   modelProfileId?: string;
-  allowedTools?: string[];
   dryRun?: boolean;
 }
 
 export interface UpdateJobInput {
   name?: string;
   prompt?: string;
-  executionMode?: 'parallel' | 'serialized';
   executionContext?: JobRequestExecutionContext;
   notificationRoutes?: JobNotificationRoute[];
+  requiredTools?: string[];
+  requiredMcpServers?: string[];
   status?: 'active' | 'paused';
   modelAlias?: string | null;
   modelProfileId?: string | null;
-  allowedTools?: string[];
 }
 
 export interface ListJobsInput {
@@ -129,9 +190,19 @@ export interface ListJobsInput {
   limit?: number;
 }
 
+export interface ListJobEventsInput {
+  runId?: string;
+  eventType?: string;
+  sinceId?: number;
+  since?: string;
+  limit?: number;
+}
+
 export interface CreateJobResponse {
   jobId?: string;
   dryRun?: boolean;
+  status?: JobStatus;
+  setup?: JobSetup;
   modelAlias?: string | null;
   modelSource?: JobModelSource;
   model?: JobModelPreview | null;

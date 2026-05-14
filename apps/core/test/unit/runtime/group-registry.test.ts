@@ -143,7 +143,7 @@ describe('registerGroup', () => {
     expect(mockFs.writeFileSync).toHaveBeenCalledWith(
       '/resolved/test-group/CLAUDE.md',
       expect.stringContaining(
-        'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission for capability changes.',
+        'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, capability_search, request_capability, propose_local_cli_capability, manage_capability, or request_permission for capability changes.',
       ),
     );
     expect(mockFs.writeFileSync).toHaveBeenCalledWith(

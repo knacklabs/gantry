@@ -9,12 +9,17 @@ import { installShutdownHandlers } from './bootstrap/shutdown.js';
 import { runStartup } from './bootstrap/startup.js';
 import {
   closeRuntimeStorage,
+  getRuntimeControlRepository,
+  getRuntimeEventExchange,
+  getRuntimeSkillArtifactStore,
   getRuntimeStorage,
 } from '../adapters/storage/postgres/runtime-store.js';
 import { startControlServer } from '../control/server/index.js';
 import { stopSchedulerLoop } from '../jobs/scheduler.js';
 import { stopOutboundDeliveryRecoveryLoop } from '../jobs/outbound-delivery-recovery.js';
+import { publishBrowserJobActivityEvent } from '../jobs/browser-activity-events.js';
 import { MYCLAW_HOME } from '../config/index.js';
+import { getBrowserStatus } from '../runtime/browser-capability.js';
 import { startSettingsReloadWatcher } from '../runtime/settings-reload-watcher.js';
 import {
   formatRuntimePreflightFailure,
@@ -47,6 +52,9 @@ export async function startMyClawRuntime(
 
   const app = getDefaultRuntimeApp({
     mcpHostnameLookup: () => mcpHostnameLookup,
+    publishRuntimeEvent: async (event) => {
+      await getRuntimeEventExchange().publish(event);
+    },
   });
   const channelWiring = createChannelWiring(app);
   const controlServerRef: {
@@ -119,17 +127,35 @@ export async function startMyClawRuntime(
       mcpHostnameLookup,
       opsRepository: storage.ops,
       getToolRepository: () => storage.repositories.tools,
+      getSkillRepository: () => storage.repositories.skills,
+      getMcpServerRepository: () => storage.repositories.mcpServers,
+      getSkillArtifactStore: getRuntimeSkillArtifactStore,
       getPermissionRepository: () => storage.repositories.permissions,
       settingsRepositories: storage.repositories,
       getOutboundDeliveryRepository: () =>
         storage.repositories.outboundDeliveries,
+      publishRuntimeEvent: async (event) => {
+        await getRuntimeEventExchange().publish(event);
+      },
       callBrowserTool: async (input) =>
         (await loadBrowserToolModule()).callBrowserTool(input),
+      publishBrowserJobActivity: async (input) => {
+        const controlRepository = getRuntimeControlRepository();
+        await publishBrowserJobActivityEvent({
+          activity: input,
+          getJobById: (jobId) => storage.ops.getJobById(jobId),
+          controlRepository,
+          publishRuntimeEvent: async (event) => {
+            await getRuntimeEventExchange().publish(event);
+          },
+          logger,
+        });
+      },
       closeBrowserToolBackends: async (profileName) =>
         (await loadBrowserToolModule()).closeBrowserToolBackends(profileName),
     },
   );
-  controlServerRef.current = startControlServer({ app });
+  controlServerRef.current = startControlServer({ app, getBrowserStatus });
 }
 
 const isDirectRun =

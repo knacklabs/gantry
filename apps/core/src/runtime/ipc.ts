@@ -98,6 +98,65 @@ export function resolveIpcTargetJidForSourceGroup(
   return undefined;
 }
 
+function normalizeNullableString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+export async function validatePermissionIpcJobExecutionTarget(input: {
+  request: ReturnType<typeof parsePermissionIpcRequest>;
+  sourceAgentFolder: string;
+  deps: IpcDeps;
+}): Promise<void> {
+  const { request, sourceAgentFolder, deps } = input;
+  if (!request.jobId) return;
+
+  if (!request.targetJid) {
+    throw new Error('Scheduled job permission IPC requires targetJid');
+  }
+  if (!request.runId) {
+    throw new Error('Scheduled job permission IPC requires runId');
+  }
+
+  const job = await deps.opsRepository.getJobById(request.jobId);
+  if (!job) {
+    throw new Error('Scheduled job permission IPC references unknown job');
+  }
+  const execution = job.execution_context;
+  if (!execution?.conversationJid) {
+    throw new Error(
+      'Scheduled job permission IPC requires canonical execution_context',
+    );
+  }
+  const executionGroupScope =
+    normalizeNullableString(execution.groupScope) ??
+    normalizeNullableString(job.group_scope);
+  if (executionGroupScope && executionGroupScope !== sourceAgentFolder) {
+    throw new Error(
+      'Scheduled job permission IPC source does not match job execution context',
+    );
+  }
+  if (execution.conversationJid !== request.targetJid) {
+    throw new Error(
+      'Scheduled job permission IPC target does not match job execution context',
+    );
+  }
+  if (
+    normalizeNullableString(execution.threadId) !==
+    normalizeNullableString(request.threadId)
+  ) {
+    throw new Error(
+      'Scheduled job permission IPC thread does not match job execution context',
+    );
+  }
+
+  const run = await deps.opsRepository.getJobRunById(request.runId);
+  if (!run || run.job_id !== request.jobId) {
+    throw new Error('Scheduled job permission IPC run does not match job');
+  }
+}
+
 export function isTrustedRegisteredIpcFolder(
   ipcBaseDir: string,
   folder: string,
@@ -234,9 +293,13 @@ export function startIpcWatcher(deps: IpcDeps): void {
     }
 
     const folderTargetJid = new Map<string, string>();
+    const folderTargetJids = new Map<string, Set<string>>();
     for (const [jid, group] of Object.entries(groupRegistry)) {
       if (!folderTargetJid.has(group.folder))
         folderTargetJid.set(group.folder, jid);
+      const targets = folderTargetJids.get(group.folder) ?? new Set<string>();
+      targets.add(jid);
+      folderTargetJids.set(group.folder, targets);
     }
 
     for (const sourceAgentFolder of ipcFolders) {
@@ -488,6 +551,19 @@ export function startIpcWatcher(deps: IpcDeps): void {
                 rawRequest,
                 sourceAgentFolder,
               );
+              if (
+                request.targetJid &&
+                !folderTargetJids.get(sourceAgentFolder)?.has(request.targetJid)
+              ) {
+                throw new Error(
+                  'Permission IPC target does not belong to the requesting agent folder',
+                );
+              }
+              await validatePermissionIpcJobExecutionTarget({
+                request,
+                sourceAgentFolder,
+                deps,
+              });
               request.targetJid =
                 request.targetJid || folderTargetJid.get(sourceAgentFolder);
               requestId = request.requestId;

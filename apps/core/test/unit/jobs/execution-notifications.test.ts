@@ -41,7 +41,6 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     retry_backoff_ms: 1,
     max_consecutive_failures: 3,
     consecutive_failures: 0,
-    execution_mode: 'serialized',
     cleanup_after_ms: 0,
     lease_run_id: null,
     lease_expires_at: null,
@@ -62,7 +61,7 @@ describe('jobs/execution-notifications', () => {
     expect(delivered).toBe(true);
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:scheduler',
-      expect.stringContaining('Scheduler started: Daily summary'),
+      expect.stringContaining('Running: Daily summary'),
       { threadId: 'thread-1' },
     );
   });
@@ -118,8 +117,49 @@ describe('jobs/execution-notifications', () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:scheduler',
-      expect.stringContaining('Scheduler failed: Daily summary'),
+      expect.stringContaining('Failed: Daily summary'),
       { threadId: 'thread-1' },
     );
+  });
+
+  it('sends a user-facing needs-permission receipt without repair commands', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+
+    await notifySchedulerTerminalRunState({
+      job: makeJob(),
+      runId: 'run-1',
+      runStatus: 'dead_lettered',
+      summary:
+        'Tool not on autonomous job allowlist: mcp__myclaw__browser_act. Recovery: request_permission { "toolName": "Browser" }',
+      nextRun: null,
+      retryCount: 1,
+      pauseReason: 'Needs permission: mcp__myclaw__browser_act',
+      sendMessage,
+      durationMs: 41_000,
+    });
+
+    const message = String(sendMessage.mock.calls[0]?.[1]);
+    const options = sendMessage.mock.calls[0]?.[2];
+    expect(message).toContain('Needs permission: Daily summary');
+    expect(message).toContain('Outcome: Could not use the browser');
+    expect(message).toContain('Action: Browser access needs approval.');
+    expect(message).not.toContain('request_permission');
+    expect(options).toMatchObject({
+      threadId: 'thread-1',
+      actionAffordances: [
+        { kind: 'scheduler_run_now', label: 'Retry now', jobId: 'job-1' },
+        {
+          kind: 'scheduler_show_last_logs',
+          label: 'Show last 50 log lines',
+          jobId: 'job-1',
+        },
+        { kind: 'scheduler_pause_job', label: 'Pause job', jobId: 'job-1' },
+        {
+          kind: 'scheduler_open',
+          label: 'Open in scheduler',
+          jobId: 'job-1',
+        },
+      ],
+    });
   });
 });

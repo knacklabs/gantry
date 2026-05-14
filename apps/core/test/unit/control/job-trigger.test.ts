@@ -19,6 +19,10 @@ const schedulerMocks = vi.hoisted(() => ({
   requestSchedulerSync: vi.fn(),
 }));
 
+const browserMocks = vi.hoisted(() => ({
+  getBrowserStatus: vi.fn(async () => ({ hasState: true })),
+}));
+
 vi.mock('@core/jobs/scheduler.js', () => ({
   enqueueJobTrigger: schedulerMocks.enqueueJobTrigger,
   isSchedulerReady: schedulerMocks.isSchedulerReady,
@@ -124,13 +128,23 @@ const opsRepo = {
   })),
   upsertJob: vi.fn(async (job) => ({ job, created: true })),
   listJobs: vi.fn(async () => []),
+  listJobRuns: vi.fn(async () => []),
+  listRecentJobEvents: vi.fn(async () => []),
   updateJob: vi.fn(async () => undefined),
 };
+
+let runtimeToolRepository: unknown;
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeControlRepository: () => controlRepo,
   getRuntimeEventExchange: () => runtimeEvents,
   getRuntimeRepositories: () => opsRepo,
+  getRuntimeStorage: () => ({
+    repositories: {
+      tools: runtimeToolRepository,
+      mcpServers: undefined,
+    },
+  }),
 }));
 
 import { startControlServer } from '@core/control/server/index.js';
@@ -214,6 +228,8 @@ beforeEach(() => {
   opsRepo.upsertJob.mockClear();
   opsRepo.listJobs.mockResolvedValue([]);
   opsRepo.updateJob.mockResolvedValue(undefined);
+  runtimeToolRepository = undefined;
+  browserMocks.getBrowserStatus.mockResolvedValue({ hasState: true });
 });
 
 async function reservePort(): Promise<number> {
@@ -295,7 +311,6 @@ describe('control job trigger', () => {
       retry_backoff_ms: 0,
       max_consecutive_failures: 3,
       consecutive_failures: 0,
-      execution_mode: 'parallel',
       lease_run_id: null,
       lease_expires_at: null,
       pause_reason: null,
@@ -309,6 +324,21 @@ describe('control job trigger', () => {
     opsRepo.updateJob.mockImplementation(async (_id, updates) => {
       current = { ...current, ...updates };
     });
+  }
+
+  function exposeAgentTools(rules: string[]) {
+    runtimeToolRepository = {
+      listAgentToolBindings: vi.fn(async () =>
+        rules.map((_rule, index) => ({
+          status: 'active',
+          toolId: `tool:${index}`,
+        })),
+      ),
+      getTool: vi.fn(async (toolId: string) => {
+        const index = Number(toolId.replace('tool:', ''));
+        return { appId: 'app-one', name: rules[index] };
+      }),
+    };
   }
 
   it('creates jobs with an eagerly persisted default model preview', async () => {
@@ -336,6 +366,7 @@ describe('control job trigger', () => {
           },
         }),
       } as never,
+      getBrowserStatus: browserMocks.getBrowserStatus,
     });
 
     try {
@@ -391,6 +422,70 @@ describe('control job trigger', () => {
       });
       expect(opsRepo.upsertJob).toHaveBeenCalledWith(
         expect.objectContaining({ model: null }),
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('creates required Browser jobs as active when the control route sees browser readiness', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    exposeAgentTools(['Browser']);
+    const handle = startControlServer({
+      app: {
+        queue: { enqueueMessageCheck: vi.fn() },
+        getConversationRoutes: () => ({
+          'chat-1': {
+            name: 'App Folder',
+            folder: 'app-folder',
+            trigger: '@App',
+            requiresTrigger: false,
+            conversationKind: 'channel',
+            agentConfig: { persona: 'personal_assistant' },
+          },
+        }),
+      } as never,
+      getBrowserStatus: browserMocks.getBrowserStatus,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs`,
+        'token-jobs',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Browser Job',
+            prompt: 'Open the site',
+            requiredTools: ['Browser'],
+            executionContext: {
+              conversationJid: 'chat-1',
+              threadId: null,
+              groupScope: 'app-folder',
+              sessionId: 'session-1',
+            },
+          }),
+        },
+      );
+
+      expect(response.status).toBe(201);
+      expect(browserMocks.getBrowserStatus).toHaveBeenCalled();
+      expect(opsRepo.upsertJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          required_tools: ['Browser'],
+          status: 'active',
+          setup_state: expect.objectContaining({ state: 'ready' }),
+        }),
       );
     } finally {
       await handle.close();
@@ -459,6 +554,79 @@ describe('control job trigger', () => {
             threadId: null,
             sessionId: 'session-1',
           },
+        },
+      });
+      expect(body.jobId).toBeUndefined();
+      expect(opsRepo.upsertJob).not.toHaveBeenCalled();
+      expect(schedulerMocks.requestSchedulerSync).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('dry-runs required Browser jobs with setup blockers before persistence', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    const handle = startControlServer({
+      app: {
+        queue: { enqueueMessageCheck: vi.fn() },
+        getConversationRoutes: () => ({
+          'chat-1': {
+            name: 'App Folder',
+            folder: 'app-folder',
+            trigger: '@App',
+            requiresTrigger: false,
+            conversationKind: 'channel',
+            agentConfig: { persona: 'personal_assistant' },
+          },
+        }),
+      } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs`,
+        'token-jobs',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Browser Preview',
+            prompt: 'Preview browser work',
+            requiredTools: ['Browser'],
+            executionContext: {
+              conversationJid: 'chat-1',
+              threadId: null,
+              groupScope: 'app-folder',
+              sessionId: 'session-1',
+            },
+            dryRun: true,
+          }),
+        },
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({
+        dryRun: true,
+        status: 'paused',
+        setup: {
+          state: 'missing_capability',
+          blockers: [
+            expect.objectContaining({
+              requirementType: 'browser',
+              requirementId: 'Browser',
+              nextAction: expect.stringContaining('Browser'),
+            }),
+          ],
         },
       });
       expect(body.jobId).toBeUndefined();
@@ -642,6 +810,63 @@ describe('control job trigger', () => {
     }
   });
 
+  it('lists app-scoped job events through the job diagnostics route', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:read'],
+        appId: 'app-one',
+      },
+    ]);
+    mockMutableJob(makeJob({ session_id: 'session-1' }));
+    opsRepo.listRecentJobEvents.mockResolvedValueOnce([
+      {
+        id: 7,
+        job_id: 'job-1',
+        run_id: 'run-1',
+        event_type: 'job.tool_activity',
+        payload: JSON.stringify({
+          phase: 'required_tool_satisfied',
+          tool: 'Browser',
+        }),
+        created_at: '2026-04-24T00:00:00.000Z',
+      },
+    ]);
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs/job-1/events?run=run-1`,
+        'token-jobs',
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        events: [
+          {
+            id: 7,
+            event_type: 'job.tool_activity',
+            run_id: 'run-1',
+          },
+        ],
+      });
+      expect(opsRepo.listRecentJobEvents).toHaveBeenCalledWith(
+        200,
+        expect.objectContaining({
+          job_id: 'job-1',
+          run_id: 'run-1',
+        }),
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('updates jobs through the application use case', async () => {
     const port = await reservePort();
     process.env.MYCLAW_CONTROL_PORT = String(port);
@@ -668,7 +893,6 @@ describe('control job trigger', () => {
           body: JSON.stringify({
             name: 'Updated',
             prompt: 'New prompt',
-            executionMode: 'serialized',
             executionContext: {
               conversationJid: 'chat-1',
               threadId: 'thread-1',
@@ -686,7 +910,6 @@ describe('control job trigger', () => {
         jobId: 'job-1',
         name: 'Updated',
         prompt: 'New prompt',
-        executionMode: 'serialized',
         executionContext: {
           threadId: 'thread-1',
         },
@@ -695,7 +918,6 @@ describe('control job trigger', () => {
       expect(opsRepo.updateJob).toHaveBeenCalledWith('job-1', {
         name: 'Updated',
         prompt: 'New prompt',
-        execution_mode: 'serialized',
         execution_context: {
           conversationJid: 'chat-1',
           groupScope: 'app-folder',
@@ -845,9 +1067,13 @@ describe('control job trigger', () => {
 
       expect(response.status).toBe(200);
       expect(body.modelAlias).toBeNull();
-      expect(opsRepo.updateJob).toHaveBeenCalledWith('job-1', {
-        model: null,
-      });
+      expect(opsRepo.updateJob).toHaveBeenCalledWith(
+        'job-1',
+        expect.objectContaining({
+          model: null,
+          pause_reason: null,
+        }),
+      );
     } finally {
       await handle.close();
     }
@@ -890,15 +1116,19 @@ describe('control job trigger', () => {
 
       expect(response.status).toBe(200);
       expect(body.executionContext?.threadId).toBeNull();
-      expect(opsRepo.updateJob).toHaveBeenCalledWith('job-1', {
-        execution_context: {
-          conversationJid: 'chat-1',
-          groupScope: 'app-folder',
-          threadId: null,
-          sessionId: 'session-1',
-        },
-        thread_id: null,
-      });
+      expect(opsRepo.updateJob).toHaveBeenCalledWith(
+        'job-1',
+        expect.objectContaining({
+          execution_context: {
+            conversationJid: 'chat-1',
+            groupScope: 'app-folder',
+            threadId: null,
+            sessionId: 'session-1',
+          },
+          thread_id: null,
+          pause_reason: null,
+        }),
+      );
     } finally {
       await handle.close();
     }
@@ -970,12 +1200,15 @@ describe('control job trigger', () => {
       );
 
       expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toEqual({ resumed: true });
-      expect(opsRepo.updateJob).toHaveBeenCalledWith('job-1', {
-        status: 'active',
-        pause_reason: null,
-        next_run: '2026-05-01T00:00:00.000Z',
-      });
+      await expect(response.json()).resolves.toMatchObject({ resumed: true });
+      expect(opsRepo.updateJob).toHaveBeenCalledWith(
+        'job-1',
+        expect.objectContaining({
+          status: 'active',
+          pause_reason: null,
+          next_run: '2026-05-01T00:00:00.000Z',
+        }),
+      );
       expect(schedulerMocks.requestSchedulerSync).toHaveBeenCalledWith('job-1');
     } finally {
       await handle.close();
@@ -1041,11 +1274,7 @@ describe('control job trigger', () => {
       },
     ]);
     schedulerMocks.isSchedulerReady.mockReturnValue(false);
-    opsRepo.getJobById.mockResolvedValue({
-      id: 'job-1',
-      session_id: 'session-1',
-      status: 'active',
-    });
+    opsRepo.getJobById.mockResolvedValue(makeJob({ status: 'active' }));
     const handle = startControlServer({
       app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
     });
@@ -1082,11 +1311,7 @@ describe('control job trigger', () => {
     schedulerMocks.enqueueJobTrigger.mockRejectedValueOnce(
       new Error('scheduler unavailable'),
     );
-    opsRepo.getJobById.mockResolvedValue({
-      id: 'job-1',
-      session_id: 'session-1',
-      status: 'active',
-    });
+    opsRepo.getJobById.mockResolvedValue(makeJob({ status: 'active' }));
     const handle = startControlServer({
       app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
     });
@@ -1123,11 +1348,7 @@ describe('control job trigger', () => {
         appId: 'app-one',
       },
     ]);
-    opsRepo.getJobById.mockResolvedValue({
-      id: 'job-1',
-      session_id: 'session-1',
-      status: 'running',
-    });
+    opsRepo.getJobById.mockResolvedValue(makeJob({ status: 'running' }));
     const handle = startControlServer({
       app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
     });
@@ -1144,6 +1365,169 @@ describe('control job trigger', () => {
         'job-1',
         expect.objectContaining({ status: 'active' }),
       );
+      expect(schedulerMocks.enqueueJobTrigger).toHaveBeenCalledWith(
+        'job-1',
+        'trigger-1',
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('triggers a legacy sessionless job through its canonical conversation session', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    opsRepo.getJobById.mockResolvedValue(
+      makeJob({
+        session_id: null,
+        execution_context: {
+          conversationJid: 'chat-1',
+          threadId: null,
+          groupScope: 'app-folder',
+          sessionId: null,
+        },
+      }),
+    );
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs/job-1/trigger`,
+        'token-jobs',
+        { method: 'POST' },
+      );
+
+      expect(response.status).toBe(202);
+      expect(controlRepo.getAppSessionByChatJid).toHaveBeenCalledWith('chat-1');
+      expect(controlRepo.createJobTrigger).toHaveBeenCalledWith({
+        jobId: 'job-1',
+        requestedBy: JSON.stringify({
+          kind: 'sdk',
+          appId: 'app-one',
+          sessionId: 'session-1',
+        }),
+      });
+      expect(schedulerMocks.enqueueJobTrigger).toHaveBeenCalledWith(
+        'job-1',
+        'trigger-1',
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects a sessionless job when its conversation belongs to another app', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    controlRepo.getAppSessionByChatJid.mockResolvedValueOnce({
+      sessionId: 'session-app-two',
+      appId: 'app-two',
+      conversationId: 'conv-2',
+      chatJid: 'chat-2',
+      groupFolder: 'other-folder',
+      workspaceKey: 'other-folder',
+      title: null,
+      defaultResponseMode: 'sse',
+      defaultWebhookId: null,
+    });
+    opsRepo.getJobById.mockResolvedValue(
+      makeJob({
+        session_id: null,
+        execution_context: {
+          conversationJid: 'chat-2',
+          threadId: null,
+          groupScope: 'other-folder',
+          sessionId: null,
+        },
+      }),
+    );
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs/job-1/trigger`,
+        'token-jobs',
+        { method: 'POST' },
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: 'FORBIDDEN',
+          message: 'API key cannot access this job session',
+        },
+      });
+      expect(controlRepo.createJobTrigger).not.toHaveBeenCalled();
+      expect(schedulerMocks.enqueueJobTrigger).not.toHaveBeenCalled();
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('lets the default runtime API key trigger a host-owned sessionless job without control session rows', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'default',
+      },
+    ]);
+    controlRepo.getAppSessionByChatJid.mockResolvedValueOnce(undefined);
+    opsRepo.getJobById.mockResolvedValue(
+      makeJob({
+        session_id: null,
+        group_scope: 'main_agent',
+        execution_context: {
+          conversationJid: 'tg:-1003986348737',
+          threadId: null,
+          groupScope: 'main_agent',
+          sessionId: null,
+        },
+      }),
+    );
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs/job-1/trigger`,
+        'token-jobs',
+        { method: 'POST' },
+      );
+
+      expect(response.status).toBe(202);
+      expect(controlRepo.createJobTrigger).toHaveBeenCalledWith({
+        jobId: 'job-1',
+        requestedBy: JSON.stringify({
+          kind: 'sdk',
+          appId: 'default',
+          sessionId: '',
+        }),
+      });
       expect(schedulerMocks.enqueueJobTrigger).toHaveBeenCalledWith(
         'job-1',
         'trigger-1',
@@ -1235,7 +1619,6 @@ describe('control job trigger', () => {
         schedule_type: 'once',
         schedule_value: '2000-01-01T00:00:00.000Z',
         next_run: '2000-01-01T00:00:00.000Z',
-        capability_policy: { allowed_tools: ['Read'] },
       }),
       makeJob({
         id: 'mixed',
@@ -1262,10 +1645,8 @@ describe('control job trigger', () => {
             staleness: 'missed_window',
             toolAccess: expect.objectContaining({
               inheritedAgentTools: [],
-              jobExtraTools: ['Read'],
-              effectiveAllowedTools: ['Read'],
-              source:
-                'inherited agent grants plus target_json.capabilityPolicy.allowedTools',
+              effectiveAllowedTools: [],
+              source: 'inherited target agent capabilities',
             }),
           }),
         ],
@@ -1298,7 +1679,6 @@ describe('control job trigger', () => {
         schedule_type: 'once',
         schedule_value: '2000-01-01T00:00:00.000Z',
         next_run: '2000-01-01T00:00:00.000Z',
-        capability_policy: { allowed_tools: ['Read'] },
       }),
     );
     const handle = startControlServer({
@@ -1320,10 +1700,8 @@ describe('control job trigger', () => {
         staleness: 'missed_window',
         toolAccess: expect.objectContaining({
           inheritedAgentTools: [],
-          jobExtraTools: ['Read'],
-          effectiveAllowedTools: ['Read'],
-          source:
-            'inherited agent grants plus target_json.capabilityPolicy.allowedTools',
+          effectiveAllowedTools: [],
+          source: 'inherited target agent capabilities',
         }),
         recentRunErrors: [],
       });

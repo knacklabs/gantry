@@ -93,7 +93,7 @@ describe('processBrowserRequestDirectory', () => {
         path.join(browserRequestsDir, `bad-${index}.json`),
         JSON.stringify({
           requestId: `bad-${index}`,
-          action: 'browser_status',
+          action: 'status',
           signature: createHmac('sha256', 'wrong').update('bad').digest('hex'),
         }),
       );
@@ -114,7 +114,7 @@ describe('processBrowserRequestDirectory', () => {
       requestId,
       nonce: randomUUID(),
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      action: 'browser_status',
+      action: 'status',
       payload: {},
       context: {
         chatJid,

@@ -384,6 +384,7 @@ export async function completeSuccessfulRuntimeSessionRun(input: {
   threadId?: string | null;
   conversationKind?: 'dm' | 'channel';
   memoryUserId?: string;
+  jobId?: string;
   agentSessionId?: string;
   agentSessionResetAt?: string | null;
   providerSessionId?: string;
@@ -407,6 +408,7 @@ export async function completeSuccessfulRuntimeSessionRun(input: {
           conversationJid: input.chatJid,
           conversationKind: input.conversationKind,
           memoryUserId: input.memoryUserId,
+          jobId: input.jobId,
           expectedAgentSessionId: input.agentSessionId,
           expectedAgentSessionResetAt: input.agentSessionResetAt ?? null,
         },

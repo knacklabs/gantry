@@ -179,6 +179,7 @@ export function startGroupProgressHeartbeats(input: {
   progressTimer: ReturnType<typeof setInterval>;
   pause(): void;
   resume(): void;
+  reset(): void;
 } {
   let lastElapsedProgressAt = currentTimeMs();
   let lastNoOutputWarningAt = 0;
@@ -244,6 +245,10 @@ export function startGroupProgressHeartbeats(input: {
     },
     resume: () => {
       paused = false;
+    },
+    reset: () => {
+      lastElapsedProgressAt = currentTimeMs();
+      lastNoOutputWarningAt = 0;
     },
   };
 }

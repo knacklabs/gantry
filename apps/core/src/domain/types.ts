@@ -76,7 +76,6 @@ export interface NewMessageAttachment {
 }
 
 export type JobScheduleType = 'manual' | 'cron' | 'interval' | 'once';
-export type JobExecutionMode = 'parallel' | 'serialized';
 
 export type JobStatus =
   | 'active'
@@ -96,6 +95,37 @@ export interface JobNotificationRoute {
   conversationJid: string;
   threadId: string | null;
   label: string;
+}
+
+export type JobSetupReadinessState =
+  | 'ready'
+  | 'missing_capability'
+  | 'broker_unreachable'
+  | 'credential_unknown'
+  | 'browser_login_may_be_required'
+  | 'mcp_missing_credential'
+  | 'draft_only';
+
+export interface JobSetupBlocker {
+  state: Exclude<JobSetupReadinessState, 'ready'>;
+  message: string;
+  nextAction: string;
+  requirementType:
+    | 'tool'
+    | 'semantic_capability'
+    | 'browser'
+    | 'mcp_server'
+    | 'credential'
+    | 'local_cli';
+  requirementId: string;
+}
+
+export interface JobSetupState {
+  state: JobSetupReadinessState;
+  checked_at: string;
+  fingerprint: string;
+  blockers: JobSetupBlocker[];
+  notified_fingerprint?: string | null;
 }
 
 export interface Job {
@@ -121,15 +151,14 @@ export interface Job {
   retry_backoff_ms: number;
   max_consecutive_failures: number;
   consecutive_failures: number;
-  execution_mode: JobExecutionMode;
   lease_run_id: string | null;
   lease_expires_at: string | null;
   pause_reason: string | null;
-  capability_policy?: {
-    allowed_tools: string[];
-  };
   execution_context?: JobExecutionContext;
   notification_routes?: JobNotificationRoute[];
+  required_tools?: string[];
+  required_mcp_servers?: string[];
+  setup_state?: JobSetupState;
 }
 
 export type JobRunStatus =
@@ -141,6 +170,7 @@ export type JobRunStatus =
 
 export interface JobRun {
   run_id: string;
+  short_id?: number | null;
   job_id: string;
   scheduled_for: string;
   started_at: string;
@@ -169,6 +199,8 @@ export interface PermissionApprovalRequest {
   responseNonce?: string;
   sourceAgentFolder: string;
   runHandle?: string;
+  jobId?: string;
+  runId?: string;
   targetJid?: string;
   approvalContextJid?: string;
   threadId?: string;
@@ -182,6 +214,10 @@ export interface PermissionApprovalRequest {
   displayName?: string;
   description?: string;
   decisionReason?: string;
+  closestRule?: {
+    rule: string;
+    reason: string;
+  };
   blockedPath?: string;
   toolInput?: Record<string, unknown>;
   suggestions?: PermissionApprovalUpdate[];
@@ -191,8 +227,8 @@ export interface PermissionApprovalRequest {
 
 export type PermissionApprovalDecisionMode =
   | 'allow_once'
-  | 'allow_job_policy'
   | 'allow_persistent_rule'
+  | 'allow_timed_grant'
   | 'cancel';
 
 export interface PermissionApprovalRuleValue {
@@ -227,6 +263,7 @@ export interface PermissionApprovalDecision {
   reason?: string;
   updatedPermissions?: PermissionApprovalUpdate[];
   decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
+  timedGrantExpiresAtMs?: number;
 }
 
 export interface UserQuestionOption {
@@ -339,6 +376,8 @@ export interface InteractionDescriptor {
     threadId?: string;
     toolName?: string;
     capabilityType?: string;
+    capabilityId?: string;
+    capabilityDisplayName?: string;
   };
   options?: InteractionOption[];
   selectionMode?: InteractionSelectionMode;
@@ -363,8 +402,22 @@ export interface ProgressUpdateOptions {
   generation?: number;
 }
 
+export type MessageActionAffordanceKind =
+  | 'scheduler_run_now'
+  | 'scheduler_show_last_logs'
+  | 'scheduler_pause_job'
+  | 'scheduler_open';
+
+export interface MessageActionAffordance {
+  kind: MessageActionAffordanceKind;
+  label: string;
+  jobId: string;
+  runId?: string | null;
+}
+
 export interface MessageSendOptions {
   threadId?: string;
+  actionAffordances?: MessageActionAffordance[];
 }
 
 export type MessageDeliveryStatus =

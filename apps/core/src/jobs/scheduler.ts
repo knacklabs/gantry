@@ -1,11 +1,16 @@
 import { logger } from '../infrastructure/logging/logger.js';
-import { getRuntimeRepositories } from '../adapters/storage/postgres/runtime-store.js';
+import {
+  getRuntimeControlRepository,
+  getRuntimeEventExchange,
+  getRuntimeRepositories,
+} from '../adapters/storage/postgres/runtime-store.js';
 import { PgBossSchedulerEngine } from '../infrastructure/pgboss/scheduler-engine.js';
 import { resetSchedulerRunSlots } from './concurrency.js';
 import { sweepCompletedOneTimeJobs } from './cleanup.js';
-import { resetSchedulerExecutionStateForTests, runJob } from './execution.js';
+import { runJob } from './execution.js';
 import { computeNextJobRun } from './schedule-math.js';
 import { runtimeJobSchedulePlanner } from './job-schedule-planner.js';
+import { notifyReleasedStaleJobLeases } from './stale-lease-terminal.js';
 import {
   _setMemoryMaintenanceQueueForTests,
   registerSystemJobs,
@@ -64,6 +69,17 @@ export async function startSchedulerLoop(
     registerSystemJobs,
     runJob,
     sweepCompletedOneTimeJobs,
+    handleReleasedStaleLeases: (releases, callbackDeps) =>
+      notifyReleasedStaleJobLeases({
+        releases,
+        opsRepository: callbackDeps.opsRepository,
+        sendMessage: callbackDeps.sendMessage,
+        controlRepository: getRuntimeControlRepository(),
+        publishRuntimeEvent: async (event) => {
+          await getRuntimeEventExchange().publish(event);
+        },
+        logger,
+      }),
   });
   activeSchedulerEngine = engine;
   try {
@@ -93,7 +109,6 @@ export async function stopSchedulerLoop(): Promise<void> {
 export function _resetSchedulerLoopForTests(): void {
   schedulerRunning = false;
   activeSchedulerEngine = null;
-  resetSchedulerExecutionStateForTests();
   resetSchedulerRunSlots();
   resetSystemJobStateForTests();
 }

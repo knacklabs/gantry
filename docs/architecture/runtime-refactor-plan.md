@@ -72,10 +72,10 @@ Cross-cutting:
 
 A grant is a tuple: `{ scope, rule, granted_by, granted_at, reason }`.
 
-- `scope`: `org | agent:<id> | job:<id> | run:<id>` — merged in that order, narrowest wins on conflict, additive otherwise.
-- `rule`: a string like `Bash(python3 /Users/.../scripts/dedup-append-lead.py:*)` or `WebFetch(https://api.github.com/*)`. Glob, not substring.
-- Persisted in `capability_grants` table. Mirrored into `jobs.target_json.allowed_tools` for fast read on run start.
-- `scheduler_get_job` returns the **effective** rule set after merge, not the raw per-job slice.
+- `scope`: `org | agent:<id> | run:<id>` — merged in that order, narrowest wins on conflict, additive otherwise. Scheduled jobs resolve the target agent scope at run time instead of carrying separate job grants.
+- `rule`: a semantic capability entry such as `capability:google.sheets.write`, canonical `Browser`, an exact MyClaw admin tool, or a scoped Bash fallback rule such as `Bash(npm test *)`. Broad exact SDK/native request_permission grants and exact third-party MCP tool names are not durable authority. Browser remains the canonical whole browser capability.
+- Persisted in the agent capability stores and mirrored to readable `settings.yaml` capability entries.
+- `scheduler_get_job` returns the **effective** target-agent rule set for the job, not a job-local grant slice.
 
 ### 5.2 Error format
 
@@ -135,8 +135,8 @@ Each phase has: **goal**, **scope**, **exit criteria**, **deletion target**, **a
 
 - Build on the current shared policy seam instead of creating a greenfield module by default: `ToolExecutionPolicyService` already exists in `apps/core/src/shared/tool-execution-policy-service.ts` and `apps/core/src/runner/claude/query-loop.ts` already routes interactive and autonomous SDK tool decisions through it.
 - Consolidate active capability composition in `apps/core/src/runner/agent-capabilities.ts`. The old apps/core/src/jobs/agent-capabilities.ts anchor is stale and must not be recreated as a compatibility path.
-- Keep `scheduler_grant_tool` behavior honest: today it appends a job-scoped rule through `scheduler_update_job`, persisting to `target_json.capabilityPolicy.allowedTools`/`job.capability_policy.allowed_tools`; Phase 1 must replace or back this with durable `capability_grants`.
-- `scheduler_get_job` already exposes effective allowed tools from inherited agent grants plus job extras. Phase 1 must make that effective set resolve from durable grants with the declared `org -> agent -> job -> run` merge order.
+- Keep scheduled job capability behavior honest: jobs inherit target-agent capabilities and must not grow a separate grant writer. Phase 1 must route missing capability recovery through the same reviewed request tools used by interactive agents.
+- `scheduler_get_job` already exposes effective allowed tools from inherited agent grants. Phase 1 must make that effective set resolve from durable grants with the declared `org -> agent -> run` merge order.
 - Complete the missing durable pieces: add the durable `capability_grants` authority, persist one inspectable permission/capability decision record, and make grant/check/resolve use that store.
 - Tighten the protected-capability guard so text payloads are allowed when safe and only target mutations of `.claude/`, `.mcp.json`, provider capability paths, or `settings.yaml` are denied. The current shared policy service contains target-oriented logic, but still has fail-closed protected-path mention branches that Phase 1 must verify against §99-D.
 

@@ -28,10 +28,27 @@ export function permissionUpdateAllowedToolRules(
   return [...out];
 }
 
+export function persistentPermissionUpdates(decision: {
+  approved?: boolean;
+  mode?: string | null;
+  decisionClassification?: string | null;
+  updatedPermissions?: readonly unknown[];
+}): readonly unknown[] | undefined {
+  if (
+    decision.approved !== true ||
+    decision.mode !== 'allow_persistent_rule' ||
+    decision.decisionClassification !== 'user_permanent'
+  ) {
+    return undefined;
+  }
+  return decision.updatedPermissions;
+}
+
 function permissionRuleAllowedToolRule(rule: unknown): string | null {
   if (!isPermissionRuleLike(rule)) return null;
   const toolName = trimmedString(rule.toolName, 120);
   if (!toolName) return null;
+  if (toolName.includes('(') || toolName.includes(')')) return null;
   const ruleContent = trimmedString(rule.ruleContent, 2048);
   if (ruleContent === null) return null;
   return ruleContent ? `${toolName}(${ruleContent})` : toolName;

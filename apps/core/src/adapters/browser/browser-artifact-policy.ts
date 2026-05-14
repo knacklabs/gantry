@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-import type { BrowserIpcAction } from '@myclaw/contracts';
+import type { BrowserBackendAction } from '../../shared/browser-backend-actions.js';
 
 const MAX_INLINE_UPLOAD_FILES = 8;
 const MAX_INLINE_UPLOAD_FILE_BYTES = 8 * 1024 * 1024;
@@ -38,7 +38,7 @@ export function writeBrowserArtifactFileSync(
 }
 
 export function normalizeBrowserFilePayload(
-  toolName: BrowserIpcAction,
+  toolName: BrowserBackendAction,
   payload: Record<string, unknown>,
   options: { fileAccessRoot: string },
 ): Record<string, unknown> {
@@ -50,9 +50,9 @@ export function normalizeBrowserFilePayload(
       options.fileAccessRoot,
     );
   }
-  if (toolName === 'browser_file_upload' && next.files !== undefined) {
+  if (toolName === 'file_upload' && next.files !== undefined) {
     if (rawPathsPresent) {
-      throw new Error('browser_file_upload accepts inline files only.');
+      throw new Error('file_upload accepts inline files only.');
     }
     next.paths = materializeBrowserUploadFiles(
       next.files,
@@ -60,10 +60,7 @@ export function normalizeBrowserFilePayload(
     );
     delete next.files;
   }
-  if (
-    (toolName === 'browser_file_upload' || toolName === 'browser_drop') &&
-    rawPathsPresent
-  ) {
+  if ((toolName === 'file_upload' || toolName === 'drop') && rawPathsPresent) {
     throw new Error('Browser upload/drop filesystem paths are not accepted.');
   }
   if (next.paths !== undefined) {

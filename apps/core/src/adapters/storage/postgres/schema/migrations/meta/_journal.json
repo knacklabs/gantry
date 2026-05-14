@@ -330,6 +330,34 @@
       "when": 1777151400000,
       "tag": "0046_session_scope_indexes_and_digest_scope_filters",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1777155000000,
+      "tag": "0047_agent_runs_notified_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1777158600000,
+      "tag": "0048_event_bus_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1777162200000,
+      "tag": "0049_agent_run_short_ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1777165800000,
+      "tag": "0050_drop_job_execution_mode",
+      "breakpoints": true
     }
   ]
 }

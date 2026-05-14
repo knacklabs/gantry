@@ -172,7 +172,7 @@ function jsonTextEquals(column: unknown, keys: string[], value: string): SQL {
     sql` OR `,
   )}))`;
 }
-function memorySubjectFromRow(row: {
+function _memorySubjectFromRow(row: {
   appId: string;
   agentId: string | null;
   subjectType: string;

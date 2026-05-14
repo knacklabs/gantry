@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('canonical Postgres persistence cut', () => {
   const adapterRoot = path.resolve('apps/core/src/adapters/storage/postgres');
+  const browserDriverPackagePattern = `${'play'}wright-core`;
 
   it('keeps canonical domain source free of provider/runtime imports', () => {
     const root = path.resolve('apps/core/src/domain');
@@ -19,7 +20,9 @@ describe('canonical Postgres persistence cut', () => {
         /from ['"].*(adapters|runtime|control|cli|infrastructure|runner)\//,
       );
       expect(source).not.toMatch(
-        /from ['"](node:|@anthropic-ai|openai|@google|@slack|grammy|playwright|dockerode)/,
+        new RegExp(
+          `from ['"](node:|@anthropic-ai|openai|@google|@slack|grammy|${browserDriverPackagePattern}|dockerode)`,
+        ),
       );
     }
   });

@@ -49,13 +49,15 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         appId: 'app-one' as never,
         name: 'linear',
         transportConfig: {
-          transport: 'sse',
-          url: 'https://93.184.216.34/linear',
+          transport: 'stdio_template',
+          templateId: 'npx-package',
+          args: ['@modelcontextprotocol/server-linear'],
         },
+        sandboxProfileId: 'sandbox:mcp-linear',
         allowedToolPatterns: ['search_issues'],
         autoApproveToolPatterns: ['search_issues'],
         credentialRefs: [
-          { name: 'LINEAR_TOKEN_REF', target: 'header', key: 'Authorization' },
+          { name: 'LINEAR_TOKEN_REF', target: 'env', key: 'LINEAR_TOKEN' },
         ],
         createdBy: 'admin-user',
       });
@@ -85,9 +87,10 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         {
           name: 'linear',
           config: {
-            type: 'sse',
-            url: 'https://93.184.216.34/linear',
-            headers: { Authorization: 'broker-safe-linear-token' },
+            type: 'stdio',
+            command: 'npx',
+            args: ['-y', '@modelcontextprotocol/server-linear'],
+            env: { LINEAR_TOKEN: 'broker-safe-linear-token' },
           },
           allowedToolNames: ['mcp__linear__search_issues'],
           allowedToolPatterns: ['search_issues'],
@@ -97,12 +100,61 @@ describe.runIf(hasPostgresIntegrationDatabase)(
         },
       ]);
 
+      const second = await service.createDraft({
+        appId: 'app-one' as never,
+        name: 'github',
+        transportConfig: {
+          transport: 'stdio_template',
+          templateId: 'npx-package',
+          args: ['@modelcontextprotocol/server-github'],
+        },
+        sandboxProfileId: 'sandbox:mcp-github',
+        allowedToolPatterns: ['search_repositories'],
+      });
+      await service.approveDraft({
+        appId: 'app-one' as never,
+        serverId: second.definition.id,
+        approvedBy: 'reviewer',
+      });
+      await service.bindToAgent({
+        appId: 'app-one' as never,
+        agentId: 'agent:one' as never,
+        serverId: second.definition.id,
+      });
+
       await expect(
         runtime.repositories.mcpServers.listMaterializedServersForAgent({
           appId: 'app-one' as never,
           agentId: 'agent:one' as never,
         }),
+      ).resolves.toHaveLength(2);
+      await expect(
+        runtime.repositories.mcpServers.listMaterializedServersForAgent({
+          appId: 'app-one' as never,
+          agentId: 'agent:one' as never,
+          serverIds: [created.definition.id],
+        }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          definition: expect.objectContaining({ id: created.definition.id }),
+        }),
+      ]);
+      await expect(
+        service.materializeForAgent({
+          appId: 'app-one' as never,
+          agentId: 'agent:one' as never,
+          serverIds: [created.definition.id],
+          credentialEnv: { LINEAR_TOKEN_REF: 'broker-safe-linear-token' },
+        }),
       ).resolves.toHaveLength(1);
+      await expect(
+        service.materializeForAgent({
+          appId: 'app-one' as never,
+          agentId: 'agent:one' as never,
+          serverIds: [],
+          credentialEnv: { LINEAR_TOKEN_REF: 'broker-safe-linear-token' },
+        }),
+      ).resolves.toEqual([]);
       await expect(
         runtime.repositories.mcpServers.listAuditEvents({
           appId: 'app-one' as never,

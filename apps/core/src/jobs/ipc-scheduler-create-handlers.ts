@@ -1,7 +1,4 @@
-import { randomUUID } from 'node:crypto';
-
 import { JobManagementService } from '../application/jobs/job-management-service.js';
-import type { JobExtraToolApprovalRequest } from '../application/jobs/job-management-types.js';
 import type { JobScheduleType } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { TaskHandler, TaskContext } from './ipc-types.js';
@@ -15,8 +12,14 @@ import {
   resolveModelSelection,
 } from '../shared/model-catalog.js';
 import { formatBrowserProfileLabel } from '../shared/browser-profile-scope.js';
-import { resolveSchedulerApprovalTarget } from './ipc-scheduler-approval-target.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
+import {
+  formatSchedulerJobPlan,
+  schedulerJobConfirmationToken,
+  type SchedulerJobPlanInput,
+} from './job-plan-formatter.js';
+
+type SchedulerCreateScheduleType = Exclude<JobScheduleType, 'manual'>;
 
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
@@ -25,48 +28,13 @@ function makeJobService(context: TaskContext): JobManagementService {
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
     toolRepository: context.deps.getToolRepository?.(),
-    approveJobExtraTools: (request) =>
-      requestJobExtraToolApproval(context, request),
+    mcpServerRepository: context.deps.getMcpServerRepository?.(),
+    getCredentialBroker: context.deps.getCredentialBroker,
+    getBrowserStatus: context.deps.getBrowserStatus,
   });
 }
 
-async function requestJobExtraToolApproval(
-  context: TaskContext,
-  request: JobExtraToolApprovalRequest,
-): Promise<{ approved: boolean; reason?: string }> {
-  const approvalTarget = resolveSchedulerApprovalTarget(context);
-  if (!approvalTarget.ok) {
-    return { approved: false, reason: approvalTarget.reason };
-  }
-  const decision = await context.deps.requestPermissionApproval({
-    requestId: `job-tools-${randomUUID()}`,
-    appId: request.target.appId as never,
-    agentId: request.target.agentId as never,
-    sourceAgentFolder: context.sourceAgentFolder,
-    targetJid: approvalTarget.targetJid,
-    threadId: context.data.authThreadId,
-    decisionPolicy: 'same_channel',
-    toolName: 'scheduler_job_tools',
-    displayName: 'Autonomous job tools',
-    title: 'Approve job-scoped autonomous tools',
-    description:
-      'stored on this job only; inherited agent grants are shown separately.',
-    decisionReason: `${request.operation === 'create' ? 'Create' : 'Update'} scheduler job ${request.jobName} with job-scoped extra tools.`,
-    toolInput: {
-      jobId: request.jobId,
-      target: request.target,
-      inheritedTools: request.inheritedTools,
-      existingJobExtraTools: request.existingJobExtraTools,
-      requestedJobExtraTools: request.requestedJobExtraTools,
-      extrasBeyondInherited: request.extrasBeyondInherited,
-      persistence: 'target_json.capabilityPolicy.allowedTools',
-    },
-    decisionOptions: ['allow_job_policy', 'cancel'],
-  });
-  return { approved: decision.approved, reason: decision.reason };
-}
-
-function scheduleType(raw: unknown): JobScheduleType | undefined {
+function scheduleType(raw: unknown): SchedulerCreateScheduleType | undefined {
   return raw === 'cron' || raw === 'interval' || raw === 'once'
     ? raw
     : undefined;
@@ -79,7 +47,7 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
     conversationBindings,
     sourceAgentFolderJids,
   } = context;
-  const { accept, reject } = createTaskResponder(
+  const { accept, acceptData, reject } = createTaskResponder(
     sourceAgentFolder,
     data.taskId,
     data.authThreadId,
@@ -101,6 +69,46 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
   }
 
   try {
+    const planInput: SchedulerJobPlanInput = {
+      jobId: data.jobId,
+      name: data.name || '',
+      prompt: data.prompt || '',
+      modelAlias: data.modelAlias || null,
+      modelProfileId: data.modelProfileId || null,
+      scheduleType: normalizedScheduleType,
+      scheduleValue: data.scheduleValue || '',
+      executionContext: data.executionContext,
+      notificationRoutes: data.notificationRoutes,
+      requiredTools: data.requiredTools,
+      requiredMcpServers: data.requiredMcpServers,
+      silent: data.silent,
+      cleanupAfterMs: data.cleanupAfterMs,
+      timeoutMs: data.timeoutMs,
+      maxRetries: data.maxRetries,
+      retryBackoffMs: data.retryBackoffMs,
+      maxConsecutiveFailures: data.maxConsecutiveFailures,
+      createdBy: data.createdBy,
+    };
+    const confirmationToken = schedulerJobConfirmationToken(planInput);
+    if (data.confirm !== true) {
+      acceptData(
+        formatSchedulerJobPlan({ ...planInput, confirmationToken }),
+        {
+          type: 'scheduler_job_plan',
+          confirmationToken,
+        },
+        'confirmation_required',
+      );
+      return;
+    }
+    if (data.confirmationToken !== confirmationToken) {
+      reject(
+        'Scheduler upsert confirmation token is missing or does not match the current job plan.',
+        'confirmation_mismatch',
+      );
+      return;
+    }
+
     const result = await makeJobService(context).upsertJobFromIpc({
       access: schedulerAccessFromContext(context),
       jobId: data.jobId,
@@ -112,16 +120,15 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
       scheduleValue: data.scheduleValue || '',
       executionContext: data.executionContext,
       notificationRoutes: data.notificationRoutes,
+      requiredTools: data.requiredTools,
+      requiredMcpServers: data.requiredMcpServers,
       silent: data.silent,
       cleanupAfterMs: data.cleanupAfterMs,
       timeoutMs: data.timeoutMs,
       maxRetries: data.maxRetries,
       retryBackoffMs: data.retryBackoffMs,
       maxConsecutiveFailures: data.maxConsecutiveFailures,
-      executionMode: data.executionMode,
-      serialize: data.serialize,
       createdBy: data.createdBy,
-      allowedTools: data.allowedTools,
     });
 
     logger.info(
@@ -150,12 +157,14 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
     const runtimeThreadId =
       data.executionContext?.threadId ?? data.authThreadId;
     const runtimeText = ` Runtime: notifications ${runtimeThreadId ? 'this thread' : 'this conversation'}; browser ${formatBrowserProfileLabel({ agentName: sourceConversation?.name ?? sourceAgentFolder, conversationKind: sourceConversation?.conversationKind })}.`;
+    const setupText = formatSetupOutcome(result.setupState);
     accept(
       (result.created
         ? `Scheduler job created (${result.jobId}).`
         : `Scheduler job updated (${result.jobId}).`) +
         modelText +
-        runtimeText,
+        runtimeText +
+        setupText,
     );
   } catch (err) {
     const mapped = mapApplicationError(err, 'Failed to upsert scheduler job.');
@@ -163,6 +172,16 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
     reject(mapped.message, mapped.code);
   }
 };
+
+function formatSetupOutcome(
+  setupState: Awaited<
+    ReturnType<JobManagementService['upsertJobFromIpc']>
+  >['setupState'],
+): string {
+  if (!setupState || setupState.state === 'ready') return '';
+  const nextAction = setupState.blockers[0]?.nextAction;
+  return ` Setup required: ${nextAction ?? setupState.state}.`;
+}
 
 export const schedulerCreateTaskHandlers: Record<string, TaskHandler> = {
   scheduler_upsert_job: schedulerUpsertJobHandler,

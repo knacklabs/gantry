@@ -186,9 +186,7 @@ describe('createChannelWiring', () => {
         approved: false,
         decidedBy: 'system',
         decisionClassification: 'user_reject',
-        reason: expect.stringContaining(
-          `timed out after ${PERMISSION_APPROVAL_TIMEOUT_MS}ms`,
-        ),
+        reason: expect.stringContaining('timed out after 5 min'),
       });
     } finally {
       vi.useRealTimers();

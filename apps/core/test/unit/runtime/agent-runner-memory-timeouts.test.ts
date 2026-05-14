@@ -21,7 +21,7 @@ describe('agent-runner memory timeout helpers', () => {
 
   it('formats timeout error with the configured timeout value', () => {
     expect(formatMemoryTimeoutError(60_000)).toBe(
-      'Timed out waiting for memory service response (60000ms)',
+      'Timed out waiting for memory service response (1 min)',
     );
   });
 });

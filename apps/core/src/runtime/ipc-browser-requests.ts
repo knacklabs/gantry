@@ -119,6 +119,7 @@ function processOneBrowserRequest(input: {
       getCredentialBroker: deps.getCredentialBroker,
       getCredentialBrokerProfile: deps.getCredentialBrokerProfile,
       callBrowserTool: deps.callBrowserTool,
+      publishBrowserJobActivity: deps.publishBrowserJobActivity,
       closeBrowserToolBackends: deps.closeBrowserToolBackends,
       getBrowserUsageSettings: deps.getBrowserUsageSettings,
       timeoutMs: request.timeoutMs,

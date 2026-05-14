@@ -23,11 +23,13 @@ import {
   splitSlackTextByCodeUnits,
 } from './text-limits.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { slackMessageActionBlocks } from './message-action-affordances.js';
 
 type SlackPostMessagePayload = {
   channel: string;
   text: string;
   thread_ts?: string;
+  blocks?: Array<Record<string, unknown>>;
 };
 type SlackDeliveryLogger = {
   warn(metadata: Record<string, unknown>, message: string): void;
@@ -94,9 +96,9 @@ function postMessageRetryDelayMs(input: unknown): number | null {
 }
 
 async function waitForPostMessageRetry(delayMs: number): Promise<void> {
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, clampSlackRetryDelayMs(delayMs));
-  });
+  await new Promise<void>((resolve) =>
+    setTimeout(resolve, clampSlackRetryDelayMs(delayMs)),
+  );
 }
 
 export function isSlackPayloadTooLarge(err: unknown): boolean {
@@ -197,6 +199,10 @@ export async function sendSlackMessage(input: {
   let deliveredParts = 0;
   for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
     const part = parts[partIndex];
+    const actionBlocks =
+      partIndex === parts.length - 1
+        ? slackMessageActionBlocks(part, input.options.actionAffordances)
+        : undefined;
     try {
       const posted = await postSlackMessageWithRetry(
         input.app,
@@ -206,6 +212,7 @@ export async function sendSlackMessage(input: {
           ...(input.options.threadId
             ? { thread_ts: input.options.threadId }
             : {}),
+          ...(actionBlocks ? { blocks: actionBlocks } : {}),
         },
         { jid: input.jid, part: partIndex + 1, totalParts: parts.length },
         warnings,
@@ -339,9 +346,7 @@ export async function sendSlackFallbackStreamParts(input: {
         [],
         input.log,
       );
-      if (posted.ts) {
-        input.state.fallbackMessageTs[partIndex] = posted.ts;
-      }
+      if (posted.ts) input.state.fallbackMessageTs[partIndex] = posted.ts;
       deliveredParts += 1;
     } catch (err) {
       const externalMessageIds = visibleFallbackMessageIds();
@@ -593,9 +598,8 @@ export async function sendSlackProgressUpdate(input: {
   }
 
   existing.lastText = trimmed;
-  if (input.options.generation !== undefined) {
+  if (input.options.generation !== undefined)
     existing.generation = input.options.generation;
-  }
   if (input.options.done) {
     input.activeProgress.delete(input.key);
   } else {
@@ -715,9 +719,7 @@ export async function disconnectSlackDelivery(input: {
   input.sealedStreamGenerationByJid.clear();
   input.activeProgress.clear();
 
-  if (input.app) {
-    await input.app.stop();
-  }
+  if (input.app) await input.app.stop();
   return null;
 }
 

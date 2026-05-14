@@ -92,6 +92,7 @@ function digestScopeFromMetadata(
       conversationId: null,
       userId: null,
       threadId: null,
+      jobId: null,
     };
   }
   const record = scope as Record<string, unknown>;
@@ -101,6 +102,7 @@ function digestScopeFromMetadata(
     conversationId: scopedValue(record.conversationId),
     userId: scopedValue(record.userId),
     threadId: scopedValue(record.threadId),
+    jobId: scopedValue(record.jobId),
   };
 }
 

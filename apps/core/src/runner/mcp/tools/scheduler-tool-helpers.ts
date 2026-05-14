@@ -222,6 +222,7 @@ export function canonicalTargetFromArgs(
     conversationJid: string;
     threadId: string | null;
     groupScope: string;
+    sessionId?: string | null;
   };
   notificationRoutes: Array<{
     conversationJid: string;

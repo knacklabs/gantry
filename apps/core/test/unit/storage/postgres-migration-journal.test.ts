@@ -74,6 +74,32 @@ describe('Postgres migration journal', () => {
     expect(runtimeExchange).toMatchObject({ idx: 18 });
   });
 
+  it('registers event bus outbox migration after runtime events', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const outbox = journal.entries.find(
+      (entry) => entry.tag === '0048_event_bus_outbox',
+    );
+    expect(outbox).toMatchObject({ idx: 48 });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0048_event_bus_outbox.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS event_bus_outbox');
+    expect(migration).toContain(
+      'runtime_event_id integer UNIQUE REFERENCES runtime_events(event_id) ON DELETE CASCADE',
+    );
+    expect(migration).toContain('occurred_at timestamptz NOT NULL');
+    expect(migration).toContain('idx_event_bus_outbox_claim_due');
+  });
+
   it('registers session memory boundary digests migration', () => {
     const journalPath = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',

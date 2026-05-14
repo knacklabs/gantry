@@ -1,5 +1,4 @@
 import {
-  allProtectedPathMentions,
   firstProtectedPathMention,
   hasProtectedPathReference,
   PROVIDER_CLI_NAME,
@@ -107,10 +106,6 @@ export function hasProtectedPathInGhTextPayloadCommand(
     hasProtectedPathCommandSubstitution(command) ||
     hasProtectedPathPositionalArgument(command)
   );
-}
-
-export function canRepresentBashGrantCommand(command: string): boolean {
-  return !!command.trim() && !/[()\r\n]/.test(command);
 }
 
 function inferBashRedirectTarget(command: string): string | undefined {

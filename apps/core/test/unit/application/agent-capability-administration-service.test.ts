@@ -64,6 +64,33 @@ describe('AgentCapabilityAdministrationService', () => {
       }),
     ).rejects.toThrow('Tool is not selectable');
   });
+
+  it('rejects selectable catalog rows whose names are invalid durable tool rules', async () => {
+    const state = createState();
+    const service = new AgentCapabilityAdministrationService(
+      state.repositories,
+      { now: () => '2026-05-01T00:00:00.000Z' },
+    );
+
+    await expect(
+      service.replaceCapabilities({
+        appId: 'app:one' as never,
+        agentId: 'agent:one' as never,
+        selectedToolIds: ['tool:BashWildcard' as never],
+        selectedSkillIds: [],
+        selectedMcpServerIds: [],
+      }),
+    ).rejects.toThrow('Persistent Bash scope is too broad');
+
+    expect(state.toolBindings).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolId: 'tool:BashWildcard',
+          status: 'active',
+        }),
+      ]),
+    );
+  });
 });
 
 function createState() {
@@ -101,6 +128,24 @@ function createState() {
         selectable: false,
         status: 'active',
         adapterRef: 'builtin:internal',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    [
+      'tool:BashWildcard',
+      {
+        id: 'tool:BashWildcard',
+        appId: 'app:one',
+        name: 'Bash(*)',
+        kind: 'sdk',
+        provider: 'claude',
+        displayName: 'Bash wildcard',
+        category: 'execution',
+        risk: 'high',
+        selectable: true,
+        status: 'active',
+        adapterRef: 'builtin:Bash',
         createdAt: now,
         updatedAt: now,
       },

@@ -48,7 +48,6 @@ export class AgentService {
       name: 'manual-summary',
       kind: 'manual',
       prompt: 'Summarize the most recent session activity.',
-      executionMode: 'serialized',
     });
   }
 

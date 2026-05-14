@@ -38,38 +38,6 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
     return formatSharedPermissionPromptText(request, timeoutMs);
   }
 
-  protected formatPermissionToolInputLines(
-    request: PermissionApprovalRequest,
-  ): string[] {
-    if (!request.toolInput || typeof request.toolInput !== 'object') return [];
-    const input = request.toolInput;
-    if (
-      request.toolName === 'Bash' &&
-      typeof input.command === 'string' &&
-      input.command.trim()
-    ) {
-      return [`Command: \`${truncateText(input.command.trim(), 300)}\``];
-    }
-    if (request.toolName === 'Edit' || request.toolName === 'Write') {
-      const lines: string[] = [];
-      if (typeof input.file_path === 'string' && input.file_path.trim()) {
-        lines.push(`File: ${truncateText(input.file_path.trim(), 250)}`);
-      }
-      if (typeof input.old_string === 'string' && input.old_string.trim()) {
-        lines.push(`Replacing: ${truncateText(input.old_string.trim(), 150)}`);
-      }
-      if (typeof input.new_string === 'string' && input.new_string.trim()) {
-        lines.push(`With: ${truncateText(input.new_string.trim(), 150)}`);
-      }
-      if (lines.length > 0) return lines;
-    }
-    try {
-      return [`Input: ${truncateText(JSON.stringify(input), 300)}`];
-    } catch {
-      return ['Input: [unserializable]'];
-    }
-  }
-
   protected pendingUserQuestionKey(
     requestId: string,
     questionIndex: number,

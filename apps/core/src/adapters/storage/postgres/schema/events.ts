@@ -1,4 +1,12 @@
-import { index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import {
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+} from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 import { appsPostgres } from './apps.js';
 import { agentsPostgres } from './agents.js';
@@ -87,5 +95,74 @@ export const runtimeEventsPostgres = pgTable(
       table.responseMode,
       table.eventId,
     ),
+  }),
+);
+
+export const eventBusOutboxPostgres = pgTable(
+  'event_bus_outbox',
+  {
+    id: text('id').primaryKey(),
+    eventType: text('event_type').notNull(),
+    eventVersion: integer('event_version').notNull().default(1),
+    source: text('source').notNull(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    runtimeEventId: integer('runtime_event_id').references(
+      () => runtimeEventsPostgres.eventId,
+      { onDelete: 'cascade' },
+    ),
+    correlationId: text('correlation_id'),
+    payloadJson: text('payload_json').notNull(),
+    occurredAt: timestamp('occurred_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    status: text('status').notNull().default('pending'),
+    attemptCount: integer('attempt_count').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .notNull()
+      .defaultNow(),
+    publishedAt: timestamp('published_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    runtimeEventUnique: unique('event_bus_outbox_runtime_event_id_key').on(
+      table.runtimeEventId,
+    ),
+    claimDueIdx: index('idx_event_bus_outbox_claim_due').on(
+      table.status,
+      table.nextAttemptAt,
+      table.createdAt,
+    ),
+    appEventIdx: index('idx_event_bus_outbox_app_event').on(
+      table.appId,
+      table.eventType,
+      table.occurredAt,
+    ),
+    runtimeEventIdx: index('idx_event_bus_outbox_runtime_event').on(
+      table.runtimeEventId,
+    ),
+    pendingRuntimeEventIdx: index('idx_event_bus_outbox_pending_runtime_event')
+      .on(table.runtimeEventId)
+      .where(sql`${table.runtimeEventId} IS NOT NULL`),
   }),
 );

@@ -40,7 +40,9 @@ async function cdpJsonRequest(
     });
   } catch (err) {
     if (controller.signal.aborted) {
-      throw new Error(`CDP HTTP ${method} ${endpoint} timed out`);
+      throw new Error(`CDP HTTP ${method} ${endpoint} timed out`, {
+        cause: err,
+      });
     }
     throw err;
   } finally {
@@ -69,7 +71,9 @@ async function cdpTextRequest(
     });
   } catch (err) {
     if (controller.signal.aborted) {
-      throw new Error(`CDP HTTP ${method} ${endpoint} timed out`);
+      throw new Error(`CDP HTTP ${method} ${endpoint} timed out`, {
+        cause: err,
+      });
     }
     throw err;
   } finally {
@@ -127,8 +131,8 @@ function requireLocalCdpWebSocketUrl(rawUrl: string, port: number): string {
   let url: URL;
   try {
     url = new URL(rawUrl);
-  } catch {
-    throw new Error('CDP websocket URL is invalid');
+  } catch (err) {
+    throw new Error('CDP websocket URL is invalid', { cause: err });
   }
   const host = url.hostname.toLowerCase();
   const isLoopback =

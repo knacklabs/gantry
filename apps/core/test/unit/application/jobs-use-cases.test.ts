@@ -36,7 +36,6 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     retry_backoff_ms: 0,
     max_consecutive_failures: 3,
     consecutive_failures: 0,
-    execution_mode: 'parallel',
     lease_run_id: null,
     lease_expires_at: null,
     pause_reason: null,
@@ -139,6 +138,63 @@ describe('job application use cases', () => {
     );
   });
 
+  it('creates setup-paused jobs when declared durable requirements are missing', async () => {
+    const upsertJob = vi.fn(async () => ({ created: true }));
+    const runtimeEvents = { publish: vi.fn(async () => undefined) };
+    const service = new JobManagementService({
+      ops: {
+        upsertJob,
+      } as unknown as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeControl({
+        'session-app-one': { sessionId: 'session-app-one', appId: 'app-one' },
+      }),
+      toolRepository: {
+        listAgentToolBindings: vi.fn(async () => []),
+      } as never,
+      runtimeEvents,
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    await service.createJob({
+      appId: 'app-one',
+      name: 'Browser summary',
+      prompt: 'Summarize a web page',
+      sessionId: 'session-app-one',
+      requiredTools: ['Browser'],
+      kind: 'recurring',
+      schedule: { type: 'interval', value: '60000' },
+    });
+
+    expect(upsertJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'paused',
+        pause_reason: 'Setup required',
+        next_run: null,
+        required_tools: ['Browser'],
+        setup_state: expect.objectContaining({
+          state: 'missing_capability',
+        }),
+      }),
+    );
+    expect(runtimeEvents.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'app-one',
+        eventType: 'job.setup_required',
+        payload: expect.objectContaining({
+          setup_state: 'missing_capability',
+          blockers: expect.arrayContaining([
+            expect.objectContaining({
+              requirementType: 'browser',
+              requirementId: 'Browser',
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
   it('updates mutable job fields and requests scheduler sync', async () => {
     const ops = makeOps(makeJob());
     const scheduler = { requestSchedulerSync: vi.fn() };
@@ -157,7 +213,6 @@ describe('job application use cases', () => {
       patch: {
         name: 'Updated',
         prompt: 'New prompt',
-        executionMode: 'serialized',
         threadId: 'thread-1',
         status: 'paused',
       },
@@ -166,7 +221,6 @@ describe('job application use cases', () => {
     expect(result.job).toMatchObject({
       name: 'Updated',
       prompt: 'New prompt',
-      execution_mode: 'serialized',
       thread_id: 'thread-1',
       status: 'paused',
       pause_reason: 'Paused by SDK',
@@ -175,7 +229,6 @@ describe('job application use cases', () => {
     expect(ops.updateJob).toHaveBeenCalledWith('job-1', {
       name: 'Updated',
       prompt: 'New prompt',
-      execution_mode: 'serialized',
       thread_id: 'thread-1',
       status: 'paused',
       pause_reason: 'Paused by SDK',
@@ -201,7 +254,10 @@ describe('job application use cases', () => {
       patch: { model: 'kimi 2.6' },
     });
 
-    expect(ops.updateJob).toHaveBeenCalledWith('job-1', { model: 'kimi' });
+    expect(ops.updateJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({ model: 'kimi' }),
+    );
 
     await expect(
       service.updateJob({
@@ -241,12 +297,83 @@ describe('job application use cases', () => {
       patch: { status: 'active' },
     });
 
-    expect(ops.updateJob).toHaveBeenCalledWith('job-1', {
-      status: 'active',
-      pause_reason: null,
-      next_run: '2026-04-24T01:00:00.000Z',
-    });
+    expect(ops.updateJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        status: 'active',
+        pause_reason: null,
+        next_run: '2026-04-24T01:00:00.000Z',
+      }),
+    );
     expect(scheduler.requestSchedulerSync).toHaveBeenCalledWith('job-1');
+  });
+
+  it('evaluates scheduler updates against the job canonical app session', async () => {
+    const ops = makeOps(
+      makeJob({
+        status: 'paused',
+        session_id: 'session-app-one',
+        group_scope: 'app-folder',
+        execution_context: {
+          conversationJid: 'app:app-one:conversation',
+          groupScope: 'app-folder',
+          threadId: null,
+          sessionId: 'session-app-one',
+        },
+        notification_routes: [
+          {
+            conversationJid: 'app:app-one:conversation',
+            threadId: null,
+            label: 'primary',
+          },
+        ],
+      }),
+    );
+    const toolRepository = {
+      listAgentToolBindings: vi.fn(async ({ appId }: { appId: string }) =>
+        appId === 'default'
+          ? [{ status: 'active', toolId: 'browser-tool' }]
+          : [],
+      ),
+      getTool: vi.fn(async () => ({ appId: 'default', name: 'Browser' })),
+    };
+    const scheduler = { requestSchedulerSync: vi.fn() };
+    const service = new JobManagementService({
+      ops: ops as RuntimeJobRepository,
+      scheduler,
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
+      toolRepository: toolRepository as never,
+      getBrowserStatus: vi.fn(async () => ({ hasState: true })),
+      clock: { now: () => '2026-04-24T01:00:00.000Z' },
+    });
+
+    await service.updateJob({
+      access: {
+        sourceAgentFolder: 'app-folder',
+        originConversationJid: 'app:app-one:conversation',
+        conversationBindings: {
+          'app:app-one:conversation': { folder: 'app-folder' },
+        },
+      },
+      jobId: 'job-1',
+      patch: { status: 'active', requiredTools: ['Browser'] },
+    });
+
+    expect(toolRepository.listAgentToolBindings).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: 'app-one' }),
+    );
+    expect(ops.updateJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        status: 'paused',
+        pause_reason: 'Setup required',
+        next_run: null,
+        setup_state: expect.objectContaining({
+          state: 'missing_capability',
+        }),
+      }),
+    );
   });
 
   it('rejects empty mutable strings and no-ops empty patches', async () => {
@@ -302,11 +429,14 @@ describe('job application use cases', () => {
       jobId: 'job-1',
     });
 
-    expect(ops.updateJob).toHaveBeenCalledWith('job-1', {
-      status: 'active',
-      pause_reason: null,
-      next_run: '2026-04-24T01:00:00.000Z',
-    });
+    expect(ops.updateJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        status: 'active',
+        pause_reason: null,
+        next_run: '2026-04-24T01:00:00.000Z',
+      }),
+    );
   });
 
   it('uses resume-now semantics for invalid schedules unless dead-letter is requested', async () => {
@@ -332,11 +462,14 @@ describe('job application use cases', () => {
       jobId: 'job-1',
     });
 
-    expect(ops.updateJob).toHaveBeenCalledWith('job-1', {
-      status: 'active',
-      pause_reason: null,
-      next_run: '2026-04-24T01:00:00.000Z',
-    });
+    expect(ops.updateJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        status: 'active',
+        pause_reason: null,
+        next_run: '2026-04-24T01:00:00.000Z',
+      }),
+    );
   });
 
   it('dead-letters invalid schedules for scheduler-controlled resume', async () => {
@@ -522,6 +655,49 @@ describe('job application use cases', () => {
     await expect(service.listJobs({ appId: 'app-one' })).resolves.toEqual({
       jobs: [],
     });
+  });
+
+  it('lets the default local control key inspect host-owned scheduler jobs', async () => {
+    const hostOwnedJob = makeJob({
+      id: 'host-owned-job',
+      session_id: null,
+      group_scope: 'main_agent',
+      created_by: 'agent',
+      execution_context: {
+        conversationJid: 'tg:-1003986348737',
+        threadId: null,
+        groupScope: 'main_agent',
+      },
+    });
+    const appOwnedJob = makeJob({
+      id: 'app-owned-job',
+      session_id: 'session-app-one',
+    });
+    const ops = {
+      listJobs: vi.fn(async () => [hostOwnedJob, appOwnedJob]),
+      getJobById: vi.fn(async (jobId: string) =>
+        jobId === hostOwnedJob.id ? hostOwnedJob : appOwnedJob,
+      ),
+    };
+    const service = new JobManagementService({
+      ops: ops as unknown as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
+    });
+
+    await expect(service.listJobs({ appId: 'default' })).resolves.toEqual({
+      jobs: [hostOwnedJob],
+    });
+    await expect(
+      service.getJob({ appId: 'default', jobId: hostOwnedJob.id }),
+    ).resolves.toEqual({ job: hostOwnedJob });
+    await expect(service.listJobs({ appId: 'app-one' })).resolves.toEqual({
+      jobs: [appOwnedJob],
+    });
+    await expect(
+      service.getJob({ appId: 'app-one', jobId: hostOwnedJob.id }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('enforces scheduler access by source group and canonical execution context', () => {
@@ -1256,6 +1432,28 @@ describe('job application use cases', () => {
     });
   });
 
+  it('rejects unknown scheduler event filters before querying events', async () => {
+    const ops = {
+      listRecentJobEvents: vi.fn(async () => []),
+    };
+    const service = new JobManagementService({
+      ops: ops as unknown as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+    });
+
+    await expect(
+      service.listJobEvents({
+        appId: 'app-one',
+        eventType: 'runtime.unknown',
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_REQUEST',
+      message: 'Unknown runtime event type "runtime.unknown".',
+    });
+    expect(ops.listRecentJobEvents).not.toHaveBeenCalled();
+  });
+
   it('uses repository app ownership filters for app-scoped run and event pages', async () => {
     const run: JobRun = {
       run_id: 'run-1',
@@ -1761,6 +1959,7 @@ describe('job application use cases', () => {
     const control = {
       createJobTrigger: vi.fn(async () => ({ triggerId: 'trigger-1' })),
       markTriggerCompleted: vi.fn(),
+      getAppSessionById: vi.fn(async () => undefined),
     };
     const triggerQueue = {
       isReady: vi.fn(() => true),
@@ -1880,194 +2079,5 @@ describe('job application use cases', () => {
     });
     expect(subscription.next).toHaveBeenCalled();
     expect(subscription.close).toHaveBeenCalled();
-  });
-
-  it('uses caller app ownership for inherited tools instead of linked session strings', async () => {
-    const ops = makeOps(
-      makeJob({
-        session_id: 'session-app-one',
-      }),
-    );
-    const approveJobExtraTools = vi.fn(async () => ({ approved: true }));
-    const listAgentToolBindings = vi.fn(async () => [
-      {
-        toolId: 'tool:Read',
-        status: 'active',
-      },
-    ]);
-    const service = new JobManagementService({
-      ops: ops as RuntimeJobRepository,
-      scheduler: { requestSchedulerSync: vi.fn() },
-      schedulePlanner: runtimeJobSchedulePlanner,
-      control: makeAppOneControl(),
-      toolRepository: {
-        listAgentToolBindings,
-        getTool: vi.fn(async () => ({ name: 'Read' })),
-      } as never,
-      approveJobExtraTools,
-    });
-
-    await service.updateJob({
-      appId: 'app-one',
-      jobId: 'job-1',
-      patch: { allowedTools: ['Read'] },
-    });
-
-    expect(approveJobExtraTools).not.toHaveBeenCalled();
-    expect(listAgentToolBindings).toHaveBeenCalledWith({
-      appId: 'app-one',
-      agentId: 'agent:app-folder',
-    });
-    expect(ops.updateJob).toHaveBeenCalledWith('job-1', {
-      capability_policy: { allowed_tools: ['Read'] },
-    });
-  });
-
-  it('does not request approval when an IPC upsert preserves already approved job extras', async () => {
-    const ops = {
-      getJobById: vi.fn(async () =>
-        makeJob({ capability_policy: { allowed_tools: ['Bash'] } }),
-      ),
-      upsertJob: vi.fn(async () => ({ created: false })),
-    };
-    const approveJobExtraTools = vi.fn(async () => ({ approved: true }));
-    const listAgentToolBindings = vi.fn(async () => []);
-    const service = new JobManagementService({
-      ops: ops as unknown as RuntimeJobRepository,
-      scheduler: { requestSchedulerSync: vi.fn() },
-      schedulePlanner: runtimeJobSchedulePlanner,
-      control: {
-        ...makeControl({}),
-        getAppSessionByChatJid: vi.fn(async () => ({
-          sessionId: 'session-app-one',
-          appId: 'app-one',
-          conversationJid: 'app:app-one:conv-1',
-          workspaceKey: 'app-folder',
-          defaultResponseMode: 'immediate',
-          defaultWebhookId: null,
-        })),
-      },
-      toolRepository: {
-        listAgentToolBindings,
-        getTool: vi.fn(async () => null),
-      } as never,
-      approveJobExtraTools,
-    });
-
-    await service.upsertJobFromIpc({
-      access: {
-        sourceAgentFolder: 'app-folder',
-        originConversationJid: 'app:app-one:conv-1',
-        conversationBindings: {
-          'app:app-one:conv-1': { folder: 'app-folder' },
-        },
-        sourceAgentFolderJids: ['app:app-one:conv-1'],
-      },
-      jobId: 'job-1',
-      name: 'Job',
-      prompt: 'Run',
-      scheduleType: 'interval',
-      scheduleValue: '60000',
-      groupScope: 'app-folder',
-    });
-
-    expect(approveJobExtraTools).not.toHaveBeenCalled();
-    expect(listAgentToolBindings).toHaveBeenCalledWith({
-      appId: 'app-one',
-      agentId: 'agent:app-folder',
-    });
-    expect(ops.upsertJob).toHaveBeenCalledWith(
-      expect.objectContaining({
-        session_id: 'session-app-one',
-        capability_policy: { allowed_tools: ['Bash'] },
-      }),
-    );
-  });
-
-  it('denies job extra tool updates before mutating the existing job', async () => {
-    const ops = makeOps(makeJob({ capability_policy: { allowed_tools: [] } }));
-    const approveJobExtraTools = vi.fn(async () => ({
-      approved: false,
-      reason: 'no',
-    }));
-    const service = new JobManagementService({
-      ops: ops as RuntimeJobRepository,
-      scheduler: { requestSchedulerSync: vi.fn() },
-      schedulePlanner: runtimeJobSchedulePlanner,
-      control: makeAppOneControl(),
-      toolRepository: {
-        listAgentToolBindings: vi.fn(async () => [
-          {
-            toolId: 'tool:Read',
-            status: 'active',
-          },
-        ]),
-        getTool: vi.fn(async () => ({ name: 'Read' })),
-      } as never,
-      approveJobExtraTools,
-    });
-
-    await expect(
-      service.updateJob({
-        appId: 'app-one',
-        jobId: 'job-1',
-        patch: { allowedTools: ['Bash'] },
-      }),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-
-    expect(approveJobExtraTools).toHaveBeenCalledWith(
-      expect.objectContaining({
-        extrasBeyondInherited: ['Bash'],
-        existingJobExtraTools: [],
-      }),
-    );
-    expect(ops.updateJob).not.toHaveBeenCalled();
-  });
-
-  it('fails closed when extra tools need approval but no approval port is configured', async () => {
-    const ops = makeOps(makeJob({ capability_policy: { allowed_tools: [] } }));
-    const service = new JobManagementService({
-      ops: ops as RuntimeJobRepository,
-      scheduler: { requestSchedulerSync: vi.fn() },
-      schedulePlanner: runtimeJobSchedulePlanner,
-      control: makeAppOneControl(),
-      toolRepository: {
-        listAgentToolBindings: vi.fn(async () => []),
-      } as never,
-    });
-
-    await expect(
-      service.updateJob({
-        appId: 'app-one',
-        jobId: 'job-1',
-        patch: { allowedTools: ['Bash'] },
-      }),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-
-    expect(ops.updateJob).not.toHaveBeenCalled();
-  });
-
-  it('rejects broad MyClaw MCP wildcards for conversation-scoped job extras', async () => {
-    const ops = makeOps(makeJob({ capability_policy: { allowed_tools: [] } }));
-    const service = new JobManagementService({
-      ops: ops as RuntimeJobRepository,
-      scheduler: { requestSchedulerSync: vi.fn() },
-      schedulePlanner: runtimeJobSchedulePlanner,
-    });
-
-    await expect(
-      service.updateJob({
-        access: {
-          sourceAgentFolder: 'app-folder',
-          originConversationJid: 'app:app-one:conv-1',
-          conversationBindings: {
-            'app:app-one:conv-1': { folder: 'app-folder' },
-          },
-          sourceAgentFolderJids: ['app:app-one:conv-1'],
-        },
-        jobId: 'job-1',
-        patch: { allowedTools: ['mcp__myclaw__*'] },
-      }),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });

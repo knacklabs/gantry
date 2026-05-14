@@ -458,6 +458,7 @@ export interface McpServerRepository {
   listMaterializedServersForAgent(input: {
     appId: AppId;
     agentId: AgentId;
+    serverIds?: readonly McpServerId[];
   }): Promise<MaterializedMcpServer[]>;
   appendAuditEvent(event: McpServerAuditEvent): Promise<void>;
   listAuditEvents(input: {

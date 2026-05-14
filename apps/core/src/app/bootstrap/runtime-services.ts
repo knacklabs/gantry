@@ -1,6 +1,5 @@
 import {
   DEFAULT_TRIGGER,
-  MYCLAW_HOME,
   getCredentialBrokerRuntimeConfig,
   getRuntimeSettingsForConfig,
 } from '../../config/index.js';
@@ -17,14 +16,10 @@ import type { NewMessage } from '../../domain/types.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { writeGroupsSnapshot } from '../../runtime/agent-spawn.js';
 import { startIpcWatcher, type IpcDeps } from '../../runtime/ipc.js';
-import {
-  recoverPendingMessages,
-  startMessagePollingLoop,
-} from '../../runtime/message-loop.js';
-import {
-  requestSchedulerSync,
-  startSchedulerLoop,
-} from '../../jobs/scheduler.js';
+// prettier-ignore
+import { recoverPendingMessages, startMessagePollingLoop } from '../../runtime/message-loop.js';
+// prettier-ignore
+import { requestSchedulerSync, startSchedulerLoop } from '../../jobs/scheduler.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { makeThreadQueueKey } from '../../runtime/thread-queue-key.js';
 import type {
@@ -36,11 +31,16 @@ import type {
   RuntimeRouterStateRepository,
 } from '../../domain/repositories/ops-repo.js';
 import type {
+  McpServerRepository,
   OutboundDeliveryRepository,
   PermissionRepository,
+  SkillCatalogRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
+import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
 import type { SessionMemoryCollector } from '../../domain/ports/session-memory-collector.js';
+import type { SkillArtifactStore } from '../../domain/ports/skill-artifact-store.js';
+import type { RemoteMcpDnsValidationCache } from '../../application/mcp/mcp-server-policy.js';
 import { ChannelWiring } from './channel-wiring.js';
 import { RuntimeApp, collectRuntimeSessionMemory } from './runtime-app.js';
 import { OutboundDeliveryService } from '../../application/outbound-delivery/outbound-delivery-service.js';
@@ -50,6 +50,8 @@ import {
 } from '../../domain/messages/partial-delivery.js';
 import { isAmbiguousDurableDeliveryError } from '../../domain/messages/durable-delivery.js';
 import { startOutboundDeliveryRecoveryLoop } from '../../jobs/outbound-delivery-recovery.js';
+// prettier-ignore
+import { closeBrowser, getBrowserStatus } from '../../runtime/browser-capability.js';
 import type { OutboundDeliveryProfile } from '../../domain/outbound-delivery/planner.js';
 import {
   LIVE_SEND_PROFILE_ID,
@@ -80,12 +82,19 @@ interface Deps {
   logger: Pick<typeof logger, 'info' | 'warn' | 'fatal'>;
   mcpHostnameLookup?: HostnameLookup;
   collectSessionMemory: SessionMemoryCollector;
+  getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
+  getSkillRepository?: () => SkillCatalogRepository | undefined;
+  getMcpServerRepository?: () => McpServerRepository | undefined;
+  getMcpDnsValidationCache?: () => RemoteMcpDnsValidationCache | undefined;
+  getSkillArtifactStore?: () => SkillArtifactStore | undefined;
   getToolRepository: () => ToolCatalogRepository;
   getPermissionRepository?: () => PermissionRepository;
   settingsRepositories?: AgentToolRuleSettingsRepositories;
   getOutboundDeliveryRepository?: () => OutboundDeliveryRepository | undefined;
   startOutboundDeliveryRecoveryLoop: typeof startOutboundDeliveryRecoveryLoop;
   callBrowserTool: IpcDeps['callBrowserTool'];
+  publishRuntimeEvent: IpcDeps['publishRuntimeEvent'];
+  publishBrowserJobActivity: IpcDeps['publishBrowserJobActivity'];
   closeBrowserToolBackends: IpcDeps['closeBrowserToolBackends'];
   exit: (code: number) => never;
 }
@@ -108,6 +117,8 @@ function makeDefaultDeps(): RuntimeServicesDefaults {
     collectSessionMemory: collectRuntimeSessionMemory,
     startOutboundDeliveryRecoveryLoop,
     callBrowserTool: undefined,
+    publishRuntimeEvent: undefined,
+    publishBrowserJobActivity: undefined,
     closeBrowserToolBackends: undefined,
     exit: (code: number) => process.exit(code),
   };
@@ -192,7 +203,20 @@ export async function startRuntimeServices(
     onSchedulerChanged,
     opsRepository: resolved.opsRepository,
     collectSessionMemory: resolved.collectSessionMemory,
+    getCredentialBroker:
+      resolved.getCredentialBroker ??
+      (typeof app.getCredentialBroker === 'function'
+        ? () => app.getCredentialBroker()
+        : undefined),
+    getSkillRepository: resolved.getSkillRepository,
+    getMcpServerRepository: resolved.getMcpServerRepository,
+    getMcpHostnameLookup: () => resolved.mcpHostnameLookup,
+    getMcpDnsValidationCache: resolved.getMcpDnsValidationCache,
+    getSkillArtifactStore: resolved.getSkillArtifactStore,
     getToolRepository: resolved.getToolRepository,
+    getBrowserStatus,
+    closeBrowserSession: closeBrowser,
+    closeBrowserToolBackends: resolved.closeBrowserToolBackends,
   });
 
   resolved.startIpcWatcher({
@@ -213,7 +237,9 @@ export async function startRuntimeServices(
     onSchedulerChanged,
     opsRepository: resolved.opsRepository,
     getToolRepository: resolved.getToolRepository,
+    getMcpServerRepository: resolved.getMcpServerRepository,
     getPermissionRepository: resolved.getPermissionRepository,
+    publishRuntimeEvent: resolved.publishRuntimeEvent,
     mirrorAgentToolRulesToSettings: createAgentToolRuleSettingsMirror({
       opsRepository: resolved.opsRepository,
       repositories: resolved.settingsRepositories,
@@ -223,6 +249,8 @@ export async function startRuntimeServices(
     getCredentialBroker: app.getCredentialBroker,
     getCredentialBrokerProfile: () => getCredentialBrokerRuntimeConfig().mode,
     callBrowserTool: resolved.callBrowserTool,
+    publishBrowserJobActivity: resolved.publishBrowserJobActivity,
+    getBrowserStatus,
     closeBrowserToolBackends: resolved.closeBrowserToolBackends,
     getBrowserUsageSettings: () => getRuntimeSettingsForConfig().browser.usage,
     requestPermissionApproval: channelWiring.requestPermissionApproval,

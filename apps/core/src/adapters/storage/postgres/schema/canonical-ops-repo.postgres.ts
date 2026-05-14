@@ -15,6 +15,7 @@ import type {
   JobListFilters,
   JobRunListFilters,
   JobUpsertInput,
+  ReleasedStaleJobLease,
   RuntimeAgentSessionRepository,
   RuntimeChatMetadataRepository,
   RuntimeConversationRouteRepository,
@@ -216,8 +217,16 @@ export class PostgresRuntimeRepositoryBundle
     return this.jobs.claimDueJobRunStart(input);
   }
 
-  async releaseStaleJobLeases(nowIso?: string): Promise<number> {
+  async releaseStaleJobLeases(
+    nowIso?: string,
+  ): Promise<ReleasedStaleJobLease[]> {
     return this.jobs.releaseStaleJobLeases(nowIso);
+  }
+
+  async releaseInterruptedJobLeases(
+    nowIso?: string,
+  ): Promise<ReleasedStaleJobLease[]> {
+    return this.jobs.releaseInterruptedJobLeases(nowIso);
   }
 
   async createJobRun(run: JobRun): Promise<boolean> {
@@ -297,6 +306,7 @@ export class PostgresRuntimeRepositoryBundle
     threadId?: string | null;
     conversationKind?: 'dm' | 'channel';
     memoryUserId?: string;
+    jobId?: string;
     query?: string;
     hydrateMemory?: boolean;
   }): Promise<{
@@ -315,6 +325,7 @@ export class PostgresRuntimeRepositoryBundle
       threadId: input.threadId,
       conversationKind: input.conversationKind,
       memoryUserId: input.memoryUserId,
+      jobId: input.jobId,
       query: input.query,
       hydrateMemory: input.hydrateMemory,
     });
@@ -340,6 +351,7 @@ export class PostgresRuntimeRepositoryBundle
     if (!session) return undefined;
     const runId = `agent-run:${randomUUID()}`;
     const now = nowIso();
+    const jobId = input.cause === 'job' ? undefined : session.jobId;
     await repositories.agentRuns.saveAgentRun({
       id: runId,
       appId: session.appId,
@@ -348,7 +360,7 @@ export class PostgresRuntimeRepositoryBundle
       sessionId: session.id,
       conversationId: session.conversationId,
       threadId: session.threadId,
-      jobId: session.jobId,
+      jobId,
       llmProfileId: DEFAULT_LLM_PROFILE_ID,
       permissionDecisionIds: [],
       cause: input.cause,

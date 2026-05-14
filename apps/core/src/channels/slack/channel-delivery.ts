@@ -396,6 +396,22 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
     if (!parsed) return;
     const key = this.progressKey(jid, options.threadId);
     this.loadPersistedProgress();
+    if (options.done) {
+      this.markProgressGenerationDone(key, options.generation);
+    } else if (
+      !this.shouldAcceptProgressUpdate(key, options.generation, options.done)
+    ) {
+      logger.info(
+        {
+          channelId: parsed.channelId,
+          key,
+          progressText: text.trim(),
+          generation: options.generation,
+        },
+        'Progress lifecycle slack dropped sealed generation',
+      );
+      return;
+    }
     await sendSlackProgressUpdate({
       app: this.app,
       channelId: parsed.channelId,

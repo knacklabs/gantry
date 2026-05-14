@@ -448,7 +448,7 @@ export class SettingsDesiredStateService {
         });
         if (resolved.error) {
           errors.push(
-            `agents.${folder}.capabilities.tool_ids contains unavailable tool: ${toolId}`,
+            `agents.${folder}.capabilities.tool_ids contains unavailable tool ${toolId}: ${resolved.error}`,
           );
         }
       }

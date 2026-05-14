@@ -26,6 +26,11 @@ export async function snapshotPage(
   const data = await page.evaluate(() => {
     const doc = (globalThis as any).document;
     const loc = (globalThis as any).location;
+    for (const element of Array.from(
+      doc.querySelectorAll('[data-myclaw-ref]'),
+    ) as any[]) {
+      element.removeAttribute('data-myclaw-ref');
+    }
     const candidates = Array.from(
       doc.querySelectorAll(
         'a,button,input,textarea,select,[role],[tabindex],[onclick]',

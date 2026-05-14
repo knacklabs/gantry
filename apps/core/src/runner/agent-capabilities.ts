@@ -15,7 +15,12 @@ import {
   selectedMyClawMcpToolNames,
   selectedMemoryIpcActions,
 } from './myclaw-mcp-tool-surface.js';
-import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
+import {
+  isBrowserActionMcpToolRule,
+  isCanonicalBrowserCapabilityRule,
+  isHostPrivateBrowserMcpServerName,
+  parseReadableScopedToolRule,
+} from '../shared/agent-tool-references.js';
 
 export interface AgentCapabilityContext {
   mcpServerPath: string;
@@ -59,7 +64,7 @@ export interface AgentCapabilityProfile {
   availableTools: readonly string[];
   disallowedTools: readonly string[];
   mcpServers: Record<string, McpServerConfig>;
-  permissionMode: 'default' | 'bypassPermissions';
+  permissionMode: 'default';
   alwaysAllowedTools: readonly string[];
 }
 
@@ -132,6 +137,9 @@ function sdkToolName(toolRule: string): string {
 }
 
 function configuredToolAllowedForPersona(toolRule: string): boolean {
+  if (toolRule.trim() === 'Bash') return false;
+  if (hasScopeSyntax(toolRule)) return false;
+  if (parseReadableScopedToolRule(toolRule)) return false;
   if (isMyClawMcpWildcardRule(toolRule)) return false;
   const myclawMcpToolName = myclawMcpToolNameFromFullName(toolRule);
   if (myclawMcpToolName?.startsWith('browser')) return false;
@@ -141,9 +149,15 @@ function configuredToolAllowedForPersona(toolRule: string): boolean {
 }
 
 function configuredToolAvailableSdkName(toolRule: string): string | null {
+  if (toolRule.trim() === 'Bash') return null;
+  if (hasScopeSyntax(toolRule)) return null;
   if (myclawMcpToolNameFromFullName(toolRule)) return null;
   const toolName = sdkToolName(toolRule);
   return CONFIGURABLE_NATIVE_SDK_TOOL_NAMES.has(toolName) ? toolName : null;
+}
+
+function hasScopeSyntax(toolRule: string): boolean {
+  return toolRule.includes('(') || toolRule.includes(')');
 }
 
 const sdkToolsProvider: AgentCapabilityProvider = {
@@ -237,13 +251,60 @@ function selectedAdminMcpToolNames(
   return [...names].sort();
 }
 
+function isPublicExternalMcpServerName(name: string): boolean {
+  return !isHostPrivateBrowserMcpServerName(name);
+}
+
+function isPublicExternalMcpServerConfig(
+  name: string,
+  config: McpServerConfig,
+): boolean {
+  if (!isPublicExternalMcpServerName(name)) return false;
+  return config.type !== 'http' && config.type !== 'sse';
+}
+
+const PUBLIC_EXTERNAL_MCP_TOOL_RULE_RE =
+  /^mcp__[A-Za-z0-9_-]+__(?:[A-Za-z0-9_-]+|\*)$/;
+
+export function isPublicExternalMcpToolRule(toolRule: string): boolean {
+  const value = toolRule.trim();
+  return (
+    PUBLIC_EXTERNAL_MCP_TOOL_RULE_RE.test(value) &&
+    !value.startsWith('mcp__myclaw__') &&
+    !isBrowserActionMcpToolRule(value)
+  );
+}
+
+function externalMcpToolServerName(toolRule: string): string | null {
+  const match = /^mcp__([A-Za-z0-9_-]+)__/.exec(toolRule.trim());
+  return match?.[1] ?? null;
+}
+
 const configuredMcpProvider: AgentCapabilityProvider = {
   id: 'configured-mcp',
-  provide: () => ({
-    allowedTools: [],
-    alwaysAllowedTools: [],
-    mcpServers: {},
-  }),
+  provide: (ctx) => {
+    const mcpServers = Object.fromEntries(
+      Object.entries(ctx.externalMcpServers ?? {}).filter(([name, config]) =>
+        isPublicExternalMcpServerConfig(name, config),
+      ),
+    );
+    const exposedServerNames = new Set(Object.keys(mcpServers));
+    const exposedToolRule = (toolRule: string) => {
+      const serverName = externalMcpToolServerName(toolRule);
+      return (
+        isPublicExternalMcpToolRule(toolRule) &&
+        serverName !== null &&
+        exposedServerNames.has(serverName)
+      );
+    };
+    return {
+      allowedTools: (ctx.externalMcpAllowedTools ?? []).filter(exposedToolRule),
+      alwaysAllowedTools: (ctx.externalMcpAlwaysAllowedTools ?? []).filter(
+        exposedToolRule,
+      ),
+      mcpServers,
+    };
+  },
 };
 
 const configuredToolProvider: AgentCapabilityProvider = {

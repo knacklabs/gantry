@@ -1,15 +1,16 @@
-import {
-  BROWSER_IPC_ACTIONS,
-  BrowserIpcAction,
-  MEMORY_IPC_ACTIONS,
-  MemoryIpcAction,
-} from '@myclaw/contracts';
+import { MEMORY_IPC_ACTIONS, MemoryIpcAction } from '@myclaw/contracts';
 
 import {
   PermissionApprovalRequest,
   PermissionApprovalUpdate,
+  InteractionDescriptor,
+  InteractionDetail,
   UserQuestionRequest,
 } from '../domain/types.js';
+import {
+  BROWSER_BACKEND_ACTIONS,
+  type BrowserBackendAction,
+} from '../shared/browser-backend-actions.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import {
   validateBrowserIpcAuthRequest,
@@ -22,6 +23,13 @@ const PERMISSION_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const BROWSER_IPC_REQUEST_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const USER_QUESTION_IPC_REQUEST_ID_PATTERN =
   /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
+const PUBLIC_BROWSER_GATEWAY_TOOL_NAMES = new Set([
+  'browser_status',
+  'browser_open',
+  'browser_inspect',
+  'browser_act',
+  'browser_close',
+]);
 
 export interface ParsedIpcMessage {
   type: 'message';
@@ -49,16 +57,20 @@ export interface ParsedMemoryIpcRequest {
 
 export interface ParsedBrowserIpcRequest {
   requestId: string;
-  action: BrowserIpcAction;
+  action: BrowserBackendAction;
   payload: Record<string, unknown>;
   chatJid: string;
   threadId?: string;
   responseKeyId?: string;
+  jobId?: string;
+  runId?: string;
+  publicToolName?: string;
   timeoutMs?: number;
   deadlineAtMs?: number;
 }
 
 const TOOL_INPUT_MAX_DEPTH = 2;
+const TOOL_INPUT_MAX_KEYS = 40;
 const TOOL_INPUT_MAX_STRING_LENGTH = 500;
 const SECRET_KEY_PATTERN =
   /(secret|token|password|credential|api[_-]?key|key)/i;
@@ -97,7 +109,15 @@ function sanitizeToolInputValue(value: unknown, depth: number): unknown {
   }
   if (isPlainObject(value)) {
     const out: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value)) {
+    let seen = 0;
+    for (const key in value) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+      if (seen >= TOOL_INPUT_MAX_KEYS) {
+        out.__omitted_keys = 'more';
+        break;
+      }
+      seen += 1;
+      const entry = (value as Record<string, unknown>)[key];
       if (SECRET_KEY_PATTERN.test(key)) {
         out[key] = '[REDACTED]';
         continue;
@@ -191,6 +211,84 @@ function parsePermissionApprovalUpdates(
     updates.push(update);
   }
   return updates.length ? updates : undefined;
+}
+
+function parseClosestPermissionRule(
+  raw: unknown,
+): PermissionApprovalRequest['closestRule'] | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  const rule = toTrimmedString(raw.rule, { maxLen: 500 });
+  const reason = toTrimmedString(raw.reason, { maxLen: 2000 });
+  return rule && reason ? { rule, reason } : undefined;
+}
+
+function parseInteractionDetails(
+  raw: unknown,
+): InteractionDetail[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const details: InteractionDetail[] = [];
+  for (const item of raw.slice(0, 40)) {
+    if (!isPlainObject(item)) continue;
+    const label = toTrimmedString(item.label, { maxLen: 120 });
+    const value = toTrimmedString(item.value, { maxLen: 2000 });
+    if (!label || !value) continue;
+    details.push({
+      label,
+      value,
+      ...(typeof item.mono === 'boolean' ? { mono: item.mono } : {}),
+    });
+  }
+  return details.length ? details : undefined;
+}
+
+function parseInteractionDescriptor(
+  raw: unknown,
+): InteractionDescriptor | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  const id = toTrimmedString(raw.id, { maxLen: 128 });
+  const title = toTrimmedString(raw.title, { maxLen: 200 });
+  if (!id || !title) return undefined;
+  const body = toTrimmedString(raw.body, { maxLen: 4000 });
+  const details = parseInteractionDetails(raw.details);
+  const requestContext = isPlainObject(raw.requestContext)
+    ? raw.requestContext
+    : undefined;
+  const capabilityId = toTrimmedString(requestContext?.capabilityId, {
+    maxLen: 160,
+  });
+  const capabilityDisplayName = toTrimmedString(
+    requestContext?.capabilityDisplayName,
+    { maxLen: 200 },
+  );
+  const toolName = toTrimmedString(requestContext?.toolName, { maxLen: 120 });
+  const capabilityType = toTrimmedString(requestContext?.capabilityType, {
+    maxLen: 120,
+  });
+  return {
+    id,
+    title,
+    ...(body ? { body } : {}),
+    ...(details ? { details } : {}),
+    ...(capabilityId || capabilityDisplayName || toolName || capabilityType
+      ? {
+          requestContext: {
+            ...(capabilityId ? { capabilityId } : {}),
+            ...(capabilityDisplayName ? { capabilityDisplayName } : {}),
+            ...(toolName ? { toolName } : {}),
+            ...(capabilityType ? { capabilityType } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+function normalizeBrowserBackendAction(
+  rawAction: string,
+): BrowserBackendAction | undefined {
+  if (BROWSER_BACKEND_ACTIONS.includes(rawAction as BrowserBackendAction)) {
+    return rawAction as BrowserBackendAction;
+  }
+  return undefined;
 }
 
 export function parseIpcMessage(
@@ -312,9 +410,34 @@ export function parsePermissionIpcRequest(
   const toolUseID = toTrimmedString(raw.toolUseID, { maxLen: 200 });
   const agentID = toTrimmedString(raw.agentID, { maxLen: 200 });
   const agentId = binding.agentId;
+  const context = isPlainObject(raw.context) ? raw.context : undefined;
+  const payloadJobId = toTrimmedString(raw.jobId, { maxLen: 200 });
+  const contextJobId = toTrimmedString(context?.jobId, { maxLen: 200 });
+  if (payloadJobId && contextJobId && payloadJobId !== contextJobId) {
+    throw new Error('permission IPC jobId mismatch');
+  }
+  const jobId = payloadJobId ?? contextJobId;
+  const payloadRunId = toTrimmedString(raw.runId, { maxLen: 200 });
+  const contextRunId = toTrimmedString(context?.runId, { maxLen: 200 });
+  if (payloadRunId && contextRunId && payloadRunId !== contextRunId) {
+    throw new Error('permission IPC runId mismatch');
+  }
+  const runId = payloadRunId ?? contextRunId;
+  const payloadTargetJid = toTrimmedString(raw.targetJid, { maxLen: 255 });
+  const contextTargetJid = toTrimmedString(context?.chatJid, { maxLen: 255 });
+  if (
+    payloadTargetJid &&
+    contextTargetJid &&
+    payloadTargetJid !== contextTargetJid
+  ) {
+    throw new Error('permission IPC targetJid mismatch');
+  }
+  const targetJid = payloadTargetJid ?? contextTargetJid;
   const subagentType = toTrimmedString(raw.subagentType, { maxLen: 200 });
   const toolInput = sanitizeToolInput(raw.toolInput);
   const suggestions = parsePermissionApprovalUpdates(raw.suggestions);
+  const closestRule = parseClosestPermissionRule(raw.closestRule);
+  const interaction = parseInteractionDescriptor(raw.interaction);
 
   return {
     requestId,
@@ -322,6 +445,9 @@ export function parsePermissionIpcRequest(
     ...(agentId ? { agentId } : {}),
     ...(responseNonce ? { responseNonce } : {}),
     sourceAgentFolder,
+    ...(jobId ? { jobId } : {}),
+    ...(runId ? { runId } : {}),
+    ...(targetJid ? { targetJid } : {}),
     ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),
     ...(binding.responseKeyId ? { responseKeyId: binding.responseKeyId } : {}),
     toolName,
@@ -332,9 +458,11 @@ export function parsePermissionIpcRequest(
     ...(displayName ? { displayName } : {}),
     ...(description ? { description } : {}),
     ...(decisionReason ? { decisionReason } : {}),
+    ...(closestRule ? { closestRule } : {}),
     ...(blockedPath ? { blockedPath } : {}),
     ...(toolInput ? { toolInput } : {}),
     ...(suggestions ? { suggestions } : {}),
+    ...(interaction ? { interaction } : {}),
   };
 }
 
@@ -438,15 +566,16 @@ export function parseBrowserIpcRequest(
     throw new Error('browser IPC responseKeyId is required');
   }
   const requestId = toTrimmedString(raw.requestId, { maxLen: 128 });
-  const action = toTrimmedString(raw.action, { maxLen: 64 });
-  if (!requestId || !action) {
+  const rawAction = toTrimmedString(raw.action, { maxLen: 64 });
+  if (!requestId || !rawAction) {
     throw new Error('Invalid browser IPC request envelope');
   }
   if (!BROWSER_IPC_REQUEST_ID_PATTERN.test(requestId)) {
     throw new Error('Invalid browser IPC requestId');
   }
-  if (!BROWSER_IPC_ACTIONS.includes(action as BrowserIpcAction)) {
-    throw new Error(`Unsupported browser IPC action: ${action}`);
+  const action = normalizeBrowserBackendAction(rawAction);
+  if (!action) {
+    throw new Error(`Unsupported browser IPC action: ${rawAction}`);
   }
   const payload = raw.payload === undefined ? {} : raw.payload;
   if (!isPlainObject(payload)) {
@@ -454,6 +583,17 @@ export function parseBrowserIpcRequest(
   }
   const context = isPlainObject(raw.context) ? raw.context : {};
   const rawTimeoutMs = context.timeoutMs;
+  const jobId = toTrimmedString(context.jobId, { maxLen: 128 });
+  const runId = toTrimmedString(context.runId, { maxLen: 128 });
+  const publicToolName = toTrimmedString(context.publicToolName, {
+    maxLen: 128,
+  });
+  if (
+    publicToolName &&
+    !PUBLIC_BROWSER_GATEWAY_TOOL_NAMES.has(publicToolName)
+  ) {
+    throw new Error(`Unsupported browser public tool: ${publicToolName}`);
+  }
   const timeoutMs =
     typeof rawTimeoutMs === 'number' && Number.isFinite(rawTimeoutMs)
       ? Math.max(1_000, Math.min(120_000, Math.trunc(rawTimeoutMs)))
@@ -462,11 +602,14 @@ export function parseBrowserIpcRequest(
   const deadlineAtMs = Date.parse(rawExpiresAt);
   return {
     requestId,
-    action: action as BrowserIpcAction,
+    action,
     payload,
     chatJid,
     ...(threadId ? { threadId } : {}),
     ...(responseKeyId ? { responseKeyId } : {}),
+    ...(jobId ? { jobId } : {}),
+    ...(runId ? { runId } : {}),
+    ...(publicToolName ? { publicToolName } : {}),
     ...(timeoutMs ? { timeoutMs } : {}),
     ...(Number.isFinite(deadlineAtMs) ? { deadlineAtMs } : {}),
   };

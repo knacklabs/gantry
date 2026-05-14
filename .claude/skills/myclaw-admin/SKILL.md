@@ -15,8 +15,10 @@ Runtime home defaults to `~/myclaw`; pass `--runtime-home <path>` to target a
 different runtime home.
 
 Host runtime is the only supported runtime mode. Treat `settings.yaml` as the
-source of truth for runtime behavior. Treat `.env` as the place for credentials,
-API keys, auth tokens, and process-specific launch values.
+source of truth for runtime behavior. Treat `.env` as the place for
+runtime-owned secrets and process-specific launch values; agent-accessed model
+and tool credentials must go through OneCLI or the selected credential broker,
+not raw runtime env.
 
 ## Current CLI Surface
 
@@ -170,21 +172,28 @@ Capability changes are never direct edits. Agents must not run dependency
 install commands, edit `.claude/skills`, edit `.mcp.json`, edit `settings.yaml`,
 edit Claude permission settings, or mutate generated capability config. Every
 capability change goes through request, review, approval or denial, durable
-audit, a new config version, and next-run activation.
+audit, and a new config version. Tool permission approval can also resume the
+blocked active tool call: `Allow once` is current-run only, while `Always allow`
+updates the target agent capability binding, mirrors `settings.yaml`, and
+applies to future runs too.
 
 Use these MyClaw tools for capability work:
 
-| Tool                               | Use                                                                                                                                      |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `send_message`                     | Progress updates or direct channel messages while the agent is still running.                                                            |
-| `ask_user_question`                | Structured choices only; supports content, options, single-select, multi-select, preview/details, and channel-native buttons.            |
-| `request_skill_install`            | Provider-backed skill installs such as `clawhub:<slug>@<version>`.                                                                       |
-| `request_skill_proposal`           | Agent-created or modified skill file bundles for review.                                                                                 |
-| `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies required by a skill; never run those commands directly.                                      |
-| `request_mcp_server`               | Third-party MCP server requests with transport, origin, tool patterns, credentials, and reason.                                          |
-| `request_permission`               | Provider-neutral tools and provider/channel capabilities. Prefer `Allow once` or `Always allow <granular rule>` over broad access.       |
-| `service_restart`                  | Main/admin agent only, after approved config or capability changes when host restart is needed.                                          |
-| `register_agent`                   | Main/admin agent only, for binding a new channel conversation to an agent.                                                               |
+| Tool                               | Use                                                                                                                                             |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `send_message`                     | Progress updates or direct channel messages while the agent is still running.                                                                   |
+| `ask_user_question`                | Structured choices only; supports content, options, single-select, multi-select, preview/details, and channel-native buttons.                   |
+| `request_skill_install`            | Provider-backed skill installs such as `clawhub:<slug>@<version>`.                                                                              |
+| `request_skill_proposal`           | Agent-created or modified skill file bundles for review.                                                                                        |
+| `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies required by a skill; never run those commands directly.                                             |
+| `request_mcp_server`               | Third-party MCP server requests with transport, origin, tool patterns, credentials, and reason.                                                 |
+| `capability_search`                | Find semantic app/tool capabilities such as `google.sheets.write` before asking for raw tool access.                                            |
+| `request_capability`               | Request a reviewed semantic capability for durable agent/job reuse.                                                                             |
+| `propose_local_cli_capability`     | Propose an authenticated local CLI as a reviewed semantic capability with pinned executable, command templates, preflight, and protected paths. |
+| `manage_capability`                | View, revoke, change, test, or inspect audit history for semantic capabilities.                                                                 |
+| `request_permission`               | One-off exact tool access, scoped Bash fallback, and internal/provider permission requests when no semantic capability fits.                    |
+| `service_restart`                  | Main/admin agent only, after approved config or capability changes when host restart is needed.                                                 |
+| `register_agent`                   | Main/admin agent only, for binding a new channel conversation to an agent.                                                                      |
 
 Same-channel review is a delivery and origin constraint, not a shortcut around
 authorization. The host verifies that the origin chat belongs to the requesting
@@ -197,28 +206,49 @@ Permission selection:
   answer, multi-select when multiple answers are valid, and include concise
   option descriptions so Slack, Telegram, Teams, and Web/API can render native
   controls.
-- Use `request_permission` before enabling provider-neutral tools or
-  provider/channel capabilities such as `Bash`, `Write`, `Edit`, browser action
-  tools, scheduler tools, memory tools, service tools, Slack file reads,
-  Telegram file downloads, Teams proactive messages, Teams card updates, or
-  Web/API file browser access.
-- Permission prompts offer exactly three user decisions: `Allow once`, `Always
-  allow <granular rule>`, or `Cancel`.
+- Use `request_permission` when a low-level one-off or fallback permission is
+  needed for provider-neutral tools or provider/channel capabilities such as
+  `Bash`, `Write`, `Edit`, the canonical `Browser` tool, scheduler tools,
+  memory tools, service tools, Slack file reads, Telegram file downloads, Teams
+  proactive messages, Teams card updates, or Web/API file browser access.
+- For app/tool workflows such as Google Sheets, Gmail, or business CLIs, call
+  `capability_search` first, then `request_capability` or
+  `propose_local_cli_capability` so the user approves a semantic capability
+  instead of a raw command.
+- Permission prompts offer `Allow once`, `Always allow for this agent/job` for
+  semantic capabilities, `Always allow Browser`,
+  `Always allow mcp__myclaw__<admin_tool>`,
+  `Always allow Bash(<literal command prefix pattern>)`, and `Cancel`.
 - Use the narrowest useful permission request:
   - Ask for temporary/one-time access when the action is rare, exploratory, or
     risky and does not need to persist.
-  - Ask for a persistent scoped rule when the same bounded action is likely to
-    repeat, such as `ToolName(scope-pattern)`, `Edit(/docs/**)`,
-    `WebFetch(domain:example.com)`, `mcp__server__*`, or
-    `Agent(subagent-type)`.
-  - Ask for broad whole-tool access only when the task genuinely requires many
-    unpredictable operations and no scoped rule would work. Broad `Bash`,
-    `Write`, `Edit`, network, credential, service, or MCP wildcard access must
-    explain why narrower rules are insufficient.
-  - This policy applies to every tool, not just shell commands. Scope file
-    tools by path, web tools by domain, agent tools by subagent type, MCP tools
-    by tool pattern, and service/scheduler/memory tools by the specific
-    operation when possible.
+  - Ask for durable semantic capabilities when the same app/tool operation is
+    likely to repeat. The durable readable rule is `capability:<id>`, and raw
+    request ids, command hashes, executable paths, and sandbox profiles stay in
+    Details/audit.
+  - Ask for persistent scoped Bash only when the same bounded shell command is
+    likely to repeat, using a literal command prefix such as
+    `Bash(npm test *)`. Persistent bare `Bash`, `Bash(*)`, and leading-wildcard
+    shell rules are not allowed.
+  - Non-Bash persistent fallback grants are limited to canonical `Browser` and
+    selected first-party MyClaw admin tools. Broad exact SDK/native tools such
+    as `Read`, `Write`, `Edit`, `WebFetch`, or `Agent`, exact third-party MCP
+    tools, scoped non-Bash rules such as `Edit(/docs/**)`, and durable MCP
+    wildcards are not supported.
+  - User-defined `local_cli` capabilities are reviewed drafts until runtime
+    enforcement verifies executable identity, auth preflight, protected paths,
+    and denied environment overrides on each invocation. Do not replace that
+    gate with broad `Bash(cli *)`.
+  - Browser authority is always the exact canonical `Browser` capability.
+    Runtime browser action tool names are projections, not durable grants.
+- Browser state is scoped by agent plus conversation. Jobs inherit the target
+  agent's selected tools, skills, and MCP servers at run time; jobs do not carry
+  job-scoped tool, skill, or MCP grants. If a scheduled job needs a missing tool
+  permission, the approval prompt uses the same channel/thread/topic flow as an
+  agent run and resumes the blocked tool call after approval. Skill and MCP
+  additions are requested through `request_skill_install`,
+  `request_skill_proposal`, or `request_mcp_server` and become available after
+  the next run materializes those capabilities.
 - Browser state is scoped by agent plus conversation. Use `/status` or
   `myclaw browser profiles` when a user asks which browser profile, cookies, or
   signed-in state an agent or job will use. Jobs created from a conversation use
@@ -525,17 +555,18 @@ active memory directly.
 
 Browser:
 
-- `mcp__myclaw__browser_profile_list`
-- `mcp__myclaw__browser_launch`
-- `mcp__myclaw__browser_close`
 - `mcp__myclaw__browser_status`
+- `mcp__myclaw__browser_open`
+- `mcp__myclaw__browser_inspect`
+- `mcp__myclaw__browser_act`
+- `mcp__myclaw__browser_close`
 
 MyClaw owns browser lifecycle for the current agent conversation's Chrome
 profile. DM sessions, channel/group conversations, and jobs created from them
-use separate profiles by default. The runtime installs `agent-browser` into the
-generated per-run Claude config and registers `mcp__agent_browser__*` action
-tools for navigation, click, type, wait, snapshot, and screenshot workflows. Do
-not ask the user to install browser skills or edit `.claude/skills` manually.
+use separate profiles by default. The runtime installs `myclaw-browser` into the
+generated per-run Claude config and exposes MyClaw-owned browser gateway tools
+only when the canonical `Browser` capability is selected. Do not ask the user to
+install browser skills or edit `.claude/skills` manually.
 
 ## Scheduler Usage
 
@@ -567,8 +598,7 @@ mcp__myclaw__scheduler_upsert_job(
   timeout_ms?: number,
   max_retries?: number,
   retry_backoff_ms?: number,
-  max_consecutive_failures?: number,
-  execution_mode?: "parallel" | "serialized"
+  max_consecutive_failures?: number
 )
 ```
 
@@ -591,8 +621,7 @@ mcp__myclaw__scheduler_update_job(
   timeout_ms?: number,
   max_retries?: number,
   retry_backoff_ms?: number,
-  max_consecutive_failures?: number,
-  execution_mode?: "parallel" | "serialized"
+  max_consecutive_failures?: number
 )
 ```
 

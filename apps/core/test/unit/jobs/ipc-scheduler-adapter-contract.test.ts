@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 
 import { ApplicationError } from '@core/application/common/application-error.js';
 import type { TaskContext, TaskIpcData } from '@core/jobs/ipc-types.js';
+import { schedulerJobConfirmationToken } from '@core/shared/scheduler-job-plan.js';
 
 const mocks = vi.hoisted(() => ({
   responder: {
@@ -208,6 +209,13 @@ describe('scheduler IPC adapter contracts', () => {
         prompt: 'Review memory',
         scheduleType: 'once',
         scheduleValue: '2026-05-04T00:00:00.000Z',
+        confirm: true,
+        confirmationToken: schedulerJobConfirmationToken({
+          name: 'Daily review',
+          prompt: 'Review memory',
+          scheduleType: 'once',
+          scheduleValue: '2026-05-04T00:00:00.000Z',
+        }),
       }),
     );
 
@@ -218,13 +226,7 @@ describe('scheduler IPC adapter contracts', () => {
     expect(message).toContain('team conversation browser');
   });
 
-  it('passes scheduler upsert allowedTools through to the job service', async () => {
-    mocks.jobService.upsertJobFromIpc.mockResolvedValueOnce({
-      jobId: 'job-1',
-      created: true,
-      modelAlias: null,
-    });
-
+  it('returns a scheduler upsert plan without creating when confirmation is omitted', async () => {
     await schedulerCreateTaskHandlers.scheduler_upsert_job(
       makeContext({
         type: 'scheduler_upsert_job',
@@ -232,18 +234,17 @@ describe('scheduler IPC adapter contracts', () => {
         prompt: 'Review memory',
         scheduleType: 'once',
         scheduleValue: '2026-05-04T00:00:00.000Z',
-        allowedTools: ['Read'],
       }),
     );
 
-    expect(mocks.jobService.upsertJobFromIpc).toHaveBeenCalledWith(
+    expect(mocks.jobService.upsertJobFromIpc).not.toHaveBeenCalled();
+    expect(mocks.responder.acceptData).toHaveBeenCalledWith(
+      expect.stringContaining('Scheduler job plan'),
       expect.objectContaining({
-        allowedTools: ['Read'],
-        access: expect.objectContaining({
-          sourceAgentFolder: 'team',
-          originConversationJid: 'tg:team',
-        }),
+        type: 'scheduler_job_plan',
+        confirmationToken: expect.any(String),
       }),
+      'confirmation_required',
     );
   });
 
@@ -261,6 +262,7 @@ describe('scheduler IPC adapter contracts', () => {
         prompt: 'Review memory',
         scheduleType: 'once',
         scheduleValue: '2026-05-04T00:00:00.000Z',
+        confirm: true,
         executionContext: {
           conversationJid: 'tg:team',
           threadId: null,
@@ -273,6 +275,26 @@ describe('scheduler IPC adapter contracts', () => {
             label: 'primary',
           },
         ],
+        requiredTools: ['Browser'],
+        confirmationToken: schedulerJobConfirmationToken({
+          name: 'Daily review',
+          prompt: 'Review memory',
+          scheduleType: 'once',
+          scheduleValue: '2026-05-04T00:00:00.000Z',
+          executionContext: {
+            conversationJid: 'tg:team',
+            threadId: null,
+            groupScope: 'team',
+          },
+          notificationRoutes: [
+            {
+              conversationJid: 'tg:team',
+              threadId: null,
+              label: 'primary',
+            },
+          ],
+          requiredTools: ['Browser'],
+        }),
       }),
     );
 
@@ -290,6 +312,7 @@ describe('scheduler IPC adapter contracts', () => {
             label: 'primary',
           },
         ],
+        requiredTools: ['Browser'],
       }),
     );
   });
@@ -318,6 +341,13 @@ describe('scheduler IPC adapter contracts', () => {
       prompt: 'Review memory',
       scheduleType: 'once',
       scheduleValue: '2026-05-04T00:00:00.000Z',
+      confirm: true,
+      confirmationToken: schedulerJobConfirmationToken({
+        name: 'Daily review',
+        prompt: 'Review memory',
+        scheduleType: 'once',
+        scheduleValue: '2026-05-04T00:00:00.000Z',
+      }),
       chatJid: 'app:app-one:conv-1',
       targetJid: 'app:app-one:conv-1',
     });
@@ -357,71 +387,6 @@ describe('scheduler IPC adapter contracts', () => {
     );
   });
 
-  it('routes scheduler create job tool approvals to the originating conversation', async () => {
-    mocks.jobService.upsertJobFromIpc.mockResolvedValueOnce({
-      jobId: 'job-1',
-      created: true,
-      modelAlias: null,
-    });
-    const context = makeContext({
-      type: 'scheduler_upsert_job',
-      name: 'Daily review',
-      prompt: 'Review memory',
-      scheduleType: 'once',
-      scheduleValue: '2026-05-04T00:00:00.000Z',
-      allowedTools: ['Read'],
-      chatJid: 'tg:team-b',
-      targetJid: 'tg:team-b',
-    });
-    context.sourceAgentFolderJids = ['tg:team-a', 'tg:team-b'];
-
-    await schedulerCreateTaskHandlers.scheduler_upsert_job(context);
-
-    const deps = mocks.jobServiceDeps.at(-1) as {
-      approveJobExtraTools: (request: unknown) => Promise<{
-        approved: boolean;
-        reason?: string;
-      }>;
-    };
-    await deps.approveJobExtraTools({
-      operation: 'create',
-      jobName: 'Daily review',
-      target: { agentId: 'team' },
-      inheritedTools: [],
-      existingJobExtraTools: [],
-      requestedJobExtraTools: ['Read'],
-      extrasBeyondInherited: ['Read'],
-    });
-
-    expect(context.deps.requestPermissionApproval).toHaveBeenCalledWith(
-      expect.objectContaining({
-        targetJid: 'tg:team-b',
-      }),
-    );
-  });
-
-  it('fails closed for scheduler create without an originating conversation', async () => {
-    const context = makeContext({
-      type: 'scheduler_upsert_job',
-      name: 'Daily review',
-      prompt: 'Review memory',
-      scheduleType: 'once',
-      scheduleValue: '2026-05-04T00:00:00.000Z',
-      allowedTools: ['Read'],
-      chatJid: undefined,
-    });
-    context.sourceAgentFolderJids = ['tg:team-a', 'tg:team-b'];
-
-    await schedulerCreateTaskHandlers.scheduler_upsert_job(context);
-
-    expect(mocks.responder.reject).toHaveBeenCalledWith(
-      'Scheduler job operations require an originating conversation.',
-      'forbidden',
-    );
-    expect(mocks.jobService.upsertJobFromIpc).not.toHaveBeenCalled();
-    expect(context.deps.requestPermissionApproval).not.toHaveBeenCalled();
-  });
-
   it('resolves scheduler update models through catalog aliases', async () => {
     await schedulerMutateTaskHandlers.scheduler_update_job(
       makeContext({
@@ -441,6 +406,22 @@ describe('scheduler IPC adapter contracts', () => {
     );
   });
 
+  it('passes scheduler update requiredTools through to the job service', async () => {
+    await schedulerMutateTaskHandlers.scheduler_update_job(
+      makeContext({
+        type: 'scheduler_update_job',
+        jobId: 'job-1',
+        requiredTools: ['Browser'],
+      }),
+    );
+
+    expect(mocks.jobService.updateJob).toHaveBeenCalledWith({
+      jobId: 'job-1',
+      access: expect.any(Object),
+      patch: { requiredTools: ['Browser'] },
+    });
+  });
+
   it('clears scheduler update models with null alias', async () => {
     await schedulerMutateTaskHandlers.scheduler_update_job(
       makeContext({
@@ -457,150 +438,6 @@ describe('scheduler IPC adapter contracts', () => {
     });
     expect(mocks.responder.accept).toHaveBeenCalledWith(
       'Scheduler job updated (job-1).',
-    );
-  });
-
-  it('passes scheduler update allowedTools replacements and clears through to the job service', async () => {
-    await schedulerMutateTaskHandlers.scheduler_update_job(
-      makeContext({
-        type: 'scheduler_update_job',
-        jobId: 'job-1',
-        allowedTools: [],
-      }),
-    );
-
-    expect(mocks.jobService.updateJob).toHaveBeenCalledWith({
-      jobId: 'job-1',
-      access: expect.any(Object),
-      patch: { allowedTools: [] },
-    });
-
-    vi.clearAllMocks();
-    await schedulerMutateTaskHandlers.scheduler_update_job(
-      makeContext({
-        type: 'scheduler_update_job',
-        jobId: 'job-1',
-        allowedTools: ['Read'],
-      }),
-    );
-
-    expect(mocks.jobService.updateJob).toHaveBeenCalledWith({
-      jobId: 'job-1',
-      access: expect.any(Object),
-      patch: { allowedTools: ['Read'] },
-    });
-  });
-
-  it('routes scheduler update job tool approvals to the originating conversation', async () => {
-    const context = makeContext({
-      type: 'scheduler_update_job',
-      jobId: 'job-1',
-      allowedTools: ['Read'],
-      chatJid: 'tg:team-b',
-      targetJid: 'tg:team-b',
-    });
-    context.sourceAgentFolderJids = ['tg:team-a', 'tg:team-b'];
-
-    await schedulerMutateTaskHandlers.scheduler_update_job(context);
-
-    const deps = mocks.jobServiceDeps.at(-1) as {
-      approveJobExtraTools: (request: unknown) => Promise<{
-        approved: boolean;
-        reason?: string;
-      }>;
-    };
-    await deps.approveJobExtraTools({
-      operation: 'update',
-      jobId: 'job-1',
-      jobName: 'Daily review',
-      target: { agentId: 'team' },
-      inheritedTools: [],
-      existingJobExtraTools: [],
-      requestedJobExtraTools: ['Read'],
-      extrasBeyondInherited: ['Read'],
-    });
-
-    expect(context.deps.requestPermissionApproval).toHaveBeenCalledWith(
-      expect.objectContaining({
-        targetJid: 'tg:team-b',
-      }),
-    );
-  });
-
-  it('fails closed for scheduler update job tool approval target overrides', async () => {
-    const context = makeContext({
-      type: 'scheduler_update_job',
-      jobId: 'job-1',
-      allowedTools: ['Read'],
-      chatJid: 'tg:team-b',
-      targetJid: 'tg:team-a',
-    });
-    context.sourceAgentFolderJids = ['tg:team-a', 'tg:team-b'];
-
-    await schedulerMutateTaskHandlers.scheduler_update_job(context);
-
-    const deps = mocks.jobServiceDeps.at(-1) as {
-      approveJobExtraTools: (request: unknown) => Promise<{
-        approved: boolean;
-        reason?: string;
-      }>;
-    };
-    const decision = await deps.approveJobExtraTools({
-      operation: 'update',
-      jobId: 'job-1',
-      jobName: 'Daily review',
-      target: { agentId: 'team' },
-      inheritedTools: [],
-      existingJobExtraTools: [],
-      requestedJobExtraTools: ['Read'],
-      extrasBeyondInherited: ['Read'],
-    });
-
-    expect(decision).toEqual({
-      approved: false,
-      reason:
-        'scheduler job tool approval must use the originating chat as the approval target',
-    });
-    expect(context.deps.requestPermissionApproval).not.toHaveBeenCalled();
-  });
-
-  it('uses explicit job-scoped approval options for durable extra tool storage', async () => {
-    const context = makeContext({
-      type: 'scheduler_upsert_job',
-      name: 'Daily review',
-      prompt: 'Review memory',
-      scheduleType: 'interval',
-      scheduleValue: '60000',
-      allowedTools: ['Read'],
-    });
-
-    await schedulerCreateTaskHandlers.scheduler_upsert_job(context);
-    const deps = mocks.jobServiceDeps.at(-1) as {
-      approveJobExtraTools: (request: unknown) => Promise<{
-        approved: boolean;
-        reason?: string;
-      }>;
-    };
-    await deps.approveJobExtraTools({
-      operation: 'create',
-      jobId: 'job-1',
-      jobName: 'Daily review',
-      target: { agentId: 'team' },
-      inheritedTools: [],
-      existingJobExtraTools: [],
-      requestedJobExtraTools: ['Read'],
-      extrasBeyondInherited: ['Read'],
-    });
-
-    expect(context.deps.requestPermissionApproval).toHaveBeenCalledWith(
-      expect.objectContaining({
-        decisionOptions: ['allow_job_policy', 'cancel'],
-        description:
-          'stored on this job only; inherited agent grants are shown separately.',
-        toolInput: expect.objectContaining({
-          persistence: 'target_json.capabilityPolicy.allowedTools',
-        }),
-      }),
     );
   });
 

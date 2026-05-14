@@ -1,9 +1,9 @@
-import type { BrowserIpcAction } from '@myclaw/contracts';
+import type { BrowserBackendAction } from '../../shared/browser-backend-actions.js';
 
 import { normalizeBrowserFilePayload } from './browser-artifact-policy.js';
 
 export function normalizeBrowserDirectPayload(
-  toolName: BrowserIpcAction,
+  toolName: BrowserBackendAction,
   payload: Record<string, unknown>,
   options: { fileAccessRoot: string },
 ): Record<string, unknown> {
@@ -12,7 +12,7 @@ export function normalizeBrowserDirectPayload(
     payload,
     options,
   );
-  if (toolName !== 'browser_fill_form') return fileNormalized;
+  if (toolName !== 'fill_form') return fileNormalized;
   const fields = fileNormalized.fields;
   if (!Array.isArray(fields)) return fileNormalized;
   return {
@@ -42,11 +42,11 @@ export function formFields(value: unknown): Array<{
   value: string;
 }> {
   if (!Array.isArray(value)) {
-    throw new Error('browser_fill_form fields must be an array.');
+    throw new Error('fill_form fields must be an array.');
   }
   return value.map((item) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new Error('browser_fill_form field entries must be objects.');
+      throw new Error('fill_form field entries must be objects.');
     }
     const row = item as Record<string, unknown>;
     return {

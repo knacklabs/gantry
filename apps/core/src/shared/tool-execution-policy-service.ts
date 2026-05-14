@@ -1,6 +1,12 @@
 import { evaluateAutonomousToolUse } from './tool-rule-matcher.js';
 import {
-  canRepresentBashGrantCommand,
+  nonDurableBashLeafReason,
+  normalizeBashLeafRuleContent,
+  parseBashCommand,
+} from './bash-command-parser.js';
+import { isAdminMcpToolFullName } from './admin-mcp-tools.js';
+import { isKnownProjectedBrowserMcpToolName } from './agent-tool-references.js';
+import {
   commandText,
   hasBashMutationVerb,
   hasBashRedirect,
@@ -86,6 +92,10 @@ export interface ToolPolicyDecision {
   };
   recoveryAction?: string;
   matchedRule?: string;
+  closestRule?: {
+    rule: string;
+    reason: string;
+  };
 }
 
 const CAPABILITY_REQUEST_TOOLS = new Set([
@@ -150,8 +160,9 @@ export class ToolExecutionPolicyService {
         });
       }
       return decision(input.request, 'deny', {
-        reason: `Tool not on autonomous job allowlist: ${input.request.toolName}.`,
+        reason: autonomousDenyReason(input.request.toolName, toolPolicy.reason),
         recoveryAction: schedulerGrantRecovery(input.request),
+        closestRule: toolPolicy.closestRule,
       });
     }
 
@@ -167,6 +178,10 @@ export class ToolExecutionPolicyService {
           matchedRule: toolPolicy.matchedRule,
         });
       }
+      return decision(input.request, 'not_applicable', {
+        reason: selectedCapabilityMissReason(toolPolicy.reason),
+        closestRule: toolPolicy.closestRule,
+      });
     }
 
     return decision(input.request, 'not_applicable', {
@@ -235,7 +250,6 @@ function evaluateProtectedCapabilityRequest(
     const safeTextPayloadCommand =
       isSafeProtectedPathTextPayloadCommand(command);
     const protectedPathMention = allProtectedPathMentions(command)[0];
-    const target = inferBashTarget(command);
     if (!safeTextPayloadCommand && protectedPathMention) {
       return decision(request, 'deny', {
         reason: `Shell command references protected capability target "${protectedPathMention}".`,
@@ -293,6 +307,7 @@ function decision(
     reason: string;
     recoveryAction?: string;
     matchedRule?: string;
+    closestRule?: ToolPolicyDecision['closestRule'];
   },
 ): ToolPolicyDecision {
   return {
@@ -314,7 +329,24 @@ function decision(
       ? { recoveryAction: options.recoveryAction }
       : {}),
     ...(options.matchedRule ? { matchedRule: options.matchedRule } : {}),
+    ...(options.closestRule ? { closestRule: options.closestRule } : {}),
   };
+}
+
+function autonomousDenyReason(
+  toolName: string,
+  mismatchReason: string | undefined,
+): string {
+  const prefix = `Tool not on autonomous job allowlist: ${toolName}.`;
+  return mismatchReason ? `${prefix} ${mismatchReason}` : prefix;
+}
+
+function selectedCapabilityMissReason(
+  mismatchReason: string | undefined,
+): string {
+  return mismatchReason
+    ? `No canonical tool execution policy matched. ${mismatchReason}`
+    : 'No canonical tool execution policy matched.';
 }
 
 function classifyToolKind(toolName: string): ToolExecutionKind {
@@ -385,37 +417,43 @@ function protectedCapabilityRecovery(): string {
 }
 
 function schedulerGrantRecovery(request: ToolExecutionRequest): string {
-  const jobId = request.runContext.jobId ?? '<job_id>';
-  let rule: string | undefined;
-  let manualReviewNote: string | undefined;
+  if (isKnownProjectedBrowserMcpToolName(request.toolName)) {
+    return 'request_permission { "permissionKind": "tool", "toolName": "Browser", "toolCategory": "browser", "temporaryOnly": false, "reason": "This scheduled job needs browser access." }';
+  }
   if (request.toolName === 'Bash') {
     const command = commandText(request.input);
-    if (command && canRepresentBashGrantCommand(command)) {
-      rule = `Bash(${command})`;
-    } else if (
-      request.targetResource &&
-      canRepresentGrantTarget(request.targetResource)
-    ) {
-      rule = `Bash(*${request.targetResource}*)`;
-    } else {
-      rule = 'Bash';
-      manualReviewNote =
-        ' Manual review required: command could not be safely represented as Bash(...).';
-    }
-  } else {
-    if (
-      request.targetResource &&
-      canRepresentGrantTarget(request.targetResource)
-    ) {
-      rule = `${request.toolName}(${request.targetResource})`;
-    } else {
-      rule = request.toolName;
-    }
+    const rule = command ? persistentBashRecoveryRule(command) : undefined;
+    return `request_permission { "permissionKind": "tool", "toolName": "Bash"${rule ? `, "rule": "${escapeJson(rule)}"` : ''}, "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }`;
   }
-  const escapedRule = rule.replaceAll('"', '\\"');
-  return `scheduler_grant_tool { "job_id": "${jobId}", "rule": "${escapedRule}" }${manualReviewNote ?? ''}`;
+  if (isAdminMcpToolFullName(request.toolName)) {
+    return `request_permission { "permissionKind": "tool", "toolName": "${request.toolName}", "temporaryOnly": false, "reason": "This scheduled job needs ${request.toolName} access." }`;
+  }
+  const thirdPartyMcp = thirdPartyMcpToolServerName(request.toolName);
+  if (thirdPartyMcp) {
+    return `request_mcp_server { "name": "${escapeJson(thirdPartyMcp)}", "transport": "http", "reason": "This scheduled job needs the ${escapeJson(thirdPartyMcp)} MCP server capability." }`;
+  }
+  const toolName = isKnownProjectedBrowserMcpToolName(request.toolName)
+    ? 'Browser'
+    : request.toolName;
+  return `request_permission { "permissionKind": "tool", "toolName": "${escapeJson(toolName)}", "temporaryOnly": false, "reason": "This scheduled job needs ${escapeJson(toolName)} access." }`;
 }
 
-function canRepresentGrantTarget(target: string): boolean {
-  return !!target.trim() && !/[()\r\n]/.test(target);
+function thirdPartyMcpToolServerName(toolName: string): string | undefined {
+  const match = /^mcp__([^_][A-Za-z0-9_.-]*)__/.exec(toolName);
+  const serverName = match?.[1];
+  if (!serverName || serverName === 'myclaw') return undefined;
+  return serverName;
+}
+
+function escapeJson(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+}
+
+function persistentBashRecoveryRule(command: string): string | undefined {
+  const parsed = parseBashCommand(command);
+  if (!parsed.ok || parsed.leaves.length !== 1) return undefined;
+  const [leaf] = parsed.leaves;
+  if (!leaf || nonDurableBashLeafReason(leaf)) return undefined;
+  if (leaf.redirects.some((redirect) => redirect.destructive)) return undefined;
+  return normalizeBashLeafRuleContent(leaf);
 }

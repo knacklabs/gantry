@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { applyAgentEgressNoProxyEnv } from '../../shared/no-proxy.js';
+import { applyNeutralCaTrustAliases } from '../../shared/neutral-ca-trust-env.js';
 import { getPermissionTimeoutMs } from '../../shared/permission-timeout.js';
 import { log } from './logging.js';
 
@@ -24,11 +25,15 @@ export const IPC_INTERACTION_BOUNDARY_DIR = path.join(
 export const IPC_AUTH_TOKEN = process.env.MYCLAW_IPC_AUTH_TOKEN || '';
 export const APP_ID = process.env.MYCLAW_APP_ID?.trim() || '';
 export const AGENT_ID = process.env.MYCLAW_AGENT_ID?.trim() || '';
+export const CHAT_JID = process.env.MYCLAW_CHAT_JID?.trim() || '';
+export const JOB_ID = process.env.MYCLAW_JOB_ID?.trim() || '';
+export const JOB_RUN_ID = process.env.MYCLAW_JOB_RUN_ID?.trim() || '';
 export const IPC_RESPONSE_VERIFY_KEY =
   process.env.MYCLAW_IPC_RESPONSE_VERIFY_KEY || '';
 export const IPC_RESPONSE_KEY_ID = process.env.MYCLAW_IPC_RESPONSE_KEY_ID || '';
-export const PERMISSION_REQUEST_TIMEOUT_MS =
-  getPermissionTimeoutMs('interactive');
+export const PERMISSION_REQUEST_TIMEOUT_MS = getPermissionTimeoutMs(
+  JOB_ID ? 'autonomous' : 'interactive',
+);
 export const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 export const IPC_POLL_MS = 500;
 
@@ -122,6 +127,7 @@ export function buildSdkEnv(
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1',
   };
   Object.assign(sdkEnv, readModelCredentialEnv(modelCredentialEnv));
+  applyNeutralCaTrustAliases(sdkEnv);
   copyPlaceholderEnv(sdkEnv, ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']);
   copyEnv(sdkEnv, ['NO_PROXY', 'no_proxy']);
   stripNonModelProxyEnv(sdkEnv);

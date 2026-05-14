@@ -27,7 +27,6 @@ function makeJobService(context: TaskContext): JobManagementService {
     control: context.deps.getJobControl?.(),
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
-    toolRepository: context.deps.getToolRepository?.(),
   });
 }
 
@@ -153,6 +152,7 @@ const schedulerListJobsHandler: TaskHandler = async (context) => {
     });
     const metadata = await buildJobListVisibilityMetadata({
       jobs: result.jobs,
+      ops: context.deps.opsRepository,
       appId: metadataAppId,
       toolRepository: context.deps.getToolRepository?.(),
     });
@@ -184,6 +184,10 @@ function publicJobVisibility(metadata: JobVisibilityMetadata) {
     promptPreview: metadata.promptPreview,
     fullPrompt: metadata.fullPrompt,
     toolAccess: metadata.toolAccess,
+    requiredTools: metadata.requiredTools,
+    requiredMcpServers: metadata.requiredMcpServers,
+    setup: metadata.setup,
+    health: metadata.health,
     recentRunErrors: metadata.recentRunErrors,
     staleness: metadata.staleness,
   };

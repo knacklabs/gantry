@@ -468,6 +468,31 @@ describe('GroupQueue', () => {
     await vi.advanceTimersByTimeAsync(10);
   });
 
+  it('notifies the active run when a continuation message is piped', async () => {
+    let resolveProcess: () => void;
+    const continuationHandler = vi.fn();
+
+    const processMessages = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        resolveProcess = resolve;
+      });
+      return true;
+    });
+
+    queue.setProcessMessagesFn(processMessages);
+    queue.enqueueMessageCheck('group1@g.us');
+    await vi.advanceTimersByTimeAsync(10);
+    queue.registerProcess('group1@g.us', {} as any, 'run-1', 'test-group');
+    queue.registerContinuationHandler('group1@g.us', continuationHandler);
+    queue.notifyIdle('group1@g.us');
+
+    expect(queue.sendMessage('group1@g.us', 'hello')).toBe(true);
+    expect(continuationHandler).toHaveBeenCalledTimes(1);
+
+    resolveProcess!();
+    await vi.advanceTimersByTimeAsync(10);
+  });
+
   it('task enqueue after queued idle messages preempts with a single close write', async () => {
     const fs = await import('fs');
     let resolveProcess: () => void;

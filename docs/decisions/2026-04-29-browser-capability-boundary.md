@@ -9,9 +9,9 @@ on the child runner's provider credential environment. In particular, provider
 proxy variables affected Node loopback HTTP calls when `NODE_USE_ENV_PROXY`
 was enabled.
 
-OpenClaw's browser implementation keeps lifecycle/status ownership in a browser
-module and layers action routes on top. MyClaw should adopt that responsibility
-boundary without importing OpenClaw's browser action stack.
+The reference browser implementation keeps lifecycle/status ownership in a
+browser module and layers action routes on top. MyClaw should adopt that
+responsibility boundary without importing a separate browser action stack.
 
 ## Decision
 
@@ -27,25 +27,19 @@ When canonical `Browser` is selected, MyClaw MCP exposes projected
 MyClaw-owned browser tools:
 
 - `browser_status`
-- `browser_launch`
-- `browser_navigate`
-- `browser_tabs`
-- `browser_snapshot`
-- `browser_click`
-- `browser_type`
-- `browser_wait_for`
-- `browser_take_screenshot`
+- `browser_open`
+- `browser_inspect`
+- `browser_act`
 - `browser_close`
 
 The runner-side MCP tool implementation is a signed IPC client. It does not
 open direct CDP HTTP connections and does not decide browser health.
 
-Browser actions such as click, type, navigate, snapshot, screenshot, and DOM
-interaction are concrete runtime projections of the one durable `Browser`
-capability. The host may use a package-managed browser backend internally, but
-raw Playwright, Puppeteer, `agent_browser`, and concrete browser subtool names
+Browser open, inspect, and act operations are concrete runtime projections of
+the one durable `Browser` capability. The host may use a package-managed browser
+backend internally, but private backend names and concrete browser subtool names
 are not persisted as durable authority. Durable settings and database bindings
-store only `Browser`; per-action tool names are audited runtime facts.
+store only `Browser`; gateway tool names are audited runtime facts.
 
 The default local user experience is visible Chrome with the persistent
 `myclaw` profile. Agent-facing browser tools do not expose a headless launch

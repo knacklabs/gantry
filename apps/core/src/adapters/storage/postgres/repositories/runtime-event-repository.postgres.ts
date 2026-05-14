@@ -3,10 +3,15 @@ import { randomUUID } from 'node:crypto';
 import { and, asc, eq, gt, inArray, type SQL } from 'drizzle-orm';
 
 import type {
+  EventBusPublisherPort,
+  EventBusPublishInput,
+} from '../../../../domain/events/event-bus.js';
+import type {
   RuntimeEvent,
   RuntimeEventFilter,
   RuntimeEventPublishInput,
 } from '../../../../domain/events/events.js';
+import { requireRuntimeEventType } from '../../../../domain/events/runtime-event-types.js';
 import type { RuntimeEventRepository } from '../../../../domain/ports/repositories.js';
 import { logger } from '../../../../infrastructure/logging/logger.js';
 import * as pgSchema from '../schema/schema.js';
@@ -15,6 +20,7 @@ import type {
   CanonicalExecutor,
 } from './canonical-graph-repository.postgres.js';
 import { nowIso } from '../../../../shared/time/datetime.js';
+import { PostgresEventBusPublisher } from './event-bus-outbox.postgres.js';
 
 type RuntimeEventRow = typeof pgSchema.runtimeEventsPostgres.$inferSelect;
 
@@ -50,6 +56,14 @@ function currentIso(): string {
   return nowIso();
 }
 
+function normalizeTimestamp(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  const raw = String(value);
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  return raw;
+}
+
 function requiredId(value: unknown, name: string): string {
   const id = typeof value === 'string' ? value.trim() : '';
   if (!id) throw new Error(`Runtime event ${name} is required.`);
@@ -61,14 +75,23 @@ function optionalId(value: unknown): string | null {
   return id || null;
 }
 
+const RUNTIME_EVENT_BUS_SOURCE = 'myclaw.runtime_events';
+const RUNTIME_EVENT_BUS_VERSION = 1;
+
 export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
-  constructor(private readonly db: CanonicalDb) {}
+  constructor(
+    private readonly db: CanonicalDb,
+    private readonly eventBus: EventBusPublisherPort<CanonicalExecutor> = new PostgresEventBusPublisher(
+      db,
+    ),
+  ) {}
 
   async appendRuntimeEvent(
     input: RuntimeEventPublishInput,
   ): Promise<RuntimeEvent> {
     return this.db.transaction(async (tx) => {
       const event = await this.insertRuntimeEvent(tx, input);
+      await this.eventBus.publish(eventBusInputForRuntimeEvent(event), tx);
       await this.enqueueWebhookDeliveryIfNeeded(tx, event);
       return event;
     });
@@ -89,7 +112,7 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
         triggerId: optionalId(input.triggerId),
         conversationId: optionalId(input.conversationId),
         threadId: optionalId(input.threadId),
-        eventType: input.eventType,
+        eventType: requireRuntimeEventType(input.eventType),
         actor: input.actor,
         correlationId: input.correlationId ?? null,
         responseMode: input.responseMode ?? null,
@@ -199,11 +222,6 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
   }
 
   private eventFromRow(row: RuntimeEventRow): RuntimeEvent {
-    const rawCreatedAt = row.createdAt as unknown;
-    const createdAt =
-      rawCreatedAt instanceof Date
-        ? rawCreatedAt.toISOString()
-        : String(rawCreatedAt);
     return {
       eventId: row.eventId as RuntimeEvent['eventId'],
       appId: row.appId as RuntimeEvent['appId'],
@@ -222,13 +240,30 @@ export class PostgresRuntimeEventRepository implements RuntimeEventRepository {
       threadId: row.threadId
         ? (row.threadId as RuntimeEvent['threadId'])
         : undefined,
-      eventType: row.eventType as RuntimeEvent['eventType'],
+      eventType: requireRuntimeEventType(row.eventType),
       actor: row.actor,
       correlationId: row.correlationId ?? undefined,
       responseMode: row.responseMode as RuntimeEvent['responseMode'],
       webhookId: row.webhookId ?? undefined,
       payload: parseJson(row.payloadJson, null, { eventId: row.eventId }),
-      createdAt,
+      createdAt: normalizeTimestamp(row.createdAt),
     };
   }
+}
+
+function eventBusInputForRuntimeEvent(
+  event: RuntimeEvent,
+): EventBusPublishInput {
+  return {
+    type: event.eventType,
+    version: RUNTIME_EVENT_BUS_VERSION,
+    source: RUNTIME_EVENT_BUS_SOURCE,
+    appId: event.appId,
+    runtimeEventId: event.eventId,
+    correlationId: event.correlationId ?? null,
+    occurredAt: event.createdAt,
+    payload: {
+      runtimeEvent: event,
+    },
+  };
 }

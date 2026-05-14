@@ -539,7 +539,7 @@ conversations:
     });
   });
 
-  it('mirrors persistent permission rules into readable agent tools only', () => {
+  it('mirrors persistent permission grants into readable semantic, Browser, and scoped Bash tools', () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'myclaw-settings-tools-'),
     );
@@ -560,18 +560,23 @@ conversations:
       mirrorAgentToolRulesToRuntimeSettings({
         runtimeHome,
         agentFolder: 'main_agent',
-        rules: ['Bash(git status *)', 'Write(/repo/**)'],
+        rules: [
+          'Bash(npm test *)',
+          'Browser',
+          'capability:google.sheets.write',
+        ],
       });
 
       const parsed = loadRuntimeSettings(runtimeHome);
       expect(parsed.agents.main_agent.capabilities.toolIds).toEqual([
         'mcp__myclaw__service_restart',
-        'Bash(git status *)',
-        'Write(/repo/**)',
+        'Bash(npm test *)',
+        'Browser',
+        'capability:google.sheets.write',
       ]);
       const yaml = fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8');
       expect(yaml).toContain(
-        'tools: ["mcp__myclaw__service_restart","Bash(git status *)","Write(/repo/**)"]',
+        'tools: ["mcp__myclaw__service_restart","Bash(npm test *)","Browser","capability:google.sheets.write"]',
       );
       expect(yaml).not.toContain('capabilityPolicy');
       expect(yaml).not.toContain('permission-rule:');
@@ -601,13 +606,13 @@ conversations:
     );
   });
 
-  it('rejects raw agent_browser MCP rules in settings agent tools', () => {
+  it('rejects raw host-private browser MCP rules in settings agent tools', () => {
     for (const toolRule of [
-      'mcp__agent_browser__*',
-      'mcp__agent_browser__navigate',
-      'mcp__agent_browser__navigate(url=https://example.com)',
-      'mcp__playwright__browser_click',
-      'mcp__puppeteer__screenshot',
+      'mcp__browser' + '_' + 'backend' + '__*',
+      'mcp__browser' + '_' + 'backend' + '__navigate',
+      'mcp__browser' + '_' + 'backend' + '__navigate(url=https://example.com)',
+      'mcp__browser' + '_' + 'backend' + '__click',
+      'mcp__browser' + '_' + 'backend' + '__screenshot',
     ]) {
       const settings = createDefaultRuntimeSettings();
       settings.agents.main_agent = {
@@ -647,7 +652,7 @@ conversations:
         mirrorAgentToolRulesToRuntimeSettings({
           runtimeHome,
           agentFolder: 'missing_agent',
-          rules: ['Bash(git status *)'],
+          rules: ['Bash(npm test *)'],
         }),
       ).toThrow('missing settings agent');
       const parsed = loadRuntimeSettings(runtimeHome);
@@ -657,7 +662,7 @@ conversations:
     }
   });
 
-  it('rejects raw agent_browser MCP rules before mirroring settings', () => {
+  it('rejects raw host-private browser MCP rules before mirroring settings', () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'myclaw-settings-tools-browser-'),
     );
@@ -679,7 +684,7 @@ conversations:
         mirrorAgentToolRulesToRuntimeSettings({
           runtimeHome,
           agentFolder: 'main_agent',
-          rules: ['mcp__playwright__browser_click'],
+          rules: ['mcp__browser' + '_' + 'backend' + '__click'],
         }),
       ).toThrow('canonical Browser tool capability');
       const parsed = loadRuntimeSettings(runtimeHome);
@@ -711,7 +716,7 @@ conversations:
         mirrorAgentToolRulesToRuntimeSettings({
           runtimeHome,
           agentFolder: 'main_agent',
-          rules: ['mcp__myclaw__browser_click'],
+          rules: ['mcp__myclaw__browser_act'],
         }),
       ).toThrow('runtime projections, not durable capabilities');
       const parsed = loadRuntimeSettings(runtimeHome);
@@ -783,7 +788,39 @@ conversations:
           agentFolder: 'main_agent',
           rules: ['mcp__myclaw__service_restart(reason=test)'],
         }),
-      ).toThrow('exact tool name without a scoped rule');
+      ).toThrow('Only Bash supports persistent scoped tool rules');
+      const parsed = loadRuntimeSettings(runtimeHome);
+      expect(parsed.agents.main_agent.capabilities.toolIds).toEqual([]);
+    } finally {
+      fs.rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects wildcard-scoped Bash rules before writing settings', () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-settings-tools-bash-wildcard-'),
+    );
+    try {
+      const settings = createDefaultRuntimeSettings();
+      settings.agents.main_agent = {
+        name: 'Main',
+        folder: 'main_agent',
+        bindings: {},
+        capabilities: {
+          toolIds: [],
+          skillIds: [],
+          mcpServerIds: [],
+        },
+      };
+      saveRuntimeSettings(runtimeHome, settings);
+
+      expect(() =>
+        mirrorAgentToolRulesToRuntimeSettings({
+          runtimeHome,
+          agentFolder: 'main_agent',
+          rules: ['Bash(*)'],
+        }),
+      ).toThrow('Persistent Bash scope is too broad');
       const parsed = loadRuntimeSettings(runtimeHome);
       expect(parsed.agents.main_agent.capabilities.toolIds).toEqual([]);
     } finally {

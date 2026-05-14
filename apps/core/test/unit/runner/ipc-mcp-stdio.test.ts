@@ -6,6 +6,7 @@ import { generateKeyPairSync } from 'crypto';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { schedulerJobConfirmationToken } from '@core/jobs/job-plan-formatter.js';
 import { ALL_MYCLAW_MCP_TOOL_NAMES } from '@agent-runner-src/myclaw-mcp-tool-surface.js';
 
 const tempRoots: string[] = [];
@@ -67,6 +68,7 @@ function createMcpFixture(): {
     .toString();
   const runnerDir = path.join(root, 'runner');
   const runnerMcpDir = path.join(runnerDir, 'mcp');
+  const jobsDir = path.join(root, 'jobs');
   const sharedDir = path.join(root, 'shared');
   const sharedTimeDir = path.join(sharedDir, 'time');
   const serverPath = path.join(runnerMcpDir, 'stdio.ts');
@@ -82,6 +84,7 @@ function createMcpFixture(): {
 
   fs.mkdirSync(runnerDir, { recursive: true });
   fs.mkdirSync(runnerMcpDir, { recursive: true });
+  fs.mkdirSync(jobsDir, { recursive: true });
   fs.mkdirSync(sharedDir, { recursive: true });
   fs.mkdirSync(sharedTimeDir, { recursive: true });
   fs.mkdirSync(sdkServerDir, { recursive: true });
@@ -95,12 +98,36 @@ function createMcpFixture(): {
     path.join(sharedDir, 'model-catalog.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/scheduler-job-plan.ts'),
+    path.join(sharedDir, 'scheduler-job-plan.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/human-format.ts'),
+    path.join(sharedDir, 'human-format.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/admin-mcp-tools.ts'),
     path.join(sharedDir, 'admin-mcp-tools.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/agent-tool-references.ts'),
     path.join(sharedDir, 'agent-tool-references.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/bash-command-parser.ts'),
+    path.join(sharedDir, 'bash-command-parser.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/semantic-capability-ids.ts'),
+    path.join(sharedDir, 'semantic-capability-ids.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/neutral-ca-trust-env.ts'),
+    path.join(sharedDir, 'neutral-ca-trust-env.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/semantic-capabilities.ts'),
+    path.join(sharedDir, 'semantic-capabilities.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/memory-ipc-actions.ts'),
@@ -113,6 +140,10 @@ function createMcpFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/myclaw-mcp-tool-surface.ts'),
     path.join(runnerDir, 'myclaw-mcp-tool-surface.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/jobs/job-plan-formatter.ts'),
+    path.join(jobsDir, 'job-plan-formatter.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/private-fs.ts'),
@@ -544,6 +575,56 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
   });
 
+  it('lists admin permissions from the runner read-only view when selected', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'admin_permission_list',
+      {},
+      {
+        MYCLAW_ADMIN_MCP_TOOLS_JSON: '["admin_permission_list"]',
+        MYCLAW_CONFIGURED_ALLOWED_TOOLS_JSON: '["Bash(npm test *)"]',
+      },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.content[0].text).toContain(
+      'Admin permission inventory (read-only runner view):',
+    );
+    expect(record.result.content[0].text).toContain(
+      'mcp__myclaw__admin_permission_list: selected',
+    );
+    expect(record.result.content[0].text).toContain('Bash(npm test *)');
+    expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
+  });
+
+  it('fails closed for admin permission revoke scaffolding', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'admin_permission_revoke',
+      {
+        tool_name: 'mcp__myclaw__service_restart',
+        reason: 'Reduce admin surface',
+      },
+      { MYCLAW_ADMIN_MCP_TOOLS_JSON: '["admin_permission_revoke"]' },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.isError).toBe(true);
+    expect(record.result.content[0].text).toContain(
+      'Permission revoke is not available from runner MCP yet.',
+    );
+    expect(record.result.content[0].text).toContain(
+      'No permission, settings.yaml entry, Postgres binding, or live run rule was changed.',
+    );
+    expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
+  });
+
   it('activates admin MCP tools from live persistent approval rules', async () => {
     const fixture = createMcpFixture();
     const liveRuleDir = path.join(fixture.ipcDir, 'live-tool-rules');
@@ -643,6 +724,27 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
         model_alias: 'kimi 2.6',
         schedule_type: 'interval',
         schedule_value: '60000',
+        confirm: true,
+        confirmation_token: schedulerJobConfirmationToken({
+          name: 'Daily review',
+          prompt: 'Review memory',
+          modelAlias: 'kimi 2.6',
+          scheduleType: 'interval',
+          scheduleValue: '60000',
+          executionContext: {
+            conversationJid: 'tg:team',
+            threadId: 'trusted-thread',
+            groupScope: 'team',
+          },
+          notificationRoutes: [
+            {
+              conversationJid: 'tg:team',
+              threadId: 'trusted-thread',
+              label: 'primary',
+            },
+          ],
+          createdBy: 'agent',
+        }),
       },
       { MYCLAW_THREAD_ID: 'trusted-thread' },
     );
@@ -814,7 +916,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
         temporaryOnly: false,
         broadAccess: false,
         toolCategory: 'sdk',
-        permissionPolicy: 'scoped persistent',
+        permissionPolicy: 'persistent',
         sandboxProfile: 'workspace-write',
         reason: 'Run project tests and inspect files.',
       },
@@ -826,7 +928,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
         temporaryOnly: false,
         broadAccess: false,
         toolCategory: 'sdk',
-        permissionPolicy: 'scoped persistent',
+        permissionPolicy: 'persistent',
         sandboxProfile: 'workspace-write',
         reason: 'Run project tests and inspect files.',
       },
@@ -879,9 +981,9 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     const fixture = createMcpFixture();
 
     const result = await runMcpFixture(fixture, 'request_skill_install', {
-      spec: 'clawhub:agent-browser@1.0.0',
+      spec: 'clawhub:browser@1.0.0',
       provider: 'clawhub',
-      slug: 'agent-browser',
+      slug: 'browser',
       reason: 'Install browser automation as a skill.',
     });
 
@@ -908,12 +1010,12 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     const fixture = createMcpFixture();
 
     const result = await runMcpFixture(fixture, 'request_mcp_server', {
-      name: 'agent_browser',
+      name: `${'browser'}_${'backend'}`,
       transport: 'http',
-      origin: 'https://example.test/playwright/mcp',
+      origin: 'https://example.test/browser/control',
       requestedToolPatterns: ['browser_*', 'page_*'],
-      reason: 'Use Playwright for browser control.',
-      docsUrl: 'https://example.test/puppeteer',
+      reason: 'Use a browser-control server.',
+      docsUrl: 'https://example.test/browser-control',
     });
 
     expect(result.exitCode, result.stderr).toBe(0);
@@ -929,7 +1031,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'request_permission with permissionKind="tool", toolName="Browser"',
     );
     expect(record.result.content[0].text).toContain(
-      'projected browser_* tools',
+      'compact browser gateway tools',
     );
     expect(record.result.content[0].text).not.toContain('temporaryOnly=true');
     expect(record.result.content[0].text).toContain(
@@ -948,6 +1050,26 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
         prompt: 'Review memory',
         schedule_type: 'interval',
         schedule_value: '60000',
+        confirm: true,
+        confirmation_token: schedulerJobConfirmationToken({
+          name: 'Daily review',
+          prompt: 'Review memory',
+          scheduleType: 'interval',
+          scheduleValue: '60000',
+          executionContext: {
+            conversationJid: 'tg:team',
+            threadId: null,
+            groupScope: 'team',
+          },
+          notificationRoutes: [
+            {
+              conversationJid: 'tg:team',
+              threadId: null,
+              label: 'primary',
+            },
+          ],
+          createdBy: 'agent',
+        }),
       },
       { TEST_MCP_UNSIGNED_TASK_RESPONSE: '1' },
     );

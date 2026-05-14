@@ -1,10 +1,14 @@
 import type {
   Job,
   JobEvent,
-  JobExecutionMode,
   JobRun,
   JobScheduleType,
 } from '../../domain/types.js';
+import type {
+  McpServerRepository,
+  ToolCatalogRepository,
+} from '../../domain/ports/repositories.js';
+import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
 import type {
   RuntimeEventFilter,
   RuntimeEventPublishInput,
@@ -13,9 +17,9 @@ import type {
   JobUpsertInput,
   RuntimeJobRepository,
 } from '../../domain/repositories/ops-repo.js';
-import type { ToolCatalogRepository } from '../../domain/ports/repositories.js';
 import type { Clock } from '../common/clock.js';
 import type { SchedulerCoordinationPort } from './scheduler-coordination-port.js';
+import type { JobReadinessBrowserStatus } from './job-readiness-service.js';
 
 export type JobKind = 'manual' | 'once' | 'recurring';
 
@@ -122,29 +126,15 @@ export interface JobManagementServiceDeps {
   scheduler: SchedulerCoordinationPort;
   schedulePlanner: JobSchedulePlanner;
   clock?: Clock;
-  toolRepository?: ToolCatalogRepository;
-  approveJobExtraTools?: (input: JobExtraToolApprovalRequest) => Promise<{
-    approved: boolean;
-    reason?: string;
-  }>;
   control?: JobControlPort;
   runtimeEvents?: RuntimeEventPublisherPort;
   triggerQueue?: JobTriggerQueuePort;
-}
-
-export interface JobExtraToolApprovalRequest {
-  jobId: string;
-  jobName: string;
-  target: {
-    appId: string;
-    agentId: string;
-    groupScope: string;
-  };
-  inheritedTools: string[];
-  requestedJobExtraTools: string[];
-  extrasBeyondInherited: string[];
-  existingJobExtraTools: string[];
-  operation: 'create' | 'update';
+  toolRepository?: ToolCatalogRepository;
+  mcpServerRepository?: McpServerRepository;
+  getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
+  getBrowserStatus?: (
+    profileName: string,
+  ) => Promise<JobReadinessBrowserStatus | undefined>;
 }
 
 export interface CreateManagedJobInput {
@@ -154,13 +144,13 @@ export interface CreateManagedJobInput {
   sessionId: string;
   executionContext?: JobExecutionContextInput;
   notificationRoutes?: JobNotificationRouteInput[];
+  requiredTools?: string[];
+  requiredMcpServers?: string[];
   kind?: JobKind;
   runAt?: string;
   schedule?: { type?: unknown; value?: unknown };
-  executionMode?: unknown;
   modelAlias?: unknown;
   modelProfileId?: unknown;
-  allowedTools?: unknown;
   dryRun?: unknown;
 }
 
@@ -175,6 +165,8 @@ export interface UpsertJobFromIpcInput {
   scheduleValue: string;
   executionContext?: JobExecutionContextInput;
   notificationRoutes?: JobNotificationRouteInput[];
+  requiredTools?: string[];
+  requiredMcpServers?: string[];
   threadId?: string;
   silent?: boolean;
   cleanupAfterMs?: number;
@@ -182,11 +174,8 @@ export interface UpsertJobFromIpcInput {
   maxRetries?: number;
   retryBackoffMs?: number;
   maxConsecutiveFailures?: number;
-  executionMode?: unknown;
-  serialize?: unknown;
   groupScope?: string;
   createdBy?: 'agent' | 'human';
-  allowedTools?: unknown;
 }
 
 export interface ConversationBinding {
@@ -211,6 +200,8 @@ export type JobUpdatePatch = Partial<{
   scheduleValue: string;
   executionContext: JobExecutionContextInput;
   notificationRoutes: JobNotificationRouteInput[];
+  requiredTools: string[];
+  requiredMcpServers: string[];
   threadId: string | null;
   groupScope: string;
   silent: boolean;
@@ -219,9 +210,7 @@ export type JobUpdatePatch = Partial<{
   maxRetries: number;
   retryBackoffMs: number;
   maxConsecutiveFailures: number;
-  executionMode: JobExecutionMode;
   status: Extract<Job['status'], 'active' | 'paused'>;
-  allowedTools: string[];
 }>;
 
 export interface JobListInput {
@@ -294,5 +283,5 @@ export interface SchedulerRunNowInput {
   runId: string;
 }
 
-export type { Job, JobEvent, JobExecutionMode, JobRun, JobScheduleType };
+export type { Job, JobEvent, JobRun, JobScheduleType };
 export type { JobUpsertInput };

@@ -27,6 +27,8 @@ export interface TaskIpcData {
     threadId: string | null;
     label: string;
   }>;
+  requiredTools?: string[];
+  requiredMcpServers?: string[];
   groupScope?: string;
   threadId?: string | null;
   createdBy?: 'agent' | 'human';
@@ -36,9 +38,8 @@ export interface TaskIpcData {
   maxRetries?: number;
   retryBackoffMs?: number;
   maxConsecutiveFailures?: number;
-  executionMode?: string;
-  serialize?: boolean;
-  allowedTools?: string[];
+  confirm?: boolean;
+  confirmationToken?: string;
   statuses?: string[];
   kind?: 'manual' | 'once' | 'recurring';
   runId?: string;

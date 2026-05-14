@@ -24,11 +24,11 @@ describe('live tool rules', () => {
     const rules = appendLiveToolRules({
       ipcDir,
       runHandle: 'run_1',
-      rules: ['Read(/repo/**)', 'Read(/repo/**)', 'Bash(git status)'],
+      rules: ['Read', 'Read', 'Bash(npm test *)'],
     });
 
     const filePath = path.join(ipcDir, 'live-tool-rules', 'run_1.json');
-    expect(rules).toEqual(['Read(/repo/**)', 'Bash(git status)']);
+    expect(rules).toEqual(['Read', 'Bash(npm test *)']);
     expect(readLiveToolRules({ ipcDir, runHandle: 'run_1' })).toEqual(rules);
     expect(mode(path.dirname(filePath))).toBe(PRIVATE_DIR_MODE);
     expect(mode(filePath)).toBe(PRIVATE_FILE_MODE);

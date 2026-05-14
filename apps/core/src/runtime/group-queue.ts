@@ -10,6 +10,7 @@ import { normalizeThreadQueueId } from './thread-queue-key.js';
 
 type QueueKind = 'message' | 'task';
 type ContinuationOptions = { threadId?: string | null };
+type ContinuationHandler = () => void;
 
 interface QueuedTask {
   id: string;
@@ -50,6 +51,7 @@ interface GroupState {
   groupFolder: string | null;
   threadId: string | null;
   retryCount: number;
+  continuationHandler: ContinuationHandler | null;
 }
 
 export class GroupQueue {
@@ -102,6 +104,7 @@ export class GroupQueue {
         groupFolder: null,
         threadId: null,
         retryCount: 0,
+        continuationHandler: null,
       };
       this.groups.set(groupJid, state);
     }
@@ -326,6 +329,20 @@ export class GroupQueue {
     }
   }
 
+  registerContinuationHandler(
+    groupJid: string,
+    handler: ContinuationHandler,
+  ): () => void {
+    const state = this.getGroup(groupJid);
+    state.continuationHandler = handler;
+    return () => {
+      const current = this.groups.get(groupJid);
+      if (current?.continuationHandler === handler) {
+        current.continuationHandler = null;
+      }
+    };
+  }
+
   sendMessage(
     groupJid: string,
     text: string,
@@ -343,6 +360,7 @@ export class GroupQueue {
         this.continuationSequence++,
         incomingThreadId,
       );
+      state.continuationHandler?.();
       return true;
     } catch {
       return false;
@@ -434,6 +452,7 @@ export class GroupQueue {
       state.runHandle = null;
       state.groupFolder = null;
       state.threadId = null;
+      state.continuationHandler = null;
       this.activeMessageCount--;
       this.removeStopAliasForQueueJid(groupJid);
       this.drainGroup(groupJid);

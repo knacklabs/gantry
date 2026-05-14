@@ -2,7 +2,7 @@
 
 > **Audience:** the executing agent picking this up cold.
 > **Companion to:** `runtime-refactor-plan.md` and `memory-continuity-fixes-plan.md`. Read both before starting.
-> **Author context:** drafted by main_agent after validating the in-flight 86-file refactor (working tree at HEAD `d18ba5f0`, +1845/-563) against the two parent plans. The refactor lands real work — protected-capability guard rewrite, `scheduler_grant_tool`, dreaming unsafe-evidence quarantine, deletion of `script-runner.ts` — but leaves the changes that would actually unblock day-to-day agent driving on the floor. This plan finishes the job before merge.
+> **Author context:** drafted by main_agent after validating the in-flight 86-file refactor (working tree at HEAD `d18ba5f0`, +1845/-563) against the two parent plans. The refactor lands real work, including protected-capability guard changes, dreaming unsafe-evidence quarantine, and deletion of `script-runner.ts`, but leaves the changes that would actually unblock day-to-day agent driving on the floor. This plan finishes the job before merge.
 
 ---
 
@@ -81,7 +81,10 @@ Each phase: **goal**, **scope**, **exit criteria**, **deletion target**, **repro
 
 - `apps/core/src/shared/permission-timeout.ts` exposes `getPermissionTimeoutMs(context: 'interactive' | 'autonomous')`. Interactive defaults 15000ms; autonomous defaults 0ms.
 - Autonomous-context callers (job runner) skip the IPC entirely on 0ms — fall through to the merged capability allowlist. No prompt fires.
-- Interactive denial message names the rule and points to `request_permission` with the exact arguments to grant it persistently.
+- Interactive denial message names the missing rule and points to the reviewed
+  capability or narrow `request_permission` path. Persistent fallback remains
+  limited to semantic capabilities, canonical `Browser`, exact MyClaw admin
+  tools, or scoped Bash rules.
 - Configurable via env, but defaults are the spec'd values.
 
 **Exit criteria:**
@@ -171,7 +174,7 @@ Each phase: **goal**, **scope**, **exit criteria**, **deletion target**, **repro
 
 **Scope:**
 
-- `mcp__myclaw__browser_status` checks both process liveness and credential broker reachability before reporting `cdpReady: true`. If the broker is unreachable, `cdpReady: false` with `formatOperatorError`-shaped reason.
+- `browser_status` checks both process liveness and credential broker reachability before reporting `cdpReady: true`. If the broker is unreachable, `cdpReady: false` with `formatOperatorError`-shaped reason.
 - `mcp_list_tools` / `mcp_call_tool` failures during broker outage return the cause chain (Phase 6 helper), not the wrapper.
 
 **Exit criteria:**

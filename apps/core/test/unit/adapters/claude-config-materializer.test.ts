@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { materializeClaudeRuntime } from '@core/adapters/llm/anthropic-claude-agent/claude-config-materializer.js';
 import {
   ArtifactClaudeSkillSource,
-  RuntimeInstalledAgentBrowserSkillSource,
+  RuntimeInstalledMyClawBrowserSkillSource,
   materializeClaudeSkills,
   type SkillSource,
 } from '@core/adapters/llm/anthropic-claude-agent/claude-skill-materializer.js';
@@ -159,25 +159,32 @@ describe('Claude config materializer', () => {
     expect(fs.existsSync(path.join(skillsDir, 'invalid'))).toBe(false);
   });
 
-  it('materializes the runtime-installed agent-browser skill into the temp skills dir', async () => {
+  it('materializes the runtime-installed myclaw-browser skill into the temp skills dir', async () => {
     const skillsDir = path.join(tempRoot, 'skills');
     const materialized = await materializeClaudeSkills({
       skillsDir,
-      skillSource: new RuntimeInstalledAgentBrowserSkillSource(),
+      skillSource: new RuntimeInstalledMyClawBrowserSkillSource(),
     });
 
     expect(materialized).toHaveLength(1);
     expect(materialized[0]).toMatchObject({
-      id: 'agent-browser',
+      id: 'myclaw-browser',
       sourceType: 'runtime',
       enabled: true,
     });
     const skillText = fs.readFileSync(
-      path.join(skillsDir, 'agent-browser', 'SKILL.md'),
+      path.join(skillsDir, 'myclaw-browser', 'SKILL.md'),
       'utf-8',
     );
-    expect(skillText).toContain('mcp__myclaw__browser_status');
-    expect(skillText).toContain('Do not request Playwright');
+    expect(skillText).toContain(
+      'browser_status`, `browser_open`, `browser_inspect`, `browser_act`, and `browser_close',
+    );
+    expect(skillText).toContain('Search first when the destination is unknown');
+    expect(skillText).toContain('Inspect before acting');
+    expect(skillText).toContain('Use basic inspection by default');
+    expect(skillText).toContain(
+      'Close the browser with `browser_close` after scheduled jobs',
+    );
     expect(skillText).toContain('Do not install browser skills');
     expect(fs.existsSync(path.join(tempRoot, '.claude', 'skills'))).toBe(false);
   });

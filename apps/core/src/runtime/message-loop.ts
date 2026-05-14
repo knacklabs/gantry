@@ -27,11 +27,7 @@ import {
   isSessionCommandAllowed,
 } from '../session/session-commands.js';
 import type { SessionCommand } from '../session/session-commands.js';
-import {
-  makeThreadQueueKey,
-  normalizeThreadQueueId,
-  parseThreadQueueKey,
-} from './thread-queue-key.js';
+import { makeThreadQueueKey, parseThreadQueueKey } from './thread-queue-key.js';
 
 export interface MessageLoopDeps {
   getConversationRoutes: () => Record<string, ConversationRoute>;
@@ -201,15 +197,10 @@ export async function runMessagePollingTick(
 
         let pipedAny = false;
         let shouldEnqueueMessageCheck = false;
-        let progressThreadId: string | undefined;
         let nextBatch: NewMessage[] | null = initialBatch;
 
         while (nextBatch && nextBatch.length > 0) {
           const messagesToSend = nextBatch;
-          const latestMessage = messagesToSend[messagesToSend.length - 1];
-          progressThreadId =
-            normalizeThreadQueueId(latestMessage?.thread_id) ||
-            progressThreadId;
           const formatted = formatMessages(messagesToSend, TIMEZONE);
 
           if (!deps.queue.sendMessage(queueJid, formatted, { threadId })) {
@@ -247,40 +238,6 @@ export async function runMessagePollingTick(
             .setTyping(chatJid, true)
             .catch((err: unknown) =>
               logger.warn({ chatJid, err }, 'Failed to set typing indicator'),
-            );
-          logger.info(
-            {
-              chatJid,
-              queueJid,
-              threadId: progressThreadId,
-              replaceOnly: false,
-            },
-            'Progress lifecycle follow-up receipt send attempt',
-          );
-          const progressPromise = deps.sendProgressUpdate(
-            chatJid,
-            'Working on it...',
-            {
-              ...(progressThreadId ? { threadId: progressThreadId } : {}),
-            },
-          );
-          progressPromise
-            .then(() =>
-              logger.info(
-                {
-                  chatJid,
-                  queueJid,
-                  threadId: progressThreadId,
-                  replaceOnly: false,
-                },
-                'Progress lifecycle follow-up receipt send complete',
-              ),
-            )
-            .catch((err: unknown) =>
-              logger.warn(
-                { chatJid, err },
-                'Failed to send follow-up progress update',
-              ),
             );
         }
 

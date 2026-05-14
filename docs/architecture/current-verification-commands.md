@@ -45,7 +45,7 @@ Canonical tool execution boundary changes should run:
 ```bash
 npm run test:unit -- apps/core/test/unit/shared/tool-execution-policy-service.test.ts apps/core/test/unit/bootstrap/channel-wiring.test.ts apps/core/test/unit/runner/protected-capability-hook.test.ts apps/core/test/unit/runner/protected-capability-guard.test.ts apps/core/test/unit/runner/mcp/scheduler-tools.test.ts apps/core/test/unit/runner/agent-capabilities.test.ts apps/core/test/unit/runner/agent-runner-ipc.test.ts apps/core/test/unit/runtime/agent-spawn.test.ts
 npm run test:integration -- apps/core/test/integration/claude-agent-sdk-boundary.integration.test.ts apps/core/test/integration/permission-approval-ipc.integration.test.ts
-rg -n "PROTECTED_CAPABILITY_PATTERN|mcpServers.*Bash|\\.mcp\\.json.*Bash|permissionMode.*Bash|alwaysAllowedTools|continue: false|scheduler_grant_tool|runScript\\(" apps/core/src apps/core/test docs --glob '!docs/architecture/current-verification-commands.md'
+rg -n "PROTECTED_CAPABILITY_PATTERN|mcpServers.*Bash|\\.mcp\\.json.*Bash|permissionMode.*Bash|alwaysAllowedTools|continue: false|target_json\\.capabilityPolicy|jobExtraTools|scheduler_grant_tool|allow_job_policy|runScript\\(" apps/core/src apps/core/test docs --glob '!docs/architecture/current-verification-commands.md'
 python3 .codex/scripts/check_architecture.py
 ```
 
@@ -122,13 +122,13 @@ npm run build
 
 `npm test` runs the contracts build, unit tests, and integration tests. `npm run build` cleans generated build output, builds contracts and SDK packages, runs `tsc`, and copies Postgres migrations into `dist/`.
 
-`npm run test:integration` is credential-free and skips Postgres-backed suites when `MYCLAW_TEST_DATABASE_URL` is unset. DB-backed changes must also run:
+`npm run test:integration` is credential-free and skips Postgres-backed suites when `MYCLAW_TEST_DATABASE_URL` is unset. DB-backed changes must also run against a disposable Docker Postgres container for the current task. Enable `vector` and `pg_trgm` in that disposable database before running migrations:
 
 ```bash
 MYCLAW_TEST_DATABASE_URL=postgres://user:pass@localhost:5432/myclaw_test npm run test:integration:postgres
 ```
 
-`npm run test:integration:postgres` fails loudly when `MYCLAW_TEST_DATABASE_URL` is missing or not a Postgres URL, so a green default test run cannot be mistaken for database-backed evidence.
+`npm run test:integration:postgres` fails loudly when `MYCLAW_TEST_DATABASE_URL` is missing or not a Postgres URL, so a green default test run cannot be mistaken for database-backed evidence. Stop and remove the disposable container after the check; do not run feature verification against persistent developer data under `~/myclaw/postgres`.
 
 Architecture exceptions in `.codex/architecture-exceptions.json` are ratchets
 for existing boundary debt. Each exception must stay time-bounded and include a

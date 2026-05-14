@@ -5,7 +5,6 @@ import {
   IPC_INPUT_CLOSE_SENTINEL,
   IPC_INPUT_DIR,
   IPC_INTERACTION_BOUNDARY_DIR,
-  IPC_POLL_MS,
 } from './runtime-env.js';
 
 export function prepareInteractiveIpcInputDir(): void {

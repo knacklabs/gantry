@@ -74,8 +74,11 @@ export async function runSessionSlashCommand(
         },
         allowedTools: [],
         env: opts.sdkEnv,
-        permissionMode: 'bypassPermissions' as const,
-        allowDangerouslySkipPermissions: true,
+        permissionMode: 'default' as const,
+        canUseTool: async () => ({
+          behavior: 'deny' as const,
+          message: 'Session slash commands cannot use tools.',
+        }),
         settingSources: ['user'] as const,
       },
     })) {

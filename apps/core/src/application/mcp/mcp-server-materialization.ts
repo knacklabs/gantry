@@ -45,23 +45,10 @@ export function materializeMcpRecord(
     (tool) => `mcp__${record.definition.name}__${tool}`,
   );
   if (config.transport === 'http' || config.transport === 'sse') {
-    const headers = {
-      ...(config.headers ?? {}),
-      ...credentialValues.headers,
-    };
-    return {
-      name: record.definition.name,
-      config: {
-        type: config.transport,
-        url: config.url!,
-        ...(Object.keys(headers).length > 0 ? { headers } : {}),
-      },
-      allowedToolPatterns,
-      autoApproveToolPatterns: record.version.autoApproveToolPatterns,
-      allowedToolNames,
-      autoApproveToolNames,
-      required: record.binding.required,
-    };
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      'Remote MCP HTTP/SSE servers cannot be projected directly to the SDK until runtime uses a DNS-pinned host transport.',
+    );
   }
 
   const template = STDIO_TEMPLATE_COMMANDS[config.templateId ?? ''];

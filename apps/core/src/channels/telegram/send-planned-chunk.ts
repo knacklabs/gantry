@@ -2,7 +2,16 @@ import type { Api } from 'grammy';
 
 import { logger } from '../../infrastructure/logging/logger.js';
 
-type TelegramSendMessageOptions = { message_thread_id?: number };
+type TelegramSendMessageOptions = {
+  message_thread_id?: number;
+  reply_markup?: {
+    inline_keyboard: Array<
+      Array<
+        { text: string; callback_data: string } | { text: string; url: string }
+      >
+    >;
+  };
+};
 
 function errorText(err: unknown): string {
   if (typeof err === 'string') return err;

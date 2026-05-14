@@ -104,6 +104,7 @@ export class CanonicalSessionOpsService {
       chatJid?: string;
       conversationKind?: 'dm' | 'channel';
       memoryUserId?: string;
+      jobId?: string;
       latestArtifactId?: string | null;
       expectedAgentSessionId?: string;
       expectedAgentSessionResetAt?: string | null;
@@ -116,11 +117,13 @@ export class CanonicalSessionOpsService {
         conversationJid: metadata.chatJid,
         conversationKind: metadata.conversationKind,
         userId: metadata.memoryUserId,
+        jobId: metadata.jobId,
       }),
       chatJid: metadata.chatJid,
       threadId,
       conversationKind: metadata.conversationKind,
       memoryUserId: metadata.memoryUserId,
+      jobId: metadata.jobId,
       latestArtifactId: metadata.latestArtifactId,
       expectedAgentSessionId: metadata.expectedAgentSessionId,
       expectedAgentSessionResetAt: metadata.expectedAgentSessionResetAt,
@@ -133,6 +136,7 @@ export class CanonicalSessionOpsService {
     threadId?: string | null;
     conversationKind?: 'dm' | 'channel';
     memoryUserId?: string;
+    jobId?: string;
     query?: string;
     hydrateMemory?: boolean;
   }): Promise<{
@@ -153,9 +157,11 @@ export class CanonicalSessionOpsService {
         conversationJid: input.chatJid,
         conversationKind: input.conversationKind,
         userId: input.memoryUserId,
+        jobId: input.jobId,
       }),
       conversationKind: input.conversationKind,
       memoryUserId: input.memoryUserId,
+      jobId: input.jobId,
     });
     const hydrated =
       input.hydrateMemory === false

@@ -654,7 +654,7 @@ describe('startMessagePollingLoop', () => {
     expect(deps.sentTo).toContain('group@g.us');
   });
 
-  it('sends follow-up progress update when piping to active agent run', async () => {
+  it('sets typing when piping to active agent run and leaves progress to the run owner', async () => {
     const msg = {
       id: '1',
       chat_jid: 'group@g.us',
@@ -672,7 +672,9 @@ describe('startMessagePollingLoop', () => {
     mockGetMessagesSince.mockReturnValue([msg]);
 
     const sendProgressUpdateMock = vi.fn().mockResolvedValue(undefined);
+    const setTypingMock = vi.fn().mockResolvedValue(undefined);
     const deps = makeDeps({
+      setTyping: setTypingMock,
       sendProgressUpdate: sendProgressUpdateMock,
     });
     const { startMessagePollingLoop } =
@@ -681,100 +683,8 @@ describe('startMessagePollingLoop', () => {
     const loopPromise = startMessagePollingLoop(deps);
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(sendProgressUpdateMock).toHaveBeenCalledWith(
-      'group@g.us',
-      'Working on it...',
-      {},
-    );
-  });
-
-  it('routes follow-up progress to the latest message thread only', async () => {
-    const oldThreaded = {
-      id: '1',
-      chat_jid: 'group@g.us',
-      sender: 'user@s.whatsapp.net',
-      content: 'older',
-      timestamp: '2024-01-01T00:00:01.000Z',
-      is_from_me: false,
-      sender_name: 'User',
-      thread_id: 'old-thread',
-    };
-    const latestThreaded = {
-      ...oldThreaded,
-      id: '2',
-      content: 'newer',
-      timestamp: '2024-01-01T00:00:02.000Z',
-      thread_id: 'latest-thread',
-    };
-
-    mockGetNewMessages.mockReturnValueOnce({
-      messages: [latestThreaded],
-      newTimestamp: '2024-01-01T00:00:02.000Z',
-    });
-    mockGetMessagesSince.mockReturnValue([oldThreaded, latestThreaded]);
-
-    const sendProgressUpdateMock = vi.fn().mockResolvedValue(undefined);
-    const deps = makeDeps({
-      sendProgressUpdate: sendProgressUpdateMock,
-    });
-    const { startMessagePollingLoop } =
-      await import('@core/runtime/message-loop.js');
-
-    const loopPromise = startMessagePollingLoop(deps);
-    await new Promise((r) => setTimeout(r, 50));
-
-    expect(sendProgressUpdateMock).toHaveBeenCalledWith(
-      'group@g.us',
-      'Working on it...',
-      { threadId: 'latest-thread' },
-    );
-  });
-
-  it('does not reuse stale thread when latest follow-up is unthreaded', async () => {
-    const oldThreaded = {
-      id: '1',
-      chat_jid: 'group@g.us',
-      sender: 'user@s.whatsapp.net',
-      content: 'older',
-      timestamp: '2024-01-01T00:00:01.000Z',
-      is_from_me: false,
-      sender_name: 'User',
-      thread_id: 'old-thread',
-    };
-    const latestUnthreaded = {
-      ...oldThreaded,
-      id: '2',
-      content: 'newer',
-      timestamp: '2024-01-01T00:00:02.000Z',
-      thread_id: '',
-    };
-
-    mockGetNewMessages.mockReturnValueOnce({
-      messages: [latestUnthreaded],
-      newTimestamp: '2024-01-01T00:00:02.000Z',
-    });
-    mockGetMessagesSince.mockReturnValue([oldThreaded, latestUnthreaded]);
-
-    const sendProgressUpdateMock = vi.fn().mockResolvedValue(undefined);
-    const deps = makeDeps({
-      sendProgressUpdate: sendProgressUpdateMock,
-    });
-    const { startMessagePollingLoop } =
-      await import('@core/runtime/message-loop.js');
-
-    const loopPromise = startMessagePollingLoop(deps);
-    await new Promise((r) => setTimeout(r, 50));
-
-    expect(sendProgressUpdateMock).toHaveBeenCalledWith(
-      'group@g.us',
-      'Working on it...',
-      {},
-    );
-    expect(sendProgressUpdateMock).not.toHaveBeenCalledWith(
-      'group@g.us',
-      'Working on it...',
-      expect.objectContaining({ threadId: 'old-thread' }),
-    );
+    expect(setTypingMock).toHaveBeenCalledWith('group@g.us', true);
+    expect(sendProgressUpdateMock).not.toHaveBeenCalled();
   });
 
   it('skips groups not in conversationRoutes', async () => {

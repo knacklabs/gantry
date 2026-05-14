@@ -210,7 +210,7 @@ describe('admin IPC handlers', () => {
         chatJid: 'sl:C123',
         payload: {
           permissionKind: 'tool',
-          toolName: 'mcp__myclaw__browser_click',
+          toolName: 'mcp__myclaw__browser_act',
           temporaryOnly: false,
           reason: 'need browser click',
         },

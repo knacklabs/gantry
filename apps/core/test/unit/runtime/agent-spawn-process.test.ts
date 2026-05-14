@@ -419,7 +419,7 @@ describe('executeRunnerProcess', () => {
       expect(logContent).toContain('Had Streaming Output: false');
     });
 
-    it('timeout after streaming output resolves as success', async () => {
+    it('timeout after streaming output resolves as error', async () => {
       const onOutput = vi.fn(async () => {});
       const spec = makeSpec({ onOutput, options: { timeoutMs: 200 } });
       const resultP = executeRunnerProcess(spec);
@@ -443,12 +443,13 @@ describe('executeRunnerProcess', () => {
       await vi.advanceTimersByTimeAsync(10);
 
       const result = await resultP;
-      expect(result.status).toBe('success');
+      expect(result.status).toBe('error');
+      expect(result.error).toContain('timed out after 200ms');
       expect(result.newSessionId).toBe('sess-1');
       expect(onOutput).toHaveBeenCalled();
     });
 
-    it('resets timeout on each streaming output chunk', async () => {
+    it('does not reset explicit timeout on streaming output chunks', async () => {
       const onOutput = vi.fn(async () => {});
       const spec = makeSpec({ onOutput, options: { timeoutMs: 300 } });
       const resultP = executeRunnerProcess(spec);
@@ -472,18 +473,16 @@ describe('executeRunnerProcess', () => {
       );
       await vi.advanceTimersByTimeAsync(10);
 
-      // Advance another 250ms — within the *reset* timeout window
+      // Advance another 250ms. The explicit timeout is wall-clock, not idle.
       await vi.advanceTimersByTimeAsync(250);
 
-      // Process should NOT have been killed yet (only 250ms since last chunk)
-      expect(fakeProc.kill).not.toHaveBeenCalled();
+      expect(fakeProc.kill).toHaveBeenCalledWith('SIGKILL');
 
-      // Normal exit
-      fakeProc.emit('close', 0);
+      fakeProc.emit('close', 137);
       await vi.advanceTimersByTimeAsync(10);
 
       const result = await resultP;
-      expect(result.status).toBe('success');
+      expect(result.status).toBe('error');
       expect(result.newSessionId).toBe('sess-2');
       expect(onOutput).toHaveBeenCalledTimes(2);
     });

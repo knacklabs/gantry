@@ -7,6 +7,7 @@ import type { AgentPersona } from '../../shared/agent-persona.js';
 
 export interface AgentRunnerInput {
   prompt: string;
+  runMode?: 'prime' | 'execute';
   appId?: string;
   agentId?: string;
   sessionId?: string;
@@ -23,6 +24,7 @@ export interface AgentRunnerInput {
   selectedMcpServerIds?: string[];
   isScheduledJob?: boolean;
   jobId?: string;
+  runId?: string;
   assistantName?: string;
   compiledSystemPrompt?: string;
   memoryContextBlock?: string;
@@ -46,15 +48,51 @@ export interface AgentRunnerOutput {
   usageEventId?: string;
   contextUsage?: RuntimeContextUsageSnapshot;
   error?: string;
+  runtimeEvents?: AgentRunnerRuntimeEventOutput[];
+  primeToolAttempts?: AgentRunnerToolAttemptOutput[];
+}
+
+export interface AgentRunnerToolAttemptOutput {
+  runMode: 'prime';
+  requestedToolName: string;
+  toolName: string;
+  title?: string;
+  displayName?: string;
+  description?: string;
+  decisionReason?: string;
+  blockedPath?: string;
+  toolUseID?: string;
+  agentID?: string;
+  toolInput?: unknown;
+  suggestions?: unknown[];
+  deniedReason: string;
+}
+
+export interface AgentRunnerRuntimeEventOutput {
+  appId?: string;
+  agentId?: string;
+  runId?: string;
+  jobId?: string;
+  conversationId?: string;
+  threadId?: string;
+  eventType: string;
+  actor?: string;
+  responseMode?: 'sse' | 'webhook' | 'both' | 'none';
+  payload: unknown;
 }
 
 export interface PermissionDecision {
   approved: boolean;
-  mode?: 'allow_once' | 'allow_job_policy' | 'allow_persistent_rule' | 'cancel';
+  mode?:
+    | 'allow_once'
+    | 'allow_persistent_rule'
+    | 'allow_timed_grant'
+    | 'cancel';
   decidedBy?: string;
   reason?: string;
   updatedPermissions?: unknown[];
   decisionClassification?: 'user_temporary' | 'user_permanent' | 'user_reject';
+  timedGrantExpiresAtMs?: number;
 }
 
 export interface SessionSlashCommand {

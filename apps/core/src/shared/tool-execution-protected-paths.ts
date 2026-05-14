@@ -142,7 +142,9 @@ function policyPathCandidates(filePath: string): string[] {
           )
         : undefined;
     if (realPath) candidates.add(normalizePathForPolicy(realPath));
-  } catch {}
+  } catch {
+    return [...candidates];
+  }
   return [...candidates];
 }
 

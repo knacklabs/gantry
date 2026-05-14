@@ -1,8 +1,4 @@
-import type {
-  Job,
-  JobExecutionMode,
-  JobScheduleType,
-} from '../../domain/types.js';
+import type { Job, JobScheduleType } from '../../domain/types.js';
 import { ApplicationError } from '../common/application-error.js';
 import type { Clock } from '../common/clock.js';
 import type {
@@ -82,21 +78,6 @@ export async function resolveCanonicalAppSessionForOrigin(input: {
   return { originAppId, canonicalSession };
 }
 
-export async function resolveJobPolicyAppId(input: {
-  appId?: string;
-  access?: SchedulerJobAccess;
-  control?: JobControlPort;
-}): Promise<string | undefined> {
-  if (input.appId) return input.appId;
-  if (!input.access) return undefined;
-  return (
-    await resolveCanonicalAppSessionForOrigin({
-      access: input.access,
-      control: input.control,
-    })
-  ).canonicalSession?.appId;
-}
-
 export function normalizeScheduleType(raw: unknown): JobScheduleType {
   if (
     raw === 'cron' ||
@@ -107,18 +88,6 @@ export function normalizeScheduleType(raw: unknown): JobScheduleType {
     return raw;
   }
   throw new ApplicationError('INVALID_SCHEDULE', 'Unsupported schedule type.');
-}
-
-export function normalizeExecutionMode(
-  executionMode: unknown,
-  serialize: unknown,
-  fallback: JobExecutionMode = 'parallel',
-): JobExecutionMode {
-  if (executionMode === 'serialized') return 'serialized';
-  if (executionMode === 'parallel') return 'parallel';
-  if (typeof serialize === 'boolean')
-    return serialize ? 'serialized' : 'parallel';
-  return fallback;
 }
 
 export function resolveLimit(raw: unknown, fallback: number): number {
@@ -328,8 +297,12 @@ export function buildJobUpdates(
     );
     updates.notification_routes = notificationRoutes;
   }
-  if (patch.executionMode !== undefined)
-    updates.execution_mode = patch.executionMode;
+  if (patch.requiredTools !== undefined) {
+    updates.required_tools = patch.requiredTools;
+  }
+  if (patch.requiredMcpServers !== undefined) {
+    updates.required_mcp_servers = patch.requiredMcpServers;
+  }
   if (patch.silent !== undefined) updates.silent = patch.silent;
   if (patch.cleanupAfterMs !== undefined)
     updates.cleanup_after_ms = patch.cleanupAfterMs;
@@ -339,9 +312,6 @@ export function buildJobUpdates(
     updates.retry_backoff_ms = patch.retryBackoffMs;
   if (patch.maxConsecutiveFailures !== undefined) {
     updates.max_consecutive_failures = patch.maxConsecutiveFailures;
-  }
-  if (patch.allowedTools !== undefined) {
-    updates.capability_policy = { allowed_tools: patch.allowedTools };
   }
   if (patch.scheduleType !== undefined)
     updates.schedule_type = patch.scheduleType;

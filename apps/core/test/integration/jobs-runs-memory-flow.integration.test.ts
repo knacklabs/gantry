@@ -54,7 +54,6 @@ function makeJob(id: string, patch: Partial<JobUpsertInput> = {}) {
     timeout_ms: 30_000,
     max_retries: 1,
     retry_backoff_ms: 1,
-    execution_mode: 'serialized',
     ...patch,
   } satisfies JobUpsertInput;
 }
@@ -108,6 +107,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     const savedMemory = await memoryService.save({
       appId: 'default',
       agentId,
+      groupId: job.group_scope,
       channelId: 'conversation:tg:scheduler',
       threadId: 'thread-scheduled',
       kind: 'fact',
@@ -119,6 +119,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     expect(savedMemory).toMatchObject({
       agentId,
       subjectType: 'channel',
+      groupId: job.group_scope,
       channelId: 'conversation:tg:scheduler',
       threadId: 'thread-scheduled',
       key: 'handoff',
@@ -135,7 +136,6 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
         runAgent: harness.runner.runAgent as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     expect(harness.runner.calls).toHaveLength(1);
@@ -159,6 +159,36 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
       job_id: job.id,
       status: 'completed',
       result_summary: 'runtime flow completed',
+    });
+    const persistedRuns = await runtime.service.db
+      .select({
+        id: pgSchema.agentRunsPostgres.id,
+        sessionId: pgSchema.agentRunsPostgres.sessionId,
+        jobId: pgSchema.agentRunsPostgres.jobId,
+        cause: pgSchema.agentRunsPostgres.cause,
+      })
+      .from(pgSchema.agentRunsPostgres);
+    expect(
+      persistedRuns
+        .filter((row) => row.jobId === job.id)
+        .map((row) => ({
+          id: row.id,
+          sessionId: row.sessionId,
+          cause: row.cause,
+        })),
+    ).toEqual([
+      {
+        id: runs[0]?.run_id,
+        sessionId: null,
+        cause: 'job',
+      },
+    ]);
+    expect(
+      persistedRuns.find((row) => row.id.startsWith('agent-run:')),
+    ).toMatchObject({
+      sessionId: expect.any(String),
+      jobId: null,
+      cause: 'job',
     });
     await expect(runtime.ops.getJobById(job.id)).resolves.toMatchObject({
       status: 'active',
@@ -208,7 +238,6 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
         runAgent: harness.runner.runAgent as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     expect(harness.runner.calls[0]?.input).not.toHaveProperty('sessionId');
@@ -270,7 +299,6 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
         runAgent: harness.runner.runAgent as never,
       },
       'tg:scheduler',
-      'serialized',
     );
 
     expect(harness.channel.streams).toHaveLength(0);
@@ -278,12 +306,12 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
       expect.arrayContaining([
         expect.objectContaining({
           jid: 'tg:scheduler',
-          text: expect.stringContaining('Scheduler started: Job'),
+          text: expect.stringContaining('Running: Job'),
           threadId: job.thread_id,
         }),
         expect.objectContaining({
           jid: 'tg:scheduler',
-          text: expect.stringContaining('Scheduler completed: Job'),
+          text: expect.stringContaining('Completed: Job'),
           threadId: job.thread_id,
         }),
       ]),
@@ -362,7 +390,6 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
         runAgent: harness.runner.runAgent as never,
       },
       'tg:scheduler',
-      'serialized',
       {
         triggerId: 'trigger:job:integration:dead-letter',
         scheduledFor: now,

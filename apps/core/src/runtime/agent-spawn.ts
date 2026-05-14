@@ -25,7 +25,10 @@ import {
   getHostRuntimeCredentialEnv,
   prepareHostRuntimeContext,
 } from './agent-spawn-host.js';
-import type { MaterializedMcpCapability } from '../application/mcp/mcp-server-service.js';
+import {
+  McpServerService,
+  type MaterializedMcpCapability,
+} from '../application/mcp/mcp-server-service.js';
 import {
   applyOpenRouterSdkEnv,
   materializeClaudeRuntime,
@@ -35,7 +38,7 @@ import {
   ArtifactClaudeSkillSource,
   BundledClaudeSkillSource,
   CompositeSkillSource,
-  RuntimeInstalledAgentBrowserSkillSource,
+  RuntimeInstalledMyClawBrowserSkillSource,
   type SkillSource,
 } from '../adapters/llm/anthropic-claude-agent/claude-skill-materializer.js';
 import { ensureGroupIpcLayout } from './agent-spawn-layout.js';
@@ -59,13 +62,8 @@ import {
   RunAgentOptions,
 } from './agent-spawn-types.js';
 import { selectedMemoryIpcActionsFromToolRules } from '../shared/memory-ipc-actions.js';
-import {
-  BROWSER_ACTION_MCP_RULE_REJECTION_REASON,
-  BROWSER_PROJECTED_MCP_RULE_REJECTION_REASON,
-  isBrowserActionMcpToolRule,
-  isCanonicalBrowserCapabilityRule,
-  isProjectedBrowserMcpToolRule,
-} from '../shared/agent-tool-references.js';
+import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
+import { validateAgentToolRuntimeRules } from '../application/agents/agent-tool-runtime-rules.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 
 type RunnerAgentInput = AgentInput & {
@@ -109,6 +107,18 @@ function pickSafeHostEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env;
 }
 
+function validateRunnerAllowedTools(rules: readonly string[]): string | null {
+  try {
+    validateAgentToolRuntimeRules({
+      rules,
+      errorSubject: 'Configured agent tool',
+    });
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
 export async function spawnAgent(
   group: ConversationRoute,
   input: AgentInput,
@@ -147,24 +157,14 @@ export async function spawnAgent(
   const effectiveModelEntry =
     (resolvedModel?.ok ? resolvedModel.entry : undefined) ??
     findModelByRunnerModel(effectiveModel);
-  const rawBrowserActionRule = input.allowedTools?.find(
-    isBrowserActionMcpToolRule,
+  const allowedToolValidationError = validateRunnerAllowedTools(
+    input.allowedTools ?? [],
   );
-  if (rawBrowserActionRule) {
+  if (allowedToolValidationError) {
     return {
       status: 'error',
       result: null,
-      error: `Configured agent tool ${rawBrowserActionRule} is invalid. ${BROWSER_ACTION_MCP_RULE_REJECTION_REASON}`,
-    };
-  }
-  const projectedBrowserRule = input.allowedTools?.find(
-    isProjectedBrowserMcpToolRule,
-  );
-  if (projectedBrowserRule) {
-    return {
-      status: 'error',
-      result: null,
-      error: `Configured agent tool ${projectedBrowserRule} is invalid. ${BROWSER_PROJECTED_MCP_RULE_REJECTION_REASON}`,
+      error: allowedToolValidationError,
     };
   }
   const promptProfileService = getPromptProfileService();
@@ -248,7 +248,7 @@ export async function spawnAgent(
         'Host runtime is missing required runner files. Reinstall MyClaw from npm and restart.',
     };
   }
-  let claudeRuntimeMaterialization: Awaited<
+  let llmRuntimeMaterialization: Awaited<
     ReturnType<typeof materializeClaudeRuntime>
   >;
   let packageRoot = '';
@@ -256,8 +256,10 @@ export async function spawnAgent(
     packageRoot = resolvePackageRootFromSourceDir(path.dirname(hostRunnerPath));
     const skillSources: SkillSource[] = [
       new BundledClaudeSkillSource(packageRoot),
-      new RuntimeInstalledAgentBrowserSkillSource(),
     ];
+    if (browserIpcEnabled) {
+      skillSources.push(new RuntimeInstalledMyClawBrowserSkillSource());
+    }
     if (
       options?.skillRepository &&
       options.skillArtifactStore &&
@@ -275,7 +277,7 @@ export async function spawnAgent(
         ),
       );
     }
-    claudeRuntimeMaterialization = await materializeClaudeRuntime({
+    llmRuntimeMaterialization = await materializeClaudeRuntime({
       groupDir,
       globalDir: hostRuntime.globalDir,
       baseTempDir: path.join(groupDir, '.llm-runtime'),
@@ -305,12 +307,35 @@ export async function spawnAgent(
     appId: runnerAppId,
     agentId: input.agentId,
   });
+  const selectedMcpServerIds = input.selectedMcpServerIds ?? [];
+  const allMcpCapabilities: MaterializedMcpCapability[] =
+    options?.mcpServerRepository &&
+    options.mcpContext?.appId &&
+    options.mcpContext.agentId &&
+    selectedMcpServerIds.length > 0
+      ? await new McpServerService(options.mcpServerRepository, undefined, {
+          lookupHostname: options.mcpHostnameLookup,
+          dnsValidationCache: options.mcpDnsValidationCache,
+        }).materializeForAgent({
+          appId: options.mcpContext.appId as never,
+          agentId: options.mcpContext.agentId as never,
+          serverIds: selectedMcpServerIds as never,
+          credentialEnv: (
+            await getHostRuntimeCredentialEnv(
+              agentIdentifier,
+              options.credentialBroker,
+              { purpose: 'tool_capability' },
+            )
+          ).env,
+        })
+      : [];
   const memoryIpcAllowedActions = selectedMemoryIpcActionsFromToolRules(
     trustedAllowedTools ?? [],
   );
   const modelCredentialEnv = projectClaudeModelCredentialEnv(
     hostCredentials.env,
   );
+  const { claudeConfigDir } = llmRuntimeMaterialization;
   const env: NodeJS.ProcessEnv = {
     ...pickSafeHostEnv(process.env),
     TZ: TIMEZONE,
@@ -330,6 +355,8 @@ export async function spawnAgent(
     MYCLAW_IPC_INPUT_DIR: ipcInputDir,
     MYCLAW_IPC_AUTH_TOKEN: ipcAuth.authToken,
     MYCLAW_CHAT_JID: input.chatJid,
+    ...(input.jobId ? { MYCLAW_JOB_ID: input.jobId } : {}),
+    ...(input.runId ? { MYCLAW_JOB_RUN_ID: input.runId } : {}),
     ...(browserIpcEnabled
       ? {
           MYCLAW_BROWSER_IPC_AUTH_TOKEN: computeBrowserIpcAuthToken(
@@ -359,7 +386,7 @@ export async function spawnAgent(
       PERMISSION_APPROVAL_TIMEOUT_MS,
     ),
     MYCLAW_PERMISSION_TIMEOUT_MS: String(PERMISSION_APPROVAL_TIMEOUT_MS),
-    CLAUDE_CONFIG_DIR: claudeRuntimeMaterialization.claudeConfigDir,
+    CLAUDE_CONFIG_DIR: claudeConfigDir,
   };
   applyAgentEgressNoProxyEnv(env);
   // Job-level model overrides group-level model.
@@ -378,7 +405,6 @@ export async function spawnAgent(
   if (Object.keys(serializedModelCredentialEnv).length > 0) {
     runnerInput.modelCredentialEnv = serializedModelCredentialEnv;
   }
-  let allMcpCapabilities: MaterializedMcpCapability[] = [];
   const mcpConfigPath =
     allMcpCapabilities.length > 0
       ? writeRunnerMcpConfigFile(hostRuntime.groupIpcDir, allMcpCapabilities)
@@ -396,11 +422,8 @@ export async function spawnAgent(
   }
   env[PROTECTED_FILESYSTEM_PATHS_ENV] = JSON.stringify(
     mcpConfigPath
-      ? [
-          ...claudeRuntimeMaterialization.protectedFilesystemPaths,
-          mcpConfigPath,
-        ]
-      : claudeRuntimeMaterialization.protectedFilesystemPaths,
+      ? [...llmRuntimeMaterialization.protectedFilesystemPaths, mcpConfigPath]
+      : llmRuntimeMaterialization.protectedFilesystemPaths,
   );
 
   const runtimeDetails = [
@@ -472,7 +495,7 @@ export async function spawnAgent(
       });
     }
     cleanupRunnerMcpConfigFile(mcpConfigPath);
-    claudeRuntimeMaterialization.cleanup();
+    llmRuntimeMaterialization.cleanup();
     revokeIpcResponseSigningKey(
       ipcAuth.responseKeyId,
       group.folder,

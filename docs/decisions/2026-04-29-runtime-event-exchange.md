@@ -43,7 +43,7 @@ webhook delivery rows in the same transaction as the runtime event.
 
 Runtime event types remain explicit strings. Initial active families are:
 
-- `session.message.accepted`
+- `session.message.inbound`
 - `session.message.outbound`
 - `session.message.streaming`
 - `session.typing`
@@ -52,6 +52,8 @@ Runtime event types remain explicit strings. Initial active families are:
 - `job.run.started`
 - `job.started`
 - `job.streaming`
+- `job.tool_denied`
+- `job.tool_activity`
 - `job.completed`
 - `job.failed`
 - `job.run.completed`
@@ -61,6 +63,12 @@ Runtime event types remain explicit strings. Initial active families are:
 
 New event families require an owner and tests for publish/query/projection
 behavior.
+
+Runtime events are also mirrored into the local event bus outbox in the same
+Postgres transaction as the `runtime_events` append. Broker adapters such as
+SNS/SQS or Kafka may later dispatch from that outbox, but they must not create
+parallel runtime event writers, compatibility aliases, or alternate event
+taxonomies.
 
 ## Boundaries
 

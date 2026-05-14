@@ -4,6 +4,7 @@ import type {
   UserQuestionRequest,
   UserQuestionResponse,
 } from '../../domain/types.js';
+import { formatDuration } from '../../shared/human-format.js';
 import { PERMISSION_APPROVAL_TIMEOUT_MS } from '../../shared/permission-timeout.js';
 
 type ChannelLike = object;
@@ -41,7 +42,7 @@ const permissionTimeoutDecision = (
 ): PermissionApprovalDecision => ({
   approved: false,
   decidedBy: 'system',
-  reason: `Permission approval timed out after ${PERMISSION_APPROVAL_TIMEOUT_MS}ms for ${request.toolName}. Recovery: retry the request or approve a narrower persistent rule from the originating conversation.`,
+  reason: `Permission approval timed out after ${formatDuration(PERMISSION_APPROVAL_TIMEOUT_MS)} for ${request.toolName}. Recovery: retry the request or approve the scoped rule from the originating conversation.`,
   decisionClassification: 'user_reject',
 });
 

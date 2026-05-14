@@ -8,6 +8,12 @@ import type {
   RuntimeEventPublisherPort,
   SchedulerRunNowInput,
 } from './job-management-types.js';
+import {
+  evaluateManagedJobReadiness,
+  pauseJobForSetup,
+  setupBlockerDetails,
+} from './job-management-readiness.js';
+import { agentIdForJobGroupScope } from './job-tool-policy.js';
 
 function requireControl(deps: JobManagementServiceDeps): JobControlPort {
   if (!deps.control) {
@@ -63,6 +69,26 @@ export async function runSchedulerJobNowFromMcp(
       `scheduler_run_now requires an active job; current status is ${job.status}.`,
     );
   }
+  const appSession = job.session_id
+    ? await control.getAppSessionById(job.session_id)
+    : undefined;
+  const readinessAppId =
+    appSession?.appId ??
+    (job.session_id ? `unresolved:${job.session_id}` : undefined);
+  const readiness = await evaluateManagedJobReadiness({
+    deps,
+    job,
+    appId: readinessAppId,
+    agentId: agentIdForJobGroupScope(input.access.sourceAgentFolder),
+  });
+  if (!readiness.ready) {
+    await pauseJobForSetup({ deps, job, readiness });
+    throw new ApplicationError(
+      'CONFLICT',
+      'scheduler_run_now requires setup before the job can be queued.',
+      { details: setupBlockerDetails(readiness.setupState) },
+    );
+  }
   if (!triggerQueue.isReady()) {
     throw new ApplicationError(
       'SCHEDULER_NOT_READY',
@@ -88,9 +114,6 @@ export async function runSchedulerJobNowFromMcp(
       err instanceof Error ? err.message : 'Failed to enqueue scheduler run',
     );
   }
-  const appSession = job.session_id
-    ? await control.getAppSessionById(job.session_id)
-    : undefined;
   const appId = appSession?.appId;
   if (appId) {
     await runtimeEvents.publish({

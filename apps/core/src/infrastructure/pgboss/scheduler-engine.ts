@@ -5,9 +5,11 @@ import {
   STORAGE_POSTGRES_SCHEMA,
   STORAGE_POSTGRES_URL,
   TIMEZONE,
+  getRuntimeQueueConfig,
 } from '../../config/index.js';
 import { logger } from '../logging/logger.js';
-import type { Job, JobExecutionMode } from '../../domain/types.js';
+import type { Job } from '../../domain/types.js';
+import type { ReleasedStaleJobLease } from '../../domain/repositories/ops-repo.js';
 import { getRuntimeControlRepository } from '../../adapters/storage/postgres/runtime-store.js';
 import { acquireRunSlot } from '../../jobs/concurrency.js';
 import { validateScheduleConfig } from '../../jobs/schedule.js';
@@ -21,11 +23,11 @@ import {
 } from '../../shared/scheduler-job-staleness.js';
 import { nowMs as currentTimeMs, toIso } from '../../shared/time/datetime.js';
 
-const SCHEDULER_QUEUE_PARALLEL = 'myclaw.jobs.parallel';
-const SCHEDULER_QUEUE_SERIALIZED = 'myclaw.jobs.serialized';
+const SCHEDULER_QUEUE = 'myclaw.jobs';
 const SCHEDULER_QUEUE_DEAD_LETTER = 'myclaw.jobs.dead_letter';
 const PGBOSS_KEY_PREFIX = 'myclaw';
 const STALE_ONCE_REENQUEUE_THROTTLE_MS = 60_000;
+export const SCHEDULER_MAINTENANCE_SYNC_INTERVAL_MS = 60_000;
 
 interface PgBossSchedulerCallbacks {
   registerSystemJobs: (deps: SchedulerDependencies) => Promise<void>;
@@ -33,16 +35,13 @@ interface PgBossSchedulerCallbacks {
     job: Job,
     deps: SchedulerDependencies,
     queueJid: string,
-    executionModeHint?: JobExecutionMode,
     dispatch?: SchedulerDispatchPayload,
   ) => Promise<void>;
   sweepCompletedOneTimeJobs: (deps: SchedulerDependencies) => Promise<boolean>;
-}
-
-function jobQueueName(job: Pick<Job, 'execution_mode'>): string {
-  return job.execution_mode === 'serialized'
-    ? SCHEDULER_QUEUE_SERIALIZED
-    : SCHEDULER_QUEUE_PARALLEL;
+  handleReleasedStaleLeases?: (
+    releases: readonly ReleasedStaleJobLease[],
+    deps: SchedulerDependencies,
+  ) => Promise<void>;
 }
 
 function pgBossKey(kind: string, value: string): string {
@@ -97,6 +96,7 @@ export class PgBossSchedulerEngine {
   private fullSyncRequested = false;
   private readonly pendingJobSyncs = new Set<string>();
   private readonly scheduleSignatures = new Map<string, string>();
+  private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly deps: SchedulerDependencies,
@@ -121,33 +121,27 @@ export class PgBossSchedulerEngine {
     await boss.start();
     this.boss = boss;
     await this.ensureQueues();
+    const queuePolicy = getRuntimeQueueConfig();
+    await this.releaseInterruptedStartupLeases();
     await boss.work<SchedulerDispatchPayload>(
-      SCHEDULER_QUEUE_PARALLEL,
+      SCHEDULER_QUEUE,
       {
         batchSize: 1,
         pollingIntervalSeconds: 1,
-        localConcurrency: 4,
+        localConcurrency: queuePolicy.maxJobRuns,
       },
-      (jobs) => this.processBossJobs(jobs, 'parallel'),
-    );
-    await boss.work<SchedulerDispatchPayload>(
-      SCHEDULER_QUEUE_SERIALIZED,
-      {
-        batchSize: 1,
-        pollingIntervalSeconds: 1,
-        localConcurrency: 4,
-        groupConcurrency: 1,
-      },
-      (jobs) => this.processBossJobs(jobs, 'serialized'),
+      (jobs) => this.processBossJobs(jobs),
     );
     await this.syncAllJobs();
     this.ready = true;
+    this.startMaintenanceTimer();
   }
 
   async stop(): Promise<void> {
     const boss = this.boss;
     this.ready = false;
     this.boss = null;
+    this.stopMaintenanceTimer();
     await boss?.stop({ graceful: true, close: true, timeout: 10_000 });
   }
 
@@ -175,6 +169,24 @@ export class PgBossSchedulerEngine {
       });
   }
 
+  private startMaintenanceTimer(): void {
+    if (this.maintenanceTimer) return;
+    const timer = setInterval(
+      () => this.requestSync(),
+      SCHEDULER_MAINTENANCE_SYNC_INTERVAL_MS,
+    );
+    (
+      timer as ReturnType<typeof setInterval> & { unref?: () => void }
+    ).unref?.();
+    this.maintenanceTimer = timer;
+  }
+
+  private stopMaintenanceTimer(): void {
+    if (!this.maintenanceTimer) return;
+    clearInterval(this.maintenanceTimer);
+    this.maintenanceTimer = null;
+  }
+
   async enqueueTrigger(
     jobId: string,
     triggerId: string,
@@ -188,7 +200,7 @@ export class PgBossSchedulerEngine {
     if (!job) throw new Error(`Job not found: ${jobId}`);
     if (!trigger) throw new Error(`Trigger not found: ${triggerId}`);
     await boss.send(
-      jobQueueName(job),
+      SCHEDULER_QUEUE,
       {
         jobId,
         runId: options?.runId,
@@ -209,13 +221,7 @@ export class PgBossSchedulerEngine {
       policy: 'standard',
       retentionSeconds: 14 * 24 * 60 * 60,
     });
-    await boss.createQueue(SCHEDULER_QUEUE_PARALLEL, {
-      policy: 'standard',
-      retryLimit: 0,
-      deadLetter: SCHEDULER_QUEUE_DEAD_LETTER,
-      retentionSeconds: 14 * 24 * 60 * 60,
-    });
-    await boss.createQueue(SCHEDULER_QUEUE_SERIALIZED, {
+    await boss.createQueue(SCHEDULER_QUEUE, {
       policy: 'standard',
       retryLimit: 0,
       deadLetter: SCHEDULER_QUEUE_DEAD_LETTER,
@@ -243,8 +249,12 @@ export class PgBossSchedulerEngine {
     const boss = this.requireBoss();
     await this.callbacks.registerSystemJobs(this.deps);
     const released = await this.deps.opsRepository.releaseStaleJobLeases();
-    if (released > 0) {
-      logger.warn({ count: released }, 'Released stale scheduler leases');
+    if (released.length > 0) {
+      logger.warn(
+        { count: released.length },
+        'Released stale scheduler leases',
+      );
+      await this.callbacks.handleReleasedStaleLeases?.(released, this.deps);
       this.scheduleSignatures.clear();
       this.deps.onSchedulerChanged?.();
     }
@@ -258,6 +268,28 @@ export class PgBossSchedulerEngine {
     for (const jobId of this.scheduleSignatures.keys()) {
       if (!liveJobIds.has(jobId)) await this.clearDeletedJob(boss, jobId);
     }
+  }
+
+  private async releaseInterruptedStartupLeases(): Promise<void> {
+    const releaseInterrupted =
+      this.deps.opsRepository.releaseInterruptedJobLeases;
+    if (!releaseInterrupted) return;
+    const released = await releaseInterrupted.call(this.deps.opsRepository);
+    if (released.length === 0) return;
+    logger.warn(
+      {
+        count: released.length,
+        releases: released.map((release) => ({
+          jobId: release.jobId,
+          runId: release.runId,
+          runTimedOut: release.runTimedOut,
+        })),
+      },
+      'Released interrupted scheduler leases after runtime startup',
+    );
+    await this.callbacks.handleReleasedStaleLeases?.(released, this.deps);
+    this.scheduleSignatures.clear();
+    this.deps.onSchedulerChanged?.();
   }
 
   private async syncOneJob(jobId: string): Promise<void> {
@@ -300,7 +332,7 @@ export class PgBossSchedulerEngine {
     if (job.schedule_type === 'manual') return;
     if (job.schedule_type === 'cron') {
       await boss.schedule(
-        jobQueueName(job),
+        SCHEDULER_QUEUE,
         job.schedule_value,
         { jobId: job.id },
         {
@@ -323,7 +355,7 @@ export class PgBossSchedulerEngine {
       );
     }
     await boss.send(
-      jobQueueName(job),
+      SCHEDULER_QUEUE,
       {
         jobId: job.id,
         scheduledFor: job.next_run,
@@ -349,7 +381,6 @@ export class PgBossSchedulerEngine {
         nowMs,
         STALE_ONCE_REENQUEUE_THROTTLE_MS,
       ),
-      executionMode: job.execution_mode,
       groupScope: job.group_scope,
     });
   }
@@ -362,40 +393,24 @@ export class PgBossSchedulerEngine {
   private async clearBossSchedule(boss: PgBoss, jobId: string): Promise<void> {
     const jobKey = pgBossJobKey(jobId);
     await Promise.allSettled([
-      boss.unschedule(SCHEDULER_QUEUE_PARALLEL, jobKey),
-      boss.unschedule(SCHEDULER_QUEUE_SERIALIZED, jobKey),
-      boss.deleteJob(SCHEDULER_QUEUE_PARALLEL, pgBossSendId(jobId, 'once')),
-      boss.deleteJob(SCHEDULER_QUEUE_SERIALIZED, pgBossSendId(jobId, 'once')),
-      boss.deleteJob(SCHEDULER_QUEUE_PARALLEL, pgBossSendId(jobId, 'interval')),
-      boss.deleteJob(
-        SCHEDULER_QUEUE_SERIALIZED,
-        pgBossSendId(jobId, 'interval'),
-      ),
+      boss.unschedule(SCHEDULER_QUEUE, jobKey),
+      boss.deleteJob(SCHEDULER_QUEUE, pgBossSendId(jobId, 'once')),
+      boss.deleteJob(SCHEDULER_QUEUE, pgBossSendId(jobId, 'interval')),
     ]);
   }
 
   private async processBossJobs(
     jobs: PgBossJob<SchedulerDispatchPayload>[],
-    mode: JobExecutionMode,
   ): Promise<void> {
     for (const bossJob of jobs) {
       const payload = bossJob.data;
       if (!payload?.jobId) continue;
       const current = await this.deps.opsRepository.getJobById(payload.jobId);
       if (!current) continue;
-      const queueJid =
-        mode === 'serialized'
-          ? schedulerQueueJid(current.group_scope)
-          : schedulerQueueJid(current.group_scope, current.id);
-      const releaseSlot = acquireRunSlot(current.group_scope, mode);
+      const queueJid = schedulerQueueJid(current.group_scope, current.id);
+      const releaseSlot = await acquireRunSlot(current.group_scope);
       try {
-        await this.callbacks.runJob(
-          current,
-          this.deps,
-          queueJid,
-          mode,
-          payload,
-        );
+        await this.callbacks.runJob(current, this.deps, queueJid, payload);
       } catch (err) {
         logger.warn(
           { err, jobId: current.id, queueJid },

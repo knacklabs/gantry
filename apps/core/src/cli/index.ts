@@ -55,7 +55,7 @@ function usage(): string {
     '  myclaw conversation info|approvers  # direct/private and group/channel permission approvers',
     '  myclaw agent list|info|add|remove|trigger|policy',
     '  myclaw browser profiles|status',
-    '  myclaw jobs list|show',
+    '  myclaw jobs list|show|events',
     '  myclaw model list|set-default|doctor',
     '  myclaw settings export-current|drift',
     '  myclaw service install|start|stop|restart',

@@ -1,21 +1,22 @@
-import { and, desc, eq, gt, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 
 import type { JobRun } from '../../../../domain/repositories/domain-types.js';
-import type {
-  JobListFilters,
-  JobRunListFilters,
-} from '../../../../domain/repositories/ops-repo.js';
-import { RUNTIME_EVENT_TYPES } from '../../../../domain/events/runtime-event-types.js';
+// prettier-ignore
+import type { JobListFilters, JobRunListFilters, ReleasedStaleJobLease } from '../../../../domain/repositories/ops-repo.js';
+// prettier-ignore
+import { RUNTIME_EVENT_TYPES, type RuntimeEventType } from '../../../../domain/events/runtime-event-types.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import {
   CANONICAL_APP_ID,
   type CanonicalDb,
-  DEFAULT_LLM_PROFILE_ID,
   PostgresCanonicalGraphRepository,
   configVersionIdForAgent,
   parseJson,
 } from './canonical-graph-repository.postgres.js';
+// prettier-ignore
+import { releaseInterruptedCanonicalJobLeases, releaseStaleCanonicalJobLeases } from './canonical-job-lease-release.postgres.js';
+import { insertCanonicalJobRun } from './canonical-job-run-insert.postgres.js';
 
 export interface CanonicalJobRecord {
   id: string;
@@ -25,7 +26,6 @@ export interface CanonicalJobRecord {
   model: string | null;
   scheduleJson: string;
   status: string;
-  executionMode: string;
   targetJson: string;
   silent: boolean;
   timeoutMs: number;
@@ -47,7 +47,6 @@ export interface JobRecordInput {
   model: string | null;
   scheduleJson: string;
   status: string;
-  executionMode: string;
   targetJson: string;
   silent: boolean;
   timeoutMs: number;
@@ -63,6 +62,7 @@ export interface JobRecordInput {
 
 export interface CanonicalRunRecord {
   id: string;
+  shortId: number | null;
   jobId: string | null;
   status: string;
   createdAt: string;
@@ -70,6 +70,7 @@ export interface CanonicalRunRecord {
   endedAt: string | null;
   resultSummary: string | null;
   errorSummary: string | null;
+  notifiedAt: string | null;
 }
 
 export interface CanonicalJobEventRecord {
@@ -87,7 +88,19 @@ const CANONICAL_JOB_EVENT_TYPES = [
   RUNTIME_EVENT_TYPES.JOB_RUN_STARTED,
   RUNTIME_EVENT_TYPES.JOB_STARTED,
   RUNTIME_EVENT_TYPES.JOB_STREAMING,
+  RUNTIME_EVENT_TYPES.JOB_HEARTBEAT,
+  RUNTIME_EVENT_TYPES.JOB_SETUP_REQUIRED,
   RUNTIME_EVENT_TYPES.JOB_TOOL_DENIED,
+  RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+  RUNTIME_EVENT_TYPES.TASK_NOTIFICATION,
+  RUNTIME_EVENT_TYPES.PERMISSION_REQUESTED,
+  RUNTIME_EVENT_TYPES.PERMISSION_ALLOWED,
+  RUNTIME_EVENT_TYPES.PERMISSION_DENIED,
+  RUNTIME_EVENT_TYPES.PERMISSION_CANCELLED,
+  RUNTIME_EVENT_TYPES.PERMISSION_PERSISTED,
+  RUNTIME_EVENT_TYPES.PERMISSION_RESUMED,
+  RUNTIME_EVENT_TYPES.PERMISSION_FINAL_OUTCOME,
+  RUNTIME_EVENT_TYPES.SANDBOX_BLOCKED,
   RUNTIME_EVENT_TYPES.RUN_COMPLETED,
   RUNTIME_EVENT_TYPES.RUN_FAILED,
   RUNTIME_EVENT_TYPES.RUN_TIMEOUT,
@@ -122,20 +135,20 @@ function ownedByAppClause(jobId: unknown, ownerAppId?: string) {
         select 1
         from ${pgSchema.canonicalJobsPostgres} owned_job
         join ${pgSchema.controlHttpSessionsPostgres} app_session
-          on app_session.session_id = owned_job.target_json::jsonb #>> '{executionContext,sessionId}'
+          on (app_session.session_id = owned_job.target_json::jsonb #>> '{executionContext,sessionId}'
+            or app_session.external_ref_json::jsonb->>'chatJid' = owned_job.target_json::jsonb #>> '{executionContext,conversationJid}')
         where owned_job.id = ${jobId}
           and app_session.app_id = ${ownerAppId}
       )`
     : undefined;
 }
 
-function canonicalJobSessionId() {
-  return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,sessionId}'`;
-}
-
-function canonicalJobGroupScope() {
-  return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,groupScope}'`;
-}
+// prettier-ignore
+function canonicalJobSessionId() { return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,sessionId}'`; }
+// prettier-ignore
+function canonicalJobConversationJid() { return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,conversationJid}'`; }
+// prettier-ignore
+function canonicalJobGroupScope() { return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,groupScope}'`; }
 
 function canonicalJobThreadId() {
   return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,threadId}'`;
@@ -175,7 +188,8 @@ export class PostgresCanonicalJobRepository {
         ? sql`exists (
             select 1
             from ${pgSchema.controlHttpSessionsPostgres} app_session
-            where app_session.session_id = ${canonicalJobSessionId()}
+            where (app_session.session_id = ${canonicalJobSessionId()}
+              or app_session.external_ref_json::jsonb->>'chatJid' = ${canonicalJobConversationJid()})
               and app_session.app_id = ${filters.appId}
           )`
         : undefined,
@@ -231,7 +245,6 @@ export class PostgresCanonicalJobRepository {
           model: record.model,
           scheduleJson: record.scheduleJson,
           status: record.status,
-          executionMode: record.executionMode,
           targetJson: record.targetJson,
           silent: record.silent,
           timeoutMs: record.timeoutMs,
@@ -304,24 +317,16 @@ export class PostgresCanonicalJobRepository {
     });
   }
 
-  async releaseStaleLeases(nowIso: string = currentIso()): Promise<number> {
-    const rows = await this.db
-      .update(pgSchema.canonicalJobsPostgres)
-      .set({
-        status: 'active',
-        leaseRunId: null,
-        leaseExpiresAt: null,
-        updatedAt: nowIso,
-      })
-      .where(
-        and(
-          eq(pgSchema.canonicalJobsPostgres.status, 'running'),
-          isNotNull(pgSchema.canonicalJobsPostgres.leaseExpiresAt),
-          lt(pgSchema.canonicalJobsPostgres.leaseExpiresAt, nowIso),
-        ),
-      )
-      .returning({ id: pgSchema.canonicalJobsPostgres.id });
-    return rows.length;
+  async releaseStaleLeases(
+    nowIso: string = currentIso(),
+  ): Promise<ReleasedStaleJobLease[]> {
+    return releaseStaleCanonicalJobLeases(this.db, nowIso);
+  }
+
+  async releaseInterruptedLeases(
+    nowIso: string = currentIso(),
+  ): Promise<ReleasedStaleJobLease[]> {
+    return releaseInterruptedCanonicalJobLeases(this.db, nowIso);
   }
 
   async insertRun(
@@ -331,26 +336,12 @@ export class PostgresCanonicalJobRepository {
       | Parameters<Parameters<CanonicalDb['transaction']>[0]>[0] = this.db,
   ): Promise<boolean> {
     const graph = await this.ensureJobRunGraph(run.job_id, executor);
-    const rows = await executor
-      .insert(pgSchema.agentRunsPostgres)
-      .values({
-        id: run.run_id,
-        appId: CANONICAL_APP_ID,
-        agentId: graph.agentId,
-        configVersionId: graph.configVersionId,
-        jobId: run.job_id,
-        llmProfileId: DEFAULT_LLM_PROFILE_ID,
-        cause: 'job',
-        status: run.status,
-        createdAt: run.scheduled_for || run.started_at,
-        startedAt: run.started_at,
-        endedAt: run.ended_at,
-        resultSummary: run.result_summary,
-        errorSummary: run.error_summary,
-      })
-      .onConflictDoNothing()
-      .returning({ id: pgSchema.agentRunsPostgres.id });
-    return rows.length > 0;
+    return insertCanonicalJobRun({
+      run,
+      executor,
+      graph,
+      nextRunShortId: (jobId) => this.nextRunShortId(jobId, executor),
+    });
   }
 
   async updateRunCompletion(
@@ -370,6 +361,13 @@ export class PostgresCanonicalJobRepository {
         resultSummary: input.resultSummary,
         errorSummary: input.errorSummary,
       })
+      .where(eq(pgSchema.agentRunsPostgres.id, runId));
+  }
+
+  async markRunNotified(runId: string, notifiedAt: string): Promise<void> {
+    await this.db
+      .update(pgSchema.agentRunsPostgres)
+      .set({ notifiedAt })
       .where(eq(pgSchema.agentRunsPostgres.id, runId));
   }
 
@@ -394,6 +392,7 @@ export class PostgresCanonicalJobRepository {
     const query = this.db.select().from(pgSchema.agentRunsPostgres).$dynamic();
     const clauses = [
       jobId ? eq(pgSchema.agentRunsPostgres.jobId, jobId) : undefined,
+      isNull(pgSchema.agentRunsPostgres.sessionId),
       !jobId && filters?.jobIds?.length
         ? inArray(pgSchema.agentRunsPostgres.jobId, filters.jobIds)
         : undefined,
@@ -420,6 +419,7 @@ export class PostgresCanonicalJobRepository {
   ): Promise<CanonicalRunRecord[]> {
     const clauses = [
       eq(pgSchema.controlHttpSessionsPostgres.appId, ownerAppId),
+      isNull(pgSchema.agentRunsPostgres.sessionId),
       filters?.jobIds?.length
         ? inArray(pgSchema.agentRunsPostgres.jobId, filters.jobIds)
         : undefined,
@@ -427,6 +427,7 @@ export class PostgresCanonicalJobRepository {
     return this.db
       .select({
         id: pgSchema.agentRunsPostgres.id,
+        shortId: pgSchema.agentRunsPostgres.shortId,
         jobId: pgSchema.agentRunsPostgres.jobId,
         status: pgSchema.agentRunsPostgres.status,
         createdAt: pgSchema.agentRunsPostgres.createdAt,
@@ -434,11 +435,13 @@ export class PostgresCanonicalJobRepository {
         endedAt: pgSchema.agentRunsPostgres.endedAt,
         resultSummary: pgSchema.agentRunsPostgres.resultSummary,
         errorSummary: pgSchema.agentRunsPostgres.errorSummary,
+        notifiedAt: pgSchema.agentRunsPostgres.notifiedAt,
       })
       .from(pgSchema.controlHttpSessionsPostgres)
       .innerJoin(
         pgSchema.canonicalJobsPostgres,
-        sql`${pgSchema.controlHttpSessionsPostgres.sessionId} = ${canonicalJobSessionId()}`,
+        sql`(${pgSchema.controlHttpSessionsPostgres.sessionId} = ${canonicalJobSessionId()}
+          or ${pgSchema.controlHttpSessionsPostgres.externalRefJson}::jsonb->>'chatJid' = ${canonicalJobConversationJid()})`,
       )
       .innerJoin(
         pgSchema.agentRunsPostgres,
@@ -456,7 +459,12 @@ export class PostgresCanonicalJobRepository {
     return this.db
       .select()
       .from(pgSchema.agentRunsPostgres)
-      .where(eq(pgSchema.agentRunsPostgres.status, 'dead_lettered'))
+      .where(
+        and(
+          eq(pgSchema.agentRunsPostgres.status, 'dead_lettered'),
+          isNull(pgSchema.agentRunsPostgres.sessionId),
+        ),
+      )
       .orderBy(
         sql`${pgSchema.agentRunsPostgres.startedAt} DESC NULLS LAST`,
         desc(pgSchema.agentRunsPostgres.createdAt),
@@ -476,25 +484,6 @@ export class PostgresCanonicalJobRepository {
     return rows[0]?.appId;
   }
 
-  async insertEvent(event: {
-    id: string;
-    runId: string;
-    type: string;
-    payloadJson: string;
-    createdAt: string;
-  }): Promise<void> {
-    const payload = parseJson<{ job_id?: string }>(event.payloadJson, {});
-    await this.db.insert(pgSchema.runtimeEventsPostgres).values({
-      appId: CANONICAL_APP_ID,
-      runId: event.runId,
-      jobId: payload.job_id ?? null,
-      eventType: event.type,
-      actor: 'runtime',
-      payloadJson: event.payloadJson,
-      createdAt: event.createdAt,
-    });
-  }
-
   async listEvents(
     limit = 200,
     filters?: {
@@ -503,7 +492,7 @@ export class PostgresCanonicalJobRepository {
       jobIds?: string[];
       ownerAppId?: string;
       runId?: string;
-      eventType?: string;
+      eventType?: RuntimeEventType;
       sinceId?: number;
       since?: string;
     },
@@ -538,10 +527,7 @@ export class PostgresCanonicalJobRepository {
           )
         : undefined,
       filters?.eventType
-        ? eq(
-            pgSchema.runtimeEventsPostgres.eventType,
-            filters.eventType as never,
-          )
+        ? eq(pgSchema.runtimeEventsPostgres.eventType, filters.eventType)
         : inArray(
             pgSchema.runtimeEventsPostgres.eventType,
             CANONICAL_JOB_EVENT_TYPES,
@@ -666,6 +652,21 @@ export class PostgresCanonicalJobRepository {
       executor,
     );
     return { agentId, configVersionId: configVersionIdForAgent(agentId) };
+  }
+  private async nextRunShortId(
+    jobId: string,
+    executor:
+      | CanonicalDb
+      | Parameters<Parameters<CanonicalDb['transaction']>[0]>[0],
+  ): Promise<number> {
+    const rows = await executor
+      .select({
+        nextShortId: sql<number>`coalesce(max(${pgSchema.agentRunsPostgres.shortId}), 0) + 1`,
+      })
+      .from(pgSchema.agentRunsPostgres)
+      .where(eq(pgSchema.agentRunsPostgres.jobId, jobId))
+      .limit(1);
+    return Number(rows[0]?.nextShortId ?? 1);
   }
 
   private async ensureAgentForRecord(input: {

@@ -10,8 +10,6 @@ import {
   AgentConversationBindingRequestSchema,
   AgentConversationBindingListResponseSchema,
   AgentConversationBindingResponseSchema,
-  BROWSER_BACKEND_TOOL_NAMES,
-  BROWSER_IPC_ACTIONS,
   BrowserProfileResponseSchema,
   ProviderConnectionListResponseSchema,
   ProviderConnectionResponseSchema,
@@ -103,13 +101,6 @@ describe('contracts package', () => {
   it('rejects retired project_fact as a public memory kind', () => {
     expect(MemoryKindSchema.safeParse('project_fact').success).toBe(false);
     expect(MemoryKindSchema.parse('fact')).toBe('fact');
-  });
-
-  it('exports browser IPC actions from the canonical browser module', () => {
-    expect(BROWSER_IPC_ACTIONS).toEqual(BROWSER_BACKEND_TOOL_NAMES);
-    expect(BROWSER_IPC_ACTIONS).toContain('browser_status');
-    expect(BROWSER_IPC_ACTIONS).toContain('browser_navigate');
-    expect(BROWSER_IPC_ACTIONS).toContain('browser_take_screenshot');
   });
 
   it('exports and validates contract primitives', () => {
@@ -239,12 +230,14 @@ describe('contracts package', () => {
           label: 'primary',
         },
       ],
+      requiredTools: ['Browser'],
       kind: 'recurring',
       schedule: { type: 'cron', value: '0 9 * * *' },
       modelAlias: 'sonnet',
     } satisfies CreateJobInput;
     expect(CreateJobRequestSchema.parse(sdkCreatePayload)).toMatchObject({
       name: 'Daily summary',
+      requiredTools: ['Browser'],
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         sessionId: 'session-1',
@@ -338,13 +331,27 @@ describe('contracts package', () => {
       ...sdkCreatePayload,
       threadId: 'legacy-thread',
     });
+    expectInvalid(CreateJobRequestSchema, {
+      ...sdkCreatePayload,
+      executionMode: 'serialized',
+    });
+    expectInvalid(CreateJobRequestSchema, {
+      ...sdkCreatePayload,
+      execution_mode: 'serialized',
+    });
+    expectInvalid(CreateJobRequestSchema, {
+      ...sdkCreatePayload,
+      serialize: true,
+    });
 
     const sdkUpdatePayload = {
       modelAlias: null,
+      requiredTools: ['Browser'],
       status: 'paused',
     } satisfies UpdateJobInput;
     expect(UpdateJobRequestSchema.parse(sdkUpdatePayload)).toEqual({
       modelAlias: null,
+      requiredTools: ['Browser'],
       status: 'paused',
     });
     expectInvalid(UpdateJobRequestSchema, {
@@ -381,6 +388,15 @@ describe('contracts package', () => {
     expectInvalid(UpdateJobRequestSchema, {
       threadId: 'legacy-thread',
     });
+    expectInvalid(UpdateJobRequestSchema, {
+      executionMode: 'serialized',
+    });
+    expectInvalid(UpdateJobRequestSchema, {
+      execution_mode: 'serialized',
+    });
+    expectInvalid(UpdateJobRequestSchema, {
+      serialize: true,
+    });
     expect(
       JobResponseSchema.parse({
         jobId: 'job-1',
@@ -401,10 +417,20 @@ describe('contracts package', () => {
             label: 'primary',
           },
         ],
+        requiredTools: ['Browser'],
+        requiredMcpServers: [],
         nextRun: iso,
         lastRun: null,
         staleness: 'missed_window',
-        executionMode: 'parallel',
+        health: {
+          state: 'needs_permission',
+          latestRunId: 'run-1',
+          latestRunStatus: 'failed',
+          latestSummary: 'Needs permission: Browser',
+          activeRunId: null,
+          leaseExpiresAt: null,
+          nextAction: 'Approve Browser access, then rerun the job.',
+        },
         modelAlias: null,
         modelProfileId: null,
         model: null,
@@ -412,13 +438,15 @@ describe('contracts package', () => {
         sessionId: null,
         toolAccess: {
           inheritedAgentTools: ['Read'],
-          jobExtraTools: [],
           effectiveAllowedTools: ['Read'],
-          source:
-            'inherited agent grants plus target_json.capabilityPolicy.allowedTools',
+          projectedRuntimeTools: [],
+          source: 'inherited target agent capabilities',
         },
       }),
-    ).toMatchObject({ staleness: 'missed_window' });
+    ).toMatchObject({
+      staleness: 'missed_window',
+      health: { state: 'needs_permission' },
+    });
     expectInvalid(JobResponseSchema, {
       jobId: 'job-1',
       name: 'Daily summary',
@@ -433,7 +461,6 @@ describe('contracts package', () => {
       notificationRoutes: [],
       nextRun: iso,
       lastRun: null,
-      executionMode: 'parallel',
       modelAlias: null,
       modelProfileId: null,
       model: null,
@@ -441,10 +468,8 @@ describe('contracts package', () => {
       sessionId: null,
       toolAccess: {
         inheritedAgentTools: ['Read'],
-        jobExtraTools: [],
         effectiveAllowedTools: ['Read'],
-        source:
-          'inherited agent grants plus target_json.capabilityPolicy.allowedTools',
+        source: 'inherited target agent capabilities',
       },
       inheritedTools: ['Read'],
     });
@@ -463,7 +488,6 @@ describe('contracts package', () => {
       nextRun: iso,
       lastRun: null,
       staleness: 'delayed',
-      executionMode: 'parallel',
       modelAlias: null,
       modelProfileId: null,
       model: null,
@@ -480,7 +504,6 @@ describe('contracts package', () => {
       notificationRoutes: [],
       nextRun: iso,
       lastRun: null,
-      executionMode: 'parallel',
       modelAlias: null,
       modelProfileId: null,
       model: null,
@@ -488,10 +511,8 @@ describe('contracts package', () => {
       sessionId: null,
       toolAccess: {
         inheritedAgentTools: ['Read'],
-        jobExtraTools: [],
         effectiveAllowedTools: ['Read'],
-        source:
-          'inherited agent grants plus target_json.capabilityPolicy.allowedTools',
+        source: 'inherited target agent capabilities',
       },
     });
 

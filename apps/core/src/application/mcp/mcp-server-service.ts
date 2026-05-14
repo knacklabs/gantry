@@ -488,8 +488,12 @@ export class McpServerService {
   async materializeForAgent(input: {
     appId: AppId;
     agentId: AgentId;
+    serverIds?: readonly McpServerId[];
     credentialEnv?: Record<string, string>;
   }): Promise<MaterializedMcpCapability[]> {
+    if (input.serverIds && input.serverIds.length === 0) {
+      return [];
+    }
     const records =
       await this.mcpServers.listMaterializedServersForAgent(input);
     const settled = await Promise.allSettled(

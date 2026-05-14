@@ -3,6 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 
 import type { RuntimeApp } from '../../app/bootstrap/runtime-app.js';
+import type { JobManagementServiceDeps } from '../../application/jobs/job-management-types.js';
 import {
   MYCLAW_HOME,
   getControlEnvValue,
@@ -125,6 +126,7 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
 
 export function startControlServer(input: {
   app: RuntimeApp;
+  getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
 }): ControlServerHandle {
   const keys = parseControlApiKeysStrict({
     rawJson: getControlEnvValue('MYCLAW_CONTROL_API_KEYS_JSON'),
@@ -151,6 +153,7 @@ export function startControlServer(input: {
     triggerRateLimiter: createRateLimiter(),
     getRuntimeSettings: () => getPublicRuntimeSettings(),
     getDefaultModelConfig,
+    getBrowserStatus: input.getBrowserStatus,
     syncSettingsFromProjection: (appId: AppId) =>
       syncRuntimeSettingsFromProjection({
         runtimeHome: MYCLAW_HOME,

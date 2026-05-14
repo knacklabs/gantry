@@ -1,4 +1,4 @@
-import type { BrowserIpcAction } from '@myclaw/contracts';
+import type { BrowserBackendAction } from '../shared/browser-backend-actions.js';
 
 import { normalizeBrowserSiteFromUrl } from '../shared/browser-site.js';
 import { nowMs } from '../shared/time/datetime.js';
@@ -6,14 +6,14 @@ import { ensureBrowserReady } from './browser-capability.js';
 import type { BrowserSessionStatus } from './browser-capability-types.js';
 import type { BrowserUsageSettings } from './browser-usage-governor.js';
 
-const UNMETERED_BROWSER_USAGE_ACTIONS = new Set<BrowserIpcAction>([
-  'browser_status',
-  'browser_launch',
-  'browser_close',
+const UNMETERED_BROWSER_USAGE_ACTIONS = new Set<BrowserBackendAction>([
+  'status',
+  'open',
+  'close',
 ]);
 
 type BrowserUsageBackend = (input: {
-  toolName: BrowserIpcAction;
+  toolName: BrowserBackendAction;
   arguments: Record<string, unknown>;
   session: BrowserSessionStatus;
   fileAccessRoot: string;
@@ -21,12 +21,12 @@ type BrowserUsageBackend = (input: {
 }) => Promise<unknown>;
 
 export function browserUsagePayloadUrl(
-  action: BrowserIpcAction,
+  action: BrowserBackendAction,
   payload: Record<string, unknown>,
 ): string | undefined {
   if (
-    action !== 'browser_navigate' &&
-    !(action === 'browser_tabs' && payload.action === 'new')
+    action !== 'navigate' &&
+    !(action === 'tabs' && payload.action === 'new')
   ) {
     return undefined;
   }
@@ -48,7 +48,7 @@ function browserUsageHasEnforceRule(
 }
 
 function shouldResolveActiveBrowserUrlForUsage(input: {
-  action: BrowserIpcAction;
+  action: BrowserBackendAction;
   payload: Record<string, unknown>;
   settings: BrowserUsageSettings | undefined;
 }): boolean {
@@ -115,7 +115,7 @@ function tabIndexFromRow(tab: unknown): number | undefined {
 
 function activeTabUrlFromResult(
   result: unknown,
-  action: BrowserIpcAction,
+  action: BrowserBackendAction,
   payload: Record<string, unknown>,
 ): string | undefined {
   if (!result || typeof result !== 'object' || Array.isArray(result)) {
@@ -133,7 +133,7 @@ function activeTabUrlFromResult(
   const tabs = (structuredContent as Record<string, unknown>).tabs;
   if (!Array.isArray(tabs) || tabs.length === 0) return undefined;
   if (
-    action === 'browser_tabs' &&
+    action === 'tabs' &&
     (payload.action === 'select' || payload.action === 'close') &&
     typeof payload.index === 'number'
   ) {
@@ -150,7 +150,7 @@ function activeTabUrlFromResult(
 }
 
 export async function resolveActiveBrowserUrlForUsage(input: {
-  action: BrowserIpcAction;
+  action: BrowserBackendAction;
   payload: Record<string, unknown>;
   browserIpcAuthorized?: boolean;
   profileName: string;
@@ -178,7 +178,7 @@ export async function resolveActiveBrowserUrlForUsage(input: {
       return undefined;
     }
     const tabList = await input.callBrowserTool({
-      toolName: 'browser_tabs',
+      toolName: 'tabs',
       arguments: { action: 'list' },
       session,
       fileAccessRoot: input.fileAccessRoot,

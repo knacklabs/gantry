@@ -25,6 +25,7 @@ import {
   splitTelegramDeliveryText,
   telegramThreadOptionsFromString,
 } from './channel-shared.js';
+import { telegramActionReplyMarkup } from './message-action-affordances.js';
 import { sendTelegramPlannedChunk } from './send-planned-chunk.js';
 import {
   permissionButtonLabel,
@@ -80,13 +81,19 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
       let usePlainText = false;
       for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
         const chunk = chunks[chunkIndex];
+        const replyMarkup =
+          chunkIndex === chunks.length - 1
+            ? telegramActionReplyMarkup(options.actionAffordances)
+            : undefined;
         try {
           const sent = await sendTelegramPlannedChunk(
             this.bot.api,
             numericId,
             chunk.escapedText,
             {
-              sendOptions,
+              sendOptions: replyMarkup
+                ? { ...sendOptions, reply_markup: replyMarkup }
+                : sendOptions,
               plainText: chunk.canonicalText,
               allowPlainTextFallback: !usePlainText,
               forcePlainText: usePlainText,
@@ -292,21 +299,14 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
     const key = `progress:${this.buildDraftStreamKey(jid, options.threadId)}`;
     this.loadPersistedProgressMessages();
     const nextText = text.trim();
+    if (options.done) {
+      this.markProgressGenerationDone(key, options.generation);
+    } else if (
+      !this.shouldAcceptProgressUpdate(key, options.generation, options.done)
+    ) {
+      return;
+    }
     let existing = this.activeProgressMessages.get(key);
-    logger.info(
-      {
-        jid,
-        key,
-        progressText: nextText,
-        done: options.done ?? false,
-        replaceOnly: options.replaceOnly ?? false,
-        generation: options.generation,
-        existing: Boolean(existing),
-        existingGeneration: existing?.generation,
-        existingMessageId: existing?.messageId,
-      },
-      'Progress lifecycle telegram receive',
-    );
     if (
       existing &&
       options.generation !== undefined &&

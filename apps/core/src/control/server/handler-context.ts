@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { RuntimeSettingsResponse } from '@myclaw/contracts';
 import type { RuntimeApp } from '../../app/bootstrap/runtime-app.js';
+import type { JobManagementServiceDeps } from '../../application/jobs/job-management-types.js';
 import type { AppId } from '../../domain/app/app.js';
 import { authenticate, type ApiKeyRecord, type Scope } from './auth.js';
 import { sendError } from './http.js';
@@ -33,6 +34,7 @@ export type ControlRouteContext = {
     kind?: 'interactive' | 'oneTimeJob' | 'recurringJob',
     agentFolder?: string,
   ) => ControlDefaultModelConfig;
+  getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
   syncSettingsFromProjection: (appId: AppId) => Promise<void>;
 };
 

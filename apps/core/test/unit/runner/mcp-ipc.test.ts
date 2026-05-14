@@ -106,7 +106,7 @@ describe('runner MCP browser IPC signature verification', () => {
       tempRoot,
       responseVerifyKey,
     );
-    const requestPromise = requestBrowserAction('browser_status', {});
+    const requestPromise = requestBrowserAction('status', {});
     const requestId = await waitForRequestId(
       path.join(tempRoot, 'browser-requests'),
     );
@@ -158,7 +158,7 @@ describe('runner MCP browser IPC signature verification', () => {
       tempRoot,
       responseVerifyKey,
     );
-    const requestPromise = requestBrowserAction('browser_status', {});
+    const requestPromise = requestBrowserAction('status', {});
     const requestId = await waitForRequestId(
       path.join(tempRoot, 'browser-requests'),
     );
@@ -195,7 +195,7 @@ describe('runner MCP browser IPC signature verification', () => {
       tempRoot,
       responseVerifyKey,
     );
-    const requestPromise = requestBrowserAction('browser_status', {});
+    const requestPromise = requestBrowserAction('status', {});
     const requestId = await waitForRequestId(
       path.join(tempRoot, 'browser-requests'),
     );
@@ -235,7 +235,7 @@ describe('runner MCP browser IPC signature verification', () => {
       tempRoot,
       responseVerifyKey,
     );
-    const requestPromise = requestBrowserAction('browser_status', {});
+    const requestPromise = requestBrowserAction('status', {});
     const requestId = await waitForRequestId(
       path.join(tempRoot, 'browser-requests'),
     );
@@ -279,7 +279,7 @@ describe('runner MCP browser IPC signature verification', () => {
       tempRoot,
       responseVerifyKey,
     );
-    const requestPromise = requestBrowserAction('browser_status', {});
+    const requestPromise = requestBrowserAction('status', {});
     const requestId = await waitForRequestId(
       path.join(tempRoot, 'browser-requests'),
     );
@@ -319,7 +319,7 @@ describe('runner MCP browser IPC signature verification', () => {
       tempRoot,
       responseVerifyKey,
     );
-    const requestPromise = requestBrowserAction('browser_status', {});
+    const requestPromise = requestBrowserAction('status', {});
     const requestId = await waitForRequestId(
       path.join(tempRoot, 'browser-requests'),
     );
@@ -357,7 +357,7 @@ describe('runner MCP browser IPC signature verification', () => {
       tempRoot,
       responseVerifyKey,
     );
-    const requestPromise = requestBrowserAction('browser_status', {});
+    const requestPromise = requestBrowserAction('status', {});
     const requestDir = path.join(tempRoot, 'browser-requests');
     const requestFiles = fs.readdirSync(requestDir);
     expect(requestFiles).toHaveLength(1);
@@ -368,7 +368,7 @@ describe('runner MCP browser IPC signature verification', () => {
     await expect(requestPromise).resolves.toEqual({
       ok: false,
       error:
-        'Browser IPC timeout after 30000ms waiting for browser service response',
+        'Browser IPC timeout after 30s waiting for browser service response',
     });
     expect(fs.existsSync(requestPath)).toBe(false);
   });
@@ -387,7 +387,7 @@ describe('runner MCP browser IPC signature verification', () => {
       responseVerifyKey,
     );
     const requestPromise = requestBrowserAction(
-      'browser_take_screenshot',
+      'screenshot',
       {},
       { timeoutMs: 120_000 },
     );
@@ -410,7 +410,7 @@ describe('runner MCP browser IPC signature verification', () => {
     await expect(requestPromise).resolves.toEqual({
       ok: false,
       error:
-        'Browser IPC timeout after 120000ms waiting for browser service response',
+        'Browser IPC timeout after 2 min waiting for browser service response',
     });
     expect(fs.existsSync(requestPath)).toBe(false);
   });
@@ -442,7 +442,7 @@ describe('runner MCP browser IPC signature verification', () => {
 
     await expect(requestPromise).resolves.toEqual({
       ok: false,
-      error: 'Timed out waiting for memory service response (15000ms)',
+      error: 'Timed out waiting for memory service response (15s)',
     });
     expect(fs.existsSync(requestPath)).toBe(false);
   });

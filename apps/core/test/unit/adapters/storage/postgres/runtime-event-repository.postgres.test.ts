@@ -7,6 +7,8 @@ import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js'
 class FakeDrizzleDb {
   readonly operations: string[] = [];
   insertedRuntimeEvent: Record<string, unknown> | null = null;
+  insertedOutboxEvent: Record<string, unknown> | null = null;
+  failOutboxInsert = false;
   failDeliveryInsert = false;
 
   async transaction<T>(fn: (tx: this) => Promise<T>): Promise<T> {
@@ -50,6 +52,18 @@ class FakeDrizzleDb {
                   createdAt: value.createdAt,
                 },
               ];
+            },
+          };
+        }
+        if (table === pgSchema.eventBusOutboxPostgres) {
+          db.operations.push('insert:event_bus_outbox');
+          db.insertedOutboxEvent = value;
+          return {
+            onConflictDoNothing() {
+              if (db.failOutboxInsert) {
+                throw new Error('outbox insert failed');
+              }
+              return Promise.resolve();
             },
           };
         }
@@ -121,9 +135,41 @@ describe('PostgresRuntimeEventRepository', () => {
     expect(db.operations).toEqual([
       'transaction:begin',
       'insert:runtime_events',
+      'insert:event_bus_outbox',
       'select:webhook',
       'insert:webhook_delivery',
       'transaction:commit',
+    ]);
+    expect(db.insertedOutboxEvent).toMatchObject({
+      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+      eventVersion: 1,
+      source: 'myclaw.runtime_events',
+      appId: 'app:test',
+      runtimeEventId: 42,
+      status: 'pending',
+      occurredAt: '2026-04-30T00:00:00.000Z',
+    });
+  });
+
+  it('rolls back the runtime event when outbox enqueue fails', async () => {
+    const db = new FakeDrizzleDb();
+    db.failOutboxInsert = true;
+    const repository = createRepository(db);
+
+    await expect(
+      repository.appendRuntimeEvent({
+        appId: 'app:test' as never,
+        eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+        actor: 'agent',
+        payload: { text: 'done' },
+      }),
+    ).rejects.toThrow('outbox insert failed');
+
+    expect(db.operations).toEqual([
+      'transaction:begin',
+      'insert:runtime_events',
+      'insert:event_bus_outbox',
+      'transaction:rollback',
     ]);
   });
 
@@ -146,6 +192,7 @@ describe('PostgresRuntimeEventRepository', () => {
     expect(db.operations).toEqual([
       'transaction:begin',
       'insert:runtime_events',
+      'insert:event_bus_outbox',
       'select:webhook',
       'insert:webhook_delivery',
       'transaction:rollback',
@@ -164,6 +211,25 @@ describe('PostgresRuntimeEventRepository', () => {
         payload: { text: 'done' },
       }),
     ).rejects.toThrow('Runtime event appId is required.');
+
+    expect(db.operations).toEqual([
+      'transaction:begin',
+      'transaction:rollback',
+    ]);
+  });
+
+  it('rejects unknown runtime event types before inserting', async () => {
+    const db = new FakeDrizzleDb();
+    const repository = createRepository(db);
+
+    await expect(
+      repository.appendRuntimeEvent({
+        appId: 'app:test' as never,
+        eventType: 'runtime.unknown' as never,
+        actor: 'agent',
+        payload: { text: 'done' },
+      }),
+    ).rejects.toThrow('Runtime event type must be a known runtime event type.');
 
     expect(db.operations).toEqual([
       'transaction:begin',
@@ -191,5 +257,11 @@ describe('PostgresRuntimeEventRepository', () => {
         sessionId: null,
       }),
     );
+    expect(db.operations).toEqual([
+      'transaction:begin',
+      'insert:runtime_events',
+      'insert:event_bus_outbox',
+      'transaction:commit',
+    ]);
   });
 });

@@ -242,12 +242,21 @@ function digestMatchesSessionScope(
     return false;
   }
   const record = scope as Record<string, unknown>;
+  const digestHasJobScope = Object.prototype.hasOwnProperty.call(
+    record,
+    'jobId',
+  );
+  const jobScopeMatches =
+    session.jobId || digestHasJobScope
+      ? scopedFieldMatches(record, 'jobId', session.jobId)
+      : true;
   return (
     scopedFieldMatches(record, 'appId', session.appId) &&
     scopedFieldMatches(record, 'agentId', session.agentId) &&
     scopedFieldMatches(record, 'conversationId', session.conversationId) &&
     scopedFieldMatches(record, 'userId', session.userId) &&
-    scopedFieldMatches(record, 'threadId', session.threadId)
+    scopedFieldMatches(record, 'threadId', session.threadId) &&
+    jobScopeMatches
   );
 }
 

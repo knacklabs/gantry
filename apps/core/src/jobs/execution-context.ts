@@ -65,6 +65,7 @@ export function buildExecutionTurnContextInput(input: {
   threadId?: string | null;
   conversationKind?: RuntimeConversationRecord['conversationKind'];
   memoryUserId?: string;
+  jobId?: string;
   query?: string;
 }): Parameters<
   NonNullable<RuntimeAgentSessionRepository['getAgentTurnContext']>
@@ -75,6 +76,7 @@ export function buildExecutionTurnContextInput(input: {
     threadId: input.threadId ?? null,
     conversationKind: input.conversationKind,
     memoryUserId: input.memoryUserId,
+    jobId: input.jobId,
     query: buildBoundedMemoryRecallQuery(input.query),
   };
 }

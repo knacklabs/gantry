@@ -22,3 +22,14 @@
 - Drizzle may wrap Postgres `23505` unique violations under `cause`; retry or
   deterministic-upsert guards must inspect the wrapped cause instead of only
   the top-level error.
+- Runtime events must be appended only through `PostgresRuntimeEventRepository`.
+  Broker readiness belongs in `event_bus_outbox`; do not add direct
+  `runtime_events` inserts, dual event tables, or retired event aliases.
+- Scheduler jobs are background-only. Do not add `jobs.execution_mode`,
+  serialized/parallel job modes, or repository DTO fields that project an
+  execution mode; pg-boss scheduling uses one durable jobs queue and runtime
+  concurrency is handled outside the persisted job shape.
+- Scheduled job sessions may carry `jobId` for memory and execution context,
+  but nested provider/session `agent-run:*` rows must not copy that `jobId`.
+  Keep job-scoped run lists and health metadata tied to the scheduler lifecycle
+  run row only.

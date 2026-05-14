@@ -3,8 +3,8 @@ import type {
   CreateManagedJobInput,
   JobManagementServiceDeps,
 } from './job-management-types.js';
+import type { JobUpsertInput } from '../../domain/repositories/ops-repo.js';
 import { resolveRequestedJobModel } from './job-model-selection.js';
-import { requireJobExtraToolApproval } from './job-extra-tool-approval.js';
 import {
   normalizeExecutionContext,
   normalizeNotificationRoutes,
@@ -12,11 +12,14 @@ import {
   routesBeyondAuthenticatedContext,
 } from './job-management-helpers.js';
 import {
-  agentIdForJobGroupScope,
-  assertJobExtraToolsAllowedForTarget,
-  normalizeJobExtraTools,
-  resolveAgentToolBindings,
-} from './job-tool-policy.js';
+  normalizeRequiredMcpServers,
+  normalizeRequiredTools,
+} from './job-required-tools.js';
+import {
+  evaluateJobReadiness,
+  SETUP_REQUIRED_PAUSE_REASON,
+} from './job-readiness-service.js';
+import { recordJobSetupRequired } from './job-management-readiness.js';
 
 export async function createManagedJob(
   deps: JobManagementServiceDeps,
@@ -98,6 +101,10 @@ export async function createManagedJob(
       },
     ],
   );
+  const requiredTools = normalizeRequiredTools(input.requiredTools ?? []);
+  const requiredMcpServers = normalizeRequiredMcpServers(
+    input.requiredMcpServers ?? [],
+  );
   const authenticatedContext = {
     ...sessionBoundContext,
     threadId: executionContext.threadId ?? null,
@@ -106,18 +113,43 @@ export async function createManagedJob(
     routes: notificationRoutes,
     authenticatedContext,
   });
-  const allowedTools = normalizeJobExtraTools(input.allowedTools);
-  const inheritedTools = await resolveAgentToolBindings({
-    repository: deps.toolRepository,
-    appId: input.appId,
-    agentId: agentIdForJobGroupScope(session.workspaceKey),
-  });
-  assertJobExtraToolsAllowedForTarget({
-    rules: allowedTools,
-    inheritedTools,
+  const jobInput: JobUpsertInput = {
+    id: jobId,
+    name: input.name.trim(),
+    prompt: input.prompt.trim(),
+    model: modelAlias ?? null,
+    schedule_type: schedule.scheduleType,
+    schedule_value: schedule.scheduleValue,
+    status: 'active',
+    session_id: session.sessionId,
+    thread_id: executionContext.threadId ?? null,
+    group_scope: session.workspaceKey,
+    created_by: 'human',
+    next_run: schedule.nextRun,
+    execution_context: executionContext,
+    notification_routes: notificationRoutes,
+    required_tools: requiredTools,
+    required_mcp_servers: requiredMcpServers,
+  };
+  const readiness = await evaluateJobReadiness({
+    job: jobInput,
+    appId: session.appId,
+    toolRepository: deps.toolRepository,
+    mcpServerRepository: deps.mcpServerRepository,
+    credentialBroker: await deps.getCredentialBroker?.(),
+    getBrowserStatus: deps.getBrowserStatus,
+    clock: deps.clock,
   });
   if (input.dryRun === true) {
-    return { jobId, created: false, modelAlias, runtimeContext };
+    return {
+      jobId,
+      created: false,
+      modelAlias,
+      runtimeContext,
+      setupState: readiness.setupState,
+      status: readiness.ready ? 'active' : 'paused',
+      pauseReason: readiness.ready ? null : SETUP_REQUIRED_PAUSE_REASON,
+    };
   }
   await requireJobNotificationRouteApproval({
     deps: deps as never,
@@ -131,35 +163,27 @@ export async function createManagedJob(
       routesBeyondContext,
     },
   });
-  await requireJobExtraToolApproval({
-    deps,
-    jobId,
-    jobName: input.name.trim(),
-    appId: input.appId,
-    groupScope: session.workspaceKey,
-    allowedTools,
-    existingJobExtraTools: [],
-    operation: 'create',
-  });
   const result = await deps.ops.upsertJob({
-    id: jobId,
-    name: input.name.trim(),
-    prompt: input.prompt.trim(),
-    model: modelAlias ?? null,
-    schedule_type: schedule.scheduleType,
-    schedule_value: schedule.scheduleValue,
-    status: 'active',
-    session_id: session.sessionId,
-    thread_id: executionContext.threadId ?? null,
-    group_scope: session.workspaceKey,
-    created_by: 'human',
-    next_run: schedule.nextRun,
-    execution_mode:
-      input.executionMode === 'serialized' ? 'serialized' : 'parallel',
-    capability_policy: { allowed_tools: allowedTools },
-    execution_context: executionContext,
-    notification_routes: notificationRoutes,
+    ...jobInput,
+    status: readiness.ready ? 'active' : 'paused',
+    pause_reason: readiness.ready ? null : SETUP_REQUIRED_PAUSE_REASON,
+    next_run: readiness.ready ? schedule.nextRun : null,
+    setup_state: readiness.setupState,
   });
+  if (!readiness.ready) {
+    await recordJobSetupRequired({
+      deps,
+      job: jobInput,
+      readiness,
+      appId: session.appId,
+    });
+  }
   deps.scheduler.requestSchedulerSync(jobId);
-  return { jobId, created: result.created, modelAlias, runtimeContext };
+  return {
+    jobId,
+    created: result.created,
+    modelAlias,
+    runtimeContext,
+    setupState: readiness.setupState,
+  };
 }

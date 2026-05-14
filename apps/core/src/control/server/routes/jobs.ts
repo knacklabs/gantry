@@ -37,6 +37,7 @@ import {
   getRuntimeControlRepository,
   getRuntimeEventExchange,
   getRuntimeRepositories,
+  getRuntimeStorage,
 } from '../../../adapters/storage/postgres/runtime-store.js';
 import { mapManualJobToStored, nowIso } from '../app-identity.js';
 import {
@@ -134,13 +135,12 @@ function parseUpdateJobRequest(
   return undefined;
 }
 
-export function createJobManagementService() {
+export function createJobManagementService(ctx?: ControlRouteContext) {
   const control = getRuntimeControlRepository();
   return new JobManagementService({
     ops: getRuntimeRepositories(),
     control: adaptJobControl(control),
     runtimeEvents: getRuntimeEventExchange(),
-    toolRepository: getRuntimeToolRepositoryIfReady(),
     scheduler: { requestSchedulerSync },
     schedulePlanner: runtimeJobSchedulePlanner,
     clock: { now: nowIso },
@@ -148,6 +148,13 @@ export function createJobManagementService() {
       isReady: isSchedulerReady,
       enqueue: enqueueJobTrigger,
     },
+    toolRepository: getRuntimeToolRepositoryIfReady(),
+    mcpServerRepository: getRuntimeStorage().repositories.mcpServers,
+    getCredentialBroker:
+      ctx && typeof ctx.app.getCredentialBroker === 'function'
+        ? () => ctx.app.getCredentialBroker()
+        : undefined,
+    getBrowserStatus: ctx?.getBrowserStatus,
   });
 }
 
@@ -334,21 +341,21 @@ export async function handleJobRoutes(
         kind,
         getDefaultModelConfig: ctx.getDefaultModelConfig,
       });
-      const created = await createJobManagementService().createJob({
+      const created = await createJobManagementService(ctx).createJob({
         appId: auth.appId,
         name: String(body.name || ''),
         prompt: String(body.prompt || ''),
         sessionId: body.executionContext.sessionId,
         executionContext: body.executionContext,
         notificationRoutes: body.notificationRoutes,
+        requiredTools: body.requiredTools,
+        requiredMcpServers: body.requiredMcpServers,
         kind,
         runAt: typeof body.runAt === 'string' ? body.runAt : undefined,
         schedule: (body.schedule || {}) as { type?: unknown; value?: unknown },
-        executionMode: body.executionMode,
         modelAlias: resolvedModel.explicit
           ? resolvedModel.modelAlias
           : undefined,
-        allowedTools: body.allowedTools,
         dryRun: body.dryRun,
       });
       const runtimePreviewExecutionContext = {
@@ -371,6 +378,19 @@ export async function handleJobRoutes(
       sendJson(res, body.dryRun === true ? 200 : 201, {
         ...(body.dryRun === true ? {} : { jobId: created.jobId }),
         dryRun: body.dryRun === true,
+        status:
+          created.setupState && created.setupState.state !== 'ready'
+            ? 'paused'
+            : 'active',
+        setup: created.setupState
+          ? {
+              state: created.setupState.state,
+              checkedAt: created.setupState.checked_at,
+              fingerprint: created.setupState.fingerprint,
+              blockers: created.setupState.blockers,
+              nextAction: created.setupState.blockers[0]?.nextAction ?? null,
+            }
+          : undefined,
         runtimeContext: await runtimeContextPreviewFor({
           executionContext: runtimePreviewExecutionContext,
           notificationRoutes: runtimePreviewNotificationRoutes,
@@ -395,7 +415,7 @@ export async function handleJobRoutes(
   if (pathname === '/v1/jobs' && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
-    const service = createJobManagementService();
+    const service = createJobManagementService(ctx);
     const { jobs: visibleJobs } = await service.listJobs({
       appId: auth.appId,
       statuses: url.searchParams.getAll('status'),
@@ -407,6 +427,7 @@ export async function handleJobRoutes(
     });
     const metadata = await buildJobListVisibilityMetadata({
       jobs: visibleJobs,
+      ops: getRuntimeRepositories(),
       toolRepository: getRuntimeToolRepositoryIfReady(),
       appId: auth.appId,
     });
@@ -423,11 +444,34 @@ export async function handleJobRoutes(
   }
 
   const jobRoute = parseJobRoute(pathname);
+  if (jobRoute && req.method === 'GET' && jobRoute.action === 'events') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
+    if (!auth) return true;
+    try {
+      const service = createJobManagementService(ctx);
+      const result = await service.listJobEvents({
+        appId: auth.appId,
+        jobId: jobRoute.jobId,
+        runId:
+          url.searchParams.get('run') ||
+          url.searchParams.get('runId') ||
+          undefined,
+        eventType: url.searchParams.get('eventType') || undefined,
+        sinceId: parsePositiveInt(url.searchParams.get('sinceId')),
+        since: url.searchParams.get('since') || undefined,
+        limit: parsePositiveInt(url.searchParams.get('limit')),
+      });
+      sendJson(res, 200, result);
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
   if (jobRoute && req.method === 'GET' && jobRoute.action === 'get') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:read']);
     if (!auth) return true;
     try {
-      const service = createJobManagementService();
+      const service = createJobManagementService(ctx);
       const { job } = await service.getJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
@@ -458,7 +502,7 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
     try {
-      await createJobManagementService().deleteJob({
+      await createJobManagementService(ctx).deleteJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
       });
@@ -481,17 +525,13 @@ export async function handleJobRoutes(
         body.modelAlias,
         body.modelProfileId,
       );
-      const service = createJobManagementService();
+      const service = createJobManagementService(ctx);
       const { job: updated } = await service.updateJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
         patch: {
           ...(typeof body.name === 'string' ? { name: body.name } : {}),
           ...(typeof body.prompt === 'string' ? { prompt: body.prompt } : {}),
-          ...(body.executionMode === 'serialized' ||
-          body.executionMode === 'parallel'
-            ? { executionMode: body.executionMode }
-            : {}),
           ...(body.executionContext !== undefined
             ? {
                 executionContext: body.executionContext,
@@ -501,8 +541,11 @@ export async function handleJobRoutes(
           ...(Array.isArray(body.notificationRoutes)
             ? { notificationRoutes: body.notificationRoutes }
             : {}),
-          ...(Array.isArray(body.allowedTools)
-            ? { allowedTools: body.allowedTools }
+          ...(Array.isArray(body.requiredTools)
+            ? { requiredTools: body.requiredTools }
+            : {}),
+          ...(Array.isArray(body.requiredMcpServers)
+            ? { requiredMcpServers: body.requiredMcpServers }
             : {}),
           ...(body.status === 'active' || body.status === 'paused'
             ? { status: body.status }
@@ -531,7 +574,7 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
     try {
-      const result = await createJobManagementService().pauseJob({
+      const result = await createJobManagementService(ctx).pauseJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
       });
@@ -545,11 +588,23 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
     try {
-      await createJobManagementService().resumeJob({
+      const result = await createJobManagementService(ctx).resumeJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
       });
-      sendJson(res, 200, { resumed: true });
+      sendJson(res, 200, {
+        resumed: result.resumed,
+        setup: result.job.setup_state
+          ? {
+              state: result.job.setup_state.state,
+              checkedAt: result.job.setup_state.checked_at,
+              fingerprint: result.job.setup_state.fingerprint,
+              blockers: result.job.setup_state.blockers,
+              nextAction:
+                result.job.setup_state.blockers[0]?.nextAction ?? null,
+            }
+          : undefined,
+      });
     } catch (error) {
       if (!sendApplicationError(res, error)) throw error;
     }
@@ -559,7 +614,7 @@ export async function handleJobRoutes(
     const auth = authorizeControlRequest(req, res, ctx.keys, ['jobs:write']);
     if (!auth) return true;
     try {
-      const result = await createJobManagementService().triggerJob({
+      const result = await createJobManagementService(ctx).triggerJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
         consumeRateLimit: (key, limit) =>
@@ -596,7 +651,7 @@ export async function handleJobRoutes(
     );
     const startedAt = currentTimeMs();
     try {
-      const result = await createJobManagementService().waitForTrigger({
+      const result = await createJobManagementService(ctx).waitForTrigger({
         appId: auth.appId,
         triggerId,
         timeoutMs: Math.max(0, timeoutMs - (currentTimeMs() - startedAt)),

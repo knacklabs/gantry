@@ -1451,6 +1451,71 @@ describe('TelegramChannel', () => {
       );
     });
 
+    it('renders scheduler dead-letter action affordances as Telegram buttons', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await channel.sendMessage('tg:100200300', 'Paused after failures', {
+        actionAffordances: [
+          { kind: 'scheduler_run_now', label: 'Retry now', jobId: 'job-1' },
+          {
+            kind: 'scheduler_show_last_logs',
+            label: 'Show last 50 log lines',
+            jobId: 'job-1',
+          },
+          { kind: 'scheduler_pause_job', label: 'Pause job', jobId: 'job-1' },
+          {
+            kind: 'scheduler_open',
+            label: 'Open in scheduler',
+            jobId: 'job-1',
+          },
+        ],
+      });
+
+      expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
+        '100200300',
+        'Paused after failures',
+        expect.objectContaining({
+          parse_mode: 'MarkdownV2',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: 'Retry now', callback_data: 'dl:retry' },
+                {
+                  text: 'Show last 50 log lines',
+                  callback_data: 'dl:logs',
+                },
+              ],
+              [
+                { text: 'Pause job', callback_data: 'dl:pause' },
+                { text: 'Open in scheduler', callback_data: 'dl:open' },
+              ],
+            ],
+          },
+        }),
+      );
+    });
+
+    it('fails closed when Telegram scheduler action buttons are clicked', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      const callbackCtx = {
+        callbackQuery: { data: 'dl:retry' },
+        chat: { id: 100200300 },
+        from: { id: 111 },
+        answerCallbackQuery: vi.fn(),
+      };
+
+      await triggerCallbackQuery(callbackCtx);
+
+      expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
+        text: 'Open the scheduler surface or use scheduler tools to run this action.',
+        show_alert: true,
+      });
+    });
+
     it('strips tg: prefix from JID', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
@@ -2065,6 +2130,30 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
     });
 
+    it('drops stale progress updates after a generation is done', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Working on it...', {
+        generation: 1,
+      });
+      await channel.sendProgressUpdate('tg:100200300', 'Done in 10s.', {
+        done: true,
+        generation: 1,
+      });
+
+      currentBot().api.sendMessage.mockClear();
+      currentBot().api.editMessageText.mockClear();
+
+      await channel.sendProgressUpdate('tg:100200300', 'Still working...', {
+        generation: 1,
+      });
+
+      expect(currentBot().api.sendMessage).not.toHaveBeenCalled();
+      expect(currentBot().api.editMessageText).not.toHaveBeenCalled();
+    });
+
     it('refreshes a stale unchanged initial progress handle with a new message', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
@@ -2379,7 +2468,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '100200300',
         expect.stringContaining(
-          'Command: `rm -rf /tmp/old-cache && npm install`',
+          'Command:\n```\nrm -rf /tmp/old-cache && npm install\n```',
         ),
         expect.objectContaining({ message_thread_id: 42 }),
       );
@@ -2413,7 +2502,7 @@ describe('TelegramChannel', () => {
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '100200300',
-        expect.stringContaining('Action: Allow command'),
+        expect.stringContaining('Allow command'),
         expect.objectContaining({
           reply_markup: expect.objectContaining({
             inline_keyboard: expect.any(Array),
@@ -2448,7 +2537,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
         '100200300',
         987,
-        expect.stringContaining('Allowed once: Allow command'),
+        expect.stringContaining('Allowed once\nFor tool: Bash'),
         expect.objectContaining({
           reply_markup: { inline_keyboard: [] },
         }),

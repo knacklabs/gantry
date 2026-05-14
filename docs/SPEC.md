@@ -73,14 +73,14 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 
 ### Technology Stack
 
-| Component          | Technology                                                        | Purpose                                                                          |
-| ------------------ | ----------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Channel System     | Provider registry (`apps/core/src/channels/provider-registry.ts`) | Channels are looked up by provider id and JID prefix                             |
-| Message Storage    | Postgres with Drizzle                                             | Store messages, jobs, events, memory, and runtime state                          |
-| Runtime Execution  | Host process execution                                            | Agent execution with runtime-home scoped paths                                   |
-| Agent              | @anthropic-ai/claude-agent-sdk                                    | Run Claude with tools and MCP servers                                            |
-| Browser Automation | MyClaw Browser capability + Chromium                              | Web interaction and screenshots through projected `mcp__myclaw__browser_*` tools |
-| Runtime            | Node.js 25+                                                       | Host process for routing and pg-boss job execution                               |
+| Component          | Technology                                                        | Purpose                                                               |
+| ------------------ | ----------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Channel System     | Provider registry (`apps/core/src/channels/provider-registry.ts`) | Channels are looked up by provider id and JID prefix                  |
+| Message Storage    | Postgres with Drizzle                                             | Store messages, jobs, events, memory, and runtime state               |
+| Runtime Execution  | Host process execution                                            | Agent execution with runtime-home scoped paths                        |
+| Agent              | @anthropic-ai/claude-agent-sdk                                    | Run Claude with tools and MCP servers                                 |
+| Browser Automation | MyClaw Browser capability + Chromium                              | Web interaction and screenshots through the projected Browser gateway |
+| Runtime            | Node.js 25+                                                       | Host process for routing and pg-boss job execution                    |
 
 ---
 
@@ -722,17 +722,18 @@ Postgres state and are never written to `settings.yaml`.
 ### How Scheduling Works
 
 1. **Group Context**: Jobs created in a group run with that group's working directory and memory
-2. **Scoped Agent Capabilities**: Scheduled jobs inherit the selected agent
-   capabilities plus reviewed job-specific extras. They do not receive all
-   tools by default.
+2. **Agent Capabilities**: Scheduled jobs inherit the selected target agent's
+   selected tools, skills, and MCP servers. They do not carry job-specific
+   capability grants or receive all tools by default.
 3. **Optional Messaging**: Jobs can send messages to their group using the `send_message` tool, or complete silently
 4. **Admin Privileges**: Admin-wide job management belongs to the Control API
    and local/admin CLI surfaces. Normal agent-facing scheduler MCP tools stay
    scoped to the calling agent and originating conversation.
 5. **Browser Action Gating**: Browser actions use the selected canonical
-   `Browser` capability and projected `mcp__myclaw__browser_*` tools. Raw
-   `mcp__agent_browser__*`, `mcp__playwright__*`, and `mcp__puppeteer__*` job
-   tool names are rejected instead of granting browser action access.
+   `Browser` capability and projected gateway tools: `browser_status`,
+   `browser_open`, `browser_inspect`, `browser_act`, and `browser_close`.
+   Private browser backend job tool names are rejected instead of granting
+   browser action access.
 
 ### Schedule Types
 

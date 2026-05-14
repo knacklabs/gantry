@@ -549,7 +549,7 @@ describe('skill registry integration flow', () => {
         temporaryOnly: false,
         broadAccess: false,
         toolCategory: 'sdk',
-        permissionPolicy: 'scoped persistent',
+        permissionPolicy: 'persistent',
         sandboxProfile: 'workspace-write',
         reason: 'Run project tests and inspect files.',
       },
@@ -560,7 +560,7 @@ describe('skill registry integration flow', () => {
         temporaryOnly: false,
         broadAccess: false,
         toolCategory: 'sdk',
-        permissionPolicy: 'scoped persistent',
+        permissionPolicy: 'persistent',
         sandboxProfile: 'workspace-write',
         effect: 'review_only_no_permission_change',
       },
@@ -672,7 +672,7 @@ describe('skill registry integration flow', () => {
     expect([...state.bindings.values()]).toEqual([]);
   });
 
-  it('adds a persistent single-rule suggestion for request_permission reviews', async () => {
+  it('does not add persistent suggestions for exact third-party MCP request_permission reviews', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const { deps, requestPermissionApproval } = createCapabilityReviewDeps();
 
@@ -700,19 +700,7 @@ describe('skill registry integration flow', () => {
       expect(requestPermissionApproval).toHaveBeenCalledWith(
         expect.objectContaining({
           toolName: 'request_permission',
-          suggestions: [
-            {
-              type: 'addRules',
-              behavior: 'allow',
-              destination: 'session',
-              rules: [
-                {
-                  toolName: 'mcp__internal__deploy_preview',
-                  ruleContent: 'environment:staging',
-                },
-              ],
-            },
-          ],
+          suggestions: undefined,
         }),
       );
     });
@@ -746,7 +734,7 @@ describe('skill registry integration flow', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it('persists request_permission persistent approvals as configured allowed tool rules', async () => {
+  it('persists request_permission semantic approvals as configured capability rules', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const {
       deps,
@@ -758,7 +746,7 @@ describe('skill registry integration flow', () => {
         approved: true,
         mode: 'allow_persistent_rule',
         decidedBy: 'Approver',
-        reason: 'persistent rule allowed',
+        reason: 'persistent tool allowed',
         decisionClassification: 'user_permanent',
         updatedPermissions: [
           {
@@ -767,8 +755,7 @@ describe('skill registry integration flow', () => {
             destination: 'session',
             rules: [
               {
-                toolName: 'mcp__internal__deploy_preview',
-                ruleContent: 'environment:staging',
+                toolName: 'capability:google.sheets.write',
               },
             ],
           },
@@ -786,10 +773,14 @@ describe('skill registry integration flow', () => {
         authThreadId: 'thread-origin',
         payload: {
           permissionKind: 'tool',
-          toolName: 'mcp__internal__deploy_preview',
-          rule: 'environment:staging',
+          capabilityId: 'google.sheets.write',
+          capabilityDisplayName: 'Google Sheets write',
+          accountLabel: 'OneCLI Google account',
+          can: 'Read and update spreadsheet values.',
+          cannot: 'Change sharing or receive raw OAuth tokens.',
           temporaryOnly: false,
-          reason: 'Deploy previews repeatedly during this session.',
+          reason:
+            'Update the status spreadsheet repeatedly during this session.',
         },
       },
       'agent:one',
@@ -799,11 +790,11 @@ describe('skill registry integration flow', () => {
     await vi.waitFor(() => {
       expect(toolRepository.saveTool).toHaveBeenCalledWith(
         expect.objectContaining({
-          id: expect.stringMatching(/^tool:permission-rule:/),
+          id: 'tool:capability:google.sheets.write',
           appId: 'app-one',
-          name: 'mcp__internal__deploy_preview(environment:staging)',
-          displayName: 'mcp__internal__deploy_preview(environment:staging)',
-          adapterRef: 'permission/request_permission',
+          name: 'capability:google.sheets.write',
+          displayName: 'Google Sheets write',
+          adapterRef: 'capability/google.sheets.write',
           status: 'active',
         }),
       );
@@ -812,20 +803,20 @@ describe('skill registry integration flow', () => {
       expect.objectContaining({
         appId: 'app-one',
         agentId: 'agent:one',
-        toolId: expect.stringMatching(/^tool:permission-rule:/),
+        toolId: 'tool:capability:google.sheets.write',
         status: 'active',
       }),
     );
     expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
       'agent:one',
-      ['mcp__internal__deploy_preview(environment:staging)'],
+      ['capability:google.sheets.write'],
       { appId: 'app-one' },
     );
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
         expect.stringContaining(
-          'Persistent permission rule enabled for this run and future runs',
+          'Persistent permission tool enabled for this run and future runs',
         ),
         { threadId: 'thread-origin' },
       );
@@ -904,7 +895,7 @@ describe('skill registry integration flow', () => {
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
-        expect.stringContaining('Persistent permission rule enabled'),
+        expect.stringContaining('Persistent permission tool enabled'),
         { threadId: 'thread-origin' },
       );
     });
@@ -924,7 +915,7 @@ describe('skill registry integration flow', () => {
             type: 'addRules',
             behavior: 'allow',
             destination: 'session',
-            rules: [{ toolName: 'Bash' }],
+            rules: [{ toolName: 'Bash', ruleContent: 'npm test *' }],
           },
         ],
       },

@@ -34,8 +34,10 @@ an explicit `kid`, `token`, `appId`, and `scopes` array.
 
 The typed settings API is diagnostic/read-only for local personal mode. It
 exposes the public non-secret desired-state view but does not accept runtime
-configuration mutations. Use CLI commands, direct `settings.yaml` edits, or
-approved MyClaw admin tools for settings changes.
+configuration mutations. Human operators may use CLI commands or edit
+`settings.yaml` directly; agents must use selected MyClaw admin tools such as
+`settings_desired_state` and `request_settings_update` so changes are reviewed,
+validated, synced, and audited.
 
 ```ts
 client.settings.get();
@@ -95,22 +97,82 @@ Agent-facing tools:
 - `request_skill_proposal`: agent-created or modified skill file bundles for review.
 - `request_skill_dependency_install`: dependency requests for npm, brew, go, uv, or downloads required by a skill.
 - `request_mcp_server`: third-party MCP server requests with transport, origin, tool patterns, credential needs, and reason.
-- `request_permission`: SDK, host, browser, scheduler, memory, service, MCP, or provider/channel capability permission requests.
-- `capability_status`: current tool access, readable configured rules, selected skills, selected MCP servers, and exact `request_permission` arguments for missing admin tools.
+- `request_permission`: SDK, host, browser, scheduler, memory, service, MCP, semantic capability, or provider/channel capability permission requests.
+- `capability_search`: search built-in semantic capabilities such as `google.sheets.write`.
+- `request_capability`: request a named semantic capability for the current agent.
+- `propose_local_cli_capability`: propose a user-defined authenticated local CLI capability draft with pinned executable, command templates, preflight, protected paths, and account label. Drafts do not become runnable durable authority until runtime local-CLI enforcement exists.
+- `manage_capability`: view/change/revoke/test/audit guidance for selected capabilities.
+- `capability_status`: current tool access, semantic capability tools, readable configured rules, selected skills, selected MCP servers, and request arguments for missing admin tools.
+- `settings_desired_state`: selected-capability read of current local desired state.
+- `request_settings_update`: selected-capability reviewed edit to non-secret `settings.yaml` desired state.
+- `mcp_list_tools` / `mcp_call_tool`: list and call approved third-party MCP tools through the MyClaw proxy.
 - `service_restart`: selected-capability restart after approved changes that require host restart.
 - `register_agent`: selected-capability binding of a channel conversation to an agent.
 
 Every persistent capability change follows request, validation, review,
 decision, durable audit, new config version, and next-run activation.
 Persistent agent tool grants are mirrored into `settings.yaml` as readable
-`agents.<id>.tools` rules. Job-specific tool grants stay on the job only and
-are returned as `toolAccess` in job responses.
+`agents.<id>.tools` entries: semantic capabilities such as
+`capability:google.sheets.write`, canonical `Browser`, exact MyClaw admin
+tools, or scoped Bash rules such as `Bash(npm test *)`. Durable
+`request_permission` does not mint broad exact SDK/native tools or exact
+third-party MCP tools; those must be represented by selected semantic
+capabilities or reviewed MCP server bindings. Jobs inherit the target agent's
+tools, skills, and MCP servers at run time;
+`toolAccess` in job responses reports that inherited effective projection and
+any runtime-only projected tools.
 Agent capability updates are bidirectional: settings-side changes reconcile
 Postgres immediately, and API/admin-side capability writes export the readable
 projection back into `settings.yaml` before returning.
-Permission prompts use `Allow once`, `Always allow <granular rule>`, or
-`Cancel`. Same-conversation review binds the request to the originating chat or
-thread; it does not bypass the configured conversation approvers.
+Permission prompts use `Allow once`, `Always allow for this agent/job` for
+semantic capabilities, `Always allow Browser`, `Always allow` for exact MyClaw
+admin tools, `Always allow Bash(<pattern>)` for low-level fallback grants, or
+`Cancel`.
+Same-conversation review binds the request to the originating chat or thread;
+it does not bypass the configured conversation approvers. Raw request ids,
+command hashes, scoped Bash rules, executable paths, and sandbox details are
+Details/advanced data, not the primary permission prompt.
+
+Capability catalog response:
+
+```json
+{
+  "tools": [
+    {
+      "id": "tool:capability:google.sheets.write",
+      "name": "capability:google.sheets.write",
+      "kind": "host",
+      "provider": "myclaw",
+      "displayName": "Google Sheets write",
+      "category": "productivity",
+      "risk": "high",
+      "semanticCapability": {
+        "capabilityId": "google.sheets.write",
+        "displayName": "Google Sheets write",
+        "credentialSource": "onecli"
+      }
+    }
+  ],
+  "skills": [],
+  "mcpServers": []
+}
+```
+
+Agent capability replacement:
+
+```http
+PUT /v1/agents/agent:main_agent/capabilities
+Content-Type: application/json
+
+{
+  "selectedToolIds": ["tool:capability:google.sheets.write", "tool:Browser"],
+  "selectedSkillIds": [],
+  "selectedMcpServerIds": []
+}
+```
+
+The route validates catalog ownership, mirrors readable entries into
+`settings.yaml`, reconciles the Postgres projection, and returns `toolAccess`.
 
 ## Skills
 
@@ -337,7 +399,6 @@ client.jobs.create({
   kind?, // manual | once | recurring
   runAt?, // once
   schedule?, // recurring
-  executionMode?, // parallel | serialized
   modelAlias?,    // friendly catalog alias, e.g. opus, sonnet, kimi
   modelProfileId?,
   dryRun?,        // preview model plus runtime context without scheduling
@@ -348,7 +409,6 @@ client.jobs.get(jobId)
 client.jobs.update(jobId, {
   name?,
   prompt?,
-  executionMode?,
   executionContext?: {
     conversationJid,
     threadId,
@@ -514,7 +574,6 @@ client.agents.conversationBindings.enable(agentId, conversationId, {
   displayName?,
   triggerMode?, // always | mention | keyword | manual | webhook
   triggerPattern?,
-  requiresTrigger?,
   requiresTrigger?,
   memoryScope?, // user | conversation | thread | agent | app
   memorySubject?,

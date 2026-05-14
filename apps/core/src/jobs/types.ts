@@ -12,7 +12,16 @@ import type { GroupQueue } from '../runtime/group-queue.js';
 import type { spawnAgent } from '../runtime/agent-spawn.js';
 import type { SchedulerSendMessage } from './delivery.js';
 import type { SessionMemoryCollector } from '../domain/ports/session-memory-collector.js';
-import type { ToolCatalogRepository } from '../domain/ports/repositories.js';
+import type { RemoteMcpDnsValidationCache } from '../application/mcp/mcp-server-policy.js';
+import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
+import type { HostnameLookup } from '../domain/network/public-address-policy.js';
+import type {
+  McpServerRepository,
+  SkillCatalogRepository,
+  ToolCatalogRepository,
+} from '../domain/ports/repositories.js';
+import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
+import type { JobReadinessBrowserStatus } from '../application/jobs/job-readiness-service.js';
 
 export interface SchedulerDependencies {
   conversationRoutes: () => Record<string, ConversationRoute>;
@@ -35,7 +44,22 @@ export interface SchedulerDependencies {
   runAgent?: typeof spawnAgent;
   collectSessionMemory?: SessionMemoryCollector;
   opsRepository: RuntimeJobRepository & RuntimeAgentSessionRepository;
+  getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
+  getSkillRepository?: () => SkillCatalogRepository | undefined;
+  getMcpServerRepository?: () => McpServerRepository | undefined;
+  getMcpHostnameLookup?: () => HostnameLookup | undefined;
+  getMcpDnsValidationCache?: () => RemoteMcpDnsValidationCache | undefined;
+  getSkillArtifactStore?: () => SkillArtifactStore | undefined;
   getToolRepository?: () => ToolCatalogRepository | undefined;
+  getBrowserStatus?: (
+    profileName: string,
+  ) => Promise<JobReadinessBrowserStatus | undefined>;
+  closeBrowserSession?: (profileName: string) => Promise<{
+    closed: boolean;
+    reason?: string;
+    elapsedMs?: number;
+  }>;
+  closeBrowserToolBackends?: (profileName: string) => Promise<void>;
 }
 
 export type JobTurnContext = Awaited<

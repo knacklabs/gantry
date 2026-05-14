@@ -49,21 +49,21 @@ describe('browser usage governor', () => {
 
   it('does not fall back to remembered site for explicit unnormalizable URLs', () => {
     rememberBrowserUsageSite({
-      action: 'browser_navigate',
+      action: 'navigate',
       payload: { url: 'https://app.example.com/path' },
       profileName: 'profile-a',
       ok: true,
     });
 
     const activeInternalPage = beginBrowserUsage({
-      action: 'browser_click',
+      action: 'click',
       payload: {},
       profileName: 'profile-a',
       settings: usageSettings,
       activeUrl: 'chrome://settings/',
     });
     const navigateInternalPage = beginBrowserUsage({
-      action: 'browser_navigate',
+      action: 'navigate',
       payload: { url: 'about:blank' },
       profileName: 'profile-a',
       settings: usageSettings,
@@ -75,19 +75,19 @@ describe('browser usage governor', () => {
 
   it('does not meter status launch or close actions', () => {
     const first = beginBrowserUsage({
-      action: 'browser_navigate',
+      action: 'navigate',
       payload: { url: 'https://app.example.com/path' },
       profileName: 'profile-a',
       settings: usageSettings,
     });
     const status = beginBrowserUsage({
-      action: 'browser_status',
+      action: 'status',
       payload: {},
       profileName: 'profile-a',
       settings: usageSettings,
     });
     const close = beginBrowserUsage({
-      action: 'browser_close',
+      action: 'close',
       payload: {},
       profileName: 'profile-a',
       settings: usageSettings,
@@ -101,7 +101,7 @@ describe('browser usage governor', () => {
 
   it('prunes expired inactive buckets opportunistically', () => {
     const first = beginBrowserUsage({
-      action: 'browser_navigate',
+      action: 'navigate',
       payload: { url: 'https://one.example.net/path' },
       profileName: 'profile-a',
       settings: usageSettings,
@@ -110,7 +110,7 @@ describe('browser usage governor', () => {
     vi.setSystemTime(new Date('2026-05-11T00:00:02.000Z'));
 
     beginBrowserUsage({
-      action: 'browser_navigate',
+      action: 'navigate',
       payload: { url: 'https://two.example.com/path' },
       profileName: 'profile-a',
       settings: usageSettings,

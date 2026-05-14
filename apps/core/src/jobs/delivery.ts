@@ -88,6 +88,7 @@ export async function sendJobNotification(input: {
   text: string;
   phase: JobNotificationPhase;
   runId?: string | null;
+  actionAffordances?: MessageSendOptions['actionAffordances'];
   sendMessage?: SchedulerSendMessage;
   enqueueDurableNotification?: EnqueueDurableJobNotification;
 }): Promise<boolean> {
@@ -144,7 +145,15 @@ export async function sendJobNotification(input: {
   const sendMessage = input.sendMessage;
   if (!sendMessage) return false;
   for (const route of routes) {
-    const options = route.threadId ? { threadId: route.threadId } : undefined;
+    const options =
+      route.threadId || input.actionAffordances
+        ? {
+            ...(route.threadId ? { threadId: route.threadId } : {}),
+            ...(input.actionAffordances
+              ? { actionAffordances: input.actionAffordances }
+              : {}),
+          }
+        : undefined;
     try {
       const settlement = await settleDeliveryAttempt(
         () =>

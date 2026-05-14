@@ -11,7 +11,10 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
 }));
 
 import type { Job } from '@core/domain/types.js';
-import { PgBossSchedulerEngine } from '@core/infrastructure/pgboss/scheduler-engine.js';
+import {
+  PgBossSchedulerEngine,
+  SCHEDULER_MAINTENANCE_SYNC_INTERVAL_MS,
+} from '@core/infrastructure/pgboss/scheduler-engine.js';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -41,7 +44,6 @@ function createJob(overrides: Partial<Job> = {}): Job {
     retry_backoff_ms: 5_000,
     max_consecutive_failures: 5,
     consecutive_failures: 0,
-    execution_mode: 'parallel',
     lease_run_id: null,
     lease_expires_at: null,
     pause_reason: null,
@@ -73,7 +75,7 @@ describe('PgBossSchedulerEngine', () => {
           onProcess: vi.fn(),
           sendMessage: vi.fn(),
           opsRepository: {
-            releaseStaleJobLeases: vi.fn().mockResolvedValue(0),
+            releaseStaleJobLeases: vi.fn().mockResolvedValue([]),
             getAllJobs: vi.fn().mockResolvedValue([staleJob]),
           } as never,
         },
@@ -94,7 +96,7 @@ describe('PgBossSchedulerEngine', () => {
 
       expect(send).toHaveBeenCalledTimes(1);
       expect(send).toHaveBeenLastCalledWith(
-        'myclaw.jobs.parallel',
+        'myclaw.jobs',
         { jobId: 'job-1', scheduledFor: '2026-04-24T09:00:00.000Z' },
         expect.objectContaining({
           id: expect.stringMatching(UUID_PATTERN),
@@ -110,7 +112,7 @@ describe('PgBossSchedulerEngine', () => {
 
       expect(send).toHaveBeenCalledTimes(2);
       expect(send).toHaveBeenLastCalledWith(
-        'myclaw.jobs.parallel',
+        'myclaw.jobs',
         { jobId: 'job-1', scheduledFor: '2026-04-24T09:00:00.000Z' },
         expect.objectContaining({
           id: send.mock.calls[0][2].id,
@@ -134,8 +136,15 @@ describe('PgBossSchedulerEngine', () => {
     const opsRepository = {
       releaseStaleJobLeases: vi
         .fn()
-        .mockResolvedValueOnce(0)
-        .mockResolvedValueOnce(1),
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            jobId: 'job-1',
+            runId: 'run-1',
+            releasedAt: '2026-04-24T08:00:00.000Z',
+            runTimedOut: true,
+          },
+        ]),
       getAllJobs: vi.fn().mockResolvedValue([activeJob]),
     };
     const onSchedulerChanged = vi.fn();
@@ -167,11 +176,98 @@ describe('PgBossSchedulerEngine', () => {
     expect(onSchedulerChanged).toHaveBeenCalledWith();
   });
 
-  it('schedules cron jobs with pg-boss using serialized queue affinity', async () => {
+  it('releases interrupted running job leases during scheduler startup recovery', async () => {
+    const release = {
+      jobId: 'job-1',
+      runId: 'run-1',
+      releasedAt: '2026-04-24T08:00:00.000Z',
+      runTimedOut: true,
+    };
+    const opsRepository = {
+      releaseInterruptedJobLeases: vi.fn().mockResolvedValue([release]),
+    };
+    const onSchedulerChanged = vi.fn();
+    const handleReleasedStaleLeases = vi.fn().mockResolvedValue(undefined);
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage: vi.fn(),
+        opsRepository: opsRepository as never,
+        onSchedulerChanged,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob: vi.fn().mockResolvedValue(undefined),
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+        handleReleasedStaleLeases,
+      },
+    );
+
+    await (
+      engine as unknown as {
+        releaseInterruptedStartupLeases: () => Promise<void>;
+      }
+    ).releaseInterruptedStartupLeases();
+
+    expect(opsRepository.releaseInterruptedJobLeases).toHaveBeenCalledTimes(1);
+    expect(handleReleasedStaleLeases).toHaveBeenCalledWith(
+      [release],
+      expect.objectContaining({ opsRepository }),
+    );
+    expect(onSchedulerChanged).toHaveBeenCalledWith();
+  });
+
+  it('periodically runs a full sync so stale leases are released while idle', async () => {
+    vi.useFakeTimers();
+    try {
+      const activeJob = createJob();
+      const boss = {
+        send: vi.fn().mockResolvedValue(undefined),
+        schedule: vi.fn().mockResolvedValue(undefined),
+        unschedule: vi.fn().mockResolvedValue(undefined),
+        deleteJob: vi.fn().mockResolvedValue(undefined),
+      };
+      const opsRepository = {
+        releaseStaleJobLeases: vi.fn().mockResolvedValue([]),
+        getAllJobs: vi.fn().mockResolvedValue([activeJob]),
+      };
+      const engine = new PgBossSchedulerEngine(
+        {
+          conversationRoutes: () => ({}),
+          queue: {} as never,
+          onProcess: vi.fn(),
+          sendMessage: vi.fn(),
+          opsRepository: opsRepository as never,
+        },
+        {
+          registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+          runJob: vi.fn().mockResolvedValue(undefined),
+          sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+        },
+      );
+      (engine as unknown as { boss: typeof boss }).boss = boss;
+
+      (
+        engine as unknown as { startMaintenanceTimer: () => void }
+      ).startMaintenanceTimer();
+      await vi.advanceTimersByTimeAsync(SCHEDULER_MAINTENANCE_SYNC_INTERVAL_MS);
+
+      expect(opsRepository.releaseStaleJobLeases).toHaveBeenCalledTimes(1);
+
+      (
+        engine as unknown as { stopMaintenanceTimer: () => void }
+      ).stopMaintenanceTimer();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('schedules cron jobs with the single durable pg-boss job queue', async () => {
     const cronJob = createJob({
       schedule_type: 'cron',
       schedule_value: '0 9 * * *',
-      execution_mode: 'serialized',
       next_run: '2026-04-25T09:00:00.000Z',
       group_scope: 'sl:team',
     });
@@ -188,7 +284,7 @@ describe('PgBossSchedulerEngine', () => {
         onProcess: vi.fn(),
         sendMessage: vi.fn(),
         opsRepository: {
-          releaseStaleJobLeases: vi.fn().mockResolvedValue(0),
+          releaseStaleJobLeases: vi.fn().mockResolvedValue([]),
           getAllJobs: vi.fn().mockResolvedValue([cronJob]),
         } as never,
       },
@@ -205,7 +301,7 @@ describe('PgBossSchedulerEngine', () => {
     ).syncAllJobs();
 
     expect(boss.schedule).toHaveBeenCalledWith(
-      'myclaw.jobs.serialized',
+      'myclaw.jobs',
       '0 9 * * *',
       { jobId: 'job-1' },
       expect.objectContaining({
@@ -243,7 +339,7 @@ describe('PgBossSchedulerEngine', () => {
         onProcess: vi.fn(),
         sendMessage: vi.fn(),
         opsRepository: {
-          releaseStaleJobLeases: vi.fn().mockResolvedValue(0),
+          releaseStaleJobLeases: vi.fn().mockResolvedValue([]),
           getAllJobs: vi.fn().mockResolvedValue([manualJob, pausedJob]),
         } as never,
       },
@@ -300,7 +396,7 @@ describe('PgBossSchedulerEngine', () => {
     );
 
     expect(boss.send).toHaveBeenCalledWith(
-      'myclaw.jobs.parallel',
+      'myclaw.jobs',
       {
         jobId: 'job-1',
         runId: '55cda2f6-e553-486a-867f-b9c78a742217',
@@ -316,9 +412,8 @@ describe('PgBossSchedulerEngine', () => {
     expect(boss.send.mock.calls[0][2].id).not.toContain('myclaw.send.');
   });
 
-  it('dispatches serialized jobs through a group-scoped queue key and releases the slot', async () => {
+  it('dispatches jobs through a job-scoped scheduler queue key and releases the slot', async () => {
     const job = createJob({
-      execution_mode: 'serialized',
       group_scope: 'tg:team',
     });
     const callbacks = {
@@ -348,19 +443,16 @@ describe('PgBossSchedulerEngine', () => {
           jobs: Array<{
             data: { jobId: string; triggerId?: string; runId?: string };
           }>,
-          mode: 'serialized',
         ) => Promise<void>;
       }
-    ).processBossJobs(
-      [{ data: { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' } }],
-      'serialized',
-    );
+    ).processBossJobs([
+      { data: { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' } },
+    ]);
 
     expect(callbacks.runJob).toHaveBeenCalledWith(
       job,
       expect.any(Object),
-      '__scheduler__:tg:team',
-      'serialized',
+      '__scheduler__:tg:team:job-1',
       { jobId: 'job-1', triggerId: 'trigger-1', runId: 'run-1' },
     );
     expect(requestSync).toHaveBeenCalledWith();

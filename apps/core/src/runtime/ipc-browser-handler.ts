@@ -1,7 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 
-import { BROWSER_IPC_ACTIONS, type BrowserIpcAction } from '@myclaw/contracts';
+import {
+  BROWSER_BACKEND_ACTIONS,
+  browserBackendActionSatisfiesGatewayActivity,
+  type BrowserBackendAction,
+} from '../shared/browser-backend-actions.js';
 
 import { DATA_DIR } from '../config/index.js';
 import { signIpcResponsePayload } from '../infrastructure/ipc/response-signing.js';
@@ -36,8 +40,11 @@ import { memoryAgentIdForGroupFolder } from '../memory/app-memory-boundaries.js'
 
 interface BrowserRequest {
   requestId: string;
-  action: BrowserIpcAction;
+  action: BrowserBackendAction;
   payload: Record<string, unknown>;
+  jobId?: string;
+  runId?: string;
+  publicToolName?: string;
 }
 
 interface BrowserResponse {
@@ -54,6 +61,7 @@ type BrowserContext = Pick<
   getCredentialBroker?: IpcDomainContext['deps']['getCredentialBroker'];
   getCredentialBrokerProfile?: IpcDomainContext['deps']['getCredentialBrokerProfile'];
   callBrowserTool?: IpcDomainContext['deps']['callBrowserTool'];
+  publishBrowserJobActivity?: IpcDomainContext['deps']['publishBrowserJobActivity'];
   closeBrowserToolBackends?: IpcDomainContext['deps']['closeBrowserToolBackends'];
   getBrowserUsageSettings?: IpcDomainContext['deps']['getBrowserUsageSettings'];
   timeoutMs?: number;
@@ -73,17 +81,17 @@ const brokerHealthCache = new Map<
   string,
   { expiresAt: number; value: CredentialBrokerHealth | undefined }
 >();
-const POINTER_ACTIONS = new Set<BrowserIpcAction>([
-  'browser_click',
-  'browser_hover',
-  'browser_drag',
-  'browser_drop',
-  'browser_select_option',
-  'browser_fill_form',
+const POINTER_ACTIONS = new Set<BrowserBackendAction>([
+  'click',
+  'hover',
+  'drag',
+  'drop',
+  'select_option',
+  'fill_form',
 ]);
-const FOREGROUND_BEFORE_DISPATCH_ACTIONS = new Set<BrowserIpcAction>([
+const FOREGROUND_BEFORE_DISPATCH_ACTIONS = new Set<BrowserBackendAction>([
   ...POINTER_ACTIONS,
-  'browser_take_screenshot',
+  'screenshot',
 ]);
 
 interface BrowserIpcDeadline {
@@ -101,7 +109,7 @@ function toOptionalNumber(
 }
 
 function assertPayloadKeys(
-  action: BrowserIpcAction,
+  action: BrowserBackendAction,
   payload: Record<string, unknown>,
   allowedKeys: readonly string[],
 ): void {
@@ -150,7 +158,7 @@ function browserResizeDimensions(payload: Record<string, unknown>): {
   const width = toOptionalNumber(payload.width, { min: 1 });
   const height = toOptionalNumber(payload.height, { min: 1 });
   if (width === undefined || height === undefined) {
-    throw new Error('browser_resize requires positive width and height');
+    throw new Error('resize requires positive width and height');
   }
   return {
     width: Math.min(Math.trunc(width), MAX_BROWSER_RESIZE_DIMENSION),
@@ -242,7 +250,7 @@ async function callBrowserResizeBackend(input: {
   }
   const backendTimeoutMs = browserBackendTimeoutMs(input.deadline);
   const result = await input.context.callBrowserTool({
-    toolName: 'browser_resize',
+    toolName: 'resize',
     arguments: { width: input.width, height: input.height },
     session: input.session,
     fileAccessRoot: path.join(
@@ -366,7 +374,7 @@ async function handleBrowserToolActionInner(
     context.deadlineAtMs,
   );
   switch (request.action) {
-    case 'browser_status':
+    case 'status':
       return {
         ok: true,
         data: await attachToolCapabilityBrokerHealth(
@@ -382,7 +390,7 @@ async function handleBrowserToolActionInner(
     };
   }
   switch (request.action) {
-    case 'browser_launch': {
+    case 'open': {
       assertPayloadKeys(request.action, request.payload, [
         'profile_name',
         'keep_alive_ms',
@@ -405,7 +413,7 @@ async function handleBrowserToolActionInner(
         ),
       };
     }
-    case 'browser_close': {
+    case 'close': {
       browserIpcRemainingMs(deadline);
       const closed = await closeBrowser(profileName);
       await context.closeBrowserToolBackends?.(profileName);
@@ -418,7 +426,7 @@ async function handleBrowserToolActionInner(
     profileName,
     deadlineAtMs: deadline.deadlineAtMs,
   });
-  if (request.action === 'browser_resize') {
+  if (request.action === 'resize') {
     const { width, height } = browserResizeDimensions(request.payload);
     if (session.port) {
       const resizeTargetOptions = browserCdpOptions(deadline);
@@ -492,7 +500,7 @@ async function handleBrowserToolAction(
   context: BrowserContext,
 ): Promise<BrowserResponse> {
   const profileName = getProfileNameFromPayload(request.payload, context);
-  if (request.action !== 'browser_status' && !context.browserIpcAuthorized) {
+  if (request.action !== 'status' && !context.browserIpcAuthorized) {
     return {
       ok: false,
       error: BROWSER_IPC_UNAUTHORIZED_ERROR,
@@ -555,6 +563,8 @@ async function handleBrowserToolAction(
     finishBrowserUsage(usageDecision);
     console.info('Browser tool action audit', {
       sourceAgentFolder: context.sourceAgentFolder,
+      jobId: request.jobId,
+      runId: request.runId,
       profileName,
       toolName: request.action,
       normalizedSite: usageDecision.normalizedSite,
@@ -564,6 +574,56 @@ async function handleBrowserToolAction(
       ok: response?.ok ?? false,
       result: response?.ok ? 'success' : 'error',
     });
+    await publishBrowserJobActivity({
+      request,
+      publish: context.publishBrowserJobActivity,
+      elapsedMs: nowMs() - startedAt,
+      ok: response?.ok ?? false,
+      normalizedSite: usageDecision.normalizedSite,
+      policyMode: usageDecision.policyMode,
+      warning: usageDecision.warning,
+      error: response?.ok ? undefined : response?.error,
+    });
+  }
+}
+
+async function publishBrowserJobActivity(input: {
+  request: BrowserRequest;
+  publish?: IpcDomainContext['deps']['publishBrowserJobActivity'];
+  elapsedMs: number;
+  ok: boolean;
+  normalizedSite?: string | null;
+  policyMode?: string;
+  warning?: string;
+  error?: string;
+}): Promise<void> {
+  if (!input.request.jobId || !input.request.runId || !input.publish) return;
+  try {
+    await input.publish({
+      jobId: input.request.jobId,
+      runId: input.request.runId,
+      tool: 'Browser',
+      publicToolName: input.request.publicToolName,
+      action: input.request.action,
+      satisfiesRequiredTool:
+        input.ok &&
+        browserBackendActionSatisfiesGatewayActivity({
+          publicToolName: input.request.publicToolName,
+          action: input.request.action,
+        }),
+      ok: input.ok,
+      elapsedMs: input.elapsedMs,
+      normalizedSite: input.normalizedSite ?? null,
+      policyMode: input.policyMode ?? null,
+      warning: input.warning ?? null,
+      error: input.error ?? null,
+    });
+  } catch (err) {
+    console.warn('Failed to publish browser job activity', {
+      err,
+      jobId: input.request.jobId,
+      runId: input.request.runId,
+    });
   }
 }
 
@@ -572,7 +632,7 @@ export async function processBrowserIpcRequest(
   context: BrowserContext,
 ): Promise<BrowserResponse> {
   try {
-    if (!BROWSER_IPC_ACTIONS.includes(request.action)) {
+    if (!BROWSER_BACKEND_ACTIONS.includes(request.action)) {
       return {
         ok: false,
         error: `Unsupported browser IPC action: ${String(request.action)}`,

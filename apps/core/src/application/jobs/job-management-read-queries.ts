@@ -1,4 +1,6 @@
 import { resolveLimit } from './job-management-helpers.js';
+import { ApplicationError } from '../common/application-error.js';
+import { parseRuntimeEventType } from '../../domain/events/runtime-event-types.js';
 import type {
   Job,
   JobEvent,
@@ -77,6 +79,16 @@ export async function listManagedJobEvents(input: {
   since?: string;
   limit?: number;
 }): Promise<{ events: JobEvent[] }> {
+  const eventType =
+    input.eventType === undefined
+      ? undefined
+      : parseRuntimeEventType(input.eventType);
+  if (input.eventType !== undefined && !eventType) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      `Unknown runtime event type "${input.eventType}".`,
+    );
+  }
   if (input.jobId) {
     const job = await input.visibility.getVisibleJobForScopedRead({
       jobId: input.jobId,
@@ -104,7 +116,7 @@ export async function listManagedJobEvents(input: {
       job_id: input.jobId,
       job_ids: visibleJobIds,
       run_id: input.runId,
-      event_type: input.eventType,
+      event_type: eventType,
       since_id: input.sinceId,
       since: input.since,
     },

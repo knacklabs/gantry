@@ -485,6 +485,83 @@ describe('Slack channel', () => {
     );
   });
 
+  it('renders scheduler dead-letter action affordances as Slack buttons', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+
+    await channel.sendMessage('sl:C1234567890', 'Paused after failures', {
+      actionAffordances: [
+        { kind: 'scheduler_run_now', label: 'Retry now', jobId: 'job-1' },
+        {
+          kind: 'scheduler_show_last_logs',
+          label: 'Show last 50 log lines',
+          jobId: 'job-1',
+          runId: 'run-1',
+        },
+        { kind: 'scheduler_pause_job', label: 'Pause job', jobId: 'job-1' },
+        {
+          kind: 'scheduler_open',
+          label: 'Open in scheduler',
+          jobId: 'job-1',
+        },
+      ],
+    });
+
+    const payload = appRef.current.client.chat.postMessage.mock.calls[0]?.[0];
+    expect(
+      payload.blocks[1].elements.map((button: any) => button.text.text),
+    ).toEqual([
+      'Retry now',
+      'Show last 50 log lines',
+      'Pause job',
+      'Open in scheduler',
+    ]);
+    expect(payload.blocks[1].elements[0]).toEqual(
+      expect.objectContaining({
+        action_id: 'myclaw_message_action',
+        value: expect.stringContaining('"kind":"scheduler_run_now"'),
+      }),
+    );
+  });
+
+  it('fails closed when Slack scheduler action buttons are clicked', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U_APPROVER']) as any,
+    );
+    await channel.connect();
+
+    const actionHandler = appRef.current.actionHandlers.get(
+      'myclaw_message_action',
+    );
+    expect(actionHandler).toBeDefined();
+    const ack = vi.fn();
+    await actionHandler({
+      ack,
+      action: {
+        value: JSON.stringify({
+          kind: 'scheduler_run_now',
+          jobId: 'job-1',
+          runId: 'run-1',
+        }),
+      },
+      body: { channel: { id: 'C1234567890' }, user: { id: 'U_APPROVER' } },
+    });
+
+    expect(ack).toHaveBeenCalled();
+    expect(appRef.current.client.chat.postEphemeral).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: 'C1234567890',
+        user: 'U_APPROVER',
+      }),
+    );
+  });
+
   it('chunks outbound Slack messages to 4000-char parts and returns delivery metadata', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
@@ -748,6 +825,33 @@ describe('Slack channel', () => {
     expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
   });
 
+  it('drops stale Slack progress updates after a generation is done', async () => {
+    const channel = new SlackChannel(
+      'xoxb-token',
+      'xapp-token',
+      createOptsWithApproverHook(['U123']) as any,
+    );
+    await channel.connect();
+
+    await channel.sendProgressUpdate('sl:C1234567890', 'Working on it...', {
+      generation: 1,
+    });
+    await channel.sendProgressUpdate('sl:C1234567890', 'Done in 10s.', {
+      done: true,
+      generation: 1,
+    });
+
+    appRef.current.client.chat.postMessage.mockClear();
+    appRef.current.client.chat.update.mockClear();
+
+    await channel.sendProgressUpdate('sl:C1234567890', 'Still working...', {
+      generation: 1,
+    });
+
+    expect(appRef.current.client.chat.postMessage).not.toHaveBeenCalled();
+    expect(appRef.current.client.chat.update).not.toHaveBeenCalled();
+  });
+
   it('starts a fresh Slack progress handle when generation changes under the same chat key', async () => {
     const channel = new SlackChannel(
       'xoxb-token',
@@ -869,7 +973,7 @@ describe('Slack channel', () => {
       .mock.calls.at(-1)?.[0];
     expect(postCall?.thread_ts).toBe('1711111111.000100');
     expect(postCall?.text).toContain('Thread: 1711111111.000100');
-    expect(postCall?.text).toContain('Command: `git status --short`');
+    expect(postCall?.text).toContain('Command:\n```\ngit status --short\n```');
 
     const actionHandler = appRef.current.actionHandlers.get(
       'myclaw_perm_decision',

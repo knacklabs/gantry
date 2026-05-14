@@ -1,4 +1,4 @@
-import type { BrowserIpcAction } from '@myclaw/contracts';
+import type { BrowserBackendAction } from '../shared/browser-backend-actions.js';
 
 import { normalizeBrowserSiteFromUrl } from '../shared/browser-site.js';
 import { nowMs } from '../shared/time/datetime.js';
@@ -22,7 +22,7 @@ export interface BrowserUsageSettings {
 }
 
 export interface BrowserUsagePolicyDecision {
-  action: BrowserIpcAction;
+  action: BrowserBackendAction;
   normalizedSite: string;
   profileName: string;
   policyMode: 'disabled' | BrowserUsagePolicyMode;
@@ -46,14 +46,14 @@ interface BrowserUsageRule {
 
 const usageBuckets = new Map<string, BrowserUsageBucket>();
 const currentSiteByProfile = new Map<string, string>();
-const UNMETERED_BROWSER_ACTIONS = new Set<BrowserIpcAction>([
-  'browser_status',
-  'browser_launch',
-  'browser_close',
+const UNMETERED_BROWSER_ACTIONS = new Set<BrowserBackendAction>([
+  'status',
+  'open',
+  'close',
 ]);
 
 function browserUsageSite(input: {
-  action: BrowserIpcAction;
+  action: BrowserBackendAction;
   payload: Record<string, unknown>;
   profileName: string;
   payloadUrl?: string | null;
@@ -121,7 +121,7 @@ function pruneExpiredUsageBuckets(now: number): void {
 }
 
 export function beginBrowserUsage(input: {
-  action: BrowserIpcAction;
+  action: BrowserBackendAction;
   payload: Record<string, unknown>;
   profileName: string;
   settings?: BrowserUsageSettings;
@@ -195,7 +195,7 @@ export function finishBrowserUsage(decision: BrowserUsagePolicyDecision): void {
 }
 
 export function rememberBrowserUsageSite(input: {
-  action: BrowserIpcAction;
+  action: BrowserBackendAction;
   payload: Record<string, unknown>;
   profileName: string;
   ok: boolean;

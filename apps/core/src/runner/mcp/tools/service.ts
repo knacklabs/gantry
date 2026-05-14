@@ -19,6 +19,8 @@ import {
   formatMcpListToolsResponse,
   formatSkillProposalResponse,
 } from './service-formatters.js';
+import { registerSemanticCapabilityTools } from './capabilities.js';
+import { registerAdminPermissionTools } from './admin-permissions.js';
 import { registerSettingsTools } from './settings.js';
 import { makeIpcId } from '../ipc-ids.js';
 import type { AdminMcpToolName } from '../../../shared/admin-mcp-tools.js';
@@ -30,6 +32,9 @@ export function registerServiceTools(server: McpServer): void {
     'Submit an agent-created or modified skill bundle for same-conversation admin review. This creates a proposal only; it never approves, binds, or activates the skill.',
   );
   registerSettingsTools(server, { isAdminToolEnabled: isAdminMcpToolEnabled });
+  registerAdminPermissionTools(server, {
+    isAdminToolEnabled: isAdminMcpToolEnabled,
+  });
 
   server.tool(
     'capability_status',
@@ -155,9 +160,9 @@ export function registerServiceTools(server: McpServer): void {
     'request_permission',
     [
       'Request one reviewed permission or capability change for the current agent.',
-      'Prefer letting the actual tool call trigger Allow once. Use this tool for planned persistent granular access, provider/channel capabilities, or when a capability is missing.',
-      'Use Anthropic-compatible rule syntax when asking for persistent tool access: ToolName(scope-pattern), Edit(/path/**), WebFetch(domain:example.com), mcp__server__*, Agent(subagent-type).',
-      'Broad whole-tool access is a last resort and must be explicit in the reason.',
+      'For app workflows, prefer capability_search/request_capability or propose_local_cli_capability so users approve semantic capabilities.',
+      'Use this directly for one-off exact tool access, provider/channel permissions, internal Browser requests, or scoped Bash fallback rules such as Bash(npm test *) when no reviewed semantic capability fits.',
+      'Use request_skill_install/request_skill_proposal for skills and request_mcp_server for third-party MCP server access.',
     ].join(' '),
     {
       permissionKind: z
@@ -170,31 +175,31 @@ export function registerServiceTools(server: McpServer): void {
         .string()
         .optional()
         .describe(
-          'Single tool name to enable, such as Bash, Edit, Write, WebFetch, Agent, Browser, scheduler_create_job, or an MCP tool name.',
+          'Single public fallback tool name to enable. Use Bash only with a rule; use exact names such as Edit, Write, WebFetch, Agent, Browser, scheduler_create_job, or an MCP tool name for non-Bash tools.',
         ),
       toolNames: z
         .array(z.string())
         .optional()
         .describe(
-          'Exact tool names to enable. Prefer one tool plus a scoped rule; use multiple names only when the request truly needs them together.',
+          'Exact tool names to enable. Use multiple names only when the request truly needs them together.',
         ),
       rule: z
         .string()
         .optional()
         .describe(
-          'Optional granular scope for the requested tool. Use this instead of broad access when possible, for example "npm run test *", "/docs/**", "domain:github.com", "Explore", or "mcp__github__*".',
+          'Required scoped command pattern for persistent Bash approvals, such as npm test * or git status. For non-Bash tools this is reviewer context only and is not persisted.',
         ),
       temporaryOnly: z
         .boolean()
         .optional()
         .describe(
-          'Set true when the permission is needed only for the current action or an exploratory one-off. Leave false/omitted only when a persistent rule is genuinely useful for future turns.',
+          'Set true when the permission is needed only for the current action or an exploratory one-off. Leave false/omitted only for semantic capabilities, Browser, exact MyClaw admin tools, or persistent scoped Bash rules that are genuinely useful for future turns.',
         ),
       broadAccess: z
         .boolean()
         .optional()
         .describe(
-          'Set true only when scoped rules are insufficient and the admin should intentionally consider whole-tool access. Explain why in reason.',
+          'Optional reviewer signal that the requested exact tool is broad. Explain the need in reason.',
         ),
       toolCategory: z
         .string()
@@ -212,17 +217,35 @@ export function registerServiceTools(server: McpServer): void {
         .string()
         .optional()
         .describe(
-          'Optional requested permission policy. Prefer "ask once" or scoped persistent rules over broad persistent access.',
+          'Optional requested permission policy such as "ask once" or "persistent".',
         ),
       sandboxProfile: z
         .string()
         .optional()
         .describe('Optional requested sandbox profile'),
-      reason: z
+      capabilityId: z
         .string()
+        .optional()
         .describe(
-          'Why this exact scope is needed. If broadAccess is true, explain why narrower rules are insufficient.',
+          'Stable semantic capability id, such as google.sheets.write or acme.invoices.read.',
         ),
+      capabilityDisplayName: z
+        .string()
+        .optional()
+        .describe('User-facing semantic capability name.'),
+      accountLabel: z
+        .string()
+        .optional()
+        .describe('Non-secret account or workspace label.'),
+      can: z
+        .string()
+        .optional()
+        .describe('What the semantic capability allows.'),
+      cannot: z
+        .string()
+        .optional()
+        .describe('What the semantic capability excludes.'),
+      reason: z.string().describe('Why this exact tool capability is needed.'),
       channelTool: z
         .string()
         .optional()
@@ -254,6 +277,11 @@ export function registerServiceTools(server: McpServer): void {
         riskClass: args.riskClass,
         permissionPolicy: args.permissionPolicy,
         sandboxProfile: args.sandboxProfile,
+        capabilityId: args.capabilityId,
+        capabilityDisplayName: args.capabilityDisplayName,
+        accountLabel: args.accountLabel,
+        can: args.can,
+        cannot: args.cannot,
         channelTool: args.channelTool,
         providerId: args.providerId,
         requiredScopes: args.requiredScopes ?? [],
@@ -261,6 +289,8 @@ export function registerServiceTools(server: McpServer): void {
         reason: args.reason,
       }),
   );
+
+  registerSemanticCapabilityTools(server, submitCapabilityReviewTask);
 
   server.tool(
     'request_mcp_server',
@@ -603,8 +633,8 @@ function adminToolUnavailable(toolName: AdminMcpToolName): {
 
 const BROWSER_WRONG_LANE_GUIDANCE = [
   'Browser control is a built-in MyClaw tool capability, not a skill install or third-party MCP server request.',
-  'Do not request browser, agent-browser, agent_browser, Playwright, or Puppeteer through request_skill_install or request_mcp_server.',
-  'Use request_permission with permissionKind="tool", toolName="Browser", toolCategory="browser", temporaryOnly=false for persistent approval, then use the projected browser_* tools.',
+  'Do not request browser automation through request_skill_install or request_mcp_server.',
+  'Use request_permission with permissionKind="tool", toolName="Browser", toolCategory="browser", temporaryOnly=false for persistent approval, then use the compact browser gateway tools.',
 ].join(' ');
 
 function browserWrongLaneRequestGuidance(
@@ -646,14 +676,12 @@ function explicitWrongLaneText(value: unknown): string[] {
 function isBrowserWrongLaneText(value: string): boolean {
   const normalized = value.toLowerCase();
   const compact = normalized.replace(/[^a-z0-9]+/g, '');
-  if (
-    compact.includes('agentbrowser') ||
-    compact.includes('playwright') ||
-    compact.includes('puppeteer')
-  ) {
-    return true;
-  }
-  return normalized === 'browser' || normalized === 'browser-control';
+  return (
+    normalized === 'browser' ||
+    normalized === 'browser-control' ||
+    compact === 'browserbackend' ||
+    compact === 'browsercontrol'
+  );
 }
 
 type CapabilityReviewToolName =

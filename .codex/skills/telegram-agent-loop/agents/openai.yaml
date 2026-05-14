@@ -1,0 +1,4 @@
+interface:
+  display_name: "Telegram Agent Loop"
+  short_description: "Verify Kai jobs via Telegram"
+  default_prompt: "Use Chrome to send a prompt to the Kai Telegram topic, monitor the visible agent response, iterate with follow-up messages, and cross-check local MyClaw evidence until the job is certified."
