@@ -16,14 +16,10 @@ import type { NewMessage } from '../../domain/types.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { writeGroupsSnapshot } from '../../runtime/agent-spawn.js';
 import { startIpcWatcher, type IpcDeps } from '../../runtime/ipc.js';
-import {
-  recoverPendingMessages,
-  startMessagePollingLoop,
-} from '../../runtime/message-loop.js';
-import {
-  requestSchedulerSync,
-  startSchedulerLoop,
-} from '../../jobs/scheduler.js';
+// prettier-ignore
+import { recoverPendingMessages, startMessagePollingLoop } from '../../runtime/message-loop.js';
+// prettier-ignore
+import { requestSchedulerSync, startSchedulerLoop } from '../../jobs/scheduler.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { makeThreadQueueKey } from '../../runtime/thread-queue-key.js';
 import type {
@@ -54,10 +50,8 @@ import {
 } from '../../domain/messages/partial-delivery.js';
 import { isAmbiguousDurableDeliveryError } from '../../domain/messages/durable-delivery.js';
 import { startOutboundDeliveryRecoveryLoop } from '../../jobs/outbound-delivery-recovery.js';
-import {
-  closeBrowser,
-  getBrowserStatus,
-} from '../../runtime/browser-capability.js';
+// prettier-ignore
+import { closeBrowser, getBrowserStatus } from '../../runtime/browser-capability.js';
 import type { OutboundDeliveryProfile } from '../../domain/outbound-delivery/planner.js';
 import {
   LIVE_SEND_PROFILE_ID,

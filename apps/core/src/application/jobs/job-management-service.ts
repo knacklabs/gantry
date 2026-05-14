@@ -1,17 +1,11 @@
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import { ApplicationError } from '../common/application-error.js';
 import type { Clock } from '../common/clock.js';
-import {
-  DEFAULT_JOB_RUNTIME_APP_ID,
-  filterJobsByCanonicalAppSession,
-  resolveJobAppSession,
-} from './job-access.js';
+// prettier-ignore
+import { DEFAULT_JOB_RUNTIME_APP_ID, filterJobsByCanonicalAppSession, resolveJobAppSession } from './job-access.js';
 import { isVisibleJob } from './job-list-filters.js';
-import {
-  assertSchedulerJobAccess,
-  normalizeOptional,
-  validateSchedulerUpdate,
-} from './job-management-access.js';
+// prettier-ignore
+import { assertSchedulerJobAccess, normalizeOptional, validateSchedulerUpdate } from './job-management-access.js';
 import { createManagedJob } from './job-management-create.js';
 import {
   assertExecutionContextMatchesAuthenticatedContext,
@@ -44,21 +38,13 @@ import type {
   ManagedJobTriggerInput,
   ManagedJobTriggerWaitInput,
 } from './job-management-types.js';
-import {
-  resolveOptionalJobModel,
-  resolveRequestedJobModel,
-} from './job-model-selection.js';
-import {
-  requireJobControl,
-  requireRuntimeEvents,
-  requireTriggerQueue,
-} from './job-management-require.js';
+// prettier-ignore
+import { resolveOptionalJobModel, resolveRequestedJobModel } from './job-model-selection.js';
+// prettier-ignore
+import { requireJobControl, requireRuntimeEvents, requireTriggerQueue } from './job-management-require.js';
 import { runSchedulerJobNowFromMcp } from './job-management-run-now.js';
-import {
-  listManagedDeadLetterRuns,
-  listManagedJobEvents,
-  listManagedJobRuns,
-} from './job-management-read-queries.js';
+// prettier-ignore
+import { listManagedDeadLetterRuns, listManagedJobEvents, listManagedJobRuns } from './job-management-read-queries.js';
 import {
   normalizeRequiredMcpServers,
   normalizeRequiredMcpServersInput,
@@ -73,10 +59,8 @@ import {
   setupBlockerDetails,
 } from './job-management-readiness.js';
 import { waitForTriggerCompletion } from './job-management-trigger-wait.js';
-import {
-  assertJobAppAccess,
-  resolveAuthenticatedRouteContextForUpdate,
-} from './job-management-context-access.js';
+// prettier-ignore
+import { assertJobAppAccess, resolveAuthenticatedRouteContextForUpdate } from './job-management-context-access.js';
 import { createJobVisibilityReaders } from './job-management-visibility-readers.js';
 import { nowIso } from '../../shared/time/datetime.js';
 

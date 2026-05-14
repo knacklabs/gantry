@@ -1,15 +1,10 @@
 import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 
 import type { JobRun } from '../../../../domain/repositories/domain-types.js';
-import type {
-  JobListFilters,
-  JobRunListFilters,
-  ReleasedStaleJobLease,
-} from '../../../../domain/repositories/ops-repo.js';
-import {
-  RUNTIME_EVENT_TYPES,
-  type RuntimeEventType,
-} from '../../../../domain/events/runtime-event-types.js';
+// prettier-ignore
+import type { JobListFilters, JobRunListFilters, ReleasedStaleJobLease } from '../../../../domain/repositories/ops-repo.js';
+// prettier-ignore
+import { RUNTIME_EVENT_TYPES, type RuntimeEventType } from '../../../../domain/events/runtime-event-types.js';
 import { nowIso as currentIso } from '../../../../shared/time/datetime.js';
 import * as pgSchema from '../schema/schema.js';
 import {
@@ -20,10 +15,8 @@ import {
   configVersionIdForAgent,
   parseJson,
 } from './canonical-graph-repository.postgres.js';
-import {
-  releaseInterruptedCanonicalJobLeases,
-  releaseStaleCanonicalJobLeases,
-} from './canonical-job-lease-release.postgres.js';
+// prettier-ignore
+import { releaseInterruptedCanonicalJobLeases, releaseStaleCanonicalJobLeases } from './canonical-job-lease-release.postgres.js';
 
 export interface CanonicalJobRecord {
   id: string;
@@ -150,17 +143,12 @@ function ownedByAppClause(jobId: unknown, ownerAppId?: string) {
     : undefined;
 }
 
-function canonicalJobSessionId() {
-  return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,sessionId}'`;
-}
-
-function canonicalJobConversationJid() {
-  return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,conversationJid}'`;
-}
-
-function canonicalJobGroupScope() {
-  return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,groupScope}'`;
-}
+// prettier-ignore
+function canonicalJobSessionId() { return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,sessionId}'`; }
+// prettier-ignore
+function canonicalJobConversationJid() { return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,conversationJid}'`; }
+// prettier-ignore
+function canonicalJobGroupScope() { return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,groupScope}'`; }
 
 function canonicalJobThreadId() {
   return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,threadId}'`;

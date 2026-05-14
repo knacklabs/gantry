@@ -8,6 +8,7 @@ import {
   writeBrowserArtifactFileSync,
 } from './browser-artifact-policy.js';
 import { projectBrowserTabsResult } from './browser-tabs.js';
+import { sanitizeJsonSafeValue } from '../../shared/json-safe-text.js';
 import { nowMs } from '../../shared/time/datetime.js';
 
 const INLINE_SNAPSHOT_COMPACTION_BYTES = 32 * 1024;
@@ -63,11 +64,13 @@ export function normalizeBrowserToolResult(
   result: unknown,
   options: { artifactRoot?: string; tabSessionKey?: string } = {},
 ): unknown {
-  const sanitized = projectBrowserTabsResult(
-    sanitizeInternalChromeTargets(result),
-    options.tabSessionKey,
-    toolName,
-    args,
+  const sanitized = sanitizeJsonSafeValue(
+    projectBrowserTabsResult(
+      sanitizeInternalChromeTargets(result),
+      options.tabSessionKey,
+      toolName,
+      args,
+    ),
   );
   const filename = stringValue(args.filename);
   if (!filename || !BROWSER_FILE_OUTPUT_TOOLS.has(toolName)) {

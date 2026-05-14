@@ -78,3 +78,7 @@
   datetime helpers (`nowMs`/`nowIso`) instead of direct `Date.now()` or
   `new Date()` current-time reads so runtime timeout behavior stays
   deterministic under fake clocks and future clock injection.
+- Browser tool output must be JSON-safe before SDK delivery. Sanitize
+  unpaired UTF-16 surrogate code units in snapshots, evaluate results, tab
+  metadata, errors, and any nested text returned by the browser adapter while
+  preserving valid surrogate pairs such as emoji.

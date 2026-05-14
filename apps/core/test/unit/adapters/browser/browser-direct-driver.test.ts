@@ -21,6 +21,7 @@ import {
   formatBackendError,
   sanitizeBrowserTabsResult,
 } from '@core/adapters/browser/browser-direct-driver.js';
+import { normalizeBrowserToolResult } from '@core/adapters/browser/browser-result-hygiene.js';
 import { snapshotPage } from '@core/adapters/browser/browser-direct-page-actions.js';
 
 const tempRoots: string[] = [];
@@ -811,5 +812,24 @@ describe('browser direct driver', () => {
         tabs: [{ index: 0, title: 'Example', url: 'https://93.184.216.34/' }],
       },
     });
+  });
+
+  it('sanitizes invalid unicode from browser tool output before SDK delivery', () => {
+    const result = normalizeBrowserToolResult(
+      'browser_snapshot',
+      {},
+      {
+        content: [
+          {
+            type: 'text',
+            text: 'valid \uD83D\uDE00 lone-high \uD83D lone-low \uDE00',
+          },
+        ],
+      },
+    ) as { content: Array<{ text: string }> };
+
+    expect(result.content[0]?.text).toBe('valid 😀 lone-high � lone-low �');
+    expect(JSON.stringify(result)).not.toContain('\\ud83d');
+    expect(JSON.stringify(result)).not.toContain('\\ude00');
   });
 });
