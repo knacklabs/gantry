@@ -145,15 +145,65 @@ describe('startRuntimeServices', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(order).toEqual([
-      'startSchedulerLoop',
       'startIpcWatcher',
       'recoverPendingMessages',
+      'startSchedulerLoop',
+      'writeGroupsSnapshot',
       'runtime-ready-log',
       'startMessagePollingLoop',
-      'writeGroupsSnapshot',
     ]);
 
     expect((app.queue.setProcessMessagesFn as any).mock.calls).toHaveLength(1);
+  });
+
+  it('installs durable outbound delivery before scheduler startup', async () => {
+    const order: string[] = [];
+    const app = makeApp();
+    const channelWiring = makeChannelWiring();
+    vi.mocked(
+      channelWiring.setDurableOutboundAttemptFactory as any,
+    ).mockImplementation(() => {
+      order.push('setDurableOutboundAttemptFactory');
+    });
+
+    await startRuntimeServices(
+      {
+        app,
+        channelWiring,
+      },
+      {
+        startSchedulerLoop: vi.fn(() => {
+          order.push('startSchedulerLoop');
+        }) as any,
+        startIpcWatcher: vi.fn(() => {
+          order.push('startIpcWatcher');
+        }) as any,
+        writeGroupsSnapshot: vi.fn() as any,
+        opsRepository: {} as any,
+        getToolRepository: vi.fn(() => ({}) as any),
+        getOutboundDeliveryRepository: vi.fn(() => ({}) as any),
+        recoverPendingMessages: vi.fn() as any,
+        startMessagePollingLoop: vi.fn(
+          () => new Promise<never>(() => {}),
+        ) as any,
+        startOutboundDeliveryRecoveryLoop: vi.fn(() => {
+          order.push('startOutboundDeliveryRecoveryLoop');
+        }) as any,
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          fatal: vi.fn(),
+        },
+        exit: vi.fn() as any,
+      },
+    );
+
+    expect(order).toEqual([
+      'startIpcWatcher',
+      'setDurableOutboundAttemptFactory',
+      'startOutboundDeliveryRecoveryLoop',
+      'startSchedulerLoop',
+    ]);
   });
 
   it('wires durable scheduler sends', async () => {
