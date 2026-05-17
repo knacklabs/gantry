@@ -46,10 +46,6 @@ const GROUP_FOLDER_KEY =
 const TIMED_GRANT_DURATION_MS = 5 * 60 * 1000;
 const TIMED_GRANT_CLOCK_SKEW_MS = 10_000;
 
-interface TimedToolGrant {
-  expiresAt: number;
-}
-
 interface RunnerCapabilitiesForPermission {
   allowedTools: readonly string[];
   alwaysAllowedTools: readonly string[];
@@ -74,14 +70,13 @@ function stableTimedGrantKey(value: unknown): string {
 
 function stableTimedGrantValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableTimedGrantValue);
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value).sort()) {
-      out[key] = stableTimedGrantValue((value as Record<string, unknown>)[key]);
-    }
-    return out;
-  }
-  return value;
+  if (!value || typeof value !== 'object') return value;
+  const record = value as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.keys(record)
+      .sort()
+      .map((key) => [key, stableTimedGrantValue(record[key])]),
+  );
 }
 
 export function createCanUseToolCallback(
@@ -91,7 +86,7 @@ export function createCanUseToolCallback(
   const toolExecutionClassifier = new ToolExecutionClassifier();
   const toolExecutionPolicy = new ToolExecutionPolicyService();
   const liveApprovedRules = new Set<string>();
-  const timedToolGrants = new Map<string, TimedToolGrant>();
+  const timedToolGrants = new Map<string, { expiresAt: number }>();
   const sdkSandboxNetworkGate = createSdkSandboxNetworkGate(input.agentInput);
   const timedGrantConversationJid = input.agentInput.chatJid;
 
@@ -136,10 +131,9 @@ export function createCanUseToolCallback(
       );
       return;
     }
-    const grant: TimedToolGrant = {
+    timedToolGrants.set(timedGrantKey(principal), {
       expiresAt: requestedExpiresAtMs,
-    };
-    timedToolGrants.set(timedGrantKey(principal), grant);
+    });
     sdkSandboxNetworkGate.rememberGlobalApproval(
       principal,
       requestedExpiresAtMs,

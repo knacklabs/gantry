@@ -7,6 +7,10 @@
   What a gantry is to a rocket, <strong>Gantry</strong> is to an AI agent.
 </p>
 
+<p align="center">
+  <img src="docs/assets/gantry-readme-hero.png" alt="A launch gantry supporting an AI agent capsule with diagnostics, cables, storage, and control systems" width="100%" />
+</p>
+
 ---
 
 ## What Gantry Is
