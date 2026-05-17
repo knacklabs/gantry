@@ -12,6 +12,7 @@ import {
   resolveModelSelection,
 } from '../shared/model-catalog.js';
 import { formatBrowserProfileLabel } from '../shared/browser-profile-scope.js';
+import { setupActionLabel } from '../shared/job-setup-labels.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
 import {
   formatSchedulerJobPlan,
@@ -79,6 +80,7 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
       scheduleValue: data.scheduleValue || '',
       executionContext: data.executionContext,
       notificationRoutes: data.notificationRoutes,
+      capabilityRequirements: data.capabilityRequirements,
       requiredTools: data.requiredTools,
       requiredMcpServers: data.requiredMcpServers,
       silent: data.silent,
@@ -120,6 +122,7 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
       scheduleValue: data.scheduleValue || '',
       executionContext: data.executionContext,
       notificationRoutes: data.notificationRoutes,
+      capabilityRequirements: data.capabilityRequirements,
       requiredTools: data.requiredTools,
       requiredMcpServers: data.requiredMcpServers,
       silent: data.silent,
@@ -179,8 +182,8 @@ function formatSetupOutcome(
   >['setupState'],
 ): string {
   if (!setupState || setupState.state === 'ready') return '';
-  const nextAction = setupState.blockers[0]?.nextAction;
-  return ` Setup required: ${nextAction ?? setupState.state}.`;
+  const blocker = setupState.blockers[0];
+  return ` Setup required: ${setupActionLabel(blocker)}.`;
 }
 
 export const schedulerCreateTaskHandlers: Record<string, TaskHandler> = {

@@ -337,4 +337,146 @@ describe('CanonicalJobOpsService', () => {
       ],
     });
   });
+
+  it('persists capability requirements in canonical targetJson payloads', async () => {
+    const repository = {
+      findJobById: vi.fn(async () => null),
+      upsertJob: vi.fn(async () => undefined),
+    } as unknown as PostgresCanonicalJobRepository;
+    const service = new CanonicalJobOpsService(repository);
+
+    await service.upsertJob({
+      id: 'job-1',
+      name: 'Job',
+      prompt: 'Run',
+      schedule_type: 'interval',
+      schedule_value: '60000',
+      execution_context: {
+        conversationJid: 'tg:team',
+        threadId: null,
+        groupScope: 'agent_one',
+        sessionId: 'session-1',
+      },
+      notification_routes: [
+        {
+          conversationJid: 'tg:team',
+          threadId: null,
+          label: 'Primary',
+        },
+      ],
+      required_tools: ['Browser'],
+      required_mcp_servers: ['mcp:company-crm'],
+      capability_requirements: [
+        {
+          capabilityId: 'google.sheets.write',
+          reason: 'Write lead rows after each run',
+          implementation: {
+            kind: 'local_cli',
+            name: 'gog',
+            executablePath: '/usr/local/bin/gog',
+            commandTemplate: '/usr/local/bin/gog sheets append *',
+            authPreflight: '/usr/local/bin/gog auth status',
+            protectedPaths: ['/tmp/creds'],
+          },
+        },
+      ],
+      group_scope: '',
+    });
+
+    const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
+      targetJson: string;
+    };
+    const target = JSON.parse(stored.targetJson) as Record<string, unknown>;
+    expect(target.capabilityRequirements).toEqual([
+      {
+        capabilityId: 'google.sheets.write',
+        reason: 'Write lead rows after each run',
+        implementation: {
+          kind: 'local_cli',
+          name: 'gog',
+          executablePath: '/usr/local/bin/gog',
+          commandTemplate: '/usr/local/bin/gog sheets append *',
+          authPreflight: '/usr/local/bin/gog auth status',
+          protectedPaths: ['/tmp/creds'],
+        },
+      },
+    ]);
+    expect(target.requiredTools).toContain('Browser');
+    expect(target.requiredMcpServers).toContain('mcp:company-crm');
+  });
+
+  it('reads capability requirements from canonical targetJson', async () => {
+    const repository = {
+      findJobById: vi.fn(async () => ({
+        id: 'job-1',
+        agentId: 'agent:agent_one',
+        name: 'Job',
+        prompt: 'Run',
+        model: null,
+        scheduleJson: JSON.stringify({ type: 'interval', value: '60000' }),
+        status: 'active',
+        targetJson: JSON.stringify({
+          executionContext: {
+            conversationJid: 'tg:team',
+            threadId: null,
+            groupScope: 'agent_one',
+            sessionId: 'session-1',
+          },
+          notificationRoutes: [
+            {
+              conversationJid: 'tg:team',
+              threadId: null,
+              label: 'Primary',
+            },
+          ],
+          requiredTools: ['Browser'],
+          requiredMcpServers: ['mcp:company-crm'],
+          capabilityRequirements: [
+            {
+              capabilityId: 'google.sheets.write',
+              reason: 'Write lead rows after each run',
+              implementation: {
+                kind: 'local_cli',
+                name: 'gog',
+                executablePath: '/usr/local/bin/gog',
+                commandTemplate: '/usr/local/bin/gog sheets append *',
+                authPreflight: '/usr/local/bin/gog auth status',
+                protectedPaths: ['/tmp/creds'],
+              },
+            },
+          ],
+        }),
+        silent: false,
+        timeoutMs: 300000,
+        maxRetries: 3,
+        retryBackoffMs: 5000,
+        nextRunAt: null,
+        lastRunAt: null,
+        leaseRunId: null,
+        leaseExpiresAt: null,
+        createdAt: '2026-04-24T00:00:00.000Z',
+        updatedAt: '2026-04-24T00:00:00.000Z',
+      })),
+    } as unknown as PostgresCanonicalJobRepository;
+    const service = new CanonicalJobOpsService(repository);
+
+    await expect(service.getJobById('job-1')).resolves.toMatchObject({
+      required_tools: ['Browser'],
+      required_mcp_servers: ['mcp:company-crm'],
+      capability_requirements: [
+        {
+          capabilityId: 'google.sheets.write',
+          reason: 'Write lead rows after each run',
+          implementation: {
+            kind: 'local_cli',
+            name: 'gog',
+            executablePath: '/usr/local/bin/gog',
+            commandTemplate: '/usr/local/bin/gog sheets append *',
+            authPreflight: '/usr/local/bin/gog auth status',
+            protectedPaths: ['/tmp/creds'],
+          },
+        },
+      ],
+    });
+  });
 });

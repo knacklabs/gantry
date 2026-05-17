@@ -1,11 +1,15 @@
-import { createHash } from 'node:crypto';
-
 import type {
   PermissionApprovalDecision,
   PermissionApprovalDecisionMode,
   PermissionApprovalRequest,
 } from '../domain/types.js';
 import { logger } from '../infrastructure/logging/logger.js';
+import { adminMcpToolNameFromFullName } from '../shared/admin-mcp-tools.js';
+import {
+  isCanonicalBrowserCapabilityRule,
+  isThirdPartyMcpToolRule,
+  parseReadableScopedToolRule,
+} from '../shared/agent-tool-references.js';
 import { formatPersistentPermissionRulesForUser } from '../shared/persistent-permission-rules.js';
 import {
   redactSensitiveText,
@@ -97,15 +101,11 @@ export function permissionButtonLabel(
   request: PermissionApprovalRequest,
 ): string {
   if (mode === 'allow_once') return 'Allow once';
-  if (mode === 'allow_timed_grant') return 'Allow 5 min for this tool';
+  if (mode === 'allow_timed_grant') {
+    return 'Allow 5 min';
+  }
   if (mode === 'cancel') return 'Cancel';
-  const rule = firstPersistentRule(request);
-  if (!rule) return 'Always allow';
-  const capabilityName = semanticCapabilityName(request, rule);
-  if (capabilityName) return 'Always allow for this agent';
-  const rules = persistentRules(request);
-  if (rules.length > 1) return `Always allow ${rules.length} rules`;
-  return `Always allow ${headTailTruncate(rule, 24, 9)}`;
+  return 'Always allow';
 }
 
 export function formatPermissionPromptText(
@@ -126,14 +126,16 @@ export function formatPermissionPromptText(
       rule,
     );
   }
-  const title =
-    request.title || request.displayName || `${request.toolName} request`;
+  const label = permissionAccessLabel(request);
+  const requestLabel = request.displayName || request.title;
   const lines = [
-    sanitizePermissionText(title, 160, 40),
+    `Allow ${label}?`,
     '',
-    `Tool: ${request.displayName || request.toolName}`,
-    `Agent: ${request.sourceAgentFolder}`,
+    ...formatPermissionOriginLines(request),
   ];
+  if (requestLabel) {
+    lines.push(`Request: ${sanitizePermissionText(requestLabel, 160, 40)}`);
+  }
   if (request.agentID || request.subagentType) {
     lines.push(
       `Delegated Agent: ${request.subagentType || 'generic'}${request.agentID ? ` (${request.agentID})` : ''}`,
@@ -144,6 +146,7 @@ export function formatPermissionPromptText(
   const inputLines = formatPermissionToolInputLines(
     request,
     sanitizePermissionText,
+    { sanitizeCommandText: sanitizePermissionCommandText },
   );
   if (inputLines.length > 0) lines.push('', ...inputLines);
   if (request.blockedPath)
@@ -162,11 +165,7 @@ export function formatPermissionPromptText(
     );
   const rules = persistentRules(request);
   if (rules.length > 0) {
-    lines.push(
-      '',
-      'Approving persistent will grant:',
-      ...formatRuleList(rules),
-    );
+    lines.push('', `Details: ${formatPersistentPermissionRulesForUser(rules)}`);
   }
   lines.push('', ...formatPermissionBoundaryLines(request));
   lines.push('', `Reply within ${timeoutMinutes} minute(s).`);
@@ -174,17 +173,19 @@ export function formatPermissionPromptText(
 }
 
 export function formatPermissionReceiptText(
-  requestId: string,
+  _requestId: string,
   request: PermissionApprovalRequest | undefined,
   decision: PermissionApprovalDecision,
 ): string {
   const actor = decision.decidedBy || 'unknown';
-  const action = request
-    ? request.displayName || request.title || request.toolName
-    : 'permission request';
+  const label = permissionAccessLabel(request);
   if (!decision.approved || decision.mode === 'cancel') {
     return limitPermissionMessage(
-      `Canceled: no permission changed\nAction: ${sanitizePermissionText(action, 160, 40)}\nBy: ${sanitizePermissionText(actor, 120, 40)}`,
+      [
+        `Canceled: ${label}. No permission changed.`,
+        ...formatPermissionOriginLines(request),
+        `By: ${sanitizePermissionText(actor, 120, 40)}`,
+      ].join('\n'),
     );
   }
   if (decision.mode === 'allow_timed_grant') {
@@ -197,35 +198,32 @@ export function formatPermissionReceiptText(
       : 'soon';
     return limitPermissionMessage(
       [
-        `Timed grant active until ${expiresLabel}`,
-        `For tool: ${formatPermissionActionSummary(request)}`,
+        `Allowed for 5 minutes: ${label}`,
+        `Until: ${expiresLabel}`,
+        `For: ${formatPermissionReceiptActionSummary(request)}`,
+        ...formatPermissionOriginLines(request),
         `By: ${sanitizePermissionText(actor, 120, 40)}`,
-        `Request ID: \`${sanitizePermissionText(requestId, 160, 40)}\``,
       ].join('\n'),
     );
   }
   if (decision.mode === 'allow_persistent_rule') {
     const rules = request ? persistentRules(request) : [];
-    const lines = ['Persistent permission approval received'];
+    const lines = [`Always allowed: ${label}`];
     if (rules.length > 0) {
-      lines.push('Requested grants:');
-      lines.push(...formatRuleList(rules));
+      lines.push(`Details: ${formatPersistentPermissionRulesForUser(rules)}`);
     }
-    lines.push(`For tool: ${formatPermissionActionSummary(request)}`);
+    lines.push(`For: ${formatPermissionReceiptActionSummary(request)}`);
+    lines.push(...formatPermissionOriginLines(request));
     lines.push(`By: ${sanitizePermissionText(actor, 120, 40)}`);
-    lines.push(
-      'Applying persistent grants now; final success or failure will be reported separately.',
-    );
-    lines.push('If applied, revoke with: /permissions remove <rule>');
-    lines.push(`Request ID: \`${sanitizePermissionText(requestId, 160, 40)}\``);
+    lines.push('Revoke: /permissions remove <rule>');
     return limitPermissionMessage(lines.join('\n'));
   }
   return limitPermissionMessage(
     [
-      'Allowed once',
-      `For tool: ${formatPermissionActionSummary(request)}`,
+      `Allowed once: ${label}`,
+      `For: ${formatPermissionReceiptActionSummary(request)}`,
+      ...formatPermissionOriginLines(request),
       `By: ${sanitizePermissionText(actor, 120, 40)}`,
-      `Request ID: \`${sanitizePermissionText(requestId, 160, 40)}\``,
     ].join('\n'),
   );
 }
@@ -240,7 +238,23 @@ function sanitizePermissionText(
   head: number,
   tail: number,
 ): string {
-  return headTailTruncate(sanitizeOutboundLlmText(input).text, head, tail);
+  const result = sanitizeOutboundLlmText(input);
+  if (
+    result.redacted ||
+    result.blocked ||
+    /\[REDACTED_(?:SECRET|POTENTIALLY_SENSITIVE)\]/.test(result.text)
+  ) {
+    return 'Sensitive detail hidden.';
+  }
+  return headTailTruncate(result.text, head, tail);
+}
+
+function sanitizePermissionCommandText(
+  input: string,
+  head: number,
+  tail: number,
+): string {
+  return headTailTruncate(redactSensitiveText(input), head, tail);
 }
 
 function limitPermissionMessage(input: string): string {
@@ -248,12 +262,17 @@ function limitPermissionMessage(input: string): string {
   return `${input.slice(0, PERMISSION_MESSAGE_BUDGET - 44)}\n\n[additional permission details omitted]`;
 }
 
-function formatRuleList(rules: string[]): string[] {
-  const shown = rules
-    .slice(0, 5)
-    .map((rule) => `  • ${sanitizePermissionText(rule, 260, 100)}`);
-  const remaining = rules.length - shown.length;
-  return remaining > 0 ? [...shown, `  …and ${remaining} more`] : shown;
+function formatPermissionOriginLines(
+  request: PermissionApprovalRequest | undefined,
+): string[] {
+  if (!request) return [];
+  const source = request.jobId
+    ? `scheduled job${request.jobName ? `: ${sanitizePermissionText(request.jobName, 120, 40)}` : ''}`
+    : 'agent chat';
+  return [
+    `From: ${source}`,
+    `Agent: ${sanitizePermissionText(request.sourceAgentFolder, 120, 40)}`,
+  ];
 }
 
 function formatInteractionPermissionPrompt(
@@ -263,10 +282,8 @@ function formatInteractionPermissionPrompt(
   const interaction = request.interaction!;
   const rule = firstPersistentRule(request);
   const capabilityName = semanticCapabilityName(request, rule);
-  const title = capabilityName
-    ? `Allow ${capabilityName}?`
-    : sanitizePermissionText(interaction.title, 160, 40);
-  const lines = [title, `Agent: ${request.sourceAgentFolder}`];
+  const title = `Allow ${capabilityName ?? permissionAccessLabel(request)}?`;
+  const lines = [title, ...formatPermissionOriginLines(request)];
   const accountLabel = request.toolInput?.accountLabel;
   if (typeof accountLabel === 'string' && accountLabel.trim()) {
     lines.push(
@@ -276,7 +293,6 @@ function formatInteractionPermissionPrompt(
   if (interaction.body)
     lines.push('', sanitizePermissionText(interaction.body, 500, 160));
   lines.push('', ...formatPermissionBoundaryLines(request));
-  lines.push(...formatPermissionAdvancedDetails(request, rule));
   if (interaction.details?.length) {
     lines.push(
       '',
@@ -299,12 +315,10 @@ function formatSemanticPermissionPrompt(
   const definition = semanticCapabilityDefinition(request, rule);
   const lines = [
     `Allow ${capabilityName}?`,
-    `Agent: ${request.sourceAgentFolder}`,
+    ...formatPermissionOriginLines(request),
   ];
   const capabilityId =
     definition?.capabilityId ?? semanticCapabilityId(request, rule);
-  if (capabilityId) lines.push(`Capability: capability:${capabilityId}`);
-  if (definition?.risk) lines.push(`Risk: ${definition.risk}`);
   const accountLabel =
     definition?.accountLabel ?? request.toolInput?.accountLabel;
   if (typeof accountLabel === 'string' && accountLabel.trim()) {
@@ -322,8 +336,12 @@ function formatSemanticPermissionPrompt(
       `Does not allow: ${sanitizePermissionText(cannot.trim(), 300, 100)}`,
     );
   }
+  const details = [
+    capabilityId ? `capability:${capabilityId}` : undefined,
+    definition?.risk ? `risk: ${definition.risk}` : undefined,
+  ].filter((item): item is string => Boolean(item));
+  if (details.length > 0) lines.push('', `Details: ${details.join('; ')}`);
   lines.push('', ...formatPermissionBoundaryLines(request));
-  lines.push(...formatPermissionAdvancedDetails(request, rule));
   lines.push(`Reply within ${timeoutMinutes} minute(s).`);
   return limitPermissionMessage(lines.join('\n'));
 }
@@ -344,22 +362,77 @@ function formatPermissionBoundaryLines(
   const capabilityName = semanticCapabilityName(request, rule);
   if (!rule) {
     return [
-      'What this changes: Allow once applies only to this tool call. Allow 5 min auto-approves additional calls to the same tool for 5 minutes.',
+      'Scope: this request or a short 5-minute grant.',
+      'Safety: unrelated tools, secrets, settings changes, and protected paths are not included.',
     ];
   }
   if (capabilityName) {
     return [
-      'Choices: Allow once, Always allow for this agent, or Cancel.',
-      'What this changes: Allow once applies only to this invocation.',
-      `Always allow grants the named capability for matching future runs: ${capabilityName}.`,
-      'What this does not allow: unrelated apps, credentials, settings edits, or access outside the capability.',
+      'Scope: this request, a short 5-minute grant, or future matching runs.',
+      'Safety: unrelated apps, credentials, settings changes, and broader access are not included.',
     ];
   }
   return [
-    'What this changes: Allow once applies only to this tool call.',
-    `Always allow applies ${persistentRules(request).length > 1 ? 'these rules' : 'this rule'} to matching future tool calls: ${persistentRules(request).join(', ')}`,
-    'What this does not allow: unrelated tools, secrets, settings edits, or broader access outside the rule.',
+    'Scope: this request, a short 5-minute grant, or future matching tool calls.',
+    'Safety: only matching future access is included; unrelated tools, secrets, and settings changes are not included.',
   ];
+}
+
+function permissionAccessLabel(
+  request: PermissionApprovalRequest | undefined,
+): string {
+  if (!request) return 'permission request';
+  const rule = firstPersistentRule(request);
+  const scopedRule = rule ? parseReadableScopedToolRule(rule) : null;
+  const requestedToolName = requestedToolNameFromInput(request);
+  if (
+    request.toolName === 'Bash' ||
+    requestedToolName === 'Bash' ||
+    scopedRule?.toolName === 'Bash'
+  ) {
+    return 'exact command access';
+  }
+  const capabilityName = semanticCapabilityName(request, rule);
+  if (capabilityName) return capabilityName;
+  const toolName =
+    scopedRule?.toolName || requestedToolName || request.toolName;
+  if (isCanonicalBrowserCapabilityRule(toolName)) return 'Browser';
+  if (toolName.startsWith('mcp__myclaw__browser_')) return 'Browser';
+  const adminName = adminMcpToolNameFromFullName(toolName);
+  if (adminName) return `Gantry ${humanizeIdentifier(adminName)}`;
+  if (isThirdPartyMcpToolRule(toolName)) {
+    return `${humanizeMcpServerName(toolName)} MCP tool`;
+  }
+  const display = request.displayName || request.title || toolName;
+  return sanitizePermissionText(display, 120, 40);
+}
+
+function requestedToolNameFromInput(
+  request: PermissionApprovalRequest,
+): string | undefined {
+  const input = request.toolInput;
+  if (!input || typeof input !== 'object') return undefined;
+  const toolName = input.toolName;
+  if (typeof toolName === 'string' && toolName.trim()) return toolName.trim();
+  const toolNames = input.toolNames;
+  if (Array.isArray(toolNames) && toolNames.length === 1) {
+    const first = toolNames[0];
+    if (typeof first === 'string' && first.trim()) return first.trim();
+  }
+  return undefined;
+}
+
+function humanizeMcpServerName(toolName: string): string {
+  const match = toolName.match(/^mcp__([^_]+(?:_[^_]+)*)__/);
+  return match?.[1] ? humanizeIdentifier(match[1]) : 'third-party';
+}
+
+function humanizeIdentifier(value: string): string {
+  return value
+    .replace(/^mcp__/, '')
+    .replaceAll(/[_-]+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function semanticCapabilityName(
@@ -372,6 +445,7 @@ function semanticCapabilityName(
   if (definition) return definition.displayName;
   const capabilityId = semanticCapabilityId(request, rule);
   if (capabilityId) return capabilityId;
+  if (rule) return undefined;
   if (fromInteraction) return sanitizePermissionText(fromInteraction, 120, 40);
   const fromInput = request.toolInput?.capabilityDisplayName;
   if (typeof fromInput === 'string' && fromInput.trim()) {
@@ -394,7 +468,7 @@ function semanticCapabilityId(
 ): string | undefined {
   if (rule) {
     const ruleId = parseSemanticCapabilityRule(rule);
-    if (ruleId) return ruleId;
+    return ruleId;
   }
   const fromContext = request.interaction?.requestContext?.capabilityId;
   if (fromContext) return fromContext;
@@ -402,49 +476,6 @@ function semanticCapabilityId(
   return typeof fromInput === 'string' && fromInput.trim()
     ? fromInput.trim()
     : undefined;
-}
-
-function formatPermissionAdvancedDetails(
-  request: PermissionApprovalRequest,
-  rule?: string,
-): string[] {
-  const details = [
-    '',
-    'Details:',
-    `Request ID: ${request.requestId}`,
-    `Raw tool: ${request.toolName}`,
-  ];
-  if (rule) details.push(`Raw rule: ${rule}`);
-  const rules = persistentRules(request);
-  if (rules.length > 1) details.push(`Raw rules: ${rules.join(', ')}`);
-  const closestRule = formatClosestRuleLine(request);
-  if (closestRule) details.push(closestRule);
-  const command = permissionCommand(request);
-  if (command) {
-    details.push(
-      `Command preview: \`${sanitizePermissionText(command, 200, 100)}\``,
-      `Command hash: ${createHash('sha256').update(command).digest('hex')}`,
-    );
-  }
-  const executablePath = request.toolInput?.executablePath;
-  if (typeof executablePath === 'string' && executablePath.trim()) {
-    details.push(
-      `Executable: ${sanitizePermissionText(executablePath.trim(), 180, 60)}`,
-    );
-  }
-  const executableVersion = request.toolInput?.executableVersion;
-  if (typeof executableVersion === 'string' && executableVersion.trim()) {
-    details.push(
-      `Executable version: ${sanitizePermissionText(executableVersion.trim(), 100, 40)}`,
-    );
-  }
-  const sandboxProfile = request.toolInput?.sandboxProfile;
-  if (typeof sandboxProfile === 'string' && sandboxProfile.trim()) {
-    details.push(
-      `Sandbox: ${sanitizePermissionText(sandboxProfile.trim(), 120, 40)}`,
-    );
-  }
-  return details;
 }
 
 function formatClosestRuleLine(
@@ -460,7 +491,7 @@ function permissionCommand(request: PermissionApprovalRequest): string | null {
   return typeof command === 'string' && command.trim() ? command.trim() : null;
 }
 
-function formatPermissionActionSummary(
+function formatPermissionReceiptActionSummary(
   request: PermissionApprovalRequest | undefined,
 ): string {
   if (!request) return 'permission request';
@@ -469,19 +500,32 @@ function formatPermissionActionSummary(
   if (!input || typeof input !== 'object') return tool;
   const command = permissionCommand(request);
   if (command) {
-    return `${tool} (${sanitizePermissionText(command, 200, 100)})`;
+    const safeCommand = sanitizeReceiptDetail(command);
+    return safeCommand ? `${tool} (${safeCommand})` : `${tool} command`;
   }
   const filePath = input.file_path;
   if (typeof filePath === 'string' && filePath.trim()) {
-    return `${tool} (${sanitizePermissionText(filePath.trim(), 200, 100)})`;
+    const safePath = sanitizeReceiptDetail(filePath.trim());
+    return safePath ? `${tool} (${safePath})` : `${tool} file action`;
   }
   const url = input.url;
   if (typeof url === 'string' && url.trim()) {
-    return `${tool} (${sanitizePermissionText(url.trim(), 200, 100)})`;
+    const safeUrl = sanitizeReceiptDetail(url.trim());
+    return safeUrl ? `${tool} (${safeUrl})` : `${tool} URL action`;
   }
   const pattern = input.pattern;
   if (typeof pattern === 'string' && pattern.trim()) {
-    return `${tool} (${sanitizePermissionText(pattern.trim(), 200, 100)})`;
+    const safePattern = sanitizeReceiptDetail(pattern.trim());
+    return safePattern ? `${tool} (${safePattern})` : `${tool} pattern action`;
   }
   return tool;
+}
+
+function sanitizeReceiptDetail(input: string): string | null {
+  const result = sanitizeOutboundLlmText(input);
+  if (result.redacted || result.blocked) return null;
+  if (/\[REDACTED_(?:SECRET|POTENTIALLY_SENSITIVE)\]/.test(result.text)) {
+    return null;
+  }
+  return headTailTruncate(result.text, 200, 100);
 }

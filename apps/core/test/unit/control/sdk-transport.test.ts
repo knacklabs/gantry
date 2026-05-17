@@ -277,6 +277,9 @@ describe('@myclaw/sdk transport', () => {
     });
 
     await client.settings.get();
+    await client.settings.update({
+      permissions: { egress: { denylist: ['api.linkedin.com'] } },
+    });
     await client.providers.list();
     await client.providerConnections.create({
       appId: 'app-one',
@@ -351,6 +354,13 @@ describe('@myclaw/sdk transport', () => {
 
     expect(seen).toEqual([
       { method: 'GET', url: '/v1/settings', body: null },
+      {
+        method: 'PATCH',
+        url: '/v1/settings',
+        body: {
+          permissions: { egress: { denylist: ['api.linkedin.com'] } },
+        },
+      },
       { method: 'GET', url: '/v1/providers', body: null },
       {
         method: 'POST',

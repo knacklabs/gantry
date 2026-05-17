@@ -12,6 +12,8 @@ import type {
   RuntimeContextUsageSnapshot,
 } from '../shared/model-catalog.js';
 import type { AgentPersona } from '../shared/agent-persona.js';
+import type { YoloModeSettings } from '../shared/yolo-mode-policy.js';
+import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 
 export interface AgentInput {
   prompt: string;
@@ -32,12 +34,14 @@ export interface AgentInput {
   selectedMcpServerIds?: string[];
   isScheduledJob?: boolean;
   jobId?: string;
+  jobName?: string;
   runId?: string;
   jobModelUseKind?: 'oneTimeJob' | 'recurringJob';
   assistantName?: string;
   compiledSystemPrompt?: string;
   thinking?: ThinkingOverride;
   memoryContextBlock?: string;
+  yoloMode?: YoloModeSettings;
 }
 
 export interface AgentOutput {
@@ -83,11 +87,13 @@ export interface RunAgentOptions {
   };
   mcpHostnameLookup?: HostnameLookup;
   mcpDnsValidationCache?: RemoteMcpDnsValidationCache;
+  publishRuntimeEvent?: (
+    event: RuntimeEventPublishInput,
+  ) => Promise<unknown> | unknown;
 }
 
 export interface HostRuntimeContext {
   groupDir: string;
-  globalDir?: string;
   groupIpcDir: string;
   runnerDistDir: string;
 }

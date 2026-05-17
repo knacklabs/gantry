@@ -348,6 +348,7 @@ export async function handleJobRoutes(
         sessionId: body.executionContext.sessionId,
         executionContext: body.executionContext,
         notificationRoutes: body.notificationRoutes,
+        capabilityRequirements: body.capabilityRequirements,
         requiredTools: body.requiredTools,
         requiredMcpServers: body.requiredMcpServers,
         kind,
@@ -540,6 +541,9 @@ export async function handleJobRoutes(
           ...(requestedModel.specified ? { model: requestedModel.model } : {}),
           ...(Array.isArray(body.notificationRoutes)
             ? { notificationRoutes: body.notificationRoutes }
+            : {}),
+          ...(Array.isArray(body.capabilityRequirements)
+            ? { capabilityRequirements: body.capabilityRequirements }
             : {}),
           ...(Array.isArray(body.requiredTools)
             ? { requiredTools: body.requiredTools }

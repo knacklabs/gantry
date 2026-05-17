@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { Job } from '@core/domain/types.js';
+import type { Job, JobSetupState } from '@core/domain/types.js';
 import {
+  notifySchedulerSetupRequired,
   notifySchedulerRunStart,
   notifySchedulerTerminalRunState,
 } from '@core/jobs/execution-notifications.js';
@@ -118,7 +119,7 @@ describe('jobs/execution-notifications', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:scheduler',
       expect.stringContaining('Failed: Daily summary'),
-      { threadId: 'thread-1' },
+      expect.objectContaining({ threadId: 'thread-1' }),
     );
   });
 
@@ -130,7 +131,7 @@ describe('jobs/execution-notifications', () => {
       runId: 'run-1',
       runStatus: 'dead_lettered',
       summary:
-        'Tool not on autonomous job allowlist: mcp__myclaw__browser_act. Recovery: request_permission { "toolName": "Browser" }',
+        'Tool not on autonomous run allowlist: mcp__myclaw__browser_act. Recovery: request_permission { "toolName": "Browser" }',
       nextRun: null,
       retryCount: 1,
       pauseReason: 'Needs permission: mcp__myclaw__browser_act',
@@ -146,6 +147,104 @@ describe('jobs/execution-notifications', () => {
     expect(message).not.toContain('request_permission');
     expect(options).toMatchObject({
       threadId: 'thread-1',
+      actionAffordances: [
+        { kind: 'scheduler_run_now', label: 'Retry now', jobId: 'job-1' },
+        {
+          kind: 'scheduler_show_last_logs',
+          label: 'Show last 50 log lines',
+          jobId: 'job-1',
+        },
+        { kind: 'scheduler_pause_job', label: 'Pause job', jobId: 'job-1' },
+        {
+          kind: 'scheduler_open',
+          label: 'Open in scheduler',
+          jobId: 'job-1',
+        },
+      ],
+    });
+  });
+
+  it('suppresses duplicate needs-permission summaries when setup notification owns the action', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+
+    const notified = await notifySchedulerTerminalRunState({
+      job: makeJob(),
+      runId: 'run-1',
+      runStatus: 'failed',
+      summary:
+        'Permission denied for Bash. Tool not on autonomous run allowlist: Bash. Recovery: request_permission { "toolName": "Bash" }',
+      nextRun: null,
+      retryCount: 1,
+      pauseReason: 'Setup required',
+      sendMessage,
+      durationMs: 41_000,
+    });
+
+    expect(notified).toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('sends setup-required notifications with plain user actions', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const setupState: JobSetupState = {
+      state: 'draft_only',
+      checked_at: '2026-05-16T00:00:00.000Z',
+      fingerprint: 'setup-fingerprint',
+      blockers: [
+        {
+          state: 'draft_only',
+          requirementType: 'local_cli',
+          requirementId: 'google.sheets.write',
+          message:
+            'Google Sheets write using gog needs reviewed local CLI access before this job can run autonomously.',
+          nextAction:
+            'request_permission{"permissionKind":"tool","toolName":"Bash","rule":"/usr/local/bin/gog sheets append *","temporaryOnly":false}',
+        },
+      ],
+    };
+
+    const delivered = await notifySchedulerSetupRequired({
+      job: makeJob({ name: 'Lead maintenance' }),
+      setupState,
+      sendMessage,
+    });
+
+    expect(delivered).toBe(true);
+    const message = String(sendMessage.mock.calls[0]?.[1]);
+    expect(message).toContain('Setup required: Lead maintenance');
+    expect(message).toContain('Blocker: Exact command access');
+    expect(message).toContain(
+      'Action: Approve exact command access, then resume the job.',
+    );
+    expect(message).not.toContain('request_permission');
+    expect(message).not.toContain('/usr/local/bin/gog sheets append');
+  });
+
+  it('describes expected long-running timeout recovery without blaming job scope', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+
+    await notifySchedulerTerminalRunState({
+      job: makeJob({ timeout_ms: 300_000 }),
+      runId: 'run-1',
+      runStatus: 'timeout',
+      summary: 'Scheduler run lease expired before completion.',
+      nextRun: '2026-05-15T16:00:00.000Z',
+      retryCount: 1,
+      pauseReason: null,
+      sendMessage,
+      durationMs: 362_000,
+    });
+
+    const message = String(sendMessage.mock.calls[0]?.[1]);
+    expect(message).toContain('Timed out: Daily summary');
+    expect(message).toContain(
+      'Outcome: Scheduler run lease expired before completion.',
+    );
+    expect(message).toContain(
+      'Action: Rerun with a longer job timeout if this work is expected to take more time.',
+    );
+    expect(message).not.toContain('Narrow the job scope');
+    expect(sendMessage.mock.calls[0]?.[2]).toMatchObject({
       actionAffordances: [
         { kind: 'scheduler_run_now', label: 'Retry now', jobId: 'job-1' },
         {

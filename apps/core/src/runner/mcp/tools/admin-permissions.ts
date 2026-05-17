@@ -122,7 +122,7 @@ function adminToolUnavailable(toolName: AdminMcpToolName): {
         type: 'text',
         text: [
           `${fullName} is not selected for this agent yet.`,
-          `Use request_permission with permissionKind=tool toolName=${fullName} temporaryOnly=false.`,
+          `Ask a configured conversation approver to approve ${fullName}, then choose Always allow.`,
         ].join(' '),
       },
     ],

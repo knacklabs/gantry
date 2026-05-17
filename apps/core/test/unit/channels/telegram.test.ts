@@ -2532,12 +2532,14 @@ describe('TelegramChannel', () => {
         reason: 'allowed once via Telegram',
       });
       expect(callbackCtx.answerCallbackQuery).toHaveBeenCalledWith({
-        text: 'Allowed once.',
+        text: 'Allowed once. Details posted in chat.',
       });
       expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
         '100200300',
         987,
-        expect.stringContaining('Allowed once\nFor tool: Bash'),
+        expect.stringContaining(
+          'Allowed once: exact command access\nFor: Bash',
+        ),
         expect.objectContaining({
           reply_markup: { inline_keyboard: [] },
         }),

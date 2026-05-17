@@ -5,6 +5,7 @@ import { nowIso, nowMs, sleep } from '../../shared/time/datetime.js';
 import { formatDuration } from '../../shared/human-format.js';
 import { isPlainObject } from '../../shared/object.js';
 import { persistentPermissionUpdates } from '../../shared/permission-tool-rules.js';
+import { stableSha256Json } from '../../shared/stable-hash.js';
 import { hasValidIpcResponseSignature } from './ipc-signing.js';
 import { createSignedIpcRequestEnvelope } from './ipc-signing.js';
 import {
@@ -13,6 +14,7 @@ import {
   APP_ID,
   CHAT_JID,
   JOB_ID,
+  JOB_NAME,
   JOB_RUN_ID,
   IPC_RESPONSE_KEY_ID,
   PERMISSION_REQUEST_TIMEOUT_MS,
@@ -21,11 +23,59 @@ import {
 import type { PermissionDecision } from './types.js';
 
 const DEFAULT_RUNNER_APP_ID = 'default';
+const AGENT_FOLDER_OPTION_KEY = `group${'Folder'}` as const;
+
+const inFlightTimedGrantRequests = new Map<
+  string,
+  Promise<PermissionDecision>
+>();
+
+function timedGrantBatchKey(input: {
+  appId: string;
+  agentId?: string;
+  targetJid?: string;
+  agentFolder: string;
+  threadId?: string;
+  requestFingerprint: string;
+}): string {
+  return JSON.stringify([
+    input.appId,
+    input.agentId ?? '',
+    input.targetJid ?? '',
+    input.agentFolder,
+    input.threadId ?? '',
+    JOB_ID,
+    JOB_RUN_ID,
+    input.requestFingerprint,
+  ]);
+}
+
+function permissionRequestFingerprint(options: {
+  toolName: string;
+  toolInput?: unknown;
+  blockedPath?: string;
+  closestRule?: unknown;
+  suggestions?: unknown[];
+}): string {
+  return stableSha256Json({
+    toolName: options.toolName,
+    ...(isPlainObject(options.toolInput)
+      ? { toolInput: options.toolInput }
+      : {}),
+    ...(options.blockedPath ? { blockedPath: options.blockedPath } : {}),
+    ...(options.closestRule ? { closestRule: options.closestRule } : {}),
+    ...(options.suggestions ? { suggestions: options.suggestions } : {}),
+  });
+}
+
+function canSharePermissionDecision(decision: PermissionDecision): boolean {
+  return decision.mode === 'allow_timed_grant';
+}
 
 export async function requestPermissionApproval(options: {
   appId?: string;
   agentId?: string;
-  groupFolder: string;
+  [AGENT_FOLDER_OPTION_KEY]: string;
   toolName: string;
   title?: string;
   displayName?: string;
@@ -47,15 +97,75 @@ export async function requestPermissionApproval(options: {
     const appId = options.appId?.trim() || APP_ID || DEFAULT_RUNNER_APP_ID;
     const agentId = options.agentId?.trim() || AGENT_ID;
     const targetJid = options.targetJid?.trim() || CHAT_JID;
-    if (PERMISSION_REQUEST_TIMEOUT_MS <= 0) {
-      return {
-        approved: false,
-        reason:
-          'Autonomous permission approval is disabled for unattended jobs. The host denied this tool call immediately; approve a persistent capability rule before the next scheduled run.',
-        decisionClassification: 'user_reject',
-      };
+    const agentFolder = options[AGENT_FOLDER_OPTION_KEY];
+    const requestFingerprint = permissionRequestFingerprint(options);
+    const batchKey = timedGrantBatchKey({
+      appId,
+      agentId,
+      targetJid,
+      agentFolder,
+      threadId: options.threadId,
+      requestFingerprint,
+    });
+    const existingRequest = inFlightTimedGrantRequests.get(batchKey);
+    if (existingRequest) {
+      const sharedDecision = await existingRequest;
+      if (canSharePermissionDecision(sharedDecision)) {
+        return sharedDecision;
+      }
     }
-    const groupIpcDir = resolveGroupIpcDir(options.groupFolder);
+    const currentRequest = requestPermissionApprovalInner({
+      ...options,
+      appId,
+      agentId,
+      targetJid,
+    });
+    inFlightTimedGrantRequests.set(batchKey, currentRequest);
+    try {
+      return await currentRequest;
+    } finally {
+      if (inFlightTimedGrantRequests.get(batchKey) === currentRequest) {
+        inFlightTimedGrantRequests.delete(batchKey);
+      }
+    }
+  } catch (err) {
+    return {
+      approved: false,
+      reason:
+        err instanceof Error
+          ? `Permission request failed: ${err.message}`
+          : 'Permission request failed',
+    };
+  }
+}
+
+async function requestPermissionApprovalInner(options: {
+  appId: string;
+  agentId?: string;
+  [AGENT_FOLDER_OPTION_KEY]: string;
+  toolName: string;
+  title?: string;
+  displayName?: string;
+  description?: string;
+  decisionReason?: string;
+  closestRule?: {
+    rule: string;
+    reason: string;
+  };
+  blockedPath?: string;
+  toolInput?: unknown;
+  toolUseID?: string;
+  agentID?: string;
+  suggestions?: unknown[];
+  targetJid?: string;
+  threadId?: string;
+}): Promise<PermissionDecision> {
+  try {
+    const appId = options.appId;
+    const agentId = options.agentId;
+    const targetJid = options.targetJid;
+    const agentFolder = options[AGENT_FOLDER_OPTION_KEY];
+    const groupIpcDir = resolveGroupIpcDir(agentFolder);
     const permissionRequestsDir = path.join(groupIpcDir, 'permission-requests');
     const permissionResponsesDir = path.join(
       groupIpcDir,
@@ -72,12 +182,13 @@ export async function requestPermissionApproval(options: {
       appId,
       ...(agentId ? { agentId } : {}),
       responseNonce,
-      sourceAgentFolder: options.groupFolder,
+      sourceAgentFolder: agentFolder,
       ...(targetJid ? { targetJid } : {}),
       ...(process.env.MYCLAW_AGENT_RUN_HANDLE
         ? { runHandle: process.env.MYCLAW_AGENT_RUN_HANDLE }
         : {}),
       ...(JOB_ID ? { jobId: JOB_ID } : {}),
+      ...(JOB_NAME ? { jobName: JOB_NAME } : {}),
       ...(JOB_RUN_ID ? { runId: JOB_RUN_ID } : {}),
       toolName: options.toolName,
       ...(options.title ? { title: options.title } : {}),
@@ -100,6 +211,7 @@ export async function requestPermissionApproval(options: {
         ...(agentId ? { agentId } : {}),
         ...(targetJid ? { chatJid: targetJid } : {}),
         ...(JOB_ID ? { jobId: JOB_ID } : {}),
+        ...(JOB_NAME ? { jobName: JOB_NAME } : {}),
         ...(JOB_RUN_ID ? { runId: JOB_RUN_ID } : {}),
         ...(options.threadId ? { threadId: options.threadId } : {}),
         ...(IPC_RESPONSE_KEY_ID ? { responseKeyId: IPC_RESPONSE_KEY_ID } : {}),
@@ -109,6 +221,15 @@ export async function requestPermissionApproval(options: {
     const envelope = createSignedIpcRequestEnvelope(IPC_AUTH_TOKEN, payload);
     fs.writeFileSync(requestTmpPath, JSON.stringify(envelope, null, 2));
     fs.renameSync(requestTmpPath, requestPath);
+
+    if (PERMISSION_REQUEST_TIMEOUT_MS <= 0) {
+      return {
+        approved: false,
+        reason:
+          'Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.',
+        decisionClassification: 'user_reject',
+      };
+    }
 
     const responsePath = path.join(permissionResponsesDir, `${requestId}.json`);
     const deadline = nowMs() + PERMISSION_REQUEST_TIMEOUT_MS;

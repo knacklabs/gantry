@@ -62,7 +62,8 @@ These hold for every PR in this refactor.
 
 Cross-cutting:
 
-- **Egress firewall** sits beside L4 — outbound network is allowlisted by host, not by sandbox.
+- **Egress gateway** sits beside L4. Outbound network is default-allow with an
+  optional root settings hostname denylist, not a provider-owned allowlist.
 - **OS sandbox** wraps L4 only. It is read-mostly: deny writes outside `~/Workdir`, `/tmp/claude`, and `$TMPDIR`. Allow read of system trust store (fixes SecTrust regression).
 - **Continuity injector** reads from L1 and writes into the L4 prompt. Not a tool; a fixed pre-step.
 
@@ -299,13 +300,13 @@ Removed or stale Phase 0 anchors:
 
 ## 9. Risks and mitigations
 
-| Risk                                               | Mitigation                                                                                             |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Watchdog false-cancels long but legitimate work    | Per-call-site budgets, not a global default; smoke tests for known-long calls.                         |
-| Capability rule format change breaks existing jobs | Phase 1 ships a one-shot migration that rewrites `jobs.target_json`. No dual-format read path.         |
-| Egress firewall blocks something we forgot         | Default-deny with a loud denial event; bootstrap allowlist seeded from current grants.                 |
-| Auto-promotion of memories surfaces wrong facts    | Phase 5 limits auto-promote to factual + no-contradiction; preference memories still queue for review. |
-| Refactor stalls in a half-state                    | Phase 7 deletion budget is enforced; if missed, phase reopens. No "we'll come back to it."             |
+| Risk                                               | Mitigation                                                                                                     |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Watchdog false-cancels long but legitimate work    | Per-call-site budgets, not a global default; smoke tests for known-long calls.                                 |
+| Capability rule format change breaks existing jobs | Phase 1 ships a one-shot migration that rewrites `jobs.target_json`. No dual-format read path.                 |
+| Egress denylist blocks too broadly                 | Default-allow remains the baseline; denylist entries are explicit hostname globs with audit on every decision. |
+| Auto-promotion of memories surfaces wrong facts    | Phase 5 limits auto-promote to factual + no-contradiction; preference memories still queue for review.         |
+| Refactor stalls in a half-state                    | Phase 7 deletion budget is enforced; if missed, phase reopens. No "we'll come back to it."                     |
 
 ## 10. Decision rules for the executing agent
 

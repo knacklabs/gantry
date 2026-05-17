@@ -275,6 +275,18 @@ describe('scheduler IPC adapter contracts', () => {
             label: 'primary',
           },
         ],
+        capabilityRequirements: [
+          {
+            capabilityId: 'google.sheets.write',
+            reason: 'Write lead rows after each run',
+            implementation: {
+              kind: 'local_cli',
+              name: 'gog',
+              executablePath: '/usr/local/bin/gog',
+              commandTemplate: '/usr/local/bin/gog sheets append *',
+            },
+          },
+        ],
         requiredTools: ['Browser'],
         confirmationToken: schedulerJobConfirmationToken({
           name: 'Daily review',
@@ -291,6 +303,18 @@ describe('scheduler IPC adapter contracts', () => {
               conversationJid: 'tg:team',
               threadId: null,
               label: 'primary',
+            },
+          ],
+          capabilityRequirements: [
+            {
+              capabilityId: 'google.sheets.write',
+              reason: 'Write lead rows after each run',
+              implementation: {
+                kind: 'local_cli',
+                name: 'gog',
+                executablePath: '/usr/local/bin/gog',
+                commandTemplate: '/usr/local/bin/gog sheets append *',
+              },
             },
           ],
           requiredTools: ['Browser'],
@@ -313,6 +337,18 @@ describe('scheduler IPC adapter contracts', () => {
           },
         ],
         requiredTools: ['Browser'],
+        capabilityRequirements: [
+          {
+            capabilityId: 'google.sheets.write',
+            reason: 'Write lead rows after each run',
+            implementation: {
+              kind: 'local_cli',
+              name: 'gog',
+              executablePath: '/usr/local/bin/gog',
+              commandTemplate: '/usr/local/bin/gog sheets append *',
+            },
+          },
+        ],
       }),
     );
   });

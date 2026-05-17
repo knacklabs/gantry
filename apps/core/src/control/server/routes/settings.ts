@@ -4,7 +4,7 @@ import {
   authorizeControlRequest,
   type ControlRouteContext,
 } from '../handler-context.js';
-import { sendError, sendJson } from '../http.js';
+import { readJson, sendError, sendJson } from '../http.js';
 
 export async function handleSettingsRoutes(
   req: IncomingMessage,
@@ -26,12 +26,7 @@ export async function handleSettingsRoutes(
     if (!authorizeControlRequest(req, res, ctx.keys, ['agents:admin'])) {
       return true;
     }
-    sendError(
-      res,
-      409,
-      'SETTINGS_READ_ONLY',
-      'settings.yaml is the local desired-state source. Use CLI commands, direct file edits, or approved MyClaw admin tools for settings changes.',
-    );
+    sendJson(res, 200, ctx.updateRuntimeSettings(await readJson(req)));
     return true;
   }
 

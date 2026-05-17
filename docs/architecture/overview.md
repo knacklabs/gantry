@@ -208,7 +208,7 @@ Cited at:
   `apps/core/src/runner/agent-capabilities.ts:131` and
   `apps/core/src/runner/agent-capabilities.ts:249`.
 - Persona compiled into the system prompt —
-  `apps/core/src/runtime/prompt-profile.ts:111` and
+  `apps/core/src/application/agents/prompt-profile-service.ts:222` and
   `apps/core/src/runtime/agent-spawn.ts:141`.
 - Skill materialisation into the run env —
   `apps/core/src/adapters/llm/anthropic-claude-agent/claude-skill-materializer.ts:1`,

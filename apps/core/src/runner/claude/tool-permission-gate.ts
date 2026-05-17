@@ -29,11 +29,29 @@ import { applyBashTrustEnv } from './bash-trust-env.js';
 import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
+import { evaluateYoloModeDenylist } from '../../shared/yolo-mode-policy.js';
+import {
+  emitJobToolActivity,
+  emitYoloDenylistHit,
+  yoloDenylistPromptReason,
+} from './tool-permission-events.js';
+import { waitOnlyBashMonitoringDenial } from './wait-only-bash-guard.js';
+import { forceBackgroundNativeAgentInput } from './native-agent-tool-input.js';
+import { denyNonPromptableAutonomousRecovery } from './autonomous-permission-recovery.js';
 
 type PermissionApprovalInput = Parameters<typeof requestPermissionApproval>[0];
 
 const GROUP_FOLDER_KEY =
   `${'group'}${'Folder'}` as keyof PermissionApprovalInput;
+const TIMED_GRANT_DURATION_MS = 5 * 60 * 1000;
+const TIMED_GRANT_CLOCK_SKEW_MS = 10_000;
+
+interface TimedToolGrant {
+  scope: 'all_tools';
+  principal: string;
+  conversationJid: string;
+  expiresAt: number;
+}
 
 interface RunnerCapabilitiesForPermission {
   allowedTools: readonly string[];
@@ -53,21 +71,6 @@ interface CreateCanUseToolCallbackInput {
   recordToolActivity: (toolName: string) => void;
 }
 
-function forceBackgroundNativeAgentInput(
-  toolName: string,
-  input: unknown,
-): Record<string, unknown> {
-  if (toolName !== 'Agent' && toolName !== 'Task') {
-    return input !== null && typeof input === 'object' && !Array.isArray(input)
-      ? (input as Record<string, unknown>)
-      : {};
-  }
-  if (input === null || typeof input !== 'object' || Array.isArray(input)) {
-    return { run_in_background: true };
-  }
-  return { ...(input as Record<string, unknown>), run_in_background: true };
-}
-
 function stableTimedGrantKey(value: unknown): string {
   return JSON.stringify(stableTimedGrantValue(value));
 }
@@ -84,41 +87,6 @@ function stableTimedGrantValue(value: unknown): unknown {
   return value;
 }
 
-function emitJobToolActivity(
-  agentInput: AgentRunnerInput,
-  getNewSessionId: () => string | undefined,
-  phase: string,
-  toolName: string,
-  payload: Record<string, unknown> = {},
-): void {
-  if (!agentInput.isScheduledJob || !agentInput.jobId) return;
-  const publicToolName = permissionRequestToolName(toolName);
-  writeOutput({
-    status: 'success',
-    result: null,
-    newSessionId: getNewSessionId(),
-    runtimeEvents: [
-      {
-        appId: agentInput.appId,
-        agentId: agentInput.agentId,
-        runId: agentInput.runId,
-        jobId: agentInput.jobId,
-        conversationId: agentInput.chatJid,
-        threadId: agentInput.threadId,
-        eventType: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
-        actor: 'runner',
-        responseMode: 'none',
-        payload: {
-          phase,
-          tool: publicToolName,
-          sdk_tool: toolName,
-          ...payload,
-        },
-      },
-    ],
-  });
-}
-
 export function createCanUseToolCallback(
   input: CreateCanUseToolCallbackInput,
 ): CanUseTool {
@@ -126,26 +94,65 @@ export function createCanUseToolCallback(
   const toolExecutionClassifier = new ToolExecutionClassifier();
   const toolExecutionPolicy = new ToolExecutionPolicyService();
   const liveApprovedRules = new Set<string>();
-  const timedToolGrants = new Map<string, number>();
+  const timedToolGrants = new Map<string, TimedToolGrant>();
   const sdkSandboxNetworkGate = createSdkSandboxNetworkGate(input.agentInput);
+  const timedGrantConversationJid = input.agentInput.chatJid;
 
-  const timedGrantKey = (
-    toolName: string,
-    toolInput: Record<string, unknown>,
-  ): string => stableTimedGrantKey({ toolName, toolInput });
+  const effectiveTimedGrantPrincipal = (): string =>
+    input.agentInput.agentId || input.workspaceFolder;
 
-  const isTimedGrantActive = (
-    toolName: string,
-    toolInput: Record<string, unknown>,
-  ): boolean => {
-    const key = timedGrantKey(toolName, toolInput);
-    const expiresAt = timedToolGrants.get(key);
-    if (expiresAt === undefined) return false;
-    if (expiresAt <= Date.now()) {
+  const timedGrantKey = (principal: string): string =>
+    stableTimedGrantKey({
+      principal,
+      conversationJid: timedGrantConversationJid,
+    });
+
+  const isTimedGrantActive = (toolName: string, principal: string): boolean => {
+    const key = timedGrantKey(principal);
+    const grant = timedToolGrants.get(key);
+    if (!grant) return false;
+    if (grant.expiresAt <= Date.now()) {
       timedToolGrants.delete(key);
       return false;
     }
+    log(
+      `Timed grant honored for tool ${toolName}: scope=${grant.scope} principal=${grant.principal} conversationJid=${grant.conversationJid} ttlMs=${grant.expiresAt - Date.now()}`,
+    );
     return true;
+  };
+
+  const rememberTimedGrant = (
+    toolName: string,
+    principal: string,
+    requestedExpiresAtMs: number,
+  ): void => {
+    const now = Date.now();
+    const maxExpiresAt =
+      now + TIMED_GRANT_DURATION_MS + TIMED_GRANT_CLOCK_SKEW_MS;
+    if (
+      !Number.isFinite(requestedExpiresAtMs) ||
+      requestedExpiresAtMs <= now ||
+      requestedExpiresAtMs > maxExpiresAt
+    ) {
+      log(
+        `Ignored invalid timed grant for tool ${toolName}: principal=${principal} requestedExpiresAt=${requestedExpiresAtMs}`,
+      );
+      return;
+    }
+    const grant: TimedToolGrant = {
+      scope: 'all_tools',
+      principal,
+      conversationJid: timedGrantConversationJid,
+      expiresAt: requestedExpiresAtMs,
+    };
+    timedToolGrants.set(timedGrantKey(principal), grant);
+    sdkSandboxNetworkGate.rememberGlobalApproval(
+      principal,
+      requestedExpiresAtMs,
+    );
+    log(
+      `Timed grant activated for tool ${toolName}: scope=${grant.scope} principal=${grant.principal} conversationJid=${grant.conversationJid} expiresAt=${new Date(requestedExpiresAtMs).toISOString()}`,
+    );
   };
 
   const currentAllowedToolRules = (): string[] => [
@@ -158,7 +165,7 @@ export function createCanUseToolCallback(
     ...liveApprovedRules,
   ];
 
-  const currentScheduledAllowedToolRules = (): string[] => [
+  const currentAutonomousAllowedToolRules = (): string[] => [
     ...(input.agentInput.allowedTools ?? []),
     ...readExternalMcpAllowedTools(),
     ...readLiveToolRules({
@@ -180,6 +187,26 @@ export function createCanUseToolCallback(
       },
     );
     const toolInput = forceBackgroundNativeAgentInput(toolName, rawToolInput);
+    const waitOnlyDenial = waitOnlyBashMonitoringDenial(toolName, toolInput);
+    if (waitOnlyDenial) {
+      log(`Permission denied by wait-only Bash guard: ${waitOnlyDenial}`);
+      emitJobToolActivity(
+        input.agentInput,
+        input.getNewSessionId,
+        'deny',
+        toolName,
+        {
+          ok: false,
+          reason: waitOnlyDenial,
+          decision: 'wait_only_bash_guard',
+        },
+      );
+      return {
+        behavior: 'deny' as const,
+        message: waitOnlyDenial,
+        interrupt: false,
+      };
+    }
     if (input.agentInput.runMode === 'prime') {
       const deniedReason =
         'Prime mode records requested tool access without executing tools.';
@@ -239,11 +266,15 @@ export function createCanUseToolCallback(
 
     const trustInput = () =>
       applyBashTrustEnv(toolName, toolInput, input.sdkEnv);
+    const timedGrantPrincipal = effectiveTimedGrantPrincipal();
+    const sdkApprovalPrincipal =
+      permissionOpts.agentID?.trim() || timedGrantPrincipal;
     const rememberAllowedTool = () =>
       sdkSandboxNetworkGate.rememberAllowedTool(
         toolName,
         toolInput,
         permissionOpts,
+        sdkApprovalPrincipal,
       );
     const allowToolUse = (reason = 'allowed') => {
       emitJobToolActivity(
@@ -346,12 +377,32 @@ export function createCanUseToolCallback(
       toolName,
       toolInput,
       permissionOpts,
+      sdkApprovalPrincipal,
     );
     if (sandboxNetworkAccessDecision) return sandboxNetworkAccessDecision;
 
-    if (isTimedGrantActive(toolName, toolInput)) {
-      log(`Timed grant auto-allow for tool ${toolName}`);
-      return allowToolUse('timed_grant');
+    let timedGrantDenylistReason: string | undefined;
+    if (isTimedGrantActive(toolName, timedGrantPrincipal)) {
+      const yoloDenylistHit = evaluateYoloModeDenylist({
+        settings: input.agentInput.yoloMode,
+        toolName,
+        toolInput,
+      });
+      if (yoloDenylistHit) {
+        timedGrantDenylistReason = yoloDenylistPromptReason(yoloDenylistHit);
+        log(
+          `Timed grant bypass skipped for tool ${toolName}: ${timedGrantDenylistReason}`,
+        );
+        emitYoloDenylistHit({
+          agentInput: input.agentInput,
+          getNewSessionId: input.getNewSessionId,
+          match: yoloDenylistHit,
+          principal: timedGrantPrincipal,
+        });
+      } else {
+        log(`Timed grant auto-allow for tool ${toolName}`);
+        return allowToolUse('timed_grant');
+      }
     }
 
     const toolExecutionRequest = toolExecutionClassifier.classify({
@@ -373,10 +424,10 @@ export function createCanUseToolCallback(
     if (input.agentInput.isScheduledJob) {
       const toolDecision = toolExecutionPolicy.evaluate({
         request: toolExecutionRequest,
-        schedulerAllowedToolRules: currentScheduledAllowedToolRules(),
+        autonomousAllowedToolRules: currentAutonomousAllowedToolRules(),
       });
-      if (toolDecision.status === 'allow') {
-        log(`Autonomous job allowed tool ${toolName}: ${toolDecision.reason}`);
+      if (!timedGrantDenylistReason && toolDecision.status === 'allow') {
+        log(`Autonomous run allowed tool ${toolName}: ${toolDecision.reason}`);
         return allowToolUse(toolDecision.reason);
       }
       if (permissionOpts.signal.aborted) {
@@ -386,10 +437,29 @@ export function createCanUseToolCallback(
           interrupt: true,
         };
       }
-      const recoveryMessage = `${toolDecision.reason} Recovery: ${toolDecision.recoveryAction}`;
+      const recoveryMessage =
+        timedGrantDenylistReason ??
+        (toolDecision.status === 'allow'
+          ? toolDecision.reason
+          : `${toolDecision.reason} Recovery: ${toolDecision.recoveryAction}`);
+      const recoveryAction =
+        toolDecision.status === 'allow'
+          ? undefined
+          : toolDecision.recoveryAction;
+      if (!timedGrantDenylistReason) {
+        const nonPromptableDenial = denyNonPromptableAutonomousRecovery({
+          agentInput: input.agentInput,
+          getNewSessionId: input.getNewSessionId,
+          recoveryAction,
+          recoveryMessage,
+          toolName,
+          toolPolicyReason: toolDecision.reason,
+        });
+        if (nonPromptableDenial) return nonPromptableDenial;
+      }
       const publicToolName = permissionRequestToolName(toolName);
       log(
-        `Autonomous job requesting permission for tool ${toolName}: ${recoveryMessage}`,
+        `Autonomous run requesting permission for tool ${toolName}: ${recoveryMessage}`,
       );
       input.emitInteractionBoundary();
       emitJobToolActivity(
@@ -400,7 +470,7 @@ export function createCanUseToolCallback(
         {
           ok: false,
           reason: toolDecision.reason,
-          recovery_action: toolDecision.recoveryAction,
+          ...(recoveryAction ? { recovery_action: recoveryAction } : {}),
         },
       );
       const decision = await requestPermissionApproval({
@@ -414,8 +484,14 @@ export function createCanUseToolCallback(
             ? permissionOpts.displayName
             : publicToolName,
         description: permissionOpts.description,
-        decisionReason: permissionOpts.decisionReason ?? toolDecision.reason,
-        closestRule: toolDecision.closestRule,
+        decisionReason:
+          timedGrantDenylistReason ??
+          permissionOpts.decisionReason ??
+          toolDecision.reason,
+        closestRule:
+          timedGrantDenylistReason || toolDecision.status === 'allow'
+            ? undefined
+            : toolDecision.closestRule,
         blockedPath: permissionOpts.blockedPath,
         toolInput,
         toolUseID: permissionOpts.toolUseID,
@@ -439,12 +515,10 @@ export function createCanUseToolCallback(
           decision.mode === 'allow_timed_grant' &&
           typeof decision.timedGrantExpiresAtMs === 'number'
         ) {
-          timedToolGrants.set(
-            timedGrantKey(toolName, toolInput),
+          rememberTimedGrant(
+            toolName,
+            timedGrantPrincipal,
             decision.timedGrantExpiresAtMs,
-          );
-          log(
-            `Timed grant activated for tool ${toolName} until ${new Date(decision.timedGrantExpiresAtMs).toISOString()}`,
           );
         }
         rememberAllowedTool();
@@ -460,7 +534,7 @@ export function createCanUseToolCallback(
           },
         );
         log(
-          `Autonomous job permission approved for tool ${toolName} by ${decision.decidedBy || 'unknown'}`,
+          `Autonomous run permission approved for tool ${toolName} by ${decision.decidedBy || 'unknown'}`,
         );
         return {
           behavior: 'allow' as const,
@@ -478,7 +552,7 @@ export function createCanUseToolCallback(
       }
       const reason = decision.reason || 'Denied by operator';
       const message = `Permission denied: ${reason}. ${recoveryMessage}`;
-      log(`Autonomous job denied tool ${toolName}: ${message}`);
+      log(`Autonomous run denied tool ${toolName}: ${message}`);
       emitJobToolActivity(
         input.agentInput,
         input.getNewSessionId,
@@ -487,7 +561,7 @@ export function createCanUseToolCallback(
         {
           ok: false,
           reason,
-          recovery_action: toolDecision.recoveryAction,
+          ...(recoveryAction ? { recovery_action: recoveryAction } : {}),
         },
       );
       return {
@@ -500,14 +574,17 @@ export function createCanUseToolCallback(
       };
     }
 
-    if (input.capabilities.alwaysAllowedTools.includes(toolName)) {
+    if (
+      !timedGrantDenylistReason &&
+      input.capabilities.alwaysAllowedTools.includes(toolName)
+    ) {
       return allowToolUse('always_allowed');
     }
     const currentToolDecision = toolExecutionPolicy.evaluate({
       request: toolExecutionRequest,
       allowedToolRules: currentAllowedToolRules(),
     });
-    if (currentToolDecision.status === 'allow') {
+    if (!timedGrantDenylistReason && currentToolDecision.status === 'allow') {
       log(
         `Permission allowed for tool ${toolName}: ${currentToolDecision.reason}`,
       );
@@ -528,12 +605,13 @@ export function createCanUseToolCallback(
       toolName,
       {
         ok: false,
-        reason: currentToolDecision.reason,
+        reason: timedGrantDenylistReason ?? currentToolDecision.reason,
       },
     );
     const decision = await requestPermissionApproval({
       appId: input.agentInput.appId,
       agentId: input.agentInput.agentId,
+      targetJid: input.agentInput.chatJid,
       toolName: publicToolName,
       title: permissionOpts.title,
       displayName:
@@ -541,8 +619,10 @@ export function createCanUseToolCallback(
           ? permissionOpts.displayName
           : publicToolName,
       description: permissionOpts.description,
-      decisionReason: permissionOpts.decisionReason,
-      closestRule: currentToolDecision.closestRule,
+      decisionReason: timedGrantDenylistReason ?? permissionOpts.decisionReason,
+      closestRule: timedGrantDenylistReason
+        ? undefined
+        : currentToolDecision.closestRule,
       blockedPath: permissionOpts.blockedPath,
       toolInput,
       toolUseID: permissionOpts.toolUseID,
@@ -567,12 +647,10 @@ export function createCanUseToolCallback(
         decision.mode === 'allow_timed_grant' &&
         typeof decision.timedGrantExpiresAtMs === 'number'
       ) {
-        timedToolGrants.set(
-          timedGrantKey(toolName, toolInput),
+        rememberTimedGrant(
+          toolName,
+          timedGrantPrincipal,
           decision.timedGrantExpiresAtMs,
-        );
-        log(
-          `Timed grant activated for tool ${toolName} until ${new Date(decision.timedGrantExpiresAtMs).toISOString()}`,
         );
       }
       rememberAllowedTool();

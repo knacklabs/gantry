@@ -62,14 +62,14 @@ export async function runReadyStep(
       : [
           {
             value: 'start_now',
-            label: 'Start MyClaw now',
+            label: 'Start Gantry now',
             hint: `Begin listening on ${draft.primaryProvider} immediately.`,
           },
         ]),
   ];
 
   const value = await p.select({
-    message: 'Setup complete. What should MyClaw do now?',
+    message: 'Setup complete. What should Gantry do now?',
     options,
   });
 

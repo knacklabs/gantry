@@ -24,10 +24,9 @@ The goal is practical continuity, not a fake emotional persona. The agent should
 
 MyClaw currently has these layers:
 
-1. Static prompt profile files
-   - `~/myclaw/agents/shared/CLAUDE.md`
-   - `~/myclaw/agents/<group>/SOUL.md`
-   - `~/myclaw/agents/<group>/CLAUDE.md`
+1. Static prompt profile FileArtifacts
+   - `scope: prompt-profile`, `path: <agent-folder>/SOUL.md`
+   - `scope: prompt-profile`, `path: <agent-folder>/CLAUDE.md`
 
 2. Structured memory in Postgres
    - flattened `memory_items` for durable facts, decisions, procedures, and
@@ -109,15 +108,18 @@ Continuity should track mutable work state:
 
 This should not be stored as normal durable memory because it goes stale quickly.
 
-## Static Prompt Files
+## Static Prompt FileArtifacts
 
-Static prompt files are not memory dumps.
+Static prompt FileArtifacts are not memory dumps.
 
 - `SOUL.md` defines personality, voice, and boundaries.
-- shared `CLAUDE.md` defines broad operating rules.
-- group `CLAUDE.md` defines stable group-specific guidance.
+- `CLAUDE.md` defines stable agent-specific guidance.
+- Shared `agents/shared` prompt projection is not a runtime input.
+- Former shared operating rules are compiled from built-in generated prompt
+  guidance so agents keep memory, continuity, privacy, tool-use, and
+  communication defaults without reading a host-path shared prompt file.
 
-Dynamic facts, task state, and open loops belong in structured memory and continuity context, not in static prompt files.
+Dynamic facts, task state, and open loops belong in structured memory and continuity context, not in static prompt FileArtifacts.
 
 ## Storage Model
 
@@ -125,7 +127,11 @@ MyClaw stores live memory in Postgres.
 
 - Runtime database: `MYCLAW_DATABASE_URL`
 - Runtime schema: `storage.postgres.schema` (default `myclaw`)
-- Provider continuation and transcript export artifacts: `ProviderArtifactStore`
+- Transcript exports: generated from Postgres messages into `FileArtifact`
+- Provider-session artifact rows and local SDK JSONL transcript files are not
+  continuity inputs and are not backfilled into FileArtifacts during the
+  stateless runner cutover. If transcript export is needed later, generate it
+  from canonical Postgres messages/runs/events into a FileArtifact.
 
 ## Embeddings Are Optional
 

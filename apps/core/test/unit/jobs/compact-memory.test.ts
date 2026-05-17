@@ -77,6 +77,38 @@ describe('collectCompactBoundaryMemory', () => {
     expect(logger.info).not.toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();
   });
+
+  it('warns and returns when compact-boundary memory collection times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const collectMemory = vi.fn(
+        () => new Promise<{ saved: number }>(() => undefined),
+      );
+      const logger = { info: vi.fn(), warn: vi.fn() };
+
+      const done = collectCompactBoundaryMemory({
+        compactBoundary: true,
+        agentSessionId: 'agent-session:job',
+        collectMemory,
+        logger,
+        context: { jobId: 'job-1', runId: 'run-1' },
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      await done;
+
+      expect(logger.info).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        {
+          jobId: 'job-1',
+          runId: 'run-1',
+          err: expect.any(Error),
+        },
+        'Failed to collect durable memory at SDK compact boundary',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('collectJobCompletionMemory', () => {
@@ -165,5 +197,37 @@ describe('collectJobCompletionMemory', () => {
     expect(collectMemory).not.toHaveBeenCalled();
     expect(logger.info).not.toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('warns and returns when job completion memory collection times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const collectMemory = vi.fn(
+        () => new Promise<{ saved: number }>(() => undefined),
+      );
+      const logger = { info: vi.fn(), warn: vi.fn() };
+
+      const done = collectJobCompletionMemory({
+        agentSessionId: 'agent-session:job',
+        collectMemory,
+        prompt: 'remember this',
+        logger,
+        context: { jobId: 'job-1', runId: 'run-1' },
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      await done;
+
+      expect(logger.info).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        {
+          jobId: 'job-1',
+          runId: 'run-1',
+          err: expect.any(Error),
+        },
+        'Failed to collect durable memory after successful job run',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

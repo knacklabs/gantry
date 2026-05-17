@@ -5,7 +5,6 @@ import {
 import { MYCLAW_HOME } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { ensureRuntimeLayoutDirectories } from '../../platform/runtime-layout.js';
-import { ensurePromptProfileBootstrapped } from '../../runtime/prompt-profile.js';
 import { restoreRemoteControl } from '../../runtime/remote-control.js';
 import { initializeRuntimeStorage } from '../../adapters/storage/postgres/runtime-store.js';
 import { SettingsDesiredStateService } from '../../config/settings/desired-state-service.js';
@@ -15,7 +14,6 @@ import { nowIso } from '../../shared/time/datetime.js';
 
 interface StartupDeps {
   ensureRuntimeLayoutDirectories: typeof ensureRuntimeLayoutDirectories;
-  ensurePromptProfileBootstrapped: typeof ensurePromptProfileBootstrapped;
   initializeRuntimeStorage: typeof initializeRuntimeStorage;
   loadRuntimeSettings: typeof loadRuntimeSettings;
   restoreRemoteControl: typeof restoreRemoteControl;
@@ -33,7 +31,6 @@ const INTERNAL_DEFAULT_AGENT_JID = 'app:default';
 function makeDefaultDeps(): StartupDeps {
   return {
     ensureRuntimeLayoutDirectories,
-    ensurePromptProfileBootstrapped,
     initializeRuntimeStorage,
     loadRuntimeSettings,
     restoreRemoteControl,
@@ -51,15 +48,6 @@ export async function runStartup(
   };
 
   resolved.ensureRuntimeLayoutDirectories(MYCLAW_HOME);
-  try {
-    resolved.ensurePromptProfileBootstrapped();
-  } catch (err) {
-    resolved.logger.warn(
-      { err },
-      'Failed to seed prompt profile files; continuing startup',
-    );
-  }
-
   const runtimeSettings = resolved.loadRuntimeSettings(MYCLAW_HOME);
   const storage = await resolved.initializeRuntimeStorage({
     loadSessionAppMemoryItems: loadSessionAppMemoryItems,

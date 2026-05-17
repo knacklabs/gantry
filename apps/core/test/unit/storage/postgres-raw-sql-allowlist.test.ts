@@ -4,16 +4,13 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = process.cwd();
-const SCAN_ROOTS = [
-  'apps/core/src/adapters/storage/postgres',
-  'apps/core/src/adapters/artifacts/postgres',
-];
+const SCAN_ROOTS = ['apps/core/src/adapters/storage/postgres'];
 
 const ALLOWED_RAW_SQL_FILES = new Set([
+  'apps/core/src/adapters/storage/postgres/repositories/file-artifact-repository.postgres.ts',
   'apps/core/src/adapters/storage/postgres/runtime-event-notifier.postgres.ts',
   'apps/core/src/adapters/storage/postgres/runtime-store.ts',
   'apps/core/src/adapters/storage/postgres/storage-service.ts',
-  'apps/core/src/adapters/artifacts/postgres/postgres-provider-artifact-store.ts',
 ]);
 
 const RAW_SQL_PATTERN =

@@ -105,7 +105,6 @@ export class CanonicalSessionOpsService {
       conversationKind?: 'dm' | 'channel';
       memoryUserId?: string;
       jobId?: string;
-      latestArtifactId?: string | null;
       expectedAgentSessionId?: string;
       expectedAgentSessionResetAt?: string | null;
     } = {},
@@ -124,7 +123,6 @@ export class CanonicalSessionOpsService {
       conversationKind: metadata.conversationKind,
       memoryUserId: metadata.memoryUserId,
       jobId: metadata.jobId,
-      latestArtifactId: metadata.latestArtifactId,
       expectedAgentSessionId: metadata.expectedAgentSessionId,
       expectedAgentSessionResetAt: metadata.expectedAgentSessionResetAt,
     });
@@ -145,7 +143,6 @@ export class CanonicalSessionOpsService {
     agentSessionId: string;
     providerSessionId?: string;
     externalSessionId?: string;
-    latestArtifactId?: string | null;
     agentSessionResetAt?: string | null;
     memoryContextBlock?: string;
   }> {

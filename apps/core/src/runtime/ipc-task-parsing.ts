@@ -88,6 +88,7 @@ const UNSUPPORTED_SCHEDULER_JOB_TASK_FIELDS = [
   'thread_id',
   'sessionId',
   'groupScope',
+  'capability_requirements',
   'allowedTools',
   'executionMode',
   'serialize',
@@ -242,6 +243,127 @@ function toOptionalNotificationRoutes(value: unknown):
   return routes;
 }
 
+function toOptionalCapabilityRequirements(value: unknown):
+  | Array<{
+      capabilityId: string;
+      reason: string;
+      implementation?: {
+        kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
+        name?: string;
+        executablePath?: string;
+        commandTemplate?: string;
+        authPreflight?: string;
+        protectedPaths?: string[];
+      };
+    }>
+  | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return undefined;
+  const requirements: Array<{
+    capabilityId: string;
+    reason: string;
+    implementation?: {
+      kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
+      name?: string;
+      executablePath?: string;
+      commandTemplate?: string;
+      authPreflight?: string;
+      protectedPaths?: string[];
+    };
+  }> = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isPlainObject(item)) continue;
+    const record = item as Record<string, unknown>;
+    const capabilityId = toTrimmedString(record.capabilityId, {
+      maxLen: 120,
+    });
+    const reason = toTrimmedString(record.reason, {
+      maxLen: 255,
+    });
+    if (!capabilityId || !reason) continue;
+    const requirement: {
+      capabilityId: string;
+      reason: string;
+      implementation?: {
+        kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
+        name?: string;
+        executablePath?: string;
+        commandTemplate?: string;
+        authPreflight?: string;
+        protectedPaths?: string[];
+      };
+    } = {
+      capabilityId,
+      reason,
+    };
+    const rawImplementation = record.implementation;
+    if (isPlainObject(rawImplementation)) {
+      const implementationRecord = rawImplementation as Record<string, unknown>;
+      const kind =
+        (toTrimmedString(implementationRecord.kind, {
+          maxLen: 40,
+        }) as
+          | 'configured_access'
+          | 'local_cli'
+          | 'mcp_server'
+          | 'builtin_tool'
+          | undefined) ?? undefined;
+      if (
+        kind !== 'configured_access' &&
+        kind !== 'local_cli' &&
+        kind !== 'mcp_server' &&
+        kind !== 'builtin_tool'
+      ) {
+        requirements.push({ capabilityId, reason, implementation: undefined });
+        continue;
+      }
+      const implementation: {
+        kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
+        name?: string;
+        executablePath?: string;
+        commandTemplate?: string;
+        authPreflight?: string;
+        protectedPaths?: string[];
+      } = { kind };
+      const name = toTrimmedString(implementationRecord.name, {
+        maxLen: 120,
+      });
+      const executablePath = toTrimmedString(
+        implementationRecord.executablePath,
+        { maxLen: 255 },
+      );
+      const commandTemplate = toTrimmedString(
+        implementationRecord.commandTemplate,
+        { maxLen: 1024 },
+      );
+      const authPreflight = toTrimmedString(
+        implementationRecord.authPreflight,
+        { maxLen: 1024 },
+      );
+      const protectedPaths = toOptionalStringArray(
+        implementationRecord.protectedPaths,
+        100,
+        255,
+      );
+      if (name) implementation.name = name;
+      if (executablePath) implementation.executablePath = executablePath;
+      if (commandTemplate) implementation.commandTemplate = commandTemplate;
+      if (authPreflight) implementation.authPreflight = authPreflight;
+      if (protectedPaths && protectedPaths.length > 0)
+        implementation.protectedPaths = protectedPaths;
+      requirement.implementation = implementation;
+    }
+    const key = `${requirement.capabilityId}\u0000${
+      requirement.implementation?.kind ?? ''
+    }\u0000${requirement.implementation?.name ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    requirements.push(requirement);
+  }
+  return requirements;
+}
+
 function parseAgentConfigPayload(
   value: unknown,
 ): ConversationRoute['agentConfig'] | undefined {
@@ -309,6 +431,9 @@ export function parseTaskIpcData(
     raw.notificationRoutes,
   );
   const requiredTools = toOptionalStringArray(raw.requiredTools, 100, 255);
+  const capabilityRequirements = toOptionalCapabilityRequirements(
+    raw.capabilityRequirements,
+  );
   const requiredMcpServers = toOptionalStringArray(
     raw.requiredMcpServers,
     100,
@@ -382,6 +507,8 @@ export function parseTaskIpcData(
     ).notificationRoutes = notificationRoutes;
   }
   if (requiredTools !== undefined) parsed.requiredTools = requiredTools;
+  if (capabilityRequirements !== undefined)
+    parsed.capabilityRequirements = capabilityRequirements;
   if (requiredMcpServers !== undefined) {
     parsed.requiredMcpServers = requiredMcpServers;
   }

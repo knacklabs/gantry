@@ -77,7 +77,20 @@ describe('scheduledPermissionSuggestions', () => {
         type: 'addRules',
         behavior: 'allow',
         destination: 'session',
-        rules: [{ toolName: 'Bash', ruleContent: 'python3 /tmp/check.py' }],
+        rules: [{ toolName: 'Bash', ruleContent: '/tmp/check.py *' }],
+      },
+    ]);
+
+    expect(
+      synthesizePermissionSuggestions('Bash', {
+        toolInput: { command: 'python3 /tmp/check.py \'[["lead"]]\'' },
+      }),
+    ).toEqual([
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [{ toolName: 'Bash', ruleContent: '/tmp/check.py *' }],
       },
     ]);
   });

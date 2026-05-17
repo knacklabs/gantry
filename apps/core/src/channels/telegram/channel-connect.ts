@@ -9,6 +9,7 @@ import { logger } from '../../infrastructure/logging/logger.js';
 import {
   decisionForMode,
   normalizePermissionAction,
+  permissionDecisionOptions,
 } from '../permission-interaction.js';
 
 import { TelegramChannelPrompts } from './channel-prompts.js';
@@ -196,6 +197,13 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
         });
         return;
       }
+      if (!permissionDecisionOptions(pending.request).includes(mode)) {
+        await ctx.answerCallbackQuery({
+          text: 'This approval option is no longer available.',
+          show_alert: true,
+        });
+        return;
+      }
 
       const callbackQuery = ctx.callbackQuery as
         | {
@@ -276,17 +284,17 @@ export abstract class TelegramChannelConnect extends TelegramChannelPrompts {
             : mode === 'allow_persistent_rule'
               ? 'persistent rule allowed via Telegram'
               : mode === 'allow_timed_grant'
-                ? `timed grant (5 min) via Telegram`
+                ? `eligible tools/SDK API prompt grant (5 min) via Telegram`
                 : 'canceled via Telegram',
       });
       await ctx.answerCallbackQuery({
         text:
           mode === 'allow_once'
-            ? 'Allowed once.'
+            ? 'Allowed once. Details posted in chat.'
             : mode === 'allow_persistent_rule'
-              ? 'Approval received; applying.'
+              ? 'Always allowed. Details posted in chat.'
               : mode === 'allow_timed_grant'
-                ? 'Timed grant active for 5 min.'
+                ? 'Allowed for 5 minutes. Details posted in chat.'
                 : 'Canceled.',
       });
     });

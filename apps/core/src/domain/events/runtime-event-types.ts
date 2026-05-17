@@ -24,6 +24,8 @@ export const RUNTIME_EVENT_TYPES = {
   PERMISSION_PERSISTED: 'permission.persisted',
   PERMISSION_RESUMED: 'permission.resumed',
   PERMISSION_FINAL_OUTCOME: 'permission.final_outcome',
+  PERMISSION_YOLO_DENYLIST_HIT: 'permission.yolo_denylist_hit',
+  EGRESS_CONNECT: 'egress.connect',
   SANDBOX_BLOCKED: 'sandbox.blocked',
   RUN_STARTED: 'run.started',
   RUN_CANCELED: 'run.canceled',
@@ -41,6 +43,19 @@ const RUNTIME_EVENT_TYPE_VALUES = new Set<string>(
   Object.values(RUNTIME_EVENT_TYPES),
 );
 
+const RUNTIME_EVENT_TYPE_ALIASES: Record<string, RuntimeEventType> = {
+  job_finished: RUNTIME_EVENT_TYPES.JOB_RUN_COMPLETED,
+  'job.finished': RUNTIME_EVENT_TYPES.JOB_RUN_COMPLETED,
+  job_failed: RUNTIME_EVENT_TYPES.JOB_RUN_FAILED,
+  'job.failed_run': RUNTIME_EVENT_TYPES.JOB_RUN_FAILED,
+  job_dead_lettered: RUNTIME_EVENT_TYPES.RUN_DEAD_LETTERED,
+  'job.dead_lettered': RUNTIME_EVENT_TYPES.RUN_DEAD_LETTERED,
+  run_completed: RUNTIME_EVENT_TYPES.RUN_COMPLETED,
+  run_failed: RUNTIME_EVENT_TYPES.RUN_FAILED,
+  run_timeout: RUNTIME_EVENT_TYPES.RUN_TIMEOUT,
+  run_dead_lettered: RUNTIME_EVENT_TYPES.RUN_DEAD_LETTERED,
+};
+
 export function isRuntimeEventType(value: unknown): value is RuntimeEventType {
   return (
     typeof value === 'string' &&
@@ -51,7 +66,9 @@ export function isRuntimeEventType(value: unknown): value is RuntimeEventType {
 export function parseRuntimeEventType(
   value: unknown,
 ): RuntimeEventType | undefined {
-  return isRuntimeEventType(value) ? value : undefined;
+  if (isRuntimeEventType(value)) return value;
+  if (typeof value !== 'string') return undefined;
+  return RUNTIME_EVENT_TYPE_ALIASES[value.trim()];
 }
 
 export function requireRuntimeEventType(

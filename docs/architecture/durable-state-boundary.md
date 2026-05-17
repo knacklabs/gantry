@@ -6,9 +6,9 @@ Canonical runtime state lives in Postgres. This includes apps, agents,
 conversations, threads, messages, sessions, provider session metadata, runs,
 memory, jobs, permissions, tools, skills, browser profiles, and control events.
 
-Provider artifacts are explicit export or debug artifacts stored behind
-`ProviderArtifactStore`. Claude JSONL files are not runtime continuation state
-and are not canonical conversation records.
+FileArtifacts hold durable agent-owned files and future transcript exports.
+Claude JSONL files are not runtime continuation state, canonical conversation
+records, or durable export artifacts.
 
 Skill artifacts are normalized files from uploaded skill zips stored behind
 `SkillArtifactStore`. Postgres records parsed skill metadata, lifecycle status,
@@ -22,9 +22,9 @@ config, configured local skill folders, and approved bound skill artifacts.
 ## Allowed Durable Stores
 
 - Postgres for canonical runtime state and artifact metadata
-- Local filesystem artifact root for explicit provider export/debug bytes
+- Local filesystem artifact root for FileArtifact bytes
 - Local filesystem artifact root for draft and approved skill source bytes
-- Object storage for future multi-node provider artifact bytes
+- Object storage for future multi-node FileArtifact bytes
 
 ## Disallowed Durable State
 

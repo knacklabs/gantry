@@ -97,7 +97,76 @@ describe('session-resume-runtime', () => {
     expect(summary).not.toContain('provider-session:standalone-success');
   });
 
-  it('persists provider resume handles under the job-owned session scope', async () => {
+  it('redacts provider resume handles before storing failed runs', async () => {
+    const completeSessionAgentRun = vi.fn().mockResolvedValue(undefined);
+    const ops = {
+      completeSessionAgentRun,
+    } as unknown as RuntimeAgentSessionRepository;
+
+    await completeFailedRuntimeSessionRun({
+      ops,
+      runId: 'run-failed-redaction',
+      errorSummary:
+        'failed latestProviderSessionId=latest-failed provider-session:standalone-failed {"externalSessionId":"claude-session-failed"}',
+    });
+
+    expect(completeSessionAgentRun).toHaveBeenCalledTimes(1);
+    const completion = completeSessionAgentRun.mock.calls[0][0];
+    const summary = completion.errorSummary as string;
+    expect(summary).toContain('[REDACTED]');
+    expect(summary).not.toContain('latest-failed');
+    expect(summary).not.toContain('provider-session:standalone-failed');
+    expect(summary).not.toContain('claude-session-failed');
+  });
+
+  it('does not throw when failed run bookkeeping cannot be persisted', async () => {
+    const completeSessionAgentRun = vi
+      .fn()
+      .mockRejectedValue(new Error('database unavailable'));
+    const ops = {
+      completeSessionAgentRun,
+    } as unknown as RuntimeAgentSessionRepository;
+
+    await expect(
+      completeFailedRuntimeSessionRun({
+        ops,
+        runId: 'run-failed-bookkeeping',
+        errorSummary: 'permission denied',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(completeSessionAgentRun).toHaveBeenCalledWith({
+      runId: 'run-failed-bookkeeping',
+      status: 'failed',
+      errorSummary: 'permission denied',
+    });
+  });
+
+  it('does not throw when successful run bookkeeping cannot be persisted', async () => {
+    const completeSessionAgentRun = vi
+      .fn()
+      .mockRejectedValue(new Error('database unavailable'));
+    const ops = {
+      completeSessionAgentRun,
+    } as unknown as RuntimeAgentSessionRepository;
+
+    await expect(
+      completeSuccessfulRuntimeSessionRun({
+        ops,
+        group: { name: 'Main', folder: 'main_agent' } as never,
+        runId: 'run-success-bookkeeping',
+        result: 'done',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(completeSessionAgentRun).toHaveBeenCalledWith({
+      runId: 'run-success-bookkeeping',
+      status: 'completed',
+      resultSummary: 'done',
+    });
+  });
+
+  it('does not persist provider resume handles under the job-owned session scope', async () => {
     const setSession = vi.fn().mockResolvedValue(true);
     const ops = {
       setSession,
@@ -115,16 +184,6 @@ describe('session-resume-runtime', () => {
       result: 'ok',
     });
 
-    expect(setSession).toHaveBeenCalledWith(
-      'scheduler_agent',
-      'claude-session-job-1',
-      'topic-1',
-      expect.objectContaining({
-        conversationJid: 'tg:scheduler',
-        conversationKind: 'channel',
-        jobId: 'job-1',
-        expectedAgentSessionId: 'agent-session:job-1',
-      }),
-    );
+    expect(setSession).not.toHaveBeenCalled();
   });
 });

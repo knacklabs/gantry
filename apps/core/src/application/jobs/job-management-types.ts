@@ -1,5 +1,6 @@
 import type {
   Job,
+  JobCapabilityRequirement,
   JobEvent,
   JobRun,
   JobScheduleType,
@@ -144,6 +145,7 @@ export interface CreateManagedJobInput {
   sessionId: string;
   executionContext?: JobExecutionContextInput;
   notificationRoutes?: JobNotificationRouteInput[];
+  capabilityRequirements?: JobCapabilityRequirement[];
   requiredTools?: string[];
   requiredMcpServers?: string[];
   kind?: JobKind;
@@ -165,6 +167,7 @@ export interface UpsertJobFromIpcInput {
   scheduleValue: string;
   executionContext?: JobExecutionContextInput;
   notificationRoutes?: JobNotificationRouteInput[];
+  capabilityRequirements?: JobCapabilityRequirement[];
   requiredTools?: string[];
   requiredMcpServers?: string[];
   threadId?: string;
@@ -200,6 +203,7 @@ export type JobUpdatePatch = Partial<{
   scheduleValue: string;
   executionContext: JobExecutionContextInput;
   notificationRoutes: JobNotificationRouteInput[];
+  capabilityRequirements: JobCapabilityRequirement[];
   requiredTools: string[];
   requiredMcpServers: string[];
   threadId: string | null;

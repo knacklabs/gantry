@@ -55,7 +55,7 @@ export interface OnecliAgentCredentialBrokerOptions {
 }
 
 export class OnecliAgentCredentialBroker implements AgentCredentialBroker {
-  private static readonly DEFAULT_CONFIG_CACHE_TTL_MS = 0;
+  private static readonly DEFAULT_CONFIG_CACHE_TTL_MS = 60_000;
 
   private readonly client?: OneCliClient;
   private readonly normalizedUrl?: string;

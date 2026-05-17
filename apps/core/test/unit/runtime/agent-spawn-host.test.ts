@@ -338,7 +338,7 @@ describe('prepareHostRuntimeContext', () => {
     );
   });
 
-  it('returns globalDir when shared directory exists', async () => {
+  it('does not project agents/shared as a global runtime directory', async () => {
     mockExistsSync.mockImplementation(
       (value: string) => value === '/tmp/myclaw-test/agents/shared',
     );
@@ -346,6 +346,6 @@ describe('prepareHostRuntimeContext', () => {
 
     const ctx = mod.prepareHostRuntimeContext(fakeGroup);
 
-    expect(ctx.globalDir).toBe('/tmp/myclaw-test/agents/shared');
+    expect(ctx).not.toHaveProperty('globalDir');
   });
 });

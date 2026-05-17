@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { getBuiltinSemanticCapability } from './semantic-capabilities.js';
 
 export interface SchedulerJobPlanInput {
   jobId?: string | null;
@@ -18,6 +19,18 @@ export interface SchedulerJobPlanInput {
     conversationJid: string;
     threadId: string | null;
     label: string;
+  }>;
+  capabilityRequirements?: Array<{
+    capabilityId: string;
+    reason: string;
+    implementation?: {
+      kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
+      name?: string;
+      executablePath?: string;
+      commandTemplate?: string;
+      authPreflight?: string;
+      protectedPaths?: string[];
+    };
   }>;
   requiredTools?: string[];
   requiredMcpServers?: string[];
@@ -70,6 +83,10 @@ export function formatSchedulerJobPlan(
     input.requiredTools && input.requiredTools.length > 0
       ? input.requiredTools.join(', ')
       : 'none';
+  const requiredCapabilities =
+    input.capabilityRequirements && input.capabilityRequirements.length > 0
+      ? input.capabilityRequirements.map(formatCapabilityRequirement).join(', ')
+      : 'none';
   const requiredMcpServers =
     input.requiredMcpServers && input.requiredMcpServers.length > 0
       ? input.requiredMcpServers.join(', ')
@@ -78,6 +95,7 @@ export function formatSchedulerJobPlan(
     'Scheduler job plan. Review before confirming.',
     `- Schedule: ${input.scheduleType} ${input.scheduleValue || '(empty)'}`,
     `- Model: ${model}`,
+    `- Required capabilities: ${requiredCapabilities}`,
     `- Required tools: ${requiredTools}`,
     `- Required MCP servers: ${requiredMcpServers}`,
     '- Tool access: inherited from the target agent capability selection; required tools are assertions only and missing tools will pause the job for permission.',
@@ -109,6 +127,7 @@ function normalizePlanInput(
     scheduleValue: input.scheduleValue,
     executionContext: input.executionContext,
     notificationRoutes: input.notificationRoutes ?? [],
+    capabilityRequirements: input.capabilityRequirements ?? [],
     requiredTools: input.requiredTools ?? [],
     requiredMcpServers: input.requiredMcpServers ?? [],
     silent: input.silent ?? false,
@@ -119,6 +138,21 @@ function normalizePlanInput(
     maxConsecutiveFailures: input.maxConsecutiveFailures,
     createdBy: input.createdBy ?? 'agent',
   };
+}
+
+function formatCapabilityRequirement(
+  requirement: NonNullable<
+    SchedulerJobPlanInput['capabilityRequirements']
+  >[number],
+): string {
+  const capability =
+    getBuiltinSemanticCapability(requirement.capabilityId)?.displayName ??
+    requirement.capabilityId
+      .split('.')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  const name = requirement.implementation?.name?.trim();
+  return name ? `${capability} using ${name}` : capability;
 }
 
 function stableStringify(value: unknown): string {

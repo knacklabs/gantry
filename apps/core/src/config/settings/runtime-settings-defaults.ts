@@ -12,6 +12,7 @@ import type {
   RuntimeBrowserSettings,
   RuntimeMemoryLlmModels,
   RuntimeMemorySettings,
+  RuntimePermissionSettings,
   RuntimeSettings,
   RuntimeStorageSettings,
 } from './runtime-settings-types.js';
@@ -148,6 +149,16 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
       overrides: {},
     },
   };
+  const permissions: RuntimePermissionSettings = {
+    yoloMode: {
+      enabled: true,
+      denylist: [],
+      denylistPaths: [],
+    },
+    egress: {
+      denylist: [],
+    },
+  };
   return {
     desiredState: {
       authoritative: false,
@@ -168,6 +179,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     memory,
     runtime,
     browser,
+    permissions,
   };
 }
 
@@ -185,6 +197,7 @@ export type {
   RuntimeAgentSettings,
   RuntimeMemoryLlmModels,
   RuntimeMemorySettings,
+  RuntimePermissionSettings,
   RuntimeSettings,
   RuntimeStorageSettings,
 };

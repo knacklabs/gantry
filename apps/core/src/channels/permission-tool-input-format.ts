@@ -6,6 +6,8 @@ const PERMISSION_JSON_MAX_KEYS = 12;
 const PERMISSION_JSON_MAX_ARRAY_ITEMS = 8;
 const SENSITIVE_INPUT_KEY_PATTERN =
   /(secret|token|password|credential|api[_-]?key|private[_-]?key|session|cookie|authorization)/i;
+const REDACTION_MARKER_PATTERN =
+  /\[REDACTED_(?:SECRET|POTENTIALLY_SENSITIVE)\]/;
 
 type PermissionTextSanitizer = (
   input: string,
@@ -16,6 +18,7 @@ type PermissionTextSanitizer = (
 export function formatPermissionToolInputLines(
   request: PermissionApprovalRequest,
   sanitizePermissionText: PermissionTextSanitizer,
+  options: { sanitizeCommandText?: PermissionTextSanitizer } = {},
 ): string[] {
   if (!request.toolInput || typeof request.toolInput !== 'object') return [];
   const input = request.toolInput;
@@ -24,8 +27,22 @@ export function formatPermissionToolInputLines(
     typeof input.command === 'string' &&
     input.command.trim()
   ) {
-    const command = sanitizePermissionText(input.command.trim(), 900, 300);
+    const command = (options.sanitizeCommandText ?? sanitizePermissionText)(
+      input.command.trim(),
+      900,
+      300,
+    );
     const redirectTarget = firstDestructiveRedirectTarget(input.command);
+    if (hasRedactionMarker(command)) {
+      const program = shellProgramLabel(input.command);
+      return [
+        'Command: hidden because it may contain sensitive values.',
+        ...(program
+          ? [`Program: ${sanitizePermissionText(program, 120, 40)}`]
+          : []),
+        ...(redirectTarget ? [`Redirect: ${redirectTarget}`] : []),
+      ];
+    }
     return [
       'Command:',
       '```',
@@ -142,12 +159,25 @@ function boundedJsonValue(
       seen += 1;
       const entry = (value as Record<string, unknown>)[key];
       out[key] = SENSITIVE_INPUT_KEY_PATTERN.test(key)
-        ? '[REDACTED_SECRET]'
+        ? '[hidden]'
         : boundedJsonValue(entry, depth + 1, sanitizePermissionText);
     }
     return out;
   }
   return sanitizePermissionText(String(value), 160, 80);
+}
+
+function hasRedactionMarker(value: string): boolean {
+  return REDACTION_MARKER_PATTERN.test(value);
+}
+
+function shellProgramLabel(command: string): string | null {
+  const first = command
+    .trim()
+    .match(/^(?:env\s+)?(?:[\w.-]+=\S+\s+)*(['"]?)([^'"`\s;|&()<>]+)\1/);
+  if (!first?.[2]) return null;
+  const program = first[2].split('/').pop() || first[2];
+  return program || null;
 }
 
 function formatKnownToolInputFields(

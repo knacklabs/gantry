@@ -23,7 +23,11 @@ import type {
 import { parseSessionSseEvent } from './session-events.js';
 import { createIngressesClient } from './ingresses.js';
 import { querySuffix } from './query-string.js';
-export type { RuntimeSettingsResponse } from './settings.js';
+export type {
+  RuntimeSettingsPatch,
+  RuntimeSettingsResponse,
+  RuntimeSettingsUpdateResponse,
+} from './settings.js';
 import * as mcpServerClients from './mcp-servers.js';
 import { jobListQuery } from './job-list-query.js';
 import type {

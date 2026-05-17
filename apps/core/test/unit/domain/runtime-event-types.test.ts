@@ -20,6 +20,14 @@ describe('runtime event types', () => {
     }
   });
 
+  it('normalizes common human-facing runtime event aliases', () => {
+    expect(parseRuntimeEventType('run_completed')).toBe('run.completed');
+    expect(parseRuntimeEventType('job.finished')).toBe('job.run.completed');
+    expect(parseRuntimeEventType('job.dead_lettered')).toBe(
+      'run.dead_lettered',
+    );
+  });
+
   it('rejects unknown runtime event strings', () => {
     expect(isRuntimeEventType('runtime.unknown')).toBe(false);
     expect(parseRuntimeEventType('runtime.unknown')).toBeUndefined();

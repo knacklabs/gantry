@@ -492,6 +492,84 @@ describe('control job trigger', () => {
     }
   });
 
+  it('passes control API capability requirements into job creation', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    const handle = startControlServer({
+      app: {
+        queue: { enqueueMessageCheck: vi.fn() },
+        getConversationRoutes: () => ({
+          'chat-1': {
+            name: 'App Folder',
+            folder: 'app-folder',
+            trigger: '@App',
+            requiresTrigger: false,
+            conversationKind: 'channel',
+            agentConfig: { persona: 'personal_assistant' },
+          },
+        }),
+      } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs`,
+        'token-jobs',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Lead Sync',
+            prompt: 'Append leads to Google Sheets',
+            capabilityRequirements: [
+              {
+                capabilityId: 'google.sheets.write',
+                reason: 'Write lead rows after each run',
+                implementation: {
+                  kind: 'local_cli',
+                  name: 'gog',
+                  executablePath: '/usr/local/bin/gog',
+                  commandTemplate: '/usr/local/bin/gog sheets append *',
+                },
+              },
+            ],
+            executionContext: {
+              conversationJid: 'chat-1',
+              threadId: null,
+              groupScope: 'app-folder',
+              sessionId: 'session-1',
+            },
+          }),
+        },
+      );
+
+      expect(response.status).toBe(201);
+      expect(opsRepo.upsertJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          capability_requirements: [
+            expect.objectContaining({
+              capabilityId: 'google.sheets.write',
+              implementation: expect.objectContaining({ name: 'gog' }),
+            }),
+          ],
+          required_tools: ['capability:google.sheets.write'],
+          status: 'paused',
+          setup_state: expect.objectContaining({ state: 'draft_only' }),
+        }),
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('dry-runs job creation without returning a created job id', async () => {
     const port = await reservePort();
     process.env.MYCLAW_CONTROL_PORT = String(port);
@@ -930,6 +1008,66 @@ describe('control job trigger', () => {
         next_run: null,
       });
       expect(schedulerMocks.requestSchedulerSync).toHaveBeenCalledWith('job-1');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('passes control API capability requirements into job updates', async () => {
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    mockMutableJob(makeJob());
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs/job-1`,
+        'token-jobs',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            capabilityRequirements: [
+              {
+                capabilityId: 'google.sheets.write',
+                reason: 'Write lead rows after each run',
+                implementation: {
+                  kind: 'local_cli',
+                  name: 'gog',
+                  executablePath: '/usr/local/bin/gog',
+                  commandTemplate: '/usr/local/bin/gog sheets append *',
+                },
+              },
+            ],
+          }),
+        },
+      );
+
+      expect(response.status).toBe(200);
+      expect(opsRepo.updateJob).toHaveBeenCalledWith(
+        'job-1',
+        expect.objectContaining({
+          capability_requirements: [
+            expect.objectContaining({
+              capabilityId: 'google.sheets.write',
+              implementation: expect.objectContaining({ name: 'gog' }),
+            }),
+          ],
+          required_tools: ['capability:google.sheets.write'],
+          status: 'paused',
+          setup_state: expect.objectContaining({ state: 'draft_only' }),
+        }),
+      );
     } finally {
       await handle.close();
     }

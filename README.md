@@ -125,14 +125,25 @@ memory:
   dreaming:
     enabled: true
 
+permissions:
+  yolo_mode:
+    enabled: true
+    denylist:
+      - npm run nuke
+    denylist_paths:
+      - /opt/danger/*
+  egress:
+    denylist:
+      - '*.blocked.example.com'
+
 conversations:
   main_dm:
     provider: telegram
-    id: "5759865942"
+    id: '5759865942'
     type: dm
-    approvers: ["5759865942"]
+    approvers: ['5759865942']
     agent: main_agent
-    trigger: "@Default Agent"
+    trigger: '@Default Agent'
 ```
 
 For the same agent across Slack and Teams, configure approvers on each conversation:
@@ -145,16 +156,16 @@ agents:
 conversations:
   sales_slack:
     provider: slack
-    id: "C123"
+    id: 'C123'
     type: channel
-    approvers: ["U123"]
+    approvers: ['U123']
     agent: main_agent
 
   sales_teams:
     provider: teams
-    id: "19:channel@thread.tacv2"
+    id: '19:channel@thread.tacv2'
     type: channel
-    approvers: ["8:orgid:abc"]
+    approvers: ['8:orgid:abc']
     agent: main_agent
 ```
 
@@ -213,9 +224,21 @@ Skills, MCP servers, SDK tools, host tools, browser tools, and channel-native to
 - `service_restart`
 - `register_agent`
 
-Capability changes follow a strict lifecycle: **request → review → approval or cancellation → durable audit → new config version → next-run activation**. Tool and channel capability permission prompts use `request_permission` and present three decisions: `Allow once`, `Always allow <granular rule>`, or `Cancel`. Privileged admin tools such as `service_restart`, `register_agent`, `settings_desired_state`, and `request_settings_update` require exact selected tool capabilities; unselected agents see requestable tool IDs and `request_permission` arguments through `capability_status`.
+Capability changes follow a strict lifecycle: **request → review → approval or cancellation → durable audit → new config version → next-run activation**. Tool and channel capability permission prompts use `request_permission` and present simple decisions: `Allow once`, `Allow 5 min`, `Always allow`, or `Cancel`. Details and audit records carry the durable authority shape, such as semantic capabilities, canonical `Browser`, exact Gantry admin tools, or scoped Bash rules. Privileged admin tools such as `service_restart`, `register_agent`, `settings_desired_state`, and `request_settings_update` require exact selected tool capabilities; unselected agents see requestable tool IDs and `request_permission` arguments through `capability_status`.
 
 Persistent agent tool grants are visible in `settings.yaml` under `agents.<id>.tools` as readable rules such as `Bash(git status *)`, `Write(/repo/**)`, or `mcp__gantry__service_restart`. Jobs are scheduled agent runs and inherit the target agent's selected tools, skills, and MCP servers at execution time; job records do not carry a separate tool grant surface. The canonical `toolAccess` view in MCP, CLI, SDK, and Control API responses shows the inherited agent capability projection. Skill source is stored as readable skill folders with `SKILL.md` plus supporting files; Postgres stores metadata, source, hash, provider refs, binding, and audit records. ClawHub is the default provider-backed skill source, but provider verification never bypasses approval.
+
+`permissions.yolo_mode` controls the denylist applied only to the 5-minute
+all-tools timed grant. Gantry ships defaults for destructive commands such as
+`sudo *`, `rm -rf /`, force-pushes to `main` or `master`, fork bombs, and
+protected system paths such as `/etc/*`, `/System/*`, `/usr/*`, `/bin/*`, and
+`/sbin/*`. User `denylist` and `denylist_paths` entries are additive and merge
+with those shipped defaults. When a denylist rule matches during an active timed
+grant, Gantry skips the bypass, records an audit event, and shows the normal
+permission prompt with the matched rule. Set `enabled: false` only when YOLO
+mode should be total. Edit the value directly in `settings.yaml`, through
+`/v1/settings`, or via the reviewed `settings_desired_state` /
+`request_settings_update` admin tools.
 
 ## Design Principles
 
@@ -258,7 +281,7 @@ Each memory record is scoped by `appId`, `agentId`, and subject (`user`, `group`
 
 Continuity is explicit runtime resume/current-work state. Durable memory is separate and is retrieved only when it matches the current query:
 
-- provider session resume state
+- canonical session digests and current-work evidence
 - query-relevant remembered facts
 - query-relevant prior decisions
 - user/group preferences that match the current request
@@ -325,7 +348,7 @@ The deployment pipeline pulls Gantry from the private package registry onto an E
 
 ### Capcom (Control Panel)
 
-[Capcom](./CAPCOM.md) is the mission control web application for managing Gantry agents. It provides observability, cost tracking, prompt tuning, and configuration management from a single pane.
+Capcom is the mission control web application for managing Gantry agents. It provides observability, cost tracking, prompt tuning, and configuration management from a single pane.
 
 Capcom can be deployed co-located on the same machine as the agent (single-agent enterprise deployment) or as a standalone instance managing multiple Gantry deployments from one interface.
 
@@ -372,10 +395,10 @@ npm run test:e2e
 
 Skills are agent instructions bundled into the npm package or uploaded as reviewable skill zips. Runtime copies approved skills into a temporary per-run Claude config directory; runtime-home `.claude/skills` is not the durable source of truth.
 
-| Skill           | Purpose                                                                  |
-| --------------- | ------------------------------------------------------------------------ |
-| `/commands`     | List available chat commands and installed skill packs                   |
-| `gantry-admin`  | Internal administration reference used by agents when managing Gantry    |
+| Skill          | Purpose                                                               |
+| -------------- | --------------------------------------------------------------------- |
+| `/commands`    | List available chat commands and installed skill packs                |
+| `gantry-admin` | Internal administration reference used by agents when managing Gantry |
 
 Session commands are handled by the host runtime, not bundled skills:
 
@@ -407,7 +430,7 @@ Use these as standalone chat messages:
 /model default
 ```
 
-- `/new` resets the current provider conversation and archives the previous transcript. It preserves durable memory, approved skills, MCP bindings, model choices, and agent configuration; the next user message starts fresh and drives memory retrieval.
+- `/new` resets the current Gantry session boundary and captures best-effort boundary memory/digests. It preserves durable memory, approved skills, MCP bindings, model choices, and agent configuration; the next user message starts fresh and drives memory retrieval. Transcript export is an explicit debug/export workflow, not provider continuity.
 - `/models` lists the curated model catalog with aliases, provider label, context window, cache support, and default badges.
 - `/model <value>` switches the group model override through the catalog. Friendly aliases are case/punctuation-insensitive; raw provider model IDs are rejected.
 - `/status` shows the current model source, context window usage percentage, cache hit percentage, top context contributors when the SDK reports them, current/cumulative input/output/cache tokens, and estimated cost when reported.
@@ -436,9 +459,9 @@ Key paths:
 - `apps/core/src/runtime/agent-spawn.ts` — host agent execution path
 - `apps/core/src/session/session-commands.ts` — host-managed slash commands
 - `apps/core/src/infrastructure/postgres/schema/` — Postgres runtime, control-plane, job, and memory persistence
-- `~/gantry/agents/shared/CLAUDE.md` — static shared prompt guidance
-- `~/gantry/agents/*/SOUL.md` — per-agent personality prompt
-- `~/gantry/agents/*/CLAUDE.md` — static group-specific prompt guidance
+- Prompt defaults are compiled from built-in runtime/persona/capability/operating guidance plus protected per-agent FileArtifacts
+- Prompt FileArtifact path `<agent-folder>/SOUL` plus `.md` suffix — per-agent personality prompt
+- Prompt FileArtifact path `<agent-folder>/CLAUDE` plus `.md` suffix — stable agent-specific prompt guidance
 - `GANTRY_DATABASE_URL` — Postgres runtime and memory database
 - `ONECLI_DATABASE_URL` — same Postgres database with a separate OneCLI role and `schema=onecli` for broker persistence
 - `SECRET_ENCRYPTION_KEY` — stable generated base64-encoded 32-byte OneCLI broker encryption secret for stateless restarts
@@ -476,4 +499,4 @@ All contributions go through the standard CAW PR review process. Gantry is a sha
 
 ## Documentation
 
-Project docs live in [`docs/`](docs/README.md). Product intent, architecture notes, and decisions live in-repo so planning and review can stay self-contained. For the high-level technical overview, see the [Gantry Overview](./GANTRY_OVERVIEW.md) document.
+Project docs live in [`docs/`](docs/README.md). Product intent, architecture notes, and decisions live in-repo so planning and review can stay self-contained. For the high-level technical overview, see the [architecture overview](docs/architecture/overview.md).

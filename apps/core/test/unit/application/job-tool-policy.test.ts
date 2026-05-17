@@ -151,7 +151,6 @@ describe('job tool policy', () => {
     expect(jobPolicy.effectiveAllowedTools).toEqual(configuredTools);
     expect(jobPolicy.effectiveAllowedTools).toEqual([
       'capability:google.sheets.write',
-      'Bash(onecli google sheets write *)',
       'Browser',
       'Bash(npm test *)',
     ]);

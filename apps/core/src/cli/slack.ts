@@ -1,6 +1,3 @@
-import fs from 'fs';
-import path from 'path';
-
 import * as p from '@clack/prompts';
 import '../channels/register-builtins.js';
 
@@ -25,9 +22,9 @@ import {
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
-import { renderDefaultCapabilityRules } from '../shared/capability-guidance.js';
 import { chooseSlackChatForConnect } from './slack-connect-chat-picker.js';
 import { nowIso } from '../shared/time/datetime.js';
+import { PromptProfileService } from '../application/agents/prompt-profile-service.js';
 
 export interface SlackTokenValidation {
   ok: boolean;
@@ -62,53 +59,6 @@ export interface SlackChatAccessValidation {
   sentTestMessage?: boolean;
   message: string;
   nextAction?: string;
-}
-
-function defaultGroupClaudeMarkdown(): string {
-  return [
-    '# MyClaw Agent',
-    '',
-    'You are the assistant for this Slack chat.\nKeep responses clear, short, and useful.',
-    '',
-    '## Static Chat Guidance\n\nThis file is for stable, Slack-specific instructions only.\nDynamic task state, open commitments, and remembered facts come from query-retrieved memory context and explicit memory_search calls.\nDo not duplicate current task progress, raw logs, or remembered facts here.',
-    '',
-    'Rules:',
-    '- Answer directly unless the user asks for detail.\n- Be explicit when an action failed and what to do next.\n- Avoid exposing secrets, tokens, or local machine paths unless requested.\n- When the user says "continue", call memory_search before guessing.',
-    '',
-    renderDefaultCapabilityRules(),
-    '',
-  ].join('\n');
-}
-
-function defaultSoulMarkdown(agentName: string): string {
-  return [
-    '# Soul - Who You Are',
-    '',
-    '## Personality',
-    '- You are sharp, direct, and genuinely helpful.',
-    '- Have strong opinions. Do not hedge when a clear answer exists.',
-    "- Be concise. If one sentence works, use one sentence. Respect the user's time.",
-    '- Lead with the answer, not the preamble.',
-    '',
-    '## Voice',
-    '- Write like a smart colleague, not a customer-support bot.',
-    '- Be proactive. Suggest ideas, spot problems, and take initiative.',
-    "- Match the user's energy. Casual when they are casual, precise when they need precision.",
-    '',
-    '## Boundaries',
-    '- Private context stays private. Never expose secrets or internal details.',
-    '- Ask before taking external actions such as sending messages, posting, or pushing code.',
-    '- When uncertain, say so. Do not present guesses as facts.',
-    '',
-    '## Continuity Boundary',
-    '- Your personality lives here.',
-    '- Durable facts, user preferences, task state, and open commitments do not live here.',
-    '- Use query-retrieved memory context and memory_search for remembered context.',
-    '',
-    '## Identity',
-    `- **Name:** ${agentName}`,
-    '',
-  ].join('\n');
 }
 
 async function fetchWithTimeout(
@@ -366,7 +316,7 @@ export async function verifySlackChatAccess(options: {
           },
           body: JSON.stringify({
             channel: channelId,
-            text: 'MyClaw setup check: Slack channel access verified.',
+            text: 'Gantry setup check: Slack channel access verified.',
           }),
         },
       );
@@ -424,17 +374,9 @@ export async function registerSlackMainGroup(options: {
 
     const groupName = normalizeDefaultAgentName(options.displayName);
 
-    const groupDir = path.join(options.runtimeHome, 'agents', folder);
-    fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
-
-    const claudePath = path.join(groupDir, 'CLAUDE.md');
-    if (!fs.existsSync(claudePath)) {
-      fs.writeFileSync(claudePath, defaultGroupClaudeMarkdown(), 'utf-8');
-    }
-    const soulPath = path.join(groupDir, 'SOUL.md');
-    if (!fs.existsSync(soulPath)) {
-      fs.writeFileSync(soulPath, defaultSoulMarkdown(groupName), 'utf-8');
-    }
+    await new PromptProfileService({
+      fileArtifactStore: () => db.getFileArtifactStore(),
+    }).ensureAgentDefaults({ agentFolder: folder, agentName: groupName });
 
     const route = {
       name: groupName,

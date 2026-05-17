@@ -4,6 +4,7 @@ import type {
   RuntimeContextUsageSnapshot,
 } from '../../shared/model-catalog.js';
 import type { AgentPersona } from '../../shared/agent-persona.js';
+import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
 
 export interface AgentRunnerInput {
   prompt: string;
@@ -28,6 +29,7 @@ export interface AgentRunnerInput {
   assistantName?: string;
   compiledSystemPrompt?: string;
   memoryContextBlock?: string;
+  yoloMode?: YoloModeSettings;
   modelCredentialEnv?: Record<string, string>;
   thinking?: {
     mode: 'adaptive' | 'enabled' | 'disabled';

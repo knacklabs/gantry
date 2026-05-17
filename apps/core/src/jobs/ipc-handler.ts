@@ -1,6 +1,7 @@
 import { logger } from '../infrastructure/logging/logger.js';
 import { IpcDeps } from '../runtime/ipc-domain-types.js';
 import { adminTaskHandlers } from './ipc-admin-handlers.js';
+import { fileArtifactTaskHandlers } from './ipc-file-artifact-handlers.js';
 import { schedulerCreateTaskHandlers } from './ipc-scheduler-create-handlers.js';
 import { schedulerMutateTaskHandlers } from './ipc-scheduler-mutate-handlers.js';
 import { schedulerQueryTaskHandlers } from './ipc-scheduler-query-handlers.js';
@@ -18,6 +19,7 @@ const taskHandlers: Record<string, TaskHandler> = {
   ...schedulerMutateTaskHandlers,
   ...schedulerQueryTaskHandlers,
   ...adminTaskHandlers,
+  ...fileArtifactTaskHandlers,
 };
 
 export type { TaskIpcData } from './ipc-types.js';
@@ -70,6 +72,15 @@ export async function processTaskIpc(
       (() => {
         try {
           return getRuntimeStorage().repositories.permissions;
+        } catch {
+          return undefined;
+        }
+      }),
+    getFileArtifactStore:
+      deps.getFileArtifactStore ??
+      (() => {
+        try {
+          return getRuntimeStorage().fileArtifacts;
         } catch {
           return undefined;
         }

@@ -507,7 +507,6 @@ maybeDescribe('Postgres domain repositories', () => {
       agentSessionId: sessionId,
       provider: 'anthropic',
       externalSessionId: 'older',
-      latestArtifactId: 'provider-session-artifact:test:older' as never,
       providerRef: { kind: 'provider_session', value: 'anthropic:older' },
       metadata: { runtime: 'test' },
       status: 'active',
@@ -520,7 +519,6 @@ maybeDescribe('Postgres domain repositories', () => {
       agentSessionId: sessionId,
       provider: 'anthropic',
       externalSessionId: 'newer',
-      latestArtifactId: 'provider-session-artifact:test:newer' as never,
       providerRef: { kind: 'provider_session', value: 'anthropic:newer' },
       metadata: { runtime: 'test' },
       status: 'active',
@@ -537,7 +535,6 @@ maybeDescribe('Postgres domain repositories', () => {
       id: 'provider-session:test:newer',
       provider: 'anthropic',
       externalSessionId: 'newer',
-      latestArtifactId: 'provider-session-artifact:test:newer',
       providerRef: { kind: 'provider_session', value: 'anthropic:newer' },
       metadata: { runtime: 'test' },
     });

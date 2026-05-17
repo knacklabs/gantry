@@ -3,7 +3,7 @@ export type AgentCredentialProvider = 'native' | 'openrouter';
 export type AgentCredentialPurpose = 'model_runtime' | 'tool_capability';
 
 export const MODEL_RUNTIME_CREDENTIAL_IDENTIFIER = 'myclaw-model-access';
-export const MODEL_RUNTIME_CREDENTIAL_NAME = 'MyClaw Model Access';
+export const MODEL_RUNTIME_CREDENTIAL_NAME = 'Gantry Model Access';
 
 export interface AgentCredentialBrokerBinding {
   profile: CredentialBrokerProfile;

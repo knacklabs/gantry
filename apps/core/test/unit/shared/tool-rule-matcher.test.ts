@@ -53,6 +53,22 @@ describe('autonomous tool rule matcher', () => {
     });
   });
 
+  it('canonicalizes legacy interpreter script Bash rules while matching', () => {
+    expect(
+      evaluateAutonomousToolUse({
+        rules: ['Bash(python3 /Users/example/scripts/dedup-append-lead.py)'],
+        toolName: 'Bash',
+        toolInput: {
+          command:
+            'python3 /Users/example/scripts/dedup-append-lead.py \'[["lead"]]\'',
+        },
+      }),
+    ).toMatchObject({
+      allowed: true,
+      matchedRule: 'Bash(python3 /Users/example/scripts/dedup-append-lead.py)',
+    });
+  });
+
   it('does not let wildcard scoped Bash rules cover extra shell segments', () => {
     expect(validateAutonomousToolRule('Bash(gog sheets *)')).toEqual({
       ok: true,
@@ -292,6 +308,35 @@ describe('autonomous tool rule matcher', () => {
         rules: ['Bash(python3 /tmp/check.py)'],
         toolName: 'Bash',
         toolInput: { command: 'python3 -c "print(1)"' },
+      }),
+    ).toMatchObject({ allowed: false });
+  });
+
+  it('allows safe interpreter invocation of an approved script path', () => {
+    for (const command of [
+      'python3 /tmp/dedup-append-lead.py \'[["lead"]]\'',
+      '/usr/bin/python3 /tmp/dedup-append-lead.py \'[["lead"]]\'',
+      'python /tmp/dedup-append-lead.py \'[["lead"]]\'',
+    ]) {
+      expect(
+        evaluateAutonomousToolUse({
+          rules: ['Bash(/tmp/dedup-append-lead.py *)'],
+          toolName: 'Bash',
+          toolInput: { command },
+        }),
+      ).toMatchObject({
+        allowed: true,
+        matchedRule: 'Bash(/tmp/dedup-append-lead.py *)',
+      });
+    }
+
+    expect(
+      evaluateAutonomousToolUse({
+        rules: ['Bash(/tmp/dedup-append-lead.py *)'],
+        toolName: 'Bash',
+        toolInput: {
+          command: 'python3 -c "print(1)" /tmp/dedup-append-lead.py',
+        },
       }),
     ).toMatchObject({ allowed: false });
   });

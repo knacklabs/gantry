@@ -153,6 +153,10 @@ export function capabilityStatusText(): string {
     '- propose_local_cli_capability: review a user-defined authenticated local CLI capability draft; it is not runnable Bash authority until runtime enforcement exists',
     '- manage_capability: view/change/revoke/test/audit guidance for selected capabilities',
     '',
+    'Scheduler monitoring:',
+    '- Use scheduler_get_job, scheduler_list_runs, scheduler_list_events, and scheduler_wait_for_events to inspect or wait for jobs.',
+    '- Never request Bash just to sleep, wait, poll, or monitor scheduler job completion.',
+    '',
     'MyClaw admin tool capabilities:',
     ...ADMIN_MCP_TOOL_NAMES.map((toolName) => {
       const fullName = `mcp__myclaw__${toolName}`;

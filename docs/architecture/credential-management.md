@@ -168,13 +168,16 @@ and runtime startup create that profile directly; there is no fallback to
 
 OneCLI may return local provider proxy variables such as `HTTP_PROXY`,
 `HTTPS_PROXY`, and `NODE_USE_ENV_PROXY` for the model credential lane. MyClaw
-accepts only OneCLI-shaped local HTTP proxy endpoints, normalizes Docker-only
+accepts only broker-shaped local HTTP proxy endpoints, normalizes Docker-only
 loopback aliases such as `host.docker.internal` to `127.0.0.1` for host
-runners, and passes the result only to the Claude SDK process through a private
-model-credential handoff. General runner, scheduled-script, browser, and MCP
-process environments must not receive broker proxy variables. When the
-model-credential lane includes `NODE_EXTRA_CA_CERTS`, the Claude SDK process
-also receives only neutral CA trust aliases (`SSL_CERT_FILE`,
+runners, and hides that provider proxy behind the MyClaw-owned egress gateway.
+The Claude SDK process receives the MyClaw loopback gateway URL, not the
+broker's proxy URL. Egress is default-allow; `permissions.egress.denylist` is an
+optional hostname-glob denylist that returns a 403 JSON body and writes an audit
+event when matched. General runner, scheduled-script, browser, and MCP process
+environments must not receive broker proxy variables. When the model-credential
+lane includes `NODE_EXTRA_CA_CERTS`, the Claude SDK process also receives only
+neutral CA trust aliases (`SSL_CERT_FILE`,
 `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`, `PIP_CERT`,
 `AWS_CA_BUNDLE`, `CARGO_HTTP_CAINFO`, and `DENO_CERT`) derived from that same
 bundle path. Approved Bash tool calls get the same aliases as a command prefix
@@ -197,10 +200,11 @@ The runtime calls the application credential service and receives a generic
 `AgentCredentialInjection`; it does not instantiate OneCLI.
 
 OneCLI is only a credential broker. It never executes tools, approves
-permissions, owns scheduler policy, or evaluates protected capability changes.
-Model credential env is passed only to the Claude SDK process private model
-credential handoff. Bash tools, MCP stdio subprocesses, and browser tools
-receive scrubbed tool env without OneCLI model proxy or provider tokens.
+permissions, owns scheduler policy, evaluates protected capability changes, or
+enforces egress policy. Model credential env is passed only to the Claude SDK
+process private model credential handoff. Bash tools, MCP stdio subprocesses,
+and browser tools receive scrubbed tool env without OneCLI model proxy or
+provider tokens.
 Approved Bash commands may receive the non-secret CA bundle path as neutral TLS
 trust aliases for host CLI trust stores; MCP stdio subprocesses and browser
 tools do not receive broker CA variables. Approved Bash commands also receive

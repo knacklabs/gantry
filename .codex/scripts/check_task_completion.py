@@ -156,7 +156,7 @@ def collect_warnings(changed: list[str]) -> list[str]:
     durable_jsonl_writes = find_direct_durable_provider_artifact_paths(changed)
     if durable_jsonl_writes:
         warnings.append(
-            "Direct durable Claude/provider JSONL paths changed outside provider artifact adapters/materializers: "
+            "Direct durable Claude/provider JSONL paths changed outside FileArtifact/materializer paths: "
             + ", ".join(durable_jsonl_writes)
         )
 

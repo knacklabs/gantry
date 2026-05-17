@@ -23,6 +23,7 @@ import {
   submitSchedulerMutationTask,
   SCHEDULER_WAIT_RESPONSE_GRACE_MS,
 } from './scheduler-tool-helpers.js';
+import { schedulerCapabilityRequirementSchema } from './scheduler-capability-schema.js';
 
 const SCHEDULER_UPSERT_ARG_KEYS = new Set([
   'job_id',
@@ -35,6 +36,7 @@ const SCHEDULER_UPSERT_ARG_KEYS = new Set([
   'target',
   'execution_context',
   'notification_routes',
+  'capability_requirements',
   'required_tools',
   'required_mcp_servers',
   'silent',
@@ -58,6 +60,7 @@ const SCHEDULER_UPDATE_ARG_KEYS = new Set([
   'target',
   'execution_context',
   'notification_routes',
+  'capability_requirements',
   'required_tools',
   'required_mcp_servers',
   'silent',
@@ -123,6 +126,28 @@ function validateScheduleInput(args: {
   }
   return null;
 }
+
+function normalizeSchedulerCapabilityRequirements(
+  input: z.infer<typeof schedulerCapabilityRequirementSchema>[] | undefined,
+): SchedulerJobPlanInput['capabilityRequirements'] {
+  return input?.map((requirement) => ({
+    capabilityId: requirement.capability_id,
+    reason: requirement.reason,
+    ...(requirement.implementation
+      ? {
+          implementation: {
+            kind: requirement.implementation.kind,
+            name: requirement.implementation.name,
+            executablePath: requirement.implementation.executable_path,
+            commandTemplate: requirement.implementation.command_template,
+            authPreflight: requirement.implementation.auth_preflight,
+            protectedPaths: requirement.implementation.protected_paths,
+          },
+        }
+      : {}),
+  }));
+}
+
 export function registerSchedulerTools(server: McpServer): void {
   server.tool(
     'scheduler_list_models',
@@ -161,6 +186,12 @@ export function registerSchedulerTools(server: McpServer): void {
           }),
         )
         .optional(),
+      capability_requirements: z
+        .array(schedulerCapabilityRequirementSchema)
+        .optional()
+        .describe(
+          'Semantic capabilities this job needs, with optional implementation hints. These merge into required_tools as capability:<id> and pause setup if reviewed access is missing.',
+        ),
       required_tools: z.array(z.string()).optional(),
       required_mcp_servers: z.array(z.string()).optional(),
       silent: z.boolean().optional(),
@@ -210,6 +241,9 @@ export function registerSchedulerTools(server: McpServer): void {
         scheduleValue: args.schedule_value,
         executionContext: canonicalTarget.executionContext,
         notificationRoutes: canonicalTarget.notificationRoutes,
+        capabilityRequirements: normalizeSchedulerCapabilityRequirements(
+          args.capability_requirements,
+        ),
         requiredTools: args.required_tools,
         requiredMcpServers: args.required_mcp_servers,
         silent: args.silent,
@@ -359,6 +393,12 @@ export function registerSchedulerTools(server: McpServer): void {
           }),
         )
         .optional(),
+      capability_requirements: z
+        .array(schedulerCapabilityRequirementSchema)
+        .optional()
+        .describe(
+          'Semantic capabilities this job needs, with optional implementation hints. These merge into required_tools as capability:<id> and pause setup if reviewed access is missing.',
+        ),
       required_tools: z.array(z.string()).optional(),
       required_mcp_servers: z.array(z.string()).optional(),
       silent: z.boolean().optional(),
@@ -405,6 +445,14 @@ export function registerSchedulerTools(server: McpServer): void {
             : {}),
           ...(args.required_tools !== undefined
             ? { requiredTools: args.required_tools }
+            : {}),
+          ...(args.capability_requirements !== undefined
+            ? {
+                capabilityRequirements:
+                  normalizeSchedulerCapabilityRequirements(
+                    args.capability_requirements,
+                  ),
+              }
             : {}),
           ...(args.required_mcp_servers !== undefined
             ? { requiredMcpServers: args.required_mcp_servers }

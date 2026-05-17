@@ -7,6 +7,7 @@ import {
   ToolExecutionClassifier,
   ToolExecutionPolicyService,
 } from '../../shared/tool-execution-policy-service.js';
+import { denyMemoryBoundaryToolUse } from '../memory-boundary.js';
 
 const BLOCK_MESSAGE =
   'MyClaw blocks direct edits to agent capability configuration. Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission so the change is reviewed, stored durably, and activated through the approved capability flow.';
@@ -26,8 +27,31 @@ export function evaluateProtectedCapabilityToolUse(
 export async function protectedCapabilityPreToolUseHook(
   input: HookInput,
 ): Promise<SyncHookJSONOutput> {
+  return safetyPreToolUseHook(input, '');
+}
+
+export function createSafetyPreToolUseHook(
+  memoryBlock: string,
+): (input: HookInput) => Promise<SyncHookJSONOutput> {
+  return (input) => safetyPreToolUseHook(input, memoryBlock);
+}
+
+async function safetyPreToolUseHook(
+  input: HookInput,
+  memoryBlock: string,
+): Promise<SyncHookJSONOutput> {
   if (input.hook_event_name !== 'PreToolUse') {
     return { continue: true };
+  }
+
+  const memoryDenial = denyMemoryBoundaryToolUse(
+    input.tool_name,
+    input.tool_input,
+    {},
+    memoryBlock,
+  );
+  if (memoryDenial) {
+    return denyPreToolUse(memoryDenial);
   }
 
   const request = new ToolExecutionClassifier().classify({
@@ -41,6 +65,10 @@ export async function protectedCapabilityPreToolUseHook(
   }
 
   const reason = `${decision.reason} ${decision.recoveryAction ?? BLOCK_MESSAGE}`;
+  return denyPreToolUse(reason);
+}
+
+function denyPreToolUse(reason: string): SyncHookJSONOutput {
   return {
     continue: false,
     decision: 'block',

@@ -36,6 +36,7 @@ export interface JobUpsertInput {
   pause_reason?: string | null;
   execution_context?: Job['execution_context'];
   notification_routes?: Job['notification_routes'];
+  capability_requirements?: Job['capability_requirements'];
   required_tools?: string[];
   required_mcp_servers?: string[];
   setup_state?: Job['setup_state'];
@@ -187,6 +188,7 @@ export interface ReleasedStaleJobLease {
   runId: string | null;
   releasedAt: string;
   runTimedOut: boolean;
+  reason: 'lease_expired' | 'runtime_restarted';
 }
 
 export interface RuntimeRouterStateRepository {
@@ -211,7 +213,6 @@ export interface RuntimeAgentSessionRepository {
     agentSessionResetAt?: string | null;
     providerSessionId?: string;
     externalSessionId?: string;
-    latestArtifactId?: string | null;
     memoryContextBlock?: string;
   }>;
   setSession(
@@ -223,7 +224,6 @@ export interface RuntimeAgentSessionRepository {
       conversationKind?: 'dm' | 'channel';
       memoryUserId?: string;
       jobId?: string;
-      latestArtifactId?: string | null;
       expectedAgentSessionId?: string;
       expectedAgentSessionResetAt?: string | null;
     },

@@ -54,9 +54,13 @@ export function registerSemanticCapabilityTools(
                     `- ${capability.displayName}`,
                     `  capability_id: ${capability.capabilityId}`,
                     `  risk: ${capability.risk}`,
-                    `  credential_source: ${capability.credentialSource}`,
+                    capability.accountLabel
+                      ? `  access: ${capability.accountLabel}`
+                      : undefined,
                     `  request_capability: capabilityId=${capability.capabilityId} reason="<why this agent needs it>"`,
-                  ].join('\n'),
+                  ]
+                    .filter(Boolean)
+                    .join('\n'),
                 )
                 .join('\n') || 'No matching semantic capabilities.',
           },

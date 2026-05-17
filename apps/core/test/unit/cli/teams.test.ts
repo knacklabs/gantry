@@ -28,6 +28,7 @@ vi.mock('@core/cli/runtime-group-db.js', () => ({
     setConversationRoute: async (jid: string, group: any) => {
       groupsStore.set(jid, group);
     },
+    getFileArtifactStore: () => undefined,
     deleteConversationRoute: async (jid: string) => {
       groupsStore.delete(jid);
     },

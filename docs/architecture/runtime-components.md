@@ -110,8 +110,8 @@ Key runner inputs:
 
 - `allowedTools` from `apps/core/src/runner/agent-capabilities.ts`
 - MyClaw MCP server config from `apps/core/src/runner/mcp/server.ts`
-- Claude live-chat session projection (`persistSession: true` and `resume`
-  when a scoped provider session handle exists; scheduled jobs do not resume)
+- Claude SDK stateless session projection (`persistSession: false`; no
+  `resume` or `resumeSessionAt` for live turns or scheduled jobs)
 - working directory and extra directories
 - `canUseTool`, the permission callback that projects each SDK request through
   the canonical tool execution boundary before sensitive tools run
@@ -205,7 +205,7 @@ sequenceDiagram
   Runner->>Dir: write request with group/thread auth token
   Host->>Host: validate path, token, kind, rate limit, and ownership
   Host->>Main: request approval when policy requires it
-  Main->>User: show Allow once / Always allow / Cancel prompt
+  Main->>User: show Allow once / Allow 5 min / Always allow / Cancel prompt
   User->>Main: choose one permission action
   Main->>Host: return decision
   Host->>Dir: write signed response
@@ -222,6 +222,11 @@ Important permission boundaries:
 - Conversations can act on their own chat/session scope and need selected
   capability plus conversation approval for cross-conversation destinations.
 - Agents cannot set webhook URLs, secrets, headers, API keys, or channel destinations. Those are host-owned records and policies.
+- `permissions.yolo_mode` is a settings-owned safety valve for the 5-minute
+  all-tools timed grant only. The shipped command and path denylist is merged
+  with user entries; matches skip the timed-grant bypass, emit an audit event,
+  and fall through to the normal permission prompt. `enabled: false` disables
+  this check and makes YOLO total.
 
 For the full security model, use [SECURITY.md](../SECURITY.md).
 

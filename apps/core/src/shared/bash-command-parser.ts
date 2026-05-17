@@ -60,6 +60,7 @@ const WILDCARD_SENSITIVE_COMMANDS = new Set([
   'ts-node',
   'tsx',
 ]);
+const SAFE_SCRIPT_INTERPRETERS = new Set(['python', 'python3']);
 
 const SHELL_KEYWORDS = new Set([
   'case',
@@ -108,10 +109,23 @@ export function bashLeafRuleContent(leaf: BashCommandLeaf): string {
 export function normalizeBashLeafRuleContent(
   leaf: BashCommandLeaf,
 ): string | undefined {
+  const scriptRule = normalizeScriptLeafRuleContent(leaf);
+  if (scriptRule) return scriptRule;
   const argv = leaf.argv;
   if (argv.length === 0) return undefined;
   const normalized = argv.map((arg) => normalizeBashArg(arg));
   return normalized.join(' ');
+}
+
+export function normalizePersistentBashRuleContent(
+  ruleContent: string,
+): string {
+  const trimmed = ruleContent.trim();
+  const parsed = parseBashCommand(trimmed);
+  if (!parsed.ok || parsed.leaves.length !== 1) return trimmed;
+  const leaf = parsed.leaves[0]!;
+  if (leaf.redirects.length > 0) return trimmed;
+  return normalizeScriptLeafRuleContent(leaf) ?? trimmed;
 }
 
 export function nonDurableBashLeafReason(
@@ -465,6 +479,31 @@ function normalizeBashArg(arg: string): string {
   if (url) return url;
   if (isVolatileGitRef(arg)) return '*';
   return arg;
+}
+
+function normalizeScriptLeafRuleContent(
+  leaf: BashCommandLeaf,
+): string | undefined {
+  const argv = leaf.argv;
+  if (argv.length === 0) return undefined;
+  const executable = executableName(argv[0] ?? '');
+  const scriptArg = SAFE_SCRIPT_INTERPRETERS.has(executable)
+    ? argv[1]
+    : argv[0];
+  if (
+    !scriptArg ||
+    scriptArg.startsWith('-') ||
+    !isPythonScriptPath(scriptArg)
+  ) {
+    return undefined;
+  }
+  return `${normalizeBashArg(scriptArg)} *`;
+}
+
+function isPythonScriptPath(value: string): boolean {
+  return (
+    value.endsWith('.py') && (value.includes('/') || value.startsWith('.'))
+  );
 }
 
 function normalizeUrlArg(arg: string): string | undefined {

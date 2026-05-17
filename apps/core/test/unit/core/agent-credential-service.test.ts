@@ -274,7 +274,7 @@ describe('agent credential service', () => {
         broker: unreachableBroker,
       }),
     ).rejects.toThrow(
-      'Credential broker mode is enabled but the credential broker is not reachable for MyClaw Model Access. Reason: connect ECONNREFUSED.',
+      'Credential broker mode is enabled but the credential broker is not reachable for Gantry Model Access. Reason: connect ECONNREFUSED.',
     );
   });
 
@@ -329,7 +329,7 @@ describe('agent credential service', () => {
         broker,
       }),
     ).rejects.toThrow(
-      'Credential broker mode is enabled but the credential broker is not reachable for MyClaw Model Access. Reason: forbidden raw credential env key: OPENAI_API_KEY.',
+      'Credential broker mode is enabled but the credential broker is not reachable for Gantry Model Access. Reason: forbidden raw credential env key: OPENAI_API_KEY.',
     );
   });
 
@@ -346,7 +346,7 @@ describe('agent credential service', () => {
     ).resolves.toEqual({ created: true });
 
     expect(ensureAgent).toHaveBeenCalledWith({
-      name: 'MyClaw Model Access',
+      name: 'Gantry Model Access',
       identifier: 'myclaw-model-access',
     });
   });

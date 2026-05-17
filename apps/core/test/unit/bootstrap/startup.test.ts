@@ -59,9 +59,6 @@ describe('runStartup', () => {
       ensureRuntimeLayoutDirectories: vi.fn(() => {
         order.push('layout');
       }),
-      ensurePromptProfileBootstrapped: vi.fn(() => {
-        order.push('prompt-bootstrap');
-      }),
       initializeRuntimeStorage: vi.fn(async () => {
         order.push('init-storage');
         return {} as any;
@@ -83,7 +80,6 @@ describe('runStartup', () => {
 
     expect(order).toEqual([
       'layout',
-      'prompt-bootstrap',
       'load-settings',
       'init-storage',
       'log-db-init',
@@ -92,44 +88,6 @@ describe('runStartup', () => {
       'restore-remote-control',
     ]);
     expect(result.runtimeSettings).toBe(runtimeSettings);
-  });
-
-  it('continues startup when prompt bootstrap fails', async () => {
-    const order: string[] = [];
-    const warn = vi.fn();
-
-    await runStartup(makeApp(), {
-      ensureRuntimeLayoutDirectories: vi.fn(() => {
-        order.push('layout');
-      }),
-      ensurePromptProfileBootstrapped: vi.fn(() => {
-        throw new Error('seed failed');
-      }),
-      initializeRuntimeStorage: vi.fn(async () => {
-        order.push('init-storage');
-        return {} as any;
-      }),
-      loadRuntimeSettings: vi.fn(
-        () =>
-          ({
-            providers: {},
-            storage: {
-              postgres: { urlEnv: 'MYCLAW_DATABASE_URL', schema: 'myclaw' },
-            },
-            memory: {},
-          }) as any,
-      ),
-      restoreRemoteControl: vi.fn(() => {
-        order.push('restore-remote-control');
-      }),
-      logger: {
-        info: vi.fn(),
-        warn,
-      },
-    });
-
-    expect(order).toEqual(['layout', 'init-storage', 'restore-remote-control']);
-    expect(warn).toHaveBeenCalledOnce();
   });
 
   it('creates an internal default agent for a fresh runtime with no registered groups', async () => {
@@ -143,7 +101,6 @@ describe('runStartup', () => {
 
     await runStartup(app, {
       ensureRuntimeLayoutDirectories: vi.fn(),
-      ensurePromptProfileBootstrapped: vi.fn(),
       initializeRuntimeStorage: vi.fn(async () => ({}) as any),
       loadRuntimeSettings: vi.fn(
         () =>
@@ -182,7 +139,6 @@ describe('runStartup', () => {
 
     await runStartup(app, {
       ensureRuntimeLayoutDirectories: vi.fn(),
-      ensurePromptProfileBootstrapped: vi.fn(),
       initializeRuntimeStorage: vi.fn(async () => ({}) as any),
       loadRuntimeSettings: vi.fn(
         () =>
@@ -258,7 +214,6 @@ describe('runStartup', () => {
       });
       const startup = runStartup(app, {
         ensureRuntimeLayoutDirectories: vi.fn(),
-        ensurePromptProfileBootstrapped: vi.fn(),
         initializeRuntimeStorage: vi.fn(async () => ({}) as any),
         loadRuntimeSettings: vi.fn(
           () =>
@@ -317,7 +272,6 @@ describe('runStartup', () => {
 
       const startup = runStartup(app, {
         ensureRuntimeLayoutDirectories: vi.fn(),
-        ensurePromptProfileBootstrapped: vi.fn(),
         initializeRuntimeStorage: vi.fn(async () => ({}) as any),
         loadRuntimeSettings: vi.fn(
           () =>
@@ -362,7 +316,6 @@ describe('runStartup', () => {
     const initializeRuntimeStorage = vi.fn(async () => ({}) as any);
     await runStartup(makeApp(), {
       ensureRuntimeLayoutDirectories: vi.fn(),
-      ensurePromptProfileBootstrapped: vi.fn(),
       initializeRuntimeStorage,
       loadRuntimeSettings: vi.fn(
         () =>

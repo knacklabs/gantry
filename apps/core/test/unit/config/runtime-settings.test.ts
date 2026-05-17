@@ -108,6 +108,76 @@ describe('runtime settings', () => {
     });
   });
 
+  it('defaults, renders, and parses YOLO-mode permission policy additions', () => {
+    const settings = createDefaultRuntimeSettings();
+    expect(settings.permissions.yoloMode).toEqual({
+      enabled: true,
+      denylist: [],
+      denylistPaths: [],
+    });
+    expect(settings.permissions.egress).toEqual({
+      denylist: [],
+    });
+
+    settings.permissions.yoloMode = {
+      enabled: true,
+      denylist: ['npm run nuke'],
+      denylistPaths: ['/opt/danger/*'],
+    };
+    settings.permissions.egress = {
+      denylist: ['api.linkedin.com', '*.blocked.example.com'],
+    };
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('permissions:');
+    expect(yaml).toContain('yolo_mode:');
+    expect(yaml).toContain('egress:');
+    expect(yaml).toContain('npm run nuke');
+    expect(yaml).toContain('api.linkedin.com');
+
+    const parsed = parseRuntimeSettings(yaml);
+    expect(parsed.permissions).toEqual(settings.permissions);
+  });
+
+  it('rejects unsupported YOLO-mode permission keys', () => {
+    expect(() =>
+      parseRuntimeSettings(`permissions:
+  yolo_mode:
+    enabled: true
+    allowlist: []
+`),
+    ).toThrow('permissions.yolo_mode.allowlist is not supported');
+  });
+
+  it('rejects unsupported egress permission keys', () => {
+    expect(() =>
+      parseRuntimeSettings(`permissions:
+  egress:
+    allowlist: []
+`),
+    ).toThrow('permissions.egress.allowlist is not supported');
+  });
+
+  it('rejects invalid egress denylist hostname globs', () => {
+    expect(() =>
+      parseRuntimeSettings(`permissions:
+  egress:
+    denylist: ["api_example.com"]
+`),
+    ).toThrow(
+      'permissions.egress.denylist[0] must be a hostname glob such as api.example.com or *.example.com',
+    );
+  });
+
+  it('canonicalizes egress denylist hostname globs', () => {
+    const parsed = parseRuntimeSettings(`permissions:
+  egress:
+    denylist: ["API.LinkedIn.Com."]
+`);
+
+    expect(parsed.permissions.egress.denylist).toEqual(['api.linkedin.com']);
+  });
+
   it('canonicalizes browser usage override site keys', () => {
     const parsed = parseRuntimeSettings(`browser:
   usage:

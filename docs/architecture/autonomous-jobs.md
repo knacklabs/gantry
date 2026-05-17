@@ -65,8 +65,9 @@ mcp_missing_credential
 draft_only
 ```
 
-`Allow once` can resume the current blocked tool call, but it is not durable
-readiness for future recurring runs. Recurring activation requires a persistent
+`Allow once` can resume the current blocked tool call, and `Allow 5 min` can
+reduce repeated prompts for the same short run, but neither is durable readiness
+for future recurring runs. Recurring activation requires a persistent
 target-agent capability binding such as `Browser`, `capability:<id>`, an exact
 approved MyClaw admin tool, a scoped Bash rule, or an approved MCP server
 binding. Browser auth remains profile/session based; MyClaw reports that login
@@ -80,11 +81,12 @@ Scheduled job execution keeps protected capability and memory guards active
 before autonomous allowance. If a tool is outside the effective job allowlist,
 the runner uses the same permission IPC path as interactive agent runs: it sends
 the approval prompt to the job's source conversation/thread or topic and waits
-at the tool boundary. `Allow once` resumes that tool call in the current job run.
-`Always allow` stores a semantic `capability:<id>` grant when the request names
-one; otherwise it may apply canonical `Browser`, an exact MyClaw admin tool, or
-a scoped Bash rule to the target agent. Broad exact SDK/native tools and exact
-third-party MCP tool names remain one-off only. The grant is mirrored to
+at the tool boundary. `Allow once` resumes that tool call in the current job
+run, while `Allow 5 min` is temporary. `Always allow` stores a semantic
+`capability:<id>` grant when the request names one; otherwise it may apply
+canonical `Browser`, an exact MyClaw admin tool, or a scoped Bash rule to the
+target agent. Broad exact SDK/native tools and exact third-party MCP tool names
+remain one-off only. The grant is mirrored to
 `settings.yaml`, expanded into live runtime rules for the active run, and
 resumes the same tool call so recurring jobs do not need the same approval next
 time.
@@ -93,9 +95,9 @@ If the approval surface is unavailable, denied, or times out, the runner fails
 the tool call with recovery guidance such as:
 
 ```text
-Tool not on autonomous job allowlist: Bash.
+Tool not on autonomous run allowlist: Bash.
 Recovery: request_capability { "capabilityId": "google.sheets.write", "reason": "This scheduled job writes the weekly status sheet." }
-Recovery: request_permission { "permissionKind": "tool", "toolName": "Bash", "rule": "npm test *", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }
+Recovery: request_permission { "permissionKind": "tool", "toolName": "Bash", "rule": "npm test *", "temporaryOnly": false, "reason": "This autonomous run needs scoped Bash access." }
 ```
 
 Missing capability recovery uses the same reviewed request tools as interactive
@@ -106,6 +108,27 @@ access, `propose_local_cli_capability` for reviewed authenticated CLIs,
 `request_mcp_server` for third-party MCP servers. Approval updates the target
 agent's durable bindings, exports the readable projection to `settings.yaml`,
 and activates on the next scheduled run or a manual rerun.
+
+Job creation can declare `capability_requirements` on `scheduler_upsert_job`
+instead of embedding provider-specific shell commands in the prompt. Each
+requirement names a semantic capability id, a human reason, and optional
+implementation hints such as `configured_access`, `local_cli`, `mcp_server`, or
+`builtin_tool`. Gantry stores those requirements on the canonical job target and
+derives `capability:<id>` required-tool rules from them. The pre-confirmation
+plan shows the required capabilities in human terms, for example
+`Google Sheets write using gog`.
+
+`local_cli` requirements are setup blockers until the generated absolute scoped
+Bash rule is approved for that job or agent. They must declare an absolute
+`executablePath`; `commandTemplate` and any `authPreflight` must start with that
+exact path, so readiness never depends on PATH resolution. They do not create or
+imply broad `Bash(cli *)` authority. Reusable user-defined `local_cli` semantic
+capabilities stay draft-only until runtime enforcement verifies executable
+identity, command templates, protected paths, preflight behavior, and denied
+environment overrides. Malformed persisted `local_cli` requirements are not
+converted into legacy capability proposals; the job must be updated with the
+absolute executable template. Configured built-in capabilities use
+`request_capability`.
 
 The scheduler records the failure summary, emits `job.tool_denied`, pauses
 recurring jobs that need a missing persistent capability as `Setup required`,
@@ -131,10 +154,11 @@ tool, pending permission state, total tool calls, browser activity count, and
 streamed-output size diagnostics.
 
 Jobs use a job-owned `AgentSession` keyed by the target agent, source
-conversation/thread, and `jobId`. That gives each job its own provider resume
-handle, run history, and session digests. Durable memory sharing is explicit:
-DM-created jobs extract and hydrate against the trusted DM user subject, while
-channel/group/topic jobs extract and hydrate against the trusted
+conversation/thread, and `jobId`. That gives each job its own run history,
+session digests, and durable MyClaw evidence without provider resume handles.
+Durable memory sharing is explicit: DM-created jobs extract and hydrate against
+the trusted DM user subject, while channel/group/topic jobs extract and hydrate
+against the trusted
 conversation/thread subject. Caller-supplied memory subject overrides are not
 part of job creation or update; the host derives the share target from
 `executionContext`.

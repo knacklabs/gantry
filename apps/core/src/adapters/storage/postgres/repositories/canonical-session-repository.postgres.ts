@@ -82,14 +82,12 @@ export class PostgresCanonicalSessionRepository {
     agentSessionResetAt?: string | null;
     providerSessionId?: string;
     externalSessionId?: string;
-    latestArtifactId?: string | null;
   }> {
     const ensured = await this.ensureAgentSession(input);
     const [providerSession] = await this.db
       .select({
         id: pgSchema.providerSessionsPostgres.id,
         externalSessionId: pgSchema.providerSessionsPostgres.externalSessionId,
-        latestArtifactId: pgSchema.providerSessionsPostgres.latestArtifactId,
       })
       .from(pgSchema.providerSessionsPostgres)
       .where(
@@ -113,7 +111,6 @@ export class PostgresCanonicalSessionRepository {
         ? {
             providerSessionId: providerSession.id,
             externalSessionId: providerSession.externalSessionId,
-            latestArtifactId: providerSession.latestArtifactId,
           }
         : {}),
     };
@@ -286,7 +283,6 @@ export class PostgresCanonicalSessionRepository {
     conversationKind?: 'dm' | 'channel';
     memoryUserId?: string;
     jobId?: string;
-    latestArtifactId?: string | null;
     expectedAgentSessionId?: string;
     expectedAgentSessionResetAt?: string | null;
   }): Promise<boolean> {
@@ -300,7 +296,6 @@ export class PostgresCanonicalSessionRepository {
       conversationKind,
       memoryUserId,
       jobId,
-      latestArtifactId,
       expectedAgentSessionId,
       expectedAgentSessionResetAt,
     } = input;
@@ -388,13 +383,11 @@ export class PostgresCanonicalSessionRepository {
           agentSessionId,
           provider: PROVIDER,
           externalSessionId: sessionId,
-          latestArtifactId: latestArtifactId ?? null,
           providerRefJson: json({
             kind: 'provider_session',
             value: `${PROVIDER}:${sessionId}`,
             provider: PROVIDER,
             externalSessionId: sessionId,
-            latestArtifactId: latestArtifactId ?? null,
           }),
           metadataJson: json({
             chatJid: chatJid ?? null,
@@ -432,13 +425,11 @@ export class PostgresCanonicalSessionRepository {
         .update(pgSchema.providerSessionsPostgres)
         .set({
           externalSessionId: sessionId,
-          latestArtifactId: latestArtifactId ?? null,
           providerRefJson: json({
             kind: 'provider_session',
             value: `${PROVIDER}:${sessionId}`,
             provider: PROVIDER,
             externalSessionId: sessionId,
-            latestArtifactId: latestArtifactId ?? null,
           }),
           metadataJson: json({
             chatJid: chatJid ?? null,

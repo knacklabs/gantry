@@ -179,45 +179,45 @@ export async function startRuntimeServices(
   const syncGroupSnapshots = createGroupSnapshotSync(app, resolved);
 
   const onSchedulerChanged = (jobId?: string) => requestSchedulerSync(jobId);
-
-  await resolved.startSchedulerLoop({
-    conversationRoutes: () => app.getConversationRoutes(),
-    queue: app.queue,
-    onProcess: (groupJid, proc, runHandle, groupFolder, stopAliasJids) =>
-      app.queue.registerProcess(
-        groupJid,
-        proc,
-        runHandle,
-        groupFolder,
-        stopAliasJids,
-      ),
-    sendMessage: (jid, rawText, options) =>
-      channelWiring.sendMessage(jid, rawText, {
-        durability: 'required',
-        ...(options?.threadId
-          ? { messageOptions: { threadId: options.threadId } }
-          : {}),
-      }),
-    sendStreamingChunk: channelWiring.sendStreamingChunk,
-    resetStreaming: channelWiring.resetStreaming,
-    onSchedulerChanged,
-    opsRepository: resolved.opsRepository,
-    collectSessionMemory: resolved.collectSessionMemory,
-    getCredentialBroker:
-      resolved.getCredentialBroker ??
-      (typeof app.getCredentialBroker === 'function'
-        ? () => app.getCredentialBroker()
-        : undefined),
-    getSkillRepository: resolved.getSkillRepository,
-    getMcpServerRepository: resolved.getMcpServerRepository,
-    getMcpHostnameLookup: () => resolved.mcpHostnameLookup,
-    getMcpDnsValidationCache: resolved.getMcpDnsValidationCache,
-    getSkillArtifactStore: resolved.getSkillArtifactStore,
-    getToolRepository: resolved.getToolRepository,
-    getBrowserStatus,
-    closeBrowserSession: closeBrowser,
-    closeBrowserToolBackends: resolved.closeBrowserToolBackends,
-  });
+  const startScheduler = () =>
+    resolved.startSchedulerLoop({
+      conversationRoutes: () => app.getConversationRoutes(),
+      queue: app.queue,
+      onProcess: (groupJid, proc, runHandle, groupFolder, stopAliasJids) =>
+        app.queue.registerProcess(
+          groupJid,
+          proc,
+          runHandle,
+          groupFolder,
+          stopAliasJids,
+        ),
+      sendMessage: (jid, rawText, options) =>
+        channelWiring.sendMessage(jid, rawText, {
+          durability: 'required',
+          ...(options?.threadId
+            ? { messageOptions: { threadId: options.threadId } }
+            : {}),
+        }),
+      sendStreamingChunk: channelWiring.sendStreamingChunk,
+      resetStreaming: channelWiring.resetStreaming,
+      onSchedulerChanged,
+      opsRepository: resolved.opsRepository,
+      collectSessionMemory: resolved.collectSessionMemory,
+      getCredentialBroker:
+        resolved.getCredentialBroker ??
+        (typeof app.getCredentialBroker === 'function'
+          ? () => app.getCredentialBroker()
+          : undefined),
+      getSkillRepository: resolved.getSkillRepository,
+      getMcpServerRepository: resolved.getMcpServerRepository,
+      getMcpHostnameLookup: () => resolved.mcpHostnameLookup,
+      getMcpDnsValidationCache: resolved.getMcpDnsValidationCache,
+      getSkillArtifactStore: resolved.getSkillArtifactStore,
+      getToolRepository: resolved.getToolRepository,
+      getBrowserStatus,
+      closeBrowserSession: closeBrowser,
+      closeBrowserToolBackends: resolved.closeBrowserToolBackends,
+    });
 
   resolved.startIpcWatcher({
     sendMessage: (jid, text, options) =>
@@ -668,7 +668,9 @@ export async function startRuntimeServices(
     });
   }
 
-  resolved.logger.info(`MyClaw running (default trigger: ${DEFAULT_TRIGGER})`);
+  await startScheduler();
+
+  resolved.logger.info(`Gantry running (default trigger: ${DEFAULT_TRIGGER})`);
 
   resolved
     .startMessagePollingLoop({

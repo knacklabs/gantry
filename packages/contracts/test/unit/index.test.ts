@@ -37,6 +37,8 @@ import {
   PageRequestSchema,
   ProviderSessionResponseSchema,
   RuntimeLimitSchema,
+  RuntimeSettingsPatchSchema,
+  RuntimeSettingsUpdateResponseSchema,
   SchemaDescriptorSchema,
   StreamEventSchema,
   UpdateJobRequestSchema,
@@ -214,6 +216,63 @@ describe('contracts package', () => {
       updatedAt: iso,
     });
 
+    expect(
+      RuntimeSettingsPatchSchema.parse({
+        permissions: { egress: { denylist: ['API.LinkedIn.Com.'] } },
+      }),
+    ).toEqual({
+      permissions: { egress: { denylist: ['api.linkedin.com'] } },
+    });
+    expectInvalid(RuntimeSettingsPatchSchema, {
+      permissions: { egress: { denylist: ['https://api.linkedin.com'] } },
+    });
+    expect(
+      RuntimeSettingsUpdateResponseSchema.safeParse({
+        settings: {
+          desiredState: { authoritative: false },
+          agent: {
+            name: 'Default Agent',
+            defaultModel: '',
+            oneTimeJobDefaultModel: '',
+            recurringJobDefaultModel: '',
+          },
+          agents: {},
+          providers: {},
+          providerConnections: {},
+          conversations: {},
+          bindings: {},
+          memory: { enabled: true, dreaming: { enabled: false } },
+          runtime: {
+            queue: {
+              maxMessageRuns: 3,
+              maxJobRuns: 4,
+              maxRetries: 5,
+              baseRetryMs: 5000,
+            },
+          },
+          browser: {
+            usage: {
+              enabled: false,
+              mode: 'audit',
+              windowMs: 60_000,
+              maxActionsPerWindow: 120,
+              maxConcurrentPerSite: 1,
+            },
+          },
+          permissions: {
+            yoloMode: {
+              enabled: true,
+              denylist: ['rm -rf /'],
+              denylistPaths: ['/etc/*'],
+            },
+            egress: { denylist: ['api.linkedin.com'] },
+          },
+        },
+        changed: ['permissions.egress.denylist'],
+        restartRequired: true,
+      }).success,
+    ).toBe(true);
+
     const sdkCreatePayload = {
       name: 'Daily summary',
       prompt: 'Summarize open work',
@@ -230,6 +289,17 @@ describe('contracts package', () => {
           label: 'primary',
         },
       ],
+      capabilityRequirements: [
+        {
+          capabilityId: 'google.sheets.write',
+          reason: 'Append rows after each run',
+          implementation: {
+            kind: 'local_cli',
+            name: 'gog',
+            commandTemplate: 'gog sheets append *',
+          },
+        },
+      ],
       requiredTools: ['Browser'],
       kind: 'recurring',
       schedule: { type: 'cron', value: '0 9 * * *' },
@@ -237,6 +307,12 @@ describe('contracts package', () => {
     } satisfies CreateJobInput;
     expect(CreateJobRequestSchema.parse(sdkCreatePayload)).toMatchObject({
       name: 'Daily summary',
+      capabilityRequirements: [
+        expect.objectContaining({
+          capabilityId: 'google.sheets.write',
+          implementation: expect.objectContaining({ name: 'gog' }),
+        }),
+      ],
       requiredTools: ['Browser'],
       executionContext: {
         conversationJid: 'app:app-one:session-1',
@@ -346,11 +422,23 @@ describe('contracts package', () => {
 
     const sdkUpdatePayload = {
       modelAlias: null,
+      capabilityRequirements: [
+        {
+          capabilityId: 'google.sheets.write',
+          reason: 'Append rows after each run',
+        },
+      ],
       requiredTools: ['Browser'],
       status: 'paused',
     } satisfies UpdateJobInput;
     expect(UpdateJobRequestSchema.parse(sdkUpdatePayload)).toEqual({
       modelAlias: null,
+      capabilityRequirements: [
+        {
+          capabilityId: 'google.sheets.write',
+          reason: 'Append rows after each run',
+        },
+      ],
       requiredTools: ['Browser'],
       status: 'paused',
     });
@@ -417,6 +505,12 @@ describe('contracts package', () => {
             label: 'primary',
           },
         ],
+        capabilityRequirements: [
+          {
+            capabilityId: 'google.sheets.write',
+            reason: 'Append rows after each run',
+          },
+        ],
         requiredTools: ['Browser'],
         requiredMcpServers: [],
         nextRun: iso,
@@ -445,6 +539,7 @@ describe('contracts package', () => {
       }),
     ).toMatchObject({
       staleness: 'missed_window',
+      capabilityRequirements: [{ capabilityId: 'google.sheets.write' }],
       health: { state: 'needs_permission' },
     });
     expectInvalid(JobResponseSchema, {

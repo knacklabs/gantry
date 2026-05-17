@@ -8,9 +8,10 @@ import {
   resolveModelAlias,
   resolveModelSelection,
 } from '../shared/model-catalog.js';
-import { renderDefaultCapabilityRules } from '../shared/capability-guidance.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import { AvailableGroup } from './agent-spawn.js';
+import { PromptProfileService } from '../application/agents/prompt-profile-service.js';
+import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
 
 interface ChatRow {
   jid: string;
@@ -23,6 +24,7 @@ interface RegisterGroupOptions {
   assistantName?: string;
   persist: (jid: string, group: ConversationRoute) => void | Promise<void>;
   ensureCredentialBinding: (jid: string, group: ConversationRoute) => void;
+  getFileArtifactStore?: () => FileArtifactStore | undefined;
 }
 
 function isPromiseLike(value: unknown): value is Promise<void> {
@@ -52,22 +54,6 @@ function commitGroupOverride(
   commit();
 }
 
-function defaultAgentClaudeMarkdown(assistantName: string): string {
-  return [
-    `# ${assistantName}`,
-    '',
-    `You are ${assistantName}, the assistant for this conversation.`,
-    'Keep responses clear, concise, and directly actionable.',
-    '',
-    'Rules:',
-    '- Be explicit when an action fails and what to do next.',
-    '- Ask for clarification when intent is ambiguous.',
-    '- Never expose secrets unless explicitly requested.',
-    renderDefaultCapabilityRules({ includeSettingsTools: true }),
-    '',
-  ].join('\n');
-}
-
 export async function registerGroup(
   conversationRoutes: Record<string, ConversationRoute>,
   jid: string,
@@ -87,20 +73,16 @@ export async function registerGroup(
     return;
   }
 
+  fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
+  await new PromptProfileService({
+    fileArtifactStore: () => options.getFileArtifactStore?.(),
+  }).ensureAgentDefaults({
+    agentFolder: group.folder,
+    agentName: assistantName,
+  });
+
   conversationRoutes[jid] = group;
   await options.persist(jid, group);
-
-  fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
-
-  const groupMdFile = path.join(groupDir, 'CLAUDE.md');
-  if (!fs.existsSync(groupMdFile)) {
-    fs.writeFileSync(groupMdFile, defaultAgentClaudeMarkdown(assistantName));
-    logger.info(
-      { folder: group.folder },
-      'Created default agent prompt file for registered agent',
-    );
-  }
-
   options.ensureCredentialBinding(jid, group);
 
   logger.info(

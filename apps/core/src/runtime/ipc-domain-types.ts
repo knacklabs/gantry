@@ -23,6 +23,7 @@ import type { BrowserBackendAction } from '../shared/browser-backend-actions.js'
 import type { BrowserSessionStatus } from './browser-capability-types.js';
 import type { BrowserUsageSettings } from './browser-usage-governor.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
+import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
 
 export interface IpcDeps {
   sendMessage: (
@@ -54,6 +55,7 @@ export interface IpcDeps {
   getToolRepository?: () => ToolCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
   getPermissionRepository?: () => PermissionRepository | undefined;
+  getFileArtifactStore?: () => FileArtifactStore | undefined;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;
   getJobControl?: () => JobControlPort | undefined;
   mirrorAgentToolRulesToSettings?: (

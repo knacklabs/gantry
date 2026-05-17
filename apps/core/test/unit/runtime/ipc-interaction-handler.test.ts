@@ -246,7 +246,7 @@ describe('ipc-interaction-handler', () => {
     );
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:team',
-      expect.stringContaining('Persistent permission applied:'),
+      expect.stringContaining('Always allowed:'),
       expect.any(Object),
     );
   });

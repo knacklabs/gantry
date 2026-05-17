@@ -16,6 +16,10 @@ import {
   normalizeRequiredTools,
 } from './job-required-tools.js';
 import {
+  capabilityRequirementToolRules,
+  normalizeCapabilityRequirements,
+} from './job-capability-requirements.js';
+import {
   evaluateJobReadiness,
   SETUP_REQUIRED_PAUSE_REASON,
 } from './job-readiness-service.js';
@@ -102,6 +106,13 @@ export async function createManagedJob(
     ],
   );
   const requiredTools = normalizeRequiredTools(input.requiredTools ?? []);
+  const capabilityRequirements = normalizeCapabilityRequirements(
+    input.capabilityRequirements ?? [],
+  );
+  const effectiveRequiredTools = normalizeRequiredTools([
+    ...requiredTools,
+    ...capabilityRequirementToolRules(capabilityRequirements),
+  ]);
   const requiredMcpServers = normalizeRequiredMcpServers(
     input.requiredMcpServers ?? [],
   );
@@ -128,7 +139,8 @@ export async function createManagedJob(
     next_run: schedule.nextRun,
     execution_context: executionContext,
     notification_routes: notificationRoutes,
-    required_tools: requiredTools,
+    capability_requirements: capabilityRequirements,
+    required_tools: effectiveRequiredTools,
     required_mcp_servers: requiredMcpServers,
   };
   const readiness = await evaluateJobReadiness({

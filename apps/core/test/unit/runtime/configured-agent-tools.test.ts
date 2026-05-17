@@ -26,7 +26,7 @@ describe('configured agent tools', () => {
     ).resolves.toEqual(['Bash(npm test *)']);
   });
 
-  it('expands named semantic capabilities to low-level runtime rules', async () => {
+  it('keeps provider-neutral semantic capabilities provider-neutral at runtime', async () => {
     const repository = {
       listAgentToolBindings: async () => [
         {
@@ -46,10 +46,7 @@ describe('configured agent tools', () => {
         appId: 'default',
         agentId: 'agent:one',
       }),
-    ).resolves.toEqual([
-      'capability:google.sheets.write',
-      'Bash(onecli google sheets write *)',
-    ]);
+    ).resolves.toEqual(['capability:google.sheets.write']);
   });
 
   it('does not expand user-defined local CLI drafts to runnable Bash rules', async () => {

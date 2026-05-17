@@ -42,6 +42,14 @@ const SCHEDULED_JOB_REPORT_INSTRUCTIONS = [
   'Keep the report concise and avoid implementation details unless the job is blocked and needs user or agent action.',
 ].join('\n');
 
+const AUTONOMOUS_TOOL_CONTRACT_INSTRUCTIONS = [
+  'Autonomous tool contract:',
+  '- Use only the durable tool rules listed below for this autonomous run.',
+  '- For scoped Bash rules, invoke the matching command directly as its own Bash command leaf. Do not wrap it in python -c, node -e, sh -c, bash -c, eval, or another generated script.',
+  '- If a scoped Bash rule ends with *, pass data as ordinary command arguments to that reviewed command. Do not create a separate wrapper command.',
+  '- If no durable rule covers the action you need, stop and explain the missing reviewed capability in the final report.',
+].join('\n');
+
 async function main(): Promise<void> {
   let agentInput: AgentRunnerInput;
 
@@ -125,7 +133,7 @@ async function main(): Promise<void> {
 function buildInitialPrompt(agentInput: AgentRunnerInput): string {
   let prompt = agentInput.prompt;
   if (agentInput.isScheduledJob) {
-    prompt = `${SCHEDULED_JOB_REPORT_INSTRUCTIONS}\n\n${prompt}`;
+    prompt = `${SCHEDULED_JOB_REPORT_INSTRUCTIONS}\n\n${AUTONOMOUS_TOOL_CONTRACT_INSTRUCTIONS}\n\n${autonomousToolContract(agentInput.allowedTools)}\n\n${prompt}`;
   }
   if (!agentInput.isScheduledJob) {
     const pending = drainIpcInput();
@@ -137,6 +145,19 @@ function buildInitialPrompt(agentInput: AgentRunnerInput): string {
     }
   }
   return prompt;
+}
+
+function autonomousToolContract(allowedTools?: readonly string[]): string {
+  const durableRules = (allowedTools ?? [])
+    .map((rule) => rule.trim())
+    .filter(Boolean);
+  if (durableRules.length === 0) {
+    return 'Durable tool rules for this autonomous run: none declared.';
+  }
+  return [
+    'Durable tool rules for this autonomous run:',
+    ...durableRules.map((rule) => `- ${rule}`),
+  ].join('\n');
 }
 
 async function runScheduledQuery(opts: {

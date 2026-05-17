@@ -152,14 +152,14 @@ export async function startRemoteControl(
   }
 
   // Redirect stdout/stderr to files so the process has no pipes to the parent.
-  // This prevents SIGPIPE when MyClaw restarts.
+  // This prevents SIGPIPE when Gantry restarts.
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const stdoutFd = fs.openSync(STDOUT_FILE, 'w');
   const stderrFd = fs.openSync(STDERR_FILE, 'w');
 
   let proc;
   try {
-    proc = spawn('claude', ['remote-control', '--name', 'MyClaw Remote'], {
+    proc = spawn('claude', ['remote-control', '--name', 'Gantry Remote'], {
       cwd,
       stdio: ['pipe', stdoutFd, stderrFd],
       detached: true,

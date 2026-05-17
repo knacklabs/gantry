@@ -32,6 +32,19 @@ export async function ensureAgentToolCatalogItem(input: {
 }): Promise<ToolCatalogItem> {
   const reference = input.reference.trim();
   const requestedSemanticCapabilityId = parseSemanticCapabilityRule(reference);
+  const requestedCapability = requestedSemanticCapabilityId
+    ? (input.semanticCapabilityDefinitions?.[requestedSemanticCapabilityId] ??
+      getBuiltinSemanticCapability(requestedSemanticCapabilityId))
+    : undefined;
+  if (requestedSemanticCapabilityId && requestedCapability) {
+    return saveSemanticCapabilityTool({
+      repository: input.repository,
+      appId: input.appId,
+      capabilityId: requestedSemanticCapabilityId,
+      capability: requestedCapability,
+      now: input.now,
+    });
+  }
   const resolved = await resolveAgentToolReference(input);
   if (resolved.tool) return resolved.tool;
   if (
@@ -56,31 +69,13 @@ export async function ensureAgentToolCatalogItem(input: {
         `Unknown semantic capability ${semanticCapabilityId}. Review and register a user-defined capability before selecting it.`,
       );
     }
-    const capabilityValidation =
-      validateSemanticCapabilityDefinition(capability);
-    if (!capabilityValidation.ok) {
-      throw new Error(capabilityValidation.reason);
-    }
-    const item: ToolCatalogItem = {
-      id: `tool:capability:${semanticCapabilityId}` as ToolId,
+    return saveSemanticCapabilityTool({
+      repository: input.repository,
       appId: input.appId,
-      name: semanticCapabilityRule(semanticCapabilityId),
-      kind: capability.credentialSource === 'local_cli' ? 'local_cli' : 'host',
-      provider:
-        capability.credentialSource === 'local_cli' ? 'local_cli' : 'myclaw',
-      displayName: capability.displayName,
-      description: `${capability.can} Cannot: ${capability.cannot}`,
-      category: 'productivity',
-      risk: capability.risk === 'read' ? 'low' : 'high',
-      selectable: true,
-      status: 'active',
-      inputSchema: semanticCapabilityInputSchema(capability),
-      adapterRef: `capability/${semanticCapabilityId}`,
-      createdAt: input.now as never,
-      updatedAt: input.now as never,
-    };
-    await input.repository.saveTool(item);
-    return item;
+      capabilityId: semanticCapabilityId,
+      capability,
+      now: input.now,
+    });
   }
   const scoped = parseReadableScopedToolRule(allowedRule);
   if (!scoped || scoped.toolName !== 'Bash') {
@@ -103,6 +98,44 @@ export async function ensureAgentToolCatalogItem(input: {
     selectable: true,
     status: 'active',
     adapterRef: input.adapterRef ?? 'permission/settings.yaml',
+    createdAt: input.now as never,
+    updatedAt: input.now as never,
+  };
+  await input.repository.saveTool(item);
+  return item;
+}
+
+async function saveSemanticCapabilityTool(input: {
+  repository: ToolCatalogRepository;
+  appId: AppId;
+  capabilityId: string;
+  capability: SemanticCapabilityDefinition;
+  now: string;
+}): Promise<ToolCatalogItem> {
+  const capabilityValidation = validateSemanticCapabilityDefinition(
+    input.capability,
+  );
+  if (!capabilityValidation.ok) {
+    throw new Error(capabilityValidation.reason);
+  }
+  const item: ToolCatalogItem = {
+    id: `tool:capability:${input.capabilityId}` as ToolId,
+    appId: input.appId,
+    name: semanticCapabilityRule(input.capabilityId),
+    kind:
+      input.capability.credentialSource === 'local_cli' ? 'local_cli' : 'host',
+    provider:
+      input.capability.credentialSource === 'local_cli'
+        ? 'local_cli'
+        : 'myclaw',
+    displayName: input.capability.displayName,
+    description: `${input.capability.can} Cannot: ${input.capability.cannot}`,
+    category: 'productivity',
+    risk: input.capability.risk === 'read' ? 'low' : 'high',
+    selectable: true,
+    status: 'active',
+    inputSchema: semanticCapabilityInputSchema(input.capability),
+    adapterRef: `capability/${input.capabilityId}`,
     createdAt: input.now as never,
     updatedAt: input.now as never,
   };

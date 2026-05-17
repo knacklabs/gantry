@@ -3,8 +3,8 @@ import {
   isSdkSandboxNetworkAccessToolName,
 } from '../../shared/agent-tool-references.js';
 import {
-  nonDurableBashLeafReason,
   normalizeBashLeafRuleContent,
+  nonDurableBashLeafReason,
   parseBashCommand,
 } from '../../shared/bash-command-parser.js';
 import { permissionUpdateAllowedToolRules } from '../../shared/permission-tool-rules.js';

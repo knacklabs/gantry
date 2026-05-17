@@ -22,6 +22,7 @@ export const BASELINE_MYCLAW_MCP_TOOL_NAMES = [
   'request_capability',
   'propose_local_cli_capability',
   'manage_capability',
+  'file',
   'mcp_list_tools',
   'mcp_call_tool',
 ] as const;

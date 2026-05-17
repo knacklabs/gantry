@@ -46,7 +46,7 @@ export const BROWSER_PROJECTED_MCP_RULE_REJECTION_REASON =
 export const BASH_SCOPE_REJECTION_REASON =
   'Persistent Bash scope is too broad; include a literal command prefix such as Bash(npm test *).';
 export const SDK_SANDBOX_NETWORK_ACCESS_REJECTION_REASON =
-  'SDK sandbox network prompts are internal defense-in-depth callbacks and cannot be persisted as agent tool rules; approve the scoped Bash(...) command instead.';
+  'SDK sandbox network prompts are internal defense-in-depth callbacks and cannot be persisted as agent tool rules; approve the underlying semantic capability, canonical Browser grant, exact admin MCP tool, MCP server binding, or scoped Bash fallback instead.';
 
 export function parseReadableScopedToolRule(
   value: string,

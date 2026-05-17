@@ -209,12 +209,20 @@ function createRunnerFixture(): {
     path.join(sharedDir, 'persistent-permission-rules.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/yolo-mode-policy.ts'),
+    path.join(sharedDir, 'yolo-mode-policy.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/sensitive-material.ts'),
     path.join(sharedDir, 'sensitive-material.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/permission-timeout.ts'),
     path.join(sharedDir, 'permission-timeout.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/stable-hash.ts'),
+    path.join(sharedDir, 'stable-hash.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/human-format.ts'),
@@ -422,8 +430,8 @@ export async function* query({ prompt, options }) {
     call.permissionDecision = await decisionPromise;
   }
 
-  if (process.env.TEST_SDK_NETWORK_AFTER_BASH === '1') {
-    const bashDecision = await options.canUseTool(
+  if (process.env.TEST_SDK_NETWORK_AFTER_TOOL === '1') {
+    const toolDecision = await options.canUseTool(
       'Bash',
       { cmd: process.env.TEST_TOOL_USE_CMD || 'npm test --runInBand' },
       {
@@ -444,12 +452,12 @@ export async function* query({ prompt, options }) {
         title: 'Network request outside of sandbox',
         displayName: 'SandboxNetworkAccess',
         description: 'Allow network connection to registry.npmjs.org?',
-        decisionReason: 'Sandboxed Bash command attempted outbound network access',
+        decisionReason: 'Sandboxed tool attempted outbound network access',
         toolUseID: 'toolu_network_1',
       },
     );
     const secondNetworkDecision =
-      process.env.TEST_SECOND_SDK_NETWORK_AFTER_BASH === '1'
+      process.env.TEST_SECOND_SDK_NETWORK_AFTER_TOOL === '1'
         ? await options.canUseTool(
             'SandboxNetworkAccess',
             { host: 'example.com' },
@@ -459,13 +467,13 @@ export async function* query({ prompt, options }) {
               displayName: 'SandboxNetworkAccess',
               description: 'Allow network connection to example.com?',
               decisionReason:
-                'Sandboxed Bash command attempted outbound network access',
+                'Sandboxed tool attempted outbound network access',
               toolUseID: 'toolu_network_2',
             },
           )
         : undefined;
     call.permissionDecisions = {
-      bash: bashDecision,
+      tool: toolDecision,
       network: networkDecision,
       ...(secondNetworkDecision ? { network2: secondNetworkDecision } : {}),
     };
@@ -727,8 +735,10 @@ describe('agent-runner IPC lifecycle', () => {
         baseInput({
           modelCredentialEnv: {
             ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
-            HTTP_PROXY: 'http://127.0.0.1:10255/',
-            HTTPS_PROXY: 'http://127.0.0.1:10255/',
+            HTTP_PROXY: 'http://127.0.0.1:18080/',
+            HTTPS_PROXY: 'http://127.0.0.1:18080/',
+            http_proxy: 'http://127.0.0.1:18080/',
+            https_proxy: 'http://127.0.0.1:18080/',
             NODE_USE_ENV_PROXY: '1',
             NODE_EXTRA_CA_CERTS: '/tmp/onecli-ca.pem',
           },
@@ -746,6 +756,7 @@ describe('agent-runner IPC lifecycle', () => {
           NODE_EXTRA_CA_CERTS: '/tmp/onecli-ca.pem',
           MYCLAW_IPC_AUTH_TOKEN: 'runner-test-token',
           MYCLAW_IPC_RESPONSE_VERIFY_KEY: fixture.responseVerifyKey,
+          MYCLAW_EGRESS_PROXY_URL: 'http://127.0.0.1:18080/',
         },
       );
 
@@ -754,8 +765,10 @@ describe('agent-runner IPC lifecycle', () => {
       expect(sdkEnv.ANTHROPIC_BASE_URL).toBe('https://broker.local/anthropic');
       expect(sdkEnv.ANTHROPIC_API_KEY).toBeUndefined();
       expect(sdkEnv.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
-      expect(sdkEnv.HTTP_PROXY).toBe('http://127.0.0.1:10255/');
-      expect(sdkEnv.HTTPS_PROXY).toBe('http://127.0.0.1:10255/');
+      expect(sdkEnv.HTTP_PROXY).toBe('http://127.0.0.1:18080/');
+      expect(sdkEnv.HTTPS_PROXY).toBe('http://127.0.0.1:18080/');
+      expect(sdkEnv.http_proxy).toBe('http://127.0.0.1:18080/');
+      expect(sdkEnv.https_proxy).toBe('http://127.0.0.1:18080/');
       expect(sdkEnv.NODE_USE_ENV_PROXY).toBe('1');
       expect(sdkEnv.GIT_HTTP_PROXY_AUTHMETHOD).toBeUndefined();
       expect(sdkEnv.NODE_EXTRA_CA_CERTS).toBe('/tmp/onecli-ca.pem');
@@ -787,6 +800,34 @@ describe('agent-runner IPC lifecycle', () => {
       expect(sdkEnv.MYCLAW_MCP_CONFIG_FILE).toBeUndefined();
       expect(sdkEnv.MYCLAW_MCP_SERVERS_JSON).toBeUndefined();
       expect(sdkEnv.MYCLAW_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'rejects model proxy env that bypasses the Gantry egress gateway',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          modelCredentialEnv: {
+            HTTP_PROXY: 'http://127.0.0.1:10255/',
+            HTTPS_PROXY: 'http://127.0.0.1:18080/',
+          },
+        }),
+        {
+          TEST_EXIT_AFTER_QUERY: '1',
+          MYCLAW_EGRESS_PROXY_URL: 'http://127.0.0.1:18080/',
+        },
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(
+        'modelCredentialEnv.HTTP_PROXY must match MYCLAW_EGRESS_PROXY_URL.',
+      );
+      expect(fs.existsSync(fixture.recordPath)).toBe(false);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -1306,13 +1347,17 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'resumes persisted SDK sessions for live channel turns',
+    'resumes and persists SDK sessions for live channel turns',
     async () => {
       const fixture = createRunnerFixture();
 
       const result = await runRunner(
         fixture,
-        baseInput({ sessionId: 'stale-sdk-session' }),
+        baseInput({
+          appId: 'app-runner-test',
+          agentId: 'agent:team',
+          sessionId: 'stale-sdk-session',
+        }),
         {
           TEST_EXIT_AFTER_QUERY: '1',
         },
@@ -1323,12 +1368,18 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.persistSession).toBe(true);
       expect(call?.resume).toBe('stale-sdk-session');
       expect(call?.resumeSessionAt).toBeUndefined();
+      expect(
+        (call?.mcpServers?.myclaw as { env?: Record<string, string> })?.env,
+      ).toMatchObject({
+        MYCLAW_APP_ID: 'app-runner-test',
+        MYCLAW_AGENT_ID: 'agent:team',
+      });
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
 
   it(
-    'routes /compact through the live streaming SDK session with persistence',
+    'routes /compact through a persistent live streaming SDK query',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -1342,6 +1393,32 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.promptKind).toBe('stream');
       expect(call?.streamMessages?.[0]).toBe('/compact');
       expect(call?.persistSession).toBe(true);
+      expect(call?.resume).toBeUndefined();
+      expect(call?.resumeSessionAt).toBeUndefined();
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'does not resume or persist SDK sessions for scheduled job turns',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          sessionId: 'scheduled-sdk-session',
+          isScheduledJob: true,
+          jobId: 'job-1',
+        }),
+        {
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.persistSession).toBe(false);
       expect(call?.resume).toBeUndefined();
       expect(call?.resumeSessionAt).toBeUndefined();
     },
@@ -1461,7 +1538,7 @@ describe('agent-runner IPC lifecycle', () => {
       expect(result.exitCode).toBe(0);
       const call = readRecord(fixture.recordPath).calls[0];
       expect(call?.streamEnded).toBe(true);
-      expect(result.stdout.match(/---MYCLAW_OUTPUT_START---/g)).toHaveLength(1);
+      expect(result.stdout.match(/---MYCLAW_OUTPUT_START---/g)).toHaveLength(2);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );
@@ -1705,7 +1782,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'scheduled jobs include a concise final report instruction in the prompt',
+    'scheduled jobs include the autonomous tool contract in the prompt',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -1714,6 +1791,10 @@ describe('agent-runner IPC lifecycle', () => {
         baseInput({
           isScheduledJob: true,
           jobId: 'job-1',
+          allowedTools: [
+            'Browser',
+            'Bash(/Users/example/runtime/scripts/append-lead.py *)',
+          ],
           prompt: 'Find new leads.',
         }),
       );
@@ -1725,6 +1806,11 @@ describe('agent-runner IPC lifecycle', () => {
         JSON.stringify(call?.streamMessages ?? []);
       expect(prompt).toContain('Final Job Report');
       expect(prompt).toContain('found, added, skipped, and errors');
+      expect(prompt).toContain('Durable tool rules for this autonomous run:');
+      expect(prompt).toContain(
+        'Bash(/Users/example/runtime/scripts/append-lead.py *)',
+      );
+      expect(prompt).toContain('Do not wrap it in python -c');
       expect(prompt).toContain('Find new leads.');
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
@@ -1835,7 +1921,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'suppresses SDK sandbox network prompts after MyClaw allowed scoped Bash',
+    'suppresses SDK sandbox network prompts after MyClaw allowed a scoped tool',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -1847,7 +1933,7 @@ describe('agent-runner IPC lifecycle', () => {
           allowedTools: ['Bash(npm test *)'],
         }),
         {
-          TEST_SDK_NETWORK_AFTER_BASH: '1',
+          TEST_SDK_NETWORK_AFTER_TOOL: '1',
           TEST_TOOL_USE_CMD: 'npm test --runInBand',
         },
       );
@@ -1856,13 +1942,14 @@ describe('agent-runner IPC lifecycle', () => {
       expect(result.stdout).toContain('"eventType":"sandbox.blocked"');
       expect(result.stdout).toContain('sdk_network_gate_suppressed');
       expect(result.stdout).toContain('"networkToolUseID":"toolu_network_1"');
-      expect(result.stdout).toContain('"bashToolUseID":"toolu_bash_1"');
-      expect(result.stdout).toContain('"commandHash"');
+      expect(result.stdout).toContain('"parentToolUseID":"toolu_bash_1"');
+      expect(result.stdout).toContain('"approvedToolName":"Bash"');
+      expect(result.stdout).toContain('"inputHash"');
       expect(result.stdout).toContain('"hostHash"');
       expect(result.stdout).not.toContain('registry.npmjs.org');
       expect(result.stdout).not.toContain('npm test --runInBand');
       const call = readRecord(fixture.recordPath).calls[0];
-      expect(call?.permissionDecisions?.bash).toEqual(
+      expect(call?.permissionDecisions?.tool).toEqual(
         expect.objectContaining({
           behavior: 'allow',
         }),
@@ -1879,7 +1966,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'suppresses repeated SDK sandbox network prompts for an allowed Bash invocation',
+    'suppresses repeated SDK sandbox network prompts for an allowed tool invocation',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -1891,8 +1978,8 @@ describe('agent-runner IPC lifecycle', () => {
           allowedTools: ['Bash(npm test *)'],
         }),
         {
-          TEST_SDK_NETWORK_AFTER_BASH: '1',
-          TEST_SECOND_SDK_NETWORK_AFTER_BASH: '1',
+          TEST_SDK_NETWORK_AFTER_TOOL: '1',
+          TEST_SECOND_SDK_NETWORK_AFTER_TOOL: '1',
           TEST_TOOL_USE_CMD: 'npm test --runInBand',
         },
       );
@@ -2010,7 +2097,7 @@ describe('agent-runner IPC lifecycle', () => {
   );
 
   it(
-    'scheduled jobs do not inherit default interactive tools before approval',
+    'scheduled jobs request missing tool approval before denying current run',
     async () => {
       const fixture = createRunnerFixture();
 
@@ -2038,14 +2125,14 @@ describe('agent-runner IPC lifecycle', () => {
         }),
       );
       expect(String(call?.permissionDecision?.message)).toContain(
-        'Autonomous permission approval is disabled for unattended jobs.',
+        'Unattended jobs do not wait for approval during the active tool call',
       );
       expect(String(call?.permissionDecision?.message)).toContain(
-        'request_permission { "permissionKind": "tool", "toolName": "WebSearch", "temporaryOnly": false, "reason": "This scheduled job needs WebSearch access." }',
+        'request_permission { "permissionKind": "tool", "toolName": "WebSearch", "temporaryOnly": false, "reason": "This autonomous run needs WebSearch access." }',
       );
       expect(
         fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
-      ).toBe(false);
+      ).toBe(true);
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

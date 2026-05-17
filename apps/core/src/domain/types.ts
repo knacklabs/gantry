@@ -97,6 +97,27 @@ export interface JobNotificationRoute {
   label: string;
 }
 
+export type JobCapabilityRequirementImplementationKind =
+  | 'configured_access'
+  | 'local_cli'
+  | 'mcp_server'
+  | 'builtin_tool';
+
+export interface JobCapabilityRequirementImplementation {
+  kind: JobCapabilityRequirementImplementationKind;
+  name?: string;
+  executablePath?: string;
+  commandTemplate?: string;
+  authPreflight?: string;
+  protectedPaths?: string[];
+}
+
+export interface JobCapabilityRequirement {
+  capabilityId: string;
+  reason: string;
+  implementation?: JobCapabilityRequirementImplementation;
+}
+
 export type JobSetupReadinessState =
   | 'ready'
   | 'missing_capability'
@@ -156,6 +177,7 @@ export interface Job {
   pause_reason: string | null;
   execution_context?: JobExecutionContext;
   notification_routes?: JobNotificationRoute[];
+  capability_requirements?: JobCapabilityRequirement[];
   required_tools?: string[];
   required_mcp_servers?: string[];
   setup_state?: JobSetupState;
@@ -200,6 +222,7 @@ export interface PermissionApprovalRequest {
   sourceAgentFolder: string;
   runHandle?: string;
   jobId?: string;
+  jobName?: string;
   runId?: string;
   targetJid?: string;
   approvalContextJid?: string;

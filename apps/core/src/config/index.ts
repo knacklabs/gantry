@@ -23,6 +23,12 @@ import { DEFAULT_AGENT_NAME } from './settings/runtime-settings-defaults.js';
 import type { RuntimeSettings } from './settings/runtime-settings-types.js';
 import { isValidTimezone } from '../shared/timezone.js';
 import { resolvePermissionApprovalTimeoutMs } from '../shared/permission-timeout.js';
+import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
+import {
+  normalizeSettingsStringArray,
+  validateRuntimeSettingsPatch,
+} from './runtime-settings-patch-validation.js';
+import { validateEgressDenylistPattern } from '../shared/egress-policy.js';
 export * from './memory.js';
 export { syncRuntimeSettingsFromProjection } from './settings/restart-sync.js';
 export const POLL_INTERVAL = 2000;
@@ -119,6 +125,10 @@ export function getPublicRuntimeSettings() {
         maxConcurrentPerSite: settings.browser.usage.maxConcurrentPerSite,
       },
     },
+    permissions: {
+      yoloMode: effectiveYoloModeSettings(settings.permissions.yoloMode),
+      egress: settings.permissions.egress,
+    },
   };
 }
 export function getRuntimeQueueConfig() {
@@ -138,7 +148,18 @@ export function updatePublicRuntimeSettings(patch: {
     recurringJobDefaultModel?: string;
   };
   memory?: { enabled?: boolean; dreaming?: { enabled?: boolean } };
+  permissions?: {
+    yoloMode?: {
+      enabled?: boolean;
+      denylist?: string[];
+      denylistPaths?: string[];
+    };
+    egress?: {
+      denylist?: string[];
+    };
+  };
 }) {
+  validateRuntimeSettingsPatch(patch);
   const settings = getRuntimeSettingsForConfig();
   const nextMemoryEnabled = patch.memory?.enabled ?? settings.memory.enabled;
   const nextDreamingEnabled =
@@ -155,6 +176,12 @@ export function updatePublicRuntimeSettings(patch: {
   const changed: string[] = [];
   if (patch.agent?.name !== undefined) {
     const next = patch.agent.name.trim();
+    if (!next) {
+      throw Object.assign(new Error('agent.name must be a non-empty string.'), {
+        statusCode: 400,
+        code: 'INVALID_REQUEST',
+      });
+    }
     if (settings.agent.name !== next) {
       settings.agent.name = next;
       changed.push('agent.name');
@@ -204,6 +231,45 @@ export function updatePublicRuntimeSettings(patch: {
     settings.memory.dreaming.enabled = patch.memory.dreaming.enabled;
     changed.push('memory.dreaming.enabled');
   }
+  const yoloModePatch = patch.permissions?.yoloMode;
+  if (yoloModePatch?.enabled !== undefined) {
+    if (settings.permissions.yoloMode.enabled !== yoloModePatch.enabled) {
+      settings.permissions.yoloMode.enabled = yoloModePatch.enabled;
+      changed.push('permissions.yoloMode.enabled');
+    }
+  }
+  if (yoloModePatch?.denylist !== undefined) {
+    const next = normalizeSettingsStringArray(
+      yoloModePatch.denylist,
+      'permissions.yoloMode.denylist',
+    );
+    if (!arraysEqual(settings.permissions.yoloMode.denylist, next)) {
+      settings.permissions.yoloMode.denylist = next;
+      changed.push('permissions.yoloMode.denylist');
+    }
+  }
+  if (yoloModePatch?.denylistPaths !== undefined) {
+    const next = normalizeSettingsStringArray(
+      yoloModePatch.denylistPaths,
+      'permissions.yoloMode.denylistPaths',
+    );
+    if (!arraysEqual(settings.permissions.yoloMode.denylistPaths, next)) {
+      settings.permissions.yoloMode.denylistPaths = next;
+      changed.push('permissions.yoloMode.denylistPaths');
+    }
+  }
+  const egressPatch = patch.permissions?.egress;
+  if (egressPatch?.denylist !== undefined) {
+    const next = normalizeSettingsStringArray(
+      egressPatch.denylist,
+      'permissions.egress.denylist',
+      validateEgressDenylistPattern,
+    );
+    if (!arraysEqual(settings.permissions.egress.denylist, next)) {
+      settings.permissions.egress.denylist = next;
+      changed.push('permissions.egress.denylist');
+    }
+  }
   if (changed.length > 0) {
     saveRuntimeSettings(MYCLAW_HOME, settings);
     runtimeSettingsCache = undefined;
@@ -214,6 +280,7 @@ export function updatePublicRuntimeSettings(patch: {
     restartRequired: changed.length > 0,
   };
 }
+
 function normalizeSettingsModelPatch(value: string, field: string): string {
   const trimmed = value.trim();
   if (!trimmed) return '';
@@ -226,6 +293,11 @@ function normalizeSettingsModelPatch(value: string, field: string): string {
   }
   return resolved.alias;
 }
+
+function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 export const STORE_DIR = path.resolve(RUNTIME_ROOT, 'store');
 export const AGENTS_DIR = path.resolve(RUNTIME_ROOT, 'agents');
 export const DATA_DIR = path.resolve(RUNTIME_ROOT, 'data');

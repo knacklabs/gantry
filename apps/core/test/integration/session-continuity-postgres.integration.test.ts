@@ -69,7 +69,7 @@ maybeDescribe('Postgres memory continuity', () => {
     await runtime.cleanup();
   });
 
-  it('returns canonical MyClaw turn context even when provider artifact metadata exists', async () => {
+  it('returns canonical MyClaw turn context when provider session metadata exists', async () => {
     const groupFolder = 'group-session-mode';
     const chatJid = 'tg:group-session-mode';
     const sessionId = 'provider-session:test:mode';
@@ -91,7 +91,6 @@ maybeDescribe('Postgres memory continuity', () => {
 
     await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
       chatJid,
-      latestArtifactId: 'provider-session-artifact:test:mode',
     });
 
     const withArtifact = await runtime.sessionOps.getAgentTurnContext({
@@ -103,7 +102,6 @@ maybeDescribe('Postgres memory continuity', () => {
     expect(withArtifact).toMatchObject({
       providerSessionId: sessionId,
       externalSessionId: sessionId,
-      latestArtifactId: 'provider-session-artifact:test:mode',
     });
   });
 
@@ -150,7 +148,6 @@ maybeDescribe('Postgres memory continuity', () => {
       null,
       {
         chatJid,
-        latestArtifactId: 'provider-session-artifact:test:agent-a',
       },
     );
     const agentAContext = await runtime.sessionOps.getAgentTurnContext({
@@ -182,7 +179,6 @@ maybeDescribe('Postgres memory continuity', () => {
     expect(agentBContext.agentSessionId).not.toBe(agentAContext.agentSessionId);
     expect(agentBContext).not.toHaveProperty('providerSessionId');
     expect(agentBContext).not.toHaveProperty('externalSessionId');
-    expect(agentBContext).not.toHaveProperty('latestArtifactId');
 
     await runtime.sessionOps.setSession(
       routeFolder,
@@ -190,7 +186,6 @@ maybeDescribe('Postgres memory continuity', () => {
       null,
       {
         chatJid,
-        latestArtifactId: 'provider-session-artifact:test:agent-b',
       },
     );
     await expect(
@@ -203,7 +198,6 @@ maybeDescribe('Postgres memory continuity', () => {
       agentId: 'agent:agent_b',
       agentSessionId: agentBContext.agentSessionId,
       externalSessionId: 'provider-session:test:agent-b',
-      latestArtifactId: 'provider-session-artifact:test:agent-b',
     });
   });
 
@@ -222,7 +216,6 @@ maybeDescribe('Postgres memory continuity', () => {
     });
     await runtime.sessionOps.setSession(routeFolder, sessionA, null, {
       chatJid,
-      latestArtifactId: 'provider-session-artifact:test:reset-owner:agent-a',
     });
     const agentAContext = await runtime.sessionOps.getAgentTurnContext({
       groupFolder: routeFolder,
@@ -239,7 +232,6 @@ maybeDescribe('Postgres memory continuity', () => {
     });
     await runtime.sessionOps.setSession(routeFolder, sessionB, null, {
       chatJid,
-      latestArtifactId: 'provider-session-artifact:test:reset-owner:agent-b',
     });
     const agentBContext = await runtime.sessionOps.getAgentTurnContext({
       groupFolder: routeFolder,
@@ -269,7 +261,6 @@ maybeDescribe('Postgres memory continuity', () => {
       status: 'active',
       agentSessionId: agentAContext.agentSessionId,
       externalSessionId: sessionA,
-      latestArtifactId: 'provider-session-artifact:test:reset-owner:agent-a',
     });
   });
 
@@ -284,7 +275,6 @@ maybeDescribe('Postgres memory continuity', () => {
       null,
       {
         chatJid,
-        latestArtifactId: 'provider-session-artifact:test:root:v1',
       },
     );
     await runtime.sessionOps.setSession(
@@ -293,7 +283,6 @@ maybeDescribe('Postgres memory continuity', () => {
       threadId,
       {
         chatJid,
-        latestArtifactId: 'provider-session-artifact:test:thread:v1',
       },
     );
     await runtime.sessionOps.setSession(
@@ -302,7 +291,6 @@ maybeDescribe('Postgres memory continuity', () => {
       null,
       {
         chatJid,
-        latestArtifactId: 'provider-session-artifact:test:root:v2',
       },
     );
 
@@ -349,7 +337,6 @@ maybeDescribe('Postgres memory continuity', () => {
       null,
       {
         chatJid: 'tg:group-session-owner-a',
-        latestArtifactId: 'provider-session-artifact:test:owned:a',
       },
     );
 
@@ -360,7 +347,6 @@ maybeDescribe('Postgres memory continuity', () => {
         null,
         {
           chatJid: 'tg:group-session-owner-b',
-          latestArtifactId: 'provider-session-artifact:test:owned:b',
         },
       ),
     ).rejects.toThrow(/already owned by another session/);
@@ -372,12 +358,10 @@ maybeDescribe('Postgres memory continuity', () => {
       {
         groupFolder: 'group-session-race-a',
         chatJid: 'tg:group-session-race-a',
-        latestArtifactId: 'provider-session-artifact:test:race:a',
       },
       {
         groupFolder: 'group-session-race-b',
         chatJid: 'tg:group-session-race-b',
-        latestArtifactId: 'provider-session-artifact:test:race:b',
       },
     ] as const;
 
@@ -389,7 +373,6 @@ maybeDescribe('Postgres memory continuity', () => {
           null,
           {
             chatJid: contender.chatJid,
-            latestArtifactId: contender.latestArtifactId,
           },
         ),
       ),
@@ -430,7 +413,6 @@ maybeDescribe('Postgres memory continuity', () => {
     ).resolves.toMatchObject({
       id: sharedSessionId,
       agentSessionId: winnerContext.agentSessionId,
-      latestArtifactId: winner.latestArtifactId,
       status: 'active',
     });
 
@@ -447,7 +429,6 @@ maybeDescribe('Postgres memory continuity', () => {
     await expect(
       runtime.sessionOps.setSession('group-session-unsafe', '../escape', null, {
         chatJid: 'tg:group-session-unsafe',
-        latestArtifactId: 'provider-session-artifact:test:unsafe',
       }),
     ).rejects.toThrow(/Invalid provider session id/);
   });
@@ -456,11 +437,9 @@ maybeDescribe('Postgres memory continuity', () => {
     const groupFolder = 'group-session-expiry';
     const chatJid = 'tg:group-session-expiry';
     const sessionId = 'provider-session:test:expire';
-    const latestArtifactId = 'provider-session-artifact:test:expire';
 
     await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
       chatJid,
-      latestArtifactId,
     });
 
     const before = await runtime.sessionOps.getAgentTurnContext({
@@ -484,7 +463,6 @@ maybeDescribe('Postgres memory continuity', () => {
     expect(resumed.agentSessionId).toBe(before.agentSessionId);
     expect(resumed).not.toHaveProperty('providerSessionId');
     expect(resumed).not.toHaveProperty('externalSessionId');
-    expect(resumed).not.toHaveProperty('latestArtifactId');
   });
 
   it('does not expire provider sessions when ownership predicates are incomplete', async () => {
@@ -494,7 +472,6 @@ maybeDescribe('Postgres memory continuity', () => {
 
     await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
       chatJid,
-      latestArtifactId: 'provider-session-artifact:test:expire-incomplete',
     });
 
     const before = await runtime.sessionOps.getAgentTurnContext({
@@ -531,11 +508,9 @@ maybeDescribe('Postgres memory continuity', () => {
 
     await runtime.sessionOps.setSession(firstGroup, firstSessionId, null, {
       chatJid: firstChat,
-      latestArtifactId: 'provider-session-artifact:test:expiry-guard:a',
     });
     await runtime.sessionOps.setSession(secondGroup, secondSessionId, null, {
       chatJid: secondChat,
-      latestArtifactId: 'provider-session-artifact:test:expiry-guard:b',
     });
 
     const firstContext = await runtime.sessionOps.getAgentTurnContext({
@@ -583,11 +558,9 @@ maybeDescribe('Postgres memory continuity', () => {
 
     await runtime.sessionOps.setSession(groupFolder, sessionA, null, {
       chatJid: conversationA,
-      latestArtifactId: 'provider-session-artifact:test:scope-reset:a',
     });
     await runtime.sessionOps.setSession(groupFolder, sessionB, null, {
       chatJid: conversationB,
-      latestArtifactId: 'provider-session-artifact:test:scope-reset:b',
     });
 
     await runtime.sessionOps.deleteSession(groupFolder, null, {
@@ -610,7 +583,6 @@ maybeDescribe('Postgres memory continuity', () => {
     expect(siblingContext).toMatchObject({
       providerSessionId: sessionB,
       externalSessionId: sessionB,
-      latestArtifactId: 'provider-session-artifact:test:scope-reset:b',
     });
   });
 
@@ -622,7 +594,6 @@ maybeDescribe('Postgres memory continuity', () => {
 
     await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
       chatJid,
-      latestArtifactId: 'provider-session-artifact:test:delete-with-run',
     });
     const resume = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
@@ -663,7 +634,6 @@ maybeDescribe('Postgres memory continuity', () => {
     });
     expect(restarted.agentSessionId).toBeDefined();
     expect(restarted).not.toHaveProperty('externalSessionId');
-    expect(restarted).not.toHaveProperty('latestArtifactId');
   });
 
   it('hydrates continuity jobs only from the current session app scope', async () => {
@@ -765,11 +735,9 @@ maybeDescribe('Postgres memory continuity', () => {
 
       await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
         chatJid,
-        latestArtifactId: 'provider-session-artifact:test:isolation:primary',
       });
       await isolated.sessionOps.setSession(groupFolder, sessionId, null, {
         chatJid,
-        latestArtifactId: 'provider-session-artifact:test:isolation:isolated',
       });
 
       await expect(

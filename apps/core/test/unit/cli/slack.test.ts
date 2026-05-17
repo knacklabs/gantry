@@ -20,6 +20,59 @@ import {
 import { listSlackRecentChats } from '@core/cli/slack-chat-discovery.js';
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
+const fileArtifacts = vi.hoisted(() => new Map<string, string>());
+const fileArtifactStore = vi.hoisted(() => ({
+  async listFileArtifacts(input: any) {
+    return [...fileArtifacts.keys()]
+      .filter((key) =>
+        key.startsWith(
+          `${input.appId}:${input.agentId}:${input.virtualScope}:`,
+        ),
+      )
+      .filter(
+        (key) => !input.virtualPath || key.endsWith(`:${input.virtualPath}`),
+      )
+      .map((key, index) => ({
+        id: `file-artifact:test:${index + 1}`,
+        scope: input.virtualScope,
+        path: key.slice(key.lastIndexOf(':') + 1),
+        version: 1,
+        contentHash: `hash-${index + 1}`,
+        sizeBytes: fileArtifacts.get(key)?.length ?? 0,
+        contentType: 'text/markdown',
+        createdAt: new Date(0).toISOString(),
+      }));
+  },
+  async writeFileArtifact(input: any) {
+    const key = `${input.appId}:${input.agentId}:${input.virtualScope}:${input.virtualPath}`;
+    fileArtifacts.set(key, String(input.content));
+    return {
+      id: `file-artifact:test:${fileArtifacts.size}`,
+      appId: input.appId,
+      agentId: input.agentId,
+      virtualScope: input.virtualScope,
+      virtualPath: input.virtualPath,
+      version: 1,
+      storageType: 'local-filesystem',
+      storageRef: 'memory://test',
+      contentHash: `hash-${fileArtifacts.size}`,
+      sizeBytes: String(input.content).length,
+      contentType: input.contentType ?? 'text/markdown',
+      metadata: input.metadata ?? {},
+      createdAt: new Date(0).toISOString(),
+      createdBy: input.createdBy,
+    };
+  },
+  async readFileArtifact(input: any) {
+    const key = `${input.appId}:${input.agentId}:${input.virtualScope}:${input.virtualPath}`;
+    const content = fileArtifacts.get(key);
+    if (content === undefined) throw new Error('File artifact not found');
+    return { artifact: {}, content };
+  },
+  async promoteScratch() {
+    throw new Error('not used');
+  },
+}));
 
 vi.mock('@core/cli/runtime-group-db.js', () => ({
   openRuntimeGroupDb: async () => ({
@@ -40,6 +93,7 @@ vi.mock('@core/cli/runtime-group-db.js', () => ({
       groupsStore.delete(jid);
     },
     deleteSession: async () => {},
+    getFileArtifactStore: () => fileArtifactStore,
     close: async () => {},
   }),
 }));
@@ -51,6 +105,7 @@ afterEach(() => {
   vi.resetModules();
   vi.unstubAllGlobals();
   groupsStore.clear();
+  fileArtifacts.clear();
   while (runtimeHomes.length > 0) {
     const runtimeHome = runtimeHomes.pop();
     if (runtimeHome) fs.rmSync(runtimeHome, { recursive: true, force: true });
@@ -450,7 +505,7 @@ describe('cli slack helpers', () => {
     expect(outro).toHaveBeenCalledWith('Slack connect cancelled.');
   });
 
-  it('seeds CLAUDE.md and SOUL.md when registering the main group', async () => {
+  it('seeds CLAUDE.md and SOUL.md FileArtifacts when registering the main group', async () => {
     const runtimeHome = makeRuntimeHome();
 
     const result = await registerSlackMainGroup({
@@ -459,23 +514,25 @@ describe('cli slack helpers', () => {
       displayName: 'Kai Slack',
     });
 
-    const groupDir = path.join(runtimeHome, 'agents', result.folder);
-    const claude = fs.readFileSync(path.join(groupDir, 'CLAUDE.md'), 'utf-8');
-    const soul = fs.readFileSync(path.join(groupDir, 'SOUL.md'), 'utf-8');
+    const claude =
+      fileArtifacts.get(
+        `default:agent:${result.folder}:prompt-profile:${result.folder}/CLAUDE.md`,
+      ) ?? '';
+    const soul =
+      fileArtifacts.get(
+        `default:agent:${result.folder}:prompt-profile:${result.folder}/SOUL.md`,
+      ) ?? '';
 
     expect(result.groupName).toBe('Kai Slack');
     expect(result.folder).toBe('main_agent');
-    expect(claude).toContain('Static Chat Guidance');
-    expect(claude).toContain('query-retrieved memory context');
-    expect(claude).toContain(
-      'When the user says "continue", call memory_search before guessing.',
-    );
-    expect(claude).toContain(
-      'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, capability_search, request_capability, propose_local_cli_capability, manage_capability, or request_permission for capability changes.',
-    );
-    expect(claude).toContain(
-      'Agents with selected admin capabilities may use service_restart after approved changes and register_agent for conversation binding.',
-    );
+    expect(
+      fs.existsSync(
+        path.join(runtimeHome, 'agents', result.folder, 'CLAUDE.md'),
+      ),
+    ).toBe(false);
+    expect(claude).toContain('assistant for this conversation');
+    expect(claude).toContain('Keep responses clear');
+    expect(claude).not.toContain('capability changes');
     expect(soul).toContain('# Soul - Who You Are');
     expect(soul).toContain('- **Name:** Kai Slack');
     expect(soul).toContain('## Continuity Boundary');

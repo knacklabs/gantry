@@ -101,6 +101,50 @@ describe('RuntimeEventExchange', () => {
     expect(notifier.notifiedEvents).toEqual([event]);
   });
 
+  it('canonicalizes provider conversation ids before persistence', async () => {
+    const repository = new MemoryRuntimeEventRepository();
+    const notifier = new InMemoryRuntimeEventNotifier();
+    const exchange = new RuntimeEventExchange(repository, notifier);
+
+    const event = await exchange.publish({
+      appId: 'app:test' as never,
+      conversationId: 'tg:-100123' as never,
+      eventType: RUNTIME_EVENT_TYPES.SANDBOX_BLOCKED,
+      actor: 'runner',
+      payload: {},
+    });
+
+    expect(event.conversationId).toBe('conversation:tg:-100123');
+    expect(repository.events[0]?.conversationId).toBe(
+      'conversation:tg:-100123',
+    );
+    expect(notifier.notifiedEvents[0]?.conversationId).toBe(
+      'conversation:tg:-100123',
+    );
+  });
+
+  it('canonicalizes provider conversation ids in list filters', async () => {
+    const repository = new MemoryRuntimeEventRepository();
+    const exchange = new RuntimeEventExchange(
+      repository,
+      new InMemoryRuntimeEventNotifier(),
+    );
+    await exchange.publish({
+      appId: 'app:test' as never,
+      conversationId: 'tg:-100123' as never,
+      eventType: RUNTIME_EVENT_TYPES.SANDBOX_BLOCKED,
+      actor: 'runner',
+      payload: {},
+    });
+
+    await expect(
+      exchange.list({
+        appId: 'app:test' as never,
+        conversationId: 'tg:-100123' as never,
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
   it('replays from cursor before waiting for live wakeups', async () => {
     const repository = new MemoryRuntimeEventRepository();
     const notifier = new InMemoryRuntimeEventNotifier();

@@ -1,12 +1,5 @@
 [
   {
-    "file": "apps/core/src/adapters/artifacts/postgres/postgres-provider-artifact-store.ts",
-    "rule": "provider_specific_path",
-    "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 2
-  },
-  {
     "file": "apps/core/src/adapters/credentials/onecli/env-policy.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -567,13 +560,6 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/domain/sessions/provider-session-artifact.ts",
-    "rule": "provider_specific_path",
-    "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 2
-  },
-  {
     "file": "apps/core/src/index.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Composition-root wiring for existing runtime bootstrap plus MCP remote-host DNS lookup adapter; capped so lower layers cannot import network infrastructure.",
@@ -931,13 +917,6 @@
     "maxOccurrences": 1
   },
   {
-    "file": "apps/core/src/runner/claude/permission-callback.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 3
-  },
-  {
     "file": "apps/core/src/runner/claude/query-loop.ts",
     "rule": "old_term_groupFolder",
     "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
@@ -1048,13 +1027,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 5
-  },
-  {
-    "file": "apps/core/src/runtime/agent-spawn.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
   },
   {
     "file": "apps/core/src/runtime/agent-spawn.ts",
@@ -1176,13 +1148,6 @@
     "maxViolations": 2
   },
   {
-    "file": "apps/core/src/runtime/group-registry.ts",
-    "rule": "provider_specific_path",
-    "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 3
-  },
-  {
     "file": "apps/core/src/runtime/ipc-auth-validation.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -1253,27 +1218,6 @@
     "maxViolations": 2
   },
   {
-    "file": "apps/core/src/runtime/prompt-profile.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 2
-  },
-  {
-    "file": "apps/core/src/runtime/prompt-profile.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 11
-  },
-  {
-    "file": "apps/core/src/runtime/prompt-profile.ts",
-    "rule": "provider_specific_path",
-    "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 4
-  },
-  {
     "file": "apps/core/src/runtime/remote-control-command.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -1321,20 +1265,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/session/session-transcript-archive.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/session/session-transcript-archive.ts",
-    "rule": "provider_specific_path",
-    "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 2
   },
   {
     "file": "apps/core/src/shared/message-cursor.ts",
@@ -1445,5 +1375,19 @@
     "reason": "Runtime settings watcher composes filesystem reload, validation, and desired-state reconciliation until reload is represented as an application port.",
     "removeByPhase": "settings-desired-state-port-extraction",
     "maxViolations": 6
+  },
+  {
+    "file": "apps/core/src/runtime/egress-gateway.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "The runtime-owned egress gateway currently writes through the shared logger while the outbound transport adapter port is still being extracted.",
+    "removeByPhase": "egress-gateway-adapter-extraction",
+    "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/runtime/egress-gateway.ts",
+    "rule": "forbidden_external_import_by_layer",
+    "reason": "The runtime-owned egress gateway owns temporary Node HTTP/socket plumbing until the outbound transport adapter port is extracted.",
+    "removeByPhase": "egress-gateway-adapter-extraction",
+    "maxViolations": 3
   }
 ]

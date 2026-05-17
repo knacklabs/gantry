@@ -72,12 +72,14 @@ describe('PostgresCanonicalJobRepository', () => {
         runId: 'run-1',
         releasedAt: '2026-05-12T09:00:00.000Z',
         runTimedOut: true,
+        reason: 'lease_expired',
       },
       {
         jobId: 'job-2',
         runId: null,
         releasedAt: '2026-05-12T09:00:00.000Z',
         runTimedOut: false,
+        reason: 'lease_expired',
       },
     ]);
 

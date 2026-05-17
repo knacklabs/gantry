@@ -7,21 +7,21 @@ web_search = "cached"
 [features]
 hooks = true
 multi_agent = true
-streamable_shell = true
-skills = true
+multi_agent_v2 = true
 goals = true
-view_image_tool = true
-apply_patch = true
-steer = true
+image_generation = true
+apply_patch_freeform = true
+apply_patch_streaming_events = true
 unified_exec = true
 shell_snapshot = true
-ghost_commit = true
-collaboration_modes = true
-responses_websockets_v2 = true
-
-[agents]
-max_threads = 6
-max_depth = 1
+apps_mcp_path_override = true
+artifact = true
+child_agents_md = true
+memories = true
+prevent_idle_sleep = true
+realtime_conversation = true
+workspace_owner_usage_nudge = true
+enable_request_compression = false
 
 [projects."/workspace"]
 trust_level = "trusted"

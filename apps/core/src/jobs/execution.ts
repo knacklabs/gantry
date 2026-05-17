@@ -74,6 +74,8 @@ import type {
   SchedulerDispatchPayload,
 } from './types.js';
 
+const POST_RUN_BROWSER_ACTIVITY_TIMEOUT_MS = 5_000;
+
 export async function runJob(
   job: Job,
   deps: SchedulerDependencies,
@@ -196,6 +198,7 @@ export async function runJob(
   };
   let latestUsage: NormalizedModelUsage | undefined;
   let startNotified = false;
+  let browserActivityVerificationSkipped = false;
   try {
     const groupDir = resolveGroupFolderPath(execution.group.folder);
     fs.mkdirSync(groupDir, { recursive: true });
@@ -235,8 +238,6 @@ export async function runJob(
       let lastStreamingEventMs = 0;
       let turnContext: JobTurnContext | undefined;
       let agentRunId: string | undefined;
-      let latestProviderSessionId: string | undefined;
-      const persistedProviderSessionIds = new Set<string>();
       const flushStreamingEvent = (force = false): void => {
         if (bufferedStreamingChars <= 0) return;
         const timestampMs = nowMs();
@@ -317,6 +318,9 @@ export async function runJob(
             mcpServerRepository: deps.getMcpServerRepository?.(),
             mcpHostnameLookup: deps.getMcpHostnameLookup?.(),
             mcpDnsValidationCache: deps.getMcpDnsValidationCache?.(),
+            publishRuntimeEvent: async (event) => {
+              await getRuntimeEventExchange().publish(event);
+            },
             skillContext: {
               appId: executionAppId,
               agentId: executionAgentId,
@@ -328,33 +332,6 @@ export async function runJob(
                 cause: 'job',
               })
             : undefined;
-          const persistProviderSessionId = async (
-            providerSessionId: string | undefined,
-          ): Promise<void> => {
-            if (
-              !providerSessionId ||
-              !turnContext?.agentSessionId ||
-              persistedProviderSessionIds.has(providerSessionId)
-            ) {
-              return;
-            }
-            const persisted = await deps.opsRepository.setSession(
-              execution.group.folder,
-              providerSessionId,
-              execution.threadId,
-              {
-                conversationJid: execution.executionJid,
-                conversationKind: execution.group.conversationKind,
-                memoryUserId,
-                jobId: currentJob.id,
-                expectedAgentSessionId: turnContext.agentSessionId,
-                expectedAgentSessionResetAt:
-                  turnContext.agentSessionResetAt ?? null,
-              },
-            );
-            if (persisted === false) return;
-            persistedProviderSessionIds.add(providerSessionId);
-          };
           const output = await runAgentImpl(
             execution.group,
             {
@@ -370,6 +347,7 @@ export async function runJob(
               memoryDefaultScope,
               isScheduledJob: true,
               jobId: currentJob.id,
+              jobName: currentJob.name,
               runId,
               jobModelUseKind,
               assistantName: ASSISTANT_NAME,
@@ -393,13 +371,6 @@ export async function runJob(
                 emitJobEvent,
               });
               if (streamedOutput.usage) latestUsage = streamedOutput.usage;
-              if (
-                streamedOutput.status !== 'error' &&
-                streamedOutput.newSessionId
-              ) {
-                latestProviderSessionId = streamedOutput.newSessionId;
-                await persistProviderSessionId(streamedOutput.newSessionId);
-              }
               await collectCompactBoundaryMemory({
                 compactBoundary: streamedOutput.compactBoundary,
                 agentSessionId: turnContext?.agentSessionId,
@@ -442,15 +413,24 @@ export async function runJob(
             !error &&
             requiredToolsIncludeBrowser(requiredToolPreflight.requiredTools)
           ) {
-            diagnostics.browserActivityCount = await countBrowserActivityForRun(
-              {
+            const browserActivityCount =
+              await countBrowserActivityForRunBestEffort({
                 deps,
                 jobId: currentJob.id,
                 runId,
                 diagnostics,
-              },
-            );
-            if (diagnostics.browserActivityCount > 0) {
+              });
+            if (browserActivityCount === null) {
+              browserActivityVerificationSkipped = true;
+              await emitJobEvent(RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY, {
+                phase: 'required_tool_verification_skipped',
+                tool: 'Browser',
+                ok: true,
+                reason:
+                  'Browser activity verification timed out after the runner completed.',
+              });
+            } else if (browserActivityCount > 0) {
+              diagnostics.browserActivityCount = browserActivityCount;
               await emitJobEvent(RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY, {
                 phase: 'required_tool_satisfied',
                 tool: 'Browser',
@@ -481,11 +461,6 @@ export async function runJob(
               jobId: currentJob.id,
               agentSessionId: turnContext?.agentSessionId,
               agentSessionResetAt: turnContext?.agentSessionResetAt ?? null,
-              providerSessionId: persistedProviderSessionIds.has(
-                output.newSessionId ?? latestProviderSessionId ?? '',
-              )
-                ? undefined
-                : (output.newSessionId ?? latestProviderSessionId),
               runId: agentRunId,
               result: boundedResultSummary,
             });
@@ -525,14 +500,18 @@ export async function runJob(
   if (
     !deletionGuard.deletedDuringRun &&
     requiredToolsIncludeBrowser(currentJob.required_tools ?? []) &&
+    !browserActivityVerificationSkipped &&
     diagnostics.browserActivityCount <= 0
   ) {
-    diagnostics.browserActivityCount = await countBrowserActivityForRun({
+    const browserActivityCount = await countBrowserActivityForRunBestEffort({
       deps,
       jobId: currentJob.id,
       runId,
       diagnostics,
     });
+    if (browserActivityCount !== null) {
+      diagnostics.browserActivityCount = browserActivityCount;
+    }
   }
   const {
     runStatus,
@@ -655,5 +634,51 @@ export async function runJob(
   ) {
     await deps.opsRepository.deleteJob(currentJob.id);
     deps.onSchedulerChanged?.(currentJob.id);
+  }
+}
+
+async function countBrowserActivityForRunBestEffort(input: {
+  deps: SchedulerDependencies;
+  jobId: string;
+  runId: string;
+  diagnostics: ReturnType<typeof createJobRunDiagnostics>;
+}): Promise<number | null> {
+  try {
+    return await withTimeout(
+      countBrowserActivityForRun(input),
+      POST_RUN_BROWSER_ACTIVITY_TIMEOUT_MS,
+      'Browser activity verification',
+    );
+  } catch (err) {
+    logger.warn(
+      {
+        err,
+        jobId: input.jobId,
+        runId: input.runId,
+      },
+      'Failed to verify scheduled job browser activity after runner completion',
+    );
+    return null;
+  }
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        timeout.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }

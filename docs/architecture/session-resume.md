@@ -15,21 +15,22 @@ conversation, and optional thread scope, then hydrates continuity context:
 `<myclaw_memory_context>` is untrusted evidence only. It does not grant
 instruction authority, permissions, credentials, or sandbox access.
 
-## Provider Resume Handles
+## Provider Session Metadata
 
-Provider resume handles are allowed today, but only as adapter metadata
-attached to canonical `AgentSession` records.
+Provider session handles may exist as adapter metadata attached to canonical
+`AgentSession` records, but normal agent turns do not use them for provider
+continuity.
 
 - Canonical continuity record: `AgentSession` (provider-neutral app contract).
 - Adapter projection field: `ProviderSession.externalSessionId`.
-- Current runtime projection: Anthropic/Claude adapter consumes
-  `turnContext.externalSessionId` and passes it to Claude SDK `query()` as
-  `resume` for live chat turns.
-- Current runtime also keeps Claude SDK persistence enabled for live chat runs
-  (`persistSession: true`) and disables resume for scheduled jobs.
+- Current runtime projection: Anthropic/Claude SDK runs set
+  `persistSession: false` and do not pass `resume` or `resumeSessionAt`.
+- Conversation evidence belongs in Postgres messages, runs, jobs, memory,
+  digests, and runtime events; provider JSONL files are not continuity state.
 
-This is a Claude-specific runtime projection. It is not yet a provider-neutral
-resume implementation across all model providers.
+This keeps normal agent conversations provider-stateless. If transcript export
+is needed, generate it from Postgres evidence into a FileArtifact instead of
+depending on provider-local session files.
 
 ## Scope And Ownership Isolation
 
@@ -63,8 +64,8 @@ This is a clean-cut contract. The only supported current continuity paths are:
 - resolve or create the canonical `AgentSession` for the current app, agent,
   conversation, and optional thread/user scope;
 - hydrate recent digests through canonical digest scope filtering;
-- attach provider resume handles only as owned `ProviderSession` metadata for
-  that canonical session.
+- treat provider-session rows only as owned adapter metadata for that canonical
+  session, not as resume authority.
 
 If a development database still contains old compatibility rows, the correct
 cleanup is an explicit local reset or one-off operator action outside the
@@ -87,9 +88,9 @@ fallback, or repair branches for that state.
   reset.
 - Reset preserves canonical `agent_sessions` identity and scoped
   `agent_session_digests`; digest hydration still works after reset.
-- During live runs, MyClaw persists newly emitted SDK session ids as soon as
-  they stream, not only at runner shutdown. This is restart-safe against host
-  restarts that interrupt an active run.
+- During live runs, MyClaw persists canonical messages, runs, jobs, memory,
+  digests, and runtime events. It does not persist newly emitted SDK session ids
+  as continuity handles for the next run.
 - Expiring or clearing provider-session metadata does not delete canonical
   session identity.
 
@@ -107,15 +108,10 @@ fallback, or repair branches for that state.
   observes `compact_boundary` and captures continuation evidence (`precompact`)
   without replaying transcript summaries into prompts.
 
-## If Policy Changes Back To “No SDK Resume”
+## Runtime Guardrails
 
-That policy is not what the runtime does today. Enforcing it would require
-concrete implementation changes in at least:
-
-- `apps/core/src/runtime/group-agent-runner.ts` (stop passing
-  `turnContext.externalSessionId` as `sessionId`).
-- `apps/core/src/runner/claude/query-loop.ts` (disable `resume` and likely
-  `persistSession` for live chat turns).
-- Existing tests that assert current resume behavior, including
-  `apps/core/test/unit/runtime/group-processing.test.ts` and
-  `apps/core/test/unit/runner/agent-runner-ipc.test.ts`.
+- `apps/core/src/runner/claude/query-loop.ts` must keep `persistSession: false`.
+- Host runner inputs must not pass `turnContext.externalSessionId` as an SDK
+  `sessionId`/`resume` value.
+- Tests should assert both live turns and scheduled jobs run without SDK resume
+  options, while Postgres persistence remains the canonical evidence path.

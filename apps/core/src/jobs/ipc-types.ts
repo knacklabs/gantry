@@ -27,6 +27,18 @@ export interface TaskIpcData {
     threadId: string | null;
     label: string;
   }>;
+  capabilityRequirements?: Array<{
+    capabilityId: string;
+    reason: string;
+    implementation?: {
+      kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
+      name?: string;
+      executablePath?: string;
+      commandTemplate?: string;
+      authPreflight?: string;
+      protectedPaths?: string[];
+    };
+  }>;
   requiredTools?: string[];
   requiredMcpServers?: string[];
   groupScope?: string;

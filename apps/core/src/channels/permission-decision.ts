@@ -54,6 +54,19 @@ function persistentRuleForSuggestion(
     : undefined;
 }
 
+function isPermissionDecisionModeAllowed(
+  request: PermissionApprovalRequest,
+  mode: PermissionApprovalDecisionMode,
+): boolean {
+  if (request.decisionOptions?.length) {
+    return request.decisionOptions.includes(mode);
+  }
+  if (mode === 'allow_persistent_rule') {
+    return Boolean(firstPersistentRule(request));
+  }
+  return mode === 'allow_once' || mode === 'allow_timed_grant';
+}
+
 export function decisionForMode(
   request: PermissionApprovalRequest,
   mode: PermissionApprovalDecisionMode,
@@ -68,12 +81,21 @@ export function decisionForMode(
       decisionClassification: 'user_reject',
     };
   }
+  if (!isPermissionDecisionModeAllowed(request, mode)) {
+    return {
+      approved: false,
+      mode: 'cancel',
+      decidedBy,
+      reason: 'approval option unavailable',
+      decisionClassification: 'user_reject',
+    };
+  }
   if (mode === 'allow_timed_grant') {
     return {
       approved: true,
       mode,
       decidedBy,
-      reason: `timed grant for ${request.toolName} (${Math.round(TIMED_GRANT_DURATION_MS / 60000)} min)`,
+      reason: `timed grant for eligible tools and SDK API prompts (${Math.round(TIMED_GRANT_DURATION_MS / 60000)} min)`,
       decisionClassification: 'user_temporary',
       timedGrantExpiresAtMs: nowMs() + TIMED_GRANT_DURATION_MS,
     };

@@ -16,6 +16,7 @@ export type SemanticCapabilityRisk = 'read' | 'write' | 'admin';
 export type SemanticCapabilityCredentialSource =
   | 'onecli'
   | 'external_broker'
+  | 'configured_access'
   | 'local_cli'
   | 'none';
 export type SemanticCapabilityImplementationKind =
@@ -90,15 +91,15 @@ const BUILTIN_SEMANTIC_CAPABILITIES = [
     displayName: 'Google Sheets read',
     category: 'Google Sheets',
     risk: 'read',
-    accountLabel: 'OneCLI Google account',
-    can: 'Read spreadsheet metadata and cell values through the configured brokered Google account.',
+    accountLabel: 'Configured Google access',
+    can: 'Read spreadsheet metadata and cell values through configured Google access.',
     cannot:
       'Edit spreadsheets, change sharing, access Gmail, or receive raw OAuth tokens.',
-    credentialSource: 'onecli',
+    credentialSource: 'configured_access',
     implementationBindings: [
-      { kind: 'tool_rule', rule: 'Bash(onecli google sheets read *)' },
+      { kind: 'adapter', adapterRef: 'configured.google.sheets.read' },
     ],
-    preflight: { kind: 'broker', status: 'unknown' },
+    preflight: { kind: 'none' },
     sandboxProfile: { network: 'required', filesystem: 'read_only' },
   },
   {
@@ -106,15 +107,15 @@ const BUILTIN_SEMANTIC_CAPABILITIES = [
     displayName: 'Google Sheets write',
     category: 'Google Sheets',
     risk: 'write',
-    accountLabel: 'OneCLI Google account',
-    can: 'Read and update spreadsheet values through the configured brokered Google account.',
+    accountLabel: 'Configured Google access',
+    can: 'Read and update spreadsheet values through configured Google access.',
     cannot:
       'Change sharing, manage Drive files outside Sheets operations, access Gmail, or receive raw OAuth tokens.',
-    credentialSource: 'onecli',
+    credentialSource: 'configured_access',
     implementationBindings: [
-      { kind: 'tool_rule', rule: 'Bash(onecli google sheets write *)' },
+      { kind: 'adapter', adapterRef: 'configured.google.sheets.write' },
     ],
-    preflight: { kind: 'broker', status: 'unknown' },
+    preflight: { kind: 'none' },
     sandboxProfile: { network: 'required', filesystem: 'read_only' },
   },
   {
@@ -122,15 +123,15 @@ const BUILTIN_SEMANTIC_CAPABILITIES = [
     displayName: 'Gmail read',
     category: 'Gmail',
     risk: 'read',
-    accountLabel: 'OneCLI Google account',
-    can: 'Search and read Gmail message metadata and bodies through the configured brokered Google account.',
+    accountLabel: 'Configured Google access',
+    can: 'Search and read Gmail message metadata and bodies through configured Google access.',
     cannot:
       'Send mail, delete mail, change labels, access Sheets, or receive raw OAuth tokens.',
-    credentialSource: 'onecli',
+    credentialSource: 'configured_access',
     implementationBindings: [
-      { kind: 'tool_rule', rule: 'Bash(onecli google gmail read *)' },
+      { kind: 'adapter', adapterRef: 'configured.gmail.read' },
     ],
-    preflight: { kind: 'broker', status: 'unknown' },
+    preflight: { kind: 'none' },
     sandboxProfile: { network: 'required', filesystem: 'read_only' },
   },
 ] as const satisfies readonly SemanticCapabilityDefinition[];

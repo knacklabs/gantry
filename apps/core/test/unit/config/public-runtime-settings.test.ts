@@ -93,4 +93,92 @@ describe('public runtime settings updates', () => {
       maxConcurrentPerSite: 2,
     });
   });
+
+  it('returns effective YOLO-mode denylist while persisting only user additions', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-settings-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const config = await loadConfigForRuntimeHome(runtimeHome);
+
+    const result = config.updatePublicRuntimeSettings({
+      permissions: {
+        yoloMode: {
+          denylist: ['npm run nuke'],
+          denylistPaths: ['/opt/danger/*'],
+        },
+        egress: {
+          denylist: ['API.LinkedIn.Com.'],
+        },
+      },
+    });
+
+    expect(result.changed).toEqual([
+      'permissions.yoloMode.denylist',
+      'permissions.yoloMode.denylistPaths',
+      'permissions.egress.denylist',
+    ]);
+    expect(result.settings.permissions.yoloMode.denylist).toEqual(
+      expect.arrayContaining(['rm -rf /', 'npm run nuke']),
+    );
+    expect(result.settings.permissions.yoloMode.denylistPaths).toEqual(
+      expect.arrayContaining(['/etc/*', '/opt/danger/*']),
+    );
+    expect(result.settings.permissions.egress.denylist).toEqual([
+      'api.linkedin.com',
+    ]);
+
+    const raw = fs.readFileSync(
+      path.join(runtimeHome, 'settings.yaml'),
+      'utf-8',
+    );
+    expect(raw).toContain('npm run nuke');
+    expect(raw).toContain('api.linkedin.com');
+    expect(raw).not.toContain('rm -rf /');
+  });
+
+  it('rejects malformed typed patch values before mutating settings', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-settings-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const config = await loadConfigForRuntimeHome(runtimeHome);
+
+    expect(() =>
+      config.updatePublicRuntimeSettings({
+        agent: { defaultModel: 1 as never },
+      }),
+    ).toThrow('agent.defaultModel must be a string.');
+    expect(() =>
+      config.updatePublicRuntimeSettings({
+        memory: { enabled: 'false' as never },
+      }),
+    ).toThrow('memory.enabled must be a boolean.');
+    expect(() =>
+      config.updatePublicRuntimeSettings({
+        permissions: { yoloMode: { enabled: 'false' as never } },
+      }),
+    ).toThrow('permissions.yoloMode.enabled must be a boolean.');
+    expect(() =>
+      config.updatePublicRuntimeSettings({
+        permissions: { egress: { denylist: [1 as never] } },
+      }),
+    ).toThrow('permissions.egress.denylist[0] must be a non-empty string.');
+    expect(() =>
+      config.updatePublicRuntimeSettings({
+        permissions: { egress: { denylist: ['https://api.example.com'] } },
+      }),
+    ).toThrow(
+      'permissions.egress.denylist[0] must be a hostname glob such as api.example.com or *.example.com.',
+    );
+
+    expect(config.getPublicRuntimeSettings().agent.defaultModel).toBe('');
+    expect(config.getPublicRuntimeSettings().memory.enabled).toBe(true);
+    expect(config.getPublicRuntimeSettings().permissions.yoloMode.enabled).toBe(
+      true,
+    );
+    expect(
+      config.getPublicRuntimeSettings().permissions.egress.denylist,
+    ).toEqual([]);
+  });
 });

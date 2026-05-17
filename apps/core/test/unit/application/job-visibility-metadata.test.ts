@@ -176,7 +176,7 @@ describe('job visibility metadata', () => {
           makeRun({
             status: 'dead_lettered',
             error_summary:
-              'Tool not on autonomous job allowlist: mcp__myclaw__browser_act. Recovery: request_permission { "toolName": "Browser" }',
+              'Tool not on autonomous run allowlist: mcp__myclaw__browser_act. Recovery: request_permission { "toolName": "Browser" }',
             result_summary: null,
           }),
         ]),
@@ -232,7 +232,32 @@ describe('job visibility metadata', () => {
       latestRunStatus: 'timeout',
       latestSummary: 'Scheduler run lease expired before completion.',
       nextAction:
-        'Narrow the job scope or update timeout_ms, then rerun the job.',
+        'Rerun with a longer job timeout if this work is expected to take more time.',
+    });
+  });
+
+  it('surfaces runtime restart health separately from configured timeouts', async () => {
+    const metadata = await buildJobListVisibilityMetadata({
+      jobs: [makeJob({ status: 'active' })],
+      ops: {
+        listJobRuns: vi.fn(async () => [
+          makeRun({
+            status: 'timeout',
+            result_summary: null,
+            error_summary: 'Scheduler runtime restarted before completion.',
+          }),
+        ]),
+      } as unknown as RuntimeJobRepository,
+      nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
+    });
+
+    expect(metadata.get('job-1')?.health).toMatchObject({
+      state: 'interrupted',
+      latestRunId: 'run-1',
+      latestRunStatus: 'timeout',
+      latestSummary: 'Scheduler runtime restarted before completion.',
+      nextAction:
+        'Rerun the job when ready. If this repeats without restarts, increase the job timeout.',
     });
   });
 

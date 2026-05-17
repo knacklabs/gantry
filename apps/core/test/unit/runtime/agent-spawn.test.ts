@@ -8,6 +8,14 @@ const OUTPUT_END_MARKER = '---MYCLAW_OUTPUT_END---';
 const mockGetBrowserStatus = vi.hoisted(() => vi.fn());
 const mockEnsureBrowserReady = vi.hoisted(() => vi.fn());
 const mockMaterializeClaudeRuntime = vi.hoisted(() => vi.fn());
+const mockEnsureEgressGateway = vi.hoisted(() =>
+  vi.fn(async () => ({
+    key: 'test-egress',
+    proxyUrl: 'http://127.0.0.1:18080/',
+    port: 18080,
+  })),
+);
+const mockCloseEgressGateway = vi.hoisted(() => vi.fn(async () => undefined));
 
 // Mock config
 vi.mock('@core/config/index.js', () => ({
@@ -30,6 +38,18 @@ vi.mock('@core/config/index.js', () => ({
       ? { model: groupModel, source: 'group.agentConfig.model' }
       : { source: 'unset' },
   ),
+  getRuntimeSettingsForConfig: vi.fn(() => ({
+    permissions: {
+      yoloMode: {
+        enabled: true,
+        denylist: [],
+        denylistPaths: [],
+      },
+      egress: {
+        denylist: [],
+      },
+    },
+  })),
 }));
 
 // Mock logger
@@ -72,7 +92,6 @@ vi.mock('@core/runtime/agent-spawn-host.js', () => ({
   }),
   prepareHostRuntimeContext: vi.fn(() => ({
     groupDir: '/tmp/myclaw-test-data/agents/test-group',
-    globalDir: '/tmp/myclaw-test-data/agents/shared',
     groupIpcDir: '/tmp/myclaw-test-data/ipc/test-group',
     runnerDistDir: '/tmp/myclaw-home/dist/runner',
   })),
@@ -115,10 +134,18 @@ vi.mock('@core/runtime/agent-spawn-layout.js', () => ({
 }));
 
 // Mock prompt-profile
-vi.mock('@core/runtime/prompt-profile.js', () => ({
-  getPromptProfileService: vi.fn(() => ({
-    compileSystemPrompt: vi.fn(() => ''),
-  })),
+vi.mock('@core/application/agents/prompt-profile-service.js', () => ({
+  PromptProfileService: vi.fn(function PromptProfileService() {
+    return {
+      compileSystemPrompt: vi.fn(() => ''),
+    };
+  }),
+  promptProfileAgentIdForFolder: (agentFolder: string) =>
+    `agent:${agentFolder}`,
+}));
+
+vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  getRuntimeFileArtifactStore: vi.fn(() => ({})),
 }));
 
 // Mock platform
@@ -133,6 +160,11 @@ vi.mock('@core/runtime/browser-capability.js', () => ({
   ensureBrowserReady: (...args: unknown[]) => mockEnsureBrowserReady(...args),
   getBrowserStatus: (...args: unknown[]) => mockGetBrowserStatus(...args),
   getKnownBrowserStatus: (...args: unknown[]) => mockGetBrowserStatus(...args),
+}));
+
+vi.mock('@core/runtime/egress-gateway.js', () => ({
+  closeEgressGateway: (...args: unknown[]) => mockCloseEgressGateway(...args),
+  ensureEgressGateway: (...args: unknown[]) => mockEnsureEgressGateway(...args),
 }));
 
 // Create a controllable fake ChildProcess
@@ -169,7 +201,7 @@ import { getEffectiveModelConfig } from '@core/config/index.js';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import type { ConversationRoute } from '@core/domain/types.js';
-import { getPromptProfileService } from '@core/runtime/prompt-profile.js';
+import { PromptProfileService } from '@core/application/agents/prompt-profile-service.js';
 import { logger } from '@core/infrastructure/logging/logger.js';
 import { getHostRuntimeCredentialEnv } from '@core/runtime/agent-spawn-host.js';
 import { createSignedIpcRequestEnvelope } from '@core/runner/mcp/signing.js';
@@ -341,6 +373,8 @@ describe('agent-spawn timeout behavior', () => {
       brokerProfile: 'none',
     });
     mockEnsureGroupIpcLayout.mockClear();
+    mockEnsureEgressGateway.mockClear();
+    mockCloseEgressGateway.mockClear();
     mockGetBrowserStatus.mockReset();
     mockEnsureBrowserReady.mockReset();
     mockGetBrowserStatus.mockResolvedValue({
@@ -359,10 +393,6 @@ describe('agent-spawn timeout behavior', () => {
         `${input.groupDir}/.claude/settings.json`,
         `${input.groupDir}/.claude/skills`,
         `${input.groupDir}/skills`,
-        `${input.globalDir}/.mcp.json`,
-        `${input.globalDir}/.claude/settings.json`,
-        `${input.globalDir}/.claude/skills`,
-        `${input.globalDir}/skills`,
         `${input.packageRoot}/.claude/skills`,
         `${input.packageRoot}/.codex/skills`,
         `${input.packageRoot}/.agents/skills`,
@@ -803,9 +833,13 @@ describe('agent-spawn timeout behavior', () => {
   });
 
   it('passes compiled system prompt through runner stdin for normal message runs', async () => {
-    vi.mocked(getPromptProfileService).mockReturnValueOnce({
-      compileSystemPrompt: vi.fn(() => 'compiled profile prompt'),
-    } as any);
+    vi.mocked(PromptProfileService).mockImplementationOnce(
+      function PromptProfileService() {
+        return {
+          compileSystemPrompt: vi.fn(() => 'compiled profile prompt'),
+        };
+      } as never,
+    );
     const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
 
     const resultPromise = spawnAgent(testGroup, testInput, () => {});
@@ -848,9 +882,13 @@ describe('agent-spawn timeout behavior', () => {
   });
 
   it('keeps memory-derived injection text out of compiled system prompt assembly', async () => {
-    vi.mocked(getPromptProfileService).mockReturnValueOnce({
-      compileSystemPrompt: vi.fn(() => 'static profile only'),
-    } as any);
+    vi.mocked(PromptProfileService).mockImplementationOnce(
+      function PromptProfileService() {
+        return {
+          compileSystemPrompt: vi.fn(() => 'static profile only'),
+        };
+      } as never,
+    );
     const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
 
     const resultPromise = spawnAgent(
@@ -906,10 +944,16 @@ describe('agent-spawn timeout behavior', () => {
         ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
         HTTP_PROXY: 'http://x:aoc_1234567890abcdef@127.0.0.1:10255/',
         HTTPS_PROXY: 'http://x:aoc_1234567890abcdef@127.0.0.1:10255/',
+        http_proxy: 'http://x:aoc_lowercase@127.0.0.1:10255/',
+        https_proxy: 'http://x:aoc_lowercase@127.0.0.1:10255/',
         NODE_USE_ENV_PROXY: '1',
         NODE_EXTRA_CA_CERTS: '/tmp/onecli-ca.pem',
       },
       credentialProviders: {},
+      proxy: {
+        http: 'http://x:aoc_1234567890abcdef@127.0.0.1:10255/',
+        https: 'http://x:aoc_1234567890abcdef@127.0.0.1:10255/',
+      },
       brokerApplied: true,
       brokerProfile: 'onecli',
     });
@@ -933,10 +977,25 @@ describe('agent-spawn timeout behavior', () => {
     const runnerInput = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
     expect(runnerInput.modelCredentialEnv).toMatchObject({
       ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
-      HTTP_PROXY: 'http://x:aoc_1234567890abcdef@127.0.0.1:10255/',
-      HTTPS_PROXY: 'http://x:aoc_1234567890abcdef@127.0.0.1:10255/',
+      HTTP_PROXY: 'http://127.0.0.1:18080/',
+      HTTPS_PROXY: 'http://127.0.0.1:18080/',
+      http_proxy: 'http://127.0.0.1:18080/',
+      https_proxy: 'http://127.0.0.1:18080/',
       NODE_USE_ENV_PROXY: '1',
       NODE_EXTRA_CA_CERTS: '/tmp/onecli-ca.pem',
+    });
+    expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
+      expect.objectContaining({
+        upstreamProxy: {
+          provider: 'onecli',
+          url: 'http://x:aoc_1234567890abcdef@127.0.0.1:10255/',
+        },
+      }),
+    );
+    expect(mockCloseEgressGateway).toHaveBeenCalledWith({
+      key: 'test-egress',
+      proxyUrl: 'http://127.0.0.1:18080/',
+      port: 18080,
     });
     expect(env.NO_PROXY.split(',')).toEqual(
       expect.arrayContaining([
@@ -975,7 +1034,13 @@ describe('agent-spawn timeout behavior', () => {
     >;
     expect(env.OPENAI_API_KEY).toBeUndefined();
     const runnerInput = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
-    expect(runnerInput.modelCredentialEnv).toBeUndefined();
+    expect(runnerInput.modelCredentialEnv).toEqual({
+      HTTP_PROXY: 'http://127.0.0.1:18080/',
+      HTTPS_PROXY: 'http://127.0.0.1:18080/',
+      http_proxy: 'http://127.0.0.1:18080/',
+      https_proxy: 'http://127.0.0.1:18080/',
+      NODE_USE_ENV_PROXY: '1',
+    });
   });
 
   it('materializes approved third-party stdio MCP servers through direct SDK MCP config', async () => {
@@ -1190,9 +1255,6 @@ describe('agent-spawn timeout behavior', () => {
         '/tmp/myclaw-test-data/agents/test-group/.claude/settings.json',
         '/tmp/myclaw-test-data/agents/test-group/.claude/skills',
         '/tmp/myclaw-test-data/agents/test-group/skills',
-        '/tmp/myclaw-test-data/agents/shared/.mcp.json',
-        '/tmp/myclaw-test-data/agents/shared/.claude/settings.json',
-        '/tmp/myclaw-test-data/agents/shared/skills',
         '/tmp/myclaw-home/dist/runner/claude/.claude/skills',
         '/tmp/myclaw-home/dist/runner/claude/.codex/skills',
         '/tmp/myclaw-home/dist/runner/claude/.agents/skills',
@@ -1461,11 +1523,15 @@ describe('agent-spawn timeout behavior', () => {
 
   it('continues without custom system prompt when compileSystemPrompt throws (line 70)', async () => {
     // Make compileSystemPrompt throw
-    vi.mocked(getPromptProfileService).mockReturnValueOnce({
-      compileSystemPrompt: vi.fn(() => {
-        throw new Error('Bad template');
-      }),
-    } as any);
+    vi.mocked(PromptProfileService).mockImplementationOnce(
+      function PromptProfileService() {
+        return {
+          compileSystemPrompt: vi.fn(() => {
+            throw new Error('Bad template');
+          }),
+        };
+      } as never,
+    );
 
     const resultPromise = spawnAgent(testGroup, testInput, () => {});
     await vi.advanceTimersByTimeAsync(10);
@@ -1482,7 +1548,7 @@ describe('agent-spawn timeout behavior', () => {
     const result = await resultPromise;
     expect(result.status).toBe('success');
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ groupFolder: 'test-group' }),
+      expect.objectContaining({ agentFolder: 'test-group' }),
       'Failed to compile prompt profile; continuing without custom system prompt',
     );
   });

@@ -4,6 +4,7 @@ import type {
   RuntimeEventId,
   RuntimeEventPublishInput,
 } from '../../domain/events/events.js';
+import { normalizeRuntimeEventConversationId } from '../../domain/events/runtime-event-conversation.js';
 import type { RuntimeEventRepository } from '../../domain/ports/repositories.js';
 import { runtimeEventMatchesFilter } from '../../domain/events/runtime-event-filter.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
@@ -25,22 +26,48 @@ export class RuntimeEventExchange {
   ) {}
 
   async publish(input: RuntimeEventPublishInput): Promise<RuntimeEvent> {
-    const event = await this.repository.appendRuntimeEvent(input);
+    const event = await this.repository.appendRuntimeEvent(
+      normalizeRuntimeEventPublishInput(input),
+    );
     await this.notifier.notify(event);
     return event;
   }
 
   list(filter: RuntimeEventFilter): Promise<RuntimeEvent[]> {
-    return this.repository.listRuntimeEvents(filter);
+    return this.repository.listRuntimeEvents(
+      normalizeRuntimeEventFilter(filter),
+    );
   }
 
   subscribe(filter: RuntimeEventFilter): RuntimeEventSubscription {
     return new DurableRuntimeEventSubscription(
       this.repository,
       this.notifier,
-      filter,
+      normalizeRuntimeEventFilter(filter),
     );
   }
+}
+
+function normalizeRuntimeEventPublishInput(
+  input: RuntimeEventPublishInput,
+): RuntimeEventPublishInput {
+  const conversationId = normalizeRuntimeEventConversationId(
+    input.conversationId,
+  );
+  return conversationId === input.conversationId
+    ? input
+    : { ...input, conversationId };
+}
+
+function normalizeRuntimeEventFilter(
+  filter: RuntimeEventFilter,
+): RuntimeEventFilter {
+  const conversationId = normalizeRuntimeEventConversationId(
+    filter.conversationId,
+  );
+  return conversationId === filter.conversationId
+    ? filter
+    : { ...filter, conversationId };
 }
 
 const MAX_SUBSCRIPTION_WAKE_WAIT_MS = 15_000;

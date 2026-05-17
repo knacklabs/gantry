@@ -199,12 +199,50 @@ export const JobRequiredMcpServersSchema = z
   .default([]);
 export type JobRequiredMcpServers = z.infer<typeof JobRequiredMcpServersSchema>;
 
+export const JobCapabilityRequirementImplementationSchema = z
+  .object({
+    kind: z.enum([
+      'configured_access',
+      'local_cli',
+      'mcp_server',
+      'builtin_tool',
+    ]),
+    name: z.string().min(1).optional(),
+    executablePath: z.string().min(1).optional(),
+    commandTemplate: z.string().min(1).optional(),
+    authPreflight: z.string().min(1).optional(),
+    protectedPaths: z.array(z.string().min(1)).optional(),
+  })
+  .strict();
+export type JobCapabilityRequirementImplementation = z.infer<
+  typeof JobCapabilityRequirementImplementationSchema
+>;
+
+export const JobCapabilityRequirementSchema = z
+  .object({
+    capabilityId: z.string().min(1),
+    reason: z.string().min(1),
+    implementation: JobCapabilityRequirementImplementationSchema.optional(),
+  })
+  .strict();
+export type JobCapabilityRequirement = z.infer<
+  typeof JobCapabilityRequirementSchema
+>;
+
+export const JobCapabilityRequirementsSchema = z
+  .array(JobCapabilityRequirementSchema)
+  .default([]);
+export type JobCapabilityRequirements = z.infer<
+  typeof JobCapabilityRequirementsSchema
+>;
+
 export const CreateJobRequestSchema = z
   .object({
     name: z.string().min(1),
     prompt: z.string().min(1),
     executionContext: JobRequestExecutionContextSchema,
     notificationRoutes: z.array(JobNotificationRouteSchema).optional(),
+    capabilityRequirements: z.array(JobCapabilityRequirementSchema).optional(),
     requiredTools: z.array(z.string().min(1)).optional(),
     requiredMcpServers: z.array(z.string().min(1)).optional(),
     kind: z.enum(['manual', 'once', 'recurring']).optional(),
@@ -232,6 +270,7 @@ export const UpdateJobRequestSchema = z
     prompt: z.string().min(1).optional(),
     executionContext: JobRequestExecutionContextSchema.optional(),
     notificationRoutes: z.array(JobNotificationRouteSchema).optional(),
+    capabilityRequirements: z.array(JobCapabilityRequirementSchema).optional(),
     requiredTools: z.array(z.string().min(1)).optional(),
     requiredMcpServers: z.array(z.string().min(1)).optional(),
     status: z.enum(['active', 'paused']).optional(),
@@ -267,6 +306,7 @@ export const JobResponseSchema = z
       .nullable(),
     executionContext: JobExecutionContextSchema,
     notificationRoutes: z.array(JobNotificationRouteSchema),
+    capabilityRequirements: z.array(JobCapabilityRequirementSchema),
     requiredTools: z.array(z.string()),
     requiredMcpServers: z.array(z.string()),
     setup: JobSetupSchema.optional(),

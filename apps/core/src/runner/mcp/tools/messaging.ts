@@ -13,6 +13,8 @@ import {
   writePrivateFileSync,
 } from '../../../shared/private-fs.js';
 import {
+  agentId,
+  appId,
   chatJid,
   groupFolder,
   IPC_AUTH_TOKEN,
@@ -186,6 +188,8 @@ export function registerMessagingTools(server: McpServer): void {
         sourceAgentFolder: groupFolder,
         questions: args.questions,
         context: {
+          ...(appId ? { appId } : {}),
+          ...(agentId ? { agentId } : {}),
           ...(threadId ? { threadId } : {}),
           ...(IPC_RESPONSE_KEY_ID
             ? { responseKeyId: IPC_RESPONSE_KEY_ID }

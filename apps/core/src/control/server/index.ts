@@ -10,6 +10,7 @@ import {
   getDefaultModelConfig,
   getPublicRuntimeSettings,
   syncRuntimeSettingsFromProjection,
+  updatePublicRuntimeSettings,
 } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
@@ -73,10 +74,47 @@ function applyControlSocketMode(
   }
 }
 
+function getErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('code' in error)) {
+    return undefined;
+  }
+  const code = error.code;
+  return typeof code === 'string' ? code : undefined;
+}
+
+function isControlClientDisconnectError(error: unknown): boolean {
+  const code = getErrorCode(error);
+  return (
+    code === 'ECONNRESET' ||
+    code === 'EPIPE' ||
+    code === 'ERR_STREAM_PREMATURE_CLOSE'
+  );
+}
+
+function logControlStreamError(error: unknown, path: string): void {
+  if (isControlClientDisconnectError(error)) {
+    logger.debug({ err: error, path }, 'Control client disconnected');
+    return;
+  }
+  logger.warn({ err: error, path }, 'Control request stream error');
+}
+
+function sendControlError(
+  res: http.ServerResponse,
+  status: number,
+  code: string,
+  message: string,
+): void {
+  if (res.destroyed || res.writableEnded) return;
+  sendError(res, status, code, message);
+}
+
 function createControlRequestHandler(ctx: ControlRouteContext) {
   return async (req: http.IncomingMessage, res: http.ServerResponse) => {
     const url = new URL(req.url || '/', 'http://localhost');
     const pathname = url.pathname;
+    req.on('error', (error) => logControlStreamError(error, pathname));
+    res.on('error', (error) => logControlStreamError(error, pathname));
 
     try {
       if (await handleSystemRoutes(req, res, ctx, pathname)) return;
@@ -95,7 +133,7 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
       if (await handleMcpServerRoutes(req, res, ctx, url, pathname)) return;
       if (await handleWebhookRoutes(req, res, ctx, pathname)) return;
 
-      sendError(res, 404, 'NOT_FOUND', 'Route not found');
+      sendControlError(res, 404, 'NOT_FOUND', 'Route not found');
     } catch (error) {
       if (
         error &&
@@ -107,7 +145,7 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
           'code' in error && typeof error.code === 'string'
             ? error.code
             : 'INVALID_REQUEST';
-        sendError(
+        sendControlError(
           res,
           error.statusCode,
           errorCode,
@@ -119,7 +157,12 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
         { err: error, path: pathname },
         'Control server request failed',
       );
-      sendError(res, 500, 'INTERNAL_ERROR', 'Control server request failed');
+      sendControlError(
+        res,
+        500,
+        'INTERNAL_ERROR',
+        'Control server request failed',
+      );
     }
   };
 }
@@ -152,6 +195,8 @@ export function startControlServer(input: {
     state,
     triggerRateLimiter: createRateLimiter(),
     getRuntimeSettings: () => getPublicRuntimeSettings(),
+    updateRuntimeSettings: (patch) =>
+      updatePublicRuntimeSettings(patch as never),
     getDefaultModelConfig,
     getBrowserStatus: input.getBrowserStatus,
     syncSettingsFromProjection: (appId: AppId) =>
@@ -165,6 +210,14 @@ export function startControlServer(input: {
   };
 
   const server = http.createServer(createControlRequestHandler(ctx));
+  server.on('clientError', (error, socket) => {
+    if (isControlClientDisconnectError(error)) {
+      logger.debug({ err: error }, 'Control client socket disconnected');
+    } else {
+      logger.warn({ err: error }, 'Control client socket error');
+    }
+    socket.destroy();
+  });
 
   if (port > 0) {
     server.listen(port, '127.0.0.1');
@@ -247,6 +300,7 @@ export const _testControlServer = {
   parseControlApiKeysStrict,
   canAccessApp,
   applyControlSocketMode,
+  isControlClientDisconnectError,
   isValidControlId,
   isPrivateAddress,
   makeAppGroup,

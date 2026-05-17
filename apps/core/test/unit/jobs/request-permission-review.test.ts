@@ -61,6 +61,75 @@ describe('request permission review helpers', () => {
     ]);
   });
 
+  it('prefers explicit scoped Bash permission over capability metadata on setup requests', () => {
+    expect(
+      requestPermissionReviewSuggestions({
+        permissionKind: 'tool',
+        toolNames: ['Bash'],
+        rule: '/usr/local/bin/gog sheets append *',
+        capabilityId: 'google.sheets.write',
+        capabilityDisplayName: 'Google Sheets write using gog',
+        temporaryOnly: false,
+      }),
+    ).toEqual([
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [
+          {
+            toolName: 'Bash',
+            ruleContent: '/usr/local/bin/gog sheets append *',
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('canonicalizes interpreter script requests to script-path scoped Bash rules', () => {
+    expect(
+      requestPermissionReviewSuggestions({
+        permissionKind: 'tool',
+        toolName: 'Bash',
+        rule: 'python3 /Users/example/scripts/dedup-append-lead.py *',
+        temporaryOnly: false,
+      }),
+    ).toEqual([
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [
+          {
+            toolName: 'Bash',
+            ruleContent: '/Users/example/scripts/dedup-append-lead.py *',
+          },
+        ],
+      },
+    ]);
+
+    expect(
+      requestPermissionReviewSuggestions({
+        permissionKind: 'tool',
+        toolName: 'Bash',
+        rule: 'python3 /Users/example/scripts/dedup-append-lead.py',
+        temporaryOnly: false,
+      }),
+    ).toEqual([
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [
+          {
+            toolName: 'Bash',
+            ruleContent: '/Users/example/scripts/dedup-append-lead.py *',
+          },
+        ],
+      },
+    ]);
+  });
+
   it('treats local CLI capability proposals as review-only drafts until runtime enforcement exists', async () => {
     const repository = {
       getTool: vi.fn(async () => null),
@@ -107,6 +176,58 @@ describe('request permission review helpers', () => {
             type: 'addRules',
             behavior: 'allow',
             rules: [{ toolName: 'capability:acme.invoices.read' }],
+          },
+        ],
+      }),
+    ).rejects.toThrow('Local CLI capabilities are draft-only');
+    expect(repository.saveTool).not.toHaveBeenCalled();
+    expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
+  });
+
+  it('does not let local CLI proposals for built-in capabilities become configured-access grants', async () => {
+    const repository = {
+      getTool: vi.fn(async () => null),
+      listTools: vi.fn(async () => []),
+      listAgentToolBindings: vi.fn(async () => []),
+      saveTool: vi.fn(async () => undefined),
+      saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+    const toolInput = {
+      capabilityId: 'google.sheets.write',
+      capabilityDisplayName: 'Google Sheets write using gog',
+      category: 'Google Sheets',
+      risk: 'write',
+      accountLabel: 'gog',
+      can: 'Append rows using gog.',
+      cannot: 'Use configured broker Google access.',
+      credentialSource: 'local_cli',
+      executablePath: '/usr/local/bin/gog',
+      executableVersion: '1.2.3',
+      executableHash: 'sha256:gog',
+      commandTemplates: ['/usr/local/bin/gog sheets append *'],
+    };
+
+    expect(
+      requestPermissionReviewSuggestions({
+        permissionKind: 'tool',
+        temporaryOnly: false,
+        ...toolInput,
+      }),
+    ).toBeUndefined();
+
+    await expect(
+      persistRequestPermissionRules({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
+        deps: depsWith(repository),
+        sourceAgentFolder: 'main_agent',
+        toolInput,
+        updates: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'capability:google.sheets.write' }],
           },
         ],
       }),
@@ -440,6 +561,28 @@ describe('request permission review helpers', () => {
         behavior: 'allow',
         destination: 'session',
         rules: [{ toolName: 'Bash', ruleContent: 'npm test *' }],
+      },
+    ]);
+
+    expect(
+      requestPermissionReviewSuggestions({
+        permissionKind: 'tool',
+        toolName: 'Bash',
+        rule: 'python3 /Users/example/runtime/scripts/dedup-append-lead.py',
+        temporaryOnly: false,
+      }),
+    ).toEqual([
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [
+          {
+            toolName: 'Bash',
+            ruleContent:
+              '/Users/example/runtime/scripts/dedup-append-lead.py *',
+          },
+        ],
       },
     ]);
   });

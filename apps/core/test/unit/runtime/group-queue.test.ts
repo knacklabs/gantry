@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { GroupQueue } from '@core/runtime/group-queue.js';
+import { activeRunStopWasRequested } from '@core/runtime/group-queue-stop.js';
 
 // Mock config for DATA_DIR used by sendMessage/closeStdin helpers.
 vi.mock('@core/config/index.js', () => ({
@@ -1349,6 +1350,7 @@ describe('GroupQueue', () => {
     const killSpy = vi.spyOn(process, 'kill').mockReturnValue(true as never);
     expect(queue.stopGroup('group1@g.us')).toBe(true);
     expect(killSpy).toHaveBeenCalledWith(-4242, 'SIGTERM');
+    expect(activeRunStopWasRequested(mockProcess)).toBe(true);
     killSpy.mockRestore();
 
     resolveProcess!();

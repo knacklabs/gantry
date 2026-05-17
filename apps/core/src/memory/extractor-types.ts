@@ -41,6 +41,7 @@ export interface MemoryExtractionResult {
   facts: ExtractedMemoryFact[];
   status: MemoryExtractionStatus;
   zeroFactReason?: string;
+  generatedMemory?: string;
 }
 
 export type ExtractableMemoryKind = Extract<

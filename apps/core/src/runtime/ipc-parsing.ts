@@ -417,6 +417,9 @@ export function parsePermissionIpcRequest(
     throw new Error('permission IPC jobId mismatch');
   }
   const jobId = payloadJobId ?? contextJobId;
+  const jobName =
+    toTrimmedString(raw.jobName, { maxLen: 200 }) ??
+    toTrimmedString(context?.jobName, { maxLen: 200 });
   const payloadRunId = toTrimmedString(raw.runId, { maxLen: 200 });
   const contextRunId = toTrimmedString(context?.runId, { maxLen: 200 });
   if (payloadRunId && contextRunId && payloadRunId !== contextRunId) {
@@ -446,6 +449,7 @@ export function parsePermissionIpcRequest(
     ...(responseNonce ? { responseNonce } : {}),
     sourceAgentFolder,
     ...(jobId ? { jobId } : {}),
+    ...(jobName ? { jobName } : {}),
     ...(runId ? { runId } : {}),
     ...(targetJid ? { targetJid } : {}),
     ...(binding.authThreadId ? { threadId: binding.authThreadId } : {}),

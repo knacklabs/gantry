@@ -151,7 +151,12 @@ export async function collectDurableMemoryFromRepositories(input: {
   const facts = extraction.facts;
   const now = (input.nowIso ?? (() => nowIso()))();
   const digestId = `msd_${randomUUID().replace(/-/g, '')}`;
-  const digestText = buildDigestText(input.trigger, turns, facts);
+  const digestText = buildDigestText(
+    input.trigger,
+    turns,
+    facts,
+    extraction.generatedMemory,
+  );
   await input.repositories.sessionDigests.saveAgentSessionDigest({
     id: digestId as AgentSessionDigest['id'],
     appId: session.appId,
@@ -299,6 +304,7 @@ function buildDigestText(
   trigger: Parameters<SessionMemoryCollector>[0]['trigger'],
   turns: Array<{ role: 'user' | 'assistant'; text: string }>,
   facts: ExtractedMemoryFact[],
+  generatedMemory?: string,
 ): string {
   const tail = turns
     .slice(-8)
@@ -314,6 +320,9 @@ function buildDigestText(
         `- ${fact.kind} ${sanitizeDigestLine(fact.key, 80)}: ${sanitizeDigestLine(fact.value, 140)}`,
     )
     .join('\n');
+  const generatedMemoryLine = generatedMemory?.trim()
+    ? sanitizeDigestLine(generatedMemory, 500)
+    : '';
   return [
     `Memory boundary digest (${trigger})`,
     '',
@@ -325,6 +334,9 @@ function buildDigestText(
     '',
     'Extracted facts:',
     factLines || '- none',
+    '',
+    'Generated memory:',
+    generatedMemoryLine || '- none',
   ].join('\n');
 }
 

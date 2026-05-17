@@ -149,7 +149,9 @@ describe('runtime admin IPC handlers', () => {
     expect(readResponse(runtimeHome, 'settings-read')).toMatchObject({
       ok: false,
       code: 'missing_capability',
-      error: expect.stringContaining('request_permission'),
+      error: expect.stringContaining(
+        'Ask a configured conversation approver to approve mcp__myclaw__settings_desired_state, then choose Always allow.',
+      ),
     });
   });
 
@@ -178,7 +180,9 @@ describe('runtime admin IPC handlers', () => {
     expect(readResponse(runtimeHome, 'settings-update')).toMatchObject({
       ok: false,
       code: 'missing_capability',
-      error: expect.stringContaining('request_permission'),
+      error: expect.stringContaining(
+        'Ask a configured conversation approver to approve mcp__myclaw__request_settings_update, then choose Always allow.',
+      ),
     });
   });
 

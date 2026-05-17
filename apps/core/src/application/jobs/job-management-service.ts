@@ -4,15 +4,15 @@ import type { Clock } from '../common/clock.js';
 // prettier-ignore
 import { DEFAULT_JOB_RUNTIME_APP_ID, filterJobsByCanonicalAppSession, resolveJobAppSession } from './job-access.js';
 import { isVisibleJob } from './job-list-filters.js';
-// prettier-ignore
-import { assertSchedulerJobAccess, normalizeOptional, validateSchedulerUpdate } from './job-management-access.js';
+import {
+  assertSchedulerJobAccess,
+  normalizeOptional,
+} from './job-management-access.js';
 import { createManagedJob } from './job-management-create.js';
 import {
   assertExecutionContextMatchesAuthenticatedContext,
   authenticatedContextFromAccess,
-  buildJobUpdates,
   encodeTriggerRequester,
-  normalizeExecutionContext,
   normalizeNotificationRoutes,
   normalizeStoredNotificationRoutes,
   normalizeScheduleType,
@@ -38,8 +38,7 @@ import type {
   ManagedJobTriggerInput,
   ManagedJobTriggerWaitInput,
 } from './job-management-types.js';
-// prettier-ignore
-import { resolveOptionalJobModel, resolveRequestedJobModel } from './job-model-selection.js';
+import { resolveRequestedJobModel } from './job-model-selection.js';
 // prettier-ignore
 import { requireJobControl, requireRuntimeEvents, requireTriggerQueue } from './job-management-require.js';
 import { runSchedulerJobNowFromMcp } from './job-management-run-now.js';
@@ -47,10 +46,12 @@ import { runSchedulerJobNowFromMcp } from './job-management-run-now.js';
 import { listManagedDeadLetterRuns, listManagedJobEvents, listManagedJobRuns } from './job-management-read-queries.js';
 import {
   normalizeRequiredMcpServers,
-  normalizeRequiredMcpServersInput,
   normalizeRequiredTools,
-  normalizeRequiredToolsInput,
 } from './job-required-tools.js';
+import {
+  capabilityRequirementToolRules,
+  normalizeCapabilityRequirements,
+} from './job-capability-requirements.js';
 import {
   applyJobReadinessToUpdates,
   evaluateManagedJobReadiness,
@@ -59,10 +60,10 @@ import {
   setupBlockerDetails,
 } from './job-management-readiness.js';
 import { waitForTriggerCompletion } from './job-management-trigger-wait.js';
-// prettier-ignore
-import { assertJobAppAccess, resolveAuthenticatedRouteContextForUpdate } from './job-management-context-access.js';
+import { assertJobAppAccess } from './job-management-context-access.js';
 import { createJobVisibilityReaders } from './job-management-visibility-readers.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import { updateManagedJob } from './job-management-update.js';
 
 const DEFAULT_JOB_LIST_LIMIT = 100;
 const MAX_JOB_LIST_LIMIT = 500;
@@ -144,6 +145,13 @@ export class JobManagementService {
       ],
     );
     const requiredTools = normalizeRequiredTools(input.requiredTools ?? []);
+    const capabilityRequirements = normalizeCapabilityRequirements(
+      input.capabilityRequirements ?? [],
+    );
+    const effectiveRequiredTools = normalizeRequiredTools([
+      ...requiredTools,
+      ...capabilityRequirementToolRules(capabilityRequirements),
+    ]);
     const requiredMcpServers = normalizeRequiredMcpServers(
       input.requiredMcpServers ?? [],
     );
@@ -210,7 +218,8 @@ export class JobManagementService {
       max_consecutive_failures: input.maxConsecutiveFailures,
       execution_context: storedExecutionContext,
       notification_routes: requestedNotificationRoutes,
-      required_tools: requiredTools,
+      capability_requirements: capabilityRequirements,
+      required_tools: effectiveRequiredTools,
       required_mcp_servers: requiredMcpServers,
     };
     const readiness = await evaluateManagedJobReadiness({
@@ -290,139 +299,7 @@ export class JobManagementService {
   }
 
   async updateJob(input: ManagedJobUpdateInput): Promise<{ job: Job }> {
-    const job = await this.requireJob(input.jobId);
-    await this.assertAccess(job, input);
-    const patch = { ...input.patch };
-    const targetGroupScope = patch.groupScope ?? job.group_scope;
-    if (typeof patch.model === 'string')
-      patch.model = resolveOptionalJobModel(patch.model);
-    const authenticatedContext =
-      await resolveAuthenticatedRouteContextForUpdate({
-        deps: this.deps,
-        job,
-        appId: input.appId,
-        access: input.access,
-        groupScope: targetGroupScope,
-        patchExecutionContext: patch.executionContext,
-      });
-    const normalizedExecutionContext =
-      patch.executionContext === undefined
-        ? undefined
-        : normalizeExecutionContext(patch.executionContext);
-    if (normalizedExecutionContext && !authenticatedContext) {
-      throw new ApplicationError(
-        'FORBIDDEN',
-        'Cannot authorize executionContext changes without authenticated job context.',
-      );
-    }
-    if (
-      normalizedExecutionContext &&
-      authenticatedContext &&
-      (normalizedExecutionContext.conversationJid !==
-        authenticatedContext.conversationJid ||
-        normalizedExecutionContext.groupScope !==
-          authenticatedContext.groupScope ||
-        (input.access &&
-          (normalizedExecutionContext.threadId ?? null) !==
-            (authenticatedContext.threadId ?? null)))
-    ) {
-      throw new ApplicationError(
-        'FORBIDDEN',
-        'executionContext must match the authenticated job context.',
-      );
-    }
-    const normalizedNotificationRoutes =
-      patch.notificationRoutes === undefined
-        ? undefined
-        : normalizeNotificationRoutes(patch.notificationRoutes);
-    const normalizedRequiredTools = normalizeRequiredToolsInput(
-      patch.requiredTools,
-      'requiredTools',
-    );
-    const normalizedRequiredMcpServers = normalizeRequiredMcpServersInput(
-      patch.requiredMcpServers,
-      'requiredMcpServers',
-    );
-    if (normalizedNotificationRoutes) {
-      if (!authenticatedContext) {
-        throw new ApplicationError(
-          'FORBIDDEN',
-          'Cannot authorize notification route changes without authenticated job context.',
-        );
-      }
-      await requireJobNotificationRouteApproval({
-        deps: this.deps as never,
-        request: {
-          operation: 'update',
-          jobId: job.id,
-          jobName: patch.name ?? job.name,
-          authenticatedContext,
-          requestedRoutes: normalizedNotificationRoutes,
-          existingRoutes: normalizeStoredNotificationRoutes(
-            job.notification_routes,
-          ),
-          routesBeyondContext: routesBeyondAuthenticatedContext({
-            routes: normalizedNotificationRoutes,
-            authenticatedContext,
-          }),
-        },
-      });
-    }
-    const updates = buildJobUpdates(
-      job,
-      {
-        ...patch,
-        ...(normalizedExecutionContext
-          ? { executionContext: normalizedExecutionContext }
-          : {}),
-        ...(normalizedNotificationRoutes
-          ? { notificationRoutes: normalizedNotificationRoutes }
-          : {}),
-        ...(normalizedRequiredTools !== undefined
-          ? { requiredTools: normalizedRequiredTools }
-          : {}),
-        ...(normalizedRequiredMcpServers !== undefined
-          ? { requiredMcpServers: normalizedRequiredMcpServers }
-          : {}),
-      },
-      this.deps.schedulePlanner,
-      this.clock(),
-    );
-    if (input.access) {
-      validateSchedulerUpdate(job, updates, input.access);
-    }
-    if (Object.keys(updates).length === 0) return { job };
-    const mergedForReadiness = { ...job, ...updates };
-    let readinessForSetupEvent:
-      | Awaited<ReturnType<typeof evaluateManagedJobReadiness>>
-      | undefined;
-    if (
-      mergedForReadiness.status === 'active' ||
-      normalizedRequiredTools !== undefined ||
-      normalizedRequiredMcpServers !== undefined
-    ) {
-      const readiness = await evaluateManagedJobReadiness({
-        deps: this.deps,
-        job: mergedForReadiness,
-        appId: input.appId,
-      });
-      applyJobReadinessToUpdates(updates, readiness, {
-        clearPauseWhenActive: true,
-        mergedStatus: mergedForReadiness.status,
-      });
-      readinessForSetupEvent = readiness.ready ? undefined : readiness;
-    }
-    await this.deps.ops.updateJob(job.id, updates);
-    if (readinessForSetupEvent) {
-      await recordJobSetupRequired({
-        deps: this.deps,
-        job: { ...job, ...updates },
-        readiness: readinessForSetupEvent,
-        appId: input.appId,
-      });
-    }
-    this.deps.scheduler.requestSchedulerSync(job.id);
-    return { job: { ...job, ...updates } };
+    return updateManagedJob(this.deps, input, this.clock());
   }
 
   async deleteJob(input: ManagedJobDeleteInput): Promise<{ deleted: true }> {

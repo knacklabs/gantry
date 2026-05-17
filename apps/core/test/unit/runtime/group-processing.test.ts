@@ -890,7 +890,7 @@ describe('createGroupProcessor', () => {
   // =======================================================================
 
   describe('Postgres-authoritative session context', () => {
-    it('passes hydrated memory context and provider session resume id', async () => {
+    it('passes hydrated memory context with provider session resume id', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const { deps } = setupHappyPath({ group });
       (deps.opsRepository as any).getAgentTurnContext = vi
@@ -916,10 +916,10 @@ describe('createGroupProcessor', () => {
         }),
       );
       expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
-        sessionId: 'claude-session-1',
         memoryContextBlock: expect.stringContaining(
           '<myclaw_memory_context>memory</myclaw_memory_context>',
         ),
+        sessionId: 'claude-session-1',
       });
       expect(mockSpawnAgent.mock.calls[0][4]).toBeUndefined();
     });
@@ -948,11 +948,13 @@ describe('createGroupProcessor', () => {
         group.folder,
         'new-sess-123',
         null,
-        expect.objectContaining({
+        {
           conversationJid: 'group1@g.us',
+          conversationKind: undefined,
+          memoryUserId: 'user1@s.whatsapp.net',
           expectedAgentSessionId: 'agent-session:1',
           expectedAgentSessionResetAt: null,
-        }),
+        },
       );
     });
 
@@ -997,18 +999,20 @@ describe('createGroupProcessor', () => {
         group.folder,
         'streamed-sess',
         null,
-        expect.objectContaining({
+        {
           conversationJid: 'group1@g.us',
+          conversationKind: undefined,
+          memoryUserId: 'user1@s.whatsapp.net',
           expectedAgentSessionId: 'agent-session:1',
           expectedAgentSessionResetAt: null,
-        }),
+        },
       );
 
       releaseRunner.resolve({ status: 'success', result: 'text' });
       await processing;
     });
 
-    it('passes direct conversation user scope when looking up and persisting provider sessions', async () => {
+    it('passes direct conversation user scope when looking up turns and persisting provider sessions', async () => {
       const agentOutput: AgentOutput = {
         status: 'success',
         result: 'response',
@@ -1044,13 +1048,13 @@ describe('createGroupProcessor', () => {
         group.folder,
         'dm-sess-123',
         null,
-        expect.objectContaining({
+        {
           conversationJid: 'sl:D123',
           conversationKind: 'dm',
           memoryUserId: 'sl:U123',
           expectedAgentSessionId: 'agent-session:dm',
           expectedAgentSessionResetAt: null,
-        }),
+        },
       );
     });
 
@@ -1294,6 +1298,47 @@ describe('createGroupProcessor', () => {
 
       run.resolve({ status: 'success', result: null });
       await processing;
+    });
+
+    it('resets elapsed progress after an idle turn boundary inside the same agent process', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage()];
+      const channel = makeChannel({
+        sendProgressUpdate: vi.fn().mockResolvedValue(undefined),
+      });
+      const { deps } = setupHappyPath({ group, messages });
+      deps.channelRuntime = channel;
+
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          await onOutput?.({ status: 'success', result: 'first turn' });
+          await onOutput?.({ status: 'success', result: null });
+          await vi.advanceTimersByTimeAsync(10 * 60_000);
+          await onOutput?.({ status: 'success', result: 'second turn' });
+          await onOutput?.({ status: 'success', result: null });
+          return { status: 'success', result: null } as AgentOutput;
+        },
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      await processGroupMessages('group1@g.us');
+
+      const doneProgressTexts = (
+        channel.sendProgressUpdate as ReturnType<typeof vi.fn>
+      ).mock.calls
+        .map((call) => String(call[1]))
+        .filter((text) => text.startsWith('Done in '));
+
+      expect(doneProgressTexts.length).toBeGreaterThanOrEqual(2);
+      expect(doneProgressTexts.at(-1)).toBe('Done in 0s.');
+      expect(doneProgressTexts.some((text) => text.includes('10m'))).toBe(
+        false,
+      );
     });
 
     it('does not post elapsed progress on the first heartbeat tick', async () => {
@@ -1983,7 +2028,7 @@ describe('createGroupProcessor', () => {
       ]);
       expect(streamingChannel.sendProgressUpdate).toHaveBeenCalledWith(
         'group1@g.us',
-        'Paused for approval (0s).',
+        'Waiting for your response (0s).',
         expect.objectContaining({
           replaceOnly: true,
           generation: beforeGeneration,
@@ -2049,7 +2094,7 @@ describe('createGroupProcessor', () => {
 
       expect(streamingChannel.sendProgressUpdate).toHaveBeenCalledWith(
         'group1@g.us',
-        'Paused for approval (0s).',
+        'Waiting for your response (0s).',
         expect.objectContaining({ replaceOnly: true }),
       );
       expect(streamingChannel.sendProgressUpdate).toHaveBeenCalledWith(
@@ -2317,7 +2362,7 @@ describe('createGroupProcessor', () => {
         expect.objectContaining({
           chat_jid: 'group1@g.us',
           sender: 'myclaw',
-          sender_name: 'MyClaw',
+          sender_name: 'Gantry',
           content: 'stream text',
           is_from_me: true,
           is_bot_message: true,
@@ -3544,7 +3589,7 @@ describe('createGroupProcessor', () => {
         group,
         expect.objectContaining({ prompt: 'test prompt' }),
         expect.any(Function),
-        undefined,
+        expect.any(Function),
         undefined,
       );
     });
@@ -3652,8 +3697,8 @@ describe('createGroupProcessor', () => {
     });
   });
 
-  describe('double setSession from streamed + final output', () => {
-    it('persists a streamed SDK session ID once even when final output repeats it', async () => {
+  describe('SDK session ids from streamed + final output', () => {
+    it('persists a streamed SDK session ID only once when final output repeats it', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const channel = makeChannel();
       const messages = [makeMessage()];
@@ -3702,15 +3747,17 @@ describe('createGroupProcessor', () => {
         group.folder,
         'session-42',
         null,
-        expect.objectContaining({
+        {
           conversationJid: 'group1@g.us',
+          conversationKind: undefined,
+          memoryUserId: 'user1@s.whatsapp.net',
           expectedAgentSessionId: 'agent-session:1',
           expectedAgentSessionResetAt: null,
-        }),
+        },
       );
     });
 
-    it('does not treat stale streamed provider-session persistence as durable', async () => {
+    it('does not retry stale provider-session persistence from SDK output', async () => {
       const group = makeGroup({ requiresTrigger: false });
       const channel = makeChannel();
       const messages = [makeMessage()];
@@ -3756,26 +3803,18 @@ describe('createGroupProcessor', () => {
       const { processGroupMessages } = createGroupProcessor(deps);
       await processGroupMessages('group1@g.us');
 
-      expect(deps.opsRepository.setSession).toHaveBeenCalledTimes(2);
-      expect(deps.opsRepository.setSession).toHaveBeenNthCalledWith(
-        1,
+      expect(deps.opsRepository.setSession).toHaveBeenCalledTimes(1);
+      expect(deps.opsRepository.setSession).toHaveBeenCalledWith(
         group.folder,
         'session-42',
         null,
-        expect.objectContaining({
+        {
+          conversationJid: 'group1@g.us',
+          conversationKind: undefined,
+          memoryUserId: 'user1@s.whatsapp.net',
           expectedAgentSessionId: 'agent-session:1',
           expectedAgentSessionResetAt: '2026-05-11T00:00:00.000Z',
-        }),
-      );
-      expect(deps.opsRepository.setSession).toHaveBeenNthCalledWith(
-        2,
-        group.folder,
-        'session-42',
-        null,
-        expect.objectContaining({
-          expectedAgentSessionId: 'agent-session:1',
-          expectedAgentSessionResetAt: '2026-05-11T00:00:00.000Z',
-        }),
+        },
       );
     });
   });

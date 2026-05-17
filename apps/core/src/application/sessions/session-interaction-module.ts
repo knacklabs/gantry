@@ -498,13 +498,11 @@ function isVisibleWaitEvent(event: RuntimeEvent): boolean {
 
 function hasProviderResumeHandle(value: {
   externalSessionId?: unknown;
-  latestArtifactId?: unknown;
   providerRef?: { value?: unknown } | null;
   metadata?: unknown;
 }): boolean {
   return (
     hasNonEmptyString(value.externalSessionId) ||
-    hasNonEmptyString(value.latestArtifactId) ||
     hasNonEmptyString(value.providerRef?.value) ||
     metadataContainsResumeHandle(value.metadata, 0)
   );

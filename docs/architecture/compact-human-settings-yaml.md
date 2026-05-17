@@ -54,6 +54,17 @@ conversations:
     approvers: ['5759865942']
     agent: kai
     trigger: '@Default Agent'
+
+permissions:
+  yolo_mode:
+    enabled: true
+    denylist:
+      - npm run nuke
+    denylist_paths:
+      - /opt/danger/*
+  egress:
+    denylist:
+      - '*.blocked.example.com'
 ```
 
 Do not render disabled providers, empty arrays, empty inherited model defaults,
@@ -61,6 +72,11 @@ internal provider connection IDs, runtime storage internals, or credential
 broker internals unless the user changed them from defaults. Binding timestamps
 are advanced state; keep them out of common examples and only preserve them
 where omitting the value would mutate live desired state.
+
+`permissions.yolo_mode` is rendered only when the user changes it from shipped
+defaults. `denylist` and `denylist_paths` are user additions; the effective
+runtime policy always merges them with the shipped command and path defaults
+unless `enabled: false`.
 
 ## Inherited Settings Documentation
 

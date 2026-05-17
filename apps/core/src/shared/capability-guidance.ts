@@ -1,5 +1,5 @@
 export const REQUEST_TOOL_ENABLE_SCOPE_GUIDANCE =
-  'For app or tool access, search and request semantic capabilities first with capability_search, request_capability, propose_local_cli_capability, or manage_capability. Use request_permission for one-off exact tool access or scoped Bash rules such as Bash(npm test *) only when no reviewed semantic capability fits. Browser is always the canonical whole browser capability.';
+  'Access decision ladder: use capability_search first; use request_capability when a reviewed semantic capability fits; use propose_local_cli_capability or manage_capability for durable local CLI access; use request_permission only for one-off exact access, Browser, exact Gantry admin tools, or scoped Bash fallback when no reviewed capability fits.';
 
 export function renderDefaultCapabilityRules(options?: {
   includeSettingsTools?: boolean;

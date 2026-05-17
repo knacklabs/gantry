@@ -27,7 +27,8 @@ Durable state stays outside Claude runtime files:
 
 - Postgres owns apps, agents, config versions, tools, skills, memory policy,
   permission policy, sessions, messages, and runs.
-- `ProviderArtifactStore` owns explicit provider export/debug bytes only.
+- `FileArtifactStore` owns durable agent file bytes by storage ref; Postgres
+  stores metadata, ownership, virtual path, scope, version, hash, and policy.
 - `SkillArtifactStore` owns approved or draft local skill source bytes by
   storage ref; Postgres stores metadata, status, hash, bindings, and provider
   refs.
@@ -117,7 +118,7 @@ create or approve a Postgres MCP definition and immutable reviewed version, then
 bind that version to an agent. Only approved, enabled bindings are projected
 into Agent SDK `mcpServers` for the next run. Pending, rejected, disabled,
 cross-app, or unbound MCP definitions are not rendered into Claude settings,
-provider artifacts, or allowed tools.
+FileArtifacts, or allowed tools.
 
 Agents can request an MCP server through the built-in MyClaw MCP tool, but that
 request only creates a pending draft for admin review. It never approves,

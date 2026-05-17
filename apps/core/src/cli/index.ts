@@ -39,7 +39,7 @@ interface ParsedArgs {
 
 function usage(): string {
   return [
-    'MyClaw CLI',
+    'Gantry CLI',
     '',
     'Usage:',
     '  myclaw',
@@ -514,7 +514,7 @@ if (invokedPath && import.meta.url === pathToFileURL(invokedPath).href) {
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
-      p.log.error(`MyClaw CLI failed: ${message}`);
+      p.log.error(`Gantry CLI failed: ${message}`);
       process.exit(1);
     });
 }

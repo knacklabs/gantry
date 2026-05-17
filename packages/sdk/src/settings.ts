@@ -74,7 +74,47 @@ export type RuntimeSettingsResponse = {
         maxConcurrentPerSite: number;
       };
     };
+    permissions: {
+      yoloMode: {
+        enabled: boolean;
+        denylist: string[];
+        denylistPaths: string[];
+      };
+      egress: {
+        denylist: string[];
+      };
+    };
   };
+};
+
+export type RuntimeSettingsPatch = {
+  agent?: {
+    name?: string;
+    defaultModel?: string;
+    oneTimeJobDefaultModel?: string;
+    recurringJobDefaultModel?: string;
+  };
+  memory?: {
+    enabled?: boolean;
+    dreaming?: {
+      enabled?: boolean;
+    };
+  };
+  permissions?: {
+    yoloMode?: {
+      enabled?: boolean;
+      denylist?: string[];
+      denylistPaths?: string[];
+    };
+    egress?: {
+      denylist?: string[];
+    };
+  };
+};
+
+export type RuntimeSettingsUpdateResponse = RuntimeSettingsResponse & {
+  changed: string[];
+  restartRequired: boolean;
 };
 
 export function createSettingsClient(transport: TransportLike) {
@@ -83,6 +123,12 @@ export function createSettingsClient(transport: TransportLike) {
       transport.request<RuntimeSettingsResponse>({
         method: 'GET',
         path: '/v1/settings',
+      }),
+    update: (patch: RuntimeSettingsPatch) =>
+      transport.request<RuntimeSettingsUpdateResponse>({
+        method: 'PATCH',
+        path: '/v1/settings',
+        body: patch,
       }),
   };
 }

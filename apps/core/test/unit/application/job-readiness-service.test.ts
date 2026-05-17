@@ -156,6 +156,127 @@ describe('job readiness service', () => {
     });
   });
 
+  it('does not require the OneCLI broker for provider-neutral configured capabilities', async () => {
+    const result = await evaluateJobReadiness({
+      job: makeJob({ required_tools: ['capability:google.sheets.write'] }),
+      appId: 'default',
+      toolRepository: toolRepository(['capability:google.sheets.write']),
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.setupState.blockers).toEqual([]);
+  });
+
+  it('uses the declared local CLI implementation instead of the builtin provider path', async () => {
+    const result = await evaluateJobReadiness({
+      job: makeJob({
+        required_tools: ['capability:google.sheets.write'],
+        capability_requirements: [
+          {
+            capabilityId: 'google.sheets.write',
+            reason: 'Write lead rows after each run',
+            implementation: {
+              kind: 'local_cli',
+              name: 'gog',
+              executablePath: '/usr/local/bin/gog',
+              commandTemplate:
+                '/usr/local/bin/gog sheets append <sheet_id> ...',
+            },
+          },
+        ],
+      }),
+      appId: 'default',
+      toolRepository: toolRepository(['capability:google.sheets.write']),
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.setupState.blockers).toEqual([
+      expect.objectContaining({
+        state: 'draft_only',
+        requirementType: 'local_cli',
+        requirementId: 'google.sheets.write',
+        message: expect.stringContaining('using gog'),
+        nextAction: expect.stringContaining(
+          '"rule":"/usr/local/bin/gog sheets append *"',
+        ),
+      }),
+    ]);
+    expect(result.setupState.blockers[0]?.message).not.toContain('OneCLI');
+  });
+
+  it('treats a declared local CLI implementation as ready when its scoped Bash rule is bound', async () => {
+    const result = await evaluateJobReadiness({
+      job: makeJob({
+        required_tools: ['capability:google.sheets.write'],
+        capability_requirements: [
+          {
+            capabilityId: 'google.sheets.write',
+            reason: 'Write lead rows after each run',
+            implementation: {
+              kind: 'local_cli',
+              name: 'gog',
+              executablePath: '/usr/local/bin/gog',
+              commandTemplate:
+                '/usr/local/bin/gog sheets append <sheet_id> ...',
+            },
+          },
+        ],
+      }),
+      appId: 'default',
+      toolRepository: toolRepository([
+        'capability:google.sheets.write',
+        'Bash(/usr/local/bin/gog sheets append *)',
+      ]),
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.setupState.blockers).toEqual([]);
+  });
+
+  it('rejects persisted relative local CLI templates instead of converting legacy setup guidance', async () => {
+    const result = await evaluateJobReadiness({
+      job: makeJob({
+        required_tools: ['capability:google.sheets.write'],
+        capability_requirements: [
+          {
+            capabilityId: 'google.sheets.write',
+            reason: 'Write lead rows after each run',
+            implementation: {
+              kind: 'local_cli',
+              name: 'gog',
+              commandTemplate: 'gog sheets append <sheet_id> ...',
+            },
+          },
+        ],
+      }),
+      appId: 'default',
+      toolRepository: toolRepository([
+        'capability:google.sheets.write',
+        'Bash(gog sheets append *)',
+      ]),
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.setupState.blockers).toEqual([
+      expect.objectContaining({
+        state: 'missing_capability',
+        requirementType: 'local_cli',
+        message: expect.stringContaining('invalid local CLI job requirement'),
+        nextAction: expect.stringContaining('scheduler_update_job'),
+      }),
+    ]);
+    expect(result.setupState.blockers[0]?.nextAction).not.toContain(
+      '"rule":"gog sheets append *"',
+    );
+    expect(result.setupState.blockers[0]?.nextAction).not.toContain(
+      'propose_local_cli_capability',
+    );
+  });
+
   it('reports MCP credential blockers without starting the MCP server', async () => {
     const repository = {
       listMaterializedServersForAgent: vi.fn(async () => [

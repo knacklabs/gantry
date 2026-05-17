@@ -130,6 +130,14 @@ function createMcpFixture(): {
     path.join(sharedDir, 'semantic-capabilities.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/job-setup-labels.ts'),
+    path.join(sharedDir, 'job-setup-labels.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/path-validation.ts'),
+    path.join(sharedDir, 'path-validation.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/memory-ipc-actions.ts'),
     path.join(sharedDir, 'memory-ipc-actions.ts'),
   );
@@ -570,7 +578,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'mcp__myclaw__service_restart is not selected for this agent yet.',
     );
     expect(record.result.content[0].text).toContain(
-      'request_permission with permissionKind=tool toolName=mcp__myclaw__service_restart temporaryOnly=false',
+      'Ask a configured conversation approver to approve mcp__myclaw__service_restart, then choose Always allow.',
     );
     expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
   });
@@ -997,9 +1005,9 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'Browser control is a built-in MyClaw tool capability',
     );
     expect(record.result.content[0].text).toContain(
-      'request_permission with permissionKind="tool", toolName="Browser"',
+      'Ask a configured conversation approver to approve Browser access',
     );
-    expect(record.result.content[0].text).toContain('temporaryOnly=false');
+    expect(record.result.content[0].text).not.toContain('temporaryOnly=false');
     expect(record.result.content[0].text).not.toContain('temporaryOnly=true');
     expect(record.result.content[0].text).toContain(
       'No request_skill_install request was recorded.',
@@ -1028,7 +1036,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'Browser control is a built-in MyClaw tool capability',
     );
     expect(record.result.content[0].text).toContain(
-      'request_permission with permissionKind="tool", toolName="Browser"',
+      'Ask a configured conversation approver to approve Browser access',
     );
     expect(record.result.content[0].text).toContain(
       'compact browser gateway tools',

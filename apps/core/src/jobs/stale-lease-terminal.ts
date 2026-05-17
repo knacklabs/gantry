@@ -21,6 +21,8 @@ import type { SchedulerSendMessage } from './delivery.js';
 
 const STALE_LEASE_TIMEOUT_SUMMARY =
   'Scheduler run lease expired before completion.';
+const RESTART_INTERRUPTED_RUN_SUMMARY =
+  'Gantry restarted while this job was running.';
 
 interface RuntimeControlSessionReader {
   getAppSessionById(
@@ -106,6 +108,7 @@ async function notifyReleasedStaleJobLease(input: {
     const retryCount = run?.retry_count ?? 0;
     const durationMs = durationMsForRun(run);
     const nextRun = job.next_run;
+    const summary = summaryForReleasedLease(release, run);
 
     await publishSchedulerLifecycleEvent({
       job,
@@ -114,7 +117,8 @@ async function notifyReleasedStaleJobLease(input: {
       payload: {
         next_run: nextRun,
         retry_count: retryCount,
-        stale_lease: true,
+        stale_lease: release.reason === 'lease_expired',
+        interruption_reason: release.reason,
       },
       resolveEventAppSession,
       publishRuntimeEvent: input.publishRuntimeEvent,
@@ -126,7 +130,7 @@ async function notifyReleasedStaleJobLease(input: {
       job,
       runId,
       runStatus: 'timeout',
-      summary: STALE_LEASE_TIMEOUT_SUMMARY,
+      summary,
       nextRun,
       retryCount,
       pauseReason: job.pause_reason,
@@ -147,8 +151,9 @@ async function notifyReleasedStaleJobLease(input: {
         retry_count: retryCount,
         pause_reason: job.pause_reason,
         notified,
-        summary: STALE_LEASE_TIMEOUT_SUMMARY,
-        stale_lease: true,
+        summary,
+        stale_lease: release.reason === 'lease_expired',
+        interruption_reason: release.reason,
       },
       resolveEventAppSession,
       publishRuntimeEvent: input.publishRuntimeEvent,
@@ -162,7 +167,7 @@ async function notifyReleasedStaleJobLease(input: {
       runStatus: 'timeout',
       notified,
       startNotified: false,
-      summary: STALE_LEASE_TIMEOUT_SUMMARY,
+      summary,
       nextRun,
       eventAppSession,
       resolveEventAppSession,
@@ -177,6 +182,16 @@ async function notifyReleasedStaleJobLease(input: {
       'Failed to publish stale scheduler lease terminal evidence',
     );
   }
+}
+
+function summaryForReleasedLease(
+  release: ReleasedStaleJobLease,
+  run: JobRun | undefined,
+): string {
+  if (release.reason === 'runtime_restarted') {
+    return RESTART_INTERRUPTED_RUN_SUMMARY;
+  }
+  return run?.error_summary || STALE_LEASE_TIMEOUT_SUMMARY;
 }
 
 async function publishSchedulerLifecycleEvent(input: {

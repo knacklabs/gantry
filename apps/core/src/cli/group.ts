@@ -311,7 +311,12 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
     });
 
     try {
-      ensureGroupFiles(runtimeHome, agentFolder, displayName);
+      await ensureGroupFiles(
+        runtimeHome,
+        agentFolder,
+        displayName,
+        db.getFileArtifactStore(),
+      );
     } catch (err) {
       p.log.error(`Could not create group folder: ${errorMessage(err)}`);
       return 1;

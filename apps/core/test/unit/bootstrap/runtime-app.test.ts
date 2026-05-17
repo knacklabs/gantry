@@ -100,7 +100,7 @@ describe('runtime app credential binding', () => {
       groupJid: 'tg:first',
       group: firstGroup,
       agentIdentifier: 'myclaw-model-access',
-      agentName: 'MyClaw Model Access',
+      agentName: 'Gantry Model Access',
     });
     expect(ensureCredentialBinding).toHaveBeenCalledWith({
       groupJid: 'tg:first',
@@ -136,7 +136,7 @@ describe('runtime app credential binding', () => {
         groupJid: 'tg:first',
         group,
         agentIdentifier: 'myclaw-model-access',
-        agentName: 'MyClaw Model Access',
+        agentName: 'Gantry Model Access',
       },
       {
         groupJid: 'tg:first',
@@ -148,7 +148,7 @@ describe('runtime app credential binding', () => {
         groupJid: 'tg:first',
         group,
         agentIdentifier: 'myclaw-model-access',
-        agentName: 'MyClaw Model Access',
+        agentName: 'Gantry Model Access',
       },
     ]);
   });

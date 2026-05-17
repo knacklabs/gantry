@@ -75,7 +75,7 @@ describe('setup credentials step', () => {
     expect(text).not.toHaveBeenCalled();
     expect(OneCLI).toHaveBeenCalledWith({ url: 'http://localhost:10254' });
     expect(ensureAgent).toHaveBeenCalledWith({
-      name: 'MyClaw Model Access',
+      name: 'Gantry Model Access',
       identifier: 'myclaw-model-access',
     });
     expect(getContainerConfig).toHaveBeenCalledWith('myclaw-model-access');

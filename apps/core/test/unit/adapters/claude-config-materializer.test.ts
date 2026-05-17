@@ -51,7 +51,7 @@ describe('Claude config materializer', () => {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  it('creates per-run Claude config, settings, and skills without restoring provider artifacts', async () => {
+  it('creates per-run Claude config, settings, and skills without restoring provider SDK files', async () => {
     const materialization = await materializeClaudeRuntime({
       baseTempDir: path.join(tempRoot, 'run'),
       groupDir: path.join(tempRoot, 'agents', 'test'),

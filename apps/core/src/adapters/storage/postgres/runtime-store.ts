@@ -4,7 +4,7 @@ import {
   type RuntimeOpsRepositories,
   type StorageRuntime,
 } from './factory.js';
-import type { ProviderArtifactStore } from '../../../domain/ports/provider-artifact-store.js';
+import type { FileArtifactStore } from '../../../domain/ports/file-artifact-store.js';
 import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
 import { evaluatePostgresStorageCapabilities } from './readiness.js';
 import type { PostgresControlPlaneRepository } from './repositories/control-plane-repository.postgres.js';
@@ -109,8 +109,8 @@ export async function tryAcquireRuntimeAdvisoryLease(
   }
 }
 
-export function getRuntimeProviderArtifactStore(): ProviderArtifactStore {
-  return getRuntimeStorage().providerArtifacts;
+export function getRuntimeFileArtifactStore(): FileArtifactStore {
+  return getRuntimeStorage().fileArtifacts;
 }
 
 export function getRuntimeSkillArtifactStore(): SkillArtifactStore {
@@ -146,7 +146,7 @@ export function _setRuntimeRepositoriesForTest(
     runtimeEventNotifier: {
       close: async () => {},
     } as StorageRuntime['runtimeEventNotifier'],
-    providerArtifacts: {} as StorageRuntime['providerArtifacts'],
+    fileArtifacts: {} as StorageRuntime['fileArtifacts'],
     skillArtifacts: {} as StorageRuntime['skillArtifacts'],
   };
 }

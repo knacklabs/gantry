@@ -300,6 +300,9 @@ export function buildJobUpdates(
   if (patch.requiredTools !== undefined) {
     updates.required_tools = patch.requiredTools;
   }
+  if (patch.capabilityRequirements !== undefined) {
+    updates.capability_requirements = patch.capabilityRequirements;
+  }
   if (patch.requiredMcpServers !== undefined) {
     updates.required_mcp_servers = patch.requiredMcpServers;
   }

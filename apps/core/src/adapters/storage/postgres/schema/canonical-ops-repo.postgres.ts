@@ -285,7 +285,6 @@ export class PostgresRuntimeRepositoryBundle
       conversationJid?: string;
       conversationKind?: 'dm' | 'channel';
       memoryUserId?: string;
-      latestArtifactId?: string | null;
       expectedAgentSessionId?: string;
       expectedAgentSessionResetAt?: string | null;
     } = {},
@@ -294,7 +293,6 @@ export class PostgresRuntimeRepositoryBundle
       chatJid: metadata.conversationJid,
       conversationKind: metadata.conversationKind,
       memoryUserId: metadata.memoryUserId,
-      latestArtifactId: metadata.latestArtifactId,
       expectedAgentSessionId: metadata.expectedAgentSessionId,
       expectedAgentSessionResetAt: metadata.expectedAgentSessionResetAt,
     });
@@ -316,7 +314,6 @@ export class PostgresRuntimeRepositoryBundle
     agentSessionResetAt?: string | null;
     providerSessionId?: string;
     externalSessionId?: string;
-    latestArtifactId?: string | null;
     memoryContextBlock?: string;
   }> {
     return this.sessions.getAgentTurnContext({

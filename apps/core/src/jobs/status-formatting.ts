@@ -29,7 +29,12 @@ export function formatRunStatusMessage(args: {
     `${statusText}: ${args.job.name} (${runLabel}${duration})`,
     `Outcome: ${summary}`,
   ];
-  const action = notificationAction(args.runStatus, denial, args.pauseReason);
+  const action = notificationAction(
+    args.runStatus,
+    args.summary,
+    denial,
+    args.pauseReason,
+  );
   if (action) lines.push(`Action: ${action}`);
   lines.push(`Next: ${nextRunLabel(args.nextRun, args.runStatus)}`);
   return lines.join('\n');
@@ -43,6 +48,9 @@ function statusLabel(
   if (denial) return 'Needs permission';
   if (status === 'completed') {
     return hasReportableSummary(summary) ? 'Completed' : 'Completed, no report';
+  }
+  if (status === 'timeout' && isRestartInterruptedRun(summary)) {
+    return 'Interrupted';
   }
   if (status === 'timeout') return 'Timed out';
   if (status === 'dead_lettered') return 'Paused after failures';
@@ -66,14 +74,20 @@ function notificationOutcome(
     }
     return `Missing ${denial.toolName} access for this job.`;
   }
+  if (status === 'timeout' && isRestartInterruptedRun(summary)) {
+    return 'Gantry restarted while this job was running, so the run could not finish.';
+  }
   if (hasReportableSummary(summary)) return compactSummary(summary, 360);
   if (status === 'completed') return 'Completed, no reportable output.';
-  if (status === 'timeout') return 'The job exceeded its timeout.';
+  if (status === 'timeout') {
+    return 'The job exceeded its configured runtime budget.';
+  }
   return 'The job did not finish successfully.';
 }
 
 function notificationAction(
   status: 'completed' | 'failed' | 'timeout' | 'dead_lettered',
+  summary: string,
   denial: AutonomousToolDenial | null,
   pauseReason?: string | null,
 ): string | null {
@@ -83,8 +97,11 @@ function notificationAction(
     }
     return 'The agent can update this job permission and rerun it.';
   }
+  if (status === 'timeout' && isRestartInterruptedRun(summary)) {
+    return 'Rerun the job when ready. If this repeats without restarts, increase the job timeout.';
+  }
   if (status === 'timeout') {
-    return 'Narrow the job scope or increase the timeout before rerunning.';
+    return 'Rerun with a longer job timeout if this work is expected to take more time.';
   }
   if (status === 'dead_lettered') {
     return pauseReason
@@ -92,6 +109,10 @@ function notificationAction(
       : 'Fix the blocker, then resume the job.';
   }
   return null;
+}
+
+function isRestartInterruptedRun(summary: string): boolean {
+  return /runtime restarted|gantry restarted/i.test(summary);
 }
 
 function nextRunLabel(

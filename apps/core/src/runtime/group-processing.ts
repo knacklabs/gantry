@@ -407,8 +407,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       await sendDoneProgress(state);
     };
     const startUserVisibleTurn = () => {
-      streamGeneration = streamingGenerationCounter += 1;
-      progressGeneration = streamGeneration;
+      progressGeneration = streamGeneration = streamingGenerationCounter += 1;
       activeGenerationHasOutput = false;
       resetActiveElapsed();
       typingActive = true;
@@ -545,8 +544,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
     };
     const finalizeStreamingOutput = flushBufferedOutput;
     const startNextStreamingMessage = () => {
-      streamGeneration = streamingGenerationCounter += 1;
-      progressGeneration = streamGeneration;
+      progressGeneration = streamGeneration = streamingGenerationCounter += 1;
       activeGenerationHasOutput = false;
     };
     const startNextContentStream = () => {
@@ -568,7 +566,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       progressHeartbeat?.pause();
       if (supportsProgress) {
         await sendProgressToChannel(
-          `Paused for approval (${formatElapsed(activeElapsedMs())}).`,
+          `Waiting for your response (${formatElapsed(activeElapsedMs())}).`,
           buildProgressOptions({ replaceOnly: true }),
         ).catch(() => undefined);
       }
@@ -627,6 +625,12 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         await sendResponseReceipt();
       }
       if (result.result) {
+        if (
+          !typingActive &&
+          sentAnyTurnDoneProgress &&
+          !activeGenerationHasOutput
+        )
+          resetActiveElapsed();
         if (!typingActive) {
           await setTypingState(true);
         }

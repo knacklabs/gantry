@@ -143,6 +143,7 @@ describe('PgBossSchedulerEngine', () => {
             runId: 'run-1',
             releasedAt: '2026-04-24T08:00:00.000Z',
             runTimedOut: true,
+            reason: 'lease_expired',
           },
         ]),
       getAllJobs: vi.fn().mockResolvedValue([activeJob]),
@@ -182,6 +183,7 @@ describe('PgBossSchedulerEngine', () => {
       runId: 'run-1',
       releasedAt: '2026-04-24T08:00:00.000Z',
       runTimedOut: true,
+      reason: 'runtime_restarted',
     };
     const opsRepository = {
       releaseInterruptedJobLeases: vi.fn().mockResolvedValue([release]),

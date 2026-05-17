@@ -46,6 +46,9 @@ import {
   isProjectedBrowserMcpToolRule,
 } from '../shared/agent-tool-references.js';
 import { getBuiltinSemanticCapability } from '../shared/semantic-capabilities.js';
+import { jobLocalCliCapabilityConflict } from './ipc-request-permission-local-cli.js';
+
+const pendingRequestOnlyCapabilityReviews = new Set<string>();
 
 function createContextTaskResponder(context: TaskContext) {
   return createTaskResponder(
@@ -408,7 +411,12 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
   const requestedTargetJid = validateSameChannelApprovalTarget({ data, sourceAgentFolderJids, requestKind: parsed.review.requestKind, reject });
   if (!requestedTargetJid) return;
   if (typeof deps.requestPermissionApproval !== 'function' || typeof deps.sendMessage !== 'function') { reject(`${parsed.review.requestKind} requests require a configured approval surface.`, 'preflight_failed'); return; }
-  startRequestOnlyCapabilityReview({ deps, appId: data.appId as never, agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never, sourceAgentFolder, targetJid: requestedTargetJid, threadId: data.authThreadId, ipcDir: context.ipcBaseDir ? path.join(context.ipcBaseDir, sourceAgentFolder) : undefined, runHandle: data.runHandle, review: parsed.review });
+  const jobConflict = await jobLocalCliCapabilityConflict({ deps, jobId: data.jobId, review: parsed.review });
+  if (jobConflict) { reject(jobConflict, 'wrong_capability_lane'); return; }
+  const pendingKey = requestOnlyCapabilityPendingKey({ data, sourceAgentFolder, targetJid: requestedTargetJid, review: parsed.review });
+  if (pendingRequestOnlyCapabilityReviews.has(pendingKey)) { accept(`${parsed.review.displayName} request is already waiting for approval in this chat.`, 'capability_request_already_pending'); return; }
+  pendingRequestOnlyCapabilityReviews.add(pendingKey);
+  startRequestOnlyCapabilityReview({ deps, appId: data.appId as never, agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never, sourceAgentFolder, targetJid: requestedTargetJid, threadId: data.authThreadId, ipcDir: context.ipcBaseDir ? path.join(context.ipcBaseDir, sourceAgentFolder) : undefined, runHandle: data.runHandle, review: parsed.review, pendingKey });
   accept(requestOnlyCapabilityQueuedMessage(parsed.review), 'capability_request_recorded');
 };
 
@@ -540,7 +548,7 @@ function capabilityDisplayValue(payload: Record<string, unknown>, spec: (typeof 
 }
 
 // prettier-ignore
-function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>[0]['deps']; appId: import('../domain/app/app.js').AppId; agentId: import('../domain/agent/agent.js').AgentId; sourceAgentFolder: string; targetJid: string; threadId?: string; ipcDir?: string; runHandle?: string; review: RequestOnlyCapabilityReview }): void {
+function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>[0]['deps']; appId: import('../domain/app/app.js').AppId; agentId: import('../domain/agent/agent.js').AgentId; sourceAgentFolder: string; targetJid: string; threadId?: string; ipcDir?: string; runHandle?: string; review: RequestOnlyCapabilityReview; pendingKey?: string }): void {
   void (async () => {
     let message: string;
     try {
@@ -577,7 +585,7 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
       }
       message = decision.approved && decision.decidedBy
         ? persistedRules.length
-          ? `Approved ${input.review.displayName}. Persistent permission tool enabled for this run and future runs by ${decision.decidedBy}: ${formatPersistentPermissionRulesForUser(persistedRules)}.`
+          ? `Approved ${input.review.displayName}. Always allowed by ${decision.decidedBy}: ${formatPersistentPermissionRulesForUser(persistedRules)}.`
           : `Approved ${input.review.displayName}. Permission review recorded by ${decision.decidedBy}; no capability was enabled by this request-only flow.`
         : `Rejected ${input.review.displayName}: ${reason}. No capability was enabled.`;
     } catch (err) {
@@ -588,7 +596,28 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
       message = `Rejected ${input.review.displayName}: ${err instanceof Error ? err.message : 'permission review failed'}. No capability was enabled.`;
     }
     await input.deps.sendMessage(input.targetJid, message, input.threadId ? { threadId: input.threadId } : undefined);
-  })().catch((err) => logger.error({ err, sourceAgentFolder: input.sourceAgentFolder, toolName: input.review.toolName }, 'Capability permission review final message failed'));
+  })()
+    .catch((err) => logger.error({ err, sourceAgentFolder: input.sourceAgentFolder, toolName: input.review.toolName }, 'Capability permission review final message failed'))
+    .finally(() => {
+      if (input.pendingKey) pendingRequestOnlyCapabilityReviews.delete(input.pendingKey);
+    });
+}
+
+function requestOnlyCapabilityPendingKey(input: {
+  data: Parameters<TaskHandler>[0]['data'];
+  sourceAgentFolder: string;
+  targetJid: string;
+  review: RequestOnlyCapabilityReview;
+}): string {
+  return JSON.stringify({
+    toolName: input.review.toolName,
+    appId: input.data.appId,
+    agent: input.sourceAgentFolder,
+    targetJid: input.targetJid,
+    threadId: input.data.authThreadId ?? null,
+    jobId: input.data.jobId ?? null,
+    toolInput: input.review.toolInput,
+  });
 }
 
 function semanticCapabilityInteraction(
@@ -600,9 +629,19 @@ function semanticCapabilityInteraction(
     maxLen: 160,
   });
   if (!capabilityId) return undefined;
+  const toolNames = sanitizedStringList([
+    review.toolInput.toolName,
+    ...(Array.isArray(review.toolInput.toolNames)
+      ? review.toolInput.toolNames
+      : []),
+  ]);
+  if (toolNames.length > 0) return undefined;
+  const isLocalCliRequest = review.toolInput.credentialSource === 'local_cli';
   const displayName =
-    getBuiltinSemanticCapability(capabilityId)?.displayName ||
     toTrimmedString(review.toolInput.capabilityDisplayName, { maxLen: 200 }) ||
+    (isLocalCliRequest
+      ? undefined
+      : getBuiltinSemanticCapability(capabilityId)?.displayName) ||
     capabilityId;
   return {
     id: requestId,
@@ -627,7 +666,7 @@ function semanticCapabilityInteractionDetails(
   const builtin = capabilityId
     ? getBuiltinSemanticCapability(capabilityId)
     : undefined;
-  if (builtin) {
+  if (builtin && toolInput.credentialSource !== 'local_cli') {
     return [
       { label: 'Capability', value: `capability:${builtin.capabilityId}` },
       { label: 'Risk', value: builtin.risk },

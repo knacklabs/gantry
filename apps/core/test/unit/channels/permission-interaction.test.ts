@@ -64,7 +64,7 @@ describe('permission interaction', () => {
       'allow_persistent_rule',
     );
     expect(permissionButtonLabel('allow_persistent_rule', request)).toBe(
-      'Always allow 2 rules',
+      'Always allow',
     );
     expect(
       decisionForMode(request, 'allow_persistent_rule').updatedPermissions,
@@ -103,7 +103,7 @@ describe('permission interaction', () => {
     ]);
     const decision = decisionForMode(request, 'allow_persistent_rule');
     expect(decision.approved).toBe(false);
-    expect(decision.reason).toBe('persistent rule unavailable');
+    expect(decision.reason).toBe('approval option unavailable');
   });
 
   it('does not offer persistent approval for wildcard-scoped Bash suggestions', () => {
@@ -141,6 +141,50 @@ describe('permission interaction', () => {
       'allow_timed_grant',
       'cancel',
     ]);
+    expect(permissionButtonLabel('allow_timed_grant', request)).toBe(
+      'Allow 5 min',
+    );
+  });
+
+  it('describes timed grants as eligible-tools/SDK-API-prompt approval decisions', () => {
+    const decision = decisionForMode(
+      {
+        ...requestWithSuggestions([]),
+        toolName: 'Read',
+      },
+      'allow_timed_grant',
+      'user-1',
+    );
+
+    expect(decision).toEqual(
+      expect.objectContaining({
+        approved: true,
+        mode: 'allow_timed_grant',
+        decidedBy: 'user-1',
+        reason: 'timed grant for eligible tools and SDK API prompts (5 min)',
+        decisionClassification: 'user_temporary',
+        timedGrantExpiresAtMs: expect.any(Number),
+      }),
+    );
+  });
+
+  it('rejects forged timed-grant decisions when the request did not offer them', () => {
+    const decision = decisionForMode(
+      {
+        ...requestWithSuggestions([]),
+        decisionOptions: ['allow_once', 'cancel'],
+      },
+      'allow_timed_grant',
+      'user-1',
+    );
+
+    expect(decision).toEqual({
+      approved: false,
+      mode: 'cancel',
+      decidedBy: 'user-1',
+      reason: 'approval option unavailable',
+      decisionClassification: 'user_reject',
+    });
   });
 
   it('renders semantic capability prompts before raw implementation details', () => {
@@ -168,21 +212,20 @@ describe('permission interaction', () => {
     );
 
     expect(text.split('\n')[0]).toBe('Allow Google Sheets write?');
-    expect(text).toContain('Capability: capability:google.sheets.write');
-    expect(text).toContain('Risk: write');
-    expect(text).toContain('Account: OneCLI Google account');
+    expect(text).toContain('Account: Configured Google access');
     expect(text).toContain(
-      'Allows: Read and update spreadsheet values through the configured brokered Google account.',
+      'Allows: Read and update spreadsheet values through configured Google access.',
     );
     expect(text).toContain(
       'Does not allow: Change sharing, manage Drive files outside Sheets operations, access Gmail, or receive raw OAuth tokens.',
     );
-    expect(text).toContain('Raw rule: capability:google.sheets.write');
+    expect(text).toContain(
+      'Details: capability:google.sheets.write; risk: write',
+    );
+    expect(text).not.toContain('Capability: capability:google.sheets.write');
+    expect(text).not.toContain('\nRisk: write');
     expect(text).not.toContain('ravi@example.com');
     expect(text).not.toContain('Change sharing or read Gmail.');
-    expect(text.indexOf('Allow Google Sheets write?')).toBeLessThan(
-      text.indexOf('Raw rule: capability:google.sheets.write'),
-    );
     expect(
       permissionButtonLabel(
         'allow_persistent_rule',
@@ -194,10 +237,50 @@ describe('permission interaction', () => {
           },
         ]),
       ),
-    ).toBe('Always allow for this agent');
+    ).toBe('Always allow');
   });
 
-  it('redacts Bash secrets in permission prompt previews', () => {
+  it('renders scoped Bash setup prompts as command rules even when capability metadata is present', () => {
+    const text = formatPermissionPromptText(
+      {
+        requestId: 'permission_123',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'request_permission',
+        displayName: 'Permission: Google Sheets write using gog',
+        title: 'Approve permission request',
+        toolInput: {
+          capabilityId: 'google.sheets.write',
+          capabilityDisplayName: 'Google Sheets write using gog',
+          toolNames: ['Bash'],
+          rule: '/usr/local/bin/gog sheets append *',
+        },
+        suggestions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [
+              {
+                toolName: 'Bash',
+                ruleContent: '/usr/local/bin/gog sheets append *',
+              },
+            ],
+          },
+        ],
+      },
+      60_000,
+    );
+
+    expect(text.split('\n')[0]).toBe('Allow exact command access?');
+    expect(text).toContain(
+      'Request: Permission: Google Sheets write using gog',
+    );
+    expect(text).toContain('Details: scoped Bash rule');
+    expect(text).not.toContain('Always allow grants this capability');
+    expect(text).not.toContain('Bash(/usr/local/bin/gog sheets append *)');
+    expect(text).not.toContain('Configured Google access');
+  });
+
+  it('hides Bash commands with secrets in permission prompt previews', () => {
     const text = formatPermissionPromptText(
       {
         ...requestWithSuggestions([]),
@@ -209,9 +292,33 @@ describe('permission interaction', () => {
       60_000,
     );
 
-    expect(text).toContain('OPENAI_API_KEY=[REDACTED_SECRET]');
+    expect(text).toContain(
+      'Command: hidden because it may contain sensitive values.',
+    );
+    expect(text).toContain('Program: npm');
+    expect(text).not.toContain('REDACTED');
     expect(text).not.toContain('sk-testsecretsecretsecretsecretsecretsecret');
-    expect(text).toContain('Command:\n```');
+    expect(text).not.toContain('Command:\n```');
+  });
+
+  it('keeps safe Bash command context when an opaque token is hidden', () => {
+    const text = formatPermissionPromptText(
+      {
+        ...requestWithSuggestions([]),
+        toolInput: {
+          command:
+            'curl https://api.example.com -H "Authorization: bearer abcdefghijklmnopqrstuvwxyz123456" --data ok',
+        },
+      },
+      60_000,
+    );
+
+    expect(text).toContain(
+      'Command: hidden because it may contain sensitive values.',
+    );
+    expect(text).toContain('Program: curl');
+    expect(text).not.toContain('REDACTED');
+    expect(text).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
   });
 
   it('renders closest existing rule mismatch details in permission prompts', () => {
@@ -219,7 +326,7 @@ describe('permission interaction', () => {
       {
         ...requestWithSuggestions([]),
         decisionReason:
-          'Tool not on autonomous job allowlist: Bash. Bash leaf npm test did not match any scoped autonomous rule.',
+          'Tool not on autonomous run allowlist: Bash. Bash leaf npm test did not match any scoped autonomous rule.',
         closestRule: {
           rule: 'Bash(npm run build)',
           reason:
@@ -248,10 +355,8 @@ describe('permission interaction', () => {
     );
 
     expect(text).toContain('Redirect: > /etc/passwd');
-    expect(text).toContain(
-      'What this changes: Allow once applies only to this tool call.',
-    );
-    expect(text).not.toContain('Always allow applies');
+    expect(text).toContain('Scope: this request or a short 5-minute grant.');
+    expect(text).not.toContain('future matching tool calls');
   });
 
   it('renders a structured Bash prompt with persistent rules', () => {
@@ -282,9 +387,9 @@ describe('permission interaction', () => {
     );
 
     expect(text).toMatchInlineSnapshot(`
-      "Bash request
+      "Allow exact command access?
 
-      Tool: Bash
+      From: agent chat
       Agent: main_agent
 
       Command:
@@ -293,16 +398,51 @@ describe('permission interaction', () => {
       \`\`\`
       Redirect: > /tmp/leads.json
 
-      Approving persistent will grant:
-        • Bash(curl https://api.example.com/*)
-        • Bash(jq *)
+      Details: scoped Bash rule [sha256:9d6310e5b7e64980], scoped Bash rule [sha256:bbd7e6f7ba4bc0df]
 
-      What this changes: Allow once applies only to this tool call.
-      Always allow applies these rules to matching future tool calls: Bash(curl https://api.example.com/*), Bash(jq *)
-      What this does not allow: unrelated tools, secrets, settings edits, or broader access outside the rule.
+      Scope: this request, a short 5-minute grant, or future matching tool calls.
+      Safety: only matching future access is included; unrelated tools, secrets, and settings changes are not included.
 
       Reply within 5 minute(s)."
     `);
+  });
+
+  it('marks scheduled-job permission prompts without exposing job ids', () => {
+    const text = formatPermissionPromptText(
+      {
+        requestId: 'permission_123',
+        sourceAgentFolder: 'main_agent',
+        jobId: 'knacklabs-lead-maintenance-controller-2026-05-15',
+        jobName: 'KnackLabs Lead Maintenance Controller',
+        toolName: 'Bash',
+        toolInput: { command: 'npm run lead-generator' },
+      },
+      60_000,
+    );
+
+    expect(text).toContain(
+      'From: scheduled job: KnackLabs Lead Maintenance Controller',
+    );
+    expect(text).toContain('Agent: main_agent');
+    expect(text).not.toContain(
+      'knacklabs-lead-maintenance-controller-2026-05-15',
+    );
+  });
+
+  it('marks interactive-agent permission prompts', () => {
+    const text = formatPermissionPromptText(
+      {
+        requestId: 'permission_123',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'Bash',
+        toolInput: { command: 'git status --short' },
+      },
+      60_000,
+    );
+
+    expect(text).toContain('From: agent chat');
+    expect(text).toContain('Agent: main_agent');
+    expect(text).not.toContain('From: scheduled job');
   });
 
   it('renders typed tool input families without JSON dumps', () => {
@@ -386,9 +526,65 @@ describe('permission interaction', () => {
       },
     );
 
-    expect(receipt).toContain('Allowed once');
-    expect(receipt).toContain('For tool: Bash (git status --short)');
-    expect(receipt).toContain('Request ID: `perm-abc-123`');
+    expect(receipt).toContain('Allowed once: exact command access');
+    expect(receipt).toContain('For: Bash (git status --short)');
+    expect(receipt).toContain('From: agent chat');
+    expect(receipt).toContain('Agent: main_agent');
+    expect(receipt).not.toContain('Request ID');
+    expect(receipt).not.toContain('perm-abc-123');
+  });
+
+  it('describes timed receipts with the trigger reason and no internal request id', () => {
+    const receipt = formatPermissionReceiptText(
+      'perm-abc-123',
+      {
+        requestId: 'perm-abc-123',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'Bash',
+        toolInput: { command: 'git status --short' },
+      },
+      {
+        approved: true,
+        mode: 'allow_timed_grant',
+        decidedBy: 'ravi',
+        timedGrantExpiresAtMs: Date.parse('2026-05-15T12:05:00Z'),
+      },
+    );
+
+    expect(receipt).toContain('Allowed for 5 minutes: exact command access');
+    expect(receipt).toContain('Until:');
+    expect(receipt).toContain('For: Bash (git status --short)');
+    expect(receipt).toContain('From: agent chat');
+    expect(receipt).toContain('Agent: main_agent');
+    expect(receipt).not.toContain('eligible tools and SDK API/network prompts');
+    expect(receipt).not.toContain('Request ID');
+    expect(receipt).not.toContain('perm-abc-123');
+  });
+
+  it('marks scheduled-job receipts without exposing job ids', () => {
+    const receipt = formatPermissionReceiptText(
+      'perm-abc-123',
+      {
+        requestId: 'perm-abc-123',
+        sourceAgentFolder: 'main_agent',
+        jobId: 'knacklabs-lead-maintenance-controller-2026-05-15',
+        toolName: 'Bash',
+        toolInput: { command: 'npm run lead-generator' },
+      },
+      {
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'ravi',
+      },
+    );
+
+    expect(receipt).toContain('Allowed once: exact command access');
+    expect(receipt).toContain('From: scheduled job');
+    expect(receipt).toContain('Agent: main_agent');
+    expect(receipt).not.toContain(
+      'knacklabs-lead-maintenance-controller-2026-05-15',
+    );
+    expect(receipt).not.toContain('perm-abc-123');
   });
 
   it('lists persistent rules and revoke hint in receipts', () => {
@@ -418,18 +614,44 @@ describe('permission interaction', () => {
       },
     );
 
-    expect(receipt).toContain('  • Bash(curl https://api.example.com/*)');
-    expect(receipt).toContain('  • Bash(jq *)');
-    expect(receipt).toContain('  • Browser');
+    expect(receipt).toContain('Always allowed: exact command access');
+    expect(receipt).toContain('Details: scoped Bash rule');
+    expect(receipt).toContain('Browser [sha256:');
+    expect(receipt).not.toContain('Bash(curl https://api.example.com/*)');
+    expect(receipt).not.toContain('Bash(jq *)');
+    expect(receipt).toContain('Revoke: /permissions remove <rule>');
     expect(receipt).toContain(
-      'Applying persistent grants now; final success or failure will be reported separately.',
+      'For: Bash (curl https://api.example.com/leads > /tmp/out)',
     );
-    expect(receipt).toContain(
-      'If applied, revoke with: /permissions remove <rule>',
+    expect(receipt).not.toContain('Request ID');
+    expect(receipt).not.toContain('perm-abc-123');
+  });
+
+  it('omits sensitive details instead of showing redaction markers in accepted receipts', () => {
+    const receipt = formatPermissionReceiptText(
+      'perm-abc-123',
+      {
+        requestId: 'perm-abc-123',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'Bash',
+        toolInput: {
+          command:
+            'curl https://api.example.com -H "Authorization: bearer abcdefghijklmnopqrstuvwxyz123456"',
+        },
+      },
+      {
+        approved: true,
+        mode: 'allow_once',
+        decidedBy: 'ravi',
+      },
     );
-    expect(receipt).toContain(
-      'For tool: Bash (curl https://api.example.com/leads > /tmp/out)',
-    );
+
+    expect(receipt).toContain('Allowed once');
+    expect(receipt).toContain('For: Bash command');
+    expect(receipt).not.toContain('REDACTED');
+    expect(receipt).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
+    expect(receipt).not.toContain('Request ID');
+    expect(receipt).not.toContain('perm-abc-123');
   });
 
   it('bounds and redacts prompt-visible free text and unknown input previews', () => {
@@ -454,11 +676,12 @@ describe('permission interaction', () => {
     );
 
     expect(text.length).toBeLessThanOrEqual(2_800);
-    expect(text).toContain('Reason: [REDACTED_POTENTIALLY_SENSITIVE]');
-    expect(text).toContain('password=[REDACTED_SECRET]');
-    expect(text).toContain('"cookie": "[REDACTED_SECRET]"');
+    expect(text).toContain('Reason: Sensitive detail hidden.');
+    expect(text).toContain('Details: Sensitive detail hidden.');
+    expect(text).toContain('"cookie": "[hidden]"');
     expect(text).toContain('"safe": "visible"');
     expect(text).toContain('"__omitted_keys": "more"');
+    expect(text).not.toContain('REDACTED');
     expect(text).not.toContain('session-cookie-value');
     expect(text).not.toContain('top-secret-value');
     expect(text).not.toContain('extra_99');

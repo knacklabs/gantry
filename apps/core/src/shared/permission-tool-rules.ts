@@ -1,3 +1,5 @@
+import { normalizePersistentBashRuleContent } from './bash-command-parser.js';
+
 export interface PermissionRuleLike {
   toolName?: unknown;
   ruleContent?: unknown;
@@ -51,7 +53,13 @@ function permissionRuleAllowedToolRule(rule: unknown): string | null {
   if (toolName.includes('(') || toolName.includes(')')) return null;
   const ruleContent = trimmedString(rule.ruleContent, 2048);
   if (ruleContent === null) return null;
-  return ruleContent ? `${toolName}(${ruleContent})` : toolName;
+  const normalizedRuleContent =
+    toolName === 'Bash' && ruleContent
+      ? normalizePersistentBashRuleContent(ruleContent)
+      : ruleContent;
+  return normalizedRuleContent
+    ? `${toolName}(${normalizedRuleContent})`
+    : toolName;
 }
 
 function isPermissionUpdateLike(value: unknown): value is PermissionUpdateLike {

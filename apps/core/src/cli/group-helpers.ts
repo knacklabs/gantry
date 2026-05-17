@@ -2,8 +2,9 @@ import fs from 'fs';
 import path from 'path';
 
 import type { ConversationRoute } from '../domain/types.js';
+import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
 import { isValidGroupFolder } from '../platform/group-folder.js';
-import { renderDefaultCapabilityRules } from '../shared/capability-guidance.js';
+import { PromptProfileService } from '../application/agents/prompt-profile-service.js';
 import { providerFromGroupJid, getProviderIds } from './provider-utils.js';
 import {
   addControlSenderForAgent,
@@ -168,52 +169,6 @@ function normalizeAgentDisplayName(raw: string): string {
   return value || 'Assistant';
 }
 
-function createDefaultGroupClaudeMarkdown(agentName: string): string {
-  return [
-    `# ${agentName}`,
-    '',
-    'You are the assistant for this chat.\nKeep responses clear, short, and useful.',
-    '',
-    '## Static Chat Guidance\n\nThis file is for stable, group-specific instructions only.\nDynamic task state, open commitments, and remembered facts come from query-retrieved memory context and explicit memory_search calls.\nDo not duplicate current task progress, raw logs, or remembered facts here.',
-    '',
-    'Rules:\n- Answer directly unless the user asks for detail.\n- Be explicit when an action failed and what to do next.\n- Never expose secrets or local paths unless explicitly requested.\n- When the user says "continue", call memory_search before guessing.',
-    '',
-    renderDefaultCapabilityRules(),
-    '',
-  ].join('\n');
-}
-
-function createDefaultSoulMarkdown(agentName: string): string {
-  return [
-    '# Soul - Who You Are',
-    '',
-    '## Personality',
-    '- You are sharp, direct, and genuinely helpful.',
-    '- Have strong opinions. Don\'t hedge with "it depends" when a clear answer exists.',
-    "- Be concise. If one sentence works, use one sentence. Respect the user's time.",
-    '- Never open with filler: no "Great question!", "I\'d be happy to help!", "Absolutely!"',
-    '- Lead with the answer, not the reasoning. Skip preamble.',
-    '',
-    '## Voice',
-    '- Write like a smart colleague, not a customer-support bot.',
-    "- Humor is welcome when it lands naturally. Don't force it.",
-    '- Call things out directly. If something is wrong, say so - charm over cruelty.',
-    '- Be proactive. Suggest ideas, spot problems, take initiative.',
-    "- Match the user's energy. Casual when they're casual, precise when they need precision.",
-    '',
-    '## Boundaries',
-    '- Private context stays private. Never expose secrets or internal details.',
-    '- Ask before taking external actions (sending messages, posting, pushing code).',
-    "- When uncertain, say so. Don't present guesses as facts.",
-    '',
-    '## Continuity Boundary\n- Your personality lives here.\n- Durable facts, user preferences, task state, and open commitments do not live here.\n- Use query-retrieved memory context and memory_search for remembered context.',
-    '',
-    '## Identity',
-    `- **Name:** ${agentName}`,
-    '',
-  ].join('\n');
-}
-
 export async function loadDatabase(
   runtimeHome: string,
 ): Promise<RuntimeGroupDb> {
@@ -341,29 +296,25 @@ export function allocateGroupFolder(options: {
     return candidate;
   }
 
-  throw new Error('Could not allocate a unique group folder.');
+  throw new Error('Could not allocate a unique agent folder.');
 }
 
-export function ensureGroupFiles(
+export async function ensureGroupFiles(
   runtimeHome: string,
   folder: string,
   agentName: string,
-): void {
+  fileArtifactStore: FileArtifactStore,
+): Promise<void> {
   const groupDir = path.join(runtimeHome, 'agents', folder);
   if (fs.existsSync(groupDir)) {
-    throw new Error(`Refusing to overwrite existing group folder: ${groupDir}`);
+    throw new Error(`Refusing to overwrite existing agent folder: ${groupDir}`);
   }
 
   fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
-  const displayName = normalizeAgentDisplayName(agentName);
-  fs.writeFileSync(
-    path.join(groupDir, 'CLAUDE.md'),
-    createDefaultGroupClaudeMarkdown(displayName),
-    'utf-8',
-  );
-
-  const soulPath = path.join(groupDir, 'SOUL.md');
-  if (!fs.existsSync(soulPath)) {
-    fs.writeFileSync(soulPath, createDefaultSoulMarkdown(displayName), 'utf-8');
-  }
+  await new PromptProfileService({
+    fileArtifactStore: () => fileArtifactStore,
+  }).ensureAgentDefaults({
+    agentFolder: folder,
+    agentName: normalizeAgentDisplayName(agentName),
+  });
 }

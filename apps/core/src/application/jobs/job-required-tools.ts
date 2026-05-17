@@ -158,7 +158,7 @@ export function requiredToolRecoveryAction(toolName: string): string {
       toolName: 'Browser',
       toolCategory: 'browser',
       temporaryOnly: false,
-      reason: 'This scheduled job requires Browser.',
+      reason: 'This autonomous run requires Browser.',
     })}`;
   }
   if (parseSemanticCapabilityRule(toolName)) {
@@ -166,17 +166,17 @@ export function requiredToolRecoveryAction(toolName: string): string {
       permissionKind: 'tool',
       toolName,
       temporaryOnly: false,
-      reason: `This scheduled job requires ${toolName}.`,
+      reason: `This autonomous run requires ${toolName}.`,
     })}`;
   }
   return `request_permission ${JSON.stringify({
     permissionKind: 'tool',
     toolName,
     temporaryOnly: false,
-    reason: `This scheduled job requires ${toolName}.`,
+    reason: `This autonomous run requires ${toolName}.`,
   })}`;
 }
 
 export function missingRequiredToolError(toolName: string): string {
-  return `Missing required tool before run. Tool not on autonomous job allowlist: ${toolName}. Recovery: ${requiredToolRecoveryAction(toolName)}`;
+  return `Missing required tool before run. Tool not on autonomous run allowlist: ${toolName}. Recovery: ${requiredToolRecoveryAction(toolName)}`;
 }

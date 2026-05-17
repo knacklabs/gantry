@@ -283,6 +283,7 @@ export class PgBossSchedulerEngine {
           jobId: release.jobId,
           runId: release.runId,
           runTimedOut: release.runTimedOut,
+          reason: release.reason,
         })),
       },
       'Released interrupted scheduler leases after runtime startup',

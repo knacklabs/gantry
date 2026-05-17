@@ -1,6 +1,3 @@
-import fs from 'fs';
-import path from 'path';
-
 import * as p from '@clack/prompts';
 import '../channels/register-builtins.js';
 import type {
@@ -28,8 +25,8 @@ import {
   defaultTriggerForAgentName,
   normalizeDefaultAgentName,
 } from './main-agent.js';
-import { renderDefaultCapabilityRules } from '../shared/capability-guidance.js';
 import { nowIso } from '../shared/time/datetime.js';
+import { PromptProfileService } from '../application/agents/prompt-profile-service.js';
 
 type TeamsChannelChoice =
   | { type: 'selected'; channel: TeamsDiscoveredChannel }
@@ -46,61 +43,6 @@ function parseTeamsApproverIds(raw: string | undefined): string[] {
         .filter(Boolean),
     ),
   ];
-}
-
-function defaultTeamsClaudeMarkdown(): string {
-  return [
-    '# MyClaw Agent',
-    '',
-    'You are the assistant for this Teams channel.',
-    'Keep responses clear, short, and useful.',
-    '',
-    '## Static Channel Guidance',
-    '',
-    'This file is for stable, Teams-specific instructions only.',
-    'Dynamic task state, open commitments, and remembered facts come from query-retrieved memory context and explicit memory_search calls.',
-    'Do not duplicate current task progress, raw logs, or remembered facts here.',
-    '',
-    'Rules:',
-    '- Answer directly unless the user asks for detail.',
-    '- Be explicit when an action failed and what to do next.',
-    '- Avoid exposing secrets, tokens, or local machine paths unless requested.',
-    '- When the user says "continue", call memory_search before guessing.',
-    '',
-    renderDefaultCapabilityRules(),
-    '',
-  ].join('\n');
-}
-
-function defaultSoulMarkdown(agentName: string): string {
-  return [
-    '# Soul - Who You Are',
-    '',
-    '## Personality',
-    '- You are sharp, direct, and genuinely helpful.',
-    '- Have strong opinions. Do not hedge when a clear answer exists.',
-    "- Be concise. If one sentence works, use one sentence. Respect the user's time.",
-    '- Lead with the answer, not the preamble.',
-    '',
-    '## Voice',
-    '- Write like a smart colleague, not a customer-support bot.',
-    '- Be proactive. Suggest ideas, spot problems, and take initiative.',
-    "- Match the user's energy. Casual when they are casual, precise when they need precision.",
-    '',
-    '## Boundaries',
-    '- Private context stays private. Never expose secrets or internal details.',
-    '- Ask before taking external actions such as sending messages, posting, or pushing code.',
-    '- When uncertain, say so. Do not present guesses as facts.',
-    '',
-    '## Continuity Boundary',
-    '- Your personality lives here.',
-    '- Durable facts, user preferences, task state, and open commitments do not live here.',
-    '- Use query-retrieved memory context and memory_search for remembered context.',
-    '',
-    '## Identity',
-    `- **Name:** ${agentName}`,
-    '',
-  ].join('\n');
 }
 
 export async function registerTeamsMainGroup(options: {
@@ -139,16 +81,9 @@ export async function registerTeamsMainGroup(options: {
     });
     saveRuntimeSettings(options.runtimeHome, settings);
 
-    const groupDir = path.join(options.runtimeHome, 'agents', folder);
-    fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
-    const claudePath = path.join(groupDir, 'CLAUDE.md');
-    if (!fs.existsSync(claudePath)) {
-      fs.writeFileSync(claudePath, defaultTeamsClaudeMarkdown(), 'utf-8');
-    }
-    const soulPath = path.join(groupDir, 'SOUL.md');
-    if (!fs.existsSync(soulPath)) {
-      fs.writeFileSync(soulPath, defaultSoulMarkdown(groupName), 'utf-8');
-    }
+    await new PromptProfileService({
+      fileArtifactStore: () => db.getFileArtifactStore(),
+    }).ensureAgentDefaults({ agentFolder: folder, agentName: groupName });
 
     return { folder, groupName };
   } finally {

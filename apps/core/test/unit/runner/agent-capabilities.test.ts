@@ -88,6 +88,8 @@ describe('agent capability composition', () => {
   it('uses exact safe defaults and myclaw MCP server wiring', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      appId: 'app-main',
+      agentId: 'agent:telegram_team',
       chatJid: 'tg:team',
       groupFolder: 'telegram_team',
       threadId: 'topic-1',
@@ -130,6 +132,8 @@ describe('agent capability composition', () => {
       command: 'node',
       args: ['/tmp/ipc-mcp-stdio.js'],
       env: {
+        MYCLAW_APP_ID: 'app-main',
+        MYCLAW_AGENT_ID: 'agent:telegram_team',
         MYCLAW_CHAT_JID: 'tg:team',
         MYCLAW_GROUP_FOLDER: 'telegram_team',
         MYCLAW_THREAD_ID: 'topic-1',
@@ -371,6 +375,42 @@ describe('agent capability composition', () => {
       profile.availableTools.filter((tool) => tool === 'Bash'),
     ).toHaveLength(1);
     expect(profile.allowedTools).not.toContain('Read(/repo/**)');
+  });
+
+  it('does not expose unselected permission-gated native tools to scheduled jobs', () => {
+    const profile = composeAgentCapabilities({
+      mcpServerPath: '/tmp/ipc-mcp-stdio.js',
+      chatJid: 'tg:sales',
+      groupFolder: 'sales',
+      persona: 'sales',
+      isScheduledJob: true,
+      configuredAllowedTools: [
+        'Read',
+        'Bash(/usr/local/bin/gog sheets append *)',
+        'Bash(python3 /Users/example/scripts/dedup-append-lead.py)',
+      ],
+    });
+
+    expect(profile.allowedTools).toContain('Read');
+    expect(profile.allowedTools).not.toContain('Bash');
+    expect(profile.allowedTools).not.toContain(
+      'Bash(/usr/local/bin/gog sheets append *)',
+    );
+    expect(profile.availableTools).toEqual(
+      expect.arrayContaining([
+        'Agent',
+        'WebSearch',
+        'WebFetch',
+        'ToolSearch',
+        'Skill',
+        'Read',
+        'Bash',
+      ]),
+    );
+    expect(profile.availableTools).not.toContain('Write');
+    expect(profile.availableTools).not.toContain('Edit');
+    expect(profile.availableTools).not.toContain('MultiEdit');
+    expect(profile.availableTools).not.toContain('NotebookEdit');
   });
 
   it('allows exact selected admin and native tools but filters unsupported wildcard rules for non-developer personas', () => {

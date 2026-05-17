@@ -2,6 +2,21 @@ import { z } from 'zod';
 
 import { AgentPersonaSchema } from '../agents/index.js';
 
+const EgressDenylistPatternSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .transform((value) => value.replace(/\.+$/g, '').toLowerCase())
+  .pipe(
+    z
+      .string()
+      .min(1)
+      .regex(
+        /^(?:\*|\*\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:\*|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/i,
+        'Must be a hostname glob such as api.example.com or *.example.com',
+      ),
+  );
+
 export const RuntimeSettingsConfiguredAgentBindingSchema = z
   .object({
     jid: z.string().trim().min(1),
@@ -144,6 +159,22 @@ export const RuntimeSettingsPublicSchema = z
           .strict(),
       })
       .strict(),
+    permissions: z
+      .object({
+        yoloMode: z
+          .object({
+            enabled: z.boolean(),
+            denylist: z.array(z.string().trim().min(1)),
+            denylistPaths: z.array(z.string().trim().min(1)),
+          })
+          .strict(),
+        egress: z
+          .object({
+            denylist: z.array(EgressDenylistPatternSchema),
+          })
+          .strict(),
+      })
+      .strict(),
   })
   .strict();
 export type RuntimeSettingsPublic = z.infer<typeof RuntimeSettingsPublicSchema>;
@@ -155,4 +186,59 @@ export const RuntimeSettingsResponseSchema = z
   .strict();
 export type RuntimeSettingsResponse = z.infer<
   typeof RuntimeSettingsResponseSchema
+>;
+
+export const RuntimeSettingsPatchSchema = z
+  .object({
+    agent: z
+      .object({
+        name: z.string().optional(),
+        defaultModel: z.string().optional(),
+        oneTimeJobDefaultModel: z.string().optional(),
+        recurringJobDefaultModel: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    memory: z
+      .object({
+        enabled: z.boolean().optional(),
+        dreaming: z
+          .object({
+            enabled: z.boolean().optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    permissions: z
+      .object({
+        yoloMode: z
+          .object({
+            enabled: z.boolean().optional(),
+            denylist: z.array(z.string().trim().min(1)).optional(),
+            denylistPaths: z.array(z.string().trim().min(1)).optional(),
+          })
+          .strict()
+          .optional(),
+        egress: z
+          .object({
+            denylist: z.array(EgressDenylistPatternSchema).optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type RuntimeSettingsPatch = z.infer<typeof RuntimeSettingsPatchSchema>;
+
+export const RuntimeSettingsUpdateResponseSchema =
+  RuntimeSettingsResponseSchema.extend({
+    changed: z.array(z.string().trim().min(1)),
+    restartRequired: z.boolean(),
+  }).strict();
+export type RuntimeSettingsUpdateResponse = z.infer<
+  typeof RuntimeSettingsUpdateResponseSchema
 >;

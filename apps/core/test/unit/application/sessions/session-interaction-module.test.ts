@@ -126,7 +126,6 @@ describe('SessionInteractionModule', () => {
             agentSessionId: 'session-1',
             provider: 'anthropic',
             externalSessionId: 'claude-session-secret',
-            latestArtifactId: 'provider-artifact-secret',
             providerRef: {
               kind: 'provider_session',
               value: 'anthropic:claude-session-secret',
@@ -157,7 +156,6 @@ describe('SessionInteractionModule', () => {
     expect(details.providerSession).not.toHaveProperty('agentSessionId');
     expect(details.providerSession).not.toHaveProperty('externalSessionId');
     expect(details.providerSession).not.toHaveProperty('providerRef');
-    expect(details.providerSession).not.toHaveProperty('latestArtifactId');
     expect(details.providerSession).not.toHaveProperty('metadata');
   });
 
@@ -182,7 +180,6 @@ describe('SessionInteractionModule', () => {
             agentSessionId: 'session-1',
             provider: 'anthropic',
             externalSessionId: '',
-            latestArtifactId: '',
             providerRef: {
               kind: 'provider_session',
               value: '',
@@ -216,7 +213,6 @@ describe('SessionInteractionModule', () => {
       'short-handle-from-metadata',
     );
     expect(details.providerSession).not.toHaveProperty('externalSessionId');
-    expect(details.providerSession).not.toHaveProperty('latestArtifactId');
     expect(details.providerSession).not.toHaveProperty('providerRef');
     expect(details.providerSession).not.toHaveProperty('metadata');
   });

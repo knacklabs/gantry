@@ -124,10 +124,8 @@ any runtime-only projected tools.
 Agent capability updates are bidirectional: settings-side changes reconcile
 Postgres immediately, and API/admin-side capability writes export the readable
 projection back into `settings.yaml` before returning.
-Permission prompts use `Allow once`, `Always allow for this agent/job` for
-semantic capabilities, `Always allow Browser`, `Always allow` for exact MyClaw
-admin tools, `Always allow Bash(<pattern>)` for low-level fallback grants, or
-`Cancel`.
+Permission prompts use the simple choices `Allow once`, `Allow 5 min`,
+`Always allow`, or `Cancel`.
 Same-conversation review binds the request to the originating chat or thread;
 it does not bypass the configured conversation approvers. Raw request ids,
 command hashes, scoped Bash rules, executable paths, and sandbox details are
@@ -149,7 +147,7 @@ Capability catalog response:
       "semanticCapability": {
         "capabilityId": "google.sheets.write",
         "displayName": "Google Sheets write",
-        "credentialSource": "onecli"
+        "credentialSource": "configured_access"
       }
     }
   ],
@@ -246,7 +244,7 @@ client.agents.mcpServers.disable(agentId, serverId)
 MCP definitions store credential reference names only. Broker-injected values
 are projected into a private per-run config file with `0600` permissions and
 deleted by the runner after startup and by the host on early spawn failures;
-they are not saved in Claude config, provider artifacts, or Postgres rows.
+they are not saved in Claude config, FileArtifacts, or Postgres rows.
 `allowedToolPatterns` is the enforced SDK allowlist for third-party MCP tool
 names. `autoApproveToolPatterns` is session auto-allow scope and must be a
 subset of `allowedToolPatterns` when an explicit allowlist is present.

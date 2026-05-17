@@ -78,6 +78,7 @@ describe('notifyReleasedStaleJobLeases', () => {
           runId: 'run-1',
           releasedAt: '2026-05-12T09:00:00.000Z',
           runTimedOut: true,
+          reason: 'lease_expired',
         },
       ],
       opsRepository,
@@ -110,6 +111,57 @@ describe('notifyReleasedStaleJobLeases', () => {
         sessionId: 'session-1',
         responseMode: 'webhook',
         webhookId: 'webhook-1',
+      }),
+    );
+  });
+
+  it('reports runtime restarts as interrupted runs, not scope timeouts', async () => {
+    const job = createJob({ name: 'KnackLabs Lead Maintenance Controller' });
+    const run = createRun({
+      error_summary: 'Scheduler runtime restarted before completion.',
+    });
+    const opsRepository = {
+      getJobById: vi.fn(async () => job),
+      getJobRunById: vi.fn(async () => run),
+      markJobRunNotified: vi.fn(async () => undefined),
+    };
+    const sendMessage = vi.fn(async () => true);
+    const publishRuntimeEvent = vi.fn(async () => undefined);
+
+    await notifyReleasedStaleJobLeases({
+      releases: [
+        {
+          jobId: 'job-1',
+          runId: 'run-1',
+          releasedAt: '2026-05-12T09:00:00.000Z',
+          runTimedOut: true,
+          reason: 'runtime_restarted',
+        },
+      ],
+      opsRepository,
+      sendMessage,
+      controlRepository: {
+        getAppSessionById: vi.fn(async () => undefined),
+      },
+      publishRuntimeEvent,
+      runtimeAppId: 'default',
+    });
+
+    const message = String(sendMessage.mock.calls[0]?.[1]);
+    expect(message).toContain(
+      'Interrupted: KnackLabs Lead Maintenance Controller',
+    );
+    expect(message).toContain(
+      'Outcome: Gantry restarted while this job was running',
+    );
+    expect(message).toContain('Action: Rerun the job when ready.');
+    expect(message).not.toContain('Narrow the job scope');
+    expect(publishRuntimeEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          interruption_reason: 'runtime_restarted',
+          stale_lease: false,
+        }),
       }),
     );
   });

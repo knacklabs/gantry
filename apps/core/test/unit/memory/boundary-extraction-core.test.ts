@@ -143,6 +143,38 @@ describe('collectDurableMemoryFromRepositories', () => {
     });
   });
 
+  it('includes generated memory text in the saved digest when facts are also extracted', async () => {
+    const { repositories, digests, evidence } = makeRepositories();
+
+    await collectDurableMemoryFromRepositories({
+      agentSessionId: 'agent-session:1',
+      trigger: 'session-end',
+      repositories,
+      defaultScope: 'group',
+      extractFacts: () => ({
+        facts: [
+          {
+            scope: 'group',
+            kind: 'fact',
+            key: 'fact:release-owner',
+            value: 'Kartik owns release approval.',
+            why: 'The session said Kartik owns release approval.',
+            confidence: 0.91,
+          },
+        ],
+        status: 'facts_extracted',
+        generatedMemory:
+          'Generated summary: Kartik owns release approval for this channel.',
+      }),
+    });
+
+    expect(evidence).toHaveLength(1);
+    expect(digests).toHaveLength(1);
+    expect((digests[0] as { digest: string }).digest).toContain(
+      'Generated summary: Kartik owns release approval for this channel.',
+    );
+  });
+
   it('records array-only zero-fact extractors as qualified empty outcomes', async () => {
     const { repositories, digests } = makeRepositories();
 

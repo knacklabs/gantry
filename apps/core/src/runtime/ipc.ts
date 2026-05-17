@@ -572,7 +572,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
               const responsePath = path.join(
                 ipcBaseDir,
                 sourceAgentFolder,
-                'user-answers',
+                'permission-responses',
                 `${request.requestId}.json`,
               );
               if (fs.existsSync(responsePath)) {

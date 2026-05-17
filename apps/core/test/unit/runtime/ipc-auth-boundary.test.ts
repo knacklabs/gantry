@@ -23,6 +23,7 @@ import {
   parseBrowserIpcRequest,
   parseMemoryIpcRequest,
   parsePermissionIpcRequest,
+  parseUserQuestionIpcRequest,
 } from '@core/runtime/ipc-parsing.js';
 import { parseTaskIpcData } from '@core/runtime/ipc-task-parsing.js';
 
@@ -229,6 +230,11 @@ describe('validateIpcAuthRequest', () => {
     assertRejected({ group_scope: 'team' });
     assertRejected({ groupScope: 'team' });
     assertRejected({ required_mcp_servers: ['mcp:legacy'] });
+    assertRejected({
+      capability_requirements: [
+        { capabilityId: 'google.sheets.write', reason: 'required' },
+      ],
+    });
   });
 
   it('rejects scheduler job allowedTools because jobs inherit agent capabilities', () => {
@@ -281,6 +287,48 @@ describe('validateIpcAuthRequest', () => {
       type: 'scheduler_upsert_job',
       requiredTools: ['Browser'],
       requiredMcpServers: ['mcp:company-crm'],
+    });
+  });
+
+  it('preserves scheduler capability requirements at the IPC boundary', () => {
+    const payload = signedPayload({
+      requestId: 'task-capability-requirements',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      type: 'scheduler_upsert_job',
+      context: { responseKeyId: TEST_RESPONSE_KEY_ID },
+      name: 'Job',
+      prompt: 'Run',
+      scheduleType: 'interval',
+      scheduleValue: '60000',
+      capabilityRequirements: [
+        {
+          capabilityId: 'google.sheets.write',
+          reason: 'Need spreadsheet',
+          implementation: {
+            kind: 'local_cli',
+            name: 'Sheets CLI',
+            commandTemplate: 'sheet-write',
+            protectedPaths: ['/tmp'],
+          },
+        },
+      ],
+    });
+
+    expect(parseTaskIpcData(payload, 'team')).toMatchObject({
+      type: 'scheduler_upsert_job',
+      capabilityRequirements: [
+        {
+          capabilityId: 'google.sheets.write',
+          reason: 'Need spreadsheet',
+          implementation: {
+            kind: 'local_cli',
+            name: 'Sheets CLI',
+            commandTemplate: 'sheet-write',
+            protectedPaths: ['/tmp'],
+          },
+        },
+      ],
     });
   });
 
@@ -527,6 +575,61 @@ describe('validateIpcAuthRequest', () => {
         signature,
       ),
     ).toBe(false);
+  });
+
+  it('accepts user question IPC signed with scoped app and agent context', () => {
+    const run = createIpcAuthEnvelope('main_agent', undefined, {
+      appId: 'app:telegram',
+      agentId: 'agent:main',
+    });
+    const payload = {
+      requestId: 'userq-1234567890-aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      nonce: randomUUID(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      sourceAgentFolder: 'main_agent',
+      questions: [
+        {
+          header: 'Creds',
+          question: 'How should I handle the credential readiness gate?',
+          options: [
+            {
+              label: 'Retry',
+              description: 'Try the operation again now.',
+            },
+            {
+              label: 'Wait',
+              description: 'Wait for more input.',
+            },
+          ],
+          multiSelect: false,
+        },
+      ],
+      context: {
+        appId: 'app:telegram',
+        agentId: 'agent:main',
+        responseKeyId: run.responseKeyId,
+      },
+    };
+
+    const parsed = parseUserQuestionIpcRequest(
+      {
+        ...payload,
+        signature: signIpcRequestPayload(run.authToken, payload),
+      },
+      'main_agent',
+    );
+
+    expect(parsed).toMatchObject({
+      requestId: payload.requestId,
+      sourceAgentFolder: 'main_agent',
+      responseKeyId: run.responseKeyId,
+      questions: [
+        {
+          header: 'Creds',
+          question: 'How should I handle the credential readiness gate?',
+        },
+      ],
+    });
   });
 
   it('revokes response signing keys only for the matching run scope', () => {

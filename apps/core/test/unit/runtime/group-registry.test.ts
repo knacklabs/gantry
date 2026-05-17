@@ -32,10 +32,19 @@ vi.mock('@core/platform/group-folder.js', () => ({
   resolveGroupFolderPath: vi.fn(),
 }));
 
+vi.mock('@core/application/agents/prompt-profile-service.js', () => ({
+  PromptProfileService: vi.fn(),
+}));
+
+vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
+  getRuntimeFileArtifactStore: vi.fn(() => ({})),
+}));
+
 // Vitest hoists vi.mock calls, so these imports resolve to the mocked versions.
 import fs from 'fs';
 import { logger } from '@core/infrastructure/logging/logger.js';
 import { resolveGroupFolderPath } from '@core/platform/group-folder.js';
+import { PromptProfileService } from '@core/application/agents/prompt-profile-service.js';
 import {
   registerGroup,
   setGroupModelOverride,
@@ -48,6 +57,8 @@ type PersistGroupFn = (jid: string, group: ConversationRoute) => void;
 // Typed handles for convenience
 const mockFs = vi.mocked(fs);
 const mockResolve = vi.mocked(resolveGroupFolderPath);
+const mockPromptProfileService = vi.mocked(PromptProfileService);
+const mockEnsureAgentDefaults = vi.fn();
 
 // Helper to build a minimal ConversationRoute
 function makeGroup(
@@ -76,6 +87,14 @@ describe('registerGroup', () => {
     mockFs.existsSync.mockReset();
     mockFs.readFileSync.mockReset();
     mockFs.writeFileSync.mockReset();
+    mockEnsureAgentDefaults.mockReset();
+    mockEnsureAgentDefaults.mockResolvedValue(undefined);
+    mockPromptProfileService.mockReset();
+    mockPromptProfileService.mockImplementation(
+      function PromptProfileService() {
+        return { ensureAgentDefaults: mockEnsureAgentDefaults };
+      } as never,
+    );
     mockResolve.mockReset();
     groups = {};
     persist = vi.fn<PersistGroupFn>();
@@ -123,40 +142,23 @@ describe('registerGroup', () => {
     );
   });
 
-  it('creates default CLAUDE.md when template file does not exist', async () => {
+  it('seeds default prompt profile FileArtifacts when registering', async () => {
     const group = makeGroup({});
-    mockFs.existsSync.mockReturnValueOnce(false).mockReturnValueOnce(false);
 
     await registerGroup(groups, 'g1@g.us', group, {
       persist,
       ensureCredentialBinding,
     });
 
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-      '/resolved/test-group/CLAUDE.md',
-      expect.stringContaining('# Andy'),
-    );
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-      '/resolved/test-group/CLAUDE.md',
-      expect.stringContaining('assistant for this conversation'),
-    );
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-      '/resolved/test-group/CLAUDE.md',
-      expect.stringContaining(
-        'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, capability_search, request_capability, propose_local_cli_capability, manage_capability, or request_permission for capability changes.',
-      ),
-    );
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-      '/resolved/test-group/CLAUDE.md',
-      expect.stringContaining(
-        'Agents with selected admin capabilities may use service_restart after approved changes and register_agent for conversation binding.',
-      ),
-    );
+    expect(mockEnsureAgentDefaults).toHaveBeenCalledWith({
+      agentFolder: 'test-group',
+      agentName: 'Andy',
+    });
+    expect(mockFs.writeFileSync).not.toHaveBeenCalled();
   });
 
-  it('uses provided assistant name in default CLAUDE.md', async () => {
+  it('uses provided assistant name when seeding prompt profile FileArtifacts', async () => {
     const group = makeGroup({});
-    mockFs.existsSync.mockReturnValueOnce(false);
 
     await registerGroup(groups, 'g1@g.us', group, {
       assistantName: 'Kai',
@@ -164,28 +166,10 @@ describe('registerGroup', () => {
       ensureCredentialBinding,
     });
 
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-      '/resolved/test-group/CLAUDE.md',
-      expect.stringContaining('# Kai'),
-    );
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-      '/resolved/test-group/CLAUDE.md',
-      expect.stringContaining('assistant for this conversation'),
-    );
-  });
-
-  it('skips template creation when CLAUDE.md already exists', async () => {
-    const group = makeGroup();
-    // existsSync for groupMdFile => true (file already exists)
-    mockFs.existsSync.mockReturnValue(true);
-
-    await registerGroup(groups, 'g1@g.us', group, {
-      persist,
-      ensureCredentialBinding,
+    expect(mockEnsureAgentDefaults).toHaveBeenCalledWith({
+      agentFolder: 'test-group',
+      agentName: 'Kai',
     });
-
-    expect(mockFs.readFileSync).not.toHaveBeenCalled();
-    expect(mockFs.writeFileSync).not.toHaveBeenCalled();
   });
 });
 

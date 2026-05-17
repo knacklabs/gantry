@@ -1,5 +1,6 @@
 import { evaluateAutonomousToolUse } from './tool-rule-matcher.js';
 import {
+  bashExecutableName,
   nonDurableBashLeafReason,
   normalizeBashLeafRuleContent,
   parseBashCommand,
@@ -140,14 +141,14 @@ export class ToolExecutionPolicyService {
   evaluate(input: {
     request: ToolExecutionRequest;
     allowedToolRules?: readonly string[];
-    schedulerAllowedToolRules?: readonly string[];
+    autonomousAllowedToolRules?: readonly string[];
   }): ToolPolicyDecision {
     const protectedDecision = evaluateProtectedCapabilityRequest(input.request);
     if (protectedDecision) return protectedDecision;
 
     if (input.request.executionMode === 'autonomous') {
       const rules =
-        input.schedulerAllowedToolRules ?? input.allowedToolRules ?? [];
+        input.autonomousAllowedToolRules ?? input.allowedToolRules ?? [];
       const toolPolicy = evaluateAutonomousToolUse({
         rules,
         toolName: input.request.toolName,
@@ -155,13 +156,13 @@ export class ToolExecutionPolicyService {
       });
       if (toolPolicy.allowed) {
         return decision(input.request, 'allow', {
-          reason: `Allowed by scheduler tool rule ${toolPolicy.matchedRule}.`,
+          reason: `Allowed by autonomous tool rule ${toolPolicy.matchedRule}.`,
           matchedRule: toolPolicy.matchedRule,
         });
       }
       return decision(input.request, 'deny', {
         reason: autonomousDenyReason(input.request.toolName, toolPolicy.reason),
-        recoveryAction: schedulerGrantRecovery(input.request),
+        recoveryAction: autonomousGrantRecovery(input.request),
         closestRule: toolPolicy.closestRule,
       });
     }
@@ -337,7 +338,7 @@ function autonomousDenyReason(
   toolName: string,
   mismatchReason: string | undefined,
 ): string {
-  const prefix = `Tool not on autonomous job allowlist: ${toolName}.`;
+  const prefix = `Tool not on autonomous run allowlist: ${toolName}.`;
   return mismatchReason ? `${prefix} ${mismatchReason}` : prefix;
 }
 
@@ -416,26 +417,29 @@ function protectedCapabilityRecovery(): string {
   return 'Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, or request_permission so the change is reviewed, stored durably, and activated through MyClaw capability flows.';
 }
 
-function schedulerGrantRecovery(request: ToolExecutionRequest): string {
+function autonomousGrantRecovery(request: ToolExecutionRequest): string {
   if (isKnownProjectedBrowserMcpToolName(request.toolName)) {
-    return 'request_permission { "permissionKind": "tool", "toolName": "Browser", "toolCategory": "browser", "temporaryOnly": false, "reason": "This scheduled job needs browser access." }';
+    return 'request_permission { "permissionKind": "tool", "toolName": "Browser", "toolCategory": "browser", "temporaryOnly": false, "reason": "This autonomous run needs browser access." }';
   }
   if (request.toolName === 'Bash') {
     const command = commandText(request.input);
     const rule = command ? persistentBashRecoveryRule(command) : undefined;
-    return `request_permission { "permissionKind": "tool", "toolName": "Bash"${rule ? `, "rule": "${escapeJson(rule)}"` : ''}, "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }`;
+    if (!rule) {
+      return 'Update the autonomous run to use a reviewed semantic capability or invoke a scoped Bash(...) command directly. This Bash command cannot be durably approved for autonomous runs.';
+    }
+    return `request_permission { "permissionKind": "tool", "toolName": "Bash"${rule ? `, "rule": "${escapeJson(rule)}"` : ''}, "temporaryOnly": false, "reason": "This autonomous run needs scoped Bash access." }`;
   }
   if (isAdminMcpToolFullName(request.toolName)) {
-    return `request_permission { "permissionKind": "tool", "toolName": "${request.toolName}", "temporaryOnly": false, "reason": "This scheduled job needs ${request.toolName} access." }`;
+    return `request_permission { "permissionKind": "tool", "toolName": "${request.toolName}", "temporaryOnly": false, "reason": "This autonomous run needs ${request.toolName} access." }`;
   }
   const thirdPartyMcp = thirdPartyMcpToolServerName(request.toolName);
   if (thirdPartyMcp) {
-    return `request_mcp_server { "name": "${escapeJson(thirdPartyMcp)}", "transport": "http", "reason": "This scheduled job needs the ${escapeJson(thirdPartyMcp)} MCP server capability." }`;
+    return `request_mcp_server { "name": "${escapeJson(thirdPartyMcp)}", "transport": "http", "reason": "This autonomous run needs the ${escapeJson(thirdPartyMcp)} MCP server capability." }`;
   }
   const toolName = isKnownProjectedBrowserMcpToolName(request.toolName)
     ? 'Browser'
     : request.toolName;
-  return `request_permission { "permissionKind": "tool", "toolName": "${escapeJson(toolName)}", "temporaryOnly": false, "reason": "This scheduled job needs ${escapeJson(toolName)} access." }`;
+  return `request_permission { "permissionKind": "tool", "toolName": "${escapeJson(toolName)}", "temporaryOnly": false, "reason": "This autonomous run needs ${escapeJson(toolName)} access." }`;
 }
 
 function thirdPartyMcpToolServerName(toolName: string): string | undefined {
@@ -454,6 +458,16 @@ function persistentBashRecoveryRule(command: string): string | undefined {
   if (!parsed.ok || parsed.leaves.length !== 1) return undefined;
   const [leaf] = parsed.leaves;
   if (!leaf || nonDurableBashLeafReason(leaf)) return undefined;
+  if (inlineInterpreterLeaf(leaf.argv)) return undefined;
   if (leaf.redirects.some((redirect) => redirect.destructive)) return undefined;
   return normalizeBashLeafRuleContent(leaf);
+}
+
+function inlineInterpreterLeaf(argv: readonly string[]): boolean {
+  const executable = bashExecutableName(argv[0] ?? '');
+  if (
+    !['node', 'python', 'python3', 'ruby', 'perl', 'php'].includes(executable)
+  )
+    return false;
+  return ['-c', '-e'].includes(argv[1] ?? '');
 }

@@ -10,6 +10,7 @@ export async function releaseStaleCanonicalJobLeases(
 ): Promise<ReleasedStaleJobLease[]> {
   return releaseCanonicalJobLeases(db, nowIso, {
     errorSummary: 'Scheduler run lease expired before completion.',
+    reason: 'lease_expired',
     staleOnly: true,
   });
 }
@@ -20,6 +21,7 @@ export async function releaseInterruptedCanonicalJobLeases(
 ): Promise<ReleasedStaleJobLease[]> {
   return releaseCanonicalJobLeases(db, nowIso, {
     errorSummary: 'Scheduler runtime restarted before completion.',
+    reason: 'runtime_restarted',
     staleOnly: false,
   });
 }
@@ -27,7 +29,11 @@ export async function releaseInterruptedCanonicalJobLeases(
 async function releaseCanonicalJobLeases(
   db: CanonicalDb,
   nowIso: string,
-  options: { errorSummary: string; staleOnly: boolean },
+  options: {
+    errorSummary: string;
+    reason: ReleasedStaleJobLease['reason'];
+    staleOnly: boolean;
+  },
 ): Promise<ReleasedStaleJobLease[]> {
   return db.transaction(async (tx) => {
     const jobs = pgSchema.canonicalJobsPostgres;
@@ -90,6 +96,7 @@ async function releaseCanonicalJobLeases(
       runId: job.leaseRunId,
       releasedAt: nowIso,
       runTimedOut: job.leaseRunId ? timedOutRunIds.has(job.leaseRunId) : false,
+      reason: options.reason,
     }));
   });
 }

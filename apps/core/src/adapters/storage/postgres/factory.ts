@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import {
   createStorageService,
   type ResolvedStorageConfig,
@@ -13,7 +15,7 @@ import {
   STORAGE_POSTGRES_URL_ENV,
   getRuntimeSettingsForConfig,
 } from '../../../config/index.js';
-import { PostgresProviderArtifactStore } from '../../artifacts/postgres/postgres-provider-artifact-store.js';
+import { LocalFileArtifactBytes } from '../../artifacts/files/local-file-artifact-bytes.js';
 import { LocalSkillArtifactStore } from '../../artifacts/skills/local-skill-artifact-store.js';
 import type {
   RuntimeAgentSessionRepository,
@@ -23,14 +25,17 @@ import type {
   RuntimeMessageRepository,
   RuntimeRouterStateRepository,
 } from '../../../domain/repositories/ops-repo.js';
-import type { ProviderArtifactStore } from '../../../domain/ports/provider-artifact-store.js';
+import type { FileArtifactStore } from '../../../domain/ports/file-artifact-store.js';
 import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
 import { PostgresRuntimeRepositoryBundle } from './schema/canonical-ops-repo.postgres.js';
 import { PostgresControlPlaneRepository } from './repositories/control-plane-repository.postgres.js';
+import { PostgresFileArtifactStore } from './repositories/file-artifact-repository.postgres.js';
 import type { PostgresStorageService } from './storage-service.js';
 import { RuntimeEventExchange } from '../../../application/runtime-events/runtime-event-exchange.js';
 import { PostgresRuntimeEventNotifier } from './runtime-event-notifier.postgres.js';
 import type { AgentSession } from '../../../domain/sessions/sessions.js';
+
+const FILE_ARTIFACTS_DIR_NAME = 'files';
 
 export type RuntimeOpsRepositories = RuntimeChatMetadataRepository &
   RuntimeMessageRepository &
@@ -46,7 +51,7 @@ export interface StorageRuntime {
   repositories: PostgresDomainRepositoryBundle;
   runtimeEvents: RuntimeEventExchange;
   runtimeEventNotifier: PostgresRuntimeEventNotifier;
-  providerArtifacts: ProviderArtifactStore;
+  fileArtifacts: FileArtifactStore;
   skillArtifacts: SkillArtifactStore;
 }
 
@@ -102,10 +107,12 @@ export function createStorageRuntime(
       },
     },
   );
-  const providerArtifacts = new PostgresProviderArtifactStore(service.db, {
-    artifactRoot: ARTIFACTS_DIR,
-    defaultStorageType: 'local-filesystem',
-  });
+  const fileArtifacts = new PostgresFileArtifactStore(
+    service.db,
+    new LocalFileArtifactBytes(
+      path.join(ARTIFACTS_DIR, FILE_ARTIFACTS_DIR_NAME),
+    ),
+  );
   const skillArtifacts = new LocalSkillArtifactStore(ARTIFACTS_DIR);
   return {
     service,
@@ -114,7 +121,7 @@ export function createStorageRuntime(
     repositories,
     runtimeEvents,
     runtimeEventNotifier,
-    providerArtifacts,
+    fileArtifacts,
     skillArtifacts,
   };
 }

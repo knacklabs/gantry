@@ -2,6 +2,10 @@ import { ChildProcess } from 'child_process';
 
 import { logger } from '../infrastructure/logging/logger.js';
 
+export const ACTIVE_RUN_STOP_REQUESTED = Symbol.for(
+  'myclaw.activeRunStopRequested',
+);
+
 interface StopActiveGroupRunOptions {
   groupJid: string;
   targetQueueJid: string;
@@ -16,6 +20,7 @@ export function stopActiveGroupRun({
   closeStdin,
 }: StopActiveGroupRunOptions): boolean {
   closeStdin();
+  markActiveRunStopRequested(proc);
 
   const pid = proc.pid;
   if (typeof pid !== 'number' || pid <= 0) {
@@ -58,4 +63,18 @@ export function stopActiveGroupRun({
       return false;
     }
   }
+}
+
+export function activeRunStopWasRequested(proc: ChildProcess): boolean {
+  return (
+    (proc as { [ACTIVE_RUN_STOP_REQUESTED]?: boolean })[
+      ACTIVE_RUN_STOP_REQUESTED
+    ] === true
+  );
+}
+
+function markActiveRunStopRequested(proc: ChildProcess): void {
+  (proc as { [ACTIVE_RUN_STOP_REQUESTED]?: boolean })[
+    ACTIVE_RUN_STOP_REQUESTED
+  ] = true;
 }

@@ -6,6 +6,11 @@ import {
   formatJobToolAccess,
   type JobToolAccessView,
 } from '../shared/tool-access-view.js';
+import {
+  jobSetupBlockerFromUnknown,
+  setupActionLabel,
+  setupActionLabelFromNextAction,
+} from '../shared/job-setup-labels.js';
 
 interface JobRecord {
   jobId: string;
@@ -68,11 +73,14 @@ export async function runJobsCommand(
   const [action, maybeJobId, ...rest] = args;
   if (action === 'list') return listJobs(runtimeHome, [maybeJobId, ...rest]);
   if (action === 'show' && maybeJobId) return showJob(runtimeHome, maybeJobId);
+  if (action === 'resume' && maybeJobId) {
+    return resumeJob(runtimeHome, maybeJobId);
+  }
   if (action === 'events' && maybeJobId) {
     return listJobEvents(runtimeHome, maybeJobId, rest);
   }
   p.log.error(
-    'Usage: myclaw jobs list|show <job_id>|events <job_id> [--run <run_id>]',
+    'Usage: myclaw jobs list|show <job_id>|resume <job_id>|events <job_id> [--run <run_id>]',
   );
   return 1;
 }
@@ -122,6 +130,32 @@ async function showJob(runtimeHome: string, jobId: string): Promise<number> {
     path: `/v1/jobs/${encodeURIComponent(jobId)}`,
   })) as JobRecord;
   p.note(formatJobDetail(job), `Job ${jobId}`);
+  return 0;
+}
+
+async function resumeJob(runtimeHome: string, jobId: string): Promise<number> {
+  const response = (await controlApiRequest(runtimeHome, {
+    method: 'POST',
+    path: `/v1/jobs/${encodeURIComponent(jobId)}/resume`,
+  })) as { resumed?: boolean; setup?: JobRecord['setup'] };
+  const setup = response.setup;
+  const lines = [
+    `Resumed: ${response.resumed ? 'yes' : 'no'}`,
+    `Setup: ${setup?.state ?? 'ready'}`,
+  ];
+  if (setup?.nextAction) {
+    lines.push(`Next Action: ${formatJobNextAction(setup)}`);
+  }
+  if (setup?.blockers?.length) {
+    lines.push(
+      'Setup Blockers:',
+      ...setup.blockers.map(
+        (blocker) =>
+          `  ${blocker.requirementType ?? 'requirement'}:${blocker.requirementId ?? 'unknown'} ${blocker.message ?? ''}`,
+      ),
+    );
+  }
+  p.note(lines.join('\n'), `Job ${jobId}`);
   return 0;
 }
 
@@ -227,7 +261,10 @@ function formatJobDetail(job: JobRecord): string {
   }
   const nextAction = job.setup?.nextAction ?? job.health?.nextAction;
   if (nextAction) {
-    lines.push('', `Next Action: ${nextAction}`);
+    lines.push(
+      '',
+      `Next Action: ${formatJobNextAction(job.setup, nextAction)}`,
+    );
   }
   if (job.setup?.blockers?.length) {
     lines.push(
@@ -249,6 +286,18 @@ function formatJobDetail(job: JobRecord): string {
     );
   }
   return lines.join('\n');
+}
+
+function formatJobNextAction(
+  setup?: JobRecord['setup'],
+  fallbackNextAction?: unknown,
+): string {
+  const blocker = jobSetupBlockerFromUnknown(setup?.blockers?.[0]);
+  if (blocker) return setupActionLabel(blocker);
+  return setupActionLabelFromNextAction(
+    setup?.nextAction ?? fallbackNextAction,
+    'Fix setup, then resume the job.',
+  );
 }
 
 function formatJobEvents(events: JobEventRecord[]): string {

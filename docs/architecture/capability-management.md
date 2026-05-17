@@ -41,7 +41,8 @@ Each semantic capability record includes:
 - `capabilityId`, `displayName`, `category`, `risk`, and optional
   `accountLabel`
 - `can` and `cannot` user-facing scope statements
-- `credentialSource`: `onecli`, `external_broker`, `local_cli`, or `none`
+- `credentialSource`: implementation metadata such as `configured_access`,
+  `onecli`, `external_broker`, `local_cli`, or `none`
 - low-level implementation bindings such as exact tools, scoped
   `Bash(<template>)`, MCP tools, adapter refs, or local CLI command templates
 - optional preflight metadata, protected credential/config paths, redaction
@@ -49,8 +50,9 @@ Each semantic capability record includes:
 
 Runtime expands a selected semantic capability to deterministic low-level
 rules for the current run, but management and prompts keep the semantic name
-primary. For example, `capability:google.sheets.write` may project to a scoped
-OneCLI command rule while the approval prompt says `Allow Google Sheets write?`.
+primary. For example, `capability:google.sheets.write` may project to a
+provider-neutral configured-access adapter while the approval prompt says
+`Allow Google Sheets write?`.
 
 Built-ins cover common brokered app capabilities such as Google Sheets read,
 Google Sheets write, and Gmail read. Unknown business tools are not accepted as
@@ -224,8 +226,8 @@ uses the same reviewed request tools as interactive agents:
 
 ```text
 request_capability { "capabilityId": "google.sheets.write", "reason": "This scheduled job writes the weekly status sheet." }
-request_permission { "permissionKind": "tool", "toolName": "Bash", "rule": "npm test *", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }
-request_mcp_server { "name": "github", "transport": "http", "reason": "This scheduled job needs the github MCP server capability." }
+request_permission { "permissionKind": "tool", "toolName": "Bash", "rule": "npm test *", "temporaryOnly": false, "reason": "This autonomous run needs scoped Bash access." }
+request_mcp_server { "name": "github", "transport": "http", "reason": "This autonomous run needs the github MCP server capability." }
 ```
 
 Approved requests update the target agent's durable selected tools, skills, or
@@ -264,7 +266,7 @@ keys must remain human-readable and API-readable; hashes are metadata, not path
 names. A local skill can be inspected with normal filesystem tools, and the API
 can list/read individual files under `skills:read`.
 
-Claude settings, `CLAUDE_CONFIG_DIR`, MCP handoff files, and provider artifacts
+Claude settings, `CLAUDE_CONFIG_DIR`, MCP handoff files, and FileArtifacts
 are per-run projections. They are compatibility inputs for a provider adapter,
 not durable MyClaw truth.
 
@@ -275,7 +277,7 @@ not durable MyClaw truth.
    credential refs, sandbox profile, tool patterns, and provider metadata.
 3. Review: same-channel review renders the request, but authority still comes
    from configured admin/control policy.
-4. Decide: `Allow once`, `Always allow for this agent/job` for semantic capabilities, `Always allow Browser`, `Always allow mcp__myclaw__<admin_tool>`, `Always allow Bash(<pattern>)`, or `Cancel` is recorded with actor, reason, and audit summary.
+4. Decide: the user sees `Allow once`, `Allow 5 min`, `Always allow`, or `Cancel`; Details and audit records carry the durable authority shape, such as a semantic capability, canonical `Browser`, exact `mcp__myclaw__<admin_tool>`, or scoped `Bash(<pattern>)`.
 5. Bind: approval creates or updates the agent binding and a new config version.
 6. Same-session handoff: approved skill proposals are returned to the running
    agent as reviewed skill files; approved MCP servers are reachable through the
@@ -394,16 +396,46 @@ Before calling a cutover complete, run targeted searches for:
    not enable recurring-job reuse until runtime local-CLI enforcement verifies
    executable identity, preflight, protected paths, and denied env overrides.
 
+## Scheduler Capability Requirements
+
+Agents creating jobs should declare needed app/tool access with
+`scheduler_upsert_job.capability_requirements` when the job depends on a
+semantic capability such as Google Sheets write access. Requirements are stored
+with the job, included in the confirmation token, and projected into
+`required_tools` as `capability:<id>` so readiness checks and runtime permission
+evaluation use the same durable authority model.
+
+Use `implementation.kind: configured_access` when Gantry should use an existing
+reviewed provider-neutral capability. Use `implementation.kind: local_cli` when
+the job must use a specific authenticated local CLI such as `gog`; it must
+include an absolute `executablePath`, a narrow `commandTemplate` that starts
+with that exact executable path, and any `authPreflight` must also start with
+the same path. Runtime setup converts that template into an exact scoped Bash
+rule such as `Bash(/usr/local/bin/gog sheets append *)`. That rule is the
+durable execution authority for the job today. User-defined semantic
+`local_cli` capability proposals remain review-only drafts until runtime
+local-CLI enforcement can verify executable identity, command templates,
+protected paths, and denied environment overrides. Do not replace the generated
+scoped rule with a broad `Bash(gog *)` grant.
+
 Examples:
 
-- Google Sheets through OneCLI: request `request_capability` with
+- Google Sheets through configured access: request `request_capability` with
   `capabilityId=google.sheets.write`. The prompt shows `Google Sheets write`;
-  OneCLI broker details and command hashes stay in Details.
-- Google Sheets through `gog`: propose a `local_cli` capability with pinned
-  `/usr/local/bin/gog`, command template `/usr/local/bin/gog sheets write *`,
-  auth preflight `/usr/local/bin/gog auth status`, and protected
-  `~/.config/gog`. This is a reviewed draft until the runtime gate can enforce
-  it; do not approve `Bash(gog *)` as a substitute.
+  concrete implementation details such as OneCLI, `gog`, command rules, and
+  hashes stay out of the primary prompt and belong in audit/details surfaces.
+- Google Sheets through `gog` for a scheduler job: declare
+  `implementation.kind: local_cli`, `name: gog`,
+  `executablePath: /usr/local/bin/gog`, and a narrow `commandTemplate` such as
+  `/usr/local/bin/gog sheets append <sheet_id> ...`. Setup must request the
+  generated scoped command rule `Bash(/usr/local/bin/gog sheets append *)`, not
+  the generic capability `capability:google.sheets.write`.
+- Reusable user-defined local CLI capability: propose a `local_cli` capability
+  with pinned `/usr/local/bin/gog`, command template
+  `/usr/local/bin/gog sheets write *`, auth preflight
+  `/usr/local/bin/gog auth status`, and protected `~/.config/gog`. This is a
+  reviewed draft until the runtime gate can enforce it; do not approve
+  `Bash(gog *)` as a substitute.
 - Unknown business CLI: propose `capabilityId=acme.invoices.read`,
   display name `Acme invoices read`, command template
   `/usr/local/bin/acme invoices read *`, and a non-secret account label.

@@ -23,6 +23,7 @@ import {
   type SemanticCapabilityDefinition,
   validateSemanticCapabilityDefinition,
 } from '../shared/semantic-capabilities.js';
+import { normalizePersistentBashRuleContent } from '../shared/bash-command-parser.js';
 import {
   isValidSemanticCapabilityId,
   semanticCapabilityRule,
@@ -36,11 +37,11 @@ export interface RequestPermissionReview {
 export function requestPermissionQueuedMessage(
   review: RequestPermissionReview,
 ): string {
-  return `${review.displayName} request sent to this chat for approval. Allow once records a one-shot approval; Always allow can enable the approved rule for this run and future runs.`;
+  return `${review.displayName} request sent to this chat for approval. Choose Allow once for this request, Allow 5 min for a short temporary grant, or Always allow for matching future runs.`;
 }
 
 export function requestPermissionDescription(): string {
-  return 'Only configured approvers can decide this request. Allow once records a one-shot approval; Always allow applies the approved rule to this run and future runs.';
+  return 'Only configured approvers can decide this request. Allow once covers this request, Allow 5 min is temporary, and Always allow covers matching future runs.';
 }
 
 export function requestPermissionReviewEffect(
@@ -138,12 +139,17 @@ export function requestPermissionReviewSuggestions(
   const capabilityId = toTrimmedString(toolInput.capabilityId, {
     maxLen: 160,
   });
-  if (capabilityId) {
+  const toolNames = sanitizedStringList(
+    Array.isArray(toolInput.toolNames)
+      ? toolInput.toolNames
+      : [toolInput.toolName],
+  );
+  if (capabilityId && toolNames.length === 0) {
     if (!isValidSemanticCapabilityId(capabilityId)) return undefined;
     const definitions = semanticCapabilityDefinitionsForToolInput(toolInput);
     if (
-      !getBuiltinSemanticCapability(capabilityId) &&
-      !definitions?.[capabilityId]
+      !definitions?.[capabilityId] &&
+      !getBuiltinSemanticCapability(capabilityId)
     ) {
       return undefined;
     }
@@ -171,15 +177,13 @@ export function requestPermissionReviewSuggestions(
       },
     ];
   }
-  const toolNames = sanitizedStringList(
-    Array.isArray(toolInput.toolNames)
-      ? toolInput.toolNames
-      : [toolInput.toolName],
-  );
   if (toolNames.length !== 1) return undefined;
   const toolName = toolNames[0];
   if (toolName.includes('(') || toolName.includes(')')) return undefined;
-  const ruleContent = strictRuleContent(toolInput.rule);
+  const ruleContent = canonicalRequestPermissionBashRule(
+    toolName,
+    strictRuleContent(toolInput.rule),
+  );
   if (ruleContent === null) return undefined;
   if (isBrowserActionMcpToolRule(toolName)) {
     return undefined;
@@ -237,9 +241,7 @@ export function semanticCapabilityDefinitionsForToolInput(
   const capabilityId = toTrimmedString(toolInput.capabilityId, {
     maxLen: 160,
   });
-  if (!capabilityId || getBuiltinSemanticCapability(capabilityId)) {
-    return undefined;
-  }
+  if (!capabilityId) return undefined;
   if (toolInput.credentialSource !== 'local_cli') return undefined;
   const commandTemplates = sanitizedStringList(
     Array.isArray(toolInput.commandTemplates)
@@ -297,6 +299,14 @@ function strictRuleContent(value: unknown): string | undefined | null {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
   return trimmed.length <= 2048 ? trimmed : null;
+}
+
+function canonicalRequestPermissionBashRule(
+  toolName: string,
+  ruleContent: string | undefined | null,
+): string | undefined | null {
+  if (toolName !== 'Bash' || !ruleContent) return ruleContent;
+  return normalizePersistentBashRuleContent(ruleContent);
 }
 
 function splitReadableToolRule(rule: string): [string, string | undefined] {

@@ -82,7 +82,7 @@ function formatMemoryStatus(runtimeHome: string): string {
         ? Boolean(settings.credentialBroker.external.baseUrl.trim())
         : false;
   return [
-    'MyClaw Memory',
+    'Gantry Memory',
     '',
     `Memory: ${health.memoryEnabled ? 'on' : 'off'} (source: ${health.memorySource})`,
     `Storage: ${health.memoryCheck.status}`,

@@ -121,7 +121,7 @@ export const serviceRestartHandler: TaskHandler = async (context) => {
       displayName: 'Service restart',
       title: 'Approve service restart',
       description:
-        'Approving restarts the local MyClaw runtime service after runtime preflight passes.',
+        'Approving restarts the local Gantry runtime service after runtime preflight passes.',
       decisionReason: reason,
       toolInput: {
         runtimeHome: MYCLAW_HOME,

@@ -3,6 +3,7 @@ import { isValidGroupFolder } from '../platform/group-folder.js';
 import { createStorageRuntime } from '../adapters/storage/postgres/factory.js';
 import type { StorageRuntime } from '../adapters/storage/postgres/factory.js';
 import type { ResolvedStorageConfig } from '../adapters/storage/postgres/storage-service.js';
+import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
 import { readEnvFile } from '../config/env/file.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
 import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
@@ -18,6 +19,7 @@ export interface RuntimeGroupDb {
   setConversationRoute(jid: string, group: ConversationRoute): Promise<void>;
   deleteConversationRoute(jid: string): Promise<void>;
   deleteSession(groupFolder: string): Promise<void>;
+  getFileArtifactStore(): FileArtifactStore;
   close(): Promise<void>;
 }
 
@@ -81,6 +83,10 @@ function createProviderRuntimeGroupDb(runtime: StorageRuntime): RuntimeGroupDb {
 
     async deleteSession(groupFolder: string): Promise<void> {
       await runtime.ops.deleteSessionsByAgentFolder(groupFolder);
+    },
+
+    getFileArtifactStore(): FileArtifactStore {
+      return runtime.fileArtifacts;
     },
 
     async close(): Promise<void> {

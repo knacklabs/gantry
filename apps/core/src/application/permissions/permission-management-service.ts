@@ -273,10 +273,7 @@ export class PermissionManagementService {
       actionPreview: input.toolName,
       toolId: input.toolId as never,
       approverRef: input.decision.decidedBy,
-      expiresAt:
-        input.decision.approved && input.decision.mode === 'allow_once'
-          ? now
-          : undefined,
+      expiresAt: permissionDecisionExpiresAt(input.decision, now),
       createdAt: now,
     };
     await input.permissionRepository.saveDecision(decision);
@@ -303,6 +300,22 @@ export class PermissionManagementService {
       );
     }
   }
+}
+
+function permissionDecisionExpiresAt(
+  decision: PermissionApprovalDecision,
+  now: string,
+): string | undefined {
+  if (!decision.approved) return undefined;
+  if (decision.mode === 'allow_once') return now;
+  if (
+    decision.mode === 'allow_timed_grant' &&
+    typeof decision.timedGrantExpiresAtMs === 'number' &&
+    Number.isFinite(decision.timedGrantExpiresAtMs)
+  ) {
+    return new Date(decision.timedGrantExpiresAtMs).toISOString();
+  }
+  return undefined;
 }
 
 function canonicalPersistentPermissionRules(

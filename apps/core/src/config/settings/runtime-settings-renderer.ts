@@ -31,6 +31,7 @@ import type {
   RuntimeConfiguredConversation,
   RuntimeDesiredStateSettings,
   RuntimeMemorySettings,
+  RuntimePermissionSettings,
   RuntimeProviderConnectionSettings,
   RuntimeProviderSettings,
   RuntimeSettings,
@@ -147,6 +148,32 @@ function renderStorageSettingsYaml(
     `    schema: ${quoteYamlString(storage.postgres.schema)}`,
     '',
   );
+}
+
+function renderPermissionSettingsYaml(
+  lines: string[],
+  permissions: RuntimePermissionSettings,
+): void {
+  lines.push(
+    'permissions:',
+    '  yolo_mode:',
+    `    enabled: ${permissions.yoloMode.enabled ? 'true' : 'false'}`,
+  );
+  if (permissions.yoloMode.denylist.length > 0) {
+    lines.push(
+      `    denylist: ${JSON.stringify(permissions.yoloMode.denylist)}`,
+    );
+  }
+  if (permissions.yoloMode.denylistPaths.length > 0) {
+    lines.push(
+      `    denylist_paths: ${JSON.stringify(permissions.yoloMode.denylistPaths)}`,
+    );
+  }
+  lines.push(
+    '  egress:',
+    `    denylist: ${JSON.stringify(permissions.egress.denylist)}`,
+  );
+  lines.push('');
 }
 
 function renderConfiguredAgentsYaml(
@@ -424,6 +451,17 @@ function isDefaultBrowserSettings(browser: RuntimeBrowserSettings): boolean {
   );
 }
 
+function isDefaultPermissionSettings(
+  permissions: RuntimePermissionSettings,
+): boolean {
+  return (
+    permissions.yoloMode.enabled === true &&
+    permissions.yoloMode.denylist.length === 0 &&
+    permissions.yoloMode.denylistPaths.length === 0 &&
+    permissions.egress.denylist.length === 0
+  );
+}
+
 function renderBrowserSettingsYaml(
   lines: string[],
   browser: RuntimeBrowserSettings,
@@ -566,6 +604,9 @@ export function renderRuntimeSettingsYaml(settings: RuntimeSettings): string {
   }
   if (!isDefaultBrowserSettings(settings.browser)) {
     renderBrowserSettingsYaml(lines, settings.browser);
+  }
+  if (!isDefaultPermissionSettings(settings.permissions)) {
+    renderPermissionSettingsYaml(lines, settings.permissions);
   }
 
   return lines.join('\n');

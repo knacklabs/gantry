@@ -233,6 +233,313 @@ describe('admin IPC handlers', () => {
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
 
+  it('rejects a generic capability request when the job declares a local CLI implementation', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'U_APPROVER',
+    }));
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('request-generic-sheets', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        jobId: 'job-1',
+        payload: {
+          permissionKind: 'tool',
+          capabilityId: 'google.sheets.write',
+          capabilityDisplayName: 'Google Sheets write',
+          temporaryOnly: false,
+          reason: 'write leads',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        requestPermissionApproval,
+        opsRepository: {
+          getJobById: vi.fn(async () => ({
+            capability_requirements: [
+              {
+                capabilityId: 'google.sheets.write',
+                reason: 'write leads',
+                implementation: {
+                  kind: 'local_cli',
+                  name: 'gog',
+                  executablePath: '/usr/local/bin/gog',
+                  commandTemplate:
+                    '/usr/local/bin/gog sheets append <sheet_id> ...',
+                },
+              },
+            ],
+          })),
+        },
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(readResponse(runtimeHome, 'request-generic-sheets')).toMatchObject({
+      ok: false,
+      code: 'wrong_capability_lane',
+      error: expect.stringContaining('Google Sheets write using gog'),
+    });
+    expect(readResponse(runtimeHome, 'request-generic-sheets').error).toContain(
+      'Bash(/usr/local/bin/gog sheets append *)',
+    );
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('rejects semantic toolName requests when the job declares a local CLI implementation', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'U_APPROVER',
+    }));
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('request-semantic-toolname-sheets', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        jobId: 'job-1',
+        payload: {
+          permissionKind: 'tool',
+          toolName: 'capability:google.sheets.write',
+          temporaryOnly: false,
+          reason: 'write leads',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        requestPermissionApproval,
+        opsRepository: {
+          getJobById: vi.fn(async () => ({
+            capability_requirements: [
+              {
+                capabilityId: 'google.sheets.write',
+                reason: 'write leads',
+                implementation: {
+                  kind: 'local_cli',
+                  name: 'gog',
+                  executablePath: '/usr/local/bin/gog',
+                  commandTemplate:
+                    '/usr/local/bin/gog sheets append <sheet_id> ...',
+                },
+              },
+            ],
+          })),
+        },
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(
+      readResponse(runtimeHome, 'request-semantic-toolname-sheets'),
+    ).toMatchObject({
+      ok: false,
+      code: 'wrong_capability_lane',
+      error: expect.stringContaining(
+        'Bash(/usr/local/bin/gog sheets append *)',
+      ),
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('rejects semantic toolNames requests when the job declares a local CLI implementation', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'U_APPROVER',
+    }));
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('request-semantic-toolnames-sheets', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        jobId: 'job-1',
+        payload: {
+          permissionKind: 'tool',
+          toolNames: ['capability:google.sheets.write'],
+          temporaryOnly: false,
+          reason: 'write leads',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        requestPermissionApproval,
+        opsRepository: {
+          getJobById: vi.fn(async () => ({
+            capability_requirements: [
+              {
+                capabilityId: 'google.sheets.write',
+                reason: 'write leads',
+                implementation: {
+                  kind: 'local_cli',
+                  name: 'gog',
+                  executablePath: '/usr/local/bin/gog',
+                  commandTemplate:
+                    '/usr/local/bin/gog sheets append <sheet_id> ...',
+                },
+              },
+            ],
+          })),
+        },
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(
+      readResponse(runtimeHome, 'request-semantic-toolnames-sheets'),
+    ).toMatchObject({
+      ok: false,
+      code: 'wrong_capability_lane',
+      error: expect.stringContaining(
+        'Bash(/usr/local/bin/gog sheets append *)',
+      ),
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('rejects local CLI semantic proposals for a job until the scoped Bash rule is requested', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'U_APPROVER',
+    }));
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('request-local-cli-proposal-sheets', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        jobId: 'job-1',
+        payload: {
+          permissionKind: 'tool',
+          capabilityId: 'google.sheets.write',
+          capabilityDisplayName: 'Google Sheets write using gog',
+          credentialSource: 'local_cli',
+          executablePath: '/usr/local/bin/gog',
+          executableVersion: '1.2.3',
+          executableHash: 'sha256:gog',
+          commandTemplates: ['/usr/local/bin/gog sheets append *'],
+          temporaryOnly: false,
+          reason: 'write leads',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        requestPermissionApproval,
+        opsRepository: {
+          getJobById: vi.fn(async () => ({
+            capability_requirements: [
+              {
+                capabilityId: 'google.sheets.write',
+                reason: 'write leads',
+                implementation: {
+                  kind: 'local_cli',
+                  name: 'gog',
+                  executablePath: '/usr/local/bin/gog',
+                  commandTemplate:
+                    '/usr/local/bin/gog sheets append <sheet_id> ...',
+                },
+              },
+            ],
+          })),
+        },
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(
+      readResponse(runtimeHome, 'request-local-cli-proposal-sheets'),
+    ).toMatchObject({
+      ok: false,
+      code: 'wrong_capability_lane',
+      error: expect.stringContaining(
+        'Bash(/usr/local/bin/gog sheets append *)',
+      ),
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('coalesces duplicate pending request_permission reviews', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'myclaw-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    let resolveApproval:
+      | ((value: { approved: false; reason: string }) => void)
+      | undefined;
+    const requestPermissionApproval = vi.fn(
+      () =>
+        new Promise<{ approved: false; reason: string }>((resolve) => {
+          resolveApproval = resolve;
+        }),
+    );
+
+    const baseTask = {
+      type: 'request_permission',
+      chatJid: 'sl:C123',
+      payload: {
+        permissionKind: 'tool',
+        toolName: 'Bash',
+        rule: '/usr/local/bin/gog sheets append *',
+        temporaryOnly: false,
+        reason: 'write leads with gog',
+      },
+    };
+    await adminTaskHandlers.request_permission({
+      data: taskData('request-gog-1', baseTask) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], { requestPermissionApproval }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+    await adminTaskHandlers.request_permission({
+      data: taskData('request-gog-2', baseTask) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], { requestPermissionApproval }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
+    expect(readResponse(runtimeHome, 'request-gog-1')).toMatchObject({
+      ok: true,
+      code: 'capability_request_recorded',
+    });
+    expect(readResponse(runtimeHome, 'request-gog-2')).toMatchObject({
+      ok: true,
+      code: 'capability_request_already_pending',
+    });
+
+    resolveApproval?.({ approved: false, reason: 'test complete' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
   it('rejects request_skill_proposal without signed app scope before importing a draft', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'myclaw-admin-ipc-'),

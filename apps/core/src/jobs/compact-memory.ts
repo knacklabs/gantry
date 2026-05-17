@@ -8,6 +8,8 @@ type JobMemoryLogger = {
   warn: (obj: Record<string, unknown>, msg: string) => void;
 };
 
+const MEMORY_COLLECTION_TIMEOUT_MS = 10_000;
+
 export async function collectCompactBoundaryMemory(input: {
   compactBoundary?: boolean;
   agentSessionId?: string;
@@ -20,11 +22,13 @@ export async function collectCompactBoundaryMemory(input: {
     return;
   }
   try {
-    const result = await input.collectMemory({
-      agentSessionId: input.agentSessionId,
-      trigger: 'precompact',
-      ...(input.defaultScope ? { defaultScope: input.defaultScope } : {}),
-    });
+    const result = await withMemoryCollectionTimeout(
+      input.collectMemory({
+        agentSessionId: input.agentSessionId,
+        trigger: 'precompact',
+        ...(input.defaultScope ? { defaultScope: input.defaultScope } : {}),
+      }),
+    );
     input.logger.info(
       {
         ...input.context,
@@ -64,12 +68,14 @@ export async function collectJobCompletionMemory(input: {
     return;
   }
   try {
-    const result = await input.collectMemory({
-      agentSessionId: input.agentSessionId,
-      trigger: 'session-end',
-      ...(input.defaultScope ? { defaultScope: input.defaultScope } : {}),
-      additionalTurns,
-    });
+    const result = await withMemoryCollectionTimeout(
+      input.collectMemory({
+        agentSessionId: input.agentSessionId,
+        trigger: 'session-end',
+        ...(input.defaultScope ? { defaultScope: input.defaultScope } : {}),
+        additionalTurns,
+      }),
+    );
     input.logger.info(
       {
         ...input.context,
@@ -83,5 +89,26 @@ export async function collectJobCompletionMemory(input: {
       { ...input.context, err },
       'Failed to collect durable memory after successful job run',
     );
+  }
+}
+
+async function withMemoryCollectionTimeout<T>(promise: Promise<T>): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(
+            new Error(
+              `Memory collection timed out after ${MEMORY_COLLECTION_TIMEOUT_MS}ms`,
+            ),
+          );
+        }, MEMORY_COLLECTION_TIMEOUT_MS);
+        timeout.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }

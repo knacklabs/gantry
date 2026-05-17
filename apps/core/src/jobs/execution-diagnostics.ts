@@ -98,7 +98,7 @@ export function updateDiagnosticsFromRuntimeEvent(
       recoveryAction: stringValue(payload.recovery_action),
     };
   }
-  if (phase === 'permission_denied' && tool) {
+  if (phase === 'permission_denied' && tool && payload.terminal !== false) {
     const matchingWait =
       diagnostics.lastPermissionWait?.toolName === tool
         ? diagnostics.lastPermissionWait

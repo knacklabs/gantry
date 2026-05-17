@@ -409,6 +409,13 @@ export class TeamsChannel implements ChannelAdapter {
     }
     const mode = normalizePermissionAction(decisionPayload.decision);
     if (!mode) return true;
+    if (!permissionDecisionOptions(pending.request).includes(mode)) {
+      await this.sendDeniedDecisionFeedback(
+        conversationId,
+        'This approval option is no longer available.',
+      );
+      return true;
+    }
     await this.resolvePermissionPrompt(
       decisionPayload.requestId,
       decisionForMode(pending.request, mode, userName),

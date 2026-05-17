@@ -19,6 +19,79 @@ import {
 
 const groupsStore = vi.hoisted(() => new Map<string, any>());
 const messagesStore = vi.hoisted(() => new Map<string, any[]>());
+const fileArtifacts = vi.hoisted(() => new Map<string, string>());
+const fileArtifactStore = vi.hoisted(() => ({
+  async listFileArtifacts(input: any) {
+    return [...fileArtifacts.keys()]
+      .filter((key) =>
+        key.startsWith(
+          `${input.appId}:${input.agentId}:${input.virtualScope}:`,
+        ),
+      )
+      .filter(
+        (key) => !input.virtualPath || key.endsWith(`:${input.virtualPath}`),
+      )
+      .map((key, index) => {
+        const [, , scope, path] = key.split(':');
+        return {
+          id: `file-artifact:test:${index + 1}`,
+          scope,
+          path,
+          version: 1,
+          contentHash: `hash-${index + 1}`,
+          sizeBytes: fileArtifacts.get(key)?.length ?? 0,
+          contentType: 'text/markdown',
+          createdAt: new Date(0).toISOString(),
+        };
+      });
+  },
+  async writeFileArtifact(input: any) {
+    const key = `${input.appId}:${input.agentId}:${input.virtualScope}:${input.virtualPath}`;
+    fileArtifacts.set(key, String(input.content));
+    return {
+      id: `file-artifact:test:${fileArtifacts.size}`,
+      appId: input.appId,
+      agentId: input.agentId,
+      virtualScope: input.virtualScope,
+      virtualPath: input.virtualPath,
+      version: 1,
+      storageType: 'local-filesystem',
+      storageRef: 'memory://test',
+      contentHash: `hash-${fileArtifacts.size}`,
+      sizeBytes: String(input.content).length,
+      contentType: input.contentType ?? 'text/markdown',
+      metadata: input.metadata ?? {},
+      createdAt: new Date(0).toISOString(),
+      createdBy: input.createdBy,
+    };
+  },
+  async readFileArtifact(input: any) {
+    const key = `${input.appId}:${input.agentId}:${input.virtualScope}:${input.virtualPath}`;
+    const content = fileArtifacts.get(key);
+    if (content === undefined) throw new Error('File artifact not found');
+    return {
+      artifact: {
+        id: 'file-artifact:test:read',
+        appId: input.appId,
+        agentId: input.agentId,
+        virtualScope: input.virtualScope,
+        virtualPath: input.virtualPath,
+        version: 1,
+        storageType: 'local-filesystem',
+        storageRef: 'memory://test',
+        contentHash: 'hash-read',
+        sizeBytes: content.length,
+        contentType: 'text/markdown',
+        metadata: {},
+        createdAt: new Date(0).toISOString(),
+      },
+      content,
+    };
+  },
+  async promoteScratch() {
+    throw new Error('not used');
+  },
+}));
 
 vi.mock('@core/cli/runtime-group-db.js', () => ({
   openRuntimeGroupDb: async () => ({
@@ -41,6 +114,7 @@ vi.mock('@core/cli/runtime-group-db.js', () => ({
       groupsStore.delete(jid);
     },
     deleteSession: async () => {},
+    getFileArtifactStore: () => fileArtifactStore,
     close: async () => {},
   }),
 }));
@@ -106,6 +180,7 @@ beforeEach(() => {
   vi.resetModules();
   groupsStore.clear();
   messagesStore.clear();
+  fileArtifacts.clear();
   runtimeHome = createRuntimeHome();
   process.env.MYCLAW_HOME = runtimeHome;
   process.env.MYCLAW_DATABASE_URL =
@@ -330,7 +405,7 @@ describe('group CLI commands', () => {
     );
   });
 
-  it('seeds SOUL.md when adding an agent', async () => {
+  it('seeds prompt FileArtifacts when adding an agent', async () => {
     const { runAgentCommand } = await import('@core/cli/group.js');
     const jid = `dc:soul-seed-${Date.now().toString(36)}`;
     const folder = 'telegram_soul_seed';
@@ -346,9 +421,13 @@ describe('group CLI commands', () => {
       ]),
     ).toBe(0);
 
-    const soulPath = path.join(runtimeHome, 'agents', folder, 'SOUL.md');
-    expect(fs.existsSync(soulPath)).toBe(true);
-    const soul = fs.readFileSync(soulPath, 'utf-8');
+    expect(
+      fs.existsSync(path.join(runtimeHome, 'agents', folder, 'SOUL.md')),
+    ).toBe(false);
+    const soul =
+      fileArtifacts.get(
+        `default:agent:${folder}:prompt-profile:${folder}/SOUL.md`,
+      ) ?? '';
     expect(soul).toContain('# Soul - Who You Are');
     expect(soul).toContain('- **Name:** Soul Seed');
     expect(soul).toContain('## Continuity Boundary');
@@ -356,17 +435,12 @@ describe('group CLI commands', () => {
       'Durable facts, user preferences, task state, and open commitments do not live here.',
     );
 
-    const groupPrompt = fs.readFileSync(
-      path.join(runtimeHome, 'agents', folder, 'CLAUDE.md'),
-      'utf-8',
-    );
-    expect(groupPrompt).toContain('## Static Chat Guidance');
-    expect(groupPrompt).toContain(
-      'Dynamic task state, open commitments, and remembered facts come from query-retrieved memory context and explicit memory_search calls.',
-    );
-    expect(groupPrompt).toContain(
-      'When the user says "continue", call memory_search before guessing.',
-    );
+    const groupPrompt =
+      fileArtifacts.get(
+        `default:agent:${folder}:prompt-profile:${folder}/CLAUDE.md`,
+      ) ?? '';
+    expect(groupPrompt).toContain('assistant for this conversation');
+    expect(groupPrompt).toContain('Keep responses clear');
   });
 
   it('adds and reads a non-telegram group', async () => {

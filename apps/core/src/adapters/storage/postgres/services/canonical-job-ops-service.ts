@@ -70,6 +70,7 @@ export class CanonicalJobOpsService {
         notification_routes: job.notification_routes,
         required_tools: job.required_tools,
         required_mcp_servers: job.required_mcp_servers,
+        capability_requirements: job.capability_requirements,
         setup_state: job.setup_state,
         created_at: job.created_at || now,
         updated_at: job.updated_at || now,
@@ -290,6 +291,9 @@ export class CanonicalJobOpsService {
     });
     const requiredTools = parseRequiredTools(target.requiredTools);
     const requiredMcpServers = parseRequiredTools(target.requiredMcpServers);
+    const capabilityRequirements = parseCapabilityRequirements(
+      target.capabilityRequirements,
+    );
     const setupState = parseSetupState(target.setupState);
     return {
       id: row.id,
@@ -319,6 +323,7 @@ export class CanonicalJobOpsService {
       pause_reason: (target.pauseReason as string | null | undefined) ?? null,
       execution_context: executionContext,
       notification_routes: notificationRoutes,
+      capability_requirements: capabilityRequirements,
       required_tools: requiredTools,
       required_mcp_servers: requiredMcpServers,
       setup_state: setupState,
@@ -355,6 +360,9 @@ export class CanonicalJobOpsService {
         maxConsecutiveFailures: job.max_consecutive_failures ?? 5,
         consecutiveFailures: job.consecutive_failures ?? 0,
         pauseReason: job.pause_reason ?? null,
+        capabilityRequirements: parseCapabilityRequirements(
+          job.capability_requirements,
+        ),
         requiredTools: parseRequiredTools(job.required_tools),
         requiredMcpServers: parseRequiredTools(job.required_mcp_servers),
         setupState: parseSetupState(job.setup_state),
@@ -450,6 +458,77 @@ function parseRequiredTools(input: unknown): string[] {
     out.push(value);
   }
   return out;
+}
+
+function parseCapabilityRequirements(
+  input: unknown,
+): Job['capability_requirements'] {
+  if (!Array.isArray(input)) return [];
+  const out: NonNullable<Job['capability_requirements']> = [];
+  const seen = new Set<string>();
+  for (const item of input) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const record = item as Record<string, unknown>;
+    const capabilityId = normalizeString(
+      record.capabilityId ?? record.capability_id,
+    );
+    const reason = normalizeString(record.reason);
+    if (!capabilityId || !reason) continue;
+    const implementation = parseCapabilityImplementation(record.implementation);
+    const key = `${capabilityId}\u0000${implementation?.kind ?? ''}\u0000${implementation?.name ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      capabilityId,
+      reason,
+      ...(implementation ? { implementation } : {}),
+    });
+  }
+  return out;
+}
+
+function parseCapabilityImplementation(
+  input: unknown,
+):
+  | NonNullable<
+      NonNullable<Job['capability_requirements']>[number]['implementation']
+    >
+  | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return undefined;
+  }
+  const record = input as Record<string, unknown>;
+  const kind = normalizeString(record.kind);
+  if (
+    kind !== 'configured_access' &&
+    kind !== 'local_cli' &&
+    kind !== 'mcp_server' &&
+    kind !== 'builtin_tool'
+  ) {
+    return undefined;
+  }
+  const implementation: NonNullable<
+    NonNullable<Job['capability_requirements']>[number]['implementation']
+  > = { kind };
+  const name = normalizeString(record.name);
+  if (name) implementation.name = name;
+  const executablePath = normalizeString(
+    record.executablePath ?? record.executable_path,
+  );
+  if (executablePath) implementation.executablePath = executablePath;
+  const commandTemplate = normalizeString(
+    record.commandTemplate ?? record.command_template,
+  );
+  if (commandTemplate) implementation.commandTemplate = commandTemplate;
+  const authPreflight = normalizeString(
+    record.authPreflight ?? record.auth_preflight,
+  );
+  if (authPreflight) implementation.authPreflight = authPreflight;
+  const protectedPaths = parseRequiredTools(
+    record.protectedPaths ?? record.protected_paths,
+  );
+  if (protectedPaths.length > 0) implementation.protectedPaths = protectedPaths;
+  return implementation;
 }
 
 function parseSetupState(input: unknown): Job['setup_state'] {

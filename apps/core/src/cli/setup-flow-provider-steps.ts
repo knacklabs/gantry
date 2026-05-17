@@ -211,7 +211,7 @@ export async function runTelegramStep(draft: SetupDraft): Promise<FlowAction> {
         `Found ${discovered.chats.length} recent Telegram chat(s).`,
       );
       const selected = await p.select({
-        message: 'Choose the Telegram chat for MyClaw',
+        message: 'Choose the Telegram chat for Gantry',
         options: [
           ...discovered.chats.slice(0, 15).map((chat) => ({
             value: chat.chatJid,
@@ -534,7 +534,7 @@ export async function runSlackStep(draft: SetupDraft): Promise<FlowAction> {
     if (discovered.ok && discovered.chats.length > 0) {
       discoverySpinner.stop(`Found ${discovered.chats.length} conversations.`);
       const selected = await p.select({
-        message: 'Choose the Slack conversation for MyClaw',
+        message: 'Choose the Slack conversation for Gantry',
         options: [
           ...discovered.chats.slice(0, 20).map((chat) => ({
             value: chat.chatJid,

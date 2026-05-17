@@ -86,6 +86,27 @@ export interface JobNotificationRoute {
   label: string;
 }
 
+export type JobCapabilityRequirementImplementationKind =
+  | 'configured_access'
+  | 'local_cli'
+  | 'mcp_server'
+  | 'builtin_tool';
+
+export interface JobCapabilityRequirementImplementation {
+  kind: JobCapabilityRequirementImplementationKind;
+  name?: string;
+  executablePath?: string;
+  commandTemplate?: string;
+  authPreflight?: string;
+  protectedPaths?: string[];
+}
+
+export interface JobCapabilityRequirement {
+  capabilityId: string;
+  reason: string;
+  implementation?: JobCapabilityRequirementImplementation;
+}
+
 export interface JobRecord {
   jobId: string;
   name: string;
@@ -100,6 +121,7 @@ export interface JobRecord {
     | { type: 'cron' | 'interval'; value: string };
   executionContext: JobExecutionContext;
   notificationRoutes: JobNotificationRoute[];
+  capabilityRequirements: JobCapabilityRequirement[];
   requiredTools: string[];
   requiredMcpServers: string[];
   setup?: JobSetup;
@@ -159,6 +181,7 @@ export interface CreateJobInput {
   prompt: string;
   executionContext: JobRequestExecutionContext;
   notificationRoutes?: JobNotificationRoute[];
+  capabilityRequirements?: JobCapabilityRequirement[];
   requiredTools?: string[];
   requiredMcpServers?: string[];
   kind?: JobKind;
@@ -174,6 +197,7 @@ export interface UpdateJobInput {
   prompt?: string;
   executionContext?: JobRequestExecutionContext;
   notificationRoutes?: JobNotificationRoute[];
+  capabilityRequirements?: JobCapabilityRequirement[];
   requiredTools?: string[];
   requiredMcpServers?: string[];
   status?: 'active' | 'paused';

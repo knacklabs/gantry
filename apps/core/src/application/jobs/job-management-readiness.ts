@@ -8,6 +8,7 @@ import {
   type JobReadinessResult,
   SETUP_REQUIRED_PAUSE_REASON,
 } from './job-readiness-service.js';
+import { setupActionLabel } from '../../shared/job-setup-labels.js';
 
 export async function evaluateManagedJobReadiness(input: {
   deps: JobManagementServiceDeps;
@@ -107,7 +108,7 @@ export function setupBlockerDetails(
   setupState: NonNullable<Job['setup_state']>,
 ): string[] {
   return setupState.blockers.map(
-    (blocker) => `${blocker.message} Next action: ${blocker.nextAction}`,
+    (blocker) => `${blocker.message} Next action: ${setupActionLabel(blocker)}`,
   );
 }
 

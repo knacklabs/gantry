@@ -8,7 +8,7 @@ export function parseAutonomousToolDenial(
 ): AutonomousToolDenial | null {
   if (!value) return null;
   const toolMatch = value.match(
-    /Tool not on autonomous job allowlist:\s*([^.\s]+)/i,
+    /Tool not on autonomous (?:run|job) allowlist:\s*([^.\s]+)/i,
   );
   if (!toolMatch?.[1]) return null;
   const recoveryMatch = value.match(/Recovery:\s*([\s\S]+)$/i);

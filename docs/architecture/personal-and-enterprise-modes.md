@@ -155,9 +155,10 @@ The platform must be able to support:
 - Gemini through a Gemini adapter
 - local or enterprise-hosted models through future adapters
 
-Provider adapters resolve `LlmProfile`, manage `ProviderSession`, and publish
-observable `RuntimeEvent` records through the runtime exchange. The domain and
-application layers should not know provider SDK types.
+Provider adapters resolve `LlmProfile`, may store provider export/debug
+metadata, and publish observable `RuntimeEvent` records through the runtime
+exchange. The domain and application layers should not know provider SDK types
+or rely on provider session handles for continuity.
 
 ## Mode Comparison
 
@@ -182,8 +183,8 @@ Future code movement should keep personal setup as a convenience layer:
 - Convert group registration flows into provider connection plus binding
   flows.
 - Keep administration behavior explicit in conversation approver policy.
-- Convert Claude session storage into provider sessions attached to agent
-  sessions.
+- Store provider export/debug metadata only when needed; canonical continuity
+  comes from MyClaw sessions, memory, digests, messages, jobs, and events.
 - Route CLI and control HTTP through application use cases.
 
 Do not create a separate personal-only runtime path. Do not create an

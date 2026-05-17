@@ -337,6 +337,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
       persist: (persistJid, persistedGroup) =>
         ops().setConversationRoute(persistJid, persistedGroup),
       ensureCredentialBinding,
+      getFileArtifactStore: () => getRuntimeStorage().fileArtifacts,
     });
   }
 
@@ -348,6 +349,7 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
       assistantName: ASSISTANT_NAME,
       persist: async () => undefined,
       ensureCredentialBinding,
+      getFileArtifactStore: () => getRuntimeStorage().fileArtifacts,
     });
   }
 

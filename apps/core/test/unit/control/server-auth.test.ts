@@ -27,6 +27,7 @@ vi.mock('@core/config/index.js', async () => {
   const runtimeHome = '/tmp/myclaw-control-test-home';
   const settingsModule =
     await import('@core/config/settings/runtime-settings.js');
+  const yoloPolicy = await import('@core/shared/yolo-mode-policy.js');
   const toPublic = () => {
     const settings = settingsModule.loadRuntimeSettings(runtimeHome);
     return {
@@ -40,6 +41,12 @@ vi.mock('@core/config/index.js', async () => {
         enabled: settings.memory.enabled,
         dreaming: { enabled: settings.memory.dreaming.enabled },
       },
+      permissions: {
+        yoloMode: yoloPolicy.effectiveYoloModeSettings(
+          settings.permissions.yoloMode,
+        ),
+        egress: settings.permissions.egress,
+      },
     };
   };
   return {
@@ -52,9 +59,72 @@ vi.mock('@core/config/index.js', async () => {
     })),
     getPublicRuntimeSettings: toPublic,
     updatePublicRuntimeSettings: (patch: any) => {
+      const rejectInvalid = (message: string) => {
+        throw Object.assign(new Error(message), {
+          statusCode: 400,
+          code: 'INVALID_REQUEST',
+        });
+      };
+      const assertOptionalString = (value: unknown, field: string) => {
+        if (value !== undefined && typeof value !== 'string') {
+          rejectInvalid(`${field} must be a string.`);
+        }
+      };
+      const assertOptionalBoolean = (value: unknown, field: string) => {
+        if (value !== undefined && typeof value !== 'boolean') {
+          rejectInvalid(`${field} must be a boolean.`);
+        }
+      };
+      for (const key of Object.keys(patch || {})) {
+        if (!['agent', 'memory', 'permissions'].includes(key)) {
+          rejectInvalid(`settings.${key} is not supported.`);
+        }
+      }
+      assertOptionalString(patch.agent?.name, 'agent.name');
+      assertOptionalString(patch.agent?.defaultModel, 'agent.defaultModel');
+      assertOptionalString(
+        patch.agent?.oneTimeJobDefaultModel,
+        'agent.oneTimeJobDefaultModel',
+      );
+      assertOptionalString(
+        patch.agent?.recurringJobDefaultModel,
+        'agent.recurringJobDefaultModel',
+      );
+      assertOptionalBoolean(patch.memory?.enabled, 'memory.enabled');
+      assertOptionalBoolean(
+        patch.memory?.dreaming?.enabled,
+        'memory.dreaming.enabled',
+      );
+      assertOptionalBoolean(
+        patch.permissions?.yoloMode?.enabled,
+        'permissions.yoloMode.enabled',
+      );
+      if (patch.permissions?.egress?.denylist !== undefined) {
+        if (!Array.isArray(patch.permissions.egress.denylist)) {
+          rejectInvalid('permissions.egress.denylist must be an array.');
+        }
+        patch.permissions.egress.denylist.forEach(
+          (value: unknown, index: number) => {
+            if (typeof value !== 'string' || !value.trim()) {
+              rejectInvalid(
+                `permissions.egress.denylist[${index}] must be a non-empty string.`,
+              );
+            }
+          },
+        );
+      }
       const settings = settingsModule.loadRuntimeSettings(runtimeHome);
       const changed: string[] = [];
       if (patch.agent?.name !== undefined) {
+        if (!patch.agent.name.trim()) {
+          throw Object.assign(
+            new Error('agent.name must be a non-empty string.'),
+            {
+              statusCode: 400,
+              code: 'INVALID_REQUEST',
+            },
+          );
+        }
         settings.agent.name = patch.agent.name.trim();
         changed.push('agent.name');
       }
@@ -75,6 +145,26 @@ vi.mock('@core/config/index.js', async () => {
       if (patch.memory?.dreaming?.enabled !== undefined) {
         settings.memory.dreaming.enabled = patch.memory.dreaming.enabled;
         changed.push('memory.dreaming.enabled');
+      }
+      if (patch.permissions?.yoloMode?.denylist !== undefined) {
+        settings.permissions.yoloMode.denylist =
+          patch.permissions.yoloMode.denylist;
+        changed.push('permissions.yoloMode.denylist');
+      }
+      if (patch.permissions?.yoloMode?.denylistPaths !== undefined) {
+        settings.permissions.yoloMode.denylistPaths =
+          patch.permissions.yoloMode.denylistPaths;
+        changed.push('permissions.yoloMode.denylistPaths');
+      }
+      if (patch.permissions?.yoloMode?.enabled !== undefined) {
+        settings.permissions.yoloMode.enabled =
+          patch.permissions.yoloMode.enabled;
+        changed.push('permissions.yoloMode.enabled');
+      }
+      if (patch.permissions?.egress?.denylist !== undefined) {
+        settings.permissions.egress.denylist =
+          patch.permissions.egress.denylist;
+        changed.push('permissions.egress.denylist');
       }
       settingsModule.saveRuntimeSettings(runtimeHome, settings);
       return {
@@ -769,6 +859,31 @@ describe('control server auth key parsing', () => {
     expect(_testControlServer.isValidControlId('')).toBe(false);
   });
 
+  it('classifies routine control client disconnect errors', () => {
+    expect(
+      _testControlServer.isControlClientDisconnectError(
+        Object.assign(new Error('reset'), { code: 'ECONNRESET' }),
+      ),
+    ).toBe(true);
+    expect(
+      _testControlServer.isControlClientDisconnectError(
+        Object.assign(new Error('pipe closed'), { code: 'EPIPE' }),
+      ),
+    ).toBe(true);
+    expect(
+      _testControlServer.isControlClientDisconnectError(
+        Object.assign(new Error('closed'), {
+          code: 'ERR_STREAM_PREMATURE_CLOSE',
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      _testControlServer.isControlClientDisconnectError(
+        Object.assign(new Error('bad request'), { code: 'HPE_INVALID_METHOD' }),
+      ),
+    ).toBe(false);
+  });
+
   it('classifies non-public webhook addresses broadly', () => {
     expect(_testControlServer.isPrivateAddress('127.0.0.1')).toBe(true);
     expect(_testControlServer.isPrivateAddress('127.1.2.3')).toBe(true);
@@ -892,15 +1007,32 @@ describe('control server runtime hardening', () => {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            agent: { name: 'Kai', defaultModel: 'sonnet' },
-            memory: { dreaming: { enabled: true } },
+            permissions: {
+              yoloMode: {
+                denylist: ['npm run nuke'],
+              },
+              egress: {
+                denylist: ['api.linkedin.com'],
+              },
+            },
           }),
         },
       );
-      expect(patchResponse.status).toBe(409);
+      expect(patchResponse.status).toBe(200);
       await expect(patchResponse.json()).resolves.toMatchObject({
-        error: {
-          code: 'SETTINGS_READ_ONLY',
+        changed: [
+          'permissions.yoloMode.denylist',
+          'permissions.egress.denylist',
+        ],
+        settings: {
+          permissions: {
+            yoloMode: {
+              denylist: expect.arrayContaining(['rm -rf /', 'npm run nuke']),
+            },
+            egress: {
+              denylist: ['api.linkedin.com'],
+            },
+          },
         },
       });
 
@@ -910,6 +1042,8 @@ describe('control server runtime hardening', () => {
       );
       expect(raw).toContain('defaults:');
       expect(raw).toContain('model: opus');
+      expect(raw).toContain('npm run nuke');
+      expect(raw).toContain('api.linkedin.com');
 
       const unsupportedResponse = await requestWithRetry(
         `http://127.0.0.1:${port}/v1/settings`,
@@ -997,10 +1131,10 @@ describe('control server runtime hardening', () => {
           }),
         },
       );
-      expect(response.status).toBe(409);
+      expect(response.status).toBe(400);
       await expect(response.json()).resolves.toMatchObject({
         error: {
-          code: 'SETTINGS_READ_ONLY',
+          code: 'INVALID_REQUEST',
         },
       });
     } finally {
@@ -1040,10 +1174,57 @@ describe('control server runtime hardening', () => {
           }),
         },
       );
-      expect(response.status).toBe(409);
+      expect(response.status).toBe(400);
       await expect(response.json()).resolves.toMatchObject({
         error: {
-          code: 'SETTINGS_READ_ONLY',
+          code: 'INVALID_REQUEST',
+        },
+      });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('rejects malformed typed runtime settings patches', async () => {
+    const runtimeHome = '/tmp/myclaw-control-test-home';
+    fs.rmSync(runtimeHome, { recursive: true, force: true });
+    const port = await reservePort();
+    process.env.MYCLAW_CONTROL_PORT = String(port);
+    process.env.MYCLAW_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'admin-key',
+        scopes: ['agents:admin', 'conversations:admin'],
+        appId: 'app-one',
+      },
+    ]);
+
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/settings`,
+        'admin-key',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            permissions: {
+              yoloMode: { enabled: false },
+              egress: { denylist: [1] },
+            },
+          }),
+        },
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'permissions.egress.denylist[0] must be a non-empty string.',
         },
       });
     } finally {

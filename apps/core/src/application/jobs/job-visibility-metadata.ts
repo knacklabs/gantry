@@ -66,6 +66,7 @@ export interface JobHealthMetadata {
     | 'completed'
     | 'failed'
     | 'needs_permission'
+    | 'interrupted'
     | 'timed_out'
     | 'dead_lettered'
     | 'stale_lease'
@@ -293,7 +294,9 @@ function buildJobHealth(input: {
           : input.job.status === 'running' || latestRun?.status === 'running'
             ? 'running'
             : latestRun?.status === 'timeout'
-              ? 'timed_out'
+              ? isRestartInterruptedRun(latestSummary)
+                ? 'interrupted'
+                : 'timed_out'
               : latestRun?.status === 'failed'
                 ? 'failed'
                 : latestRun?.status === 'completed'
@@ -352,7 +355,10 @@ function nextJobHealthAction(
     return `Approve ${denial.toolName} access, then rerun the job.`;
   }
   if (state === 'timed_out') {
-    return 'Narrow the job scope or update timeout_ms, then rerun the job.';
+    return 'Rerun with a longer job timeout if this work is expected to take more time.';
+  }
+  if (state === 'interrupted') {
+    return 'Rerun the job when ready. If this repeats without restarts, increase the job timeout.';
   }
   if (state === 'dead_lettered') {
     return 'Fix the blocker, then use scheduler_resume_job.';
@@ -364,6 +370,10 @@ function nextJobHealthAction(
     return 'Run the job now or update its schedule.';
   }
   return null;
+}
+
+function isRestartInterruptedRun(summary: string | null): boolean {
+  return /runtime restarted|gantry restarted/i.test(summary ?? '');
 }
 
 function resolveExecutionContext(job: Job): JobExecutionContextInput {

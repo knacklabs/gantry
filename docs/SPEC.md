@@ -55,7 +55,7 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 │  │  Working directory: /workspace/group (mounted from host)       │    │
 │  │  Volume mounts:                                                │    │
 │  │    • agents/{name}/ → /workspace/group                         │    │
-│  │    • agents/shared/ → /workspace/shared/ (when policy allows)      │    │
+│  │    • prompt FileArtifacts materialized into runtime context     │    │
 │  │    • temp CLAUDE_CONFIG_DIR for settings, skills, artifacts     │    │
 │  │    • Additional dirs → /workspace/extra/*                      │    │
 │  │                                                                │    │
@@ -264,12 +264,8 @@ myclaw/
 │       └── myclaw-admin/SKILL.md        # Internal runtime administration reference
 │
 ├── agents/
-│   ├── shared/
-│   │   └── CLAUDE.md              # Static shared prompt guidance
-│   └── {channel}_{group-name}/    # Per-group folders (created on registration)
-│       ├── SOUL.md                # Personality, voice, boundaries
-│       ├── CLAUDE.md              # Static group-specific prompt guidance
-│       └── logs/                  # Task execution logs
+│   └── {channel}_{group-name}/    # Per-agent runtime folder
+│       └── logs/                  # Operational task logs
 │
 ├── data/                          # Application state (gitignored)
 │   ├── artifacts/                 # Provider artifact backend for single-node deployments
@@ -424,17 +420,22 @@ MyClaw separates static prompt profile files from structured memory and runtime 
 
 ### Prompt Profile Layer
 
-Prompt profile files are static guidance, not memory dumps:
+Prompt profile FileArtifacts are static guidance, not memory dumps:
 
-| Layer              | Location                   | Purpose                                                         |
-| ------------------ | -------------------------- | --------------------------------------------------------------- |
-| **Shared context** | `agents/shared/CLAUDE.md`  | Stable operating rules, memory rules, communication conventions |
-| **Soul**           | `agents/{group}/SOUL.md`   | Agent personality, voice, and boundaries                        |
-| **Group context**  | `agents/{group}/CLAUDE.md` | Stable group-specific guidance                                  |
+| Layer             | Virtual path               | Purpose                                  |
+| ----------------- | -------------------------- | ---------------------------------------- |
+| **Soul**          | `<agent-folder>/SOUL.md`   | Agent personality, voice, and boundaries |
+| **Agent context** | `<agent-folder>/CLAUDE.md` | Stable agent-specific guidance           |
 
 Dynamic facts, open loops, and raw transcripts must not be written into these
-files. Durable facts go through structured memory. Active task state stays in
-the live SDK streaming session while the runner is alive.
+FileArtifacts. Durable facts go through structured memory. Active task state is
+persisted through canonical Postgres messages, runs, jobs, events, memory,
+runtime events, and digests.
+
+Shared/default operating rules are not stored in `agents/shared`. The runtime
+compiles them as built-in prompt guidance with memory, continuity, privacy,
+tool-use, and communication defaults before appending agent `CLAUDE.md`
+content.
 
 ### Continuity Context
 
@@ -567,9 +568,10 @@ MyClaw memory uses Postgres tables in the configured runtime schema.
 - Vector search: inactive until memory item embeddings are fully indexed and
   queried
 
-Provider transcript export artifacts may be stored through
-`ProviderArtifactStore` for explicit debugging/export workflows; they are not
-the memory store, canonical message history, or runtime continuation state.
+Transcript export, when needed, is generated from canonical Postgres messages
+into a `FileArtifact`. Provider SDK JSONL files are not stored as durable
+artifacts and are not memory, canonical message history, or runtime
+continuation state.
 
 ### Memory Configuration Reference
 

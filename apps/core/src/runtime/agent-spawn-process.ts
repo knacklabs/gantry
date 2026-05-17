@@ -11,6 +11,7 @@ import {
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { logger, redactString } from '../infrastructure/logging/logger.js';
 import { AgentOutput, RunnerProcessSpec } from './agent-spawn-types.js';
+import { activeRunStopWasRequested } from './group-queue-stop.js';
 import { formatDuration } from '../shared/human-format.js';
 import { nowIso, nowMs as currentTimeMs } from '../shared/time/datetime.js';
 
@@ -226,7 +227,7 @@ export function executeRunnerProcess(
 
     let timeout = setTimeout(killOnTimeout, timeoutMs);
     const resetTimeout = () => {
-      if (hasExplicitTimeout) return;
+      if (hasExplicitTimeout && !input.isScheduledJob) return;
       clearTimeout(timeout);
       timeout = setTimeout(killOnTimeout, timeoutMs);
     };
@@ -356,7 +357,7 @@ export function executeRunnerProcess(
       }
     });
 
-    runner.on('close', (code) => {
+    runner.on('close', (code, signal) => {
       clearTimeout(timeout);
       const duration = currentTimeMs() - startTime;
 
@@ -477,6 +478,7 @@ export function executeRunnerProcess(
         `Group: ${group.name}`,
         `Duration: ${formatDuration(duration)}`,
         `Exit Code: ${code}`,
+        `Signal: ${signal ?? 'none'}`,
         `Stdout Truncated: ${stdoutTruncated}`,
         `Stderr Truncated: ${stderrTruncated}`,
         ``,
@@ -539,6 +541,52 @@ export function executeRunnerProcess(
 
       fs.writeFileSync(logFile, logLines.join('\n'));
       logger.debug({ logFile, verbose: isVerbose }, 'Agent log written');
+
+      const stopRequested =
+        signal === 'SIGTERM' && activeRunStopWasRequested(runner);
+      const streamedSigterm =
+        onOutput && signal === 'SIGTERM' && hadStreamingOutput;
+      if (streamedSigterm && !stopRequested) {
+        outputChain.then(() => {
+          logger.info(
+            {
+              group: group.name,
+              duration,
+              providerSessionCreated: !!newSessionId,
+              signal,
+            },
+            `${runnerLabel} closed after streamed output`,
+          );
+          resolve({
+            status: 'success',
+            result: null,
+            newSessionId,
+          });
+        });
+        return;
+      }
+
+      if (stopRequested) {
+        outputChain.then(() => {
+          logger.warn(
+            {
+              group: group.name,
+              duration,
+              hadStreamingOutput,
+              signal,
+              ...runnerContextPayload(input),
+            },
+            `${runnerLabel} stopped by request`,
+          );
+          resolve({
+            status: 'error',
+            result: null,
+            newSessionId,
+            error: `${runnerLabel} stopped by request`,
+          });
+        });
+        return;
+      }
 
       if (code !== 0) {
         const sanitizedStdout = sanitizeLogText(stdout);

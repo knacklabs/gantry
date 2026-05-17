@@ -200,7 +200,7 @@ export async function processPermissionInteractionIpc(input: {
         payload: persistedContext,
       });
       await sendPermissionOutcomeMessage(input.deps, input.request, {
-        text: `Persistent permission applied: ${formatPersistentPermissionRulesForUser(permissionUpdateAllowedToolRules(decision.updatedPermissions))}.`,
+        text: `Always allowed: ${formatPersistentPermissionRulesForUser(permissionUpdateAllowedToolRules(decision.updatedPermissions))}.`,
       });
     } else {
       await permissionService.recordDecision({

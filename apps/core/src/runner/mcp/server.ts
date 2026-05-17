@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerBrowserTools } from './tools/browser.js';
+import { registerFileTools } from './tools/file.js';
 import { registerMemoryTools } from './tools/memory.js';
 import { registerMessagingTools } from './tools/messaging.js';
 import { registerSchedulerTools } from './tools/scheduler.js';
@@ -67,6 +68,7 @@ export function createMyClawMcpServer(): McpServer {
   registerSchedulerTools(filteredServer);
   registerMemoryTools(filteredServer);
   registerBrowserTools(filteredServer);
+  registerFileTools(filteredServer);
   registerServiceTools(filteredServer);
 
   assertRegisteredMcpToolHandlers({ enabledTools, registeredHandlers });

@@ -195,6 +195,242 @@ describe('job application use cases', () => {
     );
   });
 
+  it('derives semantic required tools from job capability requirements', async () => {
+    const upsertJob = vi.fn(async () => ({ created: true }));
+    const runtimeEvents = { publish: vi.fn(async () => undefined) };
+    const service = new JobManagementService({
+      ops: {
+        upsertJob,
+      } as unknown as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeControl({
+        'session-app-one': { sessionId: 'session-app-one', appId: 'app-one' },
+      }),
+      toolRepository: {
+        listAgentToolBindings: vi.fn(async () => []),
+      } as never,
+      runtimeEvents,
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    await service.createJob({
+      appId: 'app-one',
+      name: 'Lead sync',
+      prompt: 'Append new leads to Google Sheets',
+      sessionId: 'session-app-one',
+      capabilityRequirements: [
+        {
+          capabilityId: 'google.sheets.write',
+          reason: 'Write lead rows after each run',
+          implementation: {
+            kind: 'local_cli',
+            name: 'gog',
+            executablePath: '/usr/local/bin/gog',
+            commandTemplate: '/usr/local/bin/gog sheets append *',
+          },
+        },
+      ],
+      kind: 'recurring',
+      schedule: { type: 'interval', value: '60000' },
+    });
+
+    expect(upsertJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'paused',
+        pause_reason: 'Setup required',
+        next_run: null,
+        capability_requirements: [
+          expect.objectContaining({
+            capabilityId: 'google.sheets.write',
+            reason: 'Write lead rows after each run',
+          }),
+        ],
+        required_tools: ['capability:google.sheets.write'],
+        setup_state: expect.objectContaining({
+          state: 'draft_only',
+          blockers: expect.arrayContaining([
+            expect.objectContaining({
+              state: 'draft_only',
+              requirementType: 'local_cli',
+              requirementId: 'google.sheets.write',
+              nextAction: expect.stringContaining('request_permission'),
+            }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it('rejects local CLI job requirements that rely on PATH command resolution', async () => {
+    const upsertJob = vi.fn(async () => ({ created: true }));
+    const scheduler = { requestSchedulerSync: vi.fn() };
+    const service = new JobManagementService({
+      ops: {
+        upsertJob,
+      } as unknown as RuntimeJobRepository,
+      scheduler,
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeControl({
+        'session-app-one': { sessionId: 'session-app-one', appId: 'app-one' },
+      }),
+      toolRepository: {
+        listAgentToolBindings: vi.fn(async () => []),
+      } as never,
+    });
+
+    await expect(
+      service.createJob({
+        appId: 'app-one',
+        name: 'Lead sync',
+        prompt: 'Append new leads to Google Sheets',
+        sessionId: 'session-app-one',
+        capabilityRequirements: [
+          {
+            capabilityId: 'google.sheets.write',
+            reason: 'Write lead rows after each run',
+            implementation: {
+              kind: 'local_cli',
+              name: 'gog',
+              executablePath: '/usr/local/bin/gog',
+              commandTemplate: 'gog sheets append *',
+            },
+          },
+        ],
+      }),
+    ).rejects.toThrow(
+      'capabilityRequirements local_cli implementation.commandTemplate must start with the exact executablePath.',
+    );
+    expect(upsertJob).not.toHaveBeenCalled();
+    expect(scheduler.requestSchedulerSync).not.toHaveBeenCalled();
+  });
+
+  it('recomputes readiness when job capability requirements are updated', async () => {
+    const runtimeEvents = { publish: vi.fn(async () => undefined) };
+    const job = makeJob({
+      id: 'job-1',
+      required_tools: ['Browser', 'capability:acme.old.read'],
+      capability_requirements: [
+        {
+          capabilityId: 'acme.old.read',
+          reason: 'Old reviewed CLI requirement',
+          implementation: {
+            kind: 'local_cli',
+            name: 'old-cli',
+            executablePath: '/usr/local/bin/old-cli',
+            commandTemplate: '/usr/local/bin/old-cli read *',
+          },
+        },
+      ],
+      execution_context: {
+        conversationJid: 'app:app-one:conversation',
+        threadId: null,
+        groupScope: 'app-folder',
+        sessionId: 'session-app-one',
+      },
+      notification_routes: [
+        {
+          conversationJid: 'app:app-one:conversation',
+          threadId: null,
+          label: 'primary',
+        },
+      ],
+    });
+    const ops = makeOps(job);
+    const scheduler = { requestSchedulerSync: vi.fn() };
+    const updateService = new JobManagementService({
+      ops: ops as RuntimeJobRepository,
+      scheduler,
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
+      runtimeEvents,
+      toolRepository: {
+        listAgentToolBindings: vi.fn(async () => []),
+      } as never,
+      clock: { now: () => '2026-05-15T00:00:00.000Z' },
+    });
+
+    await updateService.updateJob({
+      appId: 'app-one',
+      jobId: 'job-1',
+      patch: {
+        capabilityRequirements: [
+          {
+            capabilityId: 'google.sheets.write',
+            reason: 'Need reviewed CLI before each run',
+            implementation: {
+              kind: 'local_cli',
+              name: 'gog',
+              executablePath: '/usr/local/bin/gog',
+              commandTemplate: '/usr/local/bin/gog sheets append --dry-run',
+            },
+          },
+        ],
+      },
+    });
+
+    expect(ops.updateJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        capability_requirements: [
+          {
+            capabilityId: 'google.sheets.write',
+            reason: 'Need reviewed CLI before each run',
+            implementation: {
+              kind: 'local_cli',
+              name: 'gog',
+              executablePath: '/usr/local/bin/gog',
+              commandTemplate: '/usr/local/bin/gog sheets append --dry-run',
+            },
+          },
+        ],
+        required_tools: ['Browser', 'capability:google.sheets.write'],
+        status: 'paused',
+        pause_reason: 'Setup required',
+      }),
+    );
+    expect(scheduler.requestSchedulerSync).toHaveBeenCalledWith('job-1');
+  });
+
+  it('preserves capability-derived tool rules when only required tools are updated', async () => {
+    const job = makeJob({
+      id: 'job-1',
+      required_tools: ['capability:google.sheets.write'],
+      capability_requirements: [
+        {
+          capabilityId: 'google.sheets.write',
+          reason: 'Write lead rows after each run',
+        },
+      ],
+    });
+    const ops = makeOps(job);
+    const service = new JobManagementService({
+      ops: ops as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+      control: makeAppOneControl(),
+      toolRepository: {
+        listAgentToolBindings: vi.fn(async () => []),
+      } as never,
+      clock: { now: () => '2026-05-15T00:00:00.000Z' },
+    });
+
+    await service.updateJob({
+      appId: 'app-one',
+      jobId: 'job-1',
+      patch: {
+        requiredTools: ['Browser'],
+      },
+    });
+
+    expect(ops.updateJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        required_tools: ['Browser', 'capability:google.sheets.write'],
+      }),
+    );
+  });
+
   it('updates mutable job fields and requests scheduler sync', async () => {
     const ops = makeOps(makeJob());
     const scheduler = { requestSchedulerSync: vi.fn() };
@@ -1452,6 +1688,34 @@ describe('job application use cases', () => {
       message: 'Unknown runtime event type "runtime.unknown".',
     });
     expect(ops.listRecentJobEvents).not.toHaveBeenCalled();
+  });
+
+  it('normalizes common scheduler event filter aliases before querying events', async () => {
+    const ops = {
+      listRecentJobEvents: vi.fn(async () => []),
+    };
+    const service = new JobManagementService({
+      ops: ops as unknown as RuntimeJobRepository,
+      scheduler: { requestSchedulerSync: vi.fn() },
+      schedulePlanner: runtimeJobSchedulePlanner,
+    });
+
+    await expect(
+      service.listJobEvents({
+        appId: 'app-one',
+        eventType: 'run_completed',
+      }),
+    ).resolves.toEqual({ events: [] });
+    expect(ops.listRecentJobEvents).toHaveBeenCalledWith(200, {
+      app_id: undefined,
+      owner_app_id: 'app-one',
+      job_id: undefined,
+      job_ids: undefined,
+      run_id: undefined,
+      event_type: 'run.completed',
+      since_id: undefined,
+      since: undefined,
+    });
   });
 
   it('uses repository app ownership filters for app-scoped run and event pages', async () => {

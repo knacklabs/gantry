@@ -330,6 +330,7 @@ export function buildRuntimeRunOptions(input: {
   mcpServerRepository?: McpServerRepository;
   mcpHostnameLookup?: HostnameLookup;
   mcpDnsValidationCache?: RemoteMcpDnsValidationCache;
+  publishRuntimeEvent?: RunAgentOptions['publishRuntimeEvent'];
   skillContext?: {
     appId: string;
     agentId: string;
@@ -373,6 +374,9 @@ export function buildRuntimeRunOptions(input: {
       : {}),
     ...skillOptions,
     ...mcpOptions,
+    ...(input.publishRuntimeEvent
+      ? { publishRuntimeEvent: input.publishRuntimeEvent }
+      : {}),
   };
   return Object.keys(options).length > 0 ? options : undefined;
 }
@@ -392,28 +396,20 @@ export async function completeSuccessfulRuntimeSessionRun(input: {
   result?: string | null;
 }): Promise<void> {
   if (input.runId) {
-    await input.ops.completeSessionAgentRun?.({
-      runId: input.runId,
-      status: 'completed',
-      resultSummary: summarizeRuntimeResultForPersistence(input.result),
-    });
-  }
-  if (input.agentSessionId) {
-    if (input.providerSessionId && input.chatJid) {
-      await input.ops.setSession(
-        input.group.folder,
-        input.providerSessionId,
-        input.threadId,
-        {
-          conversationJid: input.chatJid,
-          conversationKind: input.conversationKind,
-          memoryUserId: input.memoryUserId,
-          jobId: input.jobId,
-          expectedAgentSessionId: input.agentSessionId,
-          expectedAgentSessionResetAt: input.agentSessionResetAt ?? null,
-        },
+    try {
+      await input.ops.completeSessionAgentRun?.({
+        runId: input.runId,
+        status: 'completed',
+        resultSummary: summarizeRuntimeResultForPersistence(input.result),
+      });
+    } catch (err) {
+      logger.warn(
+        { err, runId: input.runId },
+        'Failed to complete runtime session run; continuing with outer run finalization',
       );
     }
+  }
+  if (input.agentSessionId) {
     logger.debug(
       {
         group: input.group.name,
@@ -431,11 +427,18 @@ export async function completeFailedRuntimeSessionRun(input: {
   errorSummary: string;
 }): Promise<void> {
   if (!input.runId) return;
-  await input.ops.completeSessionAgentRun?.({
-    runId: input.runId,
-    status: 'failed',
-    errorSummary: summarizeRuntimeResultForPersistence(input.errorSummary),
-  });
+  try {
+    await input.ops.completeSessionAgentRun?.({
+      runId: input.runId,
+      status: 'failed',
+      errorSummary: summarizeRuntimeResultForPersistence(input.errorSummary),
+    });
+  } catch (err) {
+    logger.warn(
+      { err, runId: input.runId },
+      'Failed to complete runtime session run; continuing with outer run finalization',
+    );
+  }
 }
 
 export async function buildApprovedSkillContextBlock(input: {

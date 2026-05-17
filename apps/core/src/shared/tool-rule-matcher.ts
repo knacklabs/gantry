@@ -12,12 +12,15 @@ import {
 import { isMyClawMcpWildcardRule } from './admin-mcp-tools.js';
 import {
   type BashCommandLeaf,
+  bashExecutableName,
   bashLeafRuleContent,
+  normalizePersistentBashRuleContent,
   parseBashCommand,
 } from './bash-command-parser.js';
 
 const MCP_WILDCARD_RE = /^mcp__([A-Za-z0-9_-]+)__\*$/;
 const MCP_EXACT_RE = /^mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+$/;
+const SAFE_SCRIPT_INTERPRETERS = new Set(['python', 'python3']);
 
 interface ScopedToolSpec {
   fields: readonly string[];
@@ -420,12 +423,14 @@ function scopePatternMatches(scope: string, candidate: string): boolean {
 }
 
 function bashScopeMatchesLeaf(scope: string, leaf: BashCommandLeaf): boolean {
-  const parsedScope = parseBashCommand(scope.trim());
+  const normalizedScope = normalizePersistentBashRuleContent(scope.trim());
+  const parsedScope = parseBashCommand(normalizedScope);
   if (!parsedScope.ok || parsedScope.leaves.length !== 1) return false;
   const patternArgs = parsedScope.leaves[0]?.argv ?? [];
   if (patternArgs.length === 0) return false;
   if (patternArgs[0].includes('*')) return false;
-  const argv = leaf.argv;
+  const argv = leafArgvForScope(patternArgs, leaf.argv);
+  if (!argv) return false;
   const hasTrailingRestWildcard = patternArgs.at(-1) === '*';
   if (hasTrailingRestWildcard) {
     if (argv.length < patternArgs.length - 1) return false;
@@ -441,6 +446,20 @@ function bashScopeMatchesLeaf(scope: string, leaf: BashCommandLeaf): boolean {
     if (!globPatternMatches(pattern, value)) return false;
   }
   return argv.length === patternArgs.length || hasTrailingRestWildcard;
+}
+
+function leafArgvForScope(
+  patternArgs: readonly string[],
+  leafArgv: readonly string[],
+): readonly string[] | null {
+  if (leafArgv.length === 0) return null;
+  if (globPatternMatches(patternArgs[0]!, leafArgv[0]!)) return leafArgv;
+  const interpreter = bashExecutableName(leafArgv[0] ?? '');
+  if (!SAFE_SCRIPT_INTERPRETERS.has(interpreter)) return null;
+  const scriptArg = leafArgv[1];
+  if (!scriptArg || scriptArg.startsWith('-')) return null;
+  if (!globPatternMatches(patternArgs[0]!, scriptArg)) return null;
+  return [scriptArg, ...leafArgv.slice(2)];
 }
 
 function bashScopeCoversScope(allowedScope: string, candidateScope: string) {

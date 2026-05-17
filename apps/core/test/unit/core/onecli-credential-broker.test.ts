@@ -145,7 +145,7 @@ describe('OnecliAgentCredentialBroker', () => {
     );
   });
 
-  it('does not cache credential-bearing container config by default', async () => {
+  it('caches credential-bearing container config briefly by default', async () => {
     getContainerConfig.mockResolvedValue({
       env: {
         ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
@@ -157,6 +157,34 @@ describe('OnecliAgentCredentialBroker', () => {
     const broker = new OnecliAgentCredentialBroker({
       onecliUrl: 'http://localhost:10254',
       dataDir: os.tmpdir(),
+    });
+
+    await broker.getInjection({
+      binding: { profile: 'onecli', agentIdentifier: 'agent-a' },
+    });
+    await broker.getInjection({
+      binding: { profile: 'onecli', agentIdentifier: 'agent-a' },
+    });
+
+    expect(getContainerConfig).toHaveBeenCalledTimes(1);
+    expect(getContainerConfig).toHaveBeenCalledWith(
+      MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
+    );
+  });
+
+  it('can disable container config caching with an explicit zero TTL', async () => {
+    getContainerConfig.mockResolvedValue({
+      env: {
+        ANTHROPIC_BASE_URL: 'https://broker.local/anthropic',
+      },
+    });
+
+    const { OnecliAgentCredentialBroker } =
+      await import('@core/adapters/credentials/onecli/broker.js');
+    const broker = new OnecliAgentCredentialBroker({
+      onecliUrl: 'http://localhost:10254',
+      dataDir: os.tmpdir(),
+      configCacheTtlMs: 0,
     });
 
     await broker.getInjection({

@@ -30,10 +30,10 @@ myclaw status
 # Runtime continuation comes from canonical Postgres sessions, messages,
 # summaries, runs, and memory.
 
-# Check parentUuid branching in an exported provider artifact
+# Check parentUuid branching in a temporary SDK JSONL export
 python3 -c "
 import json
-lines = open('/tmp/myclaw-exported-provider-artifact/<session>.jsonl').read().strip().split('\n')
+lines = open('/tmp/myclaw-sdk-jsonl-export/<session>.jsonl').read().strip().split('\n')
 for i, line in enumerate(lines):
   try:
     d = json.loads(line)

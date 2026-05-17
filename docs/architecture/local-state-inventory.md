@@ -5,8 +5,8 @@ This inventory classifies local filesystem state by durability.
 ## Durable Local State
 
 - runtime home `settings.yaml`: non-secret runtime settings.
-- `<runtime-home>/artifacts/provider-sessions/`: provider artifact bytes when
-  using the `local-filesystem` artifact backend.
+- `<runtime-home>/artifacts/files/`: FileArtifact bytes when using the local
+  filesystem artifact backend.
 - `<runtime-home>/skills/`: approved readable skill folders when using the
   local skill backend. Each skill folder contains `SKILL.md` plus referenced
   files and subfolders.
@@ -21,8 +21,7 @@ This inventory classifies local filesystem state by durability.
 ## Temporary Local State
 
 - Per-run Claude `CLAUDE_CONFIG_DIR` directories under the OS temp directory.
-  These include generated `settings.json`, materialized `skills/`, and restored
-  provider session files.
+  These include generated `settings.json` and materialized `skills/`.
 - Packaged or explicitly configured local skill folders are copied into per-run
   Claude config as scratch input. They are not mirrored into a MyClaw skill byte
   registry.
@@ -32,8 +31,8 @@ This inventory classifies local filesystem state by durability.
 - Build, test, coverage, and generated verification artifacts.
 
 Temporary state may be deleted without losing canonical conversation history or
-MyClaw-owned durable state. Active provider continuation is live-process only;
-provider artifacts are export/debug data, not resume inputs.
+MyClaw-owned durable state. Active provider continuity is live-process only;
+provider SDK files are not resume inputs.
 
 ## Unsupported Local State
 
@@ -50,8 +49,8 @@ No automatic migration is provided for unsupported local Claude files.
 
 After building and restarting from the current checkout, confirm `myclaw status`
 before inspecting `~/myclaw`. Stale generated logs, obsolete scratch session/job
-snapshots, old provider transcript artifacts outside the provider artifact
-store, and unused local hook/webhook scratch files may be archived under
+snapshots, old provider transcript exports, and unused local hook/webhook
+scratch files may be archived under
 `~/myclaw/cleanup-archive/<timestamp>/`.
 
 Do not move or delete secrets, `settings.yaml`, Postgres data, OneCLI data,

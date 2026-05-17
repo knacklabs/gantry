@@ -13,6 +13,10 @@ import { resolveRequestedJobModelPatch } from '../application/jobs/job-model-sel
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
 import { getRuntimeEventExchange } from '../adapters/storage/postgres/runtime-store.js';
 import { enqueueJobTrigger, isSchedulerReady } from './scheduler.js';
+import {
+  jobSetupBlockerFromUnknown,
+  setupActionLabel,
+} from '../shared/job-setup-labels.js';
 
 function makeJobService(context: TaskContext): JobManagementService {
   return new JobManagementService({
@@ -134,6 +138,9 @@ const schedulerUpdateJobHandler: TaskHandler = async (context) => {
     }
     if (Array.isArray(data.notificationRoutes)) {
       patch.notificationRoutes = data.notificationRoutes;
+    }
+    if (Array.isArray(data.capabilityRequirements)) {
+      patch.capabilityRequirements = data.capabilityRequirements;
     }
     if (Array.isArray(data.requiredTools)) {
       patch.requiredTools = data.requiredTools;
@@ -299,11 +306,8 @@ function formatSetupOutcome(job?: { setup_state?: unknown }): string {
   if (state === 'ready') return '';
   const blockers = (setupState as { blockers?: unknown }).blockers;
   const firstBlocker = Array.isArray(blockers) ? blockers[0] : undefined;
-  const nextAction =
-    firstBlocker && typeof firstBlocker === 'object'
-      ? (firstBlocker as { nextAction?: unknown }).nextAction
-      : undefined;
-  return ` Setup required: ${typeof nextAction === 'string' ? nextAction : String(state ?? 'unknown')}.`;
+  const action = setupActionLabel(jobSetupBlockerFromUnknown(firstBlocker));
+  return ` Setup required: ${action || String(state ?? 'unknown')}.`;
 }
 
 export const schedulerMutateTaskHandlers: Record<string, TaskHandler> = {

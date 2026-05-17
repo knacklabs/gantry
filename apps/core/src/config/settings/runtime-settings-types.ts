@@ -3,6 +3,8 @@ import type {
   RuntimeStorageSettingsSnapshot,
 } from './memory-snapshot.js';
 import type { AgentPersona } from '../../shared/agent-persona.js';
+import type { YoloModeSettings } from '../../shared/yolo-mode-policy.js';
+import type { EgressSettings } from '../../shared/egress-policy.js';
 
 export interface RuntimeProviderSettings {
   enabled: boolean;
@@ -181,6 +183,11 @@ export interface RuntimeBrowserSettings {
   usage: RuntimeBrowserUsageSettings;
 }
 
+export interface RuntimePermissionSettings {
+  yoloMode: YoloModeSettings;
+  egress: EgressSettings;
+}
+
 export interface RuntimeSettings {
   desiredState: RuntimeDesiredStateSettings;
   providers: Record<string, RuntimeProviderSettings>;
@@ -194,6 +201,7 @@ export interface RuntimeSettings {
   memory: RuntimeMemorySettings;
   runtime: RuntimeProcessSettings;
   browser: RuntimeBrowserSettings;
+  permissions: RuntimePermissionSettings;
 }
 
 export interface RuntimeSettingsValidationFailure {

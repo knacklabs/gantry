@@ -279,8 +279,9 @@ describe('jobs/execution', () => {
       next_run: '2026-05-08T00:00:00.000Z',
     });
     const opsRepository = makeOpsRepository(job);
+    const sendMessage = vi.fn(async () => undefined);
     const error =
-      'Tool not on autonomous job allowlist: mcp__myclaw__browser_act. Recovery: request_permission { "toolName": "Browser" }';
+      'Tool not on autonomous run allowlist: mcp__myclaw__browser_act. Recovery: request_permission { "toolName": "Browser" }';
 
     await runJob(
       job,
@@ -288,7 +289,7 @@ describe('jobs/execution', () => {
         conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
         queue: {} as never,
         onProcess: () => {},
-        sendMessage: vi.fn(async () => undefined) as never,
+        sendMessage: sendMessage as never,
         opsRepository: opsRepository as never,
         runAgent: vi.fn(async () => ({
           status: 'error',
@@ -313,7 +314,7 @@ describe('jobs/execution', () => {
       expect.any(String),
       'failed',
       null,
-      expect.stringContaining('Tool not on autonomous job allowlist'),
+      expect.stringContaining('Tool not on autonomous run allowlist'),
     );
     const deniedEvent = runtimeStoreMock.publish.mock.calls.find(
       ([event]) => event?.eventType === 'job.tool_denied',
@@ -325,13 +326,79 @@ describe('jobs/execution', () => {
         recovery_action: expect.stringContaining('request_permission'),
       }),
     );
+    const messages = sendMessage.mock.calls.map((call) => String(call[1]));
+    expect(messages).toContainEqual(expect.stringContaining('Running:'));
+    expect(messages).toContainEqual(expect.stringContaining('Setup required:'));
+    expect(messages).not.toContainEqual(
+      expect.stringContaining('Needs permission:'),
+    );
+  });
+
+  it('finalizes policy-denied jobs even when session-run bookkeeping fails', async () => {
+    const job = makeJob({
+      schedule_type: 'interval',
+      schedule_value: '60000',
+      next_run: '2026-05-08T00:00:00.000Z',
+    });
+    const opsRepository = {
+      ...makeOpsRepository(job),
+      getAgentTurnContext: vi.fn(async () => ({
+        appId: 'default',
+        agentId: 'agent:scheduler_agent',
+        agentSessionId: 'agent-session:scheduler',
+      })),
+      createSessionAgentRun: vi.fn(async () => 'agent-run:job-1'),
+      completeSessionAgentRun: vi
+        .fn()
+        .mockRejectedValue(new Error('session bookkeeping unavailable')),
+    };
+    const error =
+      'Tool not on autonomous run allowlist: Bash. Recovery: request_permission {"toolName":"Bash"}';
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: vi.fn(async () => ({
+          status: 'error',
+          result: null,
+          error,
+        })) as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(opsRepository.completeSessionAgentRun).toHaveBeenCalled();
+    expect(opsRepository.updateJob).toHaveBeenCalledWith(
+      job.id,
+      expect.objectContaining({
+        status: 'paused',
+        pause_reason: 'Setup required',
+        lease_run_id: null,
+      }),
+    );
+    expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+      expect.any(String),
+      'failed',
+      null,
+      expect.stringContaining('Tool not on autonomous run allowlist'),
+    );
+    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'job.run.failed',
+      }),
+    );
   });
 
   it('pauses policy-denied manual jobs instead of reactivating them', async () => {
     const job = makeJob();
     const opsRepository = makeOpsRepository(job);
     const error =
-      'Tool not on autonomous job allowlist: Bash. Recovery: request_permission {"toolName":"Bash"}';
+      'Tool not on autonomous run allowlist: Bash. Recovery: request_permission {"toolName":"Bash"}';
 
     await runJob(
       job,
@@ -680,7 +747,7 @@ describe('jobs/execution', () => {
     );
   });
 
-  it('persists streamed provider resume handles in the job-owned session scope', async () => {
+  it('does not persist streamed provider resume handles in the job-owned session scope', async () => {
     const job = makeJob();
     const opsRepository = {
       ...makeOpsRepository(job),
@@ -718,20 +785,7 @@ describe('jobs/execution', () => {
       'tg:scheduler',
     );
 
-    expect(opsRepository.setSession).toHaveBeenCalledTimes(1);
-    expect(opsRepository.setSession).toHaveBeenCalledWith(
-      'scheduler_agent',
-      'provider-session:streamed',
-      'thread-scheduled',
-      expect.objectContaining({
-        conversationJid: 'tg:scheduler',
-        conversationKind: undefined,
-        memoryUserId: undefined,
-        jobId: 'job-1',
-        expectedAgentSessionId: 'agent-session:scheduler',
-        expectedAgentSessionResetAt: null,
-      }),
-    );
+    expect(opsRepository.setSession).not.toHaveBeenCalled();
   });
 
   it('inherits Browser for jobs without projecting raw browser MCP tools', async () => {
@@ -1271,7 +1325,7 @@ describe('jobs/execution', () => {
               phase: 'permission_wait',
               tool: 'Bash',
               ok: false,
-              reason: 'Tool not on autonomous job allowlist: Bash.',
+              reason: 'Tool not on autonomous run allowlist: Bash.',
               recovery_action: 'request_permission { "toolName": "Bash" }',
             },
           },
@@ -1340,7 +1394,7 @@ describe('jobs/execution', () => {
               tool: 'Bash',
               ok: false,
               reason:
-                'Tool not on autonomous job allowlist: Bash. Bash leaf ls scripts did not match any scoped autonomous rule.',
+                'Tool not on autonomous run allowlist: Bash. Bash leaf ls scripts did not match any scoped autonomous rule.',
               recovery_action:
                 'request_permission { "permissionKind": "tool", "toolName": "Bash" }',
             },
@@ -1476,6 +1530,58 @@ describe('jobs/execution', () => {
       }),
     );
   });
+
+  it('does not leave a completed required-Browser job running when browser activity verification hangs', async () => {
+    vi.useFakeTimers();
+    try {
+      const job = makeJob({ required_tools: ['Browser'] });
+      const opsRepository = makeOpsRepository(job);
+      vi.mocked(opsRepository.listRecentJobEvents).mockImplementation(
+        () => new Promise(() => undefined),
+      );
+      const toolRepository = makeToolRepository(['Browser']);
+
+      const done = runJob(
+        job,
+        {
+          conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+          queue: {} as never,
+          onProcess: () => {},
+          sendMessage: vi.fn(async () => undefined) as never,
+          opsRepository: opsRepository as never,
+          getToolRepository: () => toolRepository as never,
+          getBrowserStatus: vi.fn(async () => ({ hasState: true })),
+          runAgent: vi.fn(async () => ({
+            status: 'success',
+            result: 'browser done',
+          })) as never,
+        },
+        'tg:scheduler',
+      );
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      await done;
+
+      expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+        expect.any(String),
+        'completed',
+        'browser done',
+        null,
+      );
+      expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'job.tool_activity',
+          payload: expect.objectContaining({
+            phase: 'required_tool_verification_skipped',
+            tool: 'Browser',
+            ok: true,
+          }),
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 10_000);
 
   it('closes the dedicated browser profile after a Browser job reaches terminal state', async () => {
     const job = makeJob({ required_tools: ['Browser'] });

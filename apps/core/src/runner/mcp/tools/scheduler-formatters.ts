@@ -1,3 +1,9 @@
+import {
+  jobSetupBlockerFromUnknown,
+  setupActionLabel,
+  setupActionLabelFromNextAction,
+} from '../../../shared/job-setup-labels.js';
+
 export function schedulerJobSummary(job: unknown): string {
   const record =
     typeof job === 'object' && job !== null ? (job as Record<string, any>) : {};
@@ -46,12 +52,13 @@ export function schedulerJobSummary(job: unknown): string {
     : 'Tool access: missing canonical toolAccess';
   const nextAction =
     typeof health.nextAction === 'string' && health.nextAction.trim()
-      ? health.nextAction
+      ? setupActionLabelFromNextAction(health.nextAction, 'none')
       : 'none';
+  const setupAction = setupActionSummary(setup);
   return [
     `Job: ${String(record.name ?? record.id ?? 'unknown')}`,
     `Health: ${String(health.state ?? 'unknown')} | latest ${String(health.latestRunStatus ?? 'none')} | action ${nextAction}`,
-    `Setup: ${String(setup.state ?? 'ready')} | action ${String(setup.nextAction ?? 'none')}`,
+    `Setup: ${String(setup.state ?? 'ready')} | action ${setupAction}`,
     `Target: ${String(target.agentId ?? record.group_scope ?? 'unknown')} in ${String(target.conversationJids?.[0] ?? 'no conversation')}`,
     `Execution context: ${String(executionContext.conversationJid ?? 'unknown')} | thread ${String(executionContext.threadId ?? 'none')} | group ${String(executionContext.groupScope ?? record.group_scope ?? 'unknown')}`,
     `Notification routes: ${notificationRoutes.length}`,
@@ -66,6 +73,13 @@ export function schedulerJobSummary(job: unknown): string {
     'Structured JSON:',
     JSON.stringify(record, null, 2),
   ].join('\n');
+}
+
+function setupActionSummary(setup: Record<string, any>): string {
+  const blockers = Array.isArray(setup.blockers) ? setup.blockers : [];
+  const blocker = jobSetupBlockerFromUnknown(blockers[0]);
+  if (blocker) return setupActionLabel(blocker);
+  return setupActionLabelFromNextAction(setup.nextAction, 'none');
 }
 
 export function schedulerJobsSummary(jobs: unknown[]): string {

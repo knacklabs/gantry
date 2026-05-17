@@ -58,6 +58,72 @@ afterEach(async () => {
 });
 
 describe('permission approval IPC boundary', () => {
+  it('emits a host permission request before denying unattended jobs without waiting', async () => {
+    const tempRoot = makeTempRoot();
+    const groupFolder = 'team-main';
+    const groupIpcDir = path.join(tempRoot, 'ipc', groupFolder);
+    const permissionRequestsDir = path.join(groupIpcDir, 'permission-requests');
+    fs.mkdirSync(permissionRequestsDir, { recursive: true });
+
+    vi.stubEnv('MYCLAW_IPC_AUTH_SECRET', 'perm-ipc-secret');
+    vi.stubEnv('MYCLAW_WORKSPACE_GROUP_DIR', path.join(tempRoot, 'workspace'));
+    vi.stubEnv('MYCLAW_WORKSPACE_EXTRA_DIR', path.join(tempRoot, 'extra'));
+    vi.stubEnv('MYCLAW_IPC_DIR', path.join(tempRoot, 'ipc'));
+    vi.stubEnv('MYCLAW_IPC_INPUT_DIR', path.join(groupIpcDir, 'input'));
+
+    vi.resetModules();
+    const { createIpcAuthEnvelope } = await import('@core/runtime/ipc-auth.js');
+    const envelope = createIpcAuthEnvelope(groupFolder, undefined, {
+      appId: 'app:team',
+      agentId: 'agent:team-main',
+    });
+    vi.stubEnv('MYCLAW_IPC_AUTH_TOKEN', envelope.authToken);
+    vi.stubEnv('MYCLAW_IPC_RESPONSE_VERIFY_KEY', envelope.responseVerifyKey);
+    vi.stubEnv('MYCLAW_IPC_RESPONSE_KEY_ID', envelope.responseKeyId);
+    vi.stubEnv('MYCLAW_JOB_ID', 'scheduled-job');
+    vi.stubEnv('MYCLAW_AUTONOMOUS_PERMISSION_TIMEOUT_MS', '0');
+
+    vi.resetModules();
+    const { requestPermissionApproval } =
+      await import('@core/runner/claude/permission-callback.js');
+    const { parsePermissionIpcRequest } =
+      await import('@core/runtime/ipc-parsing.js');
+
+    await expect(
+      requestPermissionApproval({
+        appId: 'app:team',
+        agentId: 'agent:team-main',
+        groupFolder,
+        toolName: 'Bash',
+        closestRule: {
+          rule: 'Bash(/Users/example/bin/post-lead *)',
+          reason: 'Closest scoped Bash rule',
+        },
+      }),
+    ).resolves.toEqual({
+      approved: false,
+      reason:
+        'Permission request was sent to the host. Unattended jobs do not wait for approval during the active tool call; approve the requested capability before retrying the scheduled run.',
+      decisionClassification: 'user_reject',
+    });
+
+    const pendingRequest = await waitForPermissionRequest(
+      permissionRequestsDir,
+    );
+    expect(
+      parsePermissionIpcRequest(pendingRequest.raw, groupFolder),
+    ).toMatchObject({
+      appId: 'app:team',
+      agentId: 'agent:team-main',
+      sourceAgentFolder: groupFolder,
+      toolName: 'Bash',
+      closestRule: {
+        rule: 'Bash(/Users/example/bin/post-lead *)',
+        reason: 'Closest scoped Bash rule',
+      },
+    });
+  });
+
   it('accepts a signed approval response and enforces request replay protection', async () => {
     const tempRoot = makeTempRoot();
     const groupFolder = 'team-main';

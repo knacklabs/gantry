@@ -53,7 +53,7 @@ describe('ToolExecutionPolicyService', () => {
     });
   });
 
-  it('allows projected browser tools for autonomous jobs with canonical Browser capability', () => {
+  it('allows projected browser tools for autonomous runs with canonical Browser capability', () => {
     const request = classifier.classify({
       origin: 'sdk',
       toolName: 'mcp__myclaw__browser_status',
@@ -64,7 +64,7 @@ describe('ToolExecutionPolicyService', () => {
     expect(
       policy.evaluate({
         request,
-        schedulerAllowedToolRules: ['Browser'],
+        autonomousAllowedToolRules: ['Browser'],
       }),
     ).toMatchObject({
       status: 'allow',
@@ -81,17 +81,19 @@ describe('ToolExecutionPolicyService', () => {
       runContext: { jobId: 'job-1' },
     });
 
-    expect(policy.evaluate({ request, schedulerAllowedToolRules: [] })).toEqual(
+    expect(
+      policy.evaluate({ request, autonomousAllowedToolRules: [] }),
+    ).toEqual(
       expect.objectContaining({
         status: 'deny',
         reason: expect.stringContaining(
-          'Tool not on autonomous job allowlist: mcp__myclaw__browser_act.',
+          'Tool not on autonomous run allowlist: mcp__myclaw__browser_act.',
         ),
         recoveryAction: expect.stringContaining('"toolName": "Browser"'),
       }),
     );
     expect(
-      policy.evaluate({ request, schedulerAllowedToolRules: [] })
+      policy.evaluate({ request, autonomousAllowedToolRules: [] })
         .recoveryAction,
     ).not.toContain('scheduler_grant_tool');
   });
@@ -105,14 +107,16 @@ describe('ToolExecutionPolicyService', () => {
       runContext: { jobId: 'job-1' },
     });
 
-    expect(policy.evaluate({ request, schedulerAllowedToolRules: [] })).toEqual(
+    expect(
+      policy.evaluate({ request, autonomousAllowedToolRules: [] }),
+    ).toEqual(
       expect.objectContaining({
         status: 'deny',
         recoveryAction: expect.stringContaining('request_permission'),
       }),
     );
     expect(
-      policy.evaluate({ request, schedulerAllowedToolRules: [] })
+      policy.evaluate({ request, autonomousAllowedToolRules: [] })
         .recoveryAction,
     ).toContain('"toolName": "mcp__myclaw__service_restart"');
   });
@@ -285,7 +289,7 @@ describe('ToolExecutionPolicyService', () => {
     expect(
       policy.evaluate({
         request,
-        schedulerAllowedToolRules: ['Bash(cat > ~/myclaw/settings.yaml)'],
+        autonomousAllowedToolRules: ['Bash(cat > ~/myclaw/settings.yaml)'],
       }),
     ).toMatchObject({
       status: 'deny',
@@ -365,7 +369,7 @@ describe('ToolExecutionPolicyService', () => {
     });
   });
 
-  it('fails autonomous jobs fast and points to persistent agent tool approval', () => {
+  it('fails autonomous runs fast and points to persistent agent tool approval', () => {
     const request = classifier.classify({
       origin: 'sdk',
       toolName: 'Bash',
@@ -374,21 +378,43 @@ describe('ToolExecutionPolicyService', () => {
       runContext: { jobId: 'job-1' },
     });
 
-    const result = policy.evaluate({ request, schedulerAllowedToolRules: [] });
+    const result = policy.evaluate({ request, autonomousAllowedToolRules: [] });
     expect(result).toEqual(
       expect.objectContaining({
         status: 'deny',
         reason: expect.stringContaining(
-          'Tool not on autonomous job allowlist: Bash.',
+          'Tool not on autonomous run allowlist: Bash.',
         ),
         recoveryAction:
-          'request_permission { "permissionKind": "tool", "toolName": "Bash", "rule": "npm test", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }',
+          'request_permission { "permissionKind": "tool", "toolName": "Bash", "rule": "npm test", "temporaryOnly": false, "reason": "This autonomous run needs scoped Bash access." }',
       }),
     );
     expect(result.recoveryAction).not.toContain('scheduler_grant_tool');
   });
 
-  it('uses the same agent permission flow for mutating scheduled Bash use', () => {
+  it('suggests script-path Bash approval for autonomous interpreter script calls', () => {
+    const request = classifier.classify({
+      origin: 'sdk',
+      toolName: 'Bash',
+      toolInput: {
+        command:
+          'python3 /Users/example/scripts/dedup-append-lead.py \'[["lead"]]\'',
+      },
+      executionMode: 'autonomous',
+      runContext: { jobId: 'job-1' },
+    });
+
+    const result = policy.evaluate({ request, autonomousAllowedToolRules: [] });
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: 'deny',
+        recoveryAction:
+          'request_permission { "permissionKind": "tool", "toolName": "Bash", "rule": "/Users/example/scripts/dedup-append-lead.py *", "temporaryOnly": false, "reason": "This autonomous run needs scoped Bash access." }',
+      }),
+    );
+  });
+
+  it('uses the same agent permission flow for mutating autonomous Bash use', () => {
     const request = classifier.classify({
       origin: 'sdk',
       toolName: 'Bash',
@@ -399,11 +425,13 @@ describe('ToolExecutionPolicyService', () => {
       runContext: { jobId: 'job-2' },
     });
 
-    expect(policy.evaluate({ request, schedulerAllowedToolRules: [] })).toEqual(
+    expect(
+      policy.evaluate({ request, autonomousAllowedToolRules: [] }),
+    ).toEqual(
       expect.objectContaining({
         status: 'deny',
         recoveryAction:
-          'request_permission { "permissionKind": "tool", "toolName": "Bash", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }',
+          'Update the autonomous run to use a reviewed semantic capability or invoke a scoped Bash(...) command directly. This Bash command cannot be durably approved for autonomous runs.',
       }),
     );
   });
@@ -419,16 +447,18 @@ describe('ToolExecutionPolicyService', () => {
       runContext: { jobId: 'job-2' },
     });
 
-    expect(policy.evaluate({ request, schedulerAllowedToolRules: [] })).toEqual(
+    expect(
+      policy.evaluate({ request, autonomousAllowedToolRules: [] }),
+    ).toEqual(
       expect.objectContaining({
         status: 'deny',
         recoveryAction:
-          'request_permission { "permissionKind": "tool", "toolName": "Bash", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }',
+          'Update the autonomous run to use a reviewed semantic capability or invoke a scoped Bash(...) command directly. This Bash command cannot be durably approved for autonomous runs.',
       }),
     );
   });
 
-  it('does not suggest job-scoped broad Bash grants', () => {
+  it('does not suggest autonomous broad Bash grants', () => {
     const request = classifier.classify({
       origin: 'sdk',
       toolName: 'Bash',
@@ -439,11 +469,13 @@ describe('ToolExecutionPolicyService', () => {
       runContext: { jobId: 'job-3' },
     });
 
-    expect(policy.evaluate({ request, schedulerAllowedToolRules: [] })).toEqual(
+    expect(
+      policy.evaluate({ request, autonomousAllowedToolRules: [] }),
+    ).toEqual(
       expect.objectContaining({
         status: 'deny',
         recoveryAction:
-          'request_permission { "permissionKind": "tool", "toolName": "Bash", "rule": "node -e console.log(process.cwd())", "temporaryOnly": false, "reason": "This scheduled job needs scoped Bash access." }',
+          'Update the autonomous run to use a reviewed semantic capability or invoke a scoped Bash(...) command directly. This Bash command cannot be durably approved for autonomous runs.',
       }),
     );
   });
@@ -460,7 +492,7 @@ describe('ToolExecutionPolicyService', () => {
     expect(
       policy.evaluate({
         request,
-        schedulerAllowedToolRules: ['Bash(npm run build)'],
+        autonomousAllowedToolRules: ['Bash(npm run build)'],
       }),
     ).toMatchObject({
       status: 'deny',

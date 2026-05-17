@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { CanonicalSessionOpsService } from '@core/adapters/storage/postgres/services/canonical-session-ops-service.js';
-import { PostgresProviderArtifactStore } from '@core/adapters/artifacts/postgres/postgres-provider-artifact-store.js';
+import { LocalFileArtifactBytes } from '@core/adapters/artifacts/files/local-file-artifact-bytes.js';
 import { LocalSkillArtifactStore } from '@core/adapters/artifacts/skills/local-skill-artifact-store.js';
 import {
   createPostgresDomainRepositories,
@@ -19,6 +19,7 @@ import {
   quotePostgresIdentifier,
 } from '@core/adapters/storage/postgres/storage-service.js';
 import type { StorageRuntime } from '@core/adapters/storage/postgres/factory.js';
+import { PostgresFileArtifactStore } from '@core/adapters/storage/postgres/repositories/file-artifact-repository.postgres.js';
 import { loadSessionAppMemoryItems } from '@core/memory/app-memory-session-hydration.js';
 
 export const POSTGRES_TEST_DATABASE_URL_ENV = 'MYCLAW_TEST_DATABASE_URL';
@@ -88,10 +89,10 @@ export async function createPostgresIntegrationRuntime(options?: {
       options?.artifactRootPrefix ?? `myclaw-pg-artifacts-${schemaName}-`,
     ),
   );
-  const providerArtifacts = new PostgresProviderArtifactStore(service.db, {
-    artifactRoot,
-    defaultStorageType: 'local-filesystem',
-  });
+  const fileArtifacts = new PostgresFileArtifactStore(
+    service.db,
+    new LocalFileArtifactBytes(path.join(artifactRoot, 'files')),
+  );
   const skillArtifacts = new LocalSkillArtifactStore(artifactRoot);
   const storageRuntime: StorageRuntime = {
     service,
@@ -100,7 +101,7 @@ export async function createPostgresIntegrationRuntime(options?: {
     repositories,
     runtimeEvents,
     runtimeEventNotifier,
-    providerArtifacts,
+    fileArtifacts,
     skillArtifacts,
   };
 

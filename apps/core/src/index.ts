@@ -14,7 +14,7 @@ const isDirectRun =
 if (isDirectRun) {
   installGlobalErrorHandlers(logger);
   startMyClawRuntime().catch((err) => {
-    logger.error({ err }, 'Failed to start MyClaw');
+    logger.error({ err }, 'Failed to start Gantry');
     process.exit(1);
   });
 }

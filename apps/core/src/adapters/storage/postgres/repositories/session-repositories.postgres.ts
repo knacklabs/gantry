@@ -263,7 +263,6 @@ export class PostgresProviderSessionRepository implements ProviderSessionReposit
     const externalSessionId =
       session.externalSessionId ||
       externalSessionIdFromProviderRef(session.providerRef);
-    const latestArtifactId = session.latestArtifactId ?? null;
     await this.db.transaction(async (tx) => {
       await tx
         .insert(pgSchema.providerSessionsPostgres)
@@ -273,7 +272,6 @@ export class PostgresProviderSessionRepository implements ProviderSessionReposit
           agentSessionId: session.agentSessionId,
           provider,
           externalSessionId,
-          latestArtifactId,
           providerRefJson: encodeJson(session.providerRef),
           metadataJson: encodeJson(session.metadata ?? {}),
           status: session.status,
@@ -309,7 +307,6 @@ export class PostgresProviderSessionRepository implements ProviderSessionReposit
         .set({
           provider,
           externalSessionId,
-          latestArtifactId,
           providerRefJson: encodeJson(session.providerRef),
           metadataJson: encodeJson(session.metadata ?? {}),
           status: session.status,
@@ -373,7 +370,6 @@ export class PostgresProviderSessionRepository implements ProviderSessionReposit
       agentSessionId: row.agentSessionId,
       provider: row.provider,
       externalSessionId: row.externalSessionId,
-      latestArtifactId: row.latestArtifactId ?? undefined,
       providerRef:
         externalRef(
           row.providerRefJson,

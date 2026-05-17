@@ -18,7 +18,7 @@ import {
   buildSdkFilesystemSandbox,
   readProtectedFilesystemPaths,
 } from './filesystem-sandbox.js';
-import { protectedCapabilityPreToolUseHook } from './protected-capability-hook.js';
+import { createSafetyPreToolUseHook } from './protected-capability-hook.js';
 import {
   discoverAdditionalDirectories,
   IPC_POLL_MS,
@@ -127,8 +127,11 @@ export async function runQuery(
   const extraDirs = discoverAdditionalDirectories();
   const protectedFilesystemPaths = readProtectedFilesystemPaths();
   const workspaceFolder = agentInput.groupFolder;
+  const shouldPersistSdkSession = agentInput.isScheduledJob !== true;
   const capabilities = composeAgentCapabilities({
     mcpServerPath,
+    appId: agentInput.appId,
+    agentId: agentInput.agentId,
     chatJid: agentInput.chatJid,
     groupFolder: workspaceFolder,
     threadId: agentInput.threadId,
@@ -149,6 +152,7 @@ export async function runQuery(
     externalMcpServers: readExternalMcpServers(),
     externalMcpAllowedTools: readExternalMcpAllowedTools(),
     externalMcpAlwaysAllowedTools: readExternalMcpAlwaysAllowedTools(),
+    isScheduledJob: agentInput.isScheduledJob,
   });
   const sdkQuery = query({
     prompt: stream,
@@ -158,11 +162,10 @@ export async function runQuery(
       effort: queryEffort,
       cwd: WORKSPACE_GROUP_DIR,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
-      persistSession: !agentInput.isScheduledJob,
-      resume:
-        !agentInput.isScheduledJob && agentInput.sessionId
-          ? agentInput.sessionId
-          : undefined,
+      persistSession: shouldPersistSdkSession,
+      ...(shouldPersistSdkSession && agentInput.sessionId
+        ? { resume: agentInput.sessionId }
+        : {}),
       systemPrompt,
       settings: {
         includeGitInstructions: includeGitInstructionsForPersona(
@@ -178,7 +181,7 @@ export async function runQuery(
       hooks: {
         PreToolUse: [
           {
-            hooks: [protectedCapabilityPreToolUseHook],
+            hooks: [createSafetyPreToolUseHook(memoryBlock)],
             timeout: 5,
           },
         ],
@@ -217,6 +220,11 @@ export async function runQuery(
         newSessionId = message.session_id;
         assertRequiredMcpServerReady(message);
         log('Session initialized: provider resume handle received');
+        writeOutput({
+          status: 'success',
+          result: null,
+          newSessionId,
+        });
       }
       if (
         message.type === 'system' &&

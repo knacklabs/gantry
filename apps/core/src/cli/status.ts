@@ -145,7 +145,7 @@ function isServiceRunning(status: string): boolean {
 
 export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
   const lines: string[] = [];
-  lines.push('MyClaw Status');
+  lines.push('Gantry Status');
   lines.push('');
   lines.push(`Runtime home: ${summary.runtimeHome}`);
   lines.push(`Runtime mode: ${summary.runtimeMode}`);
@@ -223,7 +223,7 @@ export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
     nextActions.push('Run `myclaw doctor` and fix blocking items.');
   }
   if (nextActions.length === 0 && isServiceRunning(summary.service.status)) {
-    nextActions.push('MyClaw is running.');
+    nextActions.push('Gantry is running.');
   } else if (nextActions.length === 0) {
     nextActions.push('Run `myclaw start` to start the runtime.');
   }

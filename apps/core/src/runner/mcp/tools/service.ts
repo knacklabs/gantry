@@ -623,7 +623,7 @@ function adminToolUnavailable(toolName: AdminMcpToolName): {
         type: 'text',
         text: [
           `${fullName} is not selected for this agent yet.`,
-          `Use request_permission with permissionKind=tool toolName=${fullName} temporaryOnly=false.`,
+          `Ask a configured conversation approver to approve ${fullName}, then choose Always allow.`,
         ].join(' '),
       },
     ],
@@ -634,7 +634,7 @@ function adminToolUnavailable(toolName: AdminMcpToolName): {
 const BROWSER_WRONG_LANE_GUIDANCE = [
   'Browser control is a built-in MyClaw tool capability, not a skill install or third-party MCP server request.',
   'Do not request browser automation through request_skill_install or request_mcp_server.',
-  'Use request_permission with permissionKind="tool", toolName="Browser", toolCategory="browser", temporaryOnly=false for persistent approval, then use the compact browser gateway tools.',
+  'Ask a configured conversation approver to approve Browser access, then use the compact browser gateway tools.',
 ].join(' ');
 
 function browserWrongLaneRequestGuidance(
@@ -699,6 +699,8 @@ async function submitCapabilityReviewTask(
     type: toolName,
     taskId,
     runHandle: process.env.MYCLAW_AGENT_RUN_HANDLE || undefined,
+    jobId: process.env.MYCLAW_JOB_ID || undefined,
+    runId: process.env.MYCLAW_JOB_RUN_ID || undefined,
     targetJid: chatJid,
     chatJid,
     authThreadId: threadId,

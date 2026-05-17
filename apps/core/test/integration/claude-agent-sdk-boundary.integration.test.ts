@@ -289,6 +289,7 @@ describe('Claude Agent SDK boundary integration', () => {
     logSpy.mockRestore();
 
     expect(outputs.map((output) => output.result)).toEqual([
+      null,
       'Hello ',
       'world',
       null,
