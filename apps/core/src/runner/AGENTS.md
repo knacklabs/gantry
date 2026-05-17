@@ -16,6 +16,12 @@
   memory-boundary, and fail-closed sandbox hard guards before the timed grant so
   this option reduces prompts without bypassing safety checks.
 - One-shot scheduled jobs must close the SDK prompt stream after the initial prompt is queued. Keeping that async iterable open is live-run behavior for IPC continuations; in scheduled jobs it can leave the SDK waiting for another user turn after tool execution and produce an idle stall instead of a terminal result.
+- Claude SDK session persistence is split by run type. Live channel turns may
+  use `AgentInput.sessionId` to set `persistSession: true` and `resume`, but
+  scheduled/autonomous jobs must keep `isScheduledJob: true`, omit
+  `AgentInput.sessionId`, and run the SDK with `persistSession: false` even
+  when job metadata has `session_id` or `executionContext.sessionId` for
+  app/control correlation.
 - Scoped Bash approval is argv-leaf based. Parse `&&`, `||`, `;`, pipes, newlines, and subshell leaves; every simple command leaf must match its own durable `Bash(...)` rule. Unsupported shell grammar and destructive redirects fail closed to one-time approval, and persistent suggestions must list separate safe leaf rules instead of the compound command.
 - Native SDK `Agent` and `Task` tool calls are always background work. Force `run_in_background: true` in runner tool input before validation, permission checks, sandbox/network gates, and SDK allow responses; SDK `task_notification` system messages should be emitted as structured runtime events instead of log-only observations.
 - The compact `mcp__myclaw__file` tool is the agent-facing durable-file

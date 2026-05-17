@@ -18,19 +18,24 @@ instruction authority, permissions, credentials, or sandbox access.
 ## Provider Session Metadata
 
 Provider session handles may exist as adapter metadata attached to canonical
-`AgentSession` records, but normal agent turns do not use them for provider
-continuity.
+`AgentSession` records. Live user-facing turns use those handles only as an
+adapter resume optimization; canonical continuity still belongs to Postgres.
 
 - Canonical continuity record: `AgentSession` (provider-neutral app contract).
 - Adapter projection field: `ProviderSession.externalSessionId`.
-- Current runtime projection: Anthropic/Claude SDK runs set
-  `persistSession: false` and do not pass `resume` or `resumeSessionAt`.
+- Current live runtime projection: Anthropic/Claude SDK runs set
+  `persistSession: true` and pass `resume` from the trusted
+  `AgentInput.sessionId` when a provider handle exists.
+- Current scheduled/autonomous job projection: jobs set `isScheduledJob: true`,
+  do not pass `AgentInput.sessionId`, and the Claude SDK query runs with
+  `persistSession: false`.
 - Conversation evidence belongs in Postgres messages, runs, jobs, memory,
   digests, and runtime events; provider JSONL files are not continuity state.
 
-This keeps normal agent conversations provider-stateless. If transcript export
-is needed, generate it from Postgres evidence into a FileArtifact instead of
-depending on provider-local session files.
+This keeps normal agent conversations canonically provider-neutral while
+allowing live runs to use the provider's own efficient resume path. If
+transcript export is needed, generate it from Postgres evidence into a
+FileArtifact instead of depending on provider-local session files.
 
 ## Scope And Ownership Isolation
 
@@ -89,8 +94,9 @@ fallback, or repair branches for that state.
 - Reset preserves canonical `agent_sessions` identity and scoped
   `agent_session_digests`; digest hydration still works after reset.
 - During live runs, MyClaw persists canonical messages, runs, jobs, memory,
-  digests, and runtime events. It does not persist newly emitted SDK session ids
-  as continuity handles for the next run.
+  digests, and runtime events. Newly emitted SDK session ids are sensitive
+  adapter metadata attached to the canonical session, not standalone continuity
+  identity.
 - Expiring or clearing provider-session metadata does not delete canonical
   session identity.
 
@@ -110,8 +116,12 @@ fallback, or repair branches for that state.
 
 ## Runtime Guardrails
 
-- `apps/core/src/runner/claude/query-loop.ts` must keep `persistSession: false`.
-- Host runner inputs must not pass `turnContext.externalSessionId` as an SDK
-  `sessionId`/`resume` value.
-- Tests should assert both live turns and scheduled jobs run without SDK resume
-  options, while Postgres persistence remains the canonical evidence path.
+- `apps/core/src/runner/claude/index.ts` must pass explicit query-loop SDK
+  persistence options: live turns persist/resume, scheduled jobs do not.
+- Host live runner inputs may pass the trusted `turnContext.externalSessionId`
+  as `AgentInput.sessionId`; scheduler execution must not copy
+  `jobs.session_id` or `executionContext.sessionId` into that field.
+- Tests should assert live turns set `persistSession: true` and `resume` when
+  `AgentInput.sessionId` exists, while scheduled jobs run with
+  `persistSession: false` and no `resume` options. Postgres remains the
+  canonical evidence path for messages, runs, memory, jobs, and events.

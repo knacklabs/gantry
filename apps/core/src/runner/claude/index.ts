@@ -180,7 +180,7 @@ async function runScheduledQuery(opts: {
       opts.configuredModel,
       opts.configuredThinking,
       opts.configuredEffort,
-      false,
+      { enableIpcFollowups: false, persistSdkSession: false },
     );
     if (queryResult.newSessionId) {
       diagnosticSessionId = queryResult.newSessionId;
@@ -233,7 +233,7 @@ async function runInteractiveQueryLoop(opts: {
       opts.configuredModel,
       opts.configuredThinking,
       opts.configuredEffort,
-      true,
+      { enableIpcFollowups: true, persistSdkSession: true },
     );
     if (queryResult.newSessionId) {
       diagnosticSessionId = queryResult.newSessionId;

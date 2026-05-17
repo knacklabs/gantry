@@ -48,6 +48,12 @@ import { logUsage } from './usage-logging.js';
 import { readContextUsage } from './context-usage.js';
 import { RUNTIME_EVENT_TYPES } from '../../domain/events/runtime-event-types.js';
 import { createCanUseToolCallback } from './tool-permission-gate.js';
+
+interface RunQueryOptions {
+  enableIpcFollowups?: boolean;
+  persistSdkSession?: boolean;
+}
+
 export async function runQuery(
   prompt: string,
   mcpServerPath: string,
@@ -56,13 +62,15 @@ export async function runQuery(
   configuredModel: string | undefined,
   queryThinking: ThinkingConfig | undefined,
   queryEffort: EffortLevel | undefined,
-  enableIpcFollowups = true,
+  options: RunQueryOptions = {},
 ): Promise<{
   newSessionId?: string;
   lastAssistantUuid?: string;
   closedDuringQuery: boolean;
   primeToolAttempts: AgentRunnerToolAttemptOutput[];
 }> {
+  const enableIpcFollowups = options.enableIpcFollowups ?? true;
+  const persistSdkSession = options.persistSdkSession ?? true;
   const stream = new MessageStream();
   const queryRunId = randomUUID();
   const memoryBlock = readMemoryContextBlock(agentInput);
@@ -127,7 +135,6 @@ export async function runQuery(
   const extraDirs = discoverAdditionalDirectories();
   const protectedFilesystemPaths = readProtectedFilesystemPaths();
   const workspaceFolder = agentInput.groupFolder;
-  const shouldPersistSdkSession = agentInput.isScheduledJob !== true;
   const capabilities = composeAgentCapabilities({
     mcpServerPath,
     appId: agentInput.appId,
@@ -162,8 +169,8 @@ export async function runQuery(
       effort: queryEffort,
       cwd: WORKSPACE_GROUP_DIR,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
-      persistSession: shouldPersistSdkSession,
-      ...(shouldPersistSdkSession && agentInput.sessionId
+      persistSession: persistSdkSession,
+      ...(persistSdkSession && agentInput.sessionId
         ? { resume: agentInput.sessionId }
         : {}),
       systemPrompt,

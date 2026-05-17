@@ -47,9 +47,6 @@ const TIMED_GRANT_DURATION_MS = 5 * 60 * 1000;
 const TIMED_GRANT_CLOCK_SKEW_MS = 10_000;
 
 interface TimedToolGrant {
-  scope: 'all_tools';
-  principal: string;
-  conversationJid: string;
   expiresAt: number;
 }
 
@@ -116,7 +113,7 @@ export function createCanUseToolCallback(
       return false;
     }
     log(
-      `Timed grant honored for tool ${toolName}: scope=${grant.scope} principal=${grant.principal} conversationJid=${grant.conversationJid} ttlMs=${grant.expiresAt - Date.now()}`,
+      `Timed grant honored for tool ${toolName}: scope=all_tools principal=${principal} conversationJid=${timedGrantConversationJid} ttlMs=${grant.expiresAt - Date.now()}`,
     );
     return true;
   };
@@ -140,9 +137,6 @@ export function createCanUseToolCallback(
       return;
     }
     const grant: TimedToolGrant = {
-      scope: 'all_tools',
-      principal,
-      conversationJid: timedGrantConversationJid,
       expiresAt: requestedExpiresAtMs,
     };
     timedToolGrants.set(timedGrantKey(principal), grant);
@@ -151,7 +145,7 @@ export function createCanUseToolCallback(
       requestedExpiresAtMs,
     );
     log(
-      `Timed grant activated for tool ${toolName}: scope=${grant.scope} principal=${grant.principal} conversationJid=${grant.conversationJid} expiresAt=${new Date(requestedExpiresAtMs).toISOString()}`,
+      `Timed grant activated for tool ${toolName}: scope=all_tools principal=${principal} conversationJid=${timedGrantConversationJid} expiresAt=${new Date(requestedExpiresAtMs).toISOString()}`,
     );
   };
 

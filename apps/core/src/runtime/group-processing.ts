@@ -128,11 +128,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       ...(args.done !== undefined ? { done: args.done } : {}),
     });
     const buildProgressOptions = (
-      args: {
-        threadId?: string;
-        done?: boolean;
-        replaceOnly?: boolean;
-      } = {},
+      args: { threadId?: string; done?: boolean; replaceOnly?: boolean } = {},
     ): ProgressUpdateOptions => ({
       ...(resolveThreadId(args.threadId)
         ? { threadId: resolveThreadId(args.threadId) }
