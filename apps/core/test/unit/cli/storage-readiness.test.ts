@@ -54,6 +54,8 @@ describe('inspectRuntimeStorageReadiness', () => {
       vectorSearch: true,
       textSearch: true,
       jobQueue: true,
+      runtimeEvents: true,
+      eventBusOutbox: true,
     });
     const close = vi.fn().mockResolvedValue(undefined);
     vi.doMock('@core/adapters/storage/postgres/storage-service.js', () => ({

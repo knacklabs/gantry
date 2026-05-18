@@ -136,7 +136,12 @@ export function _setRuntimeRepositoriesForTest(
   runtime = {
     service: {
       migrate: async () => {},
-      healthCheck: async () => ({ lexicalSearch: true, vectorSearch: false }),
+      healthCheck: async () => ({
+        lexicalSearch: true,
+        vectorSearch: false,
+        runtimeEvents: true,
+        eventBusOutbox: true,
+      }),
       close: async () => {},
     } as StorageRuntime['service'],
     ops,

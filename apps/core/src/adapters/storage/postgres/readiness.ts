@@ -23,6 +23,18 @@ export function evaluatePostgresStorageCapabilities(
   if (!capabilities.jobQueue) {
     details.push(capabilities.jobQueueReason || 'pg-boss schema is required.');
   }
+  if (!capabilities.runtimeEvents) {
+    details.push(
+      capabilities.runtimeEventsReason ||
+        'runtime_events table and cursor indexes are required.',
+    );
+  }
+  if (!capabilities.eventBusOutbox) {
+    details.push(
+      capabilities.eventBusOutboxReason ||
+        'event_bus_outbox table, claim indexes, and runtime-event uniqueness constraint are required.',
+    );
+  }
   if (details.length === 0) {
     return null;
   }

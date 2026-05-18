@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   InMemoryRuntimeEventNotifier,
@@ -101,6 +101,29 @@ describe('RuntimeEventExchange', () => {
     expect(notifier.notifiedEvents).toEqual([event]);
   });
 
+  it('returns the durable event when the live wakeup notifier fails', async () => {
+    const repository = new MemoryRuntimeEventRepository();
+    const exchange = new RuntimeEventExchange(repository, {
+      notify: vi.fn(async () => {
+        throw new Error('wakeup failed');
+      }),
+      subscribe: vi.fn(() => () => undefined),
+    });
+
+    await expect(
+      exchange.publish({
+        appId: 'app:test' as never,
+        eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+        actor: 'agent',
+        payload: { text: 'durable' },
+      }),
+    ).resolves.toMatchObject({
+      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+      payload: { text: 'durable' },
+    });
+    expect(repository.events).toHaveLength(1);
+  });
+
   it('canonicalizes provider conversation ids before persistence', async () => {
     const repository = new MemoryRuntimeEventRepository();
     const notifier = new InMemoryRuntimeEventNotifier();
@@ -162,6 +185,65 @@ describe('RuntimeEventExchange', () => {
       {
         eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
         payload: { text: 'existing' },
+      },
+    ]);
+    subscription.close();
+  });
+
+  it('recovers missed wakeups by polling durable events after the cursor', async () => {
+    const repository = new MemoryRuntimeEventRepository();
+    const exchange = new RuntimeEventExchange(
+      repository,
+      new InMemoryRuntimeEventNotifier(),
+    );
+    await repository.appendRuntimeEvent({
+      appId: 'app:test' as never,
+      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+      actor: 'agent',
+      payload: { text: 'before cursor' },
+    });
+    const missedEvent = await repository.appendRuntimeEvent({
+      appId: 'app:test' as never,
+      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+      actor: 'agent',
+      payload: { text: 'missed notify' },
+    });
+
+    const subscription = exchange.subscribe({
+      appId: 'app:test' as never,
+      afterEventId: 1 as RuntimeEventId,
+    });
+
+    await expect(subscription.next({ timeoutMs: 0 })).resolves.toMatchObject([
+      {
+        eventId: missedEvent.eventId,
+        payload: { text: 'missed notify' },
+      },
+    ]);
+    subscription.close();
+  });
+
+  it('polls durable events when wakeup subscription registration fails', async () => {
+    const repository = new MemoryRuntimeEventRepository();
+    const exchange = new RuntimeEventExchange(repository, {
+      notify: vi.fn(async () => undefined),
+      subscribe: vi.fn(() => {
+        throw new Error('listen unavailable');
+      }),
+    });
+    const event = await repository.appendRuntimeEvent({
+      appId: 'app:test' as never,
+      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+      actor: 'agent',
+      payload: { text: 'poll only' },
+    });
+
+    const subscription = exchange.subscribe({ appId: 'app:test' as never });
+
+    await expect(subscription.next({ timeoutMs: 0 })).resolves.toMatchObject([
+      {
+        eventId: event.eventId,
+        payload: { text: 'poll only' },
       },
     ]);
     subscription.close();

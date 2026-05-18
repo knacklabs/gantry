@@ -6,6 +6,7 @@ import {
   parseRuntimeEventWakeup,
   PostgresRuntimeEventNotifier,
 } from '@core/adapters/storage/postgres/runtime-event-notifier.postgres.js';
+import type { RuntimeEvent } from '@core/domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '@core/domain/events/runtime-event-types.js';
 
 class FakeListenClient extends EventEmitter {
@@ -14,6 +15,31 @@ class FakeListenClient extends EventEmitter {
 }
 
 describe('PostgresRuntimeEventNotifier', () => {
+  it('treats failed NOTIFY as a wakeup loss rather than event durability loss', async () => {
+    const pool = {
+      connect: vi.fn(),
+      query: vi.fn(async () => {
+        throw new Error('notify unavailable');
+      }),
+    };
+    const notifier = new PostgresRuntimeEventNotifier(pool as never);
+    const event: RuntimeEvent = {
+      eventId: 12 as never,
+      appId: 'app-one' as never,
+      sessionId: 'session-one' as never,
+      eventType: RUNTIME_EVENT_TYPES.SESSION_MESSAGE_OUTBOUND,
+      actor: 'agent',
+      payload: { text: 'already persisted' },
+      createdAt: '2026-05-18T00:00:00.000Z',
+    };
+
+    await expect(notifier.notify(event)).resolves.toBeUndefined();
+    expect(pool.query).toHaveBeenCalledWith('SELECT pg_notify($1, $2)', [
+      'gantry_runtime_events',
+      expect.stringContaining('"eventId":12'),
+    ]);
+  });
+
   it('parses only valid runtime event wakeups', () => {
     expect(
       parseRuntimeEventWakeup(

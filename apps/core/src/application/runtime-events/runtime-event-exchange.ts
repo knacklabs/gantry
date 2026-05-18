@@ -29,7 +29,11 @@ export class RuntimeEventExchange {
     const event = await this.repository.appendRuntimeEvent(
       normalizeRuntimeEventPublishInput(input),
     );
-    await this.notifier.notify(event);
+    try {
+      await this.notifier.notify(event);
+    } catch {
+      // Wakeups are best-effort; durable consumers recover by cursor polling.
+    }
     return event;
   }
 
@@ -84,10 +88,14 @@ class DurableRuntimeEventSubscription implements RuntimeEventSubscription {
     private readonly filter: RuntimeEventFilter,
   ) {
     this.cursor = filter.afterEventId;
-    this.unsubscribe = notifier.subscribe(() => {
-      this.wakeup?.();
-      this.wakeup = null;
-    }, filter);
+    try {
+      this.unsubscribe = notifier.subscribe(() => {
+        this.wakeup?.();
+        this.wakeup = null;
+      }, filter);
+    } catch {
+      this.unsubscribe = () => undefined;
+    }
   }
 
   async next(options: { timeoutMs?: number } = {}): Promise<RuntimeEvent[]> {

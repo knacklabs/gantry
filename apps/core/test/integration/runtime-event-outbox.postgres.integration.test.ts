@@ -118,4 +118,41 @@ maybeDescribe('Postgres runtime event outbox', () => {
       }),
     ).resolves.toMatchObject([{ eventId: event.eventId }]);
   });
+
+  it('replays durable runtime events by cursor without relying on NOTIFY wakeups', async () => {
+    const appId = DEFAULT_APP_ID as AppId;
+    const jobId = 'job:test:runtime-event-replay' as JobId;
+
+    const first = await runtime.repositories.runtimeEvents.appendRuntimeEvent({
+      appId,
+      jobId,
+      eventType: RUNTIME_EVENT_TYPES.JOB_STARTED,
+      actor: 'scheduler',
+      responseMode: 'none',
+      payload: { jobId, step: 'before-cursor' },
+    });
+    const missedWakeup =
+      await runtime.repositories.runtimeEvents.appendRuntimeEvent({
+        appId,
+        jobId,
+        eventType: RUNTIME_EVENT_TYPES.JOB_COMPLETED,
+        actor: 'scheduler',
+        responseMode: 'none',
+        payload: { jobId, step: 'missed-wakeup' },
+      });
+
+    await expect(
+      runtime.repositories.runtimeEvents.listRuntimeEvents({
+        appId,
+        jobId,
+        afterEventId: first.eventId,
+      }),
+    ).resolves.toMatchObject([
+      {
+        eventId: missedWakeup.eventId,
+        eventType: RUNTIME_EVENT_TYPES.JOB_COMPLETED,
+        payload: { jobId, step: 'missed-wakeup' },
+      },
+    ]);
+  });
 });

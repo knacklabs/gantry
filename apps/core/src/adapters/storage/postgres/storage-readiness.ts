@@ -83,7 +83,7 @@ export async function inspectRuntimeStorageReadiness(
       return {
         status: 'pass',
         message:
-          'Postgres capabilities are ready (pgvector, search extension, pg-boss).',
+          'Postgres capabilities are ready (pgvector, search extension, pg-boss, durable runtime events, event outbox).',
       };
     }
 

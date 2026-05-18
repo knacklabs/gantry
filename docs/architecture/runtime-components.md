@@ -274,6 +274,30 @@ Jobs have no serialized execution mode. Interactive message admission stays in
 `GroupQueue`; scheduler work enters the background pg-boss lane and uses
 `runtime.queue.max_job_runs` as its worker concurrency bound.
 
+## Runtime Events
+
+Postgres is the default event backend. Runtime-visible output, job lifecycle,
+SDK wait/SSE, webhooks, and app-channel delivery use `runtime_events` as the
+durable stream. `event_bus_outbox` is the only broker boundary for future
+dispatchers such as Kafka or SNS/SQS.
+
+Postgres `LISTEN/NOTIFY` is wakeup-only. Notifications may be missed, coalesced,
+or delayed, so consumers must always recover by replaying `runtime_events` with
+their cursor or by claiming pending `event_bus_outbox` rows.
+
+Storage readiness treats the event path as mandatory. Startup/status checks
+validate that `runtime_events`, `event_bus_outbox`, their cursor/claim indexes,
+and the outbox runtime-event uniqueness constraint are present. These checks do
+not insert probe rows into runtime data.
+
+Gantry intentionally does not use `pgmq`, UNLOGGED pub/sub tables, or Kafka
+configuration in the current runtime. `pg-boss` remains dedicated to scheduled
+and background job execution.
+
+Retention, partitioning, and interrupted in-flight run recovery are separate
+follow-up decisions. They must not introduce a second event truth store or a
+runtime event backend selector.
+
 ## Storage And Retrieval
 
 Postgres is mandatory runtime storage. The supported deployment model is one database with separate schemas and roles: `gantry` for first-party runtime tables, `onecli` for OneCLI broker state, and `pgboss` for pg-boss internals. Gantry provisions and verifies the schema boundary, but it does not query OneCLI-owned tables or run OneCLI migrations. `GANTRY_DATABASE_URL` and `ONECLI_DATABASE_URL` must use different Postgres users; the OneCLI `schema=onecli` URL parameter is not treated as a permission boundary by itself.

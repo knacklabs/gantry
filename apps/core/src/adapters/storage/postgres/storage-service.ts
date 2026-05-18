@@ -28,6 +28,10 @@ export interface StorageCapabilities {
   textSearchReason?: string;
   jobQueue?: boolean;
   jobQueueReason?: string;
+  runtimeEvents?: boolean;
+  runtimeEventsReason?: string;
+  eventBusOutbox?: boolean;
+  eventBusOutboxReason?: string;
 }
 
 export interface StorageService {
@@ -160,16 +164,97 @@ export class PostgresStorageService implements StorageService {
       has_vector: boolean;
       has_text_search: boolean;
       has_job_queue: boolean;
+      has_runtime_events_table: boolean;
+      has_event_bus_outbox_table: boolean;
+      has_event_bus_outbox_runtime_event_unique: boolean;
+      missing_runtime_event_indexes: string[] | null;
+      missing_event_bus_outbox_indexes: string[] | null;
     }>(
-      `SELECT
-        EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector') AS has_vector,
-        EXISTS(SELECT 1 FROM pg_extension WHERE extname IN ('pg_trgm', 'pg_search')) AS has_text_search,
-        (to_regclass('pgboss.version') IS NOT NULL) AS has_job_queue`,
+      `WITH required_runtime_event_indexes(index_name) AS (
+          VALUES
+            ('idx_runtime_events_app_cursor'),
+            ('idx_runtime_events_session_cursor'),
+            ('idx_runtime_events_run_cursor'),
+            ('idx_runtime_events_job_cursor'),
+            ('idx_runtime_events_trigger_cursor'),
+            ('idx_runtime_events_conversation_thread_cursor'),
+            ('idx_runtime_events_type_cursor'),
+            ('idx_runtime_events_webhook_projection')
+        ),
+        required_event_bus_outbox_indexes(index_name) AS (
+          VALUES
+            ('idx_event_bus_outbox_claim_due'),
+            ('idx_event_bus_outbox_app_event'),
+            ('idx_event_bus_outbox_runtime_event'),
+            ('idx_event_bus_outbox_pending_runtime_event')
+        ),
+        current_schema_name AS (
+          SELECT $1::text AS schema_name
+        ),
+        event_tables AS (
+          SELECT
+            to_regclass(format('%I.%I', $1::text, 'runtime_events')) AS runtime_events_oid,
+            to_regclass(format('%I.%I', $1::text, 'event_bus_outbox')) AS event_bus_outbox_oid
+        )
+        SELECT
+          EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector') AS has_vector,
+          EXISTS(SELECT 1 FROM pg_extension WHERE extname IN ('pg_trgm', 'pg_search')) AS has_text_search,
+          (to_regclass('pgboss.version') IS NOT NULL) AS has_job_queue,
+          ((SELECT runtime_events_oid FROM event_tables) IS NOT NULL) AS has_runtime_events_table,
+          ((SELECT event_bus_outbox_oid FROM event_tables) IS NOT NULL) AS has_event_bus_outbox_table,
+          EXISTS(
+            SELECT 1
+            FROM pg_constraint c
+            JOIN event_tables t ON c.conrelid = t.event_bus_outbox_oid
+            WHERE c.conname = 'event_bus_outbox_runtime_event_id_key'
+              AND c.contype = 'u'
+          ) AS has_event_bus_outbox_runtime_event_unique,
+          ARRAY(
+            SELECT r.index_name
+            FROM required_runtime_event_indexes r
+            CROSS JOIN current_schema_name s
+            WHERE NOT EXISTS (
+              SELECT 1
+              FROM pg_indexes i
+              WHERE i.schemaname = s.schema_name
+                AND i.tablename = 'runtime_events'
+                AND i.indexname = r.index_name
+            )
+            ORDER BY r.index_name
+          ) AS missing_runtime_event_indexes,
+          ARRAY(
+            SELECT r.index_name
+            FROM required_event_bus_outbox_indexes r
+            CROSS JOIN current_schema_name s
+            WHERE NOT EXISTS (
+              SELECT 1
+              FROM pg_indexes i
+              WHERE i.schemaname = s.schema_name
+                AND i.tablename = 'event_bus_outbox'
+                AND i.indexname = r.index_name
+            )
+            ORDER BY r.index_name
+          ) AS missing_event_bus_outbox_indexes`,
+      [this.schemaName],
     );
     const row = caps.rows[0];
     const hasVector = Boolean(row?.has_vector);
     const hasTextSearch = Boolean(row?.has_text_search);
     const hasJobQueue = Boolean(row?.has_job_queue);
+    const hasRuntimeEventsTable = Boolean(row?.has_runtime_events_table);
+    const hasEventBusOutboxTable = Boolean(row?.has_event_bus_outbox_table);
+    const hasEventBusOutboxRuntimeEventUnique = Boolean(
+      row?.has_event_bus_outbox_runtime_event_unique,
+    );
+    const missingRuntimeEventIndexes = row?.missing_runtime_event_indexes ?? [];
+    const missingEventBusOutboxIndexes =
+      row?.missing_event_bus_outbox_indexes ?? [];
+    const hasRuntimeEvents =
+      hasRuntimeEventsTable && missingRuntimeEventIndexes.length === 0;
+    const hasEventBusOutbox =
+      hasEventBusOutboxTable &&
+      hasEventBusOutboxRuntimeEventUnique &&
+      missingEventBusOutboxIndexes.length === 0;
     return {
       lexicalSearch: hasTextSearch,
       vectorSearch: hasVector,
@@ -184,6 +269,35 @@ export class PostgresStorageService implements StorageService {
       jobQueueReason: hasJobQueue
         ? undefined
         : 'pg-boss schema is not initialized (expected table pgboss.version)',
+      runtimeEvents: hasRuntimeEvents,
+      runtimeEventsReason: hasRuntimeEvents
+        ? undefined
+        : [
+            hasRuntimeEventsTable
+              ? undefined
+              : 'runtime_events table is missing',
+            hasRuntimeEventsTable && missingRuntimeEventIndexes.length
+              ? `runtime_events indexes are missing: ${missingRuntimeEventIndexes.join(', ')}`
+              : undefined,
+          ]
+            .filter(Boolean)
+            .join('; '),
+      eventBusOutbox: hasEventBusOutbox,
+      eventBusOutboxReason: hasEventBusOutbox
+        ? undefined
+        : [
+            hasEventBusOutboxTable
+              ? undefined
+              : 'event_bus_outbox table is missing',
+            hasEventBusOutboxTable && !hasEventBusOutboxRuntimeEventUnique
+              ? 'event_bus_outbox runtime-event uniqueness constraint is missing: event_bus_outbox_runtime_event_id_key'
+              : undefined,
+            hasEventBusOutboxTable && missingEventBusOutboxIndexes.length
+              ? `event_bus_outbox indexes are missing: ${missingEventBusOutboxIndexes.join(', ')}`
+              : undefined,
+          ]
+            .filter(Boolean)
+            .join('; '),
     };
   }
 
