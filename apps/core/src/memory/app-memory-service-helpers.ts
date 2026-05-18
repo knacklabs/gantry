@@ -57,18 +57,16 @@ export function buildMemoryItemWriteBase(input: {
   const nextVersion = input.existingSource
     ? input.existingSource.version + 1
     : 1;
-  const sourceRef = JSON.parse(
-    encodeItemSource({
-      subject: input.subject,
-      source: input.saveInput.source || 'sdk',
-      evidenceIds: nextEvidenceIds,
-      isPinned: input.existingSource?.isPinned ?? false,
-      version: nextVersion,
-      retrievalCount: input.existingSource?.retrievalCount,
-      totalScore: input.existingSource?.totalScore,
-      maxScore: input.existingSource?.maxScore,
-    }),
-  ) as Record<string, unknown>;
+  const sourceRef = encodeItemSource({
+    subject: input.subject,
+    source: input.saveInput.source || 'sdk',
+    evidenceIds: nextEvidenceIds,
+    isPinned: input.existingSource?.isPinned ?? false,
+    version: nextVersion,
+    retrievalCount: input.existingSource?.retrievalCount,
+    totalScore: input.existingSource?.totalScore,
+    maxScore: input.existingSource?.maxScore,
+  });
   if (input.saveInput.dreamingPromotion) {
     sourceRef.promoted_by = 'dreaming';
     sourceRef.promoted_at = input.saveInput.dreamingPromotion.promotedAt;
@@ -88,7 +86,7 @@ export function buildMemoryItemWriteBase(input: {
     threadId: input.subject.threadId ?? null,
     kind: normalizeKind(input.saveInput.kind),
     key: input.key,
-    valueJson: JSON.stringify({
+    valueJson: {
       value: input.value,
       why: input.saveInput.why?.trim() || null,
       contentHash: memoryContentHash({
@@ -99,8 +97,8 @@ export function buildMemoryItemWriteBase(input: {
         key: input.key,
         value: input.value,
       }),
-    }),
-    sourceRefJson: JSON.stringify(sourceRef),
+    },
+    sourceRefJson: sourceRef,
     confidence: clampConfidence(input.saveInput.confidence),
     status: 'active' as const,
     lastObservedAt: input.timestamp,

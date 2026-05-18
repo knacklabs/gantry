@@ -1,4 +1,12 @@
-import { index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import {
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+} from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 import { agentsPostgres } from './agents.js';
 import { appsPostgres } from './apps.js';
@@ -76,8 +84,12 @@ export const providerSessionsPostgres = pgTable(
     browserProfileId: text('browser_profile_id').references(
       () => browserProfilesPostgres.id,
     ),
-    providerRefJson: text('provider_ref_json').notNull().default('{}'),
-    metadataJson: text('metadata_json').notNull().default('{}'),
+    providerRefJson: jsonb('provider_ref_json')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    metadataJson: jsonb('metadata_json')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     status: text('status').notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
@@ -148,7 +160,9 @@ export const agentSessionDigestsPostgres = pgTable(
     digest: text('digest').notNull(),
     messageCount: integer('message_count').notNull().default(0),
     extractedFactCount: integer('extracted_fact_count').notNull().default(0),
-    metadataJson: text('metadata_json').notNull().default('{}'),
+    metadataJson: jsonb('metadata_json')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     scopeAppId: text('scope_app_id'),
     scopeAgentId: text('scope_agent_id'),
     scopeConversationId: text('scope_conversation_id'),

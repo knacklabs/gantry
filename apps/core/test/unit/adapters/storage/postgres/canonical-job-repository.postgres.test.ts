@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { jsonb } from '@core/adapters/storage/postgres/repositories/canonical-graph-repository.postgres.js';
 import { PostgresCanonicalJobRepository } from '@core/adapters/storage/postgres/repositories/canonical-job-repository.postgres.js';
 
 function makeInsertOnlyDb() {
@@ -33,6 +34,12 @@ function flattenSqlShape(value: unknown, seen = new Set<object>()): string {
 }
 
 describe('PostgresCanonicalJobRepository', () => {
+  it('fails loudly instead of storing invalid JSON strings in jsonb columns', () => {
+    expect(() => jsonb('{not-json')).toThrow(
+      'Invalid JSON string passed to jsonb column writer',
+    );
+  });
+
   it('marks stale lease runs as timed out when releasing job leases', async () => {
     const selectWhere = vi.fn(async () => [
       { id: 'job-1', leaseRunId: 'run-1' },

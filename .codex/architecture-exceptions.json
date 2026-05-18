@@ -455,11 +455,46 @@
     "maxViolations": 3
   },
   {
+    "file": "apps/core/src/config/env/index.ts",
+    "rule": "provider_specific_path",
+    "reason": "Exact config provider-name debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",
+    "removeByPhase": "provider-boundary-config-cleanup-phase",
+    "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/config/index.ts",
+    "rule": "provider_specific_path",
+    "reason": "Exact config provider-name debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",
+    "removeByPhase": "provider-boundary-config-cleanup-phase",
+    "maxViolations": 10
+  },
+  {
     "file": "apps/core/src/config/preflight.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/config/settings/desired-state-provider-conversations.ts",
+    "rule": "provider_specific_path",
+    "reason": "Exact settings provider-conversation debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",
+    "removeByPhase": "provider-boundary-config-cleanup-phase",
+    "maxViolations": 14
+  },
+  {
+    "file": "apps/core/src/config/settings/memory-snapshot.ts",
+    "rule": "provider_specific_path",
+    "reason": "Exact settings memory model debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",
+    "removeByPhase": "provider-boundary-config-cleanup-phase",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/config/settings/runtime-settings-memory-parser.ts",
+    "rule": "provider_specific_path",
+    "reason": "Exact settings memory model debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",
+    "removeByPhase": "provider-boundary-config-cleanup-phase",
+    "maxViolations": 1
   },
   {
     "file": "apps/core/src/config/settings/control-allowlist.ts",
@@ -497,6 +532,13 @@
     "maxViolations": 2
   },
   {
+    "file": "apps/core/src/config/settings/runtime-settings.ts",
+    "rule": "provider_specific_path",
+    "reason": "Exact settings provider-name debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",
+    "removeByPhase": "provider-boundary-config-cleanup-phase",
+    "maxViolations": 11
+  },
+  {
     "file": "apps/core/src/config/settings/runtime-settings-validation.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -516,6 +558,13 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/config/source-classification.ts",
+    "rule": "provider_specific_path",
+    "reason": "Exact config source-classification provider debt after removing the broad config provider allowlist; capped so new provider-specific config leakage fails.",
+    "removeByPhase": "provider-boundary-config-cleanup-phase",
+    "maxViolations": 17
   },
   {
     "file": "apps/core/src/control/server/handler-context.ts",
@@ -1336,6 +1385,13 @@
     "reason": "Baseline channel formatting dialect name remains in the messaging formatter until provider-specific rendering is moved fully behind channel adapters.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/shared/model-catalog.ts",
+    "rule": "provider_specific_path",
+    "reason": "Exact shared model-catalog provider debt after removing the broad shared provider allowlist; capped so new provider-specific shared leakage fails.",
+    "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
+    "maxViolations": 28
   },
   {
     "file": "apps/core/src/platform/index.ts",

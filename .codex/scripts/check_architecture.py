@@ -21,11 +21,14 @@ from architecture_rules import (
     check_framework_boundary_imports,
     check_map_layer_imports,
     check_old_terms,
+    check_provider_boundary,
     check_provider_imports,
     check_provider_specific_paths,
     check_wrapper_only_files,
     iter_production_sources,
+    iter_provider_boundary_sources,
     load_architecture_map,
+    load_provider_boundary_exceptions,
     repo_root_from_git,
     validate_exceptions,
 )
@@ -44,6 +47,11 @@ def parse_args() -> argparse.Namespace:
         default=".codex/architecture-map.json",
         help="Path to architecture map JSON (absolute or relative to --root).",
     )
+    parser.add_argument(
+        "--provider-boundary-exceptions",
+        default=".codex/provider-boundary-exceptions.json",
+        help="Path to provider boundary exceptions JSON (absolute or relative to --root).",
+    )
     return parser.parse_args()
 
 
@@ -56,6 +64,7 @@ def print_grouped_failures(issues: dict[str, list[str]]) -> None:
         ("layer_imports", "Layer Import Rules"),
         ("external_imports", "External Import Rules"),
         ("provider_imports", "Provider Imports"),
+        ("provider_boundary", "Provider Boundary"),
         ("provider_specific_paths", "Provider-Specific Paths"),
         ("direct_risky_execution", "Direct Risky Execution"),
         ("browser_default_profile_paths", "Browser Default Profile Paths"),
@@ -88,10 +97,18 @@ def main() -> int:
     map_path = Path(args.map)
     if not map_path.is_absolute():
         map_path = (root / map_path).resolve()
+    provider_boundary_exceptions_path = Path(args.provider_boundary_exceptions)
+    if not provider_boundary_exceptions_path.is_absolute():
+        provider_boundary_exceptions_path = (root / provider_boundary_exceptions_path).resolve()
 
     production_files = iter_production_sources(root)
+    provider_boundary_files = iter_provider_boundary_sources(root)
     production_rel_paths = {path.relative_to(root).as_posix() for path in production_files}
     exceptions, exception_hygiene = validate_exceptions(root, exceptions_path, production_rel_paths, date.today())
+    provider_boundary_exceptions, provider_boundary_exception_hygiene = load_provider_boundary_exceptions(
+        root, provider_boundary_exceptions_path
+    )
+    exception_hygiene.extend(provider_boundary_exception_hygiene)
     architecture_map, architecture_map_load_issues = load_architecture_map(map_path)
     architecture_map_hygiene = architecture_map_load_issues
     active_exception_counts = {}
@@ -105,6 +122,9 @@ def main() -> int:
         )
         provider_import_issues, provider_import_counts = check_provider_imports(
             production_files, root, architecture_map, exceptions
+        )
+        provider_boundary_issues = check_provider_boundary(
+            provider_boundary_files, root, architecture_map, provider_boundary_exceptions
         )
         provider_path_issues, provider_path_counts = check_provider_specific_paths(
             production_files, root, architecture_map, exceptions
@@ -132,6 +152,7 @@ def main() -> int:
         layer_import_issues = []
         external_import_issues = []
         provider_import_issues = []
+        provider_boundary_issues = []
         provider_path_issues = []
         risky_execution_issues = []
         browser_profile_issues = []
@@ -144,6 +165,7 @@ def main() -> int:
         "layer_imports": layer_import_issues,
         "external_imports": external_import_issues,
         "provider_imports": provider_import_issues,
+        "provider_boundary": provider_boundary_issues,
         "provider_specific_paths": provider_path_issues,
         "direct_risky_execution": risky_execution_issues,
         "browser_default_profile_paths": browser_profile_issues,

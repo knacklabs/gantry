@@ -23,6 +23,9 @@ export function text(value: unknown): string | null {
 }
 
 function parseJsonObject(value: unknown): CanonicalControlRow {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as CanonicalControlRow;
+  }
   if (typeof value !== 'string' || value.length === 0) return {};
   try {
     const parsed = JSON.parse(value);

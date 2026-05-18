@@ -435,6 +435,44 @@ describe('Postgres migration journal', () => {
     expect(migration).not.toContain('UPDATE agent_session_digests');
   });
 
+  it('registers runtime payload jsonb column conversion migration', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const jsonbPayloads = journal.entries.find(
+      (entry) => entry.tag === '0055_runtime_payload_jsonb_columns',
+    );
+    expect(jsonbPayloads).toMatchObject({ idx: 55 });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0055_runtime_payload_jsonb_columns.sql',
+      ),
+      'utf8',
+    );
+    for (const statement of [
+      'ALTER COLUMN external_ref_json TYPE jsonb USING external_ref_json::jsonb',
+      'ALTER COLUMN payload_json TYPE jsonb USING payload_json::jsonb',
+      'ALTER COLUMN provider_ref_json TYPE jsonb USING provider_ref_json::jsonb',
+      'ALTER COLUMN metadata_json TYPE jsonb USING metadata_json::jsonb',
+      'ALTER COLUMN schedule_json TYPE jsonb USING schedule_json::jsonb',
+      'ALTER COLUMN target_json TYPE jsonb USING target_json::jsonb',
+      'ALTER COLUMN value_json TYPE jsonb USING value_json::jsonb',
+      'ALTER COLUMN source_ref_json TYPE jsonb USING source_ref_json::jsonb',
+      "ON jobs ((target_json #>> '{executionContext,sessionId}')",
+      "COALESCE(value_json->>'value', '')",
+    ]) {
+      expect(migration).toContain(statement);
+    }
+    expect(migration).not.toContain('NULLIF(');
+    expect(migration).not.toContain('jsonb_strip_nulls');
+    expect(migration).not.toContain('target_json::jsonb #>>');
+    expect(migration).not.toContain('value_json::jsonb->>');
+  });
+
   it('flattens memory subjects during the canonical persistence cut', () => {
     const migration = fs.readFileSync(
       path.resolve(

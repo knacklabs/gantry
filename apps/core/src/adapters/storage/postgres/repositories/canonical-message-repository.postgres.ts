@@ -8,7 +8,7 @@ import {
   CANONICAL_APP_ID,
   type CanonicalDb,
   conversationIdForJid,
-  json,
+  jsonb,
   PostgresCanonicalGraphRepository,
   providerIdForJid,
   threadIdFor,
@@ -120,7 +120,7 @@ export class PostgresCanonicalMessageRepository {
           conversationId,
           threadId: canonicalThreadId,
           externalMessageId,
-          externalRefJson: json(externalRefForMessage(msg)),
+          externalRefJson: jsonb(externalRefForMessage(msg)),
           direction,
           senderUserId: msg.sender,
           senderDisplayName: msg.sender_name,
@@ -135,7 +135,7 @@ export class PostgresCanonicalMessageRepository {
           target: pgSchema.messagesPostgres.id,
           set: {
             externalMessageId,
-            externalRefJson: json(externalRefForMessage(msg)),
+            externalRefJson: jsonb(externalRefForMessage(msg)),
             direction,
             senderUserId: msg.sender,
             senderDisplayName: msg.sender_name,
@@ -151,7 +151,7 @@ export class PostgresCanonicalMessageRepository {
           messageId: canonicalMessageId,
           ordinal: 0,
           kind: 'text',
-          payloadJson: json({ kind: 'text', text: msg.content }),
+          payloadJson: jsonb({ kind: 'text', text: msg.content }),
         })
         .onConflictDoUpdate({
           target: [
@@ -179,7 +179,7 @@ export class PostgresCanonicalMessageRepository {
             contentType: attachment.contentType ?? null,
             sizeBytes: attachment.sizeBytes ?? null,
             externalRefJson: attachment.externalId
-              ? json({
+              ? jsonb({
                   kind: 'message_attachment',
                   value: attachment.externalId,
                 })
@@ -247,7 +247,7 @@ export class PostgresCanonicalMessageRepository {
         id: m.id,
         conversation_id: m.conversationId,
         thread_id: m.threadId,
-        external_ref_json: m.externalRefJson,
+        external_ref_json: sql<string | null>`${m.externalRefJson}::text`,
         direction: m.direction,
         sender_user_id: m.senderUserId,
         sender_display_name: m.senderDisplayName,
@@ -257,7 +257,7 @@ export class PostgresCanonicalMessageRepository {
         delivery_status: m.deliveryStatus,
         delivered_at: m.deliveredAt,
         delivery_error: m.deliveryError,
-        payload_json: firstPart.payloadJson,
+        payload_json: sql<string | null>`${firstPart.payloadJson}::text`,
       })
       .from(m)
       .leftJoinLateral(firstPart, sql`true`)
@@ -302,7 +302,7 @@ export class PostgresCanonicalMessageRepository {
         id: m.id,
         conversation_id: m.conversationId,
         thread_id: m.threadId,
-        external_ref_json: m.externalRefJson,
+        external_ref_json: sql<string | null>`${m.externalRefJson}::text`,
         direction: m.direction,
         sender_user_id: m.senderUserId,
         sender_display_name: m.senderDisplayName,
@@ -312,7 +312,7 @@ export class PostgresCanonicalMessageRepository {
         delivery_status: m.deliveryStatus,
         delivered_at: m.deliveredAt,
         delivery_error: m.deliveryError,
-        payload_json: p.payloadJson,
+        payload_json: sql<string | null>`${p.payloadJson}::text`,
       })
       .from(m)
       .innerJoin(p, and(eq(p.messageId, m.id), eq(p.ordinal, 0)))

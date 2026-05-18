@@ -6,7 +6,7 @@ import {
   type CanonicalExecutor,
   type CanonicalDb,
   conversationIdForJid,
-  json,
+  jsonb,
   PostgresCanonicalGraphRepository,
   threadIdFor,
 } from './canonical-graph-repository.postgres.js';
@@ -383,13 +383,13 @@ export class PostgresCanonicalSessionRepository {
           agentSessionId,
           provider: PROVIDER,
           externalSessionId: sessionId,
-          providerRefJson: json({
+          providerRefJson: jsonb({
             kind: 'provider_session',
             value: `${PROVIDER}:${sessionId}`,
             provider: PROVIDER,
             externalSessionId: sessionId,
           }),
-          metadataJson: json({
+          metadataJson: jsonb({
             chatJid: chatJid ?? null,
             conversationKind: conversationKind ?? null,
             memoryUserId: resolvedMemoryUserId,
@@ -425,13 +425,13 @@ export class PostgresCanonicalSessionRepository {
         .update(pgSchema.providerSessionsPostgres)
         .set({
           externalSessionId: sessionId,
-          providerRefJson: json({
+          providerRefJson: jsonb({
             kind: 'provider_session',
             value: `${PROVIDER}:${sessionId}`,
             provider: PROVIDER,
             externalSessionId: sessionId,
           }),
-          metadataJson: json({
+          metadataJson: jsonb({
             chatJid: chatJid ?? null,
             conversationKind: conversationKind ?? null,
             memoryUserId: resolvedMemoryUserId,

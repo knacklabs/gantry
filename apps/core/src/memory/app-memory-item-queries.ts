@@ -46,7 +46,7 @@ export async function findActiveMemoryByKey(input: {
         eq(pgSchema.memoryItemsPostgres.agentId, input.subject.agentId),
         eq(pgSchema.memoryItemsPostgres.subjectType, input.subject.subjectType),
         eq(pgSchema.memoryItemsPostgres.subjectId, subjectIdFor(input.subject)),
-        sql`${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb @> ${JSON.stringify({ subject: { agentId: input.subject.agentId, subjectType: input.subject.subjectType, subjectId: input.subject.subjectId } })}::jsonb`,
+        sql`${pgSchema.memoryItemsPostgres.sourceRefJson} @> ${JSON.stringify({ subject: { agentId: input.subject.agentId, subjectType: input.subject.subjectType, subjectId: input.subject.subjectId } })}::jsonb`,
         sqlThreadIdentityFilter(
           pgSchema.memoryItemsPostgres,
           input.subject.threadId,
@@ -149,7 +149,7 @@ export async function deleteOwnedMemoryItem(input: {
         eq(pgSchema.memoryItemsPostgres.id, current.id),
         input.expectedVersion === undefined
           ? undefined
-          : sql`(${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'version')::int = ${input.expectedVersion}`,
+          : sql`(${pgSchema.memoryItemsPostgres.sourceRefJson}->>'version')::int = ${input.expectedVersion}`,
       ),
     )
     .returning({ id: pgSchema.memoryItemsPostgres.id });
@@ -190,12 +190,12 @@ export async function demoteDreamingPromotedMemoryItem(input: {
     .update(pgSchema.memoryItemsPostgres)
     .set({
       status: 'demoted',
-      sourceRefJson: JSON.stringify({
+      sourceRefJson: {
         ...sourceRef,
         demoted_at: timestamp,
         demoted_by: input.actorId ?? null,
         demotion_reason: input.reason ?? null,
-      }),
+      },
       updatedAt: timestamp,
     })
     .where(
@@ -204,7 +204,7 @@ export async function demoteDreamingPromotedMemoryItem(input: {
         eq(pgSchema.memoryItemsPostgres.status, 'active'),
         input.expectedVersion === undefined
           ? undefined
-          : sql`(${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'version')::int = ${input.expectedVersion}`,
+          : sql`(${pgSchema.memoryItemsPostgres.sourceRefJson}->>'version')::int = ${input.expectedVersion}`,
       ),
     )
     .returning({ id: pgSchema.memoryItemsPostgres.id });

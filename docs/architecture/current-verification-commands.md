@@ -136,6 +136,13 @@ maximum count so `python3 .codex/scripts/check_architecture.py` still fails
 when a branch adds new layer, provider, risky-execution, old-term, or
 wrapper-only debt.
 
+Anthropic/Claude provider-boundary debt is tracked separately in
+`.codex/provider-boundary-exceptions.json`. Entries must use exact file paths
+and exact token counts. The checker fails when a new token appears outside
+`apps/core/src/adapters/llm/anthropic-claude-agent/**`, when an expected count
+changes, or when broad config, memory, or shared paths are approved for this
+gate.
+
 ## Factory And Release Gates
 
 ```bash

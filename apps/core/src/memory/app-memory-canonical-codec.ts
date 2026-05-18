@@ -19,8 +19,8 @@ export interface CanonicalMemoryItemRow {
   threadId: string | null;
   kind: string;
   key: string;
-  valueJson: string;
-  sourceRefJson: string;
+  valueJson: unknown;
+  sourceRefJson: unknown;
   confidence: number;
   status: string;
   lastObservedAt: string | null;
@@ -32,10 +32,12 @@ export function hashText(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-export function parseJsonObject(
-  value: string | null | undefined,
-): Record<string, unknown> {
+export function parseJsonObject(value: unknown): Record<string, unknown> {
   if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value !== 'string') return {};
   try {
     const parsed = JSON.parse(value) as unknown;
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
@@ -138,8 +140,8 @@ export function encodeItemSource(input: {
   retrievalCount?: number;
   totalScore?: number;
   maxScore?: number;
-}): string {
-  return JSON.stringify({
+}): Record<string, unknown> {
+  return {
     subject: input.subject,
     source: input.source,
     evidenceIds: input.evidenceIds,
@@ -148,7 +150,7 @@ export function encodeItemSource(input: {
     retrievalCount: input.retrievalCount ?? 0,
     totalScore: input.totalScore ?? 0,
     maxScore: input.maxScore ?? 0,
-  });
+  };
 }
 
 export function clampConfidence(

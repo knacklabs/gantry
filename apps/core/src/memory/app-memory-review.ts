@@ -605,7 +605,7 @@ async function applyMemoryReviewProposal(input: {
               and(
                 eq(pgSchema.memoryItemsPostgres.id, id),
                 eq(pgSchema.memoryItemsPostgres.status, 'active'),
-                sql`(${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'version')::int = ${expectedVersion}`,
+                sql`(${pgSchema.memoryItemsPostgres.sourceRefJson}->>'version')::int = ${expectedVersion}`,
               ),
             )
             .returning({ id: pgSchema.memoryItemsPostgres.id });
