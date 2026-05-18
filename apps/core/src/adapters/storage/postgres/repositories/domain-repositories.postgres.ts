@@ -68,7 +68,10 @@ import type {
 import type { AgentSession } from '../../../../domain/sessions/sessions.js';
 import type { ExternalRef } from '../../../../shared/ids/branded-id.js';
 import * as pgSchema from '../schema/schema.js';
-import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import {
+  jsonb,
+  type CanonicalDb,
+} from './canonical-graph-repository.postgres.js';
 import {
   PostgresAgentSessionRepository,
   PostgresAgentSessionDigestRepository,
@@ -110,8 +113,13 @@ function encodeJson(value: unknown): string {
 function encodeJsonOrNull(value: unknown | undefined): string | null {
   return value === undefined ? null : encodeJson(value);
 }
+function jsonbOrNull(value: unknown | undefined): unknown | null {
+  return value === undefined ? null : value;
+}
 function parseJson<T>(value: unknown, fallback: T): T {
-  if (typeof value !== 'string' || value.length === 0) return fallback;
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== 'string') return value as T;
+  if (value.length === 0) return fallback;
   try {
     return JSON.parse(value) as T;
   } catch (err) {
@@ -215,23 +223,23 @@ function _memorySubjectFromRow(row: {
   }
   return { kind: 'app', appId: row.appId } as MemorySubject;
 }
-function messagePartToPayload(part: MessagePart): string {
+function messagePartToPayload(part: MessagePart): Record<string, unknown> {
   switch (part.kind) {
     case 'text':
-      return encodeJson({ text: part.text });
+      return { text: part.text };
     case 'markdown':
-      return encodeJson({ markdown: part.markdown });
+      return { markdown: part.markdown };
     case 'code':
-      return encodeJson({ language: part.language, code: part.code });
+      return { language: part.language, code: part.code };
     case 'structured':
-      return encodeJson({ value: part.value });
+      return { value: part.value };
     case 'tool_result':
-      return encodeJson({ toolId: part.toolId, value: part.value });
+      return { toolId: part.toolId, value: part.value };
     case 'redacted':
-      return encodeJson({ reason: part.reason });
+      return { reason: part.reason };
   }
 }
-function payloadToMessagePart(kind: string, payloadJson: string): MessagePart {
+function payloadToMessagePart(kind: string, payloadJson: unknown): MessagePart {
   const payload = parseJson<JsonRecord>(payloadJson, {});
   switch (kind) {
     case 'markdown':
@@ -1065,7 +1073,7 @@ export class PostgresMessageRepository implements MessageRepository {
           conversationId: message.conversationId,
           threadId: message.threadId ?? null,
           externalMessageId,
-          externalRefJson: encodeJsonOrNull(message.externalRef),
+          externalRefJson: jsonbOrNull(message.externalRef),
           direction: message.direction,
           senderUserId: message.senderUserId ?? null,
           senderDisplayName: message.senderDisplayName ?? null,
@@ -1080,7 +1088,7 @@ export class PostgresMessageRepository implements MessageRepository {
           target: pgSchema.messagesPostgres.id,
           set: {
             externalMessageId,
-            externalRefJson: encodeJsonOrNull(message.externalRef),
+            externalRefJson: jsonbOrNull(message.externalRef),
             direction: message.direction,
             senderUserId: message.senderUserId ?? null,
             senderDisplayName: message.senderDisplayName ?? null,
@@ -1105,7 +1113,7 @@ export class PostgresMessageRepository implements MessageRepository {
             messageId: targetMessageId,
             ordinal,
             kind: part.kind,
-            payloadJson: messagePartToPayload(part),
+            payloadJson: jsonb(messagePartToPayload(part)),
           })),
         );
       }
@@ -1117,7 +1125,7 @@ export class PostgresMessageRepository implements MessageRepository {
             kind: attachment.kind,
             contentType: attachment.contentType ?? null,
             sizeBytes: attachment.sizeBytes ?? null,
-            externalRefJson: encodeJsonOrNull(attachment.externalRef),
+            externalRefJson: jsonbOrNull(attachment.externalRef),
             storageRef: attachment.storageRef ?? null,
             trust: attachment.trust,
           })),

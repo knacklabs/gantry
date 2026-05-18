@@ -49,7 +49,7 @@ export async function getControlSessionByChatJid(
     .select()
     .from(pgSchema.controlHttpSessionsPostgres)
     .where(
-      sql`${pgSchema.controlHttpSessionsPostgres.externalRefJson}::jsonb->>'chatJid' = ${chatJid}`,
+      sql`${pgSchema.controlHttpSessionsPostgres.externalRefJson}->>'chatJid' = ${chatJid}`,
     )
     .limit(1);
   return rows[0] ? mapSession(rows[0] as CanonicalControlRow) : undefined;
@@ -66,7 +66,7 @@ export async function getControlSessionsByChatJids(
     .from(pgSchema.controlHttpSessionsPostgres)
     .where(
       inArray(
-        sql`${pgSchema.controlHttpSessionsPostgres.externalRefJson}::jsonb->>'chatJid'`,
+        sql`${pgSchema.controlHttpSessionsPostgres.externalRefJson}->>'chatJid'`,
         uniqueChatJids,
       ),
     );

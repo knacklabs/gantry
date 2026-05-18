@@ -21,7 +21,10 @@ import {
   text,
   type CanonicalControlRow,
 } from '../schema/control-plane-canonical.postgres.js';
-import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import {
+  jsonb,
+  type CanonicalDb,
+} from './canonical-graph-repository.postgres.js';
 import { ensureControlGraph } from './control-plane-graph.postgres.js';
 import { PostgresExternalIngressRepository } from './control-plane-external-ingress.postgres.js';
 import { PostgresJobTriggerRepository } from './control-plane-job-triggers.postgres.js';
@@ -105,7 +108,7 @@ export class PostgresControlPlaneRepository {
           agentId: graph.agentId,
           defaultResponseMode: input.defaultResponseMode ?? 'sse',
           defaultWebhookId: input.defaultWebhookId ?? null,
-          externalRefJson: JSON.stringify({
+          externalRefJson: jsonb({
             externalConversationId: input.conversationId,
             chatJid: input.chatJid,
             groupFolder: workspaceKey,
@@ -124,7 +127,7 @@ export class PostgresControlPlaneRepository {
             agentId: graph.agentId,
             defaultResponseMode: input.defaultResponseMode ?? 'sse',
             defaultWebhookId: input.defaultWebhookId ?? null,
-            externalRefJson: JSON.stringify({
+            externalRefJson: jsonb({
               externalConversationId: input.conversationId,
               chatJid: input.chatJid,
               groupFolder: workspaceKey,

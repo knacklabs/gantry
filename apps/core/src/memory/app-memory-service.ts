@@ -387,7 +387,7 @@ export class AppMemoryService {
         );
       }
     }
-    const nextValueJson = JSON.stringify({
+    const nextValueJson = {
       ...parseJsonObject(current.valueJson),
       value: nextValue,
       why:
@@ -400,7 +400,7 @@ export class AppMemoryService {
         key: nextKey,
         value: nextValue,
       }),
-    });
+    };
     let row: typeof pgSchema.memoryItemsPostgres.$inferSelect | undefined;
     try {
       [row] = await this.db
@@ -423,7 +423,7 @@ export class AppMemoryService {
             eq(pgSchema.memoryItemsPostgres.id, current.id),
             input.expectedVersion === undefined
               ? undefined
-              : sql`(${pgSchema.memoryItemsPostgres.sourceRefJson}::jsonb->>'version')::int = ${input.expectedVersion}`,
+              : sql`(${pgSchema.memoryItemsPostgres.sourceRefJson}->>'version')::int = ${input.expectedVersion}`,
           ),
         )
         .returning();

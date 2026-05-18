@@ -37,3 +37,7 @@
   `direct`/`dm` rows return runtime `conversationKind: "dm"` and group/channel
   rows return `conversationKind: "channel"`. Do not infer DM-vs-group memory
   scope from trigger settings or binding memory-subject blobs.
+- JSON-shaped runtime payload columns that are queried, indexed, validated, or
+  partially updated belong in native `jsonb`. Pass objects/arrays to Drizzle
+  `jsonb` columns, keep canonical route/lease/audit/join fields typed, and do
+  not add `::jsonb` casts around columns that are already `jsonb`.

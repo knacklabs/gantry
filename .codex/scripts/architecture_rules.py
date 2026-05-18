@@ -226,6 +226,42 @@ EXPORT_FROM_STATEMENT_RE = re.compile(
 )
 COMMENT_OR_BLANK_RE = re.compile(r"^\s*(?://.*|/\*.*\*/)?\s*$")
 
+PROVIDER_BOUNDARY_DEFAULT_CLEANUP_PLAN_ID = (
+    "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+)
+PROVIDER_BOUNDARY_TOKENS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "@anthropic-ai/claude-agent-sdk",
+        re.compile(re.escape("@anthropic-ai/claude-agent-sdk")),
+    ),
+    ("@anthropic-ai/sdk", re.compile(re.escape("@anthropic-ai/sdk"))),
+    ("ANTHROPIC_", re.compile(r"ANTHROPIC_")),
+    ("CLAUDE_CONFIG_DIR", re.compile(r"CLAUDE_CONFIG_DIR")),
+    ("CLAUDE_CODE_OAUTH_TOKEN", re.compile(r"CLAUDE_CODE_OAUTH_TOKEN")),
+    ("claude-jsonl", re.compile(r"claude-jsonl")),
+    ("runner/claude", re.compile(r"runner/claude")),
+    ("provider = 'anthropic'", re.compile(r"\bprovider\s*=\s*['\"]anthropic['\"]")),
+    (
+        "provider: 'anthropic'",
+        re.compile(r"(?:(?<![\w$])provider|['\"]provider['\"])\s*:\s*(?:['\"`]anthropic['\"`]|`anth\$\{\s*['\"]ropic['\"]\s*\}`)"),
+    ),
+    (
+        "const PROVIDER = 'anthropic'",
+        re.compile(r"\bconst\s+PROVIDER\s*=\s*['\"]anthropic['\"]"),
+    ),
+    ("default('anthropic')", re.compile(r"\.default\(\s*['\"]anthropic['\"]\s*\)")),
+    ("anthropic_sdk", re.compile(r"\banthropic_sdk\b")),
+)
+PROVIDER_BOUNDARY_DEFAULT_APPROVED_PATHS = (
+    "apps/core/src/adapters/llm/anthropic-claude-agent",
+)
+PROVIDER_BOUNDARY_ALLOWED_APPROVED_PATHS = set(PROVIDER_BOUNDARY_DEFAULT_APPROVED_PATHS)
+PROVIDER_BOUNDARY_DISALLOWED_BROAD_PATHS = (
+    "apps/core/src/config",
+    "apps/core/src/memory",
+    "apps/core/src/shared",
+)
+
 
 @dataclass(frozen=True)
 class ExceptionEntry:
@@ -261,6 +297,20 @@ class ExceptionRegistry:
                 stale.append(f"{entry.file} has stale exception for `{entry.rule}`; remove it.")
         return stale
 
+
+@dataclass(frozen=True)
+class ProviderBoundaryException:
+    file: str
+    matches: dict[str, int]
+    reason: str
+    remove_by_plan: str
+
+
+@dataclass(frozen=True)
+class ProviderBoundaryExceptions:
+    cleanup_plan_id: str
+    entries: dict[str, ProviderBoundaryException]
+
 FRAMEWORK_BOUNDARY_RULES = (
     {
         "name": "enterprise frameworks in core runtime layers",
@@ -286,6 +336,7 @@ FRAMEWORK_BOUNDARY_RULES = (
         "specifier_prefixes": ("@anthropic-ai/sdk", "@anthropic-ai/claude-agent-sdk"),
         "allowed_prefixes": (
             "apps/core/src/adapters/llm/anthropic",
+            "apps/core/src/adapters/llm/anthropic-claude-agent",
             "apps/core/src/runner/claude",
             "apps/core/src/memory/claude-query.ts",
         ),
@@ -372,6 +423,43 @@ def iter_production_sources(root: Path) -> list[Path]:
             for file_path in base.rglob(glob):
                 rel_path = file_path.relative_to(root)
                 if is_production_source(rel_path):
+                    files.append(file_path)
+    return sorted(set(files))
+
+
+def is_provider_boundary_source(rel_path: Path) -> bool:
+    rel_text = rel_path.as_posix()
+    lower = rel_text.lower()
+    if rel_path.suffix not in {".ts", ".tsx"}:
+        return False
+    if ".d.ts" in lower:
+        return False
+    ignored_parts = {
+        "node_modules",
+        "dist",
+        "coverage",
+        "generated",
+        "__generated__",
+        ".factory",
+        ".cocoindex_code",
+    }
+    if any(part.lower() in ignored_parts for part in rel_path.parts):
+        return False
+    if "/src/" not in rel_text and "/test/" not in rel_text:
+        return False
+    return rel_text.startswith("apps/") or rel_text.startswith("packages/")
+
+
+def iter_provider_boundary_sources(root: Path) -> list[Path]:
+    files: list[Path] = []
+    for top in ("apps", "packages"):
+        base = root / top
+        if not base.exists():
+            continue
+        for glob in ("*.ts", "*.tsx"):
+            for file_path in base.rglob(glob):
+                rel_path = file_path.relative_to(root)
+                if is_provider_boundary_source(rel_path):
                     files.append(file_path)
     return sorted(set(files))
 
@@ -475,6 +563,108 @@ def validate_exceptions(
     return ExceptionRegistry(entries), sorted(issues)
 
 
+def load_provider_boundary_exceptions(
+    root: Path,
+    exceptions_path: Path,
+) -> tuple[ProviderBoundaryExceptions, list[str]]:
+    if not exceptions_path.exists():
+        return ProviderBoundaryExceptions(PROVIDER_BOUNDARY_DEFAULT_CLEANUP_PLAN_ID, {}), [
+            f"Missing provider boundary exceptions file: {exceptions_path.as_posix()}"
+        ]
+    try:
+        payload = json.loads(exceptions_path.read_text())
+    except json.JSONDecodeError as exc:
+        return ProviderBoundaryExceptions(PROVIDER_BOUNDARY_DEFAULT_CLEANUP_PLAN_ID, {}), [
+            f"Invalid JSON in {exceptions_path.as_posix()}: {exc}"
+        ]
+    if not isinstance(payload, dict):
+        return ProviderBoundaryExceptions(PROVIDER_BOUNDARY_DEFAULT_CLEANUP_PLAN_ID, {}), [
+            f"{exceptions_path.as_posix()} must be a JSON object."
+        ]
+
+    issues: list[str] = []
+    cleanup_plan_id = str(
+        payload.get("cleanupPlanId", PROVIDER_BOUNDARY_DEFAULT_CLEANUP_PLAN_ID)
+    ).strip()
+    if not cleanup_plan_id:
+        issues.append("provider boundary exceptions must include cleanupPlanId.")
+        cleanup_plan_id = PROVIDER_BOUNDARY_DEFAULT_CLEANUP_PLAN_ID
+
+    raw_entries = payload.get("exceptions")
+    if not isinstance(raw_entries, list):
+        issues.append("provider boundary exceptions must include an exceptions array.")
+        raw_entries = []
+
+    entries: dict[str, ProviderBoundaryException] = {}
+    supported_tokens = {name for name, _pattern in PROVIDER_BOUNDARY_TOKENS}
+    for index, item in enumerate(raw_entries):
+        prefix = f"[{index}]"
+        if not isinstance(item, dict):
+            issues.append(f"{prefix} must be an object.")
+            continue
+
+        rel = normalize_repo_relative(str(item.get("file", "")).strip())
+        reason = str(item.get("reason", "")).strip()
+        remove_by_plan = str(item.get("removeByPlan", "")).strip()
+        matches = item.get("matches")
+        item_issues: list[str] = []
+
+        if not rel:
+            item_issues.append(f"{prefix} file must be non-empty.")
+        elif Path(rel).is_absolute():
+            item_issues.append(f"{prefix} file must be repo-relative: {rel}")
+        elif any(ch in rel for ch in ("*", "?")) or rel.endswith("/"):
+            item_issues.append(
+                f"{prefix} file must be an exact file path, not a glob or directory: {rel}"
+            )
+        elif not (root / rel).exists():
+            item_issues.append(f"{prefix} points to a missing file: {rel}")
+        elif not (root / rel).is_file():
+            item_issues.append(f"{prefix} file must point to an exact file: {rel}")
+
+        if rel in entries:
+            item_issues.append(f"{prefix} duplicates provider boundary exception for {rel}.")
+
+        if not reason:
+            item_issues.append(f"{prefix} is missing reason.")
+        if not remove_by_plan:
+            item_issues.append(f"{prefix} is missing removeByPlan.")
+        elif remove_by_plan.lower() in {"never", "permanent", "none"}:
+            item_issues.append(
+                f"{prefix} removeByPlan must be time-bounded, not `{remove_by_plan}`."
+            )
+
+        if not isinstance(matches, dict) or not matches:
+            item_issues.append(f"{prefix} matches must be a non-empty object.")
+            normalized_matches: dict[str, int] = {}
+        else:
+            normalized_matches = {}
+            for token, count in matches.items():
+                token_name = str(token)
+                if token_name not in supported_tokens:
+                    item_issues.append(f"{prefix} has unsupported token `{token_name}`.")
+                    continue
+                if not isinstance(count, int) or count <= 0:
+                    item_issues.append(
+                        f"{prefix} count for `{token_name}` must be a positive integer."
+                    )
+                    continue
+                normalized_matches[token_name] = count
+
+        if item_issues:
+            issues.extend(item_issues)
+            continue
+
+        entries[rel] = ProviderBoundaryException(
+            file=rel,
+            matches=normalized_matches,
+            reason=reason,
+            remove_by_plan=remove_by_plan,
+        )
+
+    return ProviderBoundaryExceptions(cleanup_plan_id=cleanup_plan_id, entries=entries), sorted(issues)
+
+
 def count_lines(path: Path) -> int:
     return len(path.read_text().splitlines())
 
@@ -568,6 +758,12 @@ def resolve_import_target(root: Path, source_file: Path, specifier: str) -> str 
 
 def path_matches_prefix(path: str, prefix: str) -> bool:
     return path == prefix or path.startswith(f"{prefix}/")
+
+
+def is_broad_directory_approval(prefix: str, broad_path: str) -> bool:
+    return prefix == broad_path or (
+        prefix.startswith(f"{broad_path}/") and Path(prefix).suffix == ""
+    )
 
 
 def import_matches_prefix(specifier: str, prefix: str) -> bool:
@@ -683,6 +879,21 @@ def check_architecture_map_hygiene(root: Path, architecture_map: dict[str, Any])
             issues.append(f"layer `{layer_name}` must include allowedImportLayers.")
         elif any(not isinstance(item, str) for item in allowed):
             issues.append(f"layer `{layer_name}` allowedImportLayers must contain strings only.")
+
+    provider_paths = architecture_map.get("approvedProviderSpecificPaths", [])
+    if isinstance(provider_paths, list):
+        normalized_provider_paths = [
+            normalize_repo_relative(item) for item in provider_paths if isinstance(item, str)
+        ]
+        for broad_path in PROVIDER_BOUNDARY_DISALLOWED_BROAD_PATHS:
+            if any(
+                is_broad_directory_approval(prefix, broad_path)
+                for prefix in normalized_provider_paths
+            ):
+                issues.append(
+                    f"approvedProviderSpecificPaths must not broadly approve `{broad_path}`; "
+                    "use exact architecture exceptions for current debt."
+                )
 
     return sorted(issues)
 
@@ -909,6 +1120,107 @@ def check_provider_imports(
             if issue:
                 issues.add(issue)
     return sorted(issues), active_counts
+
+
+def provider_boundary_approved_paths(architecture_map: dict[str, Any]) -> list[str]:
+    if "approvedProviderBoundaryPaths" not in architecture_map:
+        return list(PROVIDER_BOUNDARY_DEFAULT_APPROVED_PATHS)
+    value = architecture_map.get("approvedProviderBoundaryPaths")
+    if not isinstance(value, list):
+        return []
+    return [normalize_repo_relative(item) for item in value if isinstance(item, str)]
+
+
+def count_provider_boundary_tokens(source_text: str) -> dict[str, int]:
+    return {
+        name: count
+        for name, pattern in PROVIDER_BOUNDARY_TOKENS
+        if (count := len(pattern.findall(source_text))) > 0
+    }
+
+
+def check_provider_boundary(
+    source_files: list[Path],
+    root: Path,
+    architecture_map: dict[str, Any],
+    exceptions: ProviderBoundaryExceptions,
+) -> list[str]:
+    issues: list[str] = []
+    approved_paths = provider_boundary_approved_paths(architecture_map)
+    if not approved_paths:
+        issues.append(
+            "approvedProviderBoundaryPaths must include at least one provider adapter path."
+        )
+
+    for broad_path in PROVIDER_BOUNDARY_DISALLOWED_BROAD_PATHS:
+        if any(
+            path_matches_prefix(broad_path, prefix)
+            or path_matches_prefix(prefix, broad_path)
+            for prefix in approved_paths
+        ):
+            issues.append(
+                f"approvedProviderBoundaryPaths must not broadly approve `{broad_path}`; "
+                "record exact current debt in .codex/provider-boundary-exceptions.json."
+            )
+
+    for prefix in approved_paths:
+        if prefix not in PROVIDER_BOUNDARY_ALLOWED_APPROVED_PATHS:
+            issues.append(
+                f"approvedProviderBoundaryPaths contains unsupported path `{prefix}`; "
+                "this gate currently approves only "
+                f"{sorted(PROVIDER_BOUNDARY_ALLOWED_APPROVED_PATHS)}."
+            )
+
+    expected_boundary = ", ".join(approved_paths) if approved_paths else "<none>"
+    active_matches: dict[str, dict[str, int]] = {}
+    first_lines: dict[tuple[str, str], int] = {}
+    for source_file in source_files:
+        source_rel = source_file.relative_to(root).as_posix()
+        source_text = source_file.read_text()
+        matches = count_provider_boundary_tokens(source_text)
+        if not matches:
+            continue
+        if any(path_matches_prefix(source_rel, prefix) for prefix in approved_paths):
+            continue
+        active_matches[source_rel] = matches
+        for token, pattern in PROVIDER_BOUNDARY_TOKENS:
+            if token not in matches:
+                continue
+            match = pattern.search(source_text)
+            if match is not None:
+                first_lines[(source_rel, token)] = source_text.count("\n", 0, match.start()) + 1
+
+    for rel, matches in sorted(active_matches.items()):
+        entry = exceptions.entries.get(rel)
+        if entry is None:
+            for token, count in sorted(matches.items()):
+                line = first_lines.get((rel, token), 1)
+                issues.append(
+                    f"{rel}:{line}: matched provider token `{token}` {count} time(s) outside "
+                    f"approved provider adapter boundary `{expected_boundary}`; either move the code "
+                    f"behind that boundary or record exact debt for cleanup plan "
+                    f"`{exceptions.cleanup_plan_id}`."
+                )
+            continue
+        if entry.matches != matches:
+            issues.append(
+                f"{rel}: provider boundary exception count changed for cleanup plan "
+                f"`{exceptions.cleanup_plan_id}`; expected {entry.matches}, actual {matches}."
+            )
+
+    for rel, entry in sorted(exceptions.entries.items()):
+        if rel not in active_matches:
+            issues.append(
+                f"{rel}: stale provider boundary exception for cleanup plan "
+                f"`{exceptions.cleanup_plan_id}`; remove it or move the file out of approved paths."
+            )
+        elif entry.remove_by_plan != exceptions.cleanup_plan_id:
+            issues.append(
+                f"{rel}: provider boundary exception removeByPlan `{entry.remove_by_plan}` "
+                f"must match cleanup plan `{exceptions.cleanup_plan_id}`."
+            )
+
+    return sorted(issues)
 
 
 def risky_child_process_names(source_text: str) -> set[str]:

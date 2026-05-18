@@ -17,6 +17,13 @@ function collectSqlParamValues(node: unknown): unknown[] {
   return Array.isArray(chunks) ? chunks.flatMap(collectSqlParamValues) : [];
 }
 
+function jsonRecord(value: unknown): Record<string, unknown> {
+  if (typeof value === 'string') {
+    return JSON.parse(value) as Record<string, unknown>;
+  }
+  return value as Record<string, unknown>;
+}
+
 function memoryRow(input: {
   id?: string;
   appId: string;
@@ -483,7 +490,7 @@ describe('app-grade memory boundaries', () => {
       value: 'updated value',
     });
 
-    const valueJson = JSON.parse(set.mock.calls[0]![0].valueJson);
+    const valueJson = jsonRecord(set.mock.calls[0]![0].valueJson);
     expect(valueJson.value).toBe('updated value');
     expect(valueJson.contentHash).toMatch(/^[a-f0-9]{64}$/);
     expect(valueJson.contentHash).not.toBe(
@@ -643,7 +650,7 @@ describe('app-grade memory boundaries', () => {
     });
 
     const persisted = rows[0]!;
-    const source = JSON.parse(persisted.sourceRefJson);
+    const source = jsonRecord(persisted.sourceRefJson);
     expect(saved.subjectId).toBe('kai');
     expect(persisted.subjectId).toMatch(/^msu_[a-f0-9]{32}$/);
     expect(persisted.subjectId).toBe(
@@ -722,7 +729,7 @@ describe('app-grade memory boundaries', () => {
       },
     });
 
-    expect(JSON.parse(rows[0]!.sourceRefJson)).toMatchObject({
+    expect(jsonRecord(rows[0]!.sourceRefJson)).toMatchObject({
       source: 'dreaming',
       evidenceIds: ['mev-one'],
       promoted_by: 'dreaming',
@@ -790,7 +797,7 @@ describe('app-grade memory boundaries', () => {
         updatedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
       }),
     );
-    expect(JSON.parse(set.mock.calls[0]![0].sourceRefJson)).toMatchObject({
+    expect(jsonRecord(set.mock.calls[0]![0].sourceRefJson)).toMatchObject({
       promoted_by: 'dreaming',
       dream_run_id: 'mdr-one',
       demoted_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),

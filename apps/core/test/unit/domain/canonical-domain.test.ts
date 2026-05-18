@@ -161,7 +161,7 @@ describe('canonical Postgres persistence cut', () => {
     expect(schema).toContain(
       "externalSessionId: text('external_session_id').notNull()",
     );
-    expect(schema).toContain("metadataJson: text('metadata_json')");
+    expect(schema).toContain("metadataJson: jsonb('metadata_json')");
     expect(schema).toContain('agentSessionSummariesPostgres');
     expect(repository).toContain('latestProviderSessionId: sessionId');
   });
@@ -179,6 +179,8 @@ describe('canonical Postgres persistence cut', () => {
     expect(schema).toContain("'memory_items'");
     expect(schema).toContain("subjectType: text('subject_type').notNull()");
     expect(schema).toContain("conversationId: text('conversation_id')");
+    expect(schema).toContain("valueJson: jsonb('value_json').notNull()");
+    expect(schema).toContain("sourceRefJson: jsonb('source_ref_json')");
     expect(aggregateSchema).not.toContain('memorySubjectsPostgres');
   });
 

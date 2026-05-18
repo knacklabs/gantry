@@ -3,6 +3,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -37,9 +38,11 @@ export const canonicalJobsPostgres = pgTable(
     name: text('name').notNull(),
     prompt: text('prompt').notNull(),
     model: text('model_override'),
-    scheduleJson: text('schedule_json').notNull(),
+    scheduleJson: jsonb('schedule_json').notNull(),
     status: text('status').notNull().default('active'),
-    targetJson: text('target_json').notNull().default('{}'),
+    targetJson: jsonb('target_json')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     silent: boolean('silent').notNull().default(false),
     timeoutMs: integer('timeout_ms').notNull().default(300000),
     maxRetries: integer('max_retries').notNull().default(3),
@@ -73,19 +76,19 @@ export const canonicalJobsPostgres = pgTable(
       table.nextRunAt,
     ),
     targetSessionUpdatedIdx: index('idx_jobs_target_session_updated').on(
-      sql`(${table.targetJson}::jsonb #>> '{executionContext,sessionId}')`,
+      sql`(${table.targetJson} #>> '{executionContext,sessionId}')`,
       table.updatedAt.desc(),
       table.createdAt.desc(),
     ),
     targetGroupScopeUpdatedIdx: index('idx_jobs_target_group_scope_updated').on(
-      sql`(${table.targetJson}::jsonb #>> '{executionContext,groupScope}')`,
+      sql`(${table.targetJson} #>> '{executionContext,groupScope}')`,
       table.updatedAt.desc(),
       table.createdAt.desc(),
     ),
     targetThreadNormalizedUpdatedIdx: index(
       'idx_jobs_target_thread_normalized_updated',
     ).on(
-      sql`coalesce(${table.targetJson}::jsonb #>> '{executionContext,threadId}', '')`,
+      sql`coalesce(${table.targetJson} #>> '{executionContext,threadId}', '')`,
       table.updatedAt.desc(),
       table.createdAt.desc(),
     ),
@@ -93,7 +96,7 @@ export const canonicalJobsPostgres = pgTable(
       'idx_jobs_target_notification_routes',
     ).using(
       'gin',
-      sql`coalesce(${table.targetJson}::jsonb -> 'notificationRoutes', '[]'::jsonb)`,
+      sql`coalesce(${table.targetJson} -> 'notificationRoutes', '[]'::jsonb)`,
     ),
   }),
 );

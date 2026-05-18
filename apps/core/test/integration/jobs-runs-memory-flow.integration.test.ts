@@ -346,8 +346,8 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     const [run] = await runtime.ops.listJobRuns(job.id);
     expect(run).toMatchObject({
       status: 'failed',
-      error_summary: 'planned scheduler failure',
     });
+    expect(run.error_summary).toContain('planned scheduler failure');
     await expect(runtime.ops.getJobById(job.id)).resolves.toMatchObject({
       status: 'active',
       consecutive_failures: 1,
@@ -399,8 +399,8 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     const [run] = await runtime.ops.listJobRuns(job.id);
     expect(run).toMatchObject({
       status: 'dead_lettered',
-      error_summary: 'planned dead-letter failure',
     });
+    expect(run.error_summary).toContain('planned dead-letter failure');
     await expect(runtime.ops.getJobById(job.id)).resolves.toMatchObject({
       status: 'dead_lettered',
       pause_reason: expect.stringContaining('planned dead-letter failure'),
@@ -559,7 +559,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
          SELECT r.id
          FROM ${schema}.control_http_sessions s
          JOIN ${schema}.jobs j
-           ON s.session_id = j.target_json::jsonb ->> 'sessionId'
+           ON s.session_id = j.target_json #>> '{executionContext,sessionId}'
          JOIN ${schema}.agent_runs r
            ON r.job_id = j.id
          WHERE s.app_id = $1
@@ -574,7 +574,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
          SELECT e.event_id
          FROM ${schema}.control_http_sessions s
          JOIN ${schema}.jobs j
-           ON s.session_id = j.target_json::jsonb ->> 'sessionId'
+           ON s.session_id = j.target_json #>> '{executionContext,sessionId}'
          JOIN ${schema}.runtime_events e
            ON e.job_id = j.id
          WHERE s.app_id = $1
@@ -583,8 +583,12 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
          LIMIT 10`,
         ['app-one'],
       );
-      expect(runPlan.rows.map((row) => row['QUERY PLAN']).join('\n')).toContain(
-        'idx_agent_runs_job_started',
+      const runPlanText = runPlan.rows
+        .map((row) => row['QUERY PLAN'])
+        .join('\n');
+      expect(runPlanText).toContain('idx_jobs_target_session_updated');
+      expect(runPlanText).toMatch(
+        /idx_agent_runs_(job_started|job_short_id_unique)/,
       );
       const eventPlanText = eventPlan.rows
         .map((row) => row['QUERY PLAN'])

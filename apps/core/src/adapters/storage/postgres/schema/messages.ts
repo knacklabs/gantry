@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -37,7 +38,7 @@ export const messagesPostgres = pgTable(
       { onDelete: 'cascade' },
     ),
     externalMessageId: text('external_message_id'),
-    externalRefJson: text('external_ref_json'),
+    externalRefJson: jsonb('external_ref_json'),
     direction: text('direction').notNull(),
     senderUserId: text('sender_user_id'),
     senderDisplayName: text('sender_display_name'),
@@ -90,7 +91,7 @@ export const messagePartsPostgres = pgTable(
       .references(() => messagesPostgres.id, { onDelete: 'cascade' }),
     ordinal: integer('ordinal').notNull(),
     kind: text('kind').notNull(),
-    payloadJson: text('payload_json').notNull(),
+    payloadJson: jsonb('payload_json').notNull(),
   },
   (table) => ({
     messageOrdinal: unique('message_parts_message_id_ordinal_unique').on(
@@ -110,7 +111,7 @@ export const messageAttachmentsPostgres = pgTable(
     kind: text('kind').notNull(),
     contentType: text('content_type'),
     sizeBytes: integer('size_bytes'),
-    externalRefJson: text('external_ref_json'),
+    externalRefJson: jsonb('external_ref_json'),
     storageRef: text('storage_ref'),
     trust: text('trust').notNull(),
   },

@@ -237,6 +237,8 @@ Reads `architecture-map.json` and enforces:
 
 - Layer import rules (`domain` cannot import adapters/runtime/etc.).
 - Provider-specific imports allowed only inside approved adapter paths.
+- Anthropic/Claude provider-boundary tokens outside the approved adapter
+  boundary, with exact-count debt tracked in `provider-boundary-exceptions.json`.
 - Per-file line budgets (`defaultLineBudget = 700`, with named overrides).
 - Forbidden patterns: direct provider sends, IPC monoliths, runtime
   materialization in runner code, browser default-profile paths, old terms
@@ -248,6 +250,10 @@ Reads `architecture-map.json` and enforces:
 `architecture-exceptions.json` only with `file`, `rule`, `reason`, and
 `removeByPhase`. File line-budget violations cannot be excepted. Stale or
 over-capped exceptions fail the check.
+
+Anthropic/Claude provider-boundary exceptions live separately in
+`provider-boundary-exceptions.json`. They must use exact file paths and exact
+token counts; changing a count without updating the exception fails the check.
 
 ---
 

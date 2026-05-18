@@ -41,10 +41,12 @@ function parseJsonArray(value: string | null | undefined): string[] {
   }
 }
 
-function parseJsonObject(
-  value: string | null | undefined,
-): Record<string, unknown> {
+function parseJsonObject(value: unknown): Record<string, unknown> {
   if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value !== 'string') return {};
   try {
     const parsed = JSON.parse(value) as unknown;
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)

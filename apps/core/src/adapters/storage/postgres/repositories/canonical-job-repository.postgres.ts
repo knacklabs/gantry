@@ -12,6 +12,8 @@ import {
   type CanonicalDb,
   PostgresCanonicalGraphRepository,
   configVersionIdForAgent,
+  jsonb,
+  jsonText,
   parseJson,
 } from './canonical-graph-repository.postgres.js';
 // prettier-ignore
@@ -121,12 +123,12 @@ function kindClause(
   scheduleJson: unknown,
 ) {
   if (kind === 'manual') {
-    return sql`${scheduleJson}::jsonb ->> 'type' = 'manual'`;
+    return sql`${scheduleJson} ->> 'type' = 'manual'`;
   }
   if (kind === 'once') {
-    return sql`${scheduleJson}::jsonb ->> 'type' = 'once'`;
+    return sql`${scheduleJson} ->> 'type' = 'once'`;
   }
-  return sql`${scheduleJson}::jsonb ->> 'type' in ('cron', 'interval')`;
+  return sql`${scheduleJson} ->> 'type' in ('cron', 'interval')`;
 }
 
 function ownedByAppClause(jobId: unknown, ownerAppId?: string) {
@@ -135,8 +137,8 @@ function ownedByAppClause(jobId: unknown, ownerAppId?: string) {
         select 1
         from ${pgSchema.canonicalJobsPostgres} owned_job
         join ${pgSchema.controlHttpSessionsPostgres} app_session
-          on (app_session.session_id = owned_job.target_json::jsonb #>> '{executionContext,sessionId}'
-            or app_session.external_ref_json::jsonb->>'chatJid' = owned_job.target_json::jsonb #>> '{executionContext,conversationJid}')
+          on ((owned_job.target_json #>> '{executionContext,sessionId}' is not null and app_session.session_id = owned_job.target_json #>> '{executionContext,sessionId}')
+            or (owned_job.target_json #>> '{executionContext,sessionId}' is null and app_session.external_ref_json->>'chatJid' = owned_job.target_json #>> '{executionContext,conversationJid}'))
         where owned_job.id = ${jobId}
           and app_session.app_id = ${ownerAppId}
       )`
@@ -144,22 +146,33 @@ function ownedByAppClause(jobId: unknown, ownerAppId?: string) {
 }
 
 // prettier-ignore
-function canonicalJobSessionId() { return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,sessionId}'`; }
-// prettier-ignore
-function canonicalJobConversationJid() { return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,conversationJid}'`; }
-// prettier-ignore
-function canonicalJobGroupScope() { return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,groupScope}'`; }
+function canonicalJobSessionJoinClause() { return sql`((${canonicalJobSessionId()} is not null and ${pgSchema.controlHttpSessionsPostgres.sessionId} = ${canonicalJobSessionId()}) or (${canonicalJobSessionId()} is null and ${pgSchema.controlHttpSessionsPostgres.externalRefJson}->>'chatJid' = ${canonicalJobConversationJid()}))`; }
 
-function canonicalJobThreadId() {
-  return sql`${pgSchema.canonicalJobsPostgres.targetJson}::jsonb #>> '{executionContext,threadId}'`;
-}
+// prettier-ignore
+function canonicalJobSessionId() { return sql`${pgSchema.canonicalJobsPostgres.targetJson} #>> '{executionContext,sessionId}'`; }
+// prettier-ignore
+function canonicalJobConversationJid() { return sql`${pgSchema.canonicalJobsPostgres.targetJson} #>> '{executionContext,conversationJid}'`; }
+// prettier-ignore
+function canonicalJobGroupScope() { return sql`${pgSchema.canonicalJobsPostgres.targetJson} #>> '{executionContext,groupScope}'`; }
+// prettier-ignore
+function canonicalJobThreadId() { return sql`${pgSchema.canonicalJobsPostgres.targetJson} #>> '{executionContext,threadId}'`; }
 
 function canonicalJobThreadIdNormalized() {
   return sql`coalesce(${canonicalJobThreadId()}, '')`;
 }
 
 function canonicalJobNotificationRoutes() {
-  return sql`coalesce(${pgSchema.canonicalJobsPostgres.targetJson}::jsonb -> 'notificationRoutes', '[]'::jsonb)`;
+  return sql`coalesce(${pgSchema.canonicalJobsPostgres.targetJson} -> 'notificationRoutes', '[]'::jsonb)`;
+}
+
+function jobRecordFromRow(
+  row: typeof pgSchema.canonicalJobsPostgres.$inferSelect,
+): CanonicalJobRecord {
+  return {
+    ...row,
+    scheduleJson: jsonText(row.scheduleJson),
+    targetJson: jsonText(row.targetJson),
+  };
 }
 
 export class PostgresCanonicalJobRepository {
@@ -175,7 +188,7 @@ export class PostgresCanonicalJobRepository {
       .from(pgSchema.canonicalJobsPostgres)
       .where(eq(pgSchema.canonicalJobsPostgres.id, id))
       .limit(1);
-    return rows[0];
+    return rows[0] ? jobRecordFromRow(rows[0]) : undefined;
   }
 
   async listJobs(filters?: JobListFilters): Promise<CanonicalJobRecord[]> {
@@ -188,8 +201,10 @@ export class PostgresCanonicalJobRepository {
         ? sql`exists (
             select 1
             from ${pgSchema.controlHttpSessionsPostgres} app_session
-            where (app_session.session_id = ${canonicalJobSessionId()}
-              or app_session.external_ref_json::jsonb->>'chatJid' = ${canonicalJobConversationJid()})
+            where (
+              (${canonicalJobSessionId()} is not null and app_session.session_id = ${canonicalJobSessionId()})
+              or (${canonicalJobSessionId()} is null and app_session.external_ref_json->>'chatJid' = ${canonicalJobConversationJid()})
+            )
               and app_session.app_id = ${filters.appId}
           )`
         : undefined,
@@ -223,7 +238,10 @@ export class PostgresCanonicalJobRepository {
       desc(pgSchema.canonicalJobsPostgres.updatedAt),
       desc(pgSchema.canonicalJobsPostgres.createdAt),
     );
-    return filters?.limit ? ordered.limit(filters.limit) : ordered;
+    const rows = filters?.limit
+      ? await ordered.limit(filters.limit)
+      : await ordered;
+    return rows.map(jobRecordFromRow);
   }
 
   async upsertJob(record: JobRecordInput): Promise<void> {
@@ -235,6 +253,8 @@ export class PostgresCanonicalJobRepository {
         createdByActorId: 'runtime',
         createdBySource: 'runtime',
         ...record,
+        scheduleJson: jsonb(record.scheduleJson),
+        targetJson: jsonb(record.targetJson),
       })
       .onConflictDoUpdate({
         target: pgSchema.canonicalJobsPostgres.id,
@@ -243,9 +263,9 @@ export class PostgresCanonicalJobRepository {
           name: record.name,
           prompt: record.prompt,
           model: record.model,
-          scheduleJson: record.scheduleJson,
+          scheduleJson: jsonb(record.scheduleJson),
           status: record.status,
-          targetJson: record.targetJson,
+          targetJson: jsonb(record.targetJson),
           silent: record.silent,
           timeoutMs: record.timeoutMs,
           maxRetries: record.maxRetries,
@@ -268,6 +288,8 @@ export class PostgresCanonicalJobRepository {
       .update(pgSchema.canonicalJobsPostgres)
       .set({
         ...record,
+        scheduleJson: jsonb(record.scheduleJson),
+        targetJson: jsonb(record.targetJson),
         createdByActorId: 'runtime',
         createdBySource: 'runtime',
       })
@@ -440,8 +462,7 @@ export class PostgresCanonicalJobRepository {
       .from(pgSchema.controlHttpSessionsPostgres)
       .innerJoin(
         pgSchema.canonicalJobsPostgres,
-        sql`(${pgSchema.controlHttpSessionsPostgres.sessionId} = ${canonicalJobSessionId()}
-          or ${pgSchema.controlHttpSessionsPostgres.externalRefJson}::jsonb->>'chatJid' = ${canonicalJobConversationJid()})`,
+        canonicalJobSessionJoinClause(),
       )
       .innerJoin(
         pgSchema.agentRunsPostgres,
@@ -597,7 +618,7 @@ export class PostgresCanonicalJobRepository {
       .from(pgSchema.controlHttpSessionsPostgres)
       .innerJoin(
         pgSchema.canonicalJobsPostgres,
-        sql`${pgSchema.controlHttpSessionsPostgres.sessionId} = ${canonicalJobSessionId()}`,
+        canonicalJobSessionJoinClause(),
       )
       .innerJoin(
         pgSchema.runtimeEventsPostgres,

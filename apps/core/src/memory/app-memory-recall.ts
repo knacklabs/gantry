@@ -115,8 +115,8 @@ export async function queryAppMemoryItems(
   const context = normalizeSubject(input);
   const query = input.query?.trim() || '';
   const i = deps.schema.memoryItemsPostgres;
-  const valueText = sql`${i.valueJson}::jsonb->>'value'`;
-  const whyText = sql`${i.valueJson}::jsonb->>'why'`;
+  const valueText = sql`${i.valueJson}->>'value'`;
+  const whyText = sql`${i.valueJson}->>'why'`;
   const document = sql`to_tsvector('english', ${i.key} || ' ' || COALESCE(${valueText}, '') || ' ' || COALESCE(${whyText}, ''))`;
   const searchQuery = sql`plainto_tsquery('english', ${query})`;
   const lexicalScore = query
@@ -252,16 +252,16 @@ export async function recordAppMemoryRecallEvents(
       sourceRefJson: sql`jsonb_set(
           jsonb_set(
             jsonb_set(
-              ${items.sourceRefJson}::jsonb,
+              ${items.sourceRefJson},
               '{retrievalCount}',
-              to_jsonb(COALESCE((${items.sourceRefJson}::jsonb->>'retrievalCount')::int, 0) + 1)
+              to_jsonb(COALESCE((${items.sourceRefJson}->>'retrievalCount')::int, 0) + 1)
             ),
             '{totalScore}',
-            to_jsonb(COALESCE((${items.sourceRefJson}::jsonb->>'totalScore')::double precision, 0) + (CASE ${sql.join(scoreCases, sql` `)} ELSE 0 END))
+            to_jsonb(COALESCE((${items.sourceRefJson}->>'totalScore')::double precision, 0) + (CASE ${sql.join(scoreCases, sql` `)} ELSE 0 END))
           ),
           '{maxScore}',
-          to_jsonb(GREATEST(COALESCE((${items.sourceRefJson}::jsonb->>'maxScore')::double precision, 0), (CASE ${sql.join(scoreCases, sql` `)} ELSE 0 END)))
-        )::text`,
+          to_jsonb(GREATEST(COALESCE((${items.sourceRefJson}->>'maxScore')::double precision, 0), (CASE ${sql.join(scoreCases, sql` `)} ELSE 0 END)))
+        )`,
     })
     .where(sql`${idColumn} IN (${sql.join(ids, sql`, `)})`);
 }

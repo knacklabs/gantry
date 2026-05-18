@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   doublePrecision,
   index,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -25,9 +26,11 @@ export const memoryItemsPostgres = pgTable(
     threadId: text('thread_id'),
     kind: text('kind').notNull(),
     key: text('key').notNull(),
-    valueJson: text('value_json').notNull(),
+    valueJson: jsonb('value_json').notNull(),
     confidence: doublePrecision('confidence').notNull().default(1),
-    sourceRefJson: text('source_ref_json').notNull().default('{}'),
+    sourceRefJson: jsonb('source_ref_json')
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     status: text('status').notNull().default('active'),
     lastObservedAt: timestamp('last_observed_at', {
       withTimezone: true,
@@ -65,7 +68,7 @@ export const memoryItemsPostgres = pgTable(
     ),
     searchIdx: index('idx_memory_items_search').using(
       'gin',
-      sql`to_tsvector('english', ${table.key} || ' ' || COALESCE(${table.valueJson}::jsonb->>'value', '') || ' ' || COALESCE(${table.valueJson}::jsonb->>'why', ''))`,
+      sql`to_tsvector('english', ${table.key} || ' ' || COALESCE(${table.valueJson}->>'value', '') || ' ' || COALESCE(${table.valueJson}->>'why', ''))`,
     ),
   }),
 );

@@ -48,6 +48,14 @@ def make_base_fixture(root: Path) -> Path:
         write_text(root / rel_dir / "README.md", "Fixture purpose.\n")
     write_json(root / ".codex/architecture-exceptions.json", [])
     write_json(
+        root / ".codex/provider-boundary-exceptions.json",
+        {
+            "version": 1,
+            "cleanupPlanId": "test-provider-boundary-plan",
+            "exceptions": [],
+        },
+    )
+    write_json(
         root / ".codex/architecture-map.json",
         {
             "version": 1,
@@ -124,6 +132,9 @@ def make_base_fixture(root: Path) -> Path:
                 "apps/core/src/adapters/browser",
                 "apps/core/src/channels",
                 "apps/core/src/runner/claude",
+            ],
+            "approvedProviderBoundaryPaths": [
+                "apps/core/src/adapters/llm/anthropic-claude-agent"
             ],
             "providerImportSpecifiers": [
                 "@anthropic-ai/sdk",
@@ -332,15 +343,192 @@ class CheckArchitectureTests(unittest.TestCase):
             self.assertIn("[Framework Boundary Imports]", result.stdout)
             self.assertIn("Anthropic SDK imports must stay in approved provider adapter paths", result.stdout)
 
-    def test_current_anthropic_provider_adapter_path_passes(self) -> None:
+    def test_anthropic_provider_adapter_path_passes_provider_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))
             write_text(
-                root / "apps/core/src/runner/claude/query-loop.ts",
+                root / "apps/core/src/adapters/llm/anthropic-claude-agent/query-loop.ts",
                 'import { query } from "@anthropic-ai/claude-agent-sdk";\nexport const value = query;\n',
             )
             result = run_architecture_check(root)
             self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+    def test_anthropic_import_in_memory_fails_provider_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/memory/claude-query.ts",
+                'import { query } from "@anthropic-ai/claude-agent-sdk";\nexport const value = query;\n',
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Provider Boundary]", result.stdout)
+            self.assertIn("apps/core/src/memory/claude-query.ts:1", result.stdout)
+            self.assertIn("approved provider adapter boundary", result.stdout)
+
+    def test_provider_boundary_exception_counts_are_exact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/memory/claude-query.ts",
+                "export const env = 'ANTHROPIC_MODEL';\n",
+            )
+            write_json(
+                root / ".codex/provider-boundary-exceptions.json",
+                {
+                    "version": 1,
+                    "cleanupPlanId": "test-provider-boundary-plan",
+                    "exceptions": [
+                        {
+                            "file": "apps/core/src/memory/claude-query.ts",
+                            "matches": {"ANTHROPIC_": 1},
+                            "reason": "Fixture baseline provider debt.",
+                            "removeByPlan": "test-provider-boundary-plan",
+                        }
+                    ],
+                },
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+            write_text(
+                root / "apps/core/src/memory/claude-query.ts",
+                "export const env = 'ANTHROPIC_MODEL ANTHROPIC_API_KEY';\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Provider Boundary]", result.stdout)
+            self.assertIn("provider boundary exception count changed", result.stdout)
+
+    def test_provider_boundary_detects_composed_anthropic_provider_literal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/adapters/storage/postgres/seeds.ts",
+                "export const seed = { provider: `anth${'ropic'}`, kind: 'anthropic_sdk' };\n"
+                "export const json = { \"provider\": \"anthropic\" };\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Provider Boundary]", result.stdout)
+            self.assertIn("provider token `provider: 'anthropic'` 2 time(s)", result.stdout)
+            self.assertIn("anthropic_sdk", result.stdout)
+
+    def test_provider_boundary_detects_anthropic_schema_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/adapters/storage/postgres/schema/agents.ts",
+                "export const provider = text('provider').notNull().default('anthropic');\n",
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Provider Boundary]", result.stdout)
+            self.assertIn("default('anthropic')", result.stdout)
+
+    def test_provider_boundary_rejects_broad_config_memory_shared_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            architecture_map = json.loads((root / ".codex/architecture-map.json").read_text())
+            architecture_map["approvedProviderBoundaryPaths"] = ["apps/core/src/config"]
+            write_json(root / ".codex/architecture-map.json", architecture_map)
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Provider Boundary]", result.stdout)
+            self.assertIn("must not broadly approve `apps/core/src/config`", result.stdout)
+
+    def test_provider_specific_paths_reject_broad_config_memory_shared_approval(self) -> None:
+        for broad_path in [
+            "apps/core/src/config",
+            "apps/core/src/memory",
+            "apps/core/src/shared",
+        ]:
+            with self.subTest(broad_path=broad_path):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = make_base_fixture(Path(tmp))
+                    architecture_map = json.loads((root / ".codex/architecture-map.json").read_text())
+                    architecture_map["approvedProviderSpecificPaths"] = [broad_path]
+                    write_json(root / ".codex/architecture-map.json", architecture_map)
+                    result = run_architecture_check(root)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("[Architecture Map Hygiene]", result.stdout)
+                    self.assertIn(
+                        f"approvedProviderSpecificPaths must not broadly approve `{broad_path}`",
+                        result.stdout,
+                    )
+
+    def test_provider_boundary_rejects_runtime_approval_bypass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            architecture_map = json.loads((root / ".codex/architecture-map.json").read_text())
+            architecture_map["approvedProviderBoundaryPaths"] = ["apps/core/src/runtime"]
+            write_json(root / ".codex/architecture-map.json", architecture_map)
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Provider Boundary]", result.stdout)
+            self.assertIn("contains unsupported path `apps/core/src/runtime`", result.stdout)
+
+    def test_provider_boundary_empty_config_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            architecture_map = json.loads((root / ".codex/architecture-map.json").read_text())
+            architecture_map["approvedProviderBoundaryPaths"] = []
+            write_json(root / ".codex/architecture-map.json", architecture_map)
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Provider Boundary]", result.stdout)
+            self.assertIn("must include at least one provider adapter path", result.stdout)
+
+    def test_anthropic_llm_adapter_import_path_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/adapters/llm/anthropic-claude-agent/client.ts",
+                'import Anthropic from "@anthropic-ai/sdk";\nexport const value = Anthropic;\n',
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+    def test_memory_anthropic_import_fails_provider_boundary_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/memory/claude-query.ts",
+                'import { query } from "@anthropic-ai/claude-agent-sdk";\nexport const value = query;\n',
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Provider Imports]", result.stdout)
+            self.assertIn(
+                "apps/core/src/memory/claude-query.ts:1: imports provider package",
+                result.stdout,
+            )
+
+    def test_provider_import_exception_enforces_max_violations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = make_base_fixture(Path(tmp))
+            write_text(
+                root / "apps/core/src/runtime/model-break.ts",
+                'import { query } from "@anthropic-ai/claude-agent-sdk";\n'
+                'import OpenAI from "openai";\n'
+                "export const value = { query, OpenAI };\n",
+            )
+            write_json(
+                root / ".codex/architecture-exceptions.json",
+                [
+                    {
+                        "file": "apps/core/src/runtime/model-break.ts",
+                        "rule": "forbidden_provider_import",
+                        "reason": "Fixture baseline",
+                        "removeByPhase": "test-phase",
+                        "maxViolations": 1,
+                    }
+                ],
+            )
+            result = run_architecture_check(root)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("[Provider Imports]", result.stdout)
+            self.assertIn("Exception maxViolations is 1", result.stdout)
 
     def test_onecli_sdk_import_outside_credential_adapter_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

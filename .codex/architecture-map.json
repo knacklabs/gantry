@@ -120,11 +120,12 @@
     "apps/core/src/adapters/browser",
     "apps/core/src/channels",
     "apps/core/src/cli",
-    "apps/core/src/config",
     "apps/core/src/runner/claude",
     "apps/core/src/runner/mcp",
-    "apps/core/src/memory/claude-query.ts",
-    "apps/core/src/shared/model-catalog.ts"
+    "apps/core/src/memory/claude-query.ts"
+  ],
+  "approvedProviderBoundaryPaths": [
+    "apps/core/src/adapters/llm/anthropic-claude-agent"
   ],
   "providerImportSpecifiers": [
     "@anthropic-ai/sdk",

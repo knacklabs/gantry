@@ -21,16 +21,17 @@ import type {
 } from '../../../../domain/sessions/sessions.js';
 import type { ExternalRef } from '../../../../shared/ids/branded-id.js';
 import * as pgSchema from '../schema/schema.js';
-import type { CanonicalDb } from './canonical-graph-repository.postgres.js';
+import {
+  jsonb,
+  type CanonicalDb,
+} from './canonical-graph-repository.postgres.js';
 
 type JsonRecord = Record<string, unknown>;
 
-function encodeJson(value: unknown): string {
-  return JSON.stringify(value ?? null);
-}
-
 function parseJson<T>(value: unknown, fallback: T): T {
-  if (typeof value !== 'string' || value.length === 0) return fallback;
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== 'string') return value as T;
+  if (value.length === 0) return fallback;
   try {
     return JSON.parse(value) as T;
   } catch (err) {
@@ -272,8 +273,8 @@ export class PostgresProviderSessionRepository implements ProviderSessionReposit
           agentSessionId: session.agentSessionId,
           provider,
           externalSessionId,
-          providerRefJson: encodeJson(session.providerRef),
-          metadataJson: encodeJson(session.metadata ?? {}),
+          providerRefJson: jsonb(session.providerRef),
+          metadataJson: jsonb(session.metadata ?? {}),
           status: session.status,
           createdAt: session.createdAt,
           updatedAt: session.updatedAt,
@@ -307,8 +308,8 @@ export class PostgresProviderSessionRepository implements ProviderSessionReposit
         .set({
           provider,
           externalSessionId,
-          providerRefJson: encodeJson(session.providerRef),
-          metadataJson: encodeJson(session.metadata ?? {}),
+          providerRefJson: jsonb(session.providerRef),
+          metadataJson: jsonb(session.metadata ?? {}),
           status: session.status,
           updatedAt: session.updatedAt,
         })
@@ -544,7 +545,7 @@ export class PostgresAgentSessionDigestRepository implements AgentSessionDigestR
         digest: digest.digest,
         messageCount: digest.messageCount,
         extractedFactCount: digest.extractedFactCount,
-        metadataJson: encodeJson(digest.metadata ?? {}),
+        metadataJson: jsonb(digest.metadata ?? {}),
         scopeAppId: scope.appId,
         scopeAgentId: scope.agentId,
         scopeConversationId: scope.conversationId,
@@ -559,7 +560,7 @@ export class PostgresAgentSessionDigestRepository implements AgentSessionDigestR
           digest: digest.digest,
           messageCount: digest.messageCount,
           extractedFactCount: digest.extractedFactCount,
-          metadataJson: encodeJson(digest.metadata ?? {}),
+          metadataJson: jsonb(digest.metadata ?? {}),
           scopeAppId: scope.appId,
           scopeAgentId: scope.agentId,
           scopeConversationId: scope.conversationId,

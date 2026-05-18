@@ -61,8 +61,27 @@ export function json(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
 
+export function jsonb(value: unknown): unknown {
+  if (typeof value !== 'string') return value ?? null;
+  if (value.length === 0) return null;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch (err) {
+    throw new Error(
+      `Invalid JSON string passed to jsonb column writer: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+export function jsonText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value ?? null);
+}
+
 export function parseJson<T>(value: unknown, fallback: T): T {
-  if (typeof value !== 'string' || value.length === 0) return fallback;
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== 'string') return value as T;
+  if (value.length === 0) return fallback;
   try {
     return JSON.parse(value) as T;
   } catch {
