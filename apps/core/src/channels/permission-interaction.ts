@@ -97,7 +97,7 @@ function persistentOptionDropReason(
 
 export function permissionButtonLabel(
   mode: PermissionApprovalDecisionMode,
-  request: PermissionApprovalRequest,
+  _request: PermissionApprovalRequest,
 ): string {
   if (mode === 'allow_once') return 'Allow once';
   if (mode === 'allow_timed_grant') {

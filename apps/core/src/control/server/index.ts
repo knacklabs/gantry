@@ -38,6 +38,7 @@ import { handleJobRoutes } from './routes/jobs.js';
 import { handleMemoryRoutes } from './routes/memory.js';
 import { handleMcpServerRoutes } from './routes/mcp-servers.js';
 import { handleModelRoutes } from './routes/models.js';
+import { handleOpenApiRoutes } from './routes/openapi.js';
 import { handleRunRoutes } from './routes/runs.js';
 import { handleSessionRoutes } from './routes/sessions.js';
 import { handleSettingsRoutes } from './routes/settings.js';
@@ -116,6 +117,7 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
     res.on('error', (error) => logControlStreamError(error, pathname));
 
     try {
+      if (await handleOpenApiRoutes(req, res, pathname)) return;
       if (await handleSystemRoutes(req, res, ctx, pathname)) return;
       if (await handleAgentRoutes(req, res, ctx, pathname)) return;
       if (await handleCapabilityCatalogRoutes(req, res, ctx, pathname)) return;
