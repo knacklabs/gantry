@@ -6,6 +6,7 @@ import type {
   JobScheduleType,
 } from '../../domain/types.js';
 import type {
+  CapabilitySecretRepository,
   McpServerRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
@@ -132,6 +133,7 @@ export interface JobManagementServiceDeps {
   triggerQueue?: JobTriggerQueuePort;
   toolRepository?: ToolCatalogRepository;
   mcpServerRepository?: McpServerRepository;
+  capabilitySecretRepository?: CapabilitySecretRepository;
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
   getBrowserStatus?: (
     profileName: string,

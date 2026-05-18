@@ -16,6 +16,7 @@ import type { RemoteMcpDnsValidationCache } from '../application/mcp/mcp-server-
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import type {
+  CapabilitySecretRepository,
   McpServerRepository,
   SkillCatalogRepository,
   ToolCatalogRepository,
@@ -47,6 +48,7 @@ export interface SchedulerDependencies {
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
+  getCapabilitySecretRepository?: () => CapabilitySecretRepository | undefined;
   getMcpHostnameLookup?: () => HostnameLookup | undefined;
   getMcpDnsValidationCache?: () => RemoteMcpDnsValidationCache | undefined;
   getSkillArtifactStore?: () => SkillArtifactStore | undefined;

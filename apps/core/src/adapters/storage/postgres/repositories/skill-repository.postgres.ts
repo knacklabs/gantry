@@ -107,6 +107,7 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
         promptRefsJson: encodeJson(item.promptRefs),
         toolIdsJson: encodeJson(item.toolIds),
         workflowRefsJson: encodeJson(item.workflowRefs),
+        requiredEnvVarsJson: encodeJson(item.requiredEnvVars ?? []),
         storageType: item.storage?.storageType ?? null,
         storageRef: item.storage?.storageRef ?? null,
         contentHash: item.storage?.contentHash ?? null,
@@ -116,10 +117,6 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
         approvedAt: item.approvedAt ?? null,
         rejectedBy: item.rejectedBy ?? null,
         rejectedAt: item.rejectedAt ?? null,
-        provider: item.providerRef?.provider ?? null,
-        providerSkillId: item.providerRef?.skillId ?? null,
-        providerSkillType: item.providerRef?.type ?? null,
-        providerSkillVersion: item.providerRef?.version ?? null,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
       })
@@ -135,6 +132,7 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
           promptRefsJson: encodeJson(item.promptRefs),
           toolIdsJson: encodeJson(item.toolIds),
           workflowRefsJson: encodeJson(item.workflowRefs),
+          requiredEnvVarsJson: encodeJson(item.requiredEnvVars ?? []),
           storageType: item.storage?.storageType ?? null,
           storageRef: item.storage?.storageRef ?? null,
           contentHash: item.storage?.contentHash ?? null,
@@ -144,10 +142,6 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
           approvedAt: item.approvedAt ?? null,
           rejectedBy: item.rejectedBy ?? null,
           rejectedAt: item.rejectedAt ?? null,
-          provider: item.providerRef?.provider ?? null,
-          providerSkillId: item.providerRef?.skillId ?? null,
-          providerSkillType: item.providerRef?.type ?? null,
-          providerSkillVersion: item.providerRef?.version ?? null,
           updatedAt: item.updatedAt,
         },
       });
@@ -281,6 +275,7 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
       promptRefs: parseJsonArray(row.promptRefsJson),
       toolIds: parseJsonArray(row.toolIdsJson),
       workflowRefs: parseJsonArray(row.workflowRefsJson),
+      requiredEnvVars: parseJsonArray(row.requiredEnvVarsJson),
       storage:
         row.storageType && row.storageRef && row.contentHash
           ? {
@@ -290,19 +285,6 @@ export class PostgresSkillCatalogRepository implements SkillCatalogRepository {
               storageRef: row.storageRef,
               contentHash: row.contentHash,
               sizeBytes: row.sizeBytes ?? 0,
-            }
-          : undefined,
-      providerRef:
-        row.provider && row.providerSkillId && row.providerSkillType
-          ? {
-              provider: row.provider as NonNullable<
-                SkillCatalogItem['providerRef']
-              >['provider'],
-              skillId: row.providerSkillId,
-              type: row.providerSkillType as NonNullable<
-                SkillCatalogItem['providerRef']
-              >['type'],
-              version: row.providerSkillVersion ?? undefined,
             }
           : undefined,
       createdBy: row.createdBy ?? undefined,

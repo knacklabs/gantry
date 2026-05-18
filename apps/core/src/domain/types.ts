@@ -427,7 +427,6 @@ export interface ProgressUpdateOptions {
 
 export type MessageActionAffordanceKind =
   | 'scheduler_run_now'
-  | 'scheduler_show_last_logs'
   | 'scheduler_pause_job'
   | 'scheduler_open';
 

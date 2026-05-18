@@ -100,7 +100,7 @@ describe('PgBossSchedulerEngine', () => {
         { jobId: 'job-1', scheduledFor: '2026-04-24T09:00:00.000Z' },
         expect.objectContaining({
           id: expect.stringMatching(UUID_PATTERN),
-          startAfter: '2026-04-24T09:10:10.000Z',
+          startAfter: new Date('2026-04-24T09:10:10.000Z'),
           group: { id: 'gantry.group.dGc6dGVhbQ' },
         }),
       );
@@ -116,12 +116,105 @@ describe('PgBossSchedulerEngine', () => {
         { jobId: 'job-1', scheduledFor: '2026-04-24T09:00:00.000Z' },
         expect.objectContaining({
           id: send.mock.calls[0][2].id,
-          startAfter: '2026-04-24T09:11:10.000Z',
+          startAfter: new Date('2026-04-24T09:11:10.000Z'),
         }),
       );
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('passes persisted Postgres timestamps to pg-boss as dates', async () => {
+    const job = createJob({
+      schedule_value: '2026-05-19T09:30:00+05:30',
+      next_run: '2026-05-19 04:00:00+00',
+    });
+    const send = vi.fn().mockResolvedValue(undefined);
+    const boss = {
+      send,
+      schedule: vi.fn().mockResolvedValue(undefined),
+      unschedule: vi.fn().mockResolvedValue(undefined),
+      deleteJob: vi.fn().mockResolvedValue(undefined),
+    };
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage: vi.fn(),
+        opsRepository: {
+          releaseStaleJobLeases: vi.fn().mockResolvedValue([]),
+          getAllJobs: vi.fn().mockResolvedValue([job]),
+        } as never,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob: vi.fn().mockResolvedValue(undefined),
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      },
+    );
+    (engine as unknown as { boss: typeof boss }).boss = boss;
+
+    await (
+      engine as unknown as { syncAllJobs: () => Promise<void> }
+    ).syncAllJobs();
+
+    expect(send).toHaveBeenCalledWith(
+      'gantry.jobs',
+      { jobId: 'job-1', scheduledFor: '2026-05-19 04:00:00+00' },
+      expect.objectContaining({
+        startAfter: new Date('2026-05-19T04:00:00.000Z'),
+      }),
+    );
+  });
+
+  it('dead-letters active once jobs with invalid persisted next_run', async () => {
+    const job = createJob({
+      next_run: 'not a timestamp',
+    });
+    const updateJob = vi.fn().mockResolvedValue(undefined);
+    const onSchedulerChanged = vi.fn();
+    const boss = {
+      send: vi.fn().mockResolvedValue(undefined),
+      schedule: vi.fn().mockResolvedValue(undefined),
+      unschedule: vi.fn().mockResolvedValue(undefined),
+      deleteJob: vi.fn().mockResolvedValue(undefined),
+    };
+    const engine = new PgBossSchedulerEngine(
+      {
+        conversationRoutes: () => ({}),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage: vi.fn(),
+        opsRepository: {
+          releaseStaleJobLeases: vi.fn().mockResolvedValue([]),
+          getAllJobs: vi.fn().mockResolvedValue([job]),
+          updateJob,
+        } as never,
+        onSchedulerChanged,
+      },
+      {
+        registerSystemJobs: vi.fn().mockResolvedValue(undefined),
+        runJob: vi.fn().mockResolvedValue(undefined),
+        sweepCompletedOneTimeJobs: vi.fn().mockResolvedValue(false),
+      },
+    );
+    (engine as unknown as { boss: typeof boss }).boss = boss;
+
+    await (
+      engine as unknown as { syncAllJobs: () => Promise<void> }
+    ).syncAllJobs();
+
+    expect(updateJob).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        status: 'dead_lettered',
+        pause_reason: 'Invalid once next_run: not a timestamp',
+        next_run: null,
+      }),
+    );
+    expect(onSchedulerChanged).toHaveBeenCalledWith('job-1');
+    expect(boss.send).not.toHaveBeenCalled();
   });
 
   it('re-enqueues active jobs after stale lease release even when the schedule signature is unchanged', async () => {

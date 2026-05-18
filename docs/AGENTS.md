@@ -18,6 +18,9 @@
 - Local CLI capability docs must state that user-defined `local_cli` capabilities are reviewed drafts until runtime enforcement verifies executable identity, auth preflight, protected paths, and denied environment overrides per invocation.
 - Credential and runner docs must keep the broker-lane boundary explicit: `NODE_EXTRA_CA_CERTS` can derive neutral SDK/Bash CA aliases, but broker proxies and raw provider tokens must never be described as tool subprocess env.
 - Permission docs must describe `SandboxNetworkAccess` as SDK-internal transient defense-in-depth, never as a persistent capability or selected agent tool. The durable user action is a semantic capability, canonical `Browser`, exact admin MCP tool, or scoped `Bash(...)` rule.
+- User-facing runtime examples must be concise and action-first. Keep internal
+  ids, tool rules, task ids, queue diagnostics, and raw logs in details/audit
+  sections instead of the primary chat or notification text.
 - Admin docs must describe conversation-scoped approvers for both direct/private and group/channel conversations; do not imply Slack, Teams, Telegram, Web, or local user ids are interchangeable.
 - Memory docs must describe the current first slice truthfully: flattened `memory_items` is canonical, lexical retrieval is active, vector retrieval is inactive until item embedding indexing/querying ships, `memory_subjects` is not current active schema, and Gantry has no `PostCompact`/`compact_summary` prompt-replay behavior.
 - Memory and continuity docs must describe digest-first fresh-run context hydration (recent persisted session digests before active durable memory items), dreaming-only automatic durable promotion/update, and embedding work limited to dreaming promotion/update.

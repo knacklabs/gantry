@@ -10,6 +10,7 @@ import {
   selectedMcpServerIds,
   selectedSkillIds,
 } from '../context.js';
+import { humanizeTechnicalIdentifier } from '../../../shared/user-visible-messages.js';
 
 export function registerAdminPermissionTools(
   server: McpServer,
@@ -78,8 +79,8 @@ function formatAdminPermissionList(): string {
     'Admin permission inventory (read-only runner view):',
     ...ADMIN_MCP_TOOL_NAMES.map((toolName) => {
       const status = enabledAdminTools.has(toolName)
-        ? 'selected'
-        : 'not selected';
+        ? 'approved'
+        : 'not approved';
       return `- mcp__gantry__${toolName}: ${status}`;
     }),
     '',
@@ -91,21 +92,21 @@ function formatAdminPermissionList(): string {
           .map((tool) => `- ${tool}`)
       : ['- none visible to this runner']),
     '',
-    'Selected skills:',
+    'Installed skills ready for this agent:',
     ...(selectedSkillIds.length > 0
       ? selectedSkillIds
           .slice()
           .sort()
           .map((skill) => `- ${skill}`)
-      : ['- none visible to this runner']),
+      : ['- none installed yet']),
     '',
-    'Selected MCP servers:',
+    'Connected MCP services ready for this agent:',
     ...(selectedMcpServerIds.length > 0
       ? selectedMcpServerIds
           .slice()
           .sort()
           .map((server) => `- ${server}`)
-      : ['- none visible to this runner']),
+      : ['- none connected yet']),
     '',
     'Mutation status: read-only. Use admin_permission_revoke only after a durable host revocation service is wired; current revoke behavior fails closed.',
   ].join('\n');
@@ -121,8 +122,8 @@ function adminToolUnavailable(toolName: AdminMcpToolName): {
       {
         type: 'text',
         text: [
-          `${fullName} is not selected for this agent yet.`,
-          `Ask a configured conversation approver to approve ${fullName}, then choose Always allow.`,
+          `${humanizeTechnicalIdentifier(fullName)} is not approved for this agent yet.`,
+          `Ask a configured conversation approver to approve it, then choose Always allow. Details: ${fullName}.`,
         ].join(' '),
       },
     ],

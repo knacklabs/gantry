@@ -274,11 +274,6 @@ describe('jobs/execution-notifications', () => {
       threadId: 'thread-1',
       actionAffordances: [
         { kind: 'scheduler_run_now', label: 'Retry now', jobId: 'job-1' },
-        {
-          kind: 'scheduler_show_last_logs',
-          label: 'Show last 50 log lines',
-          jobId: 'job-1',
-        },
         { kind: 'scheduler_pause_job', label: 'Pause job', jobId: 'job-1' },
         {
           kind: 'scheduler_open',
@@ -336,8 +331,8 @@ describe('jobs/execution-notifications', () => {
 
     expect(delivered).toBe(true);
     const message = String(sendMessage.mock.calls[0]?.[1]);
-    expect(message).toContain('Setup required: Lead maintenance');
-    expect(message).toContain('Blocker: Exact command access');
+    expect(message).toContain('Setup needed: Lead maintenance');
+    expect(message).toContain('Why: Exact command access');
     expect(message).toContain(
       'Action: Approve exact command access, then resume the job.',
     );
@@ -372,11 +367,6 @@ describe('jobs/execution-notifications', () => {
     expect(sendMessage.mock.calls[0]?.[2]).toMatchObject({
       actionAffordances: [
         { kind: 'scheduler_run_now', label: 'Retry now', jobId: 'job-1' },
-        {
-          kind: 'scheduler_show_last_logs',
-          label: 'Show last 50 log lines',
-          jobId: 'job-1',
-        },
         { kind: 'scheduler_pause_job', label: 'Pause job', jobId: 'job-1' },
         {
           kind: 'scheduler_open',
@@ -385,5 +375,30 @@ describe('jobs/execution-notifications', () => {
         },
       ],
     });
+  });
+
+  it('uses the final job report instead of intermediate job chatter', async () => {
+    const sendMessage = vi.fn(async () => undefined);
+
+    await notifySchedulerTerminalRunState({
+      job: makeJob({ name: 'KnackLabs Lead Maintenance' }),
+      runId: 'run-1',
+      runShortId: 12,
+      runStatus: 'completed',
+      summary:
+        'Sunday 22:05 IST -> Mode B. Let me load tools and check Hot Leads dedup.Now searching for the 22:00 slot query.CashFlo + Sachit already there (Feb). Searching for other targets.## Final Job Report\nMode: B (KnackLabs lead finder)\nAdded: 0 leads\nReason: heavy dedup overlap.',
+      nextRun: '2026-05-18T02:35:00.000Z',
+      retryCount: 0,
+      pauseReason: null,
+      sendMessage,
+      durationMs: 567_000,
+    });
+
+    const message = String(sendMessage.mock.calls[0]?.[1]);
+    expect(message).toContain('Completed: KnackLabs Lead Maintenance');
+    expect(message).toContain('Outcome: Final Job Report Mode: B');
+    expect(message).toContain('Added: 0 leads');
+    expect(message).not.toContain('Let me load tools');
+    expect(message).not.toContain('Now searching');
   });
 });

@@ -4,6 +4,7 @@ import {
   type AutonomousToolDenial,
 } from '../shared/autonomous-tool-denial.js';
 import { formatDuration, formatRunLabel } from '../shared/human-format.js';
+import { humanizeTechnicalIdentifier } from '../shared/user-visible-messages.js';
 
 export function formatRunStatusMessage(args: {
   job: Job;
@@ -17,27 +18,50 @@ export function formatRunStatusMessage(args: {
   durationMs?: number;
 }): string {
   const denial = parseAutonomousToolDenial(args.summary);
-  const statusText = statusLabel(args.runStatus, args.summary, denial);
+  const displaySummary = selectJobNotificationSummary(args.summary);
+  const statusText = statusLabel(args.runStatus, displaySummary, denial);
   const runLabel = formatRunLabel({
     id: args.runId,
     shortId: args.runShortId,
   });
   const duration =
     args.durationMs === undefined ? '' : `, ${formatDuration(args.durationMs)}`;
-  const summary = notificationOutcome(args.summary, args.runStatus, denial);
+  const summary = notificationOutcome(displaySummary, args.runStatus, denial);
   const lines = [
     `${statusText}: ${args.job.name} (${runLabel}${duration})`,
     `Outcome: ${summary}`,
   ];
   const action = notificationAction(
     args.runStatus,
-    args.summary,
+    displaySummary,
     denial,
     args.pauseReason,
   );
   if (action) lines.push(`Action: ${action}`);
   lines.push(`Next: ${nextRunLabel(args.nextRun, args.runStatus)}`);
   return lines.join('\n');
+}
+
+export function selectJobNotificationSummary(summary: string): string {
+  const normalized = summary.replace(
+    /^\[output truncated; showing tail\]\s*/i,
+    '',
+  );
+  const markers = [
+    '## Final Job Report',
+    '# Final Job Report',
+    'Final Job Report',
+    'Final Report',
+  ];
+  const lower = normalized.toLowerCase();
+  let markerIndex = -1;
+  for (const marker of markers) {
+    const index = lower.lastIndexOf(marker.toLowerCase());
+    if (index > markerIndex) markerIndex = index;
+  }
+  const selected =
+    markerIndex >= 0 ? normalized.slice(markerIndex) : normalized;
+  return selected.trim() || summary;
 }
 
 function statusLabel(
@@ -154,7 +178,7 @@ function notificationOutcome(
     if (denial.toolName.startsWith('mcp__gantry__browser_')) {
       return 'Could not use the browser for this job.';
     }
-    return `Missing ${denial.toolName} access for this job.`;
+    return `Missing ${humanizeTechnicalIdentifier(denial.toolName)} access for this job.`;
   }
   if (status === 'timeout' && isRestartInterruptedRun(summary)) {
     return 'Gantry restarted while this job was running, so the run could not finish.';
@@ -177,7 +201,7 @@ function notificationAction(
     if (denial.toolName.startsWith('mcp__gantry__browser_')) {
       return 'Browser access needs approval.';
     }
-    return 'The agent can update this job permission and rerun it.';
+    return 'Approve the missing access, then retry the job.';
   }
   if (status === 'timeout' && isRestartInterruptedRun(summary)) {
     return 'Rerun the job when ready. If this repeats without restarts, increase the job timeout.';

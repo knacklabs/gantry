@@ -24,12 +24,13 @@ import { registerAdminPermissionTools } from './admin-permissions.js';
 import { registerSettingsTools } from './settings.js';
 import { makeIpcId } from '../ipc-ids.js';
 import type { AdminMcpToolName } from '../../../shared/admin-mcp-tools.js';
+import { humanizeTechnicalIdentifier } from '../../../shared/user-visible-messages.js';
 
 export function registerServiceTools(server: McpServer): void {
   registerSkillProposalTool(
     server,
     'request_skill_proposal',
-    'Submit an agent-created or modified skill bundle for same-conversation admin review. This creates a proposal only; it never approves, binds, or activates the skill.',
+    'Submit an agent-created or modified skill bundle for same-conversation admin review. Approval makes the skill available to this agent.',
   );
   registerSettingsTools(server, { isAdminToolEnabled: isAdminMcpToolEnabled });
   registerAdminPermissionTools(server, {
@@ -47,25 +48,8 @@ export function registerServiceTools(server: McpServer): void {
 
   server.tool(
     'request_skill_install',
-    'Request a provider-backed skill install for same-conversation admin review. This records a review request only; it never installs, binds, or activates the skill directly.',
+    'Request a skill install for same-conversation admin approval. Approval installs and enables staged files, or runs an approved installer command in host-controlled staging and imports the resulting SKILL.md package.',
     {
-      spec: z
-        .string()
-        .describe('Provider skill spec, such as gantryhub:skill-slug@1.2.3'),
-      provider: z.string().optional().describe('Optional skill provider name'),
-      slug: z.string().optional().describe('Optional provider skill slug'),
-      version: z
-        .string()
-        .optional()
-        .describe('Optional requested skill version'),
-      publisher: z
-        .string()
-        .optional()
-        .describe('Optional provider or publisher identity'),
-      verification: z
-        .string()
-        .optional()
-        .describe('Optional verification or provenance summary'),
       expectedFiles: z
         .array(z.string())
         .optional()
@@ -74,19 +58,43 @@ export function registerServiceTools(server: McpServer): void {
         .array(z.string())
         .optional()
         .describe('Declared skill dependencies for review'),
+      requiredEnvVars: z
+        .array(z.string())
+        .optional()
+        .describe('Env var names this skill needs from Gantry Secrets'),
+      files: z
+        .array(
+          z.object({
+            path: z
+              .string()
+              .describe('Skill package-relative path, such as SKILL.md'),
+            content: z.string().describe('UTF-8 file content'),
+            contentType: z.string().optional().describe('Optional MIME type'),
+          }),
+        )
+        .min(1)
+        .max(50)
+        .optional()
+        .describe(
+          'Staged skill files. Must include SKILL.md with name and description frontmatter.',
+        ),
+      installCommandArgv: z
+        .array(z.string())
+        .min(1)
+        .max(40)
+        .optional()
+        .describe(
+          'Optional installer command argv, such as an npx skills.sh or clawhub installer command. Use only when files are not available.',
+        ),
       reason: z.string().describe('Why this skill should be installed'),
     },
     async (args) => {
       const wrongLaneGuidance = browserWrongLaneRequestGuidance(
         'request_skill_install',
         {
-          spec: args.spec,
-          provider: args.provider,
-          slug: args.slug,
-          publisher: args.publisher,
-          verification: args.verification,
           expectedFiles: args.expectedFiles ?? [],
           dependencies: args.dependencies ?? [],
+          requiredEnvVars: args.requiredEnvVars ?? [],
           reason: args.reason,
         },
       );
@@ -95,23 +103,19 @@ export function registerServiceTools(server: McpServer): void {
         'request_skill_install',
         'Skill install',
         {
-          spec: args.spec,
-          provider: args.provider,
-          slug: args.slug,
-          version: args.version,
-          publisher: args.publisher,
-          verification: args.verification,
           expectedFiles: args.expectedFiles ?? [],
           dependencies: args.dependencies ?? [],
+          requiredEnvVars: args.requiredEnvVars ?? [],
+          files: args.files ?? [],
+          installCommandArgv: args.installCommandArgv ?? [],
           reason: args.reason,
         },
       );
     },
   );
-
   server.tool(
     'request_skill_dependency_install',
-    'Request host-installed dependencies needed by a reviewed skill. This records a review request only; it never runs install commands directly.',
+    'Request host-installed dependencies needed by a reviewed skill. Approval records the admin decision; the agent never runs install commands directly.',
     {
       ecosystem: z
         .enum(['npm', 'brew', 'go', 'uv', 'download'])
@@ -155,7 +159,6 @@ export function registerServiceTools(server: McpServer): void {
         },
       ),
   );
-
   server.tool(
     'request_permission',
     [
@@ -368,8 +371,7 @@ export function registerServiceTools(server: McpServer): void {
             type: 'text' as const,
             text: formatMcpApprovalResponse(
               response.data,
-              response.message ||
-                'MCP server approved. It is available in this current run and future sessions.',
+              response.message || 'MCP server approved. It is available now.',
             ),
           },
         ],
@@ -379,7 +381,7 @@ export function registerServiceTools(server: McpServer): void {
 
   server.tool(
     'mcp_list_tools',
-    'List tools from MCP servers that are already approved and bound to this agent. Use this for third-party MCP servers in current and future runs; do not call direct third-party mcp__server__tool names.',
+    'List tools from MCP servers that are already approved and bound to this agent. Use this for third-party MCP servers; do not call direct third-party mcp__server__tool names.',
     {
       serverName: z
         .string()
@@ -427,7 +429,7 @@ export function registerServiceTools(server: McpServer): void {
 
   server.tool(
     'mcp_call_tool',
-    'Call a tool on an MCP server that is already approved and bound to this agent. Use this for third-party MCP servers in current and future runs; do not call direct third-party mcp__server__tool names.',
+    'Call a tool on an MCP server that is already approved and bound to this agent. Use this for third-party MCP servers; do not call direct third-party mcp__server__tool names.',
     {
       serverName: z.string().describe('Approved MCP server name'),
       toolName: z
@@ -622,8 +624,8 @@ function adminToolUnavailable(toolName: AdminMcpToolName): {
       {
         type: 'text',
         text: [
-          `${fullName} is not selected for this agent yet.`,
-          `Ask a configured conversation approver to approve ${fullName}, then choose Always allow.`,
+          `${humanizeTechnicalIdentifier(fullName)} is not approved for this agent yet.`,
+          `Ask a configured conversation approver to approve it, then choose Always allow. Details: ${fullName}.`,
         ].join(' '),
       },
     ],
@@ -634,11 +636,11 @@ function adminToolUnavailable(toolName: AdminMcpToolName): {
 const BROWSER_WRONG_LANE_GUIDANCE = [
   'Browser control is a built-in Gantry tool capability, not a skill install or third-party MCP server request.',
   'Do not request browser automation through request_skill_install or request_mcp_server.',
-  'Ask a configured conversation approver to approve Browser access, then use the compact browser gateway tools.',
+  'Ask a configured conversation approver to approve Browser access, then use the browser tools.',
 ].join(' ');
 
 function browserWrongLaneRequestGuidance(
-  toolName: 'request_skill_install' | 'request_mcp_server',
+  _toolName: 'request_skill_install' | 'request_mcp_server',
   payload: Record<string, unknown>,
 ) {
   if (!isBrowserWrongLanePayload(payload)) return null;
@@ -646,7 +648,7 @@ function browserWrongLaneRequestGuidance(
     content: [
       {
         type: 'text' as const,
-        text: `${BROWSER_WRONG_LANE_GUIDANCE} No ${toolName} request was recorded.`,
+        text: `${BROWSER_WRONG_LANE_GUIDANCE} No install request was recorded.`,
       },
     ],
     isError: true,
@@ -661,6 +663,9 @@ function isBrowserWrongLanePayload(payload: Record<string, unknown>): boolean {
     payload.origin,
     payload.docsUrl,
     payload.package,
+    payload.expectedFiles,
+    payload.dependencies,
+    payload.installCommandArgv,
     payload.requestedToolPatterns,
   ]
     .flatMap(explicitWrongLaneText)
@@ -728,8 +733,14 @@ async function submitCapabilityReviewTask(
       {
         type: 'text' as const,
         text:
-          response.message ||
-          `${requestLabel} sent to this chat for approval. It will not be available until approved.`,
+          toolName === 'request_skill_install'
+            ? formatSkillProposalResponse(
+                response.data,
+                response.message ||
+                  `${requestLabel} approved. It is available now.`,
+              )
+            : response.message ||
+              `Approval requested for ${requestLabel}. It will be available after approval.`,
       },
     ],
   };
@@ -802,7 +813,7 @@ function registerSkillProposalTool(
             text: formatSkillProposalResponse(
               response.data,
               response.message ||
-                `${requestLabel} approved. It is available in this current run and future sessions.`,
+                `${requestLabel} approved. It is available now.`,
             ),
           },
         ],

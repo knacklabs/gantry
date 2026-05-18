@@ -462,9 +462,9 @@ export class SettingsDesiredStateService {
           errors.push(
             `agents.${folder}.capabilities.skill_ids contains unavailable skill: ${skillId}`,
           );
-        } else if (!skill.storage && !skill.providerRef) {
+        } else if (!skill.storage) {
           errors.push(
-            `agents.${folder}.capabilities.skill_ids references skill without artifact/provider storage: ${skillId}`,
+            `agents.${folder}.capabilities.skill_ids references skill without artifact storage: ${skillId}`,
           );
         }
       }

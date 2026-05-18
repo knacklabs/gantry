@@ -328,7 +328,7 @@ describe('jobs/execution', () => {
     );
     const messages = sendMessage.mock.calls.map((call) => String(call[1]));
     expect(messages).toContainEqual(expect.stringContaining('Running:'));
-    expect(messages).toContainEqual(expect.stringContaining('Setup required:'));
+    expect(messages).toContainEqual(expect.stringContaining('Setup needed:'));
     expect(messages).not.toContainEqual(
       expect.stringContaining('Needs permission:'),
     );
@@ -862,6 +862,7 @@ describe('jobs/execution', () => {
       ]),
     };
     const skillArtifactStore = { readArtifact: vi.fn() };
+    const capabilitySecretRepository = {};
     const mcpHostnameLookup = vi.fn(async () => [
       { address: '93.184.216.34', family: 4 as const },
     ]);
@@ -887,6 +888,8 @@ describe('jobs/execution', () => {
         getCredentialBroker: vi.fn(async () => credentialBroker) as never,
         getSkillRepository: () => skillRepository as never,
         getMcpServerRepository: () => mcpServerRepository as never,
+        getCapabilitySecretRepository: () =>
+          capabilitySecretRepository as never,
         getMcpHostnameLookup: () => mcpHostnameLookup as never,
         getSkillArtifactStore: () => skillArtifactStore as never,
         runAgent: runAgent as never,
@@ -916,6 +919,7 @@ describe('jobs/execution', () => {
         credentialBroker,
         skillRepository,
         skillArtifactStore,
+        capabilitySecretRepository,
         mcpServerRepository,
         mcpHostnameLookup,
       }),
@@ -1012,7 +1016,7 @@ describe('jobs/execution', () => {
     );
     expect(sendMessage).toHaveBeenLastCalledWith(
       'tg:scheduler',
-      expect.stringContaining('[output truncated; showing tail]'),
+      expect.not.stringContaining('[output truncated; showing tail]'),
       { threadId: 'thread-scheduled' },
     );
   });

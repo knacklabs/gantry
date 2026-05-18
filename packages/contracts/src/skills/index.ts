@@ -61,7 +61,6 @@ export type UploadSkillDraftContext = z.infer<
 export const ApproveSkillDraftRequestSchema = z.object({
   appId: z.string().optional(),
   approvedBy: z.string().optional(),
-  target: z.enum(['local', 'hosted']).optional(),
 });
 export type ApproveSkillDraftRequest = z.infer<
   typeof ApproveSkillDraftRequestSchema

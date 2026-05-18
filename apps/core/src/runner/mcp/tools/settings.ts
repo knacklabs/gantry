@@ -4,6 +4,7 @@ import { nowIso } from '../../../shared/time/datetime.js';
 import { chatJid, TASKS_DIR, threadId } from '../context.js';
 import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
 import type { AdminMcpToolName } from '../../../shared/admin-mcp-tools.js';
+import { humanizeTechnicalIdentifier } from '../../../shared/user-visible-messages.js';
 import { makeIpcId } from '../ipc-ids.js';
 
 const SETTINGS_APPROVAL_WAIT_MS = 5 * 60 * 1000;
@@ -130,8 +131,8 @@ function adminToolUnavailable(toolName: AdminMcpToolName): {
       {
         type: 'text',
         text: [
-          `${fullName} is not selected for this agent yet.`,
-          `Ask a configured conversation approver to approve ${fullName}, then choose Always allow.`,
+          `${humanizeTechnicalIdentifier(fullName)} is not approved for this agent yet.`,
+          `Ask a configured conversation approver to approve it, then choose Always allow. Details: ${fullName}.`,
         ].join(' '),
       },
     ],

@@ -148,6 +148,7 @@ export async function createManagedJob(
     appId: session.appId,
     toolRepository: deps.toolRepository,
     mcpServerRepository: deps.mcpServerRepository,
+    capabilitySecretRepository: deps.capabilitySecretRepository,
     credentialBroker: await deps.getCredentialBroker?.(),
     getBrowserStatus: deps.getBrowserStatus,
     clock: deps.clock,

@@ -22,7 +22,6 @@ const SLACK_RETRY_DELAY_FALLBACK_MS = 1000;
 const SLACK_RETRY_DELAY_MAX_MS = 5000;
 const SCHEDULER_MESSAGE_ACTION_KINDS = new Set<MessageActionAffordanceKind>([
   'scheduler_run_now',
-  'scheduler_show_last_logs',
   'scheduler_pause_job',
   'scheduler_open',
 ]);

@@ -45,9 +45,9 @@ become hidden durable state. Agents submit skills through
 `mcp__gantry__request_mcp_server`; both route to same-channel review before
 future-run activation.
 
-Gantry owns draft artifact durability and local approval state. It does not own
-hosted skill versioning. Hosted Anthropic skills are provider-managed resources
-addressed by opaque provider refs through the Anthropic SDK adapter.
+Gantry owns draft artifact durability and approval state. Approved skills are
+reviewed local `SKILL.md` packages materialized per run; Gantry does not keep
+catalog, URL, GitHub, or hosted-provider refs as skill authority.
 
 Existing local JSONL files are not imported automatically. Operators can remove
 unsupported local session files after confirming no runtime version needs them.

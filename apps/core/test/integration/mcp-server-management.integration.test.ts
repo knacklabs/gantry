@@ -345,7 +345,7 @@ describe('MCP server management integration flow', () => {
           args: ['@modelcontextprotocol/server-github'],
         },
         credentialRefs: [
-          { name: 'GITHUB_TOKEN_REF', target: 'env', key: 'GITHUB_TOKEN' },
+          { name: 'GITHUB_TOKEN', target: 'env', key: 'GITHUB_TOKEN' },
         ],
         sandboxProfileId: 'sandbox:approved',
         allowedToolPatterns: ['search_repositories'],
@@ -396,7 +396,7 @@ describe('MCP server management integration flow', () => {
       ).materializeForAgent({
         appId: 'app-one' as never,
         agentId: 'agent:one' as never,
-        credentialEnv: { GITHUB_TOKEN_REF: 'broker-safe-token' },
+        credentialEnv: { GITHUB_TOKEN: 'gantry-secret-token' },
       });
       expect(materialized).toEqual([
         {
@@ -405,7 +405,7 @@ describe('MCP server management integration flow', () => {
             type: 'stdio',
             command: 'npx',
             args: ['-y', '@modelcontextprotocol/server-github'],
-            env: { GITHUB_TOKEN: 'broker-safe-token' },
+            env: { GITHUB_TOKEN: 'gantry-secret-token' },
           },
           allowedToolPatterns: ['search_repositories'],
           allowedToolNames: ['mcp__github__search_repositories'],
@@ -511,7 +511,7 @@ describe('MCP server management integration flow', () => {
     }
   });
 
-  it('fails closed when an approved MCP credential ref is not brokered', async () => {
+  it('fails closed when an approved MCP credential ref is missing its Gantry Secret', async () => {
     const { McpServerService } =
       await import('@core/application/mcp/mcp-server-service.js');
     const service = new McpServerService(state.mcpServers);
@@ -525,7 +525,7 @@ describe('MCP server management integration flow', () => {
       },
       credentialRefs: [
         {
-          name: 'MISSING_TOKEN_REF',
+          name: 'MISSING_TOKEN',
           target: 'header',
           key: 'Authorization',
         },
@@ -549,7 +549,32 @@ describe('MCP server management integration flow', () => {
         agentId: 'agent:one' as never,
         credentialEnv: {},
       }),
-    ).rejects.toThrow(/Missing broker credential/);
+    ).rejects.toThrow(/Gantry Secret.*required|Missing Gantry Secret/);
+  });
+
+  it('stores normalized MCP credential ref names', async () => {
+    const { McpServerService } =
+      await import('@core/application/mcp/mcp-server-service.js');
+    const service = new McpServerService(state.mcpServers);
+
+    const draft = await service.createDraft({
+      appId: 'app-one' as never,
+      name: 'normalized_credential',
+      transportConfig: {
+        transport: 'stdio_template',
+        templateId: 'npx-package',
+        args: ['@modelcontextprotocol/server-github'],
+      },
+      sandboxProfileId: 'sandbox:approved',
+      credentialRefs: [
+        { name: 'github_token', target: 'env', key: 'GITHUB_TOKEN' },
+      ],
+      createdBy: 'admin-user',
+    });
+
+    expect(draft.version.credentialRefs).toEqual([
+      { name: 'GITHUB_TOKEN', target: 'env', key: 'GITHUB_TOKEN' },
+    ]);
   });
 
   it('enforces stored MCP allowed tool patterns and validates auto-approval scope', async () => {
@@ -886,10 +911,10 @@ describe('MCP server management integration flow', () => {
             url: 'https://93.184.216.34/raw-env',
           },
           credentialRefs: [
-            { name: 'OPENAI_API_KEY', target: 'header', key: 'Authorization' },
+            { name: 'openai-api-key', target: 'header', key: 'Authorization' },
           ],
         }),
-      ).rejects.toThrow(/broker-scoped/i);
+      ).rejects.toThrow(/Gantry Secret/i);
 
       const created = await client.mcpServers.drafts.create({
         name: 'linear',
@@ -921,7 +946,7 @@ describe('MCP server management integration flow', () => {
           transport: 'http',
           origin: 'https://93.184.216.34/github',
           requestedToolPatterns: ['search_repositories'],
-          credentialNeeds: ['GITHUB_TOKEN_REF'],
+          credentialNeeds: ['GITHUB_TOKEN'],
           reason: 'Need repository search for triage.',
         },
       },
@@ -1114,7 +1139,7 @@ describe('MCP server management integration flow', () => {
           transport: 'http',
           origin: 'https://93.184.216.34/github',
           requestedToolPatterns: ['search_repositories'],
-          credentialNeeds: ['GITHUB_TOKEN_REF'],
+          credentialNeeds: ['GITHUB_TOKEN'],
           reason: 'Need repository search for triage.',
         },
       },
@@ -1143,12 +1168,24 @@ describe('MCP server management integration flow', () => {
       createdSource: 'agent_request',
       status: 'approved',
     });
+    const approvedVersions = await state.mcpServers.listVersions(
+      approved[0].id,
+    );
+    expect(approvedVersions[0]?.credentialRefs).toEqual([
+      {
+        name: 'MCP_GITHUB_GITHUB_TOKEN_REF',
+        target: 'header',
+        key: 'Authorization',
+      },
+    ]);
 
     await expect(
       new McpServerService(state.mcpServers).materializeForAgent({
         appId: 'app-one' as never,
         agentId: 'agent:one' as never,
-        credentialEnv: { MCP_GITHUB_GITHUB_TOKEN_REF: 'broker-safe-token' },
+        credentialEnv: {
+          MCP_GITHUB_GITHUB_TOKEN_REF: 'gantry-secret-token',
+        },
       }),
     ).resolves.toEqual([]);
     expect(
@@ -1210,7 +1247,7 @@ describe('MCP server management integration flow', () => {
           transport: 'http',
           origin: 'https://93.184.216.34/github',
           requestedToolPatterns: ['search_repositories'],
-          credentialNeeds: ['GITHUB_TOKEN_REF'],
+          credentialNeeds: ['GITHUB_TOKEN'],
           reason: 'Need repository search for triage.',
         },
       },

@@ -26,6 +26,7 @@ export async function pauseJobForSetupIfNeeded(input: {
       input.agentId ?? agentIdForJobGroupScope(input.executionAgentFolder),
     toolRepository: input.deps.getToolRepository?.(),
     mcpServerRepository: input.deps.getMcpServerRepository?.(),
+    capabilitySecretRepository: input.deps.getCapabilitySecretRepository?.(),
     credentialBroker: await input.deps.getCredentialBroker?.(),
     getBrowserStatus: input.deps.getBrowserStatus,
   });

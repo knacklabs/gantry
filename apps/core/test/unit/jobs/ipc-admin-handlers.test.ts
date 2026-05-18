@@ -69,6 +69,7 @@ function depsWithAdminTools(
     writeGroupsSnapshot: vi.fn(async () => undefined),
     onSchedulerChanged: vi.fn(() => undefined),
     requestUserAnswer: vi.fn(async () => ({ response: '' })),
+    runApprovedCommand: vi.fn(async () => undefined),
     opsRepository: {},
     getToolRepository: () => ({
       listAgentToolBindings: async () =>
@@ -540,6 +541,60 @@ describe('admin IPC handlers', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
+  it('coalesces duplicate pending skill install command reviews', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    let resolveApproval:
+      | ((value: { approved: false; reason: string }) => void)
+      | undefined;
+    const requestPermissionApproval = vi.fn(
+      () =>
+        new Promise<{ approved: false; reason: string }>((resolve) => {
+          resolveApproval = resolve;
+        }),
+    );
+
+    const baseTask = {
+      type: 'request_skill_install',
+      chatJid: 'sl:C123',
+      payload: {
+        reason: 'install catalog skill',
+        installCommandArgv: ['npx', '-y', '@skills-sh/cli', 'install', 'x'],
+      },
+    };
+    await adminTaskHandlers.request_skill_install({
+      data: taskData('skill-command-1', baseTask) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], { requestPermissionApproval }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+    await adminTaskHandlers.request_skill_install({
+      data: taskData('skill-command-2', baseTask) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], { requestPermissionApproval }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
+    expect(readResponse(runtimeHome, 'skill-command-2')).toMatchObject({
+      ok: true,
+      code: 'skill_install_already_pending',
+    });
+
+    resolveApproval?.({ approved: false, reason: 'test complete' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(readResponse(runtimeHome, 'skill-command-1')).toMatchObject({
+      ok: false,
+      code: 'permission_denied',
+    });
+  });
+
   it('rejects request_skill_proposal without signed app scope before importing a draft', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-admin-ipc-'),
@@ -573,6 +628,43 @@ describe('admin IPC handlers', () => {
       ok: false,
       code: 'forbidden',
       error: 'Skill draft requests require signed app scope.',
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
+  it('rejects skill install requests that mix package files with installer commands', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'U_APPROVER',
+    }));
+
+    await adminTaskHandlers.request_skill_install({
+      data: taskData('skill-mixed-install', {
+        type: 'request_skill_install',
+        chatJid: 'sl:C123',
+        payload: {
+          reason: 'Install a catalog skill.',
+          files: [{ path: 'SKILL.md', content: '# Test skill' }],
+          installCommandArgv: ['npx', '-y', '@skills-sh/cli', 'install', 'x'],
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], { requestPermissionApproval }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(readResponse(runtimeHome, 'skill-mixed-install')).toMatchObject({
+      ok: false,
+      code: 'invalid_request',
+      error:
+        'Skill install requests must use either files or installCommandArgv, not both.',
     });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });

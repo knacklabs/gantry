@@ -348,6 +348,7 @@ export function createGroupAgentRunner(input: {
         skillRepository: deps.getSkillRepository?.(),
         skillArtifactStore: deps.getSkillArtifactStore?.(),
         mcpServerRepository: deps.getMcpServerRepository?.(),
+        capabilitySecretRepository: deps.getCapabilitySecretRepository?.(),
         mcpHostnameLookup: deps.getMcpHostnameLookup?.(),
         mcpDnsValidationCache: deps.getMcpDnsValidationCache?.(),
         publishRuntimeEvent: deps.publishRuntimeEvent,

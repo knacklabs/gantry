@@ -6,6 +6,10 @@ import type {
 } from '../agent/agent.js';
 import type { App, AppId } from '../app/app.js';
 import type {
+  CapabilitySecret,
+  CapabilitySecretMetadata,
+} from '../capability-secrets/capability-secrets.js';
+import type {
   AgentConversationBinding,
   ConversationApprover,
   ProviderConnection,
@@ -413,6 +417,23 @@ export interface SkillCatalogRepository {
     appId: AppId;
     agentId: AgentId;
   }): Promise<SkillCatalogItem[]>;
+}
+
+export interface CapabilitySecretRepository {
+  getSecret(input: {
+    appId: AppId;
+    name: string;
+  }): Promise<CapabilitySecret | null>;
+  listSecrets(input: { appId: AppId }): Promise<CapabilitySecretMetadata[]>;
+  upsertSecret(input: {
+    appId: AppId;
+    name: string;
+    value: string;
+    allowedCapabilityIds?: string[];
+    actor?: string;
+    now?: string;
+  }): Promise<CapabilitySecretMetadata>;
+  deleteSecret(input: { appId: AppId; name: string }): Promise<boolean>;
 }
 
 export interface McpServerRepository {

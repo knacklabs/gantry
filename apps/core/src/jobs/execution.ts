@@ -319,6 +319,7 @@ export async function runJob(
             skillRepository: deps.getSkillRepository?.(),
             skillArtifactStore: deps.getSkillArtifactStore?.(),
             mcpServerRepository: deps.getMcpServerRepository?.(),
+            capabilitySecretRepository: deps.getCapabilitySecretRepository?.(),
             mcpHostnameLookup: deps.getMcpHostnameLookup?.(),
             mcpDnsValidationCache: deps.getMcpDnsValidationCache?.(),
             publishRuntimeEvent: async (event) => {
@@ -573,9 +574,9 @@ export async function runJob(
         : 'job_policy',
     });
   const summary = safeErrorSummary
-    ? safeErrorSummary.slice(0, 240)
+    ? safeErrorSummary.slice(0, 1_200)
     : safeResultSummary
-      ? safeResultSummary.slice(0, 240)
+      ? safeResultSummary.slice(0, 4_000)
       : 'Completed, no reportable output.';
   logMemoryDreamJobFailure({ job: currentJob, runId, error, logger });
   const notified =

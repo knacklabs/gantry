@@ -358,6 +358,27 @@
       "when": 1777169400000,
       "tag": "0051_file_artifacts",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1777173000000,
+      "tag": "0052_capability_secrets",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1777176600000,
+      "tag": "0053_skill_required_env_vars",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1777180200000,
+      "tag": "0054_drop_skill_provider_refs",
+      "breakpoints": true
     }
   ]
 }

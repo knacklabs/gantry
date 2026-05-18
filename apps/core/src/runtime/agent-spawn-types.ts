@@ -3,8 +3,11 @@ import { ChildProcess } from 'child_process';
 import { ConversationRoute, ThinkingOverride } from '../domain/types.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
-import type { SkillCatalogRepository } from '../domain/ports/repositories.js';
-import type { McpServerRepository } from '../domain/ports/repositories.js';
+import type {
+  CapabilitySecretRepository,
+  McpServerRepository,
+  SkillCatalogRepository,
+} from '../domain/ports/repositories.js';
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import type { RemoteMcpDnsValidationCache } from '../application/mcp/mcp-server-policy.js';
 import type {
@@ -81,6 +84,7 @@ export interface RunAgentOptions {
     agentId: string;
   };
   mcpServerRepository?: McpServerRepository;
+  capabilitySecretRepository?: CapabilitySecretRepository;
   mcpContext?: {
     appId: string;
     agentId: string;

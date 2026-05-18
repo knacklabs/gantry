@@ -26,6 +26,7 @@ export async function evaluateManagedJobReadiness(input: {
     agentId: input.agentId,
     toolRepository: input.deps.toolRepository,
     mcpServerRepository: input.deps.mcpServerRepository,
+    capabilitySecretRepository: input.deps.capabilitySecretRepository,
     credentialBroker: await input.deps.getCredentialBroker?.(),
     getBrowserStatus: input.deps.getBrowserStatus,
     clock: input.deps.clock,
@@ -108,7 +109,7 @@ export function setupBlockerDetails(
   setupState: NonNullable<Job['setup_state']>,
 ): string[] {
   return setupState.blockers.map(
-    (blocker) => `${blocker.message} Next action: ${setupActionLabel(blocker)}`,
+    (blocker) => `${blocker.message} Action: ${setupActionLabel(blocker)}`,
   );
 }
 

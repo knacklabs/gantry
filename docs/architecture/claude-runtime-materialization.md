@@ -33,7 +33,7 @@ Durable state stays outside Claude runtime files:
   storage ref; Postgres stores metadata, status, hash, bindings, and provider
   refs.
 - Postgres owns MCP server definitions, reviewed versions, agent bindings,
-  credential reference names, and audit events. Claude SDK `mcpServers` is a
+  Gantry Secret reference names, and audit events. Claude SDK `mcpServers` is a
   per-run projection, not durable truth.
 - Package or configured local skill folders provide file-based Claude skills.
 - Gantry may add runtime-installed skills into the generated per-run config
@@ -96,16 +96,15 @@ The canonical tool execution policy, projected through the Claude Agent SDK
 `PreToolUse` hook, blocks direct agent edits to skill capability files such as
 `SKILL.md`, runtime-home `.claude/skills`, and agent-local `skills/` folders.
 Agents must use
-`mcp__gantry__request_skill_install` for provider-backed imports or
+`mcp__gantry__request_skill_install` for reviewed skill installs or
 `mcp__gantry__request_skill_proposal` for skill file bundles. Admins/users can
 also use the zip draft upload API. All paths review and persist the change
 outside temporary Claude config before next-run activation.
 
-Local approval makes the artifact eligible for per-agent binding and per-run
-materialization. Hosted approval uploads the stored files through Anthropic's
-native beta skill APIs behind the Anthropic adapter, then stores only opaque
-provider refs such as Anthropic skill id and version. Gantry does not recreate
-hosted skill versioning or add a second skill permission prompt.
+Approval makes the artifact eligible for per-agent binding and per-run
+materialization. Gantry does not keep catalog, URL, GitHub, or hosted-provider
+refs as skill authority; every install path converges into the reviewed local
+`SKILL.md` package and one approval decision.
 
 ## MCP Servers
 
@@ -152,22 +151,23 @@ API/SDK-only in v1; agent requests and CLI draft creation only advertise
 HTTP/SSE. The `npx-package` template accepts exactly one safe npm package
 argument; other v1 stdio templates do not accept caller-supplied args.
 
-MCP credentials are reference names resolved through `AgentCredentialBroker`.
-Raw tokens, API keys, OAuth values, runtime secrets, and database URLs must not
-be stored in MCP definitions or inherited by third-party MCP processes. Runtime
-materialization resolves only broker-scoped credential reference names, not
-arbitrary host environment keys. Resolved MCP credentials are handed to the
-runner through a private per-run config file with `0600` permissions, and the
-runner deletes that file after reading it. The host also removes the handoff
-file during spawn cleanup so early runner failures do not leave credential
-artifacts on disk.
+MCP credentials are Gantry Secret env names such as `GITHUB_TOKEN`. Raw tokens,
+API keys, OAuth values, runtime secrets, and database URLs must not be stored in
+MCP definitions or inherited by third-party MCP processes. Runtime
+materialization resolves only the reviewed credential refs for selected MCP
+servers from the encrypted capability secret store, not arbitrary host
+environment keys or model broker profiles. Resolved MCP credentials are handed
+to the runner through a private per-run config file with `0600` permissions, and
+the runner deletes that file after reading it. The host also removes the
+handoff file during spawn cleanup so early runner failures do not leave
+credential artifacts on disk.
 
 `allowedToolPatterns` is the enforced SDK allowlist for tools exposed by a
 third-party MCP server. `autoApproveToolPatterns` is narrower session-only
 auto-allow scope and must be inside the allowed set when an explicit allowlist
 exists. Agent-requested credential needs are labels; the host maps them to
-server-scoped refs like `MCP_GITHUB_TOKEN_REF` rather than letting the agent pick
-arbitrary broker environment keys.
+normalized Gantry Secret names like `GITHUB_TOKEN` rather than letting the
+agent submit raw values.
 
 ## Provider Artifacts
 

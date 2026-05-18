@@ -95,6 +95,15 @@ export async function startGantryRuntime(
   let browserToolModule: Promise<any> | undefined;
   const loadBrowserToolModule = () =>
     (browserToolModule ??= import(browserToolModulePath));
+  const approvedCommandModulePath = [
+    '..',
+    'adapters',
+    'sandbox',
+    'approved-command-runner.js',
+  ].join('/');
+  let approvedCommandModule: Promise<any> | undefined;
+  const loadApprovedCommandModule = () =>
+    (approvedCommandModule ??= import(approvedCommandModulePath));
 
   installShutdownHandlers({
     queue: app.queue,
@@ -129,6 +138,10 @@ export async function startGantryRuntime(
       getToolRepository: () => storage.repositories.tools,
       getSkillRepository: () => storage.repositories.skills,
       getMcpServerRepository: () => storage.repositories.mcpServers,
+      getCapabilitySecretRepository: () =>
+        storage.repositories.capabilitySecrets,
+      runApprovedCommand: async (input) =>
+        (await loadApprovedCommandModule()).runApprovedSandboxCommand(input),
       getSkillArtifactStore: getRuntimeSkillArtifactStore,
       getPermissionRepository: () => storage.repositories.permissions,
       settingsRepositories: storage.repositories,

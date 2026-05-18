@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  SkillDraftService,
-  type HostedSkillPublisher,
-} from '@core/application/skills/skill-draft-service.js';
+import { SkillDraftService } from '@core/application/skills/skill-draft-service.js';
 import type { SkillArtifactStore } from '@core/domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '@core/domain/ports/repositories.js';
 import type {
@@ -158,10 +155,10 @@ class MemoryArtifactStore implements SkillArtifactStore {
   }
 }
 
-function createService(publisher?: HostedSkillPublisher) {
+function createService() {
   const repo = new MemorySkillRepository();
   const artifacts = new MemoryArtifactStore();
-  const service = new SkillDraftService(repo, artifacts, publisher);
+  const service = new SkillDraftService(repo, artifacts);
   return { repo, artifacts, service };
 }
 
@@ -429,70 +426,5 @@ describe('SkillDraftService', () => {
     expect(adminDraft.agentId).toBeUndefined();
     expect(adminDraft.name).toBe('admin-owned');
     expect(adminAgain.id).toBe(adminDraft.id);
-  });
-
-  it('uses the hosted publisher and stores Anthropic refs on hosted approval', async () => {
-    const publisher: HostedSkillPublisher = {
-      publishSkill: async () => ({
-        provider: 'anthropic',
-        skillId: 'skill_anthropic',
-        type: 'custom',
-        version: 'v1',
-      }),
-    };
-    const { service } = createService(publisher);
-    const draft = await service.importDraft({
-      appId: 'app:one' as never,
-      name: 'hosted-skill',
-      assets: [asset],
-    });
-
-    const approved = await service.approveDraft({
-      appId: 'app:one' as never,
-      skillId: draft.id,
-      target: 'hosted',
-    });
-
-    expect(approved.providerRef).toEqual({
-      provider: 'anthropic',
-      skillId: 'skill_anthropic',
-      type: 'custom',
-      version: 'v1',
-    });
-  });
-
-  it('compensates hosted publish when local approval persistence fails', async () => {
-    const deleted: string[] = [];
-    const publisher: HostedSkillPublisher = {
-      publishSkill: async () => ({
-        provider: 'anthropic',
-        skillId: 'skill_anthropic',
-        type: 'custom',
-      }),
-      unpublishSkill: async (ref) => {
-        deleted.push(ref.skillId);
-      },
-    };
-    const { repo, service } = createService(publisher);
-    const draft = await service.importDraft({
-      appId: 'app:one' as never,
-      name: 'hosted-skill',
-      assets: [asset],
-    });
-    repo.saveSkill = async (item) => {
-      if (item.status === 'approved') {
-        throw new Error('database unavailable');
-      }
-      repo.skills.set(item.id, item);
-    };
-
-    await expect(
-      service.approveDraft({
-        appId: 'app:one' as never,
-        skillId: draft.id,
-        target: 'hosted',
-      }),
-    ).rejects.toThrow('database unavailable');
-    expect(deleted).toEqual(['skill_anthropic']);
   });
 });

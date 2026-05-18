@@ -366,9 +366,10 @@ secret configuration, not requested from the agent credential broker.
 
 Runtime `.env` is for runtime-owned secrets only. In `onecli` mode it stores
 `ONECLI_DATABASE_URL` and a generated base64-encoded 32-byte
-`SECRET_ENCRYPTION_KEY`, but not the OneCLI URL, credential mode, default model,
-or raw Claude credentials. Non-secret broker and model configuration lives in
-`settings.yaml`, for example `credential_broker.onecli.url`,
+`SECRET_ENCRYPTION_KEY` used by OneCLI broker state and Gantry Secrets, but not
+the OneCLI URL, credential mode, default model, or raw Claude credentials.
+Non-secret broker and model configuration lives in `settings.yaml`, for example
+`credential_broker.onecli.url`,
 `agent.default_model`, or
 `credential_broker.external.base_url`. Gantry and OneCLI can share one Postgres
 database with separate schemas and roles: `gantry`, `onecli`, and `pgboss`.

@@ -15,6 +15,7 @@ import type { AvailableGroup, spawnAgent } from './agent-spawn.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
 import type {
+  CapabilitySecretRepository,
   McpServerRepository,
   SkillCatalogRepository,
   ToolCatalogRepository,
@@ -108,6 +109,7 @@ export interface GroupProcessingDeps {
   getToolRepository?: () => ToolCatalogRepository | undefined;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
+  getCapabilitySecretRepository?: () => CapabilitySecretRepository | undefined;
   getMcpHostnameLookup?: () => HostnameLookup | undefined;
   getMcpDnsValidationCache?: () => RemoteMcpDnsValidationCache | undefined;
   getSkillArtifactStore?: () => SkillArtifactStore | undefined;

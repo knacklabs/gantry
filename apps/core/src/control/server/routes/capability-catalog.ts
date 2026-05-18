@@ -155,7 +155,6 @@ function skillToResponse(skill: SkillCatalogItem) {
     toolIds: skill.toolIds,
     workflowRefs: skill.workflowRefs,
     storage: skill.storage,
-    providerRef: skill.providerRef,
     createdBy: skill.createdBy,
     approvedBy: skill.approvedBy,
     approvedAt: skill.approvedAt,

@@ -11,8 +11,8 @@ This inventory classifies local filesystem state by durability.
   local skill backend. Each skill folder contains `SKILL.md` plus referenced
   files and subfolders.
 - `<runtime-home>/skill-drafts/`: pending readable skill proposal folders. The
-  database stores metadata, lifecycle state, content hash, provider refs,
-  bindings, and audit; these folders store only reviewable files.
+  database stores metadata, lifecycle state, content hash, bindings, and audit;
+  these folders store only reviewable files.
 - Local credential files managed by their owning credential adapters.
 - Postgres, not runtime-home files, stores external ingress records,
   invocations, nonces, jobs, sessions, messages, runtime events, outbound

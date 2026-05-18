@@ -11,7 +11,6 @@ import {
   findModelByRunnerModel,
   resolveModelSelection,
 } from '../shared/model-catalog.js';
-import { formatBrowserProfileLabel } from '../shared/browser-profile-scope.js';
 import { setupActionLabel } from '../shared/job-setup-labels.js';
 import { schedulerAccessFromContext } from './ipc-scheduler-access.js';
 import {
@@ -30,6 +29,7 @@ function makeJobService(context: TaskContext): JobManagementService {
     schedulePlanner: runtimeJobSchedulePlanner,
     toolRepository: context.deps.getToolRepository?.(),
     mcpServerRepository: context.deps.getMcpServerRepository?.(),
+    capabilitySecretRepository: context.deps.getCapabilitySecretRepository?.(),
     getCredentialBroker: context.deps.getCredentialBroker,
     getBrowserStatus: context.deps.getBrowserStatus,
   });
@@ -42,12 +42,7 @@ function scheduleType(raw: unknown): SchedulerCreateScheduleType | undefined {
 }
 
 const schedulerUpsertJobHandler: TaskHandler = async (context) => {
-  const {
-    data,
-    sourceAgentFolder,
-    conversationBindings,
-    sourceAgentFolderJids,
-  } = context;
+  const { data, sourceAgentFolder } = context;
   const { accept, acceptData, reject } = createTaskResponder(
     sourceAgentFolder,
     data.taskId,
@@ -151,22 +146,20 @@ const schedulerUpsertJobHandler: TaskHandler = async (context) => {
       (catalogModel?.ok ? catalogModel.entry : undefined) ??
       findModelByRunnerModel(result.modelAlias);
     const modelText = resolvedModel
-      ? ` Model: ${resolvedModel.displayName} (${result.modelAlias ? 'explicit' : defaultModel.source}); cache: ${resolvedModel.cacheMode}; context: ${resolvedModel.contextWindowTokens} tokens.`
+      ? ` Model: ${resolvedModel.displayName}${result.modelAlias ? '' : ` (${defaultModel.source})`}.`
       : result.modelAlias
         ? ` Model: ${result.modelAlias}.`
         : ' Model: agent default for this job type.';
-    const sourceJid = sourceAgentFolderJids[0] || '';
-    const sourceConversation = conversationBindings[sourceJid];
     const runtimeThreadId =
       data.executionContext?.threadId ?? data.authThreadId;
-    const runtimeText = ` Runtime: notifications ${runtimeThreadId ? 'this thread' : 'this conversation'}; browser ${formatBrowserProfileLabel({ agentName: sourceConversation?.name ?? sourceAgentFolder, conversationKind: sourceConversation?.conversationKind })}.`;
+    const notificationText = ` Notifications: ${runtimeThreadId ? 'this thread' : 'this conversation'}.`;
     const setupText = formatSetupOutcome(result.setupState);
     accept(
       (result.created
         ? `Scheduler job created (${result.jobId}).`
         : `Scheduler job updated (${result.jobId}).`) +
         modelText +
-        runtimeText +
+        notificationText +
         setupText,
     );
   } catch (err) {
@@ -183,7 +176,7 @@ function formatSetupOutcome(
 ): string {
   if (!setupState || setupState.state === 'ready') return '';
   const blocker = setupState.blockers[0];
-  return ` Setup required: ${setupActionLabel(blocker)}.`;
+  return ` Setup needed: ${setupActionLabel(blocker)}.`;
 }
 
 export const schedulerCreateTaskHandlers: Record<string, TaskHandler> = {

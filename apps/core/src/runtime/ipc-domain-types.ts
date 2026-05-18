@@ -9,6 +9,7 @@ import {
 import type { RuntimeJobRepository } from '../domain/repositories/ops-repo.js';
 import type { HostnameLookup } from '../domain/network/public-address-policy.js';
 import type {
+  CapabilitySecretRepository,
   McpServerRepository,
   PermissionRepository,
   ToolCatalogRepository,
@@ -54,6 +55,15 @@ export interface IpcDeps {
   opsRepository: RuntimeJobRepository;
   getToolRepository?: () => ToolCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
+  getCapabilitySecretRepository?: () => CapabilitySecretRepository | undefined;
+  runApprovedCommand?: (input: {
+    argv: string[];
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    timeoutMs: number;
+    stderrMaxBytes?: number;
+    redactOutput?: (value: string) => string;
+  }) => Promise<void>;
   getPermissionRepository?: () => PermissionRepository | undefined;
   getFileArtifactStore?: () => FileArtifactStore | undefined;
   publishRuntimeEvent?: (event: RuntimeEventPublishInput) => Promise<void>;

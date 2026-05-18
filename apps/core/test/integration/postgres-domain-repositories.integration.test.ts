@@ -5,6 +5,7 @@ import {
   type PostgresDomainRepositoryBundle,
 } from '@core/adapters/storage/postgres/repositories/domain-repositories.postgres.js';
 import { PostgresCanonicalSessionRepository } from '@core/adapters/storage/postgres/repositories/canonical-session-repository.postgres.js';
+import { PostgresCapabilitySecretRepository } from '@core/adapters/storage/postgres/repositories/capability-secret-repository.postgres.js';
 import {
   PostgresStorageService,
   quotePostgresIdentifier,
@@ -36,6 +37,7 @@ import type {
   AgentSessionSummaryId,
   ProviderSessionId,
 } from '@core/domain/sessions/sessions.js';
+import type { RuntimeSecretProvider } from '@core/domain/ports/runtime-secret-provider.js';
 
 const maybeDescribe = process.env.GANTRY_TEST_DATABASE_URL
   ? describe
@@ -50,6 +52,19 @@ const conversationId = 'conversation:test:slack:C123' as ConversationId;
 const threadId = 'thread:test:slack:C123:1700.1' as ConversationThreadId;
 const userId = 'user:test:U123' as UserId;
 const now = '2026-04-27T00:00:00.000Z';
+const encryptionSecret = Buffer.alloc(32, 7).toString('base64');
+
+function runtimeSecrets(): RuntimeSecretProvider {
+  return {
+    getSecret: ({ env }) => {
+      const value = env === 'SECRET_ENCRYPTION_KEY' ? encryptionSecret : '';
+      if (!value) throw new Error(`Missing ${env}`);
+      return value;
+    },
+    getOptionalSecret: ({ env }) =>
+      env === 'SECRET_ENCRYPTION_KEY' ? encryptionSecret : undefined,
+  };
+}
 
 maybeDescribe('Postgres domain repositories', () => {
   let service: PostgresStorageService;
@@ -129,6 +144,48 @@ maybeDescribe('Postgres domain repositories', () => {
         externalThreadId: '1700.1',
       }),
     ).resolves.toMatchObject({ id: threadId });
+  });
+
+  it('stores capability secrets encrypted and resolves metadata separately', async () => {
+    const repository = new PostgresCapabilitySecretRepository(
+      service.db,
+      runtimeSecrets(),
+    );
+
+    const metadata = await repository.upsertSecret({
+      appId,
+      name: 'github_token',
+      value: 'plain-token-value',
+      allowedCapabilityIds: ['mcp:github'],
+      actor: 'test',
+      now,
+    });
+
+    expect(metadata).toMatchObject({
+      appId,
+      name: 'GITHUB_TOKEN',
+      allowedCapabilityIds: ['mcp:github'],
+      createdBy: 'test',
+      updatedBy: 'test',
+    });
+    await expect(
+      repository.getSecret({ appId, name: 'GITHUB_TOKEN' }),
+    ).resolves.toMatchObject({
+      name: 'GITHUB_TOKEN',
+      value: 'plain-token-value',
+    });
+    await expect(repository.listSecrets({ appId })).resolves.toEqual(
+      expect.arrayContaining([
+        expect.not.objectContaining({ value: 'plain-token-value' }),
+      ]),
+    );
+
+    const raw = await service.pool.query(
+      'select value_encrypted from capability_secrets where app_id = $1 and name = $2',
+      [appId, 'GITHUB_TOKEN'],
+    );
+    expect(raw.rows[0]?.value_encrypted).toContain('enc:v1:');
+    expect(raw.rows[0]?.value_encrypted).not.toContain('plain-token-value');
   });
 
   it('rebinds desired-state conversation and binding upserts to the selected provider connection', async () => {

@@ -93,7 +93,7 @@ Agent-facing tools:
 
 - `send_message`: progress updates or direct channel messages while the agent is still running.
 - `ask_user_question`: structured choices with options, single-select, multi-select, preview/details, and channel-native buttons.
-- `request_skill_install`: provider skill install requests such as `gantryhub:<slug>@<version>`.
+- `request_skill_install`: reviewed skill install requests with staged package files or an installer command that produces a `SKILL.md` package in host-controlled staging.
 - `request_skill_proposal`: agent-created or modified skill file bundles for review.
 - `request_skill_dependency_install`: dependency requests for npm, brew, go, uv, or downloads required by a skill.
 - `request_mcp_server`: third-party MCP server requests with transport, origin, tool patterns, credential needs, and reason.
@@ -174,21 +174,14 @@ The route validates catalog ownership, mirrors readable entries into
 
 ## Skills
 
-Gantry exposes the reviewable lifecycle for agent-created skill drafts. The SDK
-does not expose hosted skill version management; hosted promotion uses the
-Anthropic SDK behind the Gantry Anthropic adapter and stores only provider refs.
+Gantry exposes the reviewable lifecycle for skill drafts and admin-uploaded
+skill packages. The SDK does not expose hosted provider search/import yet.
 
 ```ts
 client.skillDrafts.upload({
   agentId?,
   createdBy?,
   zip, // Uint8Array containing application/zip bytes
-})
-client.skillProviders.search({ provider: 'gantryhub', query?, limit? })
-client.skillProviders.import({
-  ref: 'gantryhub:<slug>@<version>',
-  agentId?,
-  requestedBy?,
 })
 client.skillDrafts.list({ agentId? })
 client.skillDrafts.approve(skillId, { approvedBy?, target? }) // local | hosted
@@ -205,12 +198,11 @@ client.agents.skills.disable(agentId, skillId)
 Drafts are durable across restart because metadata lives in Postgres and file
 bytes live as readable skill folders (`skills/<skill-slug>/...` or
 `skill-drafts/<request-id>/<skill-slug>/...`) in the selected file/object
-backend. The database stores metadata, source, hashes, provider refs, bindings,
-and audit only. Draft, rejected, and disabled skills are not materialized into
-per-run `CLAUDE_CONFIG_DIR/skills`. Skill name and description are parsed from
-`SKILL.md`; upload requests only carry context such as the proposing agent or
-creator. Provider imports, including GantryHub, still create reviewable drafts;
-provider verification improves review context but does not bypass approval.
+backend. The database stores metadata, source type, hashes, bindings, and audit
+only. Draft, rejected, and disabled skills are not materialized into per-run
+`CLAUDE_CONFIG_DIR/skills`. Skill name and description are parsed from
+`SKILL.md`; upload, catalog, URL, and CLI-command installs all become the same
+reviewed local skill package after approval.
 
 ## MCP Servers
 
@@ -241,16 +233,16 @@ client.agents.mcpServers.update(agentId, serverId, { required?, permissionPolicy
 client.agents.mcpServers.disable(agentId, serverId)
 ```
 
-MCP definitions store credential reference names only. Broker-injected values
-are projected into a private per-run config file with `0600` permissions and
+MCP definitions store Gantry Secret reference names only. Resolved values are
+projected into a private per-run config file with `0600` permissions and
 deleted by the runner after startup and by the host on early spawn failures;
-they are not saved in Claude config, FileArtifacts, or Postgres rows.
+they are not saved in Claude config, FileArtifacts, or MCP definition rows.
 `allowedToolPatterns` is the enforced SDK allowlist for third-party MCP tool
 names. `autoApproveToolPatterns` is session auto-allow scope and must be a
 subset of `allowedToolPatterns` when an explicit allowlist is present.
-Agent-requested MCP credential needs are labels, not raw broker ref selectors;
-the host projects them into a server-scoped `MCP_<SERVER>_<NEED>_REF` reference
-before any approved next-run materialization.
+Agent-requested MCP credential needs are labels, not raw secret values. The host
+normalizes them to Gantry Secret env names such as `GITHUB_TOKEN` before any
+approved current-run or next-run materialization.
 Remote MCP URLs must use HTTPS and cannot target local, private, link-local, or
 metadata hosts. Gantry resolves remote MCP hostnames during approval, testing,
 and each materialization pass and rejects any A/AAAA record in private,
@@ -598,16 +590,14 @@ POST   /v1/skills/drafts/:id/approve             skills:admin
 POST   /v1/skills/drafts/:id/reject              skills:admin
 GET    /v1/skills/:skillId/files                 skills:read
 GET    /v1/skills/:skillId/files/:path           skills:read
-GET    /v1/skill-providers/gantryhub/search        skills:read
-POST   /v1/skill-providers/gantryhub/import        skills:admin
 GET    /v1/agents/:agentId/skills                skills:read
 PUT    /v1/agents/:agentId/skills/:skillId       skills:admin
 DELETE /v1/agents/:agentId/skills/:skillId       skills:admin
 ```
 
 An enabled binding only affects runtime when the skill is approved.
-Local approved skills are unpacked into the per-run Claude config; hosted
-approved skills are represented by Anthropic provider refs.
+Approved skills are unpacked into the per-run Claude config from Gantry-owned
+skill artifacts.
 
 ## Agent MCP Server Bindings
 

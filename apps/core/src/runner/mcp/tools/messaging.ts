@@ -22,6 +22,7 @@ import {
   IPC_RESPONSE_KEY_ID,
   MESSAGES_DIR,
   threadId,
+  jobId,
 } from '../context.js';
 import { truncateText } from '../formatting.js';
 import { hasValidIpcResponseSignature, writeIpcFile } from '../ipc.js';
@@ -94,7 +95,7 @@ async function requestUserInteractionBoundary(
 export function registerMessagingTools(server: McpServer): void {
   server.tool(
     'send_message',
-    "Send a message to the user or group immediately while you're still running. Use this for progress updates or to send multiple messages. You can call this multiple times.",
+    "Send a message to the user or group immediately while you're still running. Use this for live progress updates or to send multiple messages. In scheduled jobs, the scheduler sends the completion notification, so do not use this for job results.",
     {
       text: z.string().describe('The message text to send'),
       sender: z
@@ -110,6 +111,16 @@ export function registerMessagingTools(server: McpServer): void {
         signal?: AbortSignal;
       },
     ) => {
+      if (jobId) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Scheduled job message suppressed. The scheduler will send one completion notification when the job finishes.',
+            },
+          ],
+        };
+      }
       const data: Record<string, string | undefined> = {
         type: 'message',
         chatJid,

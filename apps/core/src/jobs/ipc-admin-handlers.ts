@@ -2,7 +2,6 @@ import path from 'path';
 
 import { McpServerService } from '../application/mcp/mcp-server-service.js';
 import { McpToolProxy } from '../application/mcp/mcp-tool-proxy.js';
-import { SkillDraftService } from '../application/skills/skill-draft-service.js';
 import {
   getRuntimeRepositories,
   getRuntimeStorage,
@@ -17,9 +16,7 @@ import { isValidGroupFolder } from '../platform/group-folder.js';
 import { TaskContext, TaskHandler } from './ipc-types.js';
 import { memoryAgentIdForGroupFolder } from '../memory/app-memory-boundaries.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
-import { parseSkillDraftAssets } from './skill-draft-ipc.js';
-import { startSkillPermissionReview } from './ipc-skill-permission-review.js';
-import { getHostRuntimeCredentialEnv } from '../runtime/agent-spawn-host.js';
+import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
 import {
   isPermanentPermissionDecision,
   formatPersistentPermissionRulesForUser,
@@ -45,10 +42,26 @@ import {
   isBrowserActionMcpToolRule,
   isProjectedBrowserMcpToolRule,
 } from '../shared/agent-tool-references.js';
+import {
+  formatApprovalRequestedMessage,
+  formatNotApprovedMessage,
+} from '../shared/user-visible-messages.js';
 import { getBuiltinSemanticCapability } from '../shared/semantic-capabilities.js';
 import { jobLocalCliCapabilityConflict } from './ipc-request-permission-local-cli.js';
+import {
+  configureSkillInstallHandlers,
+  requestSkillDraftHandler,
+  requestSkillInstallHandler,
+} from './ipc-skill-install-handlers.js';
 
 const pendingRequestOnlyCapabilityReviews = new Set<string>();
+
+configureSkillInstallHandlers({
+  getStorage: getRuntimeStorage,
+  logInfo: (context, message) => logger.info(context, message),
+  logError: (context, message) => logger.error(context, message),
+  syncApprovedCapabilitySettings,
+});
 
 function createContextTaskResponder(context: TaskContext) {
   return createTaskResponder(
@@ -244,7 +257,11 @@ const mcpListToolsHandler: TaskHandler = async (context) => {
   try {
     const payload = data.payload || {};
     const serverName = toTrimmedString(payload.serverName, { maxLen: 80 });
-    const proxy = await createMcpProxyForSourceGroup(sourceAgentFolder, deps);
+    const proxy = await createMcpProxyForSourceGroup({
+      appId: data.appId as never,
+      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
+      deps,
+    });
     const result = await proxy.listTools({
       appId: data.appId as never,
       agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
@@ -290,7 +307,11 @@ const mcpCallToolHandler: TaskHandler = async (context) => {
       !Array.isArray(payload.arguments)
         ? (payload.arguments as Record<string, unknown>)
         : {};
-    const proxy = await createMcpProxyForSourceGroup(sourceAgentFolder, deps);
+    const proxy = await createMcpProxyForSourceGroup({
+      appId: data.appId as never,
+      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
+      deps,
+    });
     const result = await proxy.callTool({
       appId: data.appId as never,
       agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
@@ -307,95 +328,12 @@ const mcpCallToolHandler: TaskHandler = async (context) => {
   }
 };
 
-const requestSkillDraftHandler: TaskHandler = async (context) => {
-  const { data, deps, sourceAgentFolder, sourceAgentFolderJids } = context;
-  const { acceptData, reject } = createContextTaskResponder(context);
-  const payload = data.payload || {};
-  if (!data.appId) {
-    reject('Skill draft requests require signed app scope.', 'forbidden');
-    return;
-  }
-  const reason = toTrimmedString(payload.reason, { maxLen: 2000 }) || '';
-  if (!reason) {
-    reject('Missing required field: reason.', 'invalid_request');
-    return;
-  }
-  const requestedTargetJid = validateSameChannelApprovalTarget({
-    data,
-    sourceAgentFolderJids,
-    requestKind: 'Skill draft',
-    reject,
-  });
-  if (!requestedTargetJid) return;
-  if (
-    typeof deps.requestPermissionApproval !== 'function' ||
-    typeof deps.sendMessage !== 'function'
-  ) {
-    reject(
-      'Skill draft requests require a configured approval surface.',
-      'preflight_failed',
-    );
-    return;
-  }
-
-  const parsed = parseSkillDraftAssets(payload.files);
-  if (!parsed.ok) {
-    reject(parsed.error, 'invalid_request');
-    return;
-  }
-
-  const storage = getRuntimeStorage();
-  const service = new SkillDraftService(
-    storage.repositories.skills,
-    storage.skillArtifacts,
-  );
-  try {
-    const draft = await service.importDraft({
-      appId: data.appId as never,
-      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
-      fallbackName: 'agent-created-skill',
-      createdBy: `agent:${sourceAgentFolder}`,
-      assets: parsed.assets,
-    });
-    const responder = { acceptData, reject };
-    startSkillPermissionReview({
-      deps,
-      responder,
-      service,
-      syncApprovedCapabilitySettings,
-      appId: data.appId as never,
-      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
-      sourceAgentFolder,
-      targetJid: requestedTargetJid,
-      threadId: data.authThreadId,
-      skill: {
-        id: draft.id,
-        name: draft.name,
-        description: draft.description,
-        contentHash: draft.storage?.contentHash,
-      },
-      assets: parsed.assets,
-      fileSummaries: parsed.fileSummaries,
-      skillMarkdownPreview: parsed.skillMarkdownPreview,
-      totalSizeBytes: parsed.totalSizeBytes,
-      reason,
-      requestToolName: 'request_skill_proposal',
-    });
-  } catch (err) {
-    reject(
-      err instanceof Error ? err.message : 'Skill draft request failed.',
-      'invalid_request',
-    );
-  }
-};
-
 // prettier-ignore
-type RequestOnlyCapabilityToolName = 'request_skill_install' | 'request_skill_dependency_install' | 'request_permission';
+type RequestOnlyCapabilityToolName = 'request_skill_dependency_install' | 'request_permission';
 // prettier-ignore
 interface RequestOnlyCapabilityReview { toolName: RequestOnlyCapabilityToolName; requestKind: string; displayName: string; reason: string; toolInput: Record<string, unknown>; }
 // prettier-ignore
 const requestOnlyCapabilitySpecs: Record<RequestOnlyCapabilityToolName, { kind: string; required: string[]; any?: string[]; display: string; effect: string }> = {
-  request_skill_install: { kind: 'Skill install', required: ['spec'], display: 'spec', effect: 'review_only_no_direct_install' },
   request_skill_dependency_install: { kind: 'Skill dependency install', required: ['ecosystem'], any: ['packages', 'commandArgv'], display: 'ecosystem', effect: 'review_only_no_command_execution' },
   request_permission: { kind: 'Permission', required: [], any: ['capabilityId', 'toolName', 'toolNames', 'channelTool'], display: 'capabilityDisplayName', effect: 'review_only_no_permission_change' },
 };
@@ -421,7 +359,7 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
 };
 
 // prettier-ignore
-export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, request_settings_update: requestSettingsUpdateHandler, request_skill_install: requestOnlyCapabilityHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_permission: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillDraftHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_call_tool: mcpCallToolHandler };
+export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, request_settings_update: requestSettingsUpdateHandler, request_skill_install: requestSkillInstallHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_permission: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillDraftHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_call_tool: mcpCallToolHandler };
 
 // prettier-ignore
 function validateSameChannelApprovalTarget(input: { data: Parameters<TaskHandler>[0]['data']; sourceAgentFolderJids: string[]; requestKind: string; reject: (error: string, code?: string, details?: string[]) => void }): string | null {
@@ -482,7 +420,7 @@ function requestOnlyCapabilityEffect(toolName: RequestOnlyCapabilityToolName, to
 function requestOnlyCapabilityQueuedMessage(review: RequestOnlyCapabilityReview): string {
   return review.toolName === 'request_permission'
     ? requestPermissionQueuedMessage({ toolName: 'request_permission', displayName: review.displayName })
-    : `${review.displayName} request sent to this chat for approval. This records a permission review only and does not enable the capability directly.`;
+    : `${formatApprovalRequestedMessage(review.displayName)} Admin setup may still be needed after approval.`;
 }
 
 // prettier-ignore
@@ -564,7 +502,7 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
         toolName: input.review.toolName,
         displayName: input.review.displayName,
         title: `Approve ${input.review.requestKind.toLowerCase()} request`,
-        description: input.review.toolName === 'request_permission' ? requestPermissionDescription() : 'Only configured approvers can decide this request. This records the permission review only and does not enable the capability directly.',
+        description: input.review.toolName === 'request_permission' ? requestPermissionDescription() : 'Only configured approvers can decide this request. Approval records the admin decision; setup may still require a host admin.',
         decisionReason: input.review.reason,
         toolInput: input.review.toolInput,
         ...(semanticCapabilityInteraction(input.review, requestId)
@@ -585,15 +523,15 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
       }
       message = decision.approved && decision.decidedBy
         ? persistedRules.length
-          ? `Approved ${input.review.displayName}. Always allowed by ${decision.decidedBy}: ${formatPersistentPermissionRulesForUser(persistedRules)}.`
-          : `Approved ${input.review.displayName}. Permission review recorded by ${decision.decidedBy}; no capability was enabled by this request-only flow.`
-        : `Rejected ${input.review.displayName}: ${reason}. No capability was enabled.`;
+          ? `Allowed ${input.review.displayName}. Future matching requests are allowed. Details: ${formatPersistentPermissionRulesForUser(persistedRules)}.`
+          : `Approved ${input.review.displayName}. Admin setup may still be needed before it can be used.`
+        : `Not approved: ${input.review.displayName}. Reason: ${reason}.`;
     } catch (err) {
       logger.error(
         { err, sourceAgentFolder: input.sourceAgentFolder, toolName: input.review.toolName },
         'Capability permission review failed',
       );
-      message = `Rejected ${input.review.displayName}: ${err instanceof Error ? err.message : 'permission review failed'}. No capability was enabled.`;
+      message = `Not approved: ${input.review.displayName}. Reason: ${err instanceof Error ? err.message : 'permission review failed'}.`;
     }
     await input.deps.sendMessage(input.targetJid, message, input.threadId ? { threadId: input.threadId } : undefined);
   })()
@@ -699,19 +637,25 @@ function detailFromToolInput(
 function credentialRefsForRequestedMcp(serverName: string, transport: string, credentialNeeds: string[]) {
   if (transport === 'http' || transport === 'sse') {
     return credentialNeeds.map((ref, index) => ({
-      name: brokerRefNameForAgentRequestedMcp(serverName, ref),
+      name: secretNameForRequestedMcp(serverName, ref),
       target: 'header' as const,
       key: credentialNeeds.length === 1 && index === 0 ? 'Authorization' : headerNameForCredentialNeed(ref),
     }));
   }
-  return credentialNeeds.map((ref) => ({ name: brokerRefNameForAgentRequestedMcp(serverName, ref), target: 'env' as const, key: headerNameForCredentialNeed(ref) }));
+  return credentialNeeds.map((ref) => ({ name: secretNameForRequestedMcp(serverName, ref), target: 'env' as const, key: secretNameForCredentialNeed(ref) }));
 }
 
 // prettier-ignore
-function brokerRefNameForAgentRequestedMcp(serverName: string, credentialNeed: string): string {
-  const server = serverName.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+function secretNameForRequestedMcp(serverName: string, credentialNeed: string): string {
+  const server = serverName.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  const need = secretNameForCredentialNeed(credentialNeed);
+  return `MCP_${server || 'SERVER'}_${need}_REF`;
+}
+
+// prettier-ignore
+function secretNameForCredentialNeed(credentialNeed: string): string {
   const need = credentialNeed.replace(/_REF$/i, '').toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-  return `MCP_${server}_${need}_REF`;
+  return need.replace(/^_+|_+$/g, '') || 'MCP_CREDENTIAL';
 }
 
 // prettier-ignore
@@ -748,7 +692,7 @@ async function completeMcpPermissionReview(
     displayName: `MCP server: ${input.server.name}`,
     title: 'Approve MCP server for this agent',
     description:
-      'Only configured approvers can decide this request. Approving binds this MCP server and exposes it through the Gantry MCP proxy for current and future runs.',
+      'Only configured approvers can decide this request. Approval connects this service to the agent through the Gantry MCP proxy.',
     decisionReason: input.reason,
     toolInput: {
       serverId: input.server.id,
@@ -812,11 +756,11 @@ async function completeMcpPermissionReview(
   };
   await input.deps.sendMessage(
     input.targetJid,
-    `Approved MCP server ${input.server.name}. Use mcp_list_tools and mcp_call_tool for this server in current and future sessions.`,
+    `Approved MCP server ${input.server.name}. It is available now.`,
     input.threadId ? { threadId: input.threadId } : undefined,
   );
   input.responder.acceptData(
-    `Approved MCP server ${input.server.name}. Use mcp_list_tools and mcp_call_tool in this current run and future sessions.`,
+    `Approved MCP server ${input.server.name}. It is available now.`,
     sameSessionContext,
     'mcp_approved',
   );
@@ -832,30 +776,37 @@ async function rejectMcpDraftFromPermission(
     rejectedBy: 'permission_review',
     reason,
   });
+  const message = formatNotApprovedMessage({
+    action: 'approve',
+    noun: 'MCP server',
+    name: input.server.name,
+    reason,
+  });
   await input.deps.sendMessage(
     input.targetJid,
-    `Rejected MCP server ${input.server.name}: ${reason || 'not approved'}.`,
+    message,
     input.threadId ? { threadId: input.threadId } : undefined,
   );
-  input.responder.reject(
-    `Rejected MCP server ${input.server.name}: ${reason || 'not approved'}.`,
-    'permission_denied',
-  );
+  input.responder.reject(message, 'permission_denied');
 }
 
-async function createMcpProxyForSourceGroup(
-  sourceAgentFolder: string,
-  deps: Parameters<TaskHandler>[0]['deps'],
-): Promise<McpToolProxy> {
+async function createMcpProxyForSourceGroup(input: {
+  appId: import('../domain/app/app.js').AppId;
+  agentId: import('../domain/agent/agent.js').AgentId;
+  deps: Parameters<TaskHandler>[0]['deps'];
+}): Promise<McpToolProxy> {
   const storage = getRuntimeStorage();
-  const credentials = await getHostRuntimeCredentialEnv(
-    memoryAgentIdForGroupFolder(sourceAgentFolder),
-    undefined,
-    { purpose: 'tool_capability' },
-  );
+  const credentialEnv = await resolveMcpCredentialEnvForAgent({
+    appId: input.appId,
+    agentId: input.agentId,
+    mcpServers: storage.repositories.mcpServers,
+    secrets:
+      input.deps.getCapabilitySecretRepository?.() ??
+      storage.repositories.capabilitySecrets,
+  });
   return new McpToolProxy(storage.repositories.mcpServers, {
-    credentialEnv: credentials.env,
-    lookupHostname: deps.mcpHostnameLookup,
+    credentialEnv,
+    lookupHostname: input.deps.mcpHostnameLookup,
   });
 }
 

@@ -2,6 +2,7 @@ import type {
   MaterializedMcpServer,
   McpCredentialRef,
 } from '../../domain/mcp/mcp-servers.js';
+import { formatMissingGantrySecretsMessage } from '../../shared/user-visible-messages.js';
 import { ApplicationError } from '../common/application-error.js';
 import { STDIO_TEMPLATE_COMMANDS } from './mcp-server-policy.js';
 
@@ -89,7 +90,7 @@ function resolveCredentialValues(
     if (!value) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        `Missing broker credential for MCP credential ref: ${ref.name}`,
+        formatMissingGantrySecretsMessage([ref.name]),
       );
     }
     if (ref.target === 'env') env[ref.key] = value;

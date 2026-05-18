@@ -278,9 +278,9 @@ async function inspectToolCapabilityBrokerHealth(
     return {
       status: 'warn',
       message:
-        'Credential broker mode is none; third-party MCP servers with credential refs cannot receive tool credentials.',
+        'Credential broker mode is none; broker-backed semantic tool capabilities cannot receive model-broker credentials.',
       nextAction:
-        'Configure credential_broker in settings.yaml or use only credential-free MCP servers.',
+        'Configure credential_broker in settings.yaml or use Gantry Secrets for skill and MCP capability env vars.',
     };
   }
   const broker = await context.getCredentialBroker();

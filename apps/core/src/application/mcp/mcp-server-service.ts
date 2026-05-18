@@ -25,6 +25,7 @@ import { ApplicationError } from '../common/application-error.js';
 import {
   RemoteMcpDnsValidationCache,
   assertRemoteMcpDestinationPublic,
+  normalizeCredentialRefs,
   validateCredentialRefs,
   validateTransportConfig,
 } from './mcp-server-policy.js';
@@ -528,7 +529,9 @@ export class McpServerService {
       });
       if (
         result.reason instanceof ApplicationError &&
-        /Missing broker credential/.test(result.reason.message)
+        /(?:Missing Gantry Secret|Gantry Secret(?:s)? required)/i.test(
+          result.reason.message,
+        )
       ) {
         throw result.reason;
       }
@@ -623,11 +626,12 @@ function buildVersion(input: {
   credentialRefs: McpCredentialRef[];
   sandboxProfileId?: string;
 }): McpServerVersion {
+  const credentialRefs = normalizeCredentialRefs(input.credentialRefs);
   const configHash = hashMcpConfig({
     config: input.transportConfig,
     allowedToolPatterns: input.allowedToolPatterns,
     autoApproveToolPatterns: input.autoApproveToolPatterns,
-    credentialRefs: input.credentialRefs,
+    credentialRefs,
     sandboxProfileId: input.sandboxProfileId,
   });
   return {
@@ -639,7 +643,7 @@ function buildVersion(input: {
     config: input.transportConfig,
     allowedToolPatterns: input.allowedToolPatterns,
     autoApproveToolPatterns: input.autoApproveToolPatterns,
-    credentialRefs: input.credentialRefs,
+    credentialRefs,
     sandboxProfileId: input.sandboxProfileId,
     configHash,
     createdAt: nowIso(),

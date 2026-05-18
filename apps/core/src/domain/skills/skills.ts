@@ -7,22 +7,9 @@ import type { IsoTimestamp } from '../../shared/time/primitives.js';
 export type SkillId = BrandedId<'SkillId'>;
 export type AgentSkillBindingId = BrandedId<'AgentSkillBindingId'>;
 
-export type SkillSource =
-  | 'bundled'
-  | 'agent_created'
-  | 'admin_uploaded'
-  | 'provider_managed';
+export type SkillSource = 'bundled' | 'agent_created' | 'admin_uploaded';
 export type SkillStatus = 'draft' | 'approved' | 'rejected' | 'disabled';
 export type SkillStorageType = 'local-filesystem' | 'object-store';
-export type SkillProvider = string;
-export type SkillProviderType = string;
-
-export interface SkillProviderRef {
-  provider: SkillProvider;
-  skillId: string;
-  type: SkillProviderType;
-  version?: string;
-}
 
 export interface SkillStorageRef {
   storageType: SkillStorageType;
@@ -43,8 +30,8 @@ export interface SkillCatalogItem {
   promptRefs: string[];
   toolIds: ToolId[];
   workflowRefs: string[];
+  requiredEnvVars?: string[];
   storage?: SkillStorageRef;
-  providerRef?: SkillProviderRef;
   createdBy?: string;
   approvedBy?: string;
   approvedAt?: IsoTimestamp;
@@ -70,7 +57,5 @@ export function isSkillUsableForBinding(skill: SkillCatalogItem): boolean {
 }
 
 export function isSkillMaterializableLocally(skill: SkillCatalogItem): boolean {
-  return (
-    isSkillUsableForBinding(skill) && !!skill.storage && !skill.providerRef
-  );
+  return isSkillUsableForBinding(skill) && !!skill.storage;
 }

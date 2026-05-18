@@ -28,6 +28,7 @@ import {
   isValidSemanticCapabilityId,
   semanticCapabilityRule,
 } from '../shared/semantic-capability-ids.js';
+import { formatApprovalRequestedMessage } from '../shared/user-visible-messages.js';
 
 export interface RequestPermissionReview {
   toolName: 'request_permission';
@@ -37,11 +38,11 @@ export interface RequestPermissionReview {
 export function requestPermissionQueuedMessage(
   review: RequestPermissionReview,
 ): string {
-  return `${review.displayName} request sent to this chat for approval. Choose Allow once for this request, Allow 5 min for a short temporary grant, or Always allow for matching future runs.`;
+  return `${formatApprovalRequestedMessage(review.displayName)} Choose Allow once, Allow 5 min, or Always allow.`;
 }
 
 export function requestPermissionDescription(): string {
-  return 'Only configured approvers can decide this request. Allow once covers this request, Allow 5 min is temporary, and Always allow covers matching future runs.';
+  return 'Only configured approvers can decide this request. Allow once covers this request, Allow 5 min is temporary, and Always allow covers matching future requests.';
 }
 
 export function requestPermissionReviewEffect(

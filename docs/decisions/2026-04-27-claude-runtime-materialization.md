@@ -26,11 +26,10 @@ captures updated artifacts, and removes the temp directory.
 Runtime startup no longer creates runtime-home Claude settings or syncs
 runtime-home Claude skills.
 
-Agent-created or admin-uploaded skills are submitted as skill zips and saved as
-draft skill artifacts. Draft metadata is durable in Postgres, source bytes are
-durable behind a storage ref, and drafts are not materialized until a
-user/admin approves and binds them. Hosted promotion uses Anthropic's native
-skill APIs and stores only provider refs.
+Agent-created, admin-uploaded, catalog, URL, and CLI-command installs are saved
+as draft skill artifacts. Draft metadata is durable in Postgres, source bytes
+are durable behind a storage ref, and drafts are not materialized until a
+user/admin approves and binds them.
 
 ## Consequences
 

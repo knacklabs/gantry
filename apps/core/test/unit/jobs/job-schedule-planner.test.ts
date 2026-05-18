@@ -83,6 +83,15 @@ describe('runtimeJobSchedulePlanner', () => {
     );
   });
 
+  it('normalizes once schedules with offsets to UTC ISO next_run values', () => {
+    expect(
+      runtimeJobSchedulePlanner.planInitial({
+        scheduleType: 'once',
+        scheduleValue: '2026-05-19T09:30:00+05:30',
+      }),
+    ).toEqual({ nextRun: '2026-05-19T04:00:00.000Z' });
+  });
+
   it('returns undefined for invalid resume schedules', () => {
     expect(
       runtimeJobSchedulePlanner.planResume({

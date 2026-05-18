@@ -2,6 +2,7 @@ import type { NewMessage, ConversationRoute } from '../domain/types.js';
 import type { RuntimeAgentSessionRepository } from '../domain/repositories/ops-repo.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
 import type {
+  CapabilitySecretRepository,
   McpServerRepository,
   SkillCatalogRepository,
 } from '../domain/ports/repositories.js';
@@ -328,6 +329,7 @@ export function buildRuntimeRunOptions(input: {
   skillRepository?: SkillCatalogRepository;
   skillArtifactStore?: SkillArtifactStore;
   mcpServerRepository?: McpServerRepository;
+  capabilitySecretRepository?: CapabilitySecretRepository;
   mcpHostnameLookup?: HostnameLookup;
   mcpDnsValidationCache?: RemoteMcpDnsValidationCache;
   publishRuntimeEvent?: RunAgentOptions['publishRuntimeEvent'];
@@ -359,9 +361,12 @@ export function buildRuntimeRunOptions(input: {
         }
       : {};
   const mcpOptions =
-    input.mcpServerRepository && resolvedSkillContext
+    input.mcpServerRepository &&
+    input.capabilitySecretRepository &&
+    resolvedSkillContext
       ? {
           mcpServerRepository: input.mcpServerRepository,
+          capabilitySecretRepository: input.capabilitySecretRepository,
           mcpContext: resolvedSkillContext,
           mcpHostnameLookup: input.mcpHostnameLookup,
           mcpDnsValidationCache: input.mcpDnsValidationCache,
@@ -371,6 +376,9 @@ export function buildRuntimeRunOptions(input: {
     ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
     ...(input.credentialBroker
       ? { credentialBroker: input.credentialBroker }
+      : {}),
+    ...(input.capabilitySecretRepository
+      ? { capabilitySecretRepository: input.capabilitySecretRepository }
       : {}),
     ...skillOptions,
     ...mcpOptions,

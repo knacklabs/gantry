@@ -5,7 +5,6 @@ const TELEGRAM_ACTION_CALLBACK_BY_KIND: Record<
   string
 > = {
   scheduler_run_now: 'retry',
-  scheduler_show_last_logs: 'logs',
   scheduler_pause_job: 'pause',
   scheduler_open: 'open',
 };

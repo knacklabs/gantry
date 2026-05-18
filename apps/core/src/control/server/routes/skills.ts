@@ -132,7 +132,6 @@ export async function handleSkillRoutes(
         appId: auth.appId as AppId,
         skillId: decodeURIComponent(approveMatch[1]) as SkillId,
         approvedBy: parsed.data.approvedBy,
-        target: parsed.data.target,
       });
       sendJson(res, 200, { skill: skillToResponse(skill) });
     } catch (error) {
@@ -385,7 +384,6 @@ function skillToResponse(skill: SkillCatalogItem): Record<string, unknown> {
     toolIds: skill.toolIds,
     workflowRefs: skill.workflowRefs,
     storage: skill.storage,
-    providerRef: skill.providerRef,
     createdBy: skill.createdBy,
     approvedBy: skill.approvedBy,
     approvedAt: skill.approvedAt,

@@ -85,6 +85,14 @@ function isRunnableScheduledJob(job: Job): boolean {
   );
 }
 
+function pgBossStartAfter(value: string): Date {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid scheduler next_run: ${value}`);
+  }
+  return date;
+}
+
 function schedulerQueueJid(groupScope: string, jobId?: string): string {
   return `__scheduler__:${groupScope}${jobId ? `:${jobId}` : ''}`;
 }
@@ -355,6 +363,7 @@ export class PgBossSchedulerEngine {
         'Re-enqueueing stale once scheduler job after missed fire window',
       );
     }
+    const pgBossStartAt = pgBossStartAfter(startAfter);
     await boss.send(
       SCHEDULER_QUEUE,
       {
@@ -363,7 +372,7 @@ export class PgBossSchedulerEngine {
       },
       {
         id: pgBossSendId(job.id, scheduleSlotForJob(job)),
-        startAfter,
+        startAfter: pgBossStartAt,
         group: { id: pgBossGroupId(job.group_scope) },
         retryLimit: 0,
       },

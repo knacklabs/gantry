@@ -50,10 +50,11 @@ compatibility state.
 Before activation and immediately before model spawn, Gantry performs a
 best-effort readiness check against durable target-agent capability bindings,
 tool-capability broker health, selected MCP server materialization metadata,
-MCP credential references, and browser profile state. If setup is not ready,
+MCP Gantry Secret references, and browser profile state. If setup is not ready,
 the job is stored as `paused` with the short redacted `pause_reason`
-`Setup required`, `next_run=null`, and structured `setup` metadata. The
-conservative setup states are:
+`Setup required`, `next_run=null`, and structured `setup` metadata. User-facing
+notifications render this as `Setup needed` with a short reason and one action.
+The conservative setup states are:
 
 ```text
 ready
@@ -72,8 +73,8 @@ target-agent capability binding such as `Browser`, `capability:<id>`, an exact
 approved Gantry admin tool, a scoped Bash rule, or an approved MCP server
 binding. Browser auth remains profile/session based; Gantry reports that login
 may be required unless the profile already has durable state or auth markers.
-MCP readiness may inspect materialized definitions and broker credential refs,
-but must not start arbitrary MCP servers as a readiness side effect.
+MCP readiness may inspect materialized definitions and Gantry Secret refs, but
+must not start arbitrary MCP servers as a readiness side effect.
 
 ## Execution
 
@@ -132,7 +133,8 @@ absolute executable template. Configured built-in capabilities use
 
 The scheduler records the failure summary, emits `job.tool_denied`, pauses
 recurring jobs that need a missing persistent capability as `Setup required`,
-and notifies the linked group/thread or DM unless the job is silent.
+and notifies the linked group/thread or DM with `Setup needed` unless the job is
+silent.
 Pre-spawn readiness blockers emit `job.setup_required` and pause before a
 `JobRun` is claimed. After a run is claimed, the scheduler emits
 `job.tool_activity` for required-tool preflight, SDK tool requests, allow/deny

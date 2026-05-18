@@ -26,6 +26,7 @@ function makeJobService(context: TaskContext): JobManagementService {
     schedulePlanner: runtimeJobSchedulePlanner,
     toolRepository: context.deps.getToolRepository?.(),
     mcpServerRepository: context.deps.getMcpServerRepository?.(),
+    capabilitySecretRepository: context.deps.getCapabilitySecretRepository?.(),
     getCredentialBroker: context.deps.getCredentialBroker,
     getBrowserStatus: context.deps.getBrowserStatus,
   });
@@ -44,6 +45,7 @@ function makeRunNowJobService(context: TaskContext): JobManagementService {
     },
     toolRepository: context.deps.getToolRepository?.(),
     mcpServerRepository: context.deps.getMcpServerRepository?.(),
+    capabilitySecretRepository: context.deps.getCapabilitySecretRepository?.(),
     getCredentialBroker: context.deps.getCredentialBroker,
     getBrowserStatus: context.deps.getBrowserStatus,
   });
@@ -307,7 +309,7 @@ function formatSetupOutcome(job?: { setup_state?: unknown }): string {
   const blockers = (setupState as { blockers?: unknown }).blockers;
   const firstBlocker = Array.isArray(blockers) ? blockers[0] : undefined;
   const action = setupActionLabel(jobSetupBlockerFromUnknown(firstBlocker));
-  return ` Setup required: ${action || String(state ?? 'unknown')}.`;
+  return ` Setup needed: ${action || String(state ?? 'unknown')}.`;
 }
 
 export const schedulerMutateTaskHandlers: Record<string, TaskHandler> = {

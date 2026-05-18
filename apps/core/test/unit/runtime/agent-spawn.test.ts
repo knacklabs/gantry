@@ -215,9 +215,16 @@ import type {
   McpServerVersion,
   McpServerVersionId,
 } from '@core/domain/mcp/mcp-servers.js';
-import type { McpServerRepository } from '@core/domain/ports/repositories.js';
+import type {
+  CapabilitySecretRepository,
+  McpServerRepository,
+} from '@core/domain/ports/repositories.js';
 import type { AgentId } from '@core/domain/agent/agent.js';
 import type { AppId } from '@core/domain/app/app.js';
+import type {
+  CapabilitySecret,
+  CapabilitySecretMetadata,
+} from '@core/domain/capability-secrets/capability-secrets.js';
 
 const testGroup: ConversationRoute = {
   name: 'Test Group',
@@ -304,6 +311,57 @@ class SpawnMcpRepository implements McpServerRepository {
   }
 }
 
+class SpawnCapabilitySecretRepository implements CapabilitySecretRepository {
+  constructor(private readonly values: Record<string, string>) {}
+
+  async getSecret(input: {
+    appId: AppId;
+    name: string;
+  }): Promise<CapabilitySecret | null> {
+    const value = this.values[input.name];
+    if (!value) return null;
+    return {
+      id: `secret:${input.appId}:${input.name}` as never,
+      appId: input.appId,
+      name: input.name,
+      value,
+      allowedCapabilityIds: [],
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    };
+  }
+
+  async listSecrets(): Promise<CapabilitySecretMetadata[]> {
+    return [];
+  }
+
+  async upsertSecret(): Promise<CapabilitySecretMetadata> {
+    throw new Error('not implemented');
+  }
+
+  async deleteSecret(): Promise<boolean> {
+    return false;
+  }
+}
+
+class SpawnSkillRepository {
+  async listEnabledSkillsForAgent() {
+    return [
+      {
+        id: 'skill:linkedin-posting',
+        appId: 'app-one',
+        agentId: 'agent-one',
+        name: 'linkedin-posting',
+        status: 'approved',
+        requiredEnvVars: ['LINKEDIN_ACCESS_TOKEN'],
+        createdBy: 'test',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+      },
+    ];
+  }
+}
+
 function mcpRecord(): MaterializedMcpServer {
   const definition: McpServerDefinition = {
     id: 'mcp:github' as McpServerId,
@@ -330,7 +388,7 @@ function mcpRecord(): MaterializedMcpServer {
     allowedToolPatterns: ['search_repositories'],
     autoApproveToolPatterns: ['search_repositories'],
     credentialRefs: [
-      { name: 'GITHUB_TOKEN_REF', target: 'env', key: 'GITHUB_TOKEN' },
+      { name: 'GITHUB_TOKEN', target: 'env', key: 'GITHUB_TOKEN' },
     ],
     configHash: 'hash',
     createdAt: new Date(0).toISOString(),
@@ -1051,12 +1109,15 @@ describe('agent-spawn timeout behavior', () => {
     const { getHostRuntimeCredentialEnv } =
       await import('@core/runtime/agent-spawn-host.js');
     vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValue({
-      env: { GITHUB_TOKEN_REF: 'broker-token' },
+      env: { GITHUB_TOKEN: 'broker-token' },
       credentialProviders: {},
       brokerApplied: true,
       brokerProfile: 'test',
     });
     const repository = new SpawnMcpRepository([mcpRecord()]);
+    const secrets = new SpawnCapabilitySecretRepository({
+      GITHUB_TOKEN: 'gantry-secret-token',
+    });
     const lookupHostname = vi.fn(async () => [
       { address: '93.184.216.34', family: 4 as const },
     ]);
@@ -1067,11 +1128,12 @@ describe('agent-spawn timeout behavior', () => {
       undefined,
       {
         mcpServerRepository: repository,
+        capabilitySecretRepository: secrets,
         mcpContext: { appId: 'app-one', agentId: 'agent-one' },
         mcpHostnameLookup: lookupHostname,
         credentialBroker: {
           getCredentialInjection: vi.fn(async () => ({
-            env: { GITHUB_TOKEN_REF: 'broker-token' },
+            env: { GITHUB_TOKEN: 'broker-token' },
             metadata: {
               brokerApplied: true,
               brokerProfile: 'test',
@@ -1096,6 +1158,12 @@ describe('agent-spawn timeout behavior', () => {
         agentId: 'agent-one',
         serverIds: ['mcp:github'],
       }),
+      expect.objectContaining({
+        appId: 'app-one',
+        agentId: 'agent-one',
+        serverIds: ['mcp:github'],
+        credentialEnv: { GITHUB_TOKEN: 'gantry-secret-token' },
+      }),
     ]);
     expect(env.GANTRY_MCP_SERVERS_JSON).toBeUndefined();
     expect(env.GANTRY_MCP_CONFIG_FILE).toMatch(/mcp-.*\.json$/);
@@ -1117,9 +1185,14 @@ describe('agent-spawn timeout behavior', () => {
         type: 'stdio',
         command: 'npx',
         args: ['-y', '@modelcontextprotocol/server-github'],
-        env: { GITHUB_TOKEN: 'broker-token' },
+        env: { GITHUB_TOKEN: 'gantry-secret-token' },
       },
     });
+    expect(
+      vi
+        .mocked(getHostRuntimeCredentialEnv)
+        .mock.calls.some((call) => call[2]?.purpose === 'tool_capability'),
+    ).toBe(false);
     expect(repository.auditEvents).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1133,10 +1206,31 @@ describe('agent-spawn timeout behavior', () => {
     rmSyncSpy.mockRestore();
   });
 
+  it('cleans up runtime resources when selected skill secrets are missing', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    const result = await spawnAgent(testGroup, testInput, () => {}, undefined, {
+      skillRepository: new SpawnSkillRepository() as any,
+      capabilitySecretRepository: new SpawnCapabilitySecretRepository({}),
+      skillContext: { appId: 'app-one', agentId: 'agent-one' },
+    });
+
+    expect(result).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('LINKEDIN_ACCESS_TOKEN'),
+    });
+    expect(mockEnsureEgressGateway).toHaveBeenCalledTimes(1);
+    expect(mockCloseEgressGateway).toHaveBeenCalledWith({
+      key: 'test-egress',
+      proxyUrl: 'http://127.0.0.1:18080/',
+      port: 18080,
+    });
+    expect(vi.mocked(spawn)).not.toHaveBeenCalled();
+  });
+
   it('does not materialize MCP bindings when no MCP servers are selected for the run', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValue({
-      env: { GITHUB_TOKEN_REF: 'broker-token' },
+      env: { GITHUB_TOKEN: 'broker-token' },
       credentialProviders: {},
       brokerApplied: true,
       brokerProfile: 'test',
@@ -1182,7 +1276,7 @@ describe('agent-spawn timeout behavior', () => {
     const { getHostRuntimeCredentialEnv } =
       await import('@core/runtime/agent-spawn-host.js');
     vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValueOnce({
-      env: { GITHUB_TOKEN_REF: 'broker-token' },
+      env: { GITHUB_TOKEN: 'broker-token' },
       credentialProviders: {},
       brokerApplied: true,
       brokerProfile: 'test',
@@ -1197,7 +1291,7 @@ describe('agent-spawn timeout behavior', () => {
       ]),
       credentialBroker: {
         getCredentialInjection: vi.fn(async () => ({
-          env: { GITHUB_TOKEN_REF: 'broker-token' },
+          env: { GITHUB_TOKEN: 'broker-token' },
           metadata: {
             brokerApplied: true,
             brokerProfile: 'test',

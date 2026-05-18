@@ -492,6 +492,8 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     getToolRepository: () => getRuntimeStorage().repositories.tools,
     getSkillRepository: () => getRuntimeStorage().repositories.skills,
     getMcpServerRepository: () => getRuntimeStorage().repositories.mcpServers,
+    getCapabilitySecretRepository: () =>
+      getRuntimeStorage().repositories.capabilitySecrets,
     getMcpHostnameLookup: options.mcpHostnameLookup,
     getMcpDnsValidationCache: () => mcpDnsValidationCache,
     getSkillArtifactStore:

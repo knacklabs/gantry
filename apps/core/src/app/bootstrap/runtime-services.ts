@@ -31,6 +31,7 @@ import type {
   RuntimeRouterStateRepository,
 } from '../../domain/repositories/ops-repo.js';
 import type {
+  CapabilitySecretRepository,
   McpServerRepository,
   OutboundDeliveryRepository,
   PermissionRepository,
@@ -85,6 +86,8 @@ interface Deps {
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
   getSkillRepository?: () => SkillCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
+  getCapabilitySecretRepository?: () => CapabilitySecretRepository | undefined;
+  runApprovedCommand?: IpcDeps['runApprovedCommand'];
   getMcpDnsValidationCache?: () => RemoteMcpDnsValidationCache | undefined;
   getSkillArtifactStore?: () => SkillArtifactStore | undefined;
   getToolRepository: () => ToolCatalogRepository;
@@ -123,7 +126,6 @@ function makeDefaultDeps(): RuntimeServicesDefaults {
     exit: (code: number) => process.exit(code),
   };
 }
-
 function createGroupSnapshotSync(app: RuntimeApp, deps: Deps): () => void {
   let syncInFlight: Promise<void> | undefined;
   let syncDirty = false;
@@ -210,6 +212,7 @@ export async function startRuntimeServices(
           : undefined),
       getSkillRepository: resolved.getSkillRepository,
       getMcpServerRepository: resolved.getMcpServerRepository,
+      getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
       getMcpHostnameLookup: () => resolved.mcpHostnameLookup,
       getMcpDnsValidationCache: resolved.getMcpDnsValidationCache,
       getSkillArtifactStore: resolved.getSkillArtifactStore,
@@ -238,6 +241,8 @@ export async function startRuntimeServices(
     opsRepository: resolved.opsRepository,
     getToolRepository: resolved.getToolRepository,
     getMcpServerRepository: resolved.getMcpServerRepository,
+    getCapabilitySecretRepository: resolved.getCapabilitySecretRepository,
+    runApprovedCommand: resolved.runApprovedCommand,
     getPermissionRepository: resolved.getPermissionRepository,
     publishRuntimeEvent: resolved.publishRuntimeEvent,
     mirrorAgentToolRulesToSettings: createAgentToolRuleSettingsMirror({
@@ -257,13 +262,10 @@ export async function startRuntimeServices(
     requestUserAnswer: channelWiring.requestUserAnswer,
     mcpHostnameLookup: resolved.mcpHostnameLookup,
   });
-
   syncGroupSnapshots();
-
   app.queue.setProcessMessagesFn((chatJid) =>
     app.processGroupMessages(chatJid, { queued: true }),
   );
-
   const handleActiveControlCommand = async ({
     chatJid,
     queueJid,
@@ -284,11 +286,9 @@ export async function startRuntimeServices(
     ) {
       return false;
     }
-
     if (!app.queue.isGroupActive(queueJid)) {
       return false;
     }
-
     const threadId =
       typeof message.thread_id === 'string' && message.thread_id.trim()
         ? message.thread_id.trim()

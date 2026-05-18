@@ -57,6 +57,7 @@ function usage(): string {
     '  gantry browser profiles|status',
     '  gantry jobs list|show|events',
     '  gantry model list|set-default|doctor',
+    '  gantry secrets list|set|import-env|unset',
     '  gantry settings export-current|drift',
     '  gantry service install|start|stop|restart',
     '  gantry skill draft upload <skill.zip> [--agent <agentId>] [--created-by <id>]',
@@ -457,6 +458,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (command === 'settings') {
     const { runSettingsCommand } = await import('./settings.js');
     return runSettingsCommand(runtimeHome, rest);
+  }
+
+  if (command === 'secrets') {
+    process.env.GANTRY_HOME = runtimeHome;
+    const { runSecretsCommand } = await import('./secrets.js');
+    return runSecretsCommand(runtimeHome, rest);
   }
 
   if (command === 'skill') {

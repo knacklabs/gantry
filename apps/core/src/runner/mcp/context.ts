@@ -48,6 +48,7 @@ export const chatJid = process.env.GANTRY_CHAT_JID!;
 export const groupFolder = process.env.GANTRY_GROUP_FOLDER!;
 export const appId = process.env.GANTRY_APP_ID?.trim() || undefined;
 export const agentId = process.env.GANTRY_AGENT_ID?.trim() || undefined;
+export const jobId = process.env.GANTRY_JOB_ID?.trim() || undefined;
 export const threadId = process.env.GANTRY_THREAD_ID?.trim() || undefined;
 export const memoryUserId =
   process.env.GANTRY_MEMORY_USER_ID?.trim() || undefined;
@@ -142,6 +143,8 @@ export function capabilityStatusText(): string {
     configuredTools: configuredAllowedTools,
   });
   const lines = [
+    'Runtime capability context for this agent. Use these details to choose tools; do not quote this block directly to users.',
+    '',
     'Gantry MCP tools available in this run:',
     ...availableToolNames
       .sort()
@@ -176,21 +179,21 @@ export function capabilityStatusText(): string {
       .sort()
       .map((action) => `- available: ${action}`),
     '',
-    'Selected skills for this agent:',
+    'Installed skills ready for this agent:',
     ...(selectedSkillIds.length > 0
       ? selectedSkillIds
           .slice()
           .sort()
-          .map((skillId) => `- selected: ${skillId}`)
-      : ['- none']),
+          .map((skillId) => `- ready: ${skillId}`)
+      : ['- none installed yet']),
     '',
-    'Selected MCP servers for this agent:',
+    'Connected MCP services ready for this agent:',
     ...(selectedMcpServerIds.length > 0
       ? selectedMcpServerIds
           .slice()
           .sort()
-          .map((serverId) => `- selected: ${serverId}`)
-      : ['- none']),
+          .map((serverId) => `- ready: ${serverId}`)
+      : ['- none connected yet']),
     '',
     'Browser capability:',
     ...(requestableBrowserTools.length > 0
@@ -201,7 +204,7 @@ export function capabilityStatusText(): string {
           `  note: ${tool.note}`,
         ])
       : [
-          '- selected: Browser',
+          '- ready: Browser',
           '  note: Browser exposes Gantry-owned browser_* tools. Status is read-only; other actions launch the host-derived profile lazily.',
         ]),
   ];

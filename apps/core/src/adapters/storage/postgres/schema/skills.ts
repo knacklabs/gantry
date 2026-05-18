@@ -29,6 +29,7 @@ export const skillCatalogPostgres = pgTable(
     promptRefsJson: text('prompt_refs_json').notNull().default('[]'),
     toolIdsJson: text('tool_ids_json').notNull().default('[]'),
     workflowRefsJson: text('workflow_refs_json').notNull().default('[]'),
+    requiredEnvVarsJson: text('required_env_vars_json').notNull().default('[]'),
     storageType: text('storage_type'),
     storageRef: text('storage_ref'),
     contentHash: text('content_hash'),
@@ -44,10 +45,6 @@ export const skillCatalogPostgres = pgTable(
       withTimezone: true,
       mode: 'string',
     }),
-    provider: text('provider'),
-    providerSkillId: text('provider_skill_id'),
-    providerSkillType: text('provider_skill_type'),
-    providerSkillVersion: text('provider_skill_version'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

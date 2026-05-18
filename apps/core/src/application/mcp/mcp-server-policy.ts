@@ -3,6 +3,10 @@ import type {
   McpServerTransportConfig,
 } from '../../domain/mcp/mcp-servers.js';
 import {
+  assertValidCapabilitySecretName,
+  normalizeCapabilitySecretName,
+} from '../../domain/capability-secrets/capability-secrets.js';
+import {
   hostnameForNetwork,
   isIpAddress,
   isPrivateNetworkAddress,
@@ -22,7 +26,6 @@ export const STDIO_TEMPLATE_COMMANDS: Record<
 };
 
 const METADATA_HOSTNAMES = new Set(['metadata.google.internal', 'metadata']);
-const BROKER_CREDENTIAL_REF_PATTERN = /^[A-Z][A-Z0-9_]*_REF$/;
 const MCP_CREDENTIAL_TARGET_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,127}$/;
 const NPM_PACKAGE_SPEC_PATTERN =
   /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@[a-z0-9._~^*+-][a-z0-9._~^*+-]*)?$/;
@@ -208,10 +211,12 @@ export class RemoteMcpDnsValidationCache {
 export function validateCredentialRefs(refs: McpCredentialRef[]): void {
   const seen = new Set<string>();
   for (const ref of refs) {
-    if (!BROKER_CREDENTIAL_REF_PATTERN.test(ref.name)) {
+    try {
+      assertValidCapabilitySecretName(normalizeCapabilitySecretName(ref.name));
+    } catch {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        `MCP credential ref must be a broker-scoped reference ending in _REF: ${ref.name}`,
+        `MCP credential ref must name a Gantry Secret environment variable: ${ref.name}`,
       );
     }
     if (!MCP_CREDENTIAL_TARGET_KEY_PATTERN.test(ref.key)) {
@@ -229,6 +234,15 @@ export function validateCredentialRefs(refs: McpCredentialRef[]): void {
     }
     seen.add(key);
   }
+}
+
+export function normalizeCredentialRefs(
+  refs: readonly McpCredentialRef[],
+): McpCredentialRef[] {
+  return refs.map((ref) => ({
+    ...ref,
+    name: normalizeCapabilitySecretName(ref.name),
+  }));
 }
 
 function assertSafeRemoteMcpHostname(hostname: string): void {

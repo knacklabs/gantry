@@ -4,6 +4,7 @@ import type {
   JobSetupState,
 } from '../../domain/types.js';
 import type {
+  CapabilitySecretRepository,
   McpServerRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
@@ -11,7 +12,6 @@ import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-
 import type { AgentCredentialBrokerBinding } from '../../domain/models/credentials.js';
 import type { McpServerId } from '../../domain/mcp/mcp-servers.js';
 import type { Clock } from '../common/clock.js';
-import { ApplicationError } from '../common/application-error.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from './job-access.js';
 import {
   agentIdForJobGroupScope,
@@ -38,6 +38,11 @@ import {
   formatCapabilityRequirement,
   localCliCommandTemplatePermissionRule,
 } from './job-capability-requirements.js';
+import { CapabilitySecretService } from '../capability-secrets/capability-secret-service.js';
+import {
+  formatMissingGantrySecretsMessage,
+  humanizeTechnicalIdentifier,
+} from '../../shared/user-visible-messages.js';
 
 export const SETUP_REQUIRED_PAUSE_REASON = 'Setup required';
 
@@ -50,6 +55,7 @@ export interface JobReadinessBrowserStatus {
 export interface JobReadinessDeps {
   toolRepository?: ToolCatalogRepository;
   mcpServerRepository?: McpServerRepository;
+  capabilitySecretRepository?: CapabilitySecretRepository;
   credentialBroker?: AgentCredentialBroker;
   getBrowserStatus?: (
     profileName: string,
@@ -147,7 +153,7 @@ export async function evaluateJobReadiness(
       appId,
       agentId,
       repository: input.mcpServerRepository,
-      broker: input.credentialBroker,
+      secrets: input.capabilitySecretRepository,
     })),
   );
 
@@ -190,7 +196,7 @@ function capabilityRequirementBlocker(input: {
     state: 'draft_only',
     requirementType: 'local_cli',
     requirementId: requirement.capabilityId,
-    message: `${formatCapabilityRequirement(requirement)} needs reviewed local CLI access before this job can run autonomously.`,
+    message: `${formatCapabilityRequirement(requirement)} needs reviewed local CLI access before this job can run on schedule.`,
     nextAction: capabilityRequirementSetupAction(requirement),
   };
 }
@@ -210,7 +216,7 @@ export function setupStateForDeniedTool(input: {
         state: 'missing_capability',
         requirementType: requirementTypeForTool(toolName),
         requirementId: toolName,
-        message: `Autonomous run denied required tool ${toolName}.`,
+        message: `This job needs ${toolRequirementLabel(toolName)} before it can run.`,
         nextAction:
           input.recoveryAction?.trim() || requiredToolRecoveryAction(toolName),
       },
@@ -224,7 +230,6 @@ export function setupStateForTransientPermission(input: {
   checkedAt?: string;
   previous?: JobSetupState;
 }): JobSetupState {
-  const mode = input.mode?.trim() || 'transient approval';
   const toolName = canonicalSetupToolName(input.toolName);
   return buildJobSetupState({
     checkedAt: input.checkedAt ?? nowIso(),
@@ -234,7 +239,7 @@ export function setupStateForTransientPermission(input: {
         state: 'missing_capability',
         requirementType: requirementTypeForTool(toolName),
         requirementId: toolName,
-        message: `Recurring autonomous job used ${mode} for ${toolName}.`,
+        message: `This scheduled job used temporary ${toolRequirementLabel(toolName)}. Approve lasting access before future runs continue.`,
         nextAction: requiredToolRecoveryAction(toolName),
       },
     ],
@@ -304,7 +309,7 @@ function missingToolBlocker(toolName: string): JobSetupBlocker {
     state: 'missing_capability',
     requirementType: requirementTypeForTool(toolName),
     requirementId: toolName,
-    message: `Required tool is not durably approved for this job: ${toolName}.`,
+    message: `This job needs ${toolRequirementLabel(toolName)} before it can run.`,
     nextAction: requiredToolRecoveryAction(toolName),
   };
 }
@@ -319,6 +324,18 @@ function requirementTypeForTool(
 
 function canonicalSetupToolName(toolName: string): string {
   return isProjectedBrowserMcpToolRule(toolName) ? 'Browser' : toolName;
+}
+
+function toolRequirementLabel(toolName: string): string {
+  if (isCanonicalBrowserCapabilityRule(toolName)) return 'Browser access';
+  const semanticCapabilityId = parseSemanticCapabilityRule(toolName);
+  if (semanticCapabilityId) {
+    return (
+      getBuiltinSemanticCapability(semanticCapabilityId)?.displayName ??
+      humanizeTechnicalIdentifier(semanticCapabilityId)
+    );
+  }
+  return humanizeTechnicalIdentifier(toolName);
 }
 
 async function browserReadinessBlocker(
@@ -466,7 +483,7 @@ async function mcpReadinessBlockers(input: {
   appId: string;
   agentId: string;
   repository?: McpServerRepository;
-  broker?: AgentCredentialBroker;
+  secrets?: CapabilitySecretRepository;
 }): Promise<JobSetupBlocker[]> {
   const required = input.job.required_mcp_servers ?? [];
   if (required.length === 0) return [];
@@ -515,48 +532,44 @@ async function mcpReadinessBlockers(input: {
     }
     const credentialRefs = record.version.credentialRefs;
     if (credentialRefs.length === 0) continue;
-    if (!input.broker) {
-      blockers.push(mcpCredentialBlocker(record.definition.name));
+    if (!input.secrets) {
+      blockers.push(
+        mcpCredentialBlocker(
+          record.definition.name,
+          credentialRefs.map((ref) => ref.name),
+        ),
+      );
       continue;
     }
-    try {
-      const injection = await input.broker.getInjection({
-        binding: brokerBinding(input.broker, input.agentId),
-      });
-      const missingRef = credentialRefs.find(
-        (ref) => !injection.env[ref.name]?.trim(),
+    const resolved = await new CapabilitySecretService(
+      input.secrets,
+    ).resolveMcpCredentialRefs({
+      appId: input.appId as never,
+      refs: credentialRefs,
+      allowedCapabilityIds: [
+        record.definition.id,
+        `mcp:${record.definition.name}`,
+      ],
+    });
+    if (resolved.missing.length > 0) {
+      blockers.push(
+        mcpCredentialBlocker(record.definition.name, resolved.missing),
       );
-      if (missingRef)
-        blockers.push(mcpCredentialBlocker(record.definition.name));
-    } catch (err) {
-      if (
-        err instanceof ApplicationError &&
-        /Missing broker credential/i.test(err.message)
-      ) {
-        blockers.push(mcpCredentialBlocker(record.definition.name));
-        continue;
-      }
-      blockers.push({
-        state: 'broker_unreachable',
-        requirementType: 'credential',
-        requirementId: record.definition.name,
-        message: 'Credential broker could not verify MCP credentials.',
-        nextAction:
-          'Connect or refresh the credential broker account, then resume or recheck the job.',
-      });
     }
   }
   return blockers;
 }
 
-function mcpCredentialBlocker(serverName: string): JobSetupBlocker {
+function mcpCredentialBlocker(
+  serverName: string,
+  secretNames: string[],
+): JobSetupBlocker {
   return {
     state: 'mcp_missing_credential',
     requirementType: 'mcp_server',
     requirementId: serverName,
-    message: `Required MCP server is missing a brokered credential reference: ${serverName}.`,
-    nextAction:
-      'Configure the MCP credential reference through the broker, then resume or recheck the job.',
+    message: formatMissingGantrySecretsMessage(secretNames),
+    nextAction: `Set ${secretNames.map((name) => `gantry secrets set ${name}`).join(' and ')}, then resume or recheck the job.`,
   };
 }
 

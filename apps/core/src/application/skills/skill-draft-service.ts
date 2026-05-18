@@ -7,28 +7,22 @@ import type {
   AgentSkillBindingId,
   SkillCatalogItem,
   SkillId,
-  SkillProviderRef,
   SkillStatus,
 } from '../../domain/skills/skills.js';
 import {
   isSkillMaterializableLocally,
   isSkillUsableForBinding,
 } from '../../domain/skills/skills.js';
+import {
+  assertValidCapabilitySecretName,
+  normalizeCapabilitySecretName,
+} from '../../domain/capability-secrets/capability-secrets.js';
 import { nowIso } from '../../shared/time/datetime.js';
-
-export interface HostedSkillPublisher {
-  publishSkill(input: {
-    skill: SkillCatalogItem;
-    bundleStorageRef: string;
-  }): Promise<SkillProviderRef>;
-  unpublishSkill?(ref: SkillProviderRef): Promise<void>;
-}
 
 export class SkillDraftService {
   constructor(
     private readonly skills: SkillCatalogRepository,
     private readonly artifacts: SkillArtifactStore,
-    private readonly hostedPublisher?: HostedSkillPublisher,
   ) {}
 
   async importDraft(input: {
@@ -37,6 +31,7 @@ export class SkillDraftService {
     name?: string;
     description?: string;
     fallbackName?: string;
+    requiredEnvVars?: string[];
     createdBy?: string;
     assets: Array<{
       path: string;
@@ -63,6 +58,7 @@ export class SkillDraftService {
       name: input.name,
       description: input.description,
       fallbackName: input.fallbackName,
+      requiredEnvVars: input.requiredEnvVars,
     });
     const skill: SkillCatalogItem = {
       id: skillId,
@@ -76,6 +72,7 @@ export class SkillDraftService {
       promptRefs: [],
       toolIds: [],
       workflowRefs: [],
+      requiredEnvVars: metadata.requiredEnvVars,
       storage: stored,
       createdBy: input.createdBy,
       createdAt: now,
@@ -101,7 +98,6 @@ export class SkillDraftService {
     appId: AppId;
     skillId: SkillId;
     approvedBy?: string;
-    target?: 'local' | 'hosted';
     now?: string;
   }): Promise<SkillCatalogItem> {
     const skill = await this.requireSkill(input.appId, input.skillId);
@@ -112,34 +108,16 @@ export class SkillDraftService {
       throw new Error(`Skill draft has no stored artifact: ${skill.id}`);
     }
     const now = input.now ?? nowIso();
-    let providerRef: SkillProviderRef | undefined;
-    if (input.target === 'hosted') {
-      if (!this.hostedPublisher) {
-        throw new Error('Hosted skill publisher is not configured');
-      }
-      providerRef = await this.hostedPublisher.publishSkill({
-        skill,
-        bundleStorageRef: skill.storage.storageRef,
-      });
-    }
     const approved: SkillCatalogItem = {
       ...skill,
       status: 'approved',
-      providerRef,
       approvedBy: input.approvedBy,
       approvedAt: now,
       rejectedBy: undefined,
       rejectedAt: undefined,
       updatedAt: now,
     };
-    try {
-      await this.skills.saveSkill(approved);
-    } catch (error) {
-      if (providerRef && this.hostedPublisher?.unpublishSkill) {
-        await this.hostedPublisher.unpublishSkill(providerRef);
-      }
-      throw error;
-    }
+    await this.skills.saveSkill(approved);
     return approved;
   }
 
@@ -218,13 +196,9 @@ export class SkillDraftService {
     });
     const skill = await this.requireSkill(input.appId, input.skillId);
     if (skill.status !== 'approved') return;
-    if (skill.providerRef && this.hostedPublisher?.unpublishSkill) {
-      await this.hostedPublisher.unpublishSkill(skill.providerRef);
-    }
     await this.skills.saveSkill({
       ...skill,
       status: 'draft',
-      providerRef: undefined,
       approvedBy: undefined,
       approvedAt: undefined,
       updatedAt: now,
@@ -293,7 +267,8 @@ function resolveSkillMetadata(input: {
   name?: string;
   description?: string;
   fallbackName?: string;
-}): { name: string; description?: string } {
+  requiredEnvVars?: string[];
+}): { name: string; description?: string; requiredEnvVars: string[] } {
   const skillMd = input.assets.find((asset) => asset.path === 'SKILL.md');
   const frontmatter = skillMd
     ? parseSkillFrontmatter(Buffer.from(skillMd.content).toString('utf-8'))
@@ -309,7 +284,30 @@ function resolveSkillMetadata(input: {
   return {
     name,
     description,
+    requiredEnvVars: normalizeRequiredEnvVars([
+      ...(input.requiredEnvVars ?? []),
+      ...frontmatterEnvVars(frontmatter),
+    ]),
   };
+}
+
+function frontmatterEnvVars(frontmatter: Record<string, string>): string[] {
+  return [
+    frontmatter.required_env,
+    frontmatter.required_env_vars,
+    frontmatter.env,
+    frontmatter.env_vars,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .flatMap((value) => value.split(/[,\s]+/));
+}
+
+function normalizeRequiredEnvVars(values: string[]): string[] {
+  const normalized = values
+    .map(normalizeCapabilitySecretName)
+    .filter((value) => value.length > 0);
+  for (const name of normalized) assertValidCapabilitySecretName(name);
+  return [...new Set(normalized)];
 }
 
 function parseSkillFrontmatter(content: string): Record<string, string> {

@@ -20,6 +20,7 @@ const state = vi.hoisted(() => ({
   artifactRoot: '',
   skills: new Map<string, StoredSkill>(),
   bindings: new Map<string, any>(),
+  secrets: new Map<string, any>(),
 }));
 
 vi.mock('@core/config/index.js', () => ({
@@ -119,6 +120,35 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', async () => {
         .sort((left, right) => left.name.localeCompare(right.name)),
     ),
   };
+  const capabilitySecretsRepo = {
+    getSecret: vi.fn(
+      async (input: { appId: string; name: string }) =>
+        state.secrets.get(`${input.appId}:${input.name}`) ?? null,
+    ),
+    listSecrets: vi.fn(async (input: { appId: string }) =>
+      [...state.secrets.values()]
+        .filter((secret) => secret.appId === input.appId)
+        .map(({ value: _value, ...metadata }) => metadata),
+    ),
+    upsertSecret: vi.fn(async (input: any) => {
+      const now = input.now ?? new Date(0).toISOString();
+      const record = {
+        id: `secret:${input.appId}:${input.name}`,
+        appId: input.appId,
+        name: input.name,
+        value: input.value,
+        allowedCapabilityIds: input.allowedCapabilityIds ?? [],
+        createdAt: now,
+        updatedAt: now,
+      };
+      state.secrets.set(`${input.appId}:${input.name}`, record);
+      const { value: _value, ...metadata } = record;
+      return metadata;
+    }),
+    deleteSecret: vi.fn(async (input: { appId: string; name: string }) =>
+      state.secrets.delete(`${input.appId}:${input.name}`),
+    ),
+  };
   const agentsRepo = {
     listAgents: vi.fn(async (appId: string) => [
       {
@@ -183,6 +213,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', async () => {
           listConversations: vi.fn(async () => []),
           listConversationApproversForConversations: vi.fn(async () => []),
         },
+        capabilitySecrets: capabilitySecretsRepo,
       },
       skillArtifacts: new LocalSkillArtifactStore(state.artifactRoot),
     }),
@@ -201,6 +232,7 @@ describe('skill registry integration flow', () => {
     state.artifactRoot = artifactRoot;
     state.skills.clear();
     state.bindings.clear();
+    state.secrets.clear();
   });
 
   afterEach(() => {
@@ -251,6 +283,11 @@ describe('skill registry integration flow', () => {
       writeGroupsSnapshot: vi.fn(async () => undefined),
       sendMessage,
       requestPermissionApproval,
+      runApprovedCommand: vi.fn(async (input: any) => {
+        const { runApprovedSandboxCommand } =
+          await import('@core/adapters/sandbox/approved-command-runner.js');
+        await runApprovedSandboxCommand(input);
+      }),
       requestUserAnswer: vi.fn(),
       onSchedulerChanged: vi.fn(),
       registerGroup: vi.fn(),
@@ -505,24 +542,6 @@ describe('skill registry integration flow', () => {
 
   it.each([
     [
-      'request_skill_install',
-      {
-        spec: 'gantryhub:release-notes@1.0.0',
-        provider: 'gantryhub',
-        slug: 'release-notes',
-        version: '1.0.0',
-        publisher: 'GantryHub',
-        reason: 'Reuse a reviewed release workflow.',
-      },
-      {
-        spec: 'gantryhub:release-notes@1.0.0',
-        provider: 'gantryhub',
-        slug: 'release-notes',
-        version: '1.0.0',
-        effect: 'review_only_no_direct_install',
-      },
-    ],
-    [
       'request_skill_dependency_install',
       {
         ecosystem: 'npm',
@@ -629,6 +648,275 @@ describe('skill registry integration flow', () => {
     },
   );
 
+  it('installs requested skill packages after same-channel approval', async () => {
+    const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
+    const sendMessage = vi.fn(async () => undefined);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'Approver',
+      reason: 'approved',
+    }));
+    const deps = {
+      conversationRoutes: () => ({
+        'chat-origin': {
+          name: 'Agent One Origin',
+          folder: 'agent:one',
+          jid: 'chat-origin',
+        } as any,
+      }),
+      syncGroups: vi.fn(async () => undefined),
+      getAvailableGroups: vi.fn(async () => []),
+      writeGroupsSnapshot: vi.fn(async () => undefined),
+      sendMessage,
+      requestPermissionApproval,
+      requestUserAnswer: vi.fn(),
+      onSchedulerChanged: vi.fn(),
+      registerGroup: vi.fn(),
+    };
+
+    await processTaskIpc(
+      {
+        type: 'request_skill_install',
+        appId: 'app-one',
+        taskId: 'request-skill-install-test',
+        targetJid: 'chat-origin',
+        chatJid: 'chat-origin',
+        authThreadId: 'thread-origin',
+        payload: {
+          dependencies: ['npm:@linkedin/client'],
+          reason: 'Reuse a reviewed posting workflow.',
+          files: [
+            {
+              path: 'SKILL.md',
+              content: [
+                '---',
+                'name: LinkedIn Posting',
+                'description: Drafts LinkedIn posts',
+                '---',
+                '# LinkedIn Posting',
+              ].join('\n'),
+            },
+          ],
+        },
+      },
+      'agent:one',
+      deps as any,
+    );
+
+    await vi.waitFor(() => {
+      expect(requestPermissionApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceAgentFolder: 'agent:one',
+          targetJid: 'chat-origin',
+          threadId: 'thread-origin',
+          decisionPolicy: 'same_channel',
+          toolName: 'request_skill_install',
+          appId: 'app-one',
+          agentId: 'agent:one',
+          toolInput: expect.objectContaining({
+            activation: 'current_and_future_sessions',
+            files: [
+              expect.objectContaining({
+                path: 'SKILL.md',
+                contentHash: expect.stringMatching(/^sha256:/),
+              }),
+            ],
+          }),
+        }),
+      );
+    });
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith(
+        'chat-origin',
+        expect.stringContaining('Installed skill LinkedIn Posting'),
+        { threadId: 'thread-origin' },
+      );
+    });
+
+    const approved = [...state.skills.values()].filter(
+      (skill) => skill.status === 'approved',
+    );
+    expect(approved).toHaveLength(1);
+    expect(approved[0]).toMatchObject({
+      agentId: 'agent:one',
+      name: 'LinkedIn Posting',
+    });
+    expect([...state.bindings.values()]).toEqual([
+      expect.objectContaining({
+        appId: 'app-one',
+        agentId: 'agent:one',
+        skillId: approved[0].id,
+        status: 'active',
+      }),
+    ]);
+    expect(syncRuntimeSettingsFromProjection).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces duplicate pending staged skill install reviews', async () => {
+    const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
+    let resolveApproval:
+      | ((value: { approved: true; decidedBy: string; reason: string }) => void)
+      | undefined;
+    const requestPermissionApproval = vi.fn(
+      () =>
+        new Promise<{ approved: true; decidedBy: string; reason: string }>(
+          (resolve) => {
+            resolveApproval = resolve;
+          },
+        ),
+    );
+    const sendMessage = vi.fn(async () => undefined);
+    const deps = {
+      conversationRoutes: () => ({
+        'chat-origin': {
+          name: 'Agent One Origin',
+          folder: 'agent:one',
+          jid: 'chat-origin',
+        } as any,
+      }),
+      syncGroups: vi.fn(async () => undefined),
+      getAvailableGroups: vi.fn(async () => []),
+      writeGroupsSnapshot: vi.fn(async () => undefined),
+      sendMessage,
+      requestPermissionApproval,
+      requestUserAnswer: vi.fn(),
+      onSchedulerChanged: vi.fn(),
+      registerGroup: vi.fn(),
+    };
+    const task = {
+      type: 'request_skill_install',
+      appId: 'app-one',
+      targetJid: 'chat-origin',
+      chatJid: 'chat-origin',
+      authThreadId: 'thread-origin',
+      payload: {
+        reason: 'Reuse a reviewed posting workflow.',
+        files: [
+          {
+            path: 'SKILL.md',
+            content: [
+              '---',
+              'name: LinkedIn Posting',
+              'description: Drafts LinkedIn posts',
+              '---',
+              '# LinkedIn Posting',
+            ].join('\n'),
+          },
+        ],
+      },
+    };
+
+    await processTaskIpc(
+      { ...task, taskId: 'request-skill-install-duplicate-1' },
+      'agent:one',
+      deps as any,
+    );
+    await processTaskIpc(
+      { ...task, taskId: 'request-skill-install-duplicate-2' },
+      'agent:one',
+      deps as any,
+    );
+
+    expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
+    expect([...state.skills.values()]).toHaveLength(1);
+    expect([...state.bindings.values()]).toEqual([]);
+
+    resolveApproval?.({
+      approved: true,
+      decidedBy: 'Approver',
+      reason: 'approved',
+    });
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith(
+        'chat-origin',
+        expect.stringContaining('Installed skill LinkedIn Posting'),
+        { threadId: 'thread-origin' },
+      );
+    });
+    expect([...state.bindings.values()]).toHaveLength(1);
+  });
+
+  it('runs approved skill installer commands and enables the produced skill', async () => {
+    const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
+    const { deps, sendMessage, requestPermissionApproval } =
+      createCapabilityReviewDeps();
+    const installerScript = [
+      "const fs = require('node:fs')",
+      "fs.writeFileSync('SKILL.md', ['---', 'name: LinkedIn Posting', 'description: Drafts LinkedIn posts', 'required_env_vars: LINKEDIN_ACCESS_TOKEN', '---', '# LinkedIn Posting'].join('\\n'))",
+    ].join(';');
+
+    await processTaskIpc(
+      {
+        type: 'request_skill_install',
+        appId: 'app-one',
+        taskId: 'request-skill-command-test',
+        targetJid: 'chat-origin',
+        chatJid: 'chat-origin',
+        authThreadId: 'thread-origin',
+        payload: {
+          reason: 'Install the LinkedIn posting skill from the catalog.',
+          installCommandArgv: [process.execPath, '-e', installerScript],
+          requiredEnvVars: ['LINKEDIN_ACCESS_TOKEN'],
+        },
+      },
+      'agent:one',
+      deps as any,
+    );
+
+    await vi.waitFor(() => {
+      expect(requestPermissionApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceAgentFolder: 'agent:one',
+          targetJid: 'chat-origin',
+          threadId: 'thread-origin',
+          decisionPolicy: 'same_channel',
+          toolName: 'request_skill_install',
+          displayName: 'skill LinkedIn posting',
+          toolInput: expect.objectContaining({
+            installCommandArgv: [process.execPath, '-e', installerScript],
+            commandSummary: expect.stringContaining(process.execPath),
+            effect:
+              'prepares_or_imports_skill_package_and_enables_skill_after_approval',
+          }),
+        }),
+      );
+    });
+    expect(
+      requestPermissionApproval.mock.calls.some((call) =>
+        String(call[0]?.displayName).includes('Skill install command:'),
+      ),
+    ).toBe(false);
+    await vi.waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith(
+        'chat-origin',
+        expect.stringContaining('Installed skill LinkedIn Posting'),
+        { threadId: 'thread-origin' },
+      );
+    });
+    expect(
+      sendMessage.mock.calls.some((call) =>
+        String(call[1]).includes('gantry secrets set LINKEDIN_ACCESS_TOKEN'),
+      ),
+    ).toBe(true);
+    const approved = [...state.skills.values()].filter(
+      (skill) => skill.status === 'approved',
+    );
+    expect(approved).toHaveLength(1);
+    expect(approved[0]).toMatchObject({
+      agentId: 'agent:one',
+      name: 'LinkedIn Posting',
+      requiredEnvVars: ['LINKEDIN_ACCESS_TOKEN'],
+    });
+    expect([...state.bindings.values()]).toEqual([
+      expect.objectContaining({
+        appId: 'app-one',
+        agentId: 'agent:one',
+        skillId: approved[0].id,
+        status: 'active',
+      }),
+    ]);
+  });
+
   it('sends denial messages for request-only capability reviews without enabling tools', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const { deps, sendMessage, requestPermissionApproval } =
@@ -664,7 +952,9 @@ describe('skill registry integration flow', () => {
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
-        expect.stringContaining('Rejected Permission: Bash: too broad'),
+        expect.stringContaining(
+          'Not approved: Permission: Bash. Reason: too broad.',
+        ),
         { threadId: 'thread-origin' },
       );
     });
@@ -817,7 +1107,9 @@ describe('skill registry integration flow', () => {
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
-        expect.stringContaining('Always allowed by'),
+        expect.stringContaining(
+          'Allowed Permission: Google Sheets write. Future matching requests are allowed.',
+        ),
         { threadId: 'thread-origin' },
       );
     });
@@ -895,7 +1187,9 @@ describe('skill registry integration flow', () => {
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
-        expect.stringContaining('Always allowed by'),
+        expect.stringContaining(
+          'Allowed Permission: Browser. Future matching requests are allowed.',
+        ),
         { threadId: 'thread-origin' },
       );
     });
@@ -1317,7 +1611,7 @@ describe('skill registry integration flow', () => {
     await vi.waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         'chat-origin',
-        expect.stringContaining('Rejected skill Denied Capability'),
+        expect.stringContaining('Did not approve skill Denied Capability'),
         { threadId: 'thread-origin' },
       );
     });

@@ -1,11 +1,12 @@
 # Credential Management
 
-Gantry separates runtime-owned secrets from credentials that agents may access
-through a broker.
+Gantry separates runtime-owned secrets, model broker credentials, and
+capability environment secrets projected to approved skills, MCP servers, and
+tools.
 
 ## Source Lanes
 
-Gantry uses three source lanes:
+Gantry uses four source lanes:
 
 - `settings.yaml` stores non-secret configuration, such as credential broker
   mode, broker endpoint URLs, channel enablement, schemas, allowlists, and
@@ -14,27 +15,33 @@ Gantry uses three source lanes:
   implementation reads runtime `.env` and process env for values such as
   database URLs, channel bot tokens, webhook/control secrets, and OneCLI
   persistence secrets.
-- `AgentCredentialBroker` resolves agent-accessed credentials. It may return
-  only broker-safe injection values such as provider base URLs, local
-  provider-only proxy endpoints, and certificate file paths. Tool/API
-  credentials must not be represented as ambient runner-wide process
-  environment.
+- Gantry Secrets store capability env var values for selected skills, MCP
+  servers, and reviewed tools. Values are encrypted in Postgres and projected
+  only when a selected capability declares the matching env var or credential
+  ref.
+- `AgentCredentialBroker` resolves model-provider access and broker-safe model
+  adapter injections such as provider base URLs, local provider-only proxy
+  endpoints, and certificate file paths. Model credentials must not be reused as
+  tool env.
 
-There is no global `.env > broker` precedence. Precedence is lane-specific:
-settings choose behavior, runtime secret providers resolve runtime secrets, and
-agent credentials come only from the selected broker. If a value appears in the
-wrong lane, Gantry reports it as a configuration error instead of silently
-ignoring or overriding it.
+There is no global `.env > database > broker` precedence. Precedence is
+lane-specific: settings choose behavior, runtime secret providers resolve
+runtime secrets, Gantry Secrets resolve capability env vars, and model
+credentials come from the selected broker. If a value appears in the wrong lane,
+Gantry reports it as a configuration error instead of silently ignoring or
+overriding it.
 
 Wrong-lane checks apply to both runtime `.env` and the process environment used
 to start Gantry. Process env may override local `.env` only inside
-runtime-secret resolution; it is not a supported path for broker mode, broker
-URLs, model settings, Slack approvers, or raw provider credentials.
+runtime-secret resolution; it is not ambient agent tool env. If a local shell
+already has a capability secret, import it explicitly with `gantry secrets
+import-env NAME`.
 
 Existing local installs must be cleaned up manually as a one-time cutover: move
 settings-owned values from `.env` into `settings.yaml`, remove raw
-agent-accessed credentials from the runtime env file, and recreate those
-credentials in the selected broker.
+agent-accessed credentials from the runtime env file, recreate model
+credentials in the selected broker, and import capability-owned skill, MCP, or
+tool env vars with `gantry secrets set` or `gantry secrets import-env`.
 
 ## Runtime-Owned Secrets
 
@@ -59,17 +66,45 @@ persistence readiness.
 Runtime `.env` and process env are valid for these local/personal secrets. They
 must not contain non-secret settings such as credential mode or broker URLs.
 
+## Gantry Secrets
+
+Gantry Secrets are the central store for simple env-var-shaped secrets needed by
+approved agent capabilities. They are encrypted with `SECRET_ENCRYPTION_KEY` in
+the Gantry Postgres schema and are never written to `settings.yaml`.
+
+Examples:
+
+- `GITHUB_TOKEN` for a GitHub MCP server
+- `LINKEDIN_ACCESS_TOKEN` for a LinkedIn posting skill
+- `GOOGLE_APPLICATION_CREDENTIALS_JSON` for a reviewed local tool that expects
+  an env var
+
+CLI management:
+
+```bash
+gantry secrets list
+gantry secrets set LINKEDIN_ACCESS_TOKEN
+gantry secrets import-env GITHUB_TOKEN
+gantry secrets unset GITHUB_TOKEN
+```
+
+Agents do not edit `.env`, `settings.yaml`, skill directories, or MCP config to
+manage these values. When a selected skill or MCP server needs a missing secret,
+the runtime fails closed with `gantry secrets set NAME` guidance. If the value
+already exists in the host shell, an admin can run `gantry secrets import-env
+NAME` to move it into the central store.
+
 ## Agent-Accessed Credentials
 
 Agent-accessed credentials are credentials an agent may use after policy allows
 the action. They include LLM provider access and tool or API credentials, but
-those two categories are not scoped the same way. OneCLI is the preferred local
-broker for personal setups, but it is not mandatory for every tool capability:
-reviewed `local_cli` capability drafts are valid when the CLI already owns its
-own authenticated account state and Gantry pins the executable, command
-templates, preflight, protected paths, and denied environment overrides. They
-do not become runnable durable authority until runtime enforcement verifies
-those bindings per invocation.
+those two categories are not scoped the same way. Model-provider credentials
+come from the broker. Tool env vars come from Gantry Secrets when a selected
+capability declares a need. Reviewed `local_cli` capability drafts are valid
+when the CLI already owns its own authenticated account state and Gantry pins
+the executable, command templates, preflight, protected paths, and denied
+environment overrides. They do not become runnable durable authority until
+runtime enforcement verifies those bindings per invocation.
 
 Model-provider access is account-level Model Access. Gantry always requests it
 with `purpose=model_runtime` through the reserved broker profile
@@ -79,13 +114,12 @@ model aliases only. Claude and OpenRouter credentials are configured once in
 OneCLI or the selected enterprise broker and then projected to model SDK runs
 according to the selected model provider.
 
-Agents do not receive raw secret values from Gantry. Runtime code requests an
-`AgentCredentialInjection` from `AgentCredentialBroker`; the returned injection
-contains only broker-safe environment values and certificate references for the
-provider credential lane. Tool/API credential lanes must use
-`purpose=tool_capability` with an explicit agent/capability context; they must
-never reuse the shared Model Access profile or become runner-wide ambient
-process environment.
+Agents do not receive every raw secret value from Gantry. Runtime code projects
+only the selected capability's declared Gantry Secret names. Selected skills get
+their `requiredEnvVars`; selected MCP servers get only their reviewed
+credential refs; reviewed tools get only their declared env needs. Model
+credential injection remains broker-owned and must never be reused for tool
+env.
 
 For local authenticated CLIs, Gantry does not copy raw OAuth tokens or broker
 proxies into generic Bash. The approved semantic capability maps to narrow
@@ -119,6 +153,7 @@ enterprise credential broker, never in Gantry `.env` or process env.
 | `TELEGRAM_BOT_TOKEN`                                          | `RuntimeSecretProvider` / local `.env`                  |
 | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`                          | `RuntimeSecretProvider` / local `.env`                  |
 | `ONECLI_DATABASE_URL`, `SECRET_ENCRYPTION_KEY`                | `RuntimeSecretProvider` / local `.env`                  |
+| Skill, MCP, and reviewed tool env vars                        | Gantry Secrets (`gantry secrets ...`)                   |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY` | `AgentCredentialBroker`                                 |
 | `CLAUDE_CODE_OAUTH_TOKEN`                                     | `AgentCredentialBroker`                                 |
 
@@ -199,12 +234,11 @@ policy, and audit.
 The runtime calls the application credential service and receives a generic
 `AgentCredentialInjection`; it does not instantiate OneCLI.
 
-OneCLI is only a credential broker. It never executes tools, approves
+OneCLI is only a model credential broker. It never executes tools, approves
 permissions, owns scheduler policy, evaluates protected capability changes, or
 enforces egress policy. Model credential env is passed only to the Claude SDK
 process private model credential handoff. Bash tools, MCP stdio subprocesses,
-and browser tools receive scrubbed tool env without OneCLI model proxy or
-provider tokens.
+browser tools, and skills do not receive OneCLI model proxy or provider tokens.
 Approved Bash commands may receive the non-secret CA bundle path as neutral TLS
 trust aliases for host CLI trust stores; MCP stdio subprocesses and browser
 tools do not receive broker CA variables. Approved Bash commands also receive
@@ -231,9 +265,10 @@ checks before credentials are injected or used for a tool/API action.
 ```mermaid
 flowchart LR
   Runtime["Runtime agent run"] --> Policy["ToolExecutionPolicyService"]
-  Policy --> Broker["AgentCredentialBroker"]
-  Broker --> Injection["AgentCredentialInjection"]
-  Injection --> Runner["Private model SDK credential handoff"]
+  Policy --> CapabilitySecrets["Gantry Secrets"]
+  CapabilitySecrets --> CapabilityEnv["Selected skill/MCP/tool env"]
+  Runtime --> Broker["AgentCredentialBroker"]
+  Broker --> ModelInjection["Private model SDK credential handoff"]
   Runtime --> Secrets["RuntimeSecretProvider"]
   Secrets --> RuntimeOnly["Runtime services only"]
 ```

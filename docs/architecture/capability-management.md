@@ -140,7 +140,7 @@ place.
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | `send_message`                     | Progress updates or direct channel messages while the agent is still running.                                                                                                                    | Persistent capability changes.                                                                          |
 | `ask_user_question`                | Structured choices with content, options, single-select, multi-select, preview/details, and channel-native buttons.                                                                              | Open-ended chat or approval of persistent capabilities.                                                 |
-| `request_skill_install`            | Provider-backed skill installs such as `gantryhub:<slug>@<version>`.                                                                                                                               | Downloading or installing the skill directly.                                                           |
+| `request_skill_install`            | Reviewed skill installs using either staged `SKILL.md` package files or an installer command such as `npx ... install <skill>` that produces a `SKILL.md` package in host-controlled staging.    | Installing silently, editing skill directories directly, or requiring a second approval after approval. |
 | `request_skill_proposal`           | Agent-created or modified `SKILL.md` bundles for review.                                                                                                                                         | Writing directly to `.claude/skills`, `.agents/skills`, or agent-local `skills/`.                       |
 | `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies needed by a reviewed skill.                                                                                                                          | Running dependency commands from the agent.                                                             |
 | `request_mcp_server`               | Third-party MCP server drafts with transport, origin, allowed tool patterns, credential needs, and reason.                                                                                       | Editing `.mcp.json` or Claude `mcpServers`.                                                             |
@@ -157,16 +157,16 @@ place.
 
 ## Capability Types
 
-| Type             | Durable truth                                                                  | Runtime projection                                                                                                                                       |
-| ---------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Skill            | Skill catalog row, readable files, provider ref, hash, binding.                | Per-run Claude `skills/<slug>/...` folder and `Skill` tool exposure.                                                                                     |
-| Skill dependency | Dependency spec, approval decision, execution result, audit.                   | Optional per-skill tools directory or approved host package; never direct agent shell.                                                                   |
-| Third-party MCP  | Definition, reviewed version, credential refs, allowed tool patterns, binding. | SDK `mcpServers` for host-safe stdio transports plus exact allowed MCP tool names. Remote HTTP/SSE requires host DNS-pinned transport before projection. |
-| SDK tool         | Tool catalog entry, risk, permission policy, sandbox profile, binding.         | Exact non-Bash SDK tool names in `allowedTools`; scoped `Bash(<pattern>)` is enforced only in `canUseTool` and never projected as bare `Bash`.           |
-| Host tool        | Built-in Gantry MCP tool entry, risk, binding, audit behavior.                 | Exact `mcp__gantry__<tool>` name.                                                                                                                        |
-| Browser tool     | Canonical `Browser` capability and sandbox policy.                             | Gated Gantry-owned gateway tools with Gantry-owned schemas.                                                                                              |
-| Channel tool     | Provider capability enum, scopes, affected conversations, binding.             | Provider adapter enables only the named Slack/Telegram/Teams/Web capability.                                                                             |
-| Channel binding  | Agent-to-conversation/thread binding and control policy.                       | Message routing, trigger handling, and same-channel approval target.                                                                                     |
+| Type             | Durable truth                                                                     | Runtime projection                                                                                                                                       |
+| ---------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Skill            | Skill catalog row, readable files, provider ref, hash, binding.                   | Per-run Claude `skills/<slug>/...` folder and `Skill` tool exposure.                                                                                     |
+| Skill dependency | Dependency spec, approval decision, execution result, audit.                      | Optional per-skill tools directory or approved host package; never direct agent shell.                                                                   |
+| Third-party MCP  | Definition, reviewed version, Gantry Secret refs, allowed tool patterns, binding. | SDK `mcpServers` for host-safe stdio transports plus exact allowed MCP tool names. Remote HTTP/SSE requires host DNS-pinned transport before projection. |
+| SDK tool         | Tool catalog entry, risk, permission policy, sandbox profile, binding.            | Exact non-Bash SDK tool names in `allowedTools`; scoped `Bash(<pattern>)` is enforced only in `canUseTool` and never projected as bare `Bash`.           |
+| Host tool        | Built-in Gantry MCP tool entry, risk, binding, audit behavior.                    | Exact `mcp__gantry__<tool>` name.                                                                                                                        |
+| Browser tool     | Canonical `Browser` capability and sandbox policy.                                | Gated Gantry-owned gateway tools with Gantry-owned schemas.                                                                                              |
+| Channel tool     | Provider capability enum, scopes, affected conversations, binding.                | Provider adapter enables only the named Slack/Telegram/Teams/Web capability.                                                                             |
+| Channel binding  | Agent-to-conversation/thread binding and control policy.                          | Message routing, trigger handling, and same-channel approval target.                                                                                     |
 
 ## Durable Model
 
@@ -178,8 +178,8 @@ they do not rely only on the file watcher.
 
 Postgres is the runtime capability projection and catalog store. It owns
 definitions, reviewed versions, agent bindings, config-version links,
-credential reference names, permission decisions, audit events, and disablement
-state.
+Gantry Secret reference names, encrypted capability secret values, permission
+decisions, audit events, and disablement state.
 
 Agent-owned persistent tool grants are also mirrored into `settings.yaml` as
 readable `agents.<id>.tools` entries. Prefer semantic capability entries such
@@ -256,10 +256,10 @@ skill-drafts/<request-id>/<skill-slug>/SKILL.md
 skill-drafts/<request-id>/<skill-slug>/...
 ```
 
-The database stores metadata, source, content hash, provider refs, binding, and
-audit only. Skill files remain readable for review. GantryHub is the default
-provider-backed skill source. Provider verification improves review context but
-never bypasses approval.
+The database stores metadata, source type, content hash, binding, and audit
+only. Skill files remain readable for review. Catalog, URL, CLI-command, and
+uploaded installs all converge into the same reviewed local skill package after
+approval.
 
 Local storage uses the same readable layout as object storage. Object storage
 keys must remain human-readable and API-readable; hashes are metadata, not path
@@ -274,12 +274,12 @@ not durable Gantry truth.
 
 1. Request: admin API/SDK/CLI or an agent request tool creates a pending request.
 2. Validate: Gantry checks app scope, agent scope, transport, origin chat,
-   credential refs, sandbox profile, tool patterns, and provider metadata.
+   Gantry Secret refs, sandbox profile, tool patterns, and provider metadata.
 3. Review: same-channel review renders the request, but authority still comes
    from configured admin/control policy.
 4. Decide: the user sees `Allow once`, `Allow 5 min`, `Always allow`, or `Cancel`; Details and audit records carry the durable authority shape, such as a semantic capability, canonical `Browser`, exact `mcp__gantry__<admin_tool>`, or scoped `Bash(<pattern>)`.
 5. Bind: approval creates or updates the agent binding and a new config version.
-6. Same-session handoff: approved skill proposals are returned to the running
+6. Same-session handoff: approved skill installs and proposals are returned to the running
    agent as reviewed skill files; approved MCP servers are reachable through the
    Gantry `mcp_list_tools` / `mcp_call_tool` proxy.
 7. Materialize: only approved enabled skill bindings project into future agent
@@ -289,26 +289,36 @@ not durable Gantry truth.
 9. Disable: disabled capabilities stop future materialization without deleting
    history.
 
-## Provider Skill Install
+## Skill Install
 
-Provider-backed skill install is package retrieval, not dependency execution.
-For GantryHub:
+Skill install is package approval and binding, not dependency execution.
 
-1. Agent calls `request_skill_install` with `gantryhub:<slug>@<version>` or an
-   equivalent structured provider ref.
-2. Host resolves provider detail, publisher, verification tier, latest version,
-   source/provenance metadata, file list, integrity, and compatibility.
-3. Host downloads the zip, validates archive safety, requires exactly one skill
-   root with `SKILL.md`, computes a content hash, and stages readable draft
-   files under `skill-drafts/<request-id>/<slug>/`.
-4. Channel UX shows the skill summary, files, hashes, provider metadata,
-   declared dependencies, risk, and activation timing.
-5. Approval installs to `skills/<slug>/...`, records audit, binds the skill,
-   returns reviewed files to the running agent, and materializes it for future
-   runs.
+1. Agent calls `request_skill_install` with staged package files. If package
+   files are not available, it may request a reviewed installer command such as
+   an `npx` command from a skill catalog.
+2. Host validates package safety, requires `SKILL.md`, computes content hashes,
+   and stages readable draft files under `skill-drafts/<request-id>/<slug>/`.
+3. Channel UX shows the skill summary, files, hashes, declared dependencies,
+   risk, and activation timing.
+4. Approval installs to `skills/<slug>/...`, records audit, binds the skill,
+   exports readable settings, returns reviewed files to the running agent, and
+   materializes it for future runs. There is no second approval after the user
+   approves the install request. Installer-command requests run the exact argv
+   in a temporary host-controlled staging directory with a scrubbed environment
+   plus any named `requiredEnvVars` resolved from Gantry Secrets, then import
+   and approve the produced `SKILL.md` package through the same path.
 
 If the skill declares npm, brew, go, uv, or download dependencies, those are
 separate dependency requests. The skill approval does not run them.
+
+Skill and MCP capability credentials use Gantry Secrets, not runtime `.env` or
+model broker profiles. Operators set them with `gantry secrets set <NAME>` or
+`gantry secrets import-env <NAME>`, optionally adding repeated
+`--allow <capabilityId>` scopes such as `mcp:github`, a concrete MCP definition
+id, a concrete skill id, or `skill:<name>`. Secret values are encrypted in
+Postgres and only projected into the current runner or MCP subprocess when an
+approved selected capability declares the matching required env var or
+credential ref.
 
 ## Dependency Install Policy
 

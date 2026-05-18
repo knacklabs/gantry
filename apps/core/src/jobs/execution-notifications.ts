@@ -38,12 +38,6 @@ function recoveryActionAffordances(input: {
       runId: input.runId,
     },
     {
-      kind: 'scheduler_show_last_logs',
-      label: 'Show last 50 log lines',
-      jobId: input.job.id,
-      runId: input.runId,
-    },
-    {
       kind: 'scheduler_pause_job',
       label: 'Pause job',
       jobId: input.job.id,
@@ -113,10 +107,10 @@ export async function notifySchedulerSetupRequired(input: {
   return sendJobNotification({
     job: input.job,
     text: [
-      `Setup required: ${input.job.name}`,
-      `Blocker: ${reason}`,
+      `Setup needed: ${input.job.name}`,
+      `Why: ${reason}`,
       `Action: ${action}`,
-      'Next: Resume the job after setup is fixed.',
+      'Next: Resume the job after setup is done.',
     ].join('\n'),
     phase: 'summary',
     runId: `setup:${input.setupState.fingerprint}`,

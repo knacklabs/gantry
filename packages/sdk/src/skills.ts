@@ -41,7 +41,6 @@ export function createSkillDraftsClient(transport: TransportLike) {
       input: {
         appId?: string;
         approvedBy?: string;
-        target?: 'local' | 'hosted';
       } = {},
     ) =>
       transport.request<Record<string, unknown>>({

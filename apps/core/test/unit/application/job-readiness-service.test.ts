@@ -5,9 +5,11 @@ import {
   setupStateForDeniedTool,
 } from '@core/application/jobs/job-readiness-service.js';
 import type {
+  CapabilitySecretRepository,
   McpServerRepository,
   ToolCatalogRepository,
 } from '@core/domain/ports/repositories.js';
+import type { AppId } from '@core/domain/app/app.js';
 import type { Job } from '@core/domain/types.js';
 
 function makeJob(overrides: Partial<Job> = {}): Job {
@@ -59,6 +61,32 @@ function toolRepository(rules: string[]): ToolCatalogRepository {
       return { appId: 'default', name: rules[index] };
     }),
   } as unknown as ToolCatalogRepository;
+}
+
+function secretRepository(
+  values: Record<string, string>,
+): CapabilitySecretRepository {
+  return {
+    getSecret: vi.fn(async (input: { appId: AppId; name: string }) => {
+      const value = values[input.name];
+      return value
+        ? {
+            id: `secret:${input.appId}:${input.name}` as never,
+            appId: input.appId,
+            name: input.name,
+            value,
+            allowedCapabilityIds: [],
+            createdAt: '2026-05-14T00:00:00.000Z',
+            updatedAt: '2026-05-14T00:00:00.000Z',
+          }
+        : null;
+    }),
+    listSecrets: vi.fn(async () => []),
+    upsertSecret: vi.fn(async () => {
+      throw new Error('not implemented');
+    }),
+    deleteSecret: vi.fn(async () => false),
+  };
 }
 
 describe('job readiness service', () => {
@@ -310,6 +338,40 @@ describe('job readiness service', () => {
       requirementType: 'mcp_server',
       requirementId: 'sheets',
     });
+  });
+
+  it('accepts required MCP server credentials from Gantry Secrets', async () => {
+    const repository = {
+      listMaterializedServersForAgent: vi.fn(async () => [
+        {
+          definition: {
+            id: 'mcp:server-1',
+            appId: 'default',
+            name: 'sheets',
+            status: 'approved',
+          },
+          version: {
+            credentialRefs: [
+              { name: 'GOOGLE_TOKEN_REF', target: 'env', key: 'TOKEN' },
+            ],
+          },
+          binding: { status: 'active' },
+        },
+      ]),
+    } as unknown as McpServerRepository;
+
+    const result = await evaluateJobReadiness({
+      job: makeJob({ required_mcp_servers: ['sheets'] }),
+      appId: 'default',
+      mcpServerRepository: repository,
+      capabilitySecretRepository: secretRepository({
+        GOOGLE_TOKEN_REF: 'secret-value',
+      }),
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.setupState.blockers).toEqual([]);
   });
 
   it('turns runtime denied tool use into setup state', () => {

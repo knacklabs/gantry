@@ -9,14 +9,12 @@ export function formatMcpApprovalResponse(
   return [
     message,
     '',
-    'Same-session MCP usage:',
+    'How to use it now:',
     `- List approved tools: call mcp_list_tools with serverName="${context.server.name}"`,
     `- Call an approved tool: call mcp_call_tool with serverName="${context.server.name}", toolName="<tool>", arguments={...}`,
     context.approvedToolNames.length > 0
-      ? `- Approved raw tool names: ${context.approvedToolNames.join(', ')}`
+      ? `- Approved tool names: ${context.approvedToolNames.join(', ')}`
       : '- No explicit tool names were provided; use mcp_list_tools to inspect approved tools.',
-    '',
-    'Future sessions use the same Gantry proxy tools. Do not call direct third-party MCP tool names.',
   ].join('\n');
 }
 
@@ -98,7 +96,7 @@ export function formatSkillProposalResponse(
   const lines = [
     message,
     '',
-    'Same-session skill context:',
+    'Skill context:',
     `- Skill: ${context.skill.name}`,
     `- Skill ID: ${context.skill.id}`,
     context.skill.description
@@ -107,8 +105,11 @@ export function formatSkillProposalResponse(
     context.skill.contentHash
       ? `- Package hash: ${context.skill.contentHash}`
       : undefined,
+    context.requiredEnvVars.length > 0
+      ? `- Required Gantry Secrets: ${context.requiredEnvVars.join(', ')}`
+      : undefined,
     '',
-    'Use this approved skill immediately in the current session by following its SKILL.md. Future sessions will load it from Gantry skill storage.',
+    'Use this skill now by following its SKILL.md. Gantry will load it automatically for later runs.',
     '',
     'Approved skill files:',
   ].filter((line): line is string => line !== undefined);
@@ -145,7 +146,7 @@ export function formatSkillProposalResponse(
     lines.push(visibleContent);
     lines.push('```');
     if (contentBytes > Buffer.byteLength(visibleContent, 'utf-8')) {
-      lines.push('[Content truncated for same-session context.]');
+      lines.push('[Content truncated for immediate skill context.]');
     }
   }
   return lines.join('\n');
@@ -158,6 +159,7 @@ function parseApprovedSkillContext(data: unknown): {
     description?: string;
     contentHash?: string;
   };
+  requiredEnvVars: string[];
   files: Array<{
     path: string;
     content: string;
@@ -219,6 +221,11 @@ function parseApprovedSkillContext(data: unknown): {
         ? { contentHash: skill.contentHash }
         : {}),
     },
+    requiredEnvVars: Array.isArray(record.requiredEnvVars)
+      ? record.requiredEnvVars.filter(
+          (item): item is string => typeof item === 'string',
+        )
+      : [],
     files,
   };
 }

@@ -6,6 +6,7 @@ import { parseIso } from '../shared/time/datetime.js';
 interface ScheduleValidationInput {
   schedule_type: string;
   schedule_value: string;
+  next_run?: string | null;
 }
 
 export function validateScheduleConfig(
@@ -21,6 +22,9 @@ export function validateScheduleConfig(
   if (scheduleType === 'once') {
     if (!parseIso(job.schedule_value)) {
       return `Invalid once schedule_value: ${job.schedule_value}`;
+    }
+    if (job.next_run && !parseIso(job.next_run)) {
+      return `Invalid once next_run: ${job.next_run}`;
     }
     return null;
   }

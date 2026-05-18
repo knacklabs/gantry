@@ -134,6 +134,10 @@ function createMcpFixture(): {
     path.join(sharedDir, 'job-setup-labels.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/user-visible-messages.ts'),
+    path.join(sharedDir, 'user-visible-messages.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/path-validation.ts'),
     path.join(sharedDir, 'path-validation.ts'),
   );
@@ -517,8 +521,8 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     expect(record.result.content[0].text).toContain(
       'Configured tools: Bash(npm test *)',
     );
-    expect(record.result.content[0].text).toContain('selected: skill:release');
-    expect(record.result.content[0].text).toContain('selected: mcp:github');
+    expect(record.result.content[0].text).toContain('ready: skill:release');
+    expect(record.result.content[0].text).toContain('ready: mcp:github');
   });
 
   it('registers selected admin tools and reports remaining requestable tools', async () => {
@@ -575,10 +579,10 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
     expect(record.result.isError).toBe(true);
     expect(record.result.content[0].text).toContain(
-      'mcp__gantry__service_restart is not selected for this agent yet.',
+      'Gantry Service Restart is not approved for this agent yet.',
     );
     expect(record.result.content[0].text).toContain(
-      'Ask a configured conversation approver to approve mcp__gantry__service_restart, then choose Always allow.',
+      'Ask a configured conversation approver to approve it, then choose Always allow.',
     );
     expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
   });
@@ -602,7 +606,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       'Admin permission inventory (read-only runner view):',
     );
     expect(record.result.content[0].text).toContain(
-      'mcp__gantry__admin_permission_list: selected',
+      'mcp__gantry__admin_permission_list: approved',
     );
     expect(record.result.content[0].text).toContain('Bash(npm test *)');
     expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
@@ -701,8 +705,26 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     );
     expect(adminRecord.result.isError).toBe(true);
     expect(adminRecord.result.content[0].text).toContain(
-      'mcp__gantry__service_restart is not selected for this agent yet.',
+      'Gantry Service Restart is not approved for this agent yet.',
     );
+  });
+
+  it('suppresses direct send_message output for scheduled jobs', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(
+      fixture,
+      'send_message',
+      { text: 'Mode B: 0 leads.' },
+      { GANTRY_JOB_ID: 'job-1' },
+    );
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.content[0].text).toContain(
+      'Scheduled job message suppressed.',
+    );
+    expect(fs.existsSync(path.join(fixture.ipcDir, 'messages'))).toBe(false);
   });
 
   it('defaults to first-party MCP tools when runner projection is missing', async () => {
@@ -883,17 +905,27 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     [
       'request_skill_install',
       {
-        spec: 'gantryhub:release-notes@1.0.0',
-        provider: 'gantryhub',
-        slug: 'release-notes',
-        version: '1.0.0',
+        files: [
+          {
+            path: 'SKILL.md',
+            content: [
+              '---',
+              'name: Release Notes',
+              'description: Drafts release notes',
+              '---',
+              '# Release Notes',
+            ].join('\n'),
+          },
+        ],
         reason: 'Reuse a reviewed release workflow.',
       },
       {
-        spec: 'gantryhub:release-notes@1.0.0',
-        provider: 'gantryhub',
-        slug: 'release-notes',
-        version: '1.0.0',
+        files: [
+          expect.objectContaining({
+            path: 'SKILL.md',
+            content: expect.stringContaining('Release Notes'),
+          }),
+        ],
         reason: 'Reuse a reviewed release workflow.',
       },
     ],
@@ -989,9 +1021,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     const fixture = createMcpFixture();
 
     const result = await runMcpFixture(fixture, 'request_skill_install', {
-      spec: 'gantryhub:browser@1.0.0',
-      provider: 'gantryhub',
-      slug: 'browser',
+      expectedFiles: ['browser'],
       reason: 'Install browser automation as a skill.',
     });
 
@@ -1010,7 +1040,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     expect(record.result.content[0].text).not.toContain('temporaryOnly=false');
     expect(record.result.content[0].text).not.toContain('temporaryOnly=true');
     expect(record.result.content[0].text).toContain(
-      'No request_skill_install request was recorded.',
+      'No install request was recorded.',
     );
   });
 
@@ -1038,12 +1068,10 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     expect(record.result.content[0].text).toContain(
       'Ask a configured conversation approver to approve Browser access',
     );
-    expect(record.result.content[0].text).toContain(
-      'compact browser gateway tools',
-    );
+    expect(record.result.content[0].text).toContain('the browser tools');
     expect(record.result.content[0].text).not.toContain('temporaryOnly=true');
     expect(record.result.content[0].text).toContain(
-      'No request_mcp_server request was recorded.',
+      'No install request was recorded.',
     );
   });
 

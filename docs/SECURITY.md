@@ -58,25 +58,25 @@ Messages and scheduler operations are verified against the originating agent
 folder, bound conversation, selected capabilities, and that conversation's
 approval policy:
 
-| Operation                   | Authorization source |
-| --------------------------- | -------------------- |
-| Send message to own chat    | Bound conversation route |
-| Send message to other chats | Selected send capability plus target conversation policy |
-| Schedule job for self       | Originating bound conversation |
-| Schedule job for others     | Selected scheduler capability plus target conversation approval |
+| Operation                   | Authorization source                                                        |
+| --------------------------- | --------------------------------------------------------------------------- |
+| Send message to own chat    | Bound conversation route                                                    |
+| Send message to other chats | Selected send capability plus target conversation policy                    |
+| Schedule job for self       | Originating bound conversation                                              |
+| Schedule job for others     | Selected scheduler capability plus target conversation approval             |
 | View jobs                   | Originating agent/conversation scope unless an admin capability is approved |
-| Manage conversations        | Selected admin capability plus same-conversation approver |
+| Manage conversations        | Selected admin capability plus same-conversation approver                   |
 
 ## Privilege Comparison (Host Runtime)
 
-| Capability                          | Authorization source |
-| ----------------------------------- | -------------------- |
-| Project root access                 | Configured mounts and selected host-tool capability |
-| Group folder                        | Originating agent folder |
+| Capability                          | Authorization source                                        |
+| ----------------------------------- | ----------------------------------------------------------- |
+| Project root access                 | Configured mounts and selected host-tool capability         |
+| Group folder                        | Originating agent folder                                    |
 | Common app memory access            | Capability-specific memory policy and conversation approval |
-| Additional mounts                   | Mount allowlist plus selected capability |
-| Scheduler control scope             | Job capability and originating conversation policy |
-| Session commands (`/new`, `/model`) | Sender policy and conversation control approvers |
+| Additional mounts                   | Mount allowlist plus selected capability                    |
+| Scheduler control scope             | Job capability and originating conversation policy          |
+| Session commands (`/new`, `/model`) | Sender policy and conversation control approvers            |
 
 ### 5. Credential Isolation (OneCLI Agent Vault)
 
@@ -94,14 +94,16 @@ tables or database roles. Gantry owns the `gantry` schema, OneCLI owns the
 `onecli` schema, and pg-boss owns the `pgboss` schema.
 `ONECLI_DATABASE_URL` must use a different Postgres user than
 `GANTRY_DATABASE_URL` and must include `schema=onecli`.
-`SECRET_ENCRYPTION_KEY` must be a stable generated base64-encoded 32-byte deployment
-secret so broker state survives stateless restarts. General agent tool, script,
-browser, and MCP environments do not receive `GANTRY_DATABASE_URL`,
-`ONECLI_DATABASE_URL`, raw provider keys, broker-provided proxy variables, or
-provider credentials. Model broker projection is limited to the model SDK
-credential lane. When that lane includes `NODE_EXTRA_CA_CERTS`, the SDK process
-and approved Bash commands receive only the CA bundle path as neutral TLS trust
-aliases (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`,
+`SECRET_ENCRYPTION_KEY` must be a stable generated base64-encoded 32-byte
+deployment secret so broker state and Gantry Secrets survive stateless
+restarts. General agent tool, script, browser, and MCP environments do not
+receive `GANTRY_DATABASE_URL`, `ONECLI_DATABASE_URL`, raw provider keys,
+broker-provided proxy variables, or provider credentials. Selected MCP servers
+and skills receive only their named Gantry Secrets. Model broker projection is
+limited to the model SDK credential lane. When that lane includes
+`NODE_EXTRA_CA_CERTS`, the SDK process and approved Bash commands receive only
+the CA bundle path as neutral TLS trust aliases (`SSL_CERT_FILE`,
+`REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`,
 `GIT_SSL_CAINFO`, `PIP_CERT`, `AWS_CA_BUNDLE`, `CARGO_HTTP_CAINFO`, and
 `DENO_CERT`).
 `NO_PROXY`/`no_proxy` values are compatibility hints for

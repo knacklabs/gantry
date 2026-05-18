@@ -132,7 +132,13 @@ describe('protected capability SDK hook', () => {
 
     expect(
       evaluateProtectedCapabilityToolUse('mcp__gantry__request_skill_install', {
-        spec: 'gantryhub:some-skill@1.0.0',
+        installCommandArgv: [
+          'npx',
+          '-y',
+          '@skills-sh/cli',
+          'install',
+          'some-skill',
+        ],
         reason: 'Install approved shared skill',
       }),
     ).toBeNull();

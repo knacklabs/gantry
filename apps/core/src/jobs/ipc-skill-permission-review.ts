@@ -3,6 +3,10 @@ import type { AgentId } from '../domain/agent/agent.js';
 import type { AppId } from '../domain/app/app.js';
 import type { TaskHandler } from './ipc-types.js';
 import { createTaskResponder } from './ipc-shared.js';
+import {
+  formatAvailableNowMessage,
+  formatNotApprovedMessage,
+} from '../shared/user-visible-messages.js';
 
 export function startSkillPermissionReview(input: {
   deps: Parameters<TaskHandler>[0]['deps'];
@@ -22,6 +26,7 @@ export function startSkillPermissionReview(input: {
     name: string;
     description?: string;
     contentHash?: string;
+    requiredEnvVars?: string[];
   };
   assets: Array<{ path: string; contentType?: string; content: Uint8Array }>;
   fileSummaries: Array<{
@@ -37,14 +42,19 @@ export function startSkillPermissionReview(input: {
   };
   totalSizeBytes: number;
   reason: string;
-  requestToolName: 'request_skill_proposal';
+  requestToolName: 'request_skill_install' | 'request_skill_proposal';
+  onSettled?: () => void;
 }): void {
-  void completeSkillPermissionReview(input).catch((err) => {
-    input.responder.reject(
-      err instanceof Error ? err.message : 'Skill permission review failed.',
-      'permission_review_failed',
-    );
-  });
+  void completeSkillPermissionReview(input)
+    .catch((err) => {
+      input.responder.reject(
+        err instanceof Error ? err.message : 'Skill permission review failed.',
+        'permission_review_failed',
+      );
+    })
+    .finally(() => {
+      input.onSettled?.();
+    });
 }
 
 async function completeSkillPermissionReview(
@@ -60,15 +70,21 @@ async function completeSkillPermissionReview(
     decisionPolicy: 'same_channel',
     toolName: input.requestToolName,
     displayName: `Skill: ${input.skill.name}`,
-    title: 'Approve skill for this agent',
+    title:
+      input.requestToolName === 'request_skill_install'
+        ? 'Install skill for this agent'
+        : 'Approve skill for this agent',
     description:
-      'Only configured approvers can decide this request. Approving binds this skill, returns it to the current agent run, and materializes it for future runs.',
+      input.requestToolName === 'request_skill_install'
+        ? 'Only configured approvers can decide this request. Approval installs the skill and makes it available to this agent.'
+        : 'Only configured approvers can decide this request. Approval makes the skill available to this agent.',
     decisionReason: input.reason,
     toolInput: {
       skillId: input.skill.id,
       name: input.skill.name,
       description: input.skill.description,
       packageContentHash: input.skill.contentHash,
+      requiredEnvVars: input.skill.requiredEnvVars ?? [],
       skillMarkdownPreview: input.skillMarkdownPreview,
       files: input.fileSummaries,
       totalSizeBytes: input.totalSizeBytes,
@@ -105,15 +121,21 @@ async function completeSkillPermissionReview(
     throw err;
   }
   const sameSessionContext = buildApprovedSkillSameSessionContext(input);
+  const action =
+    input.requestToolName === 'request_skill_install'
+      ? 'Installed'
+      : 'Approved';
   await input.deps.sendMessage(
     input.targetJid,
-    `Approved skill ${input.skill.name}. It has been returned to the running agent and will also be available in future sessions.`,
+    skillApprovalMessage(action, input.skill.name, input.skill.requiredEnvVars),
     input.threadId ? { threadId: input.threadId } : undefined,
   );
   input.responder.acceptData(
-    `Approved skill ${input.skill.name}. It is available in this current run and future sessions.`,
+    skillApprovalMessage(action, input.skill.name, input.skill.requiredEnvVars),
     sameSessionContext,
-    'skill_approved',
+    input.requestToolName === 'request_skill_install'
+      ? 'skill_installed'
+      : 'skill_approved',
   );
 }
 
@@ -126,15 +148,19 @@ async function rejectSkillDraftFromPermission(
     skillId: input.skill.id as never,
     rejectedBy: 'permission_review',
   });
+  const message = formatNotApprovedMessage({
+    action:
+      input.requestToolName === 'request_skill_install' ? 'install' : 'approve',
+    noun: 'skill',
+    name: input.skill.name,
+    reason,
+  });
   await input.deps.sendMessage(
     input.targetJid,
-    `Rejected skill ${input.skill.name}: ${reason || 'not approved'}.`,
+    message,
     input.threadId ? { threadId: input.threadId } : undefined,
   );
-  input.responder.reject(
-    `Rejected skill ${input.skill.name}: ${reason || 'not approved'}.`,
-    'permission_denied',
-  );
+  input.responder.reject(message, 'permission_denied');
 }
 
 function buildApprovedSkillSameSessionContext(
@@ -147,6 +173,7 @@ function buildApprovedSkillSameSessionContext(
     type: 'approved_skill_context' as const,
     activation: 'current_and_future_sessions' as const,
     skill: input.skill,
+    requiredEnvVars: input.skill.requiredEnvVars ?? [],
     files: input.assets.map((asset) => {
       const summary = summariesByPath.get(asset.path);
       return {
@@ -159,4 +186,17 @@ function buildApprovedSkillSameSessionContext(
       };
     }),
   };
+}
+
+function skillApprovalMessage(
+  action: string,
+  skillName: string,
+  requiredEnvVars?: readonly string[],
+): string {
+  return formatAvailableNowMessage({
+    action,
+    noun: 'skill',
+    name: skillName,
+    requiredEnvVars,
+  });
 }

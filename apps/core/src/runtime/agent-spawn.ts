@@ -70,6 +70,8 @@ import {
 import { selectedMemoryIpcActionsFromToolRules } from '../shared/memory-ipc-actions.js';
 import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
 import { validateAgentToolRuntimeRules } from '../application/agents/agent-tool-runtime-rules.js';
+import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
+import { resolveSelectedSkillEnvForAgent } from '../application/capability-secrets/skill-secret-projection.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { getRuntimeFileArtifactStore } from '../adapters/storage/postgres/runtime-store.js';
 import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
@@ -324,6 +326,7 @@ export async function spawnAgent(
   const selectedMcpServerIds = input.selectedMcpServerIds ?? [];
   const allMcpCapabilities: MaterializedMcpCapability[] =
     options?.mcpServerRepository &&
+    options.capabilitySecretRepository &&
     options.mcpContext?.appId &&
     options.mcpContext.agentId &&
     selectedMcpServerIds.length > 0
@@ -334,13 +337,15 @@ export async function spawnAgent(
           appId: options.mcpContext.appId as never,
           agentId: options.mcpContext.agentId as never,
           serverIds: selectedMcpServerIds as never,
-          credentialEnv: (
-            await getHostRuntimeCredentialEnv(
-              agentIdentifier,
-              options.credentialBroker,
-              { purpose: 'tool_capability' },
-            )
-          ).env,
+          credentialEnv: options.capabilitySecretRepository
+            ? await resolveMcpCredentialEnvForAgent({
+                appId: options.mcpContext.appId as never,
+                agentId: options.mcpContext.agentId as never,
+                serverIds: selectedMcpServerIds as never,
+                mcpServers: options.mcpServerRepository,
+                secrets: options.capabilitySecretRepository,
+              })
+            : {},
         })
       : [];
   const memoryIpcAllowedActions = selectedMemoryIpcActionsFromToolRules(
@@ -451,26 +456,7 @@ export async function spawnAgent(
   if (Object.keys(serializedModelCredentialEnv).length > 0) {
     runnerInput.modelCredentialEnv = serializedModelCredentialEnv;
   }
-  const mcpConfigPath =
-    allMcpCapabilities.length > 0
-      ? writeRunnerMcpConfigFile(hostRuntime.groupIpcDir, allMcpCapabilities)
-      : undefined;
-  if (mcpConfigPath) {
-    env.GANTRY_MCP_CONFIG_FILE = mcpConfigPath;
-    env.GANTRY_MCP_ALLOWED_TOOLS_JSON = JSON.stringify(
-      allMcpCapabilities.flatMap((capability) => capability.allowedToolNames),
-    );
-    env.GANTRY_MCP_ALWAYS_ALLOWED_TOOLS_JSON = JSON.stringify(
-      allMcpCapabilities.flatMap(
-        (capability) => capability.autoApproveToolNames,
-      ),
-    );
-  }
-  env[PROTECTED_FILESYSTEM_PATHS_ENV] = JSON.stringify(
-    mcpConfigPath
-      ? [...llmRuntimeMaterialization.protectedFilesystemPaths, mcpConfigPath]
-      : llmRuntimeMaterialization.protectedFilesystemPaths,
-  );
+  let mcpConfigPath: string | undefined;
 
   const runtimeDetails = [
     `groupDir=${hostRuntime.groupDir}`,
@@ -509,6 +495,46 @@ export async function spawnAgent(
   fs.mkdirSync(logsDir, { recursive: true });
 
   try {
+    const selectedSkillEnv =
+      options?.skillRepository &&
+      options.capabilitySecretRepository &&
+      options.skillContext?.appId &&
+      options.skillContext.agentId
+        ? await resolveSelectedSkillEnvForAgent({
+            appId: options.skillContext.appId as never,
+            agentId: options.skillContext.agentId as never,
+            skills: options.skillRepository,
+            secrets: options.capabilitySecretRepository,
+          })
+        : { env: {} };
+    if (selectedSkillEnv.missingMessage) {
+      return {
+        status: 'error',
+        result: null,
+        error: selectedSkillEnv.missingMessage,
+      };
+    }
+    Object.assign(env, selectedSkillEnv.env);
+    mcpConfigPath =
+      allMcpCapabilities.length > 0
+        ? writeRunnerMcpConfigFile(hostRuntime.groupIpcDir, allMcpCapabilities)
+        : undefined;
+    if (mcpConfigPath) {
+      env.GANTRY_MCP_CONFIG_FILE = mcpConfigPath;
+      env.GANTRY_MCP_ALLOWED_TOOLS_JSON = JSON.stringify(
+        allMcpCapabilities.flatMap((capability) => capability.allowedToolNames),
+      );
+      env.GANTRY_MCP_ALWAYS_ALLOWED_TOOLS_JSON = JSON.stringify(
+        allMcpCapabilities.flatMap(
+          (capability) => capability.autoApproveToolNames,
+        ),
+      );
+    }
+    env[PROTECTED_FILESYSTEM_PATHS_ENV] = JSON.stringify(
+      mcpConfigPath
+        ? [...llmRuntimeMaterialization.protectedFilesystemPaths, mcpConfigPath]
+        : llmRuntimeMaterialization.protectedFilesystemPaths,
+    );
     if (browserIpcEnabled) {
       registerBrowserIpcAuthorization({
         workspaceKey: group.folder,

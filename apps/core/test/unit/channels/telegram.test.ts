@@ -1459,11 +1459,6 @@ describe('TelegramChannel', () => {
       await channel.sendMessage('tg:100200300', 'Paused after failures', {
         actionAffordances: [
           { kind: 'scheduler_run_now', label: 'Retry now', jobId: 'job-1' },
-          {
-            kind: 'scheduler_show_last_logs',
-            label: 'Show last 50 log lines',
-            jobId: 'job-1',
-          },
           { kind: 'scheduler_pause_job', label: 'Pause job', jobId: 'job-1' },
           {
             kind: 'scheduler_open',
@@ -1482,15 +1477,9 @@ describe('TelegramChannel', () => {
             inline_keyboard: [
               [
                 { text: 'Retry now', callback_data: 'dl:retry' },
-                {
-                  text: 'Show last 50 log lines',
-                  callback_data: 'dl:logs',
-                },
-              ],
-              [
                 { text: 'Pause job', callback_data: 'dl:pause' },
-                { text: 'Open in scheduler', callback_data: 'dl:open' },
               ],
+              [{ text: 'Open in scheduler', callback_data: 'dl:open' }],
             ],
           },
         }),

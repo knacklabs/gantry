@@ -222,8 +222,10 @@ describe('scheduler IPC adapter contracts', () => {
     const message = mocks.responder.accept.mock.calls[0][0] as string;
     expect(message).toContain('Scheduler job created (job-1).');
     expect(message).toContain('Model:');
-    expect(message).toContain('Runtime: notifications this conversation');
-    expect(message).toContain('team conversation browser');
+    expect(message).toContain('Notifications: this conversation.');
+    expect(message).not.toContain('Runtime:');
+    expect(message).not.toContain('browser');
+    expect(message).not.toContain('cache:');
   });
 
   it('returns a scheduler upsert plan without creating when confirmation is omitted', async () => {

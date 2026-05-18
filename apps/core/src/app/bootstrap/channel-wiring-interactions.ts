@@ -38,11 +38,11 @@ interface PermissionApprovalTargetBlocked {
 }
 
 const permissionTimeoutDecision = (
-  request: PermissionApprovalRequest,
+  _request: PermissionApprovalRequest,
 ): PermissionApprovalDecision => ({
   approved: false,
   decidedBy: 'system',
-  reason: `Permission approval timed out after ${formatDuration(PERMISSION_APPROVAL_TIMEOUT_MS)} for ${request.toolName}. Recovery: retry the request or approve the scoped rule from the originating conversation.`,
+  reason: `No approval received within ${formatDuration(PERMISSION_APPROVAL_TIMEOUT_MS)}. Retry when an approver is available.`,
   decisionClassification: 'user_reject',
 });
 

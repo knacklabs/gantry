@@ -55,7 +55,7 @@ type StoredSkill = {
   name: string;
   status: 'draft' | 'approved' | 'rejected' | 'disabled';
   version: string;
-  source: 'admin_uploaded' | 'agent_created' | 'bundled' | 'provider_managed';
+  source: 'admin_uploaded' | 'agent_created' | 'bundled';
   promptRefs: string[];
   toolIds: string[];
   workflowRefs: string[];

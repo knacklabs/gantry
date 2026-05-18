@@ -74,6 +74,10 @@ gantry local setup|start|stop|status|logs|doctor
 gantry model list
 gantry model set-default chat|one-time|recurring <alias>
 gantry model doctor
+gantry secrets list
+gantry secrets set <NAME> [--allow <capabilityId>]
+gantry secrets import-env <NAME> [--allow <capabilityId>]
+gantry secrets unset <NAME>
 gantry provider connect telegram
 gantry provider connect slack
 gantry provider connect teams
@@ -230,7 +234,9 @@ Skills, MCP servers, SDK tools, host tools, browser tools, and channel-native to
 
 Capability changes follow a strict lifecycle: **request → review → approval or cancellation → durable audit → new config version → next-run activation**. Tool and channel capability permission prompts use `request_permission` and present simple decisions: `Allow once`, `Allow 5 min`, `Always allow`, or `Cancel`. Details and audit records carry the durable authority shape, such as semantic capabilities, canonical `Browser`, exact Gantry admin tools, or scoped Bash rules. Privileged admin tools such as `service_restart`, `register_agent`, `settings_desired_state`, and `request_settings_update` require exact selected tool capabilities; unselected agents see requestable tool IDs and `request_permission` arguments through `capability_status`.
 
-Persistent agent tool grants are visible in `settings.yaml` under `agents.<id>.tools` as readable rules such as `Bash(git status *)`, `Write(/repo/**)`, or `mcp__gantry__service_restart`. Jobs are scheduled agent runs and inherit the target agent's selected tools, skills, and MCP servers at execution time; job records do not carry a separate tool grant surface. The canonical `toolAccess` view in MCP, CLI, SDK, and Control API responses shows the inherited agent capability projection. Skill source is stored as readable skill folders with `SKILL.md` plus supporting files; Postgres stores metadata, source, hash, provider refs, binding, and audit records. GantryHub is the default provider-backed skill source, but provider verification never bypasses approval.
+Persistent agent tool grants are visible in `settings.yaml` under `agents.<id>.tools` as readable rules such as `Bash(git status *)`, `Write(/repo/**)`, or `mcp__gantry__service_restart`. Jobs are scheduled agent runs and inherit the target agent's selected tools, skills, and MCP servers at execution time; job records do not carry a separate tool grant surface. The canonical `toolAccess` view in MCP, CLI, SDK, and Control API responses shows the inherited agent capability projection. Skill source is stored as readable skill folders with `SKILL.md` plus supporting files; Postgres stores metadata, source type, hash, binding, and audit records. Skills installed from catalogs, URLs, CLI commands, or uploads all become the same reviewed local skill package after approval.
+
+Capability-owned secrets for selected skills and MCP servers use Gantry Secrets rather than runtime `.env` or model broker profiles. Use `gantry secrets set <NAME>`, `gantry secrets import-env <NAME>`, `gantry secrets list`, and `gantry secrets unset <NAME>`; add `--allow <capabilityId>` to scope a secret to a specific MCP definition, `mcp:<name>`, skill id, or `skill:<name>`.
 
 `permissions.yolo_mode` controls the denylist applied only to the 5-minute
 all-tools timed grant. Gantry ships defaults for destructive commands such as
@@ -469,7 +475,7 @@ Key paths:
 - Prompt FileArtifact path `<agent-folder>/CLAUDE` plus `.md` suffix — stable agent-specific prompt guidance
 - `GANTRY_DATABASE_URL` — Postgres runtime and memory database
 - `ONECLI_DATABASE_URL` — same Postgres database with a separate OneCLI role and `schema=onecli` for broker persistence
-- `SECRET_ENCRYPTION_KEY` — stable generated base64-encoded 32-byte OneCLI broker encryption secret for stateless restarts
+- `SECRET_ENCRYPTION_KEY` — stable generated base64-encoded 32-byte deployment secret for OneCLI broker state and Gantry Secrets encryption
 
 ## Factory Mode
 
