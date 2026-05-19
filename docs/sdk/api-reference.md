@@ -30,6 +30,15 @@ the launchd plist; keep the plist limited to `GANTRY_HOME`, `HOME`, and `PATH`.
 Every Control API token must be listed in `GANTRY_CONTROL_API_KEYS_JSON` with
 an explicit `kid`, `token`, `appId`, and `scopes` array.
 
+When the control server is reachable over TCP, interactive API documentation is
+available at `GET /docs` and the machine-readable Swagger/OpenAPI document is
+available at `GET /openapi.json`. For the default Unix socket transport, fetch
+the same spec with:
+
+```sh
+curl --unix-socket ~/gantry/run/control.sock http://localhost/openapi.json
+```
+
 ## Settings
 
 The typed settings API is diagnostic/read-only for local personal mode. It
