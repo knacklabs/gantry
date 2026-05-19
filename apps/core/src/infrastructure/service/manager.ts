@@ -192,6 +192,11 @@ function systemdQuote(value: string, label: string): string {
     .replace(/%/g, '%%')}"`;
 }
 
+function systemdPathValue(value: string, label: string): string {
+  assertSystemdUnitValue(value, label);
+  return value.replace(/%/g, '%%');
+}
+
 function writeSystemdUnit(runtimeHome: string, runtimeEntry: string): string {
   const unitDir = path.join(os.homedir(), '.config', 'systemd', 'user');
   const unitPath = path.join(unitDir, 'gantry.service');
@@ -207,7 +212,7 @@ Environment=${systemdQuote(`GANTRY_HOME=${runtimeHome}`, 'GANTRY_HOME')}
 Environment=${systemdQuote(`HOME=${os.homedir()}`, 'HOME')}
 Environment=${systemdQuote(`PATH=${servicePath}`, 'PATH')}
 ExecStart=${systemdQuote(process.execPath, 'node executable')} ${systemdQuote(runtimeEntry, 'runtime entry')}
-WorkingDirectory=${systemdQuote(runtimeHome, 'runtime home')}
+WorkingDirectory=${systemdPathValue(runtimeHome, 'runtime home')}
 Restart=always
 RestartSec=5
 StandardOutput=${systemdQuote(`append:${runtimeLogPath(runtimeHome)}`, 'runtime log path')}

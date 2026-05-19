@@ -100,7 +100,7 @@ describe('service manager background start', () => {
     expect(unit).not.toContain('ExecStartPre=');
     expect(unit).not.toContain('--local-services-start');
     expect(unit).toContain('Environment="GANTRY_HOME=');
-    expect(unit).toContain('WorkingDirectory="');
+    expect(unit).toContain(`WorkingDirectory=${runtimeHome}`);
     expect(unit).toContain('StandardOutput="append:');
   });
 

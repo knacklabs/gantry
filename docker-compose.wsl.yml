@@ -1,0 +1,7 @@
+services:
+  postgres:
+    # WSL/Docker Desktop amd64 hosts can fail on the pinned arm64 digest used by
+    # the default compose file. This opt-in override keeps the normal compose
+    # contract unchanged while using the multi-platform tag locally.
+    image: pgvector/pgvector:0.8.2-pg16-trixie
+    platform: linux/amd64

@@ -7,7 +7,15 @@ function cliDirFromImportMeta(importMetaUrl: string): string {
 }
 
 export function getDistRoot(importMetaUrl: string): string {
-  return path.resolve(cliDirFromImportMeta(importMetaUrl), '..');
+  const cliDir = cliDirFromImportMeta(importMetaUrl);
+  if (
+    path.basename(cliDir) === 'cli' &&
+    path.basename(path.dirname(cliDir)) === 'src' &&
+    path.basename(path.dirname(path.dirname(cliDir))) === 'core'
+  ) {
+    return path.resolve(cliDir, '../../../..', 'dist');
+  }
+  return path.resolve(cliDir, '..');
 }
 
 export function getPackageRoot(importMetaUrl: string): string {

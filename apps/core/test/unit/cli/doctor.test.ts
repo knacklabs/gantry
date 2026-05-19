@@ -85,6 +85,8 @@ async function loadDoctor(options?: {
   onecliPersistence?: { status: string; message: string };
   onOnecliConstruct?: (options: unknown) => void;
   runtimeGroupCount?: number;
+  nodeMajor?: number;
+  nodeVersion?: string;
 }) {
   const getContainerConfig = vi.fn(async () => ({
     env: options?.onecliEnv || {},
@@ -102,8 +104,8 @@ async function loadDoctor(options?: {
   vi.doMock('@core/infrastructure/service/platform.js', () => ({
     commandExists: vi.fn(() => true),
     detectPlatform: vi.fn(() => 'macos'),
-    getNodeMajorVersion: vi.fn(() => 25),
-    getNodeVersion: vi.fn(() => '25.0.0'),
+    getNodeMajorVersion: vi.fn(() => options?.nodeMajor ?? 25),
+    getNodeVersion: vi.fn(() => options?.nodeVersion ?? '25.0.0'),
     hasSystemdUser: vi.fn(() => false),
   }));
   vi.doMock('@core/adapters/storage/postgres/storage-readiness.js', () => ({
@@ -148,6 +150,43 @@ afterEach(() => {
 });
 
 describe('doctor', () => {
+  it('accepts Node 24 because package engines support Node >=24 <26', async () => {
+    const runtimeHome = makeRuntimeHome([
+      'GANTRY_DATABASE_URL=postgres://gantry_app:pass@localhost:15432/gantry',
+    ]);
+    const { runDoctor } = await loadDoctor({
+      nodeMajor: 24,
+      nodeVersion: '24.12.0',
+    });
+
+    const report = runDoctor(import.meta.url, runtimeHome);
+    const check = report.checks.find((entry) => entry.id === 'node-version');
+
+    expect(check).toMatchObject({
+      status: 'pass',
+      message: 'Node 24.12.0 detected.',
+    });
+  });
+
+  it('rejects Node versions outside the supported engine range', async () => {
+    const runtimeHome = makeRuntimeHome([
+      'GANTRY_DATABASE_URL=postgres://gantry_app:pass@localhost:15432/gantry',
+    ]);
+    const { runDoctor } = await loadDoctor({
+      nodeMajor: 26,
+      nodeVersion: '26.0.0',
+    });
+
+    const report = runDoctor(import.meta.url, runtimeHome);
+    const check = report.checks.find((entry) => entry.id === 'node-version');
+
+    expect(check).toMatchObject({
+      status: 'fail',
+      message: 'Node 26.0.0 detected. Gantry requires Node >=24 <26.',
+      nextAction: 'Install Node.js 24 or 25 and run `gantry doctor` again.',
+    });
+  });
+
   it('fails external model access when the broker endpoint is missing', async () => {
     const runtimeHome = makeRuntimeHome([
       'GANTRY_DATABASE_URL=postgres://gantry_app:pass@localhost:15432/gantry',

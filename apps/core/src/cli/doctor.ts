@@ -114,7 +114,7 @@ export function runDoctor(
 
   const nodeMajor = getNodeMajorVersion();
   const nodeVersion = getNodeVersion();
-  if (nodeMajor >= 25) {
+  if (nodeMajor >= 24 && nodeMajor < 26) {
     add(checks, {
       id: 'node-version',
       title: 'Node.js Version',
@@ -126,8 +126,8 @@ export function runDoctor(
       id: 'node-version',
       title: 'Node.js Version',
       status: 'fail',
-      message: `Node ${nodeVersion} detected. Gantry requires Node 25 or newer.`,
-      nextAction: 'Install Node.js 25+ and run `gantry doctor` again.',
+      message: `Node ${nodeVersion} detected. Gantry requires Node >=24 <26.`,
+      nextAction: 'Install Node.js 24 or 25 and run `gantry doctor` again.',
     });
   }
 
