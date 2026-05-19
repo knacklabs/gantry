@@ -826,34 +826,6 @@
     "maxViolations": 1
   },
   {
-    "file": "apps/core/src/memory/claude-query.ts",
-    "rule": "forbidden_external_import_by_layer",
-    "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/memory/claude-query.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 5
-  },
-  {
-    "file": "apps/core/src/memory/extractor-llm.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 3
-  },
-  {
-    "file": "apps/core/src/memory/extractor-llm.ts",
-    "rule": "provider_specific_path",
-    "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
-  },
-  {
     "file": "apps/core/src/memory/maintenance-queue.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -917,13 +889,6 @@
     "maxViolations": 7
   },
   {
-    "file": "apps/core/src/memory/prompts/session-summary.ts",
-    "rule": "provider_specific_path",
-    "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
-  },
-  {
     "file": "apps/core/src/messaging/router.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -943,41 +908,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 8
-  },
-  {
-    "file": "apps/core/src/runner/agent-capabilities.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 2
-  },
-  {
-    "file": "apps/core/src/runner/claude/index.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
-  },
-  {
-    "file": "apps/core/src/runner/claude/query-loop.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 4
-  },
-  {
-    "file": "apps/core/src/runner/claude/runtime-env.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 3
-  },
-  {
-    "file": "apps/core/src/runner/claude/types.ts",
-    "rule": "old_term_groupFolder",
-    "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxOccurrences": 1
   },
   {
     "file": "apps/core/src/runner/mcp/context.ts",
@@ -1069,13 +999,6 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 5
-  },
-  {
-    "file": "apps/core/src/runtime/agent-spawn.ts",
-    "rule": "provider_specific_path",
-    "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 9
   },
   {
     "file": "apps/core/src/runtime/browser-capability.ts",
@@ -1260,41 +1183,6 @@
     "maxViolations": 2
   },
   {
-    "file": "apps/core/src/runtime/remote-control-command.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 2
-  },
-  {
-    "file": "apps/core/src/runtime/remote-control.ts",
-    "rule": "direct_risky_execution",
-    "reason": "Baseline host-execution debt pending sandbox adapter cutover; capped so new direct execution calls fail.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/runtime/remote-control.ts",
-    "rule": "forbidden_external_import_by_layer",
-    "reason": "Baseline external-import debt from runtime-to-adapter extraction; capped so new runtime package imports fail until adapter ports replace this path.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
-  },
-  {
-    "file": "apps/core/src/runtime/remote-control.ts",
-    "rule": "forbidden_import_by_layer",
-    "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 2
-  },
-  {
-    "file": "apps/core/src/runtime/remote-control.ts",
-    "rule": "provider_specific_path",
-    "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 2
-  },
-  {
     "file": "apps/core/src/runtime/session-resume-runtime.ts",
     "rule": "forbidden_import_by_layer",
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
@@ -1438,5 +1326,61 @@
     "reason": "The runtime-owned egress gateway owns temporary Node HTTP/socket plumbing until the outbound transport adapter port is extracted.",
     "removeByPhase": "egress-gateway-adapter-extraction",
     "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/adapters/llm/anthropic-claude-agent/execution-adapter.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Anthropic execution adapter currently consumes the host runtime spawn contract while this phase extracts provider-specific preparation behind a runtime-selected adapter; collapse to an application-owned port in the next boundary cleanup.",
+    "removeByPhase": "provider-neutral execution adapter follow-up",
+    "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/adapters/llm/anthropic-claude-agent/memory-query.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Anthropic memory LLM adapter reuses existing config and credential-broker access while direct SDK imports are moved out of memory; move credential runtime config behind an application port next.",
+    "removeByPhase": "memory credential port cleanup",
+    "maxViolations": 3
+  },
+  {
+    "file": "apps/core/src/memory/extractor-llm.ts",
+    "rule": "forbidden_import_by_layer",
+    "reason": "Pre-existing memory runtime dependencies on config and logging remain unchanged by the Anthropic SDK extraction.",
+    "removeByPhase": "memory service layering cleanup",
+    "maxViolations": 2
+  },
+  {
+    "file": "apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts",
+    "rule": "old_term_groupFolder",
+    "reason": "Moved existing Claude adapter code still carries current runtime workspace field names; this phase changes provider ownership, not canonical groupFolder renaming.",
+    "removeByPhase": "canonical workspace naming cleanup",
+    "maxOccurrences": 2
+  },
+  {
+    "file": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/index.ts",
+    "rule": "old_term_groupFolder",
+    "reason": "Moved existing Claude adapter code still carries current runtime workspace field names; this phase changes provider ownership, not canonical groupFolder renaming.",
+    "removeByPhase": "canonical workspace naming cleanup",
+    "maxOccurrences": 1
+  },
+  {
+    "file": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts",
+    "rule": "old_term_groupFolder",
+    "reason": "Moved existing Claude adapter code still carries current runtime workspace field names; this phase changes provider ownership, not canonical groupFolder renaming.",
+    "removeByPhase": "canonical workspace naming cleanup",
+    "maxOccurrences": 2
+  },
+  {
+    "file": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/runtime-env.ts",
+    "rule": "old_term_groupFolder",
+    "reason": "Moved existing Claude adapter code still carries current runtime workspace field names; this phase changes provider ownership, not canonical groupFolder renaming.",
+    "removeByPhase": "canonical workspace naming cleanup",
+    "maxOccurrences": 3
+  },
+  {
+    "file": "apps/core/src/adapters/llm/anthropic-claude-agent/runner/types.ts",
+    "rule": "old_term_groupFolder",
+    "reason": "Moved existing Claude adapter code still carries current runtime workspace field names; this phase changes provider ownership, not canonical groupFolder renaming.",
+    "removeByPhase": "canonical workspace naming cleanup",
+    "maxOccurrences": 1
   }
 ]

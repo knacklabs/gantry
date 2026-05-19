@@ -116,7 +116,7 @@ fallback, or repair branches for that state.
 
 ## Runtime Guardrails
 
-- `apps/core/src/runner/claude/index.ts` must pass explicit query-loop SDK
+- `apps/core/src/adapters/llm/anthropic-claude-agent/runner/index.ts` must pass explicit query-loop SDK
   persistence options: live turns persist/resume, scheduled jobs do not.
 - Host live runner inputs may pass the trusted `turnContext.externalSessionId`
   as `AgentInput.sessionId`; scheduler execution must not copy

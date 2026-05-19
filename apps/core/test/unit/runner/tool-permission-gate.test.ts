@@ -4,12 +4,15 @@ const permissionMock = vi.hoisted(() => ({
   requestPermissionApproval: vi.fn(),
 }));
 
-vi.mock('@core/runner/claude/permission-callback.js', () => ({
-  requestPermissionApproval: permissionMock.requestPermissionApproval,
-}));
+vi.mock(
+  '@core/adapters/llm/anthropic-claude-agent/runner/permission-callback.js',
+  () => ({
+    requestPermissionApproval: permissionMock.requestPermissionApproval,
+  }),
+);
 
 const { createCanUseToolCallback } =
-  await import('@core/runner/claude/tool-permission-gate.js');
+  await import('@core/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.js');
 
 function makePermissionOptions(overrides: Record<string, unknown> = {}) {
   return {

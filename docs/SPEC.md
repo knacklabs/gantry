@@ -78,7 +78,7 @@ A personal Claude assistant with multi-channel support, persistent memory per co
 | Channel System     | Provider registry (`apps/core/src/channels/provider-registry.ts`) | Channels are looked up by provider id and JID prefix                  |
 | Message Storage    | Postgres with Drizzle                                             | Store messages, jobs, events, memory, and runtime state               |
 | Runtime Execution  | Host process execution                                            | Agent execution with runtime-home scoped paths                        |
-| Agent              | @anthropic-ai/claude-agent-sdk                                    | Run Claude with tools and MCP servers                                 |
+| Agent              | Provider execution adapters (current default: Anthropic Claude)    | Run agent models with tools and MCP servers through adapter boundaries |
 | Browser Automation | Gantry Browser capability + Chromium                              | Web interaction and screenshots through the projected Browser gateway |
 | Runtime            | Node.js 25+                                                       | Host process for routing and pg-boss job execution                    |
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { resolveConfiguredModel } from '@agent-runner-src/claude/model-config.js';
+import { resolveConfiguredModel } from '@core/adapters/llm/anthropic-claude-agent/runner/model-config.js';
 
 const previousModel = process.env.ANTHROPIC_MODEL;
 

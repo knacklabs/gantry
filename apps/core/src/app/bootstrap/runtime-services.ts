@@ -16,10 +16,14 @@ import type { NewMessage } from '../../domain/types.js';
 import type { HostnameLookup } from '../../domain/network/public-address-policy.js';
 import { writeGroupsSnapshot } from '../../runtime/agent-spawn.js';
 import { startIpcWatcher, type IpcDeps } from '../../runtime/ipc.js';
-// prettier-ignore
-import { recoverPendingMessages, startMessagePollingLoop } from '../../runtime/message-loop.js';
-// prettier-ignore
-import { requestSchedulerSync, startSchedulerLoop } from '../../jobs/scheduler.js';
+import {
+  recoverPendingMessages,
+  startMessagePollingLoop,
+} from '../../runtime/message-loop.js';
+import {
+  requestSchedulerSync,
+  startSchedulerLoop,
+} from '../../jobs/scheduler.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { makeThreadQueueKey } from '../../runtime/thread-queue-key.js';
 import type {
@@ -99,6 +103,7 @@ interface Deps {
   publishRuntimeEvent: IpcDeps['publishRuntimeEvent'];
   publishBrowserJobActivity: IpcDeps['publishBrowserJobActivity'];
   closeBrowserToolBackends: IpcDeps['closeBrowserToolBackends'];
+  executionAdapter?: RuntimeApp['executionAdapter'];
   exit: (code: number) => never;
 }
 type RuntimeServicesDefaults = Omit<
@@ -218,6 +223,7 @@ export async function startRuntimeServices(
       getSkillArtifactStore: resolved.getSkillArtifactStore,
       getToolRepository: resolved.getToolRepository,
       getBrowserStatus,
+      executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
       closeBrowserSession: closeBrowser,
       closeBrowserToolBackends: resolved.closeBrowserToolBackends,
     });
@@ -317,6 +323,7 @@ export async function startRuntimeServices(
         collectSessionMemory: resolved.collectSessionMemory,
         logger: resolved.logger,
         group,
+        executionAdapter: app.executionAdapter,
         chatJid,
         queueJid,
         threadId,

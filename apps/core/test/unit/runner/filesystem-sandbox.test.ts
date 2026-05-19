@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildSdkFilesystemSandbox } from '@core/runner/claude/filesystem-sandbox.js';
+import { buildSdkFilesystemSandbox } from '@core/adapters/llm/anthropic-claude-agent/runner/filesystem-sandbox.js';
 
 describe('Claude SDK filesystem sandbox settings', () => {
   it('keeps Bash sandboxed and enables macOS trustd lookup for approved CLI TLS', () => {

@@ -18,12 +18,20 @@
   },
   "layers": {
     "domain": {
-      "paths": ["apps/core/src/domain"],
-      "allowedImportLayers": ["domain", "shared", "packages/contracts"],
+      "paths": [
+        "apps/core/src/domain"
+      ],
+      "allowedImportLayers": [
+        "domain",
+        "shared",
+        "packages/contracts"
+      ],
       "allowedExternalImports": []
     },
     "application": {
-      "paths": ["apps/core/src/application"],
+      "paths": [
+        "apps/core/src/application"
+      ],
       "allowedImportLayers": [
         "domain",
         "application",
@@ -77,10 +85,14 @@
         "shared",
         "packages/contracts"
       ],
-      "allowedExternalImports": ["*"]
+      "allowedExternalImports": [
+        "*"
+      ]
     },
     "config": {
-      "paths": ["apps/core/src/config"],
+      "paths": [
+        "apps/core/src/config"
+      ],
       "allowedImportLayers": [
         "config",
         "domain",
@@ -98,19 +110,48 @@
       ]
     },
     "shared": {
-      "paths": ["apps/core/src/shared"],
-      "allowedImportLayers": ["shared", "packages/contracts"],
-      "allowedExternalImports": ["node:", "crypto", "fs", "path", "url", "os"]
+      "paths": [
+        "apps/core/src/shared"
+      ],
+      "allowedImportLayers": [
+        "shared",
+        "packages/contracts"
+      ],
+      "allowedExternalImports": [
+        "node:",
+        "crypto",
+        "fs",
+        "path",
+        "url",
+        "os"
+      ]
     },
     "packages/contracts": {
-      "paths": ["packages/contracts/src"],
-      "allowedImportLayers": ["packages/contracts"],
-      "allowedExternalImports": ["zod"]
+      "paths": [
+        "packages/contracts/src"
+      ],
+      "allowedImportLayers": [
+        "packages/contracts"
+      ],
+      "allowedExternalImports": [
+        "zod"
+      ]
     },
     "packages/sdk": {
-      "paths": ["packages/sdk/src"],
-      "allowedImportLayers": ["packages/contracts", "packages/sdk"],
-      "allowedExternalImports": ["node:", "http", "https", "url", "crypto"]
+      "paths": [
+        "packages/sdk/src"
+      ],
+      "allowedImportLayers": [
+        "packages/contracts",
+        "packages/sdk"
+      ],
+      "allowedExternalImports": [
+        "node:",
+        "http",
+        "https",
+        "url",
+        "crypto"
+      ]
     }
   },
   "approvedProviderSpecificPaths": [
@@ -120,9 +161,7 @@
     "apps/core/src/adapters/browser",
     "apps/core/src/channels",
     "apps/core/src/cli",
-    "apps/core/src/runner/claude",
-    "apps/core/src/runner/mcp",
-    "apps/core/src/memory/claude-query.ts"
+    "apps/core/src/runner/mcp"
   ],
   "approvedProviderBoundaryPaths": [
     "apps/core/src/adapters/llm/anthropic-claude-agent"
@@ -150,7 +189,9 @@
     "playwright": "\\b(?:Playwright|playwright)\\b",
     "docker": "\\b(?:Docker|docker|docker-compose)\\b"
   },
-  "riskyExecutionApprovedPaths": ["apps/core/src/adapters/sandbox"],
+  "riskyExecutionApprovedPaths": [
+    "apps/core/src/adapters/sandbox"
+  ],
   "browserDefaultProfilePathPatterns": [
     "Google Chrome default profile",
     "~[/\\\\]\\.config[/\\\\]google-chrome",
@@ -163,5 +204,8 @@
     "registeredGroup": "\\bregisteredGroups?\\b",
     "claude_only": "\\b(?:claude-only|Claude-only|claude only|Claude only|only Claude|only supports Claude)\\b"
   },
-  "emptyFolderScanRoots": ["apps/core/src", "packages"]
+  "emptyFolderScanRoots": [
+    "apps/core/src",
+    "packages"
+  ]
 }

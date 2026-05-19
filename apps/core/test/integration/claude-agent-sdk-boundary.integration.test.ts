@@ -8,7 +8,7 @@ import {
   selectedMemoryIpcActions,
   selectedGantryMcpToolNames,
 } from '@agent-runner-src/gantry-mcp-tool-surface.js';
-import type { AgentRunnerInput } from '@core/runner/claude/types.js';
+import type { AgentRunnerInput } from '@core/adapters/llm/anthropic-claude-agent/runner/types.js';
 
 const sdkState = vi.hoisted(() => ({
   mode: 'success' as
@@ -253,7 +253,7 @@ function runnerInput(
 
 async function importRunQuery() {
   vi.resetModules();
-  return await import('@core/runner/claude/query-loop.js');
+  return await import('@core/adapters/llm/anthropic-claude-agent/runner/query-loop.js');
 }
 
 afterEach(() => {

@@ -242,7 +242,7 @@ def find_direct_durable_claude_config_paths(changed: list[str]) -> list[str]:
 def find_unowned_claude_config_dir_setters(changed: list[str]) -> list[str]:
     allowed = {
         "apps/core/src/runtime/agent-spawn.ts",
-        "apps/core/src/runner/claude/runtime-env.ts",
+        "apps/core/src/adapters/llm/anthropic-claude-agent/runner/runtime-env.ts",
     }
     allowed_prefixes = (
         "apps/core/src/adapters/llm/anthropic-claude-agent/",

@@ -204,6 +204,10 @@ function makeDeps(
     setGroupModelOverride: vi.fn(),
     setGroupThinkingOverride: vi.fn(),
     collectSessionMemory: vi.fn().mockResolvedValue({ saved: 0 }),
+    executionAdapter: {
+      id: 'anthropic:claude-agent-sdk',
+      prepare: vi.fn(),
+    },
     getAvailableGroups: vi.fn().mockReturnValue([]),
     getRegisteredJids: vi.fn().mockReturnValue(new Set<string>()),
     opsRepository,
@@ -922,7 +926,11 @@ describe('createGroupProcessor', () => {
         ),
         sessionId: 'claude-session-1',
       });
-      expect(mockSpawnAgent.mock.calls[0][4]).toBeUndefined();
+      expect(mockSpawnAgent.mock.calls[0][4]).toMatchObject({
+        executionAdapter: expect.objectContaining({
+          id: 'anthropic:claude-agent-sdk',
+        }),
+      });
     });
 
     it('persists SDK session ids from final agent output for the next turn', async () => {
@@ -953,7 +961,7 @@ describe('createGroupProcessor', () => {
         'new-sess-123',
         null,
         {
-          executionProviderId: 'anthropic-claude-agent-sdk',
+          executionProviderId: 'anthropic:claude-agent-sdk',
           conversationJid: 'group1@g.us',
           conversationKind: undefined,
           memoryUserId: 'user1@s.whatsapp.net',
@@ -963,7 +971,7 @@ describe('createGroupProcessor', () => {
       );
       expect(deps.opsRepository.createSessionAgentRun).toHaveBeenCalledWith({
         agentSessionId: 'agent-session:1',
-        executionProviderId: 'anthropic-claude-agent-sdk',
+        executionProviderId: 'anthropic:claude-agent-sdk',
         providerSessionId: undefined,
         cause: 'message',
       });
@@ -1021,7 +1029,7 @@ describe('createGroupProcessor', () => {
         'streamed-sess',
         null,
         {
-          executionProviderId: 'anthropic-claude-agent-sdk',
+          executionProviderId: 'anthropic:claude-agent-sdk',
           conversationJid: 'group1@g.us',
           conversationKind: undefined,
           memoryUserId: 'user1@s.whatsapp.net',
@@ -1083,7 +1091,7 @@ describe('createGroupProcessor', () => {
         'dm-sess-123',
         null,
         {
-          executionProviderId: 'anthropic-claude-agent-sdk',
+          executionProviderId: 'anthropic:claude-agent-sdk',
           conversationJid: 'sl:D123',
           conversationKind: 'dm',
           memoryUserId: 'sl:U123',
@@ -2874,7 +2882,11 @@ describe('createGroupProcessor', () => {
         }),
         expect.any(Function),
         expect.any(Function),
-        undefined,
+        expect.objectContaining({
+          executionAdapter: expect.objectContaining({
+            id: 'anthropic:claude-agent-sdk',
+          }),
+        }),
       );
       expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
     });
@@ -3025,7 +3037,11 @@ describe('createGroupProcessor', () => {
         }),
         expect.any(Function), // onProcess
         expect.any(Function), // onOutput
-        undefined, // options
+        expect.objectContaining({
+          executionAdapter: expect.objectContaining({
+            id: 'anthropic:claude-agent-sdk',
+          }),
+        }), // options
       );
       expect(mockSpawnAgent.mock.calls[0][1]).not.toHaveProperty('sessionId');
     });
@@ -3048,7 +3064,7 @@ describe('createGroupProcessor', () => {
         (deps.opsRepository as any).getAgentTurnContext,
       ).toHaveBeenCalledWith({
         agentFolder: 'my-group',
-        executionProviderId: 'anthropic-claude-agent-sdk',
+        executionProviderId: 'anthropic:claude-agent-sdk',
         conversationJid: 'group1@g.us',
         threadId: null,
         conversationKind: 'channel',
@@ -3658,7 +3674,11 @@ describe('createGroupProcessor', () => {
         expect.objectContaining({ prompt: 'test prompt' }),
         expect.any(Function),
         expect.any(Function),
-        undefined,
+        expect.objectContaining({
+          executionAdapter: expect.objectContaining({
+            id: 'anthropic:claude-agent-sdk',
+          }),
+        }),
       );
     });
 
@@ -3816,7 +3836,7 @@ describe('createGroupProcessor', () => {
         'session-42',
         null,
         {
-          executionProviderId: 'anthropic-claude-agent-sdk',
+          executionProviderId: 'anthropic:claude-agent-sdk',
           conversationJid: 'group1@g.us',
           conversationKind: undefined,
           memoryUserId: 'user1@s.whatsapp.net',
@@ -3878,7 +3898,7 @@ describe('createGroupProcessor', () => {
         'session-42',
         null,
         {
-          executionProviderId: 'anthropic-claude-agent-sdk',
+          executionProviderId: 'anthropic:claude-agent-sdk',
           conversationJid: 'group1@g.us',
           conversationKind: undefined,
           memoryUserId: 'user1@s.whatsapp.net',

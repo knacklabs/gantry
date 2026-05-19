@@ -322,43 +322,6 @@ describe('createChannelWiring', () => {
     expect(storeMessage).not.toHaveBeenCalled();
   });
 
-  it('routes remote-control commands and does not store as normal messages', async () => {
-    const app = makeApp({
-      'tg:123': { name: 'Main', folder: 'main' },
-    });
-    const storeMessage = vi.fn(async () => {});
-    const handleRemoteControl = vi.fn(async () => {});
-    let onMessage: ((chatJid: string, msg: any) => Promise<void>) | undefined;
-
-    const wiring = createChannelWiring(app, {
-      providerIds: [
-        makeProvider('telegram', (opts: any) => {
-          onMessage = opts.onMessage;
-          return makeChannel();
-        }),
-      ],
-      opsRepository: { storeMessage } as any,
-      asRemoteControlCommand: vi.fn(() => ({ command: 'start' }) as any),
-      handleRemoteControlCommand: handleRemoteControl as any,
-    });
-
-    await wiring.connectEnabledChannels(
-      makeRuntimeSettings({ telegram: true, slack: false }),
-    );
-
-    await onMessage?.('tg:123', {
-      id: 'm2',
-      chat_jid: 'tg:123',
-      sender: 'user-1',
-      sender_name: 'User',
-      content: '/remote start',
-      timestamp: '2026-01-01T00:00:00.000Z',
-    });
-
-    expect(handleRemoteControl).toHaveBeenCalledOnce();
-    expect(storeMessage).not.toHaveBeenCalled();
-  });
-
   it('stores normal inbound messages', async () => {
     const app = makeApp({
       'tg:123': { name: 'Main', folder: 'main' },
@@ -374,7 +337,6 @@ describe('createChannelWiring', () => {
         }),
       ],
       opsRepository: { storeMessage } as any,
-      asRemoteControlCommand: vi.fn(() => null),
       shouldDropMessage: vi.fn(() => false),
     });
 
@@ -422,8 +384,6 @@ describe('createChannelWiring', () => {
         isSenderAllowed: vi.fn(() => true),
         isSenderControlAllowed: vi.fn(() => true),
         shouldLogDenied: vi.fn(() => false),
-        asRemoteControlCommand: vi.fn(() => null),
-        handleRemoteControlCommand: vi.fn(async () => {}),
         logger: {
           info: vi.fn(),
           warn,
@@ -1626,8 +1586,6 @@ describe('createChannelPersistenceHandlers conversation-owned direct routes', ()
           isSenderAllowed: vi.fn(() => true),
           isSenderControlAllowed: vi.fn(() => true),
           shouldLogDenied: vi.fn(() => false),
-          asRemoteControlCommand: vi.fn(() => null),
-          handleRemoteControlCommand: vi.fn(async () => {}),
           logger: {
             info: vi.fn(),
             warn: vi.fn(),

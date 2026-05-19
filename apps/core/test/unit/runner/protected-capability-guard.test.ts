@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { denyProtectedCapabilityToolUse } from '@core/runner/claude/protected-capability-guard.js';
+import { denyProtectedCapabilityToolUse } from '@core/adapters/llm/anthropic-claude-agent/runner/protected-capability-guard.js';
 
 describe('denyProtectedCapabilityToolUse', () => {
   it('denies Config because it can mutate agent capability policy', () => {

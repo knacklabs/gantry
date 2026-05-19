@@ -201,12 +201,12 @@ Cited at:
 - `AgentPersona` enum and resolver —
   `apps/core/src/shared/agent-persona.ts:1`.
 - `AgentCapabilityContext` and `AgentCapabilityProfile` —
-  `apps/core/src/runner/agent-capabilities.ts:7` and
-  `apps/core/src/runner/agent-capabilities.ts:41`.
+  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:7` and
+  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:41`.
 - Built-in capability providers (`sdk-tools`, `permissions`, `gantry-mcp`,
   `configured-tools`, `configured-mcp`) and `composeAgentCapabilities` —
-  `apps/core/src/runner/agent-capabilities.ts:131` and
-  `apps/core/src/runner/agent-capabilities.ts:249`.
+  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:131` and
+  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:249`.
 - Persona compiled into the system prompt —
   `apps/core/src/application/agents/prompt-profile-service.ts:222` and
   `apps/core/src/runtime/agent-spawn.ts:141`.
@@ -215,7 +215,7 @@ Cited at:
   imported by `apps/core/src/runtime/agent-spawn.ts:39`.
 
 The Gantry MCP allowlist composed by the `gantry-mcp` provider is the
-agent-visible tool surface (`apps/core/src/runner/agent-capabilities.ts:72`):
+agent-visible tool surface (`apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:72`):
 
 ```text
 send_message            ask_user_question
@@ -229,7 +229,7 @@ capability_status
 ```
 
 Selected-capability admin agents add four additional admin tools
-(`apps/core/src/runner/agent-capabilities.ts:89`):
+(`apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:89`):
 `settings_desired_state`, `request_settings_update`, `service_restart`,
 `register_agent`. Older tool-enable names were removed; agents use
 `capability_status` to inspect missing admin capabilities and
@@ -242,7 +242,7 @@ uses the exact `Agent` capability to gate native subagent delegation. Once
 `Agent` is granted, there is no second `subagent_type` allowlist. The runner
 still rejects cross-provider models and custom tool/MCP/skill input on the
 Agent call; see `validateAgentModelRequest` and `validateAgentToolInput` in
-`apps/core/src/runner/claude/agent-model-selection.ts`.
+`apps/core/src/adapters/llm/anthropic-claude-agent/runner/agent-model-selection.ts`.
 
 Detail: [agent-runtime.md](./agent-runtime.md).
 
@@ -385,7 +385,7 @@ The default-scope toggle ships through the host as
 `memoryDefaultScope: 'user' | 'group'` on the `SessionMemoryCollector` port
 (`apps/core/src/domain/ports/session-memory-collector.ts:2`) and reaches the
 agent through the `gantry-mcp` provider as `GANTRY_MEMORY_DEFAULT_SCOPE`
-(`apps/core/src/runner/agent-capabilities.ts:166`). The conversation memory
+(`apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:166`). The conversation memory
 boundary is annotated at
 `apps/core/src/adapters/storage/postgres/repositories/canonical-binding-repository.postgres.ts:63`
 and `apps/core/src/adapters/storage/postgres/repositories/canonical-binding-repository.postgres.ts:78`.
@@ -447,7 +447,7 @@ Cited at:
 - IPC handlers — `apps/core/src/runtime/ipc.ts` and
   `apps/core/src/runtime/ipc-interaction-handler.ts`.
 - Runner-side `canUseTool` —
-  `apps/core/src/runner/claude/permission-callback.ts`.
+  `apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts`.
 - conversation approver vs Conversation approver routing —
   [channel-interactions.md §Conversation Administration Model](./channel-interactions.md#conversation-administration-model).
 

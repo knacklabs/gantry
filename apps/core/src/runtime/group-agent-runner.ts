@@ -26,7 +26,7 @@ import { recordRuntimeModelUsage } from './model-status-output.js';
 import { buildBoundedMemoryRecallQuery } from '../memory/app-memory-recall-query.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { isRuntimeEventType } from '../domain/events/runtime-event-types.js';
-import { DEFAULT_EXECUTION_PROVIDER_ID } from './execution-provider-id.js';
+import { resolveRuntimeExecutionProviderId } from './execution-provider-id.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
 const DEFAULT_MODEL_ALIAS = 'opus';
 const MEMORY_REVIEW_APPROVER_CACHE_TTL_MS = 60_000;
@@ -178,6 +178,9 @@ export function createGroupAgentRunner(input: {
       turnMessages?: readonly { content?: string | null }[];
     },
   ): Promise<'success' | 'error'> {
+    const executionProviderId = resolveRuntimeExecutionProviderId(
+      deps.executionAdapter,
+    );
     const sessionThreadId = options?.memoryContext?.threadId ?? null;
     const modelStatus = createRuntimeModelStatusAccess(
       group.folder,
@@ -186,7 +189,7 @@ export function createGroupAgentRunner(input: {
     const streamedResult = createRuntimeResultSummaryAccumulator();
     const turnContext = await ops().getAgentTurnContext?.({
       agentFolder: group.folder,
-      executionProviderId: DEFAULT_EXECUTION_PROVIDER_ID,
+      executionProviderId,
       conversationJid: chatJid,
       threadId: sessionThreadId,
       conversationKind: group.conversationKind,
@@ -241,7 +244,7 @@ export function createGroupAgentRunner(input: {
         nextSessionId,
         sessionThreadId,
         {
-          executionProviderId: DEFAULT_EXECUTION_PROVIDER_ID,
+          executionProviderId,
           conversationJid: chatJid,
           conversationKind: group.conversationKind,
           memoryUserId: options?.memoryContext?.userId,
@@ -355,7 +358,7 @@ export function createGroupAgentRunner(input: {
     runId = turnContext?.agentSessionId
       ? await ops().createSessionAgentRun?.({
           agentSessionId: turnContext.agentSessionId,
-          executionProviderId: DEFAULT_EXECUTION_PROVIDER_ID,
+          executionProviderId,
           providerSessionId: turnContext.providerSessionId,
           cause:
             options?.memoryContext?.source === 'command'
@@ -375,6 +378,7 @@ export function createGroupAgentRunner(input: {
         mcpHostnameLookup: deps.getMcpHostnameLookup?.(),
         mcpDnsValidationCache: deps.getMcpDnsValidationCache?.(),
         publishRuntimeEvent: deps.publishRuntimeEvent,
+        executionAdapter: deps.executionAdapter,
         turnContext,
       });
       const invokeAgent = (agentInput: { memoryContextBlock?: string }) =>

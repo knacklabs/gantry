@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyBashTrustEnv } from '../../../src/runner/claude/bash-trust-env.js';
+import { applyBashTrustEnv } from '../../../src/adapters/llm/anthropic-claude-agent/runner/bash-trust-env.js';
 
 const CA_PATH = '/tmp/gantry/onecli-ca.pem';
 const TRUST_PREFIX = [

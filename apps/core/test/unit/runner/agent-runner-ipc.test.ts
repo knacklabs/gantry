@@ -66,11 +66,22 @@ function createRunnerFixture(): {
   const responseSigningKey = privateKey
     .export({ format: 'pem', type: 'pkcs8' })
     .toString();
-  const runnerDir = path.join(root, 'runner');
-  const runnerClaudeDir = path.join(runnerDir, 'claude');
-  const infrastructureLoggingDir = path.join(root, 'infrastructure', 'logging');
-  const domainEventsDir = path.join(root, 'domain', 'events');
-  const sharedDir = path.join(root, 'shared');
+  const sourceRoot = path.join(root, 'apps', 'core', 'src');
+  const adapterDir = path.join(
+    sourceRoot,
+    'adapters',
+    'llm',
+    'anthropic-claude-agent',
+  );
+  const runnerDir = path.join(sourceRoot, 'runner');
+  const runnerClaudeDir = path.join(adapterDir, 'runner');
+  const infrastructureLoggingDir = path.join(
+    sourceRoot,
+    'infrastructure',
+    'logging',
+  );
+  const domainEventsDir = path.join(sourceRoot, 'domain', 'events');
+  const sharedDir = path.join(sourceRoot, 'shared');
   const sharedTimeDir = path.join(sharedDir, 'time');
   const runnerPath = path.join(runnerClaudeDir, 'index.ts');
   const sdkDir = path.join(
@@ -84,6 +95,7 @@ function createRunnerFixture(): {
   const recordPath = path.join(root, 'sdk-record.json');
 
   fs.mkdirSync(sdkDir, { recursive: true });
+  fs.mkdirSync(adapterDir, { recursive: true });
   fs.mkdirSync(runnerDir, { recursive: true });
   fs.mkdirSync(runnerClaudeDir, { recursive: true });
   fs.mkdirSync(infrastructureLoggingDir, { recursive: true });
@@ -91,18 +103,23 @@ function createRunnerFixture(): {
   fs.mkdirSync(sharedDir, { recursive: true });
   fs.mkdirSync(sharedTimeDir, { recursive: true });
   for (const file of fs.readdirSync(
-    path.resolve('apps/core/src/runner/claude'),
+    path.resolve('apps/core/src/adapters/llm/anthropic-claude-agent/runner'),
   )) {
     if (file.endsWith('.ts')) {
       fs.copyFileSync(
-        path.resolve('apps/core/src/runner/claude', file),
+        path.resolve(
+          'apps/core/src/adapters/llm/anthropic-claude-agent/runner',
+          file,
+        ),
         path.join(runnerClaudeDir, file),
       );
     }
   }
   fs.copyFileSync(
-    path.resolve('apps/core/src/runner/agent-capabilities.ts'),
-    path.join(runnerDir, 'agent-capabilities.ts'),
+    path.resolve(
+      'apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts',
+    ),
+    path.join(adapterDir, 'agent-capabilities.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/runner/gantry-mcp-tool-surface.ts'),
@@ -113,7 +130,9 @@ function createRunnerFixture(): {
     path.join(runnerDir, 'memory-boundary.ts'),
   );
   fs.copyFileSync(
-    path.resolve('apps/core/src/runner/claude/message-stream.ts'),
+    path.resolve(
+      'apps/core/src/adapters/llm/anthropic-claude-agent/runner/message-stream.ts',
+    ),
     path.join(runnerClaudeDir, 'message-stream.ts'),
   );
   fs.copyFileSync(

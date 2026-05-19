@@ -5,7 +5,7 @@ import {
   unsupportedAgentConfigurationField,
   validateAgentToolInput,
   validateAgentModelRequest,
-} from '@agent-runner-src/claude/agent-model-selection.js';
+} from '@core/adapters/llm/anthropic-claude-agent/runner/agent-model-selection.js';
 import { findModelByRunnerModel } from '@core/shared/model-catalog.js';
 
 describe('Agent model selection', () => {

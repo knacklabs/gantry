@@ -164,7 +164,7 @@ Each phase has **goal**, **scope**, **exit criteria**, **deletion target**.
 | Subject normalization + default constant | `apps/core/src/memory/app-memory-boundaries.ts` | 54, 85–97, 106 | 1 |
 | Session hydration entry | `apps/core/src/application/sessions/hydrate-agent-context-service.ts` | 70–99 | 3 |
 | Session app-memory loader | `apps/core/src/memory/app-memory-session-hydration.ts` | 103–148 | 3 |
-| System prompt memory block reader | `apps/core/src/runner/claude/system-prompt.ts` | 30–41 | 3 |
+| System prompt memory block reader | `apps/core/src/adapters/llm/anthropic-claude-agent/runner/system-prompt.ts` | 30–41 | 3 |
 | Dreaming validate-and-route | `apps/core/src/memory/app-memory-dreaming.ts` | 458–544 | 2 |
 | Dreaming guardrails | `apps/core/src/memory/app-memory-dreaming-candidate-guardrails.ts` | 255–312 | 2 |
 | `memory_status` command | `apps/core/src/session/session-commands.ts` | 35 | 4 |

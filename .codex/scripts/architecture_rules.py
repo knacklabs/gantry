@@ -337,8 +337,6 @@ FRAMEWORK_BOUNDARY_RULES = (
         "allowed_prefixes": (
             "apps/core/src/adapters/llm/anthropic",
             "apps/core/src/adapters/llm/anthropic-claude-agent",
-            "apps/core/src/runner/claude",
-            "apps/core/src/memory/claude-query.ts",
         ),
         "message": "Anthropic SDK imports must stay in approved provider adapter paths.",
     },

@@ -24,7 +24,7 @@ import {
   resolveTurnSelectedMcpServerIds,
   resolveTurnSelectedSkillIds,
 } from '../runtime/group-run-context.js';
-import { DEFAULT_EXECUTION_PROVIDER_ID } from '../runtime/execution-provider-id.js';
+import { resolveRuntimeExecutionProviderId } from '../runtime/execution-provider-id.js';
 import {
   collectCompactBoundaryMemory,
   collectJobCompletionMemory,
@@ -133,10 +133,13 @@ export async function runJob(
     },
   });
   if (pausedForSetup) return;
+  const executionProviderId = resolveRuntimeExecutionProviderId(
+    deps.executionAdapter,
+  );
   const claimed = await deps.opsRepository.claimDueJobRunStart({
     jobId: currentJob.id,
     runId,
-    executionProviderId: DEFAULT_EXECUTION_PROVIDER_ID,
+    executionProviderId,
     workerId: execution.group.folder,
     leaseOwner: execution.executionJid,
     scheduledFor,
@@ -282,7 +285,7 @@ export async function runJob(
         turnContext = await deps.opsRepository.getAgentTurnContext?.(
           buildExecutionTurnContextInput({
             agentFolder: execution.group.folder,
-            executionProviderId: DEFAULT_EXECUTION_PROVIDER_ID,
+            executionProviderId,
             executionJid: execution.executionJid,
             threadId: execution.threadId,
             conversationKind: execution.group.conversationKind,
@@ -357,6 +360,7 @@ export async function runJob(
             publishRuntimeEvent: async (event) => {
               await getRuntimeEventExchange().publish(event);
             },
+            executionAdapter: deps.executionAdapter,
             skillContext: {
               appId: executionAppId,
               agentId: executionAgentId,
@@ -365,7 +369,7 @@ export async function runJob(
           agentRunId = turnContext?.agentSessionId
             ? await deps.opsRepository.createSessionAgentRun?.({
                 agentSessionId: turnContext.agentSessionId,
-                executionProviderId: DEFAULT_EXECUTION_PROVIDER_ID,
+                executionProviderId,
                 providerSessionId: turnContext.providerSessionId,
                 cause: 'job',
               })

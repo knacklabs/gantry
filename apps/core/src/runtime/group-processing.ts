@@ -248,6 +248,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           defaultScope: defaultMemoryScope,
           memoryUserId,
           collectMemory: collectSessionMemory,
+          executionAdapter: deps.executionAdapter,
         }),
         clearCurrentSession: () =>
           deps.clearSession(group.folder, activeThreadId, {

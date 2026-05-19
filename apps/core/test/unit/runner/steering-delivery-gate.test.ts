@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { SteeringDeliveryGate } from '@core/runner/claude/steering-delivery-gate.js';
+import { SteeringDeliveryGate } from '@core/adapters/llm/anthropic-claude-agent/runner/steering-delivery-gate.js';
 
 describe('SteeringDeliveryGate', () => {
   it('buffers steering until a turn boundary', () => {

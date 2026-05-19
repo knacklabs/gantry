@@ -6,7 +6,8 @@ import {
   toGroupMessageCursor,
 } from '../../shared/message-cursor.js';
 import { makeThreadQueueKey } from '../../runtime/thread-queue-key.js';
-import { DEFAULT_EXECUTION_PROVIDER_ID } from '../../runtime/execution-provider-id.js';
+import { resolveRuntimeExecutionProviderId } from '../../runtime/execution-provider-id.js';
+import type { AgentExecutionAdapter } from '../../application/agent-execution/agent-execution-adapter.js';
 import type { ChannelWiring } from './channel-wiring.js';
 
 export async function handleActiveNewSessionCommand(input: {
@@ -25,6 +26,7 @@ export async function handleActiveNewSessionCommand(input: {
   collectSessionMemory: SessionMemoryCollector;
   logger: { warn(payload: unknown, message: string): void };
   group: { folder: string; conversationKind?: 'dm' | 'channel' };
+  executionAdapter?: Pick<AgentExecutionAdapter, 'id'>;
   chatJid: string;
   queueJid: string;
   threadId?: string;
@@ -48,7 +50,9 @@ export async function handleActiveNewSessionCommand(input: {
   try {
     const turnContext = await opsRepository.getAgentTurnContext?.({
       agentFolder: group.folder,
-      executionProviderId: DEFAULT_EXECUTION_PROVIDER_ID,
+      executionProviderId: resolveRuntimeExecutionProviderId(
+        input.executionAdapter,
+      ),
       conversationJid: chatJid,
       threadId,
       conversationKind: group.conversationKind,

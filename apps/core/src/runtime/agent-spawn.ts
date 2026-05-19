@@ -7,10 +7,8 @@ import fs from 'fs';
 import path from 'path';
 
 import {
-  ARTIFACTS_DIR,
   DATA_DIR,
   PERMISSION_APPROVAL_TIMEOUT_MS,
-  RUNTIME_SETTINGS_PATH,
   TIMEZONE,
   getRuntimeSettingsForConfig,
   getEffectiveModelConfig,
@@ -31,18 +29,6 @@ import {
   McpServerService,
   type MaterializedMcpCapability,
 } from '../application/mcp/mcp-server-service.js';
-import {
-  applyOpenRouterSdkEnv,
-  materializeClaudeRuntime,
-  projectClaudeModelCredentialEnv,
-} from '../adapters/llm/anthropic-claude-agent/claude-config-materializer.js';
-import {
-  ArtifactClaudeSkillSource,
-  BundledClaudeSkillSource,
-  CompositeSkillSource,
-  RuntimeInstalledGantryBrowserSkillSource,
-  type SkillSource,
-} from '../adapters/llm/anthropic-claude-agent/claude-skill-materializer.js';
 import { ensureGroupIpcLayout } from './agent-spawn-layout.js';
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
 import {
@@ -227,37 +213,8 @@ export async function spawnAgent(
     options?.credentialBroker,
     { purpose: 'model_runtime' },
   );
-  if (
-    effectiveModelEntry?.provider === 'openrouter' &&
-    (!hostCredentials.env.ANTHROPIC_AUTH_TOKEN ||
-      hostCredentials.credentialProviders.ANTHROPIC_AUTH_TOKEN !== 'openrouter')
-  ) {
-    return {
-      status: 'error',
-      result: null,
-      error: `OpenRouter model ${effectiveModelEntry.displayName} requires an OpenRouter-scoped credential from AgentCredentialBroker as ANTHROPIC_AUTH_TOKEN. Configure Model Access/OpenRouter credentials before selecting this model.`,
-    };
-  }
-  if (
-    effectiveModelEntry &&
-    effectiveModelEntry.provider !== 'openrouter' &&
-    (hostCredentials.credentialProviders.ANTHROPIC_AUTH_TOKEN ===
-      'openrouter' ||
-      isOpenRouterBaseUrl(hostCredentials.env.ANTHROPIC_BASE_URL))
-  ) {
-    return {
-      status: 'error',
-      result: null,
-      error: `Model ${effectiveModelEntry.displayName} is configured for ${effectiveModelEntry.providerLabel}, but AgentCredentialBroker returned OpenRouter-scoped Anthropic SDK credentials. Switch the session/job model to kimi or configure ${effectiveModelEntry.providerLabel} credentials for this model.`,
-    };
-  }
-  const hostRunnerPath = path.join(
-    hostRuntime.runnerDistDir,
-    'claude',
-    'index.js',
-  );
   const mcpServerPath = path.join(hostRuntime.runnerDistDir, 'mcp', 'stdio.js');
-  if (!fs.existsSync(hostRunnerPath) || !fs.existsSync(mcpServerPath)) {
+  if (!fs.existsSync(mcpServerPath)) {
     return {
       status: 'error',
       result: null,
@@ -265,47 +222,35 @@ export async function spawnAgent(
         'Host runtime is missing required runner files. Reinstall Gantry from npm and restart.',
     };
   }
-  let llmRuntimeMaterialization: Awaited<
-    ReturnType<typeof materializeClaudeRuntime>
-  >;
-  let packageRoot = '';
+  const executionAdapter = options?.executionAdapter;
+  if (!executionAdapter) {
+    return {
+      status: 'error',
+      result: null,
+      error:
+        'No LLM execution adapter configured. Runtime bootstrap must provide an AgentExecutionAdapter.',
+    };
+  }
+  let preparedExecution: Awaited<ReturnType<typeof executionAdapter.prepare>>;
   try {
-    packageRoot = resolvePackageRootFromSourceDir(path.dirname(hostRunnerPath));
-    const skillSources: SkillSource[] = [
-      new BundledClaudeSkillSource(packageRoot),
-    ];
-    if (browserIpcEnabled) {
-      skillSources.push(new RuntimeInstalledGantryBrowserSkillSource());
-    }
-    if (
-      options?.skillRepository &&
-      options.skillArtifactStore &&
-      options.skillContext?.appId &&
-      options.skillContext.agentId
-    ) {
-      skillSources.push(
-        new ArtifactClaudeSkillSource(
-          options.skillRepository,
-          options.skillArtifactStore,
-          {
-            appId: options.skillContext.appId as never,
-            agentId: options.skillContext.agentId as never,
-          },
-        ),
-      );
-    }
-    llmRuntimeMaterialization = await materializeClaudeRuntime({
+    preparedExecution = await executionAdapter.prepare({
+      group,
+      input,
+      hostRuntime,
       groupDir,
-      baseTempDir: path.join(groupDir, '.llm-runtime'),
-      cleanupPolicy: 'retain-for-debug',
-      cliEntryPoint: path.join(packageRoot, 'dist', 'cli', 'index.js'),
-      packageRoot,
-      runtimeSettingsPath: RUNTIME_SETTINGS_PATH,
-      managedSkillArtifactRoots: [path.join(ARTIFACTS_DIR, 'skills')],
-      skillSource: new CompositeSkillSource(skillSources),
-      settings: {
-        model: effectiveModel,
+      effectiveModel,
+      effectiveModelEntry,
+      modelCredentialProjection: {
+        env: hostCredentials.env,
+        credentialProviders: hostCredentials.credentialProviders,
+        brokerProfile: hostCredentials.brokerProfile,
+        brokerApplied: hostCredentials.brokerApplied,
+        proxy: hostCredentials.proxy,
       },
+      browserIpcEnabled,
+      packageRootFromRunner: (runnerPath) =>
+        resolvePackageRootFromSourceDir(path.dirname(runnerPath)),
+      options,
     });
   } catch (err) {
     return {
@@ -316,7 +261,7 @@ export async function spawnAgent(
   }
 
   const command = process.execPath;
-  const args = [hostRunnerPath];
+  const args = preparedExecution.runnerArgs;
   const ipcInputDir = getContinuationInputDir(group.folder, input.threadId);
   const runnerAppId = input.appId || DEFAULT_RUNNER_APP_ID;
   const ipcAuth = createIpcAuthEnvelope(group.folder, input.threadId, {
@@ -351,9 +296,6 @@ export async function spawnAgent(
   const memoryIpcAllowedActions = selectedMemoryIpcActionsFromToolRules(
     trustedAllowedTools ?? [],
   );
-  const modelCredentialEnv = projectClaudeModelCredentialEnv(
-    hostCredentials.env,
-  );
   const upstreamProxyUrl =
     hostCredentials.proxy?.https || hostCredentials.proxy?.http;
   const egressGateway = await ensureEgressGateway({
@@ -379,14 +321,17 @@ export async function spawnAgent(
       ? { publishRuntimeEvent: options.publishRuntimeEvent }
       : {}),
   });
-  modelCredentialEnv.HTTP_PROXY = egressGateway.proxyUrl;
-  modelCredentialEnv.HTTPS_PROXY = egressGateway.proxyUrl;
-  modelCredentialEnv.http_proxy = egressGateway.proxyUrl;
-  modelCredentialEnv.https_proxy = egressGateway.proxyUrl;
-  modelCredentialEnv.NODE_USE_ENV_PROXY = '1';
-  const { claudeConfigDir } = llmRuntimeMaterialization;
+  const runnerInputPatch = preparedExecution.runnerInputPatch ?? {};
+  runnerInputPatch.modelCredentialEnv ??= {};
+  runnerInputPatch.modelCredentialEnv.HTTP_PROXY = egressGateway.proxyUrl;
+  runnerInputPatch.modelCredentialEnv.HTTPS_PROXY = egressGateway.proxyUrl;
+  runnerInputPatch.modelCredentialEnv.http_proxy = egressGateway.proxyUrl;
+  runnerInputPatch.modelCredentialEnv.https_proxy = egressGateway.proxyUrl;
+  runnerInputPatch.modelCredentialEnv.NODE_USE_ENV_PROXY = '1';
+  runnerInput.modelCredentialEnv = runnerInputPatch.modelCredentialEnv;
   const env: NodeJS.ProcessEnv = {
     ...pickSafeHostEnv(process.env),
+    ...preparedExecution.env,
     TZ: TIMEZONE,
     GANTRY_WORKSPACE_GROUP_DIR: hostRuntime.groupDir,
     GANTRY_WORKSPACE_GLOBAL_DIR: '',
@@ -437,25 +382,10 @@ export async function spawnAgent(
     ),
     GANTRY_PERMISSION_TIMEOUT_MS: String(PERMISSION_APPROVAL_TIMEOUT_MS),
     GANTRY_EGRESS_PROXY_URL: egressGateway.proxyUrl,
-    CLAUDE_CONFIG_DIR: claudeConfigDir,
   };
   applyAgentEgressNoProxyEnv(env);
   // Job-level model overrides group-level model.
   const effectiveModelSource = input.model ? 'job.model' : modelConfig.source;
-  if (effectiveModel) {
-    env.ANTHROPIC_MODEL = effectiveModel;
-  }
-  if (effectiveModelEntry?.provider === 'openrouter') {
-    applyOpenRouterSdkEnv(modelCredentialEnv);
-  }
-  const serializedModelCredentialEnv = Object.fromEntries(
-    Object.entries(modelCredentialEnv).filter(
-      (entry): entry is [string, string] => typeof entry[1] === 'string',
-    ),
-  );
-  if (Object.keys(serializedModelCredentialEnv).length > 0) {
-    runnerInput.modelCredentialEnv = serializedModelCredentialEnv;
-  }
   let mcpConfigPath: string | undefined;
 
   const runtimeDetails = [
@@ -465,8 +395,8 @@ export async function spawnAgent(
     `broker=${hostCredentials.brokerProfile}`,
     `brokerApplied=${hostCredentials.brokerApplied}`,
     `mcpServers=${allMcpCapabilities.map((capability) => capability.name).join(',') || '(none)'}`,
-    `runner=${hostRunnerPath}`,
     `browserProfile=${browserProfileName}`,
+    ...preparedExecution.runtimeDetails,
   ];
 
   logger.debug(
@@ -532,8 +462,8 @@ export async function spawnAgent(
     }
     env[PROTECTED_FILESYSTEM_PATHS_ENV] = JSON.stringify(
       mcpConfigPath
-        ? [...llmRuntimeMaterialization.protectedFilesystemPaths, mcpConfigPath]
-        : llmRuntimeMaterialization.protectedFilesystemPaths,
+        ? [...preparedExecution.protectedFilesystemPaths, mcpConfigPath]
+        : preparedExecution.protectedFilesystemPaths,
     );
     if (browserIpcEnabled) {
       registerBrowserIpcAuthorization({
@@ -568,22 +498,12 @@ export async function spawnAgent(
     }
     cleanupRunnerMcpConfigFile(mcpConfigPath);
     await closeEgressGateway(egressGateway);
-    llmRuntimeMaterialization.cleanup();
+    preparedExecution.cleanup();
     revokeIpcResponseSigningKey(
       ipcAuth.responseKeyId,
       group.folder,
       input.threadId,
     );
-  }
-}
-
-function isOpenRouterBaseUrl(value?: string): boolean {
-  if (!value) return false;
-  try {
-    const hostname = new URL(value).hostname.toLowerCase();
-    return hostname === 'openrouter.ai' || hostname.endsWith('.openrouter.ai');
-  } catch {
-    return false;
   }
 }
 

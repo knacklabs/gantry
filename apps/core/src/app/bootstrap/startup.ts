@@ -5,7 +5,6 @@ import {
 import { GANTRY_HOME } from '../../config/index.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { ensureRuntimeLayoutDirectories } from '../../platform/runtime-layout.js';
-import { restoreRemoteControl } from '../../runtime/remote-control.js';
 import { initializeRuntimeStorage } from '../../adapters/storage/postgres/runtime-store.js';
 import { SettingsDesiredStateService } from '../../config/settings/desired-state-service.js';
 import { loadSessionAppMemoryItems } from '../../memory/app-memory-session-hydration.js';
@@ -16,7 +15,6 @@ interface StartupDeps {
   ensureRuntimeLayoutDirectories: typeof ensureRuntimeLayoutDirectories;
   initializeRuntimeStorage: typeof initializeRuntimeStorage;
   loadRuntimeSettings: typeof loadRuntimeSettings;
-  restoreRemoteControl: typeof restoreRemoteControl;
   logger: Pick<typeof logger, 'info' | 'warn'>;
 }
 
@@ -33,7 +31,6 @@ function makeDefaultDeps(): StartupDeps {
     ensureRuntimeLayoutDirectories,
     initializeRuntimeStorage,
     loadRuntimeSettings,
-    restoreRemoteControl,
     logger,
   };
 }
@@ -90,8 +87,6 @@ export async function runStartup(
     resolved.logger,
   );
   await waitForCredentialBindings(app, resolved.logger);
-
-  resolved.restoreRemoteControl();
 
   return {
     runtimeSettings,

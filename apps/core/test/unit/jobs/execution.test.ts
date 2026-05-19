@@ -472,6 +472,10 @@ describe('jobs/execution', () => {
         sendMessage: vi.fn(async () => undefined) as never,
         opsRepository: opsRepository as never,
         runAgent: runAgent as never,
+        executionAdapter: {
+          id: 'anthropic:claude-agent-sdk',
+          prepare: vi.fn(),
+        } as never,
       },
       'tg:scheduler',
     );
@@ -704,13 +708,17 @@ describe('jobs/execution', () => {
         sendMessage: vi.fn(async () => undefined) as never,
         opsRepository: opsRepository as never,
         runAgent: runAgent as never,
+        executionAdapter: {
+          id: 'anthropic:claude-agent-sdk',
+          prepare: vi.fn(),
+        } as never,
       },
       'tg:scheduler',
     );
 
     expect(opsRepository.createSessionAgentRun).toHaveBeenCalledWith({
       agentSessionId: 'agent-session:scheduler',
-      executionProviderId: 'anthropic-claude-agent-sdk',
+      executionProviderId: 'anthropic:claude-agent-sdk',
       providerSessionId: 'provider-session:resume',
       cause: 'job',
     });

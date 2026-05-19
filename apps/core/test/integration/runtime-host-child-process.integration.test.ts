@@ -43,7 +43,14 @@ function makeTempRoot(): string {
 }
 
 function writeHostRunner(runnerDistDir: string, recordPath: string): void {
-  const claudeRunnerDir = path.join(runnerDistDir, 'claude');
+  const claudeRunnerDir = path.join(
+    runnerDistDir,
+    '..',
+    'adapters',
+    'llm',
+    'anthropic-claude-agent',
+    'runner',
+  );
   const mcpRunnerDir = path.join(runnerDistDir, 'mcp');
   fs.mkdirSync(claudeRunnerDir, { recursive: true });
   fs.mkdirSync(mcpRunnerDir, { recursive: true });
@@ -190,7 +197,37 @@ describe('host child-process runtime smoke', () => {
       },
       onProcess,
       onOutput,
-      { timeoutMs: 5_000 },
+      {
+        timeoutMs: 5_000,
+        executionAdapter: {
+          id: 'anthropic:claude-agent-sdk',
+          async prepare(input) {
+            const runnerPath = path.join(
+              input.hostRuntime.runnerDistDir,
+              '..',
+              'adapters',
+              'llm',
+              'anthropic-claude-agent',
+              'runner',
+              'index.js',
+            );
+            return {
+              providerId: 'anthropic:claude-agent-sdk',
+              runnerPath,
+              runnerArgs: [runnerPath],
+              runnerInputPatch: {
+                modelCredentialEnv: {
+                  ...input.modelCredentialProjection.env,
+                },
+              },
+              env: {},
+              protectedFilesystemPaths: [],
+              runtimeDetails: ['executionProvider=anthropic:claude-agent-sdk'],
+              cleanup: () => {},
+            };
+          },
+        },
+      },
     );
 
     expect(result).toEqual({
