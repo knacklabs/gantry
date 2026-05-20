@@ -22,14 +22,7 @@ import { recoverPendingMessages, startMessagePollingLoop } from '../../runtime/m
 import { requestSchedulerSync, startSchedulerLoop } from '../../jobs/scheduler.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { makeThreadQueueKey } from '../../runtime/thread-queue-key.js';
-import type {
-  RuntimeAgentSessionRepository,
-  RuntimeChatMetadataRepository,
-  RuntimeConversationRouteRepository,
-  RuntimeJobRepository,
-  RuntimeMessageRepository,
-  RuntimeRouterStateRepository,
-} from '../../domain/repositories/ops-repo.js';
+import type { RuntimeJobRepository } from '../../domain/repositories/ops-repo.js';
 import type {
   CapabilitySecretRepository,
   McpServerRepository,
@@ -43,7 +36,8 @@ import type { SessionMemoryCollector } from '../../domain/ports/session-memory-c
 import type { SkillArtifactStore } from '../../domain/ports/skill-artifact-store.js';
 import type { RemoteMcpDnsValidationCache } from '../../application/mcp/mcp-server-policy.js';
 import { ChannelWiring } from './channel-wiring.js';
-import { RuntimeApp, collectRuntimeSessionMemory } from './runtime-app.js';
+import { collectRuntimeSessionMemory } from './runtime-app.js';
+import type { RuntimeApp, RuntimeAppRepository } from './runtime-app.js';
 import { OutboundDeliveryService } from '../../application/outbound-delivery/outbound-delivery-service.js';
 import {
   getPartialMessageDeliveryMetadata,
@@ -67,12 +61,7 @@ import { splitLiveSendProfileText } from './runtime-services-live-send-segmentat
 import { createDurableOutboundAttempt } from './runtime-services-durable-outbound-attempt.js';
 import { handleActiveNewSessionCommand } from './runtime-services-active-new.js';
 import { nowIso, nowMs as currentTimeMs } from '../../shared/time/datetime.js';
-type RuntimeBootstrapRepository = RuntimeChatMetadataRepository &
-  RuntimeMessageRepository &
-  RuntimeJobRepository &
-  RuntimeRouterStateRepository &
-  RuntimeAgentSessionRepository &
-  RuntimeConversationRouteRepository;
+type RuntimeBootstrapRepository = RuntimeAppRepository & RuntimeJobRepository;
 interface Deps {
   startSchedulerLoop: typeof startSchedulerLoop;
   startIpcWatcher: typeof startIpcWatcher;
@@ -99,6 +88,7 @@ interface Deps {
   publishRuntimeEvent: IpcDeps['publishRuntimeEvent'];
   publishBrowserJobActivity: IpcDeps['publishBrowserJobActivity'];
   closeBrowserToolBackends: IpcDeps['closeBrowserToolBackends'];
+  executionAdapter?: RuntimeApp['executionAdapter'];
   exit: (code: number) => never;
 }
 type RuntimeServicesDefaults = Omit<
@@ -218,6 +208,7 @@ export async function startRuntimeServices(
       getSkillArtifactStore: resolved.getSkillArtifactStore,
       getToolRepository: resolved.getToolRepository,
       getBrowserStatus,
+      executionAdapter: resolved.executionAdapter ?? app.executionAdapter,
       closeBrowserSession: closeBrowser,
       closeBrowserToolBackends: resolved.closeBrowserToolBackends,
     });
@@ -317,6 +308,7 @@ export async function startRuntimeServices(
         collectSessionMemory: resolved.collectSessionMemory,
         logger: resolved.logger,
         group,
+        executionAdapter: app.executionAdapter,
         chatJid,
         queueJid,
         threadId,

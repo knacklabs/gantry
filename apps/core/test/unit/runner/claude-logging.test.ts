@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { log } from '@agent-runner-src/claude/logging.js';
+import { log } from '@core/adapters/llm/anthropic-claude-agent/runner/logging.js';
 
 describe('Claude runner logging', () => {
   afterEach(() => {

@@ -131,7 +131,6 @@ def make_base_fixture(root: Path) -> Path:
                 "apps/core/src/adapters/sandbox",
                 "apps/core/src/adapters/browser",
                 "apps/core/src/channels",
-                "apps/core/src/runner/claude",
             ],
             "approvedProviderBoundaryPaths": [
                 "apps/core/src/adapters/llm/anthropic-claude-agent"
@@ -357,20 +356,20 @@ class CheckArchitectureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))
             write_text(
-                root / "apps/core/src/memory/claude-query.ts",
+                root / "apps/core/src/memory/memory-llm-port.ts",
                 'import { query } from "@anthropic-ai/claude-agent-sdk";\nexport const value = query;\n',
             )
             result = run_architecture_check(root)
             self.assertEqual(result.returncode, 1)
             self.assertIn("[Provider Boundary]", result.stdout)
-            self.assertIn("apps/core/src/memory/claude-query.ts:1", result.stdout)
+            self.assertIn("apps/core/src/memory/memory-llm-port.ts:1", result.stdout)
             self.assertIn("approved provider adapter boundary", result.stdout)
 
     def test_provider_boundary_exception_counts_are_exact(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))
             write_text(
-                root / "apps/core/src/memory/claude-query.ts",
+                root / "apps/core/src/memory/memory-llm-port.ts",
                 "export const env = 'ANTHROPIC_MODEL';\n",
             )
             write_json(
@@ -380,7 +379,7 @@ class CheckArchitectureTests(unittest.TestCase):
                     "cleanupPlanId": "test-provider-boundary-plan",
                     "exceptions": [
                         {
-                            "file": "apps/core/src/memory/claude-query.ts",
+                            "file": "apps/core/src/memory/memory-llm-port.ts",
                             "matches": {"ANTHROPIC_": 1},
                             "reason": "Fixture baseline provider debt.",
                             "removeByPlan": "test-provider-boundary-plan",
@@ -392,7 +391,7 @@ class CheckArchitectureTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
 
             write_text(
-                root / "apps/core/src/memory/claude-query.ts",
+                root / "apps/core/src/memory/memory-llm-port.ts",
                 "export const env = 'ANTHROPIC_MODEL ANTHROPIC_API_KEY';\n",
             )
             result = run_architecture_check(root)
@@ -493,14 +492,14 @@ class CheckArchitectureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = make_base_fixture(Path(tmp))
             write_text(
-                root / "apps/core/src/memory/claude-query.ts",
+                root / "apps/core/src/memory/memory-llm-port.ts",
                 'import { query } from "@anthropic-ai/claude-agent-sdk";\nexport const value = query;\n',
             )
             result = run_architecture_check(root)
             self.assertEqual(result.returncode, 1)
             self.assertIn("[Provider Imports]", result.stdout)
             self.assertIn(
-                "apps/core/src/memory/claude-query.ts:1: imports provider package",
+                "apps/core/src/memory/memory-llm-port.ts:1: imports provider package",
                 result.stdout,
             )
 

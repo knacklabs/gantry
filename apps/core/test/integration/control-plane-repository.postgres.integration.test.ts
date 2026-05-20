@@ -190,6 +190,7 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
     await runtime.ops.createJobRun({
       run_id: 'run:control-repo',
       job_id: job.id,
+      execution_provider_id: 'anthropic:claude-agent-sdk',
       scheduled_for: now,
       started_at: now,
       ended_at: null,
@@ -300,6 +301,7 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
       await runtime.ops.createJobRun({
         run_id: runId,
         job_id: job.id,
+        execution_provider_id: 'anthropic:claude-agent-sdk',
         scheduled_for: now,
         started_at: now,
         ended_at: null,

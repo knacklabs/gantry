@@ -7,7 +7,6 @@ import {
   envValueDynamic,
   runtimeEnvValue,
 } from './env/index.js';
-import { parseBooleanEnv } from './env/parse.js';
 import { getMemoryModelConfig } from './memory.js';
 import { getGantryHome } from '../shared/gantry-home.js';
 import { resolveRuntimeStorageConfig } from './settings/storage.js';
@@ -174,10 +173,6 @@ export const TELEGRAM_BOT_TOKEN = envValue('TELEGRAM_BOT_TOKEN');
 export const SLACK_BOT_TOKEN = envValue('SLACK_BOT_TOKEN');
 export const SLACK_APP_TOKEN = envValue('SLACK_APP_TOKEN');
 export const GANTRY_IPC_AUTH_SECRET = envValue('GANTRY_IPC_AUTH_SECRET');
-export const REMOTE_CONTROL_AUTO_ACCEPT = parseBooleanEnv(
-  envValue('REMOTE_CONTROL_AUTO_ACCEPT'),
-  false,
-);
 export const LOG_LEVEL = envValue('LOG_LEVEL') || 'info';
 export const HOST_CREDENTIAL_ENV_KEYS = [
   'ANTHROPIC_BASE_URL',

@@ -76,6 +76,7 @@ import type {
   AgentSessionSummaryId,
   ProviderSession,
   ProviderSessionId,
+  ExecutionProviderId,
 } from '../sessions/sessions.js';
 import type {
   AgentSkillBinding,
@@ -252,7 +253,7 @@ export interface ProviderSessionRepository {
   getProviderSession(id: ProviderSessionId): Promise<ProviderSession | null>;
   getLatestProviderSession(input: {
     agentSessionId: AgentSessionId;
-    provider?: string;
+    provider?: ExecutionProviderId;
   }): Promise<ProviderSession | null>;
   saveProviderSession(session: ProviderSession): Promise<void>;
   markProviderSessionStatus(

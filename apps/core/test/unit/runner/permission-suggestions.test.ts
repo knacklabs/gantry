@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   scheduledPermissionSuggestions,
   synthesizePermissionSuggestions,
-} from '@core/runner/claude/permission-suggestions.js';
+} from '@core/adapters/llm/anthropic-claude-agent/runner/permission-suggestions.js';
 
 describe('scheduledPermissionSuggestions', () => {
   it('canonicalizes projected browser tool suggestions to Browser', () => {

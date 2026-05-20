@@ -9,7 +9,11 @@ import type {
   NewMessage,
   ConversationRoute,
 } from '../../../../domain/repositories/domain-types.js';
-import type { AgentSession } from '../../../../domain/sessions/sessions.js';
+import type {
+  AgentSession,
+  ExecutionProviderId,
+} from '../../../../domain/sessions/sessions.js';
+import { assertSafeExecutionProviderId } from '../../../../domain/sessions/execution-provider-id.js';
 import type {
   JobEventListFilters,
   JobListFilters,
@@ -208,6 +212,9 @@ export class PostgresRuntimeRepositoryBundle
   async claimDueJobRunStart(input: {
     jobId: string;
     runId: string;
+    executionProviderId: ExecutionProviderId;
+    workerId?: string | null;
+    leaseOwner?: string | null;
     scheduledFor: string;
     startedAt: string;
     retryCount: number;
@@ -280,16 +287,18 @@ export class PostgresRuntimeRepositoryBundle
   async setSession(
     agentFolder: string,
     sessionId: string,
-    threadId?: string | null,
+    threadId: string | null | undefined,
     metadata: {
+      executionProviderId: ExecutionProviderId;
       conversationJid?: string;
       conversationKind?: 'dm' | 'channel';
       memoryUserId?: string;
       expectedAgentSessionId?: string;
       expectedAgentSessionResetAt?: string | null;
-    } = {},
+    },
   ): Promise<boolean> {
     return this.sessions.setSession(agentFolder, sessionId, threadId, {
+      executionProviderId: metadata.executionProviderId,
       chatJid: metadata.conversationJid,
       conversationKind: metadata.conversationKind,
       memoryUserId: metadata.memoryUserId,
@@ -300,6 +309,7 @@ export class PostgresRuntimeRepositoryBundle
 
   async getAgentTurnContext(input: {
     agentFolder: string;
+    executionProviderId: ExecutionProviderId;
     conversationJid: string;
     threadId?: string | null;
     conversationKind?: 'dm' | 'channel';
@@ -318,6 +328,7 @@ export class PostgresRuntimeRepositoryBundle
   }> {
     return this.sessions.getAgentTurnContext({
       groupFolder: input.agentFolder,
+      executionProviderId: input.executionProviderId,
       chatJid: input.conversationJid,
       threadId: input.threadId,
       conversationKind: input.conversationKind,
@@ -339,8 +350,11 @@ export class PostgresRuntimeRepositoryBundle
 
   async createSessionAgentRun(input: {
     agentSessionId: string;
+    executionProviderId: ExecutionProviderId;
+    providerSessionId?: string | null;
     cause: 'message' | 'job' | 'control' | 'manual';
   }): Promise<string | undefined> {
+    assertSafeExecutionProviderId(input.executionProviderId);
     const repositories = createPostgresDomainRepositories(this.db, this.pool);
     const session = await repositories.agentSessions.getAgentSession(
       input.agentSessionId as never,
@@ -359,6 +373,8 @@ export class PostgresRuntimeRepositoryBundle
       threadId: session.threadId,
       jobId,
       llmProfileId: DEFAULT_LLM_PROFILE_ID,
+      executionProviderId: input.executionProviderId,
+      providerSessionId: input.providerSessionId ?? undefined,
       permissionDecisionIds: [],
       cause: input.cause,
       status: 'running',
@@ -375,6 +391,15 @@ export class PostgresRuntimeRepositoryBundle
       createdAt: now,
     });
     return runId;
+  }
+
+  async updateAgentRunProviderMetadata(input: {
+    runId: string;
+    runIds?: string[];
+    providerRunId?: string | null;
+    providerSessionId?: string | null;
+  }): Promise<void> {
+    await this.jobs.updateAgentRunProviderMetadata(input);
   }
 
   async completeSessionAgentRun(input: {

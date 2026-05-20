@@ -155,9 +155,9 @@ Sources:
 - `AgentCapabilityContext`, `AgentCapabilityProfile`, and the five built-in
   providers (`sdk-tools`, `permissions`, `gantry-mcp`, `configured-tools`,
   `configured-mcp`) plus `composeAgentCapabilities` —
-  `apps/core/src/runner/agent-capabilities.ts:7`,
-  `apps/core/src/runner/agent-capabilities.ts:131`,
-  `apps/core/src/runner/agent-capabilities.ts:249`.
+  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:7`,
+  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:131`,
+  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:249`.
 - Persona compiled into the system prompt —
   `apps/core/src/application/agents/prompt-profile-service.ts:222` and
   `apps/core/src/runtime/agent-spawn.ts:141`.
@@ -174,7 +174,7 @@ allowlist. It still rejects cross-provider models and custom
 `tools`/`mcpServers`/`skills` input on the Agent tool call because those mutate
 the runner projection instead of using the selected parent-agent capabilities.
 See `validateAgentModelRequest` and `validateAgentToolInput` in
-`apps/core/src/runner/claude/agent-model-selection.ts`.
+`apps/core/src/adapters/llm/anthropic-claude-agent/runner/agent-model-selection.ts`.
 
 ## Provider And Conversation Onboarding Control Surface
 

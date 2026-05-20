@@ -13,6 +13,8 @@ import {
 } from '../shared/message-cursor.js';
 import { archiveCurrentRuntimeSession } from './session-resume-runtime.js';
 import { saveGroupProcedureMemory } from './group-memory-commands.js';
+import { resolveRuntimeExecutionProviderId } from './execution-provider-id.js';
+import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
 
 type ArchiveSessionInput = Parameters<typeof archiveCurrentRuntimeSession>[0];
 type SenderPolicyGroup = {
@@ -43,6 +45,7 @@ export function createArchiveCurrentSessionHandler(input: {
   defaultScope: 'user' | 'group';
   memoryUserId?: string;
   collectMemory?: SessionMemoryCollector;
+  executionAdapter?: Pick<AgentExecutionAdapter, 'id'>;
 }) {
   return async (cause: ArchiveSessionInput['cause'] = 'new-session') => {
     await archiveCurrentRuntimeSession({
@@ -53,6 +56,9 @@ export function createArchiveCurrentSessionHandler(input: {
       cause,
       defaultScope: input.defaultScope,
       memoryUserId: input.memoryUserId,
+      executionProviderId: resolveRuntimeExecutionProviderId(
+        input.executionAdapter,
+      ),
       ...(input.collectMemory ? { collectMemory: input.collectMemory } : {}),
     });
   };
@@ -66,11 +72,15 @@ export function createPrepareSessionArchiveHandler(input: {
   defaultScope: 'user' | 'group';
   memoryUserId?: string;
   collectMemory?: SessionMemoryCollector;
+  executionAdapter?: Pick<AgentExecutionAdapter, 'id'>;
 }) {
   return async (_cause: 'new-session') => {
     const ops = input.ops();
     const turnContext = await ops.getAgentTurnContext?.({
       agentFolder: input.group.folder,
+      executionProviderId: resolveRuntimeExecutionProviderId(
+        input.executionAdapter,
+      ),
       conversationJid: input.chatJid,
       threadId: input.threadId,
       conversationKind: input.group.conversationKind,

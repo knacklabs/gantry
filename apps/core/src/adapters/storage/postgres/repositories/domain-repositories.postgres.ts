@@ -66,6 +66,7 @@ import type {
   WorkspaceSnapshot,
 } from '../../../../domain/sandbox/sandbox.js';
 import type { AgentSession } from '../../../../domain/sessions/sessions.js';
+import { assertSafeExecutionProviderId } from '../../../../domain/sessions/execution-provider-id.js';
 import type { ExternalRef } from '../../../../shared/ids/branded-id.js';
 import * as pgSchema from '../schema/schema.js';
 import {
@@ -1349,6 +1350,7 @@ export class PostgresAgentRunRepository implements AgentRunRepository {
     return rows[0] ? this.runFromRow(rows[0]) : null;
   }
   async saveAgentRun(run: AgentRun): Promise<void> {
+    assertSafeExecutionProviderId(run.executionProviderId);
     await this.db
       .insert(pgSchema.agentRunsPostgres)
       .values({
@@ -1362,6 +1364,12 @@ export class PostgresAgentRunRepository implements AgentRunRepository {
         messageId: run.messageId ?? null,
         jobId: run.jobId ?? null,
         llmProfileId: run.llmProfileId,
+        executionProviderId: run.executionProviderId,
+        providerRunId: run.providerRunId ?? null,
+        providerSessionId: run.providerSessionId ?? null,
+        workerId: run.workerId ?? null,
+        leaseOwner: run.leaseOwner ?? null,
+        leaseExpiresAt: run.leaseExpiresAt ?? null,
         permissionDecisionIdsJson: encodeJson(run.permissionDecisionIds),
         sandboxLeaseId: run.sandboxLeaseId ?? null,
         workspaceSnapshotId: run.workspaceSnapshotId ?? null,
@@ -1377,6 +1385,12 @@ export class PostgresAgentRunRepository implements AgentRunRepository {
         target: pgSchema.agentRunsPostgres.id,
         set: {
           permissionDecisionIdsJson: encodeJson(run.permissionDecisionIds),
+          executionProviderId: run.executionProviderId,
+          providerRunId: run.providerRunId ?? null,
+          providerSessionId: run.providerSessionId ?? null,
+          workerId: run.workerId ?? null,
+          leaseOwner: run.leaseOwner ?? null,
+          leaseExpiresAt: run.leaseExpiresAt ?? null,
           sandboxLeaseId: run.sandboxLeaseId ?? null,
           workspaceSnapshotId: run.workspaceSnapshotId ?? null,
           status: run.status,
@@ -1416,17 +1430,25 @@ export class PostgresAgentRunRepository implements AgentRunRepository {
       messageId: row.messageId ?? undefined,
       jobId: row.jobId ?? undefined,
       llmProfileId: row.llmProfileId as LlmProfileId,
+      executionProviderId: row.executionProviderId as never,
+      providerRunId: row.providerRunId ?? undefined,
+      providerSessionId: row.providerSessionId ?? undefined,
+      workerId: row.workerId ?? undefined,
+      leaseOwner: row.leaseOwner ?? undefined,
+      leaseExpiresAt: row.leaseExpiresAt
+        ? toIsoTimestamp(row.leaseExpiresAt)
+        : undefined,
       permissionDecisionIds: parseJsonArray(row.permissionDecisionIdsJson),
       sandboxLeaseId: row.sandboxLeaseId ?? undefined,
       workspaceSnapshotId: row.workspaceSnapshotId ?? undefined,
       cause: row.cause as AgentRun['cause'],
       status: row.status as AgentRun['status'],
-      createdAt: row.createdAt,
-      startedAt: row.startedAt ?? undefined,
-      endedAt: row.endedAt ?? undefined,
+      createdAt: toIsoTimestamp(row.createdAt),
+      startedAt: row.startedAt ? toIsoTimestamp(row.startedAt) : undefined,
+      endedAt: row.endedAt ? toIsoTimestamp(row.endedAt) : undefined,
       resultSummary: row.resultSummary ?? undefined,
       errorSummary: row.errorSummary ?? undefined,
-    } as AgentRun;
+    } as unknown as AgentRun;
   }
 }
 export class PostgresPermissionRepository implements PermissionRepository {

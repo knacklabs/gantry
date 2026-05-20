@@ -6,7 +6,10 @@ import {
 } from '@core/adapters/storage/postgres/seeds.js';
 import type { AgentRunId } from '@core/domain/events/events.js';
 import type { JobUpsertInput } from '@core/domain/repositories/ops-repo.js';
-import type { ProviderSessionId } from '@core/domain/sessions/sessions.js';
+import type {
+  ExecutionProviderId,
+  ProviderSessionId,
+} from '@core/domain/sessions/sessions.js';
 
 import {
   createPostgresIntegrationRuntime,
@@ -16,6 +19,9 @@ import {
 
 const maybeDescribe = hasPostgresIntegrationDatabase ? describe : describe.skip;
 const now = '2026-04-28T00:00:00.000Z';
+const TEST_EXECUTION_PROVIDER_ID =
+  'anthropic:claude-agent-sdk' as ExecutionProviderId;
+const TEST_CODEX_PROVIDER_ID = 'codex:agent-sdk' as ExecutionProviderId;
 
 function makeContinuityJob(
   id: string,
@@ -75,11 +81,13 @@ maybeDescribe('Postgres memory continuity', () => {
     const sessionId = 'provider-session:test:mode';
 
     await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
     });
 
     const withoutArtifact = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
     });
@@ -90,11 +98,13 @@ maybeDescribe('Postgres memory continuity', () => {
     });
 
     await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
     });
 
     const withArtifact = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
     });
@@ -118,6 +128,7 @@ maybeDescribe('Postgres memory continuity', () => {
 
     const context = await runtime.sessionOps.getAgentTurnContext({
       groupFolder: 'runtime_workspace_folder',
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
     });
@@ -147,11 +158,13 @@ maybeDescribe('Postgres memory continuity', () => {
       'provider-session:test:agent-a',
       null,
       {
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid,
       },
     );
     const agentAContext = await runtime.sessionOps.getAgentTurnContext({
       groupFolder: routeFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
     });
@@ -165,6 +178,7 @@ maybeDescribe('Postgres memory continuity', () => {
     });
     const agentBContext = await runtime.sessionOps.getAgentTurnContext({
       groupFolder: routeFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
     });
@@ -185,12 +199,14 @@ maybeDescribe('Postgres memory continuity', () => {
       'provider-session:test:agent-b',
       null,
       {
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid,
       },
     );
     await expect(
       runtime.sessionOps.getAgentTurnContext({
         groupFolder: routeFolder,
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid,
         threadId: null,
       }),
@@ -215,10 +231,12 @@ maybeDescribe('Postgres memory continuity', () => {
       requiresTrigger: false,
     });
     await runtime.sessionOps.setSession(routeFolder, sessionA, null, {
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
     });
     const agentAContext = await runtime.sessionOps.getAgentTurnContext({
       groupFolder: routeFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
     });
@@ -231,10 +249,12 @@ maybeDescribe('Postgres memory continuity', () => {
       requiresTrigger: false,
     });
     await runtime.sessionOps.setSession(routeFolder, sessionB, null, {
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
     });
     const agentBContext = await runtime.sessionOps.getAgentTurnContext({
       groupFolder: routeFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
     });
@@ -248,6 +268,7 @@ maybeDescribe('Postgres memory continuity', () => {
     await expect(
       runtime.sessionOps.getAgentTurnContext({
         groupFolder: routeFolder,
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid,
         threadId: null,
       }),
@@ -274,6 +295,7 @@ maybeDescribe('Postgres memory continuity', () => {
       'provider-session:test:root:v1',
       null,
       {
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid,
       },
     );
@@ -282,6 +304,7 @@ maybeDescribe('Postgres memory continuity', () => {
       'provider-session:test:thread:v1',
       threadId,
       {
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid,
       },
     );
@@ -290,17 +313,20 @@ maybeDescribe('Postgres memory continuity', () => {
       'provider-session:test:root:v2',
       null,
       {
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid,
       },
     );
 
     const rootResume = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
     });
     const threadResume = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId,
     });
@@ -330,12 +356,81 @@ maybeDescribe('Postgres memory continuity', () => {
     ).resolves.toMatchObject({ status: 'active' });
   });
 
+  it('replaces one execution provider session without clobbering another provider', async () => {
+    const groupFolder = 'provider-neutral-session';
+    const chatJid = 'tg:provider-neutral-session';
+
+    await runtime.sessionOps.setSession(
+      groupFolder,
+      'provider-session:test:anthropic:v1',
+      null,
+      {
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
+        chatJid,
+      },
+    );
+    await runtime.sessionOps.setSession(
+      groupFolder,
+      'provider-session:test:codex:v1',
+      null,
+      {
+        executionProviderId: TEST_CODEX_PROVIDER_ID,
+        chatJid,
+      },
+    );
+    await runtime.sessionOps.setSession(
+      groupFolder,
+      'provider-session:test:anthropic:v2',
+      null,
+      {
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
+        chatJid,
+      },
+    );
+
+    await expect(
+      runtime.repositories.providerSessions.getProviderSession(
+        'provider-session:test:codex:v1' as ProviderSessionId,
+      ),
+    ).resolves.toMatchObject({
+      provider: TEST_CODEX_PROVIDER_ID,
+      status: 'active',
+    });
+    await expect(
+      runtime.repositories.providerSessions.getProviderSession(
+        'provider-session:test:anthropic:v1' as ProviderSessionId,
+      ),
+    ).resolves.toBeNull();
+
+    await expect(
+      runtime.sessionOps.getAgentTurnContext({
+        groupFolder,
+        executionProviderId: TEST_CODEX_PROVIDER_ID,
+        chatJid,
+      }),
+    ).resolves.toMatchObject({
+      providerSessionId: 'provider-session:test:codex:v1',
+      externalSessionId: 'provider-session:test:codex:v1',
+    });
+    await expect(
+      runtime.sessionOps.getAgentTurnContext({
+        groupFolder,
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
+        chatJid,
+      }),
+    ).resolves.toMatchObject({
+      providerSessionId: 'provider-session:test:anthropic:v2',
+      externalSessionId: 'provider-session:test:anthropic:v2',
+    });
+  });
+
   it('rejects provider session ids already owned by another agent session', async () => {
     await runtime.sessionOps.setSession(
       'group-session-owner-a',
       'provider-session:test:owned',
       null,
       {
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid: 'tg:group-session-owner-a',
       },
     );
@@ -346,6 +441,7 @@ maybeDescribe('Postgres memory continuity', () => {
         'provider-session:test:owned',
         null,
         {
+          executionProviderId: TEST_EXECUTION_PROVIDER_ID,
           chatJid: 'tg:group-session-owner-b',
         },
       ),
@@ -372,6 +468,7 @@ maybeDescribe('Postgres memory continuity', () => {
           sharedSessionId,
           null,
           {
+            executionProviderId: TEST_EXECUTION_PROVIDER_ID,
             chatJid: contender.chatJid,
           },
         ),
@@ -399,6 +496,7 @@ maybeDescribe('Postgres memory continuity', () => {
 
     const winnerContext = await runtime.sessionOps.getAgentTurnContext({
       groupFolder: winner.groupFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: winner.chatJid,
       threadId: null,
     });
@@ -418,6 +516,7 @@ maybeDescribe('Postgres memory continuity', () => {
 
     const loserContext = await runtime.sessionOps.getAgentTurnContext({
       groupFolder: loser.groupFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: loser.chatJid,
       threadId: null,
     });
@@ -428,6 +527,7 @@ maybeDescribe('Postgres memory continuity', () => {
   it('rejects unsafe provider session ids before persisting resume state', async () => {
     await expect(
       runtime.sessionOps.setSession('group-session-unsafe', '../escape', null, {
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid: 'tg:group-session-unsafe',
       }),
     ).rejects.toThrow(/Invalid provider session id/);
@@ -439,11 +539,13 @@ maybeDescribe('Postgres memory continuity', () => {
     const sessionId = 'provider-session:test:expire';
 
     await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
     });
 
     const before = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
     });
@@ -451,12 +553,13 @@ maybeDescribe('Postgres memory continuity', () => {
     await runtime.sessionOps.expireProviderSession({
       providerSessionId: sessionId,
       agentSessionId: before.agentSessionId,
-      provider: 'anthropic',
+      provider: TEST_EXECUTION_PROVIDER_ID,
       externalSessionId: sessionId,
     });
 
     const resumed = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
     });
@@ -471,11 +574,13 @@ maybeDescribe('Postgres memory continuity', () => {
     const sessionId = 'provider-session:test:expire-incomplete';
 
     await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
     });
 
     const before = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
     });
@@ -507,19 +612,23 @@ maybeDescribe('Postgres memory continuity', () => {
     const secondSessionId = 'provider-session:test:expiry-guard:b';
 
     await runtime.sessionOps.setSession(firstGroup, firstSessionId, null, {
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: firstChat,
     });
     await runtime.sessionOps.setSession(secondGroup, secondSessionId, null, {
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: secondChat,
     });
 
     const firstContext = await runtime.sessionOps.getAgentTurnContext({
       groupFolder: firstGroup,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: firstChat,
       threadId: null,
     });
     const secondContext = await runtime.sessionOps.getAgentTurnContext({
       groupFolder: secondGroup,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: secondChat,
       threadId: null,
     });
@@ -527,7 +636,7 @@ maybeDescribe('Postgres memory continuity', () => {
     await runtime.sessionOps.expireProviderSession({
       providerSessionId: firstSessionId,
       agentSessionId: secondContext.agentSessionId,
-      provider: 'anthropic',
+      provider: TEST_EXECUTION_PROVIDER_ID,
       externalSessionId: firstSessionId,
     });
 
@@ -557,9 +666,11 @@ maybeDescribe('Postgres memory continuity', () => {
     const sessionB = 'provider-session:test:scope-reset:b';
 
     await runtime.sessionOps.setSession(groupFolder, sessionA, null, {
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: conversationA,
     });
     await runtime.sessionOps.setSession(groupFolder, sessionB, null, {
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: conversationB,
     });
 
@@ -569,11 +680,13 @@ maybeDescribe('Postgres memory continuity', () => {
 
     const resetContext = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: conversationA,
       threadId: null,
     });
     const siblingContext = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: conversationB,
       threadId: null,
     });
@@ -593,10 +706,12 @@ maybeDescribe('Postgres memory continuity', () => {
     const runId = 'agent-run:test:delete-with-session' as AgentRunId;
 
     await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
     });
     const resume = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
     });
@@ -608,6 +723,7 @@ maybeDescribe('Postgres memory continuity', () => {
       configVersionId: `config:${DEFAULT_AGENT_ID}:1` as never,
       sessionId: resume.agentSessionId as never,
       llmProfileId: DEFAULT_LLM_PROFILE_ID as never,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       permissionDecisionIds: [],
       cause: 'message',
       status: 'completed',
@@ -629,6 +745,7 @@ maybeDescribe('Postgres memory continuity', () => {
 
     const restarted = await runtime.sessionOps.getAgentTurnContext({
       groupFolder,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
     });
@@ -734,15 +851,18 @@ maybeDescribe('Postgres memory continuity', () => {
       const sessionId = 'provider-session:test:isolation';
 
       await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid,
       });
       await isolated.sessionOps.setSession(groupFolder, sessionId, null, {
+        executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid,
       });
 
       await expect(
         runtime.sessionOps.getAgentTurnContext({
           groupFolder,
+          executionProviderId: TEST_EXECUTION_PROVIDER_ID,
           chatJid,
           threadId: null,
         }),
@@ -752,6 +872,7 @@ maybeDescribe('Postgres memory continuity', () => {
       await expect(
         isolated.sessionOps.getAgentTurnContext({
           groupFolder,
+          executionProviderId: TEST_EXECUTION_PROVIDER_ID,
           chatJid,
           threadId: null,
         }),

@@ -15,7 +15,11 @@ import type {
   SandboxLeaseId,
   WorkspaceSnapshotId,
 } from '../sandbox/sandbox.js';
-import type { AgentSessionId } from '../sessions/sessions.js';
+import type {
+  AgentSessionId,
+  ExecutionProviderId,
+  ProviderSessionId,
+} from '../sessions/sessions.js';
 import type { BrandedId } from '../../shared/ids/branded-id.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
 import type { RuntimeEventType } from './runtime-event-types.js';
@@ -88,6 +92,12 @@ export interface AgentRun {
   messageId?: MessageId;
   jobId?: JobId;
   llmProfileId: LlmProfileId;
+  executionProviderId: ExecutionProviderId;
+  providerRunId?: string;
+  providerSessionId?: ProviderSessionId;
+  workerId?: string;
+  leaseOwner?: string;
+  leaseExpiresAt?: IsoTimestamp;
   permissionDecisionIds: PermissionDecisionId[];
   sandboxLeaseId?: SandboxLeaseId;
   workspaceSnapshotId?: WorkspaceSnapshotId;

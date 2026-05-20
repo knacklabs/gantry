@@ -3,6 +3,7 @@ import type {
   ConversationRoute as RuntimeConversationRecord,
 } from '../domain/types.js';
 import type { RuntimeAgentSessionRepository } from '../domain/repositories/ops-repo.js';
+import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 import { resolveJobNotificationRoutes } from './job-notification-routes.js';
 import { buildBoundedMemoryRecallQuery } from '../memory/app-memory-recall-query.js';
 
@@ -61,6 +62,7 @@ function normalizeOptional(value: unknown): string | undefined {
 
 export function buildExecutionTurnContextInput(input: {
   agentFolder: string;
+  executionProviderId: ExecutionProviderId;
   executionJid: string;
   threadId?: string | null;
   conversationKind?: RuntimeConversationRecord['conversationKind'];
@@ -72,6 +74,7 @@ export function buildExecutionTurnContextInput(input: {
 >[0] {
   return {
     agentFolder: input.agentFolder,
+    executionProviderId: input.executionProviderId,
     conversationJid: input.executionJid,
     threadId: input.threadId ?? null,
     conversationKind: input.conversationKind,

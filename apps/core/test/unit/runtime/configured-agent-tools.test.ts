@@ -115,6 +115,29 @@ describe('configured agent tools', () => {
     ).resolves.toEqual([]);
   });
 
+  it('fails closed for stale active provider-native SDK bindings', async () => {
+    const repository = {
+      listAgentToolBindings: async () => [
+        {
+          status: 'active',
+          toolId: 'tool:Read',
+        },
+      ],
+      getTool: async () => ({
+        appId: 'default',
+        name: 'Read',
+      }),
+    };
+
+    await expect(
+      resolveConfiguredAllowedTools({
+        repository: repository as never,
+        appId: 'default',
+        agentId: 'agent:one',
+      }),
+    ).rejects.toThrow('Provider-native SDK tools');
+  });
+
   it('fails closed for stale active raw browser action MCP bindings', async () => {
     const repository = {
       listAgentToolBindings: async () => [

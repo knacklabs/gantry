@@ -12,6 +12,31 @@ import { sendError, sendJson } from '../http.js';
 import { parseRunEventsRoute, parseRunRoute } from '../route-parser.js';
 import { projectRuntimeEventToRunEvent } from '../run-event-projection.js';
 
+function projectRunForControlApi<T extends object>(
+  run: T,
+): Omit<
+  T,
+  | 'provider_session_id'
+  | 'provider_run_id'
+  | 'providerSessionId'
+  | 'providerRunId'
+> {
+  const {
+    provider_session_id: _providerSessionId,
+    provider_run_id: _providerRunId,
+    providerSessionId: _providerSessionIdCamel,
+    providerRunId: _providerRunIdCamel,
+    ...safeRun
+  } = run as T & Record<string, unknown>;
+  return safeRun as Omit<
+    T,
+    | 'provider_session_id'
+    | 'provider_run_id'
+    | 'providerSessionId'
+    | 'providerRunId'
+  >;
+}
+
 export async function handleRunRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -35,7 +60,7 @@ export async function handleRunRoutes(
         return true;
       }
       const runs = await ops.listJobRuns(jobId, 100);
-      sendJson(res, 200, { runs });
+      sendJson(res, 200, { runs: runs.map(projectRunForControlApi) });
       return true;
     }
     const runs = await ops.listJobRuns(undefined, 100, {
@@ -45,7 +70,7 @@ export async function handleRunRoutes(
       sendJson(res, 200, { runs: [] });
       return true;
     }
-    sendJson(res, 200, { runs });
+    sendJson(res, 200, { runs: runs.map(projectRunForControlApi) });
     return true;
   }
 
@@ -99,7 +124,7 @@ export async function handleRunRoutes(
       sendError(res, 403, 'FORBIDDEN', 'API key cannot access this run');
       return true;
     }
-    sendJson(res, 200, run);
+    sendJson(res, 200, projectRunForControlApi(run));
     return true;
   }
 

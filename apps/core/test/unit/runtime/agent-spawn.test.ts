@@ -196,7 +196,10 @@ vi.mock('child_process', async () => {
   };
 });
 
-import { spawnAgent, AgentOutput } from '@core/runtime/agent-spawn.js';
+import {
+  spawnAgent as runtimeSpawnAgent,
+  AgentOutput,
+} from '@core/runtime/agent-spawn.js';
 import { getEffectiveModelConfig } from '@core/config/index.js';
 import { spawn } from 'child_process';
 import fs from 'fs';
@@ -225,6 +228,10 @@ import type {
   CapabilitySecret,
   CapabilitySecretMetadata,
 } from '@core/domain/capability-secrets/capability-secrets.js';
+import type {
+  AgentExecutionAdapter,
+  AgentExecutionAdapterPrepareInput,
+} from '@core/application/agent-execution/agent-execution-adapter.js';
 
 const testGroup: ConversationRoute = {
   name: 'Test Group',
@@ -238,6 +245,113 @@ const testInput = {
   groupFolder: 'test-group',
   chatJid: 'test@g.us',
 };
+
+function isOpenRouterBaseUrl(value?: string): boolean {
+  if (!value) return false;
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === 'openrouter.ai' || hostname.endsWith('.openrouter.ai');
+  } catch {
+    return false;
+  }
+}
+
+function projectTestModelCredentialEnv(source: Record<string, string>) {
+  const allowedKeys = new Set([
+    'ANTHROPIC_BASE_URL',
+    'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_API_KEY',
+    'CLAUDE_CODE_OAUTH_TOKEN',
+    'HTTP_PROXY',
+    'HTTPS_PROXY',
+    'http_proxy',
+    'https_proxy',
+    'NODE_USE_ENV_PROXY',
+    'NODE_EXTRA_CA_CERTS',
+  ]);
+  return Object.fromEntries(
+    Object.entries(source).filter(([key]) => allowedKeys.has(key)),
+  );
+}
+
+const testExecutionAdapter: AgentExecutionAdapter = {
+  id: 'anthropic:claude-agent-sdk',
+  async prepare(input: AgentExecutionAdapterPrepareInput) {
+    if (
+      input.effectiveModelEntry?.provider === 'openrouter' &&
+      (!input.modelCredentialProjection.env.ANTHROPIC_AUTH_TOKEN ||
+        input.modelCredentialProjection.credentialProviders
+          .ANTHROPIC_AUTH_TOKEN !== 'openrouter')
+    ) {
+      throw new Error(
+        `OpenRouter model ${input.effectiveModelEntry.displayName} requires an OpenRouter-scoped credential from AgentCredentialBroker as ANTHROPIC_AUTH_TOKEN. Configure Model Access/OpenRouter credentials before selecting this model.`,
+      );
+    }
+    if (
+      input.effectiveModelEntry &&
+      input.effectiveModelEntry.provider !== 'openrouter' &&
+      (input.modelCredentialProjection.credentialProviders
+        .ANTHROPIC_AUTH_TOKEN === 'openrouter' ||
+        isOpenRouterBaseUrl(
+          input.modelCredentialProjection.env.ANTHROPIC_BASE_URL,
+        ))
+    ) {
+      throw new Error(
+        `Model ${input.effectiveModelEntry.displayName} is configured for ${input.effectiveModelEntry.providerLabel}, but AgentCredentialBroker returned OpenRouter-scoped Anthropic SDK credentials. Switch the session/job model to kimi or configure ${input.effectiveModelEntry.providerLabel} credentials for this model.`,
+      );
+    }
+    const runnerPath =
+      '/tmp/gantry-home/dist/adapters/llm/anthropic-claude-agent/runner/index.js';
+    const packageRoot = input.packageRootFromRunner(runnerPath);
+    const materialization = await mockMaterializeClaudeRuntime({
+      groupDir: input.groupDir,
+      baseTempDir: `${input.groupDir}/.llm-runtime`,
+      cleanupPolicy: 'retain-for-debug',
+      cliEntryPoint: `${packageRoot}/dist/cli/index.js`,
+      packageRoot,
+      runtimeSettingsPath: '/tmp/gantry-config/settings.yaml',
+      managedSkillArtifactRoots: ['/tmp/gantry-test-data/artifacts/skills'],
+      settings: {
+        model: input.effectiveModel,
+      },
+    });
+    const modelCredentialEnv = projectTestModelCredentialEnv(
+      input.modelCredentialProjection.env,
+    );
+    if (input.effectiveModelEntry?.provider === 'openrouter') {
+      modelCredentialEnv.ANTHROPIC_BASE_URL = 'https://openrouter.ai/api';
+      modelCredentialEnv.ANTHROPIC_API_KEY = '';
+    }
+    return {
+      providerId: 'anthropic:claude-agent-sdk' as const,
+      runnerPath,
+      runnerArgs: [runnerPath],
+      runnerInputPatch:
+        Object.keys(modelCredentialEnv).length > 0
+          ? { modelCredentialEnv }
+          : {},
+      env: {
+        CLAUDE_CONFIG_DIR: materialization.claudeConfigDir,
+        ...(input.effectiveModel
+          ? { ANTHROPIC_MODEL: input.effectiveModel }
+          : {}),
+      },
+      protectedFilesystemPaths: materialization.protectedFilesystemPaths,
+      runtimeDetails: [`executionProvider=anthropic:claude-agent-sdk`],
+      cleanup: materialization.cleanup,
+    };
+  },
+};
+
+function spawnTestAgent(
+  ...args: Parameters<typeof runtimeSpawnAgent>
+): ReturnType<typeof runtimeSpawnAgent> {
+  const options = args[4] ?? {};
+  return runtimeSpawnAgent(args[0], args[1], args[2], args[3], {
+    ...options,
+    executionAdapter: options.executionAdapter ?? testExecutionAdapter,
+  });
+}
 
 class SpawnMcpRepository implements McpServerRepository {
   auditEvents: McpServerAuditEvent[] = [];
@@ -345,6 +459,10 @@ class SpawnCapabilitySecretRepository implements CapabilitySecretRepository {
 }
 
 class SpawnSkillRepository {
+  constructor(
+    private readonly requiredEnvVars: string[] = ['LINKEDIN_ACCESS_TOKEN'],
+  ) {}
+
   async listEnabledSkillsForAgent() {
     return [
       {
@@ -353,7 +471,7 @@ class SpawnSkillRepository {
         agentId: 'agent-one',
         name: 'linkedin-posting',
         status: 'approved',
-        requiredEnvVars: ['LINKEDIN_ACCESS_TOKEN'],
+        requiredEnvVars: this.requiredEnvVars,
         createdBy: 'test',
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString(),
@@ -466,7 +584,12 @@ describe('agent-spawn timeout behavior', () => {
 
   it('timeout after output resolves as success', async () => {
     const onOutput = vi.fn(async () => {});
-    const resultPromise = spawnAgent(testGroup, testInput, () => {}, onOutput);
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      testInput,
+      () => {},
+      onOutput,
+    );
 
     // Emit output with a result
     emitOutputMarker(fakeProc, {
@@ -497,7 +620,12 @@ describe('agent-spawn timeout behavior', () => {
 
   it('timeout with no output resolves as error', async () => {
     const onOutput = vi.fn(async () => {});
-    const resultPromise = spawnAgent(testGroup, testInput, () => {}, onOutput);
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      testInput,
+      () => {},
+      onOutput,
+    );
 
     // No output emitted — fire the hard timeout
     await vi.advanceTimersByTimeAsync(1830000);
@@ -515,7 +643,12 @@ describe('agent-spawn timeout behavior', () => {
 
   it('normal exit after output resolves as success', async () => {
     const onOutput = vi.fn(async () => {});
-    const resultPromise = spawnAgent(testGroup, testInput, () => {}, onOutput);
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      testInput,
+      () => {},
+      onOutput,
+    );
 
     // Emit output
     emitOutputMarker(fakeProc, {
@@ -538,7 +671,12 @@ describe('agent-spawn timeout behavior', () => {
 
   it('preserves structured runner errors on nonzero streaming exit', async () => {
     const onOutput = vi.fn(async () => {});
-    const resultPromise = spawnAgent(testGroup, testInput, () => {}, onOutput);
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      testInput,
+      () => {},
+      onOutput,
+    );
 
     emitOutputMarker(fakeProc, {
       status: 'error',
@@ -569,7 +707,7 @@ describe('agent-spawn timeout behavior', () => {
   it('fails scheduled jobs with an explicit idle-stall diagnostic', async () => {
     process.env.GANTRY_SCHEDULED_JOB_IDLE_TIMEOUT_MS = '60000';
     const onOutput = vi.fn(async () => {});
-    const resultPromise = spawnAgent(
+    const resultPromise = spawnTestAgent(
       testGroup,
       {
         ...testInput,
@@ -623,7 +761,7 @@ describe('agent-spawn timeout behavior', () => {
   });
 
   it('ensures group IPC layout before spawning host runner', async () => {
-    const resultPromise = spawnAgent(testGroup, testInput, () => {});
+    const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
     await vi.advanceTimersByTimeAsync(10);
     fakeProc.emit('close', 0);
     await vi.advanceTimersByTimeAsync(10);
@@ -642,7 +780,7 @@ describe('agent-spawn timeout behavior', () => {
       memoryUserId: 'user-a',
       memoryDefaultScope: 'user' as const,
     };
-    const resultPromise = spawnAgent(testGroup, input, () => {});
+    const resultPromise = spawnTestAgent(testGroup, input, () => {});
     await vi.advanceTimersByTimeAsync(10);
     fakeProc.emit('close', 0);
     await vi.advanceTimersByTimeAsync(10);
@@ -720,7 +858,7 @@ describe('agent-spawn timeout behavior', () => {
       ...testGroup,
       agentConfig: { model: 'opus' },
     };
-    const resultPromise = spawnAgent(groupWithModel, testInput, () => {});
+    const resultPromise = spawnTestAgent(groupWithModel, testInput, () => {});
 
     await vi.advanceTimersByTimeAsync(10);
     fakeProc.emit('close', 0);
@@ -756,7 +894,7 @@ describe('agent-spawn timeout behavior', () => {
       model: 'sonnet',
     };
 
-    const resultPromise = spawnAgent(
+    const resultPromise = spawnTestAgent(
       groupWithModel,
       inputWithJobModel,
       () => {},
@@ -782,7 +920,7 @@ describe('agent-spawn timeout behavior', () => {
       jobModelUseKind: 'oneTimeJob' as const,
     };
 
-    const resultPromise = spawnAgent(
+    const resultPromise = spawnTestAgent(
       testGroup,
       inputWithManualJobKind,
       () => {},
@@ -807,7 +945,7 @@ describe('agent-spawn timeout behavior', () => {
       brokerProfile: 'external',
     });
     const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
-    const resultPromise = spawnAgent(
+    const resultPromise = spawnTestAgent(
       testGroup,
       { ...testInput, model: 'kimi 2.6' },
       () => {},
@@ -842,7 +980,7 @@ describe('agent-spawn timeout behavior', () => {
       brokerProfile: 'external',
     });
 
-    const result = await spawnAgent(
+    const result = await spawnTestAgent(
       testGroup,
       { ...testInput, model: 'kimi' },
       () => {},
@@ -855,7 +993,7 @@ describe('agent-spawn timeout behavior', () => {
   });
 
   it('rejects OpenRouter models when the credential broker cannot provide a token', async () => {
-    const result = await spawnAgent(
+    const result = await spawnTestAgent(
       testGroup,
       { ...testInput, model: 'kimi' },
       () => {},
@@ -878,7 +1016,7 @@ describe('agent-spawn timeout behavior', () => {
       brokerProfile: 'onecli',
     });
 
-    const result = await spawnAgent(
+    const result = await spawnTestAgent(
       testGroup,
       { ...testInput, model: 'opus' },
       () => {},
@@ -900,7 +1038,7 @@ describe('agent-spawn timeout behavior', () => {
     );
     const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
 
-    const resultPromise = spawnAgent(testGroup, testInput, () => {});
+    const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
     await vi.advanceTimersByTimeAsync(10);
     fakeProc.emit('close', 0);
     await vi.advanceTimersByTimeAsync(10);
@@ -917,7 +1055,7 @@ describe('agent-spawn timeout behavior', () => {
 
   it('passes memory context blocks through runner stdin only when input provides one', async () => {
     const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
-    const resultPromise = spawnAgent(
+    const resultPromise = spawnTestAgent(
       testGroup,
       {
         ...testInput,
@@ -949,7 +1087,7 @@ describe('agent-spawn timeout behavior', () => {
     );
     const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
 
-    const resultPromise = spawnAgent(
+    const resultPromise = spawnTestAgent(
       testGroup,
       {
         ...testInput,
@@ -975,7 +1113,7 @@ describe('agent-spawn timeout behavior', () => {
     const originalKey = process.env.OPENAI_API_KEY;
     try {
       process.env.OPENAI_API_KEY = 'should-not-leak';
-      const resultPromise = spawnAgent(testGroup, testInput, () => {});
+      const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
       await vi.advanceTimersByTimeAsync(10);
       fakeProc.emit('close', 0);
       await vi.advanceTimersByTimeAsync(10);
@@ -1017,7 +1155,7 @@ describe('agent-spawn timeout behavior', () => {
     });
     const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
 
-    const resultPromise = spawnAgent(testGroup, testInput, () => {});
+    const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
     await vi.advanceTimersByTimeAsync(10);
     fakeProc.emit('close', 0);
     await vi.advanceTimersByTimeAsync(10);
@@ -1080,7 +1218,7 @@ describe('agent-spawn timeout behavior', () => {
     });
     const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
 
-    const resultPromise = spawnAgent(testGroup, testInput, () => {});
+    const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
     await vi.advanceTimersByTimeAsync(10);
     fakeProc.emit('close', 0);
     await vi.advanceTimersByTimeAsync(10);
@@ -1121,7 +1259,7 @@ describe('agent-spawn timeout behavior', () => {
     const lookupHostname = vi.fn(async () => [
       { address: '93.184.216.34', family: 4 as const },
     ]);
-    const resultPromise = spawnAgent(
+    const resultPromise = spawnTestAgent(
       testGroup,
       { ...testInput, selectedMcpServerIds: ['mcp:github'] },
       () => {},
@@ -1208,11 +1346,17 @@ describe('agent-spawn timeout behavior', () => {
 
   it('cleans up runtime resources when selected skill secrets are missing', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
-    const result = await spawnAgent(testGroup, testInput, () => {}, undefined, {
-      skillRepository: new SpawnSkillRepository() as any,
-      capabilitySecretRepository: new SpawnCapabilitySecretRepository({}),
-      skillContext: { appId: 'app-one', agentId: 'agent-one' },
-    });
+    const result = await spawnTestAgent(
+      testGroup,
+      testInput,
+      () => {},
+      undefined,
+      {
+        skillRepository: new SpawnSkillRepository() as any,
+        capabilitySecretRepository: new SpawnCapabilitySecretRepository({}),
+        skillContext: { appId: 'app-one', agentId: 'agent-one' },
+      },
+    );
 
     expect(result).toMatchObject({
       status: 'error',
@@ -1227,6 +1371,50 @@ describe('agent-spawn timeout behavior', () => {
     expect(vi.mocked(spawn)).not.toHaveBeenCalled();
   });
 
+  it('filters authority and loader env from selected skill secrets', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      testInput,
+      () => {},
+      undefined,
+      {
+        skillRepository: new SpawnSkillRepository([
+          'LINKEDIN_ACCESS_TOKEN',
+          'PATH',
+          'NODE_OPTIONS',
+          'LD_PRELOAD',
+          'NODE_EXTRA_CA_CERTS',
+          'GANTRY_IPC_AUTH_TOKEN',
+        ]) as any,
+        capabilitySecretRepository: new SpawnCapabilitySecretRepository({
+          LINKEDIN_ACCESS_TOKEN: 'linkedin-token',
+          PATH: '/malicious/bin',
+          NODE_OPTIONS: '--require /tmp/hook.js',
+          LD_PRELOAD: '/tmp/preload.so',
+          NODE_EXTRA_CA_CERTS: '/tmp/ca.pem',
+          GANTRY_IPC_AUTH_TOKEN: 'skill-token',
+        }),
+        skillContext: { appId: 'app-one', agentId: 'agent-one' },
+      },
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.LINKEDIN_ACCESS_TOKEN).toBe('linkedin-token');
+    expect(env.PATH).not.toBe('/malicious/bin');
+    expect(env.NODE_OPTIONS).toBeUndefined();
+    expect(env.LD_PRELOAD).toBeUndefined();
+    expect(env.NODE_EXTRA_CA_CERTS).toBeUndefined();
+    expect(env.GANTRY_IPC_AUTH_TOKEN).not.toBe('skill-token');
+  });
+
   it('does not materialize MCP bindings when no MCP servers are selected for the run', async () => {
     vi.mocked(fs.existsSync).mockReturnValue(true);
     vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValue({
@@ -1237,7 +1425,7 @@ describe('agent-spawn timeout behavior', () => {
     });
     const repository = new SpawnMcpRepository([mcpRecord()]);
 
-    const resultPromise = spawnAgent(
+    const resultPromise = spawnTestAgent(
       testGroup,
       { ...testInput, selectedMcpServerIds: [] },
       () => {},
@@ -1270,8 +1458,7 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.GANTRY_MCP_ALLOWED_TOOLS_JSON).toBeUndefined();
   });
 
-  it('does not write MCP handoff files when runner files are missing', async () => {
-    vi.mocked(fs.existsSync).mockReturnValue(false);
+  it('does not write MCP handoff files when execution adapter prepare fails', async () => {
     vi.mocked(fs.writeFileSync).mockClear();
     const { getHostRuntimeCredentialEnv } =
       await import('@core/runtime/agent-spawn-host.js');
@@ -1283,22 +1470,34 @@ describe('agent-spawn timeout behavior', () => {
     });
     const repository = new SpawnMcpRepository([mcpRecord()]);
 
-    const result = await spawnAgent(testGroup, testInput, () => {}, undefined, {
-      mcpServerRepository: repository,
-      mcpContext: { appId: 'app-one', agentId: 'agent-one' },
-      mcpHostnameLookup: vi.fn(async () => [
-        { address: '93.184.216.34', family: 4 as const },
-      ]),
-      credentialBroker: {
-        getCredentialInjection: vi.fn(async () => ({
-          env: { GITHUB_TOKEN: 'broker-token' },
-          metadata: {
-            brokerApplied: true,
-            brokerProfile: 'test',
-          },
-        })),
-      } as any,
-    });
+    const result = await spawnTestAgent(
+      testGroup,
+      testInput,
+      () => {},
+      undefined,
+      {
+        mcpServerRepository: repository,
+        mcpContext: { appId: 'app-one', agentId: 'agent-one' },
+        mcpHostnameLookup: vi.fn(async () => [
+          { address: '93.184.216.34', family: 4 as const },
+        ]),
+        credentialBroker: {
+          getCredentialInjection: vi.fn(async () => ({
+            env: { GITHUB_TOKEN: 'broker-token' },
+            metadata: {
+              brokerApplied: true,
+              brokerProfile: 'test',
+            },
+          })),
+        } as any,
+        executionAdapter: {
+          id: 'anthropic:claude-agent-sdk',
+          prepare: vi.fn(async () => {
+            throw new Error('missing required runner files');
+          }),
+        },
+      },
+    );
 
     expect(result.status).toBe('error');
     expect(result.error).toContain('missing required runner files');
@@ -1307,11 +1506,10 @@ describe('agent-spawn timeout behavior', () => {
       expect.anything(),
       expect.anything(),
     );
-    vi.mocked(fs.existsSync).mockReturnValue(true);
   });
 
   it('points Claude SDK session files at a stable per-agent config directory', async () => {
-    const resultPromise = spawnAgent(testGroup, testInput, () => {});
+    const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
     await vi.advanceTimersByTimeAsync(10);
     fakeProc.emit('close', 0);
     await vi.advanceTimersByTimeAsync(10);
@@ -1327,8 +1525,57 @@ describe('agent-spawn timeout behavior', () => {
     expect(env.CLAUDE_CONFIG_DIR).not.toBe('/tmp/gantry-config/.claude');
   });
 
+  it('filters authority and loader env from prepared execution env', async () => {
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      testInput,
+      () => {},
+      undefined,
+      {
+        executionAdapter: {
+          id: 'anthropic:claude-agent-sdk',
+          prepare: vi.fn(async () => ({
+            providerId: 'anthropic:claude-agent-sdk' as const,
+            runnerPath: '/tmp/runner/index.js',
+            runnerArgs: ['/tmp/runner/index.js'],
+            env: {
+              CLAUDE_CONFIG_DIR: '/tmp/adapter-claude',
+              PATH: '/malicious/bin',
+              NODE_OPTIONS: '--require /tmp/hook.js',
+              LD_PRELOAD: '/tmp/preload.so',
+              NODE_EXTRA_CA_CERTS: '/tmp/ca.pem',
+              GANTRY_IPC_AUTH_TOKEN: 'adapter-token',
+              GANTRY_MCP_SERVER_PATH: '/tmp/mcp.js',
+            },
+            protectedFilesystemPaths: ['/tmp/adapter-claude'],
+            runtimeDetails: ['executionProvider=anthropic:claude-agent-sdk'],
+            cleanup: vi.fn(),
+          })),
+        },
+      },
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env.CLAUDE_CONFIG_DIR).toBe('/tmp/adapter-claude');
+    expect(env.PATH).not.toBe('/malicious/bin');
+    expect(env.NODE_OPTIONS).toBeUndefined();
+    expect(env.LD_PRELOAD).toBeUndefined();
+    expect(env.NODE_EXTRA_CA_CERTS).toBeUndefined();
+    expect(env.GANTRY_IPC_AUTH_TOKEN).not.toBe('adapter-token');
+    expect(env.GANTRY_MCP_SERVER_PATH).toBe(
+      '/tmp/gantry-home/dist/runner/mcp/stdio.js',
+    );
+  });
+
   it('hands protected filesystem paths to the runner for SDK sandboxing', async () => {
-    const resultPromise = spawnAgent(testGroup, testInput, () => {});
+    const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
     await vi.advanceTimersByTimeAsync(10);
     fakeProc.emit('close', 0);
     await vi.advanceTimersByTimeAsync(10);
@@ -1349,9 +1596,9 @@ describe('agent-spawn timeout behavior', () => {
         '/tmp/gantry-test-data/agents/test-group/.claude/settings.json',
         '/tmp/gantry-test-data/agents/test-group/.claude/skills',
         '/tmp/gantry-test-data/agents/test-group/skills',
-        '/tmp/gantry-home/dist/runner/claude/.claude/skills',
-        '/tmp/gantry-home/dist/runner/claude/.codex/skills',
-        '/tmp/gantry-home/dist/runner/claude/.agents/skills',
+        '/tmp/gantry-home/dist/adapters/llm/anthropic-claude-agent/runner/.claude/skills',
+        '/tmp/gantry-home/dist/adapters/llm/anthropic-claude-agent/runner/.codex/skills',
+        '/tmp/gantry-home/dist/adapters/llm/anthropic-claude-agent/runner/.agents/skills',
         '/tmp/gantry-test-data/artifacts/skills',
       ]),
     );
@@ -1366,7 +1613,7 @@ describe('agent-spawn timeout behavior', () => {
       ...testGroup,
       folder: 'main_agent',
     };
-    const resultPromise = spawnAgent(
+    const resultPromise = spawnTestAgent(
       mainGroup,
       { ...testInput, groupFolder: 'main_agent' },
       () => {},
@@ -1384,7 +1631,7 @@ describe('agent-spawn timeout behavior', () => {
   });
 
   it('does not launch or attach a raw browser backend during ordinary spawn', async () => {
-    const resultPromise = spawnAgent(testGroup, { ...testInput }, () => {});
+    const resultPromise = spawnTestAgent(testGroup, { ...testInput }, () => {});
     await vi.advanceTimersByTimeAsync(10);
     fakeProc.emit('close', 0);
     await vi.advanceTimersByTimeAsync(10);
@@ -1403,7 +1650,7 @@ describe('agent-spawn timeout behavior', () => {
   });
 
   it('does not launch or attach a raw browser backend when Browser is selected', async () => {
-    const resultPromise = spawnAgent(
+    const resultPromise = spawnTestAgent(
       testGroup,
       { ...testInput, allowedTools: ['Browser'] },
       () => {},
@@ -1426,7 +1673,7 @@ describe('agent-spawn timeout behavior', () => {
   });
 
   it('fails closed on stale raw browser action MCP rules during spawn', async () => {
-    const result = await spawnAgent(
+    const result = await spawnTestAgent(
       testGroup,
       {
         ...testInput,
@@ -1444,7 +1691,7 @@ describe('agent-spawn timeout behavior', () => {
   });
 
   it('fails closed on stale projected browser MCP rules during spawn', async () => {
-    const result = await spawnAgent(
+    const result = await spawnTestAgent(
       testGroup,
       { ...testInput, allowedTools: ['Read', 'mcp__gantry__browser_act'] },
       () => {},
@@ -1463,23 +1710,23 @@ describe('agent-spawn timeout behavior', () => {
   it.each([
     [
       'SDK sandbox network access',
-      ['Read', 'SandboxNetworkAccess'],
+      ['Browser', 'SandboxNetworkAccess'],
       'SDK sandbox network prompts are internal',
     ],
     [
       'exact third-party MCP tool',
-      ['Read', 'mcp__github__search_repositories'],
+      ['Browser', 'mcp__github__search_repositories'],
       'Third-party MCP tool names are not selected directly',
     ],
     [
       'bare Bash',
-      ['Read', 'Bash'],
+      ['Browser', 'Bash'],
       'Persistent bare Bash grants are too broad',
     ],
   ])(
     'fails closed on stale %s rules during spawn',
     async (_label, rules, reason) => {
-      const result = await spawnAgent(
+      const result = await spawnTestAgent(
         testGroup,
         { ...testInput, allowedTools: rules },
         () => {},
@@ -1507,7 +1754,7 @@ describe('agent-spawn timeout behavior', () => {
       headless: false,
     });
 
-    const resultPromise = spawnAgent(
+    const resultPromise = spawnTestAgent(
       testGroup,
       {
         ...testInput,
@@ -1570,7 +1817,7 @@ describe('agent-spawn timeout behavior', () => {
       headless: false,
     });
 
-    const resultPromise = spawnAgent(testGroup, testInput, () => {});
+    const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
     await vi.advanceTimersByTimeAsync(10);
     fakeProc.emit('close', 0);
     await vi.advanceTimersByTimeAsync(10);
@@ -1592,7 +1839,7 @@ describe('agent-spawn timeout behavior', () => {
     );
     const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
 
-    const resultPromise = spawnAgent(
+    const resultPromise = spawnTestAgent(
       testGroup,
       {
         ...testInput,
@@ -1627,7 +1874,7 @@ describe('agent-spawn timeout behavior', () => {
       } as never,
     );
 
-    const resultPromise = spawnAgent(testGroup, testInput, () => {});
+    const resultPromise = spawnTestAgent(testGroup, testInput, () => {});
     await vi.advanceTimersByTimeAsync(10);
 
     // Emit successful output to complete the promise
@@ -1647,16 +1894,38 @@ describe('agent-spawn timeout behavior', () => {
     );
   });
 
-  it('returns error when host runner files are missing (line 92)', async () => {
-    // Make existsSync return false for the host runner paths
-    vi.mocked(fs.existsSync).mockReturnValue(false);
+  it('returns error when execution adapter is missing', async () => {
+    const result = await runtimeSpawnAgent(testGroup, testInput, () => {});
 
-    const result = await spawnAgent(testGroup, testInput, () => {});
+    expect(result).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining('No LLM execution adapter configured'),
+    });
+    expect(spawn).not.toHaveBeenCalled();
+  });
 
-    expect(result.status).toBe('error');
-    expect(result.error).toContain('missing required runner files');
+  it('returns error when execution adapter prepare rejects', async () => {
+    const result = await spawnTestAgent(
+      testGroup,
+      testInput,
+      () => {},
+      undefined,
+      {
+        executionAdapter: {
+          id: 'anthropic:claude-agent-sdk',
+          prepare: vi.fn(async () => {
+            throw new Error('prepare failed');
+          }),
+        },
+      },
+    );
 
-    // Restore default behavior
-    vi.mocked(fs.existsSync).mockReturnValue(true);
+    expect(result).toMatchObject({
+      status: 'error',
+      error: expect.stringContaining(
+        'LLM runtime materialization failed: prepare failed',
+      ),
+    });
+    expect(spawn).not.toHaveBeenCalled();
   });
 });

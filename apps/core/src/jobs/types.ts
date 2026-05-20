@@ -23,6 +23,7 @@ import type {
 } from '../domain/ports/repositories.js';
 import type { SkillArtifactStore } from '../domain/ports/skill-artifact-store.js';
 import type { JobReadinessBrowserStatus } from '../application/jobs/job-readiness-service.js';
+import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
 
 export interface SchedulerDependencies {
   conversationRoutes: () => Record<string, ConversationRoute>;
@@ -56,6 +57,7 @@ export interface SchedulerDependencies {
   getBrowserStatus?: (
     profileName: string,
   ) => Promise<JobReadinessBrowserStatus | undefined>;
+  executionAdapter?: AgentExecutionAdapter;
   closeBrowserSession?: (profileName: string) => Promise<{
     closed: boolean;
     reason?: string;

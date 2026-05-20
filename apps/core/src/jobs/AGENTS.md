@@ -27,3 +27,8 @@
 - pg-boss `startAfter` accepts a `Date` or an ISO string ending in `Z`; persisted
   Postgres timestamptz strings such as `2026-05-19 04:00:00+00` must be
   converted to `Date` before `boss.send`, or pg-boss treats them as intervals.
+- Scheduler run metadata must persist the execution provider id at claim time
+  and update provider run handles when `runAgent` exposes the host/provider
+  handle. Preserve the existing rule that streamed job `newSessionId` values are
+  not written back into the job-owned session scope unless that product decision
+  changes explicitly.

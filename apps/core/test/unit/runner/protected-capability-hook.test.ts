@@ -4,7 +4,7 @@ import {
   createSafetyPreToolUseHook,
   evaluateProtectedCapabilityToolUse,
   protectedCapabilityPreToolUseHook,
-} from '@agent-runner-src/claude/protected-capability-hook.js';
+} from '@core/adapters/llm/anthropic-claude-agent/runner/protected-capability-hook.js';
 
 describe('protected capability SDK hook', () => {
   it('blocks direct skill file writes through the native PreToolUse hook', async () => {

@@ -35,6 +35,7 @@ import type {
   AgentSessionDigestId,
   AgentSessionId,
   AgentSessionSummaryId,
+  ExecutionProviderId,
   ProviderSessionId,
 } from '@core/domain/sessions/sessions.js';
 import type { RuntimeSecretProvider } from '@core/domain/ports/runtime-secret-provider.js';
@@ -42,6 +43,9 @@ import type { RuntimeSecretProvider } from '@core/domain/ports/runtime-secret-pr
 const maybeDescribe = process.env.GANTRY_TEST_DATABASE_URL
   ? describe
   : describe.skip;
+const TEST_EXECUTION_PROVIDER_ID =
+  'anthropic:claude-agent-sdk' as ExecutionProviderId;
+const TEST_CODEX_PROVIDER_ID = 'codex-sdk' as ExecutionProviderId;
 
 const appId = DEFAULT_APP_ID as AppId;
 const agentId = DEFAULT_AGENT_ID as AgentId;
@@ -333,10 +337,19 @@ maybeDescribe('Postgres domain repositories', () => {
       agentId,
       toolBindings: [
         {
-          id: `agent-tool-binding:${agentId}:tool:Read` as never,
+          id: `agent-tool-binding:${agentId}:tool:Browser` as never,
           appId,
           agentId,
-          toolId: 'tool:Read' as never,
+          toolId: 'tool:Browser' as never,
+          status: 'active',
+          createdAt: updatedAt,
+          updatedAt,
+        },
+        {
+          id: `agent-tool-binding:${agentId}:tool:mcp__gantry__service_restart` as never,
+          appId,
+          agentId,
+          toolId: 'tool:mcp__gantry__service_restart' as never,
           status: 'active',
           createdAt: updatedAt,
           updatedAt,
@@ -353,10 +366,46 @@ maybeDescribe('Postgres domain repositories', () => {
     });
 
     expect(
-      bindings.find((binding) => binding.toolId === 'tool:Read')?.status,
+      bindings.find((binding) => binding.toolId === 'tool:Browser')?.status,
     ).toBe('active');
     expect(
-      bindings.find((binding) => binding.toolId === 'tool:Agent')?.status,
+      bindings.find(
+        (binding) => binding.toolId === 'tool:mcp__gantry__service_restart',
+      )?.status,
+    ).toBe('active');
+
+    await repositories.agents.replaceAgentCapabilityBindings({
+      appId,
+      agentId,
+      toolBindings: [
+        {
+          id: `agent-tool-binding:${agentId}:tool:Browser` as never,
+          appId,
+          agentId,
+          toolId: 'tool:Browser' as never,
+          status: 'active',
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      skillBindings: [],
+      mcpBindings: [],
+      updatedAt,
+    });
+
+    const replacedBindings = await repositories.tools.listAgentToolBindings({
+      appId,
+      agentId,
+    });
+
+    expect(
+      replacedBindings.find((binding) => binding.toolId === 'tool:Browser')
+        ?.status,
+    ).toBe('active');
+    expect(
+      replacedBindings.find(
+        (binding) => binding.toolId === 'tool:mcp__gantry__service_restart',
+      )?.status,
     ).toBe('disabled');
   });
 
@@ -562,9 +611,12 @@ maybeDescribe('Postgres domain repositories', () => {
       id: 'provider-session:test:older' as ProviderSessionId,
       appId,
       agentSessionId: sessionId,
-      provider: 'anthropic',
+      provider: TEST_EXECUTION_PROVIDER_ID,
       externalSessionId: 'older',
-      providerRef: { kind: 'provider_session', value: 'anthropic:older' },
+      providerRef: {
+        kind: 'provider_session',
+        value: 'anthropic:claude-agent-sdk:older',
+      },
       metadata: { runtime: 'test' },
       status: 'active',
       createdAt: '2026-04-27T00:02:00.000Z',
@@ -574,9 +626,12 @@ maybeDescribe('Postgres domain repositories', () => {
       id: 'provider-session:test:newer' as ProviderSessionId,
       appId,
       agentSessionId: sessionId,
-      provider: 'anthropic',
+      provider: TEST_EXECUTION_PROVIDER_ID,
       externalSessionId: 'newer',
-      providerRef: { kind: 'provider_session', value: 'anthropic:newer' },
+      providerRef: {
+        kind: 'provider_session',
+        value: 'anthropic:claude-agent-sdk:newer',
+      },
       metadata: { runtime: 'test' },
       status: 'active',
       createdAt: '2026-04-27T00:03:00.000Z',
@@ -586,13 +641,16 @@ maybeDescribe('Postgres domain repositories', () => {
     await expect(
       repositories.providerSessions.getLatestProviderSession({
         agentSessionId: sessionId,
-        provider: 'anthropic',
+        provider: TEST_EXECUTION_PROVIDER_ID,
       }),
     ).resolves.toMatchObject({
       id: 'provider-session:test:newer',
-      provider: 'anthropic',
+      provider: TEST_EXECUTION_PROVIDER_ID,
       externalSessionId: 'newer',
-      providerRef: { kind: 'provider_session', value: 'anthropic:newer' },
+      providerRef: {
+        kind: 'provider_session',
+        value: 'anthropic:claude-agent-sdk:newer',
+      },
       metadata: { runtime: 'test' },
     });
 
@@ -728,11 +786,11 @@ maybeDescribe('Postgres domain repositories', () => {
       id: providerSessionId,
       appId,
       agentSessionId: ownerSessionId,
-      provider: 'anthropic',
+      provider: TEST_EXECUTION_PROVIDER_ID,
       externalSessionId: 'ownership-guard-v1',
       providerRef: {
         kind: 'provider_session',
-        value: 'anthropic:ownership-guard-v1',
+        value: 'anthropic:claude-agent-sdk:ownership-guard-v1',
       },
       status: 'active',
       createdAt: '2026-04-27T00:04:00.000Z',
@@ -744,11 +802,11 @@ maybeDescribe('Postgres domain repositories', () => {
         id: providerSessionId,
         appId,
         agentSessionId: otherSessionId,
-        provider: 'anthropic',
+        provider: TEST_EXECUTION_PROVIDER_ID,
         externalSessionId: 'ownership-guard-v2',
         providerRef: {
           kind: 'provider_session',
-          value: 'anthropic:ownership-guard-v2',
+          value: 'anthropic:claude-agent-sdk:ownership-guard-v2',
         },
         status: 'active',
         createdAt: '2026-04-27T00:04:10.000Z',
@@ -792,11 +850,11 @@ maybeDescribe('Postgres domain repositories', () => {
       id: providerSessionId,
       appId,
       agentSessionId: ownerSessionId,
-      provider: 'anthropic',
+      provider: TEST_EXECUTION_PROVIDER_ID,
       externalSessionId: 'ownership-identity-v1',
       providerRef: {
         kind: 'provider_session',
-        value: 'anthropic:ownership-identity-v1',
+        value: 'anthropic:claude-agent-sdk:ownership-identity-v1',
       },
       status: 'active',
       createdAt: '2026-04-27T00:04:00.000Z',
@@ -825,11 +883,11 @@ maybeDescribe('Postgres domain repositories', () => {
         id: providerSessionId,
         appId,
         agentSessionId: ownerSessionId,
-        provider: 'anthropic',
+        provider: TEST_EXECUTION_PROVIDER_ID,
         externalSessionId: 'ownership-identity-v2',
         providerRef: {
           kind: 'provider_session',
-          value: 'anthropic:ownership-identity-v2',
+          value: 'anthropic:claude-agent-sdk:ownership-identity-v2',
         },
         status: 'active',
         createdAt: '2026-04-27T00:04:20.000Z',
@@ -843,7 +901,7 @@ maybeDescribe('Postgres domain repositories', () => {
       id: providerSessionId,
       appId,
       agentSessionId: ownerSessionId,
-      provider: 'anthropic',
+      provider: TEST_EXECUTION_PROVIDER_ID,
       externalSessionId: 'ownership-identity-v1',
       status: 'active',
     });
@@ -879,11 +937,11 @@ maybeDescribe('Postgres domain repositories', () => {
       id: 'provider-session:test:expire:first' as ProviderSessionId,
       appId,
       agentSessionId: firstSessionId,
-      provider: 'anthropic',
+      provider: TEST_EXECUTION_PROVIDER_ID,
       externalSessionId: 'shared-external-session',
       providerRef: {
         kind: 'provider_session',
-        value: 'anthropic:shared-external-session',
+        value: 'anthropic:claude-agent-sdk:shared-external-session',
       },
       status: 'active',
       createdAt: '2026-04-27T00:04:10.000Z',
@@ -893,11 +951,11 @@ maybeDescribe('Postgres domain repositories', () => {
       id: 'provider-session:test:expire:second' as ProviderSessionId,
       appId,
       agentSessionId: secondSessionId,
-      provider: 'anthropic',
+      provider: TEST_EXECUTION_PROVIDER_ID,
       externalSessionId: 'shared-external-session',
       providerRef: {
         kind: 'provider_session',
-        value: 'anthropic:shared-external-session',
+        value: 'anthropic:claude-agent-sdk:shared-external-session',
       },
       status: 'active',
       createdAt: '2026-04-27T00:04:20.000Z',
@@ -918,7 +976,7 @@ maybeDescribe('Postgres domain repositories', () => {
     await expect(
       repositories.providerSessions.getLatestProviderSession({
         agentSessionId: firstSessionId,
-        provider: 'anthropic',
+        provider: TEST_EXECUTION_PROVIDER_ID,
       }),
     ).resolves.toMatchObject({
       id: firstProviderSessionId,
@@ -928,19 +986,19 @@ maybeDescribe('Postgres domain repositories', () => {
     await canonicalSessions.expireProviderSession({
       providerSessionId: firstProviderSessionId,
       agentSessionId: firstSessionId,
-      provider: 'anthropic',
+      provider: TEST_EXECUTION_PROVIDER_ID,
       externalSessionId: 'shared-external-session',
     });
     await expect(
       repositories.providerSessions.getLatestProviderSession({
         agentSessionId: firstSessionId,
-        provider: 'anthropic',
+        provider: TEST_EXECUTION_PROVIDER_ID,
       }),
     ).resolves.toBeNull();
     await expect(
       repositories.providerSessions.getLatestProviderSession({
         agentSessionId: secondSessionId,
-        provider: 'anthropic',
+        provider: TEST_EXECUTION_PROVIDER_ID,
       }),
     ).resolves.toMatchObject({
       id: 'provider-session:test:expire:second',
@@ -1017,11 +1075,28 @@ maybeDescribe('Postgres domain repositories', () => {
       conversationId,
       threadId,
       llmProfileId: DEFAULT_LLM_PROFILE_ID,
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
+      providerRunId: 'provider-run:test:1',
+      providerSessionId: 'provider-session:test:run:1' as ProviderSessionId,
+      workerId: 'worker:test:1',
+      leaseOwner: 'lease-owner:test:1',
+      leaseExpiresAt: '2026-04-27T00:05:00.000Z',
       permissionDecisionIds: [],
       cause: 'message',
       status: 'running',
       createdAt: '2026-04-27T00:04:00.000Z',
       startedAt: '2026-04-27T00:04:01.000Z',
+    });
+
+    await expect(
+      repositories.agentRuns.getAgentRun(runId),
+    ).resolves.toMatchObject({
+      executionProviderId: TEST_EXECUTION_PROVIDER_ID,
+      providerRunId: 'provider-run:test:1',
+      providerSessionId: 'provider-session:test:run:1',
+      workerId: 'worker:test:1',
+      leaseOwner: 'lease-owner:test:1',
+      leaseExpiresAt: '2026-04-27T00:05:00.000Z',
     });
 
     await repositories.runtimeEvents.appendRuntimeEvent({

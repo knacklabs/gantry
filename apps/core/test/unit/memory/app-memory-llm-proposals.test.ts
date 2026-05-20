@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { NormalizedMemorySubject } from '@core/memory/memory-types.js';
 
-const runClaudeQuery = vi.fn();
+const memoryLlmQuery = vi.fn();
 
 vi.mock('@core/config/index.js', () => ({
   getMemoryModelRuntimeConfig: () => ({
@@ -12,9 +12,11 @@ vi.mock('@core/config/index.js', () => ({
   }),
 }));
 
-vi.mock('@core/memory/claude-query.js', () => ({
-  hasClaudeAuthConfigured: () => true,
-  runClaudeQuery,
+vi.mock('@core/memory/memory-llm-port.js', () => ({
+  getMemoryLlmClient: () => ({
+    isConfigured: () => true,
+    query: memoryLlmQuery,
+  }),
 }));
 
 const subject: NormalizedMemorySubject = {
@@ -27,8 +29,8 @@ const subject: NormalizedMemorySubject = {
 
 describe('memory LLM proposal model selection', () => {
   beforeEach(() => {
-    runClaudeQuery.mockReset();
-    runClaudeQuery.mockResolvedValue('[]');
+    memoryLlmQuery.mockReset();
+    memoryLlmQuery.mockResolvedValue('[]');
   });
 
   it('uses the configured dreaming model for dreaming proposals', async () => {
@@ -42,7 +44,7 @@ describe('memory LLM proposal model selection', () => {
       activeItems: [],
     });
 
-    expect(runClaudeQuery).toHaveBeenCalledWith(
+    expect(memoryLlmQuery).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'claude-sonnet-dreaming-test' }),
     );
   });
@@ -56,7 +58,7 @@ describe('memory LLM proposal model selection', () => {
       activeItems: [],
     });
 
-    expect(runClaudeQuery).toHaveBeenCalledWith(
+    expect(memoryLlmQuery).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'claude-sonnet-consolidation-test' }),
     );
   });

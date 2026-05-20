@@ -39,6 +39,9 @@ import {
   RuntimeLimitSchema,
   SchemaDescriptorSchema,
   StreamEventSchema,
+  ToolCatalogItemResponseSchema,
+  ToolCatalogKindSchema,
+  ToolCatalogProviderToolNameSchema,
   UpdateJobRequestSchema,
   createCursorPageResponseSchema,
   createPageResponseSchema,
@@ -131,6 +134,35 @@ describe('contracts package', () => {
     });
   });
 
+  it('keeps public tool catalog contracts provider-neutral', () => {
+    expect(
+      ToolCatalogKindSchema.safeParse(['anthropic', 'sdk'].join('_')).success,
+    ).toBe(false);
+    expect(ToolCatalogKindSchema.parse('browser')).toBe('browser');
+    expect(ToolCatalogProviderToolNameSchema.parse('adapter-private-tool')).toBe(
+      'adapter-private-tool',
+    );
+    expectInvalid(ToolCatalogProviderToolNameSchema, '');
+
+    expect(
+      ToolCatalogItemResponseSchema.parse({
+        id: 'tool:Browser',
+        appId: 'app-1',
+        name: 'Browser',
+        kind: 'browser',
+        provider: 'gantry',
+        displayName: 'Browser',
+        category: 'web',
+        inputSchema: { schema: {} },
+        risk: 'medium',
+        selectable: true,
+        status: 'active',
+        createdAt: iso,
+        updatedAt: iso,
+      }),
+    ).toMatchObject({ id: 'tool:Browser', kind: 'browser' });
+  });
+
   it('validates representative canonical DTOs and rejects constrained invalid input', () => {
     expect(
       CreateSessionRequestSchema.parse({
@@ -163,20 +195,20 @@ describe('contracts package', () => {
     expectInvalid(CreateAgentRequestSchema, { appId: 'app-1', name: '' });
     expect(
       ProviderSessionResponseSchema.parse({
-        provider: 'anthropic',
+        provider: 'anthropic:claude-agent-sdk',
         status: 'active',
         hasProviderResume: true,
         createdAt: iso,
         updatedAt: iso,
       }),
     ).toMatchObject({
-      provider: 'anthropic',
+      provider: 'anthropic:claude-agent-sdk',
       status: 'active',
       hasProviderResume: true,
     });
     expectInvalid(ProviderSessionResponseSchema, {
       id: 'provider-session-sdk-resume-handle',
-      provider: 'anthropic',
+      provider: 'anthropic:claude-agent-sdk',
       status: 'active',
       hasProviderResume: true,
       createdAt: iso,

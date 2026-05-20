@@ -11,6 +11,7 @@ import type { IsoTimestamp } from '../../shared/time/primitives.js';
 
 export type AgentSessionId = BrandedId<'AgentSessionId'>;
 export type ProviderSessionId = BrandedId<'ProviderSessionId'>;
+export type ExecutionProviderId = BrandedId<'ExecutionProviderId'>;
 export type AgentSessionSummaryId = BrandedId<'AgentSessionSummaryId'>;
 export type AgentSessionDigestId = BrandedId<'AgentSessionDigestId'>;
 
@@ -33,7 +34,7 @@ export interface ProviderSession {
   id: ProviderSessionId;
   appId: AppId;
   agentSessionId: AgentSessionId;
-  provider: string;
+  provider: ExecutionProviderId;
   externalSessionId: string;
   providerRef: ExternalRef<'provider_session'>;
   metadata?: Record<string, unknown>;

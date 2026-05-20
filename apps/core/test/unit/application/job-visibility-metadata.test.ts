@@ -111,7 +111,7 @@ describe('job visibility metadata', () => {
     const listAgentToolBindings = vi.fn(async () => [
       {
         status: 'active',
-        toolId: 'tool:Read',
+        toolId: 'tool:Browser',
       },
     ]);
     const metadata = await buildJobVisibilityMetadata({
@@ -124,7 +124,7 @@ describe('job visibility metadata', () => {
       } as unknown as RuntimeJobRepository,
       toolRepository: {
         listAgentToolBindings,
-        getTool: vi.fn(async () => ({ name: 'Read' })),
+        getTool: vi.fn(async () => ({ name: 'Browser' })),
       } as never,
       nowMs: Date.parse('2026-04-24T09:10:00.000Z'),
     });
@@ -133,8 +133,8 @@ describe('job visibility metadata', () => {
       appId: 'app-one',
       agentId: 'agent:tg:team',
     });
-    expect(metadata.toolAccess.inheritedAgentTools).toEqual(['Read']);
-    expect(metadata.toolAccess.effectiveAllowedTools).toEqual(['Read']);
+    expect(metadata.toolAccess.inheritedAgentTools).toEqual(['Browser']);
+    expect(metadata.toolAccess.effectiveAllowedTools).toEqual(['Browser']);
   });
 
   it('shows projected browser tools when the canonical Browser capability is inherited', async () => {

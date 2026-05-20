@@ -117,6 +117,7 @@ function makeOpsRepository(job: Job) {
       status: 'running',
     })),
     claimDueJobRunStart: vi.fn(async () => true),
+    updateAgentRunProviderMetadata: vi.fn(async () => undefined),
     createJobRun: vi.fn(async () => true),
     updateJob: vi.fn(async () => undefined),
     completeJobRun: vi.fn(async () => undefined),
@@ -147,6 +148,41 @@ function makeToolRepository(toolNames: string[]) {
 describe('jobs/execution', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('records a failed terminal run when execution throws before normal settlement', async () => {
+    const job = makeJob();
+    const opsRepository = {
+      ...makeOpsRepository(job),
+      getJobRunById: vi.fn(async () => {
+        throw new Error('run lookup down');
+      }),
+    };
+
+    await expect(
+      runJob(
+        job,
+        {
+          conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+          queue: {} as never,
+          onProcess: () => {},
+          sendMessage: vi.fn(async () => undefined) as never,
+          opsRepository: opsRepository as never,
+          runAgent: vi.fn(async () => ({
+            status: 'success',
+            result: 'runtime flow completed',
+          })) as never,
+        },
+        'tg:scheduler',
+      ),
+    ).rejects.toThrow('run lookup down');
+
+    expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
+      expect.any(String),
+      'failed',
+      null,
+      'Scheduler run failed before terminal settlement.',
+    );
   });
 
   it('records and notifies unresolved execution routes as dead-lettered runs', async () => {
@@ -471,6 +507,10 @@ describe('jobs/execution', () => {
         sendMessage: vi.fn(async () => undefined) as never,
         opsRepository: opsRepository as never,
         runAgent: runAgent as never,
+        executionAdapter: {
+          id: 'anthropic:claude-agent-sdk',
+          prepare: vi.fn(),
+        } as never,
       },
       'tg:scheduler',
     );
@@ -672,6 +712,63 @@ describe('jobs/execution', () => {
     );
   });
 
+  it('records scheduler provider run handles on outer and session runs', async () => {
+    const job = makeJob();
+    const opsRepository = {
+      ...makeOpsRepository(job),
+      getAgentTurnContext: vi.fn(async () => ({
+        appId: 'default',
+        agentId: 'agent:scheduler_agent',
+        agentSessionId: 'agent-session:scheduler',
+        providerSessionId: 'provider-session:resume',
+        externalSessionId: 'provider-session:resume',
+      })),
+      createSessionAgentRun: vi.fn(async () => 'agent-run:job-1'),
+      completeSessionAgentRun: vi.fn(async () => undefined),
+    };
+    const runAgent = vi.fn(async (_group, _input, onProcess) => {
+      onProcess({} as never, 'provider-run:scheduler-1');
+      return {
+        status: 'success',
+        result: 'runtime flow completed',
+      };
+    });
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: vi.fn(),
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        runAgent: runAgent as never,
+        executionAdapter: {
+          id: 'anthropic:claude-agent-sdk',
+          prepare: vi.fn(),
+        } as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(opsRepository.createSessionAgentRun).toHaveBeenCalledWith({
+      agentSessionId: 'agent-session:scheduler',
+      executionProviderId: 'anthropic:claude-agent-sdk',
+      providerSessionId: 'provider-session:resume',
+      cause: 'job',
+    });
+    expect(opsRepository.updateAgentRunProviderMetadata).toHaveBeenCalledWith({
+      runId: expect.any(String),
+      providerSessionId: 'provider-session:resume',
+      runIds: [expect.any(String)],
+    });
+    expect(opsRepository.updateAgentRunProviderMetadata).toHaveBeenCalledWith({
+      runId: expect.any(String),
+      runIds: [expect.any(String), 'agent-run:job-1'],
+      providerRunId: 'provider-run:scheduler-1',
+    });
+  });
+
   it('hydrates scheduled job memory from the bounded prompt query before running the agent', async () => {
     const noisyPrompt = `<context timezone="UTC" />
 <messages>
@@ -786,6 +883,11 @@ describe('jobs/execution', () => {
     );
 
     expect(opsRepository.setSession).not.toHaveBeenCalled();
+    expect(opsRepository.updateAgentRunProviderMetadata).toHaveBeenCalledWith({
+      runId: expect.any(String),
+      runIds: [expect.any(String), 'agent-run:job-1'],
+      providerSessionId: 'provider-session:streamed',
+    });
   });
 
   it('inherits Browser for jobs without projecting raw browser MCP tools', async () => {

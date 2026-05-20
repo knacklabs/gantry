@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { usageEventIdForMessage } from '@agent-runner-src/claude/query-usage-event-id.js';
+import { usageEventIdForMessage } from '@core/adapters/llm/anthropic-claude-agent/runner/query-usage-event-id.js';
 
 describe('Claude query loop usage event IDs', () => {
   it('uses stable provider IDs when present', () => {

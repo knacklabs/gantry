@@ -4,7 +4,7 @@ import {
   BUILTIN_AGENT_CAPABILITY_PROVIDERS,
   composeAgentCapabilities,
   type AgentCapabilityProvider,
-} from '@agent-runner-src/agent-capabilities.js';
+} from '@core/adapters/llm/anthropic-claude-agent/agent-capabilities.js';
 import {
   DEFAULT_GANTRY_MCP_TOOL_NAMES,
   gantryMcpFullToolName,

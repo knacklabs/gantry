@@ -160,6 +160,17 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
       status: 'completed',
       result_summary: 'runtime flow completed',
     });
+    await runtime.ops.updateAgentRunProviderMetadata?.({
+      runId: runs[0]!.run_id,
+      providerRunId: 'provider-run:integration:success',
+      providerSessionId: 'provider-session:integration:success',
+    });
+    await expect(
+      runtime.ops.getJobRunById(runs[0]!.run_id),
+    ).resolves.toMatchObject({
+      provider_run_id: 'provider-run:integration:success',
+      provider_session_id: 'provider-session:integration:success',
+    });
     const persistedRuns = await runtime.service.db
       .select({
         id: pgSchema.agentRunsPostgres.id,
@@ -477,6 +488,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     await runtime.ops.createJobRun({
       run_id: 'run:integration:owner-app-one',
       job_id: appOneJob.id,
+      execution_provider_id: 'anthropic:claude-agent-sdk',
       scheduled_for: '2026-04-28T00:00:01.000Z',
       started_at: '2026-04-28T00:00:01.000Z',
       ended_at: null,
@@ -489,6 +501,7 @@ maybeDescribe('jobs, runs, memory, and scheduler flow', () => {
     await runtime.ops.createJobRun({
       run_id: 'run:integration:owner-app-two',
       job_id: appTwoJob.id,
+      execution_provider_id: 'anthropic:claude-agent-sdk',
       scheduled_for: '2026-04-28T00:00:02.000Z',
       started_at: '2026-04-28T00:00:02.000Z',
       ended_at: null,

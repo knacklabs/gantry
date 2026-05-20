@@ -1,8 +1,5 @@
-import type {
-  Job,
-  JobEvent,
-  JobRun,
-} from '../../../../domain/repositories/domain-types.js';
+// prettier-ignore
+import type { Job, JobEvent, JobRun } from '../../../../domain/repositories/domain-types.js';
 import type {
   JobEventListFilters,
   JobListFilters,
@@ -17,13 +14,10 @@ import {
   json,
   parseJson,
 } from '../repositories/canonical-graph-repository.postgres.js';
-import type {
-  CanonicalJobEventRecord,
-  CanonicalJobRecord,
-  CanonicalRunRecord,
-  JobRecordInput,
-  PostgresCanonicalJobRepository,
-} from '../repositories/canonical-job-repository.postgres.js';
+import { assertSafeExecutionProviderId } from '../../../../domain/sessions/execution-provider-id.js';
+import type { ExecutionProviderId } from '../../../../domain/sessions/sessions.js';
+// prettier-ignore
+import type { CanonicalJobEventRecord, CanonicalJobRecord, CanonicalRunRecord, JobRecordInput, PostgresCanonicalJobRepository } from '../repositories/canonical-job-repository.postgres.js';
 import { redactProviderSessionHandlesInText } from '../../../../shared/provider-session-redaction.js';
 
 type JobRecordSource = Omit<JobUpsertInput, 'id'> | JobUpsertInput | Job;
@@ -137,17 +131,27 @@ export class CanonicalJobOpsService {
   async claimDueJobRunStart(input: {
     jobId: string;
     runId: string;
+    executionProviderId: ExecutionProviderId;
+    workerId?: string | null;
+    leaseOwner?: string | null;
     scheduledFor: string;
     startedAt: string;
     retryCount: number;
     leaseExpiresAt: string;
     requireNextRun?: boolean;
   }): Promise<boolean> {
+    assertSafeExecutionProviderId(input.executionProviderId);
     return this.repository.claimDueRunStart({
       jobId: input.jobId,
       run: {
         run_id: input.runId,
         job_id: input.jobId,
+        execution_provider_id: input.executionProviderId,
+        provider_run_id: null,
+        provider_session_id: null,
+        worker_id: input.workerId ?? null,
+        lease_owner: input.leaseOwner ?? null,
+        lease_expires_at: input.leaseExpiresAt,
         scheduled_for: input.scheduledFor,
         started_at: input.startedAt,
         ended_at: null,
@@ -175,7 +179,13 @@ export class CanonicalJobOpsService {
   }
 
   async createJobRun(run: JobRun): Promise<boolean> {
+    assertSafeExecutionProviderId(run.execution_provider_id);
     return this.repository.insertRun(run);
+  }
+
+  // prettier-ignore
+  async updateAgentRunProviderMetadata(input: { runId: string; runIds?: string[]; providerRunId?: string | null; providerSessionId?: string | null }): Promise<void> {
+    await this.repository.updateRunProviderMetadata(input.runIds ?? input.runId, { providerRunId: input.providerRunId, providerSessionId: input.providerSessionId });
   }
 
   async getRecentJobRuns(limit = 200): Promise<JobRun[]> {
@@ -385,6 +395,12 @@ export class CanonicalJobOpsService {
       run_id: row.id,
       short_id: row.shortId,
       job_id: row.jobId || '',
+      execution_provider_id: row.executionProviderId as ExecutionProviderId,
+      provider_run_id: row.providerRunId,
+      provider_session_id: row.providerSessionId,
+      worker_id: row.workerId,
+      lease_owner: row.leaseOwner,
+      lease_expires_at: row.leaseExpiresAt,
       scheduled_for: row.createdAt,
       started_at: row.startedAt || row.createdAt,
       ended_at: row.endedAt,

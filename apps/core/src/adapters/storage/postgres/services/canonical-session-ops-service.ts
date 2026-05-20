@@ -5,7 +5,10 @@ import type {
   ConversationRepository,
 } from '../../../../domain/ports/repositories.js';
 import { makeSessionScopeKey } from '../../../../domain/repositories/ops-repo.js';
-import type { AgentSession } from '../../../../domain/sessions/sessions.js';
+import type {
+  AgentSession,
+  ExecutionProviderId,
+} from '../../../../domain/sessions/sessions.js';
 import { CanonicalJobOpsService } from './canonical-job-ops-service.js';
 import { PostgresCanonicalJobRepository } from '../repositories/canonical-job-repository.postgres.js';
 import type { PostgresCanonicalSessionRepository } from '../repositories/canonical-session-repository.postgres.js';
@@ -99,18 +102,20 @@ export class CanonicalSessionOpsService {
   async setSession(
     groupFolder: string,
     sessionId: string,
-    threadId?: string | null,
+    threadId: string | null | undefined,
     metadata: {
+      executionProviderId: ExecutionProviderId;
       chatJid?: string;
       conversationKind?: 'dm' | 'channel';
       memoryUserId?: string;
       jobId?: string;
       expectedAgentSessionId?: string;
       expectedAgentSessionResetAt?: string | null;
-    } = {},
+    },
   ): Promise<boolean> {
     return this.repository.setProviderSession({
       groupFolder,
+      executionProviderId: metadata.executionProviderId,
       sessionId,
       scopeKey: makeSessionScopeKey(groupFolder, threadId, {
         conversationJid: metadata.chatJid,
@@ -130,6 +135,7 @@ export class CanonicalSessionOpsService {
 
   async getAgentTurnContext(input: {
     groupFolder: string;
+    executionProviderId: ExecutionProviderId;
     chatJid: string;
     threadId?: string | null;
     conversationKind?: 'dm' | 'channel';
@@ -148,6 +154,7 @@ export class CanonicalSessionOpsService {
   }> {
     const context = await this.repository.getAgentTurnContext({
       groupFolder: input.groupFolder,
+      executionProviderId: input.executionProviderId,
       chatJid: input.chatJid,
       threadId: input.threadId,
       scopeKey: makeSessionScopeKey(input.groupFolder, input.threadId, {

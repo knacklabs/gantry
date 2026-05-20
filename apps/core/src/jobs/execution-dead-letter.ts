@@ -17,6 +17,7 @@ import type {
   SchedulerDependencies,
   SchedulerDispatchPayload,
 } from './types.js';
+import { resolveRuntimeExecutionProviderId } from '../runtime/execution-provider-id.js';
 
 interface SchedulerDeadLetterControl {
   bindTriggerToRun(
@@ -62,6 +63,14 @@ export async function deadLetterUnresolvedExecutionContext(input: {
   await input.deps.opsRepository.createJobRun({
     run_id: input.runId,
     job_id: input.currentJob.id,
+    execution_provider_id: resolveRuntimeExecutionProviderId(
+      input.deps.executionAdapter,
+    ),
+    provider_run_id: null,
+    provider_session_id: null,
+    worker_id: input.currentJob.execution_context?.groupScope ?? null,
+    lease_owner: input.currentJob.execution_context?.conversationJid ?? null,
+    lease_expires_at: null,
     scheduled_for: input.scheduledFor,
     started_at: input.startedAt,
     ended_at: input.startedAt,

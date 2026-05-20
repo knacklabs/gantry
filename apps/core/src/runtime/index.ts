@@ -4,6 +4,4 @@ export * from './group-processing.js';
 export * from './group-registry.js';
 export * from './ipc.js';
 export * from './message-loop.js';
-export * from './remote-control.js';
-export * from './remote-control-command.js';
 export * from '../jobs/scheduler.js';

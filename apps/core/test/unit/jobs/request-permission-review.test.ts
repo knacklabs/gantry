@@ -788,7 +788,7 @@ describe('request permission review helpers', () => {
             },
           ],
         }),
-      ).rejects.toThrow('Persistent request_permission approvals support');
+      ).rejects.toThrow('Provider-native SDK tools');
     }
     expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
   });

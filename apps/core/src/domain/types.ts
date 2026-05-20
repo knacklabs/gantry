@@ -1,3 +1,5 @@
+import type { ExecutionProviderId } from './sessions/sessions.js';
+
 export interface AdditionalMount {
   hostPath: string; // Absolute path on host (supports ~ for home)
   workspacePath?: string; // Optional path exposed inside the agent workspace.
@@ -194,6 +196,12 @@ export interface JobRun {
   run_id: string;
   short_id?: number | null;
   job_id: string;
+  execution_provider_id: ExecutionProviderId;
+  provider_run_id?: string | null;
+  provider_session_id?: string | null;
+  worker_id?: string | null;
+  lease_owner?: string | null;
+  lease_expires_at?: string | null;
   scheduled_for: string;
   started_at: string;
   ended_at: string | null;

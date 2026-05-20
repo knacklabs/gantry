@@ -4006,6 +4006,8 @@ describe('control server runtime hardening', () => {
         error_summary: null,
         retry_count: 0,
         notified_at: null,
+        provider_run_id: 'provider-run-secret',
+        provider_session_id: 'provider-session-secret',
       },
     ]);
     const handle = startControlServer({
@@ -4019,9 +4021,12 @@ describe('control server runtime hardening', () => {
       );
 
       expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toMatchObject({
+      const body = await response.json();
+      expect(body).toMatchObject({
         runs: [{ run_id: 'run-1', job_id: 'job-1' }],
       });
+      expect(body.runs[0]).not.toHaveProperty('provider_run_id');
+      expect(body.runs[0]).not.toHaveProperty('provider_session_id');
       expect(opsRepo.listJobs).not.toHaveBeenCalled();
       expect(opsRepo.listJobRuns).toHaveBeenCalledWith(undefined, 100, {
         ownerAppId: 'app-one',

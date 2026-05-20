@@ -17,6 +17,7 @@ import type {
   AgentSessionDigestScopeMetadata,
   AgentSession,
   AgentSessionSummary,
+  ExecutionProviderId,
   ProviderSession,
 } from '../../../../domain/sessions/sessions.js';
 import type { ExternalRef } from '../../../../shared/ids/branded-id.js';
@@ -240,7 +241,7 @@ export class PostgresProviderSessionRepository implements ProviderSessionReposit
 
   async getLatestProviderSession(input: {
     agentSessionId: AgentSession['id'];
-    provider?: string;
+    provider?: ExecutionProviderId;
   }): Promise<ProviderSession | null> {
     const ps = pgSchema.providerSessionsPostgres;
     const rows = await this.db
@@ -369,7 +370,7 @@ export class PostgresProviderSessionRepository implements ProviderSessionReposit
       id: row.id,
       appId: row.appId,
       agentSessionId: row.agentSessionId,
-      provider: row.provider,
+      provider: row.provider as ExecutionProviderId,
       externalSessionId: row.externalSessionId,
       providerRef:
         externalRef(

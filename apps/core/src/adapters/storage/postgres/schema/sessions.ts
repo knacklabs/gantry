@@ -109,6 +109,10 @@ export const providerSessionsPostgres = pgTable(
       table.status,
       table.updatedAt.desc(),
     ),
+    agentProviderIdx: index('idx_provider_sessions_agent_provider').on(
+      table.agentSessionId,
+      table.provider,
+    ),
     providerAgnosticResumeLookupIdx: index(
       'idx_provider_sessions_agent_status_updated',
     ).on(table.agentSessionId, table.status, table.updatedAt.desc()),

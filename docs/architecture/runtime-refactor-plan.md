@@ -134,8 +134,8 @@ Each phase has: **goal**, **scope**, **exit criteria**, **deletion target**, **a
 
 **Scope:**
 
-- Build on the current shared policy seam instead of creating a greenfield module by default: `ToolExecutionPolicyService` already exists in `apps/core/src/shared/tool-execution-policy-service.ts` and `apps/core/src/runner/claude/query-loop.ts` already routes interactive and autonomous SDK tool decisions through it.
-- Consolidate active capability composition in `apps/core/src/runner/agent-capabilities.ts`. The old apps/core/src/jobs/agent-capabilities.ts anchor is stale and must not be recreated as a compatibility path.
+- Build on the current shared policy seam instead of creating a greenfield module by default: `ToolExecutionPolicyService` already exists in `apps/core/src/shared/tool-execution-policy-service.ts` and `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts` already routes interactive and autonomous SDK tool decisions through it.
+- Consolidate active capability composition in `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`. The old apps/core/src/jobs/agent-capabilities.ts anchor is stale and must not be recreated as a compatibility path.
 - Keep scheduled job capability behavior honest: jobs inherit target-agent capabilities and must not grow a separate grant writer. Phase 1 must route missing capability recovery through the same reviewed request tools used by interactive agents.
 - `scheduler_get_job` already exposes effective allowed tools from inherited agent grants. Phase 1 must make that effective set resolve from durable grants with the declared `org -> agent -> run` merge order.
 - Complete the missing durable pieces: add the durable `capability_grants` authority, persist one inspectable permission/capability decision record, and make grant/check/resolve use that store.
@@ -280,23 +280,23 @@ Each phase has: **goal**, **scope**, **exit criteria**, **deletion target**, **a
 | Partial-delivery durable recovery handling           | `apps/core/src/app/bootstrap/runtime-services.ts`                   | 627–640          | 3     |
 | Partial-delivery delivery status handling            | `apps/core/src/jobs/delivery.ts`                                    | 57–82            | 3     |
 | Group streaming overflow/truncation path             | `apps/core/src/channels/telegram/channel-state.ts`                  | 317–395          | 3     |
-| Permission callback (file IPC, blocks)               | `apps/core/src/runner/claude/permission-callback.ts`                | 72–177           | 1, 2  |
-| Permission timeout default 5min                      | `apps/core/src/runner/claude/runtime-env.ts`                        | 27–35            | 1     |
+| Permission callback (file IPC, blocks)               | `apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts`                | 72–177           | 1, 2  |
+| Permission timeout default 5min                      | `apps/core/src/adapters/llm/anthropic-claude-agent/runner/runtime-env.ts`                        | 27–35            | 1     |
 | Job timeout and lease budget setup                   | `apps/core/src/jobs/execution.ts`                                   | 99–124           | 2     |
 | Job runner callback path                             | `apps/core/src/jobs/execution.ts`                                   | 380–395          | 2     |
 | Mutate-handler decision options                      | `apps/core/src/jobs/ipc-scheduler-mutate-handlers.ts`               | 58–80            | 1     |
 | `future_config_version` style flag                   | `apps/core/src/jobs/ipc-admin-handlers.ts`                          | 407–415          | 1     |
-| Active capability composition                        | `apps/core/src/runner/agent-capabilities.ts`                        | 68–95, 294–338   | 1     |
+| Active capability composition                        | `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`                        | 68–95, 294–338   | 1     |
 | Shared tool execution policy service                 | `apps/core/src/shared/tool-execution-policy-service.ts`             | 139–185, 226–339 | 1     |
 | Scheduler grant tool appends job policy              | `apps/core/src/runner/mcp/tools/scheduler.ts`                       | 198–250          | 1     |
 | Effective job tool view                              | `apps/core/src/application/jobs/job-visibility-metadata.ts`         | 139–147          | 1     |
 | Job policy update persistence                        | `apps/core/src/application/jobs/job-management-helpers.ts`          | 343–345          | 1     |
-| Bash autonomous allowlist check                      | `apps/core/src/runner/claude/query-loop.ts`                         | 239–270          | 1     |
+| Bash autonomous allowlist check                      | `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts`                         | 239–270          | 1     |
 
 Removed or stale Phase 0 anchors:
 
 - apps/core/src/channels/telegram/partial-delivery.ts no longer exists. Partial-delivery state now lives in `apps/core/src/domain/messages/partial-delivery.ts`, with runtime recovery handling in `apps/core/src/app/bootstrap/runtime-services.ts` and job delivery status handling in `apps/core/src/jobs/delivery.ts`.
-- apps/core/src/jobs/agent-capabilities.ts no longer exists. Active capability composition is `apps/core/src/runner/agent-capabilities.ts`.
+- apps/core/src/jobs/agent-capabilities.ts no longer exists. Active capability composition is `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`.
 
 ## 9. Risks and mitigations
 

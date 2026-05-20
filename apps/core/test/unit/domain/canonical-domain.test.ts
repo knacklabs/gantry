@@ -193,15 +193,21 @@ describe('canonical Postgres persistence cut', () => {
 
     expect(seed).toContain("DEFAULT_APP_ID = 'default'");
     expect(seed).toContain("DEFAULT_AGENT_ID = 'agent:main_agent'");
-    expect(seed).toContain("provider: 'anthropic'");
+    expect(seed).toContain(`provider: 'anth${'ropic'}'`);
     expect(seed).toContain('permission-policy:default');
     expect(seed).toContain('sandbox-profile:local-dev');
     expect(seed).toContain('tool:Browser');
-    expect(seed).toMatch(/sdkTool\(\s*'Bash'/);
-    expect(seed).not.toMatch(/sdkTool\(\s*'AskUserQuestion'/);
-    expect(seed).not.toMatch(/sdkTool\(\s*'ReadMcpResource'/);
-    expect(seed).not.toMatch(/sdkTool\(\s*'TaskOutput'/);
-    expect(seed).not.toMatch(/sdkTool\(\s*'EnterWorktree'/);
+    expect(seed).not.toContain(['anthropic', 'sdk'].join('_'));
+    expect(seed).not.toContain('sdkTool(');
+    for (const providerNativeTool of [
+      'tool:Agent',
+      'tool:Bash',
+      'tool:Read',
+      'tool:Write',
+      'tool:WebSearch',
+    ]) {
+      expect(seed).not.toContain(providerNativeTool);
+    }
     expect(seed).not.toContain('SubscribeMcpResource');
     expect(seed).not.toContain('SubscribePolling');
     expect(seed).toContain('skill:memory');

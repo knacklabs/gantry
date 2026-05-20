@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { composeAgentCapabilities } from '@agent-runner-src/agent-capabilities.js';
-import { evaluateProtectedCapabilityToolUse } from '@agent-runner-src/claude/protected-capability-hook.js';
+import { composeAgentCapabilities } from '@core/adapters/llm/anthropic-claude-agent/agent-capabilities.js';
+import { evaluateProtectedCapabilityToolUse } from '@core/adapters/llm/anthropic-claude-agent/runner/protected-capability-hook.js';
 
 describe('tool capability safety', () => {
   it('does not grant dangerous native tools or wildcard Gantry MCP tools by default', () => {

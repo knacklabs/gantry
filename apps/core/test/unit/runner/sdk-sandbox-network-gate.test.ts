@@ -5,16 +5,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createSdkSandboxNetworkGate,
   type SdkSandboxNetworkGate,
-} from '@core/runner/claude/sdk-sandbox-network-gate.js';
-import type { AgentRunnerInput } from '@core/runner/claude/types.js';
-import { log } from '@core/runner/claude/logging.js';
-import { writeOutput } from '@core/runner/claude/output.js';
+} from '@core/adapters/llm/anthropic-claude-agent/runner/sdk-sandbox-network-gate.js';
+import type { AgentRunnerInput } from '@core/adapters/llm/anthropic-claude-agent/runner/types.js';
+import { log } from '@core/adapters/llm/anthropic-claude-agent/runner/logging.js';
+import { writeOutput } from '@core/adapters/llm/anthropic-claude-agent/runner/output.js';
 
-vi.mock('@core/runner/claude/logging.js', () => ({
+vi.mock('@core/adapters/llm/anthropic-claude-agent/runner/logging.js', () => ({
   log: vi.fn(),
 }));
 
-vi.mock('@core/runner/claude/output.js', () => ({
+vi.mock('@core/adapters/llm/anthropic-claude-agent/runner/output.js', () => ({
   writeOutput: vi.fn(),
 }));
 

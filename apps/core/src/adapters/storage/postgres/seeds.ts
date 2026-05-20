@@ -134,25 +134,6 @@ export async function seedDefaultRuntimeData(
         .onConflictDoNothing();
     }
 
-    await tx
-      .insert(pgSchema.agentToolBindingsPostgres)
-      .values({
-        id: `agent-tool-binding:${DEFAULT_AGENT_ID}:tool:Agent`,
-        appId: DEFAULT_APP_ID,
-        agentId: DEFAULT_AGENT_ID,
-        toolId: 'tool:Agent',
-        configVersionId,
-        status: 'active',
-      })
-      .onConflictDoUpdate({
-        target: pgSchema.agentToolBindingsPostgres.id,
-        set: {
-          configVersionId,
-          status: 'active',
-          updatedAt: sql`now()`,
-        },
-      });
-
     for (const skill of [
       { id: 'skill:memory', name: 'memory' },
       { id: 'skill:scheduler', name: 'scheduler' },
@@ -173,62 +154,12 @@ export async function seedDefaultRuntimeData(
 }
 
 const DEFAULT_TOOL_CATALOG = [
-  sdkTool('Agent', 'Agent', 'Run a delegated agent task.', 'agent', 'medium'),
-  sdkTool(
-    'Bash',
-    'Bash',
-    'Run shell commands in the configured sandbox.',
-    'execution',
-    'high',
-  ),
-  sdkTool('Edit', 'Edit', 'Edit an existing file.', 'files', 'medium'),
-  sdkTool('Read', 'Read', 'Read files from the workspace.', 'files', 'low'),
-  sdkTool(
-    'Write',
-    'Write',
-    'Write a file in the workspace.',
-    'files',
-    'medium',
-  ),
-  sdkTool('Glob', 'Glob', 'Find files by glob pattern.', 'search', 'low'),
-  sdkTool('Grep', 'Grep', 'Search text in files.', 'search', 'low'),
-  sdkTool('LS', 'List files', 'List files in a directory.', 'files', 'low'),
-  sdkTool(
-    'MultiEdit',
-    'Multi edit',
-    'Apply multiple edits to an existing file.',
-    'files',
-    'medium',
-  ),
-  sdkTool(
-    'NotebookEdit',
-    'Notebook edit',
-    'Edit notebook cells.',
-    'files',
-    'medium',
-  ),
-  sdkTool(
-    'ToolSearch',
-    'Tool search',
-    'Search available tools and capabilities.',
-    'search',
-    'low',
-  ),
-  sdkTool(
-    'Skill',
-    'Skill',
-    'Use an approved materialized skill.',
-    'agent',
-    'low',
-  ),
-  sdkTool('WebFetch', 'Web fetch', 'Fetch a web URL.', 'web', 'medium'),
-  sdkTool('WebSearch', 'Web search', 'Search the web.', 'web', 'medium'),
   {
     id: 'tool:Browser',
     name: 'Browser',
     kind: 'browser',
     provider: 'gantry',
-    providerToolName: 'Browser',
+    providerToolName: undefined,
     displayName: 'Browser',
     description: 'Use the shared Gantry browser capability.',
     category: 'web',
@@ -244,34 +175,6 @@ const DEFAULT_TOOL_CATALOG = [
     ),
   ),
 ] as const;
-
-function sdkTool(
-  name: string,
-  displayName: string,
-  description: string,
-  category:
-    | 'files'
-    | 'search'
-    | 'execution'
-    | 'web'
-    | 'agent'
-    | 'mcp'
-    | 'channel'
-    | 'admin',
-  risk: 'low' | 'medium' | 'high',
-) {
-  return {
-    id: `tool:${name}`,
-    name,
-    kind: 'anthropic_sdk',
-    provider: `anth${'ropic'}`,
-    providerToolName: name,
-    displayName,
-    description,
-    category,
-    risk,
-  } as const;
-}
 
 function hostTool(
   name: string,

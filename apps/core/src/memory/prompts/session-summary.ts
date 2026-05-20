@@ -1,4 +1,4 @@
-export const SESSION_SUMMARY_PROMPT = `Summarize this Claude Code session for future continuation.
+export const SESSION_SUMMARY_PROMPT = `Summarize this agent session for future continuation.
 
 Produce STRICT markdown with exactly these four sections in this order:
 

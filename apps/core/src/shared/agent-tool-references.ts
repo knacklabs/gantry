@@ -26,6 +26,41 @@ const HOST_PRIVATE_BROWSER_BACKEND_MCP_TOOL_PREFIXES =
 const GANTRY_BROWSER_TOOL_PREFIX = 'mcp__gantry__browser';
 const BROWSER_CANONICAL_TOOL_NAME = 'Browser';
 const BASH_TOOL_NAME = 'Bash';
+const PROVIDER_NATIVE_EXACT_TOOL_NAMES = new Set([
+  'Agent',
+  'AskUserQuestion',
+  'CronCreate',
+  'CronDelete',
+  'Edit',
+  'EnterPlanMode',
+  'EnterWorktree',
+  'ExitPlanMode',
+  'ExitWorktree',
+  'Glob',
+  'Grep',
+  'LS',
+  'ListMcpResources',
+  'MultiEdit',
+  'NotebookEdit',
+  'Monitor',
+  'PushNotification',
+  'Read',
+  'ReadMcpResource',
+  'RemoteTrigger',
+  'ScheduleWakeup',
+  'SendMessage',
+  'Skill',
+  'Task',
+  'TaskOutput',
+  'TaskStop',
+  'TeamCreate',
+  'TeamDelete',
+  'ToolSearch',
+  'TodoWrite',
+  'WebFetch',
+  'WebSearch',
+  'Write',
+]);
 export const SDK_SANDBOX_NETWORK_ACCESS_TOOL_NAME = 'SandboxNetworkAccess';
 export const PROJECTED_BROWSER_MCP_TOOL_NAMES = [
   'mcp__gantry__browser_status',
@@ -47,6 +82,8 @@ export const BASH_SCOPE_REJECTION_REASON =
   'Persistent Bash scope is too broad; include a literal command prefix such as Bash(npm test *).';
 export const SDK_SANDBOX_NETWORK_ACCESS_REJECTION_REASON =
   'SDK sandbox network prompts are internal defense-in-depth callbacks and cannot be persisted as agent tool rules; approve the underlying semantic capability, canonical Browser grant, exact admin MCP tool, MCP server binding, or scoped Bash fallback instead.';
+export const PROVIDER_NATIVE_TOOL_REJECTION_REASON =
+  'Provider-native SDK tools are execution-harness projections and cannot be persisted as Gantry tool rules; select a Gantry capability such as Browser, a semantic capability, an exact Gantry admin MCP tool, or a scoped Bash(...) fallback.';
 
 export function parseReadableScopedToolRule(
   value: string,
@@ -116,6 +153,12 @@ export function isSdkSandboxNetworkAccessToolRule(value: string): boolean {
   const scoped = parseReadableScopedToolRule(rule);
   const toolName = scoped ? scoped.toolName : rule;
   return isSdkSandboxNetworkAccessToolName(toolName);
+}
+
+export function isProviderNativeExactToolRule(value: string): boolean {
+  const rule = value.trim();
+  if (parseReadableScopedToolRule(rule)) return false;
+  return PROVIDER_NATIVE_EXACT_TOOL_NAMES.has(rule);
 }
 
 export function persistentPermissionToolId(
@@ -226,6 +269,12 @@ export function validateReadableAgentToolRule(
       ok: false,
       reason:
         'Persistent bare Bash grants are too broad; request a scoped Bash(<pattern>) rule.',
+    };
+  }
+  if (isProviderNativeExactToolRule(rule)) {
+    return {
+      ok: false,
+      reason: PROVIDER_NATIVE_TOOL_REJECTION_REASON,
     };
   }
   if (MCP_WILDCARD_RE.test(rule)) {

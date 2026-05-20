@@ -19,6 +19,10 @@ function makeApp(): RuntimeApp {
   };
 
   return {
+    executionAdapter: {
+      id: 'anthropic:claude-agent-sdk',
+      prepare: vi.fn(),
+    },
     channels: [],
     queue: queue as any,
     loadState: vi.fn(),
@@ -436,6 +440,7 @@ describe('startRuntimeServices', () => {
     );
     expect(getAgentTurnContext).toHaveBeenCalledWith({
       agentFolder: 'main',
+      executionProviderId: 'anthropic:claude-agent-sdk',
       conversationJid: 'tg:primary',
       threadId: 'topic-42',
       conversationKind: undefined,

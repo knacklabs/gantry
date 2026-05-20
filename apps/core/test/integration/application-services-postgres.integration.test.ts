@@ -125,6 +125,7 @@ maybeDescribe('application services with Postgres repositories', () => {
       agentId,
       configVersionId,
       llmProfileId: DEFAULT_LLM_PROFILE_ID,
+      executionProviderId: 'anthropic:claude-agent-sdk',
       permissionDecisionIds: ['permission-decision:integration:allow'],
       cause: 'manual',
       status: 'running',

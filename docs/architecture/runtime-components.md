@@ -1,6 +1,8 @@
 # Runtime Components
 
-This is the contributor entrypoint for Gantry runtime internals. It explains how channel messages and SDK messages become durable Postgres records, queued work, Claude Agent SDK runs, tool calls, and outbound responses.
+This is the contributor entrypoint for Gantry runtime internals. It explains how
+channel messages and SDK messages become durable Postgres records, queued work,
+provider-neutral agent execution runs, tool calls, and outbound responses.
 
 For external backend app usage, start with the SDK docs instead: [SDK overview](../sdk/overview.md), [API reference](../sdk/api-reference.md), and [agent internals for SDK consumers](../sdk/agent-internals.md). For threat model details, use [SECURITY.md](../SECURITY.md).
 
@@ -22,7 +24,7 @@ Runtime responsibilities:
 Agent responsibilities:
 
 - interpret the prompt and current conversation context
-- call allowed tools through the Claude Agent SDK
+- call allowed tools through the active LLM execution adapter
 - request permission when a tool call crosses runtime policy
 - emit replies through normal channel output paths
 - emit app-visible structured events only through host-owned tools
@@ -42,8 +44,9 @@ ACP/ACPS are harness/runtime integration concerns. They are not part of the agen
 | Queue                      | `apps/core/src/runtime/group-queue.ts`                                                                                                                                                            | Maintains per-group/thread work ordering, active process tracking, retry behavior, and continuation input routing.                                                                           |
 | Group processor            | `apps/core/src/runtime/group-processing.ts`                                                                                                                                                       | Loads unread messages, checks triggers, hydrates durable memory context, starts agent runs, and commits cursors/results.                                                                     |
 | Agent spawn                | `apps/core/src/runtime/agent-spawn.ts`, `apps/core/src/runtime/agent-spawn-process.ts`                                                                                                            | Builds the child process environment, group working directory, model config, IPC secrets, MCP server path, and runtime credentials.                                                          |
-| Child runner               | `apps/core/src/runner/claude/index.ts`, `apps/core/src/runner/claude/query-loop.ts`, `apps/core/src/runner/claude/permission-callback.ts`                                                         | Calls `@anthropic-ai/claude-agent-sdk`, streams follow-up input through `MessageStream`, and mediates tool permission callbacks.                                                             |
-| Tools and IPC              | `apps/core/src/runner/agent-capabilities.ts`, `apps/core/src/runner/mcp/server.ts`, `apps/core/src/runtime/ipc.ts`, `apps/core/src/runtime/ipc-parsing.ts`                                        | Defines allowed tools, exposes Gantry MCP tools, validates signed IPC requests, and writes signed responses.                                                                                 |
+| Execution adapter          | `apps/core/src/application/agent-execution/agent-execution-adapter.ts`, `apps/core/src/adapters/llm/anthropic-claude-agent/execution-adapter.ts`                                                 | Converts canonical Gantry run context into a provider-owned child runner process, environment projection, protected paths, and cleanup.                                                       |
+| Anthropic child runner     | `apps/core/src/adapters/llm/anthropic-claude-agent/runner/index.ts`, `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts`, `apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts` | Calls `@anthropic-ai/claude-agent-sdk`, streams follow-up input through `MessageStream`, and mediates tool permission callbacks as an adapter implementation detail.                         |
+| Tools and IPC              | `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`, `apps/core/src/runner/mcp/server.ts`, `apps/core/src/runtime/ipc.ts`, `apps/core/src/runtime/ipc-parsing.ts`                                        | Defines allowed tools, exposes Gantry MCP tools, validates signed IPC requests, and writes signed responses.                                                                                 |
 | Control server and SDK     | `apps/core/src/control/server/index.ts`, `apps/core/src/control/server/routes/`, `packages/sdk/src/index.ts`                                                                                      | Exposes HTTP/SSE control APIs for backend apps; SDK wraps this API for server-side Node consumers.                                                                                           |
 | Scheduler                  | `apps/core/src/jobs/scheduler.ts`, `apps/core/src/jobs/execution.ts`, `apps/core/src/jobs/schedule-math.ts`, `apps/core/src/infrastructure/pgboss/scheduler-engine.ts`                            | Owns Gantry job definitions, triggers, runs, events, pg-boss queueing, schedule sync, and dead-letter handling.                                                                              |
 | Memory and retrieval       | `apps/core/src/application/sessions/hydrate-agent-context-service.ts`, `apps/core/src/memory/app-memory-service.ts`, `apps/core/src/adapters/storage/postgres/schema/memory.ts`, `docs/MEMORY.md` | Stores flattened app/agent/subject-boundary memory in `memory_items`, records evidence and recall events, runs auditable dreaming, and builds bounded lexical memory context for fresh runs. |
@@ -60,7 +63,8 @@ sequenceDiagram
   participant Processor as "Group Processor"
   participant Spawn as "Agent Spawn"
   participant Runner as "Child Runner"
-  participant SDK as "Claude Agent SDK"
+  participant Adapter as "Execution Adapter"
+  participant SDK as "Provider SDK"
   participant IPC as "IPC / MCP Tools"
   participant Out as "Channel Output / Runtime Events"
 
@@ -73,8 +77,9 @@ sequenceDiagram
   Processor->>Processor: slash command, trigger, and allowlist checks
   Processor->>Processor: build prompt and memory context
   Processor->>Spawn: request child agent process
+  Spawn->>Adapter: prepare provider runner projection
   Spawn->>Runner: start runner with scoped env and IPC secrets
-  Runner->>SDK: query() with MessageStream and tool policy
+  Runner->>SDK: provider query with message stream and tool policy
   SDK->>Runner: stream assistant/tool events
   Runner->>IPC: signed MCP and permission requests
   IPC->>Ingress: host-owned actions and approvals
@@ -94,7 +99,11 @@ sequenceDiagram
 
 ## Agent Runtime Deep Dive
 
-The child runner is the only process that calls `@anthropic-ai/claude-agent-sdk`. The host prepares all policy and context before launch.
+`agent-spawn.ts` launches a provider-neutral `AgentExecutionAdapter`. The
+adapter prepares provider-specific child runner files, SDK environment, model
+projection, runtime materialization, protected filesystem paths, and cleanup.
+The Anthropic adapter is the only production path that calls
+`@anthropic-ai/claude-agent-sdk`.
 
 Key runner inputs:
 
@@ -106,12 +115,13 @@ Key runner inputs:
 - environment values for credentials and browser automation endpoints
 - concrete protected filesystem paths for SDK sandbox deny-write enforcement
 
-`apps/core/src/runner/claude/query-loop.ts` creates a `MessageStream` and passes it to `query()`. The stream lets the host add follow-up user messages to an already-running agent when the queue decides continuation is safe. The same `query()` call receives:
+`apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts` creates a `MessageStream` and passes it to `query()`. The stream lets the host add follow-up user messages to an already-running agent when the queue decides continuation is safe. The same `query()` call receives:
 
-- `allowedTools` from `apps/core/src/runner/agent-capabilities.ts`
+- `allowedTools` from `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`
 - Gantry MCP server config from `apps/core/src/runner/mcp/server.ts`
-- Claude SDK stateless session projection (`persistSession: false`; no
-  `resume` or `resumeSessionAt` for live turns or scheduled jobs)
+- provider-session projection: live interactive turns may pass adapter resume
+  metadata from `ProviderSession`; scheduled jobs keep provider persistence
+  disabled and use Gantry job/session records as durable continuity
 - working directory and extra directories
 - `canUseTool`, the permission callback that projects each SDK request through
   the canonical tool execution boundary before sensitive tools run
@@ -321,10 +331,10 @@ Memory injected into a prompt is context, not trusted authority. The agent may u
 | Symptom                                    | Start here                                                                                                                                                                                                                                                    | What to check                                                                                                                                                                                                                                                     |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Inbound message is stuck                   | `apps/core/src/runtime/message-loop.ts`, `apps/core/src/runtime/group-queue.ts`                                                                                                                                                                               | Message persisted in Postgres, cursor state, pending recovery, active queue entry, retry count.                                                                                                                                                                   |
-| Agent starts but does not answer           | `apps/core/src/runtime/group-processing.ts`, `apps/core/src/runtime/agent-spawn.ts`, `apps/core/src/runner/claude/query-loop.ts`                                                                                                                              | Prompt construction, broker-safe child process env, runner stdout markers, final-output handling.                                                                                                                                                                 |
+| Agent starts but does not answer           | `apps/core/src/runtime/group-processing.ts`, `apps/core/src/runtime/agent-spawn.ts`, `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts`                                                                                                                              | Prompt construction, broker-safe child process env, runner stdout markers, final-output handling.                                                                                                                                                                 |
 | Conversation does not resume after restart | `apps/core/src/application/sessions/`, `apps/core/src/adapters/storage/postgres/repositories/domain-repositories.postgres.ts`, `apps/core/src/runtime/group-processing.ts`                                                                                    | `agent_sessions` deterministic key, durable memory context, thread id isolation, expected cold-start behavior.                                                                                                                                                    |
 | Follow-up is ignored                       | `apps/core/src/runtime/continuation-input.ts`, `apps/core/src/runtime/group-queue.ts`                                                                                                                                                                         | Whether the active run accepts continuation, queue key, thread key, and stop aliases.                                                                                                                                                                             |
-| Permission request hangs or denies         | `apps/core/src/runtime/ipc.ts`, `apps/core/src/runtime/ipc-auth-validation.ts`, `apps/core/src/app/bootstrap/channel-wiring.ts`, `apps/core/src/runner/claude/permission-callback.ts`                                                                         | IPC auth token, response signing key, request path ownership, conversation approval surface, sender policy, and control approvers.                                                                                                                                |
+| Permission request hangs or denies         | `apps/core/src/runtime/ipc.ts`, `apps/core/src/runtime/ipc-auth-validation.ts`, `apps/core/src/app/bootstrap/channel-wiring.ts`, `apps/core/src/adapters/llm/anthropic-claude-agent/runner/permission-callback.ts`                                                                         | IPC auth token, response signing key, request path ownership, conversation approval surface, sender policy, and control approvers.                                                                                                                                |
 | SDK wait or stream misses output           | `apps/core/src/control/server/routes/sessions.ts`, `apps/core/src/channels/app.ts`, `apps/core/src/adapters/storage/postgres/repositories/control-plane-repository.postgres.ts`                                                                               | App response route, `runtime_events`, SSE replay cursor, response mode, webhook destination status.                                                                                                                                                               |
 | Webhook delivery fails                     | `apps/core/src/control/server/webhook-delivery.ts`, `apps/core/src/control/server/routes/webhooks.ts`, `apps/core/src/adapters/storage/postgres/repositories/control-plane-repository.postgres.ts`                                                            | Registered URL, enabled flag, signing secret, retry count, dead-letter state, replay result.                                                                                                                                                                      |
 | Scheduled job does not run                 | `apps/core/src/jobs/scheduler.ts`, `apps/core/src/jobs/execution.ts`, `apps/core/src/infrastructure/pgboss/scheduler-engine.ts`                                                                                                                               | Scheduler readiness, pg-boss connection, schedule sync, due time, pause state, dead-letter queue.                                                                                                                                                                 |
@@ -339,7 +349,7 @@ Start with these paths when changing a subsystem:
 - Runtime lifecycle: `apps/core/src/index.ts`, `apps/core/src/app/bootstrap/startup.ts`, `apps/core/src/app/bootstrap/runtime-services.ts`
 - Channel ingestion and output: `apps/core/src/app/bootstrap/channel-wiring.ts`, `apps/core/src/app/bootstrap/channel-persistence-handlers.ts`, `apps/core/src/channels/channel-provider.ts`, `apps/core/src/channels/app.ts`
 - Message execution: `apps/core/src/runtime/message-loop.ts`, `apps/core/src/runtime/group-queue.ts`, `apps/core/src/runtime/group-processing.ts`
-- Agent and tools: `apps/core/src/runtime/agent-spawn.ts`, `apps/core/src/runner/claude/`, `apps/core/src/runner/agent-capabilities.ts`, `apps/core/src/runner/mcp/`, `apps/core/src/runtime/ipc.ts`
+- Agent and tools: `apps/core/src/runtime/agent-spawn.ts`, `apps/core/src/adapters/llm/anthropic-claude-agent/runner/`, `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`, `apps/core/src/runner/mcp/`, `apps/core/src/runtime/ipc.ts`
 - SDK control plane: `apps/core/src/control/server/routes/`, `apps/core/src/control/server/webhook-delivery.ts`, `packages/sdk/src/index.ts`, `docs/sdk/api-reference.md`
 - Jobs and scheduler: `apps/core/src/jobs/scheduler.ts`, `apps/core/src/jobs/execution.ts`, `apps/core/src/infrastructure/pgboss/scheduler-engine.ts`
 - Storage and search: `apps/core/src/adapters/storage/postgres/schema/schema.ts`, `apps/core/src/adapters/storage/postgres/runtime-store.ts`, `apps/core/src/memory/app-memory-service.ts`, `docs/MEMORY.md`

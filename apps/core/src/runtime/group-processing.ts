@@ -66,10 +66,8 @@ import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
-const activeTurnUiCleanupByQueue = new Map<
-  string,
-  { token: symbol; cancel: () => void }
->();
+type ActiveTurnUiCleanup = { token: symbol; cancel: () => void };
+const activeTurnUiCleanupByQueue = new Map<string, ActiveTurnUiCleanup>();
 
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
@@ -248,6 +246,7 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
           defaultScope: defaultMemoryScope,
           memoryUserId,
           collectMemory: collectSessionMemory,
+          executionAdapter: deps.executionAdapter,
         }),
         clearCurrentSession: () =>
           deps.clearSession(group.folder, activeThreadId, {

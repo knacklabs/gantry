@@ -43,14 +43,21 @@ import {
 import { AppMemoryService } from '../../memory/app-memory-service.js';
 import { collectDurableMemoryAtBoundary } from '../../memory/app-memory-session-boundary-collector.js';
 import { memoryAgentIdForGroupFolder } from '../../memory/app-memory-boundaries.js';
+import {
+  createDefaultAgentExecutionAdapter,
+  createDefaultMemoryLlmClient,
+} from '../../adapters/llm/default-runtime-adapters.js';
+import type { AgentExecutionAdapter } from '../../application/agent-execution/agent-execution-adapter.js';
+import { registerMemoryLlmClient } from '../../memory/memory-llm-port.js';
 
-type RuntimeAppRepository = RuntimeRouterStateRepository &
+export type RuntimeAppRepository = RuntimeRouterStateRepository &
   RuntimeMessageRepository &
   RuntimeConversationRouteRepository &
   RuntimeChatMetadataRepository &
   RuntimeAgentSessionRepository;
 
 export interface RuntimeApp {
+  executionAdapter: AgentExecutionAdapter;
   queue: GroupQueue;
   loadState: () => Promise<void>;
   saveState: () => Promise<void>;
@@ -106,6 +113,7 @@ export interface RuntimeAppOptions {
   mcpHostnameLookup?: GroupProcessingDeps['getMcpHostnameLookup'];
   collectSessionMemory?: GroupProcessingDeps['collectSessionMemory'];
   publishRuntimeEvent?: GroupProcessingDeps['publishRuntimeEvent'];
+  executionAdapter?: AgentExecutionAdapter;
   opsRepository?: RuntimeAppRepository;
 }
 
@@ -117,6 +125,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   let stateSaveDirty = false;
 
   const queue = options.queue ?? new GroupQueue(getRuntimeQueueConfig());
+  const executionAdapter =
+    options.executionAdapter ?? createDefaultAgentExecutionAdapter();
+  registerMemoryLlmClient(createDefaultMemoryLlmClient());
   const mcpDnsValidationCache = new RemoteMcpDnsValidationCache();
   let credentialBrokerPromise:
     | Promise<AgentCredentialBroker | undefined>
@@ -501,9 +512,11 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     collectSessionMemory:
       options.collectSessionMemory ?? collectRuntimeSessionMemory,
     publishRuntimeEvent: options.publishRuntimeEvent,
+    executionAdapter,
   });
 
   return {
+    executionAdapter,
     queue,
     loadState,
     saveState,

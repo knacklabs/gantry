@@ -205,6 +205,44 @@ describe('CanonicalJobOpsService', () => {
     expect(input.errorSummary).not.toContain('error-token');
   });
 
+  it('rejects unsafe execution provider ids before inserting run history', async () => {
+    const repository = {
+      insertRun: vi.fn(async () => true),
+      claimDueRunStart: vi.fn(async () => true),
+    } as unknown as PostgresCanonicalJobRepository;
+    const service = new CanonicalJobOpsService(repository);
+
+    await expect(
+      service.createJobRun({
+        run_id: 'run-1',
+        job_id: 'job-1',
+        execution_provider_id: '../bad-provider' as never,
+        scheduled_for: '2026-04-24T00:00:00.000Z',
+        started_at: '2026-04-24T00:00:00.000Z',
+        ended_at: null,
+        status: 'running',
+        result_summary: null,
+        error_summary: null,
+        retry_count: 0,
+        notified_at: null,
+      }),
+    ).rejects.toThrow(/Invalid execution provider id/);
+    expect(repository.insertRun).not.toHaveBeenCalled();
+
+    await expect(
+      service.claimDueJobRunStart({
+        jobId: 'job-1',
+        runId: 'run-1',
+        executionProviderId: '../bad-provider' as never,
+        scheduledFor: '2026-04-24T00:00:00.000Z',
+        startedAt: '2026-04-24T00:00:00.000Z',
+        retryCount: 0,
+        leaseExpiresAt: '2026-04-24T00:05:00.000Z',
+      }),
+    ).rejects.toThrow(/Invalid execution provider id/);
+    expect(repository.claimDueRunStart).not.toHaveBeenCalled();
+  });
+
   it('passes app ownership filters to repository run and event queries', async () => {
     const repository = {
       listRuns: vi.fn(async () => []),

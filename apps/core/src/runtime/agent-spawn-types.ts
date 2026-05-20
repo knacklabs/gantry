@@ -17,6 +17,7 @@ import type {
 import type { AgentPersona } from '../shared/agent-persona.js';
 import type { YoloModeSettings } from '../shared/yolo-mode-policy.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
+import type { AgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter.js';
 
 export interface AgentInput {
   prompt: string;
@@ -94,6 +95,7 @@ export interface RunAgentOptions {
   publishRuntimeEvent?: (
     event: RuntimeEventPublishInput,
   ) => Promise<unknown> | unknown;
+  executionAdapter?: AgentExecutionAdapter;
 }
 
 export interface HostRuntimeContext {

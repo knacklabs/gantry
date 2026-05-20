@@ -9,29 +9,12 @@ import {
 export const ToolRiskSchema = z.enum(['low', 'medium', 'high']);
 export type ToolRisk = z.infer<typeof ToolRiskSchema>;
 
-export const ToolCatalogProviderToolNameSchema = z.enum([
-  'Agent',
-  'Bash',
-  'Edit',
-  'Read',
-  'Write',
-  'Glob',
-  'Grep',
-  'NotebookEdit',
-  'WebFetch',
-  'WebSearch',
-  'ToolSearch',
-  'Skill',
-  'LS',
-  'MultiEdit',
-  'Browser',
-]);
+export const ToolCatalogProviderToolNameSchema = z.string().min(1);
 export type ToolCatalogProviderToolName = z.infer<
   typeof ToolCatalogProviderToolNameSchema
 >;
 
 export const ToolCatalogKindSchema = z.enum([
-  'anthropic_sdk',
   'host',
   'browser',
   'channel',
