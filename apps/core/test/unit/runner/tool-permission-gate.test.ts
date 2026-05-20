@@ -602,7 +602,7 @@ describe('createCanUseToolCallback', () => {
     );
   });
 
-  it('omits timed grants from autonomous job prompts without persistent suggestions', async () => {
+  it('omits timed grants from autonomous job prompts with persistent facade suggestions', async () => {
     permissionMock.requestPermissionApproval.mockResolvedValueOnce({
       approved: true,
       mode: 'allow_once',
@@ -633,7 +633,7 @@ describe('createCanUseToolCallback', () => {
 
     expect(permissionMock.requestPermissionApproval).toHaveBeenCalledWith(
       expect.objectContaining({
-        decisionOptions: ['allow_once', 'cancel'],
+        decisionOptions: ['allow_once', 'allow_persistent_rule', 'cancel'],
       }),
     );
   });

@@ -289,14 +289,13 @@ describe('ipc-browser-handler', () => {
         tool: 'Browser',
         publicToolName: 'browser_act',
         action: 'navigate',
-        satisfiesRequiredTool: true,
         ok: true,
         normalizedSite: 'example.test',
       }),
     );
   });
 
-  it('does not satisfy required Browser from backend-only job browser calls', async () => {
+  it('publishes backend-only job browser calls without public tool metadata', async () => {
     const callBrowserTool = vi.fn(async () => ({ content: 'tool-result' }));
     const publishBrowserJobActivity = vi.fn(async () => undefined);
     const response = await processBrowserIpcRequest(
@@ -322,12 +321,11 @@ describe('ipc-browser-handler', () => {
         tool: 'Browser',
         action: 'navigate',
         publicToolName: undefined,
-        satisfiesRequiredTool: false,
       }),
     );
   });
 
-  it('satisfies required Browser for browser_open only when it navigates', async () => {
+  it('publishes browser_open job activity for open and navigate actions', async () => {
     const callBrowserTool = vi.fn(async () => ({ content: 'tool-result' }));
     const publishBrowserJobActivity = vi.fn(async () => undefined);
 
@@ -371,7 +369,6 @@ describe('ipc-browser-handler', () => {
       expect.objectContaining({
         action: 'open',
         publicToolName: 'browser_open',
-        satisfiesRequiredTool: false,
       }),
     );
     expect(publishBrowserJobActivity).toHaveBeenNthCalledWith(
@@ -379,7 +376,6 @@ describe('ipc-browser-handler', () => {
       expect.objectContaining({
         action: 'navigate',
         publicToolName: 'browser_open',
-        satisfiesRequiredTool: true,
       }),
     );
   });

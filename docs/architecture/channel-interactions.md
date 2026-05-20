@@ -63,8 +63,9 @@ Fields:
 
 Permission descriptors keep semantic scope primary. Primary text shows the
 capability display name, requester, account/context, what it allows, what it
-does not allow, health/preflight status when available, and choices:
-`Allow once`, `Allow 5 min`, `Always allow`, or `Cancel`. Details hold raw
+does not allow, health/preflight status when available, and the valid choices
+for the flow. Live interactive prompts may include `Allow 5 min`; setup,
+scheduler, admin, and capability flows do not. Details hold raw
 request ids, low-level tool/rule, redacted command preview, command hash,
 executable path/version, sandbox/network behavior, and settings/storage
 effects.
@@ -80,7 +81,7 @@ with the configured conversation/conversation approver rules.
 
 Use these rules in agent prompts, docs, and admin surfaces:
 
-| User intent                                                    | Required tool                                 | Channel behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| User intent                                                    | Tool access requirement                                 | Channel behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | -------------------------------------------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Send progress, status, or a normal message while still running | `send_message`                                | Delivers plain channel text using the active channel formatting dialect.                                                                                                                                                                                                                                                                                                                                                                                               |
 | Ask the user to choose one option                              | `ask_user_question` with `multiSelect: false` | Slack buttons/radio, Telegram inline buttons, Teams action buttons, Web/API single-select control.                                                                                                                                                                                                                                                                                                                                                                     |

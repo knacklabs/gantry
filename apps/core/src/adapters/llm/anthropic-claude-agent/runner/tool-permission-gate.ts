@@ -39,7 +39,6 @@ import { waitOnlyBashMonitoringDenial } from './wait-only-bash-guard.js';
 import { forceBackgroundNativeAgentInput } from './native-agent-tool-input.js';
 import { denyNonPromptableAutonomousRecovery } from './autonomous-permission-recovery.js';
 import { publicCapabilityAllowedToolRules } from '../../../../shared/agent-tool-references.js';
-import { matchedRequiredToolRules } from './required-tool-matches.js';
 import { stableTimedGrantKey } from './stable-timed-grant-key.js';
 
 type PermissionApprovalInput = Parameters<typeof requestPermissionApproval>[0];
@@ -253,11 +252,6 @@ export function createCanUseToolCallback(
         sdkApprovalPrincipal,
       );
     const allowToolUse = (reason = 'allowed') => {
-      const matchedRequiredTools = matchedRequiredToolRules({
-        requiredTools: input.agentInput.requiredTools ?? [],
-        toolName,
-        toolInput,
-      });
       emitJobToolActivity(
         input.agentInput,
         input.getNewSessionId,
@@ -266,9 +260,6 @@ export function createCanUseToolCallback(
         {
           ok: true,
           reason,
-          ...(matchedRequiredTools.length
-            ? { matched_required_tools: matchedRequiredTools }
-            : {}),
         },
       );
       rememberAllowedTool();

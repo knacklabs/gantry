@@ -38,12 +38,49 @@ describe('execution diagnostics', () => {
         tool: 'Bash',
         ok: false,
         reason: 'Denied by operator.',
-        recovery_action: 'request_permission RunCommand(npm test)',
+        recovery_action:
+          'request_permission {"toolName":"RunCommand","rule":"npm test *"}',
       },
     );
 
     expect(formatTerminalToolDenial(diagnostics)).toContain(
       'Permission denied for Bash.',
     );
+  });
+
+  it('carries recovery actions from transient permission approvals', () => {
+    const diagnostics = createJobRunDiagnostics();
+
+    updateDiagnosticsFromRuntimeEvent(
+      diagnostics,
+      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      {
+        phase: 'permission_wait',
+        tool: 'Bash',
+        ok: false,
+        reason: 'Tool not on autonomous run allowlist: RunCommand.',
+        recovery_action:
+          'request_permission {"toolName":"RunCommand","rule":"npm test *"}',
+      },
+    );
+    updateDiagnosticsFromRuntimeEvent(
+      diagnostics,
+      RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
+      {
+        phase: 'permission_allowed',
+        tool: 'Bash',
+        mode: 'allow_once',
+        ok: true,
+      },
+    );
+
+    expect(diagnostics.transientPermissionApprovals).toEqual([
+      {
+        toolName: 'Bash',
+        mode: 'allow_once',
+        recoveryAction:
+          'request_permission {"toolName":"RunCommand","rule":"npm test *"}',
+      },
+    ]);
   });
 });

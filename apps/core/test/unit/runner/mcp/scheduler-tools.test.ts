@@ -161,8 +161,9 @@ describe('scheduler MCP tools', () => {
     expect(schemas.get('scheduler_grant_tool')).toBeUndefined();
     expect(schemas.get('scheduler_upsert_job')?.allowed_tools).toBeUndefined();
     expect(
-      schemas.get('scheduler_upsert_job')?.required_tools.safeParse(['Browser'])
-        .success,
+      schemas
+        .get('scheduler_upsert_job')
+        ?.tool_access_requirements.safeParse(['Browser']).success,
     ).toBe(true);
     expect(
       schemas.get('scheduler_upsert_job')?.capability_requirements.safeParse([
@@ -215,8 +216,9 @@ describe('scheduler MCP tools', () => {
     ).toBeDefined();
     expect(schemas.get('scheduler_update_job')?.allowed_tools).toBeUndefined();
     expect(
-      schemas.get('scheduler_update_job')?.required_tools.safeParse(['Browser'])
-        .success,
+      schemas
+        .get('scheduler_update_job')
+        ?.tool_access_requirements.safeParse(['Browser']).success,
     ).toBe(true);
     expect(
       schemas.get('scheduler_update_job')?.capability_requirements.safeParse([
@@ -420,7 +422,7 @@ describe('scheduler MCP tools', () => {
           },
         },
       ],
-      required_tools: ['Browser'],
+      tool_access_requirements: ['Browser'],
     });
 
     expect(response.isError).not.toBe(true);
@@ -431,9 +433,11 @@ describe('scheduler MCP tools', () => {
     expect(response.content[0].text).toContain(
       '- Required capabilities: Google Sheets write using gog',
     );
-    expect(response.content[0].text).toContain('- Required tools: Browser');
     expect(response.content[0].text).toContain(
-      'Browser in required_tools means every successful run must perform real browser IPC activity',
+      '- Tool access requirements: Browser',
+    );
+    expect(response.content[0].text).toContain(
+      'tool access requirements are preflight checks only',
     );
     expect(response.content[0].text).toContain('- Network:');
     expect(response.content[0].text).toContain('- Memory:');
@@ -493,7 +497,7 @@ describe('scheduler MCP tools', () => {
           label: 'primary',
         },
       ],
-      requiredTools: ['Browser'],
+      toolAccessRequirements: ['Browser'],
       createdBy: 'agent',
     });
     const response = await tools.get('scheduler_upsert_job')!({
@@ -502,7 +506,7 @@ describe('scheduler MCP tools', () => {
       schedule_type: 'once',
       schedule_value: '2026-05-04T00:00:00.000Z',
       target: 'here',
-      required_tools: ['Browser'],
+      tool_access_requirements: ['Browser'],
       confirm: true,
       confirmation_token: confirmationToken,
     });
@@ -526,7 +530,7 @@ describe('scheduler MCP tools', () => {
             label: 'primary',
           },
         ],
-        requiredTools: ['Browser'],
+        toolAccessRequirements: ['Browser'],
       }),
     );
   });
@@ -568,6 +572,47 @@ describe('scheduler MCP tools', () => {
     expect(response.isError).toBe(true);
     expect(response.content[0].text).toContain(
       'Unsupported scheduler fields: deliver_to',
+    );
+    expect(writeIpcFile).not.toHaveBeenCalled();
+  });
+
+  it('rejects deprecated scheduler required_tools input with cutover guidance', async () => {
+    const ipcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-tools-'));
+    tempRoots.push(ipcDir);
+    process.env.GANTRY_IPC_DIR = ipcDir;
+    const writeIpcFile = vi.fn();
+    vi.doMock('../../../../src/runner/mcp/ipc.js', () => ({
+      waitForTaskResponse: vi.fn(),
+      writeIpcFile,
+    }));
+    const { registerSchedulerTools } =
+      await import('../../../../src/runner/mcp/tools/scheduler.js');
+    const tools = new Map<
+      string,
+      (
+        args: Record<string, unknown>,
+      ) => Promise<{ content: { text: string }[]; isError?: boolean }>
+    >();
+    const server = {
+      tool: (
+        name: string,
+        _description: string,
+        _schema: unknown,
+        handler: never,
+      ) => {
+        tools.set(name, handler);
+      },
+    };
+
+    registerSchedulerTools(server as never);
+    const response = await tools.get('scheduler_update_job')!({
+      job_id: 'job-1',
+      required_tools: ['Browser'],
+    });
+
+    expect(response.isError).toBe(true);
+    expect(response.content[0].text).toContain(
+      'required_tools is no longer accepted. Use tool_access_requirements',
     );
     expect(writeIpcFile).not.toHaveBeenCalled();
   });
@@ -657,5 +702,22 @@ describe('scheduler MCP tools', () => {
         },
       ]),
     ).toContain('tools: (missing toolAccess)');
+    expect(
+      schedulerJobsSummary([
+        {
+          id: 'job-2',
+          name: 'Use browser when needed',
+          tool_access_requirements: ['Browser'],
+          visibility: {
+            executionContext: { conversationJid: 'tg:team' },
+            toolAccess: {
+              effectiveAllowedTools: ['Browser'],
+              inheritedAgentTools: ['Browser'],
+              projectedRuntimeTools: ['Browser'],
+            },
+          },
+        },
+      ]),
+    ).toContain('access: Browser');
   });
 });

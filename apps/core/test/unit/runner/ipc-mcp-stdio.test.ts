@@ -616,7 +616,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
   });
 
-  it('fails closed for admin permission revoke scaffolding', async () => {
+  it('submits admin permission revoke as a host-owned task', async () => {
     const fixture = createMcpFixture();
 
     const result = await runMcpFixture(
@@ -631,14 +631,27 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
 
     expect(result.exitCode, result.stderr).toBe(0);
     const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
-    expect(record.result.isError).toBe(true);
     expect(record.result.content[0].text).toContain(
-      'Permission revoke is not available from runner MCP yet.',
+      'Scheduler task confirmed.',
     );
-    expect(record.result.content[0].text).toContain(
-      'No permission, settings.yaml entry, Postgres binding, or live run rule was changed.',
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
     );
-    expect(fs.existsSync(path.join(fixture.ipcDir, 'tasks'))).toBe(false);
+    expect(task).toMatchObject({
+      type: 'admin_permission_revoke',
+      runHandle: 'mcp-test-run',
+      payload: {
+        toolName: 'mcp__gantry__service_restart',
+        reason: 'Reduce admin surface',
+      },
+      chatJid: 'tg:team',
+      targetJid: 'tg:team',
+    });
   });
 
   it('activates admin MCP tools from live persistent approval rules', async () => {

@@ -7,7 +7,7 @@ import { resolveConversationBrowserProfile } from '../shared/browser-profile-sco
 import { nowMs } from '../shared/time/datetime.js';
 import {
   type JobRunDiagnostics,
-  requiredToolsIncludeBrowser,
+  toolAccessRequirementsIncludeBrowser,
 } from './execution-diagnostics.js';
 import type { SchedulerDependencies } from './types.js';
 
@@ -26,7 +26,9 @@ export async function closeBrowserAfterJobRun(input: {
   if (!input.executionGroupFolder || !input.executionJid) return;
   if (
     input.diagnostics.browserActivityCount <= 0 &&
-    !requiredToolsIncludeBrowser(input.currentJob.required_tools ?? [])
+    !toolAccessRequirementsIncludeBrowser(
+      input.currentJob.tool_access_requirements ?? [],
+    )
   )
     return;
   if (!input.deps.closeBrowserSession && !input.deps.closeBrowserToolBackends)

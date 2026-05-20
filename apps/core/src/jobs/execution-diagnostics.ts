@@ -4,7 +4,6 @@ import {
   type RuntimeEventType,
 } from '../domain/events/runtime-event-types.js';
 import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
-import type { SchedulerDependencies } from './types.js';
 
 export const FORWARDED_RUNNER_EVENT_TYPES = new Set<RuntimeEventType>([
   RUNTIME_EVENT_TYPES.JOB_HEARTBEAT,
@@ -28,8 +27,11 @@ export interface JobRunDiagnostics {
   pendingPermissionToolNames: string[];
   totalToolCalls: number;
   browserActivityCount: number;
-  requiredToolMatches: string[];
-  transientPermissionApprovals: Array<{ toolName: string; mode: string }>;
+  transientPermissionApprovals: Array<{
+    toolName: string;
+    mode: string;
+    recoveryAction?: string;
+  }>;
   latestStreamedOutputChars: number;
   totalStreamedOutputChars: number;
   lastActivityAt?: string;
@@ -51,7 +53,6 @@ export function createJobRunDiagnostics(): JobRunDiagnostics {
     pendingPermissionToolNames: [],
     totalToolCalls: 0,
     browserActivityCount: 0,
-    requiredToolMatches: [],
     transientPermissionApprovals: [],
     latestStreamedOutputChars: 0,
     totalStreamedOutputChars: 0,
@@ -90,10 +91,6 @@ export function updateDiagnosticsFromRuntimeEvent(
   }
   if (isBrowserToolActivity(payload)) {
     diagnostics.browserActivityCount += 1;
-    rememberRequiredToolMatch(diagnostics, 'Browser');
-  }
-  for (const matchedTool of stringArrayValue(payload.matched_required_tools)) {
-    rememberRequiredToolMatch(diagnostics, matchedTool);
   }
   const mode = stringValue(payload.mode);
   const phase = stringValue(payload.phase);
@@ -126,7 +123,17 @@ export function updateDiagnosticsFromRuntimeEvent(
     mode &&
     (mode === 'allow_once' || mode === 'allow_timed_grant')
   ) {
-    diagnostics.transientPermissionApprovals.push({ toolName: tool, mode });
+    const matchingWait =
+      diagnostics.lastPermissionWait?.toolName === tool
+        ? diagnostics.lastPermissionWait
+        : undefined;
+    const recoveryAction =
+      stringValue(payload.recovery_action) ?? matchingWait?.recoveryAction;
+    diagnostics.transientPermissionApprovals.push({
+      toolName: tool,
+      mode,
+      ...(recoveryAction ? { recoveryAction } : {}),
+    });
   }
 }
 
@@ -168,7 +175,6 @@ export function terminalDiagnosticsPayload(
     transient_permission_approvals: diagnostics.transientPermissionApprovals,
     total_tool_calls: diagnostics.totalToolCalls,
     browser_activity_count: diagnostics.browserActivityCount,
-    required_tool_matches: diagnostics.requiredToolMatches,
     latest_streamed_output_chars: diagnostics.latestStreamedOutputChars,
     total_streamed_output_chars: diagnostics.totalStreamedOutputChars,
     last_activity_at: diagnostics.lastActivityAt ?? null,
@@ -187,9 +193,6 @@ export function formatTerminalDiagnostics(
     `pendingPermissions=${diagnostics.pendingPermissionRequests} (${pendingTools})`,
     `totalToolCalls=${diagnostics.totalToolCalls}`,
     `browserActivity=${diagnostics.browserActivityCount}`,
-    diagnostics.requiredToolMatches.length
-      ? `requiredToolMatches=${diagnostics.requiredToolMatches.join(', ')}`
-      : undefined,
     `latestStreamedOutputChars=${diagnostics.latestStreamedOutputChars}`,
     diagnostics.terminalToolDenial
       ? `terminalToolDenial=${diagnostics.terminalToolDenial.toolName}`
@@ -210,59 +213,12 @@ export function formatTerminalToolDenial(
   return parts.join(' ');
 }
 
-export function requiredToolsIncludeBrowser(
-  requiredTools: readonly string[],
+export function toolAccessRequirementsIncludeBrowser(
+  toolAccessRequirements: readonly string[],
 ): boolean {
-  return requiredTools.some((tool) => isCanonicalBrowserCapabilityRule(tool));
-}
-
-export async function requiredToolMatchesForRun(input: {
-  deps: SchedulerDependencies;
-  jobId: string;
-  runId: string;
-  diagnostics: JobRunDiagnostics;
-}): Promise<string[]> {
-  const matched = new Set(input.diagnostics.requiredToolMatches);
-  let persistedBrowserActivityCount = 0;
-  const events = await input.deps.opsRepository.listRecentJobEvents(200, {
-    job_id: input.jobId,
-    run_id: input.runId,
-    event_type: RUNTIME_EVENT_TYPES.JOB_TOOL_ACTIVITY,
-  });
-  for (const event of events) {
-    if (!event.payload) continue;
-    try {
-      const parsed = JSON.parse(event.payload) as unknown;
-      if (!isRecord(parsed)) continue;
-      if (isBrowserToolActivity(parsed)) {
-        persistedBrowserActivityCount += 1;
-        matched.add('Browser');
-      }
-      for (const matchedTool of stringArrayValue(
-        parsed.matched_required_tools,
-      )) {
-        matched.add(matchedTool);
-      }
-    } catch {
-      continue;
-    }
-  }
-  input.diagnostics.browserActivityCount = Math.max(
-    persistedBrowserActivityCount,
-    input.diagnostics.browserActivityCount,
+  return toolAccessRequirements.some((tool) =>
+    isCanonicalBrowserCapabilityRule(tool),
   );
-  return [...matched];
-}
-
-function rememberRequiredToolMatch(
-  diagnostics: JobRunDiagnostics,
-  toolRule: string,
-): void {
-  const normalized = toolRule.trim();
-  if (!normalized || diagnostics.requiredToolMatches.includes(normalized)) {
-    return;
-  }
-  diagnostics.requiredToolMatches.push(normalized);
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -289,8 +245,8 @@ function isBrowserToolActivity(payload: Record<string, unknown>): boolean {
     phase === 'permission_wait' ||
     phase === 'permission_allowed' ||
     phase === 'allow' ||
-    phase === 'required_tool_preflight' ||
-    phase === 'required_tool_satisfied'
+    phase === 'tool_access_preflight' ||
+    phase === 'tool_access_missing'
   ) {
     return false;
   }

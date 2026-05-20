@@ -123,7 +123,7 @@ describe('permission interaction', () => {
     ]);
   });
 
-  it('does not offer persistent approval for exact non-Bash SDK grants', () => {
+  it('offers persistent approval for SDK file tools via Gantry facades', () => {
     const request = {
       ...requestWithSuggestions([
         {
@@ -135,10 +135,11 @@ describe('permission interaction', () => {
       toolName: 'Read',
     };
 
-    expect(firstPersistentRule(request)).toBeUndefined();
+    expect(firstPersistentRule(request)).toBe('FileRead');
     expect(permissionDecisionOptions(request)).toEqual([
       'allow_once',
       'allow_timed_grant',
+      'allow_persistent_rule',
       'cancel',
     ]);
     expect(permissionButtonLabel('allow_timed_grant', request)).toBe(

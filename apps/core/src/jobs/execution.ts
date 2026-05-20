@@ -57,8 +57,6 @@ import {
   forwardRunnerRuntimeEvents,
   terminalDiagnosticsPayload,
 } from './execution-diagnostics.js';
-import { requiredToolMatchesForRunBestEffort } from './execution-browser-activity.js';
-import { verifyRequiredToolUsageAfterRun } from './execution-required-tool-usage.js';
 import { pauseJobForSetupIfNeeded } from './execution-readiness.js';
 import {
   bindSchedulerRunEventState,
@@ -67,7 +65,7 @@ import {
 } from './execution-runtime-events.js';
 import { resolveAppSessionForJob } from './app-session-resolution.js';
 import { finalizeSchedulerJobRun } from './execution-finalization.js';
-import { assertRequiredToolsReadyForRun } from './execution-required-tools.js';
+import { assertToolAccessRequirementsReadyForRun } from './execution-tool-access-requirements.js';
 import { closeBrowserAfterJobRun } from './execution-browser-cleanup.js';
 import { completeFailedRunFailsafe } from './run-failsafe.js';
 import { createRunProviderMetadataUpdater } from './run-provider-metadata.js';
@@ -209,8 +207,6 @@ export async function runJob(
     };
     let latestUsage: NormalizedModelUsage | undefined;
     let startNotified = false;
-    let requiredToolUsageVerificationSkipped = false;
-    let requiredToolUsageVerified = false;
     try {
       const groupDir = resolveGroupFolderPath(execution.group.folder);
       fs.mkdirSync(groupDir, { recursive: true });
@@ -319,11 +315,12 @@ export async function runJob(
             }),
             deps.getCredentialBroker?.() ?? Promise.resolve(undefined),
           ]);
-          const requiredToolPreflight = await assertRequiredToolsReadyForRun({
-            requiredTools: currentJob.required_tools ?? [],
-            effectiveAllowedTools: toolPolicy.effectiveAllowedTools,
-            emitJobEvent,
-          });
+          const toolAccessRequirementPreflight =
+            await assertToolAccessRequirementsReadyForRun({
+              toolAccessRequirements: currentJob.tool_access_requirements ?? [],
+              effectiveAllowedTools: toolPolicy.effectiveAllowedTools,
+              emitJobEvent,
+            });
           const finalReadinessPassed = !(await pauseJobForSetupIfNeeded({
             currentJob,
             deps,
@@ -387,7 +384,8 @@ export async function runJob(
                 assistantName: ASSISTANT_NAME,
                 memoryContextBlock: turnContext?.memoryContextBlock,
                 allowedTools: toolPolicy.effectiveAllowedTools,
-                requiredTools: requiredToolPreflight.requiredTools,
+                toolAccessRequirements:
+                  toolAccessRequirementPreflight.toolAccessRequirements,
                 selectedSkillIds,
                 selectedMcpServerIds,
               },
@@ -452,25 +450,6 @@ export async function runJob(
             if (!error) {
               error = formatTerminalToolDenial(diagnostics) ?? null;
             }
-            if (!error && requiredToolPreflight.requiredTools.length > 0) {
-              const usage = await verifyRequiredToolUsageAfterRun({
-                deps,
-                jobId: currentJob.id,
-                runId,
-                requiredTools: requiredToolPreflight.requiredTools,
-                diagnostics,
-                emitJobEvent,
-                log: logger,
-              });
-              if (usage.status === 'skipped') {
-                requiredToolUsageVerificationSkipped = true;
-              } else if (usage.status === 'verified') {
-                requiredToolUsageVerified = true;
-              } else {
-                requiredToolUsageVerified = true;
-                error = usage.error;
-              }
-            }
             if (!error) {
               const boundedResultSummary = resultSummaryAccumulator.snapshot();
               await completeSuccessfulRuntimeSessionRun({
@@ -520,23 +499,6 @@ export async function runJob(
     if (deletionGuard.deletedDuringRun) {
       result = null;
       error = null;
-    }
-    if (
-      !deletionGuard.deletedDuringRun &&
-      (currentJob.required_tools ?? []).length > 0 &&
-      !requiredToolUsageVerificationSkipped &&
-      !requiredToolUsageVerified
-    ) {
-      const matchedRequiredTools = await requiredToolMatchesForRunBestEffort({
-        deps,
-        jobId: currentJob.id,
-        runId,
-        diagnostics,
-        log: logger,
-      });
-      if (matchedRequiredTools !== null) {
-        diagnostics.requiredToolMatches = matchedRequiredTools;
-      }
     }
     const {
       runStatus,

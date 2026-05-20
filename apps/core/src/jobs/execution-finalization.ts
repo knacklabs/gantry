@@ -181,6 +181,9 @@ export async function finalizeSchedulerJobRun(input: {
     const setupState = setupStateForTransientPermission({
       toolName: transientPermissionApproval.toolName,
       mode: transientPermissionApproval.mode,
+      ...(transientPermissionApproval.recoveryAction
+        ? { recoveryAction: transientPermissionApproval.recoveryAction }
+        : {}),
       checkedAt: input.now,
       previous: currentJob.setup_state,
     });

@@ -39,7 +39,7 @@ export interface JobVisibilityMetadata {
   fullPrompt?: string;
   inheritedTools: string[];
   effectiveAllowedTools: string[];
-  requiredTools: string[];
+  toolAccessRequirements: string[];
   requiredMcpServers: string[];
   toolAccess: JobToolAccessView;
   setup: JobSetupMetadata;
@@ -141,7 +141,7 @@ export async function buildJobVisibilityMetadata(input: {
     fullPrompt: input.job.prompt,
     inheritedTools: policy.inheritedTools,
     effectiveAllowedTools: policy.effectiveAllowedTools,
-    requiredTools: input.job.required_tools ?? [],
+    toolAccessRequirements: input.job.tool_access_requirements ?? [],
     requiredMcpServers: input.job.required_mcp_servers ?? [],
     toolAccess: buildJobToolAccessView({
       inheritedAgentTools: policy.inheritedTools,
@@ -212,7 +212,7 @@ export async function buildJobListVisibilityMetadata(input: {
           promptPreview: promptPreview(job.prompt),
           inheritedTools,
           effectiveAllowedTools,
-          requiredTools: job.required_tools ?? [],
+          toolAccessRequirements: job.tool_access_requirements ?? [],
           requiredMcpServers: job.required_mcp_servers ?? [],
           toolAccess: buildJobToolAccessView({
             inheritedAgentTools: inheritedTools,

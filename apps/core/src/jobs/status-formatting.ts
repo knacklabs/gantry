@@ -90,10 +90,6 @@ function compactSummary(summary: string, max = 180): string {
 function humanizeSummary(summary: string): string {
   const trimmed = stripDiagnosticSuffix(summary).trim();
   if (!trimmed) return '';
-  const requiredToolOutcome = humanizeRequiredToolAssertionFailure(trimmed);
-  if (requiredToolOutcome) return requiredToolOutcome;
-  const browserAssertionOutcome = humanizeBrowserAssertionFailure(trimmed);
-  if (browserAssertionOutcome) return browserAssertionOutcome;
   const jsonOutcome = humanizeJsonSummary(trimmed);
   if (jsonOutcome) return jsonOutcome;
   return trimmed
@@ -109,23 +105,6 @@ function humanizeSummary(summary: string): string {
 
 function stripDiagnosticSuffix(summary: string): string {
   return summary.replace(/\nDiagnostics:[\s\S]*$/i, '');
-}
-
-function humanizeRequiredToolAssertionFailure(summary: string): string | null {
-  const match =
-    /^Required tools were available but not used:\s*([^.]+)\./i.exec(summary);
-  if (!match) return null;
-  return `Required tool access was available, but this job did not use: ${match[1]}.`;
-}
-
-function humanizeBrowserAssertionFailure(summary: string): string | null {
-  if (
-    /Required tool assertion Browser was not satisfied/i.test(summary) ||
-    /Browser was available but not used/i.test(summary)
-  ) {
-    return 'Browser access was available, but this job did not use the browser.';
-  }
-  return null;
 }
 
 function humanizeJsonSummary(summary: string): string | null {
@@ -220,12 +199,6 @@ function notificationAction(
   }
   if (status === 'completed' && hasPendingMemoryReviewSummary(summary)) {
     return 'Review pending memory candidates with memory_review_pending.';
-  }
-  if (humanizeBrowserAssertionFailure(summary)) {
-    return 'Update the job so it uses the browser during the run, or remove Browser from required tools if browser use is optional.';
-  }
-  if (humanizeRequiredToolAssertionFailure(summary)) {
-    return 'Update the job so every required tool is used during the run, or remove tools that are optional from required tools.';
   }
   if (status === 'dead_lettered') {
     return pauseReason

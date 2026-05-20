@@ -184,7 +184,7 @@ function publicJobVisibility(metadata: JobVisibilityMetadata) {
     promptPreview: metadata.promptPreview,
     fullPrompt: metadata.fullPrompt,
     toolAccess: metadata.toolAccess,
-    requiredTools: metadata.requiredTools,
+    toolAccessRequirements: metadata.toolAccessRequirements,
     requiredMcpServers: metadata.requiredMcpServers,
     setup: metadata.setup,
     health: metadata.health,

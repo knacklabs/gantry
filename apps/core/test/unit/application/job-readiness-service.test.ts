@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   evaluateJobReadiness,
   setupStateForDeniedTool,
+  setupStateForTransientPermission,
 } from '@core/application/jobs/job-readiness-service.js';
 import type {
   CapabilitySecretRepository,
@@ -92,7 +93,7 @@ function secretRepository(
 describe('job readiness service', () => {
   it('reports ready when declared requirements have durable bindings and browser state', async () => {
     const result = await evaluateJobReadiness({
-      job: makeJob({ required_tools: ['Browser'] }),
+      job: makeJob({ tool_access_requirements: ['Browser'] }),
       appId: 'default',
       toolRepository: toolRepository(['Browser']),
       getBrowserStatus: vi.fn(async () => ({ hasState: true })),
@@ -108,7 +109,7 @@ describe('job readiness service', () => {
 
   it('pauses for missing durable tool capabilities', async () => {
     const result = await evaluateJobReadiness({
-      job: makeJob({ required_tools: ['Browser'] }),
+      job: makeJob({ tool_access_requirements: ['Browser'] }),
       appId: 'default',
       toolRepository: toolRepository([]),
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
@@ -125,7 +126,7 @@ describe('job readiness service', () => {
 
   it('uses a conservative browser login blocker after durable Browser approval', async () => {
     const result = await evaluateJobReadiness({
-      job: makeJob({ required_tools: ['Browser'] }),
+      job: makeJob({ tool_access_requirements: ['Browser'] }),
       appId: 'default',
       toolRepository: toolRepository(['Browser']),
       getBrowserStatus: vi.fn(async () => ({ hasState: false })),
@@ -145,7 +146,7 @@ describe('job readiness service', () => {
     const result = await evaluateJobReadiness({
       job: makeJob({
         group_scope: 'main_agent',
-        required_tools: ['Browser'],
+        tool_access_requirements: ['Browser'],
         execution_context: {
           conversationJid: 'tg:-1003986348737',
           threadId: null,
@@ -170,7 +171,7 @@ describe('job readiness service', () => {
 
   it('blocks unknown semantic capabilities even when a stale tool rule exists', async () => {
     const result = await evaluateJobReadiness({
-      job: makeJob({ required_tools: ['capability:unknown.tool'] }),
+      job: makeJob({ tool_access_requirements: ['capability:unknown.tool'] }),
       appId: 'default',
       toolRepository: toolRepository(['capability:unknown.tool']),
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
@@ -186,7 +187,9 @@ describe('job readiness service', () => {
 
   it('does not require the OneCLI broker for provider-neutral configured capabilities', async () => {
     const result = await evaluateJobReadiness({
-      job: makeJob({ required_tools: ['capability:google.sheets.write'] }),
+      job: makeJob({
+        tool_access_requirements: ['capability:google.sheets.write'],
+      }),
       appId: 'default',
       toolRepository: toolRepository(['capability:google.sheets.write']),
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
@@ -199,7 +202,7 @@ describe('job readiness service', () => {
   it('uses the declared local CLI implementation instead of the builtin provider path', async () => {
     const result = await evaluateJobReadiness({
       job: makeJob({
-        required_tools: ['capability:google.sheets.write'],
+        tool_access_requirements: ['capability:google.sheets.write'],
         capability_requirements: [
           {
             capabilityId: 'google.sheets.write',
@@ -237,7 +240,7 @@ describe('job readiness service', () => {
   it('treats a declared local CLI implementation as ready when its scoped RunCommand rule is bound', async () => {
     const result = await evaluateJobReadiness({
       job: makeJob({
-        required_tools: ['capability:google.sheets.write'],
+        tool_access_requirements: ['capability:google.sheets.write'],
         capability_requirements: [
           {
             capabilityId: 'google.sheets.write',
@@ -267,7 +270,7 @@ describe('job readiness service', () => {
   it('rejects persisted relative local CLI templates instead of converting legacy setup guidance', async () => {
     const result = await evaluateJobReadiness({
       job: makeJob({
-        required_tools: ['capability:google.sheets.write'],
+        tool_access_requirements: ['capability:google.sheets.write'],
         capability_requirements: [
           {
             capabilityId: 'google.sheets.write',
@@ -403,6 +406,23 @@ describe('job readiness service', () => {
       requirementType: 'browser',
       requirementId: 'Browser',
       nextAction: expect.stringContaining('"toolName":"Browser"'),
+    });
+  });
+
+  it('preserves scoped recovery actions for transient permission setup blockers', () => {
+    const setup = setupStateForTransientPermission({
+      toolName: 'Bash',
+      mode: 'allow_once',
+      recoveryAction:
+        'request_permission {"toolName":"RunCommand","rule":"npm test *"}',
+      checkedAt: '2026-05-14T00:00:00.000Z',
+    });
+
+    expect(setup.blockers[0]).toMatchObject({
+      requirementType: 'tool',
+      requirementId: 'RunCommand',
+      nextAction:
+        'request_permission {"toolName":"RunCommand","rule":"npm test *"}',
     });
   });
 });

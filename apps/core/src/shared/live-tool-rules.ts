@@ -33,6 +33,20 @@ export function appendLiveToolRules(input: {
   return next;
 }
 
+export function removeLiveToolRules(input: {
+  ipcDir?: string;
+  runHandle?: string;
+  rules: readonly string[];
+}): string[] {
+  const filePath = liveToolRulesPath(input);
+  if (!filePath) return [];
+  const remove = new Set(normalizeRuleList(input.rules));
+  const next = readLiveToolRules(input).filter((rule) => !remove.has(rule));
+  ensurePrivateDirSync(path.dirname(filePath));
+  writePrivateFileSync(filePath, JSON.stringify(next, null, 2));
+  return next;
+}
+
 function liveToolRulesPath(input: {
   ipcDir?: string;
   runHandle?: string;

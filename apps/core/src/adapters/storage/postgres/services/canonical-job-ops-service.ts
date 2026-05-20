@@ -62,7 +62,7 @@ export class CanonicalJobOpsService {
         pause_reason: job.pause_reason,
         execution_context: job.execution_context,
         notification_routes: job.notification_routes,
-        required_tools: job.required_tools,
+        tool_access_requirements: job.tool_access_requirements,
         required_mcp_servers: job.required_mcp_servers,
         capability_requirements: job.capability_requirements,
         setup_state: job.setup_state,
@@ -299,8 +299,12 @@ export class CanonicalJobOpsService {
       targetRoutes: target.notificationRoutes,
       executionContext,
     });
-    const requiredTools = parseRequiredTools(target.requiredTools);
-    const requiredMcpServers = parseRequiredTools(target.requiredMcpServers);
+    const toolAccessRequirements = parseToolAccessRequirements(
+      target.toolAccessRequirements,
+    );
+    const requiredMcpServers = parseToolAccessRequirements(
+      target.requiredMcpServers,
+    );
     const capabilityRequirements = parseCapabilityRequirements(
       target.capabilityRequirements,
     );
@@ -334,7 +338,7 @@ export class CanonicalJobOpsService {
       execution_context: executionContext,
       notification_routes: notificationRoutes,
       capability_requirements: capabilityRequirements,
-      required_tools: requiredTools,
+      tool_access_requirements: toolAccessRequirements,
       required_mcp_servers: requiredMcpServers,
       setup_state: setupState,
     };
@@ -373,8 +377,12 @@ export class CanonicalJobOpsService {
         capabilityRequirements: parseCapabilityRequirements(
           job.capability_requirements,
         ),
-        requiredTools: parseRequiredTools(job.required_tools),
-        requiredMcpServers: parseRequiredTools(job.required_mcp_servers),
+        toolAccessRequirements: parseToolAccessRequirements(
+          job.tool_access_requirements,
+        ),
+        requiredMcpServers: parseToolAccessRequirements(
+          job.required_mcp_servers,
+        ),
         setupState: parseSetupState(job.setup_state),
       }),
       silent: Boolean(job.silent),
@@ -463,17 +471,15 @@ function parseNotificationRoutes(input: unknown): CanonicalNotificationRoute[] {
   return routes;
 }
 
-function parseRequiredTools(input: unknown): string[] {
+function parseToolAccessRequirements(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const item of input) {
-    const value = typeof item === 'string' ? item.trim() : '';
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    out.push(value);
-  }
-  return out;
+  return [
+    ...new Set(
+      input
+        .map((item) => (typeof item === 'string' ? item.trim() : ''))
+        .filter(Boolean),
+    ),
+  ];
 }
 
 function parseCapabilityRequirements(
@@ -540,7 +546,7 @@ function parseCapabilityImplementation(
     record.authPreflight ?? record.auth_preflight,
   );
   if (authPreflight) implementation.authPreflight = authPreflight;
-  const protectedPaths = parseRequiredTools(
+  const protectedPaths = parseToolAccessRequirements(
     record.protectedPaths ?? record.protected_paths,
   );
   if (protectedPaths.length > 0) implementation.protectedPaths = protectedPaths;
@@ -645,11 +651,10 @@ function mergeExecutionContextSessionId(
   executionContext: CanonicalExecutionContext,
   sessionId: unknown,
 ): CanonicalExecutionContext {
-  if (executionContext.sessionId) return executionContext;
   const fallback = normalizeNullableString(sessionId);
-  return fallback
-    ? { ...executionContext, sessionId: fallback }
-    : executionContext;
+  return executionContext.sessionId || !fallback
+    ? executionContext
+    : { ...executionContext, sessionId: fallback };
 }
 
 function resolveNotificationRoutes(
@@ -690,7 +695,5 @@ function resolveNotificationRoutesFromTarget(input: {
   ];
 }
 
-function normalizeNullableString(input: unknown): string | null {
-  if (input === null || input === undefined) return null;
-  return normalizeString(input) ?? null;
-}
+// prettier-ignore
+function normalizeNullableString(input: unknown): string | null { return input === null || input === undefined ? null : (normalizeString(input) ?? null); }

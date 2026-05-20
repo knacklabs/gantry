@@ -122,7 +122,7 @@ export interface JobRecord {
   executionContext: JobExecutionContext;
   notificationRoutes: JobNotificationRoute[];
   capabilityRequirements: JobCapabilityRequirement[];
-  requiredTools: string[];
+  toolAccessRequirements: string[];
   requiredMcpServers: string[];
   setup?: JobSetup;
   nextRun: string | null;
@@ -182,7 +182,7 @@ export interface CreateJobInput {
   executionContext: JobRequestExecutionContext;
   notificationRoutes?: JobNotificationRoute[];
   capabilityRequirements?: JobCapabilityRequirement[];
-  requiredTools?: string[];
+  toolAccessRequirements?: string[];
   requiredMcpServers?: string[];
   kind?: JobKind;
   runAt?: string;
@@ -198,7 +198,7 @@ export interface UpdateJobInput {
   executionContext?: JobRequestExecutionContext;
   notificationRoutes?: JobNotificationRoute[];
   capabilityRequirements?: JobCapabilityRequirement[];
-  requiredTools?: string[];
+  toolAccessRequirements?: string[];
   requiredMcpServers?: string[];
   status?: 'active' | 'paused';
   modelAlias?: string | null;

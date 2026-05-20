@@ -467,7 +467,7 @@ describe('control job trigger', () => {
           body: JSON.stringify({
             name: 'Browser Job',
             prompt: 'Open the site',
-            requiredTools: ['Browser'],
+            toolAccessRequirements: ['Browser'],
             executionContext: {
               conversationJid: 'chat-1',
               threadId: null,
@@ -482,7 +482,7 @@ describe('control job trigger', () => {
       expect(browserMocks.getBrowserStatus).toHaveBeenCalled();
       expect(opsRepo.upsertJob).toHaveBeenCalledWith(
         expect.objectContaining({
-          required_tools: ['Browser'],
+          tool_access_requirements: ['Browser'],
           status: 'active',
           setup_state: expect.objectContaining({ state: 'ready' }),
         }),
@@ -560,7 +560,7 @@ describe('control job trigger', () => {
               implementation: expect.objectContaining({ name: 'gog' }),
             }),
           ],
-          required_tools: ['capability:google.sheets.write'],
+          tool_access_requirements: ['capability:google.sheets.write'],
           status: 'paused',
           setup_state: expect.objectContaining({ state: 'draft_only' }),
         }),
@@ -679,7 +679,7 @@ describe('control job trigger', () => {
           body: JSON.stringify({
             name: 'Browser Preview',
             prompt: 'Preview browser work',
-            requiredTools: ['Browser'],
+            toolAccessRequirements: ['Browser'],
             executionContext: {
               conversationJid: 'chat-1',
               threadId: null,
@@ -907,8 +907,10 @@ describe('control job trigger', () => {
         run_id: 'run-1',
         event_type: 'job.tool_activity',
         payload: JSON.stringify({
-          phase: 'required_tool_satisfied',
-          tool: 'Browser',
+          phase: 'tool_access_preflight',
+          tool_access_requirements: ['Browser'],
+          missing_tool_access_requirements: [],
+          ok: true,
         }),
         created_at: '2026-04-24T00:00:00.000Z',
       },
@@ -1063,7 +1065,7 @@ describe('control job trigger', () => {
               implementation: expect.objectContaining({ name: 'gog' }),
             }),
           ],
-          required_tools: ['capability:google.sheets.write'],
+          tool_access_requirements: ['capability:google.sheets.write'],
           status: 'paused',
           setup_state: expect.objectContaining({ state: 'draft_only' }),
         }),

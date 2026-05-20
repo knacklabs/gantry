@@ -7,7 +7,10 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   formatPersistentPermissionRulesForUser,
   persistRequestPermissionRules,
+  requestPermissionDescription,
+  requestPermissionQueuedMessage,
   requestPermissionReviewSuggestions,
+  requestPermissionSetupDecisionOptions,
 } from '@core/jobs/request-permission-review.js';
 
 function depsWith(repository: unknown) {
@@ -18,6 +21,16 @@ function depsWith(repository: unknown) {
 }
 
 describe('request permission review helpers', () => {
+  it('keeps setup request_permission copy aligned with configured options', () => {
+    expect(
+      requestPermissionQueuedMessage({
+        toolName: 'request_permission',
+        displayName: 'permission: SandboxNetworkAccess',
+      }),
+    ).not.toContain('Always allow');
+    expect(requestPermissionDescription()).not.toContain('Always allow');
+  });
+
   it('does not suggest persistent tool grants for temporary, non-tool, or multi-tool requests', () => {
     expect(
       requestPermissionReviewSuggestions({
@@ -43,6 +56,24 @@ describe('request permission review helpers', () => {
         toolName: 'SandboxNetworkAccess',
       }),
     ).toBeUndefined();
+  });
+
+  it('omits timed grants from setup request permission choices', () => {
+    expect(
+      requestPermissionSetupDecisionOptions({
+        permissionKind: 'tool',
+        toolName: 'FileRead',
+        temporaryOnly: false,
+      }),
+    ).toEqual(['allow_once', 'allow_persistent_rule', 'cancel']);
+
+    expect(
+      requestPermissionSetupDecisionOptions({
+        permissionKind: 'tool',
+        toolName: 'SandboxNetworkAccess',
+        temporaryOnly: false,
+      }),
+    ).toEqual(['allow_once', 'cancel']);
   });
 
   it('suggests semantic capability grants by capability id', () => {
@@ -602,6 +633,24 @@ describe('request permission review helpers', () => {
               '/Users/example/runtime/scripts/dedup-append-lead.py *',
           },
         ],
+      },
+    ]);
+  });
+
+  it('suggests persistent scoped RunCommand rules from setup recovery actions', () => {
+    expect(
+      requestPermissionReviewSuggestions({
+        permissionKind: 'tool',
+        toolName: 'RunCommand',
+        rule: 'gog sheets append *',
+        temporaryOnly: false,
+      }),
+    ).toEqual([
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [{ toolName: 'RunCommand', ruleContent: 'gog sheets append *' }],
       },
     ]);
   });

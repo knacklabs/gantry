@@ -1,5 +1,6 @@
 import type {
   PermissionApprovalDecision,
+  PermissionApprovalDecisionMode,
   PermissionApprovalUpdate,
 } from '../domain/types.js';
 import type { AppId } from '../domain/app/app.js';
@@ -40,11 +41,11 @@ export interface RequestPermissionReview {
 export function requestPermissionQueuedMessage(
   review: RequestPermissionReview,
 ): string {
-  return `${formatApprovalRequestedMessage(review.displayName)} Choose Allow once, Allow 5 min, or Always allow.`;
+  return `${formatApprovalRequestedMessage(review.displayName)} Choose one of the options in the approval prompt.`;
 }
 
 export function requestPermissionDescription(): string {
-  return 'Only configured approvers can decide this request. Allow once covers this request, Allow 5 min is temporary, and Always allow covers matching future requests.';
+  return 'Only configured approvers can decide this setup request. The approval prompt shows whether access is temporary or can be recorded for matching future access.';
 }
 
 export function requestPermissionReviewEffect(
@@ -219,6 +220,15 @@ export function requestPermissionReviewSuggestions(
       ],
     },
   ];
+}
+
+export function requestPermissionSetupDecisionOptions(
+  toolInput: Record<string, unknown>,
+): PermissionApprovalDecisionMode[] {
+  const suggestions = requestPermissionReviewSuggestions(toolInput);
+  return permissionUpdateAllowedToolRules(suggestions).length > 0
+    ? ['allow_once', 'allow_persistent_rule', 'cancel']
+    : ['allow_once', 'cancel'];
 }
 
 export { formatPersistentPermissionRulesForUser };

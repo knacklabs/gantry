@@ -37,7 +37,7 @@ const SCHEDULER_UPSERT_ARG_KEYS = new Set([
   'execution_context',
   'notification_routes',
   'capability_requirements',
-  'required_tools',
+  'tool_access_requirements',
   'required_mcp_servers',
   'silent',
   'cleanup_after_ms',
@@ -61,7 +61,7 @@ const SCHEDULER_UPDATE_ARG_KEYS = new Set([
   'execution_context',
   'notification_routes',
   'capability_requirements',
-  'required_tools',
+  'tool_access_requirements',
   'required_mcp_servers',
   'silent',
   'cleanup_after_ms',
@@ -75,6 +75,17 @@ function unsupportedSchedulerArgError(
   args: Record<string, unknown>,
   allowedKeys: ReadonlySet<string>,
 ) {
+  if (Object.prototype.hasOwnProperty.call(args, 'required_tools')) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: 'required_tools is no longer accepted. Use tool_access_requirements for access preflight checks.',
+        },
+      ],
+      isError: true,
+    };
+  }
   const unsupported = Object.keys(args).filter((key) => !allowedKeys.has(key));
   if (unsupported.length === 0) return null;
   return {
@@ -190,14 +201,15 @@ export function registerSchedulerTools(server: McpServer): void {
         .array(schedulerCapabilityRequirementSchema)
         .optional()
         .describe(
-          'Semantic capabilities this job needs, with optional implementation hints. These merge into required_tools as capability:<id> and pause setup if reviewed access is missing.',
+          'Semantic capabilities this job needs, with optional implementation hints. These merge into tool_access_requirements as capability:<id> and pause setup if reviewed access is missing.',
         ),
-      required_tools: z
+      tool_access_requirements: z
         .array(z.string())
         .optional()
         .describe(
-          'Hard run assertions, not permission hints. Missing tools pause setup for user approval; Browser also requires real browser IPC activity in every successful run. Do not include optional or fallback tools.',
+          'Tool access requirements for this job. Missing access pauses setup for user approval; successful runs are not required to use every listed tool.',
         ),
+      required_tools: z.array(z.string()).optional().describe('Deprecated.'),
       required_mcp_servers: z.array(z.string()).optional(),
       silent: z.boolean().optional(),
       cleanup_after_ms: z.number().optional(),
@@ -249,7 +261,7 @@ export function registerSchedulerTools(server: McpServer): void {
         capabilityRequirements: normalizeSchedulerCapabilityRequirements(
           args.capability_requirements,
         ),
-        requiredTools: args.required_tools,
+        toolAccessRequirements: args.tool_access_requirements,
         requiredMcpServers: args.required_mcp_servers,
         silent: args.silent,
         cleanupAfterMs: args.cleanup_after_ms,
@@ -402,14 +414,15 @@ export function registerSchedulerTools(server: McpServer): void {
         .array(schedulerCapabilityRequirementSchema)
         .optional()
         .describe(
-          'Semantic capabilities this job needs, with optional implementation hints. These merge into required_tools as capability:<id> and pause setup if reviewed access is missing.',
+          'Semantic capabilities this job needs, with optional implementation hints. These merge into tool_access_requirements as capability:<id> and pause setup if reviewed access is missing.',
         ),
-      required_tools: z
+      tool_access_requirements: z
         .array(z.string())
         .optional()
         .describe(
-          'Hard run assertions, not permission hints. Missing tools pause setup for user approval; Browser also requires real browser IPC activity in every successful run. Do not include optional or fallback tools.',
+          'Tool access requirements for this job. Missing access pauses setup for user approval; successful runs are not required to use every listed tool.',
         ),
+      required_tools: z.array(z.string()).optional().describe('Deprecated.'),
       required_mcp_servers: z.array(z.string()).optional(),
       silent: z.boolean().optional(),
       cleanup_after_ms: z.number().optional(),
@@ -453,8 +466,8 @@ export function registerSchedulerTools(server: McpServer): void {
           args.target !== undefined
             ? { notificationRoutes: canonicalTarget.notificationRoutes }
             : {}),
-          ...(args.required_tools !== undefined
-            ? { requiredTools: args.required_tools }
+          ...(args.tool_access_requirements !== undefined
+            ? { toolAccessRequirements: args.tool_access_requirements }
             : {}),
           ...(args.capability_requirements !== undefined
             ? {

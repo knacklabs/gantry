@@ -10,11 +10,12 @@
   a recent approved tool-use token is still unexpired and unambiguous, or a
   short-lived eligible-tools/SDK-API-prompt timed grant is active for the same principal and
   conversation. Never log raw hostnames or tool inputs for this gate.
-- Permission `Allow 5 min` is
-  intentionally a short-lived yolo grant for every eligible SDK tool call and SDK network/API
-  prompt by the same principal in the same conversation. Keep protected-path,
-  memory-boundary, and fail-closed sandbox hard guards before the timed grant so
-  this option reduces prompts without bypassing safety checks.
+- Permission `Allow 5 min` is intentionally a live-interactive-only short-lived
+  yolo grant for every eligible SDK tool call and SDK network/API prompt by the
+  same principal in the same conversation. Setup, scheduler, admin, and
+  capability flows must omit it. Keep protected-path, memory-boundary, and
+  fail-closed sandbox hard guards before the timed grant so this option reduces
+  live prompts without bypassing safety checks.
 - One-shot scheduled jobs must close the SDK prompt stream after the initial prompt is queued. Keeping that async iterable open is live-run behavior for IPC continuations; in scheduled jobs it can leave the SDK waiting for another user turn after tool execution and produce an idle stall instead of a terminal result.
 - Claude SDK session persistence is split by run type. Live channel turns may
   use `AgentInput.sessionId` to set `persistSession: true` and `resume`, but

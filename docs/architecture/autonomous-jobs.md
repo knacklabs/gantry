@@ -34,7 +34,7 @@ browser gateway tool names.
 
 Job create/update surfaces accept declared setup requirements:
 
-- `requiredTools`: durable readable tool rules such as `Browser`,
+- `toolAccessRequirements`: durable readable tool rules such as `Browser`,
   `capability:google.sheets.write`, exact Gantry file/web facades, exact
   first-party Gantry MCP tools, or scoped `RunCommand(...)` rules.
 - `requiredMcpServers`: approved third-party MCP server names or ids expected
@@ -67,8 +67,9 @@ mcp_missing_credential
 draft_only
 ```
 
-`Allow once` can resume the current blocked tool call, and `Allow 5 min` can
-reduce repeated prompts for the same short run, but neither is durable readiness
+`Allow once` can resume the current blocked tool call in live interactive
+permission prompts. `Allow 5 min` is also live-only; setup and scheduler
+readiness prompts do not show it because timed grants are not durable readiness
 for future recurring runs. Recurring activation requires a persistent
 target-agent capability binding such as `Browser`, `capability:<id>`, an exact
 Gantry file/web facade, an approved Gantry admin tool, a scoped
@@ -85,7 +86,7 @@ before autonomous allowance. If a tool is outside the effective job allowlist,
 the runner uses the same permission IPC path as interactive agent runs: it sends
 the approval prompt to the job's source conversation/thread or topic and waits
 at the tool boundary. `Allow once` resumes that tool call in the current job
-run, while `Allow 5 min` is temporary. `Always allow` stores a semantic
+run. `Always allow` stores a semantic
 `capability:<id>` grant when the request names one; otherwise it may apply
 canonical `Browser`, an exact Gantry file/web facade, an exact Gantry admin
 tool, or a scoped `RunCommand(...)` rule to the target agent. Broad exact
@@ -119,7 +120,7 @@ instead of embedding provider-specific shell commands in the prompt. Each
 requirement names a semantic capability id, a human reason, and optional
 implementation hints such as `configured_access`, `local_cli`, `mcp_server`, or
 `builtin_tool`. Gantry stores those requirements on the canonical job target and
-derives `capability:<id>` required-tool rules from them. The pre-confirmation
+derives `capability:<id>` tool-access-requirement rules from them. The pre-confirmation
 plan shows the required capabilities in human terms, for example
 `Google Sheets write using gog`.
 
@@ -141,9 +142,9 @@ and notifies the linked group/thread or DM with `Setup needed` unless the job is
 silent.
 Pre-spawn readiness blockers emit `job.setup_required` and pause before a
 `JobRun` is claimed. After a run is claimed, the scheduler emits
-`job.tool_activity` for required-tool preflight, SDK tool requests, allow/deny
-decisions, permission waits, browser IPC actions, and required-tool
-satisfaction. Notification routes receive one terminal outcome message; they
+`job.tool_activity` for tool-access-requirement preflight, SDK tool requests, allow/deny
+decisions, permission waits, browser IPC actions, and tool-access readiness
+results. Notification routes receive one terminal outcome message; they
 do not receive streamed assistant output or full-output fallback messages.
 Successful scheduled runs must end with a concise user-facing
 `Final Job Report` that states the outcome, notable counts, and the next
@@ -151,10 +152,10 @@ action, and the terminal outcome message may summarize that report.
 Browser calls made by jobs emit
 `job.tool_activity` events with the job id, run id, tool name, result, elapsed
 time, and normalized site.
-When `Browser` is listed in `requiredTools`, a completed model run is only
-successful if at least one browser IPC action was observed for that run. If
-Browser was available but unused, the run fails with an explicit Browser
-unsatisfied diagnostic rather than a generic timeout or silent completion.
+When `Browser` is listed in `toolAccessRequirements`, readiness verifies that
+the job has Browser access before launch. Browser use is observable through
+tool-activity events, but successful runs do not fail merely because the agent
+did not use an available Browser grant.
 Terminal job events and run summaries include last heartbeat, last/current
 tool, pending permission state, total tool calls, browser activity count, and
 streamed-output size diagnostics.

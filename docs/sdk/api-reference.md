@@ -137,8 +137,10 @@ any runtime-only projected tools.
 Agent capability updates are bidirectional: settings-side changes reconcile
 Postgres immediately, and API/admin-side capability writes export the readable
 projection back into `settings.yaml` before returning.
-Permission prompts use the simple choices `Allow once`, `Allow 5 min`,
-`Always allow`, or `Cancel`.
+Live interactive permission prompts use `Allow once`, `Allow 5 min`,
+`Always allow`, or `Cancel`. Setup, scheduler, admin, and capability flows omit
+`Allow 5 min` because timed grants are transient and do not establish durable
+readiness.
 Same-conversation review binds the request to the originating chat or thread;
 it does not bypass the configured conversation approvers. Raw request ids,
 command hashes, scoped `RunCommand(...)` rules, executable paths, and sandbox details are

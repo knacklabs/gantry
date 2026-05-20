@@ -19,7 +19,6 @@ export interface BrowserJobActivityInput {
   tool: string;
   publicToolName?: string | null;
   action?: string | null;
-  satisfiesRequiredTool?: boolean | null;
   ok: boolean;
   elapsedMs: number;
   normalizedSite?: string | null;
@@ -72,8 +71,6 @@ export async function publishBrowserJobActivityEvent(input: {
       tool: activity.tool,
       public_tool: activity.publicToolName ?? null,
       action: activity.action ?? null,
-      satisfies_required_tool:
-        activity.satisfiesRequiredTool === true ? true : false,
       ok: activity.ok,
       elapsed_ms: activity.elapsedMs,
       normalized_site: activity.normalizedSite ?? null,

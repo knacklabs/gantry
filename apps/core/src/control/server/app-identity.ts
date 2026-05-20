@@ -117,7 +117,7 @@ export function mapManualJobToStored(
     executionContext: metadata.executionContext,
     notificationRoutes: metadata.notificationRoutes,
     capabilityRequirements: job.capability_requirements ?? [],
-    requiredTools: job.required_tools ?? [],
+    toolAccessRequirements: job.tool_access_requirements ?? [],
     requiredMcpServers: job.required_mcp_servers ?? [],
     setup: metadata.setup,
     nextRun: job.next_run,

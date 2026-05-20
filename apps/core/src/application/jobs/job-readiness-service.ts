@@ -18,12 +18,13 @@ import {
   resolveJobToolPolicy,
 } from './job-tool-policy.js';
 import {
-  evaluateRequiredTools,
-  requiredToolRecoveryAction,
-} from './job-required-tools.js';
+  evaluateToolAccessRequirements,
+  toolAccessRequirementRecoveryAction,
+} from './job-tool-access-requirements.js';
 import {
   isCanonicalBrowserCapabilityRule,
   isProjectedBrowserMcpToolRule,
+  publicGantryToolNameForSdkTool,
   RUN_COMMAND_TOOL_NAME,
 } from '../../shared/agent-tool-references.js';
 import {
@@ -69,7 +70,7 @@ export interface JobReadinessInput extends JobReadinessDeps {
     Job,
     | 'id'
     | 'group_scope'
-    | 'required_tools'
+    | 'tool_access_requirements'
     | 'required_mcp_servers'
     | 'capability_requirements'
     | 'execution_context'
@@ -100,8 +101,8 @@ export async function evaluateJobReadiness(
     agentId,
     toolRepository: input.toolRepository,
   });
-  const toolPreflight = evaluateRequiredTools({
-    requiredTools: input.job.required_tools,
+  const toolPreflight = evaluateToolAccessRequirements({
+    toolAccessRequirements: input.job.tool_access_requirements,
     effectiveAllowedTools: policy.effectiveAllowedTools,
   });
   const draftOnlyRequirementRules = new Set(
@@ -127,14 +128,16 @@ export async function evaluateJobReadiness(
   }
 
   const missingToolSet = new Set(toolPreflight.missingTools);
-  for (const requiredTool of toolPreflight.requiredTools) {
-    if (missingToolSet.has(requiredTool)) continue;
-    if (isCanonicalBrowserCapabilityRule(requiredTool)) {
+  for (const toolAccessRequirement of toolPreflight.toolAccessRequirements) {
+    if (missingToolSet.has(toolAccessRequirement)) continue;
+    if (isCanonicalBrowserCapabilityRule(toolAccessRequirement)) {
       const browserBlocker = await browserReadinessBlocker(input);
       if (browserBlocker) blockers.push(browserBlocker);
       continue;
     }
-    const semanticCapabilityId = parseSemanticCapabilityRule(requiredTool);
+    const semanticCapabilityId = parseSemanticCapabilityRule(
+      toolAccessRequirement,
+    );
     if (semanticCapabilityId) {
       if (localCliRequirementCapabilities.has(semanticCapabilityId)) {
         continue;
@@ -222,7 +225,8 @@ export function setupStateForDeniedTool(input: {
         requirementId: toolName,
         message: `This job needs ${toolRequirementLabel(toolName)} before it can run.`,
         nextAction:
-          input.recoveryAction?.trim() || requiredToolRecoveryAction(toolName),
+          input.recoveryAction?.trim() ||
+          toolAccessRequirementRecoveryAction(toolName),
       },
     ],
   });
@@ -231,6 +235,7 @@ export function setupStateForDeniedTool(input: {
 export function setupStateForTransientPermission(input: {
   toolName: string;
   mode?: string | null;
+  recoveryAction?: string | null;
   checkedAt?: string;
   previous?: JobSetupState;
 }): JobSetupState {
@@ -244,7 +249,9 @@ export function setupStateForTransientPermission(input: {
         requirementType: requirementTypeForTool(toolName),
         requirementId: toolName,
         message: `This scheduled job used temporary ${toolRequirementLabel(toolName)}. Approve lasting access before future runs continue.`,
-        nextAction: requiredToolRecoveryAction(toolName),
+        nextAction:
+          input.recoveryAction?.trim() ||
+          toolAccessRequirementRecoveryAction(toolName),
       },
     ],
   });
@@ -314,7 +321,7 @@ function missingToolBlocker(toolName: string): JobSetupBlocker {
     requirementType: requirementTypeForTool(toolName),
     requirementId: toolName,
     message: `This job needs ${toolRequirementLabel(toolName)} before it can run.`,
-    nextAction: requiredToolRecoveryAction(toolName),
+    nextAction: toolAccessRequirementRecoveryAction(toolName),
   };
 }
 
@@ -327,7 +334,9 @@ function requirementTypeForTool(
 }
 
 function canonicalSetupToolName(toolName: string): string {
-  return isProjectedBrowserMcpToolRule(toolName) ? 'Browser' : toolName;
+  return isProjectedBrowserMcpToolRule(toolName)
+    ? 'Browser'
+    : publicGantryToolNameForSdkTool(toolName);
 }
 
 function toolRequirementLabel(toolName: string): string {

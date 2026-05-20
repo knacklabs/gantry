@@ -215,7 +215,7 @@ sequenceDiagram
   Runner->>Dir: write request with group/thread auth token
   Host->>Host: validate path, token, kind, rate limit, and ownership
   Host->>Main: request approval when policy requires it
-  Main->>User: show Allow once / Allow 5 min / Always allow / Cancel prompt
+  Main->>User: show valid choices for this flow
   User->>Main: choose one permission action
   Main->>Host: return decision
   Host->>Dir: write signed response

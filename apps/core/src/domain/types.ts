@@ -180,7 +180,7 @@ export interface Job {
   execution_context?: JobExecutionContext;
   notification_routes?: JobNotificationRoute[];
   capability_requirements?: JobCapabilityRequirement[];
-  required_tools?: string[];
+  tool_access_requirements?: string[];
   required_mcp_servers?: string[];
   setup_state?: JobSetupState;
 }

@@ -829,4 +829,28 @@ describe('Postgres migration journal', () => {
     expect(migration).toContain("WHERE status IN ('pending', 'leased')");
     expect(migration).toContain('idx_provider_sessions_agent_provider');
   });
+
+  it('registers job tool access requirements cutover migration', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const cutover = journal.entries.find(
+      (entry) => entry.tag === '0061_jobs_tool_access_requirements_cutover',
+    );
+    expect(cutover).toMatchObject({ idx: 61 });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0061_jobs_tool_access_requirements_cutover.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain("target_json ? 'requiredTools'");
+    expect(migration).toContain("target_json ? 'toolAccessRequirements'");
+    expect(migration).toContain("target_json - 'requiredTools'");
+    expect(migration).toContain("'{toolAccessRequirements}'");
+  });
 });

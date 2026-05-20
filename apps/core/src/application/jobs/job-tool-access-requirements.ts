@@ -1,6 +1,7 @@
 import { ApplicationError } from '../common/application-error.js';
 import {
   isCanonicalBrowserCapabilityRule,
+  isGantryFacadeExactToolRule,
   isProjectedBrowserMcpToolRule,
   parseReadableScopedToolRule,
   RUN_COMMAND_TOOL_NAME,
@@ -12,14 +13,14 @@ import { toolRuleCoversRule } from '../../shared/tool-rule-matcher.js';
 
 const EXACT_GANTRY_MCP_TOOL_RE = /^mcp__gantry__[A-Za-z0-9_-]+$/;
 
-export interface RequiredToolPreflightResult {
-  requiredTools: string[];
+export interface ToolAccessRequirementPreflightResult {
+  toolAccessRequirements: string[];
   missingTools: string[];
 }
 
-export function normalizeRequiredToolsInput(
+export function normalizeToolAccessRequirementsInput(
   value: unknown,
-  fieldName = 'requiredTools',
+  fieldName = 'toolAccessRequirements',
 ): string[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) {
@@ -28,12 +29,12 @@ export function normalizeRequiredToolsInput(
       `${fieldName} must be an array of readable tool rules.`,
     );
   }
-  return normalizeRequiredTools(value, fieldName);
+  return normalizeToolAccessRequirements(value, fieldName);
 }
 
-export function normalizeRequiredTools(
+export function normalizeToolAccessRequirements(
   values: readonly unknown[],
-  fieldName = 'requiredTools',
+  fieldName = 'toolAccessRequirements',
 ): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -45,7 +46,7 @@ export function normalizeRequiredTools(
         `${fieldName} entries must be non-empty strings.`,
       );
     }
-    const validation = validateRequiredToolRule(rule);
+    const validation = validateToolAccessRequirementRule(rule);
     if (!validation.ok) {
       throw new ApplicationError(
         'INVALID_REQUEST',
@@ -96,7 +97,7 @@ export function normalizeRequiredMcpServers(
   return out;
 }
 
-export function validateRequiredToolRule(
+export function validateToolAccessRequirementRule(
   rule: string,
 ): { ok: true } | { ok: false; reason: string } {
   const trimmed = rule.trim();
@@ -105,18 +106,19 @@ export function validateRequiredToolRule(
     return {
       ok: false,
       reason:
-        'Gantry MCP wildcard grants are not valid required-tool assertions.',
+        'Gantry MCP wildcard grants are not valid tool access requirements.',
     };
   }
   const readable = validateReadableAgentToolRule(trimmed);
   if (!readable.ok) return readable;
+  if (isGantryFacadeExactToolRule(trimmed)) return { ok: true };
   const scoped = parseReadableScopedToolRule(trimmed);
   if (scoped) {
     return scoped.toolName === RUN_COMMAND_TOOL_NAME
       ? { ok: true }
       : {
           ok: false,
-          reason: 'Only RunCommand supports scoped required-tool assertions.',
+          reason: 'Only RunCommand supports scoped tool access requirements.',
         };
   }
   if (parseSemanticCapabilityRule(trimmed)) return { ok: true };
@@ -130,36 +132,48 @@ export function validateRequiredToolRule(
   return {
     ok: false,
     reason:
-      'Use canonical Browser, capability:<id>, exact mcp__gantry__ tool names, or scoped RunCommand(...).',
+      'Use canonical Browser, exact Gantry file/web tool names, capability:<id>, exact mcp__gantry__ tool names, or scoped RunCommand(...).',
   };
 }
 
-export function evaluateRequiredTools(input: {
-  requiredTools?: readonly string[];
+export function evaluateToolAccessRequirements(input: {
+  toolAccessRequirements?: readonly string[];
   effectiveAllowedTools: readonly string[];
-}): RequiredToolPreflightResult {
-  const requiredTools = normalizeRequiredTools(input.requiredTools ?? []);
+}): ToolAccessRequirementPreflightResult {
+  const toolAccessRequirements = normalizeToolAccessRequirements(
+    input.toolAccessRequirements ?? [],
+  );
   const allowed = input.effectiveAllowedTools
     .map((tool) => tool.trim())
     .filter(Boolean);
-  const missingTools = requiredTools.filter(
+  const missingTools = toolAccessRequirements.filter(
     (required) =>
       !allowed.some(
         (allowedRule) =>
           allowedRule === required || toolRuleCoversRule(allowedRule, required),
       ),
   );
-  return { requiredTools, missingTools };
+  return { toolAccessRequirements, missingTools };
 }
 
-export function requiredToolRecoveryAction(toolName: string): string {
+export function toolAccessRequirementRecoveryAction(toolName: string): string {
+  const scoped = parseReadableScopedToolRule(toolName);
+  if (scoped?.toolName === RUN_COMMAND_TOOL_NAME) {
+    return `request_permission ${JSON.stringify({
+      permissionKind: 'tool',
+      toolName: RUN_COMMAND_TOOL_NAME,
+      rule: scoped.scope,
+      temporaryOnly: false,
+      reason: `This autonomous run requires ${toolName} access.`,
+    })}`;
+  }
   if (isCanonicalBrowserCapabilityRule(toolName)) {
     return `request_permission ${JSON.stringify({
       permissionKind: 'tool',
       toolName: 'Browser',
       toolCategory: 'browser',
       temporaryOnly: false,
-      reason: 'This autonomous run requires Browser.',
+      reason: 'This autonomous run requires Browser access.',
     })}`;
   }
   if (parseSemanticCapabilityRule(toolName)) {
@@ -167,17 +181,17 @@ export function requiredToolRecoveryAction(toolName: string): string {
       permissionKind: 'tool',
       toolName,
       temporaryOnly: false,
-      reason: `This autonomous run requires ${toolName}.`,
+      reason: `This autonomous run requires ${toolName} access.`,
     })}`;
   }
   return `request_permission ${JSON.stringify({
     permissionKind: 'tool',
     toolName,
     temporaryOnly: false,
-    reason: `This autonomous run requires ${toolName}.`,
+    reason: `This autonomous run requires ${toolName} access.`,
   })}`;
 }
 
-export function missingRequiredToolError(toolName: string): string {
-  return `Missing required tool before run. Tool not on autonomous run allowlist: ${toolName}. Recovery: ${requiredToolRecoveryAction(toolName)}`;
+export function missingToolAccessRequirementError(toolName: string): string {
+  return `Missing tool access requirement before run. Tool not on autonomous run allowlist: ${toolName}. Recovery: ${toolAccessRequirementRecoveryAction(toolName)}`;
 }

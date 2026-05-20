@@ -197,6 +197,7 @@ async function completeSkillInstallCommandReview(input: {
       targetJid: input.targetJid,
       threadId: data.authThreadId,
       decisionPolicy: 'same_channel',
+      decisionOptions: ['allow_once', 'cancel'],
       toolName: 'request_skill_install',
       displayName: input.displayName,
       title: 'Install skill for this agent',

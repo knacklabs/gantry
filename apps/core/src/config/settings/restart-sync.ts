@@ -7,6 +7,7 @@ import { SettingsDesiredStateService } from './desired-state-service.js';
 import {
   addAgentToolRulesToRuntimeSettings,
   loadRuntimeSettings,
+  removeAgentToolRulesFromRuntimeSettings,
   saveRuntimeSettings,
 } from './runtime-settings.js';
 import { validateLoadedRuntimeSettings } from './runtime-settings-validation.js';
@@ -91,6 +92,33 @@ export async function addAgentToolRulesToSyncedRuntimeSettings(input: {
   const previousSettings = loadRuntimeSettings(input.runtimeHome);
   const nextSettings = structuredClone(previousSettings);
   addAgentToolRulesToRuntimeSettings(
+    nextSettings,
+    input.agentFolder,
+    input.rules,
+  );
+  await applyRuntimeSettingsDesiredState({
+    runtimeHome: input.runtimeHome,
+    settings: nextSettings,
+    previousSettings,
+    ops: input.ops,
+    repositories: input.repositories,
+    appId: input.appId,
+    reloadRuntimeState: input.reloadRuntimeState,
+  });
+}
+
+export async function removeAgentToolRulesFromSyncedRuntimeSettings(input: {
+  runtimeHome: string;
+  agentFolder: string;
+  rules: readonly string[];
+  ops: SettingsDesiredStateOps;
+  repositories: SettingsDesiredStateRepositories;
+  appId?: AppId;
+  reloadRuntimeState?: () => Promise<void>;
+}): Promise<void> {
+  const previousSettings = loadRuntimeSettings(input.runtimeHome);
+  const nextSettings = structuredClone(previousSettings);
+  removeAgentToolRulesFromRuntimeSettings(
     nextSettings,
     input.agentFolder,
     input.rules,

@@ -273,7 +273,7 @@ describe('contracts package', () => {
           },
         },
       ],
-      requiredTools: ['Browser'],
+      toolAccessRequirements: ['Browser'],
       kind: 'recurring',
       schedule: { type: 'cron', value: '0 9 * * *' },
       modelAlias: 'sonnet',
@@ -286,7 +286,7 @@ describe('contracts package', () => {
           implementation: expect.objectContaining({ name: 'gog' }),
         }),
       ],
-      requiredTools: ['Browser'],
+      toolAccessRequirements: ['Browser'],
       executionContext: {
         conversationJid: 'app:app-one:session-1',
         sessionId: 'session-1',
@@ -401,7 +401,7 @@ describe('contracts package', () => {
           reason: 'Append rows after each run',
         },
       ],
-      requiredTools: ['Browser'],
+      toolAccessRequirements: ['Browser'],
       status: 'paused',
     } satisfies UpdateJobInput;
     expect(UpdateJobRequestSchema.parse(sdkUpdatePayload)).toEqual({
@@ -412,7 +412,7 @@ describe('contracts package', () => {
           reason: 'Append rows after each run',
         },
       ],
-      requiredTools: ['Browser'],
+      toolAccessRequirements: ['Browser'],
       status: 'paused',
     });
     expectInvalid(UpdateJobRequestSchema, {
@@ -484,7 +484,7 @@ describe('contracts package', () => {
             reason: 'Append rows after each run',
           },
         ],
-        requiredTools: ['Browser'],
+        toolAccessRequirements: ['Browser'],
         requiredMcpServers: [],
         nextRun: iso,
         lastRun: null,

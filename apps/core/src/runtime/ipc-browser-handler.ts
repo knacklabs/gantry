@@ -3,7 +3,6 @@ import path from 'path';
 
 import {
   BROWSER_BACKEND_ACTIONS,
-  browserBackendActionSatisfiesGatewayActivity,
   type BrowserBackendAction,
 } from '../shared/browser-backend-actions.js';
 
@@ -616,12 +615,6 @@ async function publishBrowserJobActivity(input: {
       tool: 'Browser',
       publicToolName: input.request.publicToolName,
       action: input.request.action,
-      satisfiesRequiredTool:
-        input.ok &&
-        browserBackendActionSatisfiesGatewayActivity({
-          publicToolName: input.request.publicToolName,
-          action: input.request.action,
-        }),
       ok: input.ok,
       elapsedMs: input.elapsedMs,
       normalizedSite: input.normalizedSite ?? null,

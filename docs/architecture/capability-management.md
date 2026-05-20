@@ -278,7 +278,7 @@ not durable Gantry truth.
    Gantry Secret refs, sandbox profile, tool patterns, and provider metadata.
 3. Review: same-channel review renders the request, but authority still comes
    from configured admin/control policy.
-4. Decide: the user sees `Allow once`, `Allow 5 min`, `Always allow`, or `Cancel`; Details and audit records carry the durable authority shape, such as a semantic capability, canonical `Browser`, exact Gantry file/web facade, exact `mcp__gantry__<admin_tool>`, or scoped `RunCommand(<pattern>)`.
+4. Decide: setup, scheduler, admin, and capability flows show `Allow once`, `Always allow`, or `Cancel`; live interactive SDK prompts may also show `Allow 5 min`. Details and audit records carry the durable authority shape, such as a semantic capability, canonical `Browser`, exact Gantry file/web facade, exact `mcp__gantry__<admin_tool>`, or scoped `RunCommand(<pattern>)`.
 5. Bind: approval creates or updates the agent binding and a new config version.
 6. Same-session handoff: approved skill installs and proposals are returned to the running
    agent as reviewed skill files; approved MCP servers are reachable through the
@@ -415,7 +415,7 @@ Agents creating jobs should declare needed app/tool access with
 `scheduler_upsert_job.capability_requirements` when the job depends on a
 semantic capability such as Google Sheets write access. Requirements are stored
 with the job, included in the confirmation token, and projected into
-`required_tools` as `capability:<id>` so readiness checks and runtime permission
+`tool_access_requirements` as `capability:<id>` so readiness checks and runtime permission
 evaluation use the same durable authority model.
 
 Use `implementation.kind: configured_access` when Gantry should use an existing

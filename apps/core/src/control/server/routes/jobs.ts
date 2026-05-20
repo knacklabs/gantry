@@ -96,6 +96,12 @@ function sendApplicationError(res: ServerResponse, error: unknown): boolean {
 
 function formatJobRequestIssue(issue: ZodIssue): string {
   if (issue.code === 'unrecognized_keys' && issue.keys.length > 0) {
+    const oldToolField = issue.keys.find(
+      (key) => key === 'requiredTools' || key === 'required_tools',
+    );
+    if (oldToolField) {
+      return `${oldToolField} is no longer accepted. Use toolAccessRequirements for access preflight checks.`;
+    }
     return `Unsupported job request field "${issue.keys[0]}".`;
   }
   if (issue.message === 'Use either modelAlias or modelProfileId, not both.') {
@@ -349,7 +355,7 @@ export async function handleJobRoutes(
         executionContext: body.executionContext,
         notificationRoutes: body.notificationRoutes,
         capabilityRequirements: body.capabilityRequirements,
-        requiredTools: body.requiredTools,
+        toolAccessRequirements: body.toolAccessRequirements,
         requiredMcpServers: body.requiredMcpServers,
         kind,
         runAt: typeof body.runAt === 'string' ? body.runAt : undefined,
@@ -545,8 +551,8 @@ export async function handleJobRoutes(
           ...(Array.isArray(body.capabilityRequirements)
             ? { capabilityRequirements: body.capabilityRequirements }
             : {}),
-          ...(Array.isArray(body.requiredTools)
-            ? { requiredTools: body.requiredTools }
+          ...(Array.isArray(body.toolAccessRequirements)
+            ? { toolAccessRequirements: body.toolAccessRequirements }
             : {}),
           ...(Array.isArray(body.requiredMcpServers)
             ? { requiredMcpServers: body.requiredMcpServers }

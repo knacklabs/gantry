@@ -9,6 +9,7 @@ import type {
   PermissionDecisionId,
 } from '../../domain/permissions/permissions.js';
 import type { AgentToolBinding } from '../../domain/tools/tools.js';
+import type { ToolId } from '../../domain/tools/tools.js';
 import { ensureAgentToolCatalogItem } from '../../domain/tools/agent-tool-catalog-references.js';
 import {
   semanticCapabilityFromToolCatalogItem,
@@ -23,11 +24,16 @@ import {
   isAdminMcpToolFullName,
 } from '../../shared/admin-mcp-tools.js';
 import {
+  displayToolReference,
   isCanonicalBrowserCapabilityRule,
   parseReadableScopedToolRule,
   persistentPermissionToolId,
+  validateReadableAgentToolRule,
 } from '../../shared/agent-tool-references.js';
-import { appendLiveToolRules } from '../../shared/live-tool-rules.js';
+import {
+  appendLiveToolRules,
+  removeLiveToolRules,
+} from '../../shared/live-tool-rules.js';
 import {
   persistentPermissionRuleAuditPreview,
   validatePersistentRequestPermissionRule,
@@ -39,7 +45,7 @@ import { nowIso } from '../../shared/time/datetime.js';
 type MirrorAgentToolRulesToSettings = (
   sourceAgentFolder: string,
   rules: string[],
-  options?: { appId?: string },
+  options?: { appId?: string; mode?: 'add' | 'remove' },
 ) => Promise<void> | void;
 
 export interface PersistentPermissionGrantInput {
@@ -60,6 +66,26 @@ export interface PersistentPermissionGrantInput {
   runId?: string;
   jobId?: string;
   reason?: string;
+}
+
+export interface PersistentPermissionRevokeInput {
+  appId: AppId;
+  agentId: AgentId;
+  sourceAgentFolder: string;
+  toolRepository: ToolCatalogRepository;
+  mirrorAgentToolRulesToSettings: MirrorAgentToolRulesToSettings;
+  permissionRepository?: PermissionRepository;
+  ipcDir?: string;
+  runHandle?: string;
+  actor?: string;
+  requestId?: string;
+  conversationId?: string;
+  threadId?: string;
+  runId?: string;
+  jobId?: string;
+  reason?: string;
+  toolName?: string;
+  toolId?: string;
 }
 
 export interface RecordPermissionDecisionInput {
@@ -245,6 +271,112 @@ export class PermissionManagementService {
     return allowedRules;
   }
 
+  async revokePersistentToolRuleGrant(
+    input: PersistentPermissionRevokeInput,
+  ): Promise<{ revokedRule: string; toolId: string }> {
+    const activeBindings = (
+      typeof input.toolRepository.listAgentToolBindings === 'function'
+        ? await input.toolRepository.listAgentToolBindings({
+            appId: input.appId,
+            agentId: input.agentId,
+          })
+        : []
+    ).filter((binding) => binding.status === 'active');
+    const activeTools = await input.toolRepository.listTools({
+      appId: input.appId,
+      statuses: ['active'],
+    });
+    const toolById = new Map(activeTools.map((tool) => [tool.id, tool]));
+    const target = resolveRevocationTarget({
+      appId: input.appId,
+      bindings: activeBindings,
+      toolById,
+      toolName: input.toolName,
+      toolId: input.toolId,
+    });
+    const timestamp = this.clock.now();
+    try {
+      await input.toolRepository.disableAgentToolBinding({
+        appId: input.appId,
+        agentId: input.agentId,
+        toolId: target.binding.toolId,
+        updatedAt: timestamp,
+      });
+      await input.mirrorAgentToolRulesToSettings(
+        input.sourceAgentFolder,
+        [target.rule],
+        { appId: input.appId, mode: 'remove' },
+      );
+      removeLiveToolRules({
+        ipcDir: input.ipcDir,
+        runHandle: input.runHandle,
+        rules: [target.rule],
+      });
+    } catch (err) {
+      await Promise.allSettled([
+        input.toolRepository.saveAgentToolBinding({
+          ...target.binding,
+          status: 'active',
+          updatedAt: this.clock.now() as never,
+        }),
+        Promise.resolve(
+          input.mirrorAgentToolRulesToSettings(
+            input.sourceAgentFolder,
+            [target.rule],
+            { appId: input.appId },
+          ),
+        ),
+        Promise.resolve(
+          appendLiveToolRules({
+            ipcDir: input.ipcDir,
+            runHandle: input.runHandle,
+            rules: [target.rule],
+          }),
+        ),
+      ]);
+      await this.recordDecision({
+        appId: input.appId,
+        agentId: input.agentId,
+        requestId:
+          input.requestId ?? `revoke-failure:${globalThis.crypto.randomUUID()}`,
+        toolName: `revoke ${persistentPermissionRuleAuditPreview(target.rule)}`,
+        decision: {
+          approved: false,
+          reason:
+            err instanceof Error ? err.message : 'permission revoke failed',
+          decisionClassification: 'user_reject',
+        },
+        permissionRepository: input.permissionRepository,
+        conversationId: input.conversationId,
+        threadId: input.threadId,
+        runId: input.runId,
+        jobId: input.jobId,
+        toolId: target.binding.toolId,
+      });
+      throw err;
+    }
+
+    await this.recordDecision({
+      appId: input.appId,
+      agentId: input.agentId,
+      requestId: input.requestId ?? `revoke:${globalThis.crypto.randomUUID()}`,
+      toolName: `revoke ${persistentPermissionRuleAuditPreview(target.rule)}`,
+      decision: {
+        approved: false,
+        decidedBy: input.actor,
+        reason: input.reason ?? 'Persistent permission rule revoked',
+        decisionClassification: 'user_reject',
+      },
+      permissionRepository: input.permissionRepository,
+      conversationId: input.conversationId,
+      threadId: input.threadId,
+      runId: input.runId,
+      jobId: input.jobId,
+      toolId: target.binding.toolId,
+    });
+    return { revokedRule: target.rule, toolId: target.binding.toolId };
+  }
+
   async recordDecision(input: RecordPermissionDecisionInput): Promise<void> {
     if (!input.permissionRepository) return;
     const now = this.clock.now();
@@ -348,4 +480,63 @@ function persistentPermissionBindingId(
 ): AgentToolBinding['id'] {
   const digest = stableSha256Json({ agentId, appId, toolId }).slice(0, 32);
   return `agent-tool-binding:permission:${digest}` as AgentToolBinding['id'];
+}
+
+function resolveRevocationTarget(input: {
+  appId: AppId;
+  bindings: readonly AgentToolBinding[];
+  toolById: ReadonlyMap<ToolId, { name?: string | null }>;
+  toolName?: string;
+  toolId?: string;
+}): { binding: AgentToolBinding; rule: string } {
+  const requestedToolId = input.toolId?.trim();
+  const requestedToolName = input.toolName?.trim();
+  if (!requestedToolId && !requestedToolName) {
+    throw new Error('admin_permission_revoke requires tool_id or tool_name.');
+  }
+  let binding: AgentToolBinding | undefined;
+  if (requestedToolId) {
+    binding = input.bindings.find(
+      (candidate) => candidate.toolId === requestedToolId,
+    );
+  }
+  if (!binding && requestedToolName) {
+    const candidateIds = candidateToolIdsForRule(
+      input.appId,
+      requestedToolName,
+    );
+    binding = input.bindings.find((candidate) => {
+      if (candidateIds.has(candidate.toolId)) return true;
+      const tool = input.toolById.get(candidate.toolId);
+      return (
+        tool?.name?.trim() === requestedToolName ||
+        displayToolReference({ toolId: candidate.toolId, tool }) ===
+          requestedToolName
+      );
+    });
+  }
+  if (!binding) {
+    throw new Error(
+      `No active current-agent tool grant matches ${requestedToolId ?? requestedToolName}.`,
+    );
+  }
+  const tool = input.toolById.get(binding.toolId);
+  const rule = displayToolReference({ toolId: binding.toolId, tool });
+  const validation = validateReadableAgentToolRule(rule);
+  if (!validation.ok) {
+    throw new Error(
+      `Cannot revoke unreadable tool grant ${binding.toolId}: ${validation.reason}`,
+    );
+  }
+  return { binding, rule };
+}
+
+function candidateToolIdsForRule(appId: AppId, rule: string): Set<ToolId> {
+  const out = new Set<ToolId>();
+  if (isCanonicalBrowserCapabilityRule(rule)) out.add('tool:Browser' as ToolId);
+  if (isAdminMcpToolFullName(rule)) {
+    out.add(adminMcpToolIdForFullName(rule) as ToolId);
+  }
+  out.add(persistentPermissionToolId(appId, rule) as ToolId);
+  return out;
 }

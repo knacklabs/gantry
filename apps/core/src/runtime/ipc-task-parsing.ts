@@ -66,6 +66,7 @@ const DISALLOWED_TASK_FIELDS = [
   'retry_backoff_ms',
   'max_consecutive_failures',
   'required_tools',
+  'tool_access_requirements',
   'required_mcp_servers',
   'execution_mode',
   'executionMode',
@@ -90,6 +91,7 @@ const UNSUPPORTED_SCHEDULER_JOB_TASK_FIELDS = [
   'groupScope',
   'capability_requirements',
   'allowedTools',
+  'requiredTools',
   'executionMode',
   'serialize',
 ] as const;
@@ -128,6 +130,16 @@ function findUnsupportedSchedulerJobTaskFields(
 function assertNoDisallowedTaskFields(raw: Record<string, unknown>): void {
   const fields = findDisallowedTaskFields(raw);
   if (fields.length === 0) return;
+  if (fields.includes('required_tools')) {
+    throw new Error(
+      'Unsupported IPC task field: required_tools. Use camelCase toolAccessRequirements.',
+    );
+  }
+  if (fields.includes('tool_access_requirements')) {
+    throw new Error(
+      'Unsupported IPC task field: tool_access_requirements. Use camelCase toolAccessRequirements.',
+    );
+  }
   throw new Error(
     `Unsupported IPC task fields: ${fields.join(
       ', ',
@@ -141,6 +153,11 @@ function assertNoUnsupportedSchedulerJobTaskFields(
 ): void {
   const fields = findUnsupportedSchedulerJobTaskFields(raw, type);
   if (fields.length === 0) return;
+  if (fields.includes('requiredTools') || fields.includes('required_tools')) {
+    throw new Error(
+      'Unsupported scheduler job field: requiredTools. Use toolAccessRequirements for access preflight checks.',
+    );
+  }
   throw new Error(
     `Unsupported scheduler job fields: ${fields.join(
       ', ',
@@ -405,6 +422,7 @@ export function parseTaskIpcData(
   assertNoUnsupportedSchedulerJobTaskFields(raw, type);
   const parsed: TaskIpcData = { type };
   const taskId = toTrimmedString(raw.taskId, { maxLen: 128 });
+  const runHandle = toTrimmedString(raw.runHandle, { maxLen: 128 });
   const prompt = toTrimmedString(raw.prompt, { maxLen: 20000 });
   const hasModelAlias = Object.prototype.hasOwnProperty.call(raw, 'modelAlias');
   const hasModelProfileId = Object.prototype.hasOwnProperty.call(
@@ -430,7 +448,11 @@ export function parseTaskIpcData(
   const notificationRoutes = toOptionalNotificationRoutes(
     raw.notificationRoutes,
   );
-  const requiredTools = toOptionalStringArray(raw.requiredTools, 100, 255);
+  const toolAccessRequirements = toOptionalStringArray(
+    raw.toolAccessRequirements,
+    100,
+    255,
+  );
   const capabilityRequirements = toOptionalCapabilityRequirements(
     raw.capabilityRequirements,
   );
@@ -483,6 +505,7 @@ export function parseTaskIpcData(
   };
 
   if (taskId) parsed.taskId = taskId;
+  if (runHandle) parsed.runHandle = runHandle;
   if (prompt !== undefined) parsed.prompt = prompt;
   if (hasModelAlias && modelAlias !== undefined) parsed.modelAlias = modelAlias;
   if (hasModelProfileId && modelProfileId !== undefined) {
@@ -506,7 +529,8 @@ export function parseTaskIpcData(
       }
     ).notificationRoutes = notificationRoutes;
   }
-  if (requiredTools !== undefined) parsed.requiredTools = requiredTools;
+  if (toolAccessRequirements !== undefined)
+    parsed.toolAccessRequirements = toolAccessRequirements;
   if (capabilityRequirements !== undefined)
     parsed.capabilityRequirements = capabilityRequirements;
   if (requiredMcpServers !== undefined) {

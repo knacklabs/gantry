@@ -39,7 +39,7 @@ export interface TaskIpcData {
       protectedPaths?: string[];
     };
   }>;
-  requiredTools?: string[];
+  toolAccessRequirements?: string[];
   requiredMcpServers?: string[];
   groupScope?: string;
   threadId?: string | null;

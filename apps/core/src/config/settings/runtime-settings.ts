@@ -103,9 +103,22 @@ export function mirrorAgentToolRulesToRuntimeSettings(input: {
   runtimeHome: string;
   agentFolder: string;
   rules: readonly string[];
+  mode?: 'add' | 'remove';
 }): void {
   const settings = loadRuntimeSettings(input.runtimeHome);
-  addAgentToolRulesToRuntimeSettings(settings, input.agentFolder, input.rules);
+  if (input.mode === 'remove') {
+    removeAgentToolRulesFromRuntimeSettings(
+      settings,
+      input.agentFolder,
+      input.rules,
+    );
+  } else {
+    addAgentToolRulesToRuntimeSettings(
+      settings,
+      input.agentFolder,
+      input.rules,
+    );
+  }
   saveRuntimeSettings(input.runtimeHome, settings);
 }
 
@@ -136,6 +149,34 @@ export function addAgentToolRulesToRuntimeSettings(
     if (readable) next.add(readable);
   }
   agent.capabilities.toolIds = [...next];
+}
+
+export function removeAgentToolRulesFromRuntimeSettings(
+  settings: RuntimeSettings,
+  agentFolder: string,
+  rules: readonly string[],
+): void {
+  const folder = agentFolder.trim();
+  const agent = settings.agents[folder];
+  if (!agent) {
+    throw new Error(
+      `Cannot mirror persistent tool rule removal for missing settings agent: ${folder || '(empty)'}`,
+    );
+  }
+  const remove = new Set<string>();
+  for (const rule of rules) {
+    const readable = rule.trim();
+    const validation = validateReadableAgentToolRule(readable);
+    if (!validation.ok) throw new Error(validation.reason);
+    if (readable) remove.add(readable);
+  }
+  agent.capabilities.toolIds = agent.capabilities.toolIds.filter((rule) => {
+    const readable = rule.trim();
+    if (!readable) return false;
+    const validation = validateReadableAgentToolRule(readable);
+    if (!validation.ok) throw new Error(validation.reason);
+    return !remove.has(readable);
+  });
 }
 
 function writeSettingsYamlAtomic(filePath: string, content: string): void {

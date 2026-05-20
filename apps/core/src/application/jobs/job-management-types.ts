@@ -148,7 +148,7 @@ export interface CreateManagedJobInput {
   executionContext?: JobExecutionContextInput;
   notificationRoutes?: JobNotificationRouteInput[];
   capabilityRequirements?: JobCapabilityRequirement[];
-  requiredTools?: string[];
+  toolAccessRequirements?: string[];
   requiredMcpServers?: string[];
   kind?: JobKind;
   runAt?: string;
@@ -170,7 +170,7 @@ export interface UpsertJobFromIpcInput {
   executionContext?: JobExecutionContextInput;
   notificationRoutes?: JobNotificationRouteInput[];
   capabilityRequirements?: JobCapabilityRequirement[];
-  requiredTools?: string[];
+  toolAccessRequirements?: string[];
   requiredMcpServers?: string[];
   threadId?: string;
   silent?: boolean;
@@ -206,7 +206,7 @@ export type JobUpdatePatch = Partial<{
   executionContext: JobExecutionContextInput;
   notificationRoutes: JobNotificationRouteInput[];
   capabilityRequirements: JobCapabilityRequirement[];
-  requiredTools: string[];
+  toolAccessRequirements: string[];
   requiredMcpServers: string[];
   threadId: string | null;
   groupScope: string;

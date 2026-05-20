@@ -29,10 +29,10 @@ export function schedulerJobSummary(job: unknown): string {
   const staleness =
     typeof visibility.staleness === 'string' ? visibility.staleness : 'none';
   const toolAccess = toolAccessRecord(visibility.toolAccess);
-  const requiredTools = stringArray(
-    Array.isArray(record.required_tools)
-      ? record.required_tools
-      : visibility.requiredTools,
+  const toolAccessRequirements = stringArray(
+    Array.isArray(record.tool_access_requirements)
+      ? record.tool_access_requirements
+      : visibility.toolAccessRequirements,
   );
   const requiredMcpServers = stringArray(
     Array.isArray(record.required_mcp_servers)
@@ -65,7 +65,7 @@ export function schedulerJobSummary(job: unknown): string {
     `Kind/status: ${String(record.schedule_type ?? 'unknown')} / ${String(record.status ?? 'unknown')}`,
     `Next/last run: ${String(record.next_run ?? 'none')} / ${String(record.last_run ?? 'none')}`,
     `Staleness: ${staleness}`,
-    `Required tools: ${formatTools(requiredTools)}`,
+    `Tool access requirements: ${formatTools(toolAccessRequirements)}`,
     `Required MCP servers: ${formatTools(requiredMcpServers)}`,
     toolAccessLine,
     `Recent run errors: ${recentErrors}`,
@@ -102,10 +102,10 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
         ? (visibility.executionContext as Record<string, any>)
         : {};
     const toolAccess = toolAccessRecord(visibility.toolAccess);
-    const requiredTools = stringArray(
-      Array.isArray(record.required_tools)
-        ? record.required_tools
-        : visibility.requiredTools,
+    const toolAccessRequirements = stringArray(
+      Array.isArray(record.tool_access_requirements)
+        ? record.tool_access_requirements
+        : visibility.toolAccessRequirements,
     );
     const requiredMcpServers = stringArray(
       Array.isArray(record.required_mcp_servers)
@@ -123,7 +123,7 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
     const toolsLabel = toolAccess.present
       ? formatTools(toolAccess.effectiveAllowedTools)
       : '(missing toolAccess)';
-    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${String(setup.state !== 'ready' ? setup.state : (health.state ?? record.status ?? ''))} | ${String(executionContext.conversationJid ?? target.conversationJids?.[0] ?? '')} | required: ${formatTools(requiredTools)} | mcp: ${formatTools(requiredMcpServers)} | tools: ${toolsLabel}`;
+    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${String(setup.state !== 'ready' ? setup.state : (health.state ?? record.status ?? ''))} | ${String(executionContext.conversationJid ?? target.conversationJids?.[0] ?? '')} | access: ${formatTools(toolAccessRequirements)} | mcp: ${formatTools(requiredMcpServers)} | tools: ${toolsLabel}`;
   });
   return [
     `Scheduler jobs (${jobs.length})`,

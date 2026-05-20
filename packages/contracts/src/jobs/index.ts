@@ -191,8 +191,12 @@ export const JobToolAccessSchema = z
   .strict();
 export type JobToolAccess = z.infer<typeof JobToolAccessSchema>;
 
-export const JobRequiredToolsSchema = z.array(z.string().min(1)).default([]);
-export type JobRequiredTools = z.infer<typeof JobRequiredToolsSchema>;
+export const JobToolAccessRequirementsSchema = z
+  .array(z.string().min(1))
+  .default([]);
+export type JobToolAccessRequirements = z.infer<
+  typeof JobToolAccessRequirementsSchema
+>;
 
 export const JobRequiredMcpServersSchema = z
   .array(z.string().min(1))
@@ -243,7 +247,7 @@ export const CreateJobRequestSchema = z
     executionContext: JobRequestExecutionContextSchema,
     notificationRoutes: z.array(JobNotificationRouteSchema).optional(),
     capabilityRequirements: z.array(JobCapabilityRequirementSchema).optional(),
-    requiredTools: z.array(z.string().min(1)).optional(),
+    toolAccessRequirements: z.array(z.string().min(1)).optional(),
     requiredMcpServers: z.array(z.string().min(1)).optional(),
     kind: z.enum(['manual', 'once', 'recurring']).optional(),
     runAt: IsoDateTimeSchema.optional(),
@@ -271,7 +275,7 @@ export const UpdateJobRequestSchema = z
     executionContext: JobRequestExecutionContextSchema.optional(),
     notificationRoutes: z.array(JobNotificationRouteSchema).optional(),
     capabilityRequirements: z.array(JobCapabilityRequirementSchema).optional(),
-    requiredTools: z.array(z.string().min(1)).optional(),
+    toolAccessRequirements: z.array(z.string().min(1)).optional(),
     requiredMcpServers: z.array(z.string().min(1)).optional(),
     status: z.enum(['active', 'paused']).optional(),
     modelAlias: z.string().nullable().optional(),
@@ -307,7 +311,7 @@ export const JobResponseSchema = z
     executionContext: JobExecutionContextSchema,
     notificationRoutes: z.array(JobNotificationRouteSchema),
     capabilityRequirements: z.array(JobCapabilityRequirementSchema),
-    requiredTools: z.array(z.string()),
+    toolAccessRequirements: z.array(z.string()),
     requiredMcpServers: z.array(z.string()),
     setup: JobSetupSchema.optional(),
     nextRun: IsoDateTimeSchema.nullable(),

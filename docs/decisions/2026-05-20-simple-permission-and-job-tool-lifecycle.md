@@ -1,0 +1,57 @@
+# 2026-05-20 — Simple Permission And Job Tool Lifecycle
+
+## Context
+
+Scheduler jobs used `requiredTools` for two different meanings: access needed
+before a run and post-run evidence that each tool was used. That confused
+agents and users. A job that had browser access could still fail because it did
+not browse, even when browsing was only an available capability. Permission
+prompts also showed the five-minute timed grant in setup flows where the user
+was deciding durable readiness.
+
+## Decision
+
+Jobs declare `toolAccessRequirements` only. A Tool Access Requirement is a
+preflight access requirement inherited from the target agent capability set. If
+any requirement is missing, setup pauses with one clear recovery action. A
+successful run is not checked afterward for whether every requirement was used.
+
+A Transient Approval is run-local permission such as `Allow once`. The
+`Allow 5 min` timed grant is also transient and appears only for live
+interactive SDK prompts.
+
+A Persistent Grant is durable selected authority for future runs, such as
+`Browser`, `FileRead`, `WebRead`, `capability:<id>`, an exact
+`mcp__gantry__<admin_tool>`, or a scoped `RunCommand(...)` rule. Setup,
+scheduler, admin, and capability flows show only `Allow once`, `Always allow`,
+and `Cancel` where applicable.
+
+Revocation is agent-owned. `admin_permission_revoke` disables the current
+agent's selected tool binding, mirrors `settings.yaml`, removes same-run live
+approval for future calls, and audits the decision. It cannot revoke another
+agent's grant.
+
+## Surface Impact Matrix
+
+| Surface | Impact | Reason |
+| --- | --- | --- |
+| Runtime behavior | Changed | Scheduler preflight pauses missing access and no longer performs post-run must-use checks. |
+| `settings.yaml` | Changed | Persistent revoke mirrors removal of readable agent tool rules. |
+| Postgres/runtime projection | Changed | Job target metadata migrates `requiredTools` to `toolAccessRequirements`. |
+| Control API | Changed | Job create/update accepts `toolAccessRequirements` and rejects old `requiredTools` inputs. |
+| SDK/contracts | Changed | Public job shape uses `toolAccessRequirements`. |
+| CLI | Changed | Job rendering and mutation surfaces use `toolAccessRequirements`. |
+| Gantry MCP tools/admin skill | Changed | Scheduler tools use `tool_access_requirements`; `admin_permission_revoke` performs a real revoke. |
+| Channel/provider adapters | Unchanged by design | Live prompt rendering still supports timed grants; provider adapters only receive projected permissions. |
+| Docs/prompts | Changed | Scheduler and permission docs define access-only requirements and live-only timed grants. |
+| Audit/events | Changed | Revocation records a permission decision; post-run must-use events are removed. |
+| Tests/verification | Changed | Unit tests cover access-only jobs, setup prompt choices, revoke rollback, and migration registration. |
+
+## Consequences
+
+Agents do not need to self-edit a job to avoid unused-tool failures. They should
+declare access needed for the work, request missing access through the product
+permission flow, and use tools only when the task requires them.
+
+Old `requiredTools` and `required_tools` inputs are rejected after the
+migration. They remain only in migration SQL and explicit rejection messages.

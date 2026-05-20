@@ -45,8 +45,8 @@ const SCHEDULED_JOB_REPORT_INSTRUCTIONS = [
 const AUTONOMOUS_TOOL_CONTRACT_INSTRUCTIONS = [
   'Autonomous tool contract:',
   '- Use only the durable tool rules listed below for this autonomous run.',
-  '- Required tool rules are must-use assertions: every required rule must be exercised during the run before the final report.',
-  '- If a required tool is optional or conditional for this job, use scheduler_update_job to remove it from required_tools before the final report; keep it as an allowed capability instead.',
+  '- Tool Access Requirements are access preflight checks only. They do not require using every listed tool in the final report.',
+  '- If a required access rule is no longer needed for this job, use scheduler_update_job to remove it from tool_access_requirements.',
   '- For scoped RunCommand rules, invoke the matching command directly as its own Bash command leaf. Do not wrap it in python -c, node -e, sh -c, bash -c, eval, or another generated script.',
   '- If a scoped RunCommand rule ends with *, pass data as ordinary command arguments to that reviewed command. Do not create a separate wrapper command.',
   '- If no durable rule covers the action you need, stop and explain the missing reviewed capability in the final report.',
@@ -135,7 +135,7 @@ async function main(): Promise<void> {
 function buildInitialPrompt(agentInput: AgentRunnerInput): string {
   let prompt = agentInput.prompt;
   if (agentInput.isScheduledJob) {
-    prompt = `${SCHEDULED_JOB_REPORT_INSTRUCTIONS}\n\n${AUTONOMOUS_TOOL_CONTRACT_INSTRUCTIONS}\n\n${autonomousToolContract(agentInput.allowedTools)}\n\n${requiredToolContract(agentInput.requiredTools)}\n\n${prompt}`;
+    prompt = `${SCHEDULED_JOB_REPORT_INSTRUCTIONS}\n\n${AUTONOMOUS_TOOL_CONTRACT_INSTRUCTIONS}\n\n${autonomousToolContract(agentInput.allowedTools)}\n\n${toolAccessRequirementContract(agentInput.toolAccessRequirements)}\n\n${prompt}`;
   }
   if (!agentInput.isScheduledJob) {
     const pending = drainIpcInput();
@@ -162,15 +162,17 @@ function autonomousToolContract(allowedTools?: readonly string[]): string {
   ].join('\n');
 }
 
-function requiredToolContract(requiredTools?: readonly string[]): string {
-  const durableRules = (requiredTools ?? [])
+function toolAccessRequirementContract(
+  toolAccessRequirements?: readonly string[],
+): string {
+  const durableRules = (toolAccessRequirements ?? [])
     .map((rule) => rule.trim())
     .filter(Boolean);
   if (durableRules.length === 0) {
-    return 'Required tool assertions for this run: none declared.';
+    return 'Tool Access Requirements for this run: none declared.';
   }
   return [
-    'Required tool assertions for this run:',
+    'Tool Access Requirements already checked before launch:',
     ...durableRules.map((rule) => `- ${rule}`),
   ].join('\n');
 }

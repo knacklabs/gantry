@@ -289,7 +289,7 @@ describe('scheduler IPC adapter contracts', () => {
             },
           },
         ],
-        requiredTools: ['Browser'],
+        toolAccessRequirements: ['Browser'],
         confirmationToken: schedulerJobConfirmationToken({
           name: 'Daily review',
           prompt: 'Review memory',
@@ -319,7 +319,7 @@ describe('scheduler IPC adapter contracts', () => {
               },
             },
           ],
-          requiredTools: ['Browser'],
+          toolAccessRequirements: ['Browser'],
         }),
       }),
     );
@@ -338,7 +338,7 @@ describe('scheduler IPC adapter contracts', () => {
             label: 'primary',
           },
         ],
-        requiredTools: ['Browser'],
+        toolAccessRequirements: ['Browser'],
         capabilityRequirements: [
           {
             capabilityId: 'google.sheets.write',
@@ -444,19 +444,19 @@ describe('scheduler IPC adapter contracts', () => {
     );
   });
 
-  it('passes scheduler update requiredTools through to the job service', async () => {
+  it('passes scheduler update toolAccessRequirements through to the job service', async () => {
     await schedulerMutateTaskHandlers.scheduler_update_job(
       makeContext({
         type: 'scheduler_update_job',
         jobId: 'job-1',
-        requiredTools: ['Browser'],
+        toolAccessRequirements: ['Browser'],
       }),
     );
 
     expect(mocks.jobService.updateJob).toHaveBeenCalledWith({
       jobId: 'job-1',
       access: expect.any(Object),
-      patch: { requiredTools: ['Browser'] },
+      patch: { toolAccessRequirements: ['Browser'] },
     });
   });
 

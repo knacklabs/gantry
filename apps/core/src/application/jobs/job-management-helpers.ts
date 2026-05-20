@@ -297,8 +297,8 @@ export function buildJobUpdates(
     );
     updates.notification_routes = notificationRoutes;
   }
-  if (patch.requiredTools !== undefined) {
-    updates.required_tools = patch.requiredTools;
+  if (patch.toolAccessRequirements !== undefined) {
+    updates.tool_access_requirements = patch.toolAccessRequirements;
   }
   if (patch.capabilityRequirements !== undefined) {
     updates.capability_requirements = patch.capabilityRequirements;

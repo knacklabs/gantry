@@ -71,7 +71,7 @@ export interface IpcDeps {
   mirrorAgentToolRulesToSettings?: (
     sourceAgentFolder: string,
     rules: string[],
-    options?: { appId?: string },
+    options?: { appId?: string; mode?: 'add' | 'remove' },
   ) => Promise<void> | void;
   reloadRuntimeState?: () => Promise<void>;
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
@@ -89,7 +89,6 @@ export interface IpcDeps {
     tool: 'Browser';
     publicToolName?: string;
     action: BrowserBackendAction;
-    satisfiesRequiredTool: boolean;
     ok: boolean;
     elapsedMs: number;
     normalizedSite?: string | null;

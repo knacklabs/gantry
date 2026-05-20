@@ -68,6 +68,7 @@ async function completeSkillPermissionReview(
     targetJid: input.targetJid,
     threadId: input.threadId,
     decisionPolicy: 'same_channel',
+    decisionOptions: ['allow_once', 'cancel'],
     toolName: input.requestToolName,
     displayName: `Skill: ${input.skill.name}`,
     title:

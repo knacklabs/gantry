@@ -53,7 +53,7 @@ interface JobRecord {
     errorSummary: string;
     endedAt: string | null;
   }>;
-  requiredTools?: string[];
+  toolAccessRequirements?: string[];
   requiredMcpServers?: string[];
 }
 
@@ -208,7 +208,7 @@ function formatJobTable(jobs: JobRecord[]): string {
     jobThreadId(job) ?? '',
     job.nextRun ?? '',
     compactToolList([
-      ...(job.requiredTools ?? []),
+      ...(job.toolAccessRequirements ?? []),
       ...(job.requiredMcpServers ?? []).map((server) => `mcp:${server}`),
     ]),
     compactToolList(job.toolAccess.effectiveAllowedTools),
@@ -251,8 +251,8 @@ function formatJobDetail(job: JobRecord): string {
     `Next Run: ${job.nextRun ?? '(none)'}`,
     `Last Run: ${job.lastRun ?? '(none)'}`,
     `Model: ${job.modelAlias ?? '(default)'}`,
-    `Required Tools: ${formatRequiredTools(job.requiredTools)}`,
-    `Required MCP Servers: ${formatRequiredTools(job.requiredMcpServers)}`,
+    `Tool Access Requirements: ${formatToolAccessRequirements(job.toolAccessRequirements)}`,
+    `Required MCP Servers: ${formatToolAccessRequirements(job.requiredMcpServers)}`,
     '',
     formatJobToolAccess(job.toolAccess),
   ];
@@ -334,8 +334,10 @@ function formatEventPayload(payload: string | null): string {
     : singleLine;
 }
 
-function formatRequiredTools(requiredTools: string[] | undefined): string {
-  return requiredTools && requiredTools.length > 0
-    ? requiredTools.join(', ')
+function formatToolAccessRequirements(
+  toolAccessRequirements: string[] | undefined,
+): string {
+  return toolAccessRequirements && toolAccessRequirements.length > 0
+    ? toolAccessRequirements.join(', ')
     : '(none)';
 }

@@ -30,7 +30,7 @@ describe('CanonicalJobOpsService', () => {
           label: 'Primary',
         },
       ],
-      required_tools: ['Browser'],
+      tool_access_requirements: ['Browser'],
       group_scope: '',
     });
 
@@ -52,7 +52,7 @@ describe('CanonicalJobOpsService', () => {
         label: 'Primary',
       },
     ]);
-    expect(target.requiredTools).toEqual(['Browser']);
+    expect(target.toolAccessRequirements).toEqual(['Browser']);
   });
 
   it('merges canonical session_id into executionContext when target sessionId is missing', async () => {
@@ -120,7 +120,7 @@ describe('CanonicalJobOpsService', () => {
               label: 'Primary',
             },
           ],
-          requiredTools: ['Browser'],
+          toolAccessRequirements: ['Browser'],
         }),
         silent: false,
         timeoutMs: 300000,
@@ -153,7 +153,7 @@ describe('CanonicalJobOpsService', () => {
           label: 'Primary',
         },
       ],
-      required_tools: ['Browser'],
+      tool_access_requirements: ['Browser'],
     });
   });
 
@@ -402,7 +402,7 @@ describe('CanonicalJobOpsService', () => {
           label: 'Primary',
         },
       ],
-      required_tools: ['Browser'],
+      tool_access_requirements: ['Browser'],
       required_mcp_servers: ['mcp:company-crm'],
       capability_requirements: [
         {
@@ -439,7 +439,7 @@ describe('CanonicalJobOpsService', () => {
         },
       },
     ]);
-    expect(target.requiredTools).toContain('Browser');
+    expect(target.toolAccessRequirements).toContain('Browser');
     expect(target.requiredMcpServers).toContain('mcp:company-crm');
   });
 
@@ -467,7 +467,7 @@ describe('CanonicalJobOpsService', () => {
               label: 'Primary',
             },
           ],
-          requiredTools: ['Browser'],
+          toolAccessRequirements: ['Browser'],
           requiredMcpServers: ['mcp:company-crm'],
           capabilityRequirements: [
             {
@@ -499,7 +499,7 @@ describe('CanonicalJobOpsService', () => {
     const service = new CanonicalJobOpsService(repository);
 
     await expect(service.getJobById('job-1')).resolves.toMatchObject({
-      required_tools: ['Browser'],
+      tool_access_requirements: ['Browser'],
       required_mcp_servers: ['mcp:company-crm'],
       capability_requirements: [
         {

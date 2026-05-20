@@ -1,16 +1,23 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { nowIso } from '../../../shared/time/datetime.js';
 import {
   ADMIN_MCP_TOOL_NAMES,
   type AdminMcpToolName,
 } from '../../../shared/admin-mcp-tools.js';
 import {
+  chatJid,
   configuredAllowedTools,
   currentEnabledAdminMcpTools,
   selectedMcpServerIds,
   selectedSkillIds,
+  TASKS_DIR,
+  threadId,
 } from '../context.js';
 import { humanizeTechnicalIdentifier } from '../../../shared/user-visible-messages.js';
+import { waitForTaskResponse, writeIpcFile } from '../ipc.js';
+import { makeIpcId } from '../ipc-ids.js';
+import { formatTaskFailureLines } from '../formatting.js';
 
 export function registerAdminPermissionTools(
   server: McpServer,
@@ -39,7 +46,7 @@ export function registerAdminPermissionTools(
 
   server.tool(
     'admin_permission_revoke',
-    'Scaffold for revoking an agent permission grant. This fails closed until the host exposes a durable revocation service.',
+    'Revoke one current-agent persistent tool grant. Requires selected agent tool grant mcp__gantry__admin_permission_revoke.',
     {
       tool_name: z
         .string()
@@ -55,19 +62,51 @@ export function registerAdminPermissionTools(
       if (!options.isAdminToolEnabled('admin_permission_revoke')) {
         return adminToolUnavailable('admin_permission_revoke');
       }
+      const taskId = makeIpcId('admin-permission-revoke');
+      writeIpcFile(TASKS_DIR, {
+        type: 'admin_permission_revoke',
+        taskId,
+        runHandle: process.env.GANTRY_AGENT_RUN_HANDLE || undefined,
+        payload: {
+          toolName: args.tool_name,
+          toolId: args.tool_id,
+          reason: args.reason,
+        },
+        targetJid: chatJid,
+        chatJid,
+        authThreadId: threadId,
+        timestamp: nowIso(),
+      });
+      const response = await waitForTaskResponse(taskId, 20_000);
+      if (!response) {
+        return {
+          content: [
+            { type: 'text' as const, text: 'Permission revoke timed out.' },
+          ],
+          isError: true,
+        };
+      }
+      if (!response.ok) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: formatTaskFailureLines(
+                response,
+                'Permission revoke was rejected.',
+              ).join('\n'),
+            },
+          ],
+          isError: true,
+        };
+      }
       return {
         content: [
           {
             type: 'text' as const,
-            text: [
-              'Permission revoke is not available from runner MCP yet.',
-              'No permission, settings.yaml entry, Postgres binding, or live run rule was changed.',
-              'Host durable revocation needs an application service that updates settings.yaml and the Postgres projection together before this tool can mutate state.',
-              `Requested target: ${args.tool_id ?? args.tool_name ?? '(unspecified)'}.`,
-            ].join(' '),
+            text: response.message || 'Permission grant revoked.',
           },
         ],
-        isError: true,
       };
     },
   );
@@ -108,7 +147,7 @@ function formatAdminPermissionList(): string {
           .map((server) => `- ${server}`)
       : ['- none connected yet']),
     '',
-    'Mutation status: read-only. Use admin_permission_revoke only after a durable host revocation service is wired; current revoke behavior fails closed.',
+    'Mutation status: admin_permission_revoke is available when selected for this agent and revokes current-agent grants only.',
   ].join('\n');
 }
 
