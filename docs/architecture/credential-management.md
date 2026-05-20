@@ -163,9 +163,12 @@ runtime config does not accept them from runtime `.env`; use
 `agent.default_model`, `agent.one_time_job_default_model`,
 `agent.recurring_job_default_model`, and group `/model` overrides for model
 selection. OpenRouter's Anthropic SDK route is projected only by the runtime
-adapter for cataloged OpenRouter models, with `ANTHROPIC_AUTH_TOKEN` supplied by
-`AgentCredentialBroker` and `ANTHROPIC_API_KEY` intentionally blank for that
-child process.
+adapter for cataloged OpenRouter models. The broker may supply a provider-marked
+`ANTHROPIC_AUTH_TOKEN`, or OneCLI may supply a header-rewrite proxy credential
+for `openrouter.ai` while the runtime sends a placeholder
+`ANTHROPIC_AUTH_TOKEN`. In both cases `ANTHROPIC_API_KEY` is intentionally blank
+for that child process. Native Anthropic model aliases continue to use the
+Anthropic credential path and must not reuse OpenRouter-scoped credentials.
 
 ## Broker Profiles
 

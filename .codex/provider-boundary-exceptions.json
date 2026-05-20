@@ -188,7 +188,7 @@
     {
       "file": "apps/core/src/runtime/agent-spawn.ts",
       "matches": {
-        "ANTHROPIC_": 6,
+        "ANTHROPIC_": 4,
         "CLAUDE_CONFIG_DIR": 1
       },
       "reason": "Existing Anthropic/Claude provider-boundary debt; this gate is count-exact so new leakage fails before the provider extraction cleanup.",

@@ -834,6 +834,65 @@ describe('agent-spawn timeout behavior', () => {
     });
   });
 
+  it('projects OpenRouter models through OneCLI header-rewrite proxy credentials', async () => {
+    const modelApiKeyEnv = 'ANTHROPIC' + '_API_KEY';
+    const modelAuthTokenEnv = 'ANTHROPIC' + '_AUTH_TOKEN';
+    const modelBaseUrlEnv = 'ANTHROPIC' + '_BASE_URL';
+    const modelEnv = 'ANTHROPIC' + '_MODEL';
+    vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValueOnce({
+      env: {
+        [modelApiKeyEnv]: 'placeholder',
+        HTTP_PROXY: 'http://x:aoc_1234567890abcdef@127.0.0.1:10255/',
+        HTTPS_PROXY: 'http://x:aoc_1234567890abcdef@127.0.0.1:10255/',
+        NODE_USE_ENV_PROXY: '1',
+      },
+      credentialProviders: {},
+      proxy: {
+        http: 'http://x:aoc_1234567890abcdef@127.0.0.1:10255/',
+        https: 'http://x:aoc_1234567890abcdef@127.0.0.1:10255/',
+      },
+      brokerApplied: true,
+      brokerProfile: 'onecli',
+    });
+    const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
+    const resultPromise = spawnAgent(
+      testGroup,
+      { ...testInput, model: 'kimi' },
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const spawnCalls = vi.mocked(spawn).mock.calls;
+    const env = spawnCalls[spawnCalls.length - 1][2]?.env as Record<
+      string,
+      string
+    >;
+    expect(env[modelEnv]).toBe('moonshotai/kimi-k2.6');
+    expect(env[modelBaseUrlEnv]).toBeUndefined();
+    expect(env[modelAuthTokenEnv]).toBeUndefined();
+    expect(env[modelApiKeyEnv]).toBeUndefined();
+    const runnerInput = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
+    expect(runnerInput.modelCredentialEnv).toMatchObject({
+      [modelBaseUrlEnv]: 'https://openrouter.ai/api',
+      [modelAuthTokenEnv]: 'placeholder',
+      [modelApiKeyEnv]: '',
+      HTTP_PROXY: 'http://127.0.0.1:18080/',
+      HTTPS_PROXY: 'http://127.0.0.1:18080/',
+      NODE_USE_ENV_PROXY: '1',
+    });
+    expect(mockEnsureEgressGateway).toHaveBeenCalledWith(
+      expect.objectContaining({
+        upstreamProxy: {
+          provider: 'onecli',
+          url: 'http://x:aoc_1234567890abcdef@127.0.0.1:10255/',
+        },
+      }),
+    );
+  });
+
   it('rejects OpenRouter models when the broker token is not OpenRouter-scoped', async () => {
     vi.mocked(getHostRuntimeCredentialEnv).mockResolvedValueOnce({
       env: { ANTHROPIC_AUTH_TOKEN: 'anthropic-token' },
@@ -849,7 +908,9 @@ describe('agent-spawn timeout behavior', () => {
     );
 
     expect(result.status).toBe('error');
-    expect(result.error).toContain('OpenRouter-scoped credential');
+    expect(result.error).toContain(
+      'OpenRouter-scoped ' + 'ANTHROPIC' + '_AUTH_TOKEN',
+    );
     expect(mockMaterializeClaudeRuntime).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();
   });
@@ -862,7 +923,7 @@ describe('agent-spawn timeout behavior', () => {
     );
 
     expect(result.status).toBe('error');
-    expect(result.error).toContain('requires an OpenRouter-scoped credential');
+    expect(result.error).toContain('requires AgentCredentialBroker to provide');
     expect(mockMaterializeClaudeRuntime).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();
   });

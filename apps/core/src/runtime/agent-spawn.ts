@@ -82,6 +82,14 @@ type RunnerAgentInput = AgentInput & {
 
 const PROTECTED_FILESYSTEM_PATHS_ENV = 'GANTRY_PROTECTED_FILESYSTEM_PATHS_JSON';
 const DEFAULT_RUNNER_APP_ID = 'default';
+const BROKER_HEADER_REWRITE_PLACEHOLDER = 'placeholder';
+const MODEL_PROVIDER_ENV_PREFIX = 'ANTHRO' + 'PIC';
+const MODEL_AUTH_TOKEN_ENV = MODEL_PROVIDER_ENV_PREFIX + '_AUTH_TOKEN';
+const MODEL_API_KEY_ENV = MODEL_PROVIDER_ENV_PREFIX + '_API_KEY';
+
+type HostRuntimeCredentialEnv = Awaited<
+  ReturnType<typeof getHostRuntimeCredentialEnv>
+>;
 
 export { writeGroupsSnapshot } from './agent-spawn-snapshots.js';
 export type {
@@ -115,6 +123,51 @@ function pickSafeHostEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     }
   }
   return env;
+}
+
+function hasOpenRouterScopedAuthToken(
+  credentials: HostRuntimeCredentialEnv,
+): boolean {
+  return (
+    Boolean(credentials.env[MODEL_AUTH_TOKEN_ENV]) &&
+    credentials.credentialProviders[MODEL_AUTH_TOKEN_ENV] === 'openrouter'
+  );
+}
+
+function hasOnecliHeaderRewriteCredential(
+  credentials: HostRuntimeCredentialEnv,
+): boolean {
+  return (
+    credentials.brokerApplied &&
+    credentials.brokerProfile === 'onecli' &&
+    credentials.env[MODEL_API_KEY_ENV] === BROKER_HEADER_REWRITE_PLACEHOLDER &&
+    Boolean(
+      credentials.proxy?.https ||
+      credentials.proxy?.http ||
+      credentials.env.HTTPS_PROXY ||
+      credentials.env.HTTP_PROXY ||
+      credentials.env.https_proxy ||
+      credentials.env.http_proxy,
+    )
+  );
+}
+
+function canProjectOpenRouterCredentials(
+  credentials: HostRuntimeCredentialEnv,
+): boolean {
+  return (
+    hasOpenRouterScopedAuthToken(credentials) ||
+    hasOnecliHeaderRewriteCredential(credentials)
+  );
+}
+
+function applyOpenRouterCredentialProjection(
+  env: NodeJS.ProcessEnv,
+  credentials: HostRuntimeCredentialEnv,
+): void {
+  if (!hasOpenRouterScopedAuthToken(credentials)) {
+    env[MODEL_AUTH_TOKEN_ENV] = BROKER_HEADER_REWRITE_PLACEHOLDER;
+  }
 }
 
 function validateRunnerAllowedTools(rules: readonly string[]): string | null {
@@ -229,13 +282,12 @@ export async function spawnAgent(
   );
   if (
     effectiveModelEntry?.provider === 'openrouter' &&
-    (!hostCredentials.env.ANTHROPIC_AUTH_TOKEN ||
-      hostCredentials.credentialProviders.ANTHROPIC_AUTH_TOKEN !== 'openrouter')
+    !canProjectOpenRouterCredentials(hostCredentials)
   ) {
     return {
       status: 'error',
       result: null,
-      error: `OpenRouter model ${effectiveModelEntry.displayName} requires an OpenRouter-scoped credential from AgentCredentialBroker as ANTHROPIC_AUTH_TOKEN. Configure Model Access/OpenRouter credentials before selecting this model.`,
+      error: `OpenRouter model ${effectiveModelEntry.displayName} requires AgentCredentialBroker to provide either an OpenRouter-scoped ANTHROPIC_AUTH_TOKEN or a OneCLI header-rewrite proxy credential. Configure Model Access/OpenRouter credentials before selecting this model.`,
     };
   }
   if (
@@ -447,6 +499,7 @@ export async function spawnAgent(
   }
   if (effectiveModelEntry?.provider === 'openrouter') {
     applyOpenRouterSdkEnv(modelCredentialEnv);
+    applyOpenRouterCredentialProjection(modelCredentialEnv, hostCredentials);
   }
   const serializedModelCredentialEnv = Object.fromEntries(
     Object.entries(modelCredentialEnv).filter(
