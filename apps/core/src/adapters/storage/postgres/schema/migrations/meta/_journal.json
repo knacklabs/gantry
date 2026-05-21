@@ -400,6 +400,13 @@
       "when": 1777191000000,
       "tag": "0057_external_platform_events",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1777194600000,
+      "tag": "0058_external_platform_events_forward_repair",
+      "breakpoints": true
     }
   ]
 }
