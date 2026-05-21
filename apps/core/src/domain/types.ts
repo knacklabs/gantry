@@ -495,6 +495,24 @@ export interface MessageSink {
   ): Promise<void | MessageDeliveryResult>;
 }
 
+export type AdaptiveCardPayload = Record<string, unknown> & {
+  type: 'AdaptiveCard';
+};
+
+export type AdaptiveCardSendOptions = MessageSendOptions & {
+  durability?: 'required' | 'best_effort';
+  fallbackText?: string;
+  throwOnMissing?: boolean;
+};
+
+export interface AdaptiveCardSink {
+  sendAdaptiveCard(
+    jid: string,
+    card: AdaptiveCardPayload,
+    options?: MessageSendOptions,
+  ): Promise<void | MessageDeliveryResult>;
+}
+
 export interface TypingSink {
   setTyping(jid: string, isTyping: boolean): Promise<void>;
 }

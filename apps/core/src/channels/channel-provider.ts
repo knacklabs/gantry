@@ -1,6 +1,7 @@
 import {
   ChannelLifecyclePort,
   ChannelOwnershipPort,
+  AdaptiveCardSink,
   GroupDiscoverySource,
   InteractionSurface,
   MessageSink,
@@ -48,6 +49,7 @@ export type ChannelAdapter = ChannelLifecyclePort &
     StreamingSink &
       StreamingStateSink &
       TypingSink &
+      AdaptiveCardSink &
       ProgressSink &
       GroupDiscoverySource &
       InteractionSurface &

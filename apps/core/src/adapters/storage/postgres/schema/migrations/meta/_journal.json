@@ -393,6 +393,13 @@
       "when": 1777187400000,
       "tag": "0056_jsonb_index_performance",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1777191000000,
+      "tag": "0057_external_platform_events",
+      "breakpoints": true
     }
   ]
 }

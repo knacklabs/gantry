@@ -1,4 +1,6 @@
 import type {
+  AdaptiveCardPayload,
+  AdaptiveCardSendOptions,
   MessageDeliveryResult,
   MessageSendOptions,
   PermissionApprovalDecision,
@@ -56,6 +58,7 @@ export interface DurableOutboundAttemptInput {
   sourceMessageId: string;
   provider: string;
   canonicalText: string;
+  providerPayload?: unknown;
 }
 
 export interface DurableOutboundAttempt {
@@ -131,6 +134,11 @@ export interface ChannelWiring {
       messageOptions?: MessageSendOptions;
     },
   ) => Promise<void>;
+  sendAdaptiveCard: (
+    jid: string,
+    card: AdaptiveCardPayload,
+    options?: AdaptiveCardSendOptions,
+  ) => Promise<MessageDeliveryResult | undefined>;
   sendProviderMessage: (
     jid: string,
     rawText: string,

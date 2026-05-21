@@ -2,6 +2,9 @@ import type { ChildProcess } from 'child_process';
 
 import type {
   MessageSendOptions,
+  AdaptiveCardPayload,
+  AdaptiveCardSendOptions,
+  MessageDeliveryResult,
   ProgressUpdateOptions,
   ConversationRoute,
   StreamingChunkOptions,
@@ -45,6 +48,11 @@ export interface GroupProcessingDeps {
       rawText: string,
       options?: MessageSendOptions,
     ) => Promise<void>;
+    sendAdaptiveCard?: (
+      chatJid: string,
+      card: AdaptiveCardPayload,
+      options?: AdaptiveCardSendOptions,
+    ) => Promise<MessageDeliveryResult | undefined>;
     sendStreamingChunk: (
       chatJid: string,
       rawText: string,

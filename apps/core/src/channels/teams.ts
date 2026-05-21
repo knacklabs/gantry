@@ -1,5 +1,6 @@
 import type { ChannelAdapter, ChannelOpts } from './channel-provider.js';
 import type {
+  AdaptiveCardPayload,
   MessageDeliveryResult,
   MessageSendOptions,
   NewMessage,
@@ -18,6 +19,7 @@ import {
   permissionDecisionOptions,
 } from './permission-interaction.js';
 import { sendTeamsTextMessage } from './teams-delivery.js';
+import { handleExternalCardAction } from './teams-external-card-actions.js';
 import { nowIso } from '../shared/time/datetime.js';
 import { createTeamsBotFrameworkSdkClient } from './teams-bot-framework-client.js';
 
@@ -103,22 +105,25 @@ export interface TeamsChannelDependencies {
 }
 const TEAMS_PERMISSION_APPROVAL_TIMEOUT_MS = PERMISSION_APPROVAL_TIMEOUT_MS;
 export interface TeamsAdaptiveCardAction {
-  type: 'Action.Execute';
+  type: string;
   title: string;
-  verb: string;
-  data: {
-    action: 'permission_decision';
-    requestId: string;
-    decision: string;
-    sourceAgentFolder: string;
-    targetJid?: string;
-    threadId?: string;
-  };
+  verb?: string;
+  url?: string;
+  data?:
+    | {
+        action: 'permission_decision';
+        requestId: string;
+        decision: string;
+        sourceAgentFolder: string;
+        targetJid?: string;
+        threadId?: string;
+      }
+    | Record<string, unknown>;
 }
 export interface TeamsAdaptiveCardPayload {
   $schema: 'http://adaptivecards.io/schemas/adaptive-card.json';
   type: 'AdaptiveCard';
-  version: '1.5';
+  version: string;
   body: Array<Record<string, unknown>>;
   actions: TeamsAdaptiveCardAction[];
 }
@@ -268,6 +273,27 @@ export class TeamsChannel implements ChannelAdapter {
     return sendTeamsTextMessage(this.sdkClient, conversationId, text, options);
   }
 
+  async sendAdaptiveCard(
+    jid: string,
+    card: AdaptiveCardPayload,
+    options: MessageSendOptions = {},
+  ): Promise<MessageDeliveryResult | void> {
+    if (!this.connected) return;
+    const conversationId = teamsConversationIdFromJid(jid);
+    if (!conversationId) return;
+    if (!this.sdkClient.sendAdaptiveCard) {
+      throw new Error('Teams SDK client cannot send Adaptive Cards');
+    }
+    const sent = await this.sdkClient.sendAdaptiveCard({
+      conversationId,
+      card: card as unknown as TeamsAdaptiveCardPayload,
+      ...(options.threadId ? { threadId: options.threadId } : {}),
+    });
+    return sent.externalMessageId
+      ? { externalMessageId: sent.externalMessageId }
+      : {};
+  }
+
   async ingestMessage(message: TeamsInboundMessage): Promise<void> {
     const jid = normalizeTeamsJid(message.conversationId);
     if (!jid) return;
@@ -276,6 +302,14 @@ export class TeamsChannel implements ChannelAdapter {
     const sender = message.senderId || message.from?.id || 'unknown';
     const senderName = message.senderName || message.from?.name || sender;
     if (await this.handlePermissionDecision(message, jid, sender, senderName)) {
+      return;
+    }
+    if (
+      await handleExternalCardAction({
+        message,
+        sdkClient: this.sdkClient,
+      })
+    ) {
       return;
     }
 

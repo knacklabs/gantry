@@ -12,7 +12,7 @@ export * from './jobs.js';
 export * from './memory.js';
 export * from './messages.js';
 export * from './mcp-servers.js';
-export * from './manipal.js';
+export * from './external-platform-events.js';
 export * from './outbound-delivery.js';
 export * from './permissions.js';
 export * from './runs.js';

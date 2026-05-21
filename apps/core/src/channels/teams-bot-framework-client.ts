@@ -35,6 +35,12 @@ interface BotFrameworkNodeResponse {
 
 let activeClient: TeamsBotFrameworkSdkClient | null = null;
 
+function setActiveTeamsBotFrameworkClient(
+  client: TeamsBotFrameworkSdkClient | null,
+): void {
+  activeClient = client;
+}
+
 export function getActiveTeamsBotFrameworkClientForTest(): TeamsBotFrameworkSdkClient | null {
   return activeClient;
 }
@@ -74,7 +80,7 @@ export class TeamsBotFrameworkSdkClient implements TeamsSdkClient {
       new PostgresTeamsConversationReferenceStore(
         getRuntimeStorage().service.db,
       );
-    activeClient = this;
+    setActiveTeamsBotFrameworkClient(this);
     logger.info(
       {
         endpoint: '/v1/providers/teams/activities',
@@ -85,7 +91,7 @@ export class TeamsBotFrameworkSdkClient implements TeamsSdkClient {
   }
 
   async stop(): Promise<void> {
-    if (activeClient === this) activeClient = null;
+    if (activeClient === this) setActiveTeamsBotFrameworkClient(null);
     this.onMessage = null;
     this.adapter = null;
   }
@@ -111,6 +117,11 @@ export class TeamsBotFrameworkSdkClient implements TeamsSdkClient {
       input.conversationId,
       (ctx) => ctx.sendActivity(MessageFactory.text(input.text)),
     );
+    if (!response?.id) {
+      throw new Error(
+        `Teams send did not return a provider message id for conversation ${input.conversationId}.`,
+      );
+    }
     return { externalMessageId: response?.id };
   }
 
@@ -124,6 +135,11 @@ export class TeamsBotFrameworkSdkClient implements TeamsSdkClient {
       input.conversationId,
       (ctx) => ctx.sendActivity(activity),
     );
+    if (!response?.id) {
+      throw new Error(
+        `Teams adaptive card send did not return a provider message id for conversation ${input.conversationId}.`,
+      );
+    }
     return { externalMessageId: response?.id };
   }
 
@@ -137,7 +153,9 @@ export class TeamsBotFrameworkSdkClient implements TeamsSdkClient {
     }
 
     if (activity.type === ActivityTypes.Invoke && activity.value) {
-      await this.deliverInboundActivity(activity);
+      void this.deliverInboundActivity(activity).catch((error) => {
+        logger.error({ err: error }, 'Teams invoke activity handling failed');
+      });
       await context.sendActivity({
         type: ActivityTypes.InvokeResponse,
         value: { status: 200, body: { ok: true } },

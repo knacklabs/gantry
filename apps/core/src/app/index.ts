@@ -71,6 +71,8 @@ export async function startGantryRuntime(
         durability: 'required',
         messageOptions: options,
       }),
+    sendAdaptiveCard: (chatJid, card, options) =>
+      channelWiring.sendAdaptiveCard(chatJid, card, options),
     sendStreamingChunk: channelWiring.sendStreamingChunk,
     resetStreaming: channelWiring.resetStreaming,
     setTyping: channelWiring.setTyping,

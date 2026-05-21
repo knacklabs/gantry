@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { RuntimeSettings } from '../../config/settings/runtime-settings.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import {
+  AdaptiveCardPayload,
+  AdaptiveCardSendOptions,
   GroupDiscoverySource,
   MessageDeliveryResult,
   MessageSendOptions,
@@ -44,6 +46,7 @@ import { ConversationAdministrationService } from '../../application/provider-co
 import { RuntimeSecretConversationMembershipValidator } from '../../channels/conversation-membership-validation.js';
 import type { AppId } from '../../domain/app/app.js';
 import {
+  asAdaptiveCardSink,
   asGroupDiscoverySource,
   asPermissionApprovalSurface,
   asProgressSink,
@@ -264,6 +267,81 @@ export function createChannelWiring(
       persistence: 'message_row_projection',
     });
   }
+
+  async function sendAdaptiveCard(
+    jid: string,
+    card: AdaptiveCardPayload,
+    options: AdaptiveCardSendOptions = {},
+  ): Promise<MessageDeliveryResult | undefined> {
+    const durability = options.durability ?? 'best_effort';
+    const channel = findBoundChannel(jid);
+    if (!channel) {
+      if (options.throwOnMissing || durability === 'required') {
+        throw new Error(`No channel for JID: ${jid}`);
+      }
+      resolved.logger.warn({ jid }, 'No channel owns JID, cannot send card');
+      return;
+    }
+    const sink = asAdaptiveCardSink(channel);
+    if (!sink) {
+      if (options.throwOnMissing || durability === 'required') {
+        throw new Error(`Bound channel cannot send Adaptive Cards: ${jid}`);
+      }
+      resolved.logger.warn({ jid }, 'Bound channel cannot send Adaptive Cards');
+      return;
+    }
+    const provider = providerForJid(jid)?.id ?? channel.name;
+    const fallbackText = options.fallbackText?.trim();
+    let durableAttempt:
+      | Awaited<ReturnType<DurableOutboundAttemptFactory>>
+      | undefined;
+    if (durability === 'required') {
+      if (!fallbackText) {
+        throw new Error(
+          `Adaptive Card fallback text is required for durable send to ${jid}.`,
+        );
+      }
+      if (!durableOutboundAttemptFactory) {
+        throw new Error(
+          `Durable outbound delivery is required before sending an Adaptive Card to ${jid}, but outbound delivery storage is unavailable.`,
+        );
+      }
+      durableAttempt = await durableOutboundAttemptFactory({
+        appId: resolved.appId,
+        chatJid: jid,
+        threadId: options.threadId,
+        sourceMessageId: `outbound-card:${randomUUID()}`,
+        provider,
+        canonicalText: fallbackText,
+        providerPayload: {
+          kind: 'adaptive_card',
+          card,
+        },
+      });
+    }
+    try {
+      const result = (await sink.sendAdaptiveCard(jid, card, options)) as
+        | MessageDeliveryResult
+        | undefined;
+      if (durability === 'required' && durableAttempt) {
+        await durableAttempt.settleSent({
+          sentAt: nowIso(),
+          providerMessageId: result?.externalMessageId,
+          providerPayload: result,
+        });
+      }
+      return result;
+    } catch (err) {
+      if (durability === 'required' && durableAttempt) {
+        await durableAttempt.settleFailed({
+          failedAt: nowIso(),
+          error: sanitizeDeliveryError(err, provider),
+        });
+      }
+      throw err;
+    }
+  }
+
   async function sendProviderMessage(
     jid: string,
     rawText: string,
@@ -686,6 +764,7 @@ export function createChannelWiring(
     supportsStreaming,
     supportsProgress,
     sendMessage,
+    sendAdaptiveCard,
     sendProviderMessage,
     createRecoveryDispatchPermit,
     setRetryTailRecoveryEnqueue,

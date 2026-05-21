@@ -37,7 +37,10 @@ import { handleExternalIngressRoutes } from './routes/external-ingress.js';
 import { handleJobRoutes } from './routes/jobs.js';
 import { handleMemoryRoutes } from './routes/memory.js';
 import { handleMcpServerRoutes } from './routes/mcp-servers.js';
-import { handleManipalPlatformEventRoutes } from './routes/manipal-platform-events.js';
+import {
+  flushExternalPlatformEventDeliveries,
+  handleExternalPlatformEventRoutes,
+} from './routes/external-platform-events.js';
 import { handleModelRoutes } from './routes/models.js';
 import { handleOpenApiRoutes } from './routes/openapi.js';
 import { handleRunRoutes } from './routes/runs.js';
@@ -120,7 +123,7 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
 
     try {
       if (await handleTeamsActivityRoutes(req, res, pathname)) return;
-      if (await handleManipalPlatformEventRoutes(req, res, ctx, pathname))
+      if (await handleExternalPlatformEventRoutes(req, res, ctx, pathname))
         return;
       if (await handleOpenApiRoutes(req, res, pathname)) return;
       if (await handleSystemRoutes(req, res, ctx, pathname)) return;
@@ -192,6 +195,7 @@ export function startControlServer(input: {
     activeTriggerWaits: 0,
   };
   let webhookFlushInFlight = false;
+  let externalDeliveryFlushInFlight = false;
   const ctx: ControlRouteContext = {
     app: input.app,
     keys,
@@ -253,6 +257,17 @@ export function startControlServer(input: {
         webhookFlushInFlight = false;
       });
   }, 1000);
+  const externalDeliveryInterval = setInterval(() => {
+    if (externalDeliveryFlushInFlight) return;
+    externalDeliveryFlushInFlight = true;
+    void flushExternalPlatformEventDeliveries(ctx)
+      .catch((error) => {
+        logger.warn({ err: error }, 'Failed flushing External platform events');
+      })
+      .finally(() => {
+        externalDeliveryFlushInFlight = false;
+      });
+  }, 5000);
   let ingressMaintenanceInFlight = false;
   const ingressMaintenanceInterval = setInterval(() => {
     if (ingressMaintenanceInFlight) return;
@@ -275,6 +290,7 @@ export function startControlServer(input: {
   return {
     async close() {
       clearInterval(deliveryInterval);
+      clearInterval(externalDeliveryInterval);
       clearInterval(ingressMaintenanceInterval);
       await new Promise<void>((resolve, reject) => {
         server.close((error) => {

@@ -94,8 +94,19 @@ export interface RuntimeApp {
   sendChannelMessage: (
     chatJid: string,
     rawText: string,
-    options?: Parameters<GroupProcessingDeps['channelRuntime']['sendMessage']>[2],
+    options?: Parameters<
+      GroupProcessingDeps['channelRuntime']['sendMessage']
+    >[2],
   ) => Promise<void>;
+  sendChannelAdaptiveCard?: (
+    chatJid: string,
+    card: Parameters<
+      NonNullable<GroupProcessingDeps['channelRuntime']['sendAdaptiveCard']>
+    >[1],
+    options?: Parameters<
+      NonNullable<GroupProcessingDeps['channelRuntime']['sendAdaptiveCard']>
+    >[2],
+  ) => Promise<unknown>;
 }
 
 export interface RuntimeAppOptions {
@@ -538,6 +549,12 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     },
     sendChannelMessage: (chatJid, rawText, options) =>
       channelRuntime.sendMessage(chatJid, rawText, options),
+    sendChannelAdaptiveCard: (chatJid, card, options) =>
+      channelRuntime.sendAdaptiveCard
+        ? channelRuntime.sendAdaptiveCard(chatJid, card, options)
+        : Promise.reject(
+            new Error(`Adaptive Card delivery is unavailable for ${chatJid}.`),
+          ),
   };
 }
 
