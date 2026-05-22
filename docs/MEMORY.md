@@ -165,21 +165,19 @@ sequenceDiagram
 Wired at:
 
 - System-job marker `MEMORY_DREAM_SYSTEM_PROMPT = '__system:memory_dream'` —
-  `apps/core/src/jobs/system-jobs.ts:23`.
+  `apps/core/src/jobs/system-jobs.ts`.
 - Per-folder registration gated on `memory.dreaming.enabled` and
   `memory.dreaming.cron` —
-  `apps/core/src/jobs/system-jobs.ts:37`-`apps/core/src/jobs/system-jobs.ts:106`.
+  `apps/core/src/jobs/system-jobs.ts`.
 - Maintenance-queue runner —
-  `apps/core/src/runtime/memory-dreaming-runner.ts:10`.
+  `apps/core/src/runtime/memory-dreaming-runner.ts`.
 - `triggerDreaming` —
-  `apps/core/src/memory/app-memory-service.ts:388`.
+  `apps/core/src/memory/app-memory-service.ts`.
 - Phase logic (`light`, `rem`, `deep`, `all`) —
-  `apps/core/src/memory/app-memory-dreaming.ts:104`,
-  `apps/core/src/memory/app-memory-dreaming.ts:144`,
-  `apps/core/src/memory/app-memory-dreaming.ts:165`.
+  `apps/core/src/memory/app-memory-dreaming.ts`.
 - SDK on-demand trigger — `client.memory.dreaming.trigger` and
   `client.memory.dreaming.status` at
-  `packages/sdk/src/index.ts:663` and `packages/sdk/src/index.ts:673`.
+  `packages/sdk/src/index.ts`.
 
 ## DM And Conversation Scope
 
@@ -196,7 +194,7 @@ The host owns the default memory scope:
 
 The default-scope toggle is the `memoryDefaultScope: 'user' | 'group'` field
 on the `SessionMemoryCollector` port
-(`apps/core/src/domain/ports/session-memory-collector.ts:2`). The host
+(`apps/core/src/domain/ports/session-memory-collector.ts`). The host
 chooses the scope from the inbound chat jid and the bound provider:
 
 ```mermaid
@@ -251,7 +249,7 @@ admin memory scope.
 | Control API | Changed | Memory save/search/list/patch/delete and dreaming routes operate over the app-bound memory service. |
 | SDK/contracts | Changed | Server-side SDK memory methods are the API-first management surface. |
 | CLI | Read-only/observable | `gantry memory-status`, `status`, and `doctor` report memory, embeddings, dreaming, and vector inactivity; they do not manage memory items. |
-| Gantry MCP tools/admin skill | Changed | Agent tools can search, save, request reviewed memory changes, list pending memory reviews, and apply review decisions through host IPC/MCP. |
+| Gantry MCP tools/admin skill | Changed | Agent tools can search, save, request `continuity_summary`, request reviewed memory changes, list pending memory reviews, and apply review decisions through host IPC/MCP. |
 | Channel/provider adapters | Unchanged by design | Channels only provide source identity and conversation scope; memory storage stays channel-neutral. |
 | Docs/prompts | Changed | Active docs must state flattened memory items, lexical retrieval, inactive vector retrieval, and no compact-summary replay. |
 | Audit/events | Changed | Evidence, recall, dream run, dream decision, review proposal, reviewer decision, and apply outcome rows remain audit surfaces for memory lifecycle decisions. |

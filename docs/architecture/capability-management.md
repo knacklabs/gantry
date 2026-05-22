@@ -191,9 +191,9 @@ The deterministic ownership rule is:
   configured on each provider conversation surface.
 
 There is no channel-scoped tool selection field and no separate browser
-capability list. Browser is represented by a semantic capability such as
-`browser.use`; provider or channel flags describe adapter support and are
-metadata, not authorization.
+capability list. Browser is selected in settings/API as `browser.use` and
+translated into the canonical runtime `Browser` tool rule; provider or channel
+flags describe adapter support and are metadata, not authorization.
 
 API, CLI, and MCP are adapters over the same application services:
 
@@ -214,6 +214,8 @@ place.
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
 | `send_message`                     | Progress updates or direct channel messages while the agent is still running.                                                                                                                                | Persistent capability changes.                                                                                  |
 | `ask_user_question`                | Structured choices with content, options, single-select, multi-select, preview/details, and channel-native buttons.                                                                                          | Open-ended chat or approval of persistent capabilities.                                                         |
+| `continuity_summary`               | Summarizes current durable continuity, staged memory candidates, reviewed memory state, dreaming status, and last injected context.                                                                           | Treating memory or continuity content as instruction or tool authority.                                         |
+| `file`                             | Lists, reads, writes, or promotes Gantry FileArtifacts by virtual scope/path while hiding host filesystem paths and storage refs; full host tool id `mcp__gantry__file`.                                     | Arbitrary host filesystem reads/writes or bypassing approved file facades.                                      |
 | `request_skill_install`            | Reviewed skill installs using either staged `SKILL.md` package files or an installer command such as `npx ... install <skill>` that produces a `SKILL.md` package in host-controlled staging.                | Installing silently, editing skill directories directly, or requiring a second approval after approval.         |
 | `request_skill_proposal`           | Agent-created or modified `SKILL.md` bundles for review.                                                                                                                                                     | Writing directly to `.claude/skills`, `.agents/skills`, or agent-local `skills/`.                               |
 | `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies needed by a reviewed skill.                                                                                                                                      | Running dependency commands from the agent.                                                                     |
@@ -225,6 +227,10 @@ place.
 | `capability_status`                | Lists current tool access, readable configured rules, selected skills, selected MCP servers, default tools, gated tools, semantic capability tools, and unavailable-but-requestable admin tools.             | Guessing hidden admin tools or requesting broad Gantry MCP wildcards.                                           |
 | `settings_desired_state`           | Selected-capability reading of the current local desired-state settings before proposing a reviewed config change.                                                                                           | Unselected access, mutating settings, or exposing raw secrets.                                                  |
 | `request_settings_update`          | Selected-capability reviewed host-side edits to non-secret local `settings.yaml` desired state.                                                                                                              | Unselected access, direct file edits, raw provider secrets, skill source injection, or MCP definitions.         |
+| `admin_permission_list`            | Selected-capability inventory of current-agent persistent Gantry MCP grants.                                                                                                                                 | Cross-agent grant discovery, raw secret inspection, or broad admin wildcard discovery.                          |
+| `admin_permission_revoke`          | Selected-capability revocation of one current-agent persistent Gantry MCP grant.                                                                                                                             | Revoking grants for another agent or bypassing review for new grants.                                           |
+| `mcp_list_tools`                   | Lists approved third-party MCP tools through the Gantry proxy.                                                                                                                                               | Discovering unapproved servers or treating third-party tool names as durable Gantry authority.                  |
+| `mcp_call_tool`                    | Calls approved third-party MCP tools through the Gantry proxy and selected MCP bindings.                                                                                                                     | Direct MCP server execution, raw `.mcp.json` edits, or unapproved tools.                                        |
 | `service_restart`                  | Selected-capability restart after approved config or capability changes that require host restart.                                                                                                           | Restarting to activate unapproved changes.                                                                      |
 | `register_agent`                   | Selected-capability binding of a new channel conversation to an agent.                                                                                                                                       | Letting an unselected agent bind arbitrary chats.                                                               |
 
@@ -258,13 +264,16 @@ Agent-owned persistent grants are mirrored into `settings.yaml` as readable
 `agents.<id>.capabilities` entries. Prefer semantic capabilities such as
 `google.sheets.write` for app workflows. `request_permission` durable fallback
 is intentionally narrow and should be converted into an approved capability
-version when it needs to survive beyond a one-off exact tool rule. Broad exact
-SDK/native tools such as `Read`, `Write`, `Edit`, `WebFetch`, `LS`, exact
-third-party MCP tools, secret-bearing command rules, shell-control command
-rules, and `SandboxNetworkAccess` are not durable authority. Do not expose
-opaque permission-rule hashes in settings. Settings reconciliation resolves
-selected capability versions back into Postgres catalog rows and agent bindings
-immediately and after restart.
+version when it needs to survive beyond a one-off exact tool rule. Durable
+fallback authority is limited to semantic capabilities, canonical `Browser`,
+exact Gantry file/web facades, exact selected Gantry admin MCP tools such as
+`mcp__gantry__admin_permission_list`, and scoped `RunCommand(...)` rules.
+Broad exact SDK/native tools such as `Read`, `Write`, `Edit`, `WebFetch`,
+`LS`, exact third-party MCP tools, secret-bearing command rules, shell-control
+command rules, and `SandboxNetworkAccess` are not durable authority. Do not
+expose opaque permission-rule hashes in settings. Settings reconciliation
+resolves selected capability versions back into Postgres catalog rows and agent
+bindings immediately and after restart.
 
 Scoped `RunCommand(...)` rules match parsed argv leaves, not whole shell strings. Compound
 commands require every safe, stateless leaf to match a separate durable rule;

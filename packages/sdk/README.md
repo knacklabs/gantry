@@ -54,7 +54,7 @@ endpoints on the running runtime:
 - `client.sessions` — `ensure`, `sendMessage`, `listEvents`, `stream` (SSE), `wait`
 - `client.jobs` — `create`, `list`, `get`, `update`, `delete`, `pause`, `resume`, `trigger`, `wait`
 - `client.runs` — `list`, `get`
-- `client.models` — `list`
+- `client.models` — `list`, `defaults.get`, `defaults.update`, `preview`
 - `client.agents` — admin CRUD plus `skills`, `mcpServers`, `conversationBindings`
 - `client.skillDrafts` — manage proposed skills
 - `client.mcpServers` — catalog of MCP servers

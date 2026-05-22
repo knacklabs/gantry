@@ -67,6 +67,35 @@ approval policy:
 | View jobs                   | Originating agent/conversation scope unless an admin capability is approved |
 | Manage conversations        | Selected admin capability plus same-conversation approver                   |
 
+### 5. Tool And Capability Authority
+
+Durable authority is stored as reviewed Gantry capability state, not as raw
+provider harness settings. Persistent grants are limited to semantic
+capabilities, canonical `Browser`, exact Gantry file/web facades, exact
+selected Gantry admin MCP tools, and scoped `RunCommand(...)` rules. Provider
+native names such as `Read`, `Write`, `Edit`, `WebFetch`, `Bash`, `Agent`, and
+Claude SDK `allowedTools` entries are adapter projections for one run; they are
+not accepted as durable Gantry authority.
+
+The baseline Gantry MCP surface includes safe interaction, memory, continuity,
+FileArtifact, capability, and MCP proxy tools. Browser access persists only as
+`Browser` and projects to `browser_status`, `browser_open`,
+`browser_inspect`, `browser_act`, and `browser_close`; `browser_act`
+`file_attach` stages uploads through Gantry-owned policy before Playwright
+sees a path. The `file` tool operates on virtual FileArtifact scopes and keeps
+host filesystem paths and storage refs out of model-facing responses.
+
+Admin tools require exact selected tool grants. `admin_permission_list` can
+inventory only the current agent's persistent Gantry MCP grants, and
+`admin_permission_revoke` can revoke only a current-agent grant. They do not
+create new authority or expose cross-agent grant state.
+
+`SandboxNetworkAccess` is a transient SDK defense-in-depth prompt, not a
+settings capability. Local CLI capabilities must pin executable identity,
+command templates, auth preflight, protected paths, denied environment
+overrides, and account label before runtime projection can create scoped
+command authority.
+
 ## Privilege Comparison (Host Runtime)
 
 | Capability                          | Authorization source                                        |
@@ -78,7 +107,7 @@ approval policy:
 | Scheduler control scope             | Job capability and originating conversation policy          |
 | Session commands (`/new`, `/model`) | Sender policy and conversation control approvers            |
 
-### 5. Credential Isolation (OneCLI Agent Vault)
+### 6. Credential Isolation (OneCLI Agent Vault)
 
 Credentials should be provided through OneCLI and runtime environment controls.
 

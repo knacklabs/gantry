@@ -104,7 +104,8 @@ Conversations own sender policy, trigger policy, bound agents, sessions, and
 control approvers. Control approvers must be members of the Conversation and
 are used for both direct/private and group/channel approval flows. There is no
 conversation-scoped tool selection field, and Browser is represented by a
-semantic capability such as `browser.use`.
+readable `browser.use` capability id that projects to the canonical runtime
+`Browser` tool rule.
 Agent-requested changes use Gantry MCP request tools, not public API request
 approval endpoints.
 
@@ -112,6 +113,8 @@ Agent-facing tools:
 
 - `send_message`: progress updates or direct channel messages while the agent is still running.
 - `ask_user_question`: structured choices with options, single-select, multi-select, preview/details, and channel-native buttons.
+- `continuity_summary`: inspect current durable continuity, staged memory candidates, reviewed memory state, and last injected context for the trusted subject.
+- `file`: list, read, write, or promote Gantry FileArtifacts by virtual scope/path; host filesystem paths and storage refs stay hidden.
 - `request_skill_install`: reviewed skill install requests with staged package files or an installer command that produces a `SKILL.md` package in host-controlled staging.
 - `request_skill_proposal`: agent-created or modified skill file bundles for review.
 - `request_skill_dependency_install`: dependency requests for npm, brew, go, uv, or downloads required by a skill.
@@ -123,6 +126,8 @@ Agent-facing tools:
 - `capability_status`: current tool access, semantic capability tools, readable configured rules, selected skills, selected MCP servers, and request arguments for missing admin tools.
 - `settings_desired_state`: selected-capability read of current local desired state.
 - `request_settings_update`: selected-capability reviewed edit to non-secret `settings.yaml` desired state.
+- `admin_permission_list`: selected-capability list of current-agent persistent Gantry MCP grants.
+- `admin_permission_revoke`: selected-capability revocation of a current-agent persistent Gantry MCP grant.
 - `mcp_list_tools` / `mcp_call_tool`: list and call approved third-party MCP tools through the Gantry proxy.
 - `service_restart`: selected-capability restart after approved changes that require host restart.
 - `register_agent`: selected-capability binding of a channel conversation to an agent.
@@ -131,8 +136,9 @@ Every persistent capability change follows request, validation, review,
 decision, durable audit, new config version, and next-run activation.
 Persistent agent grants are mirrored into `settings.yaml` as readable
 `agents.<id>.capabilities` entries such as `google.sheets.write`,
-`browser.use`, or a reviewed composite capability version. Sources are mirrored
-under `agents.<id>.sources` and do not grant execution authority by
+`browser.use`, or a reviewed composite capability version. The `browser.use`
+entry projects to the canonical runtime `Browser` tool rule. Sources are
+mirrored under `agents.<id>.sources` and do not grant execution authority by
 themselves. Durable `request_permission` does not mint broad exact SDK/native
 tools or exact third-party MCP tools; those must be represented by selected
 semantic capabilities or reviewed MCP server bindings. Jobs inherit the target
@@ -226,10 +232,16 @@ and projected runtime access:
   ],
   "toolAccess": {
     "configuredTools": ["capability:google.sheets.write", "Browser"],
-    "defaultTools": ["send_message", "ask_user_question"],
-    "availableButGatedTools": [],
-    "requestableAdminTools": [],
-    "source": "selected agent capabilities"
+    "defaultTools": [],
+    "availableButGatedTools": ["RunCommand", "FileEdit", "FileWrite"],
+    "requestableAdminTools": [
+      {
+        "tool": "mcp__gantry__settings_desired_state",
+        "toolId": "tool:mcp__gantry__settings_desired_state",
+        "requestPermission": "permissionKind=tool toolName=mcp__gantry__settings_desired_state temporaryOnly=false reason=\"<why this agent needs settings_desired_state>\""
+      }
+    ],
+    "source": "Postgres agent_tool_bindings projected from settings.yaml"
   },
   "updatedAt": "2026-05-21T00:00:00.000Z"
 }
@@ -452,6 +464,9 @@ client.jobs.create({
     sessionId, // required canonical app session id
   },
   notificationRoutes?, // defaults to primary execution context route
+  capabilityRequirements?, // semantic capability readiness, e.g. Browser
+  toolAccessRequirements?, // Gantry facades/rules, e.g. FileRead or RunCommand(npm test *)
+  requiredMcpServers?, // selected MCP source ids that must be ready
   kind?, // manual | once | recurring
   runAt?, // once
   schedule?, // recurring
@@ -471,6 +486,9 @@ client.jobs.update(jobId, {
     sessionId, // required when executionContext is provided
   },
   notificationRoutes?,
+  capabilityRequirements?,
+  toolAccessRequirements?,
+  requiredMcpServers?,
   status?,
   modelAlias?,    // use null to clear back to inherited defaults
 })
@@ -480,6 +498,12 @@ client.jobs.resume(jobId)
 client.jobs.trigger(jobId)
 client.jobs.wait(triggerId, timeoutMs?)
 ```
+
+Job create, update, list, get, and trigger responses include `toolAccess` so
+callers can show the inherited target-agent projection. The arrays above are
+readiness assertions; they do not grant tools to the job. Use selected agent
+capabilities, attached sources, or the reviewed Gantry MCP request tools to
+change authority.
 
 Use `client.models.list()` to inspect supported model aliases, context windows,
 cache policy, provider ids/labels, and supported workloads. API job creation
@@ -509,6 +533,18 @@ Use `POST /v1/models/preview` for "why" checks before a run. `target: "chat"`
 can include `conversationJid` or `groupScope` to expose live session `/model`
 overrides; `target: "job"` with `jobId` distinguishes explicit job aliases from
 inherited defaults.
+
+```ts
+await client.models.preview({
+  target: 'job',
+  jobId,
+});
+
+await client.models.preview({
+  target: 'memory',
+  task: 'dreaming',
+});
+```
 
 Job create and dry-run responses include `runtimeContext`: source conversation,
 resolved `executionContext`, resolved `notificationRoutes`, resolved persona,
@@ -586,6 +622,7 @@ Control API scopes:
 GET    /v1/settings                                agents:admin
 GET    /v1/models                                  sessions:read
 GET    /v1/models/defaults                         sessions:read
+POST   /v1/models/preview                          sessions:read or jobs:read; stored job previews require jobs:read
 PATCH  /v1/models/defaults                         agents:admin
 
 GET    /v1/agents                                  agents:admin

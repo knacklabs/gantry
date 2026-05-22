@@ -493,7 +493,9 @@ Agents interact with memory via MCP tools over IPC:
 | ---------------- | ---------------------------------------------------------------------------------------- |
 | `memory_save`    | Save a durable preference, decision, fact, correction, or constraint in user/group scope |
 | `memory_search`  | Search scoped memory statements and source snippets                                      |
+| `continuity_summary` | Summarize current durable memory continuity, staged candidates, and last injected context |
 | `procedure_save` | Save a reusable multi-step procedure                                                     |
+| `file`           | List, read, write, or promote Gantry FileArtifacts by virtual scope/path                 |
 
 Patch and review tools exist in the host protocol for reviewed/admin flows, but
 they are not part of the default agent capability bundle.
@@ -737,8 +739,9 @@ Postgres state and are never written to `settings.yaml`.
 2. **Agent Capabilities**: Scheduled jobs inherit the selected target agent's
    selected capabilities plus attached sources. They do not carry job-specific
    capability grants, raw tool grants, or receive all tools by default.
-   Job `capabilityRequirements` are readiness assertions that pause the job
-   until the target agent has the required capability.
+   Job `capabilityRequirements`, `toolAccessRequirements`, and
+   `requiredMcpServers` are readiness assertions that pause the job until the
+   target agent has the required capability, tool facade, or MCP source.
 3. **Optional Messaging**: Jobs can send messages to their group using the `send_message` tool, or complete silently
 4. **Admin Privileges**: Admin-wide job management belongs to the Control API
    and local/admin CLI surfaces. Normal agent-facing scheduler MCP tools stay

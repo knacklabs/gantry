@@ -205,8 +205,8 @@ object:
 ```json
 {
   "toolAccess": {
-    "inheritedAgentTools": ["FileRead", "RunCommand(npm test *)"],
-    "effectiveAllowedTools": ["FileRead", "RunCommand(npm test *)"],
+    "inheritedAgentTools": ["Browser", "FileRead", "RunCommand(npm test *)"],
+    "effectiveAllowedTools": ["Browser", "FileRead", "RunCommand(npm test *)"],
     "projectedRuntimeTools": ["browser_open"],
     "source": "inherited target agent capabilities"
   },

@@ -117,7 +117,7 @@ Key runner inputs:
 
 `apps/core/src/adapters/llm/anthropic-claude-agent/runner/query-loop.ts` creates a `MessageStream` and passes it to `query()`. The stream lets the host add follow-up user messages to an already-running agent when the queue decides continuation is safe. The same `query()` call receives:
 
-- `allowedTools` from `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`
+- `allowedTools` from `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`, backed by the Gantry MCP surface in `apps/core/src/runner/gantry-mcp-tool-surface.ts`
 - Gantry MCP server config from `apps/core/src/runner/mcp/server.ts`
 - provider-session projection: live interactive turns may pass adapter resume
   metadata from `ProviderSession`; scheduled jobs keep provider persistence
@@ -149,10 +149,16 @@ Tool access has two layers:
 - Gantry MCP tools served over stdio by `apps/core/src/runner/mcp/server.ts`
 
 The default SDK tool list is intentionally narrow: read/search/web/task/skill
-tools plus exact Gantry request tools. Dangerous tools such as `Bash`, `Write`,
-`Edit`, config mutation, and wildcard `mcp__gantry__*` are not defaults. A small
-set of worktree lifecycle tools is always allowed because it is required for
-runner operation. Other tool calls pass through `canUseTool` and host policy.
+tools plus exact baseline Gantry MCP tools, including `send_message`,
+`ask_user_question`, memory save/search, `continuity_summary`, `procedure_save`,
+`file`, capability request/manage tools, and the third-party MCP proxy tools.
+Browser gateway tools (`browser_status`, `browser_open`, `browser_inspect`,
+`browser_act`, `browser_close`), reviewed memory tools, and admin tools such as
+`admin_permission_list` and `admin_permission_revoke` require selected
+capabilities. Dangerous tools such as `Bash`, `Write`, `Edit`, config mutation,
+and wildcard `mcp__gantry__*` are not defaults. A small set of worktree
+lifecycle tools is always allowed because it is required for runner operation.
+Other tool calls pass through `canUseTool` and host policy.
 
 All tool execution paths use the same lifecycle:
 

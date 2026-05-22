@@ -72,8 +72,11 @@ sequenceDiagram
 - `sessions`
 - `jobs`
 - `runs`
+- `models`
+- `agents`
 - `ingresses`
 - `webhooks`
+- `memory`
 - `health`
 - `doctor`
 

@@ -194,45 +194,51 @@ classDiagram
 Cited at:
 
 - `Agent`, `AgentConfigVersion`, `LlmProfile`, `ConversationSenderPolicy`,
-  `ConversationApprover` — `apps/core/src/domain/agent/agent.ts:41` through
-  `apps/core/src/domain/agent/agent.ts:88`.
+  `ConversationApprover` — `apps/core/src/domain/agent/agent.ts`.
 - `AgentConfig` (carrying `persona`, model override, and additional mounts) —
-  `apps/core/src/domain/types.ts:39`.
+  `apps/core/src/domain/types.ts`.
 - `AgentPersona` enum and resolver —
-  `apps/core/src/shared/agent-persona.ts:1`.
+  `apps/core/src/shared/agent-persona.ts`.
 - `AgentCapabilityContext` and `AgentCapabilityProfile` —
-  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:7` and
-  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:41`.
+  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`.
 - Built-in capability providers (`sdk-tools`, `permissions`, `gantry-mcp`,
   `configured-tools`, `configured-mcp`) and `composeAgentCapabilities` —
-  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:131` and
-  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:249`.
+  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`.
 - Persona compiled into the system prompt —
-  `apps/core/src/application/agents/prompt-profile-service.ts:222` and
-  `apps/core/src/runtime/agent-spawn.ts:141`.
+  `apps/core/src/application/agents/prompt-profile-service.ts` and
+  `apps/core/src/runtime/agent-spawn.ts`.
 - Skill materialisation into the run env —
-  `apps/core/src/adapters/llm/anthropic-claude-agent/claude-skill-materializer.ts:1`,
-  imported by `apps/core/src/runtime/agent-spawn.ts:39`.
+  `apps/core/src/adapters/llm/anthropic-claude-agent/claude-skill-materializer.ts`,
+  imported by `apps/core/src/runtime/agent-spawn.ts`.
 
 The Gantry MCP allowlist composed by the `gantry-mcp` provider is the
-agent-visible tool surface (`apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:72`):
+agent-visible tool surface (`apps/core/src/runner/gantry-mcp-tool-surface.ts`):
 
 ```text
 send_message            ask_user_question
-memory_search           memory_save           procedure_save
-browser
+memory_search           memory_save           continuity_summary
+procedure_save          file
 mcp_list_tools          mcp_call_tool
 request_skill_install   request_skill_proposal
 request_skill_dependency_install
 request_mcp_server      request_permission
-capability_status
+capability_status       capability_search
+propose_capability      manage_capability
 ```
 
-Selected-capability admin agents add four additional admin tools
-(`apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:89`):
-`settings_desired_state`, `request_settings_update`, `service_restart`,
-`register_agent`. Agents use `capability_status` to inspect missing admin
-capabilities, `propose_capability` for durable semantic capability changes, and
+The canonical `Browser` capability is gated separately and projects to
+`browser_status`, `browser_open`, `browser_inspect`, `browser_act`, and
+`browser_close`. Reviewed memory tools such as `memory_patch`,
+`memory_demote`, `procedure_patch`, `memory_dream`, `memory_consolidate`,
+`memory_review_pending`, and `memory_review_decision` are selected only for
+review/admin flows.
+
+Selected-capability admin agents add six additional admin tools
+(`apps/core/src/shared/admin-mcp-tools.ts`): `settings_desired_state`,
+`request_settings_update`, `admin_permission_list`,
+`admin_permission_revoke`, `service_restart`, and `register_agent`. Agents use
+`capability_status` to inspect missing admin capabilities,
+`propose_capability` for durable semantic capability changes, and
 `request_permission` only for one-off exact fallback access or provider
 capability review.
 
@@ -269,7 +275,7 @@ read it there for the full sequence and prose. The short version:
 ## 5. Provider Abstraction + DM vs Group Routing
 
 Channels register through a single `Provider` shape
-(`apps/core/src/channels/provider-registry.ts:25`):
+(`apps/core/src/channels/provider-registry.ts`):
 
 ```text
 Provider {
@@ -308,7 +314,7 @@ DM vs channel/group routing differs on three axes:
 | Axis                 | DM                                                                        | Channel / group                                                        |
 | -------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | Trigger requirement  | `requiresTrigger=false` by default                                        | `requiresTrigger=true` by default                                      |
-| Default memory scope | `'user'` — see `domain/ports/session-memory-collector.ts:2`               | `'group'` — same file, same toggle                                     |
+| Default memory scope | `'user'` — see `apps/core/src/domain/ports/session-memory-collector.ts`   | `'group'` — same file, same toggle                                     |
 | Approval authority   | Bound agent's per-provider conversation approver (`ConversationApprover`) | Conversation control approvers; see channel-interactions.md §approvers |
 
 `conversationKind: 'dm' | 'channel'` is carried by `ConversationRoute`
@@ -321,7 +327,7 @@ Detail: [channel-interactions.md](./channel-interactions.md).
 
 Memory has two views that map onto each other:
 
-- **Canonical domain** (`apps/core/src/domain/memory/memory.ts:13`):
+- **Canonical domain** (`apps/core/src/domain/memory/memory.ts`):
   `MemorySubject` is one of `app | agent | user | conversation | thread`.
 - **User-facing terminology** ([MEMORY.md §Boundary Model](../MEMORY.md#boundary-model)):
   `user`, `group`, `channel`, `common`, with optional `userId`, `groupId`,
@@ -386,12 +392,11 @@ flowchart LR
 
 The default-scope toggle ships through the host as
 `memoryDefaultScope: 'user' | 'group'` on the `SessionMemoryCollector` port
-(`apps/core/src/domain/ports/session-memory-collector.ts:2`) and reaches the
+(`apps/core/src/domain/ports/session-memory-collector.ts`) and reaches the
 agent through the `gantry-mcp` provider as `GANTRY_MEMORY_DEFAULT_SCOPE`
-(`apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:166`). The conversation memory
-boundary is annotated at
-`apps/core/src/adapters/storage/postgres/repositories/canonical-binding-repository.postgres.ts:63`
-and `apps/core/src/adapters/storage/postgres/repositories/canonical-binding-repository.postgres.ts:78`.
+(`apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`). The conversation memory
+boundary is annotated in
+`apps/core/src/adapters/storage/postgres/repositories/canonical-binding-repository.postgres.ts`.
 
 A memory written in a DM cannot be read from a group of the same agent, and
 vice versa: the rows differ in both `subjectType` and `subjectId`. `common`
@@ -434,19 +439,15 @@ sequenceDiagram
 Cited at:
 
 - `request_*` tool definitions —
-  `apps/core/src/runner/mcp/tools/service.ts:21`,
-  `apps/core/src/runner/mcp/tools/service.ts:27`,
-  `apps/core/src/runner/mcp/tools/service.ts:71`,
-  `apps/core/src/runner/mcp/tools/service.ts:118`,
-  `apps/core/src/runner/mcp/tools/service.ts:296`.
+  `apps/core/src/runner/mcp/tools/service.ts`.
 - Settings tools (`settings_desired_state`, `request_settings_update`) —
-  `apps/core/src/runner/mcp/tools/settings.ts:9` and
-  `apps/core/src/runner/mcp/tools/settings.ts:54`.
-- Selected admin-capability tools (`service_restart`, `register_agent`) —
-  `apps/core/src/runner/mcp/tools/service.ts:417` and
-  `apps/core/src/runner/mcp/tools/service.ts:468`.
+  `apps/core/src/runner/mcp/tools/settings.ts`.
+- Selected admin-capability tools (`admin_permission_list`,
+  `admin_permission_revoke`, `service_restart`, `register_agent`) —
+  `apps/core/src/runner/mcp/tools/admin-permissions.ts` and
+  `apps/core/src/runner/mcp/tools/service.ts`.
 - Decision modes (`allow_once | allow_persistent_rule | cancel`) —
-  `apps/core/src/domain/types.ts:181`.
+  `apps/core/src/domain/types.ts`.
 - IPC handlers — `apps/core/src/runtime/ipc.ts` and
   `apps/core/src/runtime/ipc-interaction-handler.ts`.
 - Runner-side `canUseTool` —
@@ -457,7 +458,7 @@ Cited at:
 ## 8. Scheduler + Job Lifecycle
 
 A Gantry job is a first-party record (`Job` in
-`apps/core/src/domain/types.ts:98`) scoped by `group_scope` and runtime
+`apps/core/src/domain/types.ts`) scoped by `group_scope` and runtime
 `execution_context`/`notification_routes` in Postgres. pg-boss provides
 claim/dispatch and restart-safe scheduling, not the job model.
 
@@ -501,12 +502,12 @@ Cited at:
 
 - Manual job creation binds `execution_context.conversationJid` and
   `notification_routes` for delivery —
-  `apps/core/src/application/jobs/job-management-service.ts:99`.
+  `apps/core/src/application/jobs/job-management-service.ts`.
 - Agent-facing scheduler MCP tools authorize by `group_scope` plus the
   originating conversation in `execution_context.conversationJid`; thread ids
   are delivery metadata and spoof-check inputs, not visibility authority.
 - System (dreaming) jobs registered per `group.folder` —
-  `apps/core/src/jobs/system-jobs.ts:44`-`apps/core/src/jobs/system-jobs.ts:50`.
+  `apps/core/src/jobs/system-jobs.ts`.
 - Scheduler core — `apps/core/src/jobs/scheduler.ts`,
   `apps/core/src/jobs/execution.ts`,
   `apps/core/src/jobs/schedule-math.ts`.
@@ -514,8 +515,7 @@ Cited at:
   `apps/core/src/infrastructure/pgboss/scheduler-engine.ts`.
 - REST surface (`POST /v1/jobs/:jobId/trigger` returns `triggerId`;
   `GET /v1/triggers/:id/wait` blocks for completion) —
-  `apps/core/src/control/server/routes/jobs.ts:445` and
-  `apps/core/src/control/server/routes/jobs.ts:466`.
+  `apps/core/src/control/server/routes/jobs.ts`.
 
 ## 9. External Ingress + Outbound Webhooks
 
@@ -550,19 +550,16 @@ flowchart LR
 Cited at:
 
 - Ingress route (`POST /v1/ingresses/:id/invoke` and `/wait`) —
-  `apps/core/src/control/server/routes/external-ingress.ts:152` and
-  `apps/core/src/control/server/routes/external-ingress.ts:174`.
+  `apps/core/src/control/server/routes/external-ingress.ts`.
 - Adapter (verifies + enqueues check after successful dispatch) —
-  `apps/core/src/control/server/external-ingress-adapter.ts:54` and
-  `apps/core/src/control/server/external-ingress-adapter.ts:79`.
+  `apps/core/src/control/server/external-ingress-adapter.ts`.
 - Module dispatch by target kind — `dispatchTarget` at
-  `apps/core/src/application/external-ingress/external-ingress-module.ts:395`,
-  with concrete branches for `session_message`
-  (`apps/core/src/application/external-ingress/external-ingress-module.ts:415`),
-  `job_trigger` (line 460), and `job_template` (line 477).
+  `apps/core/src/application/external-ingress/external-ingress-module.ts`,
+  with concrete branches for `session_message`, `job_trigger`, and
+  `job_template`.
 - Target-policy enforcement (allowlist of kinds, session ids, conversation
   ids, job ids, template ids) —
-  `apps/core/src/application/external-ingress/target-policy.ts:5`.
+  `apps/core/src/application/external-ingress/target-policy.ts`.
 - Outbound delivery + routes —
   `apps/core/src/control/server/webhook-delivery.ts` and
   `apps/core/src/control/server/routes/webhooks.ts`.
@@ -610,14 +607,13 @@ Cited at:
 - SDK methods (`sessions.ensure`, `sessions.sendMessage`, `sessions.wait`,
   `sessions.stream`) — `packages/sdk/src/index.ts`.
 - `POST /v1/sessions/ensure` —
-  `apps/core/src/control/server/routes/sessions.ts:50`.
+  `apps/core/src/control/server/routes/sessions.ts`.
 - `POST /v1/sessions/:id/messages` —
-  `apps/core/src/control/server/routes/sessions.ts:157`.
+  `apps/core/src/control/server/routes/sessions.ts`.
 - `ensureSessionForControl`, `acceptMessageForControl` —
-  `apps/core/src/control/server/session-interaction-adapter.ts:29` and
-  `apps/core/src/control/server/session-interaction-adapter.ts:41`.
+  `apps/core/src/control/server/session-interaction-adapter.ts`.
 - `app` channel adapter — `createAppChannel` at
-  `apps/core/src/channels/app.ts:52`.
+  `apps/core/src/channels/app.ts`.
 
 ## 11. Dreaming End-to-End
 
@@ -655,22 +651,19 @@ sequenceDiagram
 Cited at:
 
 - System-job marker `MEMORY_DREAM_SYSTEM_PROMPT = '__system:memory_dream'` —
-  `apps/core/src/jobs/system-jobs.ts:23`.
+  `apps/core/src/jobs/system-jobs.ts`.
 - Per-folder registration gated on `memory.dreaming.enabled` and
   `memory.dreaming.cron` —
-  `apps/core/src/jobs/system-jobs.ts:37`-`apps/core/src/jobs/system-jobs.ts:106`.
+  `apps/core/src/jobs/system-jobs.ts`.
 - Maintenance-queue runner —
-  `apps/core/src/runtime/memory-dreaming-runner.ts:10`.
+  `apps/core/src/runtime/memory-dreaming-runner.ts`.
 - `triggerDreaming` —
-  `apps/core/src/memory/app-memory-service.ts:388`.
+  `apps/core/src/memory/app-memory-service.ts`.
 - Phase logic (`light`, `rem`, `deep`, `all`) —
-  `apps/core/src/memory/app-memory-dreaming.ts:104`,
-  `apps/core/src/memory/app-memory-dreaming.ts:144`,
-  `apps/core/src/memory/app-memory-dreaming.ts:165`.
+  `apps/core/src/memory/app-memory-dreaming.ts`.
 - Audit tables — see [MEMORY.md §Storage](../MEMORY.md#storage).
 - SDK on-demand trigger — `client.memory.dreaming.trigger` and
-  `client.memory.dreaming.status` at `packages/sdk/src/index.ts:663` and
-  `packages/sdk/src/index.ts:673`.
+  `client.memory.dreaming.status` at `packages/sdk/src/index.ts`.
 
 ## 12. CLI + Control-API Operations Map
 
@@ -678,7 +671,7 @@ API, CLI, and MCP are adapters over the same application services
 (see [capability-management.md](./capability-management.md#administration-model)). Each row
 below is one operation; the columns show how each surface reaches it.
 
-CLI surface (the `usage()` block at `apps/core/src/cli/index.ts:41`):
+CLI surface (the `usage()` block at `apps/core/src/cli/index.ts`):
 
 | Operation                   | CLI command                                                                                                 | Audience      |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------- |
@@ -694,7 +687,7 @@ CLI surface (the `usage()` block at `apps/core/src/cli/index.ts:41`):
 | Skill upload                | `gantry skill draft upload <skill.zip>`                                                                     | Owner / admin |
 | MCP administration          | `gantry mcp draft`, `gantry mcp list`, `gantry mcp approve`, `gantry mcp reject`, `gantry mcp bind`         | Owner / admin |
 
-Control API surface (scopes from `apps/core/src/control/server/auth.ts:5`):
+Control API surface (scopes from `apps/core/src/control/server/auth.ts`):
 
 | Domain        | Scopes                                                       | Routes                                                                |
 | ------------- | ------------------------------------------------------------ | --------------------------------------------------------------------- |

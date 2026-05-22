@@ -4,6 +4,11 @@
 > **Companion to:** `runtime-refactor-plan.md` (this is the §99-C / Phase 5 detail). Read that first if you have not.
 > **Author context:** drafted by main_agent after validating the recent memory/dreaming refactor against live behaviour. Infrastructure landed; practical recall is still broken because session subject is not threaded into the recall path. This plan closes that gap and the surrounding gaps that make continuity invisible to the agent.
 
+> **Status note, 2026-05-22:** `continuity_summary` has shipped as a
+> baseline Gantry MCP tool with a handler. The broader `memory_status`
+> upgrade, self-bootstrap quality checks, and checklist items below remain
+> implementation work until separately verified.
+
 ---
 
 ## 0. How to use this document
@@ -108,7 +113,7 @@ Each phase has **goal**, **scope**, **exit criteria**, **deletion target**.
 **Goal:** a fresh session for `main_agent` shows enough context that "what about the manual job we ran" is never a question.
 
 **Scope:**
-- `HydrateAgentContextService` (`apps/core/src/application/sessions/hydrate-agent-context-service.ts:70-99`) builds a structured block, not just top-N memories:
+- `HydrateAgentContextService` (`apps/core/src/application/sessions/hydrate-agent-context-service.ts`) builds a structured block, not just top-N memories:
   - **Open commitments:** anything marked open in the commitments table, ordered by age.
   - **Recent decisions:** last N `kind: decision` memories.
   - **Active and paused jobs:** from the scheduler.
@@ -176,7 +181,9 @@ Each phase has **goal**, **scope**, **exit criteria**, **deletion target**.
 - [ ] Grep for `DEFAULT_MEMORY_AGENT_ID` and `agent:personal` literal in non-test runtime code returns zero.
 - [ ] Auto-promoted memories are reachable by `memory_search` and tagged `promoted_by: 'dreaming'`.
 - [ ] Fresh `main_agent` session injects a continuity block with the paused-job state.
-- [ ] `continuity_summary` and `memory_status` ship with handlers and a smoke test each.
+- [x] `continuity_summary` ships with a handler.
+- [ ] `memory_status` ships with staged/promoted/needs_review counts and a smoke test.
+- [ ] `continuity_summary` has a populated-environment smoke test covering the self-bootstrap path.
 - [ ] Net line count vs Phase 1 baseline: ≤ –500.
 
 ## 8. Risks and mitigations

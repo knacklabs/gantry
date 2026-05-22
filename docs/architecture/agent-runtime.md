@@ -146,24 +146,21 @@ classDiagram
 Sources:
 
 - `Agent`, `AgentConfigVersion`, `LlmProfile`, `ConversationSenderPolicy`,
-  `ConversationApprover` — `apps/core/src/domain/agent/agent.ts:41` through
-  `apps/core/src/domain/agent/agent.ts:88`.
+  `ConversationApprover` — `apps/core/src/domain/agent/agent.ts`.
 - `AgentConfig` (carrying `persona`, model override, additional mounts) —
-  `apps/core/src/domain/types.ts:39`.
+  `apps/core/src/domain/types.ts`.
 - `AgentPersona` enum and resolver —
-  `apps/core/src/shared/agent-persona.ts:1`.
+  `apps/core/src/shared/agent-persona.ts`.
 - `AgentCapabilityContext`, `AgentCapabilityProfile`, and the five built-in
   providers (`sdk-tools`, `permissions`, `gantry-mcp`, `configured-tools`,
   `configured-mcp`) plus `composeAgentCapabilities` —
-  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:7`,
-  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:131`,
-  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:249`.
+  `apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts`.
 - Persona compiled into the system prompt —
-  `apps/core/src/application/agents/prompt-profile-service.ts:222` and
-  `apps/core/src/runtime/agent-spawn.ts:141`.
+  `apps/core/src/application/agents/prompt-profile-service.ts` and
+  `apps/core/src/runtime/agent-spawn.ts`.
 - Skill materialisation into the run env —
-  `apps/core/src/adapters/llm/anthropic-claude-agent/claude-skill-materializer.ts:1`,
-  imported by `apps/core/src/runtime/agent-spawn.ts:39`.
+  `apps/core/src/adapters/llm/anthropic-claude-agent/claude-skill-materializer.ts`,
+  imported by `apps/core/src/runtime/agent-spawn.ts`.
 
 ### Subagents
 

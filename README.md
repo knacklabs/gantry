@@ -73,11 +73,13 @@ gantry logs
 gantry local setup|start|stop|status|logs|doctor
 gantry model list
 gantry model status
+gantry model chat|jobs|memory
 gantry model use-provider anthropic|openrouter
 gantry model set chat <alias>
 gantry model set jobs inherit|<alias>
 gantry model reset chat|jobs|memory
-gantry model why chat|jobs|memory|job <id>
+gantry model why chat [group-scope|conversation-id]
+gantry model why jobs|memory|job <id>
 gantry model doctor
 gantry secrets list
 gantry secrets set <NAME> [--allow <capabilityId>]
@@ -128,6 +130,12 @@ agents:
   main_agent:
     name: Default Agent
     persona: personal_assistant
+    sources:
+      skills: []
+      mcp_servers: []
+    capabilities:
+      - id: browser.use
+        version: builtin
 
 memory:
   enabled: true
@@ -251,6 +259,8 @@ Skills, MCP servers, SDK tools, host tools, browser tools, and channel-native to
 
 - `send_message`
 - `ask_user_question`
+- `continuity_summary`
+- `file`
 - `request_skill_install`
 - `request_skill_proposal`
 - `request_skill_dependency_install`
@@ -260,12 +270,24 @@ Skills, MCP servers, SDK tools, host tools, browser tools, and channel-native to
 - `propose_capability`
 - `manage_capability`
 - `request_permission` for one-off exact fallback access only
+- `mcp_list_tools`
+- `mcp_call_tool`
+- `settings_desired_state`
+- `request_settings_update`
+- `admin_permission_list`
+- `admin_permission_revoke`
 - `service_restart`
 - `register_agent`
 
-Capability changes follow a strict lifecycle: **request → review → approval or cancellation → durable audit → new config version → next-run activation**. Durable semantic capability changes use `capability_search`, `propose_capability`, and `manage_capability`; `request_permission` is only for one-off exact access, Browser, exact Gantry admin tools, provider/channel permissions, or scoped `RunCommand` fallback when no reviewed semantic capability fits. Interactive fallback permission prompts present simple decisions: `Allow once`, `Allow 5 min`, `Always allow`, or `Cancel`. Privileged admin tools such as `service_restart`, `register_agent`, `settings_desired_state`, and `request_settings_update` require exact selected capabilities; `capability_status` reports what is available, requestable, and blocked without exposing raw grant internals as the primary user path.
+Capability changes follow a strict lifecycle: **request → review → approval or cancellation → durable audit → new config version → next-run activation**. Durable semantic capability changes use `capability_search`, `propose_capability`, and `manage_capability`; `request_permission` is only for one-off exact access, Browser, exact Gantry admin tools, provider/channel permissions, or scoped `RunCommand` fallback when no reviewed semantic capability fits. Interactive fallback permission prompts present simple decisions: `Allow once`, `Allow 5 min`, `Always allow`, or `Cancel`. Privileged admin tools such as `settings_desired_state`, `request_settings_update`, `admin_permission_list`, `admin_permission_revoke`, `service_restart`, and `register_agent` require exact selected capabilities; `capability_status` reports what is available, requestable, and blocked without exposing raw grant internals as the primary user path.
 
-Persistent agent authority is visible in `settings.yaml` under `agents.<id>.capabilities` as readable capability ids and immutable versions. Agent attachments live separately under `agents.<id>.sources`; sources can attach skills, MCP servers, built-in tools, adapters, or local CLIs, but do not grant execution authority by themselves. Jobs are scheduled agent runs and inherit the target agent's selected capabilities and attached sources at execution time; job `capabilityRequirements` are readiness assertions, not job-local grants. The canonical `toolAccess` view in MCP, CLI, SDK, and Control API responses shows the inherited agent capability projection. Skill source is stored as readable skill folders with `SKILL.md` plus supporting files; Postgres stores metadata, source type, hash, binding, and audit records. Skills installed from catalogs, URLs, CLI commands, or uploads all become the same reviewed local skill package after approval.
+Persistent agent authority is visible in `settings.yaml` under `agents.<id>.capabilities` as readable capability ids and immutable versions, such as `browser.use`. Agent attachments live separately under `agents.<id>.sources`; sources can attach skills, MCP servers, built-in tools, adapters, or local CLIs, but do not grant execution authority by themselves.
+
+Durable SDK and host tool grants use Gantry names, not provider-native harness names. Exact web, file, and delegation facades are `WebSearch`, `WebRead`, `FileSearch`, `FileRead`, `FileEdit`, `FileWrite`, and `AgentDelegation`; command access is a scoped `RunCommand(<argv pattern>)` rule. Provider-native names such as `Read`, `Write`, `Edit`, `WebFetch`, `Bash`, and `Agent` are adapter projections and are rejected as persistent Gantry authority.
+
+Browser authority is selected in `settings.yaml` and the public capabilities API as `browser.use`, then translated to the canonical runtime `Browser` tool rule. When selected, the runtime projects it to Gantry-owned gateway tools: `browser_status`, `browser_open`, `browser_inspect`, `browser_act`, and `browser_close`. `browser_act` includes `action: "file_attach"` for upload inputs and accepts `bytes`, Gantry `artifact`, or allowlisted `path` sources through host-owned staging.
+
+Jobs are scheduled agent runs and inherit the target agent's selected capabilities and attached sources at execution time. Job `capabilityRequirements`, `toolAccessRequirements`, and `requiredMcpServers` are readiness and preflight assertions, not job-local grants. The canonical `toolAccess` view in MCP, CLI, SDK, and Control API responses shows the inherited agent capability projection. Skill source is stored as readable skill folders with `SKILL.md` plus supporting files; Postgres stores metadata, source type, hash, binding, and audit records. Skills installed from catalogs, URLs, CLI commands, or uploads all become the same reviewed local skill package after approval.
 
 Capability-owned secrets for selected skills and MCP servers use Gantry Secrets rather than runtime `.env` or model broker profiles. Use `gantry secrets set <NAME>`, `gantry secrets import-env <NAME>`, `gantry secrets list`, and `gantry secrets unset <NAME>`; add `--allow <capabilityId>` to scope a secret to a specific MCP definition, `mcp:<name>`, skill id, or `skill:<name>`.
 
@@ -510,6 +532,7 @@ Gantry uses a provider-neutral catalog. Normal users choose providers and aliase
 - Catalog choices: Anthropic `opus`, `opus-4.7`, `opus-4.6`, `sonnet`, `sonnet-4.6`, `haiku`, `haiku-4.5`; OpenRouter `kimi`, `kimi-k2.6`, `kimi-2.6`
 - Job defaults: `agent.one_time_job_default_model` and `agent.recurring_job_default_model` inherit `agent.default_model` when empty
 - Memory task defaults are provider-managed. Use `gantry model memory` to inspect them and `gantry model reset memory` or `PATCH /v1/models/defaults` with `memory: null` to reapply provider-managed defaults.
+- Use `gantry model chat|jobs|memory` and `gantry model why ...` to preview what will actually run before changing defaults. SDK and Control API callers use `client.models.defaults.get()`, `client.models.defaults.update()`, and `client.models.preview()` over `GET /v1/models/defaults`, `PATCH /v1/models/defaults`, and `POST /v1/models/preview`.
 - The generated agent SDK settings JSON includes `model` and `availableModels`; memory hooks are not installed in runtime materialization.
 
 The model catalog is centralized in `apps/core/src/shared/model-catalog.ts`. OpenRouter is selected by provider or catalog alias; the current adapter projects it through the Claude Agent SDK-compatible OpenRouter endpoint with brokered Model Access credentials.
@@ -560,7 +583,7 @@ Reusable guided workflows can be uploaded as skill zips with `SKILL.md`, then ap
 
 Contributions should keep the core runtime small and maintainable. Bug fixes, simplifications, docs improvements, and reusable skills are good fits. Feature creep in the default runtime is not.
 
-All contributions go through the standard CAW PR review process. Gantry is a shared runtime powering client deployments — stability and backward compatibility matter.
+All contributions go through the standard CAW PR review process. Gantry is a shared runtime powering client deployments, so stability, clean replacement, and clear migration notes matter.
 
 ## Documentation
 

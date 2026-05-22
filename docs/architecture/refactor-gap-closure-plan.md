@@ -157,7 +157,7 @@ Each phase: **goal**, **scope**, **exit criteria**, **deletion target**, **repro
 **Scope:**
 
 - Add `formatOperatorError(err) → { summary, cause, recover }` in a focused shared error-formatting module. Unwraps `err.cause` chain; recover step required.
-- Replace inline error construction at the audited surfaces (Telegram delivery, MCP tool results, scheduler events, permission denials, credential broker errors at `agent-credential-service.ts:80-83`).
+- Replace inline error construction at the audited surfaces (Telegram delivery, MCP tool results, scheduler events, permission denials, credential broker errors in `agent-credential-service.ts`).
 - Lint rule or grep-based CI check: `new Error(\`` outside the helper triggers a warning in `apps/core/src/{runner,jobs,channels,application}`.
 
 **Exit criteria:**
