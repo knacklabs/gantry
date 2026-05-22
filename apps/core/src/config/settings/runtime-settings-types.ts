@@ -36,7 +36,6 @@ export interface RuntimeConfiguredConversation {
 }
 
 export type EmbeddingProviderName = string;
-export type MemoryModelProfile = 'cheap' | 'balanced' | 'quality';
 export type MemoryModelTask = 'extractor' | 'dreaming' | 'consolidation';
 
 export interface RuntimeMemoryLlmModels {
@@ -111,10 +110,21 @@ export interface RuntimeConfiguredBinding {
   model?: string;
 }
 
-export interface RuntimeConfiguredAgentCapabilities {
-  toolIds: string[];
-  skillIds: string[];
-  mcpServerIds: string[];
+export interface RuntimeConfiguredAgentSourceRef {
+  id: string;
+  version?: string;
+  kind?: 'builtin' | 'skill' | 'mcp' | 'adapter' | 'local_cli';
+}
+
+export interface RuntimeConfiguredAgentSources {
+  skills: RuntimeConfiguredAgentSourceRef[];
+  mcpServers: RuntimeConfiguredAgentSourceRef[];
+  tools: RuntimeConfiguredAgentSourceRef[];
+}
+
+export interface RuntimeConfiguredAgentCapability {
+  id: string;
+  version: string;
 }
 
 export interface RuntimeConfiguredAgent {
@@ -125,7 +135,8 @@ export interface RuntimeConfiguredAgent {
   oneTimeJobDefaultModel?: string;
   recurringJobDefaultModel?: string;
   bindings: Record<string, RuntimeConfiguredAgentBinding>;
-  capabilities: RuntimeConfiguredAgentCapabilities;
+  sources: RuntimeConfiguredAgentSources;
+  capabilities: RuntimeConfiguredAgentCapability[];
 }
 
 export interface RuntimeDesiredStateSettings {

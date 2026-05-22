@@ -11,6 +11,10 @@ import { getMemoryModelConfig } from './memory.js';
 import { getGantryHome } from '../shared/gantry-home.js';
 import { resolveRuntimeStorageConfig } from './settings/storage.js';
 import { ensureRuntimeSettings } from './settings/runtime-settings.js';
+import {
+  readRuntimeModelDefaults,
+  updateRuntimeModelDefaults,
+} from './settings/model-defaults.js';
 import { settingsFilePath } from './settings/runtime-home.js';
 import { DEFAULT_AGENT_NAME } from './settings/runtime-settings-defaults.js';
 import type { RuntimeSettings } from './settings/runtime-settings-types.js';
@@ -318,6 +322,20 @@ export function getDefaultModelConfig(
     };
   }
   return { model: 'opus', source: 'system default' };
+}
+
+export function getRuntimeModelDefaults() {
+  return readRuntimeModelDefaults({
+    runtimeHome: GANTRY_HOME,
+    getDefaultModelConfig,
+  });
+}
+
+export function patchRuntimeModelDefaults(body: Record<string, unknown>) {
+  return updateRuntimeModelDefaults({
+    runtimeHome: GANTRY_HOME,
+    body,
+  });
 }
 export function getEffectiveModelConfig(
   groupModel?: string,

@@ -94,25 +94,30 @@ the runtime fails closed with `gantry secrets set NAME` guidance. If the value
 already exists in the host shell, an admin can run `gantry secrets import-env
 NAME` to move it into the central store.
 
+Skill action manifests declare required env-var names and scoped commands; they
+must not instruct agents to set shell env vars inline. Runtime injects approved
+skill secrets and neutral CA trust aliases for approved tool calls, so skill
+commands should stay argv-shaped, such as
+`python3 skills/linkedin-posting/post.py --file ...`.
+
 ## Agent-Accessed Credentials
 
 Agent-accessed credentials are credentials an agent may use after policy allows
 the action. They include LLM provider access and tool or API credentials, but
 those two categories are not scoped the same way. Model-provider credentials
 come from the broker. Tool env vars come from Gantry Secrets when a selected
-capability declares a need. Reviewed `local_cli` capability drafts are valid
-when the CLI already owns its own authenticated account state and Gantry pins
-the executable, command templates, preflight, protected paths, and denied
-environment overrides. They do not become runnable durable authority until
-runtime enforcement verifies those bindings per invocation.
+capability declares a need. Reviewed `local_cli` capabilities are valid when
+the CLI already owns its own authenticated account state and Gantry pins the
+executable, command templates, preflight, protected paths, and denied
+environment overrides before projecting scoped command authority.
 
 Model-provider access is account-level Model Access. Gantry always requests it
 with `purpose=model_runtime` through the reserved broker profile
 `gantry-model-access`; it is not bound to an individual agent, conversation,
-memory worker, subagent, or job. Agents, subagents, and jobs select catalog
-model aliases only. Claude and OpenRouter credentials are configured once in
-OneCLI or the selected enterprise broker and then projected to model SDK runs
-according to the selected model provider.
+memory worker, subagent, or job. Agents, subagents, jobs, and memory workers
+select catalog model aliases only. Anthropic and OpenRouter credentials are
+configured once in OneCLI or the selected enterprise broker and then projected
+to model SDK runs according to the selected model provider.
 
 Agents do not receive every raw secret value from Gantry. Runtime code projects
 only the selected capability's declared Gantry Secret names. Selected skills get
@@ -124,10 +129,9 @@ env.
 For local authenticated CLIs, Gantry does not copy raw OAuth tokens or broker
 proxies into generic Bash. The approved semantic capability maps to narrow
 scoped command templates and protected credential/config paths. User-defined
-local CLI capabilities are reviewable drafts until runtime enforcement verifies
-the pinned executable identity, version/hash, auth preflight, protected paths,
-and denied environment overrides for each invocation. Agents may use the
-reviewed CLI command surface only after that gate exists, and may not override
+local CLI capabilities require pinned executable identity, version/hash, auth
+preflight, protected paths, and denied environment overrides before runtime
+projects scoped command authority. Agents may not override
 token, credential file, config directory, proxy, keychain/keyring, CA, or
 authority environment keys unless a future capability explicitly models that
 behavior.
@@ -143,10 +147,11 @@ enterprise credential broker, never in Gantry `.env` or process env.
 | `credential_broker.mode`                                      | `settings.yaml` advanced override                       |
 | `credential_broker.onecli.url`                                | `settings.yaml` advanced override                       |
 | `credential_broker.external.base_url`                         | `settings.yaml` advanced override                       |
-| `defaults.name`                                               | `settings.yaml`                                         |
-| `defaults.model`                                              | `settings.yaml`                                         |
-| `defaults.jobs.one_time_model`                                | `settings.yaml`                                         |
-| `defaults.jobs.recurring_model`                               | `settings.yaml`                                         |
+| `agent.name`                                                  | `settings.yaml`                                         |
+| `agent.default_model`                                         | `settings.yaml`                                         |
+| `agent.one_time_job_default_model`                            | `settings.yaml`                                         |
+| `agent.recurring_job_default_model`                           | `settings.yaml`                                         |
+| `memory.llm.models.*`                                         | `settings.yaml`                                         |
 | Conversation approvers                                        | `settings.yaml` and Postgres conversation approver rows |
 | `storage.postgres.url_env`                                    | `settings.yaml` advanced override                       |
 | `GANTRY_DATABASE_URL`                                         | `RuntimeSecretProvider` / local `.env`                  |
@@ -159,13 +164,14 @@ enterprise credential broker, never in Gantry `.env` or process env.
 
 Model env keys such as `ANTHROPIC_MODEL`, `ANTHROPIC_BASE_URL`, and
 `ANTHROPIC_DEFAULT_*_MODEL` are child-process adapter projections. Gantry
-runtime config does not accept them from runtime `.env`; use
-`agent.default_model`, `agent.one_time_job_default_model`,
-`agent.recurring_job_default_model`, and group `/model` overrides for model
-selection. OpenRouter's Anthropic SDK route is projected only by the runtime
-adapter for cataloged OpenRouter models, with `ANTHROPIC_AUTH_TOKEN` supplied by
-`AgentCredentialBroker` and `ANTHROPIC_API_KEY` intentionally blank for that
-child process.
+runtime config does not accept them from runtime `.env`; use provider-neutral
+aliases through `agent.default_model`, `agent.one_time_job_default_model`,
+`agent.recurring_job_default_model`, `memory.llm.models.*`, `gantry model`, the
+Control API defaults route, and group `/model` overrides for model selection.
+OpenRouter is selected by provider or catalog alias. The current
+OpenRouter adapter projection uses the Claude Agent SDK-compatible endpoint,
+with the adapter token supplied by `AgentCredentialBroker` and native API-key
+env intentionally blank for that child process.
 
 ## Broker Profiles
 

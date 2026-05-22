@@ -1,4 +1,5 @@
 import type { JsonSchema } from './openapi-route-helpers.js';
+import { listModelProviderPresets } from '../../shared/model-catalog.js';
 
 const isoDateTime = { type: 'string', format: 'date-time' };
 const metadata = { type: 'object', additionalProperties: true };
@@ -77,13 +78,75 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       mcpServers: { type: 'array', items: metadata },
     },
   },
+  InventoryResponse: {
+    type: 'object',
+    required: ['inventory'],
+    properties: {
+      inventory: { $ref: '#/components/schemas/CapabilityCatalogResponse' },
+    },
+  },
+  CapabilitySelection: {
+    type: 'object',
+    required: ['id', 'version'],
+    properties: {
+      id: { type: 'string' },
+      version: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+    },
+  },
+  AgentSourceSelection: {
+    type: 'object',
+    required: ['id'],
+    properties: {
+      id: { type: 'string' },
+      version: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+      kind: {
+        type: 'string',
+        enum: ['builtin', 'skill', 'mcp', 'adapter', 'local_cli'],
+      },
+    },
+  },
+  AgentSources: {
+    type: 'object',
+    required: ['skills', 'mcpServers', 'tools'],
+    properties: {
+      skills: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/AgentSourceSelection' },
+      },
+      mcpServers: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/AgentSourceSelection' },
+      },
+      tools: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/AgentSourceSelection' },
+      },
+    },
+  },
+  AgentSourcesRequest: {
+    type: 'object',
+    required: ['sources'],
+    properties: {
+      sources: { $ref: '#/components/schemas/AgentSources' },
+    },
+  },
+  AgentSourcesResponse: {
+    type: 'object',
+    required: ['agentId', 'sources', 'updatedAt'],
+    properties: {
+      agentId: { type: 'string' },
+      sources: { $ref: '#/components/schemas/AgentSources' },
+      updatedAt: isoDateTime,
+    },
+  },
   AgentCapabilitiesRequest: {
     type: 'object',
-    required: ['selectedToolIds', 'selectedSkillIds', 'selectedMcpServerIds'],
+    required: ['capabilities'],
     properties: {
-      selectedToolIds: stringArray,
-      selectedSkillIds: stringArray,
-      selectedMcpServerIds: stringArray,
+      capabilities: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/CapabilitySelection' },
+      },
     },
   },
   AgentCapabilitiesResponse: {
@@ -91,9 +154,10 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       { $ref: '#/components/schemas/AgentCapabilitiesRequest' },
       {
         type: 'object',
-        required: ['agentId', 'toolAccess', 'updatedAt'],
+        required: ['agentId', 'sources', 'toolAccess', 'updatedAt'],
         properties: {
           agentId: { type: 'string' },
+          sources: { $ref: '#/components/schemas/AgentSources' },
           toolAccess: metadata,
           updatedAt: isoDateTime,
         },
@@ -119,22 +183,203 @@ export const openApiSchemas: Record<string, JsonSchema> = {
   },
   Model: {
     type: 'object',
-    required: ['id', 'displayName', 'aliases', 'provider'],
+    required: [
+      'id',
+      'displayName',
+      'aliases',
+      'recommendedAlias',
+      'provider',
+      'providerId',
+      'providerLabel',
+      'supportedWorkloads',
+    ],
     properties: {
-      id: { type: 'string', example: 'opus' },
-      modelProfileId: { type: 'string' },
+      id: { type: 'string' },
       displayName: { type: 'string' },
       aliases: stringArray,
       recommendedAlias: { type: 'string' },
       provider: { type: 'string' },
+      providerId: {
+        type: 'string',
+        enum: listModelProviderPresets().map((preset) => preset.id),
+      },
+      providerLabel: { type: 'string' },
+      providerSlug: { type: 'string' },
+      supportedWorkloads: {
+        type: 'array',
+        items: {
+          type: 'string',
+          enum: [
+            'chat',
+            'one_time_job',
+            'recurring_job',
+            'memory_extractor',
+            'memory_dreaming',
+            'memory_consolidation',
+          ],
+        },
+      },
       contextWindowTokens: { type: 'integer' },
       maxOutputTokens: { type: 'integer' },
+      cacheMode: { type: 'string' },
+      cacheTokenFields: stringArray,
       supportsTools: { type: 'boolean' },
       supportsThinking: { type: 'boolean' },
+      source: metadata,
       experimental: { type: 'boolean' },
     },
   },
   ModelListResponse: arrayEnvelope('models', 'Model'),
+  ModelDefaultSlot: {
+    type: 'object',
+    required: [
+      'configuredAlias',
+      'effectiveAlias',
+      'source',
+      'inherited',
+      'workload',
+      'model',
+    ],
+    properties: {
+      configuredAlias: { type: ['string', 'null'] },
+      effectiveAlias: { type: ['string', 'null'] },
+      source: { type: 'string' },
+      inherited: { type: 'boolean' },
+      workload: { type: 'string' },
+      model: {
+        oneOf: [{ $ref: '#/components/schemas/Model' }, { type: 'null' }],
+      },
+    },
+  },
+  ModelDefaultsResponse: {
+    type: 'object',
+    required: ['provider', 'chat', 'jobs', 'memory', 'defaults'],
+    properties: {
+      provider: {
+        oneOf: [
+          {
+            type: 'object',
+            required: ['id', 'label'],
+            properties: {
+              id: {
+                type: 'string',
+                enum: listModelProviderPresets().map((preset) => preset.id),
+              },
+              label: { type: 'string' },
+            },
+          },
+          { type: 'null' },
+        ],
+      },
+      chat: { $ref: '#/components/schemas/ModelDefaultSlot' },
+      jobs: {
+        type: 'object',
+        required: ['oneTime', 'recurring'],
+        properties: {
+          oneTime: { $ref: '#/components/schemas/ModelDefaultSlot' },
+          recurring: { $ref: '#/components/schemas/ModelDefaultSlot' },
+        },
+      },
+      memory: {
+        type: 'object',
+        required: ['mode', 'extractor', 'dreaming', 'consolidation'],
+        properties: {
+          mode: { type: 'string', enum: ['provider-managed'] },
+          extractor: { $ref: '#/components/schemas/ModelDefaultSlot' },
+          dreaming: { $ref: '#/components/schemas/ModelDefaultSlot' },
+          consolidation: { $ref: '#/components/schemas/ModelDefaultSlot' },
+        },
+      },
+      defaults: {
+        type: 'object',
+        required: [
+          'chat',
+          'oneTime',
+          'recurring',
+          'memoryExtractor',
+          'memoryDreaming',
+          'memoryConsolidation',
+        ],
+        properties: {
+          chat: { $ref: '#/components/schemas/ModelDefaultSlot' },
+          oneTime: { $ref: '#/components/schemas/ModelDefaultSlot' },
+          recurring: { $ref: '#/components/schemas/ModelDefaultSlot' },
+          memoryExtractor: {
+            $ref: '#/components/schemas/ModelDefaultSlot',
+          },
+          memoryDreaming: {
+            $ref: '#/components/schemas/ModelDefaultSlot',
+          },
+          memoryConsolidation: {
+            $ref: '#/components/schemas/ModelDefaultSlot',
+          },
+        },
+      },
+    },
+  },
+  ModelDefaultsPatchRequest: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      provider: {
+        type: 'string',
+        enum: listModelProviderPresets().map((preset) => preset.id),
+      },
+      chat: { type: ['string', 'null'] },
+      jobs: {
+        oneOf: [{ type: 'string' }, { type: 'null' }],
+        description: 'Model alias, "inherit", or null.',
+      },
+      oneTime: { type: ['string', 'null'] },
+      recurring: { type: ['string', 'null'] },
+      memory: {
+        oneOf: [
+          { type: 'string', enum: ['reset', 'provider-managed'] },
+          { type: 'null' },
+        ],
+        description: 'Use null, "reset", or "provider-managed".',
+      },
+    },
+  },
+  ModelPreviewRequest: {
+    type: 'object',
+    required: ['target'],
+    properties: {
+      target: { type: 'string', enum: ['chat', 'jobs', 'job', 'memory'] },
+      jobId: { type: 'string' },
+      conversationJid: {
+        type: 'string',
+        description:
+          'Optional chat preview scope for session /model overrides.',
+      },
+      groupScope: {
+        type: 'string',
+        description:
+          'Optional group folder/name preview scope for session /model overrides.',
+      },
+      kind: { type: 'string', enum: ['one-time', 'recurring'] },
+      task: {
+        type: 'string',
+        enum: ['extractor', 'dreaming', 'consolidation'],
+      },
+    },
+  },
+  ModelPreviewResponse: {
+    type: 'object',
+    required: ['target', 'selection', 'why'],
+    properties: {
+      target: { type: 'string', enum: ['chat', 'jobs', 'job', 'memory'] },
+      jobId: { type: 'string' },
+      scope: { type: 'string' },
+      kind: { type: 'string', enum: ['one-time', 'recurring'] },
+      task: {
+        type: 'string',
+        enum: ['extractor', 'dreaming', 'consolidation'],
+      },
+      selection: { $ref: '#/components/schemas/ModelDefaultSlot' },
+      why: stringArray,
+    },
+  },
   SettingsResponse: envelope('settings', metadata),
   ReadOnlySettingsPatchRequest: metadata,
   SessionEnsureRequest: {

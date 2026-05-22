@@ -31,7 +31,9 @@ export function setupBlockerLabel(
   ) {
     return 'Job CLI configuration';
   }
-  if (blocker.requirementType === 'local_cli') return 'Exact command access';
+  if (blocker.requirementType === 'local_cli') {
+    return semanticCapabilityLabel(blocker.requirementId);
+  }
   if (blocker.requirementType === 'browser') {
     return blocker.state === 'browser_login_may_be_required'
       ? 'Browser login'
@@ -60,8 +62,10 @@ export function setupActionLabel(
   ) {
     return 'Fix the job CLI configuration, then resume the job.';
   }
+  if (blocker.requirementType === 'local_cli') {
+    return `Approve ${semanticCapabilityLabel(blocker.requirementId)}, then resume the job.`;
+  }
   if (
-    blocker.requirementType === 'local_cli' ||
     /request_permission\s*\{[^}]*"toolName"\s*:\s*"RunCommand"/.test(nextAction)
   ) {
     return 'Approve exact command access, then resume the job.';

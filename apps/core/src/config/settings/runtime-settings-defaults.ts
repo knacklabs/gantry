@@ -2,11 +2,14 @@ import '../../channels/register-builtins.js';
 
 import { DEFAULT_AGENT_NAME } from '../../shared/default-agent.js';
 import { listChannelProviders } from '../../channels/provider-registry.js';
-import { MEMORY_MODEL_DEFAULT_ALIASES } from '../../shared/model-catalog.js';
+import {
+  DEFAULT_MODEL_PROVIDER_PRESET_ID,
+  getModelProviderPreset,
+  type ModelProviderId,
+} from '../../shared/model-catalog.js';
 import { type SenderControlAllowlistConfig } from './control-allowlist.js';
 import { type SenderAllowlistConfig } from './sender-allowlist.js';
 import type {
-  MemoryModelProfile,
   RuntimeCredentialBrokerSettings,
   RuntimeAgentSettings,
   RuntimeBrowserSettings,
@@ -39,34 +42,10 @@ export const DEFAULT_BROWSER_USAGE_WINDOW_MS = 60_000;
 export const DEFAULT_BROWSER_USAGE_MAX_ACTIONS_PER_WINDOW = 120;
 export const DEFAULT_BROWSER_USAGE_MAX_CONCURRENT_PER_SITE = 1;
 
-const DEFAULT_MODEL_HAIKU = MEMORY_MODEL_DEFAULT_ALIASES.extractor;
-const DEFAULT_MODEL_SONNET = MEMORY_MODEL_DEFAULT_ALIASES.dreaming;
-
-const MEMORY_MODEL_PROFILES: Record<
-  MemoryModelProfile,
-  RuntimeMemoryLlmModels
-> = {
-  cheap: {
-    extractor: DEFAULT_MODEL_HAIKU,
-    dreaming: DEFAULT_MODEL_HAIKU,
-    consolidation: DEFAULT_MODEL_HAIKU,
-  },
-  balanced: {
-    extractor: DEFAULT_MODEL_HAIKU,
-    dreaming: DEFAULT_MODEL_SONNET,
-    consolidation: DEFAULT_MODEL_SONNET,
-  },
-  quality: {
-    extractor: DEFAULT_MODEL_SONNET,
-    dreaming: DEFAULT_MODEL_SONNET,
-    consolidation: DEFAULT_MODEL_SONNET,
-  },
-};
-
-export function getMemoryModelProfileDefaults(
-  profile: MemoryModelProfile,
+export function getProviderManagedMemoryDefaults(
+  provider: ModelProviderId = DEFAULT_MODEL_PROVIDER_PRESET_ID,
 ): RuntimeMemoryLlmModels {
-  const selected = MEMORY_MODEL_PROFILES[profile];
+  const selected = getModelProviderPreset(provider).memoryDefaults;
   return {
     extractor: selected.extractor,
     dreaming: selected.dreaming,
@@ -123,7 +102,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
       },
     },
     llm: {
-      models: getMemoryModelProfileDefaults('balanced'),
+      models: getProviderManagedMemoryDefaults(),
       extractorMaxFacts: DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS,
       extractorMinConfidence: DEFAULT_MEMORY_EXTRACTOR_MIN_CONFIDENCE,
     },
@@ -183,11 +162,22 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
   };
 }
 
-export function applyMemoryModelProfile(
+export function applyProviderManagedMemoryDefaults(
   settings: RuntimeSettings,
-  profile: MemoryModelProfile,
+  provider: ModelProviderId = DEFAULT_MODEL_PROVIDER_PRESET_ID,
 ): void {
-  settings.memory.llm.models = getMemoryModelProfileDefaults(profile);
+  settings.memory.llm.models = getProviderManagedMemoryDefaults(provider);
+}
+
+export function applyModelProviderPreset(
+  settings: RuntimeSettings,
+  provider: ModelProviderId,
+): void {
+  const preset = getModelProviderPreset(provider);
+  settings.agent.defaultModel = preset.chatDefault;
+  settings.agent.oneTimeJobDefaultModel = preset.oneTimeJobDefault;
+  settings.agent.recurringJobDefaultModel = preset.recurringJobDefault;
+  applyProviderManagedMemoryDefaults(settings, provider);
 }
 
 export type {

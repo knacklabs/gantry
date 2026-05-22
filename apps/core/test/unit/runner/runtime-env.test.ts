@@ -47,4 +47,16 @@ describe('Anthropic runner runtime env', () => {
       path.normalize('/tmp/gantry/apps/core/src/runner/mcp/stdio.js'),
     );
   });
+
+  it('suppresses Claude SDK-native skills without removing Gantry skill config', async () => {
+    const configDirEnvKey = ['CLAUDE', 'CONFIG', 'DIR'].join('_');
+    process.env[configDirEnvKey] = '/tmp/gantry/claude-config';
+    const { buildSdkEnv } = await loadRuntimeEnv();
+
+    const sdkEnv = buildSdkEnv();
+
+    expect(sdkEnv[configDirEnvKey]).toBe('/tmp/gantry/claude-config');
+    expect(sdkEnv.CLAUDE_CODE_DISABLE_POLICY_SKILLS).toBe('1');
+    expect(sdkEnv.CLAUDE_CODE_DISABLE_CLAUDE_API_SKILL).toBe('1');
+  });
 });

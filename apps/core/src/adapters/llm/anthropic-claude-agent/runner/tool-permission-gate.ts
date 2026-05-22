@@ -6,6 +6,7 @@ import { requestPermissionApproval } from './permission-callback.js';
 import type {
   AgentRunnerInput,
   AgentRunnerToolAttemptOutput,
+  RunnerCapabilitiesForPermission,
 } from './types.js';
 import { findModelByRunnerModel } from '../../../../shared/model-catalog.js';
 import { validateAgentToolInput } from './agent-model-selection.js';
@@ -19,8 +20,10 @@ import {
   ToolExecutionPolicyService,
 } from '../../../../shared/tool-execution-policy-service.js';
 import {
+  livePermissionRulesForUpdates,
   permissionRequestToolName,
-  scheduledPermissionSuggestions,
+  readRunnerSkillActionCapabilities,
+  scheduledPermissionSuggestionPlan,
 } from './permission-suggestions.js';
 import { sandboxBlockedRuntimeEvents } from './sandbox-events.js';
 import { createSdkSandboxNetworkGate } from './sdk-sandbox-network-gate.js';
@@ -48,11 +51,6 @@ const GROUP_FOLDER_KEY =
 const TIMED_GRANT_DURATION_MS = 5 * 60 * 1000;
 const TIMED_GRANT_CLOCK_SKEW_MS = 10_000;
 
-interface RunnerCapabilitiesForPermission {
-  allowedTools: readonly string[];
-  alwaysAllowedTools: readonly string[];
-}
-
 interface CreateCanUseToolCallbackInput {
   agentInput: AgentRunnerInput;
   sdkEnv: Record<string, string | undefined>;
@@ -76,9 +74,7 @@ export function createCanUseToolCallback(
   const timedToolGrants = new Map<string, { expiresAt: number }>();
   const sdkSandboxNetworkGate = createSdkSandboxNetworkGate(input.agentInput);
   const timedGrantConversationJid = input.agentInput.chatJid;
-
-  const effectiveTimedGrantPrincipal = (): string =>
-    input.agentInput.agentId || input.workspaceFolder;
+  const skillActionCapabilities = readRunnerSkillActionCapabilities();
 
   const timedGrantKey = (principal: string): string =>
     stableTimedGrantKey({
@@ -201,14 +197,15 @@ export function createCanUseToolCallback(
         toolUseID: permissionOpts.toolUseID,
         agentID: permissionOpts.agentID,
         toolInput,
-        suggestions: scheduledPermissionSuggestions(
+        suggestions: scheduledPermissionSuggestionPlan(
           toolName,
           permissionOpts.suggestions,
           {
             blockedPath: permissionOpts.blockedPath,
             toolInput,
+            semanticCapabilityDefinitions: skillActionCapabilities,
           },
-        ),
+        ).suggestions,
         deniedReason,
       };
       input.primeToolAttempts.push(attempt);
@@ -241,7 +238,8 @@ export function createCanUseToolCallback(
 
     const trustInput = () =>
       applyBashTrustEnv(toolName, toolInput, input.sdkEnv);
-    const timedGrantPrincipal = effectiveTimedGrantPrincipal();
+    const timedGrantPrincipal =
+      input.agentInput.agentId || input.workspaceFolder;
     const sdkApprovalPrincipal =
       permissionOpts.agentID?.trim() || timedGrantPrincipal;
     const rememberAllowedTool = () =>
@@ -448,11 +446,16 @@ export function createCanUseToolCallback(
           ...(recoveryAction ? { recovery_action: recoveryAction } : {}),
         },
       );
-      const suggestions = scheduledPermissionSuggestions(
+      const permissionPlan = scheduledPermissionSuggestionPlan(
         toolName,
         permissionOpts.suggestions,
-        { blockedPath: permissionOpts.blockedPath, toolInput },
+        {
+          blockedPath: permissionOpts.blockedPath,
+          toolInput,
+          semanticCapabilityDefinitions: skillActionCapabilities,
+        },
       );
+      const suggestions = permissionPlan.suggestions;
       const decision = await requestPermissionApproval({
         appId: input.agentInput.appId,
         agentId: input.agentInput.agentId,
@@ -477,6 +480,8 @@ export function createCanUseToolCallback(
         toolUseID: permissionOpts.toolUseID,
         agentID: permissionOpts.agentID,
         suggestions,
+        semanticCapabilityDefinitions:
+          permissionPlan.semanticCapabilityDefinitions,
         decisionOptions: permissionUpdateAllowedToolRules(suggestions).length
           ? ['allow_once', 'allow_persistent_rule', 'cancel']
           : ['allow_once', 'cancel'],
@@ -485,8 +490,9 @@ export function createCanUseToolCallback(
       } as unknown as PermissionApprovalInput);
       if (decision.approved) {
         const persistentUpdates = persistentPermissionUpdates(decision);
-        for (const rule of permissionUpdateAllowedToolRules(
+        for (const rule of livePermissionRulesForUpdates(
           persistentUpdates,
+          permissionPlan,
         )) {
           liveApprovedRules.add(rule);
         }
@@ -587,14 +593,16 @@ export function createCanUseToolCallback(
         reason: timedGrantDenylistReason ?? currentToolDecision.reason,
       },
     );
-    const suggestions = scheduledPermissionSuggestions(
+    const permissionPlan = scheduledPermissionSuggestionPlan(
       toolName,
       permissionOpts.suggestions,
       {
         blockedPath: permissionOpts.blockedPath,
         toolInput,
+        semanticCapabilityDefinitions: skillActionCapabilities,
       },
     );
+    const suggestions = permissionPlan.suggestions;
     const decision = await requestPermissionApproval({
       appId: input.agentInput.appId,
       agentId: input.agentInput.agentId,
@@ -615,12 +623,17 @@ export function createCanUseToolCallback(
       toolUseID: permissionOpts.toolUseID,
       agentID: permissionOpts.agentID,
       suggestions,
+      semanticCapabilityDefinitions:
+        permissionPlan.semanticCapabilityDefinitions,
       threadId: input.agentInput.threadId,
       [GROUP_FOLDER_KEY]: input.workspaceFolder,
     } as unknown as PermissionApprovalInput);
     if (decision.approved) {
       const persistentUpdates = persistentPermissionUpdates(decision);
-      for (const rule of permissionUpdateAllowedToolRules(persistentUpdates)) {
+      for (const rule of livePermissionRulesForUpdates(
+        persistentUpdates,
+        permissionPlan,
+      )) {
         liveApprovedRules.add(rule);
       }
       if (

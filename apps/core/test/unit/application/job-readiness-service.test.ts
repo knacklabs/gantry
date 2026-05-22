@@ -8,6 +8,7 @@ import {
 import type {
   CapabilitySecretRepository,
   McpServerRepository,
+  SkillCatalogRepository,
   ToolCatalogRepository,
 } from '@core/domain/ports/repositories.js';
 import type { AppId } from '@core/domain/app/app.js';
@@ -64,6 +65,75 @@ function toolRepository(rules: string[]): ToolCatalogRepository {
   } as unknown as ToolCatalogRepository;
 }
 
+function skillActionToolRepository(): ToolCatalogRepository {
+  return {
+    listAgentToolBindings: vi.fn(async () => [
+      {
+        status: 'active',
+        toolId: 'tool:capability:skill.linkedin-posting.publish',
+      },
+    ]),
+    getTool: vi.fn(async () => ({
+      appId: 'default',
+      name: 'capability:skill.linkedin-posting.publish',
+      inputSchema: {
+        format: 'gantry.semantic-capability.v1',
+        schema: {
+          capabilityId: 'skill.linkedin-posting.publish',
+          displayName: 'LinkedIn posting',
+          category: 'linkedin-posting',
+          risk: 'write',
+          can: 'Publish a prepared LinkedIn post.',
+          cannot: 'Read unrelated credentials.',
+          credentialSource: 'skill_secret',
+          implementationBindings: [
+            {
+              kind: 'tool_rule',
+              rule: 'RunCommand(skills/linkedin-posting/post.py *)',
+            },
+          ],
+          source: {
+            kind: 'skill_action',
+            skillId: 'skill:linkedin-posting',
+            skillName: 'linkedin-posting',
+            skillVersion: 'abc123',
+            skillContentHash: 'sha256:abc123',
+            actionId: 'publish',
+          },
+        },
+      },
+    })),
+  } as unknown as ToolCatalogRepository;
+}
+
+function selectedLinkedInSkillRepository(
+  contentHash = 'sha256:abc123',
+): SkillCatalogRepository {
+  return {
+    listEnabledSkillsForAgent: vi.fn(async () => [
+      {
+        id: 'skill:linkedin-posting',
+        appId: 'default',
+        name: 'linkedin-posting',
+        version: 'abc123',
+        source: 'admin_uploaded',
+        status: 'approved',
+        promptRefs: [],
+        toolIds: [],
+        workflowRefs: [],
+        storage: {
+          storageType: 'local-filesystem',
+          storageRef: 'skill',
+          contentHash,
+          sizeBytes: 1,
+        },
+        createdAt: '2026-05-14T00:00:00.000Z',
+        updatedAt: '2026-05-14T00:00:00.000Z',
+      },
+    ]),
+  } as unknown as SkillCatalogRepository;
+}
+
 function secretRepository(
   values: Record<string, string>,
 ): CapabilitySecretRepository {
@@ -104,6 +174,42 @@ describe('job readiness service', () => {
     expect(result.setupState).toMatchObject({
       state: 'ready',
       blockers: [],
+    });
+  });
+
+  it('passes skill action requirements through target agent skill grants', async () => {
+    const result = await evaluateJobReadiness({
+      job: makeJob({
+        tool_access_requirements: ['capability:skill.linkedin-posting.publish'],
+      }),
+      appId: 'default',
+      agentId: 'agent:agent-one',
+      toolRepository: skillActionToolRepository(),
+      skillRepository: selectedLinkedInSkillRepository(),
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.setupState.blockers).toEqual([]);
+  });
+
+  it('blocks skill action requirements when the selected skill hash changed', async () => {
+    const result = await evaluateJobReadiness({
+      job: makeJob({
+        tool_access_requirements: ['capability:skill.linkedin-posting.publish'],
+      }),
+      appId: 'default',
+      agentId: 'agent:agent-one',
+      toolRepository: skillActionToolRepository(),
+      skillRepository: selectedLinkedInSkillRepository('sha256:changed'),
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.ready).toBe(false);
+    expect(result.setupState.blockers[0]).toMatchObject({
+      state: 'missing_capability',
+      requirementType: 'semantic_capability',
+      requirementId: 'capability:skill.linkedin-posting.publish',
     });
   });
 
@@ -211,6 +317,8 @@ describe('job readiness service', () => {
               kind: 'local_cli',
               name: 'gog',
               executablePath: '/usr/local/bin/gog',
+              executableVersion: 'v0.9.0',
+              executableHash: 'sha256:abc123',
               commandTemplate:
                 '/usr/local/bin/gog sheets append <sheet_id> ...',
             },
@@ -229,15 +337,53 @@ describe('job readiness service', () => {
         requirementType: 'local_cli',
         requirementId: 'google.sheets.write',
         message: expect.stringContaining('using gog'),
-        nextAction: expect.stringContaining(
-          '"rule":"/usr/local/bin/gog sheets append *"',
-        ),
       }),
     ]);
+    expect(result.setupState.blockers[0]?.nextAction).toContain(
+      'propose_capability',
+    );
+    expect(result.setupState.blockers[0]?.nextAction).toContain(
+      '"source":"local_cli"',
+    );
+    expect(result.setupState.blockers[0]?.nextAction).toContain(
+      '"executableHash":"sha256:abc123"',
+    );
     expect(result.setupState.blockers[0]?.message).not.toContain('OneCLI');
   });
 
   it('treats a declared local CLI implementation as ready when its scoped RunCommand rule is bound', async () => {
+    const result = await evaluateJobReadiness({
+      job: makeJob({
+        tool_access_requirements: ['capability:google.sheets.write'],
+        capability_requirements: [
+          {
+            capabilityId: 'google.sheets.write',
+            reason: 'Write lead rows after each run',
+            implementation: {
+              kind: 'local_cli',
+              name: 'gog',
+              executablePath: '/usr/local/bin/gog',
+              executableVersion: 'v0.9.0',
+              executableHash: 'sha256:abc123',
+              commandTemplate:
+                '/usr/local/bin/gog sheets append <sheet_id> ...',
+            },
+          },
+        ],
+      }),
+      appId: 'default',
+      toolRepository: toolRepository([
+        'capability:google.sheets.write',
+        'RunCommand(/usr/local/bin/gog sheets append *)',
+      ]),
+      clock: { now: () => '2026-05-14T00:00:00.000Z' },
+    });
+
+    expect(result.ready).toBe(true);
+    expect(result.setupState.blockers).toEqual([]);
+  });
+
+  it('requires pinned local CLI executable identity before proposing job access', async () => {
     const result = await evaluateJobReadiness({
       job: makeJob({
         tool_access_requirements: ['capability:google.sheets.write'],
@@ -256,15 +402,22 @@ describe('job readiness service', () => {
         ],
       }),
       appId: 'default',
-      toolRepository: toolRepository([
-        'capability:google.sheets.write',
-        'RunCommand(/usr/local/bin/gog sheets append *)',
-      ]),
+      toolRepository: toolRepository(['capability:google.sheets.write']),
       clock: { now: () => '2026-05-14T00:00:00.000Z' },
     });
 
-    expect(result.ready).toBe(true);
-    expect(result.setupState.blockers).toEqual([]);
+    expect(result.ready).toBe(false);
+    expect(result.setupState.blockers).toEqual([
+      expect.objectContaining({
+        state: 'missing_capability',
+        requirementType: 'local_cli',
+        message: expect.stringContaining('pinned executable version and hash'),
+        nextAction: expect.stringContaining('scheduler_update_job'),
+      }),
+    ]);
+    expect(result.setupState.blockers[0]?.nextAction).not.toContain(
+      'request_permission',
+    );
   });
 
   it('rejects persisted relative local CLI templates instead of converting legacy setup guidance', async () => {
@@ -304,7 +457,7 @@ describe('job readiness service', () => {
       '"rule":"gog sheets append *"',
     );
     expect(result.setupState.blockers[0]?.nextAction).not.toContain(
-      'propose_local_cli_capability',
+      'propose_capability',
     );
   });
 

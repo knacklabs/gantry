@@ -1,6 +1,6 @@
 import {
   findModelByRunnerModel,
-  resolveModelSelection,
+  resolveModelSelectionForWorkload,
   type ModelCatalogEntry,
 } from '../shared/model-catalog.js';
 
@@ -14,7 +14,7 @@ export function defaultModelStatusSelection(
   defaultModel: string | undefined,
 ): ModelStatusSelectionUpdate {
   const resolved = defaultModel
-    ? resolveModelSelection(defaultModel)
+    ? resolveModelSelectionForWorkload(defaultModel, 'chat')
     : undefined;
   const model = resolved?.ok
     ? resolved.entry

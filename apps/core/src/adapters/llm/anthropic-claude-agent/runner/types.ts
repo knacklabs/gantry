@@ -71,6 +71,11 @@ export interface AgentRunnerToolAttemptOutput {
   deniedReason: string;
 }
 
+export interface RunnerCapabilitiesForPermission {
+  allowedTools: readonly string[];
+  alwaysAllowedTools: readonly string[];
+}
+
 export interface AgentRunnerRuntimeEventOutput {
   appId?: string;
   agentId?: string;

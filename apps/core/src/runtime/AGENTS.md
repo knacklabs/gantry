@@ -7,3 +7,8 @@
   provider-specific remote-control spawning in runtime; any future equivalent
   must be a provider-neutral application capability with explicit permission
   and adapter ownership.
+- Prepared execution adapters may pass only narrowly allowlisted runner context
+  through `agent-spawn`: provider config/model hints plus host-derived skill
+  action metadata. IPC auth tokens, MCP paths, provider credentials, arbitrary
+  caller env, and other authority-bearing env must stay host-owned or in the
+  model credential runner-input lane.

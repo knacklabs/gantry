@@ -6,7 +6,6 @@ export interface SchedulerJobPlanInput {
   name: string;
   prompt: string;
   modelAlias?: string | null;
-  modelProfileId?: string | null;
   scheduleType: 'cron' | 'interval' | 'once';
   scheduleValue: string;
   executionContext?: {
@@ -64,9 +63,7 @@ export function formatSchedulerJobPlan(
     input.modelDescription ??
     (input.modelAlias
       ? `explicit alias ${input.modelAlias}`
-      : input.modelProfileId
-        ? `profile ${input.modelProfileId}`
-        : 'job default for this schedule type');
+      : 'job default for this schedule type');
   const routeText =
     input.notificationRoutes && input.notificationRoutes.length > 0
       ? input.notificationRoutes
@@ -122,7 +119,6 @@ function normalizePlanInput(
     name: input.name,
     prompt: input.prompt,
     modelAlias: input.modelAlias ?? null,
-    modelProfileId: input.modelProfileId ?? null,
     scheduleType: input.scheduleType,
     scheduleValue: input.scheduleValue,
     executionContext: input.executionContext,

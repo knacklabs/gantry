@@ -9,10 +9,13 @@ import type {
   SkillId,
   SkillStatus,
 } from '../../domain/skills/skills.js';
+import type { SkillActionPermission } from '../../domain/skills/skill-action-permissions.js';
 import {
   isSkillMaterializableLocally,
   isSkillUsableForBinding,
+  reservedMaterializedSkillDirectoryNameFor,
 } from '../../domain/skills/skills.js';
+import { parseSkillActionPermissionsFromAssets } from '../../domain/skills/skill-action-permissions.js';
 import {
   assertValidCapabilitySecretName,
   normalizeCapabilitySecretName,
@@ -42,6 +45,14 @@ export class SkillDraftService {
   }): Promise<SkillCatalogItem> {
     const now = input.now ?? nowIso();
     const skillId = `skill:${globalThis.crypto.randomUUID()}` as SkillId;
+    const metadata = resolveSkillMetadata({
+      assets: input.assets,
+      name: input.name,
+      description: input.description,
+      fallbackName: input.fallbackName,
+      requiredEnvVars: input.requiredEnvVars,
+    });
+    assertSkillNameDoesNotCollideWithReservedMaterialization(metadata.name);
     const stored = await this.artifacts.putSkillArtifact({
       appId: input.appId,
       skillId,
@@ -53,13 +64,6 @@ export class SkillDraftService {
       contentHash: stored.contentHash,
     });
     if (existing) return existing;
-    const metadata = resolveSkillMetadata({
-      assets: input.assets,
-      name: input.name,
-      description: input.description,
-      fallbackName: input.fallbackName,
-      requiredEnvVars: input.requiredEnvVars,
-    });
     const skill: SkillCatalogItem = {
       id: skillId,
       appId: input.appId,
@@ -73,6 +77,7 @@ export class SkillDraftService {
       toolIds: [],
       workflowRefs: [],
       requiredEnvVars: metadata.requiredEnvVars,
+      actionPermissions: metadata.actionPermissions,
       storage: stored,
       createdBy: input.createdBy,
       createdAt: now,
@@ -107,6 +112,7 @@ export class SkillDraftService {
     if (!skill.storage) {
       throw new Error(`Skill draft has no stored artifact: ${skill.id}`);
     }
+    assertSkillNameDoesNotCollideWithReservedMaterialization(skill.name);
     const now = input.now ?? nowIso();
     const approved: SkillCatalogItem = {
       ...skill,
@@ -268,7 +274,12 @@ function resolveSkillMetadata(input: {
   description?: string;
   fallbackName?: string;
   requiredEnvVars?: string[];
-}): { name: string; description?: string; requiredEnvVars: string[] } {
+}): {
+  name: string;
+  description?: string;
+  requiredEnvVars: string[];
+  actionPermissions: SkillActionPermission[];
+} {
   const skillMd = input.assets.find((asset) => asset.path === 'SKILL.md');
   const frontmatter = skillMd
     ? parseSkillFrontmatter(Buffer.from(skillMd.content).toString('utf-8'))
@@ -281,13 +292,19 @@ function resolveSkillMetadata(input: {
   const description =
     cleanMetadataText(input.description) ||
     cleanMetadataText(frontmatter.description);
+  const actionPermissions = parseSkillActionPermissionsFromAssets({
+    assets: input.assets,
+    skillName: name,
+  });
   return {
     name,
     description,
     requiredEnvVars: normalizeRequiredEnvVars([
       ...(input.requiredEnvVars ?? []),
       ...frontmatterEnvVars(frontmatter),
+      ...actionPermissions.flatMap((action) => action.requiredEnvVars),
     ]),
+    actionPermissions,
   };
 }
 
@@ -308,6 +325,16 @@ function normalizeRequiredEnvVars(values: string[]): string[] {
     .filter((value) => value.length > 0);
   for (const name of normalized) assertValidCapabilitySecretName(name);
   return [...new Set(normalized)];
+}
+
+function assertSkillNameDoesNotCollideWithReservedMaterialization(
+  name: string,
+): void {
+  const reservedName = reservedMaterializedSkillDirectoryNameFor(name);
+  if (!reservedName) return;
+  throw new Error(
+    `Skill name "${name}" materializes to reserved Gantry skill directory "${reservedName}". Choose a different skill name.`,
+  );
 }
 
 function parseSkillFrontmatter(content: string): Record<string, string> {

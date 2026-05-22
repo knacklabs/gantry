@@ -86,11 +86,56 @@ export type AgentConfigVersionResponse = z.infer<
   typeof AgentConfigVersionResponseSchema
 >;
 
-export const AgentCapabilitiesRequestSchema = z.object({
-  selectedToolIds: z.array(z.string()),
-  selectedSkillIds: z.array(z.string()),
-  selectedMcpServerIds: z.array(z.string()),
-});
+export const AgentCapabilitySelectionSchema = z
+  .object({
+    id: z.string().min(1),
+    version: z.union([z.string().min(1), z.number()]).transform(String),
+  })
+  .strict();
+export type AgentCapabilitySelection = z.infer<
+  typeof AgentCapabilitySelectionSchema
+>;
+
+export const AgentSourceSelectionSchema = z
+  .object({
+    id: z.string().min(1),
+    version: z.union([z.string().min(1), z.number()]).transform(String),
+  })
+  .strict();
+export type AgentSourceSelection = z.infer<typeof AgentSourceSelectionSchema>;
+
+export const AgentToolSourceSelectionSchema = z
+  .object({
+    id: z.string().min(1),
+    kind: z.enum(['builtin', 'adapter', 'local_cli']),
+    version: z
+      .union([z.string().min(1), z.number()])
+      .transform(String)
+      .optional(),
+  })
+  .strict();
+export type AgentToolSourceSelection = z.infer<
+  typeof AgentToolSourceSelectionSchema
+>;
+
+export const AgentSourcesRequestSchema = z
+  .object({
+    sources: z
+      .object({
+        skills: z.array(AgentSourceSelectionSchema).default([]),
+        mcpServers: z.array(AgentSourceSelectionSchema).default([]),
+        tools: z.array(AgentToolSourceSelectionSchema).default([]),
+      })
+      .strict(),
+  })
+  .strict();
+export type AgentSourcesRequest = z.infer<typeof AgentSourcesRequestSchema>;
+
+export const AgentCapabilitiesRequestSchema = z
+  .object({
+    capabilities: z.array(AgentCapabilitySelectionSchema),
+  })
+  .strict();
 export type AgentCapabilitiesRequest = z.infer<
   typeof AgentCapabilitiesRequestSchema
 >;
@@ -115,9 +160,8 @@ export type AgentToolAccess = z.infer<typeof AgentToolAccessSchema>;
 export const AgentCapabilitiesResponseSchema = z
   .object({
     agentId: z.string(),
-    selectedToolIds: z.array(z.string()),
-    selectedSkillIds: z.array(z.string()),
-    selectedMcpServerIds: z.array(z.string()),
+    sources: AgentSourcesRequestSchema.shape.sources,
+    capabilities: z.array(AgentCapabilitySelectionSchema),
     toolAccess: AgentToolAccessSchema,
     updatedAt: IsoDateTimeSchema,
   })
@@ -148,9 +192,8 @@ export type AgentAdminBoundConversation = z.infer<
 export const AgentAdminResponseSchema = z.object({
   agent: AgentResponseSchema,
   capabilities: AgentCapabilitiesResponseSchema.pick({
-    selectedToolIds: true,
-    selectedSkillIds: true,
-    selectedMcpServerIds: true,
+    sources: true,
+    capabilities: true,
     toolAccess: true,
   }).optional(),
   boundConversations: z.array(AgentAdminBoundConversationSchema),

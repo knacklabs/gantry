@@ -56,7 +56,7 @@ function usage(): string {
     '  gantry agent list|info|add|remove|trigger|policy',
     '  gantry browser profiles|status',
     '  gantry jobs list|show|events',
-    '  gantry model list|set-default|doctor',
+    '  gantry model status|list|set|reset|why|use-provider|doctor',
     '  gantry secrets list|set|import-env|unset',
     '  gantry settings export-current|drift',
     '  gantry service install|start|stop|restart',

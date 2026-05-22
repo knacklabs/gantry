@@ -343,12 +343,15 @@ export function createGroupAgentRunner(input: {
       skillArtifactStore: deps.getSkillArtifactStore?.(),
       turnContext,
     });
-    const [configuredAllowedTools, selectedSkillIds, selectedMcpServerIds] =
-      await Promise.all([
-        resolveTurnAllowedTools(deps, turnContext),
-        resolveTurnSelectedSkillIds(deps, turnContext),
-        resolveTurnSelectedMcpServerIds(deps, turnContext),
-      ]);
+    const [configuredAllowedTools, selectedSkillIds] = await Promise.all([
+      resolveTurnAllowedTools(deps, turnContext),
+      resolveTurnSelectedSkillIds(deps, turnContext),
+    ]);
+    const selectedMcpServerIds = await resolveTurnSelectedMcpServerIds(
+      deps,
+      turnContext,
+      configuredAllowedTools,
+    );
     const memoryContextBlock = [
       turnContext?.memoryContextBlock,
       approvedSkillContextBlock,

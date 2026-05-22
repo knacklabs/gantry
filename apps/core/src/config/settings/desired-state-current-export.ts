@@ -8,6 +8,7 @@ import {
   configuredBindingId,
   configuredConversationId,
   dedupeConfiguredConversation,
+  activeSources,
   readableActiveCapabilities,
   stableBindingId,
   stableSettingsId,
@@ -61,9 +62,11 @@ export async function exportCurrentDesiredState(input: {
   ];
   const [
     toolBindingRows,
+    toolSourceRows,
     skillBindingRows,
     mcpBindingRows,
     toolCatalogRows,
+    skillCatalogRows,
     storedProviderConnections,
     storedConversationBindings,
     storedConversations,
@@ -72,6 +75,12 @@ export async function exportCurrentDesiredState(input: {
       appId,
       agentIds,
     }),
+    deps.repositories.tools.listAgentToolSourcesForAgents
+      ? deps.repositories.tools.listAgentToolSourcesForAgents({
+          appId,
+          agentIds,
+        })
+      : Promise.resolve([]),
     deps.repositories.skills.listAgentSkillBindingsForAgents({
       appId,
       agentIds,
@@ -84,6 +93,10 @@ export async function exportCurrentDesiredState(input: {
     deps.repositories.tools.listTools({
       appId,
       statuses: ['active'],
+    }),
+    deps.repositories.skills.listSkills({
+      appId,
+      statuses: ['approved'],
     }),
     deps.repositories.providerConnections?.listProviderConnections
       ? deps.repositories.providerConnections.listProviderConnections(appId)
@@ -98,10 +111,14 @@ export async function exportCurrentDesiredState(input: {
       : Promise.resolve([]),
   ]);
   const toolBindingsByAgent = groupByAgentId(toolBindingRows);
+  const toolSourcesByAgent = groupByAgentId(toolSourceRows);
   const skillBindingsByAgent = groupByAgentId(skillBindingRows);
   const mcpBindingsByAgent = groupByAgentId(mcpBindingRows);
   const toolCatalogById = new Map(
     toolCatalogRows.map((tool) => [tool.id, tool]),
+  );
+  const skillCatalogById = new Map(
+    skillCatalogRows.map((skill) => [skill.id, skill]),
   );
   const storedConversationsByExternal = new Map<string, Conversation>();
   for (const conversation of storedConversations) {
@@ -198,10 +215,14 @@ export async function exportCurrentDesiredState(input: {
       oneTimeJobDefaultModel: existing?.oneTimeJobDefaultModel,
       recurringJobDefaultModel: existing?.recurringJobDefaultModel,
       bindings: existing?.bindings ?? {},
-      capabilities: readableActiveCapabilities(
-        toolBindingsByAgent.get(agent.id) ?? [],
+      sources: activeSources(
         skillBindingsByAgent.get(agent.id) ?? [],
         mcpBindingsByAgent.get(agent.id) ?? [],
+        skillCatalogById,
+        toolSourcesByAgent.get(agent.id) ?? [],
+      ),
+      capabilities: readableActiveCapabilities(
+        toolBindingsByAgent.get(agent.id) ?? [],
         toolCatalogById,
       ),
     };
@@ -266,13 +287,21 @@ export async function exportCurrentDesiredState(input: {
       jid,
       group,
       toolBindings: toolBindingsByAgent.get(agentId) ?? [],
+      toolSources: toolSourcesByAgent.get(agentId) ?? [],
       skillBindings: skillBindingsByAgent.get(agentId) ?? [],
       mcpBindings: mcpBindingsByAgent.get(agentId) ?? [],
     };
   });
 
   for (const exported of exportedGroups) {
-    const { jid, group, toolBindings, skillBindings, mcpBindings } = exported;
+    const {
+      jid,
+      group,
+      toolBindings,
+      toolSources,
+      skillBindings,
+      mcpBindings,
+    } = exported;
     const folder = group.folder;
     const existing = agents[folder] ?? settings.agents[folder];
     const provider = providerInfoForJid(jid);
@@ -372,12 +401,13 @@ export async function exportCurrentDesiredState(input: {
           model: group.agentConfig?.model,
         },
       },
-      capabilities: readableActiveCapabilities(
-        toolBindings,
+      sources: activeSources(
         skillBindings,
         mcpBindings,
-        toolCatalogById,
+        skillCatalogById,
+        toolSources,
       ),
+      capabilities: readableActiveCapabilities(toolBindings, toolCatalogById),
     };
   }
 

@@ -12,6 +12,8 @@ vi.mock('@core/config/index.js', () => ({
     model: 'opus',
     source: 'system default',
   })),
+  getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
+  patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({

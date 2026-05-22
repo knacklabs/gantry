@@ -8,7 +8,7 @@ import { logger } from '../infrastructure/logging/logger.js';
 import {
   findModelByRunnerModel,
   formatModelDisplay,
-  resolveModelSelection,
+  resolveModelSelectionForWorkload,
   type ModelDefaultAliases,
 } from '../shared/model-catalog.js';
 import type { RuntimeModelStatusSnapshot } from '../runtime/model-status-store.js';
@@ -589,7 +589,7 @@ export async function handleSessionCommand(opts: {
   }
 
   if (command.kind === 'model_set') {
-    const resolved = resolveModelSelection(command.value);
+    const resolved = resolveModelSelectionForWorkload(command.value, 'chat');
     if (!resolved.ok) {
       deps.advanceCursor(cmdMsg);
       await deps.sendMessage(resolved.message);

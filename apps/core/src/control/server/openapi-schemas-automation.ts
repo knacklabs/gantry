@@ -3,6 +3,30 @@ import type { JsonSchema } from './openapi-route-helpers.js';
 const isoDateTime = { type: 'string', format: 'date-time' };
 const metadata = { type: 'object', additionalProperties: true };
 const stringArray = { type: 'array', items: { type: 'string' } };
+const capabilityRequirementImplementation = {
+  type: 'object',
+  required: ['kind'],
+  properties: {
+    kind: {
+      type: 'string',
+      enum: ['configured_access', 'local_cli', 'mcp_server', 'builtin_tool'],
+    },
+    name: { type: 'string' },
+    executablePath: { type: 'string' },
+    commandTemplate: { type: 'string' },
+    authPreflight: { type: 'string' },
+    protectedPaths: stringArray,
+  },
+};
+const capabilityRequirement = {
+  type: 'object',
+  required: ['capabilityId', 'reason'],
+  properties: {
+    capabilityId: { type: 'string' },
+    reason: { type: 'string' },
+    implementation: capabilityRequirementImplementation,
+  },
+};
 const envelope = (name: string, schema: JsonSchema): JsonSchema => ({
   type: 'object',
   required: [name],
@@ -28,6 +52,12 @@ export const automationOpenApiSchemas: Record<string, JsonSchema> = {
       schedule: metadata,
       executionContext: metadata,
       notificationRoutes: { type: 'array', items: metadata },
+      capabilityRequirements: {
+        type: 'array',
+        items: capabilityRequirement,
+      },
+      toolAccessRequirements: stringArray,
+      requiredMcpServers: stringArray,
       setup: metadata,
       modelAlias: { type: 'string' },
     },
@@ -41,7 +71,10 @@ export const automationOpenApiSchemas: Record<string, JsonSchema> = {
       prompt: { type: 'string' },
       executionContext: metadata,
       notificationRoutes: { type: 'array', items: metadata },
-      capabilityRequirements: { type: 'array', items: metadata },
+      capabilityRequirements: {
+        type: 'array',
+        items: capabilityRequirement,
+      },
       toolAccessRequirements: stringArray,
       requiredMcpServers: stringArray,
       kind: { type: 'string', enum: ['manual', 'once', 'recurring'] },
@@ -70,7 +103,10 @@ export const automationOpenApiSchemas: Record<string, JsonSchema> = {
       prompt: { type: 'string' },
       executionContext: metadata,
       notificationRoutes: { type: 'array', items: metadata },
-      capabilityRequirements: { type: 'array', items: metadata },
+      capabilityRequirements: {
+        type: 'array',
+        items: capabilityRequirement,
+      },
       toolAccessRequirements: stringArray,
       requiredMcpServers: stringArray,
       status: { type: 'string', enum: ['active', 'paused'] },

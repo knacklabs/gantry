@@ -8,6 +8,7 @@ import { providerFromGroupJid, getProviderIds } from './provider-utils.js';
 import { readEnvFile } from '../config/env/file.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
 import {
+  capabilityToToolRule,
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
   saveRuntimeSettings,
@@ -50,9 +51,8 @@ import {
 import { adminMcpToolNameFromFullName } from '../shared/admin-mcp-tools.js';
 import { nowIso } from '../shared/time/datetime.js';
 
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
+const errorMessage = (err: unknown): string =>
+  err instanceof Error ? err.message : String(err);
 
 function findConversationIdForAgent(
   settings: ReturnType<typeof loadRuntimeSettings>,
@@ -77,11 +77,11 @@ function conversationIdsForProvider(
   providerId: string,
 ): string[] {
   return Object.entries(settings.conversations)
-    .filter(([, conversation]) => {
-      const connection =
-        settings.providerConnections[conversation.providerConnection];
-      return connection?.provider === providerId;
-    })
+    .filter(
+      ([, conversation]) =>
+        settings.providerConnections[conversation.providerConnection]
+          ?.provider === providerId,
+    )
     .map(([conversationId]) => conversationId);
 }
 
@@ -183,8 +183,8 @@ async function runInfo(
     const settings = loadRuntimeSettings(runtimeHome);
     const defaultAgentName = defaultAgentNameFromSettings(settings);
     const configuredTools = (
-      settings.agents[found.group.folder]?.capabilities.toolIds ?? []
-    ).map((tool) => tool.trim());
+      settings.agents[found.group.folder]?.capabilities ?? []
+    ).map(({ id }) => capabilityToToolRule(id));
     const enabledAdminTools = selectedAdminToolNames(configuredTools);
     const gatedTools = PERMISSION_GATED_NATIVE_TOOLS.filter(
       (toolName) =>
@@ -208,7 +208,7 @@ async function runInfo(
           availableButGatedTools: gatedTools,
           requestableAdminTools:
             buildRequestableAdminToolAccess(enabledAdminTools),
-          source: `settings.yaml agents.${found.group.folder}.tools`,
+          source: `settings.yaml agents.${found.group.folder}.capabilities`,
         }),
       ),
     ];
@@ -219,11 +219,10 @@ async function runInfo(
   }
 }
 
-function selectedAdminToolNames(tools: readonly string[]): Set<string> {
-  return new Set(
+const selectedAdminToolNames = (tools: readonly string[]): Set<string> =>
+  new Set(
     tools.map(adminMcpToolNameFromFullName).filter((name) => name !== null),
   );
-}
 
 async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
   const parsed = parseGroupAddArgs(args);

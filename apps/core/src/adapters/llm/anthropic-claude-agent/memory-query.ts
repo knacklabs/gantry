@@ -10,11 +10,21 @@ import { getAgentCredentialInjection } from '../../../application/credentials/ag
 import { createAgentCredentialBroker } from '../../credentials/agent-credential-broker-factory.js';
 import { createExternalAgentCredentialInjection } from '../external-credential-injection.js';
 import type { AgentCredentialBroker } from '../../../domain/ports/agent-credential-broker.js';
+import type { AgentCredentialInjection } from '../../../domain/models/credentials.js';
+import type { MemoryLlmModelProfile } from '../../../domain/ports/memory-llm-client.js';
 import { AGENT_CREDENTIAL_ENV_KEYS } from '../../../config/source-classification.js';
 import { applyNeutralCaTrustAliases } from '../../../shared/neutral-ca-trust-env.js';
+import { findModelByRunnerModel } from '../../../shared/model-catalog.js';
+import { applyOpenRouterSdkEnv } from './claude-config-materializer.js';
+import { validateModelCredentialProjectionForEntry } from './model-provider-credential-validation.js';
+import {
+  SDK_NATIVE_SKILL_DISABLE_ENV,
+  SDK_NATIVE_SKILL_OVERRIDES,
+} from './native-sdk-skills.js';
 
 export interface ClaudeQueryOpts {
   model: string;
+  modelProfile?: MemoryLlmModelProfile;
   prompt: string;
   systemPrompt?: string;
   userBlocks?: Array<{
@@ -100,7 +110,7 @@ function flattenPrompt(opts: ClaudeQueryOpts): string {
   return parts.join('\n\n');
 }
 
-async function resolveOnecliMemoryEnv(): Promise<Record<string, string>> {
+async function resolveOnecliMemoryInjection(): Promise<AgentCredentialInjection> {
   const brokerConfig = getCredentialBrokerRuntimeConfig();
   const cacheKey = `${brokerConfig.mode}:${brokerConfig.onecliUrl}:${brokerConfig.externalBrokerBaseUrl}`;
   if (memoryCredentialBrokerCacheKey !== cacheKey) {
@@ -108,7 +118,7 @@ async function resolveOnecliMemoryEnv(): Promise<Record<string, string>> {
     memoryCredentialBrokerCacheKey = cacheKey;
   }
   if (brokerConfig.mode === 'external') {
-    const injection = await getAgentCredentialInjection({
+    return getAgentCredentialInjection({
       mode: 'external',
       purpose: 'model_runtime',
       externalInjection: createExternalAgentCredentialInjection({
@@ -117,7 +127,6 @@ async function resolveOnecliMemoryEnv(): Promise<Record<string, string>> {
         ),
       }),
     });
-    return injection.env;
   }
   if (brokerConfig.mode !== 'onecli') {
     throw new Error('Credential broker is not configured for Claude access');
@@ -133,12 +142,11 @@ async function resolveOnecliMemoryEnv(): Promise<Record<string, string>> {
     memoryCredentialBrokerPromise = undefined;
     throw error;
   });
-  const injection = await getAgentCredentialInjection({
+  return getAgentCredentialInjection({
     mode: 'onecli',
     purpose: 'model_runtime',
     broker: requireOnecliBroker(await memoryCredentialBrokerPromise),
   });
-  return injection.env;
 }
 
 function requireOnecliBroker(
@@ -153,14 +161,34 @@ function requireOnecliBroker(
 }
 
 async function runWithOnecli(opts: ClaudeQueryOpts): Promise<string> {
-  const brokerEnv = await resolveOnecliMemoryEnv();
-  const sdkEnv = scrubAmbientAgentCredentials(brokerEnv);
+  const injection = await resolveOnecliMemoryInjection();
+  const modelEntry = opts.modelProfile
+    ? findModelByRunnerModel(opts.modelProfile.runnerModel)
+    : findModelByRunnerModel(opts.model);
+  if (modelEntry) {
+    validateModelCredentialProjectionForEntry({
+      model: modelEntry,
+      projection: {
+        env: injection.env,
+        credentialProviders: injection.credentialProviders,
+        brokerProfile: injection.brokerProfile,
+      },
+    });
+  }
+  const sdkEnv = {
+    ...scrubAmbientAgentCredentials(injection.env),
+    ...SDK_NATIVE_SKILL_DISABLE_ENV,
+  };
+  if (modelEntry?.provider === 'openrouter') applyOpenRouterSdkEnv(sdkEnv);
   const stream = query({
     prompt: flattenPrompt(opts),
     options: {
       model: opts.model,
       maxTurns: 1,
       env: sdkEnv,
+      settings: {
+        skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
+      },
     },
   }) as AsyncIterable<unknown>;
 

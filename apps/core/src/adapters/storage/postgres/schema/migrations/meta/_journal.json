@@ -428,6 +428,20 @@
       "when": 1777205400000,
       "tag": "0061_jobs_tool_access_requirements_cutover",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1777209000000,
+      "tag": "0062_skill_action_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1777212600000,
+      "tag": "0063_agent_tool_sources",
+      "breakpoints": true
     }
   ]
 }

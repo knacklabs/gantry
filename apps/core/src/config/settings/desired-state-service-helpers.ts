@@ -8,7 +8,6 @@ import type { MemorySubject } from '../../domain/memory/memory.js';
 import type { ConversationApprover } from '../../domain/provider/provider.js';
 import type {
   McpServerRepository,
-  SkillCatalogRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
 import {
@@ -20,7 +19,7 @@ import type {
   SettingsChangeClassification,
 } from './desired-state-service-types.js';
 import type {
-  RuntimeConfiguredAgentCapabilities,
+  RuntimeConfiguredAgent,
   RuntimeConfiguredBinding,
   RuntimeConfiguredConversation,
   RuntimeSettings,
@@ -190,13 +189,12 @@ export function folderForAgentId(agentId: AgentId): string | null {
   return raw.startsWith('agent:') ? raw.slice('agent:'.length) : null;
 }
 
-export function hasAnyCapability(
-  capabilities: RuntimeConfiguredAgentCapabilities,
-) {
+export function hasAnyCapability(agent: RuntimeConfiguredAgent) {
   return (
-    capabilities.toolIds.length > 0 ||
-    capabilities.skillIds.length > 0 ||
-    capabilities.mcpServerIds.length > 0
+    agent.capabilities.length > 0 ||
+    agent.sources.skills.length > 0 ||
+    agent.sources.mcpServers.length > 0 ||
+    agent.sources.tools.length > 0
   );
 }
 
@@ -252,21 +250,6 @@ export async function loadToolsById(
     ),
   );
   return new Map(tools);
-}
-
-export async function loadSkillsById(
-  repository: SkillCatalogRepository,
-  skillIds: readonly string[],
-): Promise<
-  Map<string, Awaited<ReturnType<SkillCatalogRepository['getSkill']>>>
-> {
-  const skills = await Promise.all(
-    skillIds.map(
-      async (skillId) =>
-        [skillId, await repository.getSkill(skillId as never)] as const,
-    ),
-  );
-  return new Map(skills);
 }
 
 export async function loadMcpServersById(

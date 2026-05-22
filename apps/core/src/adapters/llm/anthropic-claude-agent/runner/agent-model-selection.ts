@@ -1,5 +1,5 @@
 import {
-  resolveModelSelection,
+  resolveModelSelectionForWorkload,
   type ModelCatalogEntry,
 } from '../../../../shared/model-catalog.js';
 
@@ -47,7 +47,7 @@ export function validateAgentModelRequest(
   currentModel: ModelCatalogEntry | undefined,
 ): AgentModelValidationResult {
   if (!requestedModel || requestedModel === 'inherit') return {};
-  const resolved = resolveModelSelection(requestedModel);
+  const resolved = resolveModelSelectionForWorkload(requestedModel, 'chat');
   if (!resolved.ok) return { message: resolved.message };
   if (!currentModel) {
     return {

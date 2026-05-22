@@ -316,7 +316,7 @@ describe('jobs/execution-notifications', () => {
           message:
             'Google Sheets write using gog needs reviewed local CLI access before this job can run autonomously.',
           nextAction:
-            'request_permission{"permissionKind":"tool","toolName":"Bash","rule":"/usr/local/bin/gog sheets append *","temporaryOnly":false}',
+            'propose_capability {"capabilityId":"google.sheets.write","source":"local_cli","executablePath":"/usr/local/bin/gog","executableVersion":"v0.9.0","executableHash":"sha256:abc123"}',
         },
       ],
     };
@@ -330,9 +330,9 @@ describe('jobs/execution-notifications', () => {
     expect(delivered).toBe(true);
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain('Setup needed: Lead maintenance');
-    expect(message).toContain('Why: Exact command access');
+    expect(message).toContain('Why: Google Sheets write');
     expect(message).toContain(
-      'Action: Approve exact command access, then resume the job.',
+      'Action: Approve Google Sheets write, then resume the job.',
     );
     expect(message).not.toContain('request_permission');
     expect(message).not.toContain('/usr/local/bin/gog sheets append');

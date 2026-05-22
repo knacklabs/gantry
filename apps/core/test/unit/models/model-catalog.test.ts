@@ -5,37 +5,27 @@ import {
   findModelByRunnerModel,
   formatModelCatalog,
   MEMORY_MODEL_DEFAULT_ALIASES,
-  normalizeModelUsage,
-  resolveCatalogRunnerModel,
-  resolveModelProfileSelection,
   resolveModelSelection,
+  resolveModelSelectionForWorkload,
+  resolveRunnerModel,
 } from '@core/shared/model-catalog.js';
+import { normalizeModelUsage } from '@core/shared/model-usage.js';
 
 describe('model catalog resolution', () => {
-  it('resolves aliases to recommended aliases', () => {
+  it('keeps versioned aliases pinned while short aliases stay recommended', () => {
     expect(resolveModelSelection(' kimi 2.6 ')).toMatchObject({
       ok: true,
-      alias: 'kimi',
+      alias: 'kimi-2.6',
       runnerModel: 'moonshotai/kimi-k2.6',
     });
-  });
-
-  it('accepts catalog IDs only through profile resolution', () => {
-    expect(resolveModelSelection('openrouter:kimi-k2.6')).toMatchObject({
-      ok: false,
-      reason: 'raw-provider-id',
-    });
-    expect(resolveModelProfileSelection('openrouter:kimi-k2.6')).toMatchObject({
+    expect(resolveModelSelection('kimi')).toMatchObject({
       ok: true,
       alias: 'kimi',
       runnerModel: 'moonshotai/kimi-k2.6',
     });
-  });
-
-  it('rejects aliases through profile resolution', () => {
-    expect(resolveModelProfileSelection('kimi')).toMatchObject({
-      ok: false,
-      reason: 'alias-as-profile-id',
+    expect(resolveModelSelection('Opus 4.7')).toMatchObject({
+      ok: true,
+      alias: 'opus-4.7',
     });
   });
 
@@ -58,18 +48,20 @@ describe('model catalog resolution', () => {
     });
   });
 
-  it('resolves catalog aliases and runner IDs without legacy Claude aliases', () => {
-    expect(resolveCatalogRunnerModel('opus')).toBe('claude-opus-4-7');
-    expect(resolveCatalogRunnerModel('opus 4.7')).toBe('claude-opus-4-7');
-    expect(resolveCatalogRunnerModel('claude-sonnet-4-6')).toBe(
-      'claude-sonnet-4-6',
-    );
-    expect(resolveCatalogRunnerModel('opusplan')).toBeUndefined();
-    expect(resolveCatalogRunnerModel('best')).toBeUndefined();
+  it('resolves catalog aliases without accepting raw runner IDs', () => {
+    expect(resolveRunnerModel('opus')).toBe('claude-opus-4-7');
+    expect(resolveRunnerModel('opus 4.7')).toBe('claude-opus-4-7');
+    expect(resolveRunnerModel('claude-sonnet-4-6')).toBeUndefined();
+    expect(resolveRunnerModel('opusplan')).toBeUndefined();
+    expect(resolveRunnerModel('best')).toBeUndefined();
   });
 
   it('rejects raw provider model IDs from user-facing alias resolution', () => {
     expect(resolveModelSelection('claude-opus-4-7')).toMatchObject({
+      ok: false,
+      reason: 'raw-provider-id',
+    });
+    expect(resolveModelSelection('claude-ambient-model')).toMatchObject({
       ok: false,
       reason: 'raw-provider-id',
     });
@@ -79,6 +71,25 @@ describe('model catalog resolution', () => {
     expect(resolveModelSelection('moonshotai/kimi-k2.6')).toMatchObject({
       ok: false,
       reason: 'raw-provider-id',
+    });
+  });
+
+  it('enforces workload eligibility for catalog aliases', () => {
+    expect(resolveModelSelectionForWorkload('opus', 'chat')).toMatchObject({
+      ok: true,
+      alias: 'opus',
+    });
+    expect(
+      resolveModelSelectionForWorkload('opus', 'memory_extractor'),
+    ).toMatchObject({
+      ok: false,
+      reason: 'unsupported-workload',
+    });
+    expect(
+      resolveModelSelectionForWorkload('kimi', 'memory_consolidation'),
+    ).toMatchObject({
+      ok: true,
+      alias: 'kimi',
     });
   });
 
@@ -95,12 +106,18 @@ describe('model catalog resolution', () => {
       chat: 'opus',
       oneTime: 'sonnet',
       recurring: 'kimi',
+      memoryExtractor: 'haiku',
+      memoryDreaming: 'sonnet',
+      memoryConsolidation: 'sonnet',
     });
 
-    expect(output).toContain('Supported models');
+    expect(output).toContain('Supported model aliases');
+    expect(output).toContain('Provider slug');
     expect(output).toContain('chat default');
     expect(output).toContain('one-time default');
     expect(output).toContain('recurring default');
+    expect(output).toContain('memory extractor');
+    expect(output).toContain('moonshotai/kimi-k2.6');
   });
 });
 

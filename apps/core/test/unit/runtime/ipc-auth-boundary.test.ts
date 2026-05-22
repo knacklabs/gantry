@@ -153,7 +153,6 @@ describe('validateIpcAuthRequest', () => {
             ...payload,
             requestId: 'task-clear-thread',
             modelAlias: null,
-            modelProfileId: null,
           },
           'team',
           'thread-1',
@@ -170,7 +169,6 @@ describe('validateIpcAuthRequest', () => {
         groupScope: 'team',
       },
       modelAlias: null,
-      modelProfileId: null,
     });
   });
 
@@ -542,7 +540,7 @@ describe('validateIpcAuthRequest', () => {
 
     expect(parseTaskIpcData(payload, 'team')).toMatchObject({
       type: 'register_agent',
-      agentConfig: { model: 'kimi' },
+      agentConfig: { model: 'kimi-2.6' },
     });
   });
 

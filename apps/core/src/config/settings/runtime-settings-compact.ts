@@ -163,14 +163,6 @@ function normalizeCompactAgents(
       agents[agentId] = agentRaw;
       continue;
     }
-    const capabilities = isRecord(agentRaw.capabilities)
-      ? { ...agentRaw.capabilities }
-      : {};
-    if (agentRaw.tools !== undefined) capabilities.tool_ids = agentRaw.tools;
-    if (agentRaw.skills !== undefined) capabilities.skill_ids = agentRaw.skills;
-    if (agentRaw.mcp_servers !== undefined) {
-      capabilities.mcp_server_ids = agentRaw.mcp_servers;
-    }
     const jobs =
       parseOptionalRecord(agentRaw.jobs, `agents.${agentId}.jobs`) || {};
     assertSupportedKeys(
@@ -183,13 +175,7 @@ function normalizeCompactAgents(
         'recurring_job_default_model',
       ]),
     );
-    const {
-      tools: _tools,
-      skills: _skills,
-      mcp_servers: _mcpServers,
-      jobs: _jobs,
-      ...verboseAgent
-    } = agentRaw;
+    const { jobs: _jobs, ...verboseAgent } = agentRaw;
     agents[agentId] = {
       ...verboseAgent,
       one_time_job_default_model:
@@ -200,7 +186,7 @@ function normalizeCompactAgents(
         agentRaw.recurring_job_default_model ??
         jobs.recurring_model ??
         jobs.recurring_job_default_model,
-      capabilities,
+      capabilities: agentRaw.capabilities,
     };
   }
   normalized.agents = agents;

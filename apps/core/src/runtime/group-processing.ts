@@ -63,6 +63,10 @@ import {
 import { createGroupAgentRunner } from './group-agent-runner.js';
 import { buildMemoryRecallQueryFromMessages } from '../memory/app-memory-recall-query.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
+import {
+  isModelAccessAuthFailure,
+  sendModelAccessAuthFailureNotice,
+} from './model-access-auth-failure.js';
 let streamingGenerationCounter = 0;
 const PERMISSION_BACKGROUND_DEMOTE_MS = 120_000;
 type ProgressHeartbeat = ReturnType<typeof startGroupProgressHeartbeats>;
@@ -691,6 +695,18 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         hadError = true;
         await resumeActiveElapsed();
         await finalizeStreamingOutput('error-marker');
+        if (!outputSentToUser && isModelAccessAuthFailure(result.error)) {
+          applyDeliverySettlement(
+            await sendModelAccessAuthFailureNotice({
+              chatJid,
+              groupName: group.name,
+              messageOptions: await buildMessageOptions(),
+              sendMessageToChannel,
+              warn: (metadata, message) => logger.warn(metadata, message),
+            }),
+            { streamed: false, terminal: true },
+          );
+        }
         await setTypingState(false);
       }
     };

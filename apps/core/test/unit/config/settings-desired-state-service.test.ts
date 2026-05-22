@@ -7,6 +7,10 @@ import {
 import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings.js';
 import { ConversationAdministrationService } from '@core/application/provider-conversations/conversation-administration-service.js';
 
+function emptySources() {
+  return { skills: [], mcpServers: [], tools: [] };
+}
+
 function makeRepositories(overrides: Record<string, unknown> = {}) {
   return {
     agents: {
@@ -27,6 +31,7 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
             }
           : null,
       ),
+      saveTool: vi.fn(async () => undefined),
       listTools: vi.fn(async () => [
         {
           id: 'tool:read',
@@ -38,6 +43,9 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
       ]),
       listAgentToolBindings: vi.fn(async () => []),
       listAgentToolBindingsForAgents: vi.fn(async () => []),
+      listAgentToolSources: vi.fn(async () => []),
+      listAgentToolSourcesForAgents: vi.fn(async () => []),
+      replaceAgentToolSources: vi.fn(async () => undefined),
     },
     skills: {
       getSkill: vi.fn(async (id: string) =>
@@ -45,11 +53,21 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
           ? {
               id,
               appId: 'default',
+              name: 'admin',
               status: 'approved',
               storage: { type: 'local' },
             }
           : null,
       ),
+      listSkills: vi.fn(async () => [
+        {
+          id: 'skill:admin',
+          appId: 'default',
+          name: 'admin',
+          status: 'approved',
+          storage: { type: 'local' },
+        },
+      ]),
       listAgentSkillBindings: vi.fn(async () => []),
       listAgentSkillBindingsForAgents: vi.fn(async () => []),
     },
@@ -60,9 +78,26 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
               id,
               appId: 'default',
               status: 'approved',
-              latestApprovedVersionId: 'mcp-version:github',
+              latestApprovedVersionId: 'mcp-version:github-next',
             }
           : null,
+      ),
+      getVersion: vi.fn(async (id: string) =>
+        id === 'mcp-version:github'
+          ? {
+              id,
+              appId: 'default',
+              serverId: 'mcp:github',
+              version: 1,
+            }
+          : id === 'mcp-version:github-next'
+            ? {
+                id,
+                appId: 'default',
+                serverId: 'mcp:github',
+                version: 2,
+              }
+            : null,
       ),
       listAgentBindings: vi.fn(async () => []),
       listAgentBindingsForAgents: vi.fn(async () => []),
@@ -101,11 +136,16 @@ describe('SettingsDesiredStateService', () => {
       name: 'Main',
       folder: 'main_agent',
       bindings: {},
-      capabilities: {
-        toolIds: ['Read', 'tool:read', '*'],
-        skillIds: ['skill:admin'],
-        mcpServerIds: ['mcp:github'],
+      sources: {
+        skills: [{ id: 'skill:admin', version: 'approved' }],
+        mcpServers: [{ id: 'mcp:github', version: 'mcp-version:github' }],
+        tools: [],
       },
+      capabilities: [
+        { id: 'google.sheets.write', version: 'builtin' },
+        { id: 'tool:read', version: 'builtin' },
+        { id: '*', version: 'builtin' },
+      ],
     };
     const service = new SettingsDesiredStateService({
       ops: makeOps(),
@@ -116,10 +156,202 @@ describe('SettingsDesiredStateService', () => {
 
     expect([...errors].sort()).toEqual(
       [
-        'agents.main_agent.capabilities.tool_ids contains unavailable tool *: Global wildcard tool rule is not allowed.',
-        'agents.main_agent.capabilities.tool_ids contains unavailable tool tool:read: Tool rule must be readable; use a tool name or scoped RunCommand rule, not an internal tool ID.',
+        'agents.main_agent.capabilities contains unavailable capability *: Capability id must use lowercase dot-separated words such as google.sheets.write.',
+        'agents.main_agent.capabilities contains unavailable capability tool:read: Capability id must use lowercase dot-separated words such as google.sheets.write.',
       ].sort(),
     );
+  });
+
+  it('resolves readable skill names from desired-state settings', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: {
+        skills: [{ id: 'admin', version: 'approved' }],
+        mcpServers: [],
+        tools: [],
+      },
+      capabilities: [],
+    };
+    const repositories = makeRepositories();
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillBindings: [expect.objectContaining({ skillId: 'skill:admin' })],
+      }),
+    );
+  });
+
+  it('preserves configured MCP source versions during reconciliation', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: {
+        skills: [],
+        mcpServers: [{ id: 'mcp:github', version: 'mcp-version:github' }],
+        tools: [],
+      },
+      capabilities: [],
+    };
+    const repositories = makeRepositories();
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mcpBindings: [
+          expect.objectContaining({
+            serverId: 'mcp:github',
+            versionId: 'mcp-version:github',
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('reconciles tool sources separately from capability authority', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: {
+        skills: [],
+        mcpServers: [],
+        tools: [{ id: 'browser', kind: 'builtin' }],
+      },
+      capabilities: [],
+    };
+    const repositories = makeRepositories();
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    expect(repositories.tools.replaceAgentToolSources).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sources: [
+          expect.objectContaining({
+            sourceId: 'browser',
+            kind: 'builtin',
+            status: 'active',
+          }),
+        ],
+      }),
+    );
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolBindings: [],
+      }),
+    );
+  });
+
+  it('reconciles exact RunCommand capabilities as readable tool rules', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: emptySources(),
+      capabilities: [
+        {
+          id: 'RunCommand(/usr/local/bin/gog sheets append *)',
+          version: 'builtin',
+        },
+      ],
+    };
+    const repositories = makeRepositories();
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    await service.reconcile(settings);
+
+    expect(repositories.tools.saveTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'RunCommand(/usr/local/bin/gog sheets append *)',
+      }),
+    );
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolBindings: [
+          expect.objectContaining({
+            toolId: expect.stringContaining('tool:permission-rule:'),
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('rejects duplicate approved skills with the same settings name', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.main_agent = {
+      name: 'Main',
+      folder: 'main_agent',
+      bindings: {},
+      sources: {
+        skills: [{ id: 'admin', version: 'approved' }],
+        mcpServers: [],
+        tools: [],
+      },
+      capabilities: [],
+    };
+    const repositories = makeRepositories({
+      skills: {
+        ...makeRepositories().skills,
+        listSkills: vi.fn(async () => [
+          {
+            id: 'skill:first',
+            appId: 'default',
+            name: 'admin',
+            status: 'approved',
+            storage: { type: 'local' },
+          },
+          {
+            id: 'skill:second',
+            appId: 'default',
+            name: 'admin',
+            status: 'approved',
+            storage: { type: 'local' },
+          },
+        ]),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    const errors = await service.validateCapabilityReferences(settings);
+
+    expect(errors).toEqual([
+      'agents.main_agent.sources.skills contains ambiguous skill name: admin matched 2 approved skills',
+    ]);
   });
 
   it('reconciles desired agents without deleting DB-only bindings in phase 1', async () => {
@@ -136,11 +368,8 @@ describe('SettingsDesiredStateService', () => {
           requiresTrigger: true,
         },
       },
-      capabilities: {
-        toolIds: [],
-        skillIds: [],
-        mcpServerIds: [],
-      },
+      sources: emptySources(),
+      capabilities: [],
     };
     const ops = makeOps({
       'tg:old': {
@@ -176,7 +405,8 @@ describe('SettingsDesiredStateService', () => {
       name: 'Main',
       folder: 'main_agent',
       bindings: {},
-      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+      sources: emptySources(),
+      capabilities: [],
     };
     settings.conversations.sales_slack = {
       providerConnection: 'slack_default',
@@ -226,13 +456,15 @@ describe('SettingsDesiredStateService', () => {
       name: 'Main',
       folder: 'main_agent',
       bindings: {},
-      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+      sources: emptySources(),
+      capabilities: [],
     };
     settings.agents.ops_agent = {
       name: 'Ops',
       folder: 'ops_agent',
       bindings: {},
-      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+      sources: emptySources(),
+      capabilities: [],
     };
     settings.conversations.sales = {
       providerConnection: 'slack_default',
@@ -315,7 +547,8 @@ describe('SettingsDesiredStateService', () => {
       name: 'Main',
       folder: 'main_agent',
       bindings: {},
-      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+      sources: emptySources(),
+      capabilities: [],
     };
     settings.conversations.direct_user = {
       providerConnection: 'slack_default',
@@ -382,7 +615,8 @@ describe('SettingsDesiredStateService', () => {
       name: 'Main',
       folder: 'main_agent',
       bindings: {},
-      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+      sources: emptySources(),
+      capabilities: [],
     };
     settings.conversations.main = {
       providerConnection: 'telegram_default',
@@ -425,11 +659,8 @@ describe('SettingsDesiredStateService', () => {
       name: 'Main',
       folder: 'main_agent',
       bindings: {},
-      capabilities: {
-        toolIds: [],
-        skillIds: [],
-        mcpServerIds: [],
-      },
+      sources: emptySources(),
+      capabilities: [],
     };
     const ops = makeOps({
       'tg:old': {
@@ -456,11 +687,8 @@ describe('SettingsDesiredStateService', () => {
       name: 'Main',
       folder: 'main_agent',
       bindings: {},
-      capabilities: {
-        toolIds: [],
-        skillIds: [],
-        mcpServerIds: [],
-      },
+      sources: emptySources(),
+      capabilities: [],
     };
     const repositories = makeRepositories();
     const service = new SettingsDesiredStateService({
@@ -489,11 +717,12 @@ describe('SettingsDesiredStateService', () => {
       name: 'Main',
       folder: 'main_agent',
       bindings: {},
-      capabilities: {
-        toolIds: [],
-        skillIds: ['skill:admin'],
-        mcpServerIds: [],
+      sources: {
+        skills: [{ id: 'skill:admin', version: 'approved' }],
+        mcpServers: [],
+        tools: [],
       },
+      capabilities: [],
     };
     const repositories = makeRepositories();
     repositories.skills.listAgentSkillBindings = vi.fn(async () => [
@@ -530,11 +759,12 @@ describe('SettingsDesiredStateService', () => {
       name: 'Main',
       folder: 'main_agent',
       bindings: {},
-      capabilities: {
-        toolIds: [],
-        skillIds: ['skill:admin'],
-        mcpServerIds: [],
+      sources: {
+        skills: [{ id: 'skill:admin', version: 'approved' }],
+        mcpServers: [],
+        tools: [],
       },
+      capabilities: [],
     };
     const repositories = makeRepositories();
     repositories.skills.listAgentSkillBindings = vi.fn(async () => [
@@ -745,7 +975,8 @@ describe('SettingsDesiredStateService', () => {
           requiresTrigger: true,
         },
       },
-      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+      sources: emptySources(),
+      capabilities: [],
     };
     settings.conversations.sales_slack = {
       providerConnection: 'slack_default',
@@ -1255,11 +1486,12 @@ describe('SettingsDesiredStateService', () => {
       persona: 'research',
       model: 'sonnet',
       bindings: {},
-      capabilities: {
-        toolIds: ['stale-tool'],
-        skillIds: ['stale-skill'],
-        mcpServerIds: [],
+      sources: {
+        skills: [{ id: 'stale-skill', version: 'approved' }],
+        mcpServers: [],
+        tools: [],
       },
+      capabilities: [{ id: 'stale-tool', version: 'builtin' }],
     };
     settings.providerConnections.slack_default = {
       provider: 'slack',
@@ -1378,9 +1610,30 @@ describe('SettingsDesiredStateService', () => {
             updatedAt: '2026-05-01T00:00:00.000Z',
           },
         ]),
+        listAgentToolSourcesForAgents: vi.fn(async () => [
+          {
+            id: 'agent-tool-source:side-browser',
+            appId: 'default',
+            agentId: 'agent:side_agent',
+            sourceId: 'browser',
+            kind: 'builtin',
+            status: 'active',
+            createdAt: '2026-05-01T00:00:00.000Z',
+            updatedAt: '2026-05-01T00:00:00.000Z',
+          },
+        ]),
       },
       skills: {
         ...makeRepositories().skills,
+        listSkills: vi.fn(async () => [
+          {
+            id: 'skill:3014949c-a616-4b2c-80e7-0bc61bb31e85',
+            appId: 'default',
+            name: 'custom-skill',
+            status: 'approved',
+            storage: { type: 'local' },
+          },
+        ]),
         listAgentSkillBindingsForAgents: vi.fn(async () => [
           {
             id: 'agent-skill-binding:side-custom',
@@ -1421,11 +1674,12 @@ describe('SettingsDesiredStateService', () => {
         name: 'Side',
         persona: 'research',
         model: 'sonnet',
-        capabilities: {
-          toolIds: ['Read'],
-          skillIds: ['skill:3014949c-a616-4b2c-80e7-0bc61bb31e85'],
-          mcpServerIds: ['mcp:github'],
+        sources: {
+          skills: [{ id: 'custom-skill', version: 'approved' }],
+          mcpServers: [{ id: 'mcp:github', version: 'mcp-version:github' }],
+          tools: [{ id: 'browser', kind: 'builtin' }],
         },
+        capabilities: [{ id: 'Read', version: 'builtin' }],
       }),
     );
     expect(exported.providerConnections.slack_default).toEqual({
@@ -1460,11 +1714,8 @@ describe('SettingsDesiredStateService', () => {
       name: 'Main',
       folder: 'main_agent',
       bindings: {},
-      capabilities: {
-        toolIds: [],
-        skillIds: [],
-        mcpServerIds: [],
-      },
+      sources: emptySources(),
+      capabilities: [],
     };
     const repositories = makeRepositories({
       agents: {
@@ -1515,11 +1766,8 @@ describe('SettingsDesiredStateService', () => {
       name: 'Main',
       folder: 'main_agent',
       bindings: {},
-      capabilities: {
-        toolIds: ['Read'],
-        skillIds: [],
-        mcpServerIds: [],
-      },
+      sources: emptySources(),
+      capabilities: [{ id: 'Read', version: 'builtin' }],
     };
 
     expect(classifySettingsChanges(before, after)).toEqual({

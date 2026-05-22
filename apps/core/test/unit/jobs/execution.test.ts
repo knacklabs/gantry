@@ -962,6 +962,38 @@ describe('jobs/execution', () => {
         { serverId: 'mcp:github', status: 'active' },
         { serverId: 'mcp:legacy', status: 'inactive' },
       ]),
+      getServer: vi.fn(async (id: string) =>
+        id === 'mcp:github'
+          ? { id, appId: 'default', name: 'github' }
+          : { id, appId: 'default', name: 'legacy' },
+      ),
+    };
+    const toolRepository = {
+      listAgentToolBindings: vi.fn(async () => [
+        { toolId: 'tool:github-search', status: 'active' },
+      ]),
+      getTool: vi.fn(async () => ({
+        appId: 'default',
+        name: 'capability:github.search',
+        inputSchema: {
+          format: 'gantry.semantic-capability.v1',
+          schema: {
+            capabilityId: 'github.search',
+            displayName: 'GitHub search',
+            category: 'GitHub',
+            risk: 'read',
+            can: 'Search GitHub repositories.',
+            cannot: 'Modify GitHub repositories.',
+            credentialSource: 'none',
+            implementationBindings: [
+              {
+                kind: 'mcp_tool',
+                mcpTool: 'mcp__github__search_repositories',
+              },
+            ],
+          },
+        },
+      })),
     };
     const skillArtifactStore = { readArtifact: vi.fn() };
     const capabilitySecretRepository = {};
@@ -988,6 +1020,7 @@ describe('jobs/execution', () => {
         sendMessage: vi.fn(async () => undefined) as never,
         opsRepository: opsRepository as never,
         getCredentialBroker: vi.fn(async () => credentialBroker) as never,
+        getToolRepository: () => toolRepository as never,
         getSkillRepository: () => skillRepository as never,
         getMcpServerRepository: () => mcpServerRepository as never,
         getCapabilitySecretRepository: () =>

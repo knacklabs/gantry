@@ -10,7 +10,6 @@ export interface TaskIpcData {
   runHandle?: string;
   prompt?: string;
   modelAlias?: string | null;
-  modelProfileId?: string | null;
   name?: string;
   scheduleType?: string;
   scheduleValue?: string;

@@ -1,5 +1,5 @@
 export const REQUEST_TOOL_ENABLE_SCOPE_GUIDANCE =
-  'Access decision ladder: use capability_search first; use request_capability when a reviewed semantic capability fits; use propose_local_cli_capability or manage_capability for durable local CLI access; use request_permission only for one-off exact access, Browser, exact Gantry admin tools, or scoped RunCommand fallback when no reviewed capability fits.';
+  'Access decision ladder: use capability_search first; use propose_capability for approved semantic capability grants and reviewed local_cli capabilities; use manage_capability for change/revoke/test/audit guidance; use request_permission only for one-off exact access, Browser, exact Gantry admin tools, or scoped RunCommand fallback when no reviewed capability fits.';
 
 export function renderDefaultCapabilityRules(options?: {
   includeSettingsTools?: boolean;
@@ -7,7 +7,7 @@ export function renderDefaultCapabilityRules(options?: {
   const lines = [
     'Capability rules:',
     '- Use send_message for progress updates and ask_user_question for structured choices.',
-    '- Use request_skill_install, request_skill_proposal, request_skill_dependency_install, request_mcp_server, capability_search, request_capability, propose_local_cli_capability, manage_capability, or request_permission for capability changes.',
+    '- Use capability_search, propose_capability, and manage_capability for durable capability changes; request_permission is only a one-off or exact fallback access request.',
     '- For skills, Bash may be used for narrow prep such as inspecting, copying, unzipping, or constructing files, but durable install/selection must go through request_skill_install with staged files when available or an exact installer argv for catalog/local/URL/CLI installs.',
     '- Declare requiredEnvVars for secrets the installed skill needs at runtime; they are projected later from Gantry Secrets and are not generic installer env.',
     `- ${REQUEST_TOOL_ENABLE_SCOPE_GUIDANCE}`,

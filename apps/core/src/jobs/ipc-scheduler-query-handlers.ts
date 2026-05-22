@@ -27,6 +27,12 @@ function makeJobService(context: TaskContext): JobManagementService {
     control: context.deps.getJobControl?.(),
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
+    toolRepository: context.deps.getToolRepository?.(),
+    skillRepository: context.deps.getSkillRepository?.(),
+    mcpServerRepository: context.deps.getMcpServerRepository?.(),
+    capabilitySecretRepository: context.deps.getCapabilitySecretRepository?.(),
+    getCredentialBroker: context.deps.getCredentialBroker,
+    getBrowserStatus: context.deps.getBrowserStatus,
   });
 }
 
@@ -112,6 +118,7 @@ const schedulerGetJobHandler: TaskHandler = async (context) => {
                 appId: metadataAppId,
                 ops: context.deps.opsRepository,
                 toolRepository: context.deps.getToolRepository?.(),
+                skillRepository: context.deps.getSkillRepository?.(),
               }),
             ),
           },
@@ -155,6 +162,7 @@ const schedulerListJobsHandler: TaskHandler = async (context) => {
       ops: context.deps.opsRepository,
       appId: metadataAppId,
       toolRepository: context.deps.getToolRepository?.(),
+      skillRepository: context.deps.getSkillRepository?.(),
     });
     acceptData(`Listed ${result.jobs.length} scheduler job(s).`, {
       jobs: result.jobs.map(({ prompt: _prompt, ...job }) => {
@@ -184,6 +192,7 @@ function publicJobVisibility(metadata: JobVisibilityMetadata) {
     promptPreview: metadata.promptPreview,
     fullPrompt: metadata.fullPrompt,
     toolAccess: metadata.toolAccess,
+    capabilityRequirements: metadata.capabilityRequirements,
     toolAccessRequirements: metadata.toolAccessRequirements,
     requiredMcpServers: metadata.requiredMcpServers,
     setup: metadata.setup,

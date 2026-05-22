@@ -8,6 +8,7 @@ import { envFilePath } from '../config/settings/runtime-home.js';
 import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
 import { inspectMemoryHealth } from './memory-health.js';
 import { openRuntimeGroupDb } from './runtime-group-db.js';
+import type { ConversationRoute } from '../domain/types.js';
 
 export interface RuntimeStatusSummary {
   runtimeHome: string;
@@ -23,7 +24,9 @@ export interface RuntimeStatusSummary {
     enabled: boolean;
     configuredEnvKeys: string[];
     missingEnvKeys: string[];
-    groups: number;
+    conversations: number;
+    dms: number;
+    channels: number;
   }>;
   memoryEnabled: boolean;
   memoryHealth: string;
@@ -46,12 +49,21 @@ export interface RuntimeStatusSummary {
   };
 }
 
-function countConversationRoutesByPrefix(
-  groups: Record<string, { folder: string }>,
+function countConversationRoutesForProvider(
+  routes: Record<string, ConversationRoute>,
   jidPrefix: string,
-): number {
+  isGroupJid: (jid: string) => boolean,
+): { conversations: number; dms: number; channels: number } {
   const prefix = jidPrefix.endsWith('%') ? jidPrefix.slice(0, -1) : jidPrefix;
-  return Object.keys(groups).filter((jid) => jid.startsWith(prefix)).length;
+  let dms = 0;
+  let channels = 0;
+  for (const [jid, route] of Object.entries(routes)) {
+    if (!jid.startsWith(prefix)) continue;
+    const kind = route.conversationKind ?? (isGroupJid(jid) ? 'channel' : 'dm');
+    if (kind === 'dm') dms += 1;
+    else channels += 1;
+  }
+  return { conversations: dms + channels, dms, channels };
 }
 
 export async function collectRuntimeStatus(
@@ -71,7 +83,7 @@ export async function collectRuntimeStatus(
   const storageCapabilityCheck = doctor.checks.find(
     (check) => check.id === 'storage-capabilities',
   );
-  let conversationRoutes: Record<string, { folder: string }> = {};
+  let conversationRoutes: Record<string, ConversationRoute> = {};
   let groupDb: Awaited<ReturnType<typeof openRuntimeGroupDb>> | null = null;
   try {
     groupDb = await openRuntimeGroupDb(runtimeHome, { migrate: false });
@@ -95,16 +107,18 @@ export async function collectRuntimeStatus(
       }
     }
 
+    const routeCounts = countConversationRoutesForProvider(
+      conversationRoutes,
+      provider.jidPrefix,
+      provider.isGroupJid,
+    );
     return {
       id: provider.id,
       label: provider.label,
       enabled: settings.providers[provider.id]?.enabled ?? false,
       configuredEnvKeys,
       missingEnvKeys,
-      groups: countConversationRoutesByPrefix(
-        conversationRoutes,
-        provider.jidPrefix,
-      ),
+      ...routeCounts,
     };
   });
 
@@ -163,7 +177,7 @@ export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
     (channel) =>
       channel.enabled &&
       channel.missingEnvKeys.length === 0 &&
-      channel.groups > 0,
+      channel.conversations > 0,
   );
   lines.push(`Channel: ${readyChannels.length > 0 ? 'ready' : 'needs setup'}`);
   const brokerCheck = summary.doctor.checks.find(
@@ -184,7 +198,7 @@ export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
           : 'n/a'
         : `missing ${channel.missingEnvKeys.join(', ')}`;
     lines.push(
-      `${channel.label}: ${channel.enabled ? 'enabled' : 'disabled'} | credentials: ${credentials} | groups: ${channel.groups}`,
+      `${channel.label}: ${channel.enabled ? 'enabled' : 'disabled'} | credentials: ${credentials} | conversations: ${channel.conversations} (DMs: ${channel.dms}, channels/groups: ${channel.channels})`,
     );
   }
   lines.push(`Memory: ${statusWord(summary.memoryEnabled)}`);
@@ -209,7 +223,7 @@ export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
     (channel) =>
       channel.enabled &&
       channel.missingEnvKeys.length === 0 &&
-      channel.groups > 0,
+      channel.conversations > 0,
   );
   if (!hasReadyChannel) {
     const connectCommands = summary.channels.map(

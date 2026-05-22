@@ -1,21 +1,18 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { AgentCapabilitiesRequestSchema } from '@gantry/contracts';
+import {
+  AgentCapabilitiesRequestSchema,
+  AgentSourcesRequestSchema,
+} from '@gantry/contracts';
 
 import { AgentCapabilityAdministrationService } from '../../../application/agents/agent-capability-administration-service.js';
 import { ApplicationError } from '../../../application/common/application-error.js';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
 import type { AgentId } from '../../../domain/agent/agent.js';
 import type { AppId } from '../../../domain/app/app.js';
-import type {
-  McpServerDefinition,
-  McpServerId,
-} from '../../../domain/mcp/mcp-servers.js';
-import type {
-  SkillCatalogItem,
-  SkillId,
-} from '../../../domain/skills/skills.js';
-import type { ToolCatalogItem, ToolId } from '../../../domain/tools/tools.js';
+import type { McpServerDefinition } from '../../../domain/mcp/mcp-servers.js';
+import type { SkillCatalogItem } from '../../../domain/skills/skills.js';
+import type { ToolCatalogItem } from '../../../domain/tools/tools.js';
 import type { AgentToolAccessView } from '../../../shared/tool-access-view.js';
 import { semanticCapabilityFromToolCatalogItem } from '../../../shared/semantic-capabilities.js';
 import {
@@ -36,21 +33,87 @@ export async function handleCapabilityCatalogRoutes(
   ctx: ControlRouteContext,
   pathname: string,
 ): Promise<boolean> {
-  if (pathname === '/v1/capability-catalog' && req.method === 'GET') {
+  if (pathname === '/v1/inventory' && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
     if (!auth) return true;
     const catalog = await service().listCatalog(auth.appId as AppId);
     sendJson(res, 200, {
-      tools: catalog.tools.map(toolToResponse),
-      skills: catalog.skills.map(skillToResponse),
-      mcpServers: catalog.mcpServers.map(mcpServerToResponse),
+      inventory: {
+        tools: catalog.tools.map(toolToResponse),
+        skills: catalog.skills.map(skillToResponse),
+        mcpServers: catalog.mcpServers.map(mcpServerToResponse),
+      },
     });
+    return true;
+  }
+
+  if (pathname === '/v1/capabilities' && req.method === 'GET') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    if (!auth) return true;
+    const catalog = await service().listCatalog(auth.appId as AppId);
+    sendJson(res, 200, {
+      capabilities: catalog.tools.map(toolToCapabilityResponse).filter(Boolean),
+    });
+    return true;
+  }
+
+  const capabilityMatch = pathname.match(/^\/v1\/capabilities\/([^/]+)$/);
+  if (capabilityMatch && req.method === 'GET') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    if (!auth) return true;
+    const catalog = await service().listCatalog(auth.appId as AppId);
+    const decodedId = decodeURIComponent(capabilityMatch[1]);
+    const capability = catalog.tools
+      .map(toolToCapabilityResponse)
+      .find((item) => item?.id === decodedId);
+    if (!capability) {
+      sendError(res, 404, 'NOT_FOUND', `Capability not found: ${decodedId}`);
+      return true;
+    }
+    sendJson(res, 200, capability);
     return true;
   }
 
   const agentCapabilityMatch = pathname.match(
     /^\/v1\/agents\/([^/]+)\/capabilities$/,
   );
+  const agentSourceMatch = pathname.match(/^\/v1\/agents\/([^/]+)\/sources$/);
+  if (agentSourceMatch && req.method === 'GET') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    if (!auth) return true;
+    try {
+      const sources = await service().getSources({
+        appId: auth.appId as AppId,
+        agentId: decodeURIComponent(agentSourceMatch[1]) as AgentId,
+      });
+      sendJson(res, 200, sources);
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
+
+  if (agentSourceMatch && req.method === 'PUT') {
+    const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
+    if (!auth) return true;
+    const parsed = AgentSourcesRequestSchema.safeParse(await readJson(req));
+    if (!parsed.success) {
+      sendError(res, 400, 'INVALID_REQUEST', 'Invalid agent sources');
+      return true;
+    }
+    try {
+      const sources = await service().replaceSources({
+        appId: auth.appId as AppId,
+        agentId: decodeURIComponent(agentSourceMatch[1]) as AgentId,
+        sources: parsed.data.sources,
+      });
+      await ctx.syncSettingsFromProjection(auth.appId as AppId);
+      sendJson(res, 200, sources);
+    } catch (error) {
+      if (!sendApplicationError(res, error)) throw error;
+    }
+    return true;
+  }
   if (agentCapabilityMatch && req.method === 'GET') {
     const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
     if (!auth) return true;
@@ -80,13 +143,7 @@ export async function handleCapabilityCatalogRoutes(
       const capabilities = await service().replaceCapabilities({
         appId: auth.appId as AppId,
         agentId: decodeURIComponent(agentCapabilityMatch[1]) as AgentId,
-        selectedToolIds: parsed.data.selectedToolIds.map((id) => id as ToolId),
-        selectedSkillIds: parsed.data.selectedSkillIds.map(
-          (id) => id as SkillId,
-        ),
-        selectedMcpServerIds: parsed.data.selectedMcpServerIds.map(
-          (id) => id as McpServerId,
-        ),
+        capabilities: parsed.data.capabilities,
       });
       await ctx.syncSettingsFromProjection(auth.appId as AppId);
       sendJson(res, 200, capabilitiesToResponse(capabilities));
@@ -101,13 +158,69 @@ export async function handleCapabilityCatalogRoutes(
 
 function capabilitiesToResponse(input: {
   agentId: string;
-  selectedToolIds: string[];
-  selectedSkillIds: string[];
-  selectedMcpServerIds: string[];
+  sources: unknown;
+  capabilities: unknown;
   toolAccess: AgentToolAccessView;
   updatedAt: string;
 }) {
   return input;
+}
+
+function toolToCapabilityResponse(tool: ToolCatalogItem) {
+  const semanticCapability = semanticCapabilityFromToolCatalogItem({
+    name: tool.name,
+    inputSchema: tool.inputSchema,
+  });
+  if (semanticCapability) {
+    return {
+      id: semanticCapability.capabilityId,
+      version: semanticCapability.version ?? 'builtin',
+      displayName: semanticCapability.displayName,
+      category: semanticCapability.category,
+      risk: semanticCapability.risk,
+      can: semanticCapability.can,
+      cannot: semanticCapability.cannot,
+      source: semanticCapability.credentialSource,
+      sourceRefs: semanticCapability.source ?? {},
+      bindings: semanticCapability.implementationBindings,
+      inputs: semanticCapabilityInput(tool),
+      secrets: [],
+      preflight: semanticCapability.preflight,
+      sandbox: semanticCapability.sandboxProfile,
+      protectedPaths: semanticCapability.protectedPaths ?? [],
+      redaction: semanticCapability.redactionPolicy ?? {},
+      approval: { persistent: true },
+      audit: { manifest: 'gantry.capability.v1' },
+    };
+  }
+  if (tool.name === 'Browser') {
+    return {
+      id: 'browser.use',
+      version: 'builtin',
+      displayName: 'Browser',
+      category: 'Browser',
+      risk: 'write',
+      can: 'Use the Gantry-owned browser gateway tools.',
+      cannot:
+        'Receive private browser backend credentials or persist per-action browser tools.',
+      source: 'builtin',
+      sourceRefs: { toolId: tool.id },
+      bindings: [{ kind: 'gantry_tool', tool: 'Browser' }],
+      inputs: {},
+      secrets: [],
+      preflight: { kind: 'none' },
+      sandbox: {},
+      protectedPaths: [],
+      redaction: {},
+      approval: { persistent: true },
+      audit: { manifest: 'gantry.capability.v1' },
+    };
+  }
+  return undefined;
+}
+
+function semanticCapabilityInput(tool: ToolCatalogItem) {
+  return toSchemaDescriptor(tool.inputSchema);
 }
 
 function toolToResponse(tool: ToolCatalogItem) {

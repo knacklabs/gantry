@@ -13,6 +13,7 @@ import {
   materializeClaudeRuntime,
   projectClaudeModelCredentialEnv,
 } from './claude-config-materializer.js';
+import { validateModelCredentialProjectionForEntry } from './model-provider-credential-validation.js';
 import {
   ArtifactClaudeSkillSource,
   BundledClaudeSkillSource,
@@ -20,10 +21,13 @@ import {
   RuntimeInstalledGantryBrowserSkillSource,
   type SkillSource,
 } from './claude-skill-materializer.js';
+import { skillActionSemanticCapability } from '../../../domain/skills/skill-action-permissions.js';
 
 const CLAUDE_CONFIG_DIR_ENV = 'CLAUDE_CONFIG_DIR';
 const ANTHROPIC_MODEL_ENV = 'ANTHROPIC_MODEL';
+const GANTRY_EFFECTIVE_MODEL_SOURCE_ENV = 'GANTRY_EFFECTIVE_MODEL_SOURCE';
 const GANTRY_MCP_SERVER_PATH_ENV = 'GANTRY_MCP_SERVER_PATH';
+const GANTRY_SKILL_ACTIONS_ENV = 'GANTRY_SKILL_ACTIONS_JSON';
 
 export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapter {
   readonly id = 'anthropic:claude-agent-sdk' as AgentExecutionProviderId;
@@ -95,6 +99,39 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
     };
     if (input.effectiveModel) {
       env[ANTHROPIC_MODEL_ENV] = input.effectiveModel;
+      env[GANTRY_EFFECTIVE_MODEL_SOURCE_ENV] = 'runtime';
+    }
+    const selectedSkillIds = input.input.selectedSkillIds
+      ? new Set(input.input.selectedSkillIds)
+      : undefined;
+    const skillActionDefinitions = (materialization.materializedSkills ?? [])
+      .filter(
+        (skill) =>
+          !selectedSkillIds ||
+          selectedSkillIds.has(skill.id) ||
+          selectedSkillIds.has(skill.name) ||
+          (skill.materializedName
+            ? selectedSkillIds.has(skill.materializedName)
+            : false),
+      )
+      .flatMap((skill) =>
+        (skill.actionPermissions ?? []).map((action) => {
+          if (!skill.version || !skill.contentHash) return undefined;
+          return skillActionSemanticCapability({
+            skillId: skill.id,
+            skillName: skill.name,
+            skillVersion: skill.version,
+            skillContentHash: skill.contentHash,
+            action,
+          });
+        }),
+      )
+      .filter(
+        (item): item is ReturnType<typeof skillActionSemanticCapability> =>
+          Boolean(item),
+      );
+    if (skillActionDefinitions.length > 0) {
+      env[GANTRY_SKILL_ACTIONS_ENV] = JSON.stringify(skillActionDefinitions);
     }
 
     const runnerInputPatch: PreparedAgentExecution['runnerInputPatch'] = {};
@@ -152,40 +189,14 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
     input: AgentExecutionAdapterPrepareInput,
   ): void {
     const { effectiveModelEntry, modelCredentialProjection } = input;
-    if (
-      effectiveModelEntry?.provider === 'openrouter' &&
-      (!modelCredentialProjection.env.ANTHROPIC_AUTH_TOKEN ||
-        modelCredentialProjection.credentialProviders.ANTHROPIC_AUTH_TOKEN !==
-          'openrouter')
-    ) {
-      throw new Error(
-        `OpenRouter model ${effectiveModelEntry.displayName} requires an OpenRouter-scoped credential from AgentCredentialBroker as ANTHROPIC_AUTH_TOKEN. Configure Model Access/OpenRouter credentials before selecting this model.`,
-      );
-    }
-    if (
-      effectiveModelEntry &&
-      effectiveModelEntry.provider !== 'openrouter' &&
-      (modelCredentialProjection.credentialProviders.ANTHROPIC_AUTH_TOKEN ===
-        'openrouter' ||
-        isOpenRouterBaseUrl(modelCredentialProjection.env.ANTHROPIC_BASE_URL))
-    ) {
-      throw new Error(
-        `Model ${effectiveModelEntry.displayName} is configured for ${effectiveModelEntry.providerLabel}, but AgentCredentialBroker returned OpenRouter-scoped Anthropic SDK credentials. Switch the session/job model to kimi or configure ${effectiveModelEntry.providerLabel} credentials for this model.`,
-      );
-    }
+    if (!effectiveModelEntry) return;
+    validateModelCredentialProjectionForEntry({
+      model: effectiveModelEntry,
+      projection: modelCredentialProjection,
+    });
   }
 }
 
 export function createAnthropicClaudeAgentExecutionAdapter(): AgentExecutionAdapter {
   return new AnthropicClaudeAgentExecutionAdapter();
-}
-
-function isOpenRouterBaseUrl(value?: string): boolean {
-  if (!value) return false;
-  try {
-    const hostname = new URL(value).hostname.toLowerCase().replace(/\.+$/, '');
-    return hostname === 'openrouter.ai' || hostname.endsWith('.openrouter.ai');
-  } catch {
-    return false;
-  }
 }

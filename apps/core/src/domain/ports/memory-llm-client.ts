@@ -1,5 +1,14 @@
+export interface MemoryLlmModelProfile {
+  alias: string;
+  runnerModel: string;
+  provider: string;
+  providerLabel: string;
+  displayName: string;
+}
+
 export interface MemoryLlmQueryOpts {
   model: string;
+  modelProfile?: MemoryLlmModelProfile;
   prompt: string;
   systemPrompt?: string;
   userBlocks?: Array<{

@@ -21,6 +21,8 @@ export const schedulerCapabilityRequirementSchema = z
           .optional()
           .describe('Human-readable implementation name, such as gog'),
         executable_path: z.string().optional(),
+        executable_version: z.string().optional(),
+        executable_hash: z.string().optional(),
         command_template: z.string().optional(),
         auth_preflight: z.string().optional(),
         protected_paths: z.array(z.string()).optional(),
@@ -45,6 +47,20 @@ export const schedulerCapabilityRequirementSchema = z
         code: z.ZodIssueCode.custom,
         path: ['implementation', 'executable_path'],
         message: 'local_cli executable_path must be absolute.',
+      });
+    }
+    if (!implementation.executable_version?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['implementation', 'executable_version'],
+        message: 'local_cli executable_version is required.',
+      });
+    }
+    if (!implementation.executable_hash?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['implementation', 'executable_hash'],
+        message: 'local_cli executable_hash is required.',
       });
     }
     if (!commandTemplate) {

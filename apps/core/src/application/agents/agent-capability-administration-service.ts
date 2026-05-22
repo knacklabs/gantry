@@ -5,6 +5,7 @@ import type {
   AgentMcpServerBinding,
   McpServerDefinition,
   McpServerId,
+  McpServerVersionId,
 } from '../../domain/mcp/mcp-servers.js';
 import { isMcpServerApproved } from '../../domain/mcp/mcp-servers.js';
 import type {
@@ -21,6 +22,7 @@ import type {
 import { isSkillUsableForBinding } from '../../domain/skills/skills.js';
 import type {
   AgentToolBinding,
+  AgentToolSource,
   ToolCatalogItem,
   ToolId,
 } from '../../domain/tools/tools.js';
@@ -28,12 +30,14 @@ import {
   displayToolReference,
   validateReadableAgentToolRule,
 } from '../../shared/agent-tool-references.js';
+import { ensureAgentToolCatalogItem } from '../../domain/tools/agent-tool-catalog-references.js';
 import {
   buildAgentToolAccessView,
   buildRequestableAdminToolAccess,
   PERMISSION_GATED_NATIVE_TOOLS,
   type AgentToolAccessView,
 } from '../../shared/tool-access-view.js';
+import { semanticCapabilityFromToolCatalogItem } from '../../shared/semantic-capabilities.js';
 import { adminMcpToolNameFromFullName } from '../../shared/admin-mcp-tools.js';
 import { nowIso } from '../../shared/time/datetime.js';
 
@@ -45,10 +49,19 @@ export interface CapabilityCatalogView {
 
 export interface AgentCapabilitiesView {
   agentId: AgentId;
-  selectedToolIds: ToolId[];
-  selectedSkillIds: SkillId[];
-  selectedMcpServerIds: McpServerId[];
+  sources: {
+    skills: Array<{ id: string; version: string }>;
+    mcpServers: Array<{ id: string; version: string }>;
+    tools: Array<{ id: string; kind: string; version?: string }>;
+  };
+  capabilities: Array<{ id: string; version: string }>;
   toolAccess: AgentToolAccessView;
+  updatedAt: string;
+}
+
+export interface AgentSourcesView {
+  agentId: AgentId;
+  sources: AgentCapabilitiesView['sources'];
   updatedAt: string;
 }
 
@@ -87,40 +100,65 @@ export class AgentCapabilityAdministrationService {
     agentId: AgentId;
   }): Promise<AgentCapabilitiesView> {
     await this.requireAgent(input.appId, input.agentId);
-    const [toolBindings, skillBindings, mcpBindings] = await Promise.all([
-      this.repositories.tools.listAgentToolBindings(input),
-      this.repositories.skills.listAgentSkillBindings(input),
-      this.repositories.mcpServers.listAgentBindings({
-        ...input,
-        limit: 500,
-      }),
-    ]);
+    const [toolBindings, toolSources, skillBindings, mcpBindings] =
+      await Promise.all([
+        this.repositories.tools.listAgentToolBindings(input),
+        this.listAgentToolSources(input),
+        this.repositories.skills.listAgentSkillBindings(input),
+        this.repositories.mcpServers.listAgentBindings({
+          ...input,
+          limit: 500,
+        }),
+      ]);
     const activeToolBindings = toolBindings.filter(
       (binding) => binding.status === 'active',
     );
-    const selectedToolIds = activeToolBindings.map((binding) => binding.toolId);
     const selectedTools = await Promise.all(
       activeToolBindings.map((binding) =>
         this.repositories.tools.getTool(binding.toolId),
       ),
     );
-    const configuredTools = activeToolBindings.flatMap((binding, index) => {
-      const tool = selectedTools[index];
-      if (tool?.appId && tool.appId !== input.appId) return [];
-      return tool
-        ? [displayToolReference({ toolId: binding.toolId, tool })]
-        : [];
-    });
+    const configuredToolEntries = activeToolBindings.flatMap(
+      (binding, index) => {
+        const tool = selectedTools[index];
+        if (tool?.appId && tool.appId !== input.appId) return [];
+        return tool
+          ? [
+              {
+                reference: displayToolReference({
+                  toolId: binding.toolId,
+                  tool,
+                }),
+                tool,
+              },
+            ]
+          : [];
+      },
+    );
+    const configuredTools = configuredToolEntries.map(
+      (entry) => entry.reference,
+    );
     const enabledAdminTools = selectedAdminToolNames(configuredTools);
     return {
       agentId: input.agentId,
-      selectedToolIds,
-      selectedSkillIds: skillBindings
-        .filter((binding) => binding.status === 'active')
-        .map((binding) => binding.skillId),
-      selectedMcpServerIds: mcpBindings
-        .filter((binding) => binding.status === 'active')
-        .map((binding) => binding.serverId),
+      sources: {
+        skills: skillBindings
+          .filter((binding) => binding.status === 'active')
+          .map((binding) => ({
+            id: String(binding.skillId),
+            version: 'approved',
+          })),
+        mcpServers: mcpBindings
+          .filter((binding) => binding.status === 'active')
+          .map((binding) => ({
+            id: String(binding.serverId),
+            version: String(binding.versionId),
+          })),
+        tools: readableToolSources(toolSources),
+      },
+      capabilities: configuredToolEntries.map((entry) =>
+        toolReferenceToCapability(entry.reference, entry.tool),
+      ),
       toolAccess: buildAgentToolAccessView({
         configuredTools,
         defaultTools: [],
@@ -143,9 +181,7 @@ export class AgentCapabilityAdministrationService {
   async replaceCapabilities(input: {
     appId: AppId;
     agentId: AgentId;
-    selectedToolIds: ToolId[];
-    selectedSkillIds: SkillId[];
-    selectedMcpServerIds: McpServerId[];
+    capabilities: Array<{ id: string; version: string }>;
   }): Promise<AgentCapabilitiesView> {
     const agent = await this.requireAgent(input.appId, input.agentId);
     if (agent.status !== 'active') {
@@ -155,30 +191,44 @@ export class AgentCapabilityAdministrationService {
       );
     }
     const now = this.clock.now();
-    const selectedToolIds = unique(input.selectedToolIds);
-    const selectedSkillIds = unique(input.selectedSkillIds);
-    const selectedMcpServerIds = unique(input.selectedMcpServerIds);
+    const selectedToolReferences = unique(
+      input.capabilities.map((capability) =>
+        capabilitySelectionToToolReference(capability.id),
+      ),
+    );
 
-    const [toolMap, , mcpMap] = await Promise.all([
-      this.requireSelectableTools(input.appId, selectedToolIds),
-      this.requireApprovedSkills(input.appId, selectedSkillIds),
-      this.requireApprovedMcpServers(input.appId, selectedMcpServerIds),
-    ]);
-
-    const [toolBindings, skillBindings, mcpBindings] = await Promise.all([
-      this.repositories.tools.listAgentToolBindings(input),
-      this.repositories.skills.listAgentSkillBindings(input),
-      this.repositories.mcpServers.listAgentBindings({
-        appId: input.appId,
-        agentId: input.agentId,
-        limit: 500,
+    const capabilityToolIds = await Promise.all(
+      selectedToolReferences.map(async (reference) => {
+        const tool = await ensureAgentToolCatalogItem({
+          repository: this.repositories.tools,
+          appId: input.appId,
+          reference,
+          now,
+        });
+        return tool.id;
       }),
+    );
+
+    const [toolMap] = await Promise.all([
+      this.requireSelectableTools(input.appId, capabilityToolIds),
     ]);
+
+    const [toolBindings, toolSources, skillBindings, mcpBindings] =
+      await Promise.all([
+        this.repositories.tools.listAgentToolBindings(input),
+        this.listAgentToolSources(input),
+        this.repositories.skills.listAgentSkillBindings(input),
+        this.repositories.mcpServers.listAgentBindings({
+          appId: input.appId,
+          agentId: input.agentId,
+          limit: 500,
+        }),
+      ]);
 
     const toolBindingMap = new Map(
       toolBindings.map((binding) => [binding.toolId, binding]),
     );
-    const toolSelection = new Set(selectedToolIds);
+    const toolSelection = new Set(capabilityToolIds);
     const nextToolBindings: AgentToolBinding[] = [
       ...toolBindings
         .filter(
@@ -190,7 +240,7 @@ export class AgentCapabilityAdministrationService {
           status: 'disabled' as const,
           updatedAt: now,
         })),
-      ...selectedToolIds.map((toolId) => {
+      ...capabilityToolIds.map((toolId) => {
         const existing = toolBindingMap.get(toolId);
         return {
           id: `agent-tool-binding:${input.agentId}:${toolId}` as AgentToolBinding['id'],
@@ -205,95 +255,45 @@ export class AgentCapabilityAdministrationService {
       }),
     ];
 
-    const skillBindingMap = new Map(
-      skillBindings.map((binding) => [binding.skillId, binding]),
-    );
-    const skillSelection = new Set(selectedSkillIds);
-    const nextSkillBindings: AgentSkillBinding[] = [
-      ...skillBindings
-        .filter(
-          (binding) =>
-            binding.status === 'active' && !skillSelection.has(binding.skillId),
-        )
-        .map((binding) => ({
-          ...binding,
-          status: 'disabled' as const,
-          updatedAt: now,
-        })),
-      ...selectedSkillIds.map((skillId) => {
-        const existing = skillBindingMap.get(skillId);
-        return {
-          id: `agent-skill-binding:${input.agentId}:${skillId}` as AgentSkillBinding['id'],
-          appId: input.appId,
-          agentId: input.agentId,
-          skillId,
-          configVersionId: existing?.configVersionId,
-          status: 'active' as const,
-          createdAt: existing?.createdAt ?? now,
-          updatedAt: now,
-        };
-      }),
-    ];
-
-    const mcpBindingMap = new Map(
-      mcpBindings.map((binding) => [binding.serverId, binding]),
-    );
-    const mcpSelection = new Set(selectedMcpServerIds);
-    const nextMcpBindings: AgentMcpServerBinding[] = [
-      ...mcpBindings
-        .filter(
-          (binding) =>
-            binding.status === 'active' && !mcpSelection.has(binding.serverId),
-        )
-        .map((binding) => ({
-          ...binding,
-          status: 'disabled' as const,
-          updatedAt: now,
-        })),
-      ...selectedMcpServerIds.flatMap((serverId) => {
-        const server = mcpMap.get(serverId);
-        if (!server?.latestApprovedVersionId) return [];
-        const existing = mcpBindingMap.get(serverId);
-        return [
-          {
-            id: `agent-mcp-binding:${input.agentId}:${serverId}` as AgentMcpServerBinding['id'],
-            appId: input.appId,
-            agentId: input.agentId,
-            serverId,
-            versionId: server.latestApprovedVersionId,
-            status: 'active' as const,
-            required: existing?.required ?? false,
-            permissionPolicyIds: existing?.permissionPolicyIds ?? [],
-            conversationId: existing?.conversationId,
-            threadId: existing?.threadId,
-            createdAt: existing?.createdAt ?? now,
-            updatedAt: now,
-          },
-        ];
-      }),
-    ];
-
     await this.repositories.agents.replaceAgentCapabilityBindings({
       appId: input.appId,
       agentId: input.agentId,
       toolBindings: nextToolBindings,
-      skillBindings: nextSkillBindings,
-      mcpBindings: nextMcpBindings,
+      skillBindings,
+      mcpBindings,
       updatedAt: now,
     });
 
-    const configuredTools = selectedToolIds.map((toolId) => {
+    const configuredToolEntries = capabilityToolIds.map((toolId) => {
       const tool = toolMap.get(toolId);
       if (!tool) {
         throw new ApplicationError('NOT_FOUND', `Tool not found: ${toolId}`);
       }
-      return displayToolReference({ toolId, tool });
+      return { reference: displayToolReference({ toolId, tool }), tool };
     });
+    const configuredTools = configuredToolEntries.map(
+      (entry) => entry.reference,
+    );
     return {
       agentId: input.agentId,
-      selectedToolIds,
-      selectedSkillIds,
-      selectedMcpServerIds,
+      sources: {
+        skills: skillBindings
+          .filter((binding) => binding.status === 'active')
+          .map((binding) => ({
+            id: String(binding.skillId),
+            version: 'approved',
+          })),
+        mcpServers: mcpBindings
+          .filter((binding) => binding.status === 'active')
+          .map((binding) => ({
+            id: String(binding.serverId),
+            version: String(binding.versionId),
+          })),
+        tools: readableToolSources(toolSources),
+      },
+      capabilities: configuredToolEntries.map((entry) =>
+        toolReferenceToCapability(entry.reference, entry.tool),
+      ),
       toolAccess: buildAgentToolAccessView({
         configuredTools,
         defaultTools: [],
@@ -312,6 +312,181 @@ export class AgentCapabilityAdministrationService {
       }),
       updatedAt: now,
     };
+  }
+
+  async getSources(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentSourcesView> {
+    const view = await this.getCapabilities(input);
+    return {
+      agentId: view.agentId,
+      sources: view.sources,
+      updatedAt: view.updatedAt,
+    };
+  }
+
+  async replaceSources(input: {
+    appId: AppId;
+    agentId: AgentId;
+    sources: AgentCapabilitiesView['sources'];
+  }): Promise<AgentSourcesView> {
+    const agent = await this.requireAgent(input.appId, input.agentId);
+    if (agent.status !== 'active') {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        `Agent is not active: ${input.agentId}`,
+      );
+    }
+    const now = this.clock.now();
+    const sourceSkillIds = unique(
+      input.sources.skills.map((source) => source.id as SkillId),
+    );
+    const sourceMcpServerIds = unique(
+      input.sources.mcpServers.map((source) => source.id as McpServerId),
+    );
+    const sourceTools = uniqueToolSources(input.sources.tools, {
+      appId: input.appId,
+      agentId: input.agentId,
+      now,
+    });
+    const [, mcpMap] = await Promise.all([
+      this.requireApprovedSkills(input.appId, sourceSkillIds),
+      this.requireApprovedMcpServers(input.appId, sourceMcpServerIds),
+    ]);
+    const [toolBindings, skillBindings, mcpBindings] = await Promise.all([
+      this.repositories.tools.listAgentToolBindings(input),
+      this.repositories.skills.listAgentSkillBindings(input),
+      this.repositories.mcpServers.listAgentBindings({
+        appId: input.appId,
+        agentId: input.agentId,
+        limit: 500,
+      }),
+    ]);
+    const skillBindingMap = new Map(
+      skillBindings.map((binding) => [binding.skillId, binding]),
+    );
+    const nextSkillBindings: AgentSkillBinding[] = sourceSkillIds.map(
+      (skillId) => {
+        const existing = skillBindingMap.get(skillId);
+        return {
+          id: `agent-skill-binding:${input.agentId}:${skillId}` as AgentSkillBinding['id'],
+          appId: input.appId,
+          agentId: input.agentId,
+          skillId,
+          configVersionId: existing?.configVersionId,
+          status: 'active' as const,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+        };
+      },
+    );
+    const mcpBindingMap = new Map(
+      mcpBindings.map((binding) => [binding.serverId, binding]),
+    );
+    const requestedMcpVersions = new Map(
+      input.sources.mcpServers.map((source) => [
+        source.id as McpServerId,
+        source.version as McpServerVersionId,
+      ]),
+    );
+    const mcpVersionByServerId = await this.resolveMcpSourceVersions({
+      appId: input.appId,
+      requestedVersions: requestedMcpVersions,
+      serversById: mcpMap,
+    });
+    const nextMcpBindings: AgentMcpServerBinding[] = sourceMcpServerIds.map(
+      (serverId) => {
+        const existing = mcpBindingMap.get(serverId);
+        return {
+          id: `agent-mcp-binding:${input.agentId}:${serverId}` as AgentMcpServerBinding['id'],
+          appId: input.appId,
+          agentId: input.agentId,
+          serverId,
+          versionId: mcpVersionByServerId.get(serverId)!,
+          status: 'active' as const,
+          required: existing?.required ?? false,
+          permissionPolicyIds: existing?.permissionPolicyIds ?? [],
+          conversationId: existing?.conversationId,
+          threadId: existing?.threadId,
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now,
+        };
+      },
+    );
+    await this.repositories.agents.replaceAgentCapabilityBindings({
+      appId: input.appId,
+      agentId: input.agentId,
+      toolBindings,
+      skillBindings: nextSkillBindings,
+      mcpBindings: nextMcpBindings,
+      updatedAt: now,
+    });
+    await this.replaceAgentToolSources({
+      appId: input.appId,
+      agentId: input.agentId,
+      sources: sourceTools,
+      updatedAt: now,
+    });
+    return this.getSources(input);
+  }
+
+  private async resolveMcpSourceVersions(input: {
+    appId: AppId;
+    requestedVersions: Map<McpServerId, McpServerVersionId>;
+    serversById: Map<McpServerId, McpServerDefinition>;
+  }): Promise<Map<McpServerId, McpServerVersionId>> {
+    const entries = await Promise.all(
+      [...input.requestedVersions.entries()].map(
+        async ([serverId, requestedVersionId]) => {
+          const server = input.serversById.get(serverId);
+          if (!server?.latestApprovedVersionId) {
+            throw new ApplicationError(
+              'INVALID_REQUEST',
+              `MCP server ${serverId} has no approved version.`,
+            );
+          }
+          const version =
+            await this.repositories.mcpServers.getVersion(requestedVersionId);
+          if (
+            !version ||
+            version.appId !== input.appId ||
+            version.serverId !== serverId
+          ) {
+            throw new ApplicationError(
+              'INVALID_REQUEST',
+              `MCP server ${serverId} version ${requestedVersionId} is not approved for that source.`,
+            );
+          }
+          return [serverId, requestedVersionId] as const;
+        },
+      ),
+    );
+    return new Map(entries);
+  }
+
+  private async listAgentToolSources(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentToolSource[]> {
+    return this.repositories.tools.listAgentToolSources
+      ? this.repositories.tools.listAgentToolSources(input)
+      : [];
+  }
+
+  private async replaceAgentToolSources(input: {
+    appId: AppId;
+    agentId: AgentId;
+    sources: AgentToolSource[];
+    updatedAt: string;
+  }): Promise<void> {
+    if (!this.repositories.tools.replaceAgentToolSources) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Agent tool source repository is unavailable.',
+      );
+    }
+    await this.repositories.tools.replaceAgentToolSources(input);
   }
 
   private async requireAgent(appId: AppId, agentId: AgentId) {
@@ -410,6 +585,36 @@ function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values));
 }
 
+function capabilitySelectionToToolReference(capabilityId: string): string {
+  const id = capabilityId.trim();
+  if (id === 'browser.use') return 'Browser';
+  if (id.startsWith('RunCommand(')) return id;
+  return `capability:${id}`;
+}
+
+function toolReferenceToCapability(
+  reference: string,
+  tool?: ToolCatalogItem,
+): {
+  id: string;
+  version: string;
+} {
+  if (reference === 'Browser') return { id: 'browser.use', version: 'builtin' };
+  if (reference.startsWith('capability:')) {
+    const semanticCapability = tool
+      ? semanticCapabilityFromToolCatalogItem({
+          name: tool.name,
+          inputSchema: tool.inputSchema,
+        })
+      : undefined;
+    return {
+      id: reference.slice('capability:'.length),
+      version: semanticCapability?.version ?? 'builtin',
+    };
+  }
+  return { id: reference, version: 'builtin' };
+}
+
 function selectedAdminToolNames(tools: readonly string[]): Set<string> {
   const names = new Set<string>();
   for (const tool of tools) {
@@ -417,4 +622,45 @@ function selectedAdminToolNames(tools: readonly string[]): Set<string> {
     if (name) names.add(name);
   }
   return names;
+}
+
+function readableToolSources(
+  sources: readonly AgentToolSource[],
+): AgentCapabilitiesView['sources']['tools'] {
+  return sources
+    .filter((source) => source.status === 'active')
+    .map((source) => ({
+      id: source.sourceId,
+      kind: source.kind,
+      ...(source.version && source.version !== source.kind
+        ? { version: source.version }
+        : {}),
+    }));
+}
+
+function uniqueToolSources(
+  sources: AgentCapabilitiesView['sources']['tools'],
+  input: {
+    appId: AppId;
+    agentId: AgentId;
+    now: string;
+  },
+): AgentToolSource[] {
+  const byKey = new Map<string, AgentToolSource>();
+  for (const source of sources) {
+    const version = source.version ?? source.kind;
+    const key = `${source.kind}:${source.id}:${version}`;
+    byKey.set(key, {
+      id: `agent-tool-source:${input.agentId}:${source.kind}:${source.id}:${version}` as AgentToolSource['id'],
+      appId: input.appId,
+      agentId: input.agentId,
+      sourceId: source.id,
+      kind: source.kind as AgentToolSource['kind'],
+      version,
+      status: 'active',
+      createdAt: input.now as never,
+      updatedAt: input.now as never,
+    });
+  }
+  return [...byKey.values()];
 }

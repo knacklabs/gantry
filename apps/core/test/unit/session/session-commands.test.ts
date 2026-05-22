@@ -1302,7 +1302,7 @@ describe('handleSessionCommand', () => {
     });
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.runAgent).not.toHaveBeenCalled();
-    expect(deps.setGroupModelOverride).toHaveBeenCalledWith('kimi');
+    expect(deps.setGroupModelOverride).toHaveBeenCalledWith('kimi-2.6');
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Using Kimi K2.6 for this session.',
     );
@@ -1382,7 +1382,7 @@ describe('handleSessionCommand', () => {
     expect(result).toEqual({ handled: true, success: true });
     const sentMsg = (deps.sendMessage as ReturnType<typeof vi.fn>).mock
       .calls[0][0] as string;
-    expect(sentMsg).toContain('Supported models');
+    expect(sentMsg).toContain('Supported model aliases');
     expect(sentMsg).toContain('Opus 4.7');
     expect(sentMsg).toContain('Kimi K2.6');
     expect(sentMsg).toContain('chat default');
@@ -1487,7 +1487,7 @@ describe('handleSessionCommand', () => {
     });
     expect(result).toEqual({ handled: true, success: true });
     expect(deps.runAgent).not.toHaveBeenCalled();
-    expect(deps.setGroupModelOverride).toHaveBeenCalledWith('sonnet');
+    expect(deps.setGroupModelOverride).toHaveBeenCalledWith('sonnet-4.6');
     expect(deps.sendMessage).toHaveBeenCalledWith(
       'Using Sonnet 4.6 for this session.',
     );

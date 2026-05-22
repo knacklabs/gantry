@@ -25,6 +25,7 @@ function makeJobService(context: TaskContext): JobManagementService {
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
     toolRepository: context.deps.getToolRepository?.(),
+    skillRepository: context.deps.getSkillRepository?.(),
     mcpServerRepository: context.deps.getMcpServerRepository?.(),
     capabilitySecretRepository: context.deps.getCapabilitySecretRepository?.(),
     getCredentialBroker: context.deps.getCredentialBroker,
@@ -38,6 +39,7 @@ function makeRunNowJobService(context: TaskContext): JobManagementService {
     scheduler: { requestSchedulerSync: context.deps.onSchedulerChanged },
     schedulePlanner: runtimeJobSchedulePlanner,
     control: context.deps.getJobControl?.(),
+    skillRepository: context.deps.getSkillRepository?.(),
     runtimeEvents: getRuntimeEventExchange(),
     triggerQueue: {
       isReady: isSchedulerReady,
@@ -99,10 +101,7 @@ const schedulerUpdateJobHandler: TaskHandler = async (context) => {
     if (data.name !== undefined) patch.name = data.name;
     if (data.prompt !== undefined) patch.prompt = data.prompt;
     try {
-      const requestedModel = resolveRequestedJobModelPatch(
-        data.modelAlias,
-        data.modelProfileId,
-      );
+      const requestedModel = resolveRequestedJobModelPatch(data.modelAlias);
       if (requestedModel.specified) {
         patch.model = requestedModel.model;
       }

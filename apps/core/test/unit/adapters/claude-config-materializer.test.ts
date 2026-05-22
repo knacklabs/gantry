@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { materializeClaudeRuntime } from '@core/adapters/llm/anthropic-claude-agent/claude-config-materializer.js';
 import {
   ArtifactClaudeSkillSource,
+  BundledClaudeSkillSource,
+  GANTRY_BUNDLED_CLAUDE_SKILL_IDS,
   RuntimeInstalledGantryBrowserSkillSource,
   materializeClaudeSkills,
   type SkillSource,
@@ -115,6 +117,36 @@ describe('Claude config materializer', () => {
     expect(fs.existsSync(transcriptPath)).toBe(true);
   });
 
+  it('materializes only Gantry-owned bundled Claude skills from packageRoot', async () => {
+    const skillsRoot = path.join(tempRoot, '.claude', 'skills');
+    for (const skillId of [
+      ...GANTRY_BUNDLED_CLAUDE_SKILL_IDS,
+      'external-helper',
+      'claude-api',
+    ]) {
+      const skillDir = path.join(skillsRoot, skillId);
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(path.join(skillDir, 'SKILL.md'), `# ${skillId}`);
+    }
+
+    const skillsDir = path.join(tempRoot, 'run', 'claude', 'skills');
+    const materialized = await materializeClaudeSkills({
+      skillsDir,
+      skillSource: new BundledClaudeSkillSource(tempRoot),
+    });
+
+    expect(materialized.map((skill) => skill.id)).toEqual([
+      ...GANTRY_BUNDLED_CLAUDE_SKILL_IDS,
+    ]);
+    for (const skillId of GANTRY_BUNDLED_CLAUDE_SKILL_IDS) {
+      expect(fs.existsSync(path.join(skillsDir, skillId, 'SKILL.md'))).toBe(
+        true,
+      );
+    }
+    expect(fs.existsSync(path.join(skillsDir, 'external-helper'))).toBe(false);
+    expect(fs.existsSync(path.join(skillsDir, 'claude-api'))).toBe(false);
+  });
+
   it('materializes approved artifact skills and skips invalid artifact paths', async () => {
     const skillsDir = path.join(tempRoot, 'skills');
     await materializeClaudeSkills({
@@ -189,26 +221,15 @@ describe('Claude config materializer', () => {
     expect(fs.existsSync(path.join(tempRoot, '.claude', 'skills'))).toBe(false);
   });
 
-  it('uses artifact ids for uploaded skill directories to avoid bundled name collisions', async () => {
+  it('materializes artifact skills under their sanitized skill name', async () => {
     const skillsDir = path.join(tempRoot, 'skills');
-    await materializeClaudeSkills({
+    const materialized = await materializeClaudeSkills({
       skillsDir,
       skillSource: {
         listSkills: async () => [
           {
-            id: 'shared-name',
-            name: 'shared-name',
-            enabled: true,
-            sourceDir: (() => {
-              const sourceDir = path.join(tempRoot, 'shared-name-source');
-              fs.mkdirSync(sourceDir, { recursive: true });
-              fs.writeFileSync(path.join(sourceDir, 'SKILL.md'), '# Bundled');
-              return sourceDir;
-            })(),
-          },
-          {
             id: 'skill:uploaded:1',
-            name: 'shared-name',
+            name: 'LinkedIn Posting',
             enabled: true,
             assets: [{ path: 'SKILL.md', content: Buffer.from('# Uploaded') }],
           },
@@ -216,15 +237,83 @@ describe('Claude config materializer', () => {
       },
     });
 
-    expect(
-      fs.readFileSync(path.join(skillsDir, 'shared-name', 'SKILL.md'), 'utf-8'),
-    ).toBe('# Bundled');
+    expect(materialized[0]).toMatchObject({
+      id: 'skill:uploaded:1',
+      name: 'LinkedIn Posting',
+      materializedName: 'LinkedIn-Posting',
+    });
     expect(
       fs.readFileSync(
-        path.join(skillsDir, 'skill-uploaded-1', 'SKILL.md'),
+        path.join(skillsDir, 'LinkedIn-Posting', 'SKILL.md'),
         'utf-8',
       ),
     ).toBe('# Uploaded');
+  });
+
+  it('fails safely when enabled skills collide by sanitized name', async () => {
+    const skillsDir = path.join(tempRoot, 'skills');
+    await expect(
+      materializeClaudeSkills({
+        skillsDir,
+        skillSource: {
+          listSkills: async () => [
+            {
+              id: 'shared-name',
+              name: 'shared-name',
+              enabled: true,
+              sourceDir: (() => {
+                const sourceDir = path.join(tempRoot, 'shared-name-source');
+                fs.mkdirSync(sourceDir, { recursive: true });
+                fs.writeFileSync(path.join(sourceDir, 'SKILL.md'), '# Bundled');
+                return sourceDir;
+              })(),
+            },
+            {
+              id: 'skill:uploaded:1',
+              name: 'shared-name',
+              enabled: true,
+              assets: [
+                { path: 'SKILL.md', content: Buffer.from('# Uploaded') },
+              ],
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow('Duplicate materialized skill directory shared-name');
+
+    expect(
+      fs.readFileSync(path.join(skillsDir, 'shared-name', 'SKILL.md'), 'utf-8'),
+    ).toBe('# Bundled');
+    expect(fs.existsSync(path.join(skillsDir, 'skill-uploaded-1'))).toBe(false);
+  });
+
+  it('fails safely when enabled skills collide by case-folded directory name', async () => {
+    const skillsDir = path.join(tempRoot, 'skills');
+    await expect(
+      materializeClaudeSkills({
+        skillsDir,
+        skillSource: {
+          listSkills: async () => [
+            {
+              id: 'skill:uploaded:1',
+              name: 'Shared Name',
+              enabled: true,
+              assets: [
+                { path: 'SKILL.md', content: Buffer.from('# Uploaded One') },
+              ],
+            },
+            {
+              id: 'skill:uploaded:2',
+              name: 'shared name',
+              enabled: true,
+              assets: [
+                { path: 'SKILL.md', content: Buffer.from('# Uploaded Two') },
+              ],
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow('Duplicate materialized skill directory shared-name');
   });
 
   it('forwards enabled skill filters to artifact sources', async () => {

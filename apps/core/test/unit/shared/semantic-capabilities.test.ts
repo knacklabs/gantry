@@ -156,7 +156,7 @@ describe('semantic capability catalog validation', () => {
     });
   });
 
-  it('does not project local CLI drafts to runnable command-tool authority', () => {
+  it('projects reviewed local CLI capabilities to scoped command-tool authority', () => {
     const capability = localCliCapability();
 
     expect(
@@ -167,6 +167,9 @@ describe('semantic capability catalog validation', () => {
           schema: capability,
         },
       }),
-    ).toEqual(['capability:acme.invoices.read']);
+    ).toEqual([
+      'capability:acme.invoices.read',
+      'RunCommand(/usr/local/bin/acme invoices read *)',
+    ]);
   });
 });

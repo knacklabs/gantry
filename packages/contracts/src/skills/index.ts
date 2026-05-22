@@ -5,6 +5,17 @@ import {
   IsoDateTimeSchema,
 } from '../contract-primitives.js';
 
+export const SkillActionPermissionResponseSchema = z.object({
+  id: z.string(),
+  capabilityId: z.string(),
+  displayName: z.string(),
+  risk: z.enum(['read', 'write', 'admin']),
+  can: z.string(),
+  cannot: z.string(),
+  requiredEnvVars: z.array(z.string()),
+  commandTemplates: z.array(z.string()),
+});
+
 export const SkillCatalogItemResponseSchema = z.object({
   id: z.string(),
   appId: z.string(),
@@ -19,6 +30,8 @@ export const SkillCatalogItemResponseSchema = z.object({
   promptRefs: z.array(z.string()),
   toolIds: z.array(z.string()),
   workflowRefs: z.array(z.string()),
+  requiredEnvVars: z.array(z.string()).optional(),
+  actionPermissions: z.array(SkillActionPermissionResponseSchema).optional(),
   storage: z
     .object({
       storageType: z.enum(['local-filesystem', 'object-store']),

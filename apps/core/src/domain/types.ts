@@ -1,4 +1,5 @@
 import type { ExecutionProviderId } from './sessions/sessions.js';
+import type { SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 
 export interface AdditionalMount {
   hostPath: string; // Absolute path on host (supports ~ for home)
@@ -109,6 +110,8 @@ export interface JobCapabilityRequirementImplementation {
   kind: JobCapabilityRequirementImplementationKind;
   name?: string;
   executablePath?: string;
+  executableVersion?: string;
+  executableHash?: string;
   commandTemplate?: string;
   authPreflight?: string;
   protectedPaths?: string[];
@@ -251,6 +254,7 @@ export interface PermissionApprovalRequest {
   };
   blockedPath?: string;
   toolInput?: Record<string, unknown>;
+  semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   suggestions?: PermissionApprovalUpdate[];
   decisionOptions?: PermissionApprovalDecisionMode[];
   interaction?: InteractionDescriptor;

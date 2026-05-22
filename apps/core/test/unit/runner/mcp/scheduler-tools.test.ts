@@ -60,9 +60,10 @@ describe('scheduler MCP tools', () => {
     const text = response.content[0].text;
 
     expect(text).toContain('Opus 4.7');
-    expect(text).toContain('use "opus", "opus-4.7"');
+    expect(text).toContain('opus-4.7 | Opus 4.7');
     expect(text).toContain('Kimi K2.6');
-    expect(text).toContain('use "kimi", "kimi-k2.6"');
+    expect(text).toContain('kimi-2.6 | Kimi K2.6');
+    expect(text).toContain('Provider slug');
   });
 
   it('delegates scheduler_list_models rendering to the model catalog formatter', async () => {
@@ -127,9 +128,8 @@ describe('scheduler MCP tools', () => {
       schemas.get('scheduler_update_job')?.model_alias.safeParse(null).success,
     ).toBe(true);
     expect(
-      schemas.get('scheduler_update_job')?.model_profile_id.safeParse(null)
-        .success,
-    ).toBe(true);
+      schemas.get('scheduler_update_job')?.model_profile_id,
+    ).toBeUndefined();
     expect(
       schemas.get('scheduler_update_job')?.execution_context.safeParse({
         conversation_jid: 'tg:team',
@@ -174,6 +174,8 @@ describe('scheduler MCP tools', () => {
             kind: 'local_cli',
             name: 'gog',
             executable_path: '/usr/local/bin/gog',
+            executable_version: 'v0.9.0',
+            executable_hash: 'sha256:abc123',
             command_template: '/usr/local/bin/gog sheets append *',
             auth_preflight: '/usr/local/bin/gog auth status',
             protected_paths: ['~/.config/gog/*'],
@@ -229,6 +231,8 @@ describe('scheduler MCP tools', () => {
             kind: 'local_cli',
             name: 'gog',
             executable_path: '/usr/local/bin/gog',
+            executable_version: 'v0.9.0',
+            executable_hash: 'sha256:abc123',
             command_template: '/usr/local/bin/gog sheets append *',
             auth_preflight: '/usr/local/bin/gog auth status',
             protected_paths: ['~/.config/gog/*'],
@@ -284,6 +288,8 @@ describe('scheduler MCP tools', () => {
             kind: 'local_cli',
             name: 'gog',
             executable_path: '/usr/local/bin/gog',
+            executable_version: 'v0.9.0',
+            executable_hash: 'sha256:abc123',
             command_template: '/usr/local/bin/gog sheets append *',
           },
         },
@@ -309,6 +315,8 @@ describe('scheduler MCP tools', () => {
               kind: 'local_cli',
               name: 'gog',
               executablePath: '/usr/local/bin/gog',
+              executableVersion: 'v0.9.0',
+              executableHash: 'sha256:abc123',
               commandTemplate: '/usr/local/bin/gog sheets append *',
             },
           },
@@ -418,6 +426,8 @@ describe('scheduler MCP tools', () => {
             kind: 'local_cli',
             name: 'gog',
             executable_path: '/usr/local/bin/gog',
+            executable_version: 'v0.9.0',
+            executable_hash: 'sha256:abc123',
             command_template: '/usr/local/bin/gog sheets append *',
           },
         },

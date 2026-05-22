@@ -6,6 +6,8 @@ import { generateKeyPairSync } from 'crypto';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { SDK_NATIVE_SKILL_OVERRIDES } from '@core/adapters/llm/anthropic-claude-agent/native-sdk-skills.js';
+
 const tempRoots: string[] = [];
 
 afterEach(() => {
@@ -128,6 +130,12 @@ function createRunnerFixture(): {
     path.join(adapterDir, 'native-sdk-tools.ts'),
   );
   fs.copyFileSync(
+    path.resolve(
+      'apps/core/src/adapters/llm/anthropic-claude-agent/native-sdk-skills.ts',
+    ),
+    path.join(adapterDir, 'native-sdk-skills.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/runner/gantry-mcp-tool-surface.ts'),
     path.join(runnerDir, 'gantry-mcp-tool-surface.ts'),
   );
@@ -168,6 +176,10 @@ function createRunnerFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/model-catalog.ts'),
     path.join(sharedDir, 'model-catalog.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/model-usage.ts'),
+    path.join(sharedDir, 'model-usage.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/agent-persona.ts'),
@@ -1169,6 +1181,55 @@ describe('agent-runner IPC lifecycle', () => {
         readRecord(assistantFixture.recordPath).calls[0]?.settings
           ?.includeGitInstructions,
       ).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'hides Claude SDK-native skills while keeping the Skill tool available',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({ persona: 'personal_assistant' }),
+        {
+          TEST_EXIT_AFTER_QUERY: '1',
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.tools).toContain('Skill');
+      expect(call?.allowedTools).toContain('Skill');
+      expect(call?.settings?.skillOverrides).toEqual(
+        SDK_NATIVE_SKILL_OVERRIDES,
+      );
+      expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_POLICY_SKILLS).toBe('1');
+      expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_CLAUDE_API_SKILL).toBe('1');
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'hides Claude SDK-native skills for session slash commands',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(fixture, baseInput({ prompt: '/model' }), {
+        TEST_EXIT_AFTER_QUERY: '1',
+      });
+
+      expect(result.exitCode).toBe(0);
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.promptKind).toBe('string');
+      expect(call?.stringPrompt).toBe('/model');
+      expect(call?.allowedTools).toEqual([]);
+      expect(call?.settings?.skillOverrides).toEqual(
+        SDK_NATIVE_SKILL_OVERRIDES,
+      );
+      expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_POLICY_SKILLS).toBe('1');
+      expect(call?.sdkEnv?.CLAUDE_CODE_DISABLE_CLAUDE_API_SKILL).toBe('1');
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

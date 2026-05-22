@@ -231,9 +231,10 @@ capability_status
 Selected-capability admin agents add four additional admin tools
 (`apps/core/src/adapters/llm/anthropic-claude-agent/agent-capabilities.ts:89`):
 `settings_desired_state`, `request_settings_update`, `service_restart`,
-`register_agent`. Older tool-enable names were removed; agents use
-`capability_status` to inspect missing admin capabilities and
-`request_permission` for tool and provider capability review.
+`register_agent`. Agents use `capability_status` to inspect missing admin
+capabilities, `propose_capability` for durable semantic capability changes, and
+`request_permission` only for one-off exact fallback access or provider
+capability review.
 
 ### Subagents
 
@@ -688,7 +689,7 @@ CLI surface (the `usage()` block at `apps/core/src/cli/index.ts:41`):
 | Conversation administration | `gantry conversation info`, `gantry conversation approvers`                                                 | Owner / admin |
 | Agent administration        | `gantry agent list`, `gantry agent info`, `gantry agent add`, `gantry agent remove`, `gantry agent trigger` | Owner / admin |
 | Browser profiles            | `gantry browser profiles`, `gantry browser status`                                                          | Owner / admin |
-| Model catalog               | `gantry model list`, `gantry model set-default`, `gantry model doctor`                                      | Owner / admin |
+| Model catalog               | `gantry model status`, `gantry model list`, `gantry model set`, `gantry model reset`, `gantry model why`    | Owner / admin |
 | Settings drift / export     | `gantry settings export-current`, `gantry settings drift`                                                   | Owner / admin |
 | Skill upload                | `gantry skill draft upload <skill.zip>`                                                                     | Owner / admin |
 | MCP administration          | `gantry mcp draft`, `gantry mcp list`, `gantry mcp approve`, `gantry mcp reject`, `gantry mcp bind`         | Owner / admin |

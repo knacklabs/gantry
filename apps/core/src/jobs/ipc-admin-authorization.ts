@@ -59,6 +59,6 @@ export function adminCapabilityRequiredMessage(
   return [
     `${fullName} requires a selected capability for this agent.`,
     `Ask a configured conversation approver to approve ${fullName}, then choose Always allow.`,
-    `Admins can also grant tool id tool:${fullName} through settings.yaml or the control API.`,
+    'Admins can also select this exact admin capability through settings.yaml or the control API.',
   ].join(' ');
 }

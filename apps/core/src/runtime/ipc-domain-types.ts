@@ -12,6 +12,7 @@ import type {
   CapabilitySecretRepository,
   McpServerRepository,
   PermissionRepository,
+  SkillCatalogRepository,
   ToolCatalogRepository,
 } from '../domain/ports/repositories.js';
 import type { AgentCredentialBroker } from '../domain/ports/agent-credential-broker.js';
@@ -54,6 +55,7 @@ export interface IpcDeps {
   mcpHostnameLookup?: HostnameLookup;
   opsRepository: RuntimeJobRepository;
   getToolRepository?: () => ToolCatalogRepository | undefined;
+  getSkillRepository?: () => SkillCatalogRepository | undefined;
   getMcpServerRepository?: () => McpServerRepository | undefined;
   getCapabilitySecretRepository?: () => CapabilitySecretRepository | undefined;
   runApprovedCommand?: (input: {

@@ -18,6 +18,7 @@ export type SemanticCapabilityCredentialSource =
   | 'onecli'
   | 'external_broker'
   | 'configured_access'
+  | 'skill_secret'
   | 'local_cli'
   | 'none';
 export type SemanticCapabilityImplementationKind =
@@ -41,6 +42,7 @@ export interface SemanticCapabilityImplementationBinding {
 
 export interface SemanticCapabilityDefinition {
   capabilityId: string;
+  version?: string;
   displayName: string;
   category: string;
   risk: SemanticCapabilityRisk;
@@ -65,6 +67,7 @@ export interface SemanticCapabilityDefinition {
     network?: 'none' | 'required';
     filesystem?: 'read_only' | 'workspace_write' | 'credential_read';
   };
+  source?: unknown;
 }
 
 const SEMANTIC_CAPABILITY_SCHEMA_FORMAT = 'gantry.semantic-capability.v1';
@@ -85,6 +88,10 @@ export const DEFAULT_LOCAL_CLI_DENIED_ENV_PATTERNS = [
 ] as const;
 
 const NEUTRAL_CA_TRUST_ENV_KEY_SET = new Set<string>(NEUTRAL_CA_TRUST_ENV_KEYS);
+const GOG_EXECUTABLE_PATH = '/opt/homebrew/bin/gog';
+const GOG_EXECUTABLE_VERSION = 'v0.9.0';
+const GOG_EXECUTABLE_HASH =
+  'sha256:011a66fc2701d74a9009ce0b5c022f2360872326a138531c3ff674a1837f5738';
 
 const BUILTIN_SEMANTIC_CAPABILITIES = [
   {
@@ -135,6 +142,120 @@ const BUILTIN_SEMANTIC_CAPABILITIES = [
     preflight: { kind: 'none' },
     sandboxProfile: { network: 'required', filesystem: 'read_only' },
   },
+  {
+    capabilityId: 'gog.sheets.get',
+    version: '1',
+    displayName: 'Gog Sheets get',
+    category: 'Google Sheets',
+    risk: 'read',
+    accountLabel: 'Configured gog CLI account',
+    can: 'Read spreadsheet values through the pinned gog CLI.',
+    cannot:
+      'Edit spreadsheets, change sharing, access Gmail, or receive raw Google credentials.',
+    credentialSource: 'local_cli',
+    implementationBindings: [
+      {
+        kind: 'local_cli',
+        executablePath: GOG_EXECUTABLE_PATH,
+        executableVersion: GOG_EXECUTABLE_VERSION,
+        executableHash: GOG_EXECUTABLE_HASH,
+        commandTemplates: [`${GOG_EXECUTABLE_PATH} sheets get *`],
+        authPreflightCommand: `${GOG_EXECUTABLE_PATH} auth status`,
+        deniedEnvPatterns: [...DEFAULT_LOCAL_CLI_DENIED_ENV_PATTERNS],
+      },
+    ],
+    preflight: {
+      kind: 'command',
+      command: `${GOG_EXECUTABLE_PATH} auth status`,
+    },
+    protectedPaths: ['~/.config/gog', '~/.gog'],
+    sandboxProfile: { network: 'required', filesystem: 'credential_read' },
+    redactionPolicy: {
+      env: [...DEFAULT_LOCAL_CLI_DENIED_ENV_PATTERNS],
+      commandParts: ['token', 'secret', 'password'],
+    },
+    source: {
+      source: 'local_cli',
+      executablePath: GOG_EXECUTABLE_PATH,
+      executableHash: GOG_EXECUTABLE_HASH,
+    },
+  },
+  {
+    capabilityId: 'gog.sheets.update',
+    version: '1',
+    displayName: 'Gog Sheets update',
+    category: 'Google Sheets',
+    risk: 'write',
+    accountLabel: 'Configured gog CLI account',
+    can: 'Update spreadsheet values through the pinned gog CLI.',
+    cannot:
+      'Change sharing, manage Drive files outside Sheets operations, access Gmail, or receive raw Google credentials.',
+    credentialSource: 'local_cli',
+    implementationBindings: [
+      {
+        kind: 'local_cli',
+        executablePath: GOG_EXECUTABLE_PATH,
+        executableVersion: GOG_EXECUTABLE_VERSION,
+        executableHash: GOG_EXECUTABLE_HASH,
+        commandTemplates: [`${GOG_EXECUTABLE_PATH} sheets update *`],
+        authPreflightCommand: `${GOG_EXECUTABLE_PATH} auth status`,
+        deniedEnvPatterns: [...DEFAULT_LOCAL_CLI_DENIED_ENV_PATTERNS],
+      },
+    ],
+    preflight: {
+      kind: 'command',
+      command: `${GOG_EXECUTABLE_PATH} auth status`,
+    },
+    protectedPaths: ['~/.config/gog', '~/.gog'],
+    sandboxProfile: { network: 'required', filesystem: 'credential_read' },
+    redactionPolicy: {
+      env: [...DEFAULT_LOCAL_CLI_DENIED_ENV_PATTERNS],
+      commandParts: ['token', 'secret', 'password'],
+    },
+    source: {
+      source: 'local_cli',
+      executablePath: GOG_EXECUTABLE_PATH,
+      executableHash: GOG_EXECUTABLE_HASH,
+    },
+  },
+  {
+    capabilityId: 'gog.sheets.append',
+    version: '1',
+    displayName: 'Gog Sheets append',
+    category: 'Google Sheets',
+    risk: 'write',
+    accountLabel: 'Configured gog CLI account',
+    can: 'Append spreadsheet values through the pinned gog CLI.',
+    cannot:
+      'Change sharing, manage Drive files outside Sheets operations, access Gmail, or receive raw Google credentials.',
+    credentialSource: 'local_cli',
+    implementationBindings: [
+      {
+        kind: 'local_cli',
+        executablePath: GOG_EXECUTABLE_PATH,
+        executableVersion: GOG_EXECUTABLE_VERSION,
+        executableHash: GOG_EXECUTABLE_HASH,
+        commandTemplates: [`${GOG_EXECUTABLE_PATH} sheets append *`],
+        authPreflightCommand: `${GOG_EXECUTABLE_PATH} auth status`,
+        deniedEnvPatterns: [...DEFAULT_LOCAL_CLI_DENIED_ENV_PATTERNS],
+      },
+    ],
+    preflight: {
+      kind: 'command',
+      command: `${GOG_EXECUTABLE_PATH} auth status`,
+    },
+    protectedPaths: ['~/.config/gog', '~/.gog'],
+    sandboxProfile: { network: 'required', filesystem: 'credential_read' },
+    redactionPolicy: {
+      env: [...DEFAULT_LOCAL_CLI_DENIED_ENV_PATTERNS],
+      commandParts: ['token', 'secret', 'password'],
+    },
+    source: {
+      source: 'local_cli',
+      executablePath: GOG_EXECUTABLE_PATH,
+      executableHash: GOG_EXECUTABLE_HASH,
+    },
+  },
 ] as const satisfies readonly SemanticCapabilityDefinition[];
 
 export function listBuiltinSemanticCapabilities(): SemanticCapabilityDefinition[] {
@@ -159,6 +280,22 @@ export function semanticCapabilityInputSchema(
   };
 }
 
+export function parseSemanticCapabilityDefinitionsRecord(
+  raw: unknown,
+): Record<string, SemanticCapabilityDefinition> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const definitions: Record<string, SemanticCapabilityDefinition> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const capability = value as SemanticCapabilityDefinition;
+    if (capability.capabilityId !== key) continue;
+    const validation = validateSemanticCapabilityDefinition(capability);
+    if (!validation.ok) continue;
+    definitions[key] = cloneCapabilityDefinition(capability);
+  }
+  return Object.keys(definitions).length > 0 ? definitions : undefined;
+}
+
 export function semanticCapabilityFromToolCatalogItem(input: {
   name?: string;
   inputSchema?: unknown;
@@ -178,7 +315,9 @@ export function semanticCapabilityRuntimeRules(
     if (binding.rule) return [binding.rule.trim()];
     if (binding.mcpTool) return [binding.mcpTool.trim()];
     if (binding.kind === 'local_cli') {
-      return [];
+      return (binding.commandTemplates ?? []).map(
+        (template) => `${RUN_COMMAND_TOOL_NAME}(${template.trim()})`,
+      );
     }
     return [];
   });
@@ -195,6 +334,28 @@ export function projectToolCatalogItemToRuntimeRules(input: {
     semanticCapabilityRule(capability.capabilityId),
     ...semanticCapabilityRuntimeRules(capability),
   ];
+}
+
+export function expandSemanticCapabilityPermissionRules(input: {
+  rules: readonly string[];
+  definitions?: Record<string, SemanticCapabilityDefinition>;
+}): string[] {
+  const out = new Set<string>();
+  for (const rule of input.rules) {
+    const trimmed = rule.trim();
+    if (!trimmed) continue;
+    out.add(trimmed);
+    const capabilityId = parseSemanticCapabilityRule(trimmed);
+    if (!capabilityId) continue;
+    const definition =
+      input.definitions?.[capabilityId] ??
+      getBuiltinSemanticCapability(capabilityId);
+    if (!definition) continue;
+    for (const runtimeRule of semanticCapabilityRuntimeRules(definition)) {
+      if (runtimeRule.trim()) out.add(runtimeRule.trim());
+    }
+  }
+  return [...out];
 }
 
 export function validateSemanticCapabilityDefinition(
@@ -298,7 +459,49 @@ export function buildLocalCliSemanticCapability(input: {
 export function capabilityDisplayNameForRule(rule: string): string | undefined {
   const capabilityId = parseSemanticCapabilityRule(rule);
   if (!capabilityId) return undefined;
-  return getBuiltinSemanticCapability(capabilityId)?.displayName;
+  return (
+    getBuiltinSemanticCapability(capabilityId)?.displayName ??
+    skillActionCapabilityDisplayName(capabilityId)
+  );
+}
+
+export function semanticCapabilityDefinitionFromToolInput(
+  toolInput: unknown,
+  expectedCapabilityId?: string,
+): SemanticCapabilityDefinition | undefined {
+  if (!toolInput || typeof toolInput !== 'object' || Array.isArray(toolInput)) {
+    return undefined;
+  }
+  const record = toolInput as Record<string, unknown>;
+  const raw =
+    record.semanticCapabilityDefinition ?? record.capabilityDefinition;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const capability = raw as SemanticCapabilityDefinition;
+  if (
+    expectedCapabilityId &&
+    capability.capabilityId !== expectedCapabilityId
+  ) {
+    return undefined;
+  }
+  const validation = validateSemanticCapabilityDefinition(capability);
+  return validation.ok ? cloneCapabilityDefinition(capability) : undefined;
+}
+
+export function skillActionCapabilityDisplayName(
+  capabilityId: string,
+): string | undefined {
+  const trimmed = capabilityId.trim();
+  if (!trimmed.startsWith('skill.')) return undefined;
+  const parts = trimmed.slice('skill.'.length).split('.');
+  if (parts.length < 2) return undefined;
+  const words = parts
+    .slice(0, -1)
+    .join('-')
+    .split(/[-_.]+/g)
+    .map((word) => word.trim().toLowerCase())
+    .filter(Boolean);
+  if (words.length === 0) return undefined;
+  return words.map(humanizeCapabilityWord).join(' ');
 }
 
 function validateSemanticCapabilityBinding(
@@ -477,6 +680,12 @@ function parseSemanticCapabilitySchema(
   }
   const validation = validateSemanticCapabilityDefinition(capability);
   return validation.ok ? cloneCapabilityDefinition(capability) : undefined;
+}
+
+function humanizeCapabilityWord(word: string, index: number): string {
+  if (word === 'linkedin') return 'LinkedIn';
+  if (index > 0) return word;
+  return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
 function cloneCapabilityDefinition(

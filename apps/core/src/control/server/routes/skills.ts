@@ -383,6 +383,8 @@ function skillToResponse(skill: SkillCatalogItem): Record<string, unknown> {
     promptRefs: skill.promptRefs,
     toolIds: skill.toolIds,
     workflowRefs: skill.workflowRefs,
+    requiredEnvVars: skill.requiredEnvVars ?? [],
+    actionPermissions: skill.actionPermissions ?? [],
     storage: skill.storage,
     createdBy: skill.createdBy,
     approvedBy: skill.approvedBy,

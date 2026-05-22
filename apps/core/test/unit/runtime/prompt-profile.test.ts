@@ -277,7 +277,7 @@ describe('PromptProfileService', () => {
       'Never expose secrets, tokens, credentials, or unrelated local paths.',
     );
     expect(prompt).toContain(
-      'Use request_skill_install, request_skill_proposal, request_skill_dependency_install',
+      'Use capability_search, propose_capability, and manage_capability for durable capability changes',
     );
     expect(prompt).toContain(
       'Approved third-party MCP servers are always used through mcp_list_tools and mcp_call_tool',

@@ -306,7 +306,10 @@ describe('runtime admin IPC handlers', () => {
         repositories: {
           agents: {},
           tools: { getTool: vi.fn(async () => null) },
-          skills: { getSkill: vi.fn(async () => null) },
+          skills: {
+            getSkill: vi.fn(async () => null),
+            listSkills: vi.fn(async () => []),
+          },
           mcpServers: { getServer: vi.fn(async () => null) },
         },
       }),
@@ -377,14 +380,11 @@ describe('runtime admin IPC handlers', () => {
       name: 'Main',
       folder: 'main_agent',
       bindings: {},
-      capabilities: {
-        toolIds: [],
-        skillIds: [],
-        mcpServerIds: [],
-      },
+      sources: { skills: [], mcpServers: [], tools: [] },
+      capabilities: [],
     };
-    replacement.agents.main_agent.capabilities.toolIds = [
-      'RunCommand(npm test *)',
+    replacement.agents.main_agent.capabilities = [
+      { id: 'browser.use', version: 'builtin' },
     ];
     const replacementYaml = renderRuntimeSettingsYaml(replacement);
     const replaceAgentCapabilityBindings = vi.fn(async () => undefined);
@@ -399,11 +399,32 @@ describe('runtime admin IPC handlers', () => {
             replaceAgentCapabilityBindings,
           },
           tools: {
-            getTool: vi.fn(async () => null),
-            listTools: vi.fn(async () => []),
+            getTool: vi.fn(async (id) =>
+              id === 'tool:Browser'
+                ? {
+                    id,
+                    appId: 'default',
+                    name: 'Browser',
+                    status: 'active',
+                    selectable: true,
+                  }
+                : null,
+            ),
+            listTools: vi.fn(async () => [
+              {
+                id: 'tool:Browser',
+                appId: 'default',
+                name: 'Browser',
+                status: 'active',
+                selectable: true,
+              },
+            ]),
             saveTool: vi.fn(async () => undefined),
           },
-          skills: { getSkill: vi.fn(async () => null) },
+          skills: {
+            getSkill: vi.fn(async () => null),
+            listSkills: vi.fn(async () => []),
+          },
           mcpServers: { getServer: vi.fn(async () => null) },
         },
       }),
@@ -446,7 +467,7 @@ describe('runtime admin IPC handlers', () => {
         toolBindings: [
           expect.objectContaining({
             status: 'active',
-            toolId: expect.stringMatching(/^tool:permission-rule:/),
+            toolId: 'tool:Browser',
           }),
         ],
       }),

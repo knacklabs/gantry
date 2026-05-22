@@ -5,6 +5,10 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'node:crypto';
 import { composeAgentCapabilities } from '../agent-capabilities.js';
+import {
+  SDK_NATIVE_SKILL_DISABLE_ENV,
+  SDK_NATIVE_SKILL_OVERRIDES,
+} from '../native-sdk-skills.js';
 import { MessageStream } from './message-stream.js';
 import {
   drainInteractionBoundaries,
@@ -33,7 +37,7 @@ import type {
   AgentRunnerInput,
   AgentRunnerToolAttemptOutput,
 } from './types.js';
-import { normalizeModelUsage } from '../../../../shared/model-catalog.js';
+import { normalizeModelUsage } from '../../../../shared/model-usage.js';
 import { usageEventIdForMessage } from './query-usage-event-id.js';
 import {
   assertRequiredMcpServerReady,
@@ -52,6 +56,54 @@ import { createCanUseToolCallback } from './tool-permission-gate.js';
 interface RunQueryOptions {
   enableIpcFollowups?: boolean;
   persistSdkSession?: boolean;
+}
+
+function sdkResultFailureMessage(message: unknown): string | null {
+  if (!message || typeof message !== 'object') {
+    return null;
+  }
+  const resultMessage = message as {
+    subtype?: string;
+    is_error?: boolean;
+    result?: string;
+    errors?: unknown;
+  };
+  const errors = Array.isArray(resultMessage.errors)
+    ? resultMessage.errors.filter((error): error is string => {
+        return typeof error === 'string' && error.trim().length > 0;
+      })
+    : [];
+  const text =
+    typeof resultMessage.result === 'string' ? resultMessage.result : '';
+  if (text) {
+    const normalized = text.toLowerCase();
+    const looksLikeCredentialFailure =
+      normalized.includes('invalid api key') ||
+      normalized.includes('external api key') ||
+      normalized.includes('authentication failed') ||
+      normalized.includes('failed to authenticate') ||
+      normalized.includes('authentication_error') ||
+      normalized.includes('invalid bearer token') ||
+      normalized.includes('api error: 401');
+    const looksLikeBillingFailure =
+      normalized.includes('billing') ||
+      normalized.includes('out of credits') ||
+      normalized.includes('credit balance') ||
+      normalized.includes('insufficient credit') ||
+      normalized.includes('payment required');
+    if (looksLikeCredentialFailure || looksLikeBillingFailure) {
+      return text;
+    }
+  }
+  if (resultMessage.subtype && resultMessage.subtype !== 'success') {
+    return errors.length > 0
+      ? errors.join('; ')
+      : `Claude SDK result failed with subtype ${resultMessage.subtype}`;
+  }
+  if (resultMessage.is_error && errors.length > 0) {
+    return errors.join('; ');
+  }
+  return null;
 }
 
 export async function runQuery(
@@ -135,6 +187,10 @@ export async function runQuery(
   const extraDirs = discoverAdditionalDirectories();
   const protectedFilesystemPaths = readProtectedFilesystemPaths();
   const workspaceFolder = agentInput.groupFolder;
+  const isolatedSdkEnv = {
+    ...sdkEnv,
+    ...SDK_NATIVE_SKILL_DISABLE_ENV,
+  };
   const capabilities = composeAgentCapabilities({
     mcpServerPath,
     appId: agentInput.appId,
@@ -178,11 +234,12 @@ export async function runQuery(
         includeGitInstructions: includeGitInstructionsForPersona(
           agentInput.persona,
         ),
+        skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
       },
       tools: [...capabilities.availableTools],
       allowedTools: [...capabilities.allowedTools],
       disallowedTools: [...capabilities.disallowedTools],
-      env: sdkEnv,
+      env: isolatedSdkEnv,
       sandbox: buildSdkFilesystemSandbox(protectedFilesystemPaths),
       permissionMode: capabilities.permissionMode,
       hooks: {
@@ -195,7 +252,7 @@ export async function runQuery(
       },
       canUseTool: createCanUseToolCallback({
         agentInput,
-        sdkEnv,
+        sdkEnv: isolatedSdkEnv,
         workspaceFolder,
         memoryBlock,
         configuredModel,
@@ -302,6 +359,10 @@ export async function runQuery(
         resultCount++;
         const textResult =
           'result' in message ? (message as { result?: string }).result : null;
+        const resultFailure = sdkResultFailureMessage(message);
+        if (resultFailure) {
+          throw new Error(resultFailure);
+        }
         log(
           `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`,
         );

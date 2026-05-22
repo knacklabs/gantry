@@ -6,6 +6,7 @@ import type { IsoTimestamp } from '../../shared/time/primitives.js';
 
 export type ToolId = BrandedId<'ToolId'>;
 export type AgentToolBindingId = BrandedId<'AgentToolBindingId'>;
+export type AgentToolSourceId = BrandedId<'AgentToolSourceId'>;
 
 export type ToolCatalogKind = 'host' | 'browser' | 'channel' | 'local_cli';
 export type ToolCatalogProvider = string;
@@ -50,6 +51,20 @@ export interface AgentToolBinding {
   agentId: BrandedId<'AgentId'>;
   toolId: ToolId;
   configVersionId?: BrandedId<'AgentConfigVersionId'>;
+  status: 'active' | 'disabled';
+  createdAt: IsoTimestamp;
+  updatedAt: IsoTimestamp;
+}
+
+export type AgentToolSourceKind = 'builtin' | 'adapter' | 'local_cli';
+
+export interface AgentToolSource {
+  id: AgentToolSourceId;
+  appId: AppId;
+  agentId: BrandedId<'AgentId'>;
+  sourceId: string;
+  kind: AgentToolSourceKind;
+  version: string;
   status: 'active' | 'disabled';
   createdAt: IsoTimestamp;
   updatedAt: IsoTimestamp;

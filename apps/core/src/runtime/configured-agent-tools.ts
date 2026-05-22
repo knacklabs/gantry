@@ -1,8 +1,12 @@
-import type { ToolCatalogRepository } from '../domain/ports/repositories.js';
+import type {
+  SkillCatalogRepository,
+  ToolCatalogRepository,
+} from '../domain/ports/repositories.js';
 import { resolveAgentToolRuntimeRules } from '../application/agents/agent-tool-runtime-rules.js';
 
 export async function resolveConfiguredAllowedTools(input: {
   repository?: ToolCatalogRepository;
+  skillRepository?: SkillCatalogRepository;
   appId: string;
   agentId: string;
 }): Promise<string[] | undefined> {
@@ -12,5 +16,6 @@ export async function resolveConfiguredAllowedTools(input: {
     appId: input.appId,
     agentId: input.agentId,
     errorSubject: 'Configured agent tool',
+    skillRepository: input.skillRepository,
   });
 }

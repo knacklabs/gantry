@@ -17,6 +17,29 @@ export type CapabilityReviewSubmitter = (
   payload: Record<string, unknown>,
 ) => Promise<ToolResponse>;
 
+const CAPABILITY_SOURCES = [
+  'builtin',
+  'skill',
+  'mcp',
+  'adapter',
+  'local_cli',
+  'generated_command',
+  'composite',
+] as const;
+
+const CAPABILITY_CREDENTIAL_SOURCES = [
+  'none',
+  'onecli',
+  'external_broker',
+  'configured_access',
+  'skill',
+  'mcp',
+  'adapter',
+  'local_cli',
+  'generated_command',
+  'composite',
+] as const;
+
 export function registerSemanticCapabilityTools(
   server: McpServer,
   submitCapabilityReviewTask: CapabilityReviewSubmitter,
@@ -57,7 +80,7 @@ export function registerSemanticCapabilityTools(
                     capability.accountLabel
                       ? `  access: ${capability.accountLabel}`
                       : undefined,
-                    `  request_capability: capabilityId=${capability.capabilityId} reason="<why this agent needs it>"`,
+                    `  propose_capability: capabilityId=${capability.capabilityId} reason="<why this agent needs it>"`,
                   ]
                     .filter(Boolean)
                     .join('\n'),
@@ -70,62 +93,67 @@ export function registerSemanticCapabilityTools(
   );
 
   server.tool(
-    'request_capability',
-    'Request a semantic capability such as Google Sheets write for same-conversation approval.',
-    {
-      capabilityId: z
-        .string()
-        .describe('Stable semantic capability id, such as google.sheets.write'),
-      reason: z.string().describe('Why this agent needs the capability'),
-      accountLabel: z
-        .string()
-        .optional()
-        .describe('Optional non-secret account or workspace label'),
-    },
-    async (args) => {
-      const capability = listBuiltinSemanticCapabilities().find(
-        (candidate) => candidate.capabilityId === args.capabilityId,
-      );
-      return submitCapabilityReviewTask('request_permission', 'Capability', {
-        permissionKind: 'tool',
-        capabilityId: args.capabilityId,
-        capabilityDisplayName: capability?.displayName ?? args.capabilityId,
-        accountLabel: args.accountLabel ?? capability?.accountLabel,
-        can: capability?.can,
-        cannot: capability?.cannot,
-        credentialSource: capability?.credentialSource ?? 'none',
-        risk: capability?.risk,
-        temporaryOnly: false,
-        reason: args.reason,
-      });
-    },
-  );
-
-  server.tool(
-    'propose_local_cli_capability',
-    'Propose a reviewed user-defined local CLI semantic capability draft with pinned executable and scoped command templates. Draft approval does not create runnable command-tool authority until runtime local-CLI enforcement exists.',
+    'propose_capability',
+    'Request an approved semantic capability by id. For user-defined local CLI access, propose a reviewed local_cli capability with pinned executable, templates, preflight, and protected paths.',
     {
       capabilityId: z
         .string()
         .describe('Stable semantic id, such as acme.invoices.read'),
       displayName: z
         .string()
+        .optional()
         .describe('User-facing name, such as Acme invoices read'),
-      category: z.string().describe('Provider or app group'),
-      risk: z.enum(['read', 'write', 'admin']),
+      category: z.string().optional().describe('Provider or app group'),
+      risk: z.enum(['read', 'write', 'admin']).optional(),
+      source: z
+        .enum(CAPABILITY_SOURCES)
+        .default('composite')
+        .describe(
+          'Capability source family. New user-defined proposals currently require local_cli; approved capability ids ignore this field.',
+        ),
+      credentialSource: z
+        .enum(CAPABILITY_CREDENTIAL_SOURCES)
+        .default('none')
+        .describe('Where runtime credentials or authority are brokered'),
       accountLabel: z
         .string()
         .optional()
         .describe('Non-secret account/workspace label'),
-      can: z.string().describe('What the approved capability allows'),
-      cannot: z.string().describe('What the capability explicitly excludes'),
-      executablePath: z.string().describe('Pinned absolute executable path'),
-      executableVersion: z.string().describe('Pinned executable version'),
+      can: z
+        .string()
+        .optional()
+        .describe('What the approved capability allows'),
+      cannot: z
+        .string()
+        .optional()
+        .describe('What the capability explicitly excludes'),
+      sourceRefs: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'Reviewed source references such as skill hash, MCP server version/tool hash, adapter ref, CLI executable hash, or command template hash',
+        ),
+      bindings: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'Typed binding labels such as skill_action, mcp_action, gantry_tool, adapter_action, local_cli, or run_command_template',
+        ),
+      executablePath: z
+        .string()
+        .optional()
+        .describe('Pinned absolute executable path for local_cli proposals'),
+      executableVersion: z
+        .string()
+        .optional()
+        .describe('Pinned executable version for local_cli proposals'),
       executableHash: z
         .string()
-        .describe('Pinned executable content hash when available'),
+        .optional()
+        .describe('Pinned executable content hash for local_cli proposals'),
       commandTemplates: z
         .array(z.string())
+        .optional()
         .describe('Scoped command templates, never broad cli *'),
       authPreflightCommand: z
         .string()
@@ -139,32 +167,116 @@ export function registerSemanticCapabilityTools(
         .array(z.string())
         .optional()
         .describe('Additional denied env override patterns'),
-      reason: z.string().describe('Why this local CLI capability is needed'),
+      reason: z.string().describe('Why this capability is needed'),
     },
-    async (args) =>
-      submitCapabilityReviewTask('request_permission', 'Local CLI capability', {
-        permissionKind: 'tool',
-        capabilityId: args.capabilityId,
-        capabilityDisplayName: args.displayName,
-        category: args.category,
-        risk: args.risk,
-        accountLabel: args.accountLabel,
-        can: args.can,
-        cannot: args.cannot,
-        credentialSource: 'local_cli',
-        executablePath: args.executablePath,
-        executableVersion: args.executableVersion,
-        executableHash: args.executableHash,
-        commandTemplates: args.commandTemplates,
-        authPreflightCommand: args.authPreflightCommand,
-        protectedPaths: args.protectedPaths ?? [],
-        deniedEnvPatterns: [
-          ...DEFAULT_LOCAL_CLI_DENIED_ENV_PATTERNS,
-          ...(args.deniedEnvPatterns ?? []),
-        ],
-        temporaryOnly: false,
-        reason: args.reason,
-      }),
+    async (args) => {
+      const hasProposalManifest =
+        args.source === 'local_cli' ||
+        args.credentialSource === 'local_cli' ||
+        Boolean(args.executablePath) ||
+        Boolean(args.executableVersion) ||
+        Boolean(args.executableHash) ||
+        Boolean(args.commandTemplates?.length);
+      const approved = listBuiltinSemanticCapabilities().find(
+        (candidate) => candidate.capabilityId === args.capabilityId,
+      );
+      if (approved && !hasProposalManifest) {
+        return submitCapabilityReviewTask('request_permission', 'Capability', {
+          permissionKind: 'tool',
+          capabilityRequestSource: 'propose_capability',
+          capabilityId: approved.capabilityId,
+          capabilityDisplayName: approved.displayName,
+          accountLabel: args.accountLabel ?? approved.accountLabel,
+          can: approved.can,
+          cannot: approved.cannot,
+          credentialSource: approved.credentialSource,
+          risk: approved.risk,
+          temporaryOnly: false,
+          reason: args.reason,
+        });
+      }
+      const missingManifestFields = [
+        args.displayName ? undefined : 'displayName',
+        args.category ? undefined : 'category',
+        args.risk ? undefined : 'risk',
+        args.can ? undefined : 'can',
+        args.cannot ? undefined : 'cannot',
+      ].filter(Boolean);
+      if (missingManifestFields.length > 0) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text' as const,
+              text: `New capability proposals require ${missingManifestFields.join(', ')}. Use only capabilityId and reason when requesting an already-approved capability from capability_search.`,
+            },
+          ],
+        };
+      }
+      const isLocalCli =
+        args.source === 'local_cli' || args.credentialSource === 'local_cli';
+      if (!isLocalCli) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text' as const,
+              text: 'New capability proposals require source=local_cli with pinned executable details. Use capability_search and capabilityId+reason for already-approved capabilities.',
+            },
+          ],
+        };
+      }
+      if (isLocalCli) {
+        const missing = [
+          args.executablePath ? undefined : 'executablePath',
+          args.executableVersion ? undefined : 'executableVersion',
+          args.executableHash ? undefined : 'executableHash',
+          args.commandTemplates?.length ? undefined : 'commandTemplates',
+        ].filter(Boolean);
+        if (missing.length > 0) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text' as const,
+                text: `local_cli capability proposals require ${missing.join(', ')}.`,
+              },
+            ],
+          };
+        }
+      }
+      return submitCapabilityReviewTask(
+        'request_permission',
+        'Capability proposal',
+        {
+          permissionKind: 'tool',
+          capabilityRequestSource: 'propose_capability',
+          capabilityId: args.capabilityId,
+          capabilityDisplayName: args.displayName,
+          category: args.category,
+          risk: args.risk,
+          source: args.source,
+          sourceRefs: args.sourceRefs ?? [],
+          bindings: args.bindings ?? [],
+          accountLabel: args.accountLabel,
+          can: args.can,
+          cannot: args.cannot,
+          credentialSource: args.credentialSource,
+          executablePath: args.executablePath,
+          executableVersion: args.executableVersion,
+          executableHash: args.executableHash,
+          commandTemplates: args.commandTemplates ?? [],
+          authPreflightCommand: args.authPreflightCommand,
+          protectedPaths: args.protectedPaths ?? [],
+          deniedEnvPatterns: [
+            ...DEFAULT_LOCAL_CLI_DENIED_ENV_PATTERNS,
+            ...(args.deniedEnvPatterns ?? []),
+          ],
+          temporaryOnly: false,
+          reason: args.reason,
+        },
+      );
+    },
   );
 
   server.tool(
@@ -184,7 +296,7 @@ export function registerSemanticCapabilityTools(
               ? `Capability: ${args.capabilityId}`
               : 'Capability: all selected capabilities',
             'Use the Control API /v1/agents/:agentId/capabilities or local admin CLI to change durable bindings.',
-            'Use capability_status for current run access and request_capability/propose_local_cli_capability for reviewed additions.',
+            'Use capability_status for current run access and propose_capability for reviewed additions.',
             'Revocation and account changes update settings.yaml and the Postgres projection; raw tokens are never shown.',
           ].join('\n'),
         },

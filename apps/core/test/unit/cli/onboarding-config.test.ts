@@ -36,7 +36,8 @@ function baseInput(runtimeHome: string) {
     credentialMode: 'onecli' as const,
     onecliUrl: 'http://localhost:10254',
     agentName: 'Kai',
-    anthropicModel: 'sonnet',
+    modelProvider: 'anthropic' as const,
+    modelAlias: 'sonnet',
     memoryEnabled: true,
     embeddingsEnabled: false,
     dreamingEnabled: true,
@@ -87,6 +88,11 @@ describe('onboarding config persistence', () => {
     expect(settings.credentialBroker.onecli.url).toBe('http://localhost:10254');
     expect(settings.agent.name).toBe('Kai');
     expect(settings.agent.defaultModel).toBe('sonnet');
+    expect(settings.memory.llm.models).toEqual({
+      extractor: 'haiku',
+      dreaming: 'sonnet',
+      consolidation: 'sonnet',
+    });
   });
 
   it('generates a stable OneCLI encryption key when none exists', () => {
@@ -99,16 +105,35 @@ describe('onboarding config persistence', () => {
     expect(fs.existsSync(settingsFilePath(runtimeHome))).toBe(true);
   });
 
-  it('preserves setup-selected runner model IDs as catalog aliases', () => {
+  it('applies the OpenRouter provider defaults for chat and memory models', () => {
     const runtimeHome = makeRuntimeHome();
 
     persistOnboardingConfig({
       ...baseInput(runtimeHome),
-      anthropicModel: 'claude-sonnet-4-6',
+      modelProvider: 'openrouter',
+      modelAlias: 'kimi',
     });
 
     const settings = loadRuntimeSettingsFromPath(settingsFilePath(runtimeHome));
-    expect(settings.agent.defaultModel).toBe('sonnet');
+    expect(settings.agent.defaultModel).toBe('kimi');
+    expect(settings.agent.oneTimeJobDefaultModel).toBe('');
+    expect(settings.agent.recurringJobDefaultModel).toBe('');
+    expect(settings.memory.llm.models).toEqual({
+      extractor: 'kimi',
+      dreaming: 'kimi',
+      consolidation: 'kimi',
+    });
+  });
+
+  it('rejects raw provider model IDs at the setup config boundary', () => {
+    const runtimeHome = makeRuntimeHome();
+
+    expect(() =>
+      persistOnboardingConfig({
+        ...baseInput(runtimeHome),
+        modelAlias: 'claude-sonnet-4-6',
+      }),
+    ).toThrow(/Provider model ID/);
   });
 
   it('keeps Slack approvers out of .env until a conversation is selected', () => {

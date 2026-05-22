@@ -339,7 +339,8 @@ export class LlmMemoryExtractionProvider implements MemoryExtractionProvider {
   async extractFactsWithOutcome(
     input: ArcExtractionInput,
   ): Promise<MemoryExtractionResult> {
-    const modelExtractor = getMemoryModelRuntimeConfig().extractor;
+    const { extractor: modelExtractor, modelProfiles } =
+      getMemoryModelRuntimeConfig();
     const turns = Array.isArray(input.turns) ? input.turns : [];
     if (!turns.length) {
       return extractionResult([]);
@@ -423,6 +424,7 @@ export class LlmMemoryExtractionProvider implements MemoryExtractionProvider {
       try {
         const text = await memoryLlm.query({
           model: modelExtractor,
+          modelProfile: modelProfiles?.extractor,
           prompt: promptParts.plainPrompt,
           systemPrompt: promptParts.systemPrompt,
           userBlocks: [
@@ -608,7 +610,7 @@ export async function proposeMemoryDreamingActions(input: {
 }): Promise<MemoryLifecycleProposal[]> {
   const memoryLlm = getMemoryLlmClient();
   if (!memoryLlm.isConfigured()) return [];
-  const model = getMemoryModelRuntimeConfig().dreaming;
+  const { dreaming: model, modelProfiles } = getMemoryModelRuntimeConfig();
   const payload = {
     subject: {
       app_id: input.subject.appId,
@@ -644,6 +646,7 @@ export async function proposeMemoryDreamingActions(input: {
   try {
     const text = await memoryLlm.query({
       model,
+      modelProfile: modelProfiles?.dreaming,
       prompt: `${MEMORY_DREAMING_PROPOSAL_PROMPT}\n\n${JSON.stringify(payload, null, 2)}`,
       systemPrompt: MEMORY_DREAMING_PROPOSAL_PROMPT,
     });
@@ -662,7 +665,7 @@ export async function proposeMemoryConsolidationActions(input: {
 }): Promise<MemoryLifecycleProposal[]> {
   const memoryLlm = getMemoryLlmClient();
   if (!memoryLlm.isConfigured()) return [];
-  const model = getMemoryModelRuntimeConfig().consolidation;
+  const { consolidation: model, modelProfiles } = getMemoryModelRuntimeConfig();
   const payload = {
     subject: {
       app_id: input.subject.appId,
@@ -684,6 +687,7 @@ export async function proposeMemoryConsolidationActions(input: {
   try {
     const text = await memoryLlm.query({
       model,
+      modelProfile: modelProfiles?.consolidation,
       prompt: `${MEMORY_CONSOLIDATION_PROPOSAL_PROMPT}\n\n${JSON.stringify(payload, null, 2)}`,
       systemPrompt: MEMORY_CONSOLIDATION_PROPOSAL_PROMPT,
     });

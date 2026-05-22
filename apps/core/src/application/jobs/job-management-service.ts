@@ -103,7 +103,9 @@ export class JobManagementService {
     });
     const modelAlias = resolveRequestedJobModel(
       input.modelAlias,
-      input.modelProfileId,
+      scheduleType === 'cron' || scheduleType === 'interval'
+        ? 'recurring_job'
+        : 'one_time_job',
     );
     const groupScope = (input.groupScope || access.sourceAgentFolder).trim();
     if (groupScope !== access.sourceAgentFolder) {

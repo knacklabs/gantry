@@ -6,6 +6,7 @@ import type {
 import type {
   CapabilitySecretRepository,
   McpServerRepository,
+  SkillCatalogRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
@@ -56,6 +57,7 @@ export interface JobReadinessBrowserStatus {
 
 export interface JobReadinessDeps {
   toolRepository?: ToolCatalogRepository;
+  skillRepository?: SkillCatalogRepository;
   mcpServerRepository?: McpServerRepository;
   capabilitySecretRepository?: CapabilitySecretRepository;
   credentialBroker?: AgentCredentialBroker;
@@ -100,6 +102,7 @@ export async function evaluateJobReadiness(
     appId,
     agentId,
     toolRepository: input.toolRepository,
+    skillRepository: input.skillRepository,
   });
   const toolPreflight = evaluateToolAccessRequirements({
     toolAccessRequirements: input.job.tool_access_requirements,
@@ -190,6 +193,18 @@ function capabilityRequirementBlocker(input: {
       requirementType: 'local_cli',
       requirementId: requirement.capabilityId,
       message: `${formatCapabilityRequirement(requirement)} has an invalid local CLI job requirement.`,
+      nextAction: capabilityRequirementSetupAction(requirement),
+    };
+  }
+  if (
+    !requirement.implementation.executableVersion ||
+    !requirement.implementation.executableHash
+  ) {
+    return {
+      state: 'missing_capability',
+      requirementType: 'local_cli',
+      requirementId: requirement.capabilityId,
+      message: `${formatCapabilityRequirement(requirement)} needs pinned executable version and hash before this job can request reviewed local CLI access.`,
       nextAction: capabilityRequirementSetupAction(requirement),
     };
   }
@@ -395,6 +410,7 @@ async function semanticCapabilityCredentialBlocker(input: {
   broker?: AgentCredentialBroker;
 }): Promise<JobSetupBlocker | null> {
   const capability = getBuiltinSemanticCapability(input.capabilityId);
+  if (!capability && input.capabilityId.startsWith('skill.')) return null;
   if (!capability) {
     return {
       state: 'missing_capability',
@@ -402,21 +418,10 @@ async function semanticCapabilityCredentialBlocker(input: {
       requirementId: input.capabilityId,
       message:
         'Semantic capability is not registered in the capability catalog.',
-      nextAction:
-        'Search for an available capability or request a reviewed capability, then resume or recheck the job.',
+      nextAction: proposeCapabilityAction(input.capabilityId),
     };
   }
-  if (capability.credentialSource === 'local_cli') {
-    return {
-      state: 'draft_only',
-      requirementType: 'local_cli',
-      requirementId: input.capabilityId,
-      message:
-        'Local CLI semantic capabilities are reviewable drafts until runtime enforcement verifies the executable.',
-      nextAction:
-        'Complete local CLI capability review and durable binding, then resume or recheck the job.',
-    };
-  }
+  if (capability.credentialSource === 'local_cli') return null;
   if (
     capability.credentialSource !== 'onecli' &&
     capability.credentialSource !== 'external_broker' &&
@@ -481,6 +486,21 @@ async function semanticCapabilityCredentialBlocker(input: {
     };
   }
   return null;
+}
+
+function proposeCapabilityAction(capabilityId: string): string {
+  return `propose_capability ${JSON.stringify({
+    capabilityId,
+    displayName: humanizeTechnicalIdentifier(capabilityId),
+    category: capabilityId.split('.')[0] ?? 'custom',
+    risk: 'read',
+    source: 'composite',
+    credentialSource: 'none',
+    can: 'Describe the exact actions this job needs.',
+    cannot: 'Describe excluded actions, accounts, and data boundaries.',
+    reason:
+      'This autonomous run requires a reviewed capability that is not in the approved catalog.',
+  })}`;
 }
 
 function semanticCapabilityNeedsBroker(

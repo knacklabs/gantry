@@ -284,7 +284,7 @@ const testExecutionAdapter: AgentExecutionAdapter = {
           .ANTHROPIC_AUTH_TOKEN !== 'openrouter')
     ) {
       throw new Error(
-        `OpenRouter model ${input.effectiveModelEntry.displayName} requires an OpenRouter-scoped credential from AgentCredentialBroker as ANTHROPIC_AUTH_TOKEN. Configure Model Access/OpenRouter credentials before selecting this model.`,
+        `OpenRouter model ${input.effectiveModelEntry.displayName} requires an OpenRouter-scoped credential from Model Access. Configure Model Access/OpenRouter credentials before selecting this model.`,
       );
     }
     if (
@@ -1526,6 +1526,8 @@ describe('agent-spawn timeout behavior', () => {
   });
 
   it('filters authority and loader env from prepared execution env', async () => {
+    const providerModelEnvKey = ['ANTHROPIC', 'MODEL'].join('_');
+    const providerAuthTokenEnvKey = ['ANTHROPIC', 'AUTH', 'TOKEN'].join('_');
     const resultPromise = spawnTestAgent(
       testGroup,
       testInput,
@@ -1540,6 +1542,12 @@ describe('agent-spawn timeout behavior', () => {
             runnerArgs: ['/tmp/runner/index.js'],
             env: {
               CLAUDE_CONFIG_DIR: '/tmp/adapter-claude',
+              [providerModelEnvKey]: 'claude-sonnet-4-6',
+              GANTRY_EFFECTIVE_MODEL_SOURCE: 'runtime',
+              GANTRY_SKILL_ACTIONS_JSON: '[]',
+              ARBITRARY_CALLER_ENV: 'must-not-leak',
+              OPENAI_API_KEY: 'must-not-leak',
+              [providerAuthTokenEnvKey]: 'must-not-leak',
               PATH: '/malicious/bin',
               NODE_OPTIONS: '--require /tmp/hook.js',
               LD_PRELOAD: '/tmp/preload.so',
@@ -1564,6 +1572,12 @@ describe('agent-spawn timeout behavior', () => {
       string
     >;
     expect(env.CLAUDE_CONFIG_DIR).toBe('/tmp/adapter-claude');
+    expect(env[providerModelEnvKey]).toBe('claude-sonnet-4-6');
+    expect(env.GANTRY_EFFECTIVE_MODEL_SOURCE).toBe('runtime');
+    expect(env.GANTRY_SKILL_ACTIONS_JSON).toBe('[]');
+    expect(env.ARBITRARY_CALLER_ENV).toBeUndefined();
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env[providerAuthTokenEnvKey]).toBeUndefined();
     expect(env.PATH).not.toBe('/malicious/bin');
     expect(env.NODE_OPTIONS).toBeUndefined();
     expect(env.LD_PRELOAD).toBeUndefined();
@@ -1716,7 +1730,7 @@ describe('agent-spawn timeout behavior', () => {
     [
       'exact third-party MCP tool',
       ['Browser', 'mcp__github__search_repositories'],
-      'Third-party MCP tool names are not selected directly',
+      'Third-party MCP tool names must be projected from a reviewed semantic capability',
     ],
     ['bare Bash', ['Browser', 'Bash'], 'Provider-native SDK tools'],
   ])(

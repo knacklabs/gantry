@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { PermissionManagementService } from '@core/application/permissions/permission-management-service.js';
@@ -8,6 +12,14 @@ import type {
   ToolCatalogItem,
 } from '@core/domain/tools/tools.js';
 import { persistentPermissionToolId } from '@core/shared/agent-tool-references.js';
+import {
+  appendLiveToolRules,
+  readLiveToolRules,
+} from '@core/shared/live-tool-rules.js';
+import {
+  semanticCapabilityInputSchema,
+  type SemanticCapabilityDefinition,
+} from '@core/shared/semantic-capabilities.js';
 
 function permissionRepository(): {
   repository: PermissionRepository;
@@ -55,6 +67,33 @@ function activeBinding(tool: ToolCatalogItem): AgentToolBinding {
   };
 }
 
+function skillActionCapability(): SemanticCapabilityDefinition {
+  return {
+    capabilityId: 'skill.linkedin-posting.publish',
+    displayName: 'LinkedIn posting',
+    category: 'LinkedIn posting',
+    risk: 'write',
+    can: 'Publish posts through the selected LinkedIn posting skill.',
+    cannot: 'Use unrelated skills, credentials, settings, or broader commands.',
+    credentialSource: 'skill_secret',
+    implementationBindings: [
+      {
+        kind: 'tool_rule',
+        rule: 'RunCommand(skills/linkedin-posting/post.py *)',
+      },
+    ],
+    preflight: { kind: 'none' },
+    source: {
+      kind: 'skill_action',
+      skillId: 'skill:linkedin-posting',
+      skillName: 'linkedin-posting',
+      skillVersion: 'abc123',
+      skillContentHash: 'sha256:abc123',
+      actionId: 'publish',
+    },
+  };
+}
+
 describe('PermissionManagementService', () => {
   it('records timed grant expiry for audit without requiring a new schema', async () => {
     const { repository, saveDecision } = permissionRepository();
@@ -87,6 +126,72 @@ describe('PermissionManagementService', () => {
       mode: 'allow_timed_grant',
       classification: 'user_temporary',
     });
+  });
+
+  it('records skill action source and command hash in permission audit context', async () => {
+    const { repository, saveDecision } = permissionRepository();
+    const service = new PermissionManagementService({
+      now: () => '2026-05-15T12:00:00.000Z',
+    });
+    const saveTool = vi.fn(async () => undefined);
+
+    await service.applyPersistentToolRuleGrant({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      sourceAgentFolder: 'main_agent',
+      requestId: 'permission_skill_action',
+      jobId: 'job:linkedin' as never,
+      updates: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:skill.linkedin-posting.publish' }],
+        },
+      ],
+      toolRepository: {
+        getTool: vi.fn(async () => null),
+        listTools: vi.fn(async () => []),
+        saveTool,
+        saveAgentToolBinding: vi.fn(async () => undefined),
+        disableAgentToolBinding: vi.fn(async () => null),
+        listAgentToolBindings: vi.fn(async () => []),
+        listAgentToolBindingsForAgents: vi.fn(),
+      },
+      mirrorAgentToolRulesToSettings: vi.fn(async () => undefined),
+      permissionRepository: repository,
+      semanticCapabilityDefinitions: {
+        'skill.linkedin-posting.publish': skillActionCapability(),
+      },
+    });
+
+    expect(saveTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'tool:capability:skill.linkedin-posting.publish',
+      }),
+    );
+    const decision = saveDecision.mock.calls[0]?.[0] as PermissionDecision;
+    expect(decision.actorContext).toMatchObject({
+      requestId: 'permission_skill_action',
+      agentId: 'agent:test',
+      jobId: 'job:linkedin',
+      capabilitySource: 'skill_action',
+      skillActions: [
+        expect.objectContaining({
+          capabilityId: 'skill.linkedin-posting.publish',
+          displayName: 'LinkedIn posting',
+          skillId: 'skill:linkedin-posting',
+          skillContentHash: 'sha256:abc123',
+          actionId: 'publish',
+        }),
+      ],
+    });
+    expect(
+      (
+        decision.actorContext?.skillActions as Array<{
+          commandPreviewHashes: string[];
+        }>
+      )[0]?.commandPreviewHashes[0],
+    ).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 
   it('revokes a current-agent persistent tool grant and mirrors settings removal', async () => {
@@ -136,6 +241,112 @@ describe('PermissionManagementService', () => {
     const decision = saveDecision.mock.calls[0]?.[0] as PermissionDecision;
     expect(decision.effect).toBe('deny');
     expect(decision.actionPreview).toContain('revoke FileRead');
+  });
+
+  it('removes expanded live rules when revoking a skill action grant', async () => {
+    const service = new PermissionManagementService({
+      now: () => '2026-05-15T12:00:00.000Z',
+    });
+    const capability = skillActionCapability();
+    const tool: ToolCatalogItem = {
+      ...toolItem('capability:skill.linkedin-posting.publish'),
+      id: 'tool:capability:skill.linkedin-posting.publish' as never,
+      displayName: 'LinkedIn posting',
+      inputSchema: semanticCapabilityInputSchema(capability),
+    };
+    const binding = activeBinding(tool);
+    const ipcDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-skill-action-revoke-'),
+    );
+    try {
+      appendLiveToolRules({
+        ipcDir,
+        runHandle: 'run_1',
+        rules: [
+          'capability:skill.linkedin-posting.publish',
+          'RunCommand(skills/linkedin-posting/post.py *)',
+        ],
+      });
+
+      await service.revokePersistentToolRuleGrant({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
+        sourceAgentFolder: 'main_agent',
+        toolName: 'capability:skill.linkedin-posting.publish',
+        reason: 'No longer needed',
+        toolRepository: {
+          getTool: vi.fn(),
+          listTools: vi.fn(async () => [tool]),
+          saveTool: vi.fn(),
+          saveAgentToolBinding: vi.fn(),
+          disableAgentToolBinding: vi.fn(async () => ({
+            ...binding,
+            status: 'disabled' as const,
+          })),
+          listAgentToolBindings: vi.fn(async () => [binding]),
+          listAgentToolBindingsForAgents: vi.fn(),
+        },
+        mirrorAgentToolRulesToSettings: vi.fn(async () => undefined),
+        ipcDir,
+        runHandle: 'run_1',
+      });
+
+      expect(readLiveToolRules({ ipcDir, runHandle: 'run_1' })).toEqual([]);
+    } finally {
+      fs.rmSync(ipcDir, { recursive: true, force: true });
+    }
+  });
+
+  it('restores expanded live rules when revoking a skill action grant rolls back', async () => {
+    const service = new PermissionManagementService({
+      now: () => '2026-05-15T12:00:00.000Z',
+    });
+    const capability = skillActionCapability();
+    const tool: ToolCatalogItem = {
+      ...toolItem('capability:skill.linkedin-posting.publish'),
+      id: 'tool:capability:skill.linkedin-posting.publish' as never,
+      displayName: 'LinkedIn posting',
+      inputSchema: semanticCapabilityInputSchema(capability),
+    };
+    const binding = activeBinding(tool);
+    const ipcDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-skill-action-revoke-rollback-'),
+    );
+    try {
+      await expect(
+        service.revokePersistentToolRuleGrant({
+          appId: 'app:test' as never,
+          agentId: 'agent:test' as never,
+          sourceAgentFolder: 'main_agent',
+          toolName: 'capability:skill.linkedin-posting.publish',
+          reason: 'No longer needed',
+          toolRepository: {
+            getTool: vi.fn(),
+            listTools: vi.fn(async () => [tool]),
+            saveTool: vi.fn(),
+            saveAgentToolBinding: vi.fn(async () => undefined),
+            disableAgentToolBinding: vi.fn(async () => ({
+              ...binding,
+              status: 'disabled' as const,
+            })),
+            listAgentToolBindings: vi.fn(async () => [binding]),
+            listAgentToolBindingsForAgents: vi.fn(),
+          },
+          mirrorAgentToolRulesToSettings: vi.fn(async () => {
+            throw new Error('settings mirror failed');
+          }),
+          ipcDir,
+          runHandle: 'run_1',
+        }),
+      ).rejects.toThrow('settings mirror failed');
+
+      expect(readLiveToolRules({ ipcDir, runHandle: 'run_1' })).toEqual([
+        'capability:skill.linkedin-posting.publish',
+        'RunCommand(skills/linkedin-posting/post.py *)',
+      ]);
+    } finally {
+      fs.rmSync(ipcDir, { recursive: true, force: true });
+    }
   });
 
   it('denies revoking grants that are not active for the current agent', async () => {

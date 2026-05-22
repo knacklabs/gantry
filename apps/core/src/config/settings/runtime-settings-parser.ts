@@ -3,7 +3,7 @@ import {
   listChannelProviders,
   normalizeProviderId,
 } from '../../channels/provider-registry.js';
-import { resolveModelSelection } from '../../shared/model-catalog.js';
+import { resolveModelSelectionForWorkload } from '../../shared/model-catalog.js';
 import { parseSenderAllowlistConfig } from './sender-allowlist.js';
 import { parseSimpleYamlObject } from './yaml.js';
 import { normalizeCompactRuntimeSettingsRoot } from './runtime-settings-compact.js';
@@ -423,7 +423,7 @@ function parseConfiguredBindings(
           ? undefined
           : parseStringValue(map.model, `${pathPrefix}.model`);
     if (model) {
-      const resolved = resolveModelSelection(model);
+      const resolved = resolveModelSelectionForWorkload(model, 'chat');
       if (!resolved.ok) {
         throw new Error(`${pathPrefix}.model is invalid: ${resolved.message}`);
       }

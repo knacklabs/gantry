@@ -44,6 +44,7 @@ export const query = (name: string, description: string): JsonSchema => ({
 
 export const ids = {
   agent: id('agentId', 'Agent id.'),
+  capability: id('capabilityId', 'Capability id.'),
   conversation: id('conversationId', 'Conversation id.'),
   file: id('filePath', 'Skill-relative file path.'),
   ingress: id('ingressId', 'Ingress id.'),

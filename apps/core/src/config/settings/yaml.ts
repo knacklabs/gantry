@@ -98,9 +98,12 @@ function splitKeyValue(
 
 export function parseSimpleYamlObject(raw: string): Record<string, unknown> {
   const root: Record<string, unknown> = {};
-  const stack: Array<{ indent: number; value: Record<string, unknown> }> = [
-    { indent: -1, value: root },
-  ];
+  const stack: Array<{
+    indent: number;
+    value: Record<string, unknown> | unknown[];
+    parent?: Record<string, unknown>;
+    key?: string;
+  }> = [{ indent: -1, value: root }];
 
   const lines = raw.split(/\r?\n/);
   for (let lineNo = 0; lineNo < lines.length; lineNo += 1) {
@@ -119,20 +122,67 @@ export function parseSimpleYamlObject(raw: string): Record<string, unknown> {
     }
 
     const trimmed = line.trim();
-    const { key, rest } = splitKeyValue(trimmed, lineNo);
 
     while (stack.length > 1 && indent <= stack[stack.length - 1].indent) {
       stack.pop();
     }
-    const parent = stack[stack.length - 1]?.value;
-    if (!parent) {
+    let parentEntry = stack[stack.length - 1];
+    let parent = parentEntry?.value;
+    if (!parentEntry || !parent) {
       throw new Error(`invalid indentation nesting (line ${lineNo + 1})`);
     }
 
+    if (trimmed.startsWith('- ')) {
+      if (!Array.isArray(parent)) {
+        if (
+          parentEntry.parent &&
+          parentEntry.key &&
+          !Array.isArray(parent) &&
+          Object.keys(parent).length === 0
+        ) {
+          const list: unknown[] = [];
+          parentEntry.parent[parentEntry.key] = list;
+          parentEntry.value = list;
+          parent = list;
+        } else {
+          throw new Error(`unexpected list item (line ${lineNo + 1})`);
+        }
+      }
+      const itemRaw = trimmed.slice(2).trim();
+      if (!itemRaw) {
+        const child: Record<string, unknown> = {};
+        parent.push(child);
+        stack.push({ indent, value: child });
+        continue;
+      }
+      if (itemRaw.includes(':')) {
+        const { key, rest } = splitKeyValue(itemRaw, lineNo);
+        const child: Record<string, unknown> = {};
+        parent.push(child);
+        if (!rest) {
+          const nested: Record<string, unknown> = {};
+          child[key] = nested;
+          stack.push({ indent, value: child });
+          stack.push({ indent: indent + 2, value: nested, parent: child, key });
+          continue;
+        }
+        child[key] = parseScalar(rest);
+        stack.push({ indent, value: child });
+        continue;
+      }
+      parent.push(parseScalar(itemRaw));
+      continue;
+    }
+
+    if (Array.isArray(parent)) {
+      throw new Error(`expected list item (line ${lineNo + 1})`);
+    }
+
+    const { key, rest } = splitKeyValue(trimmed, lineNo);
     if (!rest) {
       const child: Record<string, unknown> = {};
       parent[key] = child;
-      stack.push({ indent, value: child });
+      stack.push({ indent, value: child, parent, key });
       continue;
     }
 

@@ -39,7 +39,7 @@ export function registerServiceTools(server: McpServer): void {
 
   server.tool(
     'capability_status',
-    'Show selected Gantry admin tool capabilities for this agent and exact request_permission arguments for requestable missing tools.',
+    'Show selected Gantry capabilities, attached skills/MCP services, and high-level requestable capabilities for this agent.',
     {},
     async () => ({
       content: [{ type: 'text' as const, text: capabilityStatusText() }],
@@ -162,8 +162,8 @@ export function registerServiceTools(server: McpServer): void {
   server.tool(
     'request_permission',
     [
-      'Request one reviewed permission or capability change for the current agent.',
-      'For app workflows, prefer capability_search/request_capability or propose_local_cli_capability so users approve semantic capabilities.',
+      'Request one reviewed transient or fallback permission for the current agent.',
+      'Do not use this for semantic capability grants or capability proposals; use capability_search/propose_capability so users approve durable capabilities.',
       'Use this directly for one-off exact tool access, provider/channel permissions, internal Browser requests, or scoped RunCommand fallback rules such as RunCommand(npm test *) when no reviewed semantic capability fits.',
       'Use request_skill_install/request_skill_proposal for skills and request_mcp_server for third-party MCP server access.',
     ].join(' '),
@@ -226,28 +226,6 @@ export function registerServiceTools(server: McpServer): void {
         .string()
         .optional()
         .describe('Optional requested sandbox profile'),
-      capabilityId: z
-        .string()
-        .optional()
-        .describe(
-          'Stable semantic capability id, such as google.sheets.write or acme.invoices.read.',
-        ),
-      capabilityDisplayName: z
-        .string()
-        .optional()
-        .describe('User-facing semantic capability name.'),
-      accountLabel: z
-        .string()
-        .optional()
-        .describe('Non-secret account or workspace label.'),
-      can: z
-        .string()
-        .optional()
-        .describe('What the semantic capability allows.'),
-      cannot: z
-        .string()
-        .optional()
-        .describe('What the semantic capability excludes.'),
       reason: z.string().describe('Why this exact tool capability is needed.'),
       channelTool: z
         .string()
@@ -280,11 +258,6 @@ export function registerServiceTools(server: McpServer): void {
         riskClass: args.riskClass,
         permissionPolicy: args.permissionPolicy,
         sandboxProfile: args.sandboxProfile,
-        capabilityId: args.capabilityId,
-        capabilityDisplayName: args.capabilityDisplayName,
-        accountLabel: args.accountLabel,
-        can: args.can,
-        cannot: args.cannot,
         channelTool: args.channelTool,
         providerId: args.providerId,
         requiredScopes: args.requiredScopes ?? [],

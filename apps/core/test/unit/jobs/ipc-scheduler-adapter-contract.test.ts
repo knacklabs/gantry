@@ -437,7 +437,7 @@ describe('scheduler IPC adapter contracts', () => {
     expect(mocks.jobService.updateJob).toHaveBeenCalledWith({
       jobId: 'job-1',
       access: expect.any(Object),
-      patch: { model: 'kimi' },
+      patch: { model: 'kimi-2.6' },
     });
     expect(mocks.responder.accept).toHaveBeenCalledWith(
       'Scheduler job updated (job-1).',
@@ -495,21 +495,20 @@ describe('scheduler IPC adapter contracts', () => {
     expect(mocks.jobService.updateJob).not.toHaveBeenCalled();
   });
 
-  it('rejects conflicting scheduler update model selectors', async () => {
+  it('ignores removed scheduler update model profile selectors before submit', async () => {
     await schedulerMutateTaskHandlers.scheduler_update_job(
       makeContext({
         type: 'scheduler_update_job',
         jobId: 'job-1',
-        modelAlias: 'kimi',
         modelProfileId: 'openrouter:kimi-k2.6',
       }),
     );
 
-    expect(mocks.responder.reject).toHaveBeenCalledWith(
-      'Use either modelAlias or modelProfileId, not both.',
-      'invalid_model',
-    );
-    expect(mocks.jobService.updateJob).not.toHaveBeenCalled();
+    expect(mocks.jobService.updateJob).toHaveBeenCalledWith({
+      jobId: 'job-1',
+      access: expect.any(Object),
+      patch: {},
+    });
   });
 
   it('preserves dead-letter resume details when the pause reason is available', async () => {

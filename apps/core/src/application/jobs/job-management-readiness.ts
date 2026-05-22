@@ -25,6 +25,7 @@ export async function evaluateManagedJobReadiness(input: {
     }),
     agentId: input.agentId,
     toolRepository: input.deps.toolRepository,
+    skillRepository: input.deps.skillRepository,
     mcpServerRepository: input.deps.mcpServerRepository,
     capabilitySecretRepository: input.deps.capabilitySecretRepository,
     credentialBroker: await input.deps.getCredentialBroker?.(),

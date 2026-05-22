@@ -6,8 +6,13 @@ import {
 } from '../config/settings/runtime-home.js';
 import { validatePostgresConnectionUrl } from '../adapters/storage/postgres/url.js';
 import {
-  DEFAULT_SETUP_MODEL_ALIAS,
-  resolveModelSelection,
+  DEFAULT_MODEL_PROVIDER_PRESET_ID,
+  formatModelDisplay,
+  getModelProviderPreset,
+  isModelProviderPresetId,
+  listModelCatalogEntries,
+  listModelProviderPresets,
+  resolveModelSelectionForWorkload,
 } from '../shared/model-catalog.js';
 import {
   ONECLI_DEFAULT_SCHEMA,
@@ -386,19 +391,14 @@ export async function runModelStep(draft: SetupDraft): Promise<FlowAction> {
   if (agentNameControl) return agentNameControl;
   draft.agentName = String(agentName).trim();
 
-  const value = await p.select({
-    message: 'Choose main model',
+  const provider = await p.select({
+    message: 'Choose model provider',
     options: [
-      {
-        value: 'sonnet',
-        label: 'Sonnet',
-        hint: 'Balanced speed/cost/quality. Uses the Sonnet catalog alias without pinning your setup.',
-      },
-      {
-        value: 'opus',
-        label: 'Opus (Recommended)',
-        hint: 'Highest quality for agentic coding. Uses the Claude Code opus alias so your install tracks your account/provider safely.',
-      },
+      ...listModelProviderPresets().map((preset) => ({
+        value: preset.id,
+        label: preset.label,
+        hint: `Chat default ${preset.chatDefault}; memory is provider-managed.`,
+      })),
       {
         value: 'back',
         label: 'Back',
@@ -412,15 +412,61 @@ export async function runModelStep(draft: SetupDraft): Promise<FlowAction> {
         label: 'Cancel Setup',
       },
     ],
-    initialValue: draft.selectedModel || DEFAULT_SETUP_MODEL_ALIAS,
+    initialValue: draft.modelProvider || DEFAULT_MODEL_PROVIDER_PRESET_ID,
+  });
+
+  if (p.isCancel(provider)) return { type: 'resume' };
+  if (provider === 'back') return { type: 'back' };
+  if (provider === 'resume' || provider === 'cancel') return { type: provider };
+  if (!isModelProviderPresetId(provider)) return { type: 'resume' };
+  draft.modelProvider = provider;
+  const selectedPreset = getModelProviderPreset(draft.modelProvider);
+
+  const chatModelOptions = listModelCatalogEntries()
+    .filter(
+      (entry) =>
+        entry.provider === draft.modelProvider &&
+        entry.supportedWorkloads.includes('chat'),
+    )
+    .map((entry) => ({
+      value: entry.recommendedAlias,
+      label:
+        entry.recommendedAlias === selectedPreset.chatDefault
+          ? `${entry.displayName} (Recommended)`
+          : entry.displayName,
+      hint: `${formatModelDisplay(entry)}. Alias: ${entry.recommendedAlias}.`,
+    }));
+  const initialModel =
+    chatModelOptions.some((option) => option.value === draft.selectedModel) &&
+    resolveModelSelectionForWorkload(draft.selectedModel, 'chat').ok
+      ? draft.selectedModel
+      : selectedPreset.chatDefault;
+  const value = await p.select({
+    message: 'Choose main model',
+    options: [
+      ...chatModelOptions,
+      {
+        value: 'back',
+        label: 'Back',
+      },
+      {
+        value: 'resume',
+        label: 'Resume Later',
+      },
+      {
+        value: 'cancel',
+        label: 'Cancel Setup',
+      },
+    ],
+    initialValue: initialModel,
   });
 
   if (p.isCancel(value)) return { type: 'resume' };
   if (value === 'back') return { type: 'back' };
   if (value === 'resume' || value === 'cancel') return { type: value };
-  const resolvedModel = resolveModelSelection(String(value));
+  const resolvedModel = resolveModelSelectionForWorkload(String(value), 'chat');
   draft.selectedModel = resolvedModel.ok
     ? resolvedModel.alias
-    : DEFAULT_SETUP_MODEL_ALIAS;
+    : selectedPreset.chatDefault;
   return { type: 'next' };
 }

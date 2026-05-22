@@ -77,21 +77,33 @@ export function capabilityRequirementSetupAction(
 ): string {
   const implementation = requirement.implementation;
   if (implementation?.kind === 'local_cli') {
-    const rule = localCliCommandTemplatePermissionRule(
-      implementation.commandTemplate,
-      implementation.executablePath,
-    );
-    if (rule) {
+    if (
+      implementation.executablePath &&
+      implementation.executableVersion &&
+      implementation.executableHash &&
+      implementation.commandTemplate
+    ) {
       return [
-        'request_permission',
+        'propose_capability',
         JSON.stringify({
-          permissionKind: 'tool',
-          toolName: RUN_COMMAND_TOOL_NAME,
-          rule,
-          temporaryOnly: false,
-          riskClass: 'high',
           capabilityId: requirement.capabilityId,
-          capabilityDisplayName: formatCapabilityRequirement(requirement),
+          displayName: formatCapabilityRequirement(requirement),
+          category: 'Local CLI',
+          risk: 'write',
+          source: 'local_cli',
+          credentialSource: 'local_cli',
+          accountLabel: implementation.name,
+          can: `Run reviewed ${implementation.name ?? 'local CLI'} command templates for this job.`,
+          cannot:
+            'Run commands outside the reviewed templates, receive raw tokens, or write credential stores.',
+          executablePath: implementation.executablePath,
+          executableVersion: implementation.executableVersion,
+          executableHash: implementation.executableHash,
+          commandTemplates: [implementation.commandTemplate],
+          ...(implementation.authPreflight
+            ? { authPreflightCommand: implementation.authPreflight }
+            : {}),
+          protectedPaths: implementation.protectedPaths ?? [],
           reason: requirement.reason,
         }),
       ].join(' ');
@@ -101,12 +113,12 @@ export function capabilityRequirementSetupAction(
       JSON.stringify({
         capabilityId: requirement.capabilityId,
         reason:
-          'Fix local_cli implementation: executablePath must be absolute, and commandTemplate plus authPreflight must start with that exact executablePath.',
+          'Fix local_cli implementation: executablePath must be absolute, executableVersion and executableHash must be pinned, and commandTemplate plus authPreflight must start with that exact executablePath.',
       }),
     ].join(' ');
   }
   return [
-    'request_capability',
+    'propose_capability',
     JSON.stringify({
       capabilityId: requirement.capabilityId,
       reason: requirement.reason,
@@ -150,6 +162,10 @@ function normalizeImplementation(
   if (name) implementation.name = name;
   const executablePath = optionalString(input.executablePath);
   if (executablePath) implementation.executablePath = executablePath;
+  const executableVersion = optionalString(input.executableVersion);
+  if (executableVersion) implementation.executableVersion = executableVersion;
+  const executableHash = optionalString(input.executableHash);
+  if (executableHash) implementation.executableHash = executableHash;
   const commandTemplate = optionalString(input.commandTemplate);
   if (commandTemplate) implementation.commandTemplate = commandTemplate;
   const authPreflight = optionalString(input.authPreflight);
@@ -170,7 +186,19 @@ function normalizeImplementation(
     if (!implementation.commandTemplate) {
       throw new ApplicationError(
         'INVALID_REQUEST',
-        'capabilityRequirements local_cli implementation.commandTemplate is required so the runtime can request a scoped RunCommand permission.',
+        'capabilityRequirements local_cli implementation.commandTemplate is required so the runtime can propose reviewed local CLI access.',
+      );
+    }
+    if (!implementation.executableVersion) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'capabilityRequirements local_cli implementation.executableVersion is required so reviewed access is pinned to a specific CLI build.',
+      );
+    }
+    if (!implementation.executableHash) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'capabilityRequirements local_cli implementation.executableHash is required so reviewed access is pinned to a specific CLI executable.',
       );
     }
     const executableToken = implementation.commandTemplate.split(/\s+/)[0];

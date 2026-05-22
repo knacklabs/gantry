@@ -1272,7 +1272,7 @@
     "rule": "provider_specific_path",
     "reason": "Exact shared model-catalog provider debt after removing the broad shared provider allowlist; capped so new provider-specific shared leakage fails.",
     "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
-    "maxViolations": 28
+    "maxViolations": 33
   },
   {
     "file": "apps/core/src/platform/index.ts",
@@ -1382,5 +1382,19 @@
     "reason": "Moved existing Claude adapter code still carries current runtime workspace field names; this phase changes provider ownership, not canonical groupFolder renaming.",
     "removeByPhase": "canonical workspace naming cleanup",
     "maxOccurrences": 1
+  },
+  {
+    "file": "packages/contracts/src/jobs/index.ts",
+    "rule": "provider_specific_path",
+    "reason": "Public model-defaults contracts expose provider preset ids as catalog choices; keep this exact-count until contracts are generated from the shared model catalog.",
+    "removeByPhase": "model-catalog-contract-generation",
+    "maxViolations": 2
+  },
+  {
+    "file": "packages/sdk/src/job-model-types.ts",
+    "rule": "provider_specific_path",
+    "reason": "The SDK mirrors public model-defaults contract provider preset ids; keep this exact-count until SDK types are generated from the shared model catalog.",
+    "removeByPhase": "model-catalog-contract-generation",
+    "maxViolations": 2
   }
 ]

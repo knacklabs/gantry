@@ -210,6 +210,154 @@ describe('SkillDraftService', () => {
     expect(draft.description).toBe('Zip metadata');
   });
 
+  it('parses skill action permissions from the skill manifest', async () => {
+    const { service } = createService();
+
+    const draft = await service.importDraft({
+      appId: 'app:one' as never,
+      assets: [
+        {
+          path: 'SKILL.md',
+          content: Buffer.from('---\nname: linkedin-posting\n---\n# Skill'),
+        },
+        {
+          path: 'gantry.skill.json',
+          content: Buffer.from(
+            JSON.stringify({
+              actions: [
+                {
+                  id: 'publish',
+                  capabilityId: 'skill.linkedin-posting.publish',
+                  displayName: 'LinkedIn posting',
+                  risk: 'write',
+                  can: 'Publish a prepared LinkedIn post through the approved script.',
+                  cannot:
+                    'Read unrelated accounts or receive raw LinkedIn credentials.',
+                  requiredEnvVars: ['LINKEDIN_ACCESS_TOKEN'],
+                  commandTemplates: [
+                    'python3 ${skillRoot}/post.py --file /tmp/post.md',
+                  ],
+                },
+              ],
+            }),
+          ),
+          contentType: 'application/json',
+        },
+      ],
+    });
+
+    expect(draft.requiredEnvVars).toEqual(['LINKEDIN_ACCESS_TOKEN']);
+    expect(draft.actionPermissions).toEqual([
+      {
+        id: 'publish',
+        capabilityId: 'skill.linkedin-posting.publish',
+        displayName: 'LinkedIn posting',
+        risk: 'write',
+        can: 'Publish a prepared LinkedIn post through the approved script.',
+        cannot: 'Read unrelated accounts or receive raw LinkedIn credentials.',
+        requiredEnvVars: ['LINKEDIN_ACCESS_TOKEN'],
+        commandTemplates: ['skills/linkedin-posting/post.py *'],
+      },
+    ]);
+  });
+
+  it('rejects skill names that collide with Gantry materialized skills', async () => {
+    const { artifacts, service } = createService();
+
+    await expect(
+      service.importDraft({
+        appId: 'app:one' as never,
+        name: 'Gantry Admin',
+        assets: [asset],
+      }),
+    ).rejects.toThrow('reserved Gantry skill directory "gantry-admin"');
+    expect(artifacts.bundles.size).toBe(0);
+  });
+
+  it('rejects approving existing drafts with reserved materialized names', async () => {
+    const { repo, service } = createService();
+    const draft: SkillCatalogItem = {
+      id: 'skill:reserved' as SkillId,
+      appId: 'app:one' as never,
+      name: 'Commands',
+      version: 'v1',
+      source: 'admin_uploaded',
+      status: 'draft',
+      promptRefs: [],
+      toolIds: [],
+      workflowRefs: [],
+      storage: {
+        storageType: 'local-filesystem',
+        storageRef: 'skills/reserved.json',
+        contentHash: 'sha256:reserved',
+        sizeBytes: 1,
+      },
+      createdAt: '2026-04-28T00:00:00.000Z' as never,
+      updatedAt: '2026-04-28T00:00:00.000Z' as never,
+    };
+    await repo.saveSkill(draft);
+
+    await expect(
+      service.approveDraft({
+        appId: 'app:one' as never,
+        skillId: draft.id,
+      }),
+    ).rejects.toThrow('reserved Gantry skill directory "commands"');
+  });
+
+  it('rejects unsafe skill action manifests', async () => {
+    const { service } = createService();
+    const importWithAction = (action: Record<string, unknown>) =>
+      service.importDraft({
+        appId: 'app:one' as never,
+        assets: [
+          {
+            path: 'SKILL.md',
+            content: Buffer.from('---\nname: linkedin-posting\n---\n# Skill'),
+          },
+          {
+            path: 'gantry.skill.json',
+            content: Buffer.from(JSON.stringify({ actions: [action] })),
+            contentType: 'application/json',
+          },
+        ],
+      });
+    const valid = {
+      id: 'publish',
+      capabilityId: 'skill.linkedin-posting.publish',
+      displayName: 'LinkedIn posting',
+      risk: 'write',
+      can: 'Publish a prepared LinkedIn post.',
+      cannot: 'Access unrelated credentials.',
+      requiredEnvVars: [],
+      commandTemplates: ['python3 ${skillRoot}/post.py --file /tmp/post.md'],
+    };
+
+    await expect(
+      importWithAction({ ...valid, displayName: '' }),
+    ).rejects.toThrow('displayName');
+    await expect(
+      importWithAction({
+        ...valid,
+        commandTemplates: ['python3 /tmp/post.py --file /tmp/post.md'],
+      }),
+    ).rejects.toThrow('skills/linkedin-posting');
+    await expect(
+      importWithAction({
+        ...valid,
+        commandTemplates: [
+          'REQUESTS_CA_BUNDLE=/tmp/ca.pem python3 ${skillRoot}/post.py --file /tmp/post.md',
+        ],
+      }),
+    ).rejects.toThrow('environment assignments');
+    await expect(
+      importWithAction({
+        ...valid,
+        commandTemplates: ['python3 ${skillRoot}/post.py --token secret'],
+      }),
+    ).rejects.toThrow('secret-like command parts');
+  });
+
   it('materializes only approved and bound local skills', async () => {
     const { service } = createService();
     const draft = await service.importDraft({

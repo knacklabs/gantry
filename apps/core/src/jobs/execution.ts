@@ -293,28 +293,29 @@ export async function runJob(
           const executionAgentId =
             turnContext?.agentId ??
             jobToolPolicy.agentIdForJobGroupScope(execution.group.folder);
-          const [
-            toolPolicy,
-            selectedSkillIds,
-            selectedMcpServerIds,
-            credentialBroker,
-          ] = await Promise.all([
-            jobToolPolicy.resolveJobToolPolicy({
-              job: currentJob,
+          const [toolPolicy, selectedSkillIds, credentialBroker] =
+            await Promise.all([
+              jobToolPolicy.resolveJobToolPolicy({
+                job: currentJob,
+                appId: executionAppId,
+                agentId: executionAgentId,
+                toolRepository: deps.getToolRepository?.(),
+                skillRepository: deps.getSkillRepository?.(),
+              }),
+              resolveTurnSelectedSkillIds(deps, {
+                appId: executionAppId,
+                agentId: executionAgentId,
+              }),
+              deps.getCredentialBroker?.() ?? Promise.resolve(undefined),
+            ]);
+          const selectedMcpServerIds = await resolveTurnSelectedMcpServerIds(
+            deps,
+            {
               appId: executionAppId,
               agentId: executionAgentId,
-              toolRepository: deps.getToolRepository?.(),
-            }),
-            resolveTurnSelectedSkillIds(deps, {
-              appId: executionAppId,
-              agentId: executionAgentId,
-            }),
-            resolveTurnSelectedMcpServerIds(deps, {
-              appId: executionAppId,
-              agentId: executionAgentId,
-            }),
-            deps.getCredentialBroker?.() ?? Promise.resolve(undefined),
-          ]);
+            },
+            toolPolicy.effectiveAllowedTools,
+          );
           const toolAccessRequirementPreflight =
             await assertToolAccessRequirementsReadyForRun({
               toolAccessRequirements: currentJob.tool_access_requirements ?? [],

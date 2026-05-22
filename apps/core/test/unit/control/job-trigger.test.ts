@@ -2,15 +2,21 @@ import net from 'node:net';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const configMocks = vi.hoisted(() => ({
+  getDefaultModelConfig: vi.fn(() => ({
+    model: 'opus',
+    source: 'system default',
+  })),
+}));
+
 vi.mock('@core/config/index.js', () => ({
   GANTRY_HOME: '/tmp/gantry-control-test-home',
   ONECLI_ALLOWED_ENV_KEYS: [],
   getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
   syncRuntimeSettingsFromProjection: vi.fn(async () => undefined),
-  getDefaultModelConfig: vi.fn(() => ({
-    model: 'opus',
-    source: 'system default',
-  })),
+  getDefaultModelConfig: configMocks.getDefaultModelConfig,
+  getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
+  patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
 }));
 
 const schedulerMocks = vi.hoisted(() => ({
@@ -150,6 +156,10 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
 import { startControlServer } from '@core/control/server/index.js';
 
 beforeEach(() => {
+  configMocks.getDefaultModelConfig.mockImplementation(() => ({
+    model: 'opus',
+    source: 'system default',
+  }));
   schedulerMocks.isSchedulerReady.mockReturnValue(true);
   schedulerMocks.enqueueJobTrigger.mockResolvedValue(undefined);
   schedulerMocks.requestSchedulerSync.mockClear();
@@ -341,6 +351,109 @@ describe('control job trigger', () => {
     };
   }
 
+  it('previews why a stored job uses an inherited model', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:read'],
+        appId: 'app-one',
+      },
+    ]);
+    opsRepo.getJobById.mockResolvedValue(
+      makeJob({
+        model: null,
+        schedule_type: 'interval',
+        schedule_value: '900',
+      }),
+    );
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/models/preview`,
+        'token-jobs',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ target: 'job', jobId: 'job-1' }),
+        },
+      );
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toMatchObject({
+        target: 'job',
+        jobId: 'job-1',
+        kind: 'recurring',
+        selection: {
+          configuredAlias: null,
+          effectiveAlias: 'opus',
+          inherited: true,
+          source: 'system default',
+          workload: 'recurring_job',
+          model: { displayName: 'Opus 4.7', providerSlug: 'claude-opus-4-7' },
+        },
+      });
+      expect(body.why[0]).toContain('inherits system default');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('returns a forbidden preview response when the API key cannot access the stored job', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:read'],
+        appId: 'app-one',
+      },
+    ]);
+    opsRepo.getJobById.mockResolvedValue(
+      makeJob({
+        session_id: 'session-app-two',
+        execution_context: {
+          conversationJid: 'chat-1',
+          threadId: null,
+          groupScope: 'app-folder',
+          sessionId: 'session-app-two',
+        },
+      }),
+    );
+    const handle = startControlServer({
+      app: { queue: { enqueueMessageCheck: vi.fn() } } as never,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/models/preview`,
+        'token-jobs',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ target: 'job', jobId: 'job-1' }),
+        },
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          code: 'FORBIDDEN',
+          message: 'API key cannot access this job',
+        },
+      });
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('creates jobs with an eagerly persisted default model preview', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
@@ -397,7 +510,6 @@ describe('control job trigger', () => {
         modelSource: 'system default',
         model: {
           displayName: 'Opus 4.7',
-          modelProfileId: 'anthropic:opus-4.7',
         },
         runtimeContext: {
           executionContext: {
@@ -420,6 +532,91 @@ describe('control job trigger', () => {
           ),
         },
       });
+      expect(opsRepo.upsertJob).toHaveBeenCalledWith(
+        expect.objectContaining({ model: null }),
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('uses the target agent scope for inherited create job model previews', async () => {
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'token-jobs',
+        scopes: ['jobs:write'],
+        appId: 'app-one',
+      },
+    ]);
+    configMocks.getDefaultModelConfig.mockImplementation(
+      (_kind, agentFolder) =>
+        agentFolder === 'app-folder'
+          ? {
+              model: 'sonnet',
+              source: 'settings.yaml agents.<agent>.model',
+            }
+          : {
+              model: 'opus',
+              source: 'system default',
+            },
+    );
+    const handle = startControlServer({
+      app: {
+        queue: { enqueueMessageCheck: vi.fn() },
+        getConversationRoutes: () => ({
+          'chat-1': {
+            name: 'App Folder',
+            folder: 'app-folder',
+            trigger: '@App',
+            requiresTrigger: false,
+            conversationKind: 'channel',
+            agentConfig: { persona: 'personal_assistant' },
+          },
+        }),
+      } as never,
+      getBrowserStatus: browserMocks.getBrowserStatus,
+    });
+
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/jobs`,
+        'token-jobs',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Scoped default',
+            prompt: 'Summarize',
+            executionContext: {
+              conversationJid: 'chat-1',
+              threadId: null,
+              groupScope: 'app-folder',
+              sessionId: 'session-1',
+            },
+          }),
+        },
+      );
+
+      expect(response.status).toBe(201);
+      await expect(response.json()).resolves.toMatchObject({
+        modelAlias: 'sonnet',
+        modelSource: 'settings.yaml agents.<agent>.model',
+        modelSelection: {
+          alias: 'sonnet',
+          source: 'settings.yaml agents.<agent>.model',
+          explicit: false,
+        },
+        model: {
+          displayName: 'Sonnet 4.6',
+        },
+      });
+      expect(configMocks.getDefaultModelConfig).toHaveBeenCalledWith(
+        'oneTimeJob',
+        'app-folder',
+      );
       expect(opsRepo.upsertJob).toHaveBeenCalledWith(
         expect.objectContaining({ model: null }),
       );
@@ -537,6 +734,8 @@ describe('control job trigger', () => {
                   kind: 'local_cli',
                   name: 'gog',
                   executablePath: '/usr/local/bin/gog',
+                  executableVersion: 'v0.9.0',
+                  executableHash: 'sha256:abc123',
                   commandTemplate: '/usr/local/bin/gog sheets append *',
                 },
               },
@@ -1047,6 +1246,8 @@ describe('control job trigger', () => {
                   kind: 'local_cli',
                   name: 'gog',
                   executablePath: '/usr/local/bin/gog',
+                  executableVersion: 'v0.9.0',
+                  executableHash: 'sha256:abc123',
                   commandTemplate: '/usr/local/bin/gog sheets append *',
                 },
               },
@@ -1168,7 +1369,7 @@ describe('control job trigger', () => {
       await expect(response.json()).resolves.toMatchObject({
         error: {
           code: 'INVALID_REQUEST',
-          message: 'Use either modelAlias or modelProfileId, not both.',
+          message: 'Unsupported job request field "modelProfileId".',
         },
       });
       expect(opsRepo.updateJob).not.toHaveBeenCalled();
@@ -1783,6 +1984,15 @@ describe('control job trigger', () => {
             jobId: 'visible',
             promptPreview: 'Run',
             staleness: 'missed_window',
+            modelAlias: null,
+            modelSelection: {
+              alias: 'opus',
+              source: 'system default',
+              explicit: false,
+            },
+            model: expect.objectContaining({
+              displayName: 'Opus 4.7',
+            }),
             toolAccess: expect.objectContaining({
               inheritedAgentTools: [],
               effectiveAllowedTools: [],
@@ -1838,6 +2048,15 @@ describe('control job trigger', () => {
         prompt: 'Run',
         fullPrompt: 'Run',
         staleness: 'missed_window',
+        modelAlias: null,
+        modelSelection: {
+          alias: 'opus',
+          source: 'system default',
+          explicit: false,
+        },
+        model: expect.objectContaining({
+          displayName: 'Opus 4.7',
+        }),
         toolAccess: expect.objectContaining({
           inheritedAgentTools: [],
           effectiveAllowedTools: [],

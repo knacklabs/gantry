@@ -85,6 +85,7 @@ import type {
 } from '../skills/skills.js';
 import type {
   AgentToolBinding,
+  AgentToolSource,
   ToolCatalogItem,
   ToolId,
 } from '../tools/tools.js';
@@ -383,6 +384,20 @@ export interface ToolCatalogRepository {
     appId: AppId;
     agentIds: readonly AgentId[];
   }): Promise<AgentToolBinding[]>;
+  replaceAgentToolSources?(input: {
+    appId: AppId;
+    agentId: AgentId;
+    sources: AgentToolSource[];
+    updatedAt: string;
+  }): Promise<void>;
+  listAgentToolSources?(input: {
+    appId: AppId;
+    agentId: AgentId;
+  }): Promise<AgentToolSource[]>;
+  listAgentToolSourcesForAgents?(input: {
+    appId: AppId;
+    agentIds: readonly AgentId[];
+  }): Promise<AgentToolSource[]>;
 }
 
 export interface SkillCatalogRepository {

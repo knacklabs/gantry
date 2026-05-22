@@ -438,6 +438,17 @@ function parseRequestOnlyCapabilityReview(toolName: RequestOnlyCapabilityToolNam
   }
   if (toolName === 'request_skill_dependency_install' && !['npm', 'brew', 'go', 'uv', 'download'].includes(String(toolInput.ecosystem))) return { ok: false, error: 'ecosystem must be npm, brew, go, uv, or download.' };
   if (toolName === 'request_permission') {
+    const capabilityId = toTrimmedString(payload.capabilityId, { maxLen: 160 });
+    const toolNames = sanitizedStringList([
+      payload.toolName,
+      ...(Array.isArray(payload.toolNames) ? payload.toolNames : []),
+    ]);
+    if (capabilityId && toolNames.length === 0 && payload.capabilityRequestSource !== 'propose_capability') {
+      return {
+        ok: false,
+        error: 'Capability requests must use propose_capability, not request_permission.',
+      };
+    }
     const semanticError = validateRequestPermissionSemanticCapability(toolInput);
     if (semanticError) return { ok: false, error: semanticError };
   }
@@ -853,6 +864,8 @@ async function createMcpProxyForSourceGroup(input: {
       storage.repositories.capabilitySecrets,
   });
   return new McpToolProxy(storage.repositories.mcpServers, {
+    tools: storage.repositories.tools,
+    skills: storage.repositories.skills,
     credentialEnv,
     lookupHostname: input.deps.mcpHostnameLookup,
   });

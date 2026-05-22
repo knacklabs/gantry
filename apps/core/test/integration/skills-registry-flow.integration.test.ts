@@ -33,6 +33,8 @@ vi.mock('@core/config/index.js', () => ({
     model: 'opus',
     source: 'system default',
   })),
+  getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
+  patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({
@@ -1024,7 +1026,7 @@ describe('skill registry integration flow', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it('persists request_permission semantic approvals as configured capability rules', async () => {
+  it('persists proposed semantic capability approvals as configured capability rules', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const {
       deps,
@@ -1063,6 +1065,7 @@ describe('skill registry integration flow', () => {
         authThreadId: 'thread-origin',
         payload: {
           permissionKind: 'tool',
+          capabilityRequestSource: 'propose_capability',
           capabilityId: 'google.sheets.write',
           capabilityDisplayName: 'Google Sheets write',
           accountLabel: 'Configured Google access',

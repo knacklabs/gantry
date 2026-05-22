@@ -22,11 +22,24 @@ import {
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
 import { signExternalIngressRequest } from '@core/application/external-ingress/signature.js';
+import { preflightModelProvider } from '@core/adapters/llm/model-provider-preflight.js';
+
+vi.mock('@core/adapters/llm/model-provider-preflight.js', () => ({
+  preflightModelProvider: vi.fn(async () => ({
+    ok: true,
+    status: 'pass',
+    message: 'OpenRouter-scoped Model Access credential is available.',
+  })),
+}));
+
+const mockedPreflightModelProvider = vi.mocked(preflightModelProvider);
 
 vi.mock('@core/config/index.js', async () => {
   const runtimeHome = '/tmp/gantry-control-test-home';
   const settingsModule =
     await import('@core/config/settings/runtime-settings.js');
+  const modelDefaultsModule =
+    await import('@core/config/settings/model-defaults.js');
   const yoloPolicy = await import('@core/shared/yolo-mode-policy.js');
   const toPublic = () => {
     const settings = settingsModule.loadRuntimeSettings(runtimeHome);
@@ -49,14 +62,47 @@ vi.mock('@core/config/index.js', async () => {
       },
     };
   };
+  const getDefaultModelConfig = (kind = 'interactive') => {
+    const settings = settingsModule.loadRuntimeSettings(runtimeHome);
+    if (kind === 'oneTimeJob' && settings.agent.oneTimeJobDefaultModel) {
+      return {
+        model: settings.agent.oneTimeJobDefaultModel,
+        source: 'settings.yaml agent.one_time_job_default_model',
+      };
+    }
+    if (kind === 'recurringJob' && settings.agent.recurringJobDefaultModel) {
+      return {
+        model: settings.agent.recurringJobDefaultModel,
+        source: 'settings.yaml agent.recurring_job_default_model',
+      };
+    }
+    return {
+      model: settings.agent.defaultModel || 'opus',
+      source: settings.agent.defaultModel
+        ? 'settings.yaml agent.default_model'
+        : 'system default',
+    };
+  };
   return {
     GANTRY_HOME: runtimeHome,
     getControlEnvValue: vi.fn((key: string) => process.env[key]?.trim() || ''),
     syncRuntimeSettingsFromProjection: vi.fn(async () => undefined),
-    getDefaultModelConfig: vi.fn(() => ({
-      model: 'opus',
-      source: 'system default',
-    })),
+    getDefaultModelConfig: vi.fn(getDefaultModelConfig),
+    getRuntimeModelDefaults: vi.fn(() =>
+      modelDefaultsModule.readRuntimeModelDefaults({
+        runtimeHome,
+        getDefaultModelConfig,
+      }),
+    ),
+    patchRuntimeModelDefaults: vi.fn((body: Record<string, unknown>) =>
+      modelDefaultsModule.updateRuntimeModelDefaults({
+        runtimeHome,
+        body,
+      }),
+    ),
+    getRuntimeSettingsForConfig: vi.fn(() =>
+      settingsModule.loadRuntimeSettings(runtimeHome),
+    ),
     getPublicRuntimeSettings: toPublic,
   };
 });
@@ -411,6 +457,11 @@ function signIngressRequest(input: {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockedPreflightModelProvider.mockResolvedValue({
+    ok: true,
+    status: 'pass',
+    message: 'OpenRouter-scoped Model Access credential is available.',
+  });
   controlRepo.listDueWebhookDeliveries.mockResolvedValue([]);
   controlRepo.claimDueWebhookDeliveries.mockResolvedValue([]);
   controlRepo.listWebhooks.mockResolvedValue([]);
@@ -939,7 +990,7 @@ describe('control server runtime hardening', () => {
     }
   });
 
-  it('serves model catalog without exposing provider slugs', async () => {
+  it('serves model catalog with display-only provider slugs', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
@@ -970,11 +1021,269 @@ describe('control server runtime hardening', () => {
             displayName: 'Kimi K2.6',
             aliases: expect.arrayContaining(['kimi', 'kimi-k2.6']),
             provider: 'OpenRouter',
-            modelProfileId: 'openrouter:kimi-k2.6',
+            providerId: 'openrouter',
+            providerLabel: 'OpenRouter',
+            providerSlug: 'moonshotai/kimi-k2.6',
+            supportedWorkloads: expect.arrayContaining([
+              'chat',
+              'memory_extractor',
+            ]),
           }),
         ]),
       );
-      expect(JSON.stringify(body)).not.toContain('moonshotai/kimi-k2.6');
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('updates model defaults through settings-backed Control API routes', async () => {
+    const runtimeHome = '/tmp/gantry-control-test-home';
+    fs.rmSync(runtimeHome, { recursive: true, force: true });
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'admin-key',
+        scopes: ['sessions:read', 'agents:admin'],
+        appId: 'app-one',
+      },
+    ]);
+
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+    try {
+      const patchResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/models/defaults`,
+        'admin-key',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ provider: 'openrouter' }),
+        },
+      );
+      expect(patchResponse.status).toBe(200);
+      const patched = await patchResponse.json();
+      expect(patched.chat.effectiveAlias).toBe('kimi');
+      expect(patched.jobs.oneTime.effectiveAlias).toBe('kimi');
+      expect(patched.memory.extractor.effectiveAlias).toBe('kimi');
+
+      const settings = loadRuntimeSettings(runtimeHome);
+      expect(settings.agent.defaultModel).toBe('kimi');
+      expect(settings.agent.oneTimeJobDefaultModel).toBe('');
+      expect(settings.memory.llm.models.extractor).toBe('kimi');
+
+      const badResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/models/defaults`,
+        'admin-key',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ memory: 'manual' }),
+        },
+      );
+      expect(badResponse.status).toBe(400);
+      expect(await badResponse.text()).toContain('memory must be null');
+
+      const rawModelResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/models/defaults`,
+        'admin-key',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ chat: 'moonshotai/kimi-k2.6' }),
+        },
+      );
+      expect(rawModelResponse.status).toBe(400);
+      await expect(rawModelResponse.json()).resolves.toMatchObject({
+        error: {
+          message: expect.stringContaining(
+            'Provider model ID "moonshotai/kimi-k2.6" is not accepted here',
+          ),
+        },
+      });
+
+      const legacyPresetResponse = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/models/defaults`,
+        'admin-key',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ providerPreset: 'openrouter' }),
+        },
+      );
+      expect(legacyPresetResponse.status).toBe(400);
+      await expect(legacyPresetResponse.json()).resolves.toMatchObject({
+        error: {
+          message: 'Unsupported model defaults field "providerPreset".',
+        },
+      });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('previews chat model selection with session overrides', async () => {
+    const runtimeHome = '/tmp/gantry-control-test-home';
+    fs.rmSync(runtimeHome, { recursive: true, force: true });
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'reader-key',
+        scopes: ['sessions:read'],
+        appId: 'app-one',
+      },
+    ]);
+
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+        getConversationRoutes: () => ({
+          'app:app-one:session-1': {
+            jid: 'app:app-one:session-1',
+            name: 'Session 1',
+            folder: 'session-1',
+            agentConfig: { model: 'sonnet' },
+          },
+        }),
+      } as any,
+    });
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/models/preview`,
+        'reader-key',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            target: 'chat',
+            conversationJid: 'app:app-one:session-1',
+          }),
+        },
+      );
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        scope: 'app:app-one:session-1',
+        selection: {
+          effectiveAlias: 'sonnet',
+          source: 'group.agentConfig.model',
+          inherited: false,
+          model: {
+            displayName: 'Sonnet 4.6',
+          },
+        },
+        why: [expect.stringContaining('uses a session /model override')],
+      });
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('preflights OpenRouter defaults before writing settings through the Control API', async () => {
+    const runtimeHome = '/tmp/gantry-control-test-home';
+    fs.rmSync(runtimeHome, { recursive: true, force: true });
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'admin-key',
+        scopes: ['sessions:read', 'agents:admin'],
+        appId: 'app-one',
+      },
+    ]);
+    mockedPreflightModelProvider.mockResolvedValueOnce({
+      ok: false,
+      status: 'fail',
+      message: 'OpenRouter-scoped Model Access credential is missing.',
+    });
+
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/models/defaults`,
+        'admin-key',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ provider: 'openrouter' }),
+        },
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          message: expect.stringContaining('Provider preflight failed'),
+        },
+      });
+      expect(loadRuntimeSettings(runtimeHome).agent.defaultModel).not.toBe(
+        'kimi',
+      );
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('preflights inherited OpenRouter defaults before writing reset patches', async () => {
+    const runtimeHome = '/tmp/gantry-control-test-home';
+    fs.rmSync(runtimeHome, { recursive: true, force: true });
+    const settings = loadRuntimeSettings(runtimeHome);
+    settings.agent.defaultModel = 'kimi';
+    settings.agent.oneTimeJobDefaultModel = 'sonnet';
+    settings.agent.recurringJobDefaultModel = 'sonnet';
+    saveRuntimeSettings(runtimeHome, settings);
+    const port = await reservePort();
+    process.env.GANTRY_CONTROL_PORT = String(port);
+    process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
+      {
+        kid: 'k',
+        token: 'admin-key',
+        scopes: ['sessions:read', 'agents:admin'],
+        appId: 'app-one',
+      },
+    ]);
+    mockedPreflightModelProvider.mockResolvedValueOnce({
+      ok: false,
+      status: 'fail',
+      message: 'OpenRouter-scoped Model Access credential is missing.',
+    });
+
+    const handle = startControlServer({
+      app: {
+        registerGroup: vi.fn(),
+        queue: { enqueueMessageCheck: vi.fn() },
+      } as any,
+    });
+    try {
+      const response = await requestWithRetry(
+        `http://127.0.0.1:${port}/v1/models/defaults`,
+        'admin-key',
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jobs: 'inherit' }),
+        },
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: {
+          message: expect.stringContaining('Provider preflight failed'),
+        },
+      });
+      const after = loadRuntimeSettings(runtimeHome);
+      expect(after.agent.oneTimeJobDefaultModel).toBe('sonnet');
+      expect(after.agent.recurringJobDefaultModel).toBe('sonnet');
     } finally {
       await handle.close();
     }

@@ -16,6 +16,7 @@ import {
 import {
   BundledClaudeSkillSource,
   materializeClaudeSkills,
+  type ClaudeSkillSourceItem,
   type SkillSource,
 } from './claude-skill-materializer.js';
 
@@ -39,6 +40,7 @@ export interface ClaudeRuntimeMaterialization extends RuntimeMaterialization {
   providerSessionRestoreDir: string;
   projectDir: string;
   protectedFilesystemPaths: string[];
+  materializedSkills: ClaudeSkillSourceItem[];
 }
 
 export interface ClaudeRuntimeMaterializationInput {
@@ -93,6 +95,7 @@ export async function materializeClaudeRuntime(
     'projects',
     getClaudeProjectDirName(input.groupDir),
   );
+  let materializedSkills: ClaudeSkillSourceItem[] = [];
 
   try {
     fs.mkdirSync(projectDir, { recursive: true, mode: 0o700 });
@@ -107,7 +110,7 @@ export async function materializeClaudeRuntime(
       ),
       { mode: 0o600 },
     );
-    await materializeClaudeSkills({
+    materializedSkills = await materializeClaudeSkills({
       skillSource:
         input.skillSource ?? new BundledClaudeSkillSource(input.packageRoot),
       skillsDir,
@@ -137,6 +140,7 @@ export async function materializeClaudeRuntime(
       path.join(input.packageRoot, '.agents', 'skills'),
       ...(input.managedSkillArtifactRoots ?? []),
     ]),
+    materializedSkills,
     cleanupPolicy,
     cleanup: () => {
       if (cleanupPolicy === 'delete-after-run') {

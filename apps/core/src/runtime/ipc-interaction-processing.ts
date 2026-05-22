@@ -177,6 +177,8 @@ export async function processPermissionInteractionIpc(input: {
         toolRepository,
         mirrorAgentToolRulesToSettings,
         permissionRepository: input.deps.getPermissionRepository?.(),
+        semanticCapabilityDefinitions:
+          input.request.semanticCapabilityDefinitions,
         ipcDir: pathForGroupIpc(input.ipcBaseDir, input.sourceAgentFolder),
         runHandle: input.request.runHandle,
         requestId: input.request.requestId,
@@ -200,7 +202,7 @@ export async function processPermissionInteractionIpc(input: {
         payload: persistedContext,
       });
       await sendPermissionOutcomeMessage(input.deps, input.request, {
-        text: `Always allowed: ${formatPersistentPermissionRulesForUser(permissionUpdateAllowedToolRules(decision.updatedPermissions))}.`,
+        text: `Always allowed: ${formatPersistentPermissionRulesForUser(permissionUpdateAllowedToolRules(decision.updatedPermissions), { semanticCapabilityDefinitions: input.request.semanticCapabilityDefinitions })}.`,
       });
     } else {
       await permissionService.recordDecision({

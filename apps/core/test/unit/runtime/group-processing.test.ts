@@ -739,6 +739,50 @@ describe('createGroupProcessor', () => {
       const lastSetCursor = setCursorCalls[setCursorCalls.length - 1];
       expect(lastSetCursor).toEqual(['group1@g.us', 'prev-cursor']);
     });
+
+    it('does not retry Model Access authentication failures', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const messages = [makeMessage({ timestamp: '1700000001' })];
+      const { deps, channel } = setupHappyPath({ group, messages });
+
+      const errorOutput: AgentOutput = {
+        status: 'error',
+        result: null,
+        error:
+          'Failed to authenticate. API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"Invalid bearer token"}}',
+      };
+      mockSpawnAgent.mockImplementation(
+        async (
+          _group: ConversationRoute,
+          _input: unknown,
+          _onProc: unknown,
+          onOutput?: (output: AgentOutput) => Promise<void>,
+        ) => {
+          if (onOutput) await onOutput(errorOutput);
+          return errorOutput;
+        },
+      );
+
+      (deps.getCursor as ReturnType<typeof vi.fn>).mockReturnValue(
+        'prev-cursor',
+      );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(true);
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        'Model Access authentication failed. Update the provider API key in Model Access, then send the message again.',
+      );
+      const setCursorCalls = (deps.setCursor as ReturnType<typeof vi.fn>).mock
+        .calls;
+      expect(setCursorCalls).toHaveLength(1);
+      expect(decodeGroupMessageCursor(setCursorCalls[0][1])).toEqual({
+        timestamp: '1700000001',
+        id: 'msg-1',
+      });
+    });
   });
 
   describe('agent error AFTER output was sent to user', () => {

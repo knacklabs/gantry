@@ -152,8 +152,7 @@ export function capabilityStatusText(): string {
     '',
     'Semantic capability tools:',
     '- capability_search: find built-in capabilities such as google.sheets.write',
-    '- request_capability: request a named semantic capability for this agent',
-    '- propose_local_cli_capability: review a user-defined authenticated local CLI capability draft; it is not runnable command-tool authority until runtime enforcement exists',
+    '- propose_capability: request an approved semantic capability or propose a reviewed local_cli capability with pinned executable details',
     '- manage_capability: view/change/revoke/test/audit guidance for selected capabilities',
     '',
     'Scheduler monitoring:',
@@ -166,11 +165,7 @@ export function capabilityStatusText(): string {
       if (currentAdminTools.has(toolName)) {
         return `- available: ${fullName}`;
       }
-      return [
-        `- requestable: ${fullName}`,
-        `  tool_id: tool:${fullName}`,
-        `  request_permission: permissionKind=tool toolName=${fullName} temporaryOnly=false reason="<why this agent needs ${toolName}>"`,
-      ].join('\n');
+      return `- requestable: ${fullName} (ask a configured approver to approve this capability)`;
     }),
     '',
     'Memory IPC actions available in this run:',
@@ -199,8 +194,6 @@ export function capabilityStatusText(): string {
     ...(requestableBrowserTools.length > 0
       ? requestableBrowserTools.flatMap((tool) => [
           `- requestable: ${tool.tool}`,
-          `  tool_id: ${tool.toolId}`,
-          `  request_permission: ${tool.requestPermission}`,
           `  note: ${tool.note}`,
         ])
       : [

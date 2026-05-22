@@ -23,6 +23,7 @@ import {
 import {
   buildLocalCliSemanticCapability,
   getBuiltinSemanticCapability,
+  semanticCapabilityDefinitionFromToolInput,
   type SemanticCapabilityDefinition,
   validateSemanticCapabilityDefinition,
 } from '../shared/semantic-capabilities.js';
@@ -257,6 +258,14 @@ export function semanticCapabilityDefinitionsForToolInput(
     maxLen: 160,
   });
   if (!capabilityId) return undefined;
+  if (capabilityId.startsWith('skill.')) return undefined;
+  const explicitDefinition = semanticCapabilityDefinitionFromToolInput(
+    toolInput,
+    capabilityId,
+  );
+  if (explicitDefinition?.credentialSource === 'local_cli') {
+    return { [explicitDefinition.capabilityId]: explicitDefinition };
+  }
   if (toolInput.credentialSource !== 'local_cli') return undefined;
   const commandTemplates = sanitizedStringList(
     Array.isArray(toolInput.commandTemplates)
@@ -283,7 +292,7 @@ export function semanticCapabilityDefinitionsForToolInput(
       'Review the proposed local CLI command templates and account context.',
     cannot:
       toTrimmedString(toolInput.cannot, { maxLen: 1000 }) ||
-      'Run CLI commands until runtime enforcement exists, receive raw tokens, or write credential stores.',
+      'Run commands outside the reviewed templates, receive raw tokens, or write credential stores.',
     executablePath:
       toTrimmedString(toolInput.executablePath, { maxLen: 2048 }) || '',
     executableVersion: toTrimmedString(toolInput.executableVersion, {

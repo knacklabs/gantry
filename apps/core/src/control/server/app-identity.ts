@@ -7,8 +7,12 @@ import { nowIso as runtimeNowIso } from '../../shared/time/datetime.js';
 import { resolveAppScopeAppId as applicationResolveAppScopeAppId } from '../../application/app-scope/resolve-app-scope.js';
 import type { AppSessionRecord as JobAppSessionRecord } from '../../application/jobs/job-management-types.js';
 import type { IsoTimestamp } from '../../shared/time/primitives.js';
-import { resolveModelSelection } from '../../shared/model-catalog.js';
+import {
+  modelUseKindForJobSchedule,
+  resolveJobModel,
+} from '../../application/jobs/job-model-resolution.js';
 import type { ApiKeyRecord } from './auth.js';
+import type { ControlRouteContext } from './handler-context.js';
 
 export function nowIso(): IsoTimestamp {
   return runtimeNowIso() as IsoTimestamp;
@@ -89,10 +93,24 @@ export async function resolveJobAppSession(
 export function mapManualJobToStored(
   job: Job,
   metadata: JobVisibilityMetadata,
-  options: { detail?: boolean } = { detail: true },
+  options: {
+    detail?: boolean;
+    getDefaultModelConfig?: ControlRouteContext['getDefaultModelConfig'];
+  } = { detail: true },
 ): Record<string, unknown> {
   const isManual = job.schedule_type === 'manual';
-  const resolvedModel = resolveModelSelection(job.model);
+  const modelUseKind = modelUseKindForJobSchedule(job.schedule_type);
+  const defaultConfig = options.getDefaultModelConfig?.(
+    modelUseKind,
+    job.group_scope,
+  ) ?? {
+    model: job.model ?? undefined,
+    source: job.model ? 'job.model' : 'inherited',
+  };
+  const resolvedModel = resolveJobModel(job, defaultConfig);
+  const resolvedAlias = resolvedModel.resolution?.ok
+    ? resolvedModel.resolution.alias
+    : (resolvedModel.selectedModel ?? null);
   const detail = options.detail !== false;
   return {
     jobId: job.id,
@@ -125,15 +143,18 @@ export function mapManualJobToStored(
     staleness: metadata.staleness,
     health: metadata.health,
     modelAlias: job.model ?? null,
-    modelProfileId: resolvedModel.ok ? resolvedModel.entry.id : null,
-    model: resolvedModel.ok
+    modelSelection: {
+      alias: resolvedAlias,
+      source: job.model ? 'explicit' : resolvedModel.source,
+      explicit: Boolean(job.model),
+    },
+    model: resolvedModel.entry
       ? {
           displayName: resolvedModel.entry.displayName,
           provider: resolvedModel.entry.providerLabel,
           contextWindowTokens: resolvedModel.entry.contextWindowTokens,
           maxOutputTokens: resolvedModel.entry.maxOutputTokens,
           cachePolicy: resolvedModel.entry.cacheMode,
-          modelProfileId: resolvedModel.entry.id,
         }
       : null,
     groupScope: job.group_scope,

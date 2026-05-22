@@ -2,6 +2,7 @@ import fs from 'fs';
 
 import type { HostCredentialMode } from '../config/credentials/mode.js';
 import { onboardingStatePath } from '../config/settings/runtime-home.js';
+import type { ModelProviderId } from '../shared/model-catalog.js';
 import { nowIso } from '../shared/time/datetime.js';
 
 export type OnboardingStep =
@@ -43,6 +44,7 @@ export interface OnboardingData {
   credentialMode?: HostCredentialMode;
   onecliUrl?: string;
   agentName?: string;
+  modelProvider?: ModelProviderId;
   selectedModel?: string;
 }
 

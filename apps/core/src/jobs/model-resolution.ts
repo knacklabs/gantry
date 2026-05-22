@@ -1,48 +1,12 @@
-import type { Job } from '../domain/types.js';
+import type { NormalizedModelUsage } from '../shared/model-catalog.js';
 import {
-  resolveModelSelection,
-  type ModelCatalogEntry,
-  type ModelResolution,
-  type NormalizedModelUsage,
-} from '../shared/model-catalog.js';
+  modelUseKindForJobSchedule,
+  resolveJobModel,
+  type ResolvedJobModel,
+} from '../application/jobs/job-model-resolution.js';
 
 export type { NormalizedModelUsage };
-
-export function modelUseKindForJobSchedule(
-  scheduleType: Job['schedule_type'],
-): 'oneTimeJob' | 'recurringJob' {
-  return scheduleType === 'cron' || scheduleType === 'interval'
-    ? 'recurringJob'
-    : 'oneTimeJob';
-}
-
-interface DefaultModelConfig {
-  model?: string;
-  source: string;
-}
-
-interface ResolvedJobModel {
-  selectedModel?: string;
-  source: string;
-  resolution?: ModelResolution;
-  entry?: ModelCatalogEntry;
-}
-
-export function resolveJobModel(
-  job: Pick<Job, 'model' | 'schedule_type'>,
-  defaultConfig: DefaultModelConfig,
-) {
-  const selectedModel = job.model || defaultConfig.model;
-  const resolution = selectedModel
-    ? resolveModelSelection(selectedModel)
-    : undefined;
-  return {
-    selectedModel,
-    source: job.model ? 'job.model' : defaultConfig.source,
-    resolution,
-    entry: resolution?.ok ? resolution.entry : undefined,
-  } satisfies ResolvedJobModel;
-}
+export { modelUseKindForJobSchedule, resolveJobModel };
 
 function modelAuditPayload(resolved: ResolvedJobModel) {
   return {

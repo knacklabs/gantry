@@ -180,7 +180,7 @@ describe('request permission review helpers', () => {
     ]);
   });
 
-  it('treats local CLI capability proposals as review-only drafts until runtime enforcement exists', async () => {
+  it('persists reviewed local CLI capabilities with scoped command templates', async () => {
     const repository = {
       getTool: vi.fn(async () => null),
       listTools: vi.fn(async () => []),
@@ -212,29 +212,45 @@ describe('request permission review helpers', () => {
         temporaryOnly: false,
         ...toolInput,
       }),
-    ).toBeUndefined();
+    ).toEqual([
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [{ toolName: 'capability:acme.invoices.read' }],
+      },
+    ]);
 
-    await expect(
-      persistRequestPermissionRules({
-        appId: 'app:test' as never,
-        agentId: 'agent:test' as never,
-        deps: depsWith(repository),
-        sourceAgentFolder: 'main_agent',
-        toolInput,
-        updates: [
-          {
-            type: 'addRules',
-            behavior: 'allow',
-            rules: [{ toolName: 'capability:acme.invoices.read' }],
-          },
-        ],
+    await persistRequestPermissionRules({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      deps: depsWith(repository),
+      sourceAgentFolder: 'main_agent',
+      toolInput,
+      updates: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:acme.invoices.read' }],
+        },
+      ],
+    });
+    expect(repository.saveTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'tool:capability:acme.invoices.read',
+        name: 'capability:acme.invoices.read',
+        kind: 'local_cli',
       }),
-    ).rejects.toThrow('Local CLI capabilities are draft-only');
-    expect(repository.saveTool).not.toHaveBeenCalled();
-    expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
+    );
+    expect(repository.saveAgentToolBinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolId: 'tool:capability:acme.invoices.read',
+        status: 'active',
+      }),
+    );
   });
 
-  it('does not let local CLI proposals for built-in capabilities become configured-access grants', async () => {
+  it('allows reviewed local CLI implementation for an existing semantic id', async () => {
     const repository = {
       getTool: vi.fn(async () => null),
       listTools: vi.fn(async () => []),
@@ -264,26 +280,42 @@ describe('request permission review helpers', () => {
         temporaryOnly: false,
         ...toolInput,
       }),
-    ).toBeUndefined();
+    ).toEqual([
+      {
+        type: 'addRules',
+        behavior: 'allow',
+        destination: 'session',
+        rules: [{ toolName: 'capability:google.sheets.write' }],
+      },
+    ]);
 
-    await expect(
-      persistRequestPermissionRules({
-        appId: 'app:test' as never,
-        agentId: 'agent:test' as never,
-        deps: depsWith(repository),
-        sourceAgentFolder: 'main_agent',
-        toolInput,
-        updates: [
-          {
-            type: 'addRules',
-            behavior: 'allow',
-            rules: [{ toolName: 'capability:google.sheets.write' }],
-          },
-        ],
+    await persistRequestPermissionRules({
+      appId: 'app:test' as never,
+      agentId: 'agent:test' as never,
+      deps: depsWith(repository),
+      sourceAgentFolder: 'main_agent',
+      toolInput,
+      updates: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:google.sheets.write' }],
+        },
+      ],
+    });
+    expect(repository.saveTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'tool:capability:google.sheets.write',
+        name: 'capability:google.sheets.write',
+        kind: 'local_cli',
       }),
-    ).rejects.toThrow('Local CLI capabilities are draft-only');
-    expect(repository.saveTool).not.toHaveBeenCalled();
-    expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
+    );
+    expect(repository.saveAgentToolBinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolId: 'tool:capability:google.sheets.write',
+        status: 'active',
+      }),
+    );
   });
 
   it('rejects rebinding existing local CLI catalog rows through request_permission', async () => {
@@ -341,7 +373,7 @@ describe('request permission review helpers', () => {
           },
         ],
       }),
-    ).rejects.toThrow('Local CLI capabilities are draft-only');
+    ).rejects.toThrow('Unknown semantic capability acme.invoices.read');
     expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
   });
 
@@ -711,6 +743,102 @@ describe('request permission review helpers', () => {
     ).toBeUndefined();
   });
 
+  it('rejects unknown semantic capability persistent approval updates without trusted definitions', async () => {
+    const repository = {
+      getTool: vi.fn(async () => null),
+      listTools: vi.fn(async () => []),
+      listAgentToolBindings: vi.fn(async () => []),
+      saveTool: vi.fn(async () => undefined),
+      saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+
+    await expect(
+      persistRequestPermissionRules({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
+        deps: depsWith(repository),
+        sourceAgentFolder: 'main_agent',
+        updates: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'capability:acme.invoices.read' }],
+          },
+        ],
+      }),
+    ).rejects.toThrow('Unknown semantic capability acme.invoices.read');
+    expect(repository.saveTool).not.toHaveBeenCalled();
+    expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
+  });
+
+  it('rejects agent-authored skill action capability definitions in request_permission', async () => {
+    const fakeSkillCapability = {
+      capabilityId: 'skill.linkedin-posting.publish',
+      capabilityDisplayName: 'LinkedIn posting',
+      semanticCapabilityDefinition: {
+        capabilityId: 'skill.linkedin-posting.publish',
+        displayName: 'LinkedIn posting',
+        category: 'linkedin-posting',
+        risk: 'write',
+        can: 'Publish posts through the selected LinkedIn posting skill.',
+        cannot:
+          'Use unrelated skills, credentials, settings, or broader commands.',
+        credentialSource: 'skill_secret',
+        implementationBindings: [
+          {
+            kind: 'tool_rule',
+            rule: 'RunCommand(skills/linkedin-posting/post.py *)',
+          },
+        ],
+        preflight: { kind: 'none' },
+      },
+      temporaryOnly: false,
+    };
+    const repository = {
+      getTool: vi.fn(async () => null),
+      listTools: vi.fn(async () => []),
+      listAgentToolBindings: vi.fn(async () => []),
+      saveTool: vi.fn(async () => undefined),
+      saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+
+    expect(
+      requestPermissionReviewSuggestions({
+        permissionKind: 'tool',
+        ...fakeSkillCapability,
+      }),
+    ).toBeUndefined();
+    expect(
+      requestPermissionSetupDecisionOptions({
+        permissionKind: 'tool',
+        ...fakeSkillCapability,
+      }),
+    ).toEqual(['allow_once', 'cancel']);
+
+    await expect(
+      persistRequestPermissionRules({
+        appId: 'app:test' as never,
+        agentId: 'agent:test' as never,
+        deps: depsWith(repository),
+        sourceAgentFolder: 'main_agent',
+        toolInput: fakeSkillCapability,
+        updates: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'capability:skill.linkedin-posting.publish' }],
+          },
+        ],
+      }),
+    ).rejects.toThrow(
+      'Unknown semantic capability skill.linkedin-posting.publish',
+    );
+    expect(repository.saveTool).not.toHaveBeenCalled();
+    expect(repository.saveAgentToolBinding).not.toHaveBeenCalled();
+  });
+
   it('does not suggest persistent RunCommand rules that contain secret-like material', () => {
     expect(
       requestPermissionReviewSuggestions({
@@ -750,7 +878,7 @@ describe('request permission review helpers', () => {
     ]);
 
     expect(formatted).toContain('scoped RunCommand rule [sha256:');
-    expect(formatted).toContain('capability:google.sheets.write');
+    expect(formatted).toContain('Google Sheets write [sha256:');
     expect(formatted).not.toContain('curl https://example.com');
     expect(formatted).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
   });

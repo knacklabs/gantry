@@ -26,6 +26,7 @@ import { querySuffix } from './query-string.js';
 export type { RuntimeSettingsResponse } from './settings.js';
 import * as mcpServerClients from './mcp-servers.js';
 import { jobListQuery } from './job-list-query.js';
+import { createModelsClient } from './models.js';
 import type {
   CreateJobInput,
   CreateJobResponse,
@@ -34,7 +35,6 @@ import type {
   JobTriggerWaitResult,
   ListJobEventsInput,
   ListJobsInput,
-  ModelRecord,
   UpdateJobInput,
 } from './job-model-types.js';
 export type {
@@ -55,6 +55,10 @@ export type {
   ListJobEventsInput,
   ListJobsInput,
   ModelRecord,
+  ModelDefaultsPatchRequest,
+  ModelDefaultsResponse,
+  ModelPreviewRequest,
+  ModelPreviewResponse,
   UpdateJobInput,
 } from './job-model-types.js';
 export type ResponseMode = 'sse' | 'webhook' | 'both' | 'none';
@@ -263,10 +267,12 @@ export class GantryClient {
   private readonly request = <T>(options: RequestOptions) =>
     this.transport.request<T>(options);
   readonly ingresses: ReturnType<typeof createIngressesClient>;
+  readonly models: ReturnType<typeof createModelsClient>;
 
   constructor(options: ClientOptions) {
     this.transport = new Transport(options);
     this.ingresses = createIngressesClient(this.transport);
+    this.models = createModelsClient(this.transport);
   }
 
   health() {
@@ -414,14 +420,6 @@ export class GantryClient {
       this.transport.request<JobTriggerWaitResult>({
         method: 'GET',
         path: `/v1/triggers/${encodeURIComponent(triggerId)}/wait?timeoutMs=${timeoutMs || 60_000}`,
-      }),
-  };
-
-  readonly models = {
-    list: () =>
-      this.transport.request<{ models: ModelRecord[] }>({
-        method: 'GET',
-        path: '/v1/models',
       }),
   };
 

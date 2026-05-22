@@ -273,6 +273,69 @@ describe('permission interaction', () => {
     ).toBe('Always allow');
   });
 
+  it('renders trusted skill action prompts with short mobile buttons', () => {
+    const request = {
+      requestId: 'permission_123',
+      sourceAgentFolder: 'Main Agent',
+      jobId: 'linkedin-job-1',
+      toolName: 'Bash',
+      toolInput: {
+        command: 'python3 skills/linkedin-posting/post.py --file /tmp/post.md',
+      },
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:skill.linkedin-posting.publish' }],
+        },
+      ],
+      semanticCapabilityDefinitions: {
+        'skill.linkedin-posting.publish': {
+          capabilityId: 'skill.linkedin-posting.publish',
+          displayName: 'LinkedIn posting',
+          category: 'linkedin-posting',
+          risk: 'write',
+          can: 'Publish a prepared LinkedIn post through the approved script.',
+          cannot:
+            'Read unrelated accounts or receive raw LinkedIn credentials.',
+          credentialSource: 'skill_secret',
+          implementationBindings: [
+            {
+              kind: 'tool_rule',
+              rule: 'RunCommand(skills/linkedin-posting/post.py *)',
+            },
+          ],
+          preflight: { kind: 'none' },
+        },
+      },
+    } satisfies PermissionApprovalRequest;
+
+    const text = formatPermissionPromptText(request, 60_000);
+
+    expect(text.split('\n')[0]).toBe('Allow LinkedIn posting?');
+    expect(text).toContain('From: scheduled job');
+    expect(text).toContain('Agent: Main Agent');
+    expect(text).toContain(
+      'Allows: Publish a prepared LinkedIn post through the approved script.',
+    );
+    expect(permissionButtonLabel('allow_once', request)).toBe('Allow once');
+    expect(permissionButtonLabel('allow_timed_grant', request)).toBe(
+      'Allow 5 min',
+    );
+    expect(permissionButtonLabel('allow_persistent_rule', request)).toBe(
+      'Always allow',
+    );
+    expect(permissionButtonLabel('cancel', request)).toBe('Cancel');
+
+    const receipt = formatPermissionReceiptText('permission_123', request, {
+      approved: true,
+      mode: 'allow_persistent_rule',
+      decidedBy: 'ravi',
+    });
+    expect(receipt).toContain('Always allowed: LinkedIn posting');
+    expect(receipt).toContain('Details: LinkedIn posting [sha256:');
+  });
+
   it('renders scoped RunCommand setup prompts as command rules even when capability metadata is present', () => {
     const text = formatPermissionPromptText(
       {
@@ -479,6 +542,88 @@ describe('permission interaction', () => {
     expect(text).toContain('From: agent chat');
     expect(text).toContain('Agent: main_agent');
     expect(text).not.toContain('From: scheduled job');
+  });
+
+  it('renders skill action capability prompts with the semantic display name', () => {
+    const text = formatPermissionPromptText(
+      {
+        requestId: 'permission_123',
+        sourceAgentFolder: 'main_agent',
+        toolName: 'RunCommand',
+        toolInput: {
+          command: 'skills/linkedin-posting/publish --draft post.md',
+        },
+        suggestions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            destination: 'session',
+            rules: [{ toolName: 'capability:skill.linkedin-posting.publish' }],
+          },
+        ],
+        semanticCapabilityDefinitions: {
+          'skill.linkedin-posting.publish': {
+            capabilityId: 'skill.linkedin-posting.publish',
+            displayName: 'LinkedIn posting',
+            category: 'LinkedIn posting',
+            risk: 'write',
+            can: 'Publish posts through the selected LinkedIn posting skill.',
+            cannot:
+              'Use unrelated skills, credentials, settings, or broader commands.',
+            credentialSource: 'skill_secret',
+            implementationBindings: [
+              {
+                kind: 'tool_rule',
+                rule: 'RunCommand(skills/linkedin-posting/publish *)',
+              },
+            ],
+            preflight: { kind: 'none' },
+            sandboxProfile: {
+              network: 'required',
+              filesystem: 'workspace_write',
+            },
+          },
+        },
+      },
+      60_000,
+    );
+
+    expect(text).toContain('Allow LinkedIn posting?');
+    expect(text).toContain(
+      'Details: capability:skill.linkedin-posting.publish; risk: write',
+    );
+  });
+
+  it('does not trust free-form labels for unknown skill action capabilities', () => {
+    const request = {
+      requestId: 'permission_123',
+      sourceAgentFolder: 'main_agent',
+      toolName: 'Bash',
+      toolInput: {
+        command: 'python3 skills/linkedin-posting/post.py --file /tmp/post.md',
+        capabilityId: 'skill.linkedin-posting.publish',
+        capabilityDisplayName: 'LinkedIn posting',
+      },
+      suggestions: [
+        {
+          type: 'addRules',
+          behavior: 'allow',
+          rules: [{ toolName: 'capability:skill.linkedin-posting.publish' }],
+        },
+      ],
+    } satisfies PermissionApprovalRequest;
+
+    const text = formatPermissionPromptText(request, 60_000);
+
+    expect(firstPersistentRule(request)).toBeUndefined();
+    expect(permissionDecisionOptions(request)).toEqual([
+      'allow_once',
+      'allow_timed_grant',
+      'cancel',
+    ]);
+    expect(text.split('\n')[0]).toBe('Allow exact command access?');
+    expect(text).not.toContain('Allow LinkedIn posting?');
+    expect(text).not.toContain('future matching runs');
   });
 
   it('renders typed tool input families without JSON dumps', () => {

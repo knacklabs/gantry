@@ -8,6 +8,7 @@ import type {
 import type {
   CapabilitySecretRepository,
   McpServerRepository,
+  SkillCatalogRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
 import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
@@ -132,6 +133,7 @@ export interface JobManagementServiceDeps {
   runtimeEvents?: RuntimeEventPublisherPort;
   triggerQueue?: JobTriggerQueuePort;
   toolRepository?: ToolCatalogRepository;
+  skillRepository?: SkillCatalogRepository;
   mcpServerRepository?: McpServerRepository;
   capabilitySecretRepository?: CapabilitySecretRepository;
   getCredentialBroker?: () => Promise<AgentCredentialBroker | undefined>;
@@ -154,7 +156,6 @@ export interface CreateManagedJobInput {
   runAt?: string;
   schedule?: { type?: unknown; value?: unknown };
   modelAlias?: unknown;
-  modelProfileId?: unknown;
   dryRun?: unknown;
 }
 
@@ -164,7 +165,6 @@ export interface UpsertJobFromIpcInput {
   name: string;
   prompt: string;
   modelAlias?: string | null;
-  modelProfileId?: string | null;
   scheduleType: unknown;
   scheduleValue: string;
   executionContext?: JobExecutionContextInput;

@@ -17,7 +17,7 @@ import { logger } from '../infrastructure/logging/logger.js';
 import { ConversationRoute } from '../domain/types.js';
 import {
   findModelByRunnerModel,
-  resolveModelSelection,
+  resolveModelSelectionForWorkload,
   resolveRunnerModel,
 } from '../shared/model-catalog.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
@@ -98,6 +98,24 @@ const PREPARED_EXECUTION_ENV_DENYLIST = new Set([
   'LD_PRELOAD',
   'NODE_EXTRA_CA_CERTS',
 ]);
+const PREPARED_EXECUTION_GANTRY_ENV_ALLOWLIST = new Set([
+  'GANTRY_EFFECTIVE_MODEL_SOURCE',
+  'GANTRY_SKILL_ACTIONS_JSON',
+]);
+const PREPARED_EXECUTION_ENV_SUFFIX_ALLOWLIST = ['_CONFIG_DIR', '_MODEL'];
+const PREPARED_EXECUTION_SECRET_ENV_PATTERN =
+  /(?:^|_)(?:API_)?(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)(?:_|$)/i;
+
+function isPreparedExecutionEnvKeyAllowed(key: string): boolean {
+  if (PREPARED_EXECUTION_ENV_DENYLIST.has(key)) return false;
+  if (key.startsWith('GANTRY_')) {
+    return PREPARED_EXECUTION_GANTRY_ENV_ALLOWLIST.has(key);
+  }
+  if (PREPARED_EXECUTION_SECRET_ENV_PATTERN.test(key)) return false;
+  return PREPARED_EXECUTION_ENV_SUFFIX_ALLOWLIST.some((suffix) =>
+    key.endsWith(suffix),
+  );
+}
 
 function pickSafeHostEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
@@ -111,6 +129,18 @@ function pickSafeHostEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 function pickPreparedExecutionEnv(
+  source: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value !== 'string' || value.length === 0) continue;
+    if (!isPreparedExecutionEnvKeyAllowed(key)) continue;
+    env[key] = value;
+  }
+  return env;
+}
+
+function pickSelectedCapabilityEnv(
   source: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
@@ -158,8 +188,13 @@ export async function spawnAgent(
     group.folder,
   );
   const requestedModel = input.model || modelConfig.model;
+  const modelWorkload = input.isScheduledJob
+    ? input.jobModelUseKind === 'oneTimeJob'
+      ? 'one_time_job'
+      : 'recurring_job'
+    : 'chat';
   const resolvedModel = requestedModel
-    ? resolveModelSelection(requestedModel)
+    ? resolveModelSelectionForWorkload(requestedModel, modelWorkload)
     : undefined;
   if (resolvedModel && !resolvedModel.ok) {
     return {
@@ -464,7 +499,7 @@ export async function spawnAgent(
         error: selectedSkillEnv.missingMessage,
       };
     }
-    Object.assign(env, pickPreparedExecutionEnv(selectedSkillEnv.env));
+    Object.assign(env, pickSelectedCapabilityEnv(selectedSkillEnv.env));
     mcpConfigPath =
       allMcpCapabilities.length > 0
         ? writeRunnerMcpConfigFile(hostRuntime.groupIpcDir, allMcpCapabilities)

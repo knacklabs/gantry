@@ -119,6 +119,44 @@ describe('runClaudeQuery', () => {
     });
   });
 
+  it('suppresses Claude SDK-native skills for memory SDK queries', async () => {
+    queryMock.mockImplementation(() =>
+      (async function* () {
+        yield {
+          type: 'assistant',
+          message: {
+            content: [{ type: 'text', text: '[{"kind":"fact"}]' }],
+          },
+        };
+      })(),
+    );
+
+    const { runClaudeQuery } =
+      await import('@core/adapters/llm/anthropic-claude-agent/memory-query.js');
+    const { SDK_NATIVE_SKILL_DISABLE_ENV, SDK_NATIVE_SKILL_OVERRIDES } =
+      await import('@core/adapters/llm/anthropic-claude-agent/native-sdk-skills.js');
+
+    await runClaudeQuery({
+      model: 'claude-haiku-4-5-20251001',
+      prompt: 'Extract facts',
+    });
+
+    const call = queryMock.mock.calls[0]?.[0] as
+      | {
+          options?: {
+            env?: Record<string, string>;
+            settings?: {
+              skillOverrides?: Record<string, string>;
+            };
+          };
+        }
+      | undefined;
+    expect(call?.options?.env).toMatchObject(SDK_NATIVE_SKILL_DISABLE_ENV);
+    expect(call?.options?.settings?.skillOverrides).toEqual(
+      SDK_NATIVE_SKILL_OVERRIDES,
+    );
+  });
+
   it('scrubs ambient raw provider credentials from SDK query env', async () => {
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-ambient');
     vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'oauth-ambient');

@@ -251,6 +251,123 @@ describe('ipc-interaction-handler', () => {
     );
   });
 
+  it('persists skill action capability approvals and appends runtime command rules', async () => {
+    const claimedPath = path.join(tempDir, 'claimed-skill-action.json');
+    fs.writeFileSync(claimedPath, '{}');
+    const skillCapability = {
+      capabilityId: 'skill.linkedin-posting.publish',
+      displayName: 'LinkedIn posting',
+      category: 'LinkedIn posting',
+      risk: 'write' as const,
+      can: 'Publish posts through the selected LinkedIn posting skill.',
+      cannot:
+        'Use unrelated skills, credentials, settings, or broader commands.',
+      credentialSource: 'skill_secret' as const,
+      implementationBindings: [
+        {
+          kind: 'tool_rule' as const,
+          rule: 'RunCommand(skills/linkedin-posting/publish *)',
+        },
+      ],
+      preflight: { kind: 'none' as const },
+      sandboxProfile: {
+        network: 'required' as const,
+        filesystem: 'workspace_write' as const,
+      },
+    };
+    const toolRepository = {
+      getTool: vi.fn(async () => null),
+      listTools: vi.fn(async () => []),
+      saveTool: vi.fn(async () => undefined),
+      saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
+    };
+    const mirrorAgentToolRulesToSettings = vi.fn(async () => undefined);
+
+    await processPermissionInteractionIpc({
+      request: {
+        requestId: 'perm-skill-action',
+        appId: 'app:test',
+        agentId: 'agent:test',
+        responseNonce: 'nonce',
+        sourceAgentFolder: 'main_agent',
+        runHandle: 'agent-run-skill',
+        targetJid: 'tg:team',
+        toolName: 'RunCommand',
+        suggestions: [
+          {
+            type: 'addRules',
+            behavior: 'allow',
+            rules: [{ toolName: 'capability:skill.linkedin-posting.publish' }],
+          },
+        ],
+        semanticCapabilityDefinitions: {
+          'skill.linkedin-posting.publish': skillCapability,
+        },
+      },
+      sourceAgentFolder: 'main_agent',
+      deps: {
+        requestPermissionApproval: vi.fn(async () => ({
+          approved: true,
+          mode: 'allow_persistent_rule',
+          decidedBy: 'owner',
+          decisionClassification: 'user_permanent',
+          updatedPermissions: [
+            {
+              type: 'addRules',
+              behavior: 'allow',
+              rules: [
+                { toolName: 'capability:skill.linkedin-posting.publish' },
+              ],
+            },
+          ],
+        })),
+        getToolRepository: () => toolRepository as never,
+        mirrorAgentToolRulesToSettings,
+      },
+      ipcBaseDir: tempDir,
+      file: 'claimed-skill-action.json',
+      claimedPath,
+      logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    });
+
+    expect(toolRepository.saveTool).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'tool:capability:skill.linkedin-posting.publish',
+        name: 'capability:skill.linkedin-posting.publish',
+        displayName: 'LinkedIn posting',
+      }),
+    );
+    expect(toolRepository.saveAgentToolBinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'agent:test',
+        toolId: 'tool:capability:skill.linkedin-posting.publish',
+        status: 'active',
+      }),
+    );
+    expect(mirrorAgentToolRulesToSettings).toHaveBeenCalledWith(
+      'main_agent',
+      ['capability:skill.linkedin-posting.publish'],
+      { appId: 'app:test' },
+    );
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(
+            tempDir,
+            'main_agent',
+            'live-tool-rules',
+            'agent-run-skill.json',
+          ),
+          'utf-8',
+        ),
+      ),
+    ).toEqual([
+      'capability:skill.linkedin-posting.publish',
+      'RunCommand(skills/linkedin-posting/publish *)',
+    ]);
+  });
+
   it('strips live-rule updates from non-permanent permission IPC responses', async () => {
     const envelope = createIpcAuthEnvelope('main_agent', null);
     const claimedPath = path.join(tempDir, 'claimed-allow-once.json');

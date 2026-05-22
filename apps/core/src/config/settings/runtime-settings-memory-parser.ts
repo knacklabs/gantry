@@ -6,7 +6,7 @@ import {
   DEFAULT_MEMORY_EXTRACTOR_MIN_CONFIDENCE,
   DEFAULT_MEMORY_MAINTENANCE_MAX_PENDING,
   DEFAULT_OPENAI_DAILY_EMBED_LIMIT,
-  getMemoryModelProfileDefaults,
+  getProviderManagedMemoryDefaults,
 } from './runtime-settings-defaults.js';
 import type {
   EmbeddingProviderName,
@@ -100,7 +100,7 @@ function parseMemoryLlmModels(
   raw: unknown,
   pathPrefix: string,
 ): RuntimeMemoryLlmModels {
-  const defaults = getMemoryModelProfileDefaults('balanced');
+  const defaults = getProviderManagedMemoryDefaults();
   if (raw === undefined) return defaults;
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw new Error(`${pathPrefix} must be a mapping`);
@@ -154,7 +154,7 @@ export function parseMemorySettings(raw: unknown): RuntimeMemorySettings {
         },
       },
       llm: {
-        models: getMemoryModelProfileDefaults('balanced'),
+        models: getProviderManagedMemoryDefaults(),
         extractorMaxFacts: DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS,
         extractorMinConfidence: DEFAULT_MEMORY_EXTRACTOR_MIN_CONFIDENCE,
       },

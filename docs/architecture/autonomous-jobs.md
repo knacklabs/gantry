@@ -9,8 +9,8 @@ not be written to `settings.yaml`.
 At execution time, a job resolves its target agent from the runtime target:
 `group_scope` plus `execution_context` (`conversationJid`, optional `threadId`,
 optional `sessionId`). The job inherits that target agent's currently selected
-tool bindings, skills, and MCP server bindings for the run. Job records do not
-carry separate tool, skill, or MCP capability grants.
+capabilities plus attached sources for the run. Job records do not carry
+separate tool, skill, MCP, or capability grants.
 
 Inherited tool grants are semantic capability entries such as
 `capability:google.sheets.write`, canonical `Browser`, selected first-party
@@ -37,6 +37,10 @@ Job create/update surfaces accept declared setup requirements:
 - `toolAccessRequirements`: durable readable tool rules such as `Browser`,
   `capability:google.sheets.write`, exact Gantry file/web facades, exact
   first-party Gantry MCP tools, or scoped `RunCommand(...)` rules.
+- `capabilityRequirements`: semantic capability requirements such as
+  `google.sheets.write` or a reviewed composite capability such as
+  `weekly.linkedin.report.publish`. Requirements are stored on the job and
+  converted into readiness checks; they are not grants.
 - `requiredMcpServers`: approved third-party MCP server names or ids expected
   by the job.
 
@@ -101,19 +105,20 @@ the tool call with recovery guidance such as:
 
 ```text
 Tool not on autonomous run allowlist: RunCommand.
-Recovery: request_capability { "capabilityId": "google.sheets.write", "reason": "This scheduled job writes the weekly status sheet." }
+Recovery: propose_capability { "capabilityId": "google.sheets.write", "reason": "This scheduled job writes the weekly status sheet." }
 Recovery: request_permission { "permissionKind": "tool", "toolName": "RunCommand", "rule": "npm test *", "temporaryOnly": false, "reason": "This autonomous run needs scoped command access." }
 ```
 
 Missing capability recovery uses the same reviewed request tools as interactive
-agents: `capability_search` / `request_capability` for semantic app/tool
-access, `propose_local_cli_capability` for reviewed authenticated CLIs,
+agents: `capability_search` / `propose_capability` for semantic app/tool
+access and new reviewed capabilities including authenticated CLIs,
 `request_permission` for one-off Gantry file/web facades, Browser, or scoped
 `RunCommand(...)` fallback, `request_skill_install` or `request_skill_proposal`
 for skills, and
 `request_mcp_server` for third-party MCP servers. Approval updates the target
-agent's durable bindings, exports the readable projection to `settings.yaml`,
-and activates on the next scheduled run or a manual rerun.
+agent's durable `capabilities` list or attached `sources`, exports the readable
+projection to `settings.yaml`, and activates on the next scheduled run or a
+manual rerun.
 
 Job creation can declare `capability_requirements` on `scheduler_upsert_job`
 instead of embedding provider-specific shell commands in the prompt. Each
@@ -124,17 +129,28 @@ derives `capability:<id>` tool-access-requirement rules from them. The pre-confi
 plan shows the required capabilities in human terms, for example
 `Google Sheets write using gog`.
 
-`local_cli` requirements are setup blockers until the generated absolute scoped
-`RunCommand(...)` rule is approved for that job or agent. They must declare an absolute
-`executablePath`; `commandTemplate` and any `authPreflight` must start with that
-exact path, so readiness never depends on PATH resolution. They do not create or
-imply broad `RunCommand(cli *)` authority. Reusable user-defined `local_cli` semantic
-capabilities stay draft-only until runtime enforcement verifies executable
-identity, command templates, protected paths, preflight behavior, and denied
-environment overrides. Malformed persisted `local_cli` requirements are not
-converted into legacy capability proposals; the job must be updated with the
-absolute executable template. Configured built-in capabilities use
-`request_capability`.
+If a job creation request needs a capability that does not exist yet, the
+agent should propose a reviewed `local_cli` capability draft when the work is
+backed by a pinned local CLI; otherwise the job remains paused until an
+approved capability exists in the catalog. If the job later reaches a missing
+tool or capability during a run, the run pauses through the same
+permission/capability flow: the agent asks the user/admin, approval updates the
+target agent, and readiness is evaluated again. The job is updated only when
+its declared requirements were incomplete or
+wrong; it never receives a job-local durable grant.
+
+`local_cli` requirements are setup blockers until the agent proposes and the
+user/admin approves a reviewed local CLI capability. They must declare an
+absolute `executablePath`, pinned `executableVersion`, pinned `executableHash`,
+and a narrow `commandTemplate`; any `authPreflight` must start with that exact
+path, so readiness never depends on PATH resolution. They do not create or
+imply broad `RunCommand(cli *)` authority. Runtime projects scoped command
+authority only after capability review verifies executable identity, command
+templates, protected paths, preflight behavior, and denied environment
+overrides. Malformed persisted `local_cli` requirements are not converted into
+capability proposals; the job must be updated with complete pinned CLI setup.
+Configured built-in capabilities use `propose_capability` with only the
+capability id and reason.
 
 The scheduler records the failure summary, emits `job.tool_denied`, pauses
 recurring jobs that need a missing persistent capability as `Setup required`,

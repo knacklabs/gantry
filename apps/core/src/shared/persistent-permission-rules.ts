@@ -28,7 +28,7 @@ import {
 } from './sensitive-material.js';
 
 export const PERSISTENT_REQUEST_PERMISSION_RULE_REJECTION_REASON =
-  'Persistent request_permission approvals support semantic capabilities, canonical Browser, exact Gantry file/web tools, scoped RunCommand(...), or exact Gantry admin tools; request a semantic capability for app/tool access.';
+  'Persistent request_permission approvals support only trusted projected semantic capabilities, canonical Browser, exact Gantry file/web tools, scoped RunCommand(...), or exact Gantry admin tools; use propose_capability for semantic app/tool access.';
 
 export function validatePersistentRequestPermissionRule(
   rule: string,
@@ -37,6 +37,7 @@ export function validatePersistentRequestPermissionRule(
       string,
       SemanticCapabilityDefinition
     >;
+    allowUnknownSemanticCapability?: boolean;
   } = {},
 ): { ok: true } | { ok: false; reason: string } {
   const trimmed = rule.trim();
@@ -103,11 +104,11 @@ export function validatePersistentRequestPermissionRule(
     const definition =
       options.semanticCapabilityDefinitions?.[capabilityId] ??
       getBuiltinSemanticCapability(capabilityId);
-    if (definition?.credentialSource === 'local_cli') {
+    if (!definition) {
+      if (options.allowUnknownSemanticCapability) return { ok: true };
       return {
         ok: false,
-        reason:
-          'Local CLI capabilities are draft-only until runtime enforcement verifies executable hash, auth preflight, protected paths, and denied environment overrides.',
+        reason: `Unknown semantic capability ${capabilityId}. Review and register a trusted capability definition before granting it persistently.`,
       };
     }
     return { ok: true };
@@ -131,8 +132,16 @@ export function isPersistentRequestPermissionRuleAllowed(
 
 export function formatPersistentPermissionRulesForUser(
   rules: readonly string[],
+  options: {
+    semanticCapabilityDefinitions?: Record<
+      string,
+      SemanticCapabilityDefinition
+    >;
+  } = {},
 ): string {
-  return rules.map(formatPersistentPermissionRuleForUser).join(', ');
+  return rules
+    .map((rule) => formatPersistentPermissionRuleForUser(rule, options))
+    .join(', ');
 }
 
 export function formatPersistentPermissionRuleForEvent(rule: string): string {
@@ -143,12 +152,27 @@ export function persistentPermissionRuleAuditPreview(rule: string): string {
   return formatPersistentPermissionRuleForUser(rule);
 }
 
-function formatPersistentPermissionRuleForUser(rule: string): string {
+function formatPersistentPermissionRuleForUser(
+  rule: string,
+  options: {
+    semanticCapabilityDefinitions?: Record<
+      string,
+      SemanticCapabilityDefinition
+    >;
+  } = {},
+): string {
   const trimmed = rule.trim();
   const hash = shortRuleHash(trimmed);
   const scoped = parseReadableScopedToolRule(trimmed);
   if (scoped?.toolName === RUN_COMMAND_TOOL_NAME) {
     return `scoped RunCommand rule [sha256:${hash}]`;
+  }
+  const capabilityId = parseSemanticCapabilityRule(trimmed);
+  if (capabilityId) {
+    const definition =
+      options.semanticCapabilityDefinitions?.[capabilityId] ??
+      getBuiltinSemanticCapability(capabilityId);
+    if (definition) return `${definition.displayName} [sha256:${hash}]`;
   }
   return `${truncate(redactSensitiveText(trimmed), 160)} [sha256:${hash}]`;
 }

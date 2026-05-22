@@ -57,7 +57,7 @@ export async function createManagedJob(
   });
   const modelAlias = resolveRequestedJobModel(
     input.modelAlias,
-    input.modelProfileId,
+    kind === 'recurring' ? 'recurring_job' : 'one_time_job',
   );
   const jobId = deps.schedulePlanner.createManualJobId();
   const sessionBoundContext = {
@@ -149,6 +149,7 @@ export async function createManagedJob(
     job: jobInput,
     appId: session.appId,
     toolRepository: deps.toolRepository,
+    skillRepository: deps.skillRepository,
     mcpServerRepository: deps.mcpServerRepository,
     capabilitySecretRepository: deps.capabilitySecretRepository,
     credentialBroker: await deps.getCredentialBroker?.(),

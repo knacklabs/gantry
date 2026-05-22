@@ -24,15 +24,11 @@ import {
   runtimeJobSchedulePlanner,
   requestSchedulerSync,
 } from '../../../jobs/scheduler.js';
-import { resolveModelSelection } from '../../../shared/model-catalog.js';
 import {
   formatBrowserProfileLabel,
   resolveConversationBrowserProfile,
 } from '../../../shared/browser-profile-scope.js';
-import {
-  resolveRequestedJobModel,
-  resolveRequestedJobModelPatch,
-} from '../../../application/jobs/job-model-selection.js';
+import { resolveRequestedJobModelPatch } from '../../../application/jobs/job-model-selection.js';
 import {
   getRuntimeControlRepository,
   getRuntimeEventExchange,
@@ -51,6 +47,7 @@ import {
 } from '../rate-limit.js';
 import { parseJobRoute, parseTriggerWaitRoute } from '../route-parser.js';
 import { nowMs as currentTimeMs } from '../../../shared/time/datetime.js';
+import { modelPreviewFor, resolveCreateJobModel } from './job-model-preview.js';
 
 function sendApplicationError(res: ServerResponse, error: unknown): boolean {
   if (!(error instanceof ApplicationError)) return false;
@@ -104,9 +101,6 @@ function formatJobRequestIssue(issue: ZodIssue): string {
     }
     return `Unsupported job request field "${issue.keys[0]}".`;
   }
-  if (issue.message === 'Use either modelAlias or modelProfileId, not both.') {
-    return issue.message;
-  }
   const path = issue.path.length > 0 ? `${issue.path.join('.')}: ` : '';
   return `${path}${issue.message}`;
 }
@@ -155,6 +149,7 @@ export function createJobManagementService(ctx?: ControlRouteContext) {
       enqueue: enqueueJobTrigger,
     },
     toolRepository: getRuntimeToolRepositoryIfReady(),
+    skillRepository: getRuntimeStorage().repositories.skills,
     mcpServerRepository: getRuntimeStorage().repositories.mcpServers,
     getCredentialBroker:
       ctx && typeof ctx.app.getCredentialBroker === 'function'
@@ -213,36 +208,6 @@ function adaptAppSession(
   };
 }
 
-function modelPreviewFor(input: {
-  explicitAlias?: string;
-  kind: 'manual' | 'once' | 'recurring';
-  getDefaultModelConfig: ControlRouteContext['getDefaultModelConfig'];
-}) {
-  const modelKind = input.kind === 'recurring' ? 'recurringJob' : 'oneTimeJob';
-  const defaultConfig = input.getDefaultModelConfig(modelKind);
-  const selected = input.explicitAlias || defaultConfig.model;
-  const resolved = selected ? resolveModelSelection(selected) : undefined;
-  if (!resolved?.ok) {
-    return {
-      modelAlias: input.explicitAlias ?? null,
-      modelSource: input.explicitAlias ? 'explicit' : defaultConfig.source,
-      model: null,
-    };
-  }
-  return {
-    modelAlias: resolved.alias,
-    modelSource: input.explicitAlias ? 'explicit' : defaultConfig.source,
-    model: {
-      displayName: resolved.entry.displayName,
-      provider: resolved.entry.providerLabel,
-      contextWindowTokens: resolved.entry.contextWindowTokens,
-      maxOutputTokens: resolved.entry.maxOutputTokens,
-      cachePolicy: resolved.entry.cacheMode,
-      modelProfileId: resolved.entry.id,
-    },
-  };
-}
-
 async function runtimeContextPreviewFor(input: {
   executionContext: {
     conversationJid: string;
@@ -281,35 +246,6 @@ async function runtimeContextPreviewFor(input: {
   };
 }
 
-function resolveCreateJobModel(input: {
-  modelAlias: unknown;
-  modelProfileId: unknown;
-  kind: 'manual' | 'once' | 'recurring';
-  getDefaultModelConfig: ControlRouteContext['getDefaultModelConfig'];
-}): {
-  modelAlias: string;
-  source: string;
-  explicit: boolean;
-} {
-  const requested = resolveRequestedJobModel(
-    input.modelAlias,
-    input.modelProfileId,
-  );
-  if (requested)
-    return { modelAlias: requested, source: 'explicit', explicit: true };
-  const modelKind = input.kind === 'recurring' ? 'recurringJob' : 'oneTimeJob';
-  const defaultConfig = input.getDefaultModelConfig(modelKind);
-  const resolved = resolveModelSelection(defaultConfig.model);
-  if (!resolved.ok) {
-    throw new ApplicationError('INVALID_REQUEST', resolved.message);
-  }
-  return {
-    modelAlias: resolved.alias,
-    source: defaultConfig.source,
-    explicit: false,
-  };
-}
-
 function parseJobKind(
   value: string | null,
 ): 'manual' | 'once' | 'recurring' | undefined {
@@ -343,9 +279,9 @@ export async function handleJobRoutes(
     try {
       const resolvedModel = resolveCreateJobModel({
         modelAlias: body.modelAlias,
-        modelProfileId: body.modelProfileId,
         kind,
         getDefaultModelConfig: ctx.getDefaultModelConfig,
+        agentFolder: body.executionContext.groupScope,
       });
       const created = await createJobManagementService(ctx).createJob({
         appId: auth.appId,
@@ -407,10 +343,18 @@ export async function handleJobRoutes(
               : {},
         }),
         ...modelPreviewFor({
-          explicitAlias: resolvedModel.modelAlias,
+          explicitAlias: resolvedModel.explicit
+            ? resolvedModel.modelAlias
+            : undefined,
           kind,
           getDefaultModelConfig: ctx.getDefaultModelConfig,
+          agentFolder: created.runtimeContext.groupScope,
         }),
+        modelSelection: {
+          alias: resolvedModel.modelAlias,
+          source: resolvedModel.source,
+          explicit: resolvedModel.explicit,
+        },
         modelSource: resolvedModel.source,
       });
     } catch (error) {
@@ -436,6 +380,7 @@ export async function handleJobRoutes(
       jobs: visibleJobs,
       ops: getRuntimeRepositories(),
       toolRepository: getRuntimeToolRepositoryIfReady(),
+      skillRepository: getRuntimeStorage().repositories.skills,
       appId: auth.appId,
     });
     sendJson(res, 200, {
@@ -444,7 +389,10 @@ export async function handleJobRoutes(
         if (!jobMetadata) {
           throw new Error(`Missing visibility metadata for job ${job.id}`);
         }
-        return mapManualJobToStored(job, jobMetadata, { detail: false });
+        return mapManualJobToStored(job, jobMetadata, {
+          detail: false,
+          getDefaultModelConfig: ctx.getDefaultModelConfig,
+        });
       }),
     });
     return true;
@@ -496,8 +444,10 @@ export async function handleJobRoutes(
             job,
             ops: getRuntimeRepositories(),
             toolRepository: getRuntimeToolRepositoryIfReady(),
+            skillRepository: getRuntimeStorage().repositories.skills,
             appId: auth.appId,
           }),
+          { getDefaultModelConfig: ctx.getDefaultModelConfig },
         ),
       );
     } catch (error) {
@@ -528,11 +478,24 @@ export async function handleJobRoutes(
     );
     if (!body) return true;
     try {
+      const service = createJobManagementService(ctx);
+      const { job: existingJob } = await service.getJob({
+        appId: auth.appId,
+        jobId: jobRoute.jobId,
+      });
+      if (!existingJob) {
+        sendError(res, 404, 'JOB_NOT_FOUND', 'Job not found');
+        return true;
+      }
+      const patchModelWorkload =
+        existingJob.schedule_type === 'cron' ||
+        existingJob.schedule_type === 'interval'
+          ? 'recurring_job'
+          : 'one_time_job';
       const requestedModel = resolveRequestedJobModelPatch(
         body.modelAlias,
-        body.modelProfileId,
+        patchModelWorkload,
       );
-      const service = createJobManagementService(ctx);
       const { job: updated } = await service.updateJob({
         appId: auth.appId,
         jobId: jobRoute.jobId,
@@ -571,8 +534,10 @@ export async function handleJobRoutes(
             job: updated,
             ops: getRuntimeRepositories(),
             toolRepository: getRuntimeToolRepositoryIfReady(),
+            skillRepository: getRuntimeStorage().repositories.skills,
             appId: auth.appId,
           }),
+          { getDefaultModelConfig: ctx.getDefaultModelConfig },
         ),
       );
     } catch (error) {

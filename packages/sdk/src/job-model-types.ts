@@ -96,6 +96,8 @@ export interface JobCapabilityRequirementImplementation {
   kind: JobCapabilityRequirementImplementationKind;
   name?: string;
   executablePath?: string;
+  executableVersion?: string;
+  executableHash?: string;
   commandTemplate?: string;
   authPreflight?: string;
   protectedPaths?: string[];
@@ -130,7 +132,11 @@ export interface JobRecord {
   staleness?: JobStaleness | null;
   health?: JobHealth;
   modelAlias: string | null;
-  modelProfileId: string | null;
+  modelSelection?: {
+    alias: string | null;
+    source: string;
+    explicit: boolean;
+  };
   model: JobModelPreview | null;
   groupScope: string;
   sessionId: string | null;
@@ -162,18 +168,100 @@ export interface JobEventRecord {
 
 export interface ModelRecord {
   id: string;
-  modelProfileId: string;
   displayName: string;
   aliases: string[];
   recommendedAlias: string;
   provider: string;
+  providerId: 'anthropic' | 'openrouter';
+  providerLabel: string;
+  providerSlug: string;
+  supportedWorkloads: ModelWorkload[];
   contextWindowTokens: number;
   maxOutputTokens: number;
   cacheMode: string;
   cacheTokenFields: string[];
   supportsThinking: boolean;
   supportsTools: boolean;
+  source: {
+    label: string;
+    url: string;
+    verifiedAt: string;
+  };
   experimental: boolean;
+}
+
+export type ModelProviderPreset = 'anthropic' | 'openrouter';
+export type ModelWorkload =
+  | 'chat'
+  | 'one_time_job'
+  | 'recurring_job'
+  | 'memory_extractor'
+  | 'memory_dreaming'
+  | 'memory_consolidation';
+
+export interface ModelDefaultSlot {
+  configuredAlias: string | null;
+  effectiveAlias: string | null;
+  source: string;
+  inherited: boolean;
+  workload: ModelWorkload;
+  model: ModelRecord | null;
+}
+
+export interface ModelDefaultsResponse {
+  provider: {
+    id: ModelProviderPreset;
+    label: string;
+  } | null;
+  chat: ModelDefaultSlot;
+  jobs: {
+    oneTime: ModelDefaultSlot;
+    recurring: ModelDefaultSlot;
+  };
+  memory: {
+    mode: 'provider-managed';
+    extractor: ModelDefaultSlot;
+    dreaming: ModelDefaultSlot;
+    consolidation: ModelDefaultSlot;
+  };
+  defaults: {
+    chat: ModelDefaultSlot;
+    oneTime: ModelDefaultSlot;
+    recurring: ModelDefaultSlot;
+    memoryExtractor: ModelDefaultSlot;
+    memoryDreaming: ModelDefaultSlot;
+    memoryConsolidation: ModelDefaultSlot;
+  };
+}
+
+export interface ModelDefaultsPatchRequest {
+  provider?: ModelProviderPreset;
+  chat?: string | null;
+  jobs?: string | null;
+  oneTime?: string | null;
+  recurring?: string | null;
+  memory?: 'reset' | 'provider-managed' | null;
+}
+
+export type ModelPreviewTarget = 'chat' | 'jobs' | 'job' | 'memory';
+
+export interface ModelPreviewRequest {
+  target: ModelPreviewTarget;
+  jobId?: string;
+  conversationJid?: string;
+  groupScope?: string;
+  kind?: 'one-time' | 'recurring';
+  task?: 'extractor' | 'dreaming' | 'consolidation';
+}
+
+export interface ModelPreviewResponse {
+  target: ModelPreviewTarget;
+  jobId?: string;
+  scope?: string;
+  kind?: 'one-time' | 'recurring';
+  task?: 'extractor' | 'dreaming' | 'consolidation';
+  selection: ModelDefaultSlot;
+  why: string[];
 }
 
 export interface CreateJobInput {
@@ -188,7 +276,6 @@ export interface CreateJobInput {
   runAt?: string;
   schedule?: { type: 'cron' | 'interval'; value: string };
   modelAlias?: string;
-  modelProfileId?: string;
   dryRun?: boolean;
 }
 
@@ -202,7 +289,6 @@ export interface UpdateJobInput {
   requiredMcpServers?: string[];
   status?: 'active' | 'paused';
   modelAlias?: string | null;
-  modelProfileId?: string | null;
 }
 
 export interface ListJobsInput {
@@ -229,6 +315,11 @@ export interface CreateJobResponse {
   setup?: JobSetup;
   modelAlias?: string | null;
   modelSource?: JobModelSource;
+  modelSelection?: {
+    alias: string | null;
+    source: string;
+    explicit: boolean;
+  };
   model?: JobModelPreview | null;
   runtimeContext?: JobRuntimeContextPreview;
 }
@@ -250,6 +341,9 @@ export interface JobRuntimeContextPreview {
 export type JobModelSource =
   | 'explicit'
   | 'system default'
+  | 'settings.yaml agents.<agent>.model'
+  | 'settings.yaml agents.<agent>.one_time_job_default_model'
+  | 'settings.yaml agents.<agent>.recurring_job_default_model'
   | 'settings.yaml agent.default_model'
   | 'settings.yaml agent.one_time_job_default_model'
   | 'settings.yaml agent.recurring_job_default_model'
@@ -261,7 +355,6 @@ export interface JobModelPreview {
   contextWindowTokens: number;
   maxOutputTokens: number;
   cachePolicy: string;
-  modelProfileId: string;
 }
 
 export interface JobTriggerWaitResult {

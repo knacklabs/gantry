@@ -6,6 +6,10 @@ import type { AppId } from '../../../domain/app/app.js';
 import type { SkillArtifactStore } from '../../../domain/ports/skill-artifact-store.js';
 import type { SkillCatalogRepository } from '../../../domain/ports/repositories.js';
 import { isSkillMaterializableLocally } from '../../../domain/skills/skills.js';
+import {
+  sanitizeSkillDirectoryName,
+  type SkillActionPermission,
+} from '../../../domain/skills/skill-action-permissions.js';
 
 export interface ClaudeSkillSourceItem {
   id: string;
@@ -13,6 +17,10 @@ export interface ClaudeSkillSourceItem {
   sourceType?: 'bundled' | 'artifact' | 'runtime';
   sourceDir?: string;
   assets?: Array<{ path: string; content: Uint8Array }>;
+  version?: string;
+  contentHash?: string;
+  actionPermissions?: SkillActionPermission[];
+  materializedName?: string;
   enabled: boolean;
 }
 
@@ -21,6 +29,11 @@ export interface SkillSource {
     enabledSkillIds?: string[];
   }): Promise<ClaudeSkillSourceItem[]>;
 }
+
+export const GANTRY_BUNDLED_CLAUDE_SKILL_IDS = [
+  'commands',
+  'gantry-admin',
+] as const;
 
 export class BundledClaudeSkillSource implements SkillSource {
   constructor(private readonly packageRoot: string) {}
@@ -34,19 +47,21 @@ export class BundledClaudeSkillSource implements SkillSource {
       ? new Set(input.enabledSkillIds)
       : undefined;
 
-    return fs
-      .readdirSync(skillsRoot, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => {
-        const sourceDir = path.join(skillsRoot, entry.name);
-        return {
-          id: entry.name,
-          name: entry.name,
+    return GANTRY_BUNDLED_CLAUDE_SKILL_IDS.flatMap((skillId) => {
+      const sourceDir = path.join(skillsRoot, skillId);
+      if (!fs.existsSync(path.join(sourceDir, 'SKILL.md'))) {
+        return [];
+      }
+      return [
+        {
+          id: skillId,
+          name: skillId,
           sourceType: 'bundled',
           sourceDir,
-          enabled: !enabled || enabled.has(entry.name),
-        };
-      });
+          enabled: !enabled || enabled.has(skillId),
+        },
+      ];
+    });
   }
 }
 
@@ -78,6 +93,9 @@ export class ArtifactClaudeSkillSource implements SkillSource {
         name: skill.name,
         sourceType: 'artifact',
         assets: bundle.assets,
+        version: skill.version,
+        contentHash: skill.storage.contentHash,
+        actionPermissions: skill.actionPermissions ?? [],
         enabled: true,
       });
     }
@@ -170,11 +188,14 @@ export async function materializeClaudeSkills(input: {
   const targetDirs = new Set<string>();
   for (const skill of skills) {
     if (!skill.enabled) continue;
-    const targetName = skill.assets
-      ? sanitizeSkillName(skill.id)
-      : sanitizeSkillName(skill.name);
-    if (targetDirs.has(targetName)) continue;
-    targetDirs.add(targetName);
+    const targetName = sanitizeSkillDirectoryName(skill.name);
+    const normalizedTargetName = targetName.toLowerCase();
+    if (targetDirs.has(normalizedTargetName)) {
+      throw new Error(
+        `Duplicate materialized skill directory ${targetName}; rename or unselect one of the colliding skills.`,
+      );
+    }
+    targetDirs.add(normalizedTargetName);
     const targetDir = path.join(input.skillsDir, targetName);
     fs.rmSync(targetDir, { recursive: true, force: true });
     if (skill.assets) {
@@ -190,7 +211,7 @@ export async function materializeClaudeSkills(input: {
     } else {
       continue;
     }
-    materialized.push(skill);
+    materialized.push({ ...skill, materializedName: targetName });
   }
   return materialized;
 }
@@ -210,16 +231,6 @@ function isValidAssetSkill(
     }
     throw error;
   }
-}
-
-function sanitizeSkillName(value: string): string {
-  const safe = value
-    .trim()
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^\.+/, '')
-    .slice(0, 120);
-  return safe || 'skill';
 }
 
 function copyDirRecursive(src: string, dst: string): void {

@@ -16,6 +16,10 @@ import { renderRuntimeSettingsYaml } from '@core/config/settings/runtime-setting
 import { validateLoadedRuntimeSettings } from '@core/config/settings/runtime-settings-validation.js';
 import { settingsFilePath } from '@core/config/settings/runtime-home.js';
 
+function emptySources() {
+  return { skills: [], mcpServers: [], tools: [] };
+}
+
 describe('runtime settings', () => {
   it('defaults, renders, and parses agent.name', () => {
     const settings = createDefaultRuntimeSettings();
@@ -556,11 +560,12 @@ conversations:
       oneTimeJobDefaultModel: 'haiku',
       recurringJobDefaultModel: 'opus',
       bindings: {},
-      capabilities: {
-        toolIds: ['Read'],
-        skillIds: ['skill:admin'],
-        mcpServerIds: ['mcp:github'],
+      sources: {
+        skills: [{ id: 'skill:admin', version: 'approved' }],
+        mcpServers: [{ id: 'mcp:github', version: 'mcp-version:github' }],
+        tools: [],
       },
+      capabilities: [{ id: 'Read', version: 'builtin' }],
     };
     settings.providers.telegram.enabled = true;
     settings.providers.telegram.defaultConnection = 'telegram_default';
@@ -619,11 +624,10 @@ conversations:
         name: 'Main',
         folder: 'main_agent',
         bindings: {},
-        capabilities: {
-          toolIds: ['mcp__gantry__service_restart'],
-          skillIds: [],
-          mcpServerIds: [],
-        },
+        sources: emptySources(),
+        capabilities: [
+          { id: 'mcp__gantry__service_restart', version: 'builtin' },
+        ],
       };
       saveRuntimeSettings(runtimeHome, settings);
 
@@ -638,16 +642,14 @@ conversations:
       });
 
       const parsed = loadRuntimeSettings(runtimeHome);
-      expect(parsed.agents.main_agent.capabilities.toolIds).toEqual([
-        'mcp__gantry__service_restart',
-        'RunCommand(npm test *)',
-        'Browser',
-        'capability:google.sheets.write',
+      expect(parsed.agents.main_agent.capabilities).toEqual([
+        { id: 'mcp__gantry__service_restart', version: 'builtin' },
+        { id: 'RunCommand(npm test *)', version: 'builtin' },
+        { id: 'browser.use', version: 'builtin' },
+        { id: 'google.sheets.write', version: 'builtin' },
       ]);
       const yaml = fs.readFileSync(settingsFilePath(runtimeHome), 'utf-8');
-      expect(yaml).toContain(
-        'tools: ["mcp__gantry__service_restart","RunCommand(npm test *)","Browser","capability:google.sheets.write"]',
-      );
+      expect(yaml).toContain('id: google.sheets.write');
       expect(yaml).not.toContain('capabilityPolicy');
       expect(yaml).not.toContain('permission-rule:');
     } finally {
@@ -661,18 +663,15 @@ conversations:
       name: 'Main',
       folder: 'main_agent',
       bindings: {},
-      capabilities: {
-        toolIds: ['tool:permission-rule:abc123'],
-        skillIds: [],
-        mcpServerIds: [],
-      },
+      sources: emptySources(),
+      capabilities: [{ id: 'tool:permission-rule:abc123', version: 'builtin' }],
     };
 
     const result = validateLoadedRuntimeSettings('/tmp/gantry-tools', settings);
 
     expect(result.ok).toBe(false);
     expect(result.failure?.details.join('\n')).toContain(
-      'agents.main_agent.tools contains invalid tool rule "tool:permission-rule:abc123"',
+      'agents.main_agent.capabilities contains invalid capability "tool:permission-rule:abc123"',
     );
   });
 
@@ -689,11 +688,8 @@ conversations:
         name: 'Main',
         folder: 'main_agent',
         bindings: {},
-        capabilities: {
-          toolIds: [toolRule],
-          skillIds: [],
-          mcpServerIds: [],
-        },
+        sources: emptySources(),
+        capabilities: [{ id: toolRule, version: 'builtin' }],
       };
 
       const result = validateLoadedRuntimeSettings(
@@ -703,11 +699,13 @@ conversations:
 
       expect(result.ok).toBe(false);
       expect(result.failure?.details.join('\n')).toContain(
-        `agents.main_agent.tools contains invalid tool rule "${toolRule}"`,
+        `agents.main_agent.capabilities contains invalid capability "${toolRule}"`,
       );
-      expect(result.failure?.details.join('\n')).toContain(
-        'use the canonical Browser tool capability instead',
-      );
+      if (!toolRule.includes('(')) {
+        expect(result.failure?.details.join('\n')).toContain(
+          'use the canonical Browser tool capability instead',
+        );
+      }
     }
   });
 
@@ -742,11 +740,8 @@ conversations:
         name: 'Main',
         folder: 'main_agent',
         bindings: {},
-        capabilities: {
-          toolIds: [],
-          skillIds: [],
-          mcpServerIds: [],
-        },
+        sources: emptySources(),
+        capabilities: [],
       };
       saveRuntimeSettings(runtimeHome, settings);
 
@@ -758,7 +753,7 @@ conversations:
         }),
       ).toThrow('canonical Browser tool capability');
       const parsed = loadRuntimeSettings(runtimeHome);
-      expect(parsed.agents.main_agent.capabilities.toolIds).toEqual([]);
+      expect(parsed.agents.main_agent.capabilities).toEqual([]);
     } finally {
       fs.rmSync(runtimeHome, { recursive: true, force: true });
     }
@@ -774,11 +769,8 @@ conversations:
         name: 'Main',
         folder: 'main_agent',
         bindings: {},
-        capabilities: {
-          toolIds: [],
-          skillIds: [],
-          mcpServerIds: [],
-        },
+        sources: emptySources(),
+        capabilities: [],
       };
       saveRuntimeSettings(runtimeHome, settings);
 
@@ -790,7 +782,7 @@ conversations:
         }),
       ).toThrow('runtime projections, not durable capabilities');
       const parsed = loadRuntimeSettings(runtimeHome);
-      expect(parsed.agents.main_agent.capabilities.toolIds).toEqual([]);
+      expect(parsed.agents.main_agent.capabilities).toEqual([]);
     } finally {
       fs.rmSync(runtimeHome, { recursive: true, force: true });
     }
@@ -806,11 +798,8 @@ conversations:
         name: 'Main',
         folder: 'main_agent',
         bindings: {},
-        capabilities: {
-          toolIds: [],
-          skillIds: [],
-          mcpServerIds: [],
-        },
+        sources: emptySources(),
+        capabilities: [],
       };
       saveRuntimeSettings(runtimeHome, settings);
 
@@ -828,7 +817,7 @@ conversations:
         ).toThrow(/exact canonical Browser capability/);
       }
       const parsed = loadRuntimeSettings(runtimeHome);
-      expect(parsed.agents.main_agent.capabilities.toolIds).toEqual([]);
+      expect(parsed.agents.main_agent.capabilities).toEqual([]);
     } finally {
       fs.rmSync(runtimeHome, { recursive: true, force: true });
     }
@@ -844,11 +833,8 @@ conversations:
         name: 'Main',
         folder: 'main_agent',
         bindings: {},
-        capabilities: {
-          toolIds: [],
-          skillIds: [],
-          mcpServerIds: [],
-        },
+        sources: emptySources(),
+        capabilities: [],
       };
       saveRuntimeSettings(runtimeHome, settings);
 
@@ -860,7 +846,7 @@ conversations:
         }),
       ).toThrow('Only RunCommand supports persistent scoped tool rules');
       const parsed = loadRuntimeSettings(runtimeHome);
-      expect(parsed.agents.main_agent.capabilities.toolIds).toEqual([]);
+      expect(parsed.agents.main_agent.capabilities).toEqual([]);
     } finally {
       fs.rmSync(runtimeHome, { recursive: true, force: true });
     }
@@ -876,11 +862,8 @@ conversations:
         name: 'Main',
         folder: 'main_agent',
         bindings: {},
-        capabilities: {
-          toolIds: [],
-          skillIds: [],
-          mcpServerIds: [],
-        },
+        sources: emptySources(),
+        capabilities: [],
       };
       saveRuntimeSettings(runtimeHome, settings);
 
@@ -892,7 +875,7 @@ conversations:
         }),
       ).toThrow('Persistent RunCommand scope is too broad');
       const parsed = loadRuntimeSettings(runtimeHome);
-      expect(parsed.agents.main_agent.capabilities.toolIds).toEqual([]);
+      expect(parsed.agents.main_agent.capabilities).toEqual([]);
     } finally {
       fs.rmSync(runtimeHome, { recursive: true, force: true });
     }
@@ -911,13 +894,15 @@ conversations:
       name: 'Default Agent',
       folder: 'main_agent',
       bindings: {},
-      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+      sources: emptySources(),
+      capabilities: [],
     };
     settings.agents.helper = {
       name: 'Helper',
       folder: 'helper',
       bindings: {},
-      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+      sources: emptySources(),
+      capabilities: [],
     };
     settings.conversations.team = {
       providerConnection: 'telegram_default',
@@ -1231,22 +1216,27 @@ conversations:
       name: 'Kai',
       folder: 'kai',
       bindings: {},
-      capabilities: {
-        toolIds: [],
-        skillIds: [
+      sources: {
+        skills: [
           'skill:3014949c-a616-4b2c-80e7-0bc61bb31e85',
           'company-handbook',
-        ],
-        mcpServerIds: [],
+        ].map((id) => ({ id, version: 'approved' })),
+        mcpServers: [],
+        tools: [],
       },
+      capabilities: [],
     };
 
     const yaml = renderRuntimeSettingsYaml(settings);
 
     expect(yaml).toContain('skill:3014949c-a616-4b2c-80e7-0bc61bb31e85');
     expect(yaml).toContain('company-handbook');
-    expect(parseRuntimeSettings(yaml).agents.kai.capabilities.skillIds).toEqual(
-      ['skill:3014949c-a616-4b2c-80e7-0bc61bb31e85', 'company-handbook'],
-    );
+    expect(parseRuntimeSettings(yaml).agents.kai.sources.skills).toEqual([
+      {
+        id: 'skill:3014949c-a616-4b2c-80e7-0bc61bb31e85',
+        version: 'approved',
+      },
+      { id: 'company-handbook', version: 'approved' },
+    ]);
   });
 });

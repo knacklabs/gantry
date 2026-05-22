@@ -12,15 +12,11 @@ import {
 import { inspectMemoryHealth } from './memory-health.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
 import {
-  applyMemoryModelProfile,
-  getMemoryModelProfileDefaults,
-  type MemoryModelProfile,
-  type MemoryModelTask,
+  getProviderManagedMemoryDefaults,
   loadRuntimeSettings,
   saveRuntimeSettings,
   type EmbeddingProviderName,
 } from '../config/settings/runtime-settings.js';
-import { resolveModelSelection } from '../shared/model-catalog.js';
 
 function usage(): string {
   return [
@@ -28,8 +24,8 @@ function usage(): string {
     '  gantry memory status [--json]',
     '  gantry memory embeddings <off|disabled|provider>',
     '  gantry memory dreaming <on|off>',
-    '  gantry memory model set <extractor|dreaming|consolidation> <model>',
-    '  gantry memory model profile <cheap|balanced|quality>',
+    '  gantry model memory',
+    '  gantry model reset memory',
   ].join('\n');
 }
 
@@ -59,7 +55,7 @@ function formatMemoryStatus(runtimeHome: string): string {
   const env = readEnvFile(envFilePath(runtimeHome));
   const health = inspectMemoryHealth(runtimeHome, settings, env);
   const globalModel = settings.agent.defaultModel;
-  const hardDefaults = getMemoryModelProfileDefaults('balanced');
+  const hardDefaults = getProviderManagedMemoryDefaults();
   const extractorModel = resolveEffectiveModel(
     settings.memory.llm.models.extractor,
     globalModel,
@@ -92,7 +88,7 @@ function formatMemoryStatus(runtimeHome: string): string {
     `Embedding provider: ${health.embeddingProvider} (${health.embeddingCheck.status}, source: ${health.embeddingProviderSource})`,
     `Embedding model: ${health.embeddingModel} (source: ${health.embeddingModelSource})`,
     `Dreaming: ${health.dreamingEnabled ? 'on' : 'off'} (source: ${health.dreamingSource})`,
-    `Claude broker: ${brokerConfigured ? 'configured' : 'missing'} (settings.yaml credential_broker)`,
+    `Model Access: ${brokerConfigured ? 'configured' : 'missing'} (settings.yaml credential_broker)`,
     `Model extractor: ${extractorModel.model} (source: ${extractorModel.source})`,
     `Model dreaming: ${dreamingModel.model} (source: ${dreamingModel.source})`,
     `Model consolidation: ${consolidationModel.model} (source: ${consolidationModel.source})`,
@@ -137,46 +133,11 @@ function setDreaming(runtimeHome: string, enabled: boolean): void {
   saveRuntimeSettings(runtimeHome, settings);
 }
 
-function parseModelTask(raw: string | undefined): MemoryModelTask | null {
-  if (!raw) return null;
-  const normalized = raw.trim();
-  if (normalized === 'extractor') return 'extractor';
-  if (normalized === 'dreaming') return 'dreaming';
-  if (normalized === 'consolidation') return 'consolidation';
-  return null;
-}
-
-function setTaskModel(
-  runtimeHome: string,
-  task: MemoryModelTask,
-  model: string,
-): { ok: boolean; message?: string } {
-  const trimmed = model.trim();
-  if (!trimmed) {
-    return { ok: false, message: 'Model must be a non-empty string.' };
-  }
-  const resolved = resolveModelSelection(trimmed);
-  if (!resolved.ok) return { ok: false, message: resolved.message };
-  const settings = loadRuntimeSettings(runtimeHome);
-  settings.memory.llm.models[task] = resolved.alias;
-  saveRuntimeSettings(runtimeHome, settings);
-  return { ok: true };
-}
-
-function setModelProfile(
-  runtimeHome: string,
-  profile: MemoryModelProfile,
-): void {
-  const settings = loadRuntimeSettings(runtimeHome);
-  applyMemoryModelProfile(settings, profile);
-  saveRuntimeSettings(runtimeHome, settings);
-}
-
 export async function runMemoryCommand(
   runtimeHome: string,
   args: string[],
 ): Promise<number> {
-  const [command, value, extra] = args;
+  const [command, value] = args;
 
   if (!command || command === 'status') {
     const statusFlags = command ? args.slice(1) : [];
@@ -217,40 +178,6 @@ export async function runMemoryCommand(
     setDreaming(runtimeHome, value === 'on');
     p.log.success(`Memory dreaming set to ${value} in settings.yaml.`);
     return 0;
-  }
-
-  if (command === 'model') {
-    if (value === 'set') {
-      const task = parseModelTask(args[2]);
-      const model = args[3] || '';
-      if (!task || !model.trim()) {
-        p.log.error(usage());
-        return 1;
-      }
-      const result = setTaskModel(runtimeHome, task, model);
-      if (!result.ok) {
-        p.log.error(result.message || 'Could not update model setting.');
-        return 1;
-      }
-      p.log.success(
-        `Memory model for ${task} set to ${model.trim()} in settings.yaml.`,
-      );
-      return 0;
-    }
-
-    if (value === 'profile') {
-      const profile = extra as MemoryModelProfile | undefined;
-      if (!profile || !['cheap', 'balanced', 'quality'].includes(profile)) {
-        p.log.error(usage());
-        return 1;
-      }
-      setModelProfile(runtimeHome, profile);
-      p.log.success(`Memory model profile set to ${profile} in settings.yaml.`);
-      return 0;
-    }
-
-    p.log.error(usage());
-    return 1;
   }
 
   p.log.error(usage());

@@ -6,7 +6,7 @@ import { logger } from '../infrastructure/logging/logger.js';
 import { ConversationRoute, ThinkingOverride } from '../domain/types.js';
 import {
   resolveModelAlias,
-  resolveModelSelection,
+  resolveModelSelectionForWorkload,
 } from '../shared/model-catalog.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import { AvailableGroup } from './agent-spawn.js';
@@ -102,7 +102,7 @@ export function setGroupModelOverride(
 
   const trimmedModel = typeof model === 'string' ? model.trim() : '';
   if (trimmedModel) {
-    const resolved = resolveModelSelection(trimmedModel);
+    const resolved = resolveModelSelectionForWorkload(trimmedModel, 'chat');
     if (!resolved.ok) {
       throw new Error(resolved.message);
     }

@@ -53,6 +53,14 @@ interface JobRecord {
     errorSummary: string;
     endedAt: string | null;
   }>;
+  capabilityRequirements?: Array<{
+    capabilityId?: string;
+    reason?: string;
+    implementation?: {
+      kind?: string;
+      name?: string;
+    };
+  }>;
   toolAccessRequirements?: string[];
   requiredMcpServers?: string[];
 }
@@ -208,6 +216,7 @@ function formatJobTable(jobs: JobRecord[]): string {
     jobThreadId(job) ?? '',
     job.nextRun ?? '',
     compactToolList([
+      ...formatCapabilityRequirements(job.capabilityRequirements),
       ...(job.toolAccessRequirements ?? []),
       ...(job.requiredMcpServers ?? []).map((server) => `mcp:${server}`),
     ]),
@@ -251,6 +260,7 @@ function formatJobDetail(job: JobRecord): string {
     `Next Run: ${job.nextRun ?? '(none)'}`,
     `Last Run: ${job.lastRun ?? '(none)'}`,
     `Model: ${job.modelAlias ?? '(default)'}`,
+    `Capability Requirements: ${formatToolAccessRequirements(formatCapabilityRequirements(job.capabilityRequirements))}`,
     `Tool Access Requirements: ${formatToolAccessRequirements(job.toolAccessRequirements)}`,
     `Required MCP Servers: ${formatToolAccessRequirements(job.requiredMcpServers)}`,
     '',
@@ -340,4 +350,20 @@ function formatToolAccessRequirements(
   return toolAccessRequirements && toolAccessRequirements.length > 0
     ? toolAccessRequirements.join(', ')
     : '(none)';
+}
+
+function formatCapabilityRequirements(
+  capabilityRequirements: JobRecord['capabilityRequirements'],
+): string[] {
+  return (capabilityRequirements ?? [])
+    .map((requirement) => {
+      const capabilityId = requirement.capabilityId?.trim();
+      if (!capabilityId) return undefined;
+      const implementation = requirement.implementation;
+      const implementationLabel = implementation?.name || implementation?.kind;
+      return implementationLabel
+        ? `${capabilityId} via ${implementationLabel}`
+        : capabilityId;
+    })
+    .filter((item): item is string => Boolean(item));
 }

@@ -227,6 +227,8 @@ describe('job application use cases', () => {
             kind: 'local_cli',
             name: 'gog',
             executablePath: '/usr/local/bin/gog',
+            executableVersion: 'v0.9.0',
+            executableHash: 'sha256:abc123',
             commandTemplate: '/usr/local/bin/gog sheets append *',
           },
         },
@@ -254,7 +256,7 @@ describe('job application use cases', () => {
               state: 'draft_only',
               requirementType: 'local_cli',
               requirementId: 'google.sheets.write',
-              nextAction: expect.stringContaining('request_permission'),
+              nextAction: expect.stringContaining('propose_capability'),
             }),
           ]),
         }),
@@ -293,6 +295,8 @@ describe('job application use cases', () => {
               kind: 'local_cli',
               name: 'gog',
               executablePath: '/usr/local/bin/gog',
+              executableVersion: 'v0.9.0',
+              executableHash: 'sha256:abc123',
               commandTemplate: 'gog sheets append *',
             },
           },
@@ -318,6 +322,8 @@ describe('job application use cases', () => {
             kind: 'local_cli',
             name: 'old-cli',
             executablePath: '/usr/local/bin/old-cli',
+            executableVersion: 'v0.8.0',
+            executableHash: 'sha256:old123',
             commandTemplate: '/usr/local/bin/old-cli read *',
           },
         },
@@ -362,6 +368,8 @@ describe('job application use cases', () => {
               kind: 'local_cli',
               name: 'gog',
               executablePath: '/usr/local/bin/gog',
+              executableVersion: 'v0.9.0',
+              executableHash: 'sha256:abc123',
               commandTemplate: '/usr/local/bin/gog sheets append --dry-run',
             },
           },
@@ -380,6 +388,8 @@ describe('job application use cases', () => {
               kind: 'local_cli',
               name: 'gog',
               executablePath: '/usr/local/bin/gog',
+              executableVersion: 'v0.9.0',
+              executableHash: 'sha256:abc123',
               commandTemplate: '/usr/local/bin/gog sheets append --dry-run',
             },
           },
@@ -492,7 +502,7 @@ describe('job application use cases', () => {
 
     expect(ops.updateJob).toHaveBeenCalledWith(
       'job-1',
-      expect.objectContaining({ model: 'kimi' }),
+      expect.objectContaining({ model: 'kimi-2.6' }),
     );
 
     await expect(
@@ -1282,7 +1292,7 @@ describe('job application use cases', () => {
     expect(ops.upsertJob).not.toHaveBeenCalled();
   });
 
-  it('rejects ambiguous IPC scheduler model selectors', async () => {
+  it('rejects raw provider IDs for IPC scheduler model selectors', async () => {
     const ops = {
       getJobById: vi.fn(),
       upsertJob: vi.fn(),
@@ -1301,16 +1311,16 @@ describe('job application use cases', () => {
           conversationBindings: {},
           sourceAgentFolderJids: ['tg:team'],
         },
-        name: 'Ambiguous model',
+        name: 'Raw model',
         prompt: 'Run',
-        modelAlias: 'kimi',
-        modelProfileId: 'openrouter:kimi-k2.6',
+        modelAlias: 'moonshotai/kimi-k2.6',
         scheduleType: 'once',
         scheduleValue: '2026-05-01T12:00:00.000Z',
       }),
     ).rejects.toMatchObject({
       code: 'INVALID_REQUEST',
-      message: 'Use either modelAlias or modelProfileId, not both.',
+      message:
+        'Provider model ID "moonshotai/kimi-k2.6" is not accepted here. Use a model alias from /models.',
     });
     expect(ops.upsertJob).not.toHaveBeenCalled();
   });

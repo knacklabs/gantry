@@ -477,7 +477,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     expect(record.responseFiles).toHaveLength(0);
   });
 
-  it('shows unavailable admin tools with exact request_permission guidance', async () => {
+  it('shows unavailable admin tools without exposing raw grant internals', async () => {
     const fixture = createMcpFixture();
 
     const result = await runMcpFixture(fixture, 'capability_status', {});
@@ -490,15 +490,17 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     expect(record.result.content[0].text).toContain(
       'requestable: mcp__gantry__service_restart',
     );
-    expect(record.result.content[0].text).toContain(
+    expect(record.result.content[0].text).not.toContain(
       'tool_id: tool:mcp__gantry__service_restart',
     );
-    expect(record.result.content[0].text).toContain(
+    expect(record.result.content[0].text).not.toContain(
       'request_permission: permissionKind=tool toolName=mcp__gantry__service_restart temporaryOnly=false',
     );
     expect(record.result.content[0].text).toContain('requestable: Browser');
-    expect(record.result.content[0].text).toContain('tool_id: tool:Browser');
-    expect(record.result.content[0].text).toContain(
+    expect(record.result.content[0].text).not.toContain(
+      'tool_id: tool:Browser',
+    );
+    expect(record.result.content[0].text).not.toContain(
       'request_permission: permissionKind=tool toolName=Browser toolCategory=browser temporaryOnly=false',
     );
     expect(record.result.content[0].text).toContain(
@@ -708,7 +710,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
 
     expect(scheduler.exitCode, scheduler.stderr).toBe(0);
     const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
-    expect(record.result.content[0].text).toContain('Supported models');
+    expect(record.result.content[0].text).toContain('Supported model aliases');
 
     const hiddenAdmin = await runMcpFixture(
       fixture,
@@ -756,7 +758,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
 
     expect(scheduler.exitCode, scheduler.stderr).toBe(0);
     const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
-    expect(record.result.content[0].text).toContain('Supported models');
+    expect(record.result.content[0].text).toContain('Supported model aliases');
   });
 
   it('defaults scheduler upsert delivery to the trusted runtime thread', async () => {
@@ -1033,6 +1035,54 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       });
     },
   );
+
+  it('submits local CLI propose_capability as a reviewed capability proposal even for a built-in capability id', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'propose_capability', {
+      capabilityId: 'google.sheets.write',
+      displayName: 'Google Sheets write using gog',
+      category: 'Local CLI',
+      risk: 'write',
+      source: 'local_cli',
+      credentialSource: 'local_cli',
+      accountLabel: 'gog',
+      can: 'Append reviewed rows to Google Sheets through gog.',
+      cannot: 'Run commands outside the reviewed templates.',
+      executablePath: '/usr/local/bin/gog',
+      executableVersion: 'v0.9.0',
+      executableHash: 'sha256:abc123',
+      commandTemplates: ['/usr/local/bin/gog sheets append *'],
+      authPreflightCommand: '/usr/local/bin/gog auth status',
+      protectedPaths: ['~/.config/gog/*'],
+      reason: 'This job writes lead rows after each run.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const taskFiles = fs.readdirSync(path.join(fixture.ipcDir, 'tasks'));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.ipcDir, 'tasks', taskFiles[0]),
+        'utf-8',
+      ),
+    );
+    expect(task).toMatchObject({
+      type: 'request_permission',
+      targetJid: 'tg:team',
+      chatJid: 'tg:team',
+      payload: {
+        capabilityRequestSource: 'propose_capability',
+        capabilityId: 'google.sheets.write',
+        source: 'local_cli',
+        credentialSource: 'local_cli',
+        executablePath: '/usr/local/bin/gog',
+        executableVersion: 'v0.9.0',
+        executableHash: 'sha256:abc123',
+        commandTemplates: ['/usr/local/bin/gog sheets append *'],
+      },
+    });
+  });
 
   it('rejects browser-control skill install requests with request_permission guidance', async () => {
     const fixture = createMcpFixture();

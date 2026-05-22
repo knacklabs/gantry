@@ -1,5 +1,8 @@
 import type { Job } from '../../domain/types.js';
-import type { ToolCatalogRepository } from '../../domain/ports/repositories.js';
+import type {
+  SkillCatalogRepository,
+  ToolCatalogRepository,
+} from '../../domain/ports/repositories.js';
 import { ApplicationError } from '../common/application-error.js';
 import { resolveAgentToolRuntimeRules } from '../agents/agent-tool-runtime-rules.js';
 
@@ -18,6 +21,7 @@ export async function resolveJobToolPolicy(input: {
   appId?: string;
   agentId?: string;
   toolRepository?: ToolCatalogRepository;
+  skillRepository?: SkillCatalogRepository;
 }): Promise<JobToolPolicyResolution> {
   const inheritedTools =
     input.appId && input.agentId
@@ -25,6 +29,7 @@ export async function resolveJobToolPolicy(input: {
           repository: input.toolRepository,
           appId: input.appId,
           agentId: input.agentId,
+          skillRepository: input.skillRepository,
         })
       : [];
   return {
@@ -35,6 +40,7 @@ export async function resolveJobToolPolicy(input: {
 
 export async function resolveAgentToolBindings(input: {
   repository?: ToolCatalogRepository;
+  skillRepository?: SkillCatalogRepository;
   appId: string;
   agentId: string;
 }): Promise<string[]> {
@@ -44,6 +50,7 @@ export async function resolveAgentToolBindings(input: {
     appId: input.appId,
     agentId: input.agentId,
     errorSubject: 'Inherited agent tool',
+    skillRepository: input.skillRepository,
     makeError: (message) => new ApplicationError('FORBIDDEN', message),
   });
 }

@@ -46,8 +46,14 @@ export async function updateManagedJob(
   await assertAccess(deps, job, input);
   const patch = { ...input.patch };
   const targetGroupScope = patch.groupScope ?? job.group_scope;
+  const targetScheduleType = patch.scheduleType ?? job.schedule_type;
   if (typeof patch.model === 'string') {
-    patch.model = resolveOptionalJobModel(patch.model);
+    patch.model = resolveOptionalJobModel(
+      patch.model,
+      targetScheduleType === 'cron' || targetScheduleType === 'interval'
+        ? 'recurring_job'
+        : 'one_time_job',
+    );
   }
   const authenticatedContext = await resolveAuthenticatedRouteContextForUpdate({
     deps,

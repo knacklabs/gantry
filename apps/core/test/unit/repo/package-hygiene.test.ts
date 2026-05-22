@@ -4,6 +4,8 @@ import path from 'path';
 
 import { describe, expect, it } from 'vitest';
 
+import { GANTRY_BUNDLED_CLAUDE_SKILL_IDS } from '@core/adapters/llm/anthropic-claude-agent/claude-skill-materializer.js';
+
 describe('package hygiene', () => {
   function listSourceFiles(dir: string): string[] {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -38,6 +40,9 @@ describe('package hygiene', () => {
   }, 30_000);
 
   it('ships only Gantry-owned bundled skills', () => {
+    const expectedSkillFiles = GANTRY_BUNDLED_CLAUDE_SKILL_IDS.map(
+      (skillId) => `.claude/skills/${skillId}/SKILL.md`,
+    );
     const raw = execFileSync('npm', ['pack', '--dry-run', '--json'], {
       encoding: 'utf-8',
     });
@@ -49,10 +54,20 @@ describe('package hygiene', () => {
       .filter((file) => file.startsWith('.claude/skills/'))
       .sort();
 
-    expect(skillFiles).toEqual([
-      '.claude/skills/commands/SKILL.md',
-      '.claude/skills/gantry-admin/SKILL.md',
-    ]);
+    expect(skillFiles).toEqual(expectedSkillFiles);
+
+    const sourceSkillsRoot = path.join(process.cwd(), '.claude', 'skills');
+    const sourceSkillFiles = fs
+      .readdirSync(sourceSkillsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .flatMap((entry) => {
+        const skillFile = path.join(sourceSkillsRoot, entry.name, 'SKILL.md');
+        return fs.existsSync(skillFile)
+          ? [`.claude/skills/${entry.name}/SKILL.md`]
+          : [];
+      })
+      .sort();
+    expect(sourceSkillFiles).toEqual(expectedSkillFiles);
   }, 30_000);
 
   it('isolates OneCLI SDK imports to credential adapter and CLI setup adapter', () => {

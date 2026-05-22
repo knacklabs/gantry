@@ -32,3 +32,9 @@
   handle. Preserve the existing rule that streamed job `newSessionId` values are
   not written back into the job-owned session scope unless that product decision
   changes explicitly.
+- `request_permission` tool input is agent-authored and must not register
+  arbitrary semantic capability definitions. Selected skill action definitions
+  are trusted only when the host runner IPC includes them from materialized,
+  selected skill metadata; local CLI definitions project only after pinned
+  executable identity, preflight, protected paths, denied environment
+  overrides, and reviewed command templates are present.

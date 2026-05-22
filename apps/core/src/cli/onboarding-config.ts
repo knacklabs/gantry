@@ -6,12 +6,14 @@ import {
   ensureRuntimeLayout,
 } from '../config/settings/runtime-home.js';
 import {
+  applyModelProviderPreset,
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import {
-  findModelByRunnerModel,
-  resolveModelAlias,
+  DEFAULT_MODEL_PROVIDER_PRESET_ID,
+  resolveModelSelectionForWorkload,
+  type ModelProviderId,
 } from '../shared/model-catalog.js';
 import {
   generateOnecliSecretEncryptionKey,
@@ -34,7 +36,8 @@ export interface OnboardingConfigInput {
   slackBotToken?: string;
   slackAppToken?: string;
   slackPermissionApproverIds?: string;
-  anthropicModel?: string;
+  modelProvider?: ModelProviderId;
+  modelAlias?: string;
   credentialMode: HostCredentialMode;
   onecliUrl?: string;
   agentName?: string;
@@ -104,7 +107,18 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
   }
   settings.storage.postgres.urlEnv = 'GANTRY_DATABASE_URL';
   settings.storage.postgres.schema = input.postgresSchema?.trim() || 'gantry';
-  settings.agent.defaultModel = normalizeOnboardingModel(input.anthropicModel);
+  const model = resolveOnboardingModel(input.modelAlias);
+  const provider =
+    input.modelProvider ?? model.provider ?? DEFAULT_MODEL_PROVIDER_PRESET_ID;
+  if (model.provider && model.provider !== provider) {
+    throw new Error(
+      `Selected model alias "${model.alias}" belongs to ${model.provider}, not ${provider}.`,
+    );
+  }
+  applyModelProviderPreset(settings, provider);
+  if (model.alias) {
+    settings.agent.defaultModel = model.alias;
+  }
   settings.credentialBroker.mode = input.credentialMode;
   settings.credentialBroker.onecli.url = onecliUrl;
   settings.credentialBroker.onecli.postgres.urlEnv = ONECLI_DATABASE_URL_ENV;
@@ -132,10 +146,15 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
   saveRuntimeSettings(input.runtimeHome, settings);
 }
 
-function normalizeOnboardingModel(value: string | undefined): string {
-  return (
-    resolveModelAlias(value) ||
-    findModelByRunnerModel(value)?.recommendedAlias ||
-    ''
-  );
+function resolveOnboardingModel(value: string | undefined): {
+  alias: string;
+  provider?: ModelProviderId;
+} {
+  const trimmed = value?.trim();
+  if (!trimmed) return { alias: '' };
+  const resolved = resolveModelSelectionForWorkload(trimmed, 'chat');
+  if (!resolved.ok) {
+    throw new Error(resolved.message);
+  }
+  return { alias: resolved.alias, provider: resolved.entry.provider };
 }

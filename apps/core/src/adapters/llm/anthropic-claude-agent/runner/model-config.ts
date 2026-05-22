@@ -2,20 +2,30 @@ import type {
   EffortLevel,
   ThinkingConfig,
 } from '@anthropic-ai/claude-agent-sdk';
-import { resolveCatalogRunnerModel } from '../../../../shared/model-catalog.js';
+import {
+  findModelByRunnerModel,
+  resolveRunnerModel,
+} from '../../../../shared/model-catalog.js';
 import type { AgentRunnerInput } from './types.js';
 
+const GANTRY_EFFECTIVE_MODEL_SOURCE_ENV = 'GANTRY_EFFECTIVE_MODEL_SOURCE';
+
 function normalizeModelValue(value?: string): string | undefined {
-  return resolveCatalogRunnerModel(value);
+  const aliasModel = resolveRunnerModel(value);
+  if (aliasModel) return aliasModel;
+  if (process.env[GANTRY_EFFECTIVE_MODEL_SOURCE_ENV] === 'runtime') {
+    return findModelByRunnerModel(value)?.runnerModel;
+  }
+  return undefined;
 }
 
 export function resolveConfiguredModel(): {
   model?: string;
   source: 'ANTHROPIC_MODEL' | 'unset';
 } {
-  const anthropicModel = normalizeModelValue(process.env.ANTHROPIC_MODEL);
-  if (anthropicModel) {
-    return { model: anthropicModel, source: 'ANTHROPIC_MODEL' };
+  const configuredModel = normalizeModelValue(process.env.ANTHROPIC_MODEL);
+  if (configuredModel) {
+    return { model: configuredModel, source: 'ANTHROPIC_MODEL' };
   }
   return { source: 'unset' };
 }

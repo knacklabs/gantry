@@ -98,6 +98,48 @@ afterEach(() => {
 });
 
 describe('admin IPC handlers', () => {
+  it('rejects direct request_permission semantic capability requests outside propose_capability', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      decidedBy: 'U_APPROVER',
+    }));
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('direct-capability-request', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        payload: {
+          permissionKind: 'tool',
+          capabilityId: 'google.sheets.write',
+          temporaryOnly: false,
+          reason: 'write leads',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        requestPermissionApproval,
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    expect(
+      readResponse(runtimeHome, 'direct-capability-request'),
+    ).toMatchObject({
+      ok: false,
+      code: 'invalid_request',
+      error:
+        'Capability requests must use propose_capability, not request_permission.',
+    });
+    expect(requestPermissionApproval).not.toHaveBeenCalled();
+  });
+
   it('requires same-channel approval and syncs settings after register_agent', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-admin-ipc-'),
@@ -253,6 +295,7 @@ describe('admin IPC handlers', () => {
         jobId: 'job-1',
         payload: {
           permissionKind: 'tool',
+          capabilityRequestSource: 'propose_capability',
           capabilityId: 'google.sheets.write',
           capabilityDisplayName: 'Google Sheets write',
           temporaryOnly: false,
@@ -272,6 +315,8 @@ describe('admin IPC handlers', () => {
                   kind: 'local_cli',
                   name: 'gog',
                   executablePath: '/usr/local/bin/gog',
+                  executableVersion: 'v0.9.0',
+                  executableHash: 'sha256:abc123',
                   commandTemplate:
                     '/usr/local/bin/gog sheets append <sheet_id> ...',
                 },
@@ -332,6 +377,8 @@ describe('admin IPC handlers', () => {
                   kind: 'local_cli',
                   name: 'gog',
                   executablePath: '/usr/local/bin/gog',
+                  executableVersion: 'v0.9.0',
+                  executableHash: 'sha256:abc123',
                   commandTemplate:
                     '/usr/local/bin/gog sheets append <sheet_id> ...',
                 },
@@ -393,6 +440,8 @@ describe('admin IPC handlers', () => {
                   kind: 'local_cli',
                   name: 'gog',
                   executablePath: '/usr/local/bin/gog',
+                  executableVersion: 'v0.9.0',
+                  executableHash: 'sha256:abc123',
                   commandTemplate:
                     '/usr/local/bin/gog sheets append <sheet_id> ...',
                 },
@@ -436,6 +485,7 @@ describe('admin IPC handlers', () => {
         jobId: 'job-1',
         payload: {
           permissionKind: 'tool',
+          capabilityRequestSource: 'propose_capability',
           capabilityId: 'google.sheets.write',
           capabilityDisplayName: 'Google Sheets write using gog',
           credentialSource: 'local_cli',
@@ -460,6 +510,8 @@ describe('admin IPC handlers', () => {
                   kind: 'local_cli',
                   name: 'gog',
                   executablePath: '/usr/local/bin/gog',
+                  executableVersion: 'v0.9.0',
+                  executableHash: 'sha256:abc123',
                   commandTemplate:
                     '/usr/local/bin/gog sheets append <sheet_id> ...',
                 },

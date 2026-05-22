@@ -8,13 +8,21 @@ import type {
   PermissionDecision,
   PermissionDecisionId,
 } from '../../domain/permissions/permissions.js';
-import type { AgentToolBinding } from '../../domain/tools/tools.js';
-import type { ToolId } from '../../domain/tools/tools.js';
+import type {
+  AgentToolBinding,
+  ToolCatalogItem,
+  ToolId,
+} from '../../domain/tools/tools.js';
 import { ensureAgentToolCatalogItem } from '../../domain/tools/agent-tool-catalog-references.js';
+import { skillActionSource } from '../../domain/skills/skill-action-permissions.js';
 import {
+  expandSemanticCapabilityPermissionRules,
+  getBuiltinSemanticCapability,
+  semanticCapabilityRuntimeRules,
   semanticCapabilityFromToolCatalogItem,
   type SemanticCapabilityDefinition,
 } from '../../shared/semantic-capabilities.js';
+import { parseSemanticCapabilityRule } from '../../shared/semantic-capability-ids.js';
 import type {
   PermissionApprovalDecision,
   PermissionApprovalUpdate,
@@ -100,6 +108,7 @@ export interface RecordPermissionDecisionInput {
   runId?: string;
   jobId?: string;
   toolId?: string;
+  auditMetadata?: Record<string, unknown>;
 }
 
 export class PermissionManagementService {
@@ -176,18 +185,6 @@ export class PermissionManagementService {
             adapterRef: 'permission/request_permission',
             semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
           });
-          const semanticCapability = semanticCapabilityFromToolCatalogItem({
-            name: tool.name,
-            inputSchema: tool.inputSchema,
-          });
-          if (
-            tool.kind === 'local_cli' ||
-            semanticCapability?.credentialSource === 'local_cli'
-          ) {
-            throw new Error(
-              'Local CLI capabilities are draft-only until runtime enforcement verifies executable hash, auth preflight, protected paths, and denied environment overrides.',
-            );
-          }
           toolId = tool.id as AgentToolBinding['toolId'];
         }
         const binding: AgentToolBinding = {
@@ -239,6 +236,10 @@ export class PermissionManagementService {
         runId: input.runId,
         jobId: input.jobId,
         toolId: grantedToolIds[0],
+        auditMetadata: persistentPermissionGrantAuditMetadata({
+          rules: allowedRules,
+          semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
+        }),
       });
       throw err;
     }
@@ -246,7 +247,10 @@ export class PermissionManagementService {
     appendLiveToolRules({
       ipcDir: input.ipcDir,
       runHandle: input.runHandle,
-      rules: allowedRules,
+      rules: expandSemanticCapabilityPermissionRules({
+        rules: allowedRules,
+        definitions: input.semanticCapabilityDefinitions,
+      }),
     });
 
     await this.recordDecision({
@@ -267,6 +271,10 @@ export class PermissionManagementService {
       runId: input.runId,
       jobId: input.jobId,
       toolId: grantedToolIds[0],
+      auditMetadata: persistentPermissionGrantAuditMetadata({
+        rules: allowedRules,
+        semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
+      }),
     });
     return allowedRules;
   }
@@ -294,6 +302,7 @@ export class PermissionManagementService {
       toolName: input.toolName,
       toolId: input.toolId,
     });
+    const liveRules = expandedRevocationLiveRules(target);
     const timestamp = this.clock.now();
     try {
       await input.toolRepository.disableAgentToolBinding({
@@ -310,7 +319,7 @@ export class PermissionManagementService {
       removeLiveToolRules({
         ipcDir: input.ipcDir,
         runHandle: input.runHandle,
-        rules: [target.rule],
+        rules: liveRules,
       });
     } catch (err) {
       await Promise.allSettled([
@@ -330,7 +339,7 @@ export class PermissionManagementService {
           appendLiveToolRules({
             ipcDir: input.ipcDir,
             runHandle: input.runHandle,
-            rules: [target.rule],
+            rules: liveRules,
           }),
         ),
       ]);
@@ -401,6 +410,7 @@ export class PermissionManagementService {
         ...(input.jobId ? { jobId: input.jobId } : {}),
         mode: input.decision.mode ?? null,
         classification: input.decision.decisionClassification ?? null,
+        ...(input.auditMetadata ?? {}),
       },
       actionPreview: input.toolName,
       toolId: input.toolId as never,
@@ -420,10 +430,10 @@ export class PermissionManagementService {
       >;
     },
   ): void {
-    const validation = validatePersistentRequestPermissionRule(
-      allowedRule,
-      options,
-    );
+    const validation = validatePersistentRequestPermissionRule(allowedRule, {
+      ...options,
+      allowUnknownSemanticCapability: false,
+    });
     if (!validation.ok) throw new Error(validation.reason);
     const adminMcpTool = adminMcpToolFullNameFromRule(allowedRule);
     if (adminMcpTool && adminMcpTool !== allowedRule) {
@@ -466,6 +476,39 @@ function persistentPermissionRuleAuditPreviewForRules(
   return rules.map(persistentPermissionRuleAuditPreview).join(', ');
 }
 
+function persistentPermissionGrantAuditMetadata(input: {
+  rules: readonly string[];
+  semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
+}): Record<string, unknown> {
+  const skillActions = input.rules
+    .map((rule) => {
+      const capabilityId = parseSemanticCapabilityRule(rule);
+      if (!capabilityId) return undefined;
+      const capability =
+        input.semanticCapabilityDefinitions?.[capabilityId] ??
+        getBuiltinSemanticCapability(capabilityId);
+      if (!capability) return undefined;
+      const source = skillActionSource(capability);
+      if (!source) return undefined;
+      return {
+        capabilityId,
+        displayName: capability.displayName,
+        skillId: source.skillId,
+        skillName: source.skillName,
+        skillVersion: source.skillVersion,
+        skillContentHash: source.skillContentHash,
+        actionId: source.actionId,
+        commandPreviewHashes: semanticCapabilityRuntimeRules(capability).map(
+          (runtimeRule) => `sha256:${stableSha256Json({ runtimeRule })}`,
+        ),
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => !!item);
+  return skillActions.length > 0
+    ? { capabilitySource: 'skill_action', skillActions }
+    : {};
+}
+
 function adminMcpToolFullNameFromRule(allowedRule: string): string | null {
   const trimmed = allowedRule.trim();
   const scoped = parseReadableScopedToolRule(trimmed);
@@ -485,10 +528,14 @@ function persistentPermissionBindingId(
 function resolveRevocationTarget(input: {
   appId: AppId;
   bindings: readonly AgentToolBinding[];
-  toolById: ReadonlyMap<ToolId, { name?: string | null }>;
+  toolById: ReadonlyMap<ToolId, ToolCatalogItem>;
   toolName?: string;
   toolId?: string;
-}): { binding: AgentToolBinding; rule: string } {
+}): {
+  binding: AgentToolBinding;
+  rule: string;
+  tool: ToolCatalogItem | undefined;
+} {
   const requestedToolId = input.toolId?.trim();
   const requestedToolName = input.toolName?.trim();
   if (!requestedToolId && !requestedToolName) {
@@ -528,7 +575,25 @@ function resolveRevocationTarget(input: {
       `Cannot revoke unreadable tool grant ${binding.toolId}: ${validation.reason}`,
     );
   }
-  return { binding, rule };
+  return { binding, rule, tool };
+}
+
+function expandedRevocationLiveRules(input: {
+  rule: string;
+  tool?: ToolCatalogItem;
+}): string[] {
+  const capability = input.tool
+    ? semanticCapabilityFromToolCatalogItem({
+        name: input.tool.name ?? input.rule,
+        inputSchema: input.tool.inputSchema,
+      })
+    : undefined;
+  return expandSemanticCapabilityPermissionRules({
+    rules: [input.rule],
+    definitions: capability
+      ? { [capability.capabilityId]: capability }
+      : undefined,
+  });
 }
 
 function candidateToolIdsForRule(appId: AppId, rule: string): Set<ToolId> {
@@ -536,6 +601,10 @@ function candidateToolIdsForRule(appId: AppId, rule: string): Set<ToolId> {
   if (isCanonicalBrowserCapabilityRule(rule)) out.add('tool:Browser' as ToolId);
   if (isAdminMcpToolFullName(rule)) {
     out.add(adminMcpToolIdForFullName(rule) as ToolId);
+  }
+  const semanticCapabilityId = parseSemanticCapabilityRule(rule);
+  if (semanticCapabilityId) {
+    out.add(`tool:capability:${semanticCapabilityId}` as ToolId);
   }
   out.add(persistentPermissionToolId(appId, rule) as ToolId);
   return out;

@@ -10,9 +10,9 @@ describe('parseAutonomousToolDenial', () => {
       'request_permission {"toolName":"Browser"}',
     ],
     [
-      'Tool not on autonomous run allowlist: capability:google.sheets.write. Recovery: request_permission {"toolName":"capability:google.sheets.write"}',
+      'Tool not on autonomous run allowlist: capability:google.sheets.write. Recovery: propose_capability {"capabilityId":"google.sheets.write","reason":"This autonomous run requires capability:google.sheets.write access."}',
       'capability:google.sheets.write',
-      'request_permission {"toolName":"capability:google.sheets.write"}',
+      'propose_capability {"capabilityId":"google.sheets.write","reason":"This autonomous run requires capability:google.sheets.write access."}',
     ],
     [
       'Missing tool access requirement before run. Tool not on autonomous run allowlist: RunCommand(gog sheets append *). Recovery: request_permission {"toolName":"RunCommand","rule":"gog sheets append *"}',

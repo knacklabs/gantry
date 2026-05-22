@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, type SQL } from 'drizzle-orm';
 import type { ToolCatalogRepository } from '../../../../domain/ports/repositories.js';
 import type {
   AgentToolBinding,
+  AgentToolSource,
   ToolCatalogItem,
 } from '../../../../domain/tools/tools.js';
 import * as pgSchema from '../schema/schema.js';
@@ -126,6 +127,74 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
     return this.listAgentToolBindingRows(input);
   }
 
+  async replaceAgentToolSources(input: {
+    appId: AgentToolSource['appId'];
+    agentId: AgentToolSource['agentId'];
+    sources: AgentToolSource[];
+    updatedAt: string;
+  }): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const existingSources = await tx
+        .select()
+        .from(pgSchema.agentToolSourcesPostgres)
+        .where(
+          and(
+            eq(pgSchema.agentToolSourcesPostgres.appId, input.appId),
+            eq(pgSchema.agentToolSourcesPostgres.agentId, input.agentId),
+          ),
+        );
+      const nextSourceIds = new Set(
+        input.sources.map((source) => String(source.id)),
+      );
+      for (const source of existingSources) {
+        if (nextSourceIds.has(String(source.id))) continue;
+        await tx
+          .update(pgSchema.agentToolSourcesPostgres)
+          .set({ status: 'disabled', updatedAt: input.updatedAt })
+          .where(eq(pgSchema.agentToolSourcesPostgres.id, source.id));
+      }
+      for (const source of input.sources) {
+        await tx
+          .insert(pgSchema.agentToolSourcesPostgres)
+          .values({
+            id: source.id,
+            appId: source.appId,
+            agentId: source.agentId,
+            sourceId: source.sourceId,
+            kind: source.kind,
+            version: source.version,
+            status: source.status,
+            createdAt: source.createdAt,
+            updatedAt: source.updatedAt,
+          })
+          .onConflictDoUpdate({
+            target: pgSchema.agentToolSourcesPostgres.id,
+            set: {
+              sourceId: source.sourceId,
+              kind: source.kind,
+              version: source.version,
+              status: source.status,
+              updatedAt: source.updatedAt,
+            },
+          });
+      }
+    });
+  }
+
+  async listAgentToolSources(input: {
+    appId: AgentToolSource['appId'];
+    agentId: AgentToolSource['agentId'];
+  }): Promise<AgentToolSource[]> {
+    return this.listAgentToolSourceRows(input);
+  }
+
+  async listAgentToolSourcesForAgents(input: {
+    appId: AgentToolSource['appId'];
+    agentIds: readonly AgentToolSource['agentId'][];
+  }): Promise<AgentToolSource[]> {
+    return this.listAgentToolSourceRows(input);
+  }
+
   private async listAgentToolBindingRows(input: {
     appId: AgentToolBinding['appId'];
     agentId?: AgentToolBinding['agentId'];
@@ -153,6 +222,35 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
         asc(pgSchema.agentToolBindingsPostgres.createdAt),
       );
     return rows.map((row) => this.mapBinding(row));
+  }
+
+  private async listAgentToolSourceRows(input: {
+    appId: AgentToolSource['appId'];
+    agentId?: AgentToolSource['agentId'];
+    agentIds?: readonly AgentToolSource['agentId'][];
+  }): Promise<AgentToolSource[]> {
+    if (input.agentIds?.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(pgSchema.agentToolSourcesPostgres)
+      .where(
+        and(
+          eq(pgSchema.agentToolSourcesPostgres.appId, input.appId),
+          input.agentId
+            ? eq(pgSchema.agentToolSourcesPostgres.agentId, input.agentId)
+            : undefined,
+          input.agentIds?.length
+            ? inArray(pgSchema.agentToolSourcesPostgres.agentId, [
+                ...input.agentIds,
+              ])
+            : undefined,
+        ),
+      )
+      .orderBy(
+        asc(pgSchema.agentToolSourcesPostgres.agentId),
+        asc(pgSchema.agentToolSourcesPostgres.sourceId),
+      );
+    return rows.map((row) => this.mapSource(row));
   }
 
   private mapTool(
@@ -194,6 +292,22 @@ export class PostgresToolCatalogRepository implements ToolCatalogRepository {
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     } as AgentToolBinding;
+  }
+
+  private mapSource(
+    row: typeof pgSchema.agentToolSourcesPostgres.$inferSelect,
+  ): AgentToolSource {
+    return {
+      id: row.id,
+      appId: row.appId,
+      agentId: row.agentId,
+      sourceId: row.sourceId,
+      kind: row.kind,
+      version: row.version,
+      status: row.status,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    } as AgentToolSource;
   }
 }
 

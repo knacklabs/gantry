@@ -29,11 +29,26 @@ export const RuntimeSettingsConfiguredAgentBindingSchema = z
   })
   .strict();
 
-export const RuntimeSettingsConfiguredAgentCapabilitiesSchema = z
+export const RuntimeSettingsConfiguredAgentSourceRefSchema = z
   .object({
-    toolIds: z.array(z.string().trim().min(1)),
-    skillIds: z.array(z.string().trim().min(1)),
-    mcpServerIds: z.array(z.string().trim().min(1)),
+    id: z.string().trim().min(1),
+    version: z.string().trim().min(1).optional(),
+    kind: z.string().trim().min(1).optional(),
+  })
+  .strict();
+
+export const RuntimeSettingsConfiguredAgentSourcesSchema = z
+  .object({
+    skills: z.array(RuntimeSettingsConfiguredAgentSourceRefSchema),
+    mcpServers: z.array(RuntimeSettingsConfiguredAgentSourceRefSchema),
+    tools: z.array(RuntimeSettingsConfiguredAgentSourceRefSchema),
+  })
+  .strict();
+
+export const RuntimeSettingsConfiguredAgentCapabilitySchema = z
+  .object({
+    id: z.string().trim().min(1),
+    version: z.string().trim().min(1),
   })
   .strict();
 
@@ -46,7 +61,8 @@ export const RuntimeSettingsConfiguredAgentSchema = z
     oneTimeJobDefaultModel: z.string().optional(),
     recurringJobDefaultModel: z.string().optional(),
     bindings: z.record(z.string(), RuntimeSettingsConfiguredAgentBindingSchema),
-    capabilities: RuntimeSettingsConfiguredAgentCapabilitiesSchema,
+    sources: RuntimeSettingsConfiguredAgentSourcesSchema,
+    capabilities: z.array(RuntimeSettingsConfiguredAgentCapabilitySchema),
   })
   .strict();
 

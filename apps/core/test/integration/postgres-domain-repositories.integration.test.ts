@@ -409,6 +409,52 @@ maybeDescribe('Postgres domain repositories', () => {
     ).toBe('disabled');
   });
 
+  it('stores source-only tool attachments separately from capability bindings', async () => {
+    const updatedAt = '2026-05-02T00:00:00.000Z';
+
+    await repositories.tools.replaceAgentToolSources?.({
+      appId,
+      agentId,
+      sources: [
+        {
+          id: `agent-tool-source:${agentId}:builtin:browser:builtin` as never,
+          appId,
+          agentId,
+          sourceId: 'browser',
+          kind: 'builtin',
+          version: 'builtin',
+          status: 'active',
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      updatedAt,
+    });
+
+    const sources = await repositories.tools.listAgentToolSources?.({
+      appId,
+      agentId,
+    });
+    const bindings = await repositories.tools.listAgentToolBindings({
+      appId,
+      agentId,
+    });
+
+    expect(sources).toEqual([
+      expect.objectContaining({
+        sourceId: 'browser',
+        kind: 'builtin',
+        version: 'builtin',
+        status: 'active',
+      }),
+    ]);
+    expect(bindings).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ toolId: 'tool:Browser', status: 'active' }),
+      ]),
+    );
+  });
+
   it('inserts messages idempotently by provider redelivery key', async () => {
     await repositories.messages.saveMessage({
       id: 'message:test:first' as MessageId,

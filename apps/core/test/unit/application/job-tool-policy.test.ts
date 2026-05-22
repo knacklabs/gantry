@@ -126,7 +126,9 @@ describe('job tool policy', () => {
         agentId: 'agent:team',
         toolRepository: toolRepositoryFor(['mcp__github__search_repositories']),
       }),
-    ).rejects.toThrowError(/request and bind the MCP server capability/);
+    ).rejects.toThrowError(
+      /Third-party MCP tools must be projected from a reviewed semantic capability/,
+    );
   });
 
   it('matches the interactive runtime resolver for the same agent bindings', async () => {

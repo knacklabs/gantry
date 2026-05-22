@@ -4,6 +4,10 @@ import {
   type ThinkingConfig,
 } from '@anthropic-ai/claude-agent-sdk';
 import {
+  SDK_NATIVE_SKILL_DISABLE_ENV,
+  SDK_NATIVE_SKILL_OVERRIDES,
+} from '../native-sdk-skills.js';
+import {
   buildSystemPrompt,
   includeGitInstructionsForPersona,
 } from './system-prompt.js';
@@ -56,6 +60,10 @@ export async function runSessionSlashCommand(
   let resultEmitted = false;
   let errorMessage: string | undefined;
   const systemPrompt = buildSystemPrompt(opts.systemPromptAppend);
+  const isolatedSdkEnv = {
+    ...opts.sdkEnv,
+    ...SDK_NATIVE_SKILL_DISABLE_ENV,
+  };
 
   try {
     for await (const message of query({
@@ -71,9 +79,10 @@ export async function runSessionSlashCommand(
           includeGitInstructions: includeGitInstructionsForPersona(
             opts.persona,
           ),
+          skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
         },
         allowedTools: [],
-        env: opts.sdkEnv,
+        env: isolatedSdkEnv,
         permissionMode: 'default' as const,
         canUseTool: async () => ({
           behavior: 'deny' as const,

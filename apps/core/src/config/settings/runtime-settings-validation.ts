@@ -13,7 +13,10 @@ import { readEnvFile } from '../env/file.js';
 import { validateOnecliUrl } from '../../adapters/credentials/onecli/policy.js';
 import { validateExternalBrokerUrl } from '../credentials/broker-url-policy.js';
 import { validateRuntimeEnvPolicy } from '../source-classification.js';
-import { resolveModelSelection } from '../../shared/model-catalog.js';
+import {
+  resolveModelSelectionForWorkload,
+  type ModelWorkload,
+} from '../../shared/model-catalog.js';
 import { validateReadableAgentToolRule } from '../../shared/agent-tool-references.js';
 import { envFilePath, settingsFilePath } from './runtime-home.js';
 import type {
@@ -40,32 +43,46 @@ export function validateLoadedRuntimeSettings(
     details.push(violation.message);
   }
   const credentialMode = settings.credentialBroker.mode;
-  for (const [field, value] of [
-    ['agent.default_model', settings.agent.defaultModel],
-    ['agent.one_time_job_default_model', settings.agent.oneTimeJobDefaultModel],
+  for (const [field, value, workload] of [
+    ['agent.default_model', settings.agent.defaultModel, 'chat'],
+    [
+      'agent.one_time_job_default_model',
+      settings.agent.oneTimeJobDefaultModel,
+      'one_time_job',
+    ],
     [
       'agent.recurring_job_default_model',
       settings.agent.recurringJobDefaultModel,
+      'recurring_job',
     ],
-  ] as const) {
+  ] as const satisfies readonly (readonly [string, string, ModelWorkload])[]) {
     const trimmed = value.trim();
     if (!trimmed) continue;
-    const resolved = resolveModelSelection(trimmed);
+    const resolved = resolveModelSelectionForWorkload(trimmed, workload);
     if (!resolved.ok) {
       details.push(`${field} is invalid: ${resolved.message}`);
     }
   }
-  for (const [field, value] of [
-    ['memory.llm.models.extractor', settings.memory.llm.models.extractor],
-    ['memory.llm.models.dreaming', settings.memory.llm.models.dreaming],
+  for (const [field, value, workload] of [
+    [
+      'memory.llm.models.extractor',
+      settings.memory.llm.models.extractor,
+      'memory_extractor',
+    ],
+    [
+      'memory.llm.models.dreaming',
+      settings.memory.llm.models.dreaming,
+      'memory_dreaming',
+    ],
     [
       'memory.llm.models.consolidation',
       settings.memory.llm.models.consolidation,
+      'memory_consolidation',
     ],
-  ] as const) {
+  ] as const satisfies readonly (readonly [string, string, ModelWorkload])[]) {
     const trimmed = value.trim();
     if (!trimmed) continue;
-    const resolved = resolveModelSelection(trimmed);
+    const resolved = resolveModelSelectionForWorkload(trimmed, workload);
     if (!resolved.ok) {
       details.push(`${field} is invalid: ${resolved.message}`);
     }
@@ -247,11 +264,18 @@ export function validateLoadedRuntimeSettings(
   }
 
   for (const [agentId, agent] of Object.entries(settings.agents)) {
-    for (const toolRule of agent.capabilities.toolIds) {
+    for (const capability of agent.capabilities) {
+      const toolRule =
+        capability.id === 'browser.use'
+          ? 'Browser'
+          : capability.id.includes('.') &&
+              !capability.id.startsWith('RunCommand(')
+            ? `capability:${capability.id}`
+            : capability.id;
       const validation = validateReadableAgentToolRule(toolRule);
       if (!validation.ok) {
         details.push(
-          `agents.${agentId}.tools contains invalid tool rule "${toolRule}": ${validation.reason}`,
+          `agents.${agentId}.capabilities contains invalid capability "${capability.id}": ${validation.reason}`,
         );
       }
     }

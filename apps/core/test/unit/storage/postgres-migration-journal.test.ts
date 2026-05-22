@@ -732,6 +732,86 @@ describe('Postgres migration journal', () => {
     expect(repository).toContain('configVersionId: binding.configVersionId');
   });
 
+  it('registers skill action permissions storage and repository mapping', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0062_skill_action_permissions.sql',
+      ),
+      'utf8',
+    );
+    const schema = fs.readFileSync(
+      path.resolve('apps/core/src/adapters/storage/postgres/schema/skills.ts'),
+      'utf8',
+    );
+    const repository = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/repositories/skill-repository.postgres.ts',
+      ),
+      'utf8',
+    );
+
+    expect(
+      journal.entries.find(
+        (entry) => entry.tag === '0062_skill_action_permissions',
+      ),
+    ).toMatchObject({ idx: 62 });
+    expect(migration).toContain(
+      'ADD COLUMN IF NOT EXISTS action_permissions_json',
+    );
+    expect(schema).toContain('actionPermissionsJson');
+    expect(repository).toContain(
+      'actionPermissionsJson: encodeJson(item.actionPermissions ?? [])',
+    );
+    expect(repository).toContain(
+      'actionPermissions: parseJsonArray(row.actionPermissionsJson)',
+    );
+  });
+
+  it('registers agent tool source attachment storage and repository mapping', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0063_agent_tool_sources.sql',
+      ),
+      'utf8',
+    );
+    const schema = fs.readFileSync(
+      path.resolve('apps/core/src/adapters/storage/postgres/schema/tools.ts'),
+      'utf8',
+    );
+    const repository = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/repositories/tool-repository.postgres.ts',
+      ),
+      'utf8',
+    );
+
+    expect(
+      journal.entries.find((entry) => entry.tag === '0063_agent_tool_sources'),
+    ).toMatchObject({ idx: 63 });
+    expect(migration).toContain(
+      'CREATE TABLE IF NOT EXISTS agent_tool_sources',
+    );
+    expect(migration).toContain('version text NOT NULL');
+    expect(migration).toContain(
+      'ON agent_tool_sources(app_id, agent_id, source_id, kind, version)',
+    );
+    expect(schema).toContain('agentToolSourcesPostgres');
+    expect(repository).toContain('replaceAgentToolSources');
+    expect(repository).toContain('listAgentToolSourcesForAgents');
+  });
+
   it('registers outbound delivery fingerprint hash normalization migration', () => {
     const journalPath = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',

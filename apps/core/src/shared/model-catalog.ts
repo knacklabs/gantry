@@ -1,6 +1,12 @@
-import { nowIso } from './time/datetime.js';
-
 export type ModelProviderId = 'anthropic' | 'openrouter';
+
+export type ModelWorkload =
+  | 'chat'
+  | 'one_time_job'
+  | 'recurring_job'
+  | 'memory_extractor'
+  | 'memory_dreaming'
+  | 'memory_consolidation';
 
 export type ModelCacheMode =
   | 'anthropic-prompt'
@@ -22,6 +28,18 @@ export type NormalizedCacheStatus =
   | 'unsupported'
   | 'unknown';
 
+const DIRECT_PROMPT_CACHE_MODE: ModelCacheMode = 'anthropic-prompt';
+const CLAUDE_MODELS_OVERVIEW_SOURCE = {
+  label: 'Anthropic models overview',
+  url: 'https://platform.claude.com/docs/en/about-claude/models/overview',
+  verifiedAt: '2026-05-21',
+};
+const CLAUDE_MODEL_IDS_SOURCE = {
+  label: 'Anthropic model IDs and versions',
+  url: 'https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions',
+  verifiedAt: '2026-05-21',
+};
+
 export interface ModelCatalogEntry {
   id: string;
   provider: ModelProviderId;
@@ -31,6 +49,11 @@ export interface ModelCatalogEntry {
   runnerModel: string;
   aliases: readonly string[];
   recommendedAlias: string;
+  source: {
+    label: string;
+    url: string;
+    verifiedAt: string;
+  };
   contextWindowTokens: number;
   maxOutputTokens: number;
   inputUsdPerMillionTokens?: number;
@@ -39,6 +62,7 @@ export interface ModelCatalogEntry {
   cacheTokenFields: readonly string[];
   supportsThinking: boolean;
   supportsTools: boolean;
+  supportedWorkloads: readonly ModelWorkload[];
   experimental?: boolean;
 }
 
@@ -46,6 +70,22 @@ export interface ModelDefaultAliases {
   chat?: string;
   oneTime?: string;
   recurring?: string;
+  memoryExtractor?: string;
+  memoryDreaming?: string;
+  memoryConsolidation?: string;
+}
+
+export interface ModelProviderPreset {
+  id: ModelProviderId;
+  label: string;
+  chatDefault: string;
+  oneTimeJobDefault: string;
+  recurringJobDefault: string;
+  memoryDefaults: {
+    extractor: string;
+    dreaming: string;
+    consolidation: string;
+  };
 }
 
 export interface NormalizedModelUsage {
@@ -89,6 +129,59 @@ export const MEMORY_MODEL_DEFAULT_ALIASES = {
   consolidation: 'sonnet',
 } as const;
 
+export const MODEL_PROVIDER_PRESETS: readonly ModelProviderPreset[] = [
+  {
+    id: 'anthropic',
+    label: 'Anthropic',
+    chatDefault: DEFAULT_SETUP_MODEL_ALIAS,
+    oneTimeJobDefault: '',
+    recurringJobDefault: '',
+    memoryDefaults: {
+      extractor: MEMORY_MODEL_DEFAULT_ALIASES.extractor,
+      dreaming: MEMORY_MODEL_DEFAULT_ALIASES.dreaming,
+      consolidation: MEMORY_MODEL_DEFAULT_ALIASES.consolidation,
+    },
+  },
+  {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    chatDefault: 'kimi',
+    oneTimeJobDefault: '',
+    recurringJobDefault: '',
+    memoryDefaults: {
+      extractor: 'kimi',
+      dreaming: 'kimi',
+      consolidation: 'kimi',
+    },
+  },
+] as const;
+
+export const DEFAULT_MODEL_PROVIDER_PRESET_ID: ModelProviderId =
+  MODEL_PROVIDER_PRESETS[0].id;
+
+export function listModelProviderPresets(): readonly ModelProviderPreset[] {
+  return MODEL_PROVIDER_PRESETS;
+}
+
+export function isModelProviderPresetId(
+  value: unknown,
+): value is ModelProviderId {
+  return (
+    typeof value === 'string' &&
+    MODEL_PROVIDER_PRESETS.some((preset) => preset.id === value)
+  );
+}
+
+export function getModelProviderPreset(
+  provider: ModelProviderId,
+): ModelProviderPreset {
+  const preset = MODEL_PROVIDER_PRESETS.find((entry) => entry.id === provider);
+  if (!preset) {
+    throw new Error(`Unknown model provider: ${provider}`);
+  }
+  return preset;
+}
+
 export type ModelResolution =
   | {
       ok: true;
@@ -105,8 +198,8 @@ export type ModelResolution =
         | 'empty'
         | 'unknown'
         | 'raw-provider-id'
-        | 'alias-as-profile-id'
-        | 'duplicate-alias';
+        | 'duplicate-alias'
+        | 'unsupported-workload';
     };
 
 export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
@@ -119,17 +212,19 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     runnerModel: 'claude-opus-4-7',
     aliases: ['opus', 'opus-4.7'],
     recommendedAlias: 'opus',
+    source: CLAUDE_MODELS_OVERVIEW_SOURCE,
     contextWindowTokens: 1_000_000,
     maxOutputTokens: 128_000,
     inputUsdPerMillionTokens: 5,
     outputUsdPerMillionTokens: 25,
-    cacheMode: 'anthropic-prompt',
+    cacheMode: DIRECT_PROMPT_CACHE_MODE,
     cacheTokenFields: [
       'cache_creation_input_tokens',
       'cache_read_input_tokens',
     ],
     supportsThinking: true,
     supportsTools: true,
+    supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
   },
   {
     id: 'anthropic:opus-4.6',
@@ -140,17 +235,19 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     runnerModel: 'claude-opus-4-6',
     aliases: ['opus-4.6'],
     recommendedAlias: 'opus-4.6',
+    source: CLAUDE_MODEL_IDS_SOURCE,
     contextWindowTokens: 1_000_000,
     maxOutputTokens: 128_000,
     inputUsdPerMillionTokens: 5,
     outputUsdPerMillionTokens: 25,
-    cacheMode: 'anthropic-prompt',
+    cacheMode: DIRECT_PROMPT_CACHE_MODE,
     cacheTokenFields: [
       'cache_creation_input_tokens',
       'cache_read_input_tokens',
     ],
     supportsThinking: true,
     supportsTools: true,
+    supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
   },
   {
     id: 'anthropic:sonnet-4.6',
@@ -161,17 +258,26 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     runnerModel: 'claude-sonnet-4-6',
     aliases: ['sonnet', 'sonnet-4.6'],
     recommendedAlias: 'sonnet',
+    source: CLAUDE_MODELS_OVERVIEW_SOURCE,
     contextWindowTokens: 1_000_000,
     maxOutputTokens: 64_000,
     inputUsdPerMillionTokens: 3,
     outputUsdPerMillionTokens: 15,
-    cacheMode: 'anthropic-prompt',
+    cacheMode: DIRECT_PROMPT_CACHE_MODE,
     cacheTokenFields: [
       'cache_creation_input_tokens',
       'cache_read_input_tokens',
     ],
     supportsThinking: true,
     supportsTools: true,
+    supportedWorkloads: [
+      'chat',
+      'one_time_job',
+      'recurring_job',
+      'memory_extractor',
+      'memory_dreaming',
+      'memory_consolidation',
+    ],
   },
   {
     id: 'anthropic:haiku-4.5',
@@ -182,17 +288,26 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     runnerModel: 'claude-haiku-4-5-20251001',
     aliases: ['haiku', 'haiku-4.5'],
     recommendedAlias: 'haiku',
+    source: CLAUDE_MODELS_OVERVIEW_SOURCE,
     contextWindowTokens: 200_000,
     maxOutputTokens: 64_000,
     inputUsdPerMillionTokens: 1,
     outputUsdPerMillionTokens: 5,
-    cacheMode: 'anthropic-prompt',
+    cacheMode: DIRECT_PROMPT_CACHE_MODE,
     cacheTokenFields: [
       'cache_creation_input_tokens',
       'cache_read_input_tokens',
     ],
     supportsThinking: false,
     supportsTools: true,
+    supportedWorkloads: [
+      'chat',
+      'one_time_job',
+      'recurring_job',
+      'memory_extractor',
+      'memory_dreaming',
+      'memory_consolidation',
+    ],
   },
   {
     id: 'openrouter:kimi-k2.6',
@@ -201,11 +316,16 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     displayName: 'Kimi K2.6',
     providerModelId: 'moonshotai/kimi-k2.6',
     runnerModel: 'moonshotai/kimi-k2.6',
-    aliases: ['kimi', 'kimi-k2.6', 'kimi 2.6'],
+    aliases: ['kimi', 'kimi-k2.6', 'kimi-2.6'],
     recommendedAlias: 'kimi',
+    source: {
+      label: 'OpenRouter Kimi K2.6 API',
+      url: 'https://openrouter.ai/moonshotai/kimi-k2.6/api',
+      verifiedAt: '2026-05-21',
+    },
     contextWindowTokens: 262_142,
     maxOutputTokens: 64_000,
-    inputUsdPerMillionTokens: 0.74,
+    inputUsdPerMillionTokens: 0.73,
     outputUsdPerMillionTokens: 3.49,
     cacheMode: 'openrouter-provider-prompt',
     cacheTokenFields: [
@@ -214,13 +334,31 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     ],
     supportsThinking: true,
     supportsTools: true,
+    supportedWorkloads: [
+      'chat',
+      'one_time_job',
+      'recurring_job',
+      'memory_extractor',
+      'memory_dreaming',
+      'memory_consolidation',
+    ],
     experimental: true,
   },
 ] as const;
 
 const RAW_PROVIDER_MODEL_IDS = new Set(
-  MODEL_CATALOG.map((entry) => normalizeModelLookupKey(entry.providerModelId)),
+  MODEL_CATALOG.flatMap((entry) => [
+    normalizeModelLookupKey(entry.providerModelId),
+    normalizeModelLookupKey(entry.runnerModel),
+  ]),
 );
+
+function looksLikeRawProviderModelId(input: string): boolean {
+  const value = input.trim().toLowerCase();
+  if (!value) return false;
+  if (/^claude-[a-z0-9][a-z0-9._-]*$/.test(value)) return true;
+  return /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*$/.test(value);
+}
 
 function normalizeModelLookupKey(value: string): string {
   return value
@@ -269,10 +407,11 @@ function buildAliasIndex(): Map<
   for (const entry of MODEL_CATALOG) {
     for (const alias of entry.aliases) {
       const key = normalizeModelLookupKey(alias);
-      if (aliases.has(key)) {
+      const existing = aliases.get(key);
+      if (existing && existing.entry.id !== entry.id) {
         throw new Error(`Duplicate model alias: ${alias}`);
       }
-      aliases.set(key, { entry, alias: entry.recommendedAlias });
+      if (!existing) aliases.set(key, { entry, alias });
     }
   }
   return aliases;
@@ -324,7 +463,11 @@ export function resolveModelSelection(value?: string | null): ModelResolution {
     };
   }
 
-  if (ID_INDEX.has(key) || RAW_PROVIDER_MODEL_IDS.has(key)) {
+  if (
+    ID_INDEX.has(key) ||
+    RAW_PROVIDER_MODEL_IDS.has(key) ||
+    looksLikeRawProviderModelId(input)
+  ) {
     return {
       ok: false,
       input,
@@ -345,54 +488,44 @@ export function resolveModelSelection(value?: string | null): ModelResolution {
   };
 }
 
-export function resolveModelProfileSelection(
-  value?: string | null,
+function workloadLabel(workload: ModelWorkload): string {
+  switch (workload) {
+    case 'chat':
+      return 'chat';
+    case 'one_time_job':
+      return 'one-time jobs';
+    case 'recurring_job':
+      return 'recurring jobs';
+    case 'memory_extractor':
+      return 'memory extraction';
+    case 'memory_dreaming':
+      return 'memory dreaming';
+    case 'memory_consolidation':
+      return 'memory consolidation';
+  }
+}
+
+function enforceWorkloadEligibility(
+  resolution: ModelResolution,
+  workload: ModelWorkload,
 ): ModelResolution {
-  const input = value?.trim() ?? '';
-  if (!input) {
-    return {
-      ok: false,
-      input,
-      reason: 'empty',
-      message: 'Model profile ID is required.',
-    };
+  if (!resolution.ok) return resolution;
+  if (resolution.entry.supportedWorkloads.includes(workload)) {
+    return resolution;
   }
-
-  const key = normalizeModelLookupKey(input);
-  const resolved = ID_INDEX.get(key);
-  if (resolved) {
-    return {
-      ok: true,
-      entry: resolved,
-      alias: resolved.recommendedAlias,
-      runnerModel: resolved.runnerModel,
-    };
-  }
-
-  if (RAW_PROVIDER_MODEL_IDS.has(key)) {
-    return {
-      ok: false,
-      input,
-      reason: 'raw-provider-id',
-      message: `Provider model ID "${input}" is not accepted here. Use a modelProfileId from /models.`,
-    };
-  }
-
-  if (ALIAS_INDEX.has(key)) {
-    return {
-      ok: false,
-      input,
-      reason: 'alias-as-profile-id',
-      message: `Model alias "${input}" is not accepted as modelProfileId. Use modelAlias for aliases.`,
-    };
-  }
-
   return {
     ok: false,
-    input,
-    reason: 'unknown',
-    message: `Unknown model profile ID "${input}". Use /models to view supported models.`,
+    input: resolution.alias,
+    reason: 'unsupported-workload',
+    message: `Model alias "${resolution.alias}" is not eligible for ${workloadLabel(workload)}. Use /models to view supported workloads.`,
   };
+}
+
+export function resolveModelSelectionForWorkload(
+  value: string | null | undefined,
+  workload: ModelWorkload,
+): ModelResolution {
+  return enforceWorkloadEligibility(resolveModelSelection(value), workload);
 }
 
 export function resolveModelAlias(value?: string | null): string | undefined {
@@ -403,14 +536,6 @@ export function resolveModelAlias(value?: string | null): string | undefined {
 export function resolveRunnerModel(value?: string | null): string | undefined {
   const resolved = resolveModelSelection(value);
   return resolved.ok ? resolved.runnerModel : undefined;
-}
-
-export function resolveCatalogRunnerModel(
-  value?: string | null,
-): string | undefined {
-  return (
-    resolveRunnerModel(value) ?? findModelByRunnerModel(value)?.runnerModel
-  );
 }
 
 export function findModelByRunnerModel(
@@ -438,160 +563,28 @@ export function formatModelDisplay(entry: ModelCatalogEntry): string {
 }
 
 export function formatModelCatalog(defaults: ModelDefaultAliases = {}): string {
-  const lines = ['Supported models'];
+  const lines = [
+    'Supported model aliases',
+    'Alias | Model | Provider | Provider slug | Status',
+    '--- | --- | --- | --- | ---',
+  ];
   for (const entry of MODEL_CATALOG) {
-    const badges: string[] = [];
-    if (defaults.chat === entry.recommendedAlias) badges.push('chat default');
-    if (defaults.oneTime === entry.recommendedAlias) {
-      badges.push('one-time default');
+    for (const alias of entry.aliases) {
+      const badges: string[] = [];
+      if (alias === entry.recommendedAlias) badges.push('recommended');
+      else badges.push('pinned');
+      if (defaults.chat === alias) badges.push('chat default');
+      if (defaults.oneTime === alias) badges.push('one-time default');
+      if (defaults.recurring === alias) badges.push('recurring default');
+      if (defaults.memoryExtractor === alias) badges.push('memory extractor');
+      if (defaults.memoryDreaming === alias) badges.push('memory dreaming');
+      if (defaults.memoryConsolidation === alias) {
+        badges.push('memory consolidation');
+      }
+      lines.push(
+        `${alias} | ${entry.displayName} | ${entry.providerLabel} | ${entry.providerModelId} | ${badges.join(', ')}`,
+      );
     }
-    if (defaults.recurring === entry.recommendedAlias) {
-      badges.push('recurring default');
-    }
-    const aliasList = entry.aliases
-      .slice(0, 2)
-      .map((alias) => `"${alias}"`)
-      .join(', ');
-    const cache =
-      entry.cacheMode === 'none' ? 'cache: none' : `cache: ${entry.cacheMode}`;
-    lines.push(
-      `${entry.displayName} - use ${aliasList}; ${entry.providerLabel}; context ${formatTokenCount(entry.contextWindowTokens)}; max output ${formatTokenCount(entry.maxOutputTokens)}; ${cache}${badges.length ? `; ${badges.join(', ')}` : ''}`,
-    );
   }
   return lines.join('\n');
-}
-
-function numeric(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
-}
-
-function normalizeCacheStatus(
-  read: number,
-  write: number,
-  supported: boolean,
-): NormalizedCacheStatus {
-  if (!supported) return 'unsupported';
-  if (read > 0 && write > 0) return 'partial';
-  if (read > 0) return 'hit';
-  if (write > 0) return 'miss';
-  return 'unknown';
-}
-
-export function normalizeModelUsage(input: {
-  message: unknown;
-  fallbackModel?: string;
-}): NormalizedModelUsage | undefined {
-  const result = input.message as {
-    total_cost_usd?: number;
-    modelUsage?: Record<
-      string,
-      {
-        inputTokens?: number;
-        outputTokens?: number;
-        cacheReadInputTokens?: number;
-        cacheCreationInputTokens?: number;
-        costUSD?: number;
-      }
-    >;
-    usage?: {
-      input_tokens?: number;
-      output_tokens?: number;
-      prompt_tokens?: number;
-      completion_tokens?: number;
-      prompt_tokens_details?: {
-        cached_tokens?: number;
-        cache_write_tokens?: number;
-      };
-    };
-  };
-
-  if (result.modelUsage && Object.keys(result.modelUsage).length > 0) {
-    let inputTokens = 0;
-    let outputTokens = 0;
-    let cacheReadTokens = 0;
-    let cacheWriteTokens = 0;
-    let estimatedCostUsd = 0;
-    const modelNames = Object.keys(result.modelUsage);
-    const firstModel = modelNames[0] ?? input.fallbackModel;
-    const entries = modelNames
-      .map((model) => findModelByRunnerModel(model))
-      .filter((entry): entry is ModelCatalogEntry => Boolean(entry));
-    const providerSet = new Set(entries.map((entry) => entry.provider));
-    const cacheProviderSet = new Set(
-      entries.map((entry) =>
-        entry.provider === 'openrouter' ? 'openrouter-provider' : 'anthropic',
-      ),
-    );
-    const hasUnknownModel = entries.length !== modelNames.length;
-    for (const usage of Object.values(result.modelUsage)) {
-      inputTokens += numeric(usage.inputTokens);
-      outputTokens += numeric(usage.outputTokens);
-      cacheReadTokens += numeric(usage.cacheReadInputTokens);
-      cacheWriteTokens += numeric(usage.cacheCreationInputTokens);
-      estimatedCostUsd += numeric(usage.costUSD);
-    }
-    const entry = findModelByRunnerModel(firstModel ?? input.fallbackModel);
-    const isMixedModel = modelNames.length > 1;
-    return {
-      model: isMixedModel ? 'mixed' : (entry?.recommendedAlias ?? firstModel),
-      provider:
-        providerSet.size === 1
-          ? [...providerSet][0]
-          : isMixedModel
-            ? undefined
-            : entry?.provider,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      cacheWriteTokens,
-      totalBillableInputTokens: Math.max(0, inputTokens - cacheReadTokens),
-      estimatedCostUsd:
-        estimatedCostUsd > 0 ? estimatedCostUsd : result.total_cost_usd,
-      cacheProvider: hasUnknownModel
-        ? 'none'
-        : cacheProviderSet.size === 1
-          ? [...cacheProviderSet][0]
-          : 'mixed',
-      cacheStatus: normalizeCacheStatus(
-        cacheReadTokens,
-        cacheWriteTokens,
-        !hasUnknownModel,
-      ),
-      at: nowIso(),
-    };
-  }
-
-  if (result.usage) {
-    const entry = findModelByRunnerModel(input.fallbackModel);
-    const inputTokens =
-      numeric(result.usage.input_tokens) || numeric(result.usage.prompt_tokens);
-    const outputTokens =
-      numeric(result.usage.output_tokens) ||
-      numeric(result.usage.completion_tokens);
-    const cacheReadTokens = numeric(
-      result.usage.prompt_tokens_details?.cached_tokens,
-    );
-    const cacheWriteTokens = numeric(
-      result.usage.prompt_tokens_details?.cache_write_tokens,
-    );
-    return {
-      model: entry?.recommendedAlias ?? input.fallbackModel,
-      provider: entry?.provider,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      cacheWriteTokens,
-      totalBillableInputTokens: Math.max(0, inputTokens - cacheReadTokens),
-      cacheProvider:
-        entry?.provider === 'openrouter' ? 'openrouter-provider' : 'none',
-      cacheStatus: normalizeCacheStatus(
-        cacheReadTokens,
-        cacheWriteTokens,
-        Boolean(entry && entry.cacheMode !== 'none'),
-      ),
-      at: nowIso(),
-    };
-  }
-
-  return undefined;
 }

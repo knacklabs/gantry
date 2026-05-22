@@ -8,6 +8,7 @@ import { persistentPermissionUpdates } from '../../../../shared/permission-tool-
 import { stableSha256Json } from '../../../../shared/stable-hash.js';
 import { hasValidIpcResponseSignature } from './ipc-signing.js';
 import { createSignedIpcRequestEnvelope } from './ipc-signing.js';
+import type { SemanticCapabilityDefinition } from '../../../../shared/semantic-capabilities.js';
 import {
   IPC_AUTH_TOKEN,
   AGENT_ID,
@@ -56,6 +57,8 @@ function permissionRequestFingerprint(options: {
   blockedPath?: string;
   closestRule?: unknown;
   suggestions?: unknown[];
+  decisionOptions?: readonly string[];
+  semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
 }): string {
   return stableSha256Json({
     toolName: options.toolName,
@@ -65,6 +68,12 @@ function permissionRequestFingerprint(options: {
     ...(options.blockedPath ? { blockedPath: options.blockedPath } : {}),
     ...(options.closestRule ? { closestRule: options.closestRule } : {}),
     ...(options.suggestions ? { suggestions: options.suggestions } : {}),
+    ...(options.decisionOptions
+      ? { decisionOptions: options.decisionOptions }
+      : {}),
+    ...(options.semanticCapabilityDefinitions
+      ? { semanticCapabilityDefinitions: options.semanticCapabilityDefinitions }
+      : {}),
   });
 }
 
@@ -90,6 +99,8 @@ export async function requestPermissionApproval(options: {
   toolUseID?: string;
   agentID?: string;
   suggestions?: unknown[];
+  decisionOptions?: readonly string[];
+  semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   targetJid?: string;
   threadId?: string;
 }): Promise<PermissionDecision> {
@@ -157,6 +168,8 @@ async function requestPermissionApprovalInner(options: {
   toolUseID?: string;
   agentID?: string;
   suggestions?: unknown[];
+  decisionOptions?: readonly string[];
+  semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
   targetJid?: string;
   threadId?: string;
 }): Promise<PermissionDecision> {
@@ -205,6 +218,15 @@ async function requestPermissionApprovalInner(options: {
       ...(options.toolUseID ? { toolUseID: options.toolUseID } : {}),
       ...(options.agentID ? { agentID: options.agentID } : {}),
       ...(options.suggestions ? { suggestions: options.suggestions } : {}),
+      ...(options.decisionOptions
+        ? { decisionOptions: options.decisionOptions }
+        : {}),
+      ...(options.semanticCapabilityDefinitions
+        ? {
+            semanticCapabilityDefinitions:
+              options.semanticCapabilityDefinitions,
+          }
+        : {}),
       ...(options.threadId ? { threadId: options.threadId } : {}),
       context: {
         appId,

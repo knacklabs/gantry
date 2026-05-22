@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { applyAgentEgressNoProxyEnv } from '../../../../shared/no-proxy.js';
 import { applyNeutralCaTrustAliases } from '../../../../shared/neutral-ca-trust-env.js';
 import { getPermissionTimeoutMs } from '../../../../shared/permission-timeout.js';
+import { SDK_NATIVE_SKILL_DISABLE_ENV } from '../native-sdk-skills.js';
 import { log } from './logging.js';
 
 function requirePathEnv(name: string): string {
@@ -152,6 +153,7 @@ export function buildSdkEnv(
     CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
     CLAUDE_CODE_AUTO_COMPACT_WINDOW: '165000',
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1',
+    ...SDK_NATIVE_SKILL_DISABLE_ENV,
   };
   Object.assign(sdkEnv, readModelCredentialEnv(modelCredentialEnv));
   applyNeutralCaTrustAliases(sdkEnv);

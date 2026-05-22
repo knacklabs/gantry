@@ -29,7 +29,10 @@ import { logger } from '@core/infrastructure/logging/logger.js';
 
 let runtimeRoot = '';
 
-function writeCredentialSettings(mode: 'none' | 'onecli' | 'external'): void {
+function writeCredentialSettings(
+  mode: 'none' | 'onecli' | 'external',
+  memoryExtractorModel?: string,
+): void {
   fs.writeFileSync(
     path.join(runtimeRoot, 'settings.yaml'),
     [
@@ -52,6 +55,15 @@ function writeCredentialSettings(mode: 'none' | 'onecli' | 'external'): void {
       '    model: text-embedding-3-large',
       '  dreaming:',
       '    enabled: false',
+      ...(memoryExtractorModel
+        ? [
+            '  llm:',
+            '    models:',
+            `      extractor: ${memoryExtractorModel}`,
+            '      dreaming: sonnet',
+            '      consolidation: sonnet',
+          ]
+        : []),
       '',
     ].join('\n'),
     'utf-8',
@@ -152,11 +164,40 @@ describe('LlmMemoryExtractionProvider', () => {
     const requestInit = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
     const headers = new Headers(requestInit?.headers as HeadersInit);
     expect(fetchSpy.mock.calls[0]?.[0]).toBe('https://memory-llm.local/mock');
-    expect(headers.get('x-gantry-model')).toBe('haiku');
+    expect(headers.get('x-gantry-model')).toBe('claude-haiku-4-5-20251001');
     expect(headers.get('authorization')).toBeNull();
     expect(headers.get('x-api-key')).toBeNull();
     expect(memoryQueryMock.mock.calls[0]?.[0]).toMatchObject({
-      model: 'haiku',
+      model: 'claude-haiku-4-5-20251001',
+    });
+  });
+
+  it('reads the current memory model setting for the next extraction call', async () => {
+    configureMemoryQueryMock();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    fetchSpy.mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({ content: [{ type: 'text', text: '[]' }] }),
+        ),
+    );
+
+    const provider = await createProvider();
+    const input: ArcExtractionInput = {
+      turns: [{ role: 'user', text: 'Remember that Kimi handles memory.' }],
+      trigger: 'session-end',
+      retrievedItems: [],
+    };
+
+    await provider.extractFacts(input);
+    writeCredentialSettings('onecli', 'kimi');
+    await provider.extractFacts(input);
+
+    expect(memoryQueryMock.mock.calls[0]?.[0]).toMatchObject({
+      model: 'claude-haiku-4-5-20251001',
+    });
+    expect(memoryQueryMock.mock.calls[1]?.[0]).toMatchObject({
+      model: 'moonshotai/kimi-k2.6',
     });
   });
 

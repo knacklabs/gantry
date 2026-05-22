@@ -43,8 +43,7 @@ manually.
 ## Semantic Tool Capabilities
 
 - `capability_search` -- Find built-in semantic capabilities such as `google.sheets.write`
-- `request_capability` -- Request a reviewed semantic capability for durable reuse
-- `propose_local_cli_capability` -- Propose an authenticated local CLI capability with pinned executable, templates, preflight, and protected paths
+- `propose_capability` -- Request an approved semantic capability by id, or propose a reviewed `local_cli` capability draft with pinned executable, templates, preflight, and protected paths
 - `manage_capability` -- View, revoke, change, test, or inspect audit history for approved capabilities
 
 Use semantic capability tools before asking for raw scoped Bash fallback for
@@ -126,10 +125,8 @@ Utility:
 - `/learn` -- Learn new patterns
 - `/setup-deploy` -- Configure deployment settings
 
-## Claude Code Built-In Commands
+## Provider-Native Commands
 
-- `/update-config` -- Configure Claude Code settings/hooks
-- `/keybindings-help` -- Customize keyboard shortcuts
-- `/loop` -- Run a command on a recurring interval
-- `/schedule` -- Create/manage scheduled remote agents
-- `/claude-api` -- Build Anthropic SDK apps
+Gantry hides provider-native Claude Code skills and commands at runtime. Use
+Gantry-owned capabilities, scheduler tools, memory commands, and settings
+workflows instead.

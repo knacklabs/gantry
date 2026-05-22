@@ -76,3 +76,35 @@ export const agentToolBindingsPostgres = pgTable(
     ),
   }),
 );
+
+export const agentToolSourcesPostgres = pgTable(
+  'agent_tool_sources',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id')
+      .notNull()
+      .references(() => appsPostgres.id, { onDelete: 'cascade' }),
+    agentId: text('agent_id')
+      .notNull()
+      .references(() => agentsPostgres.id, { onDelete: 'cascade' }),
+    sourceId: text('source_id').notNull(),
+    kind: text('kind').notNull(),
+    version: text('version').notNull(),
+    status: text('status').notNull().default('active'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    agentToolSourceUnique: uniqueIndex('idx_agent_tool_sources_unique').on(
+      table.appId,
+      table.agentId,
+      table.sourceId,
+      table.kind,
+      table.version,
+    ),
+  }),
+);

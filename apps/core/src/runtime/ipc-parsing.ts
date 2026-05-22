@@ -12,6 +12,7 @@ import {
   BROWSER_BACKEND_ACTIONS,
   type BrowserBackendAction,
 } from '../shared/browser-backend-actions.js';
+import { parseSemanticCapabilityDefinitionsRecord } from '../shared/semantic-capabilities.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import {
   validateBrowserIpcAuthRequest,
@@ -461,6 +462,8 @@ export function parsePermissionIpcRequest(
   const subagentType = toTrimmedString(raw.subagentType, { maxLen: 200 });
   const toolInput = sanitizeToolInput(raw.toolInput);
   const suggestions = parsePermissionApprovalUpdates(raw.suggestions);
+  const semanticCapabilityDefinitions =
+    parseSemanticCapabilityDefinitionsRecord(raw.semanticCapabilityDefinitions);
   const decisionOptions = parsePermissionDecisionOptions(raw.decisionOptions);
   const closestRule = parseClosestPermissionRule(raw.closestRule);
   const interaction = parseInteractionDescriptor(raw.interaction);
@@ -488,6 +491,7 @@ export function parsePermissionIpcRequest(
     ...(closestRule ? { closestRule } : {}),
     ...(blockedPath ? { blockedPath } : {}),
     ...(toolInput ? { toolInput } : {}),
+    ...(semanticCapabilityDefinitions ? { semanticCapabilityDefinitions } : {}),
     ...(suggestions ? { suggestions } : {}),
     ...(decisionOptions ? { decisionOptions } : {}),
     ...(interaction ? { interaction } : {}),

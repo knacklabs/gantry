@@ -176,11 +176,10 @@ export function toolAccessRequirementRecoveryAction(toolName: string): string {
       reason: 'This autonomous run requires Browser access.',
     })}`;
   }
-  if (parseSemanticCapabilityRule(toolName)) {
-    return `request_permission ${JSON.stringify({
-      permissionKind: 'tool',
-      toolName,
-      temporaryOnly: false,
+  const semanticCapabilityId = parseSemanticCapabilityRule(toolName);
+  if (semanticCapabilityId) {
+    return `propose_capability ${JSON.stringify({
+      capabilityId: semanticCapabilityId,
       reason: `This autonomous run requires ${toolName} access.`,
     })}`;
   }

@@ -6,3 +6,6 @@
 - `/openapi.json` and `/docs` are read-only documentation surfaces. They must not expose secrets or runtime state.
 - When adding, renaming, or removing control routes, update `openapi.ts` with the path, method, auth scopes, and a short behavior description in the same change.
 - Document required control API scopes with the `x-gantry-required-scopes` extension so Swagger users can see which token grants are needed before trying a request.
+- Model/default routes must stay provider-neutral. Inject provider credential
+  preflight through `ControlRouteContext` instead of importing provider adapters
+  or raw settings loaders directly from route modules.

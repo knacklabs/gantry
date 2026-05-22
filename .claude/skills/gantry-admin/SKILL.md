@@ -188,8 +188,7 @@ Use these Gantry tools for capability work:
 | `request_skill_dependency_install` | npm, brew, go, uv, or download dependencies required by a skill; never run those commands directly.                                             |
 | `request_mcp_server`               | Third-party MCP server requests with transport, origin, tool patterns, credentials, and reason.                                                 |
 | `capability_search`                | Find semantic app/tool capabilities such as `google.sheets.write` before asking for raw tool access.                                            |
-| `request_capability`               | Request a reviewed semantic capability for durable agent/job reuse.                                                                             |
-| `propose_local_cli_capability`     | Propose an authenticated local CLI as a reviewed semantic capability with pinned executable, command templates, preflight, and protected paths. |
+| `propose_capability`               | Request an approved semantic capability by id, or propose a reviewed `local_cli` capability draft with pinned executable, preflight, and protected paths. |
 | `manage_capability`                | View, revoke, change, test, or inspect audit history for semantic capabilities.                                                                 |
 | `request_permission`               | One-off exact tool access, scoped Bash fallback, and internal/provider permission requests when no semantic capability fits.                    |
 | `service_restart`                  | Main/admin agent only, after approved config or capability changes when host restart is needed.                                                 |
@@ -212,9 +211,8 @@ Permission selection:
   memory tools, service tools, Slack file reads, Telegram file downloads, Teams
   proactive messages, Teams card updates, or Web/API file browser access.
 - For app/tool workflows such as Google Sheets, Gmail, or business CLIs, call
-  `capability_search` first, then `request_capability` or
-  `propose_local_cli_capability` so the user approves a semantic capability
-  instead of a raw command.
+  `capability_search` first, then `propose_capability` so the user approves a
+  semantic capability instead of a raw command.
 - Permission prompts offer `Allow once`, `Always allow for this agent/job` for
   semantic capabilities, `Always allow Browser`,
   `Always allow mcp__gantry__<admin_tool>`,

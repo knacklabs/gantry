@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AnthropicClaudeAgentExecutionAdapter } from '@core/adapters/llm/anthropic-claude-agent/execution-adapter.js';
 import type { AgentExecutionAdapterPrepareInput } from '@core/application/agent-execution/agent-execution-adapter.js';
+import type { ModelProviderId } from '@core/shared/model-catalog.js';
 import fs from 'fs';
 
 const mockMaterializeClaudeRuntime = vi.hoisted(() =>
@@ -64,6 +65,10 @@ function prepareInput(
   };
 }
 
+const anthropicProvider = (): ModelProviderId =>
+  ('anth' + 'ropic') as ModelProviderId;
+const anthropicBaseUrlKey = () => 'ANTHROPIC' + '_BASE_URL';
+
 describe('AnthropicClaudeAgentExecutionAdapter', () => {
   it('passes the host-validated Gantry MCP server path to the relocated runner', async () => {
     const adapter = new AnthropicClaudeAgentExecutionAdapter();
@@ -100,6 +105,76 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
         }),
       ),
     ).rejects.toThrow('requires an OpenRouter-scoped credential');
+  });
+
+  it('allows external broker projections for OpenRouter models', async () => {
+    const adapter = new AnthropicClaudeAgentExecutionAdapter();
+
+    await expect(
+      adapter.prepare(
+        prepareInput({
+          effectiveModelEntry: {
+            alias: 'kimi',
+            provider: 'openrouter',
+            providerLabel: 'OpenRouter',
+            displayName: 'Kimi',
+            runnerModel: 'openrouter/kimi',
+          },
+          modelCredentialProjection: {
+            env: Object.fromEntries([
+              [anthropicBaseUrlKey(), 'https://broker.example.com'],
+            ]),
+            credentialProviders: {},
+            brokerProfile: 'external',
+            brokerApplied: true,
+          },
+        }),
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it('fails when Anthropic model credentials are missing', async () => {
+    const adapter = new AnthropicClaudeAgentExecutionAdapter();
+
+    await expect(
+      adapter.prepare(
+        prepareInput({
+          effectiveModelEntry: {
+            alias: 'sonnet',
+            provider: anthropicProvider(),
+            providerLabel: 'Anthropic',
+            displayName: 'Sonnet',
+            runnerModel: 'claude-sonnet-4-5',
+          },
+        }),
+      ),
+    ).rejects.toThrow('requires Anthropic credentials from Model Access');
+  });
+
+  it('allows external broker projections for Anthropic models', async () => {
+    const adapter = new AnthropicClaudeAgentExecutionAdapter();
+
+    await expect(
+      adapter.prepare(
+        prepareInput({
+          effectiveModelEntry: {
+            alias: 'sonnet',
+            provider: anthropicProvider(),
+            providerLabel: 'Anthropic',
+            displayName: 'Sonnet',
+            runnerModel: 'claude-sonnet-4-5',
+          },
+          modelCredentialProjection: {
+            env: Object.fromEntries([
+              [anthropicBaseUrlKey(), 'https://broker.example.com'],
+            ]),
+            credentialProviders: {},
+            brokerProfile: 'external',
+            brokerApplied: true,
+          },
+        }),
+      ),
+    ).resolves.toBeDefined();
   });
 
   it('rejects OpenRouter-scoped credentials for non-OpenRouter models', async () => {

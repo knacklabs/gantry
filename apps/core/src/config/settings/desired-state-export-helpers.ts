@@ -2,50 +2,111 @@ import { createHash } from 'node:crypto';
 
 import type { AgentMcpServerBinding } from '../../domain/mcp/mcp-servers.js';
 import type { AgentSkillBinding } from '../../domain/skills/skills.js';
-import type { AgentToolBinding } from '../../domain/tools/tools.js';
 import type {
-  RuntimeConfiguredAgentCapabilities,
+  AgentToolBinding,
+  AgentToolSource,
+} from '../../domain/tools/tools.js';
+import type {
+  RuntimeConfiguredAgentCapability,
+  RuntimeConfiguredAgentSources,
   RuntimeConfiguredBinding,
   RuntimeConfiguredConversation,
 } from './runtime-settings-types.js';
 import { displayToolReference } from '../../shared/agent-tool-references.js';
+import { semanticCapabilityFromToolCatalogItem } from '../../shared/semantic-capabilities.js';
+import { displaySkillReference } from './desired-state-skill-references.js';
 
 export function activeCapabilities(
   toolBindings: AgentToolBinding[],
+): RuntimeConfiguredAgentCapability[] {
+  return toolBindings
+    .filter((binding) => binding.status === 'active')
+    .map((binding) => capabilityFromToolBinding(binding));
+}
+
+export function activeSources(
   skillBindings: AgentSkillBinding[],
   mcpBindings: AgentMcpServerBinding[],
-): RuntimeConfiguredAgentCapabilities {
+  skillCatalogById: Map<unknown, { name: string }>,
+  toolSources: AgentToolSource[] = [],
+): RuntimeConfiguredAgentSources {
   return {
-    toolIds: toolBindings
+    skills: skillBindings
       .filter((binding) => binding.status === 'active')
-      .map((binding) => binding.toolId),
-    skillIds: skillBindings
+      .map((binding) => {
+        const skillId = binding.skillId;
+        const skill = skillCatalogById.get(skillId);
+        return {
+          id: skill ? displaySkillReference(skill) : String(skillId),
+          version: 'approved',
+        };
+      }),
+    mcpServers: mcpBindings
       .filter((binding) => binding.status === 'active')
-      .map((binding) => binding.skillId),
-    mcpServerIds: mcpBindings
-      .filter((binding) => binding.status === 'active')
-      .map((binding) => binding.serverId),
+      .map((binding) => ({
+        id: String(binding.serverId),
+        version: String(binding.versionId),
+      })),
+    tools: toolSources
+      .filter((source) => source.status === 'active')
+      .map((source) => ({
+        id: source.sourceId,
+        kind: source.kind,
+        ...(source.version && source.version !== source.kind
+          ? { version: source.version }
+          : {}),
+      })),
   };
 }
 
 export function readableActiveCapabilities(
   toolBindings: AgentToolBinding[],
-  skillBindings: AgentSkillBinding[],
-  mcpBindings: AgentMcpServerBinding[],
-  toolCatalogById: Map<unknown, { name: string }>,
-): RuntimeConfiguredAgentCapabilities {
-  const capabilities = activeCapabilities(
-    toolBindings,
-    skillBindings,
-    mcpBindings,
-  );
+  toolCatalogById: Map<unknown, { name: string; inputSchema?: unknown }>,
+): RuntimeConfiguredAgentCapability[] {
+  return activeCapabilities(toolBindings).flatMap((capability, index) => {
+    const binding = toolBindings.filter((item) => item.status === 'active')[
+      index
+    ];
+    if (!binding) return [];
+    const tool = toolCatalogById.get(binding.toolId);
+    return tool
+      ? [
+          capabilityFromToolReference(
+            displayToolReference({ toolId: binding.toolId, tool }),
+            tool,
+          ),
+        ]
+      : [capability];
+  });
+}
+
+function capabilityFromToolBinding(
+  binding: AgentToolBinding,
+): RuntimeConfiguredAgentCapability {
   return {
-    ...capabilities,
-    toolIds: capabilities.toolIds.flatMap((toolId) => {
-      const tool = toolCatalogById.get(toolId);
-      return tool ? [displayToolReference({ toolId, tool })] : [];
-    }),
+    id: String(binding.toolId).replace(/^tool:/, ''),
+    version: 'builtin',
   };
+}
+
+function capabilityFromToolReference(
+  reference: string,
+  tool?: { name: string; inputSchema?: unknown },
+): RuntimeConfiguredAgentCapability {
+  if (reference === 'Browser') return { id: 'browser.use', version: 'builtin' };
+  if (reference.startsWith('capability:')) {
+    const semanticCapability = tool
+      ? semanticCapabilityFromToolCatalogItem({
+          name: tool.name,
+          inputSchema: tool.inputSchema,
+        })
+      : undefined;
+    return {
+      id: reference.slice('capability:'.length),
+      version: semanticCapability?.version ?? 'builtin',
+    };
+  }
+  return { id: reference, version: 'builtin' };
 }
 
 export function configuredConversationId(input: {
