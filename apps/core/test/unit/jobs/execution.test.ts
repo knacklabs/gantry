@@ -1491,6 +1491,51 @@ describe('jobs/execution', () => {
     );
   });
 
+  it('passes canonical absolute CLI requirements into scheduled runner prompts', async () => {
+    const job = makeJob({
+      tool_access_requirements: ['RunCommand(gog sheets get *)'],
+    });
+    const opsRepository = makeOpsRepository(job);
+    const toolRepository = makeToolRepository([
+      'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+    ]);
+    const runAgent = vi.fn(async (_group, _input) => {
+      expect(_input.toolAccessRequirements).toEqual([
+        'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+      ]);
+      return { status: 'success', result: 'sheet read complete' };
+    });
+
+    await runJob(
+      job,
+      {
+        conversationRoutes: () => ({ 'tg:scheduler': makeRoute() }),
+        queue: {} as never,
+        onProcess: () => {},
+        sendMessage: vi.fn(async () => undefined) as never,
+        opsRepository: opsRepository as never,
+        getToolRepository: () => toolRepository as never,
+        runAgent: runAgent as never,
+      },
+      'tg:scheduler',
+    );
+
+    expect(runAgent).toHaveBeenCalled();
+    expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'job.tool_activity',
+        payload: expect.objectContaining({
+          phase: 'tool_access_preflight',
+          tool_access_requirements: [
+            'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+          ],
+          missing_tool_access_requirements: [],
+          ok: true,
+        }),
+      }),
+    );
+  });
+
   it('fails before launch when a declared RunCommand access requirement is missing', async () => {
     const job = makeJob({
       tool_access_requirements: [

@@ -481,6 +481,8 @@ export async function* query({ prompt, options }) {
   }
 
   if (process.env.TEST_SDK_NETWORK_AFTER_TOOL === '1') {
+    const useParentlessNetworkPrompt =
+      process.env.TEST_PARENTLESS_SDK_NETWORK_AFTER_TOOL === '1';
     const toolDecision = await options.canUseTool(
       'Bash',
       { cmd: process.env.TEST_TOOL_USE_CMD || 'npm test --runInBand' },
@@ -504,7 +506,9 @@ export async function* query({ prompt, options }) {
         description: 'Allow network connection to registry.npmjs.org?',
         decisionReason: 'Sandboxed tool attempted outbound network access',
         toolUseID: 'toolu_network_1',
-        parentToolUseID: 'toolu_bash_1',
+        ...(useParentlessNetworkPrompt
+          ? {}
+          : { parentToolUseID: 'toolu_bash_1' }),
       },
     );
     const secondNetworkDecision =
@@ -2134,6 +2138,48 @@ describe('agent-runner IPC lifecycle', () => {
       expect(call?.permissionDecisions?.network2).toEqual({
         behavior: 'allow',
         updatedInput: { host: 'example.com' },
+      });
+      expect(
+        fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
+      ).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'suppresses parentless SDK sandbox network prompts immediately after a scheduled scoped command',
+    async () => {
+      const fixture = createRunnerFixture();
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          isScheduledJob: true,
+          jobId: 'job-1',
+          allowedTools: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
+        }),
+        {
+          TEST_SDK_NETWORK_AFTER_TOOL: '1',
+          TEST_PARENTLESS_SDK_NETWORK_AFTER_TOOL: '1',
+          TEST_TOOL_USE_CMD:
+            '/opt/homebrew/bin/gog sheets get 12s6uzwLDLV-DVcTH6XBa5vV3FZJUo04fLm0npfgACb4 "Bot Recommendation!A1:Z1" --json --account ravi@knacklabs.ai',
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(
+        'sdk_network_gate_suppressed_parentless_recent_tool',
+      );
+      expect(result.stdout).toContain('"parentToolUseID":"toolu_bash_1"');
+      const call = readRecord(fixture.recordPath).calls[0];
+      expect(call?.permissionDecisions?.tool).toEqual(
+        expect.objectContaining({
+          behavior: 'allow',
+        }),
+      );
+      expect(call?.permissionDecisions?.network).toEqual({
+        behavior: 'allow',
+        updatedInput: { host: 'registry.npmjs.org' },
       });
       expect(
         fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),

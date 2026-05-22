@@ -95,7 +95,7 @@ export function formatSchedulerJobPlan(
     `- Required capabilities: ${requiredCapabilities}`,
     `- Tool access requirements: ${toolAccessRequirements}`,
     `- Required MCP servers: ${requiredMcpServers}`,
-    '- Tool access: inherited from the target agent capability selection; tool access requirements are preflight checks only and missing tools pause setup for permission.',
+    '- Tool access: inherited from the target agent capability selection; use capability:<id> for semantic access such as gog.sheets.get, and reserve scoped RunCommand(...) for one-off exact command preflights.',
     '- Network: governed by the same tool permission and sandbox policy as live runs; no standalone scheduler network grant is created.',
     '- Memory: uses the target agent runtime memory settings; no memory schema or store changes are made by this plan.',
     `- Runtime: ${runtime}`,

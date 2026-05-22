@@ -447,7 +447,7 @@ describe('scheduler MCP tools', () => {
       '- Tool access requirements: Browser',
     );
     expect(response.content[0].text).toContain(
-      'tool access requirements are preflight checks only',
+      'use capability:<id> for semantic access such as gog.sheets.get',
     );
     expect(response.content[0].text).toContain('- Network:');
     expect(response.content[0].text).toContain('- Memory:');

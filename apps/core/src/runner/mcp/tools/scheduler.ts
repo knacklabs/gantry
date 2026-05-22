@@ -206,7 +206,7 @@ export function registerSchedulerTools(server: McpServer): void {
         .array(z.string())
         .optional()
         .describe(
-          'Tool access requirements for this job. Missing access pauses setup for user approval; successful runs are not required to use every listed tool.',
+          'Tool access preflight requirements for this job. Prefer capability:<id> for semantic capabilities such as gog.sheets.get; use scoped RunCommand(...) only for one-off exact command access when no reviewed capability exists. Missing access pauses setup for user approval; successful runs are not required to use every listed tool.',
         ),
       required_tools: z.array(z.string()).optional().describe('Deprecated.'),
       required_mcp_servers: z.array(z.string()).optional(),
@@ -417,7 +417,7 @@ export function registerSchedulerTools(server: McpServer): void {
         .array(z.string())
         .optional()
         .describe(
-          'Tool access requirements for this job. Missing access pauses setup for user approval; successful runs are not required to use every listed tool.',
+          'Tool access preflight requirements for this job. Prefer capability:<id> for semantic capabilities such as gog.sheets.get; use scoped RunCommand(...) only for one-off exact command access when no reviewed capability exists. Missing access pauses setup for user approval; successful runs are not required to use every listed tool.',
         ),
       required_tools: z.array(z.string()).optional().describe('Deprecated.'),
       required_mcp_servers: z.array(z.string()).optional(),

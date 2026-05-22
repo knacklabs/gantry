@@ -97,6 +97,37 @@ describe('job tool access requirements', () => {
     });
   });
 
+  it('treats an absolute local CLI grant as satisfying a stale bare executable requirement', () => {
+    expect(
+      evaluateToolAccessRequirements({
+        toolAccessRequirements: ['RunCommand(gog sheets get *)'],
+        effectiveAllowedTools: [
+          'capability:gog.sheets.get',
+          'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+        ],
+      }),
+    ).toEqual({
+      toolAccessRequirements: [
+        'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+      ],
+      missingTools: [],
+    });
+  });
+
+  it('does not satisfy a bare executable requirement with a different absolute CLI grant', () => {
+    expect(
+      evaluateToolAccessRequirements({
+        toolAccessRequirements: ['RunCommand(gog sheets get *)'],
+        effectiveAllowedTools: [
+          'RunCommand(/opt/homebrew/bin/gog sheets update *)',
+        ],
+      }),
+    ).toEqual({
+      toolAccessRequirements: ['RunCommand(gog sheets get *)'],
+      missingTools: ['RunCommand(gog sheets get *)'],
+    });
+  });
+
   it('builds durable recovery actions for scoped RunCommand requirements', () => {
     const action = toolAccessRequirementRecoveryAction(
       'RunCommand(gog sheets append *)',

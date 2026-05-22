@@ -44,10 +44,12 @@ interface SdkSandboxNetworkApprovalToken {
 
 export interface SdkSandboxNetworkGateOptions {
   ttlMs?: number;
+  parentlessAssociationTtlMs?: number;
   nowMs?: () => number;
 }
 
 const DEFAULT_SANDBOX_NETWORK_TOKEN_TTL_MS = 300_000;
+const DEFAULT_PARENTLESS_SANDBOX_NETWORK_ASSOCIATION_TTL_MS = 30_000;
 const LOCAL_ONLY_SDK_TOOLS = new Set([
   'Read',
   'Write',
@@ -65,8 +67,15 @@ export function createSdkSandboxNetworkGate(
   options: SdkSandboxNetworkGateOptions = {},
 ): SdkSandboxNetworkGate {
   const ttlMs = options.ttlMs ?? DEFAULT_SANDBOX_NETWORK_TOKEN_TTL_MS;
+  const parentlessAssociationTtlMs =
+    options.parentlessAssociationTtlMs ??
+    DEFAULT_PARENTLESS_SANDBOX_NETWORK_ASSOCIATION_TTL_MS;
   const nowMs = options.nowMs ?? Date.now;
   const tokens: SdkSandboxNetworkApprovalToken[] = [];
+  const latestNetworkToolTokenByPrincipal = new Map<
+    string,
+    SdkSandboxNetworkApprovalToken
+  >();
   const globalApprovals = new Map<string, SdkSandboxNetworkGlobalApproval>();
 
   function writeEvent(input: {
@@ -128,6 +137,10 @@ export function createSdkSandboxNetworkGate(
       if (token.expiresAtMs <= now) {
         tokens.splice(index, 1);
         expired += 1;
+        const latest = latestNetworkToolTokenByPrincipal.get(token.principal);
+        if (latest === token) {
+          latestNetworkToolTokenByPrincipal.delete(token.principal);
+        }
       }
     }
     return expired;
@@ -170,14 +183,20 @@ export function createSdkSandboxNetworkGate(
         return;
       }
       const createdAtMs = nowMs();
-      tokens.push({
+      const token: SdkSandboxNetworkApprovalToken = {
         principal: normalizedPrincipal,
         parentToolUseID,
         approvedToolName: toolName,
         inputHash: hashString(stableJson(input)),
         createdAtMs,
         expiresAtMs: createdAtMs + ttlMs,
-      });
+      };
+      tokens.push(token);
+      if (toolName === 'Bash') {
+        latestNetworkToolTokenByPrincipal.set(normalizedPrincipal, token);
+      } else {
+        latestNetworkToolTokenByPrincipal.delete(normalizedPrincipal);
+      }
     },
     decide(
       toolName,
@@ -234,6 +253,29 @@ export function createSdkSandboxNetworkGate(
           expiredTokenCount,
         });
         return { behavior: 'allow', updatedInput: input };
+      }
+      if (!parentToolUseID && agentInput.isScheduledJob) {
+        const latestToken = latestNetworkToolTokenByPrincipal.get(principal);
+        if (
+          latestToken &&
+          latestToken.expiresAtMs > now &&
+          now - latestToken.createdAtMs <= parentlessAssociationTtlMs
+        ) {
+          writeEvent({
+            decision: 'sdk_network_gate_suppressed_parentless_recent_tool',
+            reason:
+              'SDK requested network approval without a parent tool-use id immediately after a recently approved scheduled command; associating it with the latest run-local tool approval.',
+            networkToolUseID: permissionOpts.toolUseID,
+            parentToolUseID: latestToken.parentToolUseID,
+            approvedToolName: latestToken.approvedToolName,
+            hostHash,
+            inputHash: latestToken.inputHash,
+            tokenCreatedAtMs: latestToken.createdAtMs,
+            tokenExpiresAtMs: latestToken.expiresAtMs,
+            expiredTokenCount,
+          });
+          return { behavior: 'allow', updatedInput: input };
+        }
       }
 
       const reason = parentToolUseID
