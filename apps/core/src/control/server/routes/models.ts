@@ -4,12 +4,13 @@ import { ModelDefaultsResponseSchema } from '@gantry/contracts';
 
 import { ApplicationError } from '../../../application/common/application-error.js';
 import {
-  DEFAULT_MODEL_PROVIDER_PRESET_ID,
-  getModelProviderPreset,
-  isModelProviderPresetId,
+  DEFAULT_MODEL_PRESET_ID,
+  getModelPreset,
+  isModelPresetId,
+  isOpenRouterModelRoute,
   listModelCatalogEntries,
   resolveModelSelectionForWorkload,
-  type ModelProviderId,
+  type ModelPresetId,
   type ModelWorkload,
 } from '../../../shared/model-catalog.js';
 import { createJobManagementService } from './jobs.js';
@@ -28,10 +29,17 @@ function modelToResponse(
     displayName: entry.displayName,
     aliases: entry.aliases,
     recommendedAlias: entry.recommendedAlias,
-    provider: entry.providerLabel,
-    providerId: entry.provider,
-    providerLabel: entry.providerLabel,
-    providerSlug: entry.providerModelId,
+    responseFamily: entry.responseFamily,
+    executionProviderId: entry.executionProviderId,
+    credentialProfileRef: entry.credentialProfileRef,
+    modelRoute: {
+      id: entry.modelRoute.id,
+      label: entry.modelRoute.label,
+      metadata: {
+        providerModelId: entry.modelRoute.providerModelId,
+      },
+    },
+    capabilities: entry.capabilities,
     supportedWorkloads: entry.supportedWorkloads,
     contextWindowTokens: entry.contextWindowTokens,
     maxOutputTokens: entry.maxOutputTokens,
@@ -154,16 +162,16 @@ function modelDefaultsResponse(ctx: ControlRouteContext) {
   const memoryConsolidation = modelDefaultSlotToResponse(
     defaults.memoryConsolidation,
   );
-  const providerModel =
+  const presetModel =
     defaults.chat.modelEntry ??
     defaults.oneTime.modelEntry ??
     defaults.recurring.modelEntry ??
     defaults.memoryExtractor.modelEntry;
   return ModelDefaultsResponseSchema.parse({
-    provider: providerModel
+    preset: presetModel
       ? {
-          id: providerModel.provider,
-          label: providerModel.providerLabel,
+          id: presetModel.modelRoute.id,
+          label: presetModel.modelRoute.label,
         }
       : null,
     chat,
@@ -172,7 +180,7 @@ function modelDefaultsResponse(ctx: ControlRouteContext) {
       recurring,
     },
     memory: {
-      mode: 'provider-managed',
+      mode: 'preset-managed',
       extractor: memoryExtractor,
       dreaming: memoryDreaming,
       consolidation: memoryConsolidation,
@@ -188,55 +196,55 @@ function modelDefaultsResponse(ctx: ControlRouteContext) {
   });
 }
 
-function providerFromDefaults(
+function presetFromDefaults(
   defaults: ReturnType<ControlRouteContext['getModelDefaults']>,
-): ModelProviderId {
+): ModelPresetId {
   return (
-    defaults.defaults.chat.modelEntry?.provider ??
-    defaults.defaults.oneTime.modelEntry?.provider ??
-    defaults.defaults.recurring.modelEntry?.provider ??
-    defaults.defaults.memoryExtractor.modelEntry?.provider ??
-    DEFAULT_MODEL_PROVIDER_PRESET_ID
+    defaults.defaults.chat.modelEntry?.modelRoute.id ??
+    defaults.defaults.oneTime.modelEntry?.modelRoute.id ??
+    defaults.defaults.recurring.modelEntry?.modelRoute.id ??
+    defaults.defaults.memoryExtractor.modelEntry?.modelRoute.id ??
+    DEFAULT_MODEL_PRESET_ID
   );
 }
 
 function aliasUsesOpenRouter(value: unknown, workload: ModelWorkload): boolean {
   if (typeof value !== 'string' || value === 'inherit') return false;
   const resolved = resolveModelSelectionForWorkload(value, workload);
-  return resolved.ok && resolved.entry.provider === 'openrouter';
+  return resolved.ok && isOpenRouterModelRoute(resolved.entry);
 }
 
 function patchCanSelectOpenRouter(
   body: Record<string, unknown>,
   defaults: ReturnType<ControlRouteContext['getModelDefaults']>,
 ): boolean {
-  const provider = isModelProviderPresetId(body.provider)
-    ? body.provider
-    : providerFromDefaults(defaults);
-  const providerPreset = getModelProviderPreset(provider);
+  const preset = isModelPresetId(body.preset)
+    ? body.preset
+    : presetFromDefaults(defaults);
+  const modelPreset = getModelPreset(preset);
   let chatAlias =
-    'provider' in body
-      ? providerPreset.chatDefault
-      : (defaults.defaults.chat.effectiveAlias ?? providerPreset.chatDefault);
+    'preset' in body
+      ? modelPreset.chatDefault
+      : (defaults.defaults.chat.effectiveAlias ?? modelPreset.chatDefault);
 
   if ('chat' in body) {
     chatAlias =
       body.chat === null || body.chat === 'inherit'
-        ? providerPreset.chatDefault
+        ? modelPreset.chatDefault
         : typeof body.chat === 'string'
           ? body.chat
           : chatAlias;
   }
 
   let oneTimeAlias =
-    'provider' in body
-      ? providerPreset.oneTimeJobDefault || chatAlias
+    'preset' in body
+      ? modelPreset.oneTimeJobDefault || chatAlias
       : (defaults.defaults.oneTime.configuredAlias ??
         defaults.defaults.oneTime.effectiveAlias ??
         chatAlias);
   let recurringAlias =
-    'provider' in body
-      ? providerPreset.recurringJobDefault || chatAlias
+    'preset' in body
+      ? modelPreset.recurringJobDefault || chatAlias
       : (defaults.defaults.recurring.configuredAlias ??
         defaults.defaults.recurring.effectiveAlias ??
         chatAlias);
@@ -267,17 +275,17 @@ function patchCanSelectOpenRouter(
           : recurringAlias;
   }
 
-  const memoryDefaults = providerPreset.memoryDefaults;
+  const memoryDefaults = modelPreset.memoryDefaults;
   const memoryExtractorAlias =
-    'provider' in body || 'memory' in body
+    'preset' in body || 'memory' in body
       ? memoryDefaults.extractor
       : defaults.defaults.memoryExtractor.effectiveAlias;
   const memoryDreamingAlias =
-    'provider' in body || 'memory' in body
+    'preset' in body || 'memory' in body
       ? memoryDefaults.dreaming
       : defaults.defaults.memoryDreaming.effectiveAlias;
   const memoryConsolidationAlias =
-    'provider' in body || 'memory' in body
+    'preset' in body || 'memory' in body
       ? memoryDefaults.consolidation
       : defaults.defaults.memoryConsolidation.effectiveAlias;
 
@@ -496,7 +504,7 @@ async function previewResponse(
         task,
         selection: slot,
         why: [
-          `memory ${task} uses provider-managed settings from ${slot.source}`,
+          `memory ${task} uses preset-managed settings from ${slot.source}`,
         ],
       },
     };
@@ -592,13 +600,13 @@ export async function handleModelRoutes(
       }
       const body = rawBody as Record<string, unknown>;
       if (patchCanSelectOpenRouter(body, ctx.getModelDefaults())) {
-        const preflight = await ctx.preflightModelProvider('openrouter');
+        const preflight = await ctx.preflightModelPreset('openrouter');
         if (!preflight.ok) {
           sendError(
             res,
             400,
             'INVALID_REQUEST',
-            `Provider preflight failed: ${preflight.message}`,
+            `Preset preflight failed: ${preflight.message}`,
           );
           return true;
         }

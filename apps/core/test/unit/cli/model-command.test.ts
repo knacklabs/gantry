@@ -36,7 +36,7 @@ describe('model CLI command', () => {
 
     const output = logSpy.mock.calls.at(-1)?.[0] as string;
     expect(output).toContain('Available model aliases');
-    expect(output).toContain('Alias | Model | Provider | Provider slug');
+    expect(output).toContain('Alias | Model | Response family | Route');
     expect(output).toContain('opus-4.7 | Opus 4.7');
     expect(output).toContain('Opus 4.7');
     expect(output).toContain('kimi-2.6 | Kimi K2.6');
@@ -44,7 +44,7 @@ describe('model CLI command', () => {
 
   it('sets and resets chat and job defaults by alias', async () => {
     const runtimeHome = makeRuntimeHome();
-    const preflightProvider = vi.fn(async () => ({
+    const preflightPreset = vi.fn(async () => ({
       ok: true,
       status: 'pass' as const,
       message: 'ok',
@@ -52,12 +52,12 @@ describe('model CLI command', () => {
 
     await expect(
       runModelCommand(runtimeHome, ['set', 'chat', 'sonnet'], {
-        preflightProvider,
+        preflightPreset,
       }),
     ).resolves.toBe(0);
     await expect(
       runModelCommand(runtimeHome, ['set', 'jobs', 'kimi 2.6'], {
-        preflightProvider,
+        preflightPreset,
       }),
     ).resolves.toBe(0);
 
@@ -67,7 +67,7 @@ describe('model CLI command', () => {
     expect(settings.agent.recurringJobDefaultModel).toBe('kimi-2.6');
 
     await expect(
-      runModelCommand(runtimeHome, ['reset', 'jobs'], { preflightProvider }),
+      runModelCommand(runtimeHome, ['reset', 'jobs'], { preflightPreset }),
     ).resolves.toBe(0);
     settings = loadRuntimeSettings(runtimeHome);
     expect(settings.agent.oneTimeJobDefaultModel).toBe('');
@@ -79,7 +79,7 @@ describe('model CLI command', () => {
     const errorSpy = vi
       .spyOn(console, 'error')
       .mockImplementation(() => undefined);
-    const preflightProvider = vi.fn(async () => ({
+    const preflightPreset = vi.fn(async () => ({
       ok: false,
       status: 'fail' as const,
       message: 'missing OpenRouter token',
@@ -87,7 +87,7 @@ describe('model CLI command', () => {
 
     await expect(
       runModelCommand(runtimeHome, ['set', 'chat', 'kimi'], {
-        preflightProvider,
+        preflightPreset,
       }),
     ).resolves.toBe(1);
     let settings = loadRuntimeSettings(runtimeHome);
@@ -100,14 +100,14 @@ describe('model CLI command', () => {
 
     await expect(
       runModelCommand(runtimeHome, ['set', 'jobs', 'inherit'], {
-        preflightProvider,
+        preflightPreset,
       }),
     ).resolves.toBe(1);
     settings = loadRuntimeSettings(runtimeHome);
     expect(settings.agent.oneTimeJobDefaultModel).toBe('sonnet');
     expect(settings.agent.recurringJobDefaultModel).toBe('sonnet');
     expect(String(errorSpy.mock.calls.at(-1)?.[0])).toContain(
-      'Provider preflight failed: missing OpenRouter token',
+      'Preset preflight failed: missing OpenRouter token',
     );
   });
 
@@ -116,7 +116,7 @@ describe('model CLI command', () => {
     const errorSpy = vi
       .spyOn(console, 'error')
       .mockImplementation(() => undefined);
-    const preflightProvider = vi.fn(async () => ({
+    const preflightPreset = vi.fn(async () => ({
       ok: false,
       status: 'fail' as const,
       message: 'missing Anthropic token',
@@ -124,36 +124,36 @@ describe('model CLI command', () => {
 
     await expect(
       runModelCommand(runtimeHome, ['set', 'chat', 'sonnet'], {
-        preflightProvider,
+        preflightPreset,
       }),
     ).resolves.toBe(1);
 
     const settings = loadRuntimeSettings(runtimeHome);
     expect(settings.agent.defaultModel).not.toBe('sonnet');
-    expect(preflightProvider).toHaveBeenCalledWith(
+    expect(preflightPreset).toHaveBeenCalledWith(
       runtimeHome,
       'anthropic',
       expect.any(Object),
     );
     expect(String(errorSpy.mock.calls.at(-1)?.[0])).toContain(
-      'Provider preflight failed: missing Anthropic token',
+      'Preset preflight failed: missing Anthropic token',
     );
   });
 
-  it('applies provider defaults only after credential preflight', async () => {
+  it('applies preset defaults only after credential preflight', async () => {
     const runtimeHome = makeRuntimeHome();
-    const preflightProvider = vi.fn(async () => ({
+    const preflightPreset = vi.fn(async () => ({
       ok: true,
       status: 'pass' as const,
       message: 'ok',
     }));
 
     await expect(
-      runModelCommand(runtimeHome, ['use-provider', 'openrouter'], {
-        preflightProvider,
+      runModelCommand(runtimeHome, ['use-preset', 'openrouter'], {
+        preflightPreset,
       }),
     ).resolves.toBe(0);
-    expect(preflightProvider).toHaveBeenCalledWith(
+    expect(preflightPreset).toHaveBeenCalledWith(
       runtimeHome,
       'openrouter',
       expect.any(Object),
@@ -251,15 +251,15 @@ describe('model CLI command', () => {
     expect(output).toContain('Status: fail');
   });
 
-  it('fails provider switch when OpenRouter credential preflight fails', async () => {
+  it('fails preset switch when OpenRouter credential preflight fails', async () => {
     const runtimeHome = makeRuntimeHome();
     const errorSpy = vi
       .spyOn(console, 'error')
       .mockImplementation(() => undefined);
 
     await expect(
-      runModelCommand(runtimeHome, ['use-provider', 'openrouter'], {
-        preflightProvider: async () => ({
+      runModelCommand(runtimeHome, ['use-preset', 'openrouter'], {
+        preflightPreset: async () => ({
           ok: false,
           status: 'fail',
           message: 'missing OpenRouter token',
@@ -268,7 +268,7 @@ describe('model CLI command', () => {
     ).resolves.toBe(1);
 
     expect(String(errorSpy.mock.calls.at(-1)?.[0])).toContain(
-      'Provider preflight failed: missing OpenRouter token',
+      'Preset preflight failed: missing OpenRouter token',
     );
   });
 });

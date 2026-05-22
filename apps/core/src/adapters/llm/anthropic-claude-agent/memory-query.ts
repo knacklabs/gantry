@@ -14,7 +14,10 @@ import type { AgentCredentialInjection } from '../../../domain/models/credential
 import type { MemoryLlmModelProfile } from '../../../domain/ports/memory-llm-client.js';
 import { AGENT_CREDENTIAL_ENV_KEYS } from '../../../config/source-classification.js';
 import { applyNeutralCaTrustAliases } from '../../../shared/neutral-ca-trust-env.js';
-import { findModelByRunnerModel } from '../../../shared/model-catalog.js';
+import {
+  findModelByRunnerModel,
+  isOpenRouterModelRoute,
+} from '../../../shared/model-catalog.js';
 import { applyOpenRouterSdkEnv } from './claude-config-materializer.js';
 import { validateModelCredentialProjectionForEntry } from './model-provider-credential-validation.js';
 import {
@@ -179,7 +182,7 @@ async function runWithOnecli(opts: ClaudeQueryOpts): Promise<string> {
     ...scrubAmbientAgentCredentials(injection.env),
     ...SDK_NATIVE_SKILL_DISABLE_ENV,
   };
-  if (modelEntry?.provider === 'openrouter') applyOpenRouterSdkEnv(sdkEnv);
+  if (isOpenRouterModelRoute(modelEntry)) applyOpenRouterSdkEnv(sdkEnv);
   const stream = query({
     prompt: flattenPrompt(opts),
     options: {

@@ -11,3 +11,6 @@
 - The model catalog is the only shared selectable-model source. User/API/job/MCP
   inputs must resolve friendly aliases through it; raw provider slugs are
   display/source metadata only unless explicitly registered as aliases.
+- Catalog response families are simple API-shape labels, currently `anthropic`
+  and schema-only `openai`. OpenRouter belongs in `modelRoute` metadata and
+  preset UX, not in `responseFamily` or raw user-facing model selectors.

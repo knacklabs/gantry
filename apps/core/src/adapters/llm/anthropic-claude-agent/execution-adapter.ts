@@ -13,6 +13,7 @@ import {
   materializeClaudeRuntime,
   projectClaudeModelCredentialEnv,
 } from './claude-config-materializer.js';
+import { isOpenRouterModelRoute } from '../../../shared/model-catalog.js';
 import { validateModelCredentialProjectionForEntry } from './model-provider-credential-validation.js';
 import {
   ArtifactClaudeSkillSource,
@@ -84,7 +85,7 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
     const modelCredentialEnv = projectClaudeModelCredentialEnv(
       input.modelCredentialProjection.env,
     );
-    if (input.effectiveModelEntry?.provider === 'openrouter') {
+    if (isOpenRouterModelRoute(input.effectiveModelEntry)) {
       applyOpenRouterSdkEnv(modelCredentialEnv);
     }
     const serializedModelCredentialEnv = Object.fromEntries(

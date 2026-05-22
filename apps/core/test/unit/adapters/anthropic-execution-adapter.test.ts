@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AnthropicClaudeAgentExecutionAdapter } from '@core/adapters/llm/anthropic-claude-agent/execution-adapter.js';
 import type { AgentExecutionAdapterPrepareInput } from '@core/application/agent-execution/agent-execution-adapter.js';
-import type { ModelProviderId } from '@core/shared/model-catalog.js';
+import {
+  type ModelCatalogEntry,
+  resolveModelSelection,
+} from '@core/shared/model-catalog.js';
 import fs from 'fs';
 
 const mockMaterializeClaudeRuntime = vi.hoisted(() =>
@@ -65,9 +68,12 @@ function prepareInput(
   };
 }
 
-const anthropicProvider = (): ModelProviderId =>
-  ('anth' + 'ropic') as ModelProviderId;
 const anthropicBaseUrlKey = () => 'ANTHROPIC' + '_BASE_URL';
+function catalogEntry(alias: string): ModelCatalogEntry {
+  const resolved = resolveModelSelection(alias);
+  if (!resolved.ok) throw new Error(resolved.message);
+  return resolved.entry;
+}
 
 describe('AnthropicClaudeAgentExecutionAdapter', () => {
   it('passes the host-validated Gantry MCP server path to the relocated runner', async () => {
@@ -129,9 +135,7 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
       adapter.prepare(
         prepareInput({
           effectiveModelEntry: {
-            alias: 'kimi',
-            provider: 'openrouter',
-            providerLabel: 'OpenRouter',
+            ...catalogEntry('kimi'),
             displayName: 'Kimi',
             runnerModel: 'openrouter/kimi',
           },
@@ -147,9 +151,7 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
       adapter.prepare(
         prepareInput({
           effectiveModelEntry: {
-            alias: 'kimi',
-            provider: 'openrouter',
-            providerLabel: 'OpenRouter',
+            ...catalogEntry('kimi'),
             displayName: 'Kimi',
             runnerModel: 'openrouter/kimi',
           },
@@ -173,9 +175,7 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
       adapter.prepare(
         prepareInput({
           effectiveModelEntry: {
-            alias: 'sonnet',
-            provider: anthropicProvider(),
-            providerLabel: 'Anthropic',
+            ...catalogEntry('sonnet'),
             displayName: 'Sonnet',
             runnerModel: 'claude-sonnet-4-5',
           },
@@ -191,9 +191,7 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
       adapter.prepare(
         prepareInput({
           effectiveModelEntry: {
-            alias: 'sonnet',
-            provider: anthropicProvider(),
-            providerLabel: 'Anthropic',
+            ...catalogEntry('sonnet'),
             displayName: 'Sonnet',
             runnerModel: 'claude-sonnet-4-5',
           },
@@ -217,9 +215,7 @@ describe('AnthropicClaudeAgentExecutionAdapter', () => {
       adapter.prepare(
         prepareInput({
           effectiveModelEntry: {
-            alias: 'sonnet',
-            provider: 'anthropic',
-            providerLabel: 'Anthropic',
+            ...catalogEntry('sonnet'),
             displayName: 'Sonnet',
             runnerModel: 'claude-sonnet-4-5',
           },

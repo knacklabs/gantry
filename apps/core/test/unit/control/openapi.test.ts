@@ -302,8 +302,18 @@ describe('control OpenAPI documentation', () => {
     });
     expect(spec.components.schemas.Model).toMatchObject({
       properties: expect.objectContaining({
-        providerId: { type: 'string', enum: ['anthropic', 'openrouter'] },
-        providerLabel: { type: 'string' },
+        responseFamily: { type: 'string', enum: ['anthropic', 'openai'] },
+        executionProviderId: { type: 'string' },
+        credentialProfileRef: { type: 'string' },
+        modelRoute: expect.objectContaining({
+          type: 'object',
+          properties: expect.objectContaining({
+            id: { type: 'string', enum: ['anthropic', 'openrouter'] },
+            label: { type: 'string' },
+            metadata: { type: 'object', additionalProperties: true },
+          }),
+        }),
+        capabilities: expect.objectContaining({ type: 'object' }),
         supportedWorkloads: expect.any(Object),
         cacheMode: { type: 'string' },
         cacheTokenFields: expect.any(Object),
@@ -321,7 +331,7 @@ describe('control OpenAPI documentation', () => {
       spec.components.schemas.ModelDefaultsPatchRequest.properties.memory,
     ).toMatchObject({
       oneOf: [
-        { type: 'string', enum: ['reset', 'provider-managed'] },
+        { type: 'string', enum: ['reset', 'preset-managed'] },
         { type: 'null' },
       ],
     });

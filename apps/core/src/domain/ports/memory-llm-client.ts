@@ -1,8 +1,9 @@
 export interface MemoryLlmModelProfile {
   alias: string;
   runnerModel: string;
-  provider: string;
-  providerLabel: string;
+  responseFamily: string;
+  modelRoute: string;
+  modelRouteLabel: string;
   displayName: string;
 }
 

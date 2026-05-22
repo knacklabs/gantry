@@ -15,11 +15,9 @@ import {
 } from '../config/index.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import { ConversationRoute } from '../domain/types.js';
-import {
-  findModelByRunnerModel,
-  resolveModelSelectionForWorkload,
-  resolveRunnerModel,
-} from '../shared/model-catalog.js';
+import { LlmProfileResolutionService } from '../application/model-resolution/llm-profile-resolution-service.js';
+import type { LlmProfile } from '../domain/agent/agent.js';
+import { DEFAULT_SETUP_MODEL_ALIAS } from '../shared/model-catalog.js';
 import { resolveGroupFolderPath } from '../platform/group-folder.js';
 import {
   getHostRuntimeCredentialEnv,
@@ -58,7 +56,7 @@ import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-reference
 import { validateAgentToolRuntimeRules } from '../application/agents/agent-tool-runtime-rules.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
 import { resolveSelectedSkillEnvForAgent } from '../application/capability-secrets/skill-secret-projection.js';
-import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
+import { nowIso, nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { getRuntimeFileArtifactStore } from '../adapters/storage/postgres/runtime-store.js';
 import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
 
@@ -194,22 +192,31 @@ export async function spawnAgent(
       ? 'one_time_job'
       : 'recurring_job'
     : 'chat';
-  const resolvedModel = requestedModel
-    ? resolveModelSelectionForWorkload(requestedModel, modelWorkload)
-    : undefined;
-  if (resolvedModel && !resolvedModel.ok) {
+  const llmProfileResolutionService = new LlmProfileResolutionService();
+  const profileTimestamp = nowIso();
+  const runtimeLlmProfile: LlmProfile = {
+    id: `runtime:${group.folder}:${modelWorkload}` as never,
+    appId: (input.appId || DEFAULT_RUNNER_APP_ID) as never,
+    purpose: input.isScheduledJob ? 'coding' : 'chat',
+    modelAlias:
+      requestedModel || modelConfig.model || DEFAULT_SETUP_MODEL_ALIAS,
+    credentialProfileRef: 'gantry-model-access',
+    createdAt: profileTimestamp as never,
+    updatedAt: profileTimestamp as never,
+  };
+  const resolvedModel = llmProfileResolutionService.resolve({
+    profile: runtimeLlmProfile,
+    workload: modelWorkload,
+  });
+  if (!resolvedModel.ok) {
     return {
       status: 'error',
       result: null,
       error: resolvedModel.message,
     };
   }
-  const effectiveModel = resolvedModel?.ok
-    ? resolvedModel.runnerModel
-    : resolveRunnerModel(modelConfig.model);
-  const effectiveModelEntry =
-    (resolvedModel?.ok ? resolvedModel.entry : undefined) ??
-    findModelByRunnerModel(effectiveModel);
+  const effectiveModel = resolvedModel.value.runnerModel;
+  const effectiveModelEntry = resolvedModel.value.modelEntry;
   const allowedToolValidationError = validateRunnerAllowedTools(
     input.allowedTools ?? [],
   );

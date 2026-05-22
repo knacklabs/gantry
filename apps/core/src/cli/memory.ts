@@ -12,7 +12,7 @@ import {
 import { inspectMemoryHealth } from './memory-health.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
 import {
-  getProviderManagedMemoryDefaults,
+  getPresetManagedMemoryDefaults,
   loadRuntimeSettings,
   saveRuntimeSettings,
   type EmbeddingProviderName,
@@ -55,7 +55,7 @@ function formatMemoryStatus(runtimeHome: string): string {
   const env = readEnvFile(envFilePath(runtimeHome));
   const health = inspectMemoryHealth(runtimeHome, settings, env);
   const globalModel = settings.agent.defaultModel;
-  const hardDefaults = getProviderManagedMemoryDefaults();
+  const hardDefaults = getPresetManagedMemoryDefaults();
   const extractorModel = resolveEffectiveModel(
     settings.memory.llm.models.extractor,
     globalModel,

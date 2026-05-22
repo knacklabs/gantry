@@ -106,14 +106,14 @@ active-item overlap proposals, and keeps every LLM output as untrusted JSON.
 Host validation is the only durable mutation path.
 
 Memory LLM tasks use provider-neutral catalog aliases from `settings.yaml`.
-Setup and `gantry model use-provider` apply provider-managed memory defaults:
+Setup and `gantry model use-preset` apply preset-managed memory defaults:
 
 - Anthropic memory defaults: extractor `haiku`, dreaming `sonnet`,
   consolidation `sonnet`.
 - OpenRouter memory defaults: extractor, dreaming, and consolidation all `kimi`.
 
 Operators inspect memory model aliases with `gantry model memory` and reapply
-provider-managed defaults with `gantry model reset memory` or
+preset-managed defaults with `gantry model reset memory` or
 `PATCH /v1/models/defaults` using `memory: null`. The extractor, dreaming, and
 consolidation paths read current validated runtime settings when the next call
 starts, so a provider/default change applies to new memory work without a

@@ -4,20 +4,20 @@ import path from 'node:path';
 import { getAgentCredentialInjection } from '../../application/credentials/agent-credential-service.js';
 import { createAgentCredentialBroker } from '../credentials/agent-credential-broker-factory.js';
 import {
-  getModelProviderPreset,
+  getModelPreset,
   resolveModelSelectionForWorkload,
-  type ModelProviderId,
+  type ModelPresetId,
 } from '../../shared/model-catalog.js';
 import { validateModelCredentialProjectionForEntry } from './anthropic-claude-agent/model-provider-credential-validation.js';
 import { createExternalAgentCredentialInjection } from './external-credential-injection.js';
 
-export interface ProviderPreflightResult {
+export interface ModelPresetPreflightResult {
   ok: boolean;
   status: 'pass' | 'fail' | 'skipped';
   message: string;
 }
 
-export interface ModelProviderPreflightSettings {
+export interface ModelPresetPreflightSettings {
   credentialBroker: {
     mode: 'none' | 'onecli' | 'external';
     onecli: { url: string };
@@ -25,13 +25,13 @@ export interface ModelProviderPreflightSettings {
   };
 }
 
-export async function preflightModelProvider(input: {
+export async function preflightModelPreset(input: {
   runtimeHome: string;
-  provider: ModelProviderId;
-  settings: ModelProviderPreflightSettings;
-}): Promise<ProviderPreflightResult> {
-  const { runtimeHome, provider, settings } = input;
-  const preset = getModelProviderPreset(provider);
+  preset: ModelPresetId;
+  settings: ModelPresetPreflightSettings;
+}): Promise<ModelPresetPreflightResult> {
+  const { runtimeHome, preset: presetId, settings } = input;
+  const preset = getModelPreset(presetId);
   const model = resolveModelSelectionForWorkload(preset.chatDefault, 'chat');
   if (!model.ok) return { ok: false, status: 'fail', message: model.message };
   if (settings.credentialBroker.mode === 'external') {
@@ -85,7 +85,7 @@ export async function preflightModelProvider(input: {
         brokerProfile: injection.brokerProfile,
       },
     });
-    if (provider === 'anthropic') {
+    if (model.entry.modelRoute.id === 'anthropic') {
       await assertOnecliAnthropicSecretConfigured(
         settings.credentialBroker.onecli.url,
       );
@@ -94,7 +94,7 @@ export async function preflightModelProvider(input: {
       ok: true,
       status: 'pass',
       message:
-        provider === 'openrouter'
+        model.entry.modelRoute.id === 'openrouter'
           ? 'OpenRouter-scoped Model Access credential is available.'
           : `${preset.label} Model Access credential is available.`,
     };

@@ -396,7 +396,17 @@ describe('control job trigger', () => {
           inherited: true,
           source: 'system default',
           workload: 'recurring_job',
-          model: { displayName: 'Opus 4.7', providerSlug: 'claude-opus-4-7' },
+          model: {
+            displayName: 'Opus 4.7',
+            responseFamily: 'anthropic',
+            modelRoute: {
+              id: 'anthropic',
+              label: 'Anthropic',
+              metadata: {
+                providerModelId: 'claude-opus-4-7',
+              },
+            },
+          },
         },
       });
       expect(body.why[0]).toContain('inherits system default');

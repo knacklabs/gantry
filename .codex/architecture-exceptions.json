@@ -42,6 +42,13 @@
     "maxViolations": 1
   },
   {
+    "file": "apps/core/src/adapters/storage/postgres/seeds.ts",
+    "rule": "provider_specific_path",
+    "reason": "Seeded LlmProfile rows persist the current canonical response family, not a provider selector; capped so storage projection does not grow provider-specific branches.",
+    "removeByPhase": "schema-generated-llm-profile-defaults",
+    "maxViolations": 1
+  },
+  {
     "file": "apps/core/src/adapters/storage/postgres/schema/canonical-ops-repo.postgres.ts",
     "rule": "old_term_groupFolder",
     "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
@@ -68,13 +75,6 @@
     "reason": "Baseline groupFolder terminology debt pending canonical conversation/workspace rename; capped so new occurrences fail.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxOccurrences": 4
-  },
-  {
-    "file": "apps/core/src/adapters/storage/postgres/seeds.ts",
-    "rule": "provider_specific_path",
-    "reason": "Baseline provider/channel terminology debt from provider-neutral refactor; capped so new provider-specific code outside approved adapters fails.",
-    "removeByPhase": "canonical-boundary-cleanup-phase",
-    "maxViolations": 1
   },
   {
     "file": "apps/core/src/adapters/storage/postgres/services/canonical-session-ops-service.ts",
@@ -565,6 +565,13 @@
     "reason": "Baseline layer-boundary debt from the in-progress canonical runtime refactor; capped so new imports fail until the boundary slice removes this exception.",
     "removeByPhase": "canonical-boundary-cleanup-phase",
     "maxViolations": 1
+  },
+  {
+    "file": "apps/core/src/control/server/openapi-schemas.ts",
+    "rule": "provider_specific_path",
+    "reason": "OpenAPI model surfaces intentionally expose canonical response-family enum values while route/provider metadata remains diagnostic.",
+    "removeByPhase": "model-catalog-contract-generation",
+    "maxViolations": 2
   },
   {
     "file": "apps/core/src/control/server/index.ts",
@@ -1272,7 +1279,7 @@
     "rule": "provider_specific_path",
     "reason": "Exact shared model-catalog provider debt after removing the broad shared provider allowlist; capped so new provider-specific shared leakage fails.",
     "removeByPhase": "provider-boundary-model-catalog-cleanup-phase",
-    "maxViolations": 33
+    "maxViolations": 34
   },
   {
     "file": "apps/core/src/platform/index.ts",
@@ -1285,6 +1292,13 @@
     "rule": "wrapper_only_file",
     "reason": "Baseline wrapper-only export surface kept temporarily for package/import compatibility during the canonical module cleanup.",
     "removeByPhase": "canonical-boundary-cleanup-phase"
+  },
+  {
+    "file": "apps/core/src/runtime/execution-provider-id.ts",
+    "rule": "provider_specific_path",
+    "reason": "Runtime test fallback stores the current execution adapter id as projection metadata; production selection still resolves through the adapter id.",
+    "removeByPhase": "execution-provider-registry-composition",
+    "maxViolations": 1
   },
   {
     "file": "apps/core/src/session/index.ts",
@@ -1386,15 +1400,15 @@
   {
     "file": "packages/contracts/src/jobs/index.ts",
     "rule": "provider_specific_path",
-    "reason": "Public model-defaults contracts expose provider preset ids as catalog choices; keep this exact-count until contracts are generated from the shared model catalog.",
+    "reason": "Public model contracts intentionally expose canonical response families and route ids; keep this exact-count until contracts are generated from the shared model catalog.",
     "removeByPhase": "model-catalog-contract-generation",
-    "maxViolations": 2
+    "maxViolations": 7
   },
   {
     "file": "packages/sdk/src/job-model-types.ts",
     "rule": "provider_specific_path",
-    "reason": "The SDK mirrors public model-defaults contract provider preset ids; keep this exact-count until SDK types are generated from the shared model catalog.",
+    "reason": "The SDK mirrors public model contract response families and route ids; keep this exact-count until SDK types are generated from the shared model catalog.",
     "removeByPhase": "model-catalog-contract-generation",
-    "maxViolations": 2
+    "maxViolations": 7
   }
 ]

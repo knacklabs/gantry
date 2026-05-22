@@ -64,8 +64,9 @@ function toMemoryLlmModelProfile(
   return {
     alias: entry.recommendedAlias,
     runnerModel: entry.runnerModel,
-    provider: entry.provider,
-    providerLabel: entry.providerLabel,
+    responseFamily: entry.responseFamily,
+    modelRoute: entry.modelRoute.id,
+    modelRouteLabel: entry.modelRoute.label,
     displayName: entry.displayName,
   };
 }

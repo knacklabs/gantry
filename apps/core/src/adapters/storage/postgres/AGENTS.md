@@ -42,6 +42,9 @@
   `provider_sessions.provider`, and `provider_sessions.provider_ref_json`.
   Leaving provider session rows on the old id breaks live SDK resume even when
   canonical `AgentSession` rows still exist.
+- `llm_profiles.response_family` stores the canonical API shape (`anthropic` or
+  `openai`), not the route/provider adapter. Store OpenRouter-style details in
+  route metadata or run execution-provider columns, never as a response family.
 - Shared Postgres schema files must not carry provider-specific default values.
   Runtime insertion paths should pass the resolved execution provider id
   explicitly, while historical migrations may backfill concrete old values.

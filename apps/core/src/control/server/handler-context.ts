@@ -6,7 +6,7 @@ import type { JobManagementServiceDeps } from '../../application/jobs/job-manage
 import type { AppId } from '../../domain/app/app.js';
 import type {
   ModelCatalogEntry,
-  ModelProviderId,
+  ModelPresetId,
   ModelWorkload,
 } from '../../shared/model-catalog.js';
 import { authenticate, type ApiKeyRecord, type Scope } from './auth.js';
@@ -47,7 +47,7 @@ export type ControlModelDefaultsPatchResult =
   | { ok: true }
   | { ok: false; message: string };
 
-export type ControlProviderPreflightResult = {
+export type ControlModelPresetPreflightResult = {
   ok: boolean;
   status: 'pass' | 'fail' | 'skipped';
   message: string;
@@ -73,9 +73,9 @@ export type ControlRouteContext = {
   patchModelDefaults: (
     body: Record<string, unknown>,
   ) => ControlModelDefaultsPatchResult;
-  preflightModelProvider: (
-    provider: ModelProviderId,
-  ) => Promise<ControlProviderPreflightResult>;
+  preflightModelPreset: (
+    preset: ModelPresetId,
+  ) => Promise<ControlModelPresetPreflightResult>;
   getBrowserStatus?: JobManagementServiceDeps['getBrowserStatus'];
   syncSettingsFromProjection: (appId: AppId) => Promise<void>;
 };

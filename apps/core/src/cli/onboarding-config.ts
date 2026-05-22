@@ -6,14 +6,14 @@ import {
   ensureRuntimeLayout,
 } from '../config/settings/runtime-home.js';
 import {
-  applyModelProviderPreset,
+  applyModelPreset,
   loadRuntimeSettings,
   saveRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import {
-  DEFAULT_MODEL_PROVIDER_PRESET_ID,
+  DEFAULT_MODEL_PRESET_ID,
   resolveModelSelectionForWorkload,
-  type ModelProviderId,
+  type ModelPresetId,
 } from '../shared/model-catalog.js';
 import {
   generateOnecliSecretEncryptionKey,
@@ -36,7 +36,7 @@ export interface OnboardingConfigInput {
   slackBotToken?: string;
   slackAppToken?: string;
   slackPermissionApproverIds?: string;
-  modelProvider?: ModelProviderId;
+  modelPreset?: ModelPresetId;
   modelAlias?: string;
   credentialMode: HostCredentialMode;
   onecliUrl?: string;
@@ -108,14 +108,13 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
   settings.storage.postgres.urlEnv = 'GANTRY_DATABASE_URL';
   settings.storage.postgres.schema = input.postgresSchema?.trim() || 'gantry';
   const model = resolveOnboardingModel(input.modelAlias);
-  const provider =
-    input.modelProvider ?? model.provider ?? DEFAULT_MODEL_PROVIDER_PRESET_ID;
-  if (model.provider && model.provider !== provider) {
+  const preset = input.modelPreset ?? model.preset ?? DEFAULT_MODEL_PRESET_ID;
+  if (model.preset && model.preset !== preset) {
     throw new Error(
-      `Selected model alias "${model.alias}" belongs to ${model.provider}, not ${provider}.`,
+      `Selected model alias "${model.alias}" belongs to ${model.preset}, not ${preset}.`,
     );
   }
-  applyModelProviderPreset(settings, provider);
+  applyModelPreset(settings, preset);
   if (model.alias) {
     settings.agent.defaultModel = model.alias;
   }
@@ -148,7 +147,7 @@ export function persistOnboardingConfig(input: OnboardingConfigInput): void {
 
 function resolveOnboardingModel(value: string | undefined): {
   alias: string;
-  provider?: ModelProviderId;
+  preset?: ModelPresetId;
 } {
   const trimmed = value?.trim();
   if (!trimmed) return { alias: '' };
@@ -156,5 +155,5 @@ function resolveOnboardingModel(value: string | undefined): {
   if (!resolved.ok) {
     throw new Error(resolved.message);
   }
-  return { alias: resolved.alias, provider: resolved.entry.provider };
+  return { alias: resolved.alias, preset: resolved.entry.modelRoute.id };
 }

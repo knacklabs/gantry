@@ -6,12 +6,12 @@ import {
 } from '../config/settings/runtime-home.js';
 import { validatePostgresConnectionUrl } from '../adapters/storage/postgres/url.js';
 import {
-  DEFAULT_MODEL_PROVIDER_PRESET_ID,
+  DEFAULT_MODEL_PRESET_ID,
   formatModelDisplay,
-  getModelProviderPreset,
-  isModelProviderPresetId,
+  getModelPreset,
+  isModelPresetId,
   listModelCatalogEntries,
-  listModelProviderPresets,
+  listModelPresets,
   resolveModelSelectionForWorkload,
 } from '../shared/model-catalog.js';
 import {
@@ -391,13 +391,13 @@ export async function runModelStep(draft: SetupDraft): Promise<FlowAction> {
   if (agentNameControl) return agentNameControl;
   draft.agentName = String(agentName).trim();
 
-  const provider = await p.select({
-    message: 'Choose model provider',
+  const preset = await p.select({
+    message: 'Choose model preset',
     options: [
-      ...listModelProviderPresets().map((preset) => ({
+      ...listModelPresets().map((preset) => ({
         value: preset.id,
         label: preset.label,
-        hint: `Chat default ${preset.chatDefault}; memory is provider-managed.`,
+        hint: `Chat default ${preset.chatDefault}; memory is preset-managed.`,
       })),
       {
         value: 'back',
@@ -412,20 +412,20 @@ export async function runModelStep(draft: SetupDraft): Promise<FlowAction> {
         label: 'Cancel Setup',
       },
     ],
-    initialValue: draft.modelProvider || DEFAULT_MODEL_PROVIDER_PRESET_ID,
+    initialValue: draft.modelPreset || DEFAULT_MODEL_PRESET_ID,
   });
 
-  if (p.isCancel(provider)) return { type: 'resume' };
-  if (provider === 'back') return { type: 'back' };
-  if (provider === 'resume' || provider === 'cancel') return { type: provider };
-  if (!isModelProviderPresetId(provider)) return { type: 'resume' };
-  draft.modelProvider = provider;
-  const selectedPreset = getModelProviderPreset(draft.modelProvider);
+  if (p.isCancel(preset)) return { type: 'resume' };
+  if (preset === 'back') return { type: 'back' };
+  if (preset === 'resume' || preset === 'cancel') return { type: preset };
+  if (!isModelPresetId(preset)) return { type: 'resume' };
+  draft.modelPreset = preset;
+  const selectedPreset = getModelPreset(draft.modelPreset);
 
   const chatModelOptions = listModelCatalogEntries()
     .filter(
       (entry) =>
-        entry.provider === draft.modelProvider &&
+        entry.modelRoute.id === draft.modelPreset &&
         entry.supportedWorkloads.includes('chat'),
     )
     .map((entry) => ({

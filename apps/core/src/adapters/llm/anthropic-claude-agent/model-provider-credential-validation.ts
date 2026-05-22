@@ -1,5 +1,8 @@
 import type { AgentCredentialInjection } from '../../../domain/models/credentials.js';
-import type { ModelCatalogEntry } from '../../../shared/model-catalog.js';
+import {
+  isOpenRouterModelRoute,
+  type ModelCatalogEntry,
+} from '../../../shared/model-catalog.js';
 
 export function validateModelCredentialProjectionForEntry(input: {
   model: ModelCatalogEntry;
@@ -9,8 +12,9 @@ export function validateModelCredentialProjectionForEntry(input: {
 }): void {
   const { model, projection } = input;
   const isExternalBrokerProjection = projection.brokerProfile === 'external';
+  const isOpenRouterRoute = isOpenRouterModelRoute(model);
   if (
-    model.provider === 'openrouter' &&
+    isOpenRouterRoute &&
     !isExternalBrokerProjection &&
     (!projection.env.ANTHROPIC_AUTH_TOKEN ||
       projection.credentialProviders?.ANTHROPIC_AUTH_TOKEN !== 'openrouter')
@@ -20,16 +24,16 @@ export function validateModelCredentialProjectionForEntry(input: {
     );
   }
   if (
-    model.provider !== 'openrouter' &&
+    !isOpenRouterRoute &&
     (projection.credentialProviders?.ANTHROPIC_AUTH_TOKEN === 'openrouter' ||
       isOpenRouterBaseUrl(projection.env.ANTHROPIC_BASE_URL))
   ) {
     throw new Error(
-      `Model ${model.displayName} is configured for ${model.providerLabel}, but AgentCredentialBroker returned OpenRouter-scoped Anthropic SDK credentials. Switch the session/job model to kimi or configure ${model.providerLabel} credentials for this model.`,
+      `Model ${model.displayName} is configured for ${model.modelRoute.label}, but AgentCredentialBroker returned OpenRouter-scoped Anthropic SDK credentials. Switch the session/job model to kimi or configure ${model.modelRoute.label} credentials for this model.`,
     );
   }
   if (
-    model.provider === 'anthropic' &&
+    model.modelRoute.id === 'anthropic' &&
     !isExternalBrokerProjection &&
     !projection.env.ANTHROPIC_AUTH_TOKEN &&
     !projection.env.ANTHROPIC_API_KEY &&

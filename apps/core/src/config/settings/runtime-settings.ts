@@ -10,10 +10,10 @@ import { isValidGroupFolder } from '../../platform/group-folder-rules.js';
 import type { AgentPersona } from '../../shared/agent-persona.js';
 import { ensureRuntimeLayout, settingsFilePath } from './runtime-home.js';
 import {
-  applyModelProviderPreset,
-  applyProviderManagedMemoryDefaults,
+  applyModelPreset,
+  applyPresetManagedMemoryDefaults,
   createDefaultRuntimeSettings,
-  getProviderManagedMemoryDefaults,
+  getPresetManagedMemoryDefaults,
 } from './runtime-settings-defaults.js';
 import { parseRuntimeSettings } from './runtime-settings-parser.js';
 import { renderRuntimeSettingsYaml } from './runtime-settings-renderer.js';
@@ -68,10 +68,10 @@ export type {
 } from './runtime-settings-types.js';
 
 export {
-  applyModelProviderPreset,
-  applyProviderManagedMemoryDefaults,
+  applyModelPreset,
+  applyPresetManagedMemoryDefaults,
   createDefaultRuntimeSettings,
-  getProviderManagedMemoryDefaults,
+  getPresetManagedMemoryDefaults,
   parseRuntimeSettings,
   readRuntimeMemorySettingsSnapshot,
   readRuntimeStorageSettingsSnapshot,

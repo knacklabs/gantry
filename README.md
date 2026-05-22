@@ -53,7 +53,7 @@ Then follow this order:
 4. Follow the in-CLI channel guide, choose the default agent name, paste channel credentials, and pick a discovered chat/channel (or enter an ID manually). Setup binds that conversation to the default agent; channel IDs and runtime folders stay internal.
 5. Connect Model Access once for all agent, subagent, memory, and scheduled job model calls. Gantry uses the reserved `gantry-model-access` OneCLI profile for Anthropic/OpenRouter credentials; agents only select catalog model aliases and never receive database URLs or raw provider credentials.
 6. Choose a provider, then a main model alias. Anthropic defaults to `opus`; OpenRouter defaults to `kimi`.
-7. Confirm memory settings. Memory model defaults are provider-managed.
+7. Confirm memory settings. Memory model defaults are preset-managed.
 8. Choose whether to install/start a background service.
 9. Review the final summary and choose `Create Runtime`; before this point Back, Resume Later, and Cancel are transactional.
 10. Let setup write config, register the group, run final doctor verification, and show the ready screen.
@@ -74,7 +74,7 @@ gantry local setup|start|stop|status|logs|doctor
 gantry model list
 gantry model status
 gantry model chat|jobs|memory
-gantry model use-provider anthropic|openrouter
+gantry model use-preset anthropic|openrouter
 gantry model set chat <alias>
 gantry model set jobs inherit|<alias>
 gantry model reset chat|jobs|memory
@@ -527,11 +527,11 @@ Use these as standalone chat messages:
 
 Gantry uses a provider-neutral catalog. Normal users choose providers and aliases; provider slugs and SDK environment variables are adapter details.
 
-- Anthropic preset: chat `opus`; job defaults inherit chat; memory uses provider-managed extractor `haiku`, dreaming `sonnet`, consolidation `sonnet`
+- Anthropic preset: chat `opus`; job defaults inherit chat; memory uses preset-managed extractor `haiku`, dreaming `sonnet`, consolidation `sonnet`
 - OpenRouter preset: chat defaults to `kimi`; job defaults inherit chat; memory extractor, dreaming, and consolidation use `kimi`
 - Catalog choices: Anthropic `opus`, `opus-4.7`, `opus-4.6`, `sonnet`, `sonnet-4.6`, `haiku`, `haiku-4.5`; OpenRouter `kimi`, `kimi-k2.6`, `kimi-2.6`
 - Job defaults: `agent.one_time_job_default_model` and `agent.recurring_job_default_model` inherit `agent.default_model` when empty
-- Memory task defaults are provider-managed. Use `gantry model memory` to inspect them and `gantry model reset memory` or `PATCH /v1/models/defaults` with `memory: null` to reapply provider-managed defaults.
+- Memory task defaults are preset-managed. Use `gantry model memory` to inspect them and `gantry model reset memory` or `PATCH /v1/models/defaults` with `memory: null` to reapply preset-managed defaults.
 - Use `gantry model chat|jobs|memory` and `gantry model why ...` to preview what will actually run before changing defaults. SDK and Control API callers use `client.models.defaults.get()`, `client.models.defaults.update()`, and `client.models.preview()` over `GET /v1/models/defaults`, `PATCH /v1/models/defaults`, and `POST /v1/models/preview`.
 - The generated agent SDK settings JSON includes `model` and `availableModels`; memory hooks are not installed in runtime materialization.
 

@@ -36,7 +36,7 @@ function baseInput(runtimeHome: string) {
     credentialMode: 'onecli' as const,
     onecliUrl: 'http://localhost:10254',
     agentName: 'Kai',
-    modelProvider: 'anthropic' as const,
+    modelPreset: 'anthropic' as const,
     modelAlias: 'sonnet',
     memoryEnabled: true,
     embeddingsEnabled: false,
@@ -105,12 +105,12 @@ describe('onboarding config persistence', () => {
     expect(fs.existsSync(settingsFilePath(runtimeHome))).toBe(true);
   });
 
-  it('applies the OpenRouter provider defaults for chat and memory models', () => {
+  it('applies the OpenRouter preset defaults for chat and memory models', () => {
     const runtimeHome = makeRuntimeHome();
 
     persistOnboardingConfig({
       ...baseInput(runtimeHome),
-      modelProvider: 'openrouter',
+      modelPreset: 'openrouter',
       modelAlias: 'kimi',
     });
 

@@ -26,7 +26,7 @@ describe('Agent model selection', () => {
       'Did you mean "sonnet"',
     );
     expect(validateAgentModelRequest('kimi', sonnet).message).toContain(
-      'Cross-provider subagents are not supported',
+      'accepts only opus, sonnet, or haiku',
     );
     expect(
       validateAgentModelRequest('claude-sonnet-4-6', sonnet).message,

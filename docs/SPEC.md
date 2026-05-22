@@ -350,7 +350,7 @@ Job model precedence is:
 3. `agent.default_model`
 4. system default `opus`
 
-Memory model aliases live under `memory.llm.models` and are provider-managed.
+Memory model aliases live under `memory.llm.models` and are preset-managed.
 Provider presets set chat and memory defaults together: `anthropic` uses chat
 `opus`, job defaults inherit chat, and memory uses
 `haiku`/`sonnet`/`sonnet`; `openrouter` uses chat `kimi`, job defaults inherit

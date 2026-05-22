@@ -1,5 +1,5 @@
 import type { JsonSchema } from './openapi-route-helpers.js';
-import { listModelProviderPresets } from '../../shared/model-catalog.js';
+import { listModelPresets } from '../../shared/model-catalog.js';
 
 const isoDateTime = { type: 'string', format: 'date-time' };
 const metadata = { type: 'object', additionalProperties: true };
@@ -221,9 +221,11 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       'displayName',
       'aliases',
       'recommendedAlias',
-      'provider',
-      'providerId',
-      'providerLabel',
+      'responseFamily',
+      'executionProviderId',
+      'credentialProfileRef',
+      'modelRoute',
+      'capabilities',
       'supportedWorkloads',
     ],
     properties: {
@@ -231,13 +233,48 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       displayName: { type: 'string' },
       aliases: stringArray,
       recommendedAlias: { type: 'string' },
-      provider: { type: 'string' },
-      providerId: {
-        type: 'string',
-        enum: listModelProviderPresets().map((preset) => preset.id),
+      responseFamily: { type: 'string', enum: ['anthropic', 'openai'] },
+      executionProviderId: { type: 'string' },
+      credentialProfileRef: { type: 'string' },
+      modelRoute: {
+        type: 'object',
+        required: ['id', 'label', 'metadata'],
+        properties: {
+          id: {
+            type: 'string',
+            enum: listModelPresets().map((preset) => preset.id),
+          },
+          label: { type: 'string' },
+          metadata,
+        },
       },
-      providerLabel: { type: 'string' },
-      providerSlug: { type: 'string' },
+      capabilities: {
+        type: 'object',
+        required: [
+          'streaming',
+          'toolUse',
+          'mcpProjection',
+          'browserProjection',
+          'sandboxProjection',
+          'providerSessionResume',
+          'thinking',
+          'tokenAccounting',
+          'cacheAccounting',
+          'structuredOutput',
+        ],
+        properties: {
+          streaming: { type: 'boolean' },
+          toolUse: { type: 'boolean' },
+          mcpProjection: { type: 'boolean' },
+          browserProjection: { type: 'boolean' },
+          sandboxProjection: { type: 'boolean' },
+          providerSessionResume: { type: 'boolean' },
+          thinking: { type: 'boolean' },
+          tokenAccounting: { type: 'boolean' },
+          cacheAccounting: { type: 'boolean' },
+          structuredOutput: { type: 'boolean' },
+        },
+      },
       supportedWorkloads: {
         type: 'array',
         items: {
@@ -286,9 +323,9 @@ export const openApiSchemas: Record<string, JsonSchema> = {
   },
   ModelDefaultsResponse: {
     type: 'object',
-    required: ['provider', 'chat', 'jobs', 'memory', 'defaults'],
+    required: ['preset', 'chat', 'jobs', 'memory', 'defaults'],
     properties: {
-      provider: {
+      preset: {
         oneOf: [
           {
             type: 'object',
@@ -296,7 +333,7 @@ export const openApiSchemas: Record<string, JsonSchema> = {
             properties: {
               id: {
                 type: 'string',
-                enum: listModelProviderPresets().map((preset) => preset.id),
+                enum: listModelPresets().map((preset) => preset.id),
               },
               label: { type: 'string' },
             },
@@ -317,7 +354,7 @@ export const openApiSchemas: Record<string, JsonSchema> = {
         type: 'object',
         required: ['mode', 'extractor', 'dreaming', 'consolidation'],
         properties: {
-          mode: { type: 'string', enum: ['provider-managed'] },
+          mode: { type: 'string', enum: ['preset-managed'] },
           extractor: { $ref: '#/components/schemas/ModelDefaultSlot' },
           dreaming: { $ref: '#/components/schemas/ModelDefaultSlot' },
           consolidation: { $ref: '#/components/schemas/ModelDefaultSlot' },
@@ -354,9 +391,9 @@ export const openApiSchemas: Record<string, JsonSchema> = {
     type: 'object',
     additionalProperties: false,
     properties: {
-      provider: {
+      preset: {
         type: 'string',
-        enum: listModelProviderPresets().map((preset) => preset.id),
+        enum: listModelPresets().map((preset) => preset.id),
       },
       chat: { type: ['string', 'null'] },
       jobs: {
@@ -367,10 +404,10 @@ export const openApiSchemas: Record<string, JsonSchema> = {
       recurring: { type: ['string', 'null'] },
       memory: {
         oneOf: [
-          { type: 'string', enum: ['reset', 'provider-managed'] },
+          { type: 'string', enum: ['reset', 'preset-managed'] },
           { type: 'null' },
         ],
-        description: 'Use null, "reset", or "provider-managed".',
+        description: 'Use null, "reset", or "preset-managed".',
       },
     },
   },

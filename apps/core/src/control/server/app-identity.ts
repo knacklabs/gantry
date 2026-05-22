@@ -151,7 +151,11 @@ export function mapManualJobToStored(
     model: resolvedModel.entry
       ? {
           displayName: resolvedModel.entry.displayName,
-          provider: resolvedModel.entry.providerLabel,
+          responseFamily: resolvedModel.entry.responseFamily,
+          modelRoute: {
+            id: resolvedModel.entry.modelRoute.id,
+            label: resolvedModel.entry.modelRoute.label,
+          },
           contextWindowTokens: resolvedModel.entry.contextWindowTokens,
           maxOutputTokens: resolvedModel.entry.maxOutputTokens,
           cachePolicy: resolvedModel.entry.cacheMode,

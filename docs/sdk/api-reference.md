@@ -505,18 +505,19 @@ readiness assertions; they do not grant tools to the job. Use selected agent
 capabilities, attached sources, or the reviewed Gantry MCP request tools to
 change authority.
 
-Use `client.models.list()` to inspect supported model aliases, context windows,
-cache policy, provider ids/labels, and supported workloads. API job creation
-rejects raw provider model IDs unless they are registered catalog aliases.
+Use `client.models.list()` to inspect supported model aliases, response family,
+route metadata, capabilities, context windows, cache policy, and supported
+workloads. API job creation rejects raw provider model IDs unless they are
+registered catalog aliases.
 
 Use `client.models.defaults.get()` to inspect configured and effective chat,
 job, and memory defaults. Use `client.models.defaults.update()` or
-`PATCH /v1/models/defaults` to select a provider default set, set chat/job
-aliases, or reset an area back to inheritance/provider defaults:
+`PATCH /v1/models/defaults` to select a model preset, set chat/job
+aliases, or reset an area back to inheritance/preset-managed defaults:
 
 ```ts
 await client.models.defaults.update({
-  provider: 'openrouter',
+  preset: 'openrouter',
 });
 
 await client.models.defaults.update({

@@ -22,17 +22,17 @@ import {
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
 import { signExternalIngressRequest } from '@core/application/external-ingress/signature.js';
-import { preflightModelProvider } from '@core/adapters/llm/model-provider-preflight.js';
+import { preflightModelPreset } from '@core/adapters/llm/model-preset-preflight.js';
 
-vi.mock('@core/adapters/llm/model-provider-preflight.js', () => ({
-  preflightModelProvider: vi.fn(async () => ({
+vi.mock('@core/adapters/llm/model-preset-preflight.js', () => ({
+  preflightModelPreset: vi.fn(async () => ({
     ok: true,
     status: 'pass',
     message: 'OpenRouter-scoped Model Access credential is available.',
   })),
 }));
 
-const mockedPreflightModelProvider = vi.mocked(preflightModelProvider);
+const mockedPreflightModelPreset = vi.mocked(preflightModelPreset);
 
 vi.mock('@core/config/index.js', async () => {
   const runtimeHome = '/tmp/gantry-control-test-home';
@@ -457,7 +457,7 @@ function signIngressRequest(input: {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockedPreflightModelProvider.mockResolvedValue({
+  mockedPreflightModelPreset.mockResolvedValue({
     ok: true,
     status: 'pass',
     message: 'OpenRouter-scoped Model Access credential is available.',
@@ -990,7 +990,7 @@ describe('control server runtime hardening', () => {
     }
   });
 
-  it('serves model catalog with display-only provider slugs', async () => {
+  it('serves model catalog with response family and diagnostic route metadata', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
@@ -1020,10 +1020,21 @@ describe('control server runtime hardening', () => {
           expect.objectContaining({
             displayName: 'Kimi K2.6',
             aliases: expect.arrayContaining(['kimi', 'kimi-k2.6']),
-            provider: 'OpenRouter',
-            providerId: 'openrouter',
-            providerLabel: 'OpenRouter',
-            providerSlug: 'moonshotai/kimi-k2.6',
+            responseFamily: 'anthropic',
+            executionProviderId: 'anthropic:claude-agent-sdk',
+            credentialProfileRef: 'gantry-model-access',
+            modelRoute: {
+              id: 'openrouter',
+              label: 'OpenRouter',
+              metadata: {
+                providerModelId: 'moonshotai/kimi-k2.6',
+              },
+            },
+            capabilities: expect.objectContaining({
+              streaming: true,
+              toolUse: true,
+              cacheAccounting: true,
+            }),
             supportedWorkloads: expect.arrayContaining([
               'chat',
               'memory_extractor',
@@ -1063,7 +1074,7 @@ describe('control server runtime hardening', () => {
         {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ provider: 'openrouter' }),
+          body: JSON.stringify({ preset: 'openrouter' }),
         },
       );
       expect(patchResponse.status).toBe(200);
@@ -1199,7 +1210,7 @@ describe('control server runtime hardening', () => {
         appId: 'app-one',
       },
     ]);
-    mockedPreflightModelProvider.mockResolvedValueOnce({
+    mockedPreflightModelPreset.mockResolvedValueOnce({
       ok: false,
       status: 'fail',
       message: 'OpenRouter-scoped Model Access credential is missing.',
@@ -1218,13 +1229,13 @@ describe('control server runtime hardening', () => {
         {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ provider: 'openrouter' }),
+          body: JSON.stringify({ preset: 'openrouter' }),
         },
       );
       expect(response.status).toBe(400);
       await expect(response.json()).resolves.toMatchObject({
         error: {
-          message: expect.stringContaining('Provider preflight failed'),
+          message: expect.stringContaining('Preset preflight failed'),
         },
       });
       expect(loadRuntimeSettings(runtimeHome).agent.defaultModel).not.toBe(
@@ -1253,7 +1264,7 @@ describe('control server runtime hardening', () => {
         appId: 'app-one',
       },
     ]);
-    mockedPreflightModelProvider.mockResolvedValueOnce({
+    mockedPreflightModelPreset.mockResolvedValueOnce({
       ok: false,
       status: 'fail',
       message: 'OpenRouter-scoped Model Access credential is missing.',
@@ -1278,7 +1289,7 @@ describe('control server runtime hardening', () => {
       expect(response.status).toBe(400);
       await expect(response.json()).resolves.toMatchObject({
         error: {
-          message: expect.stringContaining('Provider preflight failed'),
+          message: expect.stringContaining('Preset preflight failed'),
         },
       });
       const after = loadRuntimeSettings(runtimeHome);

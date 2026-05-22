@@ -76,7 +76,10 @@ export function normalizeModelUsage(input: {
     const entries = modelNames
       .map((model) => findModelByRunnerModel(model))
       .filter((entry): entry is ModelCatalogEntry => Boolean(entry));
-    const providerSet = new Set(entries.map((entry) => entry.provider));
+    const responseFamilySet = new Set(
+      entries.map((entry) => entry.responseFamily),
+    );
+    const modelRouteSet = new Set(entries.map((entry) => entry.modelRoute.id));
     const cacheProviderSet = new Set(entries.map(cacheProviderForEntry));
     const hasUnknownModel = entries.length !== modelNames.length;
     for (const usage of Object.values(result.modelUsage)) {
@@ -90,12 +93,24 @@ export function normalizeModelUsage(input: {
     const isMixedModel = modelNames.length > 1;
     return {
       model: isMixedModel ? 'mixed' : (entry?.recommendedAlias ?? firstModel),
-      provider:
-        providerSet.size === 1
-          ? [...providerSet][0]
+      responseFamily:
+        responseFamilySet.size === 1
+          ? [...responseFamilySet][0]
           : isMixedModel
             ? undefined
-            : entry?.provider,
+            : entry?.responseFamily,
+      modelRoute:
+        modelRouteSet.size === 1
+          ? [...modelRouteSet][0]
+          : isMixedModel
+            ? undefined
+            : entry?.modelRoute.id,
+      provider:
+        modelRouteSet.size === 1
+          ? [...modelRouteSet][0]
+          : isMixedModel
+            ? undefined
+            : entry?.modelRoute.id,
       inputTokens,
       outputTokens,
       cacheReadTokens,
@@ -132,7 +147,9 @@ export function normalizeModelUsage(input: {
     );
     return {
       model: entry?.recommendedAlias ?? input.fallbackModel,
-      provider: entry?.provider,
+      responseFamily: entry?.responseFamily,
+      modelRoute: entry?.modelRoute.id,
+      provider: entry?.modelRoute.id,
       inputTokens,
       outputTokens,
       cacheReadTokens,

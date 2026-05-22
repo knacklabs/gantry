@@ -3,9 +3,9 @@ import '../../channels/register-builtins.js';
 import { DEFAULT_AGENT_NAME } from '../../shared/default-agent.js';
 import { listChannelProviders } from '../../channels/provider-registry.js';
 import {
-  DEFAULT_MODEL_PROVIDER_PRESET_ID,
-  getModelProviderPreset,
-  type ModelProviderId,
+  DEFAULT_MODEL_PRESET_ID,
+  getModelPreset,
+  type ModelPresetId,
 } from '../../shared/model-catalog.js';
 import { type SenderControlAllowlistConfig } from './control-allowlist.js';
 import { type SenderAllowlistConfig } from './sender-allowlist.js';
@@ -42,10 +42,10 @@ export const DEFAULT_BROWSER_USAGE_WINDOW_MS = 60_000;
 export const DEFAULT_BROWSER_USAGE_MAX_ACTIONS_PER_WINDOW = 120;
 export const DEFAULT_BROWSER_USAGE_MAX_CONCURRENT_PER_SITE = 1;
 
-export function getProviderManagedMemoryDefaults(
-  provider: ModelProviderId = DEFAULT_MODEL_PROVIDER_PRESET_ID,
+export function getPresetManagedMemoryDefaults(
+  presetId: ModelPresetId = DEFAULT_MODEL_PRESET_ID,
 ): RuntimeMemoryLlmModels {
-  const selected = getModelProviderPreset(provider).memoryDefaults;
+  const selected = getModelPreset(presetId).memoryDefaults;
   return {
     extractor: selected.extractor,
     dreaming: selected.dreaming,
@@ -102,7 +102,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
       },
     },
     llm: {
-      models: getProviderManagedMemoryDefaults(),
+      models: getPresetManagedMemoryDefaults(),
       extractorMaxFacts: DEFAULT_MEMORY_EXTRACTOR_MAX_FACTS,
       extractorMinConfidence: DEFAULT_MEMORY_EXTRACTOR_MIN_CONFIDENCE,
     },
@@ -162,22 +162,22 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
   };
 }
 
-export function applyProviderManagedMemoryDefaults(
+export function applyPresetManagedMemoryDefaults(
   settings: RuntimeSettings,
-  provider: ModelProviderId = DEFAULT_MODEL_PROVIDER_PRESET_ID,
+  presetId: ModelPresetId = DEFAULT_MODEL_PRESET_ID,
 ): void {
-  settings.memory.llm.models = getProviderManagedMemoryDefaults(provider);
+  settings.memory.llm.models = getPresetManagedMemoryDefaults(presetId);
 }
 
-export function applyModelProviderPreset(
+export function applyModelPreset(
   settings: RuntimeSettings,
-  provider: ModelProviderId,
+  presetId: ModelPresetId,
 ): void {
-  const preset = getModelProviderPreset(provider);
+  const preset = getModelPreset(presetId);
   settings.agent.defaultModel = preset.chatDefault;
   settings.agent.oneTimeJobDefaultModel = preset.oneTimeJobDefault;
   settings.agent.recurringJobDefaultModel = preset.recurringJobDefault;
-  applyProviderManagedMemoryDefaults(settings, provider);
+  applyPresetManagedMemoryDefaults(settings, presetId);
 }
 
 export type {

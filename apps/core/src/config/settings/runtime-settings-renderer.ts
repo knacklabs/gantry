@@ -20,7 +20,7 @@ import {
   DEFAULT_OPENAI_DAILY_EMBED_LIMIT,
   DEFAULT_STORAGE_POSTGRES_SCHEMA,
   DEFAULT_STORAGE_POSTGRES_URL_ENV,
-  getProviderManagedMemoryDefaults,
+  getPresetManagedMemoryDefaults,
 } from './runtime-settings-defaults.js';
 import type {
   RuntimeCredentialBrokerSettings,
@@ -446,7 +446,7 @@ function isDefaultCredentialBroker(
 }
 
 function isDefaultMemory(memory: RuntimeMemorySettings): boolean {
-  const models = getProviderManagedMemoryDefaults();
+  const models = getPresetManagedMemoryDefaults();
   return (
     memory.enabled === true &&
     memory.embeddings.enabled === false &&

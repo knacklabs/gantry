@@ -24,7 +24,10 @@ import {
   resolveTurnSelectedMcpServerIds,
   resolveTurnSelectedSkillIds,
 } from '../runtime/group-run-context.js';
-import { resolveRuntimeExecutionProviderId } from '../runtime/execution-provider-id.js';
+import {
+  DEFAULT_RUNTIME_EXECUTION_PROVIDER_ID,
+  resolveRuntimeExecutionProviderId,
+} from '../runtime/execution-provider-id.js';
 import {
   collectCompactBoundaryMemory,
   collectJobCompletionMemory,
@@ -133,9 +136,10 @@ export async function runJob(
     },
   });
   if (pausedForSetup) return;
-  const executionProviderId = resolveRuntimeExecutionProviderId(
-    deps.executionAdapter,
-  );
+  const executionProviderId =
+    deps.executionAdapter || !deps.runAgent
+      ? resolveRuntimeExecutionProviderId(deps.executionAdapter)
+      : DEFAULT_RUNTIME_EXECUTION_PROVIDER_ID;
   const claimed = await deps.opsRepository.claimDueJobRunStart({
     jobId: currentJob.id,
     runId,

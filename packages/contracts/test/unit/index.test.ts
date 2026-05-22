@@ -142,12 +142,12 @@ describe('contracts package', () => {
   it('validates provider-neutral model default contracts', () => {
     expect(
       ModelDefaultsPatchRequestSchema.parse({
-        provider: 'openrouter',
+        preset: 'openrouter',
         chat: 'kimi',
         jobs: 'inherit',
         memory: null,
       }),
-    ).toMatchObject({ provider: 'openrouter', chat: 'kimi' });
+    ).toMatchObject({ preset: 'openrouter', chat: 'kimi' });
     expectInvalid(ModelDefaultsPatchRequestSchema, {
       providerPreset: 'custom-provider',
     });
@@ -157,7 +157,7 @@ describe('contracts package', () => {
     });
     expect(
       ModelDefaultsResponseSchema.safeParse({
-        provider: {
+        preset: {
           id: 'openrouter',
           label: 'OpenRouter',
         },
@@ -188,7 +188,7 @@ describe('contracts package', () => {
           },
         },
         memory: {
-          mode: 'provider-managed',
+          mode: 'preset-managed',
           extractor: {
             configuredAlias: 'kimi',
             effectiveAlias: 'kimi',
@@ -226,10 +226,28 @@ describe('contracts package', () => {
               displayName: 'Kimi K2.6',
               aliases: ['kimi'],
               recommendedAlias: 'kimi',
-              provider: 'OpenRouter',
-              providerId: 'openrouter',
-              providerLabel: 'OpenRouter',
-              providerSlug: 'moonshotai/kimi-k2.6',
+              responseFamily: 'anthropic',
+              executionProviderId: 'anthropic:claude-agent-sdk',
+              credentialProfileRef: 'gantry-model-access',
+              modelRoute: {
+                id: 'openrouter',
+                label: 'OpenRouter',
+                metadata: {
+                  providerModelId: 'moonshotai/kimi-k2.6',
+                },
+              },
+              capabilities: {
+                streaming: true,
+                toolUse: true,
+                mcpProjection: true,
+                browserProjection: true,
+                sandboxProjection: true,
+                providerSessionResume: true,
+                thinking: true,
+                tokenAccounting: true,
+                cacheAccounting: true,
+                structuredOutput: false,
+              },
               supportedWorkloads: ['chat', 'memory_extractor'],
               contextWindowTokens: 262142,
               maxOutputTokens: 64000,
@@ -296,7 +314,7 @@ describe('contracts package', () => {
     ).toEqual({ target: 'job', jobId: 'job-1' });
     expectInvalid(ModelPreviewRequestSchema, {
       target: 'job',
-      providerSlug: 'moonshotai/kimi-k2.6',
+      providerModelId: 'moonshotai/kimi-k2.6',
     });
     expect(
       ModelPreviewResponseSchema.parse({

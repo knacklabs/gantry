@@ -54,9 +54,9 @@ export function validateAgentModelRequest(
       message: `Agent model "${requestedModel}" cannot be validated because the parent run model is not in the Gantry catalog. Use /model to select a supported alias first.`,
     };
   }
-  if (resolved.entry.provider !== currentModel.provider) {
+  if (resolved.entry.responseFamily !== currentModel.responseFamily) {
     return {
-      message: `Agent model "${resolved.alias}" uses ${resolved.entry.providerLabel}, but the parent run is using ${currentModel.providerLabel}. Cross-provider subagents are not supported in one SDK process; switch the parent session with /model ${resolved.alias} or create a separate Gantry job/session with that model.`,
+      message: `Agent model "${resolved.alias}" uses ${resolved.entry.responseFamily}, but the parent run is using ${currentModel.responseFamily}. Cross-response-family subagents are not supported in one SDK process; switch the parent session with /model ${resolved.alias} or create a separate Gantry job/session with that model.`,
     };
   }
   const nativeModel = nativeAgentModelAlias(resolved.entry);

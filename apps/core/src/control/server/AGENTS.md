@@ -9,3 +9,6 @@
 - Model/default routes must stay provider-neutral. Inject provider credential
   preflight through `ControlRouteContext` instead of importing provider adapters
   or raw settings loaders directly from route modules.
+- Model responses expose `responseFamily`, `modelRoute`, readiness, and
+  capability descriptors. Keep raw provider model IDs under diagnostic
+  `modelRoute.metadata`; do not reintroduce top-level provider slug fields.

@@ -12,7 +12,7 @@ export const llmProfilesPostgres = pgTable('llm_profiles', {
     .notNull()
     .references(() => appsPostgres.id, { onDelete: 'cascade' }),
   purpose: text('purpose').notNull(),
-  provider: text('provider').notNull().default('anthropic'),
+  responseFamily: text('response_family').notNull().default('anthropic'),
   modelAlias: text('model_alias').notNull(),
   thinkingJson: text('thinking_json').notNull().default('{}'),
   budgetJson: text('budget_json').notNull().default('{}'),

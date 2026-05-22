@@ -63,7 +63,7 @@ describe('scheduler MCP tools', () => {
     expect(text).toContain('opus-4.7 | Opus 4.7');
     expect(text).toContain('Kimi K2.6');
     expect(text).toContain('kimi-2.6 | Kimi K2.6');
-    expect(text).toContain('Provider slug');
+    expect(text).toContain('Response family');
   });
 
   it('delegates scheduler_list_models rendering to the model catalog formatter', async () => {

@@ -32,7 +32,11 @@ export function modelPreviewFor(input: {
     modelSource: input.explicitAlias ? 'explicit' : defaultConfig.source,
     model: {
       displayName: resolved.entry.displayName,
-      provider: resolved.entry.providerLabel,
+      responseFamily: resolved.entry.responseFamily,
+      modelRoute: {
+        id: resolved.entry.modelRoute.id,
+        label: resolved.entry.modelRoute.label,
+      },
       contextWindowTokens: resolved.entry.contextWindowTokens,
       maxOutputTokens: resolved.entry.maxOutputTokens,
       cachePolicy: resolved.entry.cacheMode,

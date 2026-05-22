@@ -1,4 +1,7 @@
-export type ModelProviderId = 'anthropic' | 'openrouter';
+export type ModelResponseFamily = 'anthropic' | 'openai';
+export type ModelRouteId = 'anthropic' | 'openrouter';
+export type ModelPresetId = ModelRouteId;
+export type ModelExecutionProviderId = 'anthropic:claude-agent-sdk';
 
 export type ModelWorkload =
   | 'chat'
@@ -29,6 +32,7 @@ export type NormalizedCacheStatus =
   | 'unknown';
 
 const DIRECT_PROMPT_CACHE_MODE: ModelCacheMode = 'anthropic-prompt';
+const MODEL_RUNTIME_CREDENTIAL_PROFILE_REF = 'gantry-model-access';
 const CLAUDE_MODELS_OVERVIEW_SOURCE = {
   label: 'Anthropic models overview',
   url: 'https://platform.claude.com/docs/en/about-claude/models/overview',
@@ -42,10 +46,15 @@ const CLAUDE_MODEL_IDS_SOURCE = {
 
 export interface ModelCatalogEntry {
   id: string;
-  provider: ModelProviderId;
-  providerLabel: string;
+  responseFamily: ModelResponseFamily;
+  executionProviderId: ModelExecutionProviderId;
+  credentialProfileRef: string;
+  modelRoute: {
+    id: ModelRouteId;
+    label: string;
+    providerModelId: string;
+  };
   displayName: string;
-  providerModelId: string;
   runnerModel: string;
   aliases: readonly string[];
   recommendedAlias: string;
@@ -62,8 +71,22 @@ export interface ModelCatalogEntry {
   cacheTokenFields: readonly string[];
   supportsThinking: boolean;
   supportsTools: boolean;
+  capabilities: ModelCapabilityDescriptor;
   supportedWorkloads: readonly ModelWorkload[];
   experimental?: boolean;
+}
+
+export interface ModelCapabilityDescriptor {
+  streaming: boolean;
+  toolUse: boolean;
+  mcpProjection: boolean;
+  browserProjection: boolean;
+  sandboxProjection: boolean;
+  providerSessionResume: boolean;
+  thinking: boolean;
+  tokenAccounting: boolean;
+  cacheAccounting: boolean;
+  structuredOutput: boolean;
 }
 
 export interface ModelDefaultAliases {
@@ -75,8 +98,8 @@ export interface ModelDefaultAliases {
   memoryConsolidation?: string;
 }
 
-export interface ModelProviderPreset {
-  id: ModelProviderId;
+export interface ModelPreset {
+  id: ModelPresetId;
   label: string;
   chatDefault: string;
   oneTimeJobDefault: string;
@@ -90,7 +113,9 @@ export interface ModelProviderPreset {
 
 export interface NormalizedModelUsage {
   model?: string;
-  provider?: ModelProviderId;
+  responseFamily?: ModelResponseFamily;
+  modelRoute?: ModelRouteId;
+  provider?: ModelRouteId;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -129,7 +154,20 @@ export const MEMORY_MODEL_DEFAULT_ALIASES = {
   consolidation: 'sonnet',
 } as const;
 
-export const MODEL_PROVIDER_PRESETS: readonly ModelProviderPreset[] = [
+const CURRENT_RESPONSE_FAMILY_CAPABILITIES: ModelCapabilityDescriptor = {
+  streaming: true,
+  toolUse: true,
+  mcpProjection: true,
+  browserProjection: true,
+  sandboxProjection: true,
+  providerSessionResume: true,
+  thinking: true,
+  tokenAccounting: true,
+  cacheAccounting: true,
+  structuredOutput: false,
+};
+
+export const MODEL_PRESETS: readonly ModelPreset[] = [
   {
     id: 'anthropic',
     label: 'Anthropic',
@@ -156,30 +194,67 @@ export const MODEL_PROVIDER_PRESETS: readonly ModelProviderPreset[] = [
   },
 ] as const;
 
-export const DEFAULT_MODEL_PROVIDER_PRESET_ID: ModelProviderId =
-  MODEL_PROVIDER_PRESETS[0].id;
+export const DEFAULT_MODEL_PRESET_ID: ModelPresetId = MODEL_PRESETS[0].id;
 
-export function listModelProviderPresets(): readonly ModelProviderPreset[] {
-  return MODEL_PROVIDER_PRESETS;
+export function listModelPresets(): readonly ModelPreset[] {
+  return MODEL_PRESETS;
 }
 
-export function isModelProviderPresetId(
-  value: unknown,
-): value is ModelProviderId {
+export function isModelPresetId(value: unknown): value is ModelPresetId {
   return (
     typeof value === 'string' &&
-    MODEL_PROVIDER_PRESETS.some((preset) => preset.id === value)
+    MODEL_PRESETS.some((preset) => preset.id === value)
   );
 }
 
-export function getModelProviderPreset(
-  provider: ModelProviderId,
-): ModelProviderPreset {
-  const preset = MODEL_PROVIDER_PRESETS.find((entry) => entry.id === provider);
+export function getModelPreset(presetId: ModelPresetId): ModelPreset {
+  const preset = MODEL_PRESETS.find((entry) => entry.id === presetId);
   if (!preset) {
-    throw new Error(`Unknown model provider: ${provider}`);
+    throw new Error(`Unknown model preset: ${presetId}`);
   }
   return preset;
+}
+
+function anthropicRoute(providerModelId: string) {
+  return { id: 'anthropic' as const, label: 'Anthropic', providerModelId };
+}
+
+function openRouterRoute(providerModelId: string) {
+  return { id: 'openrouter' as const, label: 'OpenRouter', providerModelId };
+}
+
+function anthropicEntry(input: {
+  id: string;
+  route: { id: ModelRouteId; label: string; providerModelId: string };
+  displayName: string;
+  runnerModel: string;
+  aliases: readonly string[];
+  recommendedAlias: string;
+  source: ModelCatalogEntry['source'];
+  contextWindowTokens: number;
+  maxOutputTokens: number;
+  inputUsdPerMillionTokens?: number;
+  outputUsdPerMillionTokens?: number;
+  cacheMode: ModelCacheMode;
+  cacheTokenFields: readonly string[];
+  supportsThinking: boolean;
+  supportsTools: boolean;
+  supportedWorkloads: readonly ModelWorkload[];
+  experimental?: boolean;
+}): ModelCatalogEntry {
+  return {
+    ...input,
+    responseFamily: 'anthropic',
+    executionProviderId: 'anthropic:claude-agent-sdk',
+    credentialProfileRef: MODEL_RUNTIME_CREDENTIAL_PROFILE_REF,
+    modelRoute: input.route,
+    capabilities: {
+      ...CURRENT_RESPONSE_FAMILY_CAPABILITIES,
+      thinking: input.supportsThinking,
+      toolUse: input.supportsTools,
+      cacheAccounting: input.cacheMode !== 'none',
+    },
+  };
 }
 
 export type ModelResolution =
@@ -203,12 +278,10 @@ export type ModelResolution =
     };
 
 export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
-  {
+  anthropicEntry({
     id: 'anthropic:opus-4.7',
-    provider: 'anthropic',
-    providerLabel: 'Anthropic',
+    route: anthropicRoute('claude-opus-4-7'),
     displayName: 'Opus 4.7',
-    providerModelId: 'claude-opus-4-7',
     runnerModel: 'claude-opus-4-7',
     aliases: ['opus', 'opus-4.7'],
     recommendedAlias: 'opus',
@@ -225,13 +298,11 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     supportsThinking: true,
     supportsTools: true,
     supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
-  },
-  {
+  }),
+  anthropicEntry({
     id: 'anthropic:opus-4.6',
-    provider: 'anthropic',
-    providerLabel: 'Anthropic',
+    route: anthropicRoute('claude-opus-4-6'),
     displayName: 'Opus 4.6',
-    providerModelId: 'claude-opus-4-6',
     runnerModel: 'claude-opus-4-6',
     aliases: ['opus-4.6'],
     recommendedAlias: 'opus-4.6',
@@ -248,13 +319,11 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
     supportsThinking: true,
     supportsTools: true,
     supportedWorkloads: ['chat', 'one_time_job', 'recurring_job'],
-  },
-  {
+  }),
+  anthropicEntry({
     id: 'anthropic:sonnet-4.6',
-    provider: 'anthropic',
-    providerLabel: 'Anthropic',
+    route: anthropicRoute('claude-sonnet-4-6'),
     displayName: 'Sonnet 4.6',
-    providerModelId: 'claude-sonnet-4-6',
     runnerModel: 'claude-sonnet-4-6',
     aliases: ['sonnet', 'sonnet-4.6'],
     recommendedAlias: 'sonnet',
@@ -278,13 +347,11 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
       'memory_dreaming',
       'memory_consolidation',
     ],
-  },
-  {
+  }),
+  anthropicEntry({
     id: 'anthropic:haiku-4.5',
-    provider: 'anthropic',
-    providerLabel: 'Anthropic',
+    route: anthropicRoute('claude-haiku-4-5-20251001'),
     displayName: 'Haiku 4.5',
-    providerModelId: 'claude-haiku-4-5-20251001',
     runnerModel: 'claude-haiku-4-5-20251001',
     aliases: ['haiku', 'haiku-4.5'],
     recommendedAlias: 'haiku',
@@ -308,13 +375,11 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
       'memory_dreaming',
       'memory_consolidation',
     ],
-  },
-  {
+  }),
+  anthropicEntry({
     id: 'openrouter:kimi-k2.6',
-    provider: 'openrouter',
-    providerLabel: 'OpenRouter',
+    route: openRouterRoute('moonshotai/kimi-k2.6'),
     displayName: 'Kimi K2.6',
-    providerModelId: 'moonshotai/kimi-k2.6',
     runnerModel: 'moonshotai/kimi-k2.6',
     aliases: ['kimi', 'kimi-k2.6', 'kimi-2.6'],
     recommendedAlias: 'kimi',
@@ -343,12 +408,12 @@ export const MODEL_CATALOG: readonly ModelCatalogEntry[] = [
       'memory_consolidation',
     ],
     experimental: true,
-  },
+  }),
 ] as const;
 
 const RAW_PROVIDER_MODEL_IDS = new Set(
   MODEL_CATALOG.flatMap((entry) => [
-    normalizeModelLookupKey(entry.providerModelId),
+    normalizeModelLookupKey(entry.modelRoute.providerModelId),
     normalizeModelLookupKey(entry.runnerModel),
   ]),
 );
@@ -392,7 +457,7 @@ const ID_INDEX = new Map(
 const RUNNER_MODEL_INDEX = new Map(
   MODEL_CATALOG.flatMap((entry) => [
     [normalizeModelLookupKey(entry.runnerModel), entry] as const,
-    [normalizeModelLookupKey(entry.providerModelId), entry] as const,
+    [normalizeModelLookupKey(entry.modelRoute.providerModelId), entry] as const,
   ]),
 );
 
@@ -547,6 +612,10 @@ export function findModelByRunnerModel(
   return RUNNER_MODEL_INDEX.get(key) ?? ALIAS_INDEX.get(key)?.entry;
 }
 
+export function isOpenRouterModelRoute(entry?: ModelCatalogEntry): boolean {
+  return entry?.modelRoute.id === 'openrouter';
+}
+
 export function formatTokenCount(tokens: number): string {
   if (tokens >= 1_000_000) {
     return `${tokens / 1_000_000}M`;
@@ -559,13 +628,13 @@ export function formatTokenCount(tokens: number): string {
 
 export function formatModelDisplay(entry: ModelCatalogEntry): string {
   const experimental = entry.experimental ? ' experimental' : '';
-  return `${entry.displayName} (${entry.providerLabel}${experimental})`;
+  return `${entry.displayName} (${entry.modelRoute.label}${experimental})`;
 }
 
 export function formatModelCatalog(defaults: ModelDefaultAliases = {}): string {
   const lines = [
     'Supported model aliases',
-    'Alias | Model | Provider | Provider slug | Status',
+    'Alias | Model | Response family | Route | Status',
     '--- | --- | --- | --- | ---',
   ];
   for (const entry of MODEL_CATALOG) {
@@ -582,7 +651,7 @@ export function formatModelCatalog(defaults: ModelDefaultAliases = {}): string {
         badges.push('memory consolidation');
       }
       lines.push(
-        `${alias} | ${entry.displayName} | ${entry.providerLabel} | ${entry.providerModelId} | ${badges.join(', ')}`,
+        `${alias} | ${entry.displayName} | ${entry.responseFamily} | ${entry.modelRoute.label} | ${badges.join(', ')}`,
       );
     }
   }

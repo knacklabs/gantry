@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import { preflightModelProvider } from '@core/adapters/llm/model-provider-preflight.js';
-import type { ModelProviderId } from '@core/shared/model-catalog.js';
+import { preflightModelPreset } from '@core/adapters/llm/model-preset-preflight.js';
+import type { ModelPresetId } from '@core/shared/model-catalog.js';
 
-const anthropicProvider = (): ModelProviderId =>
-  ('anth' + 'ropic') as ModelProviderId;
+const anthropicProvider = (): ModelPresetId =>
+  ('anth' + 'ropic') as ModelPresetId;
 
 describe('model provider preflight', () => {
   it('fails Anthropic preflight without a credential broker', async () => {
     await expect(
-      preflightModelProvider({
+      preflightModelPreset({
         runtimeHome: '/tmp/gantry-model-preflight-test',
-        provider: anthropicProvider(),
+        preset: anthropicProvider(),
         settings: {
           credentialBroker: {
             mode: 'none',
@@ -29,9 +29,9 @@ describe('model provider preflight', () => {
 
   it('allows Anthropic preflight to use external credential brokers', async () => {
     await expect(
-      preflightModelProvider({
+      preflightModelPreset({
         runtimeHome: '/tmp/gantry-model-preflight-test',
-        provider: anthropicProvider(),
+        preset: anthropicProvider(),
         settings: {
           credentialBroker: {
             mode: 'external',
@@ -48,9 +48,9 @@ describe('model provider preflight', () => {
 
   it('allows OpenRouter preflight to use external credential brokers', async () => {
     await expect(
-      preflightModelProvider({
+      preflightModelPreset({
         runtimeHome: '/tmp/gantry-model-preflight-test',
-        provider: 'openrouter',
+        preset: 'openrouter',
         settings: {
           credentialBroker: {
             mode: 'external',

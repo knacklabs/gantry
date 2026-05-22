@@ -112,12 +112,12 @@ describe('model catalog resolution', () => {
     });
 
     expect(output).toContain('Supported model aliases');
-    expect(output).toContain('Provider slug');
+    expect(output).toContain('Response family');
     expect(output).toContain('chat default');
     expect(output).toContain('one-time default');
     expect(output).toContain('recurring default');
     expect(output).toContain('memory extractor');
-    expect(output).toContain('moonshotai/kimi-k2.6');
+    expect(output).toContain('OpenRouter');
   });
 });
 
@@ -140,6 +140,8 @@ describe('model usage normalization', () => {
 
     expect(usage).toMatchObject({
       model: 'sonnet',
+      responseFamily: 'anthropic',
+      modelRoute: 'anthropic',
       provider: 'anthropic',
       inputTokens: 100,
       outputTokens: 20,
@@ -199,6 +201,8 @@ describe('model usage normalization', () => {
 
     expect(usage).toMatchObject({
       model: 'mixed',
+      responseFamily: 'anthropic',
+      modelRoute: undefined,
       provider: undefined,
       inputTokens: 150,
       outputTokens: 30,
@@ -227,6 +231,8 @@ describe('model usage normalization', () => {
 
     expect(usage).toMatchObject({
       model: 'kimi',
+      responseFamily: 'anthropic',
+      modelRoute: 'openrouter',
       provider: 'openrouter',
       inputTokens: 120,
       outputTokens: 30,
@@ -254,6 +260,8 @@ describe('model usage normalization', () => {
 
     expect(usage).toMatchObject({
       model: 'unknown-model',
+      responseFamily: undefined,
+      modelRoute: undefined,
       provider: undefined,
       cacheProvider: 'none',
       cacheStatus: 'unsupported',

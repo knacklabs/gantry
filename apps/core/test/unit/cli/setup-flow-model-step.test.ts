@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 function makeDraft(): any {
   return {
     agentName: 'Default Agent',
-    modelProvider: 'anthropic',
+    modelPreset: 'anthropic',
     selectedModel: 'opus',
   };
 }
@@ -34,7 +34,7 @@ describe('setup model step', () => {
     const action = await runModelStep(draft);
 
     expect(action).toEqual({ type: 'next' });
-    expect(draft.modelProvider).toBe('anthropic');
+    expect(draft.modelPreset).toBe('anthropic');
     expect(draft.selectedModel).toBe('sonnet');
   });
 
@@ -61,7 +61,7 @@ describe('setup model step', () => {
 
     await runModelStep(draft);
 
-    expect(draft.modelProvider).toBe('openrouter');
+    expect(draft.modelPreset).toBe('openrouter');
     expect(draft.selectedModel).toBe('kimi');
     const options = select.mock.calls[1]?.[0]?.options ?? [];
     expect(options.map((option: { value: string }) => option.value)).toContain(

@@ -274,11 +274,16 @@ function projectTestModelCredentialEnv(source: Record<string, string>) {
   );
 }
 
+function applyTestOpenRouterSdkEnv(env: Record<string, string>) {
+  env.ANTHROPIC_BASE_URL = 'https://openrouter.ai/api';
+  env.ANTHROPIC_API_KEY = '';
+}
+
 const testExecutionAdapter: AgentExecutionAdapter = {
   id: 'anthropic:claude-agent-sdk',
   async prepare(input: AgentExecutionAdapterPrepareInput) {
     if (
-      input.effectiveModelEntry?.provider === 'openrouter' &&
+      input.effectiveModelEntry?.modelRoute.id === 'openrouter' &&
       (!input.modelCredentialProjection.env.ANTHROPIC_AUTH_TOKEN ||
         input.modelCredentialProjection.credentialProviders
           .ANTHROPIC_AUTH_TOKEN !== 'openrouter')
@@ -289,7 +294,7 @@ const testExecutionAdapter: AgentExecutionAdapter = {
     }
     if (
       input.effectiveModelEntry &&
-      input.effectiveModelEntry.provider !== 'openrouter' &&
+      input.effectiveModelEntry.modelRoute.id !== 'openrouter' &&
       (input.modelCredentialProjection.credentialProviders
         .ANTHROPIC_AUTH_TOKEN === 'openrouter' ||
         isOpenRouterBaseUrl(
@@ -297,7 +302,7 @@ const testExecutionAdapter: AgentExecutionAdapter = {
         ))
     ) {
       throw new Error(
-        `Model ${input.effectiveModelEntry.displayName} is configured for ${input.effectiveModelEntry.providerLabel}, but AgentCredentialBroker returned OpenRouter-scoped Anthropic SDK credentials. Switch the session/job model to kimi or configure ${input.effectiveModelEntry.providerLabel} credentials for this model.`,
+        `Model ${input.effectiveModelEntry.displayName} is configured for ${input.effectiveModelEntry.modelRoute.label}, but AgentCredentialBroker returned OpenRouter-scoped Anthropic SDK credentials. Switch the session/job model to kimi or configure ${input.effectiveModelEntry.modelRoute.label} credentials for this model.`,
       );
     }
     const runnerPath =
@@ -318,6 +323,9 @@ const testExecutionAdapter: AgentExecutionAdapter = {
     const modelCredentialEnv = projectTestModelCredentialEnv(
       input.modelCredentialProjection.env,
     );
+    if (input.effectiveModelEntry?.modelRoute.id === 'openrouter') {
+      applyTestOpenRouterSdkEnv(modelCredentialEnv);
+    }
     if (input.effectiveModelEntry?.provider === 'openrouter') {
       modelCredentialEnv.ANTHROPIC_BASE_URL = 'https://openrouter.ai/api';
       modelCredentialEnv.ANTHROPIC_API_KEY = '';
