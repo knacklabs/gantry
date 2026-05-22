@@ -91,6 +91,7 @@ const cardEnvelope = {
 describe('External platform event adapter helpers', () => {
   beforeEach(() => {
     process.env.GANTRY_EXTERNAL_ACTION_SECRET = 'action-secret';
+    process.env.GANTRY_EXTERNAL_TEAMS_TENANT_ID = 'tenant-1';
   });
   it('signs and verifies External event requests', () => {
     const rawBody = JSON.stringify(envelope);
@@ -188,6 +189,7 @@ describe('External platform event adapter helpers', () => {
           integrationId: 'integration-test',
           resourceId: 'resource-1',
           sourceChannelId: '19:channel@thread.v2',
+          teamsTenantId: 'tenant-1',
           nonce: expect.any(String),
           expiresAt: expect.any(String),
           signature: expect.any(String),
@@ -200,6 +202,22 @@ describe('External platform event adapter helpers', () => {
           actionType: 'request_analysis',
           platformOperation: 'request_analysis',
         }),
+      },
+    ]);
+  });
+
+  it('omits submit actions when no Teams tenant id is available for signing', () => {
+    delete process.env.GANTRY_EXTERNAL_TEAMS_TENANT_ID;
+    delete process.env.TEAMS_TENANT_ID;
+
+    const delivery = buildExternalPlatformDelivery(cardEnvelope);
+    expect(delivery.kind).toBe('adaptive_card');
+    if (delivery.kind !== 'adaptive_card') return;
+    expect(delivery.card.actions).toEqual([
+      {
+        type: 'Action.OpenUrl',
+        title: 'Open source',
+        url: 'https://example.test/tender',
       },
     ]);
   });

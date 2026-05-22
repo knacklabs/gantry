@@ -410,7 +410,7 @@ Use `npm run dev` for local development and `npm start` for production start.
 
 Gantry is published as an obfuscated and minified npm package on CAW's GitHub Package Registry.
 
-Client agent projects follow the naming convention `<Client>.<Project>.Agent` (e.g., `Hunger.Boondi.Agent`, `Flamingo.Operon.Agent`, `Manipal.Tender.Agent`). These are monorepos. If the agent includes a web interface (e.g., Manipal's Tender CoPilot, Operon Contact Center), the web app and backend live in the same repo.
+Client agent projects follow the naming convention `<Client>.<Project>.Agent` (e.g., `Hunger.Boondi.Agent`, `Flamingo.Operon.Agent`, `Acme.Tender.Agent`). These are monorepos. If the agent includes a web interface (e.g., a tender copilot or contact center), the web app and backend live in the same repo.
 
 Inside each monorepo, the `apps/` folder contains the agent prompt folder(s) — the persona, skills, and configuration that define the agent's behavior.
 

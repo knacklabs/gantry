@@ -50,6 +50,12 @@ export interface TeamsInboundMessage {
   };
   senderId?: string;
   senderName?: string;
+  senderIdKind?:
+    | 'aad_object_id'
+    | 'teams_user_id'
+    | 'user_principal_name'
+    | 'unknown';
+  tenantId?: string;
   timestamp?: string;
   threadId?: string;
   replyToId?: string;

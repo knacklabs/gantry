@@ -34,6 +34,7 @@ type NotificationCard = {
     workspaceId?: string;
     workspaceName?: string;
     teamsChannelId?: string;
+    teamsTenantId?: string;
     matchedKeywords?: unknown;
   };
   primaryDocument?: {
@@ -132,6 +133,8 @@ function buildTeamsAction(
   if (action.presentation !== 'submit') return null;
   const operation = readOptionalString(action.platformOperation);
   if (!operation) return null;
+  const teamsTenantId = expectedTeamsTenantId(envelope, card);
+  if (!teamsTenantId) return null;
   return {
     type: 'Action.Submit',
     title: action.label,
@@ -145,12 +148,14 @@ function buildTeamsAction(
       workspaceId: readOptionalString(card.workspace?.workspaceId),
       sourceWorkspaceId: readOptionalString(card.workspace?.workspaceId),
       sourceChannelId: readOptionalString(card.workspace?.teamsChannelId),
+      teamsTenantId,
       ...signExternalCardAction({
         integrationId: envelope.integrationId,
         eventId: envelope.eventId,
         resourceId: readOptionalString(envelope.payload.resourceId),
         workspaceId: readOptionalString(card.workspace?.workspaceId),
         sourceChannelId: readOptionalString(card.workspace?.teamsChannelId),
+        teamsTenantId,
         actionType: action.actionType,
       }),
     },
@@ -163,6 +168,7 @@ function signExternalCardAction(input: {
   resourceId: string | null;
   workspaceId: string | null;
   sourceChannelId: string | null;
+  teamsTenantId: string | null;
   actionType: string;
 }): { nonce: string; expiresAt: string; signature: string } {
   const secret =
@@ -191,6 +197,7 @@ export function signExternalCardActionForVerification(input: {
   resourceId: string | null;
   workspaceId: string | null;
   sourceChannelId: string | null;
+  teamsTenantId: string | null;
   actionType: string;
   nonce: string;
   expiresAt: string;
@@ -204,6 +211,7 @@ export function signExternalCardActionForVerification(input: {
         resourceId: input.resourceId,
         workspaceId: input.workspaceId,
         sourceChannelId: input.sourceChannelId,
+        teamsTenantId: input.teamsTenantId,
         actionType: input.actionType,
         nonce: input.nonce,
         expiresAt: input.expiresAt,
@@ -214,6 +222,22 @@ export function signExternalCardActionForVerification(input: {
 
 function stableActionPayload(input: Record<string, string | null>): string {
   return JSON.stringify(Object.fromEntries(Object.entries(input).sort()));
+}
+
+function expectedTeamsTenantId(
+  envelope: PlatformEventEnvelope,
+  card: NotificationCard,
+): string | null {
+  const target =
+    envelope.target && typeof envelope.target === 'object'
+      ? envelope.target
+      : {};
+  return (
+    readOptionalString(card.workspace?.teamsTenantId) ||
+    readOptionalString(target.teamsTenantId) ||
+    readOptionalString(envValueDynamic('GANTRY_EXTERNAL_TEAMS_TENANT_ID')) ||
+    readOptionalString(envValueDynamic('TEAMS_TENANT_ID'))
+  );
 }
 
 function readNotificationCard(value: unknown): NotificationCard | null {

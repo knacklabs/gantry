@@ -4,12 +4,13 @@ import { envValueDynamic } from '../config/env/index.js';
 import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
 import type { TeamsInboundMessage, TeamsSdkClient } from './teams.js';
 
-type ExternalCardAction = {
+export type ExternalCardAction = {
   integrationId: string;
   eventId: string;
   resourceId: string;
   workspaceId: string;
   sourceChannelId: string;
+  teamsTenantId: string;
   actionType: string;
   platformOperation: string;
   nonce: string;
@@ -28,6 +29,19 @@ export async function handleExternalCardAction(input: {
     if (!actorId || actorId === 'unknown') {
       throw new Error('Teams actor id is required for card actions');
     }
+    if (
+      input.message.senderIdKind &&
+      !['aad_object_id', 'teams_user_id'].includes(input.message.senderIdKind)
+    ) {
+      throw new Error('A stable Teams actor id is required for card actions');
+    }
+    const teamsTenantId = input.message.tenantId?.trim();
+    if (!teamsTenantId) {
+      throw new Error('Teams tenant id is required for card actions');
+    }
+    if (action.teamsTenantId && action.teamsTenantId !== teamsTenantId) {
+      throw new Error('This card action belongs to a different Teams tenant');
+    }
     const conversationId = input.message.conversationId;
     if (conversationId !== action.sourceChannelId) {
       throw new Error(
@@ -39,6 +53,7 @@ export async function handleExternalCardAction(input: {
     await callExternalCardActionOperation({
       action,
       actorId,
+      teamsTenantId,
       occurredAt: new Date().toISOString(),
     });
     await recordExternalCardActionFinished(action.nonce, 'completed');
@@ -122,7 +137,10 @@ async function recordExternalCardActionFinished(
 
 function readExternalCardAction(value: unknown): ExternalCardAction | null {
   if (!value || typeof value !== 'object') return null;
-  const record = value as Record<string, unknown>;
+  const record = unwrapExternalCardActionValue(
+    value as Record<string, unknown>,
+  );
+  if (!record) return null;
   if (record.action !== 'external_card_action') return null;
   const action = {
     integrationId: readString(record.integrationId),
@@ -130,6 +148,7 @@ function readExternalCardAction(value: unknown): ExternalCardAction | null {
     resourceId: readString(record.resourceId),
     workspaceId: readString(record.workspaceId),
     sourceChannelId: readString(record.sourceChannelId),
+    teamsTenantId: readString(record.teamsTenantId),
     actionType: readString(record.actionType),
     platformOperation: readString(record.platformOperation),
     nonce: readString(record.nonce),
@@ -138,6 +157,23 @@ function readExternalCardAction(value: unknown): ExternalCardAction | null {
   };
   if (Object.values(action).some((value) => !value)) return null;
   return action as ExternalCardAction;
+}
+
+function unwrapExternalCardActionValue(
+  record: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (record.action === 'external_card_action') return record;
+  const action = record.action;
+  if (action && typeof action === 'object') {
+    const actionRecord = action as Record<string, unknown>;
+    if (actionRecord.data && typeof actionRecord.data === 'object') {
+      return actionRecord.data as Record<string, unknown>;
+    }
+  }
+  if (record.data && typeof record.data === 'object') {
+    return record.data as Record<string, unknown>;
+  }
+  return null;
 }
 
 function verifyExternalCardActionSignature(action: ExternalCardAction): void {
@@ -160,6 +196,7 @@ function verifyExternalCardActionSignature(action: ExternalCardAction): void {
             resourceId: action.resourceId,
             workspaceId: action.workspaceId,
             sourceChannelId: action.sourceChannelId,
+            teamsTenantId: action.teamsTenantId,
             actionType: action.actionType,
             nonce: action.nonce,
             expiresAt: action.expiresAt,
@@ -178,37 +215,14 @@ function verifyExternalCardActionSignature(action: ExternalCardAction): void {
 async function callExternalCardActionOperation(input: {
   action: ExternalCardAction;
   actorId: string;
+  teamsTenantId: string;
   occurredAt: string;
 }): Promise<void> {
+  const request = buildExternalCardActionGraphqlRequest(input);
   const response = await fetch(resolveExternalGraphqlUrl(), {
     method: 'POST',
-    headers: {
-      authorization: 'Bearer service:external_integration',
-      'content-type': 'application/json',
-      'x-channel-id': input.action.sourceChannelId,
-      'x-integration-id': input.action.integrationId,
-    },
-    body: JSON.stringify({
-      query: `
-        mutation HandleExternalCardAction($input: ExternalCardActionInput!) {
-          handleExternalCardAction(input: $input) { accepted }
-        }
-      `,
-      variables: {
-        input: {
-          integrationId: input.action.integrationId,
-          eventId: input.action.eventId,
-          resourceId: input.action.resourceId,
-          workspaceId: input.action.workspaceId,
-          sourceChannelId: input.action.sourceChannelId,
-          actionType: input.action.actionType,
-          platformOperation: input.action.platformOperation,
-          actorId: input.actorId,
-          nonce: input.action.nonce,
-          occurredAt: input.occurredAt,
-        },
-      },
-    }),
+    headers: request.headers,
+    body: JSON.stringify(request.body),
     signal: AbortSignal.timeout(
       Number(envValueDynamic('GANTRY_EXTERNAL_ACTION_TIMEOUT_MS')) || 5000,
     ),
@@ -228,6 +242,66 @@ async function callExternalCardActionOperation(input: {
   }
 }
 
+export function buildExternalCardActionGraphqlRequest(input: {
+  action: ExternalCardAction;
+  actorId: string;
+  teamsTenantId: string;
+  occurredAt: string;
+}): {
+  headers: Record<string, string>;
+  body: {
+    query: string;
+    variables: {
+      input: {
+        integrationId: string;
+        eventId: string;
+        resourceId: string;
+        workspaceId: string;
+        sourceWorkspaceId: string;
+        sourceChannelId: string;
+        teamsTenantId: string;
+        actionType: string;
+        platformOperation: string;
+        actorId: string;
+        nonce: string;
+        occurredAt: string;
+      };
+    };
+  };
+} {
+  return {
+    headers: {
+      authorization: 'Bearer service:agent_conversation',
+      'content-type': 'application/json',
+      'x-channel-id': input.action.sourceChannelId,
+      'x-integration-id': input.action.integrationId,
+    },
+    body: {
+      query: `
+        mutation HandleExternalCardAction($input: ExternalCardActionInput!) {
+          handleExternalCardAction(input: $input) { accepted }
+        }
+      `,
+      variables: {
+        input: {
+          integrationId: input.action.integrationId,
+          eventId: input.action.eventId,
+          resourceId: input.action.resourceId,
+          workspaceId: input.action.workspaceId,
+          sourceWorkspaceId: input.action.workspaceId,
+          sourceChannelId: input.action.sourceChannelId,
+          teamsTenantId: input.teamsTenantId,
+          actionType: input.action.actionType,
+          platformOperation: input.action.platformOperation,
+          actorId: input.actorId,
+          nonce: input.action.nonce,
+          occurredAt: input.occurredAt,
+        },
+      },
+    },
+  };
+}
+
 function resolveExternalGraphqlUrl(): string {
   const explicit = envValueDynamic('GANTRY_EXTERNAL_PLATFORM_GRAPHQL_URL');
   if (explicit) return explicit;
@@ -237,3 +311,7 @@ function resolveExternalGraphqlUrl(): string {
 function readString(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
 }
+
+export const _testExternalCardActions = {
+  readExternalCardAction,
+};

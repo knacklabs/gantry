@@ -14,6 +14,10 @@ import {
   normalizeTeamsJid,
   teamsConversationIdFromJid,
 } from '@core/channels/teams.js';
+import {
+  _testExternalCardActions,
+  buildExternalCardActionGraphqlRequest,
+} from '@core/channels/teams-external-card-actions.js';
 import { _testTeamsBotFrameworkClient } from '@core/channels/teams-bot-framework-client.js';
 import type { ChannelOpts } from '@core/channels/channel-provider.js';
 
@@ -73,6 +77,23 @@ describe('Teams built-in provider', () => {
 });
 
 describe('Teams Bot Framework adapter helpers', () => {
+  it('formats adaptive card invoke responses with the Teams response body schema', () => {
+    expect(
+      _testTeamsBotFrameworkClient.createAdaptiveCardInvokeResponse(
+        200,
+        'application/vnd.microsoft.activity.message',
+        'Action received.',
+      ),
+    ).toEqual({
+      status: 200,
+      body: {
+        statusCode: 200,
+        type: 'application/vnd.microsoft.activity.message',
+        value: 'Action received.',
+      },
+    });
+  });
+
   it('prefers Teams AAD object ids for sender authorization', () => {
     expect(
       _testTeamsBotFrameworkClient.getTeamsSender({
@@ -83,7 +104,7 @@ describe('Teams Bot Framework adapter helpers', () => {
           aadObjectId: 'aad-user-id',
         } as never,
       }),
-    ).toEqual({ id: 'aad-user-id', name: 'Priya' });
+    ).toEqual({ id: 'aad-user-id', name: 'Priya', idKind: 'aad_object_id' });
   });
 
   it('reads tenant ids from Teams channel data', () => {
@@ -117,6 +138,77 @@ describe('Teams JID helpers', () => {
 });
 
 describe('Teams Adaptive Card payloads', () => {
+  it('reads external card action payloads from Teams adaptiveCard/action invokes', () => {
+    const data = {
+      action: 'external_card_action',
+      integrationId: 'integration-test',
+      eventId: 'outbox-1',
+      resourceId: 'tender-1',
+      workspaceId: 'workspace-1',
+      sourceChannelId: '19:abc@thread.v2',
+      teamsTenantId: 'tenant-1',
+      actionType: 'watch',
+      platformOperation: 'mark_resource',
+      nonce: 'nonce-1',
+      expiresAt: '2026-05-01T00:00:00.000Z',
+      signature: 'signature',
+    };
+
+    const { action: _action, ...expectedAction } = data;
+    expect(
+      _testExternalCardActions.readExternalCardAction({
+        action: {
+          type: 'Action.Submit',
+          data,
+        },
+        trigger: 'manual',
+      }),
+    ).toEqual(expect.objectContaining(expectedAction));
+  });
+
+  it('calls external platform card actions with the conversation service actor and channel scope', () => {
+    const request = buildExternalCardActionGraphqlRequest({
+      action: {
+        integrationId: 'integration-test',
+        eventId: 'outbox-1',
+        resourceId: 'tender-1',
+        workspaceId: 'workspace-1',
+        sourceChannelId: '19:abc@thread.v2',
+        teamsTenantId: 'tenant-1',
+        actionType: 'watch',
+        platformOperation: 'mark_resource',
+        nonce: 'nonce-1',
+        expiresAt: '2026-05-01T00:00:00.000Z',
+        signature: 'signature',
+      },
+      actorId: 'teams-user-1',
+      teamsTenantId: 'tenant-1',
+      occurredAt: '2026-04-30T00:00:00.000Z',
+    });
+
+    expect(request.headers).toEqual(
+      expect.objectContaining({
+        authorization: 'Bearer service:agent_conversation',
+        'x-channel-id': '19:abc@thread.v2',
+        'x-integration-id': 'integration-test',
+      }),
+    );
+    expect(request.body.variables.input).toEqual(
+      expect.objectContaining({
+        integrationId: 'integration-test',
+        eventId: 'outbox-1',
+        resourceId: 'tender-1',
+        workspaceId: 'workspace-1',
+        sourceWorkspaceId: 'workspace-1',
+        sourceChannelId: '19:abc@thread.v2',
+        teamsTenantId: 'tenant-1',
+        platformOperation: 'mark_resource',
+        actorId: 'teams-user-1',
+        nonce: 'nonce-1',
+      }),
+    );
+  });
+
   it('builds Action.Execute allow-once and cancel actions', () => {
     const payload = buildTeamsApprovalDescriptorPayload({
       requestId: 'perm-1',

@@ -153,12 +153,32 @@ export class TeamsBotFrameworkSdkClient implements TeamsSdkClient {
     }
 
     if (activity.type === ActivityTypes.Invoke && activity.value) {
-      void this.deliverInboundActivity(activity).catch((error) => {
+      try {
+        await this.deliverInboundActivity(activity);
+      } catch (error) {
         logger.error({ err: error }, 'Teams invoke activity handling failed');
-      });
+        await context.sendActivity({
+          type: ActivityTypes.InvokeResponse,
+          value: createAdaptiveCardInvokeResponse(
+            500,
+            'application/vnd.microsoft.error',
+            {
+              message:
+                error instanceof Error
+                  ? error.message
+                  : 'Teams invoke activity handling failed',
+            },
+          ),
+        });
+        return;
+      }
       await context.sendActivity({
         type: ActivityTypes.InvokeResponse,
-        value: { status: 200, body: { ok: true } },
+        value: createAdaptiveCardInvokeResponse(
+          200,
+          'application/vnd.microsoft.activity.message',
+          'Action received.',
+        ),
       });
     }
   }
@@ -184,6 +204,8 @@ export class TeamsBotFrameworkSdkClient implements TeamsSdkClient {
         : undefined,
       senderId: sender.id,
       senderName: sender.name,
+      senderIdKind: sender.idKind,
+      tenantId: getTeamsTenantId(activity),
       timestamp:
         activity.timestamp instanceof Date
           ? activity.timestamp.toISOString()
@@ -292,7 +314,11 @@ function createBotFrameworkResponse(
   };
 }
 
-function getTeamsSender(activity: Activity): { id: string; name: string } {
+function getTeamsSender(activity: Activity): {
+  id: string;
+  name: string;
+  idKind: 'aad_object_id' | 'teams_user_id' | 'user_principal_name' | 'unknown';
+} {
   const from = activity.from as
     | (Activity['from'] & {
         aadObjectId?: unknown;
@@ -303,8 +329,28 @@ function getTeamsSender(activity: Activity): { id: string; name: string } {
     typeof from?.aadObjectId === 'string' ? from.aadObjectId : '';
   const userPrincipalName =
     typeof from?.userPrincipalName === 'string' ? from.userPrincipalName : '';
-  const id = aadObjectId || from?.id || userPrincipalName || 'unknown';
-  return { id, name: from?.name || userPrincipalName || id };
+  if (aadObjectId) {
+    return {
+      id: aadObjectId,
+      name: from?.name || userPrincipalName || aadObjectId,
+      idKind: 'aad_object_id',
+    };
+  }
+  if (from?.id) {
+    return {
+      id: from.id,
+      name: from.name || userPrincipalName || from.id,
+      idKind: 'teams_user_id',
+    };
+  }
+  if (userPrincipalName) {
+    return {
+      id: userPrincipalName,
+      name: from?.name || userPrincipalName,
+      idKind: 'user_principal_name',
+    };
+  }
+  return { id: 'unknown', name: 'unknown', idKind: 'unknown' };
 }
 
 function getTeamsTenantId(activity: Activity): string | undefined {
@@ -312,7 +358,26 @@ function getTeamsTenantId(activity: Activity): string | undefined {
   return typeof tenant?.tenant?.id === 'string' ? tenant.tenant.id : undefined;
 }
 
+function createAdaptiveCardInvokeResponse(
+  statusCode: number,
+  type: string,
+  value: unknown,
+): {
+  status: number;
+  body: { statusCode: number; type: string; value: unknown };
+} {
+  return {
+    status: 200,
+    body: {
+      statusCode,
+      type,
+      value,
+    },
+  };
+}
+
 export const _testTeamsBotFrameworkClient = {
+  createAdaptiveCardInvokeResponse,
   createBotFrameworkResponse,
   getTeamsSender,
   getTeamsTenantId,
