@@ -36,8 +36,6 @@ interface ModelPreviewResponse {
   target?: string;
   jobId?: string;
   scope?: string;
-  kind?: string;
-  task?: string;
   selection?: {
     effectiveAlias?: string | null;
     source?: string;
@@ -160,9 +158,8 @@ function aliasStatus(
   if (defaults.recurring === alias) statuses.push('recurring jobs');
   if (defaults.memoryExtractor === alias) statuses.push('memory extractor');
   if (defaults.memoryDreaming === alias) statuses.push('memory dreaming');
-  if (defaults.memoryConsolidation === alias) {
+  if (defaults.memoryConsolidation === alias)
     statuses.push('memory consolidation');
-  }
   return statuses.join(', ');
 }
 

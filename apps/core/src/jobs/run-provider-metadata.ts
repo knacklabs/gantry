@@ -23,7 +23,10 @@ export function createRunProviderMetadataUpdater(input: {
   let lastProviderMetadataUpdateMs = 0;
 
   return async (metadata) => {
-    const updateMetadata = input.opsRepository.updateAgentRunProviderMetadata;
+    const updateMetadata =
+      input.opsRepository.updateAgentRunProviderMetadata?.bind(
+        input.opsRepository,
+      );
     if (
       metadata.providerRunId !== undefined &&
       metadata.providerRunId !== persistedProviderRunId

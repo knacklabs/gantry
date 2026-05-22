@@ -71,4 +71,32 @@ describe('run provider metadata updater', () => {
       /repository does not implement provider metadata updates/,
     );
   });
+
+  it('preserves repository method context while persisting metadata', async () => {
+    const calls: unknown[] = [];
+    const opsRepository = {
+      calls,
+      async updateAgentRunProviderMetadata(input: unknown) {
+        this.calls.push(input);
+      },
+    };
+    const updater = createRunProviderMetadataUpdater({
+      opsRepository: opsRepository as never,
+      jobId: 'job-1',
+      outerRunId: 'run-outer',
+      getSessionRunId: () => undefined,
+      nowMs: () => 1_000,
+      logger: { warn: vi.fn() },
+    });
+
+    await updater({ providerRunId: 'provider-run:1' });
+
+    expect(calls).toEqual([
+      {
+        runId: 'run-outer',
+        runIds: ['run-outer'],
+        providerRunId: 'provider-run:1',
+      },
+    ]);
+  });
 });

@@ -342,9 +342,7 @@ export class LlmMemoryExtractionProvider implements MemoryExtractionProvider {
     const { extractor: modelExtractor, modelProfiles } =
       getMemoryModelRuntimeConfig();
     const turns = Array.isArray(input.turns) ? input.turns : [];
-    if (!turns.length) {
-      return extractionResult([]);
-    }
+    if (!turns.length) return extractionResult([]);
     const memoryLlm = getMemoryLlmClient();
     if (!memoryLlm.isConfigured()) {
       return extractionResult([], 'auth_unavailable', 'auth_unavailable');
