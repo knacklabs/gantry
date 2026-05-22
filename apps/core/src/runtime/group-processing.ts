@@ -60,6 +60,7 @@ import {
   startInitialGroupProgress,
   startGroupProgressHeartbeats,
 } from './group-progress-heartbeats.js';
+import { createProgressChannelSender } from './group-progress-channel-sender.js';
 import { createGroupAgentRunner } from './group-agent-runner.js';
 import { buildMemoryRecallQueryFromMessages } from '../memory/app-memory-recall-query.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
@@ -149,40 +150,13 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         ? deps.channelRuntime.sendMessage(chatJid, text, options)
         : deps.channelRuntime.sendMessage(chatJid, text)));
     const finalizingProgressGenerations = new Set<number>();
-    const sendProgressToChannel = async (
-      text: string,
-      options?: ProgressUpdateOptions,
-    ): Promise<void> => {
-      if (
-        options?.done !== true &&
-        options?.generation !== undefined &&
-        finalizingProgressGenerations.has(options.generation)
-      ) {
-        return;
-      }
-      try {
-        if (options) {
-          await deps.channelRuntime.sendProgressUpdate(chatJid, text, options);
-        } else {
-          await deps.channelRuntime.sendProgressUpdate(chatJid, text);
-        }
-      } catch (err) {
-        logger.warn(
-          {
-            err,
-            chatJid,
-            group: group.name,
-            progressText: text,
-            done: options?.done ?? false,
-            replaceOnly: options?.replaceOnly ?? false,
-            generation: options?.generation,
-            threadId: options?.threadId,
-          },
-          'Progress lifecycle runtime send failed',
-        );
-        throw err;
-      }
-    };
+    const sendProgressToChannel = createProgressChannelSender({
+      channelRuntime: deps.channelRuntime,
+      chatJid,
+      groupName: group.name,
+      finalizingGenerations: finalizingProgressGenerations,
+      log: logger,
+    });
     const memoryUserId = resolveMemoryUserId(missedMessages);
     const defaultMemoryScope = memoryScopeForConversationKind(
       group.conversationKind,
