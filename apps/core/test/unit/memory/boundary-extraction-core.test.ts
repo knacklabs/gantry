@@ -296,7 +296,7 @@ describe('collectDurableMemoryFromRepositories', () => {
     });
   });
 
-  it('treats thread scope as a channel child and not a user top-level boundary', async () => {
+  it('treats runtime threads as routing context, not memory scope', async () => {
     const { repositories, evidence } = makeRepositories();
     repositories.agentSessions.getAgentSession = vi.fn().mockResolvedValue({
       id: 'agent-session:threaded',
@@ -344,8 +344,8 @@ describe('collectDurableMemoryFromRepositories', () => {
           scope: 'group',
           kind: 'decision',
           key: 'decision:thread-policy',
-          value: 'Thread policies stay scoped to their channel thread.',
-          why: 'Thread discussion established a thread-local policy.',
+          value: 'Topic decisions are remembered at the whole-channel level.',
+          why: 'Topic discussions should not split durable memory by thread.',
           confidence: 0.92,
         },
       ],
@@ -354,11 +354,11 @@ describe('collectDurableMemoryFromRepositories', () => {
       subjectType: 'channel',
       subjectId: 'conversation:sl-C123',
       channelId: 'conversation:sl-C123',
-      threadId: 'thread:abc',
     });
+    expect(evidence[0]).not.toHaveProperty('threadId');
   });
 
-  it('saves canonical session thread boundary evidence under the app-memory raw thread id', async () => {
+  it('saves canonical session thread boundary evidence under the whole channel', async () => {
     const { repositories, evidence } = makeRepositories();
     repositories.agentSessions.getAgentSession = vi.fn().mockResolvedValue({
       id: 'agent-session:canonical-thread',
@@ -382,8 +382,8 @@ describe('collectDurableMemoryFromRepositories', () => {
           scope: 'group',
           kind: 'decision',
           key: 'decision:thread-policy',
-          value: 'Thread evidence is saved under the raw provider thread id.',
-          why: 'Hydration and dreaming resolve channel threads using raw ids.',
+          value: 'Thread evidence is saved under the whole channel.',
+          why: 'Memory ignores provider-specific thread ids.',
           confidence: 0.92,
         },
       ],
@@ -394,11 +394,8 @@ describe('collectDurableMemoryFromRepositories', () => {
       subjectType: 'channel',
       subjectId: 'conversation:sl:C123',
       channelId: 'conversation:sl:C123',
-      threadId: 'topic-7',
     });
-    expect(evidence[0]).not.toMatchObject({
-      threadId: 'thread:sl:C123:topic-7',
-    });
+    expect(evidence[0]).not.toHaveProperty('threadId');
   });
 
   it('passes only current-agent app-grade prior memory into boundary extraction', async () => {

@@ -127,7 +127,6 @@ export async function proposeMemoryDreamingActions(input: {
       agent_id: input.subject.agentId,
       subject_type: input.subject.subjectType,
       subject_id: input.subject.subjectId,
-      thread_id: input.subject.threadId ?? null,
     },
     evidence: input.evidence.slice(0, 20).map((row) => ({
       id: row.id,
@@ -189,7 +188,6 @@ export async function proposeMemoryConsolidationActions(input: {
       agent_id: input.subject.agentId,
       subject_type: input.subject.subjectType,
       subject_id: input.subject.subjectId,
-      thread_id: input.subject.threadId ?? null,
     },
     active_items: input.activeItems.slice(0, 80).map((row) => ({
       id: row.id,

@@ -106,7 +106,7 @@ export interface RuntimeConfiguredBinding {
   trigger: string;
   addedAt: string;
   requiresTrigger: boolean;
-  memoryScope: 'conversation' | 'thread' | 'user' | 'agent';
+  memoryScope: 'conversation' | 'user' | 'agent';
   model?: string;
 }
 

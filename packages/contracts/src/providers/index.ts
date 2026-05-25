@@ -108,7 +108,6 @@ export type TriggerMode = z.infer<typeof TriggerModeSchema>;
 export const BindingMemoryScopeSchema = z.enum([
   'user',
   'conversation',
-  'thread',
   'agent',
   'app',
 ]);

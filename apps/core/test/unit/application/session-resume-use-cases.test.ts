@@ -585,7 +585,7 @@ describe('durable session resume use cases', () => {
       getLastSessionContinuityInjectionStatus({
         appId: sessionA.appId,
         agentId: sessionA.agentId,
-        conversationId: sessionB.conversationId,
+        conversationId: 'conversation:sl:C-missing' as never,
         threadId: '111',
       }),
     ).toBeUndefined();
@@ -1187,11 +1187,10 @@ describe('durable session resume use cases', () => {
           id: 'mem_app_grade',
           kind: 'decision',
           key: 'decision:release-thread',
-          value: 'Release thread memory is hydrated from app-grade rows.',
+          value: 'Release conversation memory is hydrated from app-grade rows.',
           subject: {
             subjectType: 'channel',
             subjectId: session.conversationId,
-            threadId: 'thread:release',
           },
         },
       ];
@@ -1213,7 +1212,7 @@ describe('durable session resume use cases', () => {
     });
     expect(hydrated.memories).toHaveLength(1);
     expect(hydrated.block).toContain(
-      'Release thread memory is hydrated from app-grade rows.',
+      'Release conversation memory is hydrated from app-grade rows.',
     );
   });
 
@@ -1243,7 +1242,7 @@ describe('durable session resume use cases', () => {
       threadId: 'topic-7',
       kind: 'decision',
       key: 'decision:thread-owner',
-      value: 'Thread memory survives restart hydration.',
+      value: 'Conversation memory is visible from topic sessions.',
       source: 'test',
       actorId: 'test',
       isAdminWrite: false,
@@ -1292,12 +1291,11 @@ describe('durable session resume use cases', () => {
     expect(hydrated.memories).toHaveLength(1);
     expect(hydrated.memories[0]).toMatchObject({
       key: 'decision:thread-owner',
-      value: 'Thread memory survives restart hydration.',
+      value: 'Conversation memory is visible from topic sessions.',
       subject: {
         subjectType: 'channel',
         subjectId: 'conversation:sl:C123',
         channelId: 'conversation:sl:C123',
-        threadId: 'topic-7',
       },
     });
     expect(
@@ -1453,7 +1451,7 @@ describe('durable session resume use cases', () => {
     getInstance.mockRestore();
   });
 
-  it('keeps query-aware hydration isolated to trusted DM and channel thread scopes', async () => {
+  it('keeps query-aware hydration isolated to trusted DM users and whole channel scopes', async () => {
     const dmSession = makeSession({
       agentId: 'agent:team-folder' as never,
       conversationId: 'conversation:sl:D123' as never,
@@ -1473,7 +1471,7 @@ describe('durable session resume use cases', () => {
           id: 'mem_channel_broad',
           kind: 'fact',
           key: 'fact:broad-channel',
-          value: 'Whole-channel memory must not hydrate inside a thread.',
+          value: 'Whole-channel memory hydrates inside any topic.',
           subjectType: 'channel',
           subjectId: 'conversation:sl:C123',
           channelId: 'conversation:sl:C123',
@@ -1482,7 +1480,7 @@ describe('durable session resume use cases', () => {
           id: 'mem_channel_thread',
           kind: 'decision',
           key: 'decision:thread',
-          value: 'Thread memory is scoped to the active topic.',
+          value: 'Legacy thread-marked memory is treated as channel memory.',
           subjectType: 'channel',
           subjectId: 'conversation:sl:C123',
           channelId: 'conversation:sl:C123',
@@ -1523,14 +1521,17 @@ describe('durable session resume use cases', () => {
       2,
       expect.objectContaining({
         channelId: 'conversation:sl:C123',
-        threadId: 'topic-7',
         subjectTypes: ['channel'],
         includeCommon: false,
         query: 'thread decision',
       }),
     );
+    expect(
+      appMemoryService.searchForHydrationReadOnly.mock.calls[1][0],
+    ).not.toHaveProperty('threadId');
     expect(dmHydrated).toEqual([]);
     expect(channelHydrated.map((item) => item.id)).toEqual([
+      'mem_channel_broad',
       'mem_channel_thread',
     ]);
     getInstance.mockRestore();

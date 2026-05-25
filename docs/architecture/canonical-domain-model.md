@@ -70,7 +70,7 @@ Identity rules:
 | `AgentRun`            | Domain/application       | One execution attempt by an agent for a message, job, control request, or manual trigger.                                                                                          |
 | `RuntimeEvent`        | Application/storage      | The durable observable runtime stream for run, job, session, SSE/wait, SDK listing, and outbound webhook delivery events. Audit records remain in their owning modules.            |
 | `ExternalIngress`     | Application/storage      | A signed inbound authority record for external systems. It derives app scope, protects nonce replay, records invocations, and dispatches only to approved session/job/template targets. |
-| `MemorySubject`       | Domain                   | A memory boundary for app, agent, user, group/team, conversation, thread, or common shared memory.                                                                                 |
+| `MemorySubject`       | Domain                   | A memory boundary for app, agent, user, group/team, conversation, or common shared memory.                                                                                         |
 | `Job`                 | Domain/application       | Scheduled, recurring, or manual work that creates agent runs under explicit app, agent, session, and permission context.                                                           |
 | `ToolCatalogItem`     | Domain catalog           | A tool capability exposed to agents with name, input contract, risk classification, permission requirements, and adapter binding.                                                  |
 | `SkillCatalogItem`    | Domain catalog           | A reusable behavior package or prompt/tool bundle that can be attached to agent config versions.                                                                                   |
@@ -187,8 +187,10 @@ session messages, existing job triggers, or constrained one-time job templates.
 
 `MemorySubject` is the visibility boundary for durable memory. Valid subject
 shapes include app-wide common memory, agent memory, user memory, group/team
-memory, conversation memory, and thread memory. Provider names do not
-change the meaning of the boundary.
+memory, and conversation memory. Provider names do not change the meaning of
+the boundary. Provider topics, Slack threads, Teams reply chains, Telegram
+forum topics, and Web UI branches remain conversation/session routing metadata;
+they do not create separate durable memory subjects.
 
 `Job` belongs to an app and runs through the same agent/session/run path as a
 message-triggered run. Jobs can target an agent binding, a session, a

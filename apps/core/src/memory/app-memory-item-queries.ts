@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
@@ -10,7 +10,6 @@ import {
 } from './app-memory-canonical-codec.js';
 import { normalizeSubject, subjectIdFor } from './app-memory-boundaries.js';
 import {
-  createSqlThreadIdentityFilter,
   nowIso,
   withStatementTimeout,
 } from './app-memory-service-query-helpers.js';
@@ -26,10 +25,6 @@ import type {
 } from './memory-types.js';
 
 type Db = NodePgDatabase<typeof pgSchema>;
-const sqlThreadIdentityFilter = createSqlThreadIdentityFilter({
-  eq,
-  isNull,
-});
 
 export async function findActiveMemoryByKey(input: {
   db: Db;
@@ -47,10 +42,6 @@ export async function findActiveMemoryByKey(input: {
         eq(pgSchema.memoryItemsPostgres.subjectType, input.subject.subjectType),
         eq(pgSchema.memoryItemsPostgres.subjectId, subjectIdFor(input.subject)),
         sql`${pgSchema.memoryItemsPostgres.sourceRefJson} @> ${JSON.stringify({ subject: { agentId: input.subject.agentId, subjectType: input.subject.subjectType, subjectId: input.subject.subjectId } })}::jsonb`,
-        sqlThreadIdentityFilter(
-          pgSchema.memoryItemsPostgres,
-          input.subject.threadId,
-        ),
         eq(pgSchema.memoryItemsPostgres.key, input.key.trim()),
       ),
     )
@@ -73,10 +64,6 @@ export async function listDreamingStatuses(
     ? [
         eq(pgSchema.memoryDreamRunsPostgres.subjectType, subject.subjectType),
         eq(pgSchema.memoryDreamRunsPostgres.subjectId, subject.subjectId),
-        sqlThreadIdentityFilter(
-          pgSchema.memoryDreamRunsPostgres,
-          subject.threadId,
-        ),
       ]
     : [];
   const rows = (await withStatementTimeout(

@@ -18,7 +18,6 @@ import type {
 } from './extractor-types.js';
 import { nowIso } from '../shared/time/datetime.js';
 import { resolveScopedMemorySubject } from './app-memory-subject-resolver.js';
-import { rawThreadIdFromSession } from './app-memory-session-scope.js';
 import { sanitizeOutboundLlmText } from '../shared/sensitive-material.js';
 import {
   MEMORY_BOUNDARY_COLLECTION_TIMEOUT_MS,
@@ -76,7 +75,6 @@ interface BoundaryMemoryRepositories {
       userId?: string;
       groupId?: string;
       channelId?: string;
-      threadId?: string;
       sourceId: string;
       text: string;
       metadata: Record<string, unknown>;
@@ -257,17 +255,14 @@ function subjectForFact(
   userId?: string;
   groupId?: string;
   channelId?: string;
-  threadId?: string;
 } {
   const scope = resolveBoundaryScope(defaultScope, fact.scope);
-  const threadId = boundaryEvidenceThreadIdForSession(session);
   const { subject } = resolveScopedMemorySubject({
     appId: session.appId,
     agentId: session.agentId,
     groupId: session.agentId,
     conversationId: session.conversationId ?? undefined,
     userId: session.userId ?? undefined,
-    threadId,
     defaultScope: scope,
     scope,
   });
@@ -286,16 +281,7 @@ function subjectForFact(
     ...(subject.userId ? { userId: subject.userId } : {}),
     ...(subject.groupId ? { groupId: subject.groupId } : {}),
     ...(subject.channelId ? { channelId: subject.channelId } : {}),
-    ...(subject.threadId ? { threadId: subject.threadId } : {}),
   };
-}
-
-function boundaryEvidenceThreadIdForSession(
-  session: AgentSession,
-): string | undefined {
-  return (
-    rawThreadIdFromSession(session) ?? session.threadId?.trim() ?? undefined
-  );
 }
 
 function toCandidateMetadata(

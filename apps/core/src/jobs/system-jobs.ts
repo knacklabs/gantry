@@ -249,7 +249,7 @@ export async function handleSystemJob(
             throw appendPendingReviewContextToError(error, pendingReviews);
           }
         },
-        `dream:${subject.subjectType}:${subject.subjectId}${subject.threadId ? `:thread:${subject.threadId}` : ''}`,
+        `dream:${subject.subjectType}:${subject.subjectId}`,
         { signal: jobDeadline.signal },
       );
       if (!queueResult.queued) {

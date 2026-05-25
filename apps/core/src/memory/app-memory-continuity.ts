@@ -180,7 +180,6 @@ function statusFromParts(
               injected.subject.appId,
               injected.subject.agentId,
               injected.subject.conversationId,
-              injected.subject.threadId,
             ]
               .filter(Boolean)
               .join(':'),
@@ -205,7 +204,6 @@ function injectedStatus(subject: ReturnType<typeof normalizeSubject>) {
     agentId: subject.agentId,
     conversationId: subject.channelId,
     userId: subject.userId,
-    threadId: subject.threadId,
   });
 }
 function summaryObject(value: unknown): Record<string, unknown> | undefined {

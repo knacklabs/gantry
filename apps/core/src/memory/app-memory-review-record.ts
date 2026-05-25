@@ -95,7 +95,6 @@ export function toMemoryReview(row: MemoryReviewRowLike): MemoryReviewRecord {
     agentId: row.agentId,
     subjectType: row.subjectType as MemorySubjectType,
     subjectId: row.subjectId,
-    ...(row.threadId ? { threadId: row.threadId } : {}),
     phase: row.phase as DreamingRunStatus['phase'],
     proposal: parseReviewProposal(row.proposalJson),
     status: row.status as MemoryReviewRecord['status'],

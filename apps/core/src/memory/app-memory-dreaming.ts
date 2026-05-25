@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
 import type {
@@ -34,9 +34,6 @@ type DreamEmbeddingResult = { status: 'stored' | 'disabled' | 'retryable'; reaso
 function nowIso(): string {
   return currentIso();
 }
-function sqlThreadScopeFilter(column: any, threadId: string | undefined) {
-  return threadId ? eq(column, threadId) : isNull(column);
-}
 async function setCandidateStatus(db: Db, id: string, status: string) {
   await db
     .update(pgSchema.memoryCandidatesPostgres)
@@ -59,7 +56,7 @@ async function recordDreamDecision(input: {
     runId: input.runId,
     appId: input.subject.appId,
     agentId: input.subject.agentId,
-    threadId: input.subject.threadId ?? null,
+    threadId: null,
     itemId: input.itemId ?? null,
     candidateId: input.candidateId ?? null,
     action: input.action,
@@ -202,10 +199,6 @@ export async function runAppMemoryDreamPass(input: {
         eq(pgSchema.memoryEvidencePostgres.agentId, subject.agentId),
         eq(pgSchema.memoryEvidencePostgres.subjectType, subject.subjectType),
         eq(pgSchema.memoryEvidencePostgres.subjectId, subject.subjectId),
-        sqlThreadScopeFilter(
-          pgSchema.memoryEvidencePostgres.threadId,
-          subject.threadId,
-        ),
       ),
     )
     .orderBy(desc(pgSchema.memoryEvidencePostgres.createdAt))
@@ -235,7 +228,7 @@ export async function runAppMemoryDreamPass(input: {
         continue;
       }
       const candidate = parsed.candidate;
-      const candidateId = `mca_${hashText(`${subject.appId}:${subject.agentId}:${subject.subjectType}:${subject.subjectId}:${subject.threadId ?? ''}:${candidate.kind}:${candidate.key}:${candidate.value}`).slice(0, 32)}`;
+      const candidateId = `mca_${hashText(`${subject.appId}:${subject.agentId}:${subject.subjectType}:${subject.subjectId}:${candidate.kind}:${candidate.key}:${candidate.value}`).slice(0, 32)}`;
       if (!dryRun) {
         await db
           .insert(pgSchema.memoryCandidatesPostgres)
@@ -245,7 +238,7 @@ export async function runAppMemoryDreamPass(input: {
             agentId: subject.agentId,
             subjectType: subject.subjectType,
             subjectId: subject.subjectId,
-            threadId: subject.threadId ?? null,
+            threadId: null,
             kind: candidate.kind,
             key: candidate.key,
             value: candidate.value,
@@ -344,10 +337,6 @@ export async function runAppMemoryDreamPass(input: {
             subject.subjectType,
           ),
           eq(pgSchema.memoryCandidatesPostgres.subjectId, subject.subjectId),
-          sqlThreadScopeFilter(
-            pgSchema.memoryCandidatesPostgres.threadId,
-            subject.threadId,
-          ),
           eq(pgSchema.memoryCandidatesPostgres.status, 'staged'),
         ),
       )
@@ -603,7 +592,6 @@ export async function runAppMemoryDreamPass(input: {
         userId: subject.userId,
         groupId: subject.groupId,
         channelId: subject.channelId,
-        threadId: subject.threadId,
         kind: candidate.kind as MemoryKind,
         key: candidate.key,
         value: candidate.value,

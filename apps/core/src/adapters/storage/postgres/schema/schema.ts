@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import {
   boolean,
@@ -61,7 +61,6 @@ export const memoryEvidencePostgres = pgTable(
       table.agentId,
       table.subjectType,
       table.subjectId,
-      table.threadId,
       table.createdAt,
     ),
     searchIdx: index('idx_memory_evidence_search').using(
@@ -103,7 +102,6 @@ export const memoryCandidatesPostgres = pgTable(
       table.agentId,
       table.subjectType,
       table.subjectId,
-      table.threadId,
       table.status,
       table.confidence,
       table.updatedAt,
@@ -170,7 +168,6 @@ export const memoryDreamRunsPostgres = pgTable(
       table.agentId,
       table.subjectType,
       table.subjectId,
-      table.threadId,
       table.startedAt,
     ),
     runningLightUniqueIdx: uniqueIndex(
@@ -181,7 +178,6 @@ export const memoryDreamRunsPostgres = pgTable(
         table.agentId,
         table.subjectType,
         table.subjectId,
-        sql`coalesce(${table.threadId}, '')`,
         sql`'light'::text`,
       )
       .where(
@@ -193,7 +189,6 @@ export const memoryDreamRunsPostgres = pgTable(
         table.agentId,
         table.subjectType,
         table.subjectId,
-        sql`coalesce(${table.threadId}, '')`,
         sql`'rem'::text`,
       )
       .where(
@@ -207,7 +202,6 @@ export const memoryDreamRunsPostgres = pgTable(
         table.agentId,
         table.subjectType,
         table.subjectId,
-        sql`coalesce(${table.threadId}, '')`,
         sql`'deep'::text`,
       )
       .where(
@@ -287,7 +281,6 @@ export const memoryReviewRequestsPostgres = pgTable(
       table.agentId,
       table.subjectType,
       table.subjectId,
-      table.threadId,
       table.status,
       table.createdAt,
     ),
@@ -356,7 +349,6 @@ type DreamSubject = {
   agentId: string;
   subjectType: string;
   subjectId: string;
-  threadId?: string;
 };
 
 const CONCRETE_DREAM_PHASES = ['light', 'rem', 'deep'] as const;
@@ -375,15 +367,6 @@ export function conflictingDreamPhases(phase: DreamPhase): DreamPhase[] {
   return [phase, 'all'];
 }
 
-function dreamThreadIdentityFilter(
-  row: { threadId: unknown },
-  threadId: string | undefined,
-) {
-  return threadId
-    ? eq(row.threadId as any, threadId)
-    : isNull(row.threadId as any);
-}
-
 export async function findRunningDreamRun(input: {
   db: NodePgDatabase<any>;
   subject: DreamSubject;
@@ -400,7 +383,6 @@ export async function findRunningDreamRun(input: {
         eq(memoryDreamRunsPostgres.agentId, subject.agentId),
         eq(memoryDreamRunsPostgres.subjectType, subject.subjectType),
         eq(memoryDreamRunsPostgres.subjectId, subject.subjectId),
-        dreamThreadIdentityFilter(memoryDreamRunsPostgres, subject.threadId),
         inArray(memoryDreamRunsPostgres.phase, conflictingDreamPhases(phase)),
         eq(memoryDreamRunsPostgres.status, 'running'),
         sql`${memoryDreamRunsPostgres.leaseExpiresAt} > ${now}`,
@@ -436,7 +418,6 @@ export async function expireStaleDreamRuns(input: {
         eq(memoryDreamRunsPostgres.agentId, subject.agentId),
         eq(memoryDreamRunsPostgres.subjectType, subject.subjectType),
         eq(memoryDreamRunsPostgres.subjectId, subject.subjectId),
-        dreamThreadIdentityFilter(memoryDreamRunsPostgres, subject.threadId),
         inArray(memoryDreamRunsPostgres.phase, conflictingDreamPhases(phase)),
         eq(memoryDreamRunsPostgres.status, 'running'),
         sql`${memoryDreamRunsPostgres.leaseExpiresAt} <= ${now}`,

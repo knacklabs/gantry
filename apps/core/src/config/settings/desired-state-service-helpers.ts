@@ -120,7 +120,6 @@ export function memorySubjectForConfiguredBinding(input: {
         appId: input.appId,
         agentId: input.agentId,
       };
-    case 'thread':
     case 'conversation':
       return {
         kind: 'conversation',

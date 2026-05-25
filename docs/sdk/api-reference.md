@@ -697,7 +697,7 @@ client.agents.conversationBindings.enable(agentId, conversationId, {
   triggerMode?, // always | mention | keyword | manual | webhook
   triggerPattern?,
   requiresTrigger?,
-  memoryScope?, // user | conversation | thread | agent | app
+  memoryScope?, // user | conversation | agent | app
   memorySubject?,
   workspaceSnapshotId?,
   permissionPolicyIds?,
@@ -763,7 +763,8 @@ API version.
 ## Memory
 
 Memory APIs are app-bound by the API key. Pass stable `appId`, `agentId`,
-`userId`, `groupId`, `channelId`, and `threadId` when your application has them.
+`userId`, `groupId`, and `channelId` when your application has them. Provider
+topic/thread ids are routing metadata and do not partition durable memory.
 `common` memory is app-wide and requires admin/service authority to write. Agent
 MCP/IPC `memory_save` defaults to user or group scope and cannot directly write
 common/global memory.
@@ -775,7 +776,6 @@ client.memory.save({
   userId?,
   groupId?,
   channelId?,
-  threadId?,
   subjectType?, // user | group | channel | common
   subjectId?,
   kind?,        // preference | decision | fact | correction | constraint
@@ -792,7 +792,6 @@ client.memory.search({
   userId?,
   groupId?,
   channelId?,
-  threadId?,
   query?,
   limit?,
   includeCommon?,
@@ -805,10 +804,10 @@ client.memory.delete(memoryId, { appId?, agentId? })
 client.memory.dreaming.trigger({ appId?, agentId?, subjectType?, subjectId?, phase?, dryRun? })
 client.memory.dreaming.status({ appId?, agentId? })
 
-client.memory.sources.add({ sourceType: "text", text, title?, appId?, agentId?, userId?, groupId?, channelId?, threadId?, ingest? })
-client.memory.sources.list({ appId?, agentId?, userId?, groupId?, channelId?, threadId?, limit? })
-client.memory.sources.status(sourceId, { appId?, agentId?, userId?, groupId?, channelId?, threadId? })
-client.memory.sources.search({ query, appId?, agentId?, userId?, groupId?, channelId?, threadId?, limit? })
+client.memory.sources.add({ sourceType: "text", text, title?, appId?, agentId?, userId?, groupId?, channelId?, ingest? })
+client.memory.sources.list({ appId?, agentId?, userId?, groupId?, channelId?, limit? })
+client.memory.sources.status(sourceId, { appId?, agentId?, userId?, groupId?, channelId? })
+client.memory.sources.search({ query, appId?, agentId?, userId?, groupId?, channelId?, limit? })
 client.memory.sources.delete(sourceId, { appId?, agentId? })
 client.memory.sources.ingest(sourceId, { appId?, agentId? })
 ```

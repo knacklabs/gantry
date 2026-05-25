@@ -107,7 +107,6 @@ export interface MemoryReviewPageSubject {
   agentId: string;
   subjectType: MemorySubjectType;
   subjectId: string;
-  threadId?: string;
 }
 
 export interface MemoryReviewPageContext {
@@ -200,7 +199,7 @@ export interface MemoryBoundaryContext {
   groupId?: string;
   /** External provider conversation id: Telegram chat, Slack conversation, Teams channel/chat, or SDK conversation. */
   channelId?: string;
-  /** Provider thread/topic/reply-chain id, such as Slack thread_ts, Telegram forum topic, or Teams reply chain. */
+  /** Runtime routing thread/topic id. Memory subject resolution intentionally ignores this. */
   threadId?: string;
 }
 
@@ -318,7 +317,6 @@ export interface DreamingRunStatus {
   agentId: string;
   subjectType: MemorySubjectType;
   subjectId: string;
-  threadId?: string;
   phase: DreamPhase;
   status: 'running' | 'completed' | 'failed';
   summary: Record<string, unknown>;
@@ -339,7 +337,6 @@ export interface MemoryItem {
   scope: MemoryScope;
   group_folder: string;
   user_id: string | null;
-  topic_id?: string | null;
   kind: MemoryKind;
   key: string;
   value: string;
@@ -377,7 +374,6 @@ export interface MemoryProcedure {
   id: string;
   scope: MemoryScope;
   group_folder: string;
-  topic_id?: string | null;
   title: string;
   body: string;
   tags: string[];
@@ -400,7 +396,6 @@ export interface MemoryChunk {
   source_path: string;
   scope: MemoryScope;
   group_folder: string;
-  topic_id?: string | null;
   kind: string;
   chunk_hash: string;
   text: string;
@@ -439,7 +434,6 @@ export interface SaveMemoryInput {
   scope?: MemoryScope;
   group_folder?: string;
   user_id?: string;
-  topic_id?: string;
   kind?: MemoryKind;
   key: string;
   value: string;
@@ -465,7 +459,6 @@ export interface SaveProcedureInput {
   scope?: MemoryScope;
   group_folder?: string;
   user_id?: string;
-  topic_id?: string;
   title: string;
   body: string;
   tags?: string[];
@@ -483,11 +476,4 @@ export interface PatchProcedureInput {
   tags?: string[];
   trigger?: string | null;
   confidence?: number;
-}
-
-export function normalizeMemoryTopicId(
-  value: string | undefined,
-): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed.slice(0, 255) : undefined;
 }

@@ -55,7 +55,6 @@ export type AgentConversationBindingTriggerMode =
 export type AgentConversationBindingMemoryScope =
   | 'user'
   | 'conversation'
-  | 'thread'
   | 'agent'
   | 'app';
 

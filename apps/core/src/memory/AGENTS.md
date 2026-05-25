@@ -8,7 +8,7 @@
   digest rows fail closed instead of being inferred from `agentSessionId`.
 - Subject resolution for automatic boundary evidence, manual memory/procedure saves, hydration recall scopes, and memory dreaming triggers must use the same scope resolver so channel/group and DM/private boundaries stay consistent.
 - Normal runtime memory search/status hydration must pass the resolved subject type explicitly (`user` for DM/private, `channel` for channel/group) and must not make channel contexts visible to legacy agent-folder `group` rows.
-- `/dream`, scheduled dreaming, `/memory-status`, and `/save-procedure` must use trusted conversation context: DM/private uses the trusted user id and drops thread scope; channel/group uses the trusted conversation id and may retain thread/topic scope.
+- `/dream`, scheduled dreaming, `/memory-status`, and `/save-procedure` must use trusted conversation context: DM/private uses the trusted user id, and channel/group uses the trusted conversation id. Thread/topic ids stay out of memory scope.
 - Memory IPC must enforce host-derived allowed actions from the signed runtime context/token. Reviewed actions such as `memory_patch`, `procedure_patch`, `memory_dream`, and `memory_consolidate` must stay denied unless the selected Gantry MCP capability explicitly enables the matching action.
 - Memory IPC may return deadline-based `unavailable` responses for read-only
   work before transport timeouts, but mutating actions must not use
@@ -19,22 +19,21 @@
   enough because background search/status work can outlive the IPC response.
 - IPC patch actions must resolve the subject with the same trusted resolver used by search/save; never trust `group_folder`, `user_id`, channel, or thread hints from the patch payload.
 - If digest or app-memory hydration dependencies are missing, fail closed to an empty memory context; never fall back to legacy session summaries or legacy memory-item reads.
-- Production `CanonicalSessionOpsService` hydration must pass `loadAppMemoryItems` with the current turn query when available; query-aware hydration searches app-memory first, then tops up from `list` using session-derived app/agent/user/conversation/thread scope. Direct/private conversations stay user-scoped, channel/group conversations stay channel-scoped, and `thread_id` only narrows channel/group scope.
-- Canonical session rows persist provider-session scope keys from the exact trusted conversation boundary (`<group-folder>::conversation:<jid>` plus DM user and child thread/topic when applicable) and canonical conversation/thread ids; hydration must map canonical ids back to app-memory identities (`groupId` and raw thread) so memory IPC writes and resume hydration use the same subject contract.
-- Automatic boundary evidence must use that same canonical-session to app-memory
-  thread mapping before subject resolution; do not save evidence under
-  canonical `thread:<conversation>:<raw-thread>` ids when hydration and
-  dreaming use the raw provider thread id.
+- Production `CanonicalSessionOpsService` hydration must pass `loadAppMemoryItems` with the current turn query when available; query-aware hydration searches app-memory first, then tops up from `list` using session-derived app/agent/user/conversation scope. Direct/private conversations stay user-scoped, and channel/group conversations stay whole-conversation scoped.
+- Canonical session rows persist provider-session scope keys from the exact trusted conversation boundary (`<group-folder>::conversation:<jid>` plus DM user and child thread/topic when applicable) and canonical conversation/thread ids; hydration must map canonical ids back to app-memory identities (`groupId` or `channelId`) so memory IPC writes and resume hydration use the same subject contract.
+- Automatic boundary evidence must use the canonical conversation/user memory
+  subject before persistence; do not save evidence under provider topic/thread
+  ids.
 - Boundary extraction prior-memory retrieval must use the app-memory hydration
-  read path with exact app, agent, subject, and raw thread scope; never load
+  read path with exact app, agent, and subject scope; never load
   prompt context through legacy `MemoryRepository.listMemoryItems`.
 - The production legacy `MemoryRepository` must not expose list/search reads;
   keep any future diagnostic legacy read path explicitly non-runtime and guarded
   by architecture tests.
 - Encoded session-scope components from `makeSessionScopeKey` must be decoded
-  before becoming app-memory identities, so Teams-like thread ids such as
-  `19:abc@thread.v2` stay raw in hydration and boundary extraction.
-- DM/private and channel/group boundaries are top-level memory scopes; `thread_id` is only a child narrowing scope for channel/group memory, never a standalone top-level scope.
+  before becoming app-memory identities. Decode the conversation/group
+  component only; do not turn child topic/thread components into memory scope.
+- DM/private and channel/group boundaries are the only user-facing memory scopes. Provider topics, Slack threads, Teams reply chains, and Telegram forum topics are routing/session metadata only; they must not partition durable memory.
 - Light dreaming may stage a candidate only from structured evidence metadata
   that passes canonical kind, confidence, scope, and safety guardrails.
 - Dreaming `dryRun` may record unapplied decisions, but must not insert
@@ -75,16 +74,16 @@
 - Reviewed retire/rewrite/merge application must use current target versions.
   Merges must retire duplicate items atomically or fail without partial
   mutation.
-- Thread-scoped durable memory identity must include `thread_id` in active-key
-  uniqueness (with `COALESCE(thread_id, '')`) so same keys can coexist across
-  threads while no-thread memory remains intentionally shared.
+- Durable memory identity must ignore `thread_id`; active-key uniqueness is
+  app, agent, subject type, subject id, kind, and key so memory is shared across
+  topics/threads inside the same group or channel.
 - Memory item `conversation_id` projection must not double-prefix canonical
   channel ids. App-memory `channelId` is already canonical when it starts with
   `conversation:`, and only raw provider channel ids should receive that
   prefix during persistence mapping.
-- Dreaming triggered from trusted thread context must filter evidence,
-  candidates, and active-item operations by exact `thread_id`; background or
-  scheduled dreaming should run with explicit no-thread scope.
+- Dreaming triggered from trusted topic/thread context must still operate on
+  the parent DM/user or group/channel memory boundary; do not add exact-thread
+  filters to evidence, candidate, review, or active-item operations.
 - All dreaming entrypoints (runtime queue, control API, and memory IPC actions)
   must converge on the same durable running-subject guard keyed by boundary,
   phase conflict set, and `lease_expires_at`; `phase='all'` is a wildcard that
@@ -108,13 +107,12 @@
   timeout, and statement timeout into the collector before using a watchdog.
   Do not add a timer-only race that can return while digest/evidence writes keep
   running without a cancellable signal.
-- Keep thread-aware indexes aligned with dreaming query filters:
-  `memory_evidence(app_id, agent_id, subject_type, subject_id, thread_id, created_at DESC)`
+- Keep subject-aware indexes aligned with dreaming query filters:
+  `memory_evidence(app_id, agent_id, subject_type, subject_id, created_at DESC)`
   and
-  `memory_candidates(app_id, agent_id, subject_type, subject_id, thread_id, status, confidence DESC, updated_at DESC)`.
-- Keep active-memory recall and hydration indexes thread-aware:
-  `memory_items(app_id, agent_id, subject_type, subject_id, status, thread_id, updated_at DESC)`.
-- Whole-conversation boundary capture is intentional when `thread_id` is absent;
+- Keep active-memory recall and hydration indexes subject-aware:
+  `memory_items(app_id, agent_id, subject_type, subject_id, status, updated_at DESC)`.
+- Whole-conversation boundary capture is intentional for channel/group memory;
   keep a dedicated recent-message ordering index on
   `messages(conversation_id, created_at DESC, id DESC)` so no-thread capture
   stays efficient without narrowing to unthreaded rows.

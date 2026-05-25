@@ -148,7 +148,7 @@ export async function triggerAppMemoryDreaming(input: {
       agentId: subject.agentId,
       subjectType: subject.subjectType,
       subjectId: subject.subjectId,
-      threadId: subject.threadId ?? null,
+      threadId: null,
       phase,
       status: 'running',
       summaryJson: '{}',
@@ -252,7 +252,6 @@ export async function triggerAppMemoryDreaming(input: {
           false,
           APP_MEMORY_TRIGGER_RECALL_DEPS,
           {
-            threadScope: 'exact',
             signal: dreamDeadline.signal,
             statementTimeoutMs: boundedRemainingTimeoutMs(
               dreamDeadline.remainingTimeoutMs(),

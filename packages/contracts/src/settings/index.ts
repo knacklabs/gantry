@@ -112,7 +112,7 @@ export const RuntimeSettingsBindingSchema = z
     trigger: z.string().trim().min(1),
     addedAt: z.string().trim().min(1),
     requiresTrigger: z.boolean(),
-    memoryScope: z.enum(['conversation', 'thread', 'user', 'agent']),
+    memoryScope: z.enum(['conversation', 'user', 'agent']),
     model: z.string().optional(),
   })
   .strict();

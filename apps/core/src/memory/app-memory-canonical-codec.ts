@@ -98,10 +98,6 @@ export function parseItemSource(row: CanonicalMemoryItemRow): {
         typeof subjectPayload.channelId === 'string'
           ? subjectPayload.channelId
           : undefined,
-      threadId:
-        typeof subjectPayload.threadId === 'string'
-          ? subjectPayload.threadId
-          : undefined,
     }),
     source: typeof payload.source === 'string' ? payload.source : 'sdk',
     evidenceIds: Array.isArray(payload.evidenceIds)
@@ -186,7 +182,6 @@ export function toAppItem(row: CanonicalMemoryItemRow): AppMemoryItem {
     ...(subject.userId ? { userId: subject.userId } : {}),
     ...(subject.groupId ? { groupId: subject.groupId } : {}),
     ...(subject.channelId ? { channelId: subject.channelId } : {}),
-    ...(subject.threadId ? { threadId: subject.threadId } : {}),
     kind: row.kind as MemoryKind,
     key: row.key,
     value: value.value,
@@ -217,10 +212,5 @@ export function itemMatchesSubjectBoundary(
   if (subject.agentId !== context.agentId) return false;
   if (subject.subjectType !== context.subjectType) return false;
   if (subject.subjectId !== context.subjectId) return false;
-  if (context.threadId) {
-    return (
-      subject.threadId === undefined || subject.threadId === context.threadId
-    );
-  }
-  return subject.threadId === undefined;
+  return true;
 }

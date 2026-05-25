@@ -241,7 +241,7 @@ describe('memory IPC provider integration', () => {
     vi.doUnmock('@core/memory/app-memory-service.js');
   });
 
-  it('scopes IPC memory_search to trusted thread context', async () => {
+  it('scopes IPC memory_search to trusted conversation without thread memory scope', async () => {
     const search = vi.fn().mockResolvedValue([]);
     vi.resetModules();
     vi.doMock('@core/memory/app-memory-service.js', () => ({
@@ -271,9 +271,9 @@ describe('memory IPC provider integration', () => {
         query: 'status',
         agentId: 'agent:main-group',
         groupId: 'main-group',
-        threadId: 'trusted-thread',
       }),
     );
+    expect(search.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
     expect(search.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
@@ -314,7 +314,7 @@ describe('memory IPC provider integration', () => {
     vi.doUnmock('@core/memory/app-memory-service.js');
   });
 
-  it('ignores caller-supplied topic overrides in IPC memory_save payloads', async () => {
+  it('ignores caller-supplied and trusted topic ids in IPC memory_save payloads', async () => {
     const saveMemory = vi.fn().mockResolvedValue({ id: 'mem-1' });
     vi.resetModules();
     vi.doMock('@core/memory/app-memory-service.js', () => ({
@@ -343,9 +343,7 @@ describe('memory IPC provider integration', () => {
     );
 
     expect(response.ok).toBe(true);
-    expect(saveMemory).toHaveBeenCalledWith(
-      expect.objectContaining({ threadId: 'trusted-thread' }),
-    );
+    expect(saveMemory.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
     vi.doUnmock('@core/memory/app-memory-service.js');
   });
 
@@ -460,9 +458,9 @@ describe('memory IPC provider integration', () => {
         subjectType: 'channel',
         channelId: 'conversation:sl:C123',
         subjectId: 'conversation:sl:C123',
-        threadId: 'thread-7',
       }),
     );
+    expect(saveMemory.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
     vi.doUnmock('@core/memory/app-memory-service.js');
   });
 
@@ -746,7 +744,7 @@ describe('processMemoryRequest additional branches', () => {
     expect(patchMemory.mock.calls[0]?.[0]).not.toHaveProperty('channelId');
   });
 
-  it('patches trusted channel thread memory subject', async () => {
+  it('patches trusted channel memory subject without thread scope', async () => {
     vi.resetModules();
     const patchMemory = vi
       .fn()
@@ -778,9 +776,9 @@ describe('processMemoryRequest additional branches', () => {
         subjectId: 'conversation:sl:C123',
         groupId: 'team',
         channelId: 'conversation:sl:C123',
-        threadId: 'thread-7',
       }),
     );
+    expect(patchMemory.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
   });
 
   it('handles memory_demote action for the trusted subject', async () => {
@@ -822,13 +820,13 @@ describe('processMemoryRequest additional branches', () => {
         subjectType: 'channel',
         subjectId: 'conversation:sl:C123',
         channelId: 'conversation:sl:C123',
-        threadId: 'thread-7',
         id: 'mem-1',
         expectedVersion: 2,
         reason: 'No longer reliable.',
         actorId: 'mcp-tool',
       }),
     );
+    expect(demote.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
   });
 
   it('rejects memory_demote when the host allowlist omits it', async () => {
@@ -895,10 +893,10 @@ describe('processMemoryRequest additional branches', () => {
         agentId: 'agent:team',
         subjectType: 'channel',
         subjectId: 'conversation:sl:C123',
-        threadId: 'thread-7',
         signal: expect.any(AbortSignal),
       }),
     );
+    expect(continuitySummary.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
   });
 
   it('returns unavailable memory_search without calling storage when the IPC deadline is too close', async () => {
@@ -1398,8 +1396,10 @@ describe('processMemoryRequest additional branches', () => {
         appId: 'default',
         agentId: 'agent:team',
         groupId: 'team',
-        threadId: 'trusted-thread',
       }),
+    );
+    expect(consolidateGroupMemory.mock.calls[0]?.[0]).not.toHaveProperty(
+      'threadId',
     );
   });
 
@@ -1466,9 +1466,9 @@ describe('processMemoryRequest additional branches', () => {
         appId: 'default',
         agentId: 'agent:team',
         groupId: 'team',
-        threadId: 'trusted-thread',
       }),
     );
+    expect(runDreamingSweep.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
   });
 
   it('lists pending memory reviews for the trusted subject', async () => {
@@ -1525,13 +1525,15 @@ describe('processMemoryRequest additional branches', () => {
         agentId: 'agent:team',
         subjectType: 'channel',
         subjectId: 'conversation:sl:C123',
-        threadId: 'thread-7',
       }),
       expect.objectContaining({
         signal: expect.any(AbortSignal),
         limit: 3,
         offset: 3,
       }),
+    );
+    expect(listPendingReviewPage.mock.calls[0]?.[0]).not.toHaveProperty(
+      'threadId',
     );
     expect(response.data).toMatchObject({
       total_count: 7,
@@ -1705,7 +1707,6 @@ describe('processMemoryRequest additional branches', () => {
               agent_id: 'agent:team',
               subject_type: 'channel',
               subject_id: 'conversation:sl:C123',
-              thread_id: 'thread-7',
             },
             limit: 2,
             offset: 0,
@@ -1740,9 +1741,9 @@ describe('processMemoryRequest additional branches', () => {
         decision: 'approve',
         reviewerId: 'trusted-reviewer',
         subjectId: 'conversation:sl:C123',
-        threadId: 'thread-7',
       }),
     );
+    expect(decideReview.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
     expect(decideReview).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
@@ -2085,9 +2086,9 @@ describe('processMemoryRequest additional branches', () => {
         subjectType: 'channel',
         subjectId: 'conversation:sl:C123',
         channelId: 'conversation:sl:C123',
-        threadId: 'thread-7',
       }),
     );
+    expect(runDreamingSweep.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
   });
 
   it('scopes channel memory_search to channel visibility only', async () => {
@@ -2116,11 +2117,11 @@ describe('processMemoryRequest additional branches', () => {
         appId: 'default',
         agentId: 'agent:team',
         channelId: 'conversation:sl:C123',
-        threadId: 'thread-7',
         subjectTypes: ['channel'],
         includeCommon: false,
       }),
     );
+    expect(search.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
     expect(search.mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
@@ -2206,7 +2207,7 @@ describe('processMemoryRequest additional branches', () => {
     );
   });
 
-  it('binds procedure_save topic to trusted thread context', async () => {
+  it('ignores procedure_save topic and trusted thread context', async () => {
     vi.resetModules();
     const saveProcedure = vi
       .fn()
@@ -2228,12 +2229,10 @@ describe('processMemoryRequest additional branches', () => {
     );
 
     expect(response.ok).toBe(true);
-    expect(saveProcedure).toHaveBeenCalledWith(
-      expect.objectContaining({ threadId: 'trusted-thread' }),
-    );
+    expect(saveProcedure.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
   });
 
-  it('retains procedure_save thread only for trusted channel context', async () => {
+  it('saves trusted channel procedures without thread memory scope', async () => {
     vi.resetModules();
     const saveProcedure = vi
       .fn()
@@ -2259,9 +2258,9 @@ describe('processMemoryRequest additional branches', () => {
       expect.objectContaining({
         subjectType: 'channel',
         channelId: 'conversation:sl:C123',
-        threadId: 'thread-7',
       }),
     );
+    expect(saveProcedure.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
   });
 
   it('uses trusted memory user context for user-scoped procedures', async () => {

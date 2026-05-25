@@ -33,7 +33,7 @@ export type AgentConversationBindingInput = {
   triggerMode?: 'always' | 'mention' | 'keyword' | 'manual' | 'webhook';
   triggerPattern?: string | null;
   requiresTrigger?: boolean;
-  memoryScope?: 'user' | 'conversation' | 'thread' | 'agent' | 'app';
+  memoryScope?: 'user' | 'conversation' | 'agent' | 'app';
   memorySubject?: Record<string, unknown>;
   workspaceSnapshotId?: string | null;
   permissionPolicyIds?: string[];

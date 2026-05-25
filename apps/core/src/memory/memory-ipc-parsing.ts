@@ -294,7 +294,6 @@ function parseReviewPageContextSubject(
     agentId,
     subjectType,
     subjectId,
-    threadId: str(value, 'thread_id', 512) || str(value, 'threadId', 512),
   });
 }
 

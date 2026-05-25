@@ -13,7 +13,6 @@ export const MemorySubjectTypeSchema = z.enum([
   'group',
   'channel',
   'conversation',
-  'thread',
   'common',
 ]);
 export type MemorySubjectType = z.infer<typeof MemorySubjectTypeSchema>;
@@ -45,7 +44,6 @@ export const MemorySearchRequestSchema = z.object({
   groupId: z.string().optional(),
   channelId: z.string().optional(),
   conversationId: z.string().optional(),
-  threadId: z.string().optional(),
   query: z.string().optional(),
   limit: z.number().int().min(1).max(100).optional(),
   includeCommon: z.boolean().optional(),
@@ -62,7 +60,6 @@ export const MemoryItemResponseSchema = z.object({
   subjectId: z.string().optional(),
   userId: z.string().nullable().optional(),
   conversationId: z.string().nullable().optional(),
-  threadId: z.string().nullable().optional(),
   subject: MemorySubjectRefSchema,
   kind: MemoryKindSchema,
   key: z.string(),

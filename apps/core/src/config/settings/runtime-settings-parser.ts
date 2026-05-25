@@ -408,12 +408,11 @@ function parseConfiguredBindings(
     );
     if (
       memoryScope !== 'conversation' &&
-      memoryScope !== 'thread' &&
       memoryScope !== 'user' &&
       memoryScope !== 'agent'
     ) {
       throw new Error(
-        `${pathPrefix}.memory_scope must be conversation, thread, user, or agent`,
+        `${pathPrefix}.memory_scope must be conversation, user, or agent`,
       );
     }
     const model =

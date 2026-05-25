@@ -361,7 +361,7 @@ describe('provider conversation onboarding control SDK integration', () => {
             triggerMode: 'mention',
             displayName: 'Engineering',
             permissionPolicyIds: ['permission-policy:deploy'],
-            memoryScope: 'thread',
+            memoryScope: 'conversation',
             threadId: 'thread:slack:C123:1700.1',
           },
         ),
@@ -377,8 +377,8 @@ describe('provider conversation onboarding control SDK integration', () => {
         permissionPolicyIds: ['permission-policy:deploy'],
       });
       expect(binding.memorySubject).toMatchObject({
-        type: 'thread',
-        id: 'thread:slack:C123:1700.1',
+        type: 'conversation',
+        id: conversation.id,
       });
       expect(runtimeApp.app.projectConversationRoute).not.toHaveBeenCalled();
       expect(runtimeApp.app.registerGroup).not.toHaveBeenCalled();
@@ -592,7 +592,7 @@ describe('provider conversation onboarding control SDK integration', () => {
             threadId,
             displayName: 'Slash Binding',
             triggerMode: 'mention',
-            memoryScope: 'thread',
+            memoryScope: 'conversation',
           },
         ),
       );

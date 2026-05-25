@@ -57,8 +57,6 @@ function memorySubjectToContract(subject: MemorySubject | undefined) {
       return { type: 'user', id: subject.userId };
     case 'conversation':
       return { type: 'conversation', id: subject.conversationId };
-    case 'thread':
-      return { type: 'thread', id: subject.threadId };
   }
 }
 
@@ -80,19 +78,6 @@ export function memorySubjectFromContract(
         kind: 'conversation',
         appId,
         conversationId: raw.id as ConversationId,
-      };
-    case 'thread':
-      if (!conversationId) {
-        throw new ApplicationError(
-          'INVALID_REQUEST',
-          'thread memorySubject requires a conversation context',
-        );
-      }
-      return {
-        kind: 'thread',
-        appId,
-        conversationId,
-        threadId: raw.id as ConversationThreadId,
       };
     default:
       throw new ApplicationError(

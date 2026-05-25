@@ -107,8 +107,8 @@ describe('app-grade memory boundaries', () => {
       userId: 'user-1',
       groupId: 'workspace-1',
       channelId: 'sl:C123',
-      threadId: 'thread-1',
     });
+    expect(context).not.toHaveProperty('threadId');
   });
 
   it('does not treat thread ids as top-level scope for user memory subjects', () => {
@@ -225,7 +225,7 @@ describe('app-grade memory boundaries', () => {
     ).toBe(false);
   });
 
-  it('allows broad memories in threaded contexts but blocks threaded rows from broad patch/delete contexts', () => {
+  it('matches memory rows by whole group/channel without thread narrowing', () => {
     const threadedContext = _testAppMemory.normalizeSubject({
       appId: 'app-a',
       agentId: 'agent-a',
@@ -256,7 +256,7 @@ describe('app-grade memory boundaries', () => {
     ).toBe(true);
     expect(
       _testAppMemory.itemMatchesSubjectBoundary(threadedRow, broadContext),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('rejects non-admin patches to common memory', async () => {
@@ -1051,7 +1051,7 @@ describe('app-grade memory boundaries', () => {
     expect(results).toHaveLength(0);
   });
 
-  it('uses thread scope in upsert identity so same key can exist in distinct threads', async () => {
+  it('ignores thread scope in upsert identity for whole-conversation memory', async () => {
     const whereParams: unknown[][] = [];
     const insertedRows: any[] = [];
     const db = {
@@ -1086,7 +1086,7 @@ describe('app-grade memory boundaries', () => {
       groupId: 'kai',
       threadId: 'thread-1',
       key: 'decision:queue-policy',
-      value: 'Use scoped queues per thread.',
+      value: 'Use scoped queues for the whole conversation.',
     });
     await service.save({
       appId: 'default',
@@ -1094,21 +1094,21 @@ describe('app-grade memory boundaries', () => {
       groupId: 'kai',
       threadId: 'thread-2',
       key: 'decision:queue-policy',
-      value: 'Use scoped queues per thread.',
+      value: 'Use scoped queues for the whole conversation.',
     });
 
     expect(whereParams.some((params) => params.includes('thread-1'))).toBe(
-      true,
+      false,
     );
     expect(whereParams.some((params) => params.includes('thread-2'))).toBe(
-      true,
+      false,
     );
     expect(insertedRows).toHaveLength(2);
-    expect(insertedRows[0]?.threadId).toBe('thread-1');
-    expect(insertedRows[1]?.threadId).toBe('thread-2');
+    expect(insertedRows[0]?.threadId).toBeNull();
+    expect(insertedRows[1]?.threadId).toBeNull();
   });
 
-  it('filters dreaming status by exact resolved subject and thread identity', async () => {
+  it('filters dreaming status by resolved subject without thread narrowing', async () => {
     const rows = [
       {
         id: 'mdr-channel-thread-1',
@@ -1165,9 +1165,7 @@ describe('app-grade memory boundaries', () => {
                     params.includes(row.appId) &&
                     params.includes(row.agentId) &&
                     params.includes(row.subjectType) &&
-                    params.includes(row.subjectId) &&
-                    (!params.includes('thread-1') ||
-                      row.threadId === 'thread-1'),
+                    params.includes(row.subjectId),
                 )
               : rows;
             return {
@@ -1188,16 +1186,19 @@ describe('app-grade memory boundaries', () => {
       threadId: 'thread-1',
     });
 
-    expect(scoped.map((run) => run.runId)).toEqual(['mdr-channel-thread-1']);
+    expect(scoped.map((run) => run.runId)).toEqual([
+      'mdr-channel-thread-1',
+      'mdr-channel-thread-2',
+    ]);
     expect(whereParams[0]).toEqual(
       expect.arrayContaining([
         'app-a',
         'agent-a',
         'channel',
         'conversation:sl:C123',
-        'thread-1',
       ]),
     );
+    expect(whereParams[0]).not.toContain('thread-1');
 
     const appWide = await service.dreamingStatus({
       appId: 'app-a',
@@ -1671,8 +1672,8 @@ describe('app memory dreaming settings', () => {
         runId: 'mdr-running',
         status: 'running',
         phase: 'deep',
-        threadId: 'thread-1',
       });
+      expect(run).not.toHaveProperty('threadId');
       expect(db.insert).not.toHaveBeenCalled();
       expect(db.update).not.toHaveBeenCalled();
     } finally {

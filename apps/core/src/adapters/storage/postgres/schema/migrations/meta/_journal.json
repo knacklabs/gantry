@@ -456,6 +456,13 @@
       "when": 1777219800000,
       "tag": "0065_llm_profile_model_alias_cutover",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1777223400000,
+      "tag": "0066_memory_conversation_scope_cutover",
+      "breakpoints": true
     }
   ]
 }

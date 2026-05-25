@@ -6,10 +6,7 @@ import {
   loadBoundaryExtractionAppMemoryItems,
   loadSessionAppMemoryItems,
 } from '@core/memory/app-memory-session-hydration.js';
-import {
-  parseSessionScopeKey,
-  rawThreadIdFromSession,
-} from '@core/memory/app-memory-session-scope.js';
+import { parseSessionScopeKey } from '@core/memory/app-memory-session-scope.js';
 
 type FakeMemoryItem = {
   id: string;
@@ -36,8 +33,7 @@ function installMemoryServiceRows(rows: FakeMemoryItem[]) {
       if (input.userId && row.userId !== input.userId) return false;
       if (input.groupId && row.groupId !== input.groupId) return false;
       if (input.channelId && row.channelId !== input.channelId) return false;
-      if (input.threadId) return row.threadId === input.threadId;
-      return !row.threadId;
+      return true;
     }),
   );
   const searchForHydrationReadOnly = vi.fn(async () => []);
@@ -113,19 +109,18 @@ describe('app memory session hydration scope', () => {
     ]);
   });
 
-  it('uses raw app-memory thread ids when retrieving prior memory for canonical session threads', async () => {
+  it('retrieves whole-channel prior memory for canonical session threads', async () => {
     const service = installMemoryServiceRows([
       {
-        id: 'memory-topic-7',
+        id: 'memory-channel',
         appId: 'default',
         agentId: 'agent:a',
         subjectType: 'channel',
         subjectId: 'conversation:sl:C123',
         channelId: 'conversation:sl:C123',
-        threadId: 'topic-7',
         kind: 'decision',
-        key: 'decision:thread',
-        value: 'Raw thread memory is visible.',
+        key: 'decision:channel',
+        value: 'Whole-channel memory is visible from any thread.',
       },
     ]);
 
@@ -150,7 +145,6 @@ describe('app memory session hydration scope', () => {
         appId: 'default',
         agentId: 'agent:a',
         channelId: 'conversation:sl:C123',
-        threadId: 'topic-7',
         subjectTypes: ['channel'],
         includeCommon: false,
         limit: 10,
@@ -158,14 +152,14 @@ describe('app memory session hydration scope', () => {
     );
     expect(items).toEqual([
       {
-        id: 'memory-topic-7',
-        key: 'decision:thread',
-        value: 'Raw thread memory is visible.',
+        id: 'memory-channel',
+        key: 'decision:channel',
+        value: 'Whole-channel memory is visible from any thread.',
       },
     ]);
   });
 
-  it('decodes encoded session scope thread components before app-memory hydration', async () => {
+  it('uses the parent conversation from encoded session scopes for app-memory hydration', async () => {
     const session = {
       id: 'session:teams-thread' as never,
       appId: 'default' as never,
@@ -182,17 +176,16 @@ describe('app memory session hydration scope', () => {
     };
     const service = installMemoryServiceRows([
       {
-        id: 'memory-teams-thread',
+        id: 'memory-teams-channel',
         appId: 'default',
         agentId: 'agent:a',
         subjectType: 'channel',
         subjectId: 'conversation:teams:general',
         groupId: 'agent:a',
         channelId: 'conversation:teams:general',
-        threadId: '19:abc@thread.v2',
         kind: 'decision',
-        key: 'decision:teams-thread',
-        value: 'Teams raw thread memory is visible.',
+        key: 'decision:teams-channel',
+        value: 'Teams channel memory is visible across reply chains.',
       },
     ]);
 
@@ -202,18 +195,15 @@ describe('app memory session hydration scope', () => {
       limit: 10,
     });
 
-    expect(rawThreadIdFromSession(session)).toBe('19:abc@thread.v2');
     expect(parseSessionScopeKey({ session })).toMatchObject({
       isScopeKey: true,
       groupId: 'agent:a',
-      threadId: '19:abc@thread.v2',
     });
     expect(service.listForHydrationReadOnly).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: 'default',
         agentId: 'agent:a',
         channelId: 'conversation:teams:general',
-        threadId: '19:abc@thread.v2',
         subjectTypes: ['channel'],
         includeCommon: false,
         limit: 10,
@@ -221,10 +211,8 @@ describe('app memory session hydration scope', () => {
     );
     expect(items).toEqual([
       expect.objectContaining({
-        id: 'memory-teams-thread',
-        subject: expect.objectContaining({
-          threadId: '19:abc@thread.v2',
-        }),
+        id: 'memory-teams-channel',
+        subject: expect.not.objectContaining({ threadId: expect.anything() }),
       }),
     ]);
   });

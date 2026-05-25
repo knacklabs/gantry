@@ -543,6 +543,34 @@ describe('Postgres migration journal', () => {
     expect(migration).toContain("SET model_alias = 'opus'");
   });
 
+  it('registers memory conversation-scope cutover migration', () => {
+    const journalPath = path.resolve(
+      'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',
+    );
+    const journal = JSON.parse(fs.readFileSync(journalPath, 'utf8')) as {
+      entries: Array<{ idx: number; tag: string }>;
+    };
+    const memoryScopeCutover = journal.entries.find(
+      (entry) => entry.tag === '0066_memory_conversation_scope_cutover',
+    );
+    expect(memoryScopeCutover).toMatchObject({ idx: 66 });
+
+    const migration = fs.readFileSync(
+      path.resolve(
+        'apps/core/src/adapters/storage/postgres/schema/migrations/0066_memory_conversation_scope_cutover.sql',
+      ),
+      'utf8',
+    );
+    expect(migration).toContain('SET thread_id = NULL');
+    expect(migration).toContain(
+      'DROP INDEX IF EXISTS memory_items_active_unique',
+    );
+    expect(migration).toContain(
+      'CREATE UNIQUE INDEX IF NOT EXISTS memory_items_active_unique',
+    );
+    expect(migration).not.toContain("COALESCE(thread_id, '')");
+  });
+
   it('registers message attachment message lookup index migration and schema', () => {
     const journalPath = path.resolve(
       'apps/core/src/adapters/storage/postgres/schema/migrations/meta/_journal.json',

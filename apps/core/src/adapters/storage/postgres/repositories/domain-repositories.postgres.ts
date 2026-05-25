@@ -214,14 +214,6 @@ function _memorySubjectFromRow(row: {
       conversationId: row.conversationId ?? row.subjectId,
     } as MemorySubject;
   }
-  if (row.subjectType === 'thread') {
-    return {
-      kind: 'thread',
-      appId: row.appId,
-      conversationId: row.conversationId ?? '',
-      threadId: row.threadId ?? row.subjectId,
-    } as MemorySubject;
-  }
   return { kind: 'app', appId: row.appId } as MemorySubject;
 }
 function messagePartToPayload(part: MessagePart): Record<string, unknown> {

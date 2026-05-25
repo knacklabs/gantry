@@ -191,7 +191,7 @@ function decisionValues(inserted: unknown[]) {
 }
 
 describe('runAppMemoryDreamPass guardrails', () => {
-  it('filters evidence and staged candidates by exact thread scope when provided', async () => {
+  it('ignores provider thread ids when filtering evidence and staged candidates', async () => {
     const threadedSubject: NormalizedMemorySubject = {
       ...subject,
       threadId: 'thread-1',
@@ -215,7 +215,10 @@ describe('runAppMemoryDreamPass guardrails', () => {
     const params = whereConditions.flatMap((condition) =>
       collectSqlParamValues(condition),
     );
-    expect(params).toContain('thread-1');
+    expect(params).not.toContain('thread-1');
+    expect(params).toEqual(
+      expect.arrayContaining(['app-a', 'agent-a', 'group', 'group-a']),
+    );
   });
 
   it('does not stage raw evidence text during light dreaming', async () => {

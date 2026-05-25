@@ -9,7 +9,6 @@ import {
 import {
   conversationJidFromSession,
   parseSessionScopeKey,
-  rawThreadIdFromSession,
 } from './app-memory-session-scope.js';
 
 function directUserCandidates(session: AgentSession): string[] {
@@ -25,7 +24,6 @@ function resolveSessionHydrationScopes(input: {
   defaultScope?: 'user' | 'group';
 }): AppMemorySearchInput[] {
   const { session, conversationKind } = input;
-  const threadId = rawThreadIdFromSession(session);
   const scope = parseSessionScopeKey({ session });
   const defaultScope =
     input.defaultScope ?? memoryScopeForConversationKind(conversationKind);
@@ -41,7 +39,6 @@ function resolveSessionHydrationScopes(input: {
       groupId: scope.groupId ?? session.agentId,
       conversationId,
       userId,
-      threadId,
       defaultScope,
     });
     return [searchInputForResolvedMemorySubject(subject)];
@@ -96,8 +93,7 @@ function itemMatchesHydrationScope(
   if (scope.userId && item.userId !== scope.userId) return false;
   if (scope.groupId && item.groupId !== scope.groupId) return false;
   if (scope.channelId && item.channelId !== scope.channelId) return false;
-  if (scope.threadId) return item.threadId === scope.threadId;
-  return !item.threadId;
+  return true;
 }
 
 export async function loadSessionAppMemoryItems(input: {
@@ -142,7 +138,6 @@ export async function loadSessionAppMemoryItems(input: {
       ...(item.userId ? { userId: item.userId } : {}),
       ...(item.groupId ? { groupId: item.groupId } : {}),
       ...(item.channelId ? { channelId: item.channelId } : {}),
-      ...(item.threadId ? { threadId: item.threadId } : {}),
     },
   }));
 }

@@ -133,7 +133,7 @@ describe('system memory dreaming jobs', () => {
     expect(deleteJob).not.toHaveBeenCalled();
   });
 
-  it('runs scheduled channel dreaming against channel subject with thread scope', async () => {
+  it('runs scheduled channel dreaming against whole channel subject without thread memory scope', async () => {
     const triggerDreaming = vi.fn().mockResolvedValue({ runId: 'dream-1' });
     const { _setMemoryMaintenanceQueueForTests, handleSystemJob } =
       await loadSystemJobs(triggerDreaming);
@@ -159,11 +159,11 @@ describe('system memory dreaming jobs', () => {
         subjectType: 'channel',
         subjectId: 'conversation:sl:C123',
         channelId: 'conversation:sl:C123',
-        threadId: 'thread-1',
         phase: 'all',
         timeoutMs: expect.any(Number),
       }),
     );
+    expect(triggerDreaming.mock.calls[0]?.[0]).not.toHaveProperty('threadId');
     expect(triggerDreaming.mock.calls[0]?.[0].timeoutMs).toBeLessThanOrEqual(
       240_000,
     );

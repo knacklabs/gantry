@@ -35,7 +35,6 @@ interface AppMemoryRecallDeps {
     asc: (value: any) => any;
     desc: (value: any) => any;
     eq: (left: any, right: any) => any;
-    isNull: (value: any) => any;
     or: (...args: any[]) => any;
     sql: any;
   };
@@ -43,21 +42,6 @@ interface AppMemoryRecallDeps {
 
 function nowIso(): string {
   return currentIso();
-}
-
-function sqlThreadVisibilityFilter(
-  deps: AppMemoryRecallDeps,
-  i: any,
-  threadId: string | undefined,
-  mode: 'visible' | 'exact' = 'visible',
-) {
-  const { or, eq, isNull } = deps.sqlOps;
-  if (mode === 'exact') {
-    return threadId ? eq(i.threadId, threadId) : isNull(i.threadId);
-  }
-  return threadId
-    ? or(eq(i.threadId, threadId), isNull(i.threadId))
-    : isNull(i.threadId);
 }
 
 function visibleSubjectFilterCount(input: AppMemorySearchInput): number {
@@ -97,7 +81,6 @@ export async function queryAppMemoryItems(
   ranked: boolean,
   deps: AppMemoryRecallDeps,
   options: {
-    threadScope?: 'visible' | 'exact';
     signal?: AbortSignal;
     statementTimeoutMs?: number;
   } = {},
@@ -123,12 +106,6 @@ export async function queryAppMemoryItems(
     ? sql`ts_rank_cd(${document}, ${searchQuery})`
     : sql`0`;
   const visible = visibleSubjectFilters(i, input);
-  const threadFilter = sqlThreadVisibilityFilter(
-    deps,
-    i,
-    context.threadId,
-    options.threadScope ?? 'visible',
-  );
   const vectorScore = sql`0`;
   const combinedScore = sql`(${lexicalScore} * 0.65) + (${i.confidence} * 0.10)`;
   const rows = (await withStatementTimeout(
@@ -154,7 +131,6 @@ export async function queryAppMemoryItems(
               : visible.length === 1
                 ? visible[0]
                 : or(...visible),
-            threadFilter,
             query ? sql`${document} @@ ${searchQuery}` : undefined,
           ),
         )

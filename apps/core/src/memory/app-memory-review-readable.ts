@@ -100,7 +100,6 @@ function reviewPageSubject(subject: NormalizedMemorySubject) {
     agentId: subject.agentId,
     subjectType: subject.subjectType,
     subjectId: subject.subjectId,
-    ...(subject.threadId ? { threadId: subject.threadId } : {}),
   };
 }
 

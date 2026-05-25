@@ -176,7 +176,6 @@ describe('app memory continuity summary', () => {
       subjectType: 'channel',
       subjectId: 'conversation:sl:C-target',
       channelId: 'conversation:sl:C-target',
-      threadId: 'thread:sl:C-target:1',
     });
     expect(summary).toMatchObject({
       active_count: 1,
@@ -184,8 +183,7 @@ describe('app memory continuity summary', () => {
       promoted_count: 3,
       needs_review_count: 4,
       last_injected_block: {
-        subject:
-          'default:agent:team:conversation:sl:C-target:thread:sl:C-target:1',
+        subject: 'default:agent:team:conversation:sl:C-target',
         bytes: 768,
         at: injectedAt,
       },

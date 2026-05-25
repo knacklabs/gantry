@@ -328,14 +328,16 @@ Detail: [channel-interactions.md](./channel-interactions.md).
 Memory has two views that map onto each other:
 
 - **Canonical domain** (`apps/core/src/domain/memory/memory.ts`):
-  `MemorySubject` is one of `app | agent | user | conversation | thread`.
+  `MemorySubject` is one of `app | agent | user | conversation`.
 - **User-facing terminology** ([MEMORY.md §Boundary Model](../MEMORY.md#boundary-model)):
   `user`, `group`, `channel`, `common`, with optional `userId`, `groupId`,
-  `channelId`, `threadId` ids.
+  and `channelId` ids.
 
 `groupId` and `channelId` are facets of the canonical `conversation` subject.
 `userId` is the canonical `user` subject. `common` is the canonical `app`
 subject and is write-restricted to admin/service flows.
+Provider thread/topic ids are routing and session metadata only; durable memory
+is scoped to the DM user or the whole group/channel conversation.
 
 ```mermaid
 classDiagram
@@ -365,16 +367,10 @@ classDiagram
     +AppId appId
     +ConversationId conversationId
   }
-  class Thread {
-    +AppId appId
-    +ConversationId conversationId
-    +ConversationThreadId threadId
-  }
   MemoryItem --> App : kind=app
   MemoryItem --> AgentSubj : kind=agent
   MemoryItem --> UserSubj : kind=user
   MemoryItem --> Conversation : kind=conversation
-  MemoryItem --> Thread : kind=thread
 ```
 
 Inbound messages route to a memory subject via

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as pgSchema from '../adapters/storage/postgres/schema/schema.js';
 import { classifySensitiveMemoryMaterial } from '../shared/sensitive-material.js';
@@ -21,7 +21,6 @@ import {
 import { isValueGroundedInEvidence } from './app-memory-review-grounding.js';
 import { toMemoryReview } from './app-memory-review-record.js';
 import {
-  createSqlThreadIdentityFilter,
   nowIso,
   withStatementTimeout,
 } from './app-memory-service-query-helpers.js';
@@ -44,7 +43,6 @@ type MemoryReviewRow =
   typeof pgSchema.memoryReviewRequestsPostgres.$inferSelect;
 type MemoryItemRow = typeof pgSchema.memoryItemsPostgres.$inferSelect;
 type MemoryEvidenceRow = typeof pgSchema.memoryEvidencePostgres.$inferSelect;
-const sqlThreadIdentityFilter = createSqlThreadIdentityFilter({ eq, isNull });
 const REVIEW_APPLYABLE_ACTIONS = new Set(
   'promote retire rewrite merge needs_review'.split(' '),
 );
@@ -54,10 +52,6 @@ function pendingMemoryReviewFilter(subject: NormalizedMemorySubject) {
     eq(pgSchema.memoryReviewRequestsPostgres.agentId, subject.agentId),
     eq(pgSchema.memoryReviewRequestsPostgres.subjectType, subject.subjectType),
     eq(pgSchema.memoryReviewRequestsPostgres.subjectId, subject.subjectId),
-    sqlThreadIdentityFilter(
-      pgSchema.memoryReviewRequestsPostgres,
-      subject.threadId,
-    ),
     eq(pgSchema.memoryReviewRequestsPostgres.status, 'pending_review'),
   );
 }
@@ -110,10 +104,6 @@ async function evidenceMapForReviews(
               subject.subjectType,
             ),
             eq(pgSchema.memoryEvidencePostgres.subjectId, subject.subjectId),
-            sqlThreadIdentityFilter(
-              pgSchema.memoryEvidencePostgres,
-              subject.threadId,
-            ),
           ),
         ),
   )) as MemoryEvidenceRow[];
@@ -245,7 +235,7 @@ export async function createPendingMemoryReview(input: {
     agentId: input.subject.agentId,
     subjectType: input.subject.subjectType,
     subjectId: input.subject.subjectId,
-    threadId: input.subject.threadId ?? null,
+    threadId: null,
     phase: input.phase,
     proposalJson: JSON.stringify(input.proposal),
     itemVersionsJson: JSON.stringify(validation.itemVersions),
@@ -477,8 +467,7 @@ async function validateMemoryReviewProposal(input: {
       evidence.appId !== input.subject.appId ||
       evidence.agentId !== input.subject.agentId ||
       evidence.subjectType !== input.subject.subjectType ||
-      evidence.subjectId !== input.subject.subjectId ||
-      (evidence.threadId || undefined) !== (input.subject.threadId || undefined)
+      evidence.subjectId !== input.subject.subjectId
     ) {
       return failure('proposal evidence is outside subject scope');
     }
@@ -544,9 +533,7 @@ async function validateMemoryReviewProposal(input: {
       candidate.appId !== input.subject.appId ||
       candidate.agentId !== input.subject.agentId ||
       candidate.subjectType !== input.subject.subjectType ||
-      candidate.subjectId !== input.subject.subjectId ||
-      (candidate.threadId || undefined) !==
-        (input.subject.threadId || undefined)
+      candidate.subjectId !== input.subject.subjectId
     ) {
       return {
         ...failure('proposal candidate is outside subject scope'),

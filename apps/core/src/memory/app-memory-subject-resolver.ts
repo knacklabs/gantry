@@ -80,7 +80,6 @@ export function resolveScopedMemorySubject(
         agentId: input.agentId,
         groupId: input.groupId?.trim() || input.agentId,
         channelId,
-        threadId: input.threadId?.trim() || undefined,
         subjectType: 'channel',
       }),
     };
@@ -91,7 +90,6 @@ export function resolveScopedMemorySubject(
       appId: input.appId,
       agentId: input.agentId,
       groupId: input.groupId?.trim() || input.agentId,
-      threadId: input.threadId?.trim() || undefined,
       subjectType: 'group',
     }),
   };
@@ -106,7 +104,6 @@ export function searchInputForResolvedMemorySubject(
   | 'userId'
   | 'groupId'
   | 'channelId'
-  | 'threadId'
   | 'subjectTypes'
   | 'includeCommon'
 > {
@@ -115,10 +112,8 @@ export function searchInputForResolvedMemorySubject(
     scoped.userId = subject.userId ?? subject.subjectId;
   } else if (subject.subjectType === 'channel') {
     scoped.channelId = subject.channelId ?? subject.subjectId;
-    if (subject.threadId) scoped.threadId = subject.threadId;
   } else if (subject.subjectType === 'group') {
     scoped.groupId = subject.groupId ?? subject.subjectId;
-    if (subject.threadId) scoped.threadId = subject.threadId;
   }
   return {
     appId: subject.appId,

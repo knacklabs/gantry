@@ -163,20 +163,6 @@ function memorySubjectForScope(input: {
         appId: input.appId,
         conversationId: input.conversationId,
       };
-    case 'thread':
-      if (!input.threadId) {
-        return {
-          kind: 'conversation',
-          appId: input.appId,
-          conversationId: input.conversationId,
-        };
-      }
-      return {
-        kind: 'thread',
-        appId: input.appId,
-        conversationId: input.conversationId,
-        threadId: input.threadId,
-      };
     case 'user':
       throw new ApplicationError(
         'INVALID_REQUEST',

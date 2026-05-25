@@ -69,12 +69,7 @@ export function clearSessionContinuityInjectionStatusForTests(): void {
 function keyFor(subject: Partial<SessionContinuityInjectionSubject>): string {
   const parts = subject.userId
     ? [subject.appId, subject.agentId, subject.userId]
-    : [
-        subject.appId,
-        subject.agentId,
-        subject.conversationId,
-        subject.threadId,
-      ];
+    : [subject.appId, subject.agentId, subject.conversationId];
   return parts.map((value) => value || '').join('\u0000');
 }
 function prune(nowMs: number): void {

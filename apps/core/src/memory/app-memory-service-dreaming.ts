@@ -41,7 +41,6 @@ export function hasDreamingStatusSubjectScope(
     input.subjectId ||
     input.userId ||
     input.groupId ||
-    input.channelId ||
-    input.threadId,
+    input.channelId,
   );
 }

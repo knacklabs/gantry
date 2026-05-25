@@ -177,7 +177,6 @@ export function resolveTrustedMemorySubject(
     groupId: sourceAgentFolder,
     conversationId: canonicalConversationIdForMemory(context?.chatJid),
     userId: context?.userId,
-    threadId: context?.threadId,
     defaultScope: context?.defaultScope,
     ...(scope ? { scope } : {}),
   }).subject;
@@ -290,12 +289,7 @@ export async function processMemoryRequest(
         };
       }
       case 'memory_save': {
-        const input = {
-          ...parseSaveMemoryInput(request.payload),
-          ...(request.context?.threadId
-            ? { topic_id: request.context.threadId }
-            : {}),
-        };
+        const input = parseSaveMemoryInput(request.payload);
         const subject = resolveTrustedMemorySubject(
           sourceAgentFolder,
           request.context,
@@ -506,12 +500,7 @@ export async function processMemoryRequest(
         return await processMemoryReviewDecisionRequest({ request, subject });
       }
       case 'procedure_save': {
-        const input = {
-          ...parseSaveProcedureInput(request.payload),
-          ...(request.context?.threadId
-            ? { topic_id: request.context.threadId }
-            : {}),
-        };
+        const input = parseSaveProcedureInput(request.payload);
         const subject = resolveTrustedMemorySubject(
           sourceAgentFolder,
           request.context,

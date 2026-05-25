@@ -137,7 +137,7 @@ export class AppMemoryService {
       userId: subject.userId ?? null,
       groupId: subject.groupId ?? null,
       channelId: subject.channelId ?? null,
-      threadId: subject.threadId ?? null,
+      threadId: null,
       sourceType: input.sourceType,
       sourceId: input.sourceId ?? null,
       actorId: input.actorId ?? null,
@@ -309,7 +309,6 @@ export class AppMemoryService {
       input,
       false,
       APP_MEMORY_RECALL_DEPS,
-      { threadScope: 'exact' },
     );
     return toAppMemoryItems(rows);
   }
@@ -323,7 +322,6 @@ export class AppMemoryService {
       input,
       true,
       APP_MEMORY_RECALL_DEPS,
-      { threadScope: 'exact' },
     );
     return toAppMemorySearchResults(rows);
   }

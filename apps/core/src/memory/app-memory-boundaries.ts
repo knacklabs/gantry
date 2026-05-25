@@ -28,10 +28,6 @@ export function subjectIdFor(subject: NormalizedMemorySubject): string {
 const DEFAULT_GROUP_ID = 'default';
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/;
 
-function supportsThreadScope(subjectType: MemorySubjectType): boolean {
-  return subjectType === 'group' || subjectType === 'channel';
-}
-
 function normalizeId(value: string | undefined, fallback: string): string {
   const next = value?.trim() || fallback;
   if (!ID_PATTERN.test(next)) {
@@ -62,7 +58,6 @@ export function normalizeSubject(
   const userId = input.userId?.trim() || undefined;
   const groupId = input.groupId?.trim() || undefined;
   const channelId = input.channelId?.trim() || undefined;
-  const threadId = input.threadId?.trim() || undefined;
   const subjectType =
     input.subjectType ||
     input.visibility ||
@@ -85,7 +80,6 @@ export function normalizeSubject(
     ...(userId ? { userId } : {}),
     ...(groupId ? { groupId } : {}),
     ...(channelId ? { channelId } : {}),
-    ...(threadId && supportsThreadScope(subjectType) ? { threadId } : {}),
   };
 }
 

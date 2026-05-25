@@ -881,6 +881,44 @@ conversations:
     }
   });
 
+  it('rejects thread as a binding memory scope', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.telegram.enabled = true;
+    settings.providers.telegram.defaultConnection = 'telegram_default';
+    settings.providerConnections.telegram_default = {
+      provider: 'telegram',
+      label: 'Telegram Default',
+      runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
+    };
+    settings.agents.main_agent = {
+      name: 'Main Agent',
+      folder: 'main_agent',
+      bindings: {},
+      sources: emptySources(),
+      capabilities: [],
+    };
+    settings.conversations.team = {
+      providerConnection: 'telegram_default',
+      externalId: '-100',
+      kind: 'channel',
+      displayName: 'Team',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['575'],
+    };
+    settings.bindings.main_team = {
+      agent: 'main_agent',
+      conversation: 'team',
+      trigger: '@main',
+      addedAt: '2026-05-04T00:00:00.000Z',
+      requiresTrigger: false,
+      memoryScope: 'thread' as never,
+    };
+
+    expect(() =>
+      parseRuntimeSettings(renderRuntimeSettingsYaml(settings)),
+    ).toThrow(/memory_scope must be conversation, user, or agent/);
+  });
+
   it('keeps multi-binding conversations explicit without duplicating bindings', () => {
     const settings = createDefaultRuntimeSettings();
     settings.providers.telegram.enabled = true;

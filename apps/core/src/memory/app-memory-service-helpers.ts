@@ -83,7 +83,7 @@ export function buildMemoryItemWriteBase(input: {
     subjectId: subjectIdFor(input.subject),
     userId: input.subject.userId ?? null,
     conversationId: conversationIdForChannel(input.subject.channelId),
-    threadId: input.subject.threadId ?? null,
+    threadId: null,
     kind: normalizeKind(input.saveInput.kind),
     key: input.key,
     valueJson: {

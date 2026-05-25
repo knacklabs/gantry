@@ -24,7 +24,6 @@ describe('app memory recall search metadata', () => {
         subjectType: 'channel',
         subjectId: 'conversation:sl:C123',
         channelId: 'conversation:sl:C123',
-        threadId: 'thread-1',
       },
       empty_reason: 'no_matching_memory',
     });

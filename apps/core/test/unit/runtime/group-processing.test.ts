@@ -3374,7 +3374,7 @@ describe('createGroupProcessor', () => {
       );
     });
 
-    it('saveProcedure carries active thread scope into memory writes', async () => {
+    it('saveProcedure writes to the whole channel even when a thread is active', async () => {
       const { capturedDeps } = await captureSessionDeps({
         messages: [
           makeMessage({
@@ -3395,10 +3395,12 @@ describe('createGroupProcessor', () => {
         expect.objectContaining({
           subjectType: 'channel',
           channelId: 'conversation:group1@g.us',
-          threadId: 'thread-procedure',
           key: 'procedure:Deploy flow',
           value: '1. Build\n2. Ship',
         }),
+      );
+      expect(mockSaveProcedure.mock.calls[0]?.[0]).not.toHaveProperty(
+        'threadId',
       );
     });
 
@@ -3437,7 +3439,7 @@ describe('createGroupProcessor', () => {
       );
     });
 
-    it('runMemoryDreaming carries active thread scope into triggerDreaming', async () => {
+    it('runMemoryDreaming runs on the whole channel even when a thread is active', async () => {
       const { capturedDeps, group } = await captureSessionDeps({
         group: makeGroup({ folder: 'threaded-group' }),
         messages: [
@@ -3461,9 +3463,11 @@ describe('createGroupProcessor', () => {
           subjectType: 'channel',
           subjectId: 'conversation:group1@g.us',
           channelId: 'conversation:group1@g.us',
-          threadId: 'thread-dreaming',
           phase: 'all',
         }),
+      );
+      expect(mockRunDreamingSweep.mock.calls[0]?.[0]).not.toHaveProperty(
+        'threadId',
       );
     });
 

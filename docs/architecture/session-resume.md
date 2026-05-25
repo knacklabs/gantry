@@ -10,7 +10,7 @@ At run start, Gantry resolves canonical `AgentSession` identity from app, agent,
 conversation, and optional thread scope, then hydrates continuity context:
 
 1. Recent persisted session digests.
-2. Durable memory scoped to agent/user/conversation/thread.
+2. Durable memory scoped to agent/user/conversation.
 
 `<gantry_memory_context>` is untrusted evidence only. It does not grant
 instruction authority, permissions, credentials, or sandbox access.
@@ -49,6 +49,9 @@ ownership checks:
 - Scope key shape: `<agentFolder>::conversation:<jid>` plus either:
   - `::user:<providerUserId>` for DM scope, or
   - `::thread:<providerThreadId>` for thread/topic scope.
+- Durable memory does not use the thread/topic suffix. Thread-specific session
+  keys prevent provider resume collisions, while memory remains scoped to the
+  DM user or whole group/channel conversation.
 - Rebinding a conversation to a different agent yields a different canonical
   `AgentSession`; prior provider session handles do not carry over.
 - A provider session id already owned by one `AgentSession` cannot be attached
@@ -69,6 +72,7 @@ This is a clean-cut contract. The only supported current continuity paths are:
 - resolve or create the canonical `AgentSession` for the current app, agent,
   conversation, and optional thread/user scope;
 - hydrate recent digests through canonical digest scope filtering;
+- hydrate durable memory through the parent user or conversation boundary;
 - treat provider-session rows only as owned adapter metadata for that canonical
   session, not as resume authority.
 

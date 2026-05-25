@@ -21,7 +21,6 @@ const memoryReviewPageContextSchema = z.object({
     agent_id: z.string(),
     subject_type: z.enum(['user', 'group', 'channel', 'common']),
     subject_id: z.string(),
-    thread_id: z.string().optional(),
   }),
   limit: z.number().int().min(1).max(50),
   offset: z.number().int().min(0),

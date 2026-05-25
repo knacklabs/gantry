@@ -24,8 +24,8 @@ describe('app memory subject resolver', () => {
       subjectType: 'channel',
       subjectId: 'conversation:sl:C123',
       channelId: 'conversation:sl:C123',
-      threadId: 'thread-1',
     });
+    expect(subject).not.toHaveProperty('threadId');
   });
 
   it('builds search inputs that do not widen channel subjects to group rows', () => {
@@ -41,7 +41,6 @@ describe('app memory subject resolver', () => {
       appId: 'default',
       agentId: 'agent:team',
       channelId: 'conversation:sl:C123',
-      threadId: 'thread-1',
       subjectTypes: ['channel'],
       includeCommon: false,
     });

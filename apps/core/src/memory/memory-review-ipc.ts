@@ -246,9 +246,7 @@ function sameReviewPageSubject(
     pageContext.subject.appId === subject.appId &&
     pageContext.subject.agentId === subject.agentId &&
     pageContext.subject.subjectType === subject.subjectType &&
-    pageContext.subject.subjectId === subject.subjectId &&
-    (pageContext.subject.threadId || undefined) ===
-      (subject.threadId || undefined)
+    pageContext.subject.subjectId === subject.subjectId
   );
 }
 
@@ -328,9 +326,6 @@ function toReviewPageWire(page: MemoryReviewDisplayPage) {
         agent_id: page.pageContext.subject.agentId,
         subject_type: page.pageContext.subject.subjectType,
         subject_id: page.pageContext.subject.subjectId,
-        ...(page.pageContext.subject.threadId
-          ? { thread_id: page.pageContext.subject.threadId }
-          : {}),
       },
       limit: page.pageContext.limit,
       offset: page.pageContext.offset,
