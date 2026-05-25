@@ -134,6 +134,9 @@ describe('app-grade memory boundaries', () => {
     expect(_testAppMemory.conversationIdForChannel('sl:C123')).toBe(
       'conversation:sl:C123',
     );
+    expect(
+      _testAppMemory.conversationIdForChannel('conversation:sl:C123'),
+    ).toBe('conversation:sl:C123');
     expect(_testAppMemory.conversationIdForChannel(undefined)).toBeNull();
   });
 

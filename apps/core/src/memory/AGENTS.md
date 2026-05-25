@@ -78,6 +78,10 @@
 - Thread-scoped durable memory identity must include `thread_id` in active-key
   uniqueness (with `COALESCE(thread_id, '')`) so same keys can coexist across
   threads while no-thread memory remains intentionally shared.
+- Memory item `conversation_id` projection must not double-prefix canonical
+  channel ids. App-memory `channelId` is already canonical when it starts with
+  `conversation:`, and only raw provider channel ids should receive that
+  prefix during persistence mapping.
 - Dreaming triggered from trusted thread context must filter evidence,
   candidates, and active-item operations by exact `thread_id`; background or
   scheduled dreaming should run with explicit no-thread scope.

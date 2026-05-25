@@ -4,7 +4,10 @@ import type {
   RuntimeEventId,
   RuntimeEventPublishInput,
 } from '../../domain/events/events.js';
-import { normalizeRuntimeEventConversationId } from '../../domain/events/runtime-event-conversation.js';
+import {
+  normalizeRuntimeEventConversationId,
+  normalizeRuntimeEventThreadId,
+} from '../../domain/events/runtime-event-conversation.js';
 import type { RuntimeEventRepository } from '../../domain/ports/repositories.js';
 import { runtimeEventMatchesFilter } from '../../domain/events/runtime-event-filter.js';
 import { nowMs as currentTimeMs } from '../../shared/time/datetime.js';
@@ -58,9 +61,13 @@ function normalizeRuntimeEventPublishInput(
   const conversationId = normalizeRuntimeEventConversationId(
     input.conversationId,
   );
-  return conversationId === input.conversationId
+  const threadId = normalizeRuntimeEventThreadId({
+    conversationId,
+    threadId: input.threadId,
+  });
+  return conversationId === input.conversationId && threadId === input.threadId
     ? input
-    : { ...input, conversationId };
+    : { ...input, conversationId, threadId };
 }
 
 function normalizeRuntimeEventFilter(
@@ -69,9 +76,14 @@ function normalizeRuntimeEventFilter(
   const conversationId = normalizeRuntimeEventConversationId(
     filter.conversationId,
   );
-  return conversationId === filter.conversationId
+  const threadId = normalizeRuntimeEventThreadId({
+    conversationId,
+    threadId: filter.threadId,
+  });
+  return conversationId === filter.conversationId &&
+    threadId === filter.threadId
     ? filter
-    : { ...filter, conversationId };
+    : { ...filter, conversationId, threadId };
 }
 
 const MAX_SUBSCRIPTION_WAKE_WAIT_MS = 15_000;

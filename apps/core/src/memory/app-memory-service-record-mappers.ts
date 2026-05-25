@@ -8,7 +8,10 @@ import type {
 export function conversationIdForChannel(
   channelId: string | undefined,
 ): string | null {
-  return channelId ? `conversation:${channelId}` : null;
+  if (!channelId) return null;
+  return channelId.startsWith('conversation:')
+    ? channelId
+    : `conversation:${channelId}`;
 }
 
 type MemoryEvidenceRow = {
