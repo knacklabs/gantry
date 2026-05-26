@@ -497,6 +497,8 @@ export async function* query({ prompt, options }) {
   if (process.env.TEST_SDK_NETWORK_AFTER_TOOL === '1') {
     const useParentlessNetworkPrompt =
       process.env.TEST_PARENTLESS_SDK_NETWORK_AFTER_TOOL === '1';
+    const networkHost =
+      process.env.TEST_SDK_NETWORK_HOST || 'registry.npmjs.org';
     const toolDecision = await options.canUseTool(
       'Bash',
       { cmd: process.env.TEST_TOOL_USE_CMD || 'npm test --runInBand' },
@@ -512,12 +514,12 @@ export async function* query({ prompt, options }) {
     );
     const networkDecision = await options.canUseTool(
       'SandboxNetworkAccess',
-      { host: 'registry.npmjs.org' },
+      { host: networkHost },
       {
         signal: new AbortController().signal,
         title: 'Network request outside of sandbox',
         displayName: 'SandboxNetworkAccess',
-        description: 'Allow network connection to registry.npmjs.org?',
+        description: 'Allow network connection to ' + networkHost + '?',
         decisionReason: 'Sandboxed tool attempted outbound network access',
         toolUseID: 'toolu_network_1',
         ...(useParentlessNetworkPrompt
@@ -2241,6 +2243,66 @@ describe('agent-runner IPC lifecycle', () => {
       expect(
         fs.existsSync(path.join(fixture.ipcDir, 'permission-requests')),
       ).toBe(false);
+    },
+    RUNNER_IPC_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'scheduled jobs correlate parentless SDK network prompts through typed local CLI runtime access',
+    async () => {
+      const fixture = createRunnerFixture();
+      const credentialDir = path.join(fixture.root, 'credentials', 'gog');
+      fs.mkdirSync(credentialDir, { recursive: true });
+
+      const result = await runRunner(
+        fixture,
+        baseInput({
+          isScheduledJob: true,
+          jobId: 'job-1',
+          allowedTools: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
+          runtimeAccess: [
+            {
+              selectedCapabilityId: 'gog.sheets.get',
+              sourceType: 'local_cli',
+              auditLabel: 'Gog Sheets get',
+              commandRules: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
+              credentialDirs: [credentialDir],
+              networkBindings: [
+                {
+                  commandRules: [
+                    'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+                  ],
+                  hosts: ['oauth2.googleapis.com', 'sheets.googleapis.com'],
+                },
+              ],
+            },
+          ],
+        }),
+        {
+          TEST_SDK_NETWORK_AFTER_TOOL: '1',
+          TEST_PARENTLESS_SDK_NETWORK_AFTER_TOOL: '1',
+          TEST_SDK_NETWORK_HOST: 'oauth2.googleapis.com',
+          TEST_TOOL_USE_CMD:
+            '/opt/homebrew/bin/gog sheets get 12s6uzwLDLV-DVcTH6XBa5vV3FZJUo04fLm0npfgACb4 "Bot Recommendation!A1:Z1" --json --account ravi@knacklabs.ai',
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(
+        'sdk_network_gate_suppressed_parentless_recent_tool',
+      );
+      const call = readRecord(fixture.recordPath).calls[0];
+      const expectedCredentialDir = path.join(
+        fs.realpathSync.native(path.dirname(credentialDir)),
+        path.basename(credentialDir),
+      );
+      expect(call?.additionalDirectories).toEqual(
+        expect.arrayContaining([expectedCredentialDir]),
+      );
+      expect(call?.permissionDecisions?.network).toEqual({
+        behavior: 'allow',
+        updatedInput: { host: 'oauth2.googleapis.com' },
+      });
     },
     RUNNER_IPC_TEST_TIMEOUT_MS,
   );

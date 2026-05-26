@@ -153,6 +153,7 @@ function normalizeSchedulerCapabilityRequirements(
             commandTemplate: requirement.implementation.command_template,
             authPreflight: requirement.implementation.auth_preflight,
             protectedPaths: requirement.implementation.protected_paths,
+            networkHosts: requirement.implementation.network_hosts,
           },
         }
       : {}),

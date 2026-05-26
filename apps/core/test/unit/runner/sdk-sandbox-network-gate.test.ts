@@ -48,6 +48,31 @@ function latestPayload(): Record<string, unknown> {
   return event?.payload as Record<string, unknown>;
 }
 
+function localCliRuntimeAccess(
+  input: {
+    commandRules?: string[];
+    hosts?: string[];
+    credentialDirs?: string[];
+  } = {},
+): NonNullable<AgentRunnerInput['runtimeAccess']> {
+  const commandRules = input.commandRules ?? ['RunCommand(gog sheets get *)'];
+  return [
+    {
+      selectedCapabilityId: 'gog.sheets.get',
+      sourceType: 'local_cli',
+      auditLabel: 'Gog Sheets get',
+      commandRules,
+      credentialDirs: input.credentialDirs ?? [],
+      networkBindings: [
+        {
+          commandRules,
+          hosts: input.hosts ?? ['sheets.googleapis.com'],
+        },
+      ],
+    },
+  ];
+}
+
 describe('sdk sandbox network gate', () => {
   beforeEach(() => {
     vi.mocked(log).mockReset();
@@ -307,12 +332,7 @@ describe('sdk sandbox network gate', () => {
     const gate = makeGate(now, {
       ...runnerInput,
       isScheduledJob: true,
-      localCliNetworkBindings: [
-        {
-          commandRules: ['RunCommand(gog sheets get *)'],
-          hosts: ['sheets.googleapis.com'],
-        },
-      ],
+      runtimeAccess: localCliRuntimeAccess(),
     });
 
     gate.rememberAllowedTool(
@@ -345,12 +365,7 @@ describe('sdk sandbox network gate', () => {
     const gate = makeGate(now, {
       ...runnerInput,
       isScheduledJob: true,
-      localCliNetworkBindings: [
-        {
-          commandRules: ['RunCommand(gog sheets get *)'],
-          hosts: ['sheets.googleapis.com'],
-        },
-      ],
+      runtimeAccess: localCliRuntimeAccess(),
     });
 
     gate.rememberAllowedTool(
@@ -412,12 +427,7 @@ describe('sdk sandbox network gate', () => {
     const gate = makeGate(now, {
       ...runnerInput,
       isScheduledJob: true,
-      localCliNetworkBindings: [
-        {
-          commandRules: ['RunCommand(gog sheets get *)'],
-          hosts: ['sheets.googleapis.com'],
-        },
-      ],
+      runtimeAccess: localCliRuntimeAccess(),
     });
 
     gate.rememberAllowedTool(
@@ -444,17 +454,61 @@ describe('sdk sandbox network gate', () => {
     });
   });
 
+  it('derives parentless scheduled host authority from typed local CLI runtime access', () => {
+    const now = { value: 1_000 };
+    const gate = makeGate(now, {
+      ...runnerInput,
+      isScheduledJob: true,
+      runtimeAccess: [
+        {
+          selectedCapabilityId: 'gog.sheets.get',
+          sourceType: 'local_cli',
+          auditLabel: 'Gog Sheets get',
+          commandRules: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
+          credentialDirs: ['~/.config/gog'],
+          networkBindings: [
+            {
+              commandRules: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
+              hosts: ['oauth2.googleapis.com', 'sheets.googleapis.com'],
+            },
+          ],
+        },
+      ],
+    });
+
+    gate.rememberAllowedTool(
+      'Bash',
+      {
+        command:
+          '/opt/homebrew/bin/gog sheets get leads --json --account test@example.com',
+      },
+      { toolUseID: 'toolu_bash_1' },
+    );
+    const decision = gate.decide(
+      'SandboxNetworkAccess',
+      { host: 'oauth2.googleapis.com' },
+      { toolUseID: 'toolu_network_1' },
+    );
+
+    expect(decision).toEqual({
+      behavior: 'allow',
+      updatedInput: { host: 'oauth2.googleapis.com' },
+    });
+    expect(latestPayload()).toMatchObject({
+      decision: 'sdk_network_gate_suppressed_parentless_recent_tool',
+      approvedHostHashes: [
+        sha256('oauth2.googleapis.com'),
+        sha256('sheets.googleapis.com'),
+      ],
+    });
+  });
+
   it('denies parentless scheduled prompts when the local CLI command binding does not match', () => {
     const now = { value: 1_000 };
     const gate = makeGate(now, {
       ...runnerInput,
       isScheduledJob: true,
-      localCliNetworkBindings: [
-        {
-          commandRules: ['RunCommand(gog sheets get *)'],
-          hosts: ['sheets.googleapis.com'],
-        },
-      ],
+      runtimeAccess: localCliRuntimeAccess(),
     });
 
     gate.rememberAllowedTool(
@@ -481,12 +535,7 @@ describe('sdk sandbox network gate', () => {
     const gate = makeGate(now, {
       ...runnerInput,
       isScheduledJob: true,
-      localCliNetworkBindings: [
-        {
-          commandRules: ['RunCommand(gog sheets get *)'],
-          hosts: ['sheets.googleapis.com'],
-        },
-      ],
+      runtimeAccess: localCliRuntimeAccess(),
     });
 
     gate.rememberAllowedTool(
@@ -516,12 +565,7 @@ describe('sdk sandbox network gate', () => {
     const gate = makeGate(now, {
       ...runnerInput,
       isScheduledJob: true,
-      localCliNetworkBindings: [
-        {
-          commandRules: ['RunCommand(gog sheets get *)'],
-          hosts: ['sheets.googleapis.com'],
-        },
-      ],
+      runtimeAccess: localCliRuntimeAccess(),
     });
 
     gate.rememberAllowedTool(
@@ -548,12 +592,7 @@ describe('sdk sandbox network gate', () => {
     const gate = makeGate(now, {
       ...runnerInput,
       isScheduledJob: false,
-      localCliNetworkBindings: [
-        {
-          commandRules: ['RunCommand(gog sheets get *)'],
-          hosts: ['sheets.googleapis.com'],
-        },
-      ],
+      runtimeAccess: localCliRuntimeAccess(),
     });
 
     gate.rememberAllowedTool(

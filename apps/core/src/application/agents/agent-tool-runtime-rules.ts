@@ -18,11 +18,7 @@ import {
   type SemanticCapabilityDefinition,
 } from '../../shared/semantic-capabilities.js';
 import { parseSemanticCapabilityRule } from '../../shared/semantic-capability-ids.js';
-import type {
-  CapabilityRuntimeAccess,
-  LocalCliCapabilityRuntimeAccess,
-  LocalCliNetworkBinding,
-} from '../../shared/capability-runtime-access.js';
+import type { CapabilityRuntimeAccess } from '../../shared/capability-runtime-access.js';
 
 export interface AgentToolRuntimeRuleResolutionInput {
   repository: ToolCatalogRepository;
@@ -36,9 +32,6 @@ export interface AgentToolRuntimeRuleResolutionInput {
 export interface AgentToolRuntimePolicy {
   rules: string[];
   runtimeAccess: CapabilityRuntimeAccess[];
-  localCliCredentialAccess: boolean;
-  localCliCredentialPaths: string[];
-  localCliNetworkBindings: LocalCliNetworkBinding[];
 }
 
 export async function resolveAgentToolRuntimeRules(
@@ -61,13 +54,7 @@ export async function resolveAgentToolRuntimePolicy(
     activeBindings.map((binding) => input.repository.getTool(binding.toolId)),
   );
   const activeSkillActionKeys = await activeSkillActionProjectionKeys(input);
-  let localCliCredentialAccess = false;
   const runtimeAccess: CapabilityRuntimeAccess[] = [];
-  const localCliCredentialPaths = new Set<string>();
-  const localCliNetworkBindings = new Map<
-    string,
-    { commandRules: string[]; hosts: Set<string> }
-  >();
   const rules = tools.flatMap((tool) => {
     if (tool?.appId && tool.appId !== input.appId) return [];
     const name = tool?.name?.trim();
@@ -99,20 +86,8 @@ export async function resolveAgentToolRuntimePolicy(
     ) {
       return [];
     }
-    if (capability?.credentialSource === 'local_cli') {
-      localCliCredentialAccess = true;
-    }
     if (capability) {
-      const accessEntries = projectCapabilityRuntimeAccess(capability);
-      runtimeAccess.push(...accessEntries);
-      for (const entry of accessEntries) {
-        if (entry.sourceType !== 'local_cli') continue;
-        collectLocalCliRuntimeAccess({
-          access: entry,
-          credentialPaths: localCliCredentialPaths,
-          networkBindings: localCliNetworkBindings,
-        });
-      }
+      runtimeAccess.push(...projectCapabilityRuntimeAccess(capability));
     }
     return name
       ? projectToolCatalogItemToRuntimeRules({
@@ -130,14 +105,6 @@ export async function resolveAgentToolRuntimePolicy(
   return {
     rules,
     runtimeAccess,
-    localCliCredentialAccess,
-    localCliCredentialPaths: [...localCliCredentialPaths],
-    localCliNetworkBindings: [...localCliNetworkBindings.values()].map(
-      (binding) => ({
-        commandRules: binding.commandRules,
-        hosts: [...binding.hosts],
-      }),
-    ),
   };
 }
 
@@ -206,32 +173,6 @@ function projectCapabilityRuntimeAccess(
     }
   }
   return access;
-}
-
-function collectLocalCliRuntimeAccess(input: {
-  access: LocalCliCapabilityRuntimeAccess;
-  credentialPaths: Set<string>;
-  networkBindings: Map<string, { commandRules: string[]; hosts: Set<string> }>;
-}): void {
-  for (const credentialDir of input.access.credentialDirs) {
-    input.credentialPaths.add(credentialDir);
-  }
-  for (const binding of input.access.networkBindings) {
-    const commandRules = stringList(binding.commandRules);
-    if (commandRules.length === 0) continue;
-    const hosts = normalizedHosts(binding.hosts);
-    if (hosts.length === 0) continue;
-    const key = commandRules.join('\0');
-    const existing = input.networkBindings.get(key);
-    if (existing) {
-      for (const host of hosts) existing.hosts.add(host);
-    } else {
-      input.networkBindings.set(key, {
-        commandRules,
-        hosts: new Set(hosts),
-      });
-    }
-  }
 }
 
 function commandRulesFromCapability(

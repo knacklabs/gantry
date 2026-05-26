@@ -163,6 +163,12 @@ export function registerSemanticCapabilityTools(
         .array(z.string())
         .optional()
         .describe('Credential/config paths agents may read but not write'),
+      networkHosts: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'Network hostnames the reviewed local CLI may contact, such as oauth2.googleapis.com',
+        ),
       deniedEnvPatterns: z
         .array(z.string())
         .optional()
@@ -268,6 +274,7 @@ export function registerSemanticCapabilityTools(
           commandTemplates: args.commandTemplates ?? [],
           authPreflightCommand: args.authPreflightCommand,
           protectedPaths: args.protectedPaths ?? [],
+          networkHosts: args.networkHosts ?? [],
           deniedEnvPatterns: [
             ...DEFAULT_LOCAL_CLI_DENIED_ENV_PATTERNS,
             ...(args.deniedEnvPatterns ?? []),

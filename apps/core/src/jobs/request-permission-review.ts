@@ -308,6 +308,13 @@ export function semanticCapabilityDefinitionsForToolInput(
     protectedPaths: sanitizedStringList(
       Array.isArray(toolInput.protectedPaths) ? toolInput.protectedPaths : [],
     ),
+    networkHosts: sanitizedStringList(
+      Array.isArray(toolInput.networkHosts)
+        ? toolInput.networkHosts
+        : Array.isArray(toolInput.network_hosts)
+          ? toolInput.network_hosts
+          : [],
+    ),
     deniedEnvPatterns: sanitizedStringList(
       Array.isArray(toolInput.deniedEnvPatterns)
         ? toolInput.deniedEnvPatterns

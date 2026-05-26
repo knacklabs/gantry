@@ -61,7 +61,7 @@ function readPathListEnv(name: string): string[] {
     });
   }
   if (!Array.isArray(parsed)) throw new Error(`${name} must be a JSON array.`);
-  return normalizeProtectedPaths(parsed);
+  return normalizeFilesystemSandboxPaths(parsed);
 }
 
 export function buildSdkFilesystemSandbox(
@@ -79,13 +79,15 @@ export function buildSdkFilesystemSandbox(
     network: { allowLocalBinding: true },
     ...(platform === 'darwin' ? { enableWeakerNetworkIsolation: true } : {}),
     filesystem: {
-      denyRead: normalizeProtectedPaths(denyReadPaths),
-      denyWrite: normalizeProtectedPaths(denyWritePaths),
+      denyRead: normalizeFilesystemSandboxPaths(denyReadPaths),
+      denyWrite: normalizeFilesystemSandboxPaths(denyWritePaths),
     },
   };
 }
 
-function normalizeProtectedPaths(values: readonly unknown[]): string[] {
+export function normalizeFilesystemSandboxPaths(
+  values: readonly unknown[],
+): string[] {
   return [...new Set(values.flatMap(resolvePathForSandbox))].sort();
 }
 

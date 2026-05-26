@@ -36,6 +36,7 @@ export interface TaskIpcData {
       commandTemplate?: string;
       authPreflight?: string;
       protectedPaths?: string[];
+      networkHosts?: string[];
     };
   }>;
   toolAccessRequirements?: string[];

@@ -401,9 +401,7 @@ export async function runJob(
                 allowedTools: toolPolicy.effectiveAllowedTools,
                 toolAccessRequirements:
                   toolAccessRequirementPreflight.toolAccessRequirements,
-                localCliCredentialAccess: toolPolicy.localCliCredentialAccess,
-                localCliCredentialPaths: toolPolicy.localCliCredentialPaths,
-                localCliNetworkBindings: toolPolicy.localCliNetworkBindings,
+                runtimeAccess: toolPolicy.runtimeAccess,
                 selectedSkillIds,
                 selectedMcpServerIds,
               },

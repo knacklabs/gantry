@@ -115,6 +115,7 @@ export interface JobCapabilityRequirementImplementation {
   commandTemplate?: string;
   authPreflight?: string;
   protectedPaths?: string[];
+  networkHosts?: string[];
 }
 
 export interface JobCapabilityRequirement {

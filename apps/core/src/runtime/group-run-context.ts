@@ -19,9 +19,6 @@ export async function resolveTurnToolPolicy(
     return {
       allowedTools: undefined,
       runtimeAccess: [],
-      localCliCredentialAccess: false,
-      localCliCredentialPaths: [],
-      localCliNetworkBindings: [],
     };
   }
   return resolveConfiguredToolPolicy({

@@ -321,6 +321,7 @@ describe('job readiness service', () => {
               executableHash: 'sha256:abc123',
               commandTemplate:
                 '/usr/local/bin/gog sheets append <sheet_id> ...',
+              networkHosts: ['oauth2.googleapis.com', 'sheets.googleapis.com'],
             },
           },
         ],
@@ -347,6 +348,9 @@ describe('job readiness service', () => {
     );
     expect(result.setupState.blockers[0]?.nextAction).toContain(
       '"executableHash":"sha256:abc123"',
+    );
+    expect(result.setupState.blockers[0]?.nextAction).toContain(
+      '"networkHosts":["oauth2.googleapis.com","sheets.googleapis.com"]',
     );
     expect(result.setupState.blockers[0]?.message).not.toContain('OneCLI');
   });

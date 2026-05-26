@@ -104,6 +104,7 @@ export function capabilityRequirementSetupAction(
             ? { authPreflightCommand: implementation.authPreflight }
             : {}),
           protectedPaths: implementation.protectedPaths ?? [],
+          networkHosts: implementation.networkHosts ?? [],
           reason: requirement.reason,
         }),
       ].join(' ');
@@ -226,6 +227,14 @@ function normalizeImplementation(
     : [];
   if (protectedPaths.length > 0) {
     implementation.protectedPaths = [...new Set(protectedPaths)];
+  }
+  const networkHosts = Array.isArray(input.networkHosts)
+    ? input.networkHosts
+        .map(optionalString)
+        .filter((item): item is string => Boolean(item))
+    : [];
+  if (networkHosts.length > 0) {
+    implementation.networkHosts = [...new Set(networkHosts)];
   }
   return implementation;
 }

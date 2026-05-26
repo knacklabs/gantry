@@ -204,6 +204,7 @@ describe('request permission review helpers', () => {
       commandTemplates: ['/usr/local/bin/acme invoices read *'],
       authPreflightCommand: '/usr/local/bin/acme auth status',
       protectedPaths: ['~/.config/acme'],
+      networkHosts: ['api.acme.test', 'oauth2.acme.test'],
     };
 
     expect(
@@ -240,6 +241,11 @@ describe('request permission review helpers', () => {
         id: 'tool:capability:acme.invoices.read',
         name: 'capability:acme.invoices.read',
         kind: 'local_cli',
+        inputSchema: expect.objectContaining({
+          schema: expect.objectContaining({
+            networkHosts: ['api.acme.test', 'oauth2.acme.test'],
+          }),
+        }),
       }),
     );
     expect(repository.saveAgentToolBinding).toHaveBeenCalledWith(

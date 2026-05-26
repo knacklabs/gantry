@@ -26,6 +26,7 @@ export const schedulerCapabilityRequirementSchema = z
         command_template: z.string().optional(),
         auth_preflight: z.string().optional(),
         protected_paths: z.array(z.string()).optional(),
+        network_hosts: z.array(z.string()).optional(),
       })
       .optional(),
   })

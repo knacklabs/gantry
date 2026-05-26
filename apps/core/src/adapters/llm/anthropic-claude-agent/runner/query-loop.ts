@@ -21,6 +21,7 @@ import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import {
   buildSdkFilesystemSandbox,
+  normalizeFilesystemSandboxPaths,
   readLocalCliCredentialDirectories,
   readProtectedFilesystemSandboxPaths,
 } from './filesystem-sandbox.js';
@@ -58,6 +59,15 @@ import { createCanUseToolCallback } from './tool-permission-gate.js';
 interface RunQueryOptions {
   enableIpcFollowups?: boolean;
   persistSdkSession?: boolean;
+}
+
+function localCliCredentialDirectoriesFromRuntimeAccess(
+  agentInput: AgentRunnerInput,
+): string[] {
+  const dirs = (agentInput.runtimeAccess ?? []).flatMap((access) =>
+    access.sourceType === 'local_cli' ? access.credentialDirs : [],
+  );
+  return normalizeFilesystemSandboxPaths(dirs);
 }
 
 function sdkResultFailureMessage(message: unknown): string | null {
@@ -186,7 +196,12 @@ export async function runQuery(
     getSessionId: () => newSessionId,
   });
   const systemPrompt = buildRunnerSystemPrompt(agentInput, memoryBlock);
-  const localCliCredentialDirectories = readLocalCliCredentialDirectories();
+  const localCliCredentialDirectories = [
+    ...new Set([
+      ...readLocalCliCredentialDirectories(),
+      ...localCliCredentialDirectoriesFromRuntimeAccess(agentInput),
+    ]),
+  ].sort();
   const extraDirs = discoverAdditionalDirectories();
   const additionalDirectories = [
     ...new Set([...extraDirs, ...localCliCredentialDirectories]),

@@ -263,14 +263,6 @@ describe('configured agent tools', () => {
           ],
         },
       ],
-      localCliCredentialAccess: true,
-      localCliCredentialPaths: ['~/.config/acme'],
-      localCliNetworkBindings: [
-        {
-          commandRules: ['RunCommand(/usr/local/bin/acme invoices read *)'],
-          hosts: ['api.acme.test'],
-        },
-      ],
     });
   });
 

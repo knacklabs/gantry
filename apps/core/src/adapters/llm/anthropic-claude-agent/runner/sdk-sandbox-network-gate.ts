@@ -9,6 +9,7 @@ import { log } from './logging.js';
 import { writeOutput } from './output.js';
 import { sandboxBlockedRuntimeEvents } from './sandbox-events.js';
 import type { AgentRunnerInput } from './types.js';
+import type { LocalCliNetworkBinding } from '../../../../shared/capability-runtime-access.js';
 
 export interface SdkSandboxNetworkGate {
   rememberGlobalApproval(principal: string, expiresAtMs: number): void;
@@ -43,11 +44,6 @@ interface SdkSandboxNetworkApprovalToken {
   createdAtMs: number;
   expiresAtMs: number;
   parentlessAssociatedAtMs?: number;
-}
-
-interface LocalCliNetworkBinding {
-  commandRules?: readonly string[];
-  hosts?: readonly string[];
 }
 
 export interface SdkSandboxNetworkGateOptions {
@@ -398,11 +394,22 @@ function collectApprovedLocalCliNetworkHosts(
 function readLocalCliNetworkBindings(
   agentInput: AgentRunnerInput,
 ): LocalCliNetworkBinding[] {
-  const raw = (agentInput as { localCliNetworkBindings?: unknown })
-    .localCliNetworkBindings;
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((binding): binding is LocalCliNetworkBinding => {
-    return Boolean(binding && typeof binding === 'object');
+  if (!Array.isArray(agentInput.runtimeAccess)) return [];
+  return agentInput.runtimeAccess.flatMap((entry): LocalCliNetworkBinding[] => {
+    if (
+      !entry ||
+      typeof entry !== 'object' ||
+      entry.sourceType !== 'local_cli' ||
+      !Array.isArray(entry.networkBindings)
+    ) {
+      return [];
+    }
+    return entry.networkBindings.filter(
+      (binding): binding is LocalCliNetworkBinding =>
+        Boolean(binding && typeof binding === 'object') &&
+        Array.isArray(binding.commandRules) &&
+        Array.isArray(binding.hosts),
+    );
   });
 }
 

@@ -59,9 +59,6 @@ describe('job tool policy', () => {
       inheritedTools: ['Browser'],
       effectiveAllowedTools: ['Browser'],
       runtimeAccess: [],
-      localCliCredentialAccess: false,
-      localCliCredentialPaths: [],
-      localCliNetworkBindings: [],
     });
   });
 

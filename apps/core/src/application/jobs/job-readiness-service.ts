@@ -13,13 +13,16 @@ import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-
 import type { AgentCredentialBrokerBinding } from '../../domain/models/credentials.js';
 import type { McpServerId } from '../../domain/mcp/mcp-servers.js';
 import type { Clock } from '../common/clock.js';
+import { ApplicationError } from '../common/application-error.js';
 import { DEFAULT_JOB_RUNTIME_APP_ID } from './job-access.js';
 import {
   agentIdForJobGroupScope,
   resolveJobToolPolicy,
+  type JobToolPolicyResolution,
 } from './job-tool-policy.js';
 import {
   evaluateToolAccessRequirements,
+  normalizeToolAccessRequirements,
   toolAccessRequirementRecoveryAction,
 } from './job-tool-access-requirements.js';
 import {
@@ -97,17 +100,39 @@ export async function evaluateJobReadiness(
     input.agentId ?? agentIdForJobGroupScope(input.job.group_scope);
   const blockers: JobSetupBlocker[] = [];
 
-  const policy = await resolveJobToolPolicy({
-    job: input.job as Job,
-    appId,
-    agentId,
-    toolRepository: input.toolRepository,
-    skillRepository: input.skillRepository,
-  });
-  const toolPreflight = evaluateToolAccessRequirements({
-    toolAccessRequirements: input.job.tool_access_requirements,
-    effectiveAllowedTools: policy.effectiveAllowedTools,
-  });
+  let policy: JobToolPolicyResolution;
+  let policyResolutionError: string | null = null;
+  try {
+    policy = await resolveJobToolPolicy({
+      job: input.job as Job,
+      appId,
+      agentId,
+      toolRepository: input.toolRepository,
+      skillRepository: input.skillRepository,
+    });
+  } catch (error) {
+    if (!(error instanceof ApplicationError) || error.code !== 'FORBIDDEN') {
+      throw error;
+    }
+    policyResolutionError = error.message;
+    policy = {
+      inheritedTools: [],
+      effectiveAllowedTools: [],
+      runtimeAccess: [],
+    };
+    blockers.push(invalidAgentToolPolicyBlocker(error.message));
+  }
+  const toolPreflight = policyResolutionError
+    ? {
+        toolAccessRequirements: normalizeToolAccessRequirements(
+          input.job.tool_access_requirements ?? [],
+        ),
+        missingTools: [],
+      }
+    : evaluateToolAccessRequirements({
+        toolAccessRequirements: input.job.tool_access_requirements,
+        effectiveAllowedTools: policy.effectiveAllowedTools,
+      });
   const draftOnlyRequirementRules = new Set(
     (input.job.capability_requirements ?? [])
       .filter((requirement) => requirement.implementation?.kind === 'local_cli')
@@ -337,6 +362,17 @@ function missingToolBlocker(toolName: string): JobSetupBlocker {
     requirementId: toolName,
     message: `This job needs ${toolRequirementLabel(toolName)} before it can run.`,
     nextAction: toolAccessRequirementRecoveryAction(toolName),
+  };
+}
+
+function invalidAgentToolPolicyBlocker(message: string): JobSetupBlocker {
+  return {
+    state: 'missing_capability',
+    requirementType: 'tool',
+    requirementId: 'agent_tool_policy',
+    message: `Agent tool policy is invalid: ${message}`,
+    nextAction:
+      'Review the agent selected capabilities, then remove or reapprove the invalid tool binding.',
   };
 }
 

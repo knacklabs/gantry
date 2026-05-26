@@ -406,12 +406,7 @@ export function createGroupAgentRunner(input: {
             memoryReviewerIsControlApprover,
             persona: group.agentConfig?.persona,
             allowedTools: configuredToolPolicy.allowedTools,
-            localCliCredentialAccess:
-              configuredToolPolicy.localCliCredentialAccess,
-            localCliCredentialPaths:
-              configuredToolPolicy.localCliCredentialPaths,
-            localCliNetworkBindings:
-              configuredToolPolicy.localCliNetworkBindings,
+            runtimeAccess: configuredToolPolicy.runtimeAccess,
             selectedSkillIds,
             selectedMcpServerIds,
             assistantName: group.trigger || DEFAULT_ASSISTANT_NAME,

@@ -412,9 +412,7 @@ async function runJobRecoveryAgentTurn(input: {
       .filter((block): block is string => Boolean(block?.trim()))
       .join('\n\n'),
     allowedTools: toolPolicy.effectiveAllowedTools,
-    localCliCredentialAccess: toolPolicy.localCliCredentialAccess,
-    localCliCredentialPaths: toolPolicy.localCliCredentialPaths,
-    localCliNetworkBindings: toolPolicy.localCliNetworkBindings,
+    runtimeAccess: toolPolicy.runtimeAccess,
     selectedSkillIds,
     selectedMcpServerIds,
     ...(turnContext?.externalSessionId

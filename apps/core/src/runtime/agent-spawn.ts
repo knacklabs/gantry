@@ -155,7 +155,14 @@ function resolveHomeRelativePaths(
   }
   return [...out];
 }
-
+function localCliCredentialPathHintsFromRuntimeAccess(
+  runtimeAccess: AgentInput['runtimeAccess'],
+): string[] {
+  const dirs = (runtimeAccess ?? []).flatMap((access) =>
+    access.sourceType === 'local_cli' ? access.credentialDirs : [],
+  );
+  return [...new Set(dirs.map((dir) => dir.trim()).filter(Boolean))];
+}
 function expandCredentialPathTemplate(
   value: string,
   source: NodeJS.ProcessEnv,
@@ -456,13 +463,10 @@ export async function spawnAgent(
     runnerInputPatch.modelCredentialEnv.https_proxy = egressGateway.proxyUrl;
     runnerInputPatch.modelCredentialEnv.NODE_USE_ENV_PROXY = '1';
     runnerInput.modelCredentialEnv = runnerInputPatch.modelCredentialEnv;
-    const localCliCredentialAccess = input.localCliCredentialAccess === true;
-    const localCliCredentialPaths = localCliCredentialAccess
-      ? resolveHomeRelativePaths(
-          input.localCliCredentialPaths ?? [],
-          process.env,
-        )
-      : [];
+    const localCliCredentialPaths = resolveHomeRelativePaths(
+      localCliCredentialPathHintsFromRuntimeAccess(input.runtimeAccess),
+      process.env,
+    );
     const env: NodeJS.ProcessEnv = {
       ...pickSafeHostEnv(process.env),
       ...pickPreparedExecutionEnv(preparedExecution.env),

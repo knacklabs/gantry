@@ -565,10 +565,21 @@ describe('createCanUseToolCallback', () => {
         jobId: 'job-1',
         chatJid: 'tg:test',
         threadId: undefined,
-        localCliNetworkBindings: [
+        runtimeAccess: [
           {
+            selectedCapabilityId: 'gog.sheets.get',
+            sourceType: 'local_cli',
+            auditLabel: 'Gog Sheets get',
             commandRules: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
-            hosts: ['oauth2.googleapis.com'],
+            credentialDirs: [],
+            networkBindings: [
+              {
+                commandRules: [
+                  'RunCommand(/opt/homebrew/bin/gog sheets get *)',
+                ],
+                hosts: ['oauth2.googleapis.com'],
+              },
+            ],
           },
         ],
         allowedTools: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],

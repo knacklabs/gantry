@@ -1371,12 +1371,20 @@ describe('agent-spawn timeout behavior', () => {
           'capability:gog.sheets.get',
           'RunCommand(/opt/homebrew/bin/gog sheets get *)',
         ],
-        localCliCredentialAccess: true,
-        localCliCredentialPaths: [
-          '${XDG_CONFIG_HOME}/gog',
-          '~/.gog',
-          '%APPDATA%\\gogcli',
-          '${GANTRY_MISSING_CLI_CONFIG}/skip',
+        runtimeAccess: [
+          {
+            selectedCapabilityId: 'gog.sheets.get',
+            sourceType: 'local_cli',
+            auditLabel: 'Gog Sheets get',
+            commandRules: ['RunCommand(/opt/homebrew/bin/gog sheets get *)'],
+            credentialDirs: [
+              '${XDG_CONFIG_HOME}/gog',
+              '~/.gog',
+              '%APPDATA%\\gogcli',
+              '${GANTRY_MISSING_CLI_CONFIG}/skip',
+            ],
+            networkBindings: [],
+          },
         ],
       },
       () => {},
@@ -1424,6 +1432,55 @@ describe('agent-spawn timeout behavior', () => {
     );
   });
 
+  it('projects local CLI credential dirs from typed runtime access', async () => {
+    process.env.HOME = '/Users/tester';
+    process.env.XDG_CONFIG_HOME = '/Users/tester/.config';
+    const writeSpy = vi.spyOn(fakeProc.stdin, 'write');
+
+    const runtimeAccess = [
+      {
+        selectedCapabilityId: 'acme.invoices.read',
+        sourceType: 'local_cli' as const,
+        auditLabel: 'Acme invoices read',
+        commandRules: ['RunCommand(/usr/local/bin/acme invoices read *)'],
+        credentialDirs: ['${XDG_CONFIG_HOME}/acme'],
+        networkBindings: [
+          {
+            commandRules: ['RunCommand(/usr/local/bin/acme invoices read *)'],
+            hosts: ['api.acme.test'],
+          },
+        ],
+      },
+    ];
+
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        allowedTools: [
+          'capability:acme.invoices.read',
+          'RunCommand(/usr/local/bin/acme invoices read *)',
+        ],
+        runtimeAccess,
+      },
+      () => {},
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    const env = vi.mocked(spawn).mock.calls.at(-1)?.[2]?.env as Record<
+      string,
+      string
+    >;
+    expect(JSON.parse(env.GANTRY_LOCAL_CLI_CREDENTIAL_DIRS_JSON)).toEqual([
+      '/Users/tester/.config/acme',
+    ]);
+    const runnerInput = JSON.parse(String(writeSpy.mock.calls[0]?.[0]));
+    expect(runnerInput.runtimeAccess).toEqual(runtimeAccess);
+  });
+
   it('keeps credential identity env scoped out of reviewed user-defined CLI runs', async () => {
     process.env.HOME = '/Users/tester';
     process.env.USER = 'tester';
@@ -1437,8 +1494,16 @@ describe('agent-spawn timeout behavior', () => {
           'capability:acme.invoices.read',
           'RunCommand(/usr/local/bin/acme invoices read *)',
         ],
-        localCliCredentialAccess: true,
-        localCliCredentialPaths: ['~/.config/acme'],
+        runtimeAccess: [
+          {
+            selectedCapabilityId: 'acme.invoices.read',
+            sourceType: 'local_cli',
+            auditLabel: 'Acme invoices read',
+            commandRules: ['RunCommand(/usr/local/bin/acme invoices read *)'],
+            credentialDirs: ['~/.config/acme'],
+            networkBindings: [],
+          },
+        ],
       },
       () => {},
     );

@@ -5,7 +5,7 @@ import type {
 } from '../../../../shared/model-catalog.js';
 import type { AgentPersona } from '../../../../shared/agent-persona.js';
 import type { YoloModeSettings } from '../../../../shared/yolo-mode-policy.js';
-import type { LocalCliNetworkBinding } from '../../../../shared/capability-runtime-access.js';
+import type { CapabilityRuntimeAccess } from '../../../../shared/capability-runtime-access.js';
 
 export interface AgentRunnerInput {
   prompt: string;
@@ -33,7 +33,7 @@ export interface AgentRunnerInput {
   memoryContextBlock?: string;
   yoloMode?: YoloModeSettings;
   modelCredentialEnv?: Record<string, string>;
-  localCliNetworkBindings?: LocalCliNetworkBinding[];
+  runtimeAccess?: CapabilityRuntimeAccess[];
   thinking?: {
     mode: 'adaptive' | 'enabled' | 'disabled';
     effort?: EffortLevel;

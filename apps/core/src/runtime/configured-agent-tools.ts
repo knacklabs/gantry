@@ -6,17 +6,11 @@ import {
   resolveAgentToolRuntimePolicy,
   resolveAgentToolRuntimeRules,
 } from '../application/agents/agent-tool-runtime-rules.js';
-import type {
-  CapabilityRuntimeAccess,
-  LocalCliNetworkBinding,
-} from '../shared/capability-runtime-access.js';
+import type { CapabilityRuntimeAccess } from '../shared/capability-runtime-access.js';
 
 export interface ConfiguredAgentToolPolicy {
   allowedTools: string[] | undefined;
   runtimeAccess: CapabilityRuntimeAccess[];
-  localCliCredentialAccess: boolean;
-  localCliCredentialPaths: string[];
-  localCliNetworkBindings: LocalCliNetworkBinding[];
 }
 
 export async function resolveConfiguredAllowedTools(input: {
@@ -45,9 +39,6 @@ export async function resolveConfiguredToolPolicy(input: {
     return {
       allowedTools: undefined,
       runtimeAccess: [],
-      localCliCredentialAccess: false,
-      localCliCredentialPaths: [],
-      localCliNetworkBindings: [],
     };
   }
   const policy = await resolveAgentToolRuntimePolicy({
@@ -60,8 +51,5 @@ export async function resolveConfiguredToolPolicy(input: {
   return {
     allowedTools: policy.rules,
     runtimeAccess: policy.runtimeAccess,
-    localCliCredentialAccess: policy.localCliCredentialAccess,
-    localCliCredentialPaths: policy.localCliCredentialPaths,
-    localCliNetworkBindings: policy.localCliNetworkBindings,
   };
 }
