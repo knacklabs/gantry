@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { CapabilitySecretRepository } from '@core/domain/ports/repositories.js';
+import type {
+  CapabilitySecretRepository,
+  ModelCredentialRepository,
+} from '@core/domain/ports/repositories.js';
 import type { AppId } from '@core/domain/app/app.js';
 
 const originalEnv = { ...process.env };
@@ -36,6 +39,34 @@ function makeSecretRepository() {
   return { repository, upsertSecret };
 }
 
+function makeModelCredentialRepository() {
+  const repository: ModelCredentialRepository = {
+    getModelCredential: vi.fn(async () => null),
+    listModelCredentials: vi.fn(async (input: { appId: AppId }) => [
+      {
+        id: 'model-credential:default:anthropic' as never,
+        appId: input.appId,
+        providerId: 'anthropic' as never,
+        authMode: 'api_key',
+        status: 'active',
+        schemaVersion: 1,
+        fingerprint: 'sha256:abcdef',
+        fieldFingerprints: [
+          {
+            field: 'apiKey',
+            fingerprint: 'sha256:field',
+          },
+        ],
+        createdAt: '2026-05-17T00:00:00.000Z' as never,
+        updatedAt: '2026-05-17T00:00:00.000Z' as never,
+      },
+    ]),
+    upsertModelCredential: vi.fn(),
+    disableModelCredential: vi.fn(),
+  };
+  return repository;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.resetModules();
@@ -46,6 +77,46 @@ afterEach(() => {
 });
 
 describe('credentials capability CLI', () => {
+  it('prints model credential status with friendly redacted labels', async () => {
+    const { repository: capabilitySecrets } = makeSecretRepository();
+    const modelCredentials = makeModelCredentialRepository();
+    const note = vi.fn();
+    vi.doMock('@clack/prompts', () => ({
+      note,
+      isCancel: vi.fn(() => false),
+      password: vi.fn(),
+      outro: vi.fn(),
+      log: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warn: vi.fn() },
+    }));
+    vi.doMock('@core/adapters/storage/postgres/factory.js', () => ({
+      createStorageRuntime: () => ({
+        service: {
+          migrate: vi.fn(async () => undefined),
+          close: vi.fn(async () => undefined),
+        },
+        runtimeEventNotifier: { close: vi.fn(async () => undefined) },
+        runtimeEvents: { publish: vi.fn(async () => undefined) },
+        repositories: { capabilitySecrets, modelCredentials },
+      }),
+    }));
+
+    const { runCredentialsCommand } = await import('@core/cli/credentials.js');
+
+    await expect(
+      runCredentialsCommand('/tmp/gantry-credentials-test', [
+        'model',
+        'status',
+      ]),
+    ).resolves.toBe(0);
+
+    const rendered = note.mock.calls.flat().join('\n');
+    expect(rendered).toContain('auth mode: API key');
+    expect(rendered).toContain('secret status: stored, encrypted, active');
+    expect(rendered).toContain('runtime access: via Gantry Model Gateway');
+    expect(rendered).toContain('configured: Anthropic key');
+    expect(rendered).not.toContain('apiKey');
+  });
+
   it('imports shell secrets into Gantry Credentials without printing values', async () => {
     const { repository, upsertSecret } = makeSecretRepository();
     const success = vi.fn();

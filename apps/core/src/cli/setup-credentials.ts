@@ -2,6 +2,10 @@ import * as p from '@clack/prompts';
 
 import type { HostCredentialMode } from '../config/credentials/mode.js';
 import { listModelRouteProviders } from '../shared/model-provider-registry.js';
+import {
+  promptModelCredentialPayload,
+  storeModelCredentialInput,
+} from './credentials.js';
 
 export interface CredentialSetupDraft {
   credentialMode: HostCredentialMode;
@@ -26,6 +30,7 @@ export async function verifyModelAccess(
 
 export async function runCredentialsStep(
   draft: CredentialSetupDraft,
+  runtimeHome: string,
 ): Promise<CredentialStepAction> {
   draft.credentialMode = 'gantry';
   const providers = listModelRouteProviders();
@@ -52,10 +57,53 @@ export async function runCredentialsStep(
           })),
         });
   if (p.isCancel(selectedMode)) return { type: 'cancel' };
+  const selectedModeId = String(selectedMode);
+  const selectedCredentialMode = provider.credentialModes.find(
+    (mode) => mode.id === selectedModeId,
+  );
   p.note(
     [
-      'Gantry Model Gateway gives agents brokered access to model providers.',
-      `${provider.label} uses ${String(selectedMode)} model credentials.`,
+      'Gantry stores the real provider credential encrypted in Credential Center.',
+      'Sandboxed agent runners receive only a loopback gateway URL and a short-lived gtw_* token.',
+      'The trusted host injects the real provider auth only when forwarding approved model API calls.',
+    ].join('\n'),
+    'Model Access',
+  );
+  const captureChoice = await p.select({
+    message: 'Store this model credential now?',
+    options: [
+      {
+        value: 'store',
+        label: 'Store now',
+        hint: 'Recommended: finish Model Access setup in this flow.',
+      },
+      {
+        value: 'defer',
+        label: 'Do later',
+        hint: `Show the exact \`gantry credentials model set ${provider.id}\` command.`,
+      },
+    ],
+  });
+  if (p.isCancel(captureChoice)) return { type: 'cancel' };
+  if (captureChoice === 'store') {
+    const credentialInput = await promptModelCredentialPayload(provider.id, {
+      authMode: selectedModeId,
+    });
+    if (!credentialInput) return { type: 'cancel' };
+    await storeModelCredentialInput({
+      runtimeHome,
+      providerId: provider.id,
+      authMode: credentialInput.authMode,
+      payload: credentialInput.payload,
+    });
+    p.log.success(
+      `${provider.label} credential stored. Model Access is ready to validate during runtime preflight.`,
+    );
+    return { type: 'next' };
+  }
+  p.note(
+    [
+      `${provider.label} uses ${selectedCredentialMode?.label ?? selectedModeId} credentials.`,
       `Run \`gantry credentials model set ${provider.id}\` after setup to store the credential.`,
       'The agent runner receives a loopback gateway token, not raw provider keys.',
       'Channel, Postgres, and runtime-owned secrets still stay in runtime .env.',

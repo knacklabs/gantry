@@ -103,6 +103,24 @@ async function withCredentialServices<T>(
   }
 }
 
+export async function storeModelCredentialInput(input: {
+  runtimeHome: string;
+  providerId: string;
+  authMode: string;
+  payload: ModelCredentialPayload;
+}): Promise<void> {
+  const providerId = normalizeModelCredentialProvider(input.providerId);
+  await withCredentialServices(input.runtimeHome, ({ model }) =>
+    model.set({
+      appId: DEFAULT_APP_ID,
+      providerId,
+      authMode: input.authMode,
+      payload: input.payload,
+      actor: 'cli',
+    }),
+  );
+}
+
 async function runModelCredentialCommand(
   runtimeHome: string,
   action = 'status',
@@ -114,23 +132,7 @@ async function runModelCredentialCommand(
       model.list({ appId: DEFAULT_APP_ID }),
     );
     p.note(
-      rows
-        .map((row) =>
-          [
-            `${row.providerId}: ${row.health}`,
-            `  label: ${row.label}`,
-            `  health: ${row.health}`,
-            row.authMode ? `  auth mode: ${row.authMode}` : undefined,
-            row.fingerprint ? `  fingerprint: ${row.fingerprint}` : undefined,
-            row.configuredFields.length > 0
-              ? `  fields: ${row.configuredFields.join(', ')}`
-              : undefined,
-            row.updatedAt ? `  updated: ${row.updatedAt}` : undefined,
-          ]
-            .filter(Boolean)
-            .join('\n'),
-        )
-        .join('\n'),
+      rows.map(formatModelCredentialStatusRow).join('\n'),
       'Model Credentials',
     );
     return 0;
@@ -230,7 +232,7 @@ async function runModelCredentialCommand(
   return 1;
 }
 
-async function promptModelCredentialPayload(
+export async function promptModelCredentialPayload(
   providerId: string,
   options: { authMode?: string; partial?: boolean } = {},
 ): Promise<
@@ -283,6 +285,45 @@ async function promptModelCredentialPayload(
     if (String(value).trim()) payload[field.name] = String(value).trim();
   }
   return { authMode: mode.id, payload };
+}
+
+function formatModelCredentialStatusRow(
+  row: Awaited<ReturnType<ModelCredentialService['list']>>[number],
+): string {
+  const mode = row.credentialModes.find((item) => item.id === row.authMode);
+  const configuredFieldLabels = row.configuredFields.map((field) => {
+    const label = mode?.fields.find((item) => item.name === field)?.label;
+    return label ?? field;
+  });
+  return [
+    `${row.providerId}: ${row.health}`,
+    `  label: ${row.label}`,
+    `  role: ${formatModelCredentialRole(row.role)}`,
+    row.authMode ? `  auth mode: ${mode?.label ?? row.authMode}` : undefined,
+    `  secret status: ${formatSecretStatus(row.health)}`,
+    row.health === 'ready'
+      ? '  runtime access: via Gantry Model Gateway'
+      : undefined,
+    configuredFieldLabels.length > 0
+      ? `  configured: ${configuredFieldLabels.join(', ')}`
+      : undefined,
+    row.fingerprint ? `  fingerprint: ${row.fingerprint}` : undefined,
+    row.updatedAt ? `  updated: ${row.updatedAt}` : undefined,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function formatModelCredentialRole(role: string): string {
+  if (role === 'model_route') return 'model route';
+  if (role === 'embedding_provider') return 'embedding provider';
+  return role;
+}
+
+function formatSecretStatus(health: string): string {
+  if (health === 'ready') return 'stored, encrypted, active';
+  if (health === 'disabled') return 'stored, encrypted, disabled';
+  return 'not stored';
 }
 
 function requiredModelCredentialProvider(runtimeHome: string): string {
