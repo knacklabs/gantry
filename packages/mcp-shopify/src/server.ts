@@ -1,9 +1,14 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from 'node:http';
 import { TokenManager } from './auth/token-manager.js';
 import type { ShopifyMcpEnv } from './env.js';
 import type { Logger } from './logger.js';
+import { CUSTOMER_VERIFIED_PHONE_NOT_FOUND_MESSAGE } from './privacy/customer-safe-response.js';
 import { ShopifyClient } from './shopify/client.js';
 import { registerAllTools } from './tools/index.js';
 import { CustomerIdentityCache } from './privacy/customer-identity-cache.js';
@@ -74,7 +79,10 @@ export function buildMcpServer(
     name: 'shopify-mcp',
     version: '0.1.0',
   });
-  registerAllTools(server, client, { identityCache });
+  registerAllTools(server, client, {
+    identityCache,
+    requireVerifiedIdentity: env.requireVerifiedIdentity,
+  });
   return { server, tokenManager, client };
 }
 
@@ -148,10 +156,19 @@ export async function startHttpServer(
         res.writeHead(404).end();
         return;
       }
-      const rawHeader = readHeader(req, IDENTITY_HEADER_NAME);
-      const headerCheck = verifyIdentityHeader(rawHeader, {
-        secret: env.identity.mode === 'disabled' ? undefined : env.identity.secret,
-        maxAgeSec: env.identityMaxAgeSec,
+      const headerCheck = env.requireVerifiedIdentity
+        ? verifyIdentityHeader(readHeader(req, IDENTITY_HEADER_NAME), {
+            secret:
+              env.identity.mode === 'disabled'
+                ? undefined
+                : env.identity.secret,
+            maxAgeSec: env.identityMaxAgeSec,
+          })
+        : ({ kind: 'absent' } as const);
+      const safeIdentityErrorBody = JSON.stringify({
+        error: {
+          message: CUSTOMER_VERIFIED_PHONE_NOT_FOUND_MESSAGE,
+        },
       });
 
       if (headerCheck.kind === 'invalid') {
@@ -165,28 +182,14 @@ export async function startHttpServer(
           'shopify_mcp_identity_header_invalid',
         );
         res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            error: 'invalid_identity_header',
-            reason: headerCheck.reason,
-          }),
-        );
-        return;
-      }
-
-      if (headerCheck.kind === 'absent' && env.requireVerifiedIdentity) {
-        logger.warn({}, 'shopify_mcp_identity_header_required');
-        res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            error: 'identity_header_required',
-          }),
-        );
+        res.end(safeIdentityErrorBody);
         return;
       }
 
       const verifiedIdentity =
-        headerCheck.kind === 'ok' ? headerCheck.identity : null;
+        env.requireVerifiedIdentity && headerCheck.kind === 'ok'
+          ? headerCheck.identity
+          : null;
 
       const bodyResult = await readRequestBody(req);
       if (!bodyResult.ok) {
@@ -202,17 +205,24 @@ export async function startHttpServer(
         name: 'shopify-mcp',
         version: '0.1.0',
       });
-      registerAllTools(server, client, { identityCache });
+      registerAllTools(server, client, {
+        identityCache,
+        requireVerifiedIdentity: env.requireVerifiedIdentity,
+      });
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });
       res.on('close', () => {
-        transport.close().catch((err) =>
-          logger.warn(errToLog(err), 'shopify_mcp_transport_close_failed'),
-        );
-        server.close().catch((err) =>
-          logger.warn(errToLog(err), 'shopify_mcp_server_close_failed'),
-        );
+        transport
+          .close()
+          .catch((err) =>
+            logger.warn(errToLog(err), 'shopify_mcp_transport_close_failed'),
+          );
+        server
+          .close()
+          .catch((err) =>
+            logger.warn(errToLog(err), 'shopify_mcp_server_close_failed'),
+          );
       });
       try {
         await runWithIdentity(verifiedIdentity, async () => {
@@ -250,7 +260,7 @@ export async function startHttpServer(
     close: () =>
       new Promise<void>((resolve, reject) => {
         // Forcefully drop keep-alive connections so restart is immediate.
-        // Without this, Inspector/Claude Desktop hold the socket open and
+        // Without this, long-lived MCP clients can hold the socket open and
         // httpServer.close() can hang for tens of seconds.
         if (typeof httpServer.closeAllConnections === 'function') {
           httpServer.closeAllConnections();

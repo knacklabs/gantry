@@ -8,9 +8,24 @@ import type { ShopifyCustomer } from '../shopify/types.js';
 import { normalizeEmail, normalizePhone } from './guard.js';
 import type { EffectiveIdentity } from './effective-identity.js';
 import type { CustomerIdentityCache } from './customer-identity-cache.js';
+import { customerVerifiedPhoneNotFoundError } from './customer-safe-response.js';
 
 interface CustomerEdgesResponse {
   customers: { edges: Array<{ node: ShopifyCustomer }> };
+}
+
+function customerIdMismatchError(
+  identity: EffectiveIdentity,
+  fallbackMessage: string,
+  dev: string,
+): ShopifyAdapterError {
+  if (identity.requireVerifiedIdentity) {
+    return customerVerifiedPhoneNotFoundError('CUSTOMER_ID_MISMATCH', dev);
+  }
+  return new ShopifyAdapterError('PRIVACY_GUARD_FAILED', fallbackMessage, {
+    reason: 'CUSTOMER_ID_MISMATCH',
+    dev,
+  });
 }
 
 /**
@@ -40,10 +55,10 @@ export async function assertCustomerBelongsToCaller(
       if (normalizeShopifyCustomerId(hit.customerId) === wanted) {
         return { resolvedId: hit.customerId, matchedVia: hit.matchedVia };
       }
-      throw new ShopifyAdapterError(
-        'PRIVACY_GUARD_FAILED',
+      throw customerIdMismatchError(
+        identity,
+        'You can only check details linked to your own phone number.',
         'customerId does not belong to the verified caller (cached identity)',
-        { reason: 'CUSTOMER_ID_MISMATCH' },
       );
     }
   }
@@ -67,10 +82,10 @@ export async function assertCustomerBelongsToCaller(
         if (normalizeShopifyCustomerId(match.node.id) === wanted) {
           return { resolvedId: match.node.id, matchedVia: 'phone' };
         }
-        throw new ShopifyAdapterError(
-          'PRIVACY_GUARD_FAILED',
+        throw customerIdMismatchError(
+          identity,
+          'You can only check details linked to your own phone number.',
           'customerId does not belong to the verified caller (phone path)',
-          { reason: 'CUSTOMER_ID_MISMATCH' },
         );
       }
     }
@@ -95,25 +110,34 @@ export async function assertCustomerBelongsToCaller(
         if (normalizeShopifyCustomerId(match.node.id) === wanted) {
           return { resolvedId: match.node.id, matchedVia: 'email' };
         }
-        throw new ShopifyAdapterError(
-          'PRIVACY_GUARD_FAILED',
+        throw customerIdMismatchError(
+          identity,
+          'You can only check details linked to your own account.',
           'customerId does not belong to the verified caller (email path)',
-          { reason: 'CUSTOMER_ID_MISMATCH' },
         );
       }
     }
   }
 
+  if (identity.requireVerifiedIdentity) {
+    throw customerVerifiedPhoneNotFoundError(
+      'CALLER_NOT_FOUND',
+      'verified caller does not correspond to any known customer',
+    );
+  }
   throw new ShopifyAdapterError(
     'PRIVACY_GUARD_FAILED',
-    'verified caller does not correspond to any known customer',
-    { reason: 'CALLER_NOT_FOUND' },
+    "I couldn't find any account linked to your phone number. Please make sure you're messaging from the number you used when placing the order.",
+    {
+      reason: 'CALLER_NOT_FOUND',
+      dev: 'verified caller does not correspond to any known customer',
+    },
   );
 }
 
 const GID_PREFIX = 'gid://shopify/Customer/';
 
-function normalizeShopifyCustomerId(value: string): string {
+export function normalizeShopifyCustomerId(value: string): string {
   const trimmed = value.trim();
   if (trimmed.startsWith(GID_PREFIX)) {
     const numeric = trimmed.slice(GID_PREFIX.length).split('?')[0];

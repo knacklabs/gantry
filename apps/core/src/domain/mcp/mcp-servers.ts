@@ -19,6 +19,16 @@ export type McpServerTransport = 'http' | 'sse' | 'stdio_template';
 export type McpServerRiskClass = 'low' | 'medium' | 'high';
 export type AgentMcpServerBindingStatus = 'active' | 'disabled';
 
+export interface McpCallerIdentityConfig {
+  mode: 'disabled' | 'required';
+  headerName: string;
+  signingRef: string;
+  source: {
+    kind: 'conversation_jid_phone';
+    jidPrefix: string;
+  };
+}
+
 export interface McpServerTransportConfig {
   transport: McpServerTransport;
   url?: string;
@@ -26,6 +36,7 @@ export interface McpServerTransportConfig {
   args?: string[];
   env?: Record<string, string>;
   headers?: Record<string, string>;
+  callerIdentity?: McpCallerIdentityConfig;
 }
 
 export interface McpCredentialRef {

@@ -1,5 +1,6 @@
 import fs from 'fs';
 
+import { guardrailPolicySettingsValidator } from '../application/guardrails/policy-registry.js';
 import { logger } from '../infrastructure/logging/logger.js';
 import type { RuntimeApp } from '../app/bootstrap/runtime-app.js';
 import { loadRuntimeSettings } from '../config/settings/runtime-settings.js';
@@ -75,6 +76,7 @@ export function startSettingsReloadWatcher(
       const service = new SettingsDesiredStateService({
         ops: options.ops,
         repositories: options.repositories,
+        guardrailPolicies: guardrailPolicySettingsValidator(),
       });
       const reconcile = await service.reconcile(settings);
       if (reconcile.invalidReferences.length > 0) {
@@ -90,6 +92,12 @@ export function startSettingsReloadWatcher(
         : { liveApplied: ['settings'], restartRequired: [] };
       lastGoodSettings = settings;
       invalidateSenderAllowlistCache(filePath);
+      // Re-snapshot provider + agent settings so the routing layer
+      // (channel-persistence-handlers.ensureInteraktDirectRoute) reads the
+      // latest providers.<id>.default_agent and agent display names after a
+      // hot reload — otherwise it would silently keep using stale values.
+      options.app.setProviderSettings(settings.providers);
+      options.app.setAgentsSettings(settings.agents);
       await options.app.loadState();
       logger.info(
         {

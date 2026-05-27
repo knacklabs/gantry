@@ -70,6 +70,7 @@ import {
 import { selectedMemoryIpcActionsFromToolRules } from '../shared/memory-ipc-actions.js';
 import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
 import { validateAgentToolRuntimeRules } from '../application/agents/agent-tool-runtime-rules.js';
+import { projectCallerIdentityHeaders } from '../application/mcp/mcp-caller-identity.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
 import { resolveSelectedSkillEnvForAgent } from '../application/capability-secrets/skill-secret-projection.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
@@ -324,6 +325,20 @@ export async function spawnAgent(
     agentId: input.agentId,
   });
   const selectedMcpServerIds = input.selectedMcpServerIds ?? [];
+  const mcpCredentialEnv =
+    options?.mcpServerRepository &&
+    options.capabilitySecretRepository &&
+    options.mcpContext?.appId &&
+    options.mcpContext.agentId &&
+    selectedMcpServerIds.length > 0
+      ? await resolveMcpCredentialEnvForAgent({
+          appId: options.mcpContext.appId as never,
+          agentId: options.mcpContext.agentId as never,
+          serverIds: selectedMcpServerIds as never,
+          mcpServers: options.mcpServerRepository,
+          secrets: options.capabilitySecretRepository,
+        })
+      : {};
   const allMcpCapabilities: MaterializedMcpCapability[] =
     options?.mcpServerRepository &&
     options.capabilitySecretRepository &&
@@ -337,17 +352,28 @@ export async function spawnAgent(
           appId: options.mcpContext.appId as never,
           agentId: options.mcpContext.agentId as never,
           serverIds: selectedMcpServerIds as never,
-          credentialEnv: options.capabilitySecretRepository
-            ? await resolveMcpCredentialEnvForAgent({
-                appId: options.mcpContext.appId as never,
-                agentId: options.mcpContext.agentId as never,
-                serverIds: selectedMcpServerIds as never,
-                mcpServers: options.mcpServerRepository,
-                secrets: options.capabilitySecretRepository,
-              })
-            : {},
+          credentialEnv: mcpCredentialEnv,
         })
       : [];
+  const callerIdentityProjection = projectCallerIdentityHeaders({
+    capabilities: allMcpCapabilities,
+    chatJid: input.chatJid,
+    credentialEnv: mcpCredentialEnv,
+  });
+  if (!callerIdentityProjection.ok) {
+    llmRuntimeMaterialization.cleanup();
+    revokeIpcResponseSigningKey(
+      ipcAuth.responseKeyId,
+      group.folder,
+      input.threadId,
+    );
+    return {
+      status: 'error',
+      result: null,
+      error: callerIdentityProjection.error,
+    };
+  }
+  const allMcpCapabilitiesForRunner = callerIdentityProjection.capabilities;
   const memoryIpcAllowedActions = selectedMemoryIpcActionsFromToolRules(
     trustedAllowedTools ?? [],
   );
@@ -464,7 +490,7 @@ export async function spawnAgent(
     `ipcInput=${ipcInputDir}`,
     `broker=${hostCredentials.brokerProfile}`,
     `brokerApplied=${hostCredentials.brokerApplied}`,
-    `mcpServers=${allMcpCapabilities.map((capability) => capability.name).join(',') || '(none)'}`,
+    `mcpServers=${allMcpCapabilitiesForRunner.map((capability) => capability.name).join(',') || '(none)'}`,
     `runner=${hostRunnerPath}`,
     `browserProfile=${browserProfileName}`,
   ];
@@ -516,16 +542,21 @@ export async function spawnAgent(
     }
     Object.assign(env, selectedSkillEnv.env);
     mcpConfigPath =
-      allMcpCapabilities.length > 0
-        ? writeRunnerMcpConfigFile(hostRuntime.groupIpcDir, allMcpCapabilities)
+      allMcpCapabilitiesForRunner.length > 0
+        ? writeRunnerMcpConfigFile(
+            hostRuntime.groupIpcDir,
+            allMcpCapabilitiesForRunner,
+          )
         : undefined;
     if (mcpConfigPath) {
       env.GANTRY_MCP_CONFIG_FILE = mcpConfigPath;
       env.GANTRY_MCP_ALLOWED_TOOLS_JSON = JSON.stringify(
-        allMcpCapabilities.flatMap((capability) => capability.allowedToolNames),
+        allMcpCapabilitiesForRunner.flatMap(
+          (capability) => capability.allowedToolNames,
+        ),
       );
       env.GANTRY_MCP_ALWAYS_ALLOWED_TOOLS_JSON = JSON.stringify(
-        allMcpCapabilities.flatMap(
+        allMcpCapabilitiesForRunner.flatMap(
           (capability) => capability.autoApproveToolNames,
         ),
       );

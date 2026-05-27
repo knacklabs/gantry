@@ -9,6 +9,7 @@ import {
   ensureAgentCredentialBinding,
   ensureModelCredentialBinding,
 } from '../../adapters/credentials/agent-credential-broker-factory.js';
+import { createGuardrailClassifier } from '../../application/guardrails/guardrail-classifier.js';
 import {
   MODEL_RUNTIME_CREDENTIAL_IDENTIFIER,
   MODEL_RUNTIME_CREDENTIAL_NAME,
@@ -17,6 +18,10 @@ import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-
 import { encodeGroupMessageCursor } from '../../shared/message-cursor.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { ConversationRoute, ThinkingOverride } from '../../domain/types.js';
+import type {
+  RuntimeConfiguredAgent,
+  RuntimeProviderSettings,
+} from '../../config/settings/runtime-settings-types.js';
 import { RemoteMcpDnsValidationCache } from '../../application/mcp/mcp-server-policy.js';
 import { createGroupProcessor } from '../../runtime/group-processing.js';
 import type { GroupProcessingDeps } from '../../runtime/group-processing-types.js';
@@ -43,6 +48,7 @@ import {
 import { AppMemoryService } from '../../memory/app-memory-service.js';
 import { collectDurableMemoryAtBoundary } from '../../memory/app-memory-session-boundary-collector.js';
 import { memoryAgentIdForGroupFolder } from '../../memory/app-memory-boundaries.js';
+import { runModelQuery } from '../../memory/model-query.js';
 
 type RuntimeAppRepository = RuntimeRouterStateRepository &
   RuntimeMessageRepository &
@@ -91,6 +97,24 @@ export interface RuntimeApp {
   setLastTimestamp: (timestamp: string) => void;
   setAgentCursor: (chatJid: string, timestamp: string) => void;
   setChannelRuntime: (runtime: GroupProcessingDeps['channelRuntime']) => void;
+  // Provider settings (e.g. providers.interakt.default_agent). Populated at
+  // startup from parsed settings.yaml so the routing layer can consult per-
+  // provider config without an additional load.
+  setProviderSettings: (
+    providers: Record<string, RuntimeProviderSettings>,
+  ) => void;
+  getProviderSettings: (
+    providerId: string,
+  ) => RuntimeProviderSettings | undefined;
+  // Configured agents from settings.yaml's agents: block, indexed by folder.
+  // Used by the routing layer to synthesize routes for a provider's
+  // default_agent (we need the agent's display name + folder).
+  setAgentsSettings: (
+    agents: Record<string, RuntimeConfiguredAgent>,
+  ) => void;
+  getAgentSettings: (
+    folder: string,
+  ) => RuntimeConfiguredAgent | undefined;
 }
 
 export interface RuntimeAppOptions {
@@ -106,6 +130,7 @@ export interface RuntimeAppOptions {
   mcpHostnameLookup?: GroupProcessingDeps['getMcpHostnameLookup'];
   collectSessionMemory?: GroupProcessingDeps['collectSessionMemory'];
   publishRuntimeEvent?: GroupProcessingDeps['publishRuntimeEvent'];
+  guardrailClassifier?: GroupProcessingDeps['guardrailClassifier'];
   opsRepository?: RuntimeAppRepository;
 }
 
@@ -115,6 +140,8 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
   let lastAgentTimestamp: Record<string, string> = {};
   let stateSaveInFlight: Promise<void> | undefined;
   let stateSaveDirty = false;
+  let providerSettingsByProvider: Record<string, RuntimeProviderSettings> = {};
+  let agentSettingsByFolder: Record<string, RuntimeConfiguredAgent> = {};
 
   const queue = options.queue ?? new GroupQueue(getRuntimeQueueConfig());
   const mcpDnsValidationCache = new RemoteMcpDnsValidationCache();
@@ -501,6 +528,9 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     collectSessionMemory:
       options.collectSessionMemory ?? collectRuntimeSessionMemory,
     publishRuntimeEvent: options.publishRuntimeEvent,
+    guardrailClassifier:
+      options.guardrailClassifier ??
+      createGuardrailClassifier({ query: runModelQuery }),
   });
 
   return {
@@ -531,6 +561,14 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     setChannelRuntime: (runtime) => {
       channelRuntime = runtime;
     },
+    setProviderSettings: (providers) => {
+      providerSettingsByProvider = providers;
+    },
+    getProviderSettings: (providerId) => providerSettingsByProvider[providerId],
+    setAgentsSettings: (agents) => {
+      agentSettingsByFolder = agents;
+    },
+    getAgentSettings: (folder) => agentSettingsByFolder[folder],
   };
 }
 

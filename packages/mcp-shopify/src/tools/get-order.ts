@@ -5,6 +5,7 @@ import { FIND_ORDER_BY_NAME } from '../shopify/queries.js';
 import type { ShopifyClient } from '../shopify/client.js';
 import { verifyIdentity } from '../privacy/guard.js';
 import { resolveEffectiveIdentity } from '../privacy/effective-identity.js';
+import { customerVerifiedPhoneNotFoundError } from '../privacy/customer-safe-response.js';
 import {
   buildOrderQueryClause,
   jsonContent,
@@ -24,14 +25,14 @@ const inputSchema = {
     .min(4)
     .optional()
     .describe(
-      "Caller's phone number. Equally-valid identity axis with callerEmail; supply whichever the customer has. At least one of callerPhone/callerEmail is required unless a signed X-Caller-Identity header is present. If a value is supplied it must match the header's value.",
+      'Customer phone number. In customer conversations, this must match the phone number being used to message. Operator lookups without channel identity require callerPhone or callerEmail.',
     ),
   callerEmail: z
     .string()
     .email()
     .optional()
     .describe(
-      "Caller's email address. Equally-valid identity axis with callerPhone; supply whichever the customer has. At least one of callerPhone/callerEmail is required unless a signed X-Caller-Identity header is present. If a value is supplied it must match the header's value.",
+      'Customer email address. In customer conversations, this must belong to the same customer as the phone number being used to message. Operator lookups without channel identity require callerPhone or callerEmail.',
     ),
 };
 
@@ -42,17 +43,25 @@ interface OrderEdgesResponse {
 export function registerGetOrder(
   server: McpServer,
   client: ShopifyClient,
+  options: { requireVerifiedIdentity?: boolean } = {},
 ): void {
   server.tool(
     'get_order',
-    "Read a Shopify order by order number. Privacy-guarded: the caller must control at least one identity axis (callerPhone or callerEmail) that matches the order's customer record. Returns full fulfillment, line items, totals.",
+    'Read a Shopify order by order number. In customer conversations, the order must belong to the same customer as the phone number being used to message. Returns full fulfillment, line items, totals.',
     inputSchema,
     async (args) => {
       try {
-        const identity = resolveEffectiveIdentity({
-          callerPhone: args.callerPhone,
-          callerEmail: args.callerEmail,
-        });
+        const requireVerifiedIdentity =
+          options.requireVerifiedIdentity ?? false;
+        const hasCallerIdentity = Boolean(args.callerPhone || args.callerEmail);
+        const identity =
+          requireVerifiedIdentity || hasCallerIdentity
+            ? resolveEffectiveIdentity({
+                callerPhone: args.callerPhone,
+                callerEmail: args.callerEmail,
+                requireVerifiedIdentity,
+              })
+            : null;
 
         const clause = buildOrderQueryClause(args.orderNumber);
         const data = await client.graphql<OrderEdgesResponse>(
@@ -75,19 +84,30 @@ export function registerGetOrder(
           );
         }
         const order = mapOrderResponse(node);
-        const guard = verifyIdentity({
-          callerPhone: identity.phone,
-          callerEmail: identity.email,
-          customer: {
-            phone: order.customer?.phone ?? null,
-            email: order.customer?.email ?? null,
-          },
-        });
-        if (!guard.ok) {
+        const guard = identity
+          ? verifyIdentity({
+              callerPhone: identity.phone,
+              callerEmail: identity.email,
+              customer: {
+                phone: order.customer?.phone ?? null,
+                email: order.customer?.email ?? null,
+              },
+            })
+          : null;
+        if (guard && !guard.ok) {
+          if (requireVerifiedIdentity) {
+            throw customerVerifiedPhoneNotFoundError(
+              'ORDER_CUSTOMER_MISMATCH',
+              `verified phone did not match order ${order.name}`,
+            );
+          }
           throw new ShopifyAdapterError(
             'PRIVACY_GUARD_FAILED',
-            `Caller identity could not be verified for order ${order.name}`,
-            { reason: guard.reason },
+            'You can only check details linked to your own account.',
+            {
+              reason: guard.reason,
+              dev: `caller identity could not be verified for order ${order.name}`,
+            },
           );
         }
         return jsonContent({
@@ -104,9 +124,11 @@ export function registerGetOrder(
             customerId: order.customerId,
             discountCodes: order.discountCodes,
           },
-          matchedVia: guard.matchedVia,
-          identitySource: identity.source,
+          ...(guard
+            ? { matchedVia: guard.matchedVia, identitySource: identity?.source }
+            : {}),
         });
+        // eslint-disable-next-line no-catch-all/no-catch-all -- MCP tool boundary returns customer-safe structured tool errors.
       } catch (err) {
         return toolErrorContent(err);
       }

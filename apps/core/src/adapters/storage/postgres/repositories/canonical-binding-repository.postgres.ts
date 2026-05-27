@@ -36,11 +36,14 @@ function routeMemorySubject(
   conversationId: string,
   group: ConversationRoute,
 ): Record<string, unknown> {
+  const route: Record<string, unknown> = {};
+  if (group.agentConfig) route.agentConfig = group.agentConfig;
+  if (group.isTemplate === true) route.isTemplate = true;
   return {
     kind: 'conversation',
     appId: CANONICAL_APP_ID,
     conversationId,
-    ...(group.agentConfig ? { route: { agentConfig: group.agentConfig } } : {}),
+    ...(Object.keys(route).length > 0 ? { route } : {}),
   };
 }
 
@@ -168,7 +171,10 @@ export function bindingRowToGroup(
     {},
   );
   const routeSubject = parseJson<{
-    route?: { agentConfig?: ConversationRoute['agentConfig'] };
+    route?: {
+      agentConfig?: ConversationRoute['agentConfig'];
+      isTemplate?: boolean;
+    };
   }>(row.memorySubjectJson, {});
   const jid =
     externalRef.jid ||
@@ -184,6 +190,7 @@ export function bindingRowToGroup(
     row.conversationKind === 'direct' || row.conversationKind === 'dm'
       ? 'dm'
       : 'channel';
+  const isTemplate = routeSubject.route?.isTemplate;
   return {
     jid,
     group: {
@@ -194,6 +201,7 @@ export function bindingRowToGroup(
       requiresTrigger: row.requiresTrigger,
       conversationKind,
       ...(agentConfig ? { agentConfig } : {}),
+      ...(isTemplate === true ? { isTemplate: true } : {}),
     },
   };
 }

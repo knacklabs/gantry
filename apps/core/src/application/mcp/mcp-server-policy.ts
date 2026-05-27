@@ -9,6 +9,7 @@ import {
 import {
   hostnameForNetwork,
   isIpAddress,
+  isLoopbackAddress,
   isPrivateNetworkAddress,
   type HostnameLookup,
 } from '../../domain/network/public-address-policy.js';
@@ -27,6 +28,7 @@ export const STDIO_TEMPLATE_COMMANDS: Record<
 
 const METADATA_HOSTNAMES = new Set(['metadata.google.internal', 'metadata']);
 const MCP_CREDENTIAL_TARGET_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,127}$/;
+const MCP_CALLER_IDENTITY_JID_PREFIX_PATTERN = /^[a-z][a-z0-9_-]{0,31}:$/;
 const NPM_PACKAGE_SPEC_PATTERN =
   /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@[a-z0-9._~^*+-][a-z0-9._~^*+-]*)?$/;
 
@@ -34,6 +36,7 @@ export function validateTransportConfig(
   config: McpServerTransportConfig,
   options: { sandboxProfileId?: string } = {},
 ): void {
+  validateCallerIdentityConfig(config);
   if (config.transport === 'http' || config.transport === 'sse') {
     if (!config.url) {
       throw new ApplicationError(
@@ -48,13 +51,25 @@ export function validateTransportConfig(
         'MCP server URL must not include credentials.',
       );
     }
+    const hostnameForCheck = hostnameForNetwork(url.hostname);
+    const isLoopbackUrl =
+      isIpAddress(hostnameForCheck) && isLoopbackAddress(hostnameForCheck);
+    const isLoopbackHttpUrl = url.protocol === 'http:' && isLoopbackUrl;
     if (url.protocol !== 'https:') {
-      throw new ApplicationError(
-        'INVALID_REQUEST',
-        'MCP server URL must use https.',
-      );
+      // Allow http only for IPv4 127.0.0.0/8 or IPv6 ::1. TLS is meaningless
+      // on the loopback interface, while all non-loopback URLs still require
+      // https.
+      if (!isLoopbackHttpUrl) {
+        throw new ApplicationError(
+          'INVALID_REQUEST',
+          'MCP server URL must use https (loopback http URLs like http://127.0.0.1 are exempt).',
+        );
+      }
     }
-    assertSafeRemoteMcpHostname(url.hostname);
+    // Only the explicit http loopback exception bypasses remote-host checks.
+    if (!isLoopbackHttpUrl) {
+      assertSafeRemoteMcpHostname(url.hostname);
+    }
     return;
   }
   if (config.transport === 'stdio_template') {
@@ -83,6 +98,74 @@ export function validateTransportConfig(
     'INVALID_REQUEST',
     'Unsupported MCP server transport.',
   );
+}
+
+function validateCallerIdentityConfig(config: McpServerTransportConfig): void {
+  const callerIdentity = config.callerIdentity;
+  if (!callerIdentity) return;
+  if (
+    callerIdentity.mode !== 'disabled' &&
+    callerIdentity.mode !== 'required'
+  ) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      'MCP callerIdentity.mode must be disabled or required.',
+    );
+  }
+  if (
+    callerIdentity.mode === 'required' &&
+    config.transport !== 'http' &&
+    config.transport !== 'sse'
+  ) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      'MCP callerIdentity is supported only for HTTP or SSE transports.',
+    );
+  }
+  if (
+    typeof callerIdentity.headerName !== 'string' ||
+    !MCP_CREDENTIAL_TARGET_KEY_PATTERN.test(callerIdentity.headerName)
+  ) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      `Invalid MCP callerIdentity header name: ${callerIdentity.headerName}`,
+    );
+  }
+  try {
+    assertValidCapabilitySecretName(
+      normalizeCapabilitySecretName(
+        typeof callerIdentity.signingRef === 'string'
+          ? callerIdentity.signingRef
+          : '',
+      ),
+    );
+  } catch {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      `MCP callerIdentity signingRef must name a Gantry Secret environment variable: ${callerIdentity.signingRef}`,
+    );
+  }
+  if (
+    !callerIdentity.source ||
+    callerIdentity.source.kind !== 'conversation_jid_phone'
+  ) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      'MCP callerIdentity.source.kind must be conversation_jid_phone.',
+    );
+  }
+  if (
+    !MCP_CALLER_IDENTITY_JID_PREFIX_PATTERN.test(
+      typeof callerIdentity.source.jidPrefix === 'string'
+        ? callerIdentity.source.jidPrefix
+        : '',
+    )
+  ) {
+    throw new ApplicationError(
+      'INVALID_REQUEST',
+      'MCP callerIdentity.source.jidPrefix must be a lowercase JID prefix ending with ":".',
+    );
+  }
 }
 
 export async function assertRemoteMcpDestinationPublic(

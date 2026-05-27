@@ -8,13 +8,18 @@ import {
   createDefaultRuntimeSettings,
   saveRuntimeSettings,
 } from '@core/config/settings/runtime-settings.js';
+import type { RuntimeApp } from '@core/app/bootstrap/runtime-app.js';
 import { startSettingsReloadWatcher } from '@core/runtime/settings-reload-watcher.js';
 
 const runtimeHomes: string[] = [];
 
 function makeDeps() {
   return {
-    app: { loadState: vi.fn(async () => undefined) } as any,
+    app: {
+      loadState: vi.fn(async () => undefined),
+      setProviderSettings: vi.fn(),
+      setAgentsSettings: vi.fn(),
+    } as unknown as RuntimeApp,
     ops: {
       getAllConversationRoutes: vi.fn(async () => ({})),
       setConversationRoute: vi.fn(async () => undefined),

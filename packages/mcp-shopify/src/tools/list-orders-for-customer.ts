@@ -3,7 +3,10 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LIST_ORDERS_FOR_CUSTOMER } from '../shopify/queries.js';
 import type { ShopifyClient } from '../shopify/client.js';
 import { resolveEffectiveIdentity } from '../privacy/effective-identity.js';
-import { assertCustomerBelongsToCaller } from '../privacy/customer-belongs-to-caller.js';
+import {
+  assertCustomerBelongsToCaller,
+  normalizeShopifyCustomerId,
+} from '../privacy/customer-belongs-to-caller.js';
 import type { CustomerIdentityCache } from '../privacy/customer-identity-cache.js';
 import {
   jsonContent,
@@ -17,21 +20,21 @@ const inputSchema = {
     .string()
     .min(1)
     .describe(
-      'Shopify customer GID or numeric ID. Must belong to the verified caller (privacy guard).',
+      'Shopify customer GID or numeric ID. In customer conversations, it must belong to the same customer as the phone number being used to message.',
     ),
   callerPhone: z
     .string()
     .min(4)
     .optional()
     .describe(
-      "Caller's phone number. Equally-valid identity axis with callerEmail. At least one of callerPhone/callerEmail is required unless a signed X-Caller-Identity header is present.",
+      'Customer phone number. In customer conversations, this must match the phone number being used to message.',
     ),
   callerEmail: z
     .string()
     .email()
     .optional()
     .describe(
-      "Caller's email. Equally-valid identity axis with callerPhone.",
+      'Customer email. In customer conversations, this must belong to the same customer as the phone number being used to message.',
     ),
   statusFilter: z.enum(['OPEN', 'CLOSED', 'ANY']).optional(),
   limit: z.number().int().min(1).max(25).optional(),
@@ -56,7 +59,10 @@ function statusQuery(filter: 'OPEN' | 'CLOSED' | 'ANY'): string {
 export function registerListOrdersForCustomer(
   server: McpServer,
   client: ShopifyClient,
-  identityCache?: CustomerIdentityCache,
+  options: {
+    identityCache?: CustomerIdentityCache;
+    requireVerifiedIdentity?: boolean;
+  } = {},
 ): void {
   server.tool(
     'list_orders_for_customer',
@@ -64,21 +70,31 @@ export function registerListOrdersForCustomer(
     inputSchema,
     async (args) => {
       try {
-        const identity = resolveEffectiveIdentity({
-          callerPhone: args.callerPhone,
-          callerEmail: args.callerEmail,
-        });
-        const ownership = await assertCustomerBelongsToCaller(
-          client,
-          identity,
-          args.customerId,
-          identityCache,
-        );
+        const requireVerifiedIdentity =
+          options.requireVerifiedIdentity ?? false;
+        const hasCallerIdentity = Boolean(args.callerPhone || args.callerEmail);
+        const identity =
+          requireVerifiedIdentity || hasCallerIdentity
+            ? resolveEffectiveIdentity({
+                callerPhone: args.callerPhone,
+                callerEmail: args.callerEmail,
+                requireVerifiedIdentity,
+              })
+            : null;
+        const ownership = identity
+          ? await assertCustomerBelongsToCaller(
+              client,
+              identity,
+              args.customerId,
+              options.identityCache,
+            )
+          : null;
 
         const filter = args.statusFilter ?? 'OPEN';
         const limit = args.limit ?? 10;
         const customerToken =
-          ownership.resolvedId.split('/').pop() ?? ownership.resolvedId;
+          ownership?.resolvedId.split('/').pop() ??
+          normalizeShopifyCustomerId(args.customerId);
         const query = `customer_id:${customerToken} ${statusQuery(filter)}`;
         const data = await client.graphql<OrderEdgesResponse>(
           LIST_ORDERS_FOR_CUSTOMER,
@@ -89,9 +105,14 @@ export function registerListOrdersForCustomer(
           .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
         return jsonContent({
           orders,
-          matchedVia: ownership.matchedVia,
-          identitySource: identity.source,
+          ...(ownership && identity
+            ? {
+                matchedVia: ownership.matchedVia,
+                identitySource: identity.source,
+              }
+            : {}),
         });
+        // eslint-disable-next-line no-catch-all/no-catch-all -- MCP tool boundary returns customer-safe structured tool errors.
       } catch (err) {
         return toolErrorContent(err);
       }

@@ -76,6 +76,19 @@ export function isIpAddress(address: string): boolean {
   return parseIpv4(normalized) !== null || parseIpv6Bytes(normalized) !== null;
 }
 
+// Narrow predicate for IPv4 127.0.0.0/8 or IPv6 ::1 only. Used to permit
+// agent-runtime SDK projection of an MCP server URL that targets the
+// Gantry-local MCP server, which doesn't require the
+// DNS-pinned host transport that general remote http/sse MCP servers need.
+export function isLoopbackAddress(address: string): boolean {
+  const normalized = hostnameForNetwork(address).toLowerCase();
+  const ipv4 = parseIpv4(normalized);
+  if (ipv4) return ipv4[0] === 127;
+  const bytes = parseIpv6Bytes(normalized);
+  if (!bytes) return false;
+  return bytes.slice(0, 15).every((byte) => byte === 0) && bytes[15] === 1;
+}
+
 export function isPrivateNetworkAddress(address: string): boolean {
   const normalized = hostnameForNetwork(address).toLowerCase();
   const ipv4 = parseIpv4(normalized);

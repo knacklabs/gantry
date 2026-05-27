@@ -28,6 +28,7 @@ vi.mock('@core/config/index.js', () => ({
       },
     },
   }),
+  getRuntimeEnvValue: vi.fn(() => ''),
   getDefaultModelConfig: () => ({ model: undefined }),
   getTriggerPattern: (trigger?: string) =>
     trigger ? new RegExp(`^@${trigger}\\b`, 'i') : /^@Andy\b/i,
@@ -477,6 +478,117 @@ describe('createGroupProcessor', () => {
   });
 
   // =======================================================================
+  // Agent guardrails
+  // =======================================================================
+
+  describe('agent guardrails', () => {
+    const guardrail = { policy: 'bss_customer_support' as const, model: 'haiku' };
+
+    it('rejects out-of-scope messages before typing or agent spawn', async () => {
+      const group = makeGroup({
+        requiresTrigger: false,
+        agentConfig: { guardrail },
+      });
+      const messages = [makeMessage({ content: 'What is the weather?' })];
+      const { deps, channel } = setupHappyPath({ group, messages });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(true);
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        expect.stringContaining('I can only help with Bombay Sweet Shop'),
+      );
+      expect(channel.setTyping).not.toHaveBeenCalled();
+      expect(mockSpawnAgent).not.toHaveBeenCalled();
+      expect(mockFormatMessages).not.toHaveBeenCalled();
+      expect(deps.setCursor).toHaveBeenCalledWith(
+        'group1@g.us',
+        encodeGroupMessageCursor({
+          timestamp: '1700000001',
+          id: 'msg-1',
+        }),
+      );
+    });
+
+    it('answers greetings directly before agent spawn', async () => {
+      const group = makeGroup({
+        requiresTrigger: false,
+        agentConfig: { guardrail },
+      });
+      const messages = [makeMessage({ content: 'Hey' })];
+      const { deps, channel } = setupHappyPath({ group, messages });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(true);
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        expect.stringContaining('I am Boondi'),
+      );
+      expect(channel.setTyping).not.toHaveBeenCalled();
+      expect(mockSpawnAgent).not.toHaveBeenCalled();
+    });
+
+    it('allows BSS support messages through the existing runner path', async () => {
+      const group = makeGroup({
+        requiresTrigger: false,
+        agentConfig: { guardrail },
+      });
+      const messages = [makeMessage({ content: 'What was my last order?' })];
+      const { deps, channel } = setupHappyPath({ group, messages });
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(true);
+      expect(channel.setTyping).toHaveBeenCalledWith('group1@g.us', true);
+      expect(mockFormatMessages).toHaveBeenCalled();
+      expect(mockSpawnAgent).toHaveBeenCalled();
+    });
+
+    it('classifies ambiguous messages once without spawning tools first', async () => {
+      const group = makeGroup({
+        requiresTrigger: false,
+        agentConfig: { guardrail },
+      });
+      const messages = [makeMessage({ content: 'Can you help me?' })];
+      const classifier = vi.fn().mockResolvedValue({
+        action: 'direct_response',
+        responseKind: 'scope_clarification',
+        reason: 'ambiguous_support_intent',
+      });
+      const { deps, channel } = setupHappyPath({
+        group,
+        messages,
+      });
+      deps.guardrailClassifier = classifier;
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(true);
+      expect(classifier).toHaveBeenCalledTimes(1);
+      expect(classifier).toHaveBeenCalledWith(
+        expect.objectContaining({
+          policy: 'bss_customer_support',
+          model: 'haiku',
+          messages: ['Can you help me?'],
+        }),
+      );
+      expect(channel.setTyping).not.toHaveBeenCalled();
+      expect(mockFormatMessages).not.toHaveBeenCalled();
+      expect(mockSpawnAgent).not.toHaveBeenCalled();
+      expect(channel.sendMessage).toHaveBeenCalledWith(
+        'group1@g.us',
+        expect.stringContaining('Please ask about your order'),
+      );
+    });
+  });
+
+  // =======================================================================
   // Successful agent run
   // =======================================================================
 
@@ -922,6 +1034,73 @@ describe('createGroupProcessor', () => {
         sessionId: 'claude-session-1',
       });
       expect(mockSpawnAgent.mock.calls[0][4]).toBeUndefined();
+    });
+
+    it('expires a stale Claude resume id and retries with a fresh session', async () => {
+      const group = makeGroup({ requiresTrigger: false });
+      const { deps } = setupHappyPath({ group });
+      (deps.opsRepository as any).getAgentTurnContext = vi
+        .fn()
+        .mockResolvedValue({
+          appId: 'app:test',
+          agentId: 'agent:test',
+          agentSessionId: 'agent-session:1',
+          providerSessionId: 'provider-session:1',
+          providerSessionProvider: 'test-provider',
+          externalSessionId: 'missing-claude-session',
+          agentSessionResetAt: null,
+        });
+      mockSpawnAgent
+        .mockResolvedValueOnce({
+          status: 'error',
+          result: null,
+          error:
+            'Claude Code returned an error result: No conversation found with session ID: missing-claude-session',
+        } satisfies AgentOutput)
+        .mockImplementationOnce(
+          async (
+            _group: ConversationRoute,
+            _input: unknown,
+            _onProc: unknown,
+            onOutput?: (output: AgentOutput) => Promise<void>,
+          ) => {
+            const output = {
+              status: 'success',
+              result: 'fresh response',
+              newSessionId: 'fresh-claude-session',
+            } satisfies AgentOutput;
+            if (onOutput) await onOutput(output);
+            return output;
+          },
+        );
+
+      const { processGroupMessages } = createGroupProcessor(deps);
+      const result = await processGroupMessages('group1@g.us');
+
+      expect(result).toBe(true);
+      expect(mockSpawnAgent).toHaveBeenCalledTimes(2);
+      expect(mockSpawnAgent.mock.calls[0][1]).toMatchObject({
+        sessionId: 'missing-claude-session',
+      });
+      expect(mockSpawnAgent.mock.calls[1][1]).not.toHaveProperty('sessionId');
+      expect(deps.opsRepository.expireProviderSession).toHaveBeenCalledWith({
+        providerSessionId: 'provider-session:1',
+        agentSessionId: 'agent-session:1',
+        provider: 'test-provider',
+        externalSessionId: 'missing-claude-session',
+      });
+      expect(deps.opsRepository.setSession).toHaveBeenCalledWith(
+        group.folder,
+        'fresh-claude-session',
+        null,
+        {
+          conversationJid: 'group1@g.us',
+          conversationKind: undefined,
+          memoryUserId: 'user1@s.whatsapp.net',
+          expectedAgentSessionId: 'agent-session:1',
+          expectedAgentSessionResetAt: null,
+        },
+      );
     });
 
     it('persists SDK session ids from final agent output for the next turn', async () => {

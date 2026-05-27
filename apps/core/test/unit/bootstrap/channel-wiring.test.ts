@@ -103,7 +103,15 @@ function makeChannel(overrides: Partial<ChannelAdapter> = {}): ChannelAdapter {
   };
 }
 
-function makeApp(conversationRoutes: Record<string, any> = {}): RuntimeApp {
+function makeApp(
+  conversationRoutes: Record<string, any> = {},
+  options: {
+    providerSettings?: Record<string, any>;
+    agentSettings?: Record<string, any>;
+  } = {},
+): RuntimeApp {
+  const providerSettings = options.providerSettings ?? {};
+  const agentSettings = options.agentSettings ?? {};
   return {
     queue: {} as RuntimeApp['queue'],
     loadState: vi.fn(),
@@ -129,6 +137,11 @@ function makeApp(conversationRoutes: Record<string, any> = {}): RuntimeApp {
     setLastTimestamp: vi.fn(),
     setAgentCursor: vi.fn(),
     setChannelRuntime: vi.fn(),
+    setProviderSettings: vi.fn(),
+    getProviderSettings: vi.fn((id: string) => providerSettings[id]),
+    setAgentsSettings: vi.fn(),
+    getAgentSettings: vi.fn((folder: string) => agentSettings[folder]),
+    getCredentialBroker: vi.fn(async () => undefined),
   };
 }
 
@@ -394,6 +407,531 @@ describe('createChannelWiring', () => {
     await onMessage?.('tg:123', msg);
 
     expect(storeMessage).toHaveBeenCalledWith(msg);
+  });
+
+  it('does NOT auto-register new Interakt customers from an unmarked wa:<phone> route', async () => {
+    // Previously the router treated any wa:* route as a template — but those
+    // are real customer routes, not templates. Cloning new customers from
+    // them would inherit the wrong settings. Without isTemplate:true or
+    // default_agent, new customers must not be auto-registered.
+    const routes: Record<string, any> = {
+      'wa:917003705584': {
+        name: 'Boondi WhatsApp',
+        folder: 'boondi_support',
+        trigger: '@Boondi',
+        added_at: '2026-05-20T19:30:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'dm',
+        agentConfig: { persona: 'sales' },
+      },
+    };
+    const app = makeApp(routes);
+    const storeMessage = vi.fn(async () => {});
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 100),
+    });
+
+    const msg = {
+      id: 'wa-msg-1',
+      chat_jid: 'wa:918097579718',
+      provider: 'interakt',
+      sender: '918097579718',
+      sender_name: 'Customer',
+      content: 'hello',
+      timestamp: '2026-05-22T11:30:00.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    };
+
+    await handlers.onMessage('wa:918097579718', msg);
+
+    // New customer must not be auto-registered just because another wa: route
+    // happens to exist.
+    expect(app.registerGroup).not.toHaveBeenCalled();
+    expect(routes['wa:918097579718']).toBeUndefined();
+  });
+
+  it('auto-registers new Interakt customers when an existing wa: route is flagged isTemplate', async () => {
+    const routes: Record<string, any> = {
+      'wa:template': {
+        name: 'Boondi WhatsApp',
+        folder: 'boondi_support',
+        trigger: '@Boondi',
+        added_at: '2026-05-20T19:30:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'dm',
+        agentConfig: { persona: 'sales' },
+        isTemplate: true,
+      },
+    };
+    const app = makeApp(routes);
+    const storeMessage = vi.fn(async () => {});
+    const info = vi.fn();
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info,
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 100),
+    });
+
+    const msg = {
+      id: 'wa-msg-1',
+      chat_jid: 'wa:918097579718',
+      provider: 'interakt',
+      sender: '918097579718',
+      sender_name: 'Customer',
+      content: 'hello',
+      timestamp: '2026-05-22T11:30:00.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    };
+
+    await handlers.onMessage('wa:918097579718', msg);
+
+    expect(app.registerGroup).toHaveBeenCalledWith(
+      'wa:918097579718',
+      expect.objectContaining({
+        name: 'Boondi WhatsApp',
+        folder: 'boondi_support',
+        trigger: '@Boondi',
+        requiresTrigger: false,
+        conversationKind: 'dm',
+        isTemplate: false,
+      }),
+    );
+    expect(storeMessage).toHaveBeenCalledWith(msg);
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatJid: 'wa:918097579718',
+        folder: 'boondi_support',
+        templateJid: 'wa:template',
+        source: 'template-flag',
+      }),
+      'Auto-registered Interakt direct conversation route',
+    );
+  });
+
+  it('auto-registers new Interakt direct conversations from an explicit template route', async () => {
+    const routes: Record<string, any> = {
+      'app:default': {
+        name: 'Default Agent',
+        folder: 'main_agent',
+        trigger: '@Default Agent',
+        added_at: '2026-05-20T19:30:00.000Z',
+        requiresTrigger: false,
+      },
+      // Templates must live in the wa:* JID space to match Interakt inbound.
+      'wa:boondi_template': {
+        name: 'Boondi WhatsApp',
+        folder: 'boondi_support',
+        trigger: '@Boondi',
+        added_at: '2026-05-20T19:30:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'dm',
+        agentConfig: { persona: 'sales' },
+        isTemplate: true,
+      },
+    };
+    const app = makeApp(routes);
+    const storeMessage = vi.fn(async () => {});
+    const info = vi.fn();
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info,
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 100),
+    });
+
+    const msg = {
+      id: 'wa-msg-2',
+      chat_jid: 'wa:918097579718',
+      provider: 'interakt',
+      sender: '918097579718',
+      sender_name: 'Customer',
+      content: '+91 80975 79718 is my mobile number. Give me the user details',
+      timestamp: '2026-05-22T11:44:17.907Z',
+      is_from_me: false,
+      is_bot_message: false,
+    };
+
+    await handlers.onMessage('wa:918097579718', msg);
+
+    expect(app.registerGroup).toHaveBeenCalledWith(
+      'wa:918097579718',
+      expect.objectContaining({
+        name: 'Boondi WhatsApp',
+        folder: 'boondi_support',
+        trigger: '@Boondi',
+        requiresTrigger: false,
+        conversationKind: 'dm',
+      }),
+    );
+    expect(routes['wa:918097579718']).toMatchObject({
+      folder: 'boondi_support',
+      conversationKind: 'dm',
+    });
+    expect(storeMessage).toHaveBeenCalledWith(msg);
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatJid: 'wa:918097579718',
+        folder: 'boondi_support',
+        templateJid: 'wa:boondi_template',
+      }),
+      'Auto-registered Interakt direct conversation route',
+    );
+  });
+
+  it('auto-registers new Interakt direct conversations from providers.interakt.default_agent', async () => {
+    const routes: Record<string, any> = {
+      'app:default': {
+        name: 'Default Agent',
+        folder: 'main_agent',
+        trigger: '@Default Agent',
+        added_at: '2026-05-20T19:30:00.000Z',
+        requiresTrigger: false,
+      },
+    };
+    const app = makeApp(routes, {
+      providerSettings: {
+        interakt: { enabled: true, defaultAgent: 'boondi_support' },
+      },
+      agentSettings: {
+        boondi_support: {
+          name: 'Boondi',
+          folder: 'boondi_support',
+          persona: 'sales',
+          model: 'sonnet',
+          bindings: {},
+          capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+        },
+      },
+    });
+    const storeMessage = vi.fn(async () => {});
+    const info = vi.fn();
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info,
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 100),
+    });
+
+    const msg = {
+      id: 'wa-msg-default',
+      chat_jid: 'wa:918097579999',
+      provider: 'interakt',
+      sender: '918097579999',
+      sender_name: 'New Customer',
+      content: 'Hello',
+      timestamp: '2026-05-22T11:45:00.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    };
+
+    await handlers.onMessage('wa:918097579999', msg);
+
+    expect(app.registerGroup).toHaveBeenCalledWith(
+      'wa:918097579999',
+      expect.objectContaining({
+        name: 'Boondi',
+        folder: 'boondi_support',
+        trigger: '@Boondi',
+        requiresTrigger: false,
+        conversationKind: 'dm',
+        // Persona and model must flow onto the synthesized route, mirroring
+        // what desired-state-service.ts populates for bindings.
+        agentConfig: { model: 'sonnet', persona: 'sales' },
+      }),
+    );
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatJid: 'wa:918097579999',
+        folder: 'boondi_support',
+        source: 'default-agent',
+      }),
+      'Auto-registered Interakt direct conversation route',
+    );
+  });
+
+  it('does NOT use a non-wa:* isTemplate route for Interakt inbound (cross-channel guard)', async () => {
+    // A template:true conversation in another channel space (e.g. tg:*)
+    // must not get cloned for Interakt inbound — its folder/agentConfig
+    // belong to a different channel.
+    const routes: Record<string, any> = {
+      'tg:template': {
+        name: 'Telegram Template',
+        folder: 'telegram_agent',
+        trigger: '@TG',
+        added_at: '2026-05-20T19:30:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'dm',
+        isTemplate: true,
+      },
+    };
+    const app = makeApp(routes);
+    const storeMessage = vi.fn(async () => {});
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 100),
+    });
+
+    const msg = {
+      id: 'wa-cross-channel',
+      chat_jid: 'wa:919999111111',
+      provider: 'interakt',
+      sender: '919999111111',
+      sender_name: 'Customer',
+      content: 'Hi',
+      timestamp: '2026-05-22T11:55:00.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    };
+
+    await handlers.onMessage('wa:919999111111', msg);
+
+    expect(app.registerGroup).not.toHaveBeenCalled();
+    expect(routes['wa:919999111111']).toBeUndefined();
+  });
+
+  it('prefers an isTemplate route over default_agent when both are configured', async () => {
+    const routes: Record<string, any> = {
+      'app:default': {
+        name: 'Default Agent',
+        folder: 'main_agent',
+        trigger: '@Default Agent',
+        added_at: '2026-05-20T19:30:00.000Z',
+        requiresTrigger: false,
+      },
+      'wa:explicit_template': {
+        name: 'Explicit',
+        folder: 'explicit_agent',
+        trigger: '@Explicit',
+        added_at: '2026-05-20T19:30:00.000Z',
+        requiresTrigger: false,
+        conversationKind: 'dm',
+        isTemplate: true,
+      },
+    };
+    const app = makeApp(routes, {
+      providerSettings: {
+        interakt: { enabled: true, defaultAgent: 'fallback_agent' },
+      },
+      agentSettings: {
+        fallback_agent: {
+          name: 'Fallback',
+          folder: 'fallback_agent',
+          bindings: {},
+          capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+        },
+      },
+    });
+    const storeMessage = vi.fn(async () => {});
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 100),
+    });
+
+    const msg = {
+      id: 'wa-msg-both',
+      chat_jid: 'wa:919999000000',
+      provider: 'interakt',
+      sender: '919999000000',
+      sender_name: 'Customer',
+      content: 'Hi',
+      timestamp: '2026-05-22T11:50:00.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    };
+
+    await handlers.onMessage('wa:919999000000', msg);
+
+    // Template wins over default_agent.
+    expect(app.registerGroup).toHaveBeenCalledWith(
+      'wa:919999000000',
+      expect.objectContaining({ folder: 'explicit_agent' }),
+    );
+  });
+
+  it('drops inbound Interakt direct messages when no template, wa: route, or default_agent is configured', async () => {
+    const routes: Record<string, any> = {
+      'app:default': {
+        name: 'Default Agent',
+        folder: 'main_agent',
+        trigger: '@Default Agent',
+        added_at: '2026-05-20T19:30:00.000Z',
+        requiresTrigger: false,
+      },
+      // Another non-default agent. Before the heuristic was removed this would
+      // have been picked up; now it shouldn't.
+      'app:secondary': {
+        name: 'Secondary',
+        folder: 'secondary',
+        trigger: '@Secondary',
+        added_at: '2026-05-20T19:30:00.000Z',
+        requiresTrigger: false,
+      },
+    };
+    const app = makeApp(routes);
+    const storeMessage = vi.fn(async () => {});
+    const warn = vi.fn();
+    const handlers = createChannelPersistenceHandlers({
+      app,
+      resolved: {
+        providerIds: [],
+        loadSenderAllowlist: vi.fn(() => ({}) as any),
+        loadSenderControlAllowlist: vi.fn(() => ({}) as any),
+        shouldDropMessage: vi.fn(() => false),
+        isSenderAllowed: vi.fn(() => true),
+        isSenderControlAllowed: vi.fn(() => true),
+        shouldLogDenied: vi.fn(() => false),
+        asRemoteControlCommand: vi.fn(() => null),
+        handleRemoteControlCommand: vi.fn(async () => {}),
+        logger: {
+          info: vi.fn(),
+          warn,
+          debug: vi.fn(),
+          error: vi.fn(),
+        },
+        opsRepository: { storeMessage } as any,
+      },
+      ops: () => ({ storeMessage, storeChatMetadata: vi.fn() }) as any,
+      findBoundChannel: vi.fn(),
+      persistenceQueue: new AsyncTaskQueue(4, 100),
+    });
+
+    const msg = {
+      id: 'wa-msg-dropped',
+      chat_jid: 'wa:919999999999',
+      provider: 'interakt',
+      sender: '919999999999',
+      sender_name: 'Customer',
+      content: 'Hello',
+      timestamp: '2026-05-22T11:46:00.000Z',
+      is_from_me: false,
+      is_bot_message: false,
+    };
+
+    await handlers.onMessage('wa:919999999999', msg);
+
+    // Old heuristic (single non-default agent folder) would have cloned the
+    // 'app:secondary' route here. With the heuristic removed, registration
+    // must NOT happen — the message is left unrouted.
+    expect(app.registerGroup).not.toHaveBeenCalled();
+    expect(routes['wa:919999999999']).toBeUndefined();
   });
 
   it('waits for queue capacity when message persistence queue is full', async () => {

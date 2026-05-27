@@ -6,6 +6,13 @@ import type {
   ConversationId,
 } from '../../domain/conversation/conversation.js';
 import type {
+  McpServerDefinition,
+  McpServerId,
+  McpServerVersion,
+  McpServerVersionId,
+} from '../../domain/mcp/mcp-servers.js';
+import { assertNoRawSecretsInMcpConfig } from '../../domain/mcp/mcp-servers.js';
+import type {
   AgentConversationBinding,
   ProviderConnection,
   ProviderConnectionId,
@@ -55,6 +62,11 @@ import type {
 } from './runtime-settings-types.js';
 import { resolveAgentToolReference } from '../../domain/tools/agent-tool-catalog-references.js';
 import { nowIso } from '../../shared/time/datetime.js';
+import {
+  hashRuntimeMcpConfig,
+  normalizeRuntimeMcpCredentialRefs,
+  validateRuntimeConfiguredMcpServer,
+} from './runtime-settings-mcp-desired-state.js';
 
 export class SettingsDesiredStateService {
   private readonly appId: AppId;
@@ -91,17 +103,35 @@ export class SettingsDesiredStateService {
       dbOnlyGroupJids: Object.keys(groups)
         .filter((jid) => !configuredJids.has(jid))
         .sort(),
-      invalidReferences: await this.validateCapabilityReferences(settings),
+      invalidReferences: [
+        ...this.validateConfiguredGuardrails(settings),
+        ...this.validateConfiguredMcpServers(settings),
+        ...(await this.validateCapabilityReferences(settings)),
+      ],
     };
   }
 
   async reconcile(settings: RuntimeSettings): Promise<SettingsReconcileResult> {
+    const configuredReferenceErrors = [
+      ...this.validateConfiguredGuardrails(settings),
+      ...this.validateConfiguredMcpServers(settings),
+    ];
+    if (configuredReferenceErrors.length > 0) {
+      return {
+        applied: [],
+        skipped: [],
+        invalidReferences: configuredReferenceErrors,
+      };
+    }
+
+    const applied: string[] = [];
+    await this.reconcileConfiguredMcpServers(settings, applied);
+
     const invalidReferences = await this.validateCapabilityReferences(settings);
     if (invalidReferences.length > 0) {
       return { applied: [], skipped: [], invalidReferences };
     }
 
-    const applied: string[] = [];
     const skipped: string[] = [];
     const existingGroups = await this.deps.ops.getAllConversationRoutes();
     const configuredFolders = new Set(Object.keys(settings.agents));
@@ -135,9 +165,14 @@ export class SettingsDesiredStateService {
               ? 'dm'
               : 'channel',
           agentConfig:
-            binding.model || agent.persona
-              ? { model: binding.model, persona: agent.persona }
+            binding.model || agent.persona || agent.guardrail
+              ? {
+                  model: binding.model,
+                  persona: agent.persona,
+                  guardrail: agent.guardrail,
+                }
               : undefined,
+          isTemplate: conversation?.isTemplate,
         });
         applied.push(`binding:${binding.jid}`);
       }
@@ -423,6 +458,124 @@ export class SettingsDesiredStateService {
     });
   }
 
+  private validateConfiguredMcpServers(settings: RuntimeSettings): string[] {
+    const errors: string[] = [];
+    for (const [serverId, server] of Object.entries(settings.mcpServers)) {
+      try {
+        assertNoRawSecretsInMcpConfig(server.config);
+        validateRuntimeConfiguredMcpServer(server);
+      } catch (error) {
+        errors.push(
+          `mcp_servers.${serverId} is invalid: ${errorMessage(error)}`,
+        );
+      }
+    }
+    return errors.sort();
+  }
+
+  private async reconcileConfiguredMcpServers(
+    settings: RuntimeSettings,
+    applied: string[],
+  ): Promise<void> {
+    for (const [serverId, server] of Object.entries(settings.mcpServers)) {
+      const now = this.clock.now();
+      const typedServerId = serverId as McpServerId;
+      const existing =
+        await this.deps.repositories.mcpServers.getServer(typedServerId);
+      const credentialRefs = normalizeRuntimeMcpCredentialRefs(
+        server.credentialRefs,
+      );
+      const configHash = hashRuntimeMcpConfig({
+        config: server.config,
+        allowedToolPatterns: server.allowedToolPatterns,
+        autoApproveToolPatterns: server.autoApproveToolPatterns,
+        credentialRefs,
+        sandboxProfileId: server.sandboxProfileId,
+      });
+      const versionHash = configHash.slice(
+        'sha256:'.length,
+        'sha256:'.length + 12,
+      );
+      const versionId =
+        `mcp-version:${serverId.slice('mcp:'.length)}:${versionHash}` as McpServerVersionId;
+
+      // Look up existing versions for this server so we can:
+      //  1. short-circuit when settings.yaml hasn't actually changed
+      //     (configHash matches an existing version → reuse its row), and
+      //  2. allocate the next version number when the config DID change
+      //     (avoids violating the (server_id, version) unique constraint).
+      // The mcp_server_versions schema was always built for version history
+      // (see mcp-servers.ts: uniqueIndex on (server_id, version), listVersions
+      // helper, latestApprovedVersionId pointer). This implementation finally
+      // honors that design — every config edit produces a new version row,
+      // bindings transparently re-point via latestApprovedVersionId on the
+      // next capability reconcile, and the old version rows linger only as
+      // history (harmless; restorable via latestApprovedVersionId rollback).
+      const existingVersions =
+        await this.deps.repositories.mcpServers.listVersions(typedServerId);
+      const matchingByHash = existingVersions.find(
+        (v) => v.configHash === configHash,
+      );
+      const versionNumber = matchingByHash
+        ? matchingByHash.version
+        : existingVersions.length === 0
+          ? 1
+          : Math.max(...existingVersions.map((v) => v.version)) + 1;
+      const effectiveVersionId = matchingByHash ? matchingByHash.id : versionId;
+
+      const definition: McpServerDefinition = {
+        id: typedServerId,
+        appId: this.appId,
+        name: server.name,
+        displayName: server.displayName,
+        description: server.description,
+        status: 'approved',
+        createdSource: 'admin',
+        riskClass: server.riskClass,
+        latestApprovedVersionId: effectiveVersionId,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+        approvedBy: existing?.approvedBy ?? 'settings.yaml',
+        approvedAt: existing?.approvedAt ?? now,
+      };
+      const version: McpServerVersion = {
+        id: effectiveVersionId,
+        appId: this.appId,
+        serverId: typedServerId,
+        version: versionNumber,
+        transport: server.config.transport,
+        config: server.config,
+        allowedToolPatterns: server.allowedToolPatterns,
+        autoApproveToolPatterns: server.autoApproveToolPatterns,
+        credentialRefs,
+        sandboxProfileId: server.sandboxProfileId,
+        configHash,
+        reviewedBy: definition.approvedBy,
+        reviewedAt: definition.approvedAt,
+        createdAt: matchingByHash?.createdAt ?? now,
+      };
+      await this.deps.repositories.mcpServers.saveServer(definition);
+      await this.deps.repositories.mcpServers.saveVersion(version);
+      applied.push(`mcp_server:${server.name}`);
+    }
+  }
+
+  private validateConfiguredGuardrails(settings: RuntimeSettings): string[] {
+    const validator = this.deps.guardrailPolicies;
+    if (!validator) return [];
+    const supported = validator.registeredIds().join(', ') || '(none)';
+    const errors: string[] = [];
+    for (const [folder, agent] of Object.entries(settings.agents)) {
+      const policy = agent.guardrail?.policy;
+      if (policy && !validator.isRegistered(policy)) {
+        errors.push(
+          `agents.${folder}.guardrail.policy is invalid: supported policies are ${supported}`,
+        );
+      }
+    }
+    return errors;
+  }
+
   async validateCapabilityReferences(
     settings: RuntimeSettings,
   ): Promise<string[]> {
@@ -469,6 +622,7 @@ export class SettingsDesiredStateService {
         }
       }
       for (const serverId of [...new Set(agent.capabilities.mcpServerIds)]) {
+        if (settings.mcpServers[serverId]) continue;
         const server = servers.get(serverId);
         if (
           !server ||

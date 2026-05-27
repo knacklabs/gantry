@@ -26,9 +26,7 @@ export type RegisteredToolName = (typeof REGISTERED_TOOL_NAMES)[number];
 const FORBIDDEN_PREFIX_RE =
   /^(apply|create|update|delete|cancel|modify|write|set)_/;
 
-export function assertReadOnlyToolNames(
-  names: ReadonlyArray<string>,
-): void {
+export function assertReadOnlyToolNames(names: ReadonlyArray<string>): void {
   const violations = names.filter((name) => FORBIDDEN_PREFIX_RE.test(name));
   if (violations.length > 0) {
     throw new Error(
@@ -39,6 +37,7 @@ export function assertReadOnlyToolNames(
 
 export interface RegisterAllToolsOptions {
   identityCache?: CustomerIdentityCache;
+  requireVerifiedIdentity?: boolean;
 }
 
 export function registerAllTools(
@@ -47,10 +46,20 @@ export function registerAllTools(
   options: RegisterAllToolsOptions = {},
 ): void {
   assertReadOnlyToolNames(REGISTERED_TOOL_NAMES);
-  registerLookupCustomer(server, client);
-  registerGetOrder(server, client);
-  registerListOrdersForCustomer(server, client, options.identityCache);
-  registerGetOrderHistory(server, client, options.identityCache);
+  registerLookupCustomer(server, client, {
+    requireVerifiedIdentity: options.requireVerifiedIdentity ?? false,
+  });
+  registerGetOrder(server, client, {
+    requireVerifiedIdentity: options.requireVerifiedIdentity ?? false,
+  });
+  registerListOrdersForCustomer(server, client, {
+    identityCache: options.identityCache,
+    requireVerifiedIdentity: options.requireVerifiedIdentity ?? false,
+  });
+  registerGetOrderHistory(server, client, {
+    identityCache: options.identityCache,
+    requireVerifiedIdentity: options.requireVerifiedIdentity ?? false,
+  });
   registerSearchProducts(server, client);
   registerGetProduct(server, client);
   registerCheckInventory(server, client);

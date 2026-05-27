@@ -61,6 +61,8 @@ import {
   startGroupProgressHeartbeats,
 } from './group-progress-heartbeats.js';
 import { createGroupAgentRunner } from './group-agent-runner.js';
+import { handlePreAgentGuardrail } from './group-guardrail.js';
+import { createThreadOptionBuilders } from './group-thread-options.js';
 import { buildMemoryRecallQueryFromMessages } from '../memory/app-memory-recall-query.js';
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 let streamingGenerationCounter = 0;
@@ -70,7 +72,6 @@ const activeTurnUiCleanupByQueue = new Map<
   string,
   { token: symbol; cancel: () => void }
 >();
-
 export function createGroupProcessor(deps: GroupProcessingDeps) {
   const collectSessionMemory = deps.collectSessionMemory;
   const ops = () => {
@@ -110,34 +111,16 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
       queueThreadId,
       latestMessage.thread_id,
     );
-    const resolveThreadId = (threadId?: string) => threadId ?? activeThreadId;
     let streamGeneration = (streamingGenerationCounter += 1);
     let progressGeneration = streamGeneration;
-    const buildMessageOptions = (threadId?: string) => {
-      const resolved = resolveThreadId(threadId);
-      return resolved ? { threadId: resolved } : undefined;
-    };
-    const buildStreamingOptions = (args: {
-      threadId?: string;
-      done?: boolean;
-    }) => ({
-      generation: streamGeneration,
-      ...(resolveThreadId(args.threadId)
-        ? { threadId: resolveThreadId(args.threadId) }
-        : {}),
-      ...(args.done !== undefined ? { done: args.done } : {}),
-    });
-    const buildProgressOptions = (
-      args: { threadId?: string; done?: boolean; replaceOnly?: boolean } = {},
-    ): ProgressUpdateOptions => ({
-      ...(resolveThreadId(args.threadId)
-        ? { threadId: resolveThreadId(args.threadId) }
-        : {}),
-      generation: progressGeneration,
-      ...(args.done !== undefined ? { done: args.done } : {}),
-      ...(args.replaceOnly !== undefined
-        ? { replaceOnly: args.replaceOnly }
-        : {}),
+    const {
+      buildMessageOptions,
+      buildStreamingOptions,
+      buildProgressOptions,
+    } = createThreadOptionBuilders({
+      activeThreadId,
+      getStreamGeneration: () => streamGeneration,
+      getProgressGeneration: () => progressGeneration,
     });
     const sendMessageToChannel = async (
       text: string,
@@ -303,6 +286,22 @@ export function createGroupProcessor(deps: GroupProcessingDeps) {
         chatJid,
         triggerPattern: getTriggerPattern(group.trigger),
         messages: missedMessages,
+      })
+    )
+      return true;
+
+    if (
+      await handlePreAgentGuardrail({
+        group,
+        messages: missedMessages,
+        latestMessage,
+        queueJid,
+        guardrailClassifier: deps.guardrailClassifier,
+        sendMessage: sendMessageToChannel,
+        buildMessageOptions,
+        setCursor: deps.setCursor,
+        saveState: deps.saveState,
+        info: (metadata, message) => logger.info(metadata, message),
       })
     )
       return true;

@@ -170,6 +170,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
       ]),
     ),
     providerConnections: {},
+    mcpServers: {},
     conversations: {},
     bindings: {},
     agents: {},

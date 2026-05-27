@@ -31,6 +31,17 @@ export const McpServerTransportConfigSchema = z.object({
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
   headers: z.record(z.string(), z.string()).optional(),
+  callerIdentity: z
+    .object({
+      mode: z.enum(['disabled', 'required']),
+      headerName: z.string().min(1),
+      signingRef: z.string().min(1),
+      source: z.object({
+        kind: z.literal('conversation_jid_phone'),
+        jidPrefix: z.string().min(1),
+      }),
+    })
+    .optional(),
 });
 
 export const McpServerDefinitionResponseSchema = z.object({

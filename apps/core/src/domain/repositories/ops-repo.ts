@@ -212,6 +212,7 @@ export interface RuntimeAgentSessionRepository {
     agentSessionId: string;
     agentSessionResetAt?: string | null;
     providerSessionId?: string;
+    providerSessionProvider?: string;
     externalSessionId?: string;
     memoryContextBlock?: string;
   }>;

@@ -28,6 +28,17 @@ async function createTeamsBuiltInChannel(
   return mod.createTeamsChannel(opts);
 }
 
+async function createInteraktBuiltInChannel(
+  opts: ChannelOpts,
+): Promise<
+  ReturnType<
+    (typeof import('./interakt/channel-adapter.js'))['createInteraktChannel']
+  >
+> {
+  const mod = await import('./interakt/channel-adapter.js');
+  return mod.createInteraktChannel(opts);
+}
+
 async function createAppBuiltInChannel(
   opts: ChannelOpts,
 ): Promise<import('./channel-provider.js').ChannelAdapter | null> {
@@ -122,6 +133,39 @@ const teamsProvider: Provider = {
   },
 };
 
+const interaktProvider: Provider = {
+  id: 'interakt',
+  label: 'WhatsApp (Interakt)',
+  jidPrefix: 'wa:',
+  folderPrefix: 'interakt_',
+  // WhatsApp Business B2C is 1:1 in Phase 1.
+  isGroupJid: () => false,
+  // canStreamToJid omitted: WhatsApp has no progressive-edit concept and
+  // Interakt would bill each chunk as a separate session message.
+  formatting: 'telegram-html',
+  isEnabled: (settings) => isChannelEnabled(settings, 'interakt'),
+  create: createInteraktBuiltInChannel,
+  setup: {
+    envKeys: [
+      'INTERAKT_BOT_TOKEN',
+      'INTERAKT_WEBHOOK_SECRET',
+      'INTERAKT_BUSINESS_PHONE_NUMBER',
+    ],
+    describe: () =>
+      'WhatsApp Business via Interakt aggregator (HTTP API + webhook)',
+    run: async () => {
+      throw new Error(
+        'Interakt CLI setup wizard is not implemented in Phase 1. ' +
+          'Set INTERAKT_BOT_TOKEN, INTERAKT_WEBHOOK_SECRET, ' +
+          'INTERAKT_BUSINESS_PHONE_NUMBER in <GANTRY_HOME>/.env, set ' +
+          'providers.interakt.enabled: true in settings.yaml, and point ' +
+          'the Interakt dashboard webhook URL at ' +
+          '<public-base>/v1/channels/interakt/webhook.',
+      );
+    },
+  },
+};
+
 const appProvider: Provider = {
   id: 'app',
   label: 'App',
@@ -140,6 +184,7 @@ const appProvider: Provider = {
 };
 
 registerProvider(appProvider);
+registerProvider(interaktProvider);
 registerProvider(slackProvider);
 registerProvider(teamsProvider);
 registerProvider(telegramProvider);

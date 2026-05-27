@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { guardrailPolicySettingsValidator } from '../application/guardrails/policy-registry.js';
 import { GANTRY_HOME } from '../config/index.js';
 import {
   getRuntimeSettingsRevision,
@@ -285,9 +286,10 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
   const desiredState = new SettingsDesiredStateService({
     ops: storage.ops,
     repositories: storage.repositories,
+    guardrailPolicies: guardrailPolicySettingsValidator(),
   });
-  const invalidReferences =
-    await desiredState.validateCapabilityReferences(parsed);
+  const invalidReferences = (await desiredState.drift(parsed))
+    .invalidReferences;
   if (invalidReferences.length > 0) {
     reject(
       'settings.yaml contains unavailable capability references.',
@@ -363,6 +365,7 @@ export const requestSettingsUpdateHandler: TaskHandler = async (context) => {
         previousSettings: parseRuntimeSettings(beforeYaml),
         ops: storage.ops,
         repositories: storage.repositories,
+        guardrailPolicies: guardrailPolicySettingsValidator(),
         reloadRuntimeState: deps.reloadRuntimeState,
       });
       message =

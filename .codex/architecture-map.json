@@ -122,7 +122,8 @@
     "apps/core/src/cli",
     "apps/core/src/runner/claude",
     "apps/core/src/runner/mcp",
-    "apps/core/src/memory/claude-query.ts"
+    "apps/core/src/memory/claude-query.ts",
+    "apps/core/src/memory/model-query.ts"
   ],
   "approvedProviderBoundaryPaths": [
     "apps/core/src/adapters/llm/anthropic-claude-agent"

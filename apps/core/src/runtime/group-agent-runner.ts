@@ -56,7 +56,16 @@ const RUNTIME_LOG_PROVIDER_VALUE_PATTERNS: RegExp[] = [
 ];
 const RUNTIME_LOG_REDACT_KEY_PATTERN =
   /^(sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id)$/i;
+const MISSING_PROVIDER_SESSION_RE = /No conversation found with session ID/i;
 const memoryReviewApproverCache = new Map<string, [boolean, number]>();
+
+function isMissingProviderResumeError(output: AgentOutput): boolean {
+  return (
+    output.status === 'error' &&
+    typeof output.error === 'string' &&
+    MISSING_PROVIDER_SESSION_RE.test(output.error)
+  );
+}
 function redactRuntimeLogString(value: string): string {
   let out = value;
   for (const pattern of RUNTIME_LOG_PROVIDER_FIELD_PATTERNS) {
@@ -206,6 +215,7 @@ export function createGroupAgentRunner(input: {
     );
     let latestProviderSessionId =
       turnContext?.externalSessionId?.trim() || undefined;
+    let resumeSessionId = latestProviderSessionId;
     const persistProviderSessionFromOutput = async (output: AgentOutput) => {
       if (output.status === 'error') return;
       const nextSessionId = output.newSessionId?.trim();
@@ -354,6 +364,30 @@ export function createGroupAgentRunner(input: {
         publishRuntimeEvent: deps.publishRuntimeEvent,
         turnContext,
       });
+      const expireResumeSessionForFreshRetry = async (): Promise<boolean> => {
+        if (
+          !turnContext?.providerSessionId ||
+          !turnContext.agentSessionId ||
+          !turnContext.providerSessionProvider ||
+          !resumeSessionId ||
+          !ops().expireProviderSession
+        ) {
+          return false;
+        }
+        await ops().expireProviderSession?.({
+          providerSessionId: turnContext.providerSessionId,
+          agentSessionId: turnContext.agentSessionId,
+          provider: turnContext.providerSessionProvider,
+          externalSessionId: resumeSessionId,
+        });
+        runtimeLogger.warn(
+          { group: group.name },
+          'Expired missing provider session and retrying with a fresh session',
+        );
+        resumeSessionId = undefined;
+        latestProviderSessionId = undefined;
+        return true;
+      };
       const invokeAgent = (agentInput: { memoryContextBlock?: string }) =>
         runAgentImpl(
           group,
@@ -373,9 +407,7 @@ export function createGroupAgentRunner(input: {
             assistantName: group.trigger || DEFAULT_ASSISTANT_NAME,
             thinking: group.agentConfig?.thinking,
             memoryContextBlock: agentInput.memoryContextBlock,
-            ...(turnContext?.externalSessionId
-              ? { sessionId: turnContext.externalSessionId }
-              : {}),
+            ...(resumeSessionId ? { sessionId: resumeSessionId } : {}),
             [WORKSPACE_FOLDER_INPUT_KEY]: group.folder,
           } as Parameters<typeof runAgentImpl>[1],
           (proc, runHandle) =>
@@ -390,7 +422,13 @@ export function createGroupAgentRunner(input: {
           wrappedOnOutput,
           runOptions,
         );
-      const output = await invokeAgent({ memoryContextBlock });
+      let output = await invokeAgent({ memoryContextBlock });
+      if (isMissingProviderResumeError(output)) {
+        const expired = await expireResumeSessionForFreshRetry();
+        if (expired) {
+          output = await invokeAgent({ memoryContextBlock });
+        }
+      }
       if (output.status === 'error') {
         runtimeLogger.error(
           { group: group.name, error: output.error },

@@ -4,7 +4,10 @@ import { ShopifyAdapterError } from '../errors.js';
 import { LIST_ORDERS_FOR_CUSTOMER } from '../shopify/queries.js';
 import type { ShopifyClient } from '../shopify/client.js';
 import { resolveEffectiveIdentity } from '../privacy/effective-identity.js';
-import { assertCustomerBelongsToCaller } from '../privacy/customer-belongs-to-caller.js';
+import {
+  assertCustomerBelongsToCaller,
+  normalizeShopifyCustomerId,
+} from '../privacy/customer-belongs-to-caller.js';
 import type { CustomerIdentityCache } from '../privacy/customer-identity-cache.js';
 import {
   jsonContent,
@@ -18,21 +21,21 @@ const inputSchema = {
     .string()
     .min(1)
     .describe(
-      'Shopify customer GID or numeric ID. Must belong to the verified caller (privacy guard).',
+      'Shopify customer GID or numeric ID. In customer conversations, it must belong to the same customer as the phone number being used to message.',
     ),
   callerPhone: z
     .string()
     .min(4)
     .optional()
     .describe(
-      "Caller's phone number. Equally-valid identity axis with callerEmail. At least one of callerPhone/callerEmail is required unless a signed X-Caller-Identity header is present.",
+      'Customer phone number. In customer conversations, this must match the phone number being used to message.',
     ),
   callerEmail: z
     .string()
     .email()
     .optional()
     .describe(
-      "Caller's email. Equally-valid identity axis with callerPhone.",
+      'Customer email. In customer conversations, this must belong to the same customer as the phone number being used to message.',
     ),
   since: z
     .string()
@@ -54,7 +57,10 @@ const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
 export function registerGetOrderHistory(
   server: McpServer,
   client: ShopifyClient,
-  identityCache?: CustomerIdentityCache,
+  options: {
+    identityCache?: CustomerIdentityCache;
+    requireVerifiedIdentity?: boolean;
+  } = {},
 ): void {
   server.tool(
     'get_order_history',
@@ -73,19 +79,29 @@ export function registerGetOrderHistory(
         );
       }
       try {
-        const identity = resolveEffectiveIdentity({
-          callerPhone: args.callerPhone,
-          callerEmail: args.callerEmail,
-        });
-        const ownership = await assertCustomerBelongsToCaller(
-          client,
-          identity,
-          args.customerId,
-          identityCache,
-        );
+        const requireVerifiedIdentity =
+          options.requireVerifiedIdentity ?? false;
+        const hasCallerIdentity = Boolean(args.callerPhone || args.callerEmail);
+        const identity =
+          requireVerifiedIdentity || hasCallerIdentity
+            ? resolveEffectiveIdentity({
+                callerPhone: args.callerPhone,
+                callerEmail: args.callerEmail,
+                requireVerifiedIdentity,
+              })
+            : null;
+        const ownership = identity
+          ? await assertCustomerBelongsToCaller(
+              client,
+              identity,
+              args.customerId,
+              options.identityCache,
+            )
+          : null;
 
         const customerToken =
-          ownership.resolvedId.split('/').pop() ?? ownership.resolvedId;
+          ownership?.resolvedId.split('/').pop() ??
+          normalizeShopifyCustomerId(args.customerId);
         const sinceIso = new Date(sinceMs).toISOString();
         const untilIso = new Date(untilMs).toISOString();
         const query = `customer_id:${customerToken} created_at:>=${sinceIso} created_at:<${untilIso}`;
@@ -98,9 +114,14 @@ export function registerGetOrderHistory(
           .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
         return jsonContent({
           orders,
-          matchedVia: ownership.matchedVia,
-          identitySource: identity.source,
+          ...(ownership && identity
+            ? {
+                matchedVia: ownership.matchedVia,
+                identitySource: identity.source,
+              }
+            : {}),
         });
+        // eslint-disable-next-line no-catch-all/no-catch-all -- MCP tool boundary returns customer-safe structured tool errors.
       } catch (err) {
         if (
           err instanceof ShopifyAdapterError &&

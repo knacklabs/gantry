@@ -21,6 +21,7 @@ import {
   DEFAULT_STORAGE_POSTGRES_SCHEMA,
   DEFAULT_STORAGE_POSTGRES_URL_ENV,
 } from './runtime-settings-defaults.js';
+import { parseMcpServers } from './runtime-settings-mcp-parser.js';
 import type {
   RuntimeCredentialBrokerSettings,
   RuntimeCredentialBrokerMode,
@@ -90,9 +91,13 @@ function parseProviderSettings(
     }
     const map = providerRaw as Record<string, unknown>;
     for (const key of Object.keys(map)) {
-      if (key !== 'enabled' && key !== 'default_connection') {
+      if (
+        key !== 'enabled' &&
+        key !== 'default_connection' &&
+        key !== 'default_agent'
+      ) {
         throw new Error(
-          `providers.${providerId}.${key} is not supported. Configure enabled or default_connection.`,
+          `providers.${providerId}.${key} is not supported. Configure enabled, default_connection, or default_agent.`,
         );
       }
     }
@@ -104,6 +109,10 @@ function parseProviderSettings(
       defaultConnection: parseOptionalStringValue(
         map.default_connection,
         `providers.${providerId}.default_connection`,
+      ),
+      defaultAgent: parseOptionalStringValue(
+        map.default_agent,
+        `providers.${providerId}.default_agent`,
       ),
     };
   }
@@ -274,10 +283,11 @@ function parseConversations(
         key !== 'kind' &&
         key !== 'display_name' &&
         key !== 'sender_policy' &&
-        key !== 'control_approvers'
+        key !== 'control_approvers' &&
+        key !== 'template'
       ) {
         throw new Error(
-          `${pathPrefix}.${key} is not supported. Configure provider_connection, external_id, kind, display_name, sender_policy, or control_approvers.`,
+          `${pathPrefix}.${key} is not supported. Configure provider_connection, external_id, kind, display_name, sender_policy, control_approvers, or template.`,
         );
       }
     }
@@ -322,6 +332,10 @@ function parseConversations(
         map.control_approvers ?? [],
         `${pathPrefix}.control_approvers`,
       ),
+      isTemplate:
+        map.template === undefined
+          ? undefined
+          : parseBooleanValue(map.template, `${pathPrefix}.template`),
     };
   }
   return conversations;
@@ -912,6 +926,7 @@ export function parseRuntimeSettings(raw: string): RuntimeSettings {
       key !== 'desired_state' &&
       key !== 'providers' &&
       key !== 'provider_connections' &&
+      key !== 'mcp_servers' &&
       key !== 'conversations' &&
       key !== 'bindings' &&
       key !== 'agents' &&
@@ -924,7 +939,7 @@ export function parseRuntimeSettings(raw: string): RuntimeSettings {
       key !== 'permissions'
     ) {
       throw new Error(
-        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, conversations, bindings, agents, storage, agent, credential_broker, memory, runtime, browser, and permissions.`,
+        `${key} is not supported. Supported root keys are defaults, desired_state, providers, provider_connections, mcp_servers, conversations, bindings, agents, storage, agent, credential_broker, memory, runtime, browser, and permissions.`,
       );
     }
   }
@@ -935,6 +950,7 @@ export function parseRuntimeSettings(raw: string): RuntimeSettings {
     root.provider_connections,
     providers,
   );
+  const mcpServers = parseMcpServers(root.mcp_servers);
   const conversations = parseConversations(
     root.conversations,
     providerConnections,
@@ -952,6 +968,21 @@ export function parseRuntimeSettings(raw: string): RuntimeSettings {
     conversations,
     bindings,
   });
+
+  // Cross-validate: providers.<id>.default_agent must reference a real agent
+  // folder declared in agents:. Validated here (post-parse) because providers
+  // are parsed before agents.
+  for (const [providerId, providerSettings] of Object.entries(providers)) {
+    const folder = providerSettings.defaultAgent;
+    if (folder === undefined) continue;
+    if (!parsedAgents[folder]) {
+      throw new Error(
+        `providers.${providerId}.default_agent references unknown agent folder "${folder}". ` +
+          `Define agents.${folder} or remove the default_agent line.`,
+      );
+    }
+  }
+
   const agent = parseAgentSettings(root.agent);
   const credentialBroker = parseCredentialBrokerSettings(
     root.credential_broker,
@@ -965,6 +996,7 @@ export function parseRuntimeSettings(raw: string): RuntimeSettings {
     desiredState,
     providers,
     providerConnections,
+    mcpServers,
     conversations,
     bindings,
     agents,

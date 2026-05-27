@@ -23,6 +23,10 @@ export const CONFIG_ENV_KEYS = [
   'TELEGRAM_BOT_TOKEN',
   'SLACK_BOT_TOKEN',
   'SLACK_APP_TOKEN',
+  'INTERAKT_BOT_TOKEN',
+  'INTERAKT_WEBHOOK_SECRET',
+  'INTERAKT_BUSINESS_PHONE_NUMBER',
+  'INTERAKT_BASE_URL',
 ] as const;
 
 function loadRuntimeEnvConfig(keys: readonly string[]): Record<string, string> {

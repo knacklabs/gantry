@@ -45,6 +45,118 @@ describe('runtime settings', () => {
     expect(parsed.agent.recurringJobDefaultModel).toBe('opus-4.6');
   });
 
+  it('parses configured MCP server desired state for fresh database reconcile', () => {
+    const parsed = parseRuntimeSettings(`
+desired_state:
+  authoritative: true
+
+mcp_servers:
+  "mcp:shopify-api":
+    name: shopify-api
+    transport: http
+    url: http://127.0.0.1:8081/mcp
+    caller_identity:
+      mode: required
+      header_name: X-Caller-Identity
+      signing_ref: SHOPIFY_MCP_IDENTITY_SECRET
+      source:
+        kind: conversation_jid_phone
+        jid_prefix: "wa:"
+    risk_class: medium
+    allowed_tool_patterns: ["lookup_*"]
+    auto_approve_tool_patterns: ["lookup_*"]
+    credential_refs: [{"name":"SHOPIFY_DEV_SHOP_DOMAIN","target":"env","key":"SHOPIFY_DEV_SHOP_DOMAIN"}]
+
+agents:
+  boondi_support:
+    name: Boondi
+    mcp_servers: ["mcp:shopify-api"]
+`);
+
+    expect(parsed.mcpServers['mcp:shopify-api']).toMatchObject({
+      name: 'shopify-api',
+      riskClass: 'medium',
+      config: {
+        transport: 'http',
+        url: 'http://127.0.0.1:8081/mcp',
+        callerIdentity: {
+          headerName: 'X-Caller-Identity',
+          signingRef: 'SHOPIFY_MCP_IDENTITY_SECRET',
+          source: { jidPrefix: 'wa:' },
+        },
+      },
+      allowedToolPatterns: ['lookup_*'],
+      autoApproveToolPatterns: ['lookup_*'],
+      credentialRefs: [
+        {
+          name: 'SHOPIFY_DEV_SHOP_DOMAIN',
+          target: 'env',
+          key: 'SHOPIFY_DEV_SHOP_DOMAIN',
+        },
+      ],
+    });
+    expect(parsed.agents.boondi_support.capabilities.mcpServerIds).toEqual([
+      'mcp:shopify-api',
+    ]);
+    expect(renderRuntimeSettingsYaml(parsed)).toContain('mcp_servers:');
+  });
+
+  it('renders and parses configured agent guardrail policy', () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.boondi_support = {
+      name: 'Boondi',
+      folder: 'boondi_support',
+      guardrail: {
+        policy: 'bss_customer_support',
+        model: 'haiku',
+      },
+      bindings: {},
+      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+    };
+
+    const yaml = renderRuntimeSettingsYaml(settings);
+    expect(yaml).toContain('guardrail:');
+    expect(yaml).toContain('policy: bss_customer_support');
+    expect(yaml).toContain('model: haiku');
+
+    const parsed = parseRuntimeSettings(yaml);
+    expect(parsed.agents.boondi_support.guardrail).toEqual({
+      policy: 'bss_customer_support',
+      model: 'haiku',
+    });
+  });
+
+  it('parses configured agent guardrail policies for registry validation', () => {
+    const parsed = parseRuntimeSettings(`
+agents:
+  boondi_support:
+    name: Boondi
+    guardrail:
+      policy: general_support
+      model: haiku
+`);
+
+    expect(parsed.agents.boondi_support?.guardrail).toEqual({
+      policy: 'general_support',
+      model: 'haiku',
+    });
+  });
+
+  it('rejects raw provider model ids for configured agent guardrails', () => {
+    expect(() =>
+      parseRuntimeSettings(`
+agents:
+  boondi_support:
+    name: Boondi
+    guardrail:
+      policy: bss_customer_support
+      model: claude-haiku-4-5-20251001
+`),
+    ).toThrow(
+      'agents.boondi_support.guardrail.model is invalid: Provider model ID "claude-haiku-4-5-20251001" is not accepted here. Use a model alias from /models.',
+    );
+  });
+
   it('defaults, renders, and parses runtime queue policy', () => {
     const settings = createDefaultRuntimeSettings();
     expect(settings.runtime.queue).toEqual({
@@ -1248,5 +1360,95 @@ conversations:
     expect(parseRuntimeSettings(yaml).agents.kai.capabilities.skillIds).toEqual(
       ['skill:3014949c-a616-4b2c-80e7-0bc61bb31e85', 'company-handbook'],
     );
+  });
+
+  describe('Interakt default_agent and template flag', () => {
+    // Setting bot_token_env triggers compactProviderToVerbose to register an
+    // interakt_default provider_connection, which conversations.provider:
+    // interakt references implicitly.
+    const baseYaml = (extras: string) => `desired_state:
+  authoritative: true
+
+agents:
+  boondi_support:
+    name: Boondi
+    persona: sales
+
+providers:
+  interakt:
+    enabled: true
+    bot_token_env: INTERAKT_BOT_TOKEN
+${extras}`;
+
+    it('parses providers.interakt.default_agent when the agent folder exists', () => {
+      const parsed = parseRuntimeSettings(
+        baseYaml('    default_agent: boondi_support'),
+      );
+      expect(parsed.providers.interakt.defaultAgent).toBe('boondi_support');
+    });
+
+    it('throws when providers.interakt.default_agent references an unknown agent folder', () => {
+      expect(() =>
+        parseRuntimeSettings(baseYaml('    default_agent: nope_agent')),
+      ).toThrow(
+        /providers\.interakt\.default_agent references unknown agent folder "nope_agent"/,
+      );
+    });
+
+    it('parses conversations.<id>.template: true via interakt provider', () => {
+      const yaml = `${baseYaml('')}
+conversations:
+  boondi_template:
+    provider: interakt
+    id: "wa:template"
+    type: dm
+    display_name: Boondi
+    template: true
+    agent: boondi_support
+    trigger: "@Boondi"
+    requires_trigger: false
+`;
+      const parsed = parseRuntimeSettings(yaml);
+      expect(parsed.conversations.boondi_template.isTemplate).toBe(true);
+    });
+
+    it('rejects template values that are not booleans', () => {
+      const yaml = `${baseYaml('')}
+conversations:
+  boondi_template:
+    provider: interakt
+    id: "wa:template"
+    type: dm
+    display_name: Boondi
+    template: "yes"
+    agent: boondi_support
+    trigger: "@Boondi"
+`;
+      expect(() => parseRuntimeSettings(yaml)).toThrow(
+        /conversations\.boondi_template\.template must be true\/false/,
+      );
+    });
+
+    it('round-trips default_agent and template through YAML', () => {
+      const yaml = `${baseYaml('    default_agent: boondi_support')}
+conversations:
+  boondi_template:
+    provider: interakt
+    id: "wa:template"
+    type: dm
+    display_name: Boondi
+    template: true
+    agent: boondi_support
+    trigger: "@Boondi"
+    requires_trigger: false
+`;
+      const parsed = parseRuntimeSettings(yaml);
+      const rendered = renderRuntimeSettingsYaml(parsed);
+      expect(rendered).toContain('default_agent: boondi_support');
+      expect(rendered).toContain('template: true');
+      const reparsed = parseRuntimeSettings(rendered);
+      expect(reparsed.providers.interakt.defaultAgent).toBe('boondi_support');
+      expect(reparsed.conversations.boondi_template.isTemplate).toBe(true);
+    });
   });
 });

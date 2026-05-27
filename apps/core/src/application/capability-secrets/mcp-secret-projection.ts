@@ -22,17 +22,22 @@ export async function resolveMcpCredentialEnvForAgent(input: {
   const service = new CapabilitySecretService(input.secrets);
   const credentialEnv: Record<string, string> = {};
   for (const record of records) {
-    const refs = record.version.credentialRefs;
+    const refs = [
+      ...record.version.credentialRefs.map((ref) => ref.name),
+      ...(record.version.config.callerIdentity?.mode === 'required'
+        ? [record.version.config.callerIdentity.signingRef]
+        : []),
+    ];
     if (refs.length === 0) continue;
-    const resolved = await service.resolveMcpCredentialRefs({
+    const resolved = await service.resolveEnv({
       appId: input.appId,
-      refs,
+      names: refs,
       allowedCapabilityIds: [
         record.definition.id,
         `mcp:${record.definition.name}`,
       ],
     });
-    Object.assign(credentialEnv, resolved.credentialEnv);
+    Object.assign(credentialEnv, resolved.env);
   }
   return credentialEnv;
 }

@@ -227,7 +227,7 @@ EXPORT_FROM_STATEMENT_RE = re.compile(
 COMMENT_OR_BLANK_RE = re.compile(r"^\s*(?://.*|/\*.*\*/)?\s*$")
 
 PROVIDER_BOUNDARY_DEFAULT_CLEANUP_PLAN_ID = (
-    "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
+    "gantry-architecture-gates-20260517-provider-boundary-sentinels"
 )
 PROVIDER_BOUNDARY_TOKENS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (

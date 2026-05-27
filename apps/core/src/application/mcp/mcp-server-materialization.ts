@@ -1,7 +1,13 @@
 import type {
   MaterializedMcpServer,
+  McpCallerIdentityConfig,
   McpCredentialRef,
 } from '../../domain/mcp/mcp-servers.js';
+import {
+  hostnameForNetwork,
+  isIpAddress,
+  isLoopbackAddress,
+} from '../../domain/network/public-address-policy.js';
 import { formatMissingGantrySecretsMessage } from '../../shared/user-visible-messages.js';
 import { ApplicationError } from '../common/application-error.js';
 import { STDIO_TEMPLATE_COMMANDS } from './mcp-server-policy.js';
@@ -19,6 +25,7 @@ export type SdkMcpServerConfig =
 export interface MaterializedMcpCapability {
   name: string;
   config: SdkMcpServerConfig;
+  callerIdentity?: McpCallerIdentityConfig;
   allowedToolPatterns: string[];
   autoApproveToolPatterns: string[];
   allowedToolNames: string[];
@@ -46,10 +53,42 @@ export function materializeMcpRecord(
     (tool) => `mcp__${record.definition.name}__${tool}`,
   );
   if (config.transport === 'http' || config.transport === 'sse') {
-    throw new ApplicationError(
-      'INVALID_REQUEST',
-      'Remote MCP HTTP/SSE servers cannot be projected directly to the SDK until runtime uses a DNS-pinned host transport.',
-    );
+    if (!config.url) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        `${config.transport} MCP server requires url.`,
+      );
+    }
+    const url = new URL(config.url);
+    const hostnameForCheck = hostnameForNetwork(url.hostname);
+    const isLoopbackUrl =
+      isIpAddress(hostnameForCheck) && isLoopbackAddress(hostnameForCheck);
+    if (!isLoopbackUrl) {
+      throw new ApplicationError(
+        'INVALID_REQUEST',
+        'Remote (non-loopback) MCP HTTP/SSE servers cannot be projected to the SDK until runtime uses a DNS-pinned host transport.',
+      );
+    }
+    // Loopback http/sse: project to the SDK's MCP HTTP transport. Headers
+    // from credentialRefs (target: 'header') flow through. Configured caller
+    // identity headers are signed at agent-spawn time.
+    const headers = credentialValues.headers;
+    return {
+      name: record.definition.name,
+      ...(config.callerIdentity
+        ? { callerIdentity: config.callerIdentity }
+        : {}),
+      config: {
+        type: config.transport,
+        url: config.url,
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+      },
+      allowedToolPatterns,
+      autoApproveToolPatterns: record.version.autoApproveToolPatterns,
+      allowedToolNames,
+      autoApproveToolNames,
+      required: record.binding.required,
+    };
   }
 
   const template = STDIO_TEMPLATE_COMMANDS[config.templateId ?? ''];
@@ -65,6 +104,7 @@ export function materializeMcpRecord(
   };
   return {
     name: record.definition.name,
+    ...(config.callerIdentity ? { callerIdentity: config.callerIdentity } : {}),
     config: {
       type: 'stdio',
       command: template.command,

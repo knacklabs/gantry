@@ -32,6 +32,11 @@ function makeApp(overrides: Partial<RuntimeApp> = {}): RuntimeApp {
     setLastTimestamp: vi.fn(),
     setAgentCursor: vi.fn(),
     setChannelRuntime: vi.fn(),
+    setProviderSettings: vi.fn(),
+    getProviderSettings: vi.fn(() => undefined),
+    setAgentsSettings: vi.fn(),
+    getAgentSettings: vi.fn(() => undefined),
+    getCredentialBroker: vi.fn(async () => undefined),
     ...overrides,
   };
 }
@@ -330,5 +335,180 @@ describe('runStartup', () => {
     });
 
     expect(initializeRuntimeStorage).toHaveBeenCalledOnce();
+  });
+
+  describe('Interakt inbound routing validation', () => {
+    const makeDeps = (runtimeSettings: any) => ({
+      ensureRuntimeLayoutDirectories: vi.fn(),
+      initializeRuntimeStorage: vi.fn(async () => ({}) as any),
+      loadRuntimeSettings: vi.fn(() => runtimeSettings),
+      restoreRemoteControl: vi.fn(),
+      logger: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    it('passes when providers.interakt.default_agent is set', async () => {
+      const runtimeSettings = {
+        providers: {
+          interakt: { enabled: true, defaultAgent: 'boondi_support' },
+        },
+        storage: {
+          postgres: { urlEnv: 'GANTRY_DATABASE_URL', schema: 'gantry' },
+        },
+        conversations: {},
+      } as any;
+      await expect(
+        runStartup(makeApp(), makeDeps(runtimeSettings)),
+      ).resolves.toBeDefined();
+    });
+
+    it('passes when a template:true conversation has a wa:* external_id', async () => {
+      const runtimeSettings = {
+        providers: { interakt: { enabled: true } },
+        storage: {
+          postgres: { urlEnv: 'GANTRY_DATABASE_URL', schema: 'gantry' },
+        },
+        conversations: {
+          boondi_template: {
+            providerConnection: 'interakt_default',
+            externalId: 'wa:template',
+            kind: 'dm',
+            displayName: 'Boondi',
+            senderPolicy: { allow: '*', mode: 'trigger' },
+            controlApprovers: [],
+            isTemplate: true,
+          },
+        },
+      } as any;
+      await expect(
+        runStartup(makeApp(), makeDeps(runtimeSettings)),
+      ).resolves.toBeDefined();
+    });
+
+    it('throws when template:true conversation is outside the wa:* JID space', async () => {
+      // A template in a different channel namespace (e.g. tg:template) does
+      // not route Interakt inbound. Startup should not accept it as
+      // sufficient Interakt routing.
+      const runtimeSettings = {
+        providers: { interakt: { enabled: true } },
+        storage: {
+          postgres: { urlEnv: 'GANTRY_DATABASE_URL', schema: 'gantry' },
+        },
+        conversations: {
+          tg_template: {
+            providerConnection: 'telegram_default',
+            externalId: 'tg:template',
+            kind: 'dm',
+            displayName: 'TG Template',
+            senderPolicy: { allow: '*', mode: 'trigger' },
+            controlApprovers: [],
+            isTemplate: true,
+          },
+        },
+      } as any;
+      await expect(
+        runStartup(makeApp(), makeDeps(runtimeSettings)),
+      ).rejects.toThrow(
+        /Interakt is enabled but no inbound routing is configured/,
+      );
+    });
+
+    it('throws when only a specific wa:<phone> conversation is configured (no template, no default_agent)', async () => {
+      // A wa:<phone> entry routes ONE customer only; it is not a routing
+      // source for new customers. Without default_agent or template:true the
+      // runtime cannot route new inbound, so we fail fast.
+      const runtimeSettings = {
+        providers: { interakt: { enabled: true } },
+        storage: {
+          postgres: { urlEnv: 'GANTRY_DATABASE_URL', schema: 'gantry' },
+        },
+        conversations: {
+          known_customer: {
+            providerConnection: 'interakt_default',
+            externalId: 'wa:919654405340',
+            kind: 'dm',
+            displayName: 'Customer',
+            senderPolicy: { allow: '*', mode: 'trigger' },
+            controlApprovers: [],
+          },
+        },
+      } as any;
+      await expect(
+        runStartup(makeApp(), makeDeps(runtimeSettings)),
+      ).rejects.toThrow(
+        /Interakt is enabled but no inbound routing is configured/,
+      );
+    });
+
+    it('throws when Interakt is enabled but no routing target is configured', async () => {
+      const runtimeSettings = {
+        providers: { interakt: { enabled: true } },
+        storage: {
+          postgres: { urlEnv: 'GANTRY_DATABASE_URL', schema: 'gantry' },
+        },
+        conversations: {},
+      } as any;
+      await expect(
+        runStartup(makeApp(), makeDeps(runtimeSettings)),
+      ).rejects.toThrow(
+        /Interakt is enabled but no inbound routing is configured/,
+      );
+    });
+
+    it('does not throw when Interakt is disabled', async () => {
+      const runtimeSettings = {
+        providers: { interakt: { enabled: false } },
+        storage: {
+          postgres: { urlEnv: 'GANTRY_DATABASE_URL', schema: 'gantry' },
+        },
+        conversations: {},
+      } as any;
+      await expect(
+        runStartup(makeApp(), makeDeps(runtimeSettings)),
+      ).resolves.toBeDefined();
+    });
+
+    it('warns when more than one wa:* template is configured', async () => {
+      const warn = vi.fn();
+      const runtimeSettings = {
+        providers: { interakt: { enabled: true } },
+        storage: {
+          postgres: { urlEnv: 'GANTRY_DATABASE_URL', schema: 'gantry' },
+        },
+        providerConnections: {},
+        conversations: {
+          t1: {
+            providerConnection: 'interakt_default',
+            externalId: 'wa:template_one',
+            kind: 'dm',
+            displayName: 'T1',
+            senderPolicy: { allow: '*', mode: 'trigger' },
+            controlApprovers: [],
+            isTemplate: true,
+          },
+          t2: {
+            providerConnection: 'interakt_default',
+            externalId: 'wa:template_two',
+            kind: 'dm',
+            displayName: 'T2',
+            senderPolicy: { allow: '*', mode: 'trigger' },
+            controlApprovers: [],
+            isTemplate: true,
+          },
+        },
+      } as any;
+      await runStartup(makeApp(), {
+        ...makeDeps(runtimeSettings),
+        logger: { info: vi.fn(), warn },
+      });
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          templates: expect.arrayContaining([
+            'wa:template_one',
+            'wa:template_two',
+          ]),
+        }),
+        expect.stringMatching(/Multiple template:true conversations/),
+      );
+    });
   });
 });

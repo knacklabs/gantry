@@ -63,6 +63,7 @@ describe('listChannelProviders', () => {
   it('keeps deterministic provider order and ids', () => {
     expect(listChannelProviders().map((provider) => provider.id)).toEqual([
       'app',
+      'interakt',
       'slack',
       'teams',
       'telegram',

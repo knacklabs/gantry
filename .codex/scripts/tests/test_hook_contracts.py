@@ -45,28 +45,37 @@ def run_hook(
 
 class HookContractTests(unittest.TestCase):
     def assert_execpolicy_decision(self, args: list[str], expected: str) -> None:
+        require_execpolicy = os.environ.get("FACTORY_REQUIRE_CODEX_EXECPOLICY") == "1"
         codex = shutil.which("codex")
         if codex is None:
-            if os.environ.get("FACTORY_REQUIRE_CODEX_EXECPOLICY") == "1":
+            if require_execpolicy:
                 self.fail("codex CLI is required to validate native command-policy rules")
             self.skipTest("codex CLI is not available")
 
-        proc = subprocess.run(
-            [
-                codex,
-                "execpolicy",
-                "check",
-                "--pretty",
-                "--rules",
-                str(RULES_PATH),
-                "--",
-                *args,
-            ],
-            cwd=REPO_ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        try:
+            proc = subprocess.run(
+                [
+                    codex,
+                    "execpolicy",
+                    "check",
+                    "--pretty",
+                    "--rules",
+                    str(RULES_PATH),
+                    "--",
+                    *args,
+                ],
+                cwd=REPO_ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            if require_execpolicy:
+                self.fail(f"codex CLI was resolved but could not be launched: {codex}")
+            self.skipTest("codex CLI is not launchable")
+
+        if proc.returncode < 0 and not require_execpolicy:
+            self.skipTest(f"codex CLI exited by signal {-proc.returncode}")
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout)

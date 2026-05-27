@@ -467,7 +467,16 @@ async function auditConnect(
     conversationId: state.principal.conversationId,
     runId: state.principal.runId,
   };
-  logger.info(payload, 'Egress CONNECT decision');
+  // Successful allow-decisions are noisy in steady-state operation (each
+  // model-provider run can emit many of these). Log them at DEBUG so they
+  // stay out of the default INFO stream but remain inspectable on demand.
+  // Denials and audit-only outcomes stay loud — those are the actionable
+  // events an operator needs to see.
+  if (decision.allowed && !decision.denied) {
+    logger.debug(payload, 'Egress CONNECT decision');
+  } else {
+    logger.warn(payload, 'Egress CONNECT decision');
+  }
   if (!state.publishRuntimeEvent) return;
   const eventConversationId = normalizeRuntimeEventConversationId(
     state.principal.conversationId as never,

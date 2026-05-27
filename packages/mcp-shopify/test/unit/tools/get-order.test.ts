@@ -8,7 +8,9 @@ describe('get_order', () => {
   it('returns order when phone matches', async () => {
     const mock = buildMockFetch({
       graphqlResponses: [
-        graphqlOk(ordersEdges([{ name: 'BSS-2847', customer: KNOWN_CUSTOMER }])),
+        graphqlOk(
+          ordersEdges([{ name: 'BSS-2847', customer: KNOWN_CUSTOMER }]),
+        ),
       ],
     });
     const harness = buildToolHarness(mock.fetch);
@@ -21,10 +23,12 @@ describe('get_order', () => {
     harness.tokenManager.stop();
   });
 
-  it('rejects with PRIVACY_GUARD_FAILED when phone mismatches and no recovery', async () => {
+  it('privacy-blocks a mismatched caller phone', async () => {
     const mock = buildMockFetch({
       graphqlResponses: [
-        graphqlOk(ordersEdges([{ name: 'BSS-2847', customer: KNOWN_CUSTOMER }])),
+        graphqlOk(
+          ordersEdges([{ name: 'BSS-2847', customer: KNOWN_CUSTOMER }]),
+        ),
       ],
     });
     const harness = buildToolHarness(mock.fetch);
@@ -33,6 +37,9 @@ describe('get_order', () => {
       callerPhone: '+919999999999',
     });
     expect(result.error?.code).toBe('PRIVACY_GUARD_FAILED');
+    expect(result.error?.message).toBe(
+      'You can only check details linked to your own account.',
+    );
     expect((result.raw as { order?: unknown }).order).toBeUndefined();
     harness.tokenManager.stop();
   });
@@ -48,7 +55,6 @@ describe('get_order', () => {
     const harness = buildToolHarness(mock.fetch);
     const result = await harness.call<{
       order: { name: string; customerId: string };
-      matchedVia: string;
     }>('get_order', {
       orderNumber: 'BSS-2847',
       callerPhone: '+919999999999',
@@ -56,7 +62,6 @@ describe('get_order', () => {
     });
     expect(result.error).toBeUndefined();
     expect(result.data?.order.name).toBe('#BSS-2847');
-    expect(result.data?.matchedVia).toBe('email');
     expect(result.data?.order.customerId).toBe(RECOVERY_CUSTOMER.id);
     harness.tokenManager.stop();
   });

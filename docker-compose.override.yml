@@ -1,6 +1,0 @@
-# Local-only override. Remaps MyClaw's Postgres port to avoid collisions with
-# other Postgres instances on this host. Untracked — safe to delete or edit.
-services:
-  postgres:
-    ports: !override
-      - '127.0.0.1:5434:5432'

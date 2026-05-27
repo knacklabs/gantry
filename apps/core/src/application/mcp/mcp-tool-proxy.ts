@@ -19,6 +19,10 @@ import {
   McpServerService,
   type MaterializedMcpCapability,
 } from './mcp-server-service.js';
+import {
+  CALLER_IDENTITY_UNAVAILABLE_MESSAGE,
+  projectCallerIdentityHeaders,
+} from './mcp-caller-identity.js';
 
 const MCP_PROXY_TIMEOUT_MS = 60_000;
 const MCP_PROXY_CLIENT_IDLE_MS = 120_000;
@@ -35,6 +39,7 @@ export class McpToolProxy {
     private readonly mcpServers: McpServerRepository,
     private readonly options: {
       credentialEnv?: Record<string, string>;
+      callerIdentityJid?: string;
       lookupHostname?: HostnameLookup;
       dnsValidationCache?: RemoteMcpDnsValidationCache;
     } = {},
@@ -127,13 +132,22 @@ export class McpToolProxy {
     appId: AppId;
     agentId: AgentId;
   }): Promise<MaterializedMcpCapability[]> {
-    return await new McpServerService(this.mcpServers, undefined, {
-      lookupHostname: this.options.lookupHostname,
-      dnsValidationCache: this.options.dnsValidationCache,
-      auditMaterialization: false,
-    }).materializeForAgent({
+    const capabilities = await new McpServerService(
+      this.mcpServers,
+      undefined,
+      {
+        lookupHostname: this.options.lookupHostname,
+        dnsValidationCache: this.options.dnsValidationCache,
+        auditMaterialization: false,
+      },
+    ).materializeForAgent({
       appId: input.appId,
       agentId: input.agentId,
+      credentialEnv: this.options.credentialEnv ?? {},
+    });
+    return projectMcpProxyCallerIdentity({
+      capabilities,
+      callerIdentityJid: this.options.callerIdentityJid,
       credentialEnv: this.options.credentialEnv ?? {},
     });
   }
@@ -195,6 +209,44 @@ export class McpToolProxy {
       'stdio_template MCP servers are approved durable capabilities, but current-session proxy execution is disabled until sandboxed stdio execution is implemented.',
     );
   }
+}
+
+export function projectMcpProxyCallerIdentity(input: {
+  capabilities: readonly MaterializedMcpCapability[];
+  callerIdentityJid?: string;
+  credentialEnv: Record<string, string>;
+}): MaterializedMcpCapability[] {
+  if (
+    !input.capabilities.some(
+      (capability) =>
+        capability.callerIdentity &&
+        capability.callerIdentity.mode !== 'disabled',
+    )
+  ) {
+    return [...input.capabilities];
+  }
+  if (!input.callerIdentityJid) {
+    throw new ApplicationError(
+      'FORBIDDEN',
+      CALLER_IDENTITY_UNAVAILABLE_MESSAGE,
+      {
+        details: [
+          'MCP caller identity projection requires a source conversation JID.',
+        ],
+      },
+    );
+  }
+  const projection = projectCallerIdentityHeaders({
+    capabilities: input.capabilities,
+    chatJid: input.callerIdentityJid,
+    credentialEnv: input.credentialEnv,
+  });
+  if (!projection.ok) {
+    throw new ApplicationError('FORBIDDEN', projection.error, {
+      details: [projection.internalError],
+    });
+  }
+  return projection.capabilities;
 }
 
 function isToolAllowed(

@@ -9,7 +9,7 @@ describe('resolveEffectiveIdentity', () => {
       callerPhone: '+91-98765-43210',
       callerEmail: 'A@B.com',
     });
-    expect(id).toEqual({
+    expect(id).toMatchObject({
       phone: '+919876543210',
       email: 'a@b.com',
       source: 'arg',
@@ -126,8 +126,7 @@ describe('resolveEffectiveIdentity', () => {
   it('accepts matching arg + header (source=mixed)', async () => {
     const id = await runWithIdentity(
       { phone: '+919876543210', issuedAtMs: Date.now() },
-      async () =>
-        resolveEffectiveIdentity({ callerPhone: '+91-98765-43210' }),
+      async () => resolveEffectiveIdentity({ callerPhone: '+91-98765-43210' }),
     );
     expect(id.source).toBe('mixed');
     expect(id.phone).toBe('+919876543210');

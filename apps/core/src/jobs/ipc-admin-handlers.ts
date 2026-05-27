@@ -260,6 +260,7 @@ const mcpListToolsHandler: TaskHandler = async (context) => {
     const proxy = await createMcpProxyForSourceGroup({
       appId: data.appId as never,
       agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
+      callerIdentityJid: requestedTargetJid,
       deps,
     });
     const result = await proxy.listTools({
@@ -310,6 +311,7 @@ const mcpCallToolHandler: TaskHandler = async (context) => {
     const proxy = await createMcpProxyForSourceGroup({
       appId: data.appId as never,
       agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
+      callerIdentityJid: requestedTargetJid,
       deps,
     });
     const result = await proxy.callTool({
@@ -793,6 +795,7 @@ async function rejectMcpDraftFromPermission(
 async function createMcpProxyForSourceGroup(input: {
   appId: import('../domain/app/app.js').AppId;
   agentId: import('../domain/agent/agent.js').AgentId;
+  callerIdentityJid: string;
   deps: Parameters<TaskHandler>[0]['deps'];
 }): Promise<McpToolProxy> {
   const storage = getRuntimeStorage();
@@ -806,6 +809,7 @@ async function createMcpProxyForSourceGroup(input: {
   });
   return new McpToolProxy(storage.repositories.mcpServers, {
     credentialEnv,
+    callerIdentityJid: input.callerIdentityJid,
     lookupHostname: input.deps.mcpHostnameLookup,
   });
 }

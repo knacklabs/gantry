@@ -4,6 +4,17 @@
 - Keep `capability_search`, `request_capability`, `propose_local_cli_capability`, and `manage_capability` in the baseline Gantry MCP surface. They are review/request tools, not direct authority; persistent approval stores `capability:<id>` and runtime expands only capabilities with enforceable low-level bindings. User-defined `local_cli` proposals stay draft-only until a runtime gate verifies executable identity, preflight, protected paths, and denied environment overrides.
 - Memory IPC auth scope includes reviewer authority. When adding or changing runner boundaries, forward `memoryReviewerIsControlApprover` into the Gantry MCP server environment so memory request signatures match runtime verification.
 - SDK model credential env may include broker proxy values only for the Claude SDK process. Bash, browser, hooks, and MCP stdio subprocesses may receive no broker proxies or provider tokens; when `NODE_EXTRA_CA_CERTS` is present, derive only neutral CA aliases (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`, `PIP_CERT`, `AWS_CA_BUNDLE`, `CARGO_HTTP_CAINFO`, and `DENO_CERT`) from that same path.
+- Runner system prompts must name approved third-party MCP service names when
+  those services are projected through Gantry proxy tools only. Agents need the
+  service name to use `mcp_list_tools` and `mcp_call_tool` before claiming they
+  do not have access to customer, order, product, account, or store data. The
+  MCP server is the access enforcement layer; the agent must not invent a
+  separate pre-call verification refusal.
+- Runner prompts may name approved third-party MCP services, but identity
+  enforcement belongs to the MCP server and host materialization contract.
+  Do not derive service-specific identity modes from runtime env vars in the
+  runner; provider-neutral caller signing is configured on MCP server versions
+  with `config.callerIdentity`.
 - Keep Claude SDK Bash commands sandboxed with `sandbox.network.allowLocalBinding` so approved CLIs can use the SDK-managed local network proxy instead of bypassing the sandbox. Prefix approved Bash commands with `GODEBUG=netdns=go` so Go CLIs use Go DNS resolution instead of macOS resolver services blocked by the sandbox. On macOS, also enable `sandbox.enableWeakerNetworkIsolation` so Go-based CLIs such as `gh`, `gcloud`, `terraform`, and business CLIs can reach `com.apple.trustd.agent` for TLS certificate verification. These are sandbox transport settings only; they must not grant durable Bash authority or expose broker proxy/provider credentials to tools.
 - `SandboxNetworkAccess` is a transient SDK callback, not durable capability
   authority. The runner may suppress repeated SDK network prompts while either

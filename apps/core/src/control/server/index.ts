@@ -34,6 +34,7 @@ import { handleAgentRoutes } from './routes/agents.js';
 import { handleCapabilityCatalogRoutes } from './routes/capability-catalog.js';
 import { handleProviderConversationRoutes } from './routes/provider-conversation-routes.js';
 import { handleExternalIngressRoutes } from './routes/external-ingress.js';
+import { handleInteraktWebhookRoutes } from './routes/interakt-webhook.js';
 import { handleJobRoutes } from './routes/jobs.js';
 import { handleMemoryRoutes } from './routes/memory.js';
 import { handleMcpServerRoutes } from './routes/mcp-servers.js';
@@ -117,6 +118,10 @@ function createControlRequestHandler(ctx: ControlRouteContext) {
     res.on('error', (error) => logControlStreamError(error, pathname));
 
     try {
+      // Mount first: the Interakt webhook authenticates via its own HMAC
+      // signature on the raw body, not a Gantry control API key. It must
+      // run before handlers that would otherwise gate on control-key auth.
+      if (await handleInteraktWebhookRoutes(req, res, ctx, pathname)) return;
       if (await handleOpenApiRoutes(req, res, pathname)) return;
       if (await handleSystemRoutes(req, res, ctx, pathname)) return;
       if (await handleAgentRoutes(req, res, ctx, pathname)) return;

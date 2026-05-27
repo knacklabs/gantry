@@ -1,9 +1,10 @@
-import { resolveModelSelection } from '../../shared/model-catalog.js';
 import { parseAgentPersona } from '../../shared/agent-persona.js';
+import { resolveModelSelection } from '../../shared/model-catalog.js';
 import type {
   RuntimeConfiguredAgent,
   RuntimeConfiguredAgentBinding,
   RuntimeConfiguredAgentCapabilities,
+  RuntimeConfiguredAgentGuardrail,
   RuntimeDesiredStateSettings,
 } from './runtime-settings-types.js';
 
@@ -92,6 +93,31 @@ function parseConfiguredAgentCapabilities(
       `${pathPrefix}.mcp_server_ids`,
     ),
   };
+}
+
+function parseConfiguredAgentGuardrail(
+  raw: unknown,
+  pathPrefix: string,
+): RuntimeConfiguredAgentGuardrail | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`${pathPrefix} must be a mapping`);
+  }
+  const map = raw as Record<string, unknown>;
+  for (const key of Object.keys(map)) {
+    if (key !== 'policy' && key !== 'model') {
+      throw new Error(
+        `${pathPrefix}.${key} is not supported. Configure policy or model.`,
+      );
+    }
+  }
+  const policy = parseStringValue(map.policy, `${pathPrefix}.policy`);
+  const model = parseStringValue(map.model, `${pathPrefix}.model`);
+  const resolved = resolveModelSelection(model);
+  if (!resolved.ok) {
+    throw new Error(`${pathPrefix}.model is invalid: ${resolved.message}`);
+  }
+  return { policy, model };
 }
 
 function parseConfiguredAgentBindings(
@@ -238,11 +264,12 @@ export function parseConfiguredAgents(
         key !== 'model' &&
         key !== 'one_time_job_default_model' &&
         key !== 'recurring_job_default_model' &&
+        key !== 'guardrail' &&
         key !== 'bindings' &&
         key !== 'capabilities'
       ) {
         throw new Error(
-          `${pathPrefix}.${key} is not supported. Configure name, persona, model, job model defaults, bindings, or capabilities.`,
+          `${pathPrefix}.${key} is not supported. Configure name, persona, model, job model defaults, guardrail, bindings, or capabilities.`,
         );
       }
     }
@@ -295,6 +322,10 @@ export function parseConfiguredAgents(
       model,
       oneTimeJobDefaultModel,
       recurringJobDefaultModel,
+      guardrail: parseConfiguredAgentGuardrail(
+        map.guardrail,
+        `${pathPrefix}.guardrail`,
+      ),
       bindings: parseConfiguredAgentBindings(
         map.bindings,
         `${pathPrefix}.bindings`,

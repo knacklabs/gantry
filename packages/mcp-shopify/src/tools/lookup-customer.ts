@@ -8,6 +8,7 @@ import type { ShopifyClient } from '../shopify/client.js';
 import type { ShopifyCustomer } from '../shopify/types.js';
 import { normalizeEmail, normalizePhone } from '../privacy/guard.js';
 import { resolveEffectiveIdentity } from '../privacy/effective-identity.js';
+import { customerVerifiedPhoneNotFoundError } from '../privacy/customer-safe-response.js';
 import { jsonContent, toolErrorContent } from './shared.js';
 
 const inputSchema = {
@@ -16,14 +17,14 @@ const inputSchema = {
     .min(4)
     .optional()
     .describe(
-      'Customer phone (e.g. +919876543210 or 9876543210). Must match the verified caller. At least one of phone/email is required.',
+      'Customer phone (e.g. +919876543210 or 9876543210). In customer conversations, this must match the phone number being used to message. At least one of phone/email is required only for operator lookups without channel identity.',
     ),
   email: z
     .string()
     .email()
     .optional()
     .describe(
-      'Customer email. Must match the verified caller. At least one of phone/email is required.',
+      'Customer email. In customer conversations, this must belong to the same customer as the phone number being used to message. At least one of phone/email is required only for operator lookups without channel identity.',
     ),
 };
 
@@ -86,22 +87,18 @@ async function lookupByEmail(
 export function registerLookupCustomer(
   server: McpServer,
   client: ShopifyClient,
+  options: { requireVerifiedIdentity?: boolean } = {},
 ): void {
   server.tool(
     'lookup_customer',
-    "Resolve the verified caller's Shopify customer by phone or email. At least one must be supplied; both work if the channel-verified identity authenticated both. Prefers phone match, falls back to email. Returns found=false on no match.",
+    "Resolve the current customer's Shopify customer record by phone or email. In customer conversations, omit phone/email unless the user explicitly provided them; supplied values must belong to the same customer as the phone number being used to message. Operator lookups without channel identity require at least one of phone/email. Prefers phone match, falls back to email. Returns found=false on no match.",
     inputSchema,
     async (args) => {
-      if (!args.phone && !args.email) {
-        return toolErrorContent(
-          'INVALID_REQUEST',
-          'phone or email is required',
-        );
-      }
       try {
         const identity = resolveEffectiveIdentity({
           callerPhone: args.phone,
           callerEmail: args.email,
+          requireVerifiedIdentity: options.requireVerifiedIdentity ?? false,
         });
 
         // Phone path first when available — preferred identity axis.
@@ -130,6 +127,12 @@ export function registerLookupCustomer(
           }
         }
 
+        if (identity.requireVerifiedIdentity) {
+          throw customerVerifiedPhoneNotFoundError(
+            'CALLER_NOT_FOUND',
+            'verified phone did not match any Shopify customer',
+          );
+        }
         return jsonContent({ found: false });
       } catch (err) {
         return toolErrorContent(err);

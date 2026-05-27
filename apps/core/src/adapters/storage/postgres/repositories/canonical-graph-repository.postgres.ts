@@ -69,6 +69,7 @@ export function jsonb(value: unknown): unknown {
   } catch (err) {
     throw new Error(
       `Invalid JSON string passed to jsonb column writer: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
     );
   }
 }

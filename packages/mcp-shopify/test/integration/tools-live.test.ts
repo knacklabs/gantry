@@ -26,8 +26,9 @@ interface RegisteredTool {
 }
 
 function readRegistry(server: McpServer): Record<string, RegisteredTool> {
-  return (server as unknown as { _registeredTools: Record<string, RegisteredTool> })
-    ._registeredTools;
+  return (
+    server as unknown as { _registeredTools: Record<string, RegisteredTool> }
+  )._registeredTools;
 }
 
 interface LiveHarness {
@@ -37,7 +38,7 @@ interface LiveHarness {
     args: Record<string, unknown>,
   ) => Promise<{
     data?: unknown;
-    error?: { code: string; message: string };
+    error?: { code?: string; message: string };
     raw: unknown;
   }>;
 }
@@ -80,7 +81,11 @@ beforeAll(() => {
         result.isError ||
         (raw && typeof raw === 'object' && 'error' in (raw as object))
       ) {
-        const err = (raw as { error?: { code: string; message: string } }).error;
+        const err = (raw as { error?: { code: string; message: string } })
+          .error;
+        if (!err && typeof raw === 'string') {
+          return { error: { message: raw }, raw };
+        }
         return { error: err, raw };
       }
       return { data: raw, raw };
@@ -110,21 +115,22 @@ describe.skipIf(!ENABLED)('live Shopify tool integration', () => {
       limit: 25,
     });
     expect(result.error).toBeUndefined();
-    const products = (result.data as {
-      products: Array<{ priceRange: { maxVariantPrice: string } }>;
-    })?.products;
+    const products = (
+      result.data as {
+        products: Array<{ priceRange: { maxVariantPrice: string } }>;
+      }
+    )?.products;
     for (const product of products) {
-      expect(Number.parseFloat(product.priceRange.maxVariantPrice)).toBeLessThanOrEqual(
-        100,
-      );
+      expect(
+        Number.parseFloat(product.priceRange.maxVariantPrice),
+      ).toBeLessThanOrEqual(100);
     }
   });
 
   it('get_product resolves a real handle', async () => {
     const search = await harness.call('search_products', { limit: 1 });
-    const handle = (
-      search.data as { products: Array<{ handle: string }> }
-    ).products[0].handle;
+    const handle = (search.data as { products: Array<{ handle: string }> })
+      .products[0].handle;
     const result = await harness.call('get_product', { handleOrId: handle });
     expect(result.error).toBeUndefined();
     const product = (result.data as { product: { handle: string } | null })
@@ -203,7 +209,7 @@ describe.skipIf(!ENABLED)('live Shopify tool integration', () => {
 
   it('lookup_customer rejects when neither phone nor email is given', async () => {
     const result = await harness.call('lookup_customer', {});
-    expect(result.error?.code).toBe('INVALID_REQUEST');
+    expect(result.error?.code).toBe('PRIVACY_GUARD_FAILED');
   });
 
   it('get_order returns NOT_FOUND for a non-existent order', async () => {

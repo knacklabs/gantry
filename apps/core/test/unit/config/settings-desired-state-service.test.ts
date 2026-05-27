@@ -64,6 +64,9 @@ function makeRepositories(overrides: Record<string, unknown> = {}) {
             }
           : null,
       ),
+      saveServer: vi.fn(async () => undefined),
+      saveVersion: vi.fn(async () => undefined),
+      listVersions: vi.fn(async () => []),
       listAgentBindings: vi.fn(async () => []),
       listAgentBindingsForAgents: vi.fn(async () => []),
     },
@@ -95,6 +98,31 @@ function makeOps(groups: Record<string, any> = {}) {
 }
 
 describe('SettingsDesiredStateService', () => {
+  it('validates configured guardrail policies through an injected registry', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.agents.boondi_support = {
+      name: 'Boondi',
+      folder: 'boondi_support',
+      guardrail: { policy: 'general_support', model: 'haiku' },
+      bindings: {},
+      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [] },
+    };
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories: makeRepositories(),
+      guardrailPolicies: {
+        isRegistered: (policyId) => policyId === 'bss_customer_support',
+        registeredIds: () => ['bss_customer_support'],
+      },
+    });
+
+    const result = await service.reconcile(settings);
+
+    expect(result.invalidReferences).toEqual([
+      'agents.boondi_support.guardrail.policy is invalid: supported policies are bss_customer_support',
+    ]);
+  });
+
   it('validates capability references before reconciliation', async () => {
     const settings = createDefaultRuntimeSettings();
     settings.agents.main_agent = {
@@ -120,6 +148,224 @@ describe('SettingsDesiredStateService', () => {
         'agents.main_agent.capabilities.tool_ids contains unavailable tool tool:read: Tool rule must be readable; use a tool name or scoped Bash rule, not an internal tool ID.',
       ].sort(),
     );
+  });
+
+  it('seeds configured MCP servers before validating fresh database capability references', async () => {
+    const shopifyMcpServerId = 'mcp:shopify-api';
+    const settings = createDefaultRuntimeSettings();
+    settings.desiredState.authoritative = true;
+    settings.mcpServers[shopifyMcpServerId] = {
+      name: 'shopify-api',
+      riskClass: 'medium',
+      config: {
+        transport: 'http',
+        url: 'http://127.0.0.1:8081/mcp',
+        callerIdentity: {
+          mode: 'required',
+          headerName: 'X-Caller-Identity',
+          signingRef: 'SHOPIFY_MCP_IDENTITY_SECRET',
+          source: {
+            kind: 'conversation_jid_phone',
+            jidPrefix: 'wa:',
+          },
+        },
+      },
+      allowedToolPatterns: ['lookup_*'],
+      autoApproveToolPatterns: ['lookup_*'],
+      credentialRefs: [
+        {
+          name: 'SHOPIFY_DEV_SHOP_DOMAIN',
+          target: 'env',
+          key: 'SHOPIFY_DEV_SHOP_DOMAIN',
+        },
+      ],
+    };
+    settings.agents.boondi_support = {
+      name: 'Boondi',
+      folder: 'boondi_support',
+      bindings: {},
+      capabilities: {
+        toolIds: [],
+        skillIds: [],
+        mcpServerIds: [shopifyMcpServerId],
+      },
+    };
+    const mcpServers = new Map<string, { id: string }>();
+    const repositories = makeRepositories({
+      mcpServers: {
+        getServer: vi.fn(async (id: string) => mcpServers.get(id) ?? null),
+        saveServer: vi.fn(async (server: { id: string }) => {
+          mcpServers.set(server.id, server);
+        }),
+        saveVersion: vi.fn(async () => undefined),
+        listVersions: vi.fn(async () => []),
+        listAgentBindings: vi.fn(async () => []),
+        listAgentBindingsForAgents: vi.fn(async () => []),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    const result = await service.reconcile(settings);
+
+    expect(result.invalidReferences).toEqual([]);
+    expect(result.applied).toContain('mcp_server:shopify-api');
+    expect(repositories.mcpServers.saveServer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: shopifyMcpServerId,
+        name: 'shopify-api',
+        status: 'approved',
+      }),
+    );
+    expect(
+      repositories.agents.replaceAgentCapabilityBindings,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mcpBindings: [
+          expect.objectContaining({
+            serverId: shopifyMcpServerId,
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('reuses the same version row when the MCP config hash is unchanged', async () => {
+    // Idempotent reload: settings.yaml unchanged → same configHash → no new
+    // version row, no version-number bump. Verifies the listVersions
+    // lookup short-circuits when nothing meaningful changed.
+    const serverId = 'mcp:shopify-api';
+    const settings = createDefaultRuntimeSettings();
+    settings.desiredState.authoritative = true;
+    settings.mcpServers[serverId] = {
+      name: 'shopify-api',
+      riskClass: 'medium',
+      config: { transport: 'http', url: 'http://127.0.0.1:8081/mcp' },
+      allowedToolPatterns: ['lookup_*'],
+      autoApproveToolPatterns: ['lookup_*'],
+      credentialRefs: [],
+    };
+    settings.agents.boondi_support = {
+      name: 'Boondi',
+      folder: 'boondi_support',
+      bindings: {},
+      capabilities: { toolIds: [], skillIds: [], mcpServerIds: [serverId] },
+    };
+    let savedVersions: any[] = [];
+    let savedServers = new Map<string, any>();
+    const repositories = makeRepositories({
+      mcpServers: {
+        getServer: vi.fn(async (id: string) => savedServers.get(id) ?? null),
+        saveServer: vi.fn(async (s: any) => {
+          savedServers.set(s.id, s);
+        }),
+        saveVersion: vi.fn(async (v: any) => {
+          // Upsert by id (same id replaces).
+          savedVersions = savedVersions.filter((x) => x.id !== v.id).concat(v);
+        }),
+        listVersions: vi.fn(async () => savedVersions),
+        listAgentBindings: vi.fn(async () => []),
+        listAgentBindingsForAgents: vi.fn(async () => []),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    // First reconcile: fresh DB, version 1 written.
+    await service.reconcile(settings);
+    expect(savedVersions).toHaveLength(1);
+    expect(savedVersions[0].version).toBe(1);
+    const firstHash = savedVersions[0].configHash;
+
+    // Second reconcile with IDENTICAL settings.
+    await service.reconcile(settings);
+
+    // Still one version row, still version 1, same hash.
+    expect(savedVersions).toHaveLength(1);
+    expect(savedVersions[0].version).toBe(1);
+    expect(savedVersions[0].configHash).toBe(firstHash);
+  });
+
+  it('bumps to a new version row when the MCP config changes', async () => {
+    // Production scenario: user adds caller_identity (or any other field)
+    // to an existing mcp_servers entry. Before this fix, the second
+    // reconcile would crash on the (server_id, version) unique constraint.
+    // After: new version row with version=2, latestApprovedVersionId
+    // points at the new row, old row is kept as history.
+    const serverId = 'mcp:shopify-api';
+    const baseSettings = () => {
+      const s = createDefaultRuntimeSettings();
+      s.desiredState.authoritative = true;
+      s.mcpServers[serverId] = {
+        name: 'shopify-api',
+        riskClass: 'medium',
+        config: { transport: 'http', url: 'http://127.0.0.1:8081/mcp' },
+        allowedToolPatterns: ['lookup_*'],
+        autoApproveToolPatterns: ['lookup_*'],
+        credentialRefs: [],
+      };
+      s.agents.boondi_support = {
+        name: 'Boondi',
+        folder: 'boondi_support',
+        bindings: {},
+        capabilities: { toolIds: [], skillIds: [], mcpServerIds: [serverId] },
+      };
+      return s;
+    };
+
+    let savedVersions: any[] = [];
+    let savedServers = new Map<string, any>();
+    const repositories = makeRepositories({
+      mcpServers: {
+        getServer: vi.fn(async (id: string) => savedServers.get(id) ?? null),
+        saveServer: vi.fn(async (s: any) => {
+          savedServers.set(s.id, s);
+        }),
+        saveVersion: vi.fn(async (v: any) => {
+          savedVersions = savedVersions.filter((x) => x.id !== v.id).concat(v);
+        }),
+        listVersions: vi.fn(async () => savedVersions),
+        listAgentBindings: vi.fn(async () => []),
+        listAgentBindingsForAgents: vi.fn(async () => []),
+      },
+    });
+    const service = new SettingsDesiredStateService({
+      ops: makeOps(),
+      repositories,
+    });
+
+    // First reconcile: bare config.
+    await service.reconcile(baseSettings());
+
+    // Mutate: add a caller_identity block (changes the configHash).
+    const evolved = baseSettings();
+    evolved.mcpServers[serverId].config = {
+      ...evolved.mcpServers[serverId].config,
+      callerIdentity: {
+        mode: 'required' as const,
+        headerName: 'X-Caller-Identity',
+        signingRef: 'SHOPIFY_MCP_IDENTITY_SECRET',
+        source: { kind: 'conversation_jid_phone' as const, jidPrefix: 'wa:' },
+      },
+    } as any;
+    await service.reconcile(evolved);
+
+    // Two rows now, distinct version numbers, no constraint violation.
+    expect(savedVersions).toHaveLength(2);
+    const sorted = [...savedVersions].sort((a, b) => a.version - b.version);
+    expect(sorted[0].version).toBe(1);
+    expect(sorted[1].version).toBe(2);
+    expect(sorted[0].configHash).not.toBe(sorted[1].configHash);
+    expect(sorted[0].id).not.toBe(sorted[1].id);
+
+    // The server's latestApprovedVersionId points at the NEW version,
+    // so subsequent capability reconciles bind agents to it.
+    const server = savedServers.get(serverId);
+    expect(server.latestApprovedVersionId).toBe(sorted[1].id);
   });
 
   it('reconciles desired agents without deleting DB-only bindings in phase 1', async () => {

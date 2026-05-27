@@ -68,8 +68,33 @@ describe('loadEnv — SHOPIFY_ENV switch', () => {
   });
 
   it('throws when dev credentials are missing in default mode', () => {
+    expect(() => loadEnv({} as NodeJS.ProcessEnv)).toThrow(
+      /SHOPIFY_DEV_SHOP_DOMAIN/,
+    );
+  });
+
+  it('enables customer identity mode when verified identity is required', () => {
+    const env = loadEnv({
+      ...DEV_VARS,
+      SHOPIFY_MCP_REQUIRE_VERIFIED_IDENTITY: 'true',
+      SHOPIFY_MCP_IDENTITY_SECRET: 'test-secret',
+    } as NodeJS.ProcessEnv);
+    expect(env.identity.mode).toBe('required');
+    expect(env.requireVerifiedIdentity).toBe(true);
+  });
+
+  it('keeps admin/operator identity mode when verified identity is not required', () => {
+    const env = loadEnv({ ...DEV_VARS } as NodeJS.ProcessEnv);
+    expect(env.identity.mode).toBe('disabled');
+    expect(env.requireVerifiedIdentity).toBe(false);
+  });
+
+  it('rejects required customer identity mode without a signing secret', () => {
     expect(() =>
-      loadEnv({} as NodeJS.ProcessEnv),
-    ).toThrow(/SHOPIFY_DEV_SHOP_DOMAIN/);
+      loadEnv({
+        ...DEV_VARS,
+        SHOPIFY_MCP_REQUIRE_VERIFIED_IDENTITY: 'true',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/SHOPIFY_MCP_REQUIRE_VERIFIED_IDENTITY=true requires/);
   });
 });

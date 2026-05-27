@@ -35,6 +35,13 @@ Slack, Telegram, Teams, and App/Web conversations must expose the same admin
 behavior for direct/private and group/channel conversations: same-conversation
 origin check, Conversation approver check, and Conversation sender policy.
 
+Customer-facing WhatsApp/Interakt deployments must not pin customer phone
+numbers or customer display names in `settings.yaml`. Keep a non-customer
+agent route template in settings, dynamically materialize inbound `wa:*` DMs
+from real messages, and store customer phone identity only in runtime
+message/session state. Customer senders must not be conversation control
+approvers.
+
 Conversation setup should prefer provider discovery and validation. Pasted Slack,
 Teams, or Telegram IDs are accepted as a fallback only after Gantry verifies
 the bot can see the conversation and post or, for Telegram, that the bot is a member

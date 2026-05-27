@@ -61,7 +61,20 @@ function parseScalar(raw: string): unknown {
   if (value === '{}') return {};
   if (/^-?[0-9]+$/.test(value)) return Number.parseInt(value, 10);
   if (value.startsWith('[') && value.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // Fallback parser below supports unquoted string arrays.
+    }
     return parseStringArray(value);
+  }
+  if (value.startsWith('{') && value.endsWith('}')) {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      // Keep treating non-JSON inline objects as strings.
+    }
   }
   return unquote(value);
 }

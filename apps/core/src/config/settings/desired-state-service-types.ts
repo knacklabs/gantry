@@ -1,5 +1,6 @@
 import type { AgentPersona } from '../../shared/agent-persona.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { GuardrailConfig } from '../../domain/types.js';
 import type {
   AgentRepository,
   ConversationRepository,
@@ -17,7 +18,15 @@ export interface StoredAgentBinding {
   added_at: string;
   requiresTrigger?: boolean;
   conversationKind?: 'dm' | 'channel';
-  agentConfig?: { model?: string; persona?: AgentPersona };
+  agentConfig?: {
+    model?: string;
+    persona?: AgentPersona;
+    guardrail?: GuardrailConfig;
+  };
+  // Marks this binding as a clone-source template for inbound messages whose
+  // external id has no specific route yet. Mirrored from settings.yaml
+  // conversations.<id>.template; the runtime routing layer reads this flag.
+  isTemplate?: boolean;
 }
 
 export interface ConfiguredRoutingBinding {
@@ -50,6 +59,10 @@ export interface SettingsDesiredStateServiceDeps {
   appId?: AppId;
   ops: SettingsDesiredStateOps;
   repositories: SettingsDesiredStateRepositories;
+  guardrailPolicies?: {
+    isRegistered(policyId: string): boolean;
+    registeredIds(): readonly string[];
+  };
   clock?: { now(): string };
 }
 

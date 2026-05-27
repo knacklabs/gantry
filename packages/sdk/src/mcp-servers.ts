@@ -13,7 +13,23 @@ type CreateMcpServerDraftInput = {
   displayName?: string;
   description?: string;
   transport: 'http' | 'sse' | 'stdio_template';
-  config: Record<string, unknown>;
+  config: {
+    transport: 'http' | 'sse' | 'stdio_template';
+    url?: string;
+    templateId?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    headers?: Record<string, string>;
+    callerIdentity?: {
+      mode: 'disabled' | 'required';
+      headerName: string;
+      signingRef: string;
+      source: {
+        kind: 'conversation_jid_phone';
+        jidPrefix: string;
+      };
+    };
+  };
   allowedToolPatterns?: string[];
   autoApproveToolPatterns?: string[];
   credentialRefs?: Array<{

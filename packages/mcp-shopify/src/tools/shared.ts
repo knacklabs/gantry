@@ -207,6 +207,16 @@ export function toolErrorContent(
   message?: string,
 ): ToolContent {
   if (errOrCode instanceof ShopifyAdapterError) {
+    const isCustomerSafe =
+      errOrCode.details &&
+      typeof errOrCode.details === 'object' &&
+      (errOrCode.details as { customerSafe?: unknown }).customerSafe === true;
+    if (isCustomerSafe) {
+      return {
+        content: [{ type: 'text', text: errOrCode.message }],
+        isError: true,
+      };
+    }
     const payload: Record<string, unknown> = {
       code: errOrCode.code,
       message: errOrCode.message,
@@ -216,9 +226,7 @@ export function toolErrorContent(
       if (typeof reason === 'string') payload.reason = reason;
     }
     return {
-      content: [
-        { type: 'text', text: JSON.stringify({ error: payload }) },
-      ],
+      content: [{ type: 'text', text: JSON.stringify({ error: payload }) }],
       isError: true,
     };
   }

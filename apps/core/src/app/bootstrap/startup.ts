@@ -83,6 +83,11 @@ export async function runStartup(
       'Skipping settings desired-state startup reconcile because GANTRY_SKIP_RECONCILE_ON_STARTUP=1',
     );
   }
+  // Snapshot provider + agent settings on the app so the routing layer can
+  // consult providers.<id>.default_agent and look up agent display names.
+  app.setProviderSettings(runtimeSettings.providers);
+  app.setAgentsSettings(runtimeSettings.agents);
+  assertInteraktInboundRoutingConfigured(runtimeSettings, resolved.logger);
   await app.loadState();
   await ensureFreshRuntimeHasDefaultAgent(
     app,
@@ -122,6 +127,75 @@ async function ensureFreshRuntimeHasDefaultAgent(
   logger.info(
     { jid, folder: DEFAULT_AGENT_FOLDER },
     'Registered default agent id main_agent for fresh runtime',
+  );
+}
+
+/**
+ * If the Interakt provider is enabled, the runtime needs at least one way to
+ * route NEW inbound `wa:*` customers to an agent. Fail fast at startup if
+ * none is configured — otherwise new customers would be dropped at
+ * first-message time with only a per-message warn log.
+ *
+ * Acceptable routing sources for new customers (any one is enough):
+ *   - providers.interakt.default_agent — synthesizes a route per customer
+ *   - a conversation flagged template: true with external_id starting `wa:`
+ *     — clone source for new wa:* customers
+ *
+ * Note: a `wa:<phone>` conversation entry without template:true only routes
+ * that ONE customer; it is NOT a routing source for new customers. And a
+ * template:true conversation outside the wa:* JID space (e.g. tg:*) belongs
+ * to a different provider and won't help Interakt routing — see
+ * channel-persistence-handlers.findInteraktDirectRouteTemplate.
+ *
+ * This check inspects settings.yaml only; it doesn't consult the DB. The
+ * intent is that settings.yaml fully describes how new customers reach an
+ * agent. Stale DB-only state isn't a substitute for declared intent.
+ */
+function assertInteraktInboundRoutingConfigured(
+  runtimeSettings: RuntimeSettings,
+  logger: StartupDeps['logger'],
+): void {
+  const interakt = runtimeSettings.providers?.interakt;
+  if (!interakt?.enabled) return;
+
+  // Resolve each conversation to its registered JID so this check uses the
+  // exact same identity space as the routing layer
+  // (channel-persistence-handlers.findInteraktDirectRouteTemplate matches by
+  // JID prefix). Going through jidForConfiguredConversation means the two
+  // can't drift if the JID-derivation rules change in the future.
+  const interaktTemplateJids: string[] = [];
+  const providerConnections = runtimeSettings.providerConnections ?? {};
+  for (const conversation of Object.values(
+    runtimeSettings.conversations ?? {},
+  )) {
+    if (conversation.isTemplate !== true) continue;
+    const connection = providerConnections[conversation.providerConnection];
+    const jid =
+      connection?.provider === 'interakt' &&
+      !conversation.externalId.startsWith('wa:')
+        ? `wa:${conversation.externalId}`
+        : conversation.externalId;
+    if (jid.startsWith('wa:')) interaktTemplateJids.push(jid);
+  }
+
+  // Ambiguity warning: more than one wa:* template means the matcher picks
+  // by iteration order, which is non-deterministic relative to user intent.
+  if (interaktTemplateJids.length > 1) {
+    logger.warn(
+      { templates: interaktTemplateJids },
+      'Multiple template:true conversations are configured in the wa:* JID space. ' +
+        'The routing layer picks one arbitrarily; consider consolidating to a single template.',
+    );
+  }
+
+  if (interakt.defaultAgent) return;
+  if (interaktTemplateJids.length > 0) return;
+  throw new Error(
+    'Interakt is enabled but no inbound routing is configured for new ' +
+      'customers. Add `providers.interakt.default_agent: <agent_folder>` or ' +
+      'a `template: true` conversation with `id: "wa:..."` to ' +
+      '~/gantry/settings.yaml. New inbound provider customers cannot be ' +
+      'routed.',
   );
 }
 

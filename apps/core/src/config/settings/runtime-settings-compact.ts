@@ -40,12 +40,13 @@ function compactProviderToVerbose(
   assertSupportedKeys(
     map,
     `providers.${providerId}`,
-    new Set(['enabled', 'default_connection', 'label']),
+    new Set(['enabled', 'default_connection', 'default_agent', 'label']),
     (key) => key.endsWith('_env'),
   );
   const provider: Record<string, unknown> = {
     enabled: map.enabled,
     default_connection: map.default_connection,
+    default_agent: map.default_agent,
   };
   const secretRefs: Record<string, string> = {};
   for (const [key, value] of Object.entries(map)) {
@@ -247,6 +248,7 @@ function normalizeCompactConversations(
         'requires_trigger',
         'memory_scope',
         'model',
+        'template',
       ]),
     );
     const providerId =
@@ -269,6 +271,7 @@ function normalizeCompactConversations(
       sender_policy: conversationRaw.sender_policy,
       control_approvers:
         conversationRaw.approvers ?? conversationRaw.control_approvers,
+      template: conversationRaw.template,
     };
     if (conversationRaw.agent !== undefined) {
       bindings[conversationId] = {

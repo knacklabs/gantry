@@ -13,7 +13,7 @@
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": false,
-    "sourceMap": false
+    "sourceMap": true
   },
   "include": ["apps/core/src/**/*"],
   "exclude": ["node_modules", "dist", "apps/core/src/**/*.test.ts"]

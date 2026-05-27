@@ -17,6 +17,7 @@ export interface ClaudeQueryOpts {
   model: string;
   prompt: string;
   systemPrompt?: string;
+  disableTools?: boolean;
   userBlocks?: Array<{
     text: string;
     cacheStatic?: boolean;
@@ -160,6 +161,7 @@ async function runWithOnecli(opts: ClaudeQueryOpts): Promise<string> {
     options: {
       model: opts.model,
       maxTurns: 1,
+      ...(opts.disableTools ? { tools: [] as [] } : {}),
       env: sdkEnv,
     },
   }) as AsyncIterable<unknown>;

@@ -127,7 +127,7 @@ describe('PgBossSchedulerEngine', () => {
   it('passes persisted Postgres timestamps to pg-boss as dates', async () => {
     const job = createJob({
       schedule_value: '2026-05-19T09:30:00+05:30',
-      next_run: '2026-05-19 04:00:00+00',
+      next_run: '2099-05-19 04:00:00+00',
     });
     const send = vi.fn().mockResolvedValue(undefined);
     const boss = {
@@ -161,9 +161,9 @@ describe('PgBossSchedulerEngine', () => {
 
     expect(send).toHaveBeenCalledWith(
       'gantry.jobs',
-      { jobId: 'job-1', scheduledFor: '2026-05-19 04:00:00+00' },
+      { jobId: 'job-1', scheduledFor: '2099-05-19 04:00:00+00' },
       expect.objectContaining({
-        startAfter: new Date('2026-05-19T04:00:00.000Z'),
+        startAfter: new Date('2099-05-19T04:00:00.000Z'),
       }),
     );
   });

@@ -31,11 +31,16 @@ export interface ToolHarness {
   call: <T = unknown>(
     name: string,
     args: Record<string, unknown>,
-  ) => Promise<{ data?: T; error?: { code: string; message: string }; raw: unknown }>;
+  ) => Promise<{
+    data?: T;
+    error?: { code?: string; message: string };
+    raw: unknown;
+  }>;
 }
 
 export interface BuildHarnessOptions {
   identityCache?: CustomerIdentityCache;
+  requireVerifiedIdentity?: boolean;
 }
 
 export function buildToolHarness(
@@ -59,7 +64,10 @@ export function buildToolHarness(
     maxDelayMs: 4,
   });
   const server = new McpServer({ name: 'test', version: '0.0.0' });
-  registerAllTools(server, client, { identityCache: options.identityCache });
+  registerAllTools(server, client, {
+    identityCache: options.identityCache,
+    requireVerifiedIdentity: options.requireVerifiedIdentity ?? false,
+  });
 
   const registry = readRegisteredTools(server);
 
@@ -86,10 +94,18 @@ export function buildToolHarness(
         result.isError ||
         (raw && typeof raw === 'object' && 'error' in (raw as object))
       ) {
-        const err = (raw as { error?: { code: string; message: string } }).error;
+        const err = (raw as { error?: { code: string; message: string } })
+          .error;
+        if (!err && typeof raw === 'string') {
+          return { error: { message: raw }, raw } as {
+            data?: T;
+            error?: { code?: string; message: string };
+            raw: unknown;
+          };
+        }
         return { error: err, raw } as {
           data?: T;
-          error?: { code: string; message: string };
+          error?: { code?: string; message: string };
           raw: unknown;
         };
       }
@@ -98,8 +114,12 @@ export function buildToolHarness(
   };
 }
 
-function readRegisteredTools(server: McpServer): Record<string, RegisteredTool> {
-  const internal = server as unknown as { _registeredTools?: Record<string, RegisteredTool> };
+function readRegisteredTools(
+  server: McpServer,
+): Record<string, RegisteredTool> {
+  const internal = server as unknown as {
+    _registeredTools?: Record<string, RegisteredTool>;
+  };
   if (internal._registeredTools) return internal._registeredTools;
   throw new Error('Could not introspect McpServer registered tools');
 }

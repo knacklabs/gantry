@@ -1,9 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { buildToolHarness } from '../../helpers/tool-harness.js';
 import { buildMockFetch } from '../../helpers/mock-fetch.js';
-import { customersEdges, graphqlOk, ordersEdges } from '../../fixtures/responses.js';
+import {
+  customersEdges,
+  graphqlOk,
+  ordersEdges,
+} from '../../fixtures/responses.js';
 import { KNOWN_CUSTOMER } from '../../fixtures/customers.js';
 import { CustomerIdentityCache } from '../../../src/privacy/customer-identity-cache.js';
+import { runWithIdentity } from '../../../src/identity/identity-context.js';
+import { CUSTOMER_VERIFIED_PHONE_NOT_FOUND_MESSAGE } from '../../../src/privacy/customer-safe-response.js';
+
+const VERIFIED_KNOWN_CUSTOMER = {
+  phone: KNOWN_CUSTOMER.phone,
+  issuedAtMs: Date.now(),
+};
 
 describe('CustomerIdentityCache cross-call behavior', () => {
   it('second list_orders_for_customer call hits the cache and skips the identity lookup', async () => {
@@ -16,31 +27,46 @@ describe('CustomerIdentityCache cross-call behavior', () => {
         graphqlOk(customersEdges([KNOWN_CUSTOMER])),
         graphqlOk(
           ordersEdges([
-            { name: 'BSS-3001', customer: KNOWN_CUSTOMER, createdAt: '2026-05-17T10:00:00Z' },
+            {
+              name: 'BSS-3001',
+              customer: KNOWN_CUSTOMER,
+              createdAt: '2026-05-17T10:00:00Z',
+            },
           ]),
         ),
         graphqlOk(
           ordersEdges([
-            { name: 'BSS-3001', customer: KNOWN_CUSTOMER, createdAt: '2026-05-17T10:00:00Z' },
+            {
+              name: 'BSS-3001',
+              customer: KNOWN_CUSTOMER,
+              createdAt: '2026-05-17T10:00:00Z',
+            },
           ]),
         ),
       ],
     });
     const cache = new CustomerIdentityCache({ ttlMs: 60_000 });
-    const harness = buildToolHarness(mock.fetch, { identityCache: cache });
-
-    const first = await harness.call('list_orders_for_customer', {
-      customerId: KNOWN_CUSTOMER.id,
-      callerPhone: KNOWN_CUSTOMER.phone,
+    const harness = buildToolHarness(mock.fetch, {
+      identityCache: cache,
+      requireVerifiedIdentity: true,
     });
+
+    const first = await runWithIdentity(VERIFIED_KNOWN_CUSTOMER, () =>
+      harness.call('list_orders_for_customer', {
+        customerId: KNOWN_CUSTOMER.id,
+        callerPhone: KNOWN_CUSTOMER.phone,
+      }),
+    );
     expect(first.error).toBeUndefined();
 
     const callsAfterFirst = mock.graphqlCallCount();
 
-    const second = await harness.call('list_orders_for_customer', {
-      customerId: KNOWN_CUSTOMER.id,
-      callerPhone: KNOWN_CUSTOMER.phone,
-    });
+    const second = await runWithIdentity(VERIFIED_KNOWN_CUSTOMER, () =>
+      harness.call('list_orders_for_customer', {
+        customerId: KNOWN_CUSTOMER.id,
+        callerPhone: KNOWN_CUSTOMER.phone,
+      }),
+    );
     expect(second.error).toBeUndefined();
 
     // First call did 2 GraphQL hits (identity + list). Second call should
@@ -59,25 +85,35 @@ describe('CustomerIdentityCache cross-call behavior', () => {
       ],
     });
     const cache = new CustomerIdentityCache({ ttlMs: 60_000 });
-    const harness = buildToolHarness(mock.fetch, { identityCache: cache });
+    const harness = buildToolHarness(mock.fetch, {
+      identityCache: cache,
+      requireVerifiedIdentity: true,
+    });
 
     // First call populates cache with KNOWN_CUSTOMER.id
-    await harness.call('list_orders_for_customer', {
-      customerId: KNOWN_CUSTOMER.id,
-      callerPhone: KNOWN_CUSTOMER.phone,
-    });
+    await runWithIdentity(VERIFIED_KNOWN_CUSTOMER, () =>
+      harness.call('list_orders_for_customer', {
+        customerId: KNOWN_CUSTOMER.id,
+        callerPhone: KNOWN_CUSTOMER.phone,
+      }),
+    );
     const callsAfterFirst = mock.graphqlCallCount();
 
     // Second call asks for a DIFFERENT customerId with the same caller phone.
     // Cache says "this phone resolves to KNOWN_CUSTOMER.id, not the one
     // you're asking about" → reject immediately, no Shopify call.
-    const second = await harness.call('list_orders_for_customer', {
-      customerId: 'gid://shopify/Customer/9999999',
-      callerPhone: KNOWN_CUSTOMER.phone,
-    });
-    expect(second.error?.code).toBe('PRIVACY_GUARD_FAILED');
-    expect((second.raw as { error: { reason: string } }).error.reason).toBe(
-      'CUSTOMER_ID_MISMATCH',
+    const second = await runWithIdentity(VERIFIED_KNOWN_CUSTOMER, () =>
+      harness.call('list_orders_for_customer', {
+        customerId: 'gid://shopify/Customer/9999999',
+        callerPhone: KNOWN_CUSTOMER.phone,
+      }),
+    );
+    expect(second.error?.code).toBeUndefined();
+    expect(second.error?.message).toBe(
+      CUSTOMER_VERIFIED_PHONE_NOT_FOUND_MESSAGE,
+    );
+    expect(JSON.stringify(second.raw)).not.toMatch(
+      /Gantry|MCP|config|identity[_ -]?header|X-Caller|privacy[ _-]?guard|PRIVACY_GUARD|signed channel|admin bypass|Shopify Admin|bypass|tool error|error code/i,
     );
     expect(mock.graphqlCallCount()).toBe(callsAfterFirst);
     harness.tokenManager.stop();
@@ -92,16 +128,22 @@ describe('CustomerIdentityCache cross-call behavior', () => {
         graphqlOk(ordersEdges([{ name: 'BSS-1', customer: KNOWN_CUSTOMER }])),
       ],
     });
-    const harness = buildToolHarness(mock.fetch); // no cache
+    const harness = buildToolHarness(mock.fetch, {
+      requireVerifiedIdentity: true,
+    }); // no cache
 
-    await harness.call('list_orders_for_customer', {
-      customerId: KNOWN_CUSTOMER.id,
-      callerPhone: KNOWN_CUSTOMER.phone,
-    });
-    await harness.call('list_orders_for_customer', {
-      customerId: KNOWN_CUSTOMER.id,
-      callerPhone: KNOWN_CUSTOMER.phone,
-    });
+    await runWithIdentity(VERIFIED_KNOWN_CUSTOMER, () =>
+      harness.call('list_orders_for_customer', {
+        customerId: KNOWN_CUSTOMER.id,
+        callerPhone: KNOWN_CUSTOMER.phone,
+      }),
+    );
+    await runWithIdentity(VERIFIED_KNOWN_CUSTOMER, () =>
+      harness.call('list_orders_for_customer', {
+        customerId: KNOWN_CUSTOMER.id,
+        callerPhone: KNOWN_CUSTOMER.phone,
+      }),
+    );
     // 4 calls total: 2 lookups + 2 list queries
     expect(mock.graphqlCallCount()).toBe(4);
     harness.tokenManager.stop();
