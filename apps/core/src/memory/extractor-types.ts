@@ -1,6 +1,8 @@
 import { MemoryKind, MemoryScope } from './memory-types.js';
+import type { AppId } from '../domain/app/app.js';
 
 export interface ArcExtractionInput {
+  appId: AppId;
   turns: Array<{ role: 'user' | 'assistant'; text: string }>;
   trigger: 'precompact' | 'session-end';
   userId?: string;

@@ -49,6 +49,7 @@ Examples:
 - webhook secret
 - control API secret
 - `SECRET_ENCRYPTION_KEY`
+- `SECRET_ENCRYPTION_KEYRING_JSON`
 
 Runtime-owned secrets are never injected into an agent runner. They are checked
 by runtime preflight, doctor, channel setup, storage readiness, and credential
@@ -61,8 +62,15 @@ must not contain non-secret settings such as model access state or gateway URLs.
 
 Capability credentials are the central store for simple env-var-shaped secrets
 needed by approved agent capabilities. They are encrypted with
-`SECRET_ENCRYPTION_KEY` in the Gantry Postgres schema and are never written to
-`settings.yaml`.
+the Gantry credential secret envelope in Postgres and are never written to
+`settings.yaml`. The envelope format is `gcred:v2:<key-id>:...` and uses
+AES-256-GCM with metadata-bound AAD. Operator-pasted values that look like an
+envelope are still encrypted as plaintext input; there is no prefix passthrough.
+
+`SECRET_ENCRYPTION_KEY` may hold one active base64-encoded 32-byte key. For
+rotation, use `SECRET_ENCRYPTION_KEYRING_JSON` with an `active` key id and a
+`keys` object of key-id to base64 key values. New writes use the active key;
+reads can decrypt any configured key id in the keyring.
 
 Examples:
 
@@ -200,8 +208,9 @@ providers behind Gantry Credential Center. They must not add ad hoc runtime
 
 The Gantry Model Gateway is the only active local model credential path. It
 stores provider credentials in `model_credentials` rows encrypted with
-`SECRET_ENCRYPTION_KEY`, stores the selected provider `authMode` as non-secret
-metadata, exposes redacted status through the Control API and
+the same `gcred:v2` metadata-bound envelope, stores the selected provider
+`authMode` as non-secret metadata, exposes redacted status through the Control
+API and
 `gantry credentials model status`, and serves per-run loopback HTTP endpoints
 for Anthropic, OpenRouter, and OpenAI embedding traffic.
 
@@ -223,6 +232,13 @@ All user-entered credential and provider configuration values stay in the
 encrypted structured payload. Read surfaces return only provider label, role,
 workloads, selected `authMode`, credential modes, field metadata, configured
 field names, fingerprints, health, and timestamps.
+
+Gateway tokens are app-scoped, run-scoped, provider-scoped, and bound to the
+credential fingerprint, `authMode`, and schema version present at token issue.
+Credential disable or rotation invalidates previously issued tokens instead of
+letting them reuse newer secrets. Gateway requests are POST-only, path-confined
+under the provider route and upstream prefix, size-limited, timeout-bound, and
+proxied through request/response header allowlists.
 
 Control API semantics:
 

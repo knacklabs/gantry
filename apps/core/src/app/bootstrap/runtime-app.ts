@@ -157,6 +157,14 @@ export function createRuntimeApp(options: RuntimeAppOptions = {}): RuntimeApp {
     const brokerConfig = getCredentialBrokerRuntimeConfig();
     const configKey = `${brokerConfig.mode}:${brokerConfig.gatewayBindHost}`;
     if (credentialBrokerConfigKey !== configKey) {
+      void credentialBrokerPromise
+        ?.then((broker) => broker?.close?.())
+        .catch((error) => {
+          logger.warn(
+            { err: error },
+            'Failed to close replaced credential broker',
+          );
+        });
       credentialBrokerPromise = undefined;
       credentialBrokerConfigKey = configKey;
     }

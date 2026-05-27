@@ -1,3 +1,5 @@
+import type { AppId } from '../app/app.js';
+
 export interface MemoryLlmModelProfile {
   alias: string;
   runnerModel: string;
@@ -8,6 +10,7 @@ export interface MemoryLlmModelProfile {
 }
 
 export interface MemoryLlmQueryOpts {
+  appId: AppId;
   model: string;
   modelProfile?: MemoryLlmModelProfile;
   prompt: string;

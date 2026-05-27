@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import http from 'node:http';
+import { createHash } from 'node:crypto';
 
 import { GantryModelGatewayBroker } from '@core/adapters/llm/anthropic-claude-agent/gantry-model-gateway.js';
 import type { AppId } from '@core/domain/app/app.js';
@@ -31,7 +32,10 @@ class MutableModelCredentialRepository implements ModelCredentialRepository {
     payload: Record<string, string>,
   ): void {
     const now = new Date().toISOString();
-    const fingerprint = `fp:${providerId}:${JSON.stringify(payload).length}`;
+    const fingerprint = `fp:${providerId}:${createHash('sha256')
+      .update(JSON.stringify(payload))
+      .digest('hex')
+      .slice(0, 8)}`;
     this.rows.set(`${appId}:${providerId}`, {
       id: `model-credential:${providerId}` as never,
       appId,
@@ -90,7 +94,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function gatewayRequest(input: { url: string; token: string }): Promise<{
+function gatewayRequest(input: {
+  url: string;
+  token: string;
+  method?: string;
+  headers?: http.OutgoingHttpHeaders;
+  body?: string;
+}): Promise<{
   status: number;
   body: string;
   headers: http.IncomingHttpHeaders;
@@ -99,10 +109,11 @@ function gatewayRequest(input: { url: string; token: string }): Promise<{
     const req = http.request(
       input.url,
       {
-        method: 'POST',
+        method: input.method ?? 'POST',
         headers: {
           'x-api-key': input.token,
           'content-type': 'application/json',
+          ...input.headers,
         },
       },
       (res) => {
@@ -118,7 +129,7 @@ function gatewayRequest(input: { url: string; token: string }): Promise<{
       },
     );
     req.on('error', reject);
-    req.end('{}');
+    req.end(input.method === 'GET' ? undefined : (input.body ?? '{}'));
   });
 }
 
@@ -172,6 +183,40 @@ function gatewayStreamingRequest(input: { url: string; token: string }): {
   return { firstChunk, done };
 }
 
+function gatewayRawPathRequest(input: {
+  baseUrl: string;
+  path: string;
+  token: string;
+}): Promise<{ status: number; body: string }> {
+  const base = new URL(input.baseUrl);
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: base.hostname,
+        port: base.port,
+        path: `${base.pathname}${input.path}`,
+        method: 'POST',
+        headers: {
+          'x-api-key': input.token,
+          'content-type': 'application/json',
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        res.on('end', () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString('utf-8'),
+          }),
+        );
+      },
+    );
+    req.on('error', reject);
+    req.end('{}');
+  });
+}
+
 describe('GantryModelGatewayBroker', () => {
   it('projects only a loopback URL and run-scoped token', async () => {
     const repo = new MutableModelCredentialRepository();
@@ -190,23 +235,23 @@ describe('GantryModelGatewayBroker', () => {
       expect(injection).toMatchObject({
         applied: true,
         brokerProfile: 'gantry',
-        credentialProviders: { ANTHROPIC_API_KEY: 'native' },
+        credentialProviders: { [anthropicApiKeyKey]: 'native' },
       });
-      expect(injection.env.ANTHROPIC_BASE_URL).toMatch(
+      expect(injection.env[anthropicBaseUrlKey]).toMatch(
         /^http:\/\/127\.0\.0\.1:\d+\/anthropic$/,
       );
-      expect(injection.env.ANTHROPIC_API_KEY).toMatch(/^gtw_/);
-      expect(injection.env.ANTHROPIC_API_KEY).not.toContain('sk-ant');
+      expect(injection.env[anthropicApiKeyKey]).toMatch(/^gtw_/);
+      expect(injection.env[anthropicApiKeyKey]).not.toContain('sk-ant');
     } finally {
       await broker.close();
     }
   });
 
-  it('honors configured loopback bind hosts only', async () => {
+  it('honors numeric loopback bind hosts only', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.set('anthropic', 'sk-ant-upstream');
     const broker = new GantryModelGatewayBroker(repo, {
-      bindHost: 'localhost',
+      bindHost: '::1',
     });
     try {
       const injection = await broker.getInjection({
@@ -217,19 +262,22 @@ describe('GantryModelGatewayBroker', () => {
           modelRouteId: 'anthropic',
         },
       });
-      expect(injection.env.ANTHROPIC_BASE_URL).toMatch(
-        /^http:\/\/localhost:\d+\/anthropic$/,
+      expect(injection.env[anthropicBaseUrlKey]).toMatch(
+        /^http:\/\/\[::1\]:\d+\/anthropic$/,
       );
     } finally {
       await broker.close();
     }
 
     expect(
+      () => new GantryModelGatewayBroker(repo, { bindHost: 'localhost' }),
+    ).toThrow('numeric loopback');
+    expect(
       () => new GantryModelGatewayBroker(repo, { bindHost: '0.0.0.0' }),
-    ).toThrow('loopback host');
+    ).toThrow('numeric loopback');
   });
 
-  it('authenticates run tokens and hot-loads the latest provider credential', async () => {
+  it('authenticates run tokens and rejects them after credential rotation', async () => {
     const repo = new MutableModelCredentialRepository();
     repo.set('anthropic', 'sk-ant-old');
     const upstreamFetch = vi.fn(async () => new Response('{"ok":true}'));
@@ -246,10 +294,8 @@ describe('GantryModelGatewayBroker', () => {
           modelRouteId: 'anthropic',
         },
       });
-      repo.set('anthropic', 'sk-ant-new');
-
       const unauthorized = await gatewayRequest({
-        url: `${injection.env.ANTHROPIC_BASE_URL}/v1/messages`,
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
         token: 'gtw_wrong',
       });
       expect(unauthorized.status).toBe(401);
@@ -265,10 +311,16 @@ describe('GantryModelGatewayBroker', () => {
         expect.objectContaining({
           method: 'POST',
           headers: expect.objectContaining({
-            'x-api-key': 'sk-ant-new',
+            'x-api-key': 'sk-ant-old',
           }),
         }),
       );
+      repo.set('anthropic', 'sk-ant-new');
+      const afterRotate = await gatewayRequest({
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
+      });
+      expect(afterRotate.status).toBe(401);
       expect(audit).toHaveBeenCalledWith(
         expect.objectContaining({
           appId,
@@ -284,7 +336,7 @@ describe('GantryModelGatewayBroker', () => {
           }),
         }),
       );
-      expect(JSON.stringify(audit.mock.calls)).not.toContain('sk-ant-new');
+      expect(JSON.stringify(audit.mock.calls)).not.toContain('sk-ant-old');
 
       await broker.revokeInjection({
         binding: {
@@ -296,8 +348,8 @@ describe('GantryModelGatewayBroker', () => {
         },
       });
       const afterRevoke = await gatewayRequest({
-        url: `${injection.env.ANTHROPIC_BASE_URL}/v1/messages`,
-        token: injection.env.ANTHROPIC_API_KEY!,
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
       });
       expect(afterRevoke.status).toBe(401);
     } finally {
@@ -341,8 +393,8 @@ describe('GantryModelGatewayBroker', () => {
       });
 
       const response = gatewayStreamingRequest({
-        url: `${injection.env.ANTHROPIC_BASE_URL}/v1/messages`,
-        token: injection.env.ANTHROPIC_API_KEY!,
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
       });
 
       await expect(response.firstChunk).resolves.toBe('data: first\n\n');
@@ -414,8 +466,8 @@ describe('GantryModelGatewayBroker', () => {
       repo.disable('anthropic');
 
       const response = await gatewayRequest({
-        url: `${injection.env.ANTHROPIC_BASE_URL}/v1/messages`,
-        token: injection.env.ANTHROPIC_API_KEY!,
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
       });
 
       expect(response.status).toBe(503);
@@ -442,12 +494,168 @@ describe('GantryModelGatewayBroker', () => {
       });
 
       const response = await gatewayRequest({
-        url: `${injection.env.ANTHROPIC_BASE_URL}/v1/messages`,
-        token: injection.env.ANTHROPIC_API_KEY!,
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
       });
 
       expect(response.status).toBe(401);
-      expect(response.body).toContain('Expired model gateway token');
+      expect(response.body).toContain('Unauthorized model gateway request');
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('requires app-scoped bindings for token issue and revocation', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-ant-upstream');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{"ok":true}')),
+    );
+    const broker = new GantryModelGatewayBroker(repo);
+    try {
+      await expect(
+        broker.getInjection({
+          binding: {
+            profile: 'gantry',
+            purpose: 'model_runtime',
+            modelRouteId: 'anthropic',
+          },
+        }),
+      ).rejects.toThrow('requires appId');
+
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          runId: 'run:scoped-revoke' as never,
+          modelRouteId: 'anthropic',
+        },
+      });
+      await expect(
+        broker.revokeInjection({
+          binding: {
+            profile: 'gantry',
+            purpose: 'model_runtime',
+            appId,
+            modelRouteId: 'anthropic',
+          },
+        }),
+      ).rejects.toThrow('requires runId');
+
+      const response = await gatewayRequest({
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
+      });
+      expect(response.status).toBe(200);
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('rejects method and path attempts outside the provider route before upstream fetch', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('openrouter', 'sk-or-upstream');
+    const upstreamFetch = vi.fn(async () => new Response('should not call'));
+    vi.stubGlobal('fetch', upstreamFetch);
+    const broker = new GantryModelGatewayBroker(repo);
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          runId: 'run:path-method' as never,
+          modelRouteId: 'openrouter',
+        },
+      });
+
+      const wrongMethod = await gatewayRequest({
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
+        method: 'GET',
+      });
+      expect(wrongMethod.status).toBe(405);
+
+      const traversal = await gatewayRawPathRequest({
+        baseUrl: injection.env[anthropicBaseUrlKey]!,
+        path: '/api/%2e%2e/v1/messages',
+        token: injection.env[anthropicApiKeyKey]!,
+      });
+      expect(traversal.status).toBe(400);
+
+      const disallowedPath = await gatewayRequest({
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/anything`,
+        token: injection.env[anthropicApiKeyKey]!,
+      });
+      expect(disallowedPath.status).toBe(400);
+      expect(upstreamFetch).not.toHaveBeenCalled();
+    } finally {
+      await broker.close();
+    }
+  });
+
+  it('allowlists proxy headers in both directions', async () => {
+    const repo = new MutableModelCredentialRepository();
+    repo.set('anthropic', 'sk-ant-upstream');
+    const upstreamFetch = vi.fn(
+      async () =>
+        new Response('{"ok":true}', {
+          headers: {
+            'content-type': 'application/json',
+            'set-cookie': 'session=leak',
+            server: 'upstream',
+          },
+        }),
+    );
+    vi.stubGlobal('fetch', upstreamFetch);
+    const broker = new GantryModelGatewayBroker(repo);
+    try {
+      const injection = await broker.getInjection({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId,
+          runId: 'run:headers' as never,
+          modelRouteId: 'anthropic',
+        },
+      });
+      const response = await gatewayRequest({
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
+        headers: {
+          cookie: 'agent-cookie=leak',
+          'proxy-authorization': 'Basic leak',
+          'x-forwarded-for': '10.0.0.1',
+          origin: 'https://agent.example',
+          'anthropic-version': '2023-06-01',
+        },
+      });
+
+      expect(response.status).toBe(200);
+      expect(upstreamFetch).toHaveBeenCalledWith(
+        expect.any(URL),
+        expect.objectContaining({
+          headers: expect.not.objectContaining({
+            cookie: expect.any(String),
+            'proxy-authorization': expect.any(String),
+            'x-forwarded-for': expect.any(String),
+            origin: expect.any(String),
+          }),
+        }),
+      );
+      expect(upstreamFetch).toHaveBeenCalledWith(
+        expect.any(URL),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'anthropic-version': '2023-06-01',
+            'x-api-key': 'sk-ant-upstream',
+          }),
+        }),
+      );
+      expect(response.headers['set-cookie']).toBeUndefined();
+      expect(response.headers.server).toBeUndefined();
     } finally {
       await broker.close();
     }
@@ -499,8 +707,8 @@ describe('GantryModelGatewayBroker', () => {
       });
 
       const response = await gatewayRequest({
-        url: `${injection.env.ANTHROPIC_BASE_URL}/v1/messages`,
-        token: injection.env.ANTHROPIC_API_KEY!,
+        url: `${injection.env[anthropicBaseUrlKey]}/v1/messages`,
+        token: injection.env[anthropicApiKeyKey]!,
       });
 
       expect(response.status).toBe(502);

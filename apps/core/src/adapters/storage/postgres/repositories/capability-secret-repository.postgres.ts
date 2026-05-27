@@ -48,6 +48,10 @@ export class PostgresCapabilitySecretRepository implements CapabilitySecretRepos
           ...mapMetadata(row),
           value: decryptCapabilitySecretValue(
             row.valueEncrypted,
+            {
+              appId: row.appId,
+              name: row.name,
+            },
             this.runtimeSecrets,
           ),
         }
@@ -91,6 +95,10 @@ export class PostgresCapabilitySecretRepository implements CapabilitySecretRepos
         name,
         valueEncrypted: encryptCapabilitySecretValue(
           input.value,
+          {
+            appId: input.appId,
+            name,
+          },
           this.runtimeSecrets,
         ),
         allowedCapabilityIdsJson: encodeJson(allowedCapabilityIds),
@@ -107,6 +115,10 @@ export class PostgresCapabilitySecretRepository implements CapabilitySecretRepos
         set: {
           valueEncrypted: encryptCapabilitySecretValue(
             input.value,
+            {
+              appId: input.appId,
+              name,
+            },
             this.runtimeSecrets,
           ),
           allowedCapabilityIdsJson: encodeJson(allowedCapabilityIds),
@@ -189,14 +201,33 @@ function toIsoTimestamp(value: string): string {
 
 export function encryptCapabilitySecretValue(
   value: string,
+  context: { appId: string; name: string },
   runtimeSecrets: RuntimeSecretProvider,
 ): string {
-  return encryptCredentialSecretValue(value, runtimeSecrets);
+  return encryptCredentialSecretValue(
+    value,
+    capabilitySecretAadContext(context),
+    runtimeSecrets,
+  );
 }
 
 export function decryptCapabilitySecretValue(
   stored: string,
+  context: { appId: string; name: string },
   runtimeSecrets: RuntimeSecretProvider,
 ): string {
-  return decryptCredentialSecretValue(stored, runtimeSecrets);
+  return decryptCredentialSecretValue(
+    stored,
+    capabilitySecretAadContext(context),
+    runtimeSecrets,
+  );
+}
+
+function capabilitySecretAadContext(context: { appId: string; name: string }) {
+  return {
+    appId: context.appId,
+    subjectKind: 'capability_secret' as const,
+    subjectId: normalizeCapabilitySecretName(context.name),
+    schemaVersion: 1,
+  };
 }

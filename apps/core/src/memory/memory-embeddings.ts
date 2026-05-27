@@ -16,6 +16,7 @@ import {
   listEmbeddingModelProviders,
   normalizeModelProviderId,
 } from '../shared/model-provider-registry.js';
+import { logger } from '../infrastructure/logging/logger.js';
 
 interface EmbeddingResponse {
   data: Array<{ embedding: number[] }>;
@@ -42,13 +43,13 @@ type EmbeddingConnectionResolver = () => Promise<{
 type EmbeddingCredentialConfigurationValidator = () => void;
 interface EmbeddingProviderOptions {
   model?: string;
+  appId?: AppId;
 }
 
 const embeddingProviderFactories = new Map<
   string,
   (options?: EmbeddingProviderOptions) => EmbeddingProvider
 >();
-const DEFAULT_APP_ID = 'default' as AppId;
 const DEFAULT_EMBEDDING_BASE_URL = ['https://api.', 'open', 'ai.com'].join('');
 const OPEN_AI_PROVIDER_ALIAS = ['open', 'ai'].join('');
 let embeddingCredentialBrokerPromise:
@@ -250,12 +251,28 @@ function validateEmbeddingProviderDefinition(providerId: string): void {
   }
 }
 
-async function resolveBrokeredEmbeddingConnection(providerId: string) {
+async function resolveBrokeredEmbeddingConnection(
+  providerId: string,
+  appId: AppId | undefined,
+) {
   validateEmbeddingProviderDefinition(providerId);
+  if (!appId) {
+    throw new Error(
+      'Memory embeddings require an app-scoped credential binding.',
+    );
+  }
   const brokerConfig = getCredentialBrokerRuntimeConfig();
   if (brokerConfig.mode !== 'gantry') return null;
   const configKey = `${brokerConfig.mode}:${brokerConfig.gatewayBindHost}`;
   if (embeddingCredentialBrokerConfigKey !== configKey) {
+    void embeddingCredentialBrokerPromise
+      ?.then((broker) => broker?.close?.())
+      .catch((error) => {
+        logger.warn(
+          { err: error },
+          'Failed to close replaced embedding credential broker',
+        );
+      });
     embeddingCredentialBrokerPromise = undefined;
     embeddingCredentialBrokerConfigKey = configKey;
   }
@@ -263,6 +280,7 @@ async function resolveBrokeredEmbeddingConnection(providerId: string) {
     mode: 'gantry',
     gatewayBindHost: brokerConfig.gatewayBindHost,
     providerId,
+    appId,
   });
 }
 
@@ -270,6 +288,7 @@ async function resolveBrokeredEmbeddingInjectionFromBroker(brokerConfig: {
   mode: 'gantry';
   gatewayBindHost: string;
   providerId: string;
+  appId: AppId;
 }) {
   embeddingCredentialBrokerPromise ??= createAgentCredentialBroker({
     mode: brokerConfig.mode,
@@ -291,7 +310,7 @@ async function resolveBrokeredEmbeddingInjectionFromBroker(brokerConfig: {
   const injection = await getAgentCredentialInjection({
     mode: 'gantry',
     purpose: 'model_runtime',
-    appId: DEFAULT_APP_ID,
+    appId: brokerConfig.appId,
     runId,
     modelCredentialProviderId: providerId,
     broker,
@@ -304,7 +323,7 @@ async function resolveBrokeredEmbeddingInjectionFromBroker(brokerConfig: {
         binding: {
           profile: 'gantry',
           purpose: 'model_runtime',
-          appId: DEFAULT_APP_ID,
+          appId: brokerConfig.appId,
           runId,
           modelCredentialProviderId: providerId,
         },
@@ -385,7 +404,7 @@ for (const provider of listEmbeddingModelProviders()) {
           validateEmbeddingProviderDefinition(provider.id);
         },
         DEFAULT_EMBEDDING_BASE_URL,
-        () => resolveBrokeredEmbeddingConnection(provider.id),
+        () => resolveBrokeredEmbeddingConnection(provider.id, options?.appId),
       ),
   );
 }
@@ -405,7 +424,11 @@ if (
           validateEmbeddingProviderDefinition(defaultEmbeddingProvider.id);
         },
         DEFAULT_EMBEDDING_BASE_URL,
-        () => resolveBrokeredEmbeddingConnection(defaultEmbeddingProvider.id),
+        () =>
+          resolveBrokeredEmbeddingConnection(
+            defaultEmbeddingProvider.id,
+            options?.appId,
+          ),
       ),
   );
 }

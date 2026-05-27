@@ -11,6 +11,7 @@ import { getRuntimeStorage } from '../../storage/postgres/runtime-store.js';
 import type { AgentCredentialBroker } from '../../../domain/ports/agent-credential-broker.js';
 import type { AgentCredentialInjection } from '../../../domain/models/credentials.js';
 import type { AgentRunId } from '../../../domain/events/events.js';
+import type { AppId } from '../../../domain/app/app.js';
 import type { MemoryLlmModelProfile } from '../../../domain/ports/memory-llm-client.js';
 import {
   abortReason,
@@ -27,8 +28,10 @@ import {
   SDK_NATIVE_SKILL_DISABLE_ENV,
   SDK_NATIVE_SKILL_OVERRIDES,
 } from './native-sdk-skills.js';
+import { logger } from '../../../infrastructure/logging/logger.js';
 
 export interface ClaudeQueryOpts {
+  appId: AppId;
   model: string;
   modelProfile?: MemoryLlmModelProfile;
   prompt: string;
@@ -114,6 +117,7 @@ function flattenPrompt(opts: ClaudeQueryOpts): string {
 }
 
 async function resolveGantryMemoryInjection(
+  appId: AppId,
   modelRouteId: ModelRouteId,
   runId: AgentRunId,
 ): Promise<{
@@ -123,6 +127,14 @@ async function resolveGantryMemoryInjection(
   const brokerConfig = getCredentialBrokerRuntimeConfig();
   const configKey = `${brokerConfig.mode}:${brokerConfig.gatewayBindHost}`;
   if (memoryCredentialBrokerConfigKey !== configKey) {
+    void memoryCredentialBrokerPromise
+      ?.then((broker) => broker?.close?.())
+      .catch((error) => {
+        logger.warn(
+          { err: error },
+          'Failed to close replaced memory credential broker',
+        );
+      });
     memoryCredentialBrokerPromise = undefined;
     memoryCredentialBrokerConfigKey = configKey;
   }
@@ -143,6 +155,7 @@ async function resolveGantryMemoryInjection(
   const injection = await getAgentCredentialInjection({
     mode: 'gantry',
     purpose: 'model_runtime',
+    appId,
     runId,
     modelRouteId,
     broker,
@@ -154,6 +167,7 @@ async function resolveGantryMemoryInjection(
         binding: {
           profile: 'gantry',
           purpose: 'model_runtime',
+          appId,
           runId,
           modelRouteId,
         },
@@ -179,6 +193,7 @@ async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
     : findModelByRunnerModel(opts.model);
   const runId = `memory-query:${randomUUID()}` as AgentRunId;
   const gateway = await resolveGantryMemoryInjection(
+    opts.appId,
     modelEntry?.modelRoute.id ?? 'anthropic',
     runId,
   );

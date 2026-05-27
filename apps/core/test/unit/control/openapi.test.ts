@@ -340,6 +340,40 @@ describe('control OpenAPI documentation', () => {
         .content['application/json'].schema,
     ).toEqual({ $ref: '#/components/schemas/ModelCredentialPatchRequest' });
     expect(
+      spec.paths['/v1/credentials/models']?.get['x-gantry-required-scopes'],
+    ).toEqual(['credentials:read']);
+    expect(
+      spec.paths['/v1/credentials/models/{providerId}']?.put.parameters,
+    ).toEqual([
+      expect.objectContaining({
+        name: 'providerId',
+        in: 'path',
+        required: true,
+      }),
+    ]);
+    expect(
+      spec.paths['/v1/credentials/models/{providerId}']?.patch.parameters,
+    ).toEqual([
+      expect.objectContaining({
+        name: 'providerId',
+        in: 'path',
+        required: true,
+      }),
+    ]);
+    expect(
+      spec.paths['/v1/credentials/models/{providerId}']?.delete,
+    ).toMatchObject({
+      operationId: 'disableModelCredential',
+      'x-gantry-required-scopes': ['credentials:admin'],
+      parameters: [
+        expect.objectContaining({
+          name: 'providerId',
+          in: 'path',
+          required: true,
+        }),
+      ],
+    });
+    expect(
       spec.components.schemas.ModelCredentialStatus.properties,
     ).toMatchObject({
       authMode: { type: ['string', 'null'], example: 'api_key' },

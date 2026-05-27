@@ -642,10 +642,10 @@ GET    /v1/models                                  sessions:read
 GET    /v1/models/defaults                         sessions:read
 POST   /v1/models/preview                          sessions:read or jobs:read; stored job previews require jobs:read
 PATCH  /v1/models/defaults                         agents:admin
-GET    /v1/credentials/models                      agents:admin
-PUT    /v1/credentials/models/:providerId          agents:admin
-PATCH  /v1/credentials/models/:providerId          agents:admin
-DELETE /v1/credentials/models/:providerId          agents:admin
+GET    /v1/credentials/models                      credentials:read
+PUT    /v1/credentials/models/:providerId          credentials:admin
+PATCH  /v1/credentials/models/:providerId          credentials:admin
+DELETE /v1/credentials/models/:providerId          credentials:admin
 
 GET    /v1/agents                                  agents:admin
 POST   /v1/agents                                  agents:admin

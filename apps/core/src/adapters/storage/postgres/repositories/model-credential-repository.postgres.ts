@@ -49,6 +49,12 @@ export class PostgresModelCredentialRepository implements ModelCredentialReposit
           payload: parseCredentialPayload(
             decryptCredentialSecretValue(
               row.payloadEncrypted,
+              modelCredentialAadContext({
+                appId: row.appId,
+                providerId: row.providerId,
+                authMode: row.authMode,
+                schemaVersion: row.schemaVersion,
+              }),
               this.runtimeSecrets,
             ),
           ),
@@ -84,6 +90,12 @@ export class PostgresModelCredentialRepository implements ModelCredentialReposit
       `model-credential:${input.appId}:${providerId}` as ModelCredentialId;
     const encrypted = encryptCredentialSecretValue(
       JSON.stringify(input.payload),
+      modelCredentialAadContext({
+        appId: input.appId,
+        providerId,
+        authMode: input.authMode,
+        schemaVersion: input.schemaVersion,
+      }),
       this.runtimeSecrets,
     );
     const rows = await this.db
@@ -208,4 +220,19 @@ function parseFieldFingerprints(
 function toIsoTimestamp(value: string): string {
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? new Date(ms).toISOString() : value;
+}
+
+function modelCredentialAadContext(input: {
+  appId: string;
+  providerId: string;
+  authMode: string;
+  schemaVersion: number;
+}) {
+  return {
+    appId: input.appId,
+    subjectKind: 'model_credential' as const,
+    subjectId: normalizeModelCredentialProvider(input.providerId),
+    authMode: input.authMode,
+    schemaVersion: input.schemaVersion,
+  };
 }

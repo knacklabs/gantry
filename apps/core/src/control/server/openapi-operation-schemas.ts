@@ -75,7 +75,7 @@ export const openApiResponseSchemas: Record<string, JsonSchema> = {
   patchModelCredential: ref('ModelCredentialMutationResponse'),
   patchModelDefaults: ref('ModelDefaultsResponse'),
   putModelCredential: ref('ModelCredentialMutationResponse'),
-  deleteModelCredential: ref('ModelCredentialMutationResponse'),
+  disableModelCredential: ref('ModelCredentialMutationResponse'),
   previewModelSelection: ref('ModelPreviewResponse'),
   pauseJob: ref('JobPauseResponse'),
   purgeWebhookDeadLetters: ref('CountResponse'),

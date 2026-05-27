@@ -188,7 +188,7 @@ maybeDescribe('Postgres domain repositories', () => {
       'select value_encrypted from capability_secrets where app_id = $1 and name = $2',
       [appId, 'GITHUB_TOKEN'],
     );
-    expect(raw.rows[0]?.value_encrypted).toContain('enc:v1:');
+    expect(raw.rows[0]?.value_encrypted).toContain('gcred:v2:');
     expect(raw.rows[0]?.value_encrypted).not.toContain('plain-token-value');
   });
 

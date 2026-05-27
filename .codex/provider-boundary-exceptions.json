@@ -129,14 +129,6 @@
       "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
     },
     {
-      "file": "apps/core/test/unit/core/gantry-model-gateway.test.ts",
-      "matches": {
-        "ANTHROPIC_": 16
-      },
-      "reason": "Model gateway tests assert the run-scoped Anthropic-compatible SDK environment, revocation, streaming proxy behavior, and OpenAI gateway coverage without exposing provider credentials.",
-      "removeByPlan": "myclaw-architecture-gates-20260517-provider-boundary-sentinels"
-    },
-    {
       "file": "apps/core/src/shared/model-provider-registry.ts",
       "matches": {
         "ANTHROPIC_": 7

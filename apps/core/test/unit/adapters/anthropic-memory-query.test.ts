@@ -89,6 +89,7 @@ describe('Anthropic memory query gateway credentials', () => {
 
     await expect(
       runClaudeQuery({
+        appId: 'default' as never,
         model: 'claude-sonnet-4-6',
         prompt: 'Summarize memory.',
       }),
@@ -98,6 +99,7 @@ describe('Anthropic memory query gateway credentials', () => {
     expect(binding).toMatchObject({
       profile: 'gantry',
       purpose: 'model_runtime',
+      appId: 'default',
       modelRouteId: 'anthropic',
       runId: expect.stringMatching(/^memory-query:/),
     });
@@ -105,6 +107,7 @@ describe('Anthropic memory query gateway credentials', () => {
       binding: expect.objectContaining({
         profile: 'gantry',
         purpose: 'model_runtime',
+        appId: 'default',
         modelRouteId: 'anthropic',
         runId: binding.runId,
       }),

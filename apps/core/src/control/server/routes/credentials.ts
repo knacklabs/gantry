@@ -2,11 +2,16 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { ModelCredentialService } from '../../../application/model-credentials/model-credential-service.js';
 import { getRuntimeStorage } from '../../../adapters/storage/postgres/runtime-store.js';
+import { isCredentialSecretCryptoError } from '../../../adapters/storage/postgres/repositories/credential-secret-crypto.js';
 import type { AppId } from '../../../domain/app/app.js';
 import {
   listSupportedModelCredentialProviders,
   normalizeModelCredentialProvider,
 } from '../../../domain/model-credentials/model-credentials.js';
+import {
+  getModelProviderDefinition,
+  resolveModelCredentialMode,
+} from '../../../shared/model-provider-registry.js';
 import {
   authorizeControlRequest,
   type ControlRouteContext,
@@ -34,16 +39,17 @@ export async function handleCredentialRoutes(
     return false;
   }
 
-  const auth = authorizeControlRequest(req, res, ctx.keys, ['agents:admin']);
-  if (!auth) return true;
-  const appId = auth.appId as AppId;
-
   if (pathname === '/v1/credentials/models') {
     if (req.method !== 'GET') {
       res.setHeader('Allow', 'GET');
       sendError(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
       return true;
     }
+    const auth = authorizeControlRequest(req, res, ctx.keys, [
+      'credentials:read',
+    ]);
+    if (!auth) return true;
+    const appId = auth.appId as AppId;
     sendJson(res, 200, {
       providers: await modelCredentialService().list({ appId }),
     });
@@ -60,6 +66,19 @@ export async function handleCredentialRoutes(
     sendError(res, 404, 'NOT_FOUND', 'Model credential route not found.');
     return true;
   }
+
+  if (!['PUT', 'PATCH', 'DELETE'].includes(req.method ?? '')) {
+    res.setHeader('Allow', 'PUT, PATCH, DELETE');
+    sendError(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
+    return true;
+  }
+
+  const auth = authorizeControlRequest(req, res, ctx.keys, [
+    'credentials:admin',
+  ]);
+  if (!auth) return true;
+  const appId = auth.appId as AppId;
+
   const providerId = parts[3] || '';
   let normalizedProvider: ReturnType<typeof normalizeModelCredentialProvider>;
   try {
@@ -76,7 +95,8 @@ export async function handleCredentialRoutes(
   }
 
   if (req.method === 'PUT') {
-    const rawBody = await readJson(req);
+    const rawBody = await readCredentialJson(req, res);
+    if (rawBody === undefined) return true;
     if (
       typeof rawBody !== 'object' ||
       rawBody === null ||
@@ -110,7 +130,9 @@ export async function handleCredentialRoutes(
     }
     if (
       authMode !== undefined &&
-      (typeof authMode !== 'string' || !authMode.trim())
+      (typeof authMode !== 'string' ||
+        !authMode.trim() ||
+        authMode.trim().length > 64)
     ) {
       sendError(
         res,
@@ -119,6 +141,21 @@ export async function handleCredentialRoutes(
         'authMode must be a non-empty string.',
       );
       return true;
+    }
+    if (typeof authMode === 'string') {
+      try {
+        const provider = getModelProviderDefinition(normalizedProvider);
+        if (!provider) throw new Error('Unsupported model provider.');
+        resolveModelCredentialMode(provider, authMode);
+      } catch (error) {
+        sendError(
+          res,
+          400,
+          'INVALID_REQUEST',
+          error instanceof Error ? error.message : 'Invalid authMode.',
+        );
+        return true;
+      }
     }
     try {
       const service = modelCredentialService();
@@ -135,18 +172,14 @@ export async function handleCredentialRoutes(
         await redactedProviderStatus(service, appId, normalizedProvider),
       );
     } catch (error) {
-      sendError(
-        res,
-        400,
-        'INVALID_REQUEST',
-        error instanceof Error ? error.message : 'Invalid credential request.',
-      );
+      sendCredentialMutationError(res, error);
     }
     return true;
   }
 
   if (req.method === 'PATCH') {
-    const rawBody = await readJson(req);
+    const rawBody = await readCredentialJson(req, res);
+    if (rawBody === undefined) return true;
     if (
       typeof rawBody !== 'object' ||
       rawBody === null ||
@@ -178,6 +211,14 @@ export async function handleCredentialRoutes(
       return true;
     }
     const payload = (rawBody as { payload?: unknown }).payload;
+    if (
+      typeof payload !== 'object' ||
+      payload === null ||
+      Array.isArray(payload)
+    ) {
+      sendError(res, 400, 'INVALID_REQUEST', 'payload is required.');
+      return true;
+    }
     try {
       const service = modelCredentialService();
       await service.rotate({
@@ -192,12 +233,7 @@ export async function handleCredentialRoutes(
         await redactedProviderStatus(service, appId, normalizedProvider),
       );
     } catch (error) {
-      sendError(
-        res,
-        400,
-        'INVALID_REQUEST',
-        error instanceof Error ? error.message : 'Invalid credential request.',
-      );
+      sendCredentialMutationError(res, error);
     }
     return true;
   }
@@ -217,8 +253,6 @@ export async function handleCredentialRoutes(
     return true;
   }
 
-  res.setHeader('Allow', 'PUT, PATCH, DELETE');
-  sendError(res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed');
   return true;
 }
 
@@ -246,4 +280,50 @@ async function redactedProviderStatus(
     );
   }
   return row;
+}
+
+async function readCredentialJson(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<unknown | undefined> {
+  try {
+    return await readJson(req);
+  } catch (error) {
+    const statusCode =
+      typeof (error as { statusCode?: unknown }).statusCode === 'number'
+        ? (error as { statusCode: number }).statusCode
+        : 400;
+    const code =
+      (error as { code?: unknown }).code === 'PAYLOAD_TOO_LARGE'
+        ? 'PAYLOAD_TOO_LARGE'
+        : 'INVALID_REQUEST';
+    sendError(
+      res,
+      statusCode,
+      code,
+      error instanceof Error ? error.message : 'Invalid request body.',
+    );
+    return undefined;
+  }
+}
+
+function sendCredentialMutationError(
+  res: ServerResponse,
+  error: unknown,
+): void {
+  if (isCredentialSecretCryptoError(error)) {
+    sendError(
+      res,
+      500,
+      'CREDENTIAL_CRYPTO_UNAVAILABLE',
+      'Gantry credential encryption is unavailable.',
+    );
+    return;
+  }
+  sendError(
+    res,
+    400,
+    'INVALID_REQUEST',
+    error instanceof Error ? error.message : 'Invalid credential request.',
+  );
 }

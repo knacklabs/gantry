@@ -411,6 +411,7 @@ export class LlmMemoryExtractionProvider implements MemoryExtractionProvider {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const text = await memoryLlm.query({
+          appId: input.appId,
           model: modelExtractor,
           modelProfile: modelProfiles?.extractor,
           prompt: promptParts.plainPrompt,

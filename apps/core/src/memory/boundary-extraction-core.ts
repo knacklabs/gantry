@@ -157,6 +157,7 @@ export async function collectDurableMemoryFromRepositories(input: {
       (signal) =>
         Promise.resolve(
           input.extractFacts({
+            appId: session.appId,
             turns,
             trigger: input.trigger,
             userId: session.userId,

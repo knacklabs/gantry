@@ -5,6 +5,7 @@ import { Readable } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ControlRouteContext } from '@core/control/server/handler-context.js';
+import type { Scope } from '@core/control/server/auth.js';
 import type {
   ModelCredential,
   ModelCredentialMetadata,
@@ -14,6 +15,7 @@ import type { ModelCredentialRepository } from '@core/domain/ports/repositories.
 
 const rows = vi.hoisted(() => new Map<string, ModelCredential>());
 const publishedEvents = vi.hoisted(() => [] as unknown[]);
+const upsertFailures = vi.hoisted(() => [] as unknown[]);
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeStorage: () => ({
@@ -40,6 +42,8 @@ const modelCredentialsRepository: ModelCredentialRepository = {
       .map(({ payload: _payload, ...metadata }) => metadata);
   },
   async upsertModelCredential(input) {
+    const failure = upsertFailures.shift();
+    if (failure) throw failure;
     const now = new Date().toISOString();
     const key = rowKey(input.appId, input.providerId);
     const existing = rows.get(key);
@@ -83,9 +87,76 @@ type TestResponse = ServerResponse & {
 beforeEach(() => {
   rows.clear();
   publishedEvents.length = 0;
+  upsertFailures.length = 0;
 });
 
 describe('credential control routes', () => {
+  it('returns 401 when credentials routes are called without a bearer token', async () => {
+    const res = await invokeCredentialRoute(
+      'GET',
+      '/v1/credentials/models',
+      undefined,
+      { authorization: null },
+    );
+
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('requires credentials:read for listing model credential status', async () => {
+    const res = await invokeCredentialRoute(
+      'GET',
+      '/v1/credentials/models',
+      undefined,
+      { scopes: ['credentials:admin'] },
+    );
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body).error.message).toContain('credentials:read');
+  });
+
+  it('lists model credential status without returning secret payloads', async () => {
+    seedCredential({
+      appId: 'default' as never,
+      providerId: 'anthropic',
+      authMode: 'api_key',
+    });
+
+    const res = await invokeCredentialRoute(
+      'GET',
+      '/v1/credentials/models',
+      undefined,
+      { scopes: ['credentials:read'] },
+    );
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    const anthropic = body.providers.find(
+      (provider: { providerId: string }) => provider.providerId === 'anthropic',
+    );
+    expect(anthropic).toMatchObject({
+      providerId: 'anthropic',
+      configured: true,
+      configuredFields: ['apiKey'],
+      health: 'ready',
+    });
+    expect(JSON.stringify(body)).not.toContain('sk-ant-old');
+    expect(JSON.stringify(body)).not.toContain('API_KEY');
+  });
+
+  it('requires credentials:admin for mutating model credentials', async () => {
+    const res = await invokeCredentialRoute(
+      'PUT',
+      '/v1/credentials/models/anthropic',
+      {
+        payload: { apiKey: 'sk-ant-route' },
+      },
+      { scopes: ['credentials:read'] },
+    );
+
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body).error.message).toContain('credentials:admin');
+  });
+
   it('stores model credentials and returns only redacted provider status', async () => {
     const res = await invokeCredentialRoute(
       'PUT',
@@ -201,23 +272,68 @@ describe('credential control routes', () => {
       apiKey: 'sk-ant-old',
     });
   });
+
+  it('disable is idempotent for missing provider credentials', async () => {
+    const res = await invokeCredentialRoute(
+      'DELETE',
+      '/v1/credentials/models/anthropic',
+      undefined,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      providerId: 'anthropic',
+      configured: false,
+      health: 'missing',
+    });
+    expect(publishedEvents).toHaveLength(0);
+  });
+
+  it('returns 500 instead of 400 for server-side credential crypto failures', async () => {
+    const { CredentialSecretCryptoConfigurationError } =
+      await import('@core/adapters/storage/postgres/repositories/credential-secret-crypto.js');
+    upsertFailures.push(
+      new CredentialSecretCryptoConfigurationError('missing test key'),
+    );
+
+    const res = await invokeCredentialRoute(
+      'PUT',
+      '/v1/credentials/models/anthropic',
+      {
+        payload: { apiKey: 'sk-ant-route' },
+      },
+    );
+
+    expect(res.statusCode).toBe(500);
+    expect(JSON.parse(res.body).error.code).toBe(
+      'CREDENTIAL_CRYPTO_UNAVAILABLE',
+    );
+  });
 });
 
 async function invokeCredentialRoute(
   method: string,
   pathname: string,
   body: unknown,
+  options: {
+    authorization?: string | null;
+    scopes?: Scope[];
+  } = {},
 ): Promise<TestResponse> {
   const raw = body === undefined ? '' : JSON.stringify(body);
   const req = Readable.from(raw ? [raw] : []) as IncomingMessage;
   req.method = method;
   req.headers = {
-    authorization: 'Bearer test-token',
     'content-type': 'application/json',
     'content-length': Buffer.byteLength(raw).toString(),
+    ...(options.authorization !== undefined
+      ? options.authorization !== null
+        ? { authorization: options.authorization }
+        : {}
+      : { authorization: 'Bearer test-token' }),
   };
   const res = responseRecorder();
-  await handleCredentialRoutes(req, res, mockContext(), pathname);
+  await handleCredentialRoutes(req, res, mockContext(options.scopes), pathname);
   return res;
 }
 
@@ -239,7 +355,9 @@ function responseRecorder(): TestResponse {
   } as TestResponse;
 }
 
-function mockContext(): ControlRouteContext {
+function mockContext(
+  scopes: Scope[] = ['credentials:admin'],
+): ControlRouteContext {
   return {
     app: {} as ControlRouteContext['app'],
     runtimeHome: '/tmp/gantry-test',
@@ -247,7 +365,7 @@ function mockContext(): ControlRouteContext {
       {
         kid: 'test',
         tokenHash: createHash('sha256').update('test-token').digest(),
-        scopes: new Set(['agents:admin']),
+        scopes: new Set(scopes),
         appId: 'default',
       },
     ],

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
+import type { AppId } from '../domain/app/app.js';
 
 import {
   MEMORY_DREAMING_EMBED_MODEL,
@@ -187,6 +188,7 @@ export async function triggerAppMemoryDreaming(input: {
   const embeddingProvider = embeddingsEnabled
     ? createEmbeddingProvider(MEMORY_DREAMING_EMBED_PROVIDER, {
         model: MEMORY_DREAMING_EMBED_MODEL,
+        appId: subject.appId as AppId,
       })
     : null;
   if (embeddingProvider) {

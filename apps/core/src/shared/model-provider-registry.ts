@@ -49,7 +49,6 @@ export interface ModelGatewayDefinition {
   pathSegment: string;
   upstreamOrigin: string;
   upstreamPathPrefix: string;
-  stripRequestHeaders: readonly string[];
   sdkProjection: ModelGatewaySdkProjectionDefinition;
 }
 
@@ -109,14 +108,6 @@ export interface ModelProviderDefinition {
   executionProviderIds: readonly ModelExecutionProviderId[];
 }
 
-const MODEL_GATEWAY_STRIP_REQUEST_HEADERS = [
-  'host',
-  'authorization',
-  'x-api-key',
-  'content-length',
-  'connection',
-] as const;
-
 export const MODEL_PROVIDER_DEFINITIONS = [
   {
     id: 'anthropic',
@@ -158,7 +149,6 @@ export const MODEL_PROVIDER_DEFINITIONS = [
       pathSegment: 'anthropic',
       upstreamOrigin: 'https://api.anthropic.com',
       upstreamPathPrefix: '',
-      stripRequestHeaders: MODEL_GATEWAY_STRIP_REQUEST_HEADERS,
       sdkProjection: {
         baseUrlEnv: 'ANTHROPIC_BASE_URL',
         tokenEnv: 'ANTHROPIC_API_KEY',
@@ -232,7 +222,6 @@ export const MODEL_PROVIDER_DEFINITIONS = [
       pathSegment: 'openrouter',
       upstreamOrigin: 'https://openrouter.ai',
       upstreamPathPrefix: '/api',
-      stripRequestHeaders: MODEL_GATEWAY_STRIP_REQUEST_HEADERS,
       sdkProjection: {
         baseUrlEnv: 'ANTHROPIC_BASE_URL',
         tokenEnv: 'ANTHROPIC_API_KEY',
@@ -306,7 +295,6 @@ export const MODEL_PROVIDER_DEFINITIONS = [
       pathSegment: 'openai',
       upstreamOrigin: 'https://api.openai.com',
       upstreamPathPrefix: '',
-      stripRequestHeaders: MODEL_GATEWAY_STRIP_REQUEST_HEADERS,
       sdkProjection: {
         baseUrlEnv: 'OPENAI_BASE_URL',
         tokenEnv: 'OPENAI_API_KEY',
