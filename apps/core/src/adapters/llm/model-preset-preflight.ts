@@ -1,7 +1,11 @@
+import { randomUUID } from 'node:crypto';
+
 import { getAgentCredentialInjection } from '../../application/credentials/agent-credential-service.js';
 import { createAgentCredentialBroker } from '../credentials/agent-credential-broker-factory.js';
 import { getRuntimeStorage } from '../storage/postgres/runtime-store.js';
 import type { AppId } from '../../domain/app/app.js';
+import type { AgentRunId } from '../../domain/events/events.js';
+import type { AgentCredentialBroker } from '../../domain/ports/agent-credential-broker.js';
 import {
   getModelPreset,
   resolveModelSelectionForWorkload,
@@ -43,8 +47,10 @@ export async function preflightModelPreset(input: {
       message: `${preset.label} requires Gantry Model Gateway credentials.`,
     };
   }
+  const runId = `model-preflight:${randomUUID()}` as AgentRunId;
+  let broker: AgentCredentialBroker | undefined;
   try {
-    const broker = await createAgentCredentialBroker({
+    broker = await createAgentCredentialBroker({
       mode: settings.credentialBroker.mode,
       modelCredentials: getRuntimeStorage().repositories.modelCredentials,
       gatewayBindHost: settings.credentialBroker.gateway?.bindHost,
@@ -60,6 +66,7 @@ export async function preflightModelPreset(input: {
       mode: 'gantry',
       purpose: 'model_runtime',
       appId: input.appId,
+      runId,
       modelRouteId: model.entry.modelRoute.id,
       broker,
     });
@@ -82,5 +89,18 @@ export async function preflightModelPreset(input: {
       status: 'fail',
       message: error instanceof Error ? error.message : String(error),
     };
+  } finally {
+    await Promise.allSettled([
+      broker?.revokeInjection?.({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          appId: input.appId,
+          runId,
+          modelRouteId: model.entry.modelRoute.id,
+        },
+      }),
+      broker?.close?.(),
+    ]);
   }
 }

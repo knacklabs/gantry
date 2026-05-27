@@ -35,6 +35,8 @@ function gatewayBroker(env: Record<string, string>): AgentCredentialBroker {
       applied: true,
       brokerProfile: 'gantry',
     })),
+    revokeInjection: vi.fn(async () => undefined),
+    close: vi.fn(async () => undefined),
     healthCheck: vi.fn(async () => ({
       status: 'pass',
       message: 'ready',
@@ -73,12 +75,11 @@ describe('model provider preflight', () => {
   });
 
   it('passes when the gateway projects only loopback auth', async () => {
-    const { preflightModelPreset } = await loadPreflight(
-      gatewayBroker({
-        ANTHROPIC_BASE_URL: 'http://127.0.0.1:49231/anthropic',
-        ANTHROPIC_API_KEY: 'gtw_test',
-      }),
-    );
+    const broker = gatewayBroker({
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:49231/anthropic',
+      ANTHROPIC_API_KEY: 'gtw_test',
+    });
+    const { preflightModelPreset } = await loadPreflight(broker);
 
     await expect(
       preflightModelPreset({
@@ -94,6 +95,15 @@ describe('model provider preflight', () => {
       ok: true,
       status: 'pass',
     });
+    expect(broker.revokeInjection).toHaveBeenCalledWith({
+      binding: expect.objectContaining({
+        profile: 'gantry',
+        purpose: 'model_runtime',
+        modelRouteId: 'anthropic',
+        runId: expect.stringMatching(/^model-preflight:/),
+      }),
+    });
+    expect(broker.close).toHaveBeenCalledOnce();
   });
 
   it('fails if gateway projection contains a raw provider key', async () => {

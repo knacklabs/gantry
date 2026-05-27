@@ -1,4 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { randomUUID } from 'node:crypto';
 
 import {
   getCredentialBrokerRuntimeConfig,
@@ -9,6 +10,7 @@ import { createAgentCredentialBroker } from '../../credentials/agent-credential-
 import { getRuntimeStorage } from '../../storage/postgres/runtime-store.js';
 import type { AgentCredentialBroker } from '../../../domain/ports/agent-credential-broker.js';
 import type { AgentCredentialInjection } from '../../../domain/models/credentials.js';
+import type { AgentRunId } from '../../../domain/events/events.js';
 import type { MemoryLlmModelProfile } from '../../../domain/ports/memory-llm-client.js';
 import {
   abortReason,
@@ -113,7 +115,11 @@ function flattenPrompt(opts: ClaudeQueryOpts): string {
 
 async function resolveGantryMemoryInjection(
   modelRouteId: ModelRouteId,
-): Promise<AgentCredentialInjection> {
+  runId: AgentRunId,
+): Promise<{
+  injection: AgentCredentialInjection;
+  revoke: () => Promise<void>;
+}> {
   const brokerConfig = getCredentialBrokerRuntimeConfig();
   const configKey = `${brokerConfig.mode}:${brokerConfig.gatewayBindHost}`;
   if (memoryCredentialBrokerConfigKey !== configKey) {
@@ -133,12 +139,26 @@ async function resolveGantryMemoryInjection(
     memoryCredentialBrokerPromise = undefined;
     throw error;
   });
-  return getAgentCredentialInjection({
+  const broker = requireGantryBroker(await memoryCredentialBrokerPromise);
+  const injection = await getAgentCredentialInjection({
     mode: 'gantry',
     purpose: 'model_runtime',
+    runId,
     modelRouteId,
-    broker: requireGantryBroker(await memoryCredentialBrokerPromise),
+    broker,
   });
+  return {
+    injection,
+    revoke: () =>
+      broker.revokeInjection?.({
+        binding: {
+          profile: 'gantry',
+          purpose: 'model_runtime',
+          runId,
+          modelRouteId,
+        },
+      }) ?? Promise.resolve(),
+  };
 }
 
 function requireGantryBroker(
@@ -157,64 +177,71 @@ async function runWithGantryGateway(opts: ClaudeQueryOpts): Promise<string> {
   const modelEntry = opts.modelProfile
     ? findModelByRunnerModel(opts.modelProfile.runnerModel)
     : findModelByRunnerModel(opts.model);
-  const injection = await resolveGantryMemoryInjection(
+  const runId = `memory-query:${randomUUID()}` as AgentRunId;
+  const gateway = await resolveGantryMemoryInjection(
     modelEntry?.modelRoute.id ?? 'anthropic',
+    runId,
   );
-  opts.signal?.throwIfAborted();
-  if (modelEntry) {
-    validateModelCredentialProjectionForEntry({
-      model: modelEntry,
-      projection: {
-        env: injection.env,
-        credentialProviders: injection.credentialProviders,
-        brokerProfile: injection.brokerProfile,
-      },
-    });
-  }
-  const sdkEnv = {
-    ...scrubAmbientAgentCredentials(injection.env),
-    ...SDK_NATIVE_SKILL_DISABLE_ENV,
-  };
-  const abortController = new AbortController();
-  const onAbort = () => abortController.abort(abortReason(opts.signal!));
-  if (opts.signal?.aborted) {
-    onAbort();
-  } else {
-    opts.signal?.addEventListener('abort', onAbort, { once: true });
-  }
-  const stream = query({
-    prompt: flattenPrompt(opts),
-    options: {
-      abortController,
-      model: opts.model,
-      maxTurns: 1,
-      env: sdkEnv,
-      settings: {
-        autoMemoryEnabled: false,
-        skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
-      },
-      skills: [],
-      settingSources: [],
-    },
-  }) as AsyncIterable<unknown>;
-
-  let assistantText = '';
-  let resultText = '';
-
   try {
-    for await (const message of stream) {
-      opts.signal?.throwIfAborted();
-      assistantText += readAssistantText(message);
-      if (!resultText) {
-        resultText = readResultText(message);
-      }
+    const injection = gateway.injection;
+    opts.signal?.throwIfAborted();
+    if (modelEntry) {
+      validateModelCredentialProjectionForEntry({
+        model: modelEntry,
+        projection: {
+          env: injection.env,
+          credentialProviders: injection.credentialProviders,
+          brokerProfile: injection.brokerProfile,
+        },
+      });
     }
-  } finally {
-    opts.signal?.removeEventListener('abort', onAbort);
-  }
-  opts.signal?.throwIfAborted();
+    const sdkEnv = {
+      ...scrubAmbientAgentCredentials(injection.env),
+      ...SDK_NATIVE_SKILL_DISABLE_ENV,
+    };
+    const abortController = new AbortController();
+    const onAbort = () => abortController.abort(abortReason(opts.signal!));
+    if (opts.signal?.aborted) {
+      onAbort();
+    } else {
+      opts.signal?.addEventListener('abort', onAbort, { once: true });
+    }
+    const stream = query({
+      prompt: flattenPrompt(opts),
+      options: {
+        abortController,
+        model: opts.model,
+        maxTurns: 1,
+        env: sdkEnv,
+        settings: {
+          autoMemoryEnabled: false,
+          skillOverrides: SDK_NATIVE_SKILL_OVERRIDES,
+        },
+        skills: [],
+        settingSources: [],
+      },
+    }) as AsyncIterable<unknown>;
 
-  return (assistantText || resultText).trim();
+    let assistantText = '';
+    let resultText = '';
+
+    try {
+      for await (const message of stream) {
+        opts.signal?.throwIfAborted();
+        assistantText += readAssistantText(message);
+        if (!resultText) {
+          resultText = readResultText(message);
+        }
+      }
+    } finally {
+      opts.signal?.removeEventListener('abort', onAbort);
+    }
+    opts.signal?.throwIfAborted();
+
+    return (assistantText || resultText).trim();
+  } finally {
+    await gateway.revoke();
+  }
 }
 
 function scrubAmbientAgentCredentials(
