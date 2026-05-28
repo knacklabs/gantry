@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildRunnerSystemPrompt } from '@agent-runner-src/claude/system-prompt.js';
-import type { AgentRunnerInput } from '@agent-runner-src/claude/types.js';
+import { buildRunnerSystemPrompt } from '@core/adapters/llm/anthropic-claude-agent/runner/system-prompt.js';
+import type { AgentRunnerInput } from '@core/adapters/llm/anthropic-claude-agent/runner/types.js';
 
 function baseInput(
   overrides: Partial<AgentRunnerInput> = {},
@@ -26,8 +26,10 @@ describe('buildRunnerSystemPrompt', () => {
     expect(prompt?.append).toContain('call mcp_list_tools first');
     expect(prompt?.append).toContain('mcp_call_tool');
     expect(prompt?.append).toContain('MCP tools enforce their own access');
-    expect(prompt?.append).toContain('Do not mention internal tool names');
-    expect(prompt?.append).toContain(
+    // Customer-facing denial phrasing is persona-owned (SOUL.md / CLAUDE.md),
+    // not baked into the provider-neutral runner prompt for every MCP run.
+    expect(prompt?.append).not.toContain('Do not mention internal tool names');
+    expect(prompt?.append).not.toContain(
       'does not match the phone number they are messaging from',
     );
   });

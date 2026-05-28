@@ -7,7 +7,6 @@ import type {
   OnInboundMessage,
 } from '../../domain/types.js';
 import { logger } from '../../infrastructure/logging/logger.js';
-import { CUSTOMER_IDENTITY_MISMATCH_MESSAGE } from '../../shared/user-visible-messages.js';
 
 import { InteraktApi } from './interakt-api.js';
 import {
@@ -25,21 +24,6 @@ import {
 // not implement templates, so we surface a typed delivery error and let
 // channel-wiring record it.
 const SESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
-const CUSTOMER_VISIBLE_INTERNAL_LEAK_PATTERNS = [
-  /\bprivacy[ _-]?guard\b/i,
-  /\bsigned channel\b/i,
-  /\bshopify admin\b/i,
-  /\badmin panel\b/i,
-  /\bbypass(?:es|ed|ing)?\b/i,
-  /\boperator\/internal\b/i,
-  /\binternal lookup\b/i,
-  /\bprivacy check\b/i,
-  /\bthis tool\b/i,
-  /\bthe tool\b/i,
-  /\bsupport tool\b/i,
-  /\bmcp\b/i,
-  /\berror code\b/i,
-];
 
 export interface InteraktChannelOpts {
   apiKey: string;
@@ -148,7 +132,7 @@ export class InteraktChannel implements ChannelAdapter {
     const { id } = await this.api.sendFreeFormText({
       countryCode: parsed.countryCode,
       phoneNumber: parsed.phoneNumber,
-      message: sanitizeCustomerVisibleInteraktText(text),
+      message: text,
     });
     return { externalMessageId: id };
   }
@@ -250,12 +234,4 @@ export class InteraktChannel implements ChannelAdapter {
   primeSessionWindowForTesting(jid: string, nowMs: number = Date.now()): void {
     this.lastInboundAtByJid.set(jid, nowMs);
   }
-}
-
-export function sanitizeCustomerVisibleInteraktText(text: string): string {
-  return CUSTOMER_VISIBLE_INTERNAL_LEAK_PATTERNS.some((pattern) =>
-    pattern.test(text),
-  )
-    ? CUSTOMER_IDENTITY_MISMATCH_MESSAGE
-    : text;
 }

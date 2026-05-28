@@ -79,6 +79,59 @@ describe('BSS customer support guardrail', () => {
     });
   });
 
+  it('allows a BSS topic even when an off-domain word is present', async () => {
+    const decision = await evaluateAgentGuardrail({
+      config,
+      messages: ['Can you track my order with that tool?'],
+    });
+
+    expect(decision).toEqual({
+      action: 'allow',
+      reason: 'bss_customer_support_topic',
+    });
+  });
+
+  it.each(['daam kitna hai', 'mithai wapas karni hai'])(
+    'allows Hindi/Hinglish BSS queries: %s',
+    async (message) => {
+      const decision = await evaluateAgentGuardrail({
+        config,
+        messages: [message],
+      });
+
+      expect(decision).toEqual({
+        action: 'allow',
+        reason: 'bss_customer_support_topic',
+      });
+    },
+  );
+
+  it('asks for clarification on an empty message instead of rejecting', async () => {
+    const decision = await evaluateAgentGuardrail({
+      config,
+      messages: ['   '],
+    });
+
+    expect(decision).toEqual({
+      action: 'direct_response',
+      responseKind: 'scope_clarification',
+      reason: 'empty_message',
+    });
+  });
+
+  it('asks for clarification on ambiguous input when no classifier is configured', async () => {
+    const decision = await evaluateAgentGuardrail({
+      config,
+      messages: ['Can you help me with this?'],
+    });
+
+    expect(decision).toEqual({
+      action: 'direct_response',
+      responseKind: 'scope_clarification',
+      reason: 'ambiguous_without_classifier',
+    });
+  });
+
   it('calls the configured classifier once for ambiguous input', async () => {
     const classifier = vi.fn().mockResolvedValue({
       action: 'direct_response',

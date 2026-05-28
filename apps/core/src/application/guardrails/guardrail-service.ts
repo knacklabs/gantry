@@ -21,9 +21,12 @@ export async function evaluateAgentGuardrail(
   const deterministic = policy.evaluateDeterministic(input.messages);
   if (deterministic) return deterministic;
   if (!input.classifier) {
+    // No classifier to disambiguate: ask the customer to clarify rather than
+    // hard-rejecting. A bare scope_rejection here turns away real (often
+    // non-English) support messages that simply missed the keyword fast-path.
     return {
       action: 'direct_response',
-      responseKind: 'scope_rejection',
+      responseKind: 'scope_clarification',
       reason: 'ambiguous_without_classifier',
     };
   }

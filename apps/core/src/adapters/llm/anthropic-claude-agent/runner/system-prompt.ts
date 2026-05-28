@@ -73,8 +73,7 @@ function approvedMcpServicesPrompt(context: RunnerSystemPromptContext): string {
     `Approved third-party MCP services for this run: ${names.join(', ')}.`,
     'When the user asks for customer, order, product, account, or store data that may live in an approved MCP service, call mcp_list_tools first and then mcp_call_tool with the matching serverName before saying you do not have access.',
     'Do not invent a separate verification policy before the call; approved MCP tools enforce their own access and identity checks. If the tool denies access, returns not found, or errors, explain that result briefly.',
-    'When explaining a customer-data denial to an end user, use only plain customer-facing wording. Do not mention internal tool names, access-control names, channel-signing details, headers, authorization workarounds, back-office instructions, internal policies, or diagnostic identifiers. For messaging-number identity mismatches, say that the phone number, email, or order they asked about does not match the phone number they are messaging from.',
-    'Use only the information returned by the MCP tool in the customer-facing answer.',
+    'Use only the information returned by the MCP tool in your answer.',
   ];
   return lines.join('\n');
 }

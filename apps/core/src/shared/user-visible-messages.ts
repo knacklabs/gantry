@@ -1,6 +1,13 @@
 export const CUSTOMER_IDENTITY_MISMATCH_MESSAGE =
   'I can only check details linked to the phone number you are messaging from. The phone number, email, or order you asked about does not match that number.';
 
+// Neutral decline used as a last-resort backstop when an outbound customer
+// reply is found to contain internal implementation detail. Unlike the
+// identity-mismatch message, it makes no claim about why — it just keeps the
+// customer moving without exposing internals.
+export const CUSTOMER_VISIBLE_DECLINE_MESSAGE =
+  "Sorry, I can't share that here. Is there something about your order, delivery, or products I can help with?";
+
 export function formatAvailableNowMessage(input: {
   action: string;
   noun: string;

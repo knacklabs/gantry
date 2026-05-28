@@ -28,6 +28,7 @@ import {
   isPartialMessageDeliveryError,
 } from '../../domain/messages/partial-delivery.js';
 import { AmbiguousDurableDeliveryError } from '../../domain/messages/durable-delivery.js';
+import { guardCustomerVisibleOutput } from '../../application/customer-output/customer-safe-output.js';
 import {
   getRuntimeStorage,
   getRuntimeRepositories,
@@ -297,11 +298,21 @@ export function createChannelWiring(
       return;
     }
 
-    const formatted = formatOutboundForChannel(
+    const formattedRaw = formatOutboundForChannel(
       rawText,
       providerForJid(jid)?.id ?? channel.name,
     );
-    if (!formatted) return;
+    if (!formattedRaw) return;
+    // Channel-neutral, last-resort customer-safety backstop: redact internal
+    // implementation detail from customer-facing replies (skipped for
+    // developer-persona agents). Behind the system prompt + guardrail, not a
+    // replacement for them.
+    const formatted = guardCustomerVisibleOutput({
+      text: formattedRaw,
+      persona: app.getConversationRoutes()[jid]?.agentConfig?.persona,
+      conversationJid: jid,
+      logger: resolved.logger,
+    });
     const provider = providerForJid(jid)?.id ?? channel.name;
     const now = nowIso();
     const messageId = `outbound:${randomUUID()}`;

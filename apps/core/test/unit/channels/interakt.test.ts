@@ -20,7 +20,6 @@ import {
   InteraktRateLimitError,
 } from '@core/channels/interakt/interakt-api.js';
 import { formatOutboundForChannel } from '@core/messaging/router.js';
-import { CUSTOMER_IDENTITY_MISMATCH_MESSAGE } from '@core/shared/user-visible-messages.js';
 
 vi.mock('@core/infrastructure/logging/logger.js', () => ({
   logger: {
@@ -276,31 +275,6 @@ describe('InteraktChannel outbound', () => {
       type: 'Text',
       data: { message: 'hi back' },
     });
-
-    await channel.disconnect();
-  });
-
-  it('replaces internal lookup leakage before sending to the customer', async () => {
-    const mock = makeMockFetch({ body: { result: true, id: 'wa-msg-safe' } });
-    const channel = makeChannel({ fetchImpl: mock.fetch });
-    await channel.connect();
-    channel.primeSessionWindowForTesting('wa:917003705584');
-
-    await channel.sendMessage(
-      'wa:917003705584',
-      "Let me look up that number in the store right away. The lookup was blocked - the tool only allows checking details tied to the number that's actively messaging in. Since this is an operator/internal lookup, I'd need a different access path. Your Shopify Admin panel would be the most direct route.",
-    );
-
-    expect(mock.calls[0]!.body).toMatchObject({
-      data: {
-        message: CUSTOMER_IDENTITY_MISMATCH_MESSAGE,
-      },
-    });
-    expect(
-      (mock.calls[0]!.body.data as { message: string }).message,
-    ).not.toMatch(
-      /privacy[ _-]?guard|signed channel|Shopify Admin|admin panel|bypass|operator\/internal|internal lookup|tool|MCP|error code/i,
-    );
 
     await channel.disconnect();
   });
