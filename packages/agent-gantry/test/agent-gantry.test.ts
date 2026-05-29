@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildExternalNotificationAdaptiveCard,
   createBotFrameworkTeamsTransport,
+  createFirecrawlCrawlProvider,
+  createFirecrawlFetchProvider,
+  createFirecrawlSearchProvider,
   createHttpFetchProvider,
   createGantryClient,
   createGantryRuntime,
@@ -33,6 +36,24 @@ describe("@cawstudios/agent-gantry", () => {
     });
   });
 
+  it("maps Firecrawl search responses into structured search results", async () => {
+    const provider = createFirecrawlSearchProvider({
+      apiKey: "test-key",
+      fetchImpl: async () => new Response(JSON.stringify({
+        data: [{
+          url: "https://example.gov/tenders",
+          title: "Tenders",
+          markdown: "Bid notices and procurement updates",
+        }],
+      }), { status: 200, headers: { "content-type": "application/json" } }),
+    });
+
+    await expect(provider.search({ query: "karnataka tenders", limit: 1 })).resolves.toMatchObject({
+      provider: "firecrawl-search",
+      items: [{ url: "https://example.gov/tenders", title: "Tenders", snippet: "Bid notices and procurement updates" }],
+    });
+  });
+
   it("fetches and summarizes HTTP pages with blocking signals", async () => {
     const provider = createHttpFetchProvider({
       fetchImpl: async () => new Response("<html><title>Portal</title><body>Please login to continue</body></html>", {
@@ -48,8 +69,51 @@ describe("@cawstudios/agent-gantry", () => {
     });
   });
 
+  it("maps Firecrawl scrape responses into structured fetch results", async () => {
+    const provider = createFirecrawlFetchProvider({
+      apiKey: "test-key",
+      fetchImpl: async () => new Response(JSON.stringify({
+        data: {
+          markdown: "Public tender notices",
+          metadata: { sourceURL: "https://example.gov", title: "Procurement Portal" },
+        },
+      }), { status: 200, headers: { "content-type": "application/json" } }),
+    });
+
+    await expect(provider.fetch({ url: "https://example.gov" })).resolves.toMatchObject({
+      url: "https://example.gov",
+      title: "Procurement Portal",
+      text: "Public tender notices",
+      provider: "firecrawl-scrape",
+    });
+  });
+
+  it("maps Firecrawl crawl responses into structured crawl pages", async () => {
+    const provider = createFirecrawlCrawlProvider({
+      apiKey: "test-key",
+      fetchImpl: async () => new Response(JSON.stringify({
+        data: [{
+          markdown: "Tender page",
+          metadata: { sourceURL: "https://example.gov/tenders", title: "Tenders" },
+        }],
+      }), { status: 200, headers: { "content-type": "application/json" } }),
+    });
+
+    await expect(provider.crawl({ url: "https://example.gov", limit: 1 })).resolves.toMatchObject({
+      startUrl: "https://example.gov",
+      provider: "firecrawl",
+      pages: [{ url: "https://example.gov/tenders", title: "Tenders", text: "Tender page" }],
+    });
+  });
+
   it("fails search provider construction clearly when the Tavily key is missing", () => {
     expect(() => createTavilySearchProvider({ apiKey: "" })).toThrow("TAVILY_API_KEY");
+  });
+
+  it("fails Firecrawl provider construction clearly when the Firecrawl key is missing", () => {
+    expect(() => createFirecrawlSearchProvider({ apiKey: "" })).toThrow("FIRECRAWL_API_KEY");
+    expect(() => createFirecrawlFetchProvider({ apiKey: "" })).toThrow("FIRECRAWL_API_KEY");
+    expect(() => createFirecrawlCrawlProvider({ apiKey: "" })).toThrow("FIRECRAWL_API_KEY");
   });
 
   it("signs and verifies external event requests", () => {

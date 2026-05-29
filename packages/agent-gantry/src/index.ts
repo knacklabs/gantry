@@ -391,6 +391,20 @@ export interface FirecrawlCrawlProviderConfig {
   readonly maxPages?: number;
 }
 
+export interface FirecrawlSearchProviderConfig {
+  readonly apiKey?: string | null;
+  readonly fetchImpl?: typeof fetch;
+  readonly timeoutMs?: number;
+  readonly maxResults?: number;
+}
+
+export interface FirecrawlFetchProviderConfig {
+  readonly apiKey?: string | null;
+  readonly fetchImpl?: typeof fetch;
+  readonly timeoutMs?: number;
+  readonly maxBytes?: number;
+}
+
 export function createTavilySearchProvider(config: TavilySearchProviderConfig): StructuredSearchToolProvider {
   if (!config.apiKey?.trim()) {
     throw new Error("TAVILY_API_KEY is required to create the Tavily search provider.");
@@ -439,6 +453,62 @@ export function createTavilySearchProvider(config: TavilySearchProviderConfig): 
   };
 }
 
+export function createFirecrawlSearchProvider(config: FirecrawlSearchProviderConfig): StructuredSearchToolProvider {
+  if (!config.apiKey?.trim()) {
+    throw new Error("FIRECRAWL_API_KEY is required to create the Firecrawl search provider.");
+  }
+  const fetchImpl = config.fetchImpl ?? fetch;
+  const apiKey = config.apiKey.trim();
+  return {
+    search: async (input) => {
+      const maxResults = Math.min(input.limit ?? input.budget?.maxResults ?? config.maxResults ?? 5, config.maxResults ?? 10);
+      const response = await fetchWithTimeout(
+        fetchImpl,
+        "https://api.firecrawl.dev/v2/search",
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            query: input.query,
+            limit: maxResults,
+            scrapeOptions: { formats: ["markdown"] },
+          }),
+        },
+        input.budget?.timeoutMs ?? config.timeoutMs ?? 20_000,
+      );
+      const payload = await response.json() as Record<string, unknown>;
+      if (!response.ok) {
+        throw new Error(`Firecrawl search failed with HTTP ${response.status}.`);
+      }
+      const results = Array.isArray(payload.data)
+        ? payload.data
+        : Array.isArray(payload.results)
+          ? payload.results
+          : [];
+      return {
+        provider: "firecrawl-search",
+        items: results.flatMap((item) => {
+          const record = asRecord(item);
+          const metadata = asRecord(record?.metadata);
+          const url = asNonEmptyString(record?.url) ?? asNonEmptyString(metadata?.sourceURL);
+          if (!url) return [];
+          return [{
+            url,
+            title: asNonEmptyString(record?.title) ?? asNonEmptyString(metadata?.title),
+            snippet: asNonEmptyString(record?.description)
+              ?? asNonEmptyString(record?.markdown)
+              ?? asNonEmptyString(record?.content),
+            source: "firecrawl",
+          }];
+        }).slice(0, maxResults),
+      };
+    },
+  };
+}
+
 export function createHttpFetchProvider(config: HttpFetchProviderConfig = {}): StructuredFetchToolProvider {
   const fetchImpl = config.fetchImpl ?? fetch;
   return {
@@ -468,6 +538,56 @@ export function createHttpFetchProvider(config: HttpFetchProviderConfig = {}): S
         text: trimToBudget(readableText, maxBytes),
         blockedReason: detectBlockedReason(response.status, contentType, readableText),
         provider: "http-fetch",
+        warnings: text.length >= maxBytes ? [`Response truncated at ${maxBytes} bytes.`] : [],
+      };
+    },
+  };
+}
+
+export function createFirecrawlFetchProvider(config: FirecrawlFetchProviderConfig): StructuredFetchToolProvider {
+  if (!config.apiKey?.trim()) {
+    throw new Error("FIRECRAWL_API_KEY is required to create the Firecrawl fetch provider.");
+  }
+  const fetchImpl = config.fetchImpl ?? fetch;
+  const apiKey = config.apiKey.trim();
+  return {
+    fetch: async (input) => {
+      const maxBytes = input.budget?.maxBytes ?? config.maxBytes ?? 256_000;
+      const response = await fetchWithTimeout(
+        fetchImpl,
+        "https://api.firecrawl.dev/v2/scrape",
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            url: input.url,
+            formats: ["markdown", "html"],
+          }),
+        },
+        input.budget?.timeoutMs ?? config.timeoutMs ?? 20_000,
+      );
+      const payload = await response.json() as Record<string, unknown>;
+      if (!response.ok) {
+        throw new Error(`Firecrawl scrape failed with HTTP ${response.status}.`);
+      }
+      const data = asRecord(payload.data) ?? payload;
+      const metadata = asRecord(data.metadata);
+      const text = asNonEmptyString(data.markdown)
+        ?? asNonEmptyString(data.content)
+        ?? asNonEmptyString(data.html)
+        ?? "";
+      const trimmedText = trimToBudget(text, maxBytes);
+      return {
+        url: asNonEmptyString(metadata?.sourceURL) ?? asNonEmptyString(data.url) ?? input.url,
+        statusCode: 200,
+        contentType: "text/markdown",
+        title: asNonEmptyString(metadata?.title) ?? asNonEmptyString(data.title),
+        text: trimmedText,
+        blockedReason: detectBlockedReason(200, "text/markdown", trimmedText),
+        provider: "firecrawl-scrape",
         warnings: text.length >= maxBytes ? [`Response truncated at ${maxBytes} bytes.`] : [],
       };
     },
