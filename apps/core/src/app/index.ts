@@ -19,6 +19,7 @@ import { stopSchedulerLoop } from '../jobs/scheduler.js';
 import { stopOutboundDeliveryRecoveryLoop } from '../jobs/outbound-delivery-recovery.js';
 import { publishBrowserJobActivityEvent } from '../jobs/browser-activity-events.js';
 import { GANTRY_HOME } from '../config/index.js';
+import { hydrateDynamicRuntimeEnv } from '../config/env/index.js';
 import { getBrowserStatus } from '../runtime/browser-capability.js';
 import { startSettingsReloadWatcher } from '../runtime/settings-reload-watcher.js';
 import {
@@ -43,6 +44,15 @@ export async function startGantryRuntime(
   options: StartGantryRuntimeOptions = {},
 ): Promise<void> {
   const mcpHostnameLookup = options.mcpHostnameLookup ?? defaultHostnameLookup;
+  // Make these dev/test flags settable from $GANTRY_HOME/.env (they are read via
+  // process.env in `shared`/`application` layers, which may not import config).
+  // Keep them unset/off in production — see the DEV block in .env.
+  hydrateDynamicRuntimeEnv([
+    'GANTRY_FLOW_LOG',
+    'GANTRY_OUTBOUND_DRYRUN',
+    'GANTRY_TEST_OPERATOR_PHONE',
+    'GANTRY_TEST_CALLER_IDENTITY_PHONE',
+  ]);
   if (!options.skipPreflight) {
     const validation = await validateRuntimePreflightWithStorage(GANTRY_HOME);
     if (!validation.ok && validation.failure) {

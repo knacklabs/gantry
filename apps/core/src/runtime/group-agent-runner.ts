@@ -28,6 +28,8 @@ import { buildBoundedMemoryRecallQuery } from '../memory/app-memory-recall-query
 import { nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { isRuntimeEventType } from '../domain/events/runtime-event-types.js';
 import { resolveRuntimeExecutionProviderId } from './execution-provider-id.js';
+import { logger } from '../infrastructure/logging/logger.js';
+import { flowLog } from '../shared/flow-log.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
 const DEFAULT_MODEL_ALIAS = 'opus';
 const MEMORY_REVIEW_APPROVER_CACHE_TTL_MS = 60_000;
@@ -370,6 +372,16 @@ export function createGroupAgentRunner(input: {
       turnContext,
       configuredToolPolicy.allowedTools,
     );
+    // Flow trace: which capabilities this turn resolved — shows whether the
+    // agent actually receives any MCP servers (e.g. shopify-api) and a valid
+    // app/agent context, so a missing tool capability is visible.
+    flowLog(logger, 'agent.spawn', {
+      chatJid,
+      appId: turnContext?.appId ?? null,
+      agentId: turnContext?.agentId ?? null,
+      selectedMcpServerIds: selectedMcpServerIds ?? [],
+      allowedToolsCount: configuredToolPolicy.allowedTools?.length ?? 0,
+    });
     const memoryContextBlock = [
       turnContext?.memoryContextBlock,
       approvedSkillContextBlock,

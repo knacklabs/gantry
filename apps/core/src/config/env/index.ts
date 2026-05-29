@@ -58,3 +58,18 @@ export function envValueDynamic(key: string): string {
 export function runtimeEnvValueDynamic(key: string): string {
   return process.env[key]?.trim() || runtimeEnvConfig[key]?.trim() || '';
 }
+
+/**
+ * Copies selected opt-in runtime flags from $GANTRY_HOME/.env into process.env
+ * (only when not already set). Lower layers (`shared`, `application`) may not
+ * import `config`, so flags read there via process.env are made configurable
+ * from .env by hydrating them here at startup. An explicit process.env value
+ * (e.g. set on the launch command) always takes precedence.
+ */
+export function hydrateDynamicRuntimeEnv(keys: readonly string[]): void {
+  for (const key of keys) {
+    if (process.env[key] !== undefined) continue;
+    const value = runtimeEnvConfig[key]?.trim();
+    if (value) process.env[key] = value;
+  }
+}

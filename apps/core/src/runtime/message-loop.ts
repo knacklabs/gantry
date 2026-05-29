@@ -29,6 +29,7 @@ import {
 import type { SessionCommand } from '../session/session-commands.js';
 import { makeThreadQueueKey, parseThreadQueueKey } from './thread-queue-key.js';
 import { resolveNonSelfSenderIds } from './session-resume-runtime.js';
+import { isTestOperatorJid } from '../shared/test-mode.js';
 
 export interface MessageLoopDeps {
   getConversationRoutes: () => Record<string, ConversationRoute>;
@@ -147,7 +148,12 @@ export async function runMessagePollingTick(
                 loopCmdMsg.sender,
                 controlAllowlistCfg,
                 group.folder,
-              ),
+              ) ||
+                // DEV/TESTING ONLY: the configured test operator may run session
+                // commands (e.g. /new) on their own conversation even while the
+                // agent run is warm, so the scenario harness can fully reset
+                // between runs. No-op in production (operator phone unset).
+                isTestOperatorJid(chatJid),
             )
           ) {
             if (loopCommand && deps.handleActiveControlCommand) {

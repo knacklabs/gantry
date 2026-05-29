@@ -3,8 +3,6 @@ import type {
   SkillCatalogRepository,
   ToolCatalogRepository,
 } from '../../domain/ports/repositories.js';
-import { resolveAgentToolRuntimeRules } from '../agents/agent-tool-runtime-rules.js';
-
 const MCP_TOOL_RULE_PATTERN = /^mcp__([a-z][a-z0-9_-]{0,62})__/;
 
 export function mcpServerNamesFromToolRules(
@@ -26,18 +24,14 @@ export async function authorizedMcpServerIdsForAgent(input: {
   agentId: string;
   allowedTools?: readonly string[];
 }): Promise<string[]> {
-  const allowedTools =
-    input.allowedTools ??
-    (await resolveAgentToolRuntimeRules({
-      repository: input.tools,
-      skillRepository: input.skills,
-      appId: input.appId,
-      agentId: input.agentId,
-      errorSubject: 'Configured agent tool',
-    }));
-  const authorizedServerNames = mcpServerNamesFromToolRules(allowedTools);
-  if (authorizedServerNames.size === 0) return [];
-
+  // An MCP server is authorized for an agent when the agent has an ACTIVE
+  // binding to it. Bindings are created only through approved flows — an
+  // operator-declared `sources.mcp_servers` entry reconciled from authoritative
+  // settings, or an approved `request_mcp_server` — so the binding itself is the
+  // durable grant (a sourced MCP server behaves like a sourced skill, which is
+  // usable without an extra per-tool capability). Which tools may actually run
+  // is still gated downstream by the server version's allowed_tool_patterns and
+  // the per-call approval / auto-approve policy in the MCP proxy.
   const bindings = await input.mcpServers.listAgentBindings({
     appId: input.appId as never,
     agentId: input.agentId as never,
@@ -54,8 +48,6 @@ export async function authorizedMcpServerIdsForAgent(input: {
   return activeBindings.flatMap((binding, index) => {
     const server = servers[index];
     if (!server || server.appId !== input.appId) return [];
-    return authorizedServerNames.has(server.name)
-      ? [String(binding.serverId)]
-      : [];
+    return [String(binding.serverId)];
   });
 }

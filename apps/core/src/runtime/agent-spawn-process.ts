@@ -13,6 +13,7 @@ import { logger, redactString } from '../infrastructure/logging/logger.js';
 import { AgentOutput, RunnerProcessSpec } from './agent-spawn-types.js';
 import { activeRunStopWasRequested } from './group-queue-stop.js';
 import { formatDuration } from '../shared/human-format.js';
+import { flowLog, isFlowLogEnabled } from '../shared/flow-log.js';
 import { nowIso, nowMs as currentTimeMs } from '../shared/time/datetime.js';
 import { formatRunnerProcessExitError } from './generated-runtime-path-error.js';
 
@@ -200,6 +201,19 @@ export function executeRunnerProcess(
     runner.stdin.write(JSON.stringify(input));
     runner.stdin.end();
 
+    // Flow trace: what we hand to the LLM for this turn (user prompt + system
+    // prompt size + whether the SDK session was resumed). Reply is logged on
+    // close as flow:llm.output.
+    const flowEnabled = isFlowLogEnabled();
+    let llmReplyText = '';
+    flowLog(logger, 'llm.input', {
+      chatJid: input.chatJid,
+      promptChars: input.prompt.length,
+      prompt: input.prompt,
+      systemPromptChars: input.compiledSystemPrompt?.length ?? 0,
+      resumed: Boolean(input.sessionId),
+    });
+
     let parseBuffer = '';
     let parseBufferTruncated = false;
     let newSessionId: string | undefined;
@@ -283,6 +297,9 @@ export function executeRunnerProcess(
             if (parsed.newSessionId) {
               newSessionId = parsed.newSessionId;
             }
+            if (flowEnabled && typeof parsed.result === 'string') {
+              llmReplyText += parsed.result;
+            }
             const heartbeat = readScheduledJobHeartbeat(parsed);
             if (input.isScheduledJob && heartbeat) {
               lastScheduledJobHeartbeat = heartbeat;
@@ -361,6 +378,14 @@ export function executeRunnerProcess(
     runner.on('close', (code, signal) => {
       clearTimeout(timeout);
       const duration = currentTimeMs() - startTime;
+
+      // Flow trace: the assistant reply assembled from this run's streamed
+      // output (what the LLM gave back), keyed by the real conversation JID.
+      flowLog(logger, 'llm.output', {
+        chatJid: input.chatJid,
+        replyChars: llmReplyText.length,
+        reply: llmReplyText,
+      });
 
       if (timedOut) {
         const ts = nowIso().replace(/[:.]/g, '-');

@@ -2,6 +2,7 @@ import path from 'path';
 
 import { McpServerService } from '../application/mcp/mcp-server-service.js';
 import { McpToolProxy } from '../application/mcp/mcp-tool-proxy.js';
+import { applyTestCallerIdentityOverride } from '../application/mcp/test-caller-identity-override.js';
 import {
   getRuntimeRepositories,
   getRuntimeStorage,
@@ -896,7 +897,10 @@ async function createMcpProxyForSourceGroup(input: {
     tools: storage.repositories.tools,
     skills: storage.repositories.skills,
     credentialEnv,
-    callerIdentityJid: input.callerIdentityJid,
+    // Dev-only: remaps the MCP caller identity to a test number when
+    // GANTRY_TEST_CALLER_IDENTITY_PHONE is set; no-op otherwise. Same-channel
+    // validation already ran on the real JID above, and outbound is unaffected.
+    callerIdentityJid: applyTestCallerIdentityOverride(input.callerIdentityJid),
     lookupHostname: input.deps.mcpHostnameLookup,
   });
 }

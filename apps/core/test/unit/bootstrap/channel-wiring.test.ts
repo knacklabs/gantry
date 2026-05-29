@@ -985,6 +985,74 @@ describe('createChannelWiring', () => {
     expect(outbound.sendMessage).toHaveBeenCalledWith('tg:123', '*done*');
   });
 
+  it('dry-run mode skips the provider send and logs the reply', async () => {
+    const app = makeApp();
+    const info = vi.fn();
+    const outbound = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:123'),
+    });
+
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => outbound),
+        ),
+      ],
+      logger: { info, warn: vi.fn(), debug: vi.fn(), error: vi.fn() },
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    process.env.GANTRY_OUTBOUND_DRYRUN = '1';
+    try {
+      await wiring.sendMessage('tg:123', 'hello', {
+        durability: 'best_effort',
+      });
+      expect(outbound.sendMessage).not.toHaveBeenCalled();
+      expect(info).toHaveBeenCalledWith(
+        { jid: 'tg:123' },
+        'Outbound dry-run: reply logged, not sent to provider',
+      );
+    } finally {
+      delete process.env.GANTRY_OUTBOUND_DRYRUN;
+    }
+  });
+
+  it('dry-run does NOT suppress sends outside the configured operator scope', async () => {
+    const app = makeApp();
+    const outbound = makeChannel({
+      ownsJid: vi.fn((jid: string) => jid === 'tg:123'),
+    });
+
+    const wiring = createChannelWiring(app, {
+      providerIds: [
+        makeProvider(
+          'telegram',
+          vi.fn(() => outbound),
+        ),
+      ],
+    });
+    await wiring.connectEnabledChannels(
+      makeRuntimeSettings({ telegram: true, slack: false }),
+    );
+
+    // Operator scope is a different number, so 'tg:123' is a "real customer":
+    // dry-run must not apply and the provider send must happen.
+    process.env.GANTRY_OUTBOUND_DRYRUN = '1';
+    process.env.GANTRY_TEST_OPERATOR_PHONE = '919654405340';
+    try {
+      await wiring.sendMessage('tg:123', 'hello', {
+        durability: 'best_effort',
+      });
+      expect(outbound.sendMessage).toHaveBeenCalledWith('tg:123', 'hello');
+    } finally {
+      delete process.env.GANTRY_OUTBOUND_DRYRUN;
+      delete process.env.GANTRY_TEST_OPERATOR_PHONE;
+    }
+  });
+
   it('records outbound final messages as pending and then sent', async () => {
     const app = makeApp();
     const storeMessage = vi.fn(async () => {});

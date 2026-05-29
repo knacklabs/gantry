@@ -1,0 +1,40 @@
+{
+  "realFrom": "919654405340",
+  "testNumber": "918097288633",
+  "_note": "Extra customer-behaviour scenarios beyond the core matrix: products, inventory, discounts, complaints (empathy + human handoff), mixed in/out-of-scope, a multi-turn shopping flow, and a closing. Most are exploratory (reported, never fail) because the agent may legitimately answer product/discount questions from the boondi-kb skill OR the Shopify MCP. realFrom is the operator's number; the signed Shopify identity is testNumber.",
+  "scenarios": [
+    {
+      "name": "product-search-kaju-katli",
+      "turns": ["Do you have kaju katli? What's the price?"]
+    },
+    {
+      "name": "inventory-availability",
+      "turns": ["Is the Choco Butterscotch Barks 200g pack in stock right now?"]
+    },
+    {
+      "name": "discount-code-validate",
+      "turns": ["Does the discount code WELCOME10 still work?"]
+    },
+    {
+      "name": "complaint-damaged-empathy",
+      "turns": ["My last order arrived damaged — the box was crushed and the sweets were broken. I'm really upset."]
+    },
+    {
+      "name": "mixed-scope-order-plus-math",
+      "turns": ["What was my last order, and also what's 2+2?"],
+      "expect": { "allow": true, "mcp": true }
+    },
+    {
+      "name": "multi-turn-shopping-flow",
+      "turns": [
+        "Hi! I'm looking for a Diwali gift box",
+        "Do you have anything with kaju katli in it?",
+        "Got it. And what was my last order again?"
+      ]
+    },
+    {
+      "name": "gratitude-closing",
+      "turns": ["Perfect, thank you so much — that's all I needed!"]
+    }
+  ]
+}

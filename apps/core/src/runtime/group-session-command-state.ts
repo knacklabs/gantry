@@ -11,6 +11,7 @@ import {
   encodeGroupMessageCursor,
   toGroupMessageCursor,
 } from '../shared/message-cursor.js';
+import { isTestOperatorJid } from '../shared/test-mode.js';
 import { archiveCurrentRuntimeSession } from './session-resume-runtime.js';
 import { saveGroupProcedureMemory } from './group-memory-commands.js';
 import { resolveRuntimeExecutionProviderId } from './execution-provider-id.js';
@@ -143,7 +144,11 @@ export function createSenderCommandPolicy(input: {
         msg.sender,
         loadSenderControlAllowlist(),
         input.group.folder,
-      ),
+      ) ||
+      // DEV/TESTING ONLY: the configured test operator may run session commands
+      // (e.g. /new) on their own conversation so the scenario harness can reset
+      // between runs. No-op in production (GANTRY_TEST_OPERATOR_PHONE unset).
+      isTestOperatorJid(input.chatJid),
     canSenderInteract: (msg: NewMessage) => {
       const hasTrigger = input.triggerPattern.test(msg.content.trim());
       const reqTrigger = input.group.requiresTrigger !== false;

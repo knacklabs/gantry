@@ -66,4 +66,15 @@ describe('guardCustomerVisibleOutput', () => {
       findInternalLeak('Can I get a gift hamper delivered tomorrow?'),
     ).toBeUndefined();
   });
+
+  it('flags the added internal markers a customer reply must never contain', () => {
+    expect(findInternalLeak('I pulled it from our Shopify integration.')).toBeDefined();
+    expect(
+      findInternalLeak("The knowledge base doesn't have prices filled in yet."),
+    ).toBeDefined();
+    expect(findInternalLeak('You can look it up in the admin dashboard.')).toBeDefined();
+    expect(
+      findInternalLeak("That's a privacy/security control on our side."),
+    ).toBeDefined();
+  });
 });

@@ -26,6 +26,8 @@ import {
 import { projectCallerIdentityHeaders } from './mcp-caller-identity.js';
 import { authorizedMcpServerIdsForAgent } from './mcp-authorized-servers.js';
 import { CUSTOMER_IDENTITY_MISMATCH_MESSAGE } from '../../shared/user-visible-messages.js';
+import { logger } from '../../infrastructure/logging/logger.js';
+import { flowLog } from '../../shared/flow-log.js';
 
 const MCP_PROXY_TIMEOUT_MS = 60_000;
 const MCP_PROXY_CLIENT_IDLE_MS = 120_000;
@@ -116,8 +118,16 @@ export class McpToolProxy {
       );
     }
     const client = await this.connect(capability);
+    // Flow trace: callerIdentityJid is the identity the request is signed with
+    // (shows the test number when the dev override is active).
+    flowLog(logger, 'mcp.request', {
+      serverName: input.serverName,
+      toolName: input.toolName,
+      callerIdentityJid: this.options.callerIdentityJid,
+      arguments: input.arguments ?? {},
+    });
     try {
-      return await client.callTool(
+      const result = await client.callTool(
         {
           name: input.toolName,
           arguments: input.arguments ?? {},
@@ -125,7 +135,18 @@ export class McpToolProxy {
         undefined,
         { timeout: MCP_PROXY_TIMEOUT_MS },
       );
+      flowLog(logger, 'mcp.response', {
+        serverName: input.serverName,
+        toolName: input.toolName,
+        result,
+      });
+      return result;
     } catch (err) {
+      flowLog(logger, 'mcp.error', {
+        serverName: input.serverName,
+        toolName: input.toolName,
+        error: err instanceof Error ? err.message : String(err),
+      });
       await closeCachedClient(capability);
       throw err;
     } finally {
