@@ -216,10 +216,7 @@ export class AnthropicClaudeAgentExecutionAdapter implements AgentExecutionAdapt
         },
         `${CHILD_RUNNER_FROM_SOURCE_ENV} enabled: launching agent child from TypeScript source via tsx (developer mode — do not use in production)`,
       );
-    } else if (
-      process.env[CHILD_RUNNER_FROM_SOURCE_ENV] &&
-      !sourceExists
-    ) {
+    } else if (process.env[CHILD_RUNNER_FROM_SOURCE_ENV] && !sourceExists) {
       logger.warn(
         { distRunner: distRunnerPath, attemptedSource: sourceRunnerPath },
         `${CHILD_RUNNER_FROM_SOURCE_ENV} set but TypeScript source runner not found; falling back to compiled dist runner`,

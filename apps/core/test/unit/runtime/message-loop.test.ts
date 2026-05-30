@@ -1043,10 +1043,14 @@ describe('continuation-path guardrail', () => {
 
     expect(sendChannelMessage).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledTimes(1);
-    expect(sendMessage).toHaveBeenCalledWith('group@g.us', 'formatted messages', {
-      threadId: undefined,
-      senderUserIds: ['user@s.whatsapp.net'],
-    });
+    expect(sendMessage).toHaveBeenCalledWith(
+      'group@g.us',
+      'formatted messages',
+      {
+        threadId: undefined,
+        senderUserIds: ['user@s.whatsapp.net'],
+      },
+    );
   });
 
   it('does not screen when sendChannelMessage is not wired (back-compat)', async () => {

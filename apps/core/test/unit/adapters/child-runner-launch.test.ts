@@ -6,7 +6,8 @@ import {
 } from '@core/adapters/llm/anthropic-claude-agent/child-runner-launch.js';
 
 const DIST = '/root/dist/adapters/llm/anthropic-claude-agent/runner/index.js';
-const SRC = '/root/apps/core/src/adapters/llm/anthropic-claude-agent/runner/index.ts';
+const SRC =
+  '/root/apps/core/src/adapters/llm/anthropic-claude-agent/runner/index.ts';
 
 function input(
   patch: Partial<BuildChildRunnerLaunchInput> = {},
@@ -90,7 +91,11 @@ describe('buildChildRunnerLaunch', () => {
 
   it('fails safe to dist when the flag is on but no source path is known', () => {
     const launch = buildChildRunnerLaunch(
-      input({ fromSourceFlag: '1', sourceRunnerPath: undefined, sourceExists: false }),
+      input({
+        fromSourceFlag: '1',
+        sourceRunnerPath: undefined,
+        sourceExists: false,
+      }),
     );
     expect(launch.mode).toBe('dist');
     expect(launch.runnerArgs).toEqual([DIST]);
