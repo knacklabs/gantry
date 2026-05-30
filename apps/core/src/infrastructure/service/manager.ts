@@ -203,7 +203,7 @@ function writeSystemdUnit(runtimeHome: string, runtimeEntry: string): string {
   fs.mkdirSync(unitDir, { recursive: true });
   const servicePath = buildServicePath(os.homedir());
   const unit = `[Unit]
-Description=Gantry Personal Assistant
+Description=Gantry Agent Runtime
 After=network-online.target
 
 [Service]

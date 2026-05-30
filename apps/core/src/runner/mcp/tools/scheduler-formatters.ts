@@ -3,6 +3,10 @@ import {
   setupActionLabel,
   setupActionLabelFromNextAction,
 } from '../../../shared/job-setup-labels.js';
+import {
+  deliveryLabel as providerDeliveryLabel,
+  ownerLabel as providerOwnerLabel,
+} from '../../../channels/provider-delivery-labels.js';
 
 export function schedulerJobSummary(job: unknown): string {
   const record =
@@ -64,10 +68,40 @@ export function schedulerJobSummary(job: unknown): string {
       ? setupActionLabelFromNextAction(health.nextAction, 'none')
       : 'none';
   const setupAction = setupActionSummary(setup);
+  const primaryRoute =
+    typeof notificationRoutes[0] === 'object' && notificationRoutes[0] !== null
+      ? (notificationRoutes[0] as Record<string, any>)
+      : {};
+  const ownerLabelText = preferredOwnerLabel({
+    visibility,
+    conversationJid: String(
+      executionContext.conversationJid ?? target.conversationJids?.[0] ?? '',
+    ),
+  });
+  const deliveryLabelText = preferredDeliveryLabel({
+    visibility,
+    conversationJid: String(
+      primaryRoute.conversationJid ?? executionContext.conversationJid ?? '',
+    ),
+    threadId: primaryRoute.threadId ?? executionContext.threadId ?? null,
+  });
+  const setupLabelText =
+    typeof visibility.setupLabel === 'string' && visibility.setupLabel
+      ? visibility.setupLabel
+      : setupReadinessLabel(String(setup.state ?? 'ready'));
+  const nextActionLabelText =
+    typeof visibility.nextActionLabel === 'string' && visibility.nextActionLabel
+      ? visibility.nextActionLabel
+      : setupAction !== 'none'
+        ? setupAction
+        : nextAction;
   return [
     `Job: ${String(record.name ?? record.id ?? 'unknown')}`,
+    `Owned by: ${ownerLabelText}`,
+    `Delivers to: ${deliveryLabelText}`,
+    `Setup: ${setupLabelText}`,
+    `Next action: ${nextActionLabelText}`,
     `Health: ${String(health.state ?? 'unknown')} | latest ${String(health.latestRunStatus ?? 'none')} | action ${nextAction}`,
-    `Setup: ${String(setup.state ?? 'ready')} | action ${setupAction}`,
     `Recovery: ${recoverySummary(recovery)}`,
     `Target: ${String(target.agentId ?? record.group_scope ?? 'unknown')} in ${String(target.conversationJids?.[0] ?? 'no conversation')}`,
     `Execution context: ${String(executionContext.conversationJid ?? 'unknown')} | thread ${String(executionContext.threadId ?? 'none')} | group ${String(executionContext.groupScope ?? record.group_scope ?? 'unknown')}`,
@@ -84,6 +118,37 @@ export function schedulerJobSummary(job: unknown): string {
     'Structured JSON:',
     JSON.stringify(record, null, 2),
   ].join('\n');
+}
+
+function preferredOwnerLabel(input: {
+  visibility: Record<string, any>;
+  conversationJid: string;
+}): string {
+  const inferred = providerOwnerLabel(input.conversationJid);
+  if (inferred !== 'conversation') return inferred;
+  return typeof input.visibility.ownerLabel === 'string' &&
+    input.visibility.ownerLabel
+    ? input.visibility.ownerLabel
+    : inferred;
+}
+
+function preferredDeliveryLabel(input: {
+  visibility: Record<string, any>;
+  conversationJid: string;
+  threadId: string | null | undefined;
+}): string {
+  const inferred = providerDeliveryLabel(input.conversationJid, input.threadId);
+  if (inferred !== 'conversation') return inferred;
+  return typeof input.visibility.deliveryLabel === 'string' &&
+    input.visibility.deliveryLabel
+    ? input.visibility.deliveryLabel
+    : inferred;
+}
+
+function setupReadinessLabel(state: string | undefined): string {
+  if (state === 'ready' || !state) return 'Ready';
+  if (state === 'missing_capability') return 'Needs approval';
+  return 'Needs setup';
 }
 
 function setupActionSummary(setup: Record<string, any>): string {
@@ -143,7 +208,13 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
     const toolsLabel = toolAccess.present
       ? formatTools(toolAccess.effectiveAllowedTools)
       : '(missing toolAccess)';
-    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${String(setup.state !== 'ready' ? setup.state : (health.state ?? record.status ?? ''))} | recovery: ${recovery.state ?? 'none'} | ${String(executionContext.conversationJid ?? target.conversationJids?.[0] ?? '')} | capabilities: ${formatTools(capabilityRequirements)} | access: ${formatTools(toolAccessRequirements)} | mcp: ${formatTools(requiredMcpServers)} | tools: ${toolsLabel}`;
+    const ownerLabelText = preferredOwnerLabel({
+      visibility,
+      conversationJid: String(
+        executionContext.conversationJid ?? target.conversationJids?.[0] ?? '',
+      ),
+    });
+    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${String(setup.state !== 'ready' ? setup.state : (health.state ?? record.status ?? ''))} | recovery: ${recovery.state ?? 'none'} | ${ownerLabelText} | capabilities: ${formatTools(capabilityRequirements)} | access: ${formatTools(toolAccessRequirements)} | mcp: ${formatTools(requiredMcpServers)} | tools: ${toolsLabel}`;
   });
   return [
     `Scheduler jobs (${jobs.length})`,

@@ -101,7 +101,7 @@ describe('agent capability composition', () => {
       memoryIpcAuthToken: 'memory-token',
       ipcResponseVerifyKey: 'verify-key',
       ipcResponseKeyId: 'verify-key-id',
-      persona: 'personal_assistant',
+      persona: 'generalist',
     });
 
     expect(profile.allowedTools).toEqual(SAFE_DEFAULT_ALLOWED_TOOLS);
@@ -301,7 +301,7 @@ describe('agent capability composition', () => {
   });
 
   it.each([
-    'personal_assistant',
+    'generalist',
     'sales',
     'marketing',
     'operations',

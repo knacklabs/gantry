@@ -137,6 +137,10 @@ export interface JobRecord {
     | { type: 'cron' | 'interval'; value: string };
   executionContext: JobExecutionContext;
   notificationRoutes: JobNotificationRoute[];
+  ownerLabel?: string;
+  deliveryLabel?: string;
+  setupLabel?: string;
+  nextActionLabel?: string | null;
   capabilityRequirements: JobCapabilityRequirement[];
   toolAccessRequirements: string[];
   requiredMcpServers: string[];
@@ -393,7 +397,7 @@ export interface JobRuntimeContextPreview {
   browserProfileName: string;
   persona:
     | 'developer'
-    | 'personal_assistant'
+    | 'generalist'
     | 'sales'
     | 'marketing'
     | 'operations'

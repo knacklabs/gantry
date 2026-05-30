@@ -1290,7 +1290,7 @@ describe('agent-runner IPC lifecycle', () => {
       const assistantFixture = createRunnerFixture();
       const assistantResult = await runRunner(
         assistantFixture,
-        baseInput({ persona: 'personal_assistant' }),
+        baseInput({ persona: 'generalist' }),
         {
           TEST_EXIT_AFTER_QUERY: '1',
           [GANTRY_CLAUDE_SDK_SKILLS_ENV]: JSON.stringify([
@@ -1317,7 +1317,7 @@ describe('agent-runner IPC lifecycle', () => {
 
       const result = await runRunner(
         fixture,
-        baseInput({ persona: 'personal_assistant' }),
+        baseInput({ persona: 'generalist' }),
         {
           TEST_EXIT_AFTER_QUERY: '1',
           [GANTRY_CLAUDE_SDK_SKILLS_ENV]: JSON.stringify([
@@ -1388,7 +1388,7 @@ describe('agent-runner IPC lifecycle', () => {
 
       const result = await runRunner(
         fixture,
-        baseInput({ persona: 'personal_assistant' }),
+        baseInput({ persona: 'generalist' }),
         {
           TEST_EXIT_AFTER_QUERY: '1',
         },
@@ -1413,7 +1413,7 @@ describe('agent-runner IPC lifecycle', () => {
 
       const result = await runRunner(
         fixture,
-        baseInput({ persona: 'personal_assistant' }),
+        baseInput({ persona: 'generalist' }),
         {
           TEST_TOOL_USE_ONLY: 'Bash',
           TEST_TOOL_USE_CMD: 'npm test --runInBand',

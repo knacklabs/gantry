@@ -2464,6 +2464,7 @@ describe('TelegramChannel', () => {
         {
           requestId: 'perm-command',
           sourceAgentFolder: 'whatsapp_main',
+          targetJid: 'tg:100200300',
           threadId: '42',
           toolName: 'Bash',
           toolInput: {
@@ -2476,7 +2477,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '100200300',
         expect.stringContaining(
-          'Route: shown in this topic/thread; approval applies to the parent conversation.',
+          'Route: shown in this Telegram topic; approval applies to the parent conversation.',
         ),
         expect.objectContaining({ message_thread_id: 42 }),
       );

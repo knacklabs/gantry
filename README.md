@@ -129,7 +129,7 @@ providers:
 agents:
   main_agent:
     name: Default Agent
-    persona: personal_assistant
+    persona: generalist
     sources:
       skills: []
       mcp_servers: []

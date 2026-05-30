@@ -231,7 +231,7 @@ describe('PromptProfileService', () => {
 
     const prompt = await service.compileSystemPrompt({
       agentFolder: 'team',
-      persona: 'personal_assistant',
+      persona: 'generalist',
     });
 
     expect(prompt.indexOf('[[RUNTIME_RULES]]')).toBeLessThan(
@@ -252,7 +252,7 @@ describe('PromptProfileService', () => {
     expect(prompt).not.toContain('[[SHARED_CONTEXT]]');
     expect(prompt).toContain('source: gantry://soul');
     expect(prompt).toContain('source: gantry://persona');
-    expect(prompt).toContain('Personal assistant persona');
+    expect(prompt).toContain('Generalist persona');
     expect(prompt).toContain('source: gantry://capability-guidance');
     expect(prompt).toContain('source: gantry://operating-guidance');
     expect(prompt).toContain('source: gantry://group-context');

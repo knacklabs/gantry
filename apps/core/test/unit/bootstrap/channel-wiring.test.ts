@@ -535,6 +535,7 @@ describe('createChannelWiring', () => {
           direction: 'outbound',
           deliveryStatus: 'sent',
           externalMessageId: '171.123',
+          sender: { id: 'gantry', name: 'Gantry' },
           text: 'done',
         }),
       }),

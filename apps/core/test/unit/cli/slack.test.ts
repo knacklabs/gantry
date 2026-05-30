@@ -530,7 +530,7 @@ describe('cli slack helpers', () => {
         path.join(runtimeHome, 'agents', result.folder, 'CLAUDE.md'),
       ),
     ).toBe(false);
-    expect(claude).toContain('assistant for this conversation');
+    expect(claude).toContain('agent for this conversation');
     expect(claude).toContain('Keep responses clear');
     expect(claude).not.toContain('capability changes');
     expect(soul).toContain('# Soul - Who You Are');

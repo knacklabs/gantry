@@ -730,4 +730,102 @@ describe('scheduler MCP tools', () => {
       ]),
     ).toContain('access: Browser');
   });
+
+  it('renders a provider-neutral owner label in the scheduler list line', async () => {
+    const { schedulerJobsSummary } =
+      await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
+
+    const summary = schedulerJobsSummary([
+      {
+        id: 'job-1',
+        name: 'Topic digest',
+        status: 'active',
+        visibility: {
+          executionContext: { conversationJid: 'tg:-100team', threadId: '42' },
+          target: { agentId: 'agent:main', conversationJids: ['tg:-100team'] },
+        },
+      },
+    ]);
+    const listLine = summary
+      .split('\n')
+      .find((line) => line.startsWith('- job-1'));
+    expect(listLine).toContain('Telegram group');
+    expect(listLine).not.toContain('tg:-100team');
+  });
+
+  it('renders provider-neutral owner/delivery labels and setup status', async () => {
+    const { schedulerJobSummary } =
+      await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
+
+    const telegramTopic = schedulerJobSummary({
+      id: 'job-1',
+      name: 'Topic digest',
+      status: 'active',
+      visibility: {
+        executionContext: { conversationJid: 'tg:-100team', threadId: '42' },
+        notificationRoutes: [
+          { conversationJid: 'tg:-100team', threadId: '42', label: 'primary' },
+        ],
+        target: { agentId: 'agent:main', conversationJids: ['tg:-100team'] },
+        recentRunErrors: [],
+      },
+    });
+    expect(telegramTopic).toContain('Owned by: Telegram group');
+    expect(telegramTopic).toContain('Delivers to: Telegram topic');
+
+    const slackThread = schedulerJobSummary({
+      id: 'job-2',
+      name: 'Thread digest',
+      status: 'active',
+      visibility: {
+        executionContext: { conversationJid: 'sl:C0001', threadId: '123.45' },
+        notificationRoutes: [
+          { conversationJid: 'sl:C0001', threadId: '123.45', label: 'primary' },
+        ],
+        recentRunErrors: [],
+      },
+    });
+    expect(slackThread).toContain('Owned by: Slack channel');
+    expect(slackThread).toContain('Delivers to: Slack thread');
+
+    const wholeConversation = schedulerJobSummary({
+      id: 'job-3',
+      name: 'Conversation digest',
+      status: 'active',
+      visibility: {
+        executionContext: { conversationJid: 'tg:-100team', threadId: null },
+        notificationRoutes: [
+          { conversationJid: 'tg:-100team', threadId: null, label: 'primary' },
+        ],
+        recentRunErrors: [],
+      },
+    });
+    expect(wholeConversation).toContain('Delivers to: Telegram group');
+    expect(wholeConversation).not.toContain('Delivers to: Telegram topic');
+
+    const missingCapability = schedulerJobSummary({
+      id: 'job-4',
+      name: 'Append records',
+      status: 'paused',
+      visibility: {
+        executionContext: { conversationJid: 'tg:-100team', threadId: null },
+        setup: {
+          state: 'missing_capability',
+          blockers: [
+            {
+              state: 'missing_capability',
+              requirementType: 'semantic_capability',
+              requirementId: 'acme.records.append',
+              nextAction: '',
+            },
+          ],
+        },
+        recentRunErrors: [],
+      },
+    });
+    expect(missingCapability).toContain('Setup: Needs approval');
+    expect(missingCapability).toContain(
+      'Next action: Approve Acme Records Append, then resume the job.',
+    );
+  });
 });

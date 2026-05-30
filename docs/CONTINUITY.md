@@ -9,7 +9,7 @@ Continuity is not the same as memory.
 
 ## Why This Exists
 
-A useful personal assistant should not start from zero after `/new`, compaction, restart, or a scheduled job. It should know enough to continue work safely:
+A useful agent runtime should not make an agent start from zero after `/new`, compaction, restart, or a scheduled job. It should provide enough context to continue work safely:
 
 - what the current task is
 - which decisions are already settled

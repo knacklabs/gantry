@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { JobManagementService } from '@core/application/jobs/job-management-service.js';
-import { recheckSetupPausedJobsAfterPermissionGrant } from '@core/application/jobs/job-permission-recovery.js';
+import { recheckSetupPausedJobsAfterCapabilityUpdate } from '@core/application/jobs/job-permission-recovery.js';
 import { isVisibleJob } from '@core/application/jobs/job-list-filters.js';
 import {
   assertSchedulerJobAccess,
@@ -230,7 +230,7 @@ describe('job application use cases', () => {
     });
     const scheduler = { requestSchedulerSync: vi.fn() };
 
-    const result = await recheckSetupPausedJobsAfterPermissionGrant({
+    const result = await recheckSetupPausedJobsAfterCapabilityUpdate({
       appId: 'default',
       sourceAgentFolder: 'team',
       conversationJid: 'tg:team',
@@ -293,7 +293,7 @@ describe('job application use cases', () => {
     const updateJob = vi.fn();
     const scheduler = { requestSchedulerSync: vi.fn() };
 
-    const result = await recheckSetupPausedJobsAfterPermissionGrant({
+    const result = await recheckSetupPausedJobsAfterCapabilityUpdate({
       appId: 'default',
       sourceAgentFolder: 'team',
       conversationJid: 'tg:team',
@@ -345,7 +345,7 @@ describe('job application use cases', () => {
     });
     const updateJob = vi.fn();
 
-    const result = await recheckSetupPausedJobsAfterPermissionGrant({
+    const result = await recheckSetupPausedJobsAfterCapabilityUpdate({
       appId: 'default',
       sourceAgentFolder: 'team',
       conversationJid: 'tg:team',

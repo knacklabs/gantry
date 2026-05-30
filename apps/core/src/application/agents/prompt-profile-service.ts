@@ -48,10 +48,10 @@ const RUNTIME_RULES_BLOCK = [
 
 function personaPrompt(persona: AgentPersona): string {
   switch (persona) {
-    case 'personal_assistant':
+    case 'generalist':
       return [
-        '# Personal assistant persona',
-        '- Help with planning, reminders, coordination, lightweight research, and personal workflows.',
+        '# Generalist persona',
+        '- Help with planning, reminders, coordination, lightweight research, and cross-functional workflows.',
         '- Use generic Agent delegation for isolated research, summarization, comparison, planning, or second-pass review when it reduces clutter for the user.',
         '- Avoid developer, repository, shell, Git, deployment, PR, and runtime-admin assumptions unless the user explicitly asks and host capabilities allow it.',
       ].join('\n');
@@ -145,7 +145,8 @@ const OPERATING_GUIDANCE_BLOCK = [
   '- Use memory tools for durable memory, not for temporary notes.',
   '- If memory is missing, stale, or uncertain, say so directly.',
   '- Use send_message for progress updates and ask_user_question for structured choices.',
-  '- Source = what exists; Capability = reviewed action; Grant = this agent is allowed to use the capability; Job = declares requirements and inherits the target agent grants.',
+  '- Source = what exists; Capability = reviewed action; Grant = this agent is allowed to use the capability.',
+  '- Job = declares requirements; durable allowed capabilities stay on the target agent.',
   '- Use capability_search first. If a reviewed capability exists, use propose_capability. If the source is missing, request source install/connect/attach. If the source exists but the action is unreviewed, refresh source inventory and request review.',
   '- Use capability_search, propose_capability, and manage_capability for durable capability changes; request_permission is only a one-off or exact fallback access request.',
   '- For skills, Bash may be used for narrow prep such as inspecting, copying, unzipping, or constructing files, but durable install/selection must go through request_skill_install with staged files when available or an exact installer argv for catalog/local/URL/CLI installs.',
@@ -501,11 +502,11 @@ export function promptProfileAgentIdForFolder(agentFolder: string): string {
 }
 
 export function defaultGroupPromptMarkdown(agentName: string): string {
-  const displayName = agentName.trim() || 'Assistant';
+  const displayName = agentName.trim() || 'Agent';
   return [
     `# ${displayName}`,
     '',
-    `You are ${displayName}, the assistant for this conversation.`,
+    `You are ${displayName}, the agent for this conversation.`,
     'Keep responses clear, concise, and directly actionable.',
     '',
     'Rules:',
@@ -517,7 +518,7 @@ export function defaultGroupPromptMarkdown(agentName: string): string {
 }
 
 export function defaultSoulPromptMarkdown(agentName: string): string {
-  const displayName = agentName.trim() || 'Assistant';
+  const displayName = agentName.trim() || 'Agent';
   return [
     '# Soul - Who You Are',
     '',

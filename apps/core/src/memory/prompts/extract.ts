@@ -1,26 +1,26 @@
-export const MEMORY_EXTRACTION_SYSTEM_PROMPT = `You extract durable memory from a completed session arc between Ravi (user) and an AI assistant.
+export const MEMORY_EXTRACTION_SYSTEM_PROMPT = `You extract durable memory from a completed session arc between the user and a Gantry agent.
 
 A session arc is the full conversation between a session boundary (start, compact, end). You see what was attempted, what was decided, what worked, what didn't, and what the user corrected.
 
 SAVE only statements that will be useful in a FUTURE session:
-- preferences (how Ravi wants to work)
+- preferences (how the user wants to work)
 - decisions (choices made, with why — must be explicit and land, not just floated)
 - facts (stable project/role/tool/environment facts)
-- corrections (what Ravi told the assistant to stop/start doing)
+- corrections (what the user told the agent to stop/start doing)
 - constraints (rules that must always hold)
 
 DO NOT SAVE:
 - task status, progress updates, or "what we did this session"
-- hypothetical or exploratory ideas Ravi floated but did not decide
-- assistant reasoning or plans that were not confirmed
+- hypothetical or exploratory ideas the user floated but did not decide
+- agent reasoning or plans that were not confirmed
 - transient state (current PID, today's timestamps, in-flight debugging)
 - secrets, credentials, tokens, API keys, OAuth tokens, session IDs
 - anything already present in retrieved_items unless this arc corrects or replaces it (use supersedes)
 
 JUDGMENT RULES:
-- A decision requires Ravi to confirm it in the arc. Assistant suggestions alone don't count.
+- A decision requires the user to confirm it in the arc. Agent suggestions alone don't count.
 - A fact requires it to be stable — not specific to today or this run.
-- A correction requires Ravi to explicitly tell the assistant to change behavior.
+- A correction requires the user to explicitly tell the agent to change behavior.
 - "I think we should..." is exploration. "Let's do X" or "do X" is a decision.
 - When unclear, DO NOT SAVE. Return fewer, higher-quality facts.
 
@@ -38,7 +38,7 @@ For each fact return:
 - value: ONE human sentence, third-person, present tense, <220 chars.
 - why: a short quote from the arc that grounds the fact (from the user's turns primarily).
 - confidence:
-    0.9+ -> Ravi stated it explicitly and unambiguously
+    0.9+ -> The user stated it explicitly and unambiguously
     0.7-0.9 -> strong inference from clear signal
     <0.7 -> drop
 - load_bearing: true if future decisions will depend on this.
@@ -100,7 +100,7 @@ export const MEMORY_EXTRACTION_FEW_SHOTS = [
         scope: 'user',
         key: 'preference:concise-no-cheerleading',
         value:
-          'Ravi prefers concise responses without motivational or cheerleading language.',
+          'The user prefers concise responses without motivational or cheerleading language.',
         why: 'Keep responses short and skip motivational language.',
         confidence: 0.93,
         load_bearing: true,

@@ -596,7 +596,7 @@ conversations:
     settings.agents.main_agent = {
       name: 'Default Agent',
       folder: 'main_agent',
-      persona: 'personal_assistant',
+      persona: 'generalist',
       model: 'sonnet',
       oneTimeJobDefaultModel: 'haiku',
       recurringJobDefaultModel: 'opus',
@@ -635,9 +635,9 @@ conversations:
     const parsed = parseRuntimeSettings(renderRuntimeSettingsYaml(settings));
 
     expect(parsed.desiredState.authoritative).toBe(true);
-    expect(parsed.agents.main_agent.persona).toBe('personal_assistant');
+    expect(parsed.agents.main_agent.persona).toBe('generalist');
     expect(renderRuntimeSettingsYaml(parsed)).toContain(
-      '    persona: personal_assistant',
+      '    persona: generalist',
     );
     expect(parsed.agents.main_agent.bindings.main_dm).toMatchObject({
       jid: 'tg:100',

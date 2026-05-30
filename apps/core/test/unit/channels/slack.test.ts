@@ -949,6 +949,7 @@ describe('Slack channel', () => {
       {
         requestId: 'perm-cmd',
         sourceAgentFolder: 'slack_main',
+        targetJid: 'sl:C1234567890',
         threadId: '1711111111.000100',
         toolName: 'Bash',
         toolInput: {
@@ -962,7 +963,7 @@ describe('Slack channel', () => {
       .mock.calls.at(-1)?.[0];
     expect(postCall?.thread_ts).toBe('1711111111.000100');
     expect(postCall?.text).toContain(
-      'Route: shown in this topic/thread; approval applies to the parent conversation.',
+      'Route: shown in this Slack thread; approval applies to the parent conversation.',
     );
     expect(postCall?.text).toContain('Command:\n```\ngit status --short\n```');
 

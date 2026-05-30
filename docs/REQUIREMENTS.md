@@ -2,14 +2,14 @@
 
 ## Why This Exists
 
-Gantry exists to give one person a dependable personal agent runtime without turning the project into a sprawling platform.
+Gantry exists to provide a dependable agent runtime for personal and enterprise deployment modes without turning the project into an unclear control plane.
 
 The default experience should stay:
 
 - small enough to understand
 - secure by default
 - easy to customize in code
-- practical to run from everyday messaging channels
+- practical to run from everyday messaging and application channels
 
 ## Product Principles
 
@@ -21,9 +21,9 @@ The core runtime should stay compact. Prefer one clear implementation over multi
 
 Agents currently run through host execution. Security relies on explicit trust boundaries, scoped runtime paths, and least-privilege operational defaults.
 
-### Built for One User at a Time
+### Built Around Clear Deployment Boundaries
 
-This is personal software, not a shared SaaS control plane. The runtime should optimize for clarity and adaptability, not broad tenancy features.
+Gantry supports personal and enterprise deployment modes, but the runtime should optimize for clear app, agent, conversation, and permission boundaries instead of broad SaaS tenancy features.
 
 ### Customization Through Code
 
@@ -31,7 +31,7 @@ If a behavior matters, it should be easy to change in code. Avoid building large
 
 ### AI-Native Operations
 
-Setup, debugging, and maintenance should work well through Claude Code without requiring a heavyweight admin UI.
+Setup, debugging, and maintenance should work well through local developer tools without requiring a heavyweight admin UI.
 
 ### Skills Over Core Bloat
 

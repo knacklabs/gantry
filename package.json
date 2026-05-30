@@ -1,7 +1,7 @@
 {
   "name": "gantry",
   "version": "1.2.52",
-  "description": "Personal AI assistant runtime. Lightweight, secure, customizable.",
+  "description": "Provider-neutral agent runtime. Lightweight, secure, customizable.",
   "author": "Gantry Contributors",
   "license": "MIT",
   "repository": {
@@ -13,9 +13,9 @@
     "url": "https://github.com/vrknetha/gantry/issues"
   },
   "keywords": [
-    "assistant",
     "agent",
     "runtime",
+    "orchestration",
     "cli",
     "automation"
   ],

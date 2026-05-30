@@ -69,6 +69,7 @@ function createMcpFixture(): {
   const runnerDir = path.join(root, 'runner');
   const runnerMcpDir = path.join(runnerDir, 'mcp');
   const jobsDir = path.join(root, 'jobs');
+  const channelsDir = path.join(root, 'channels');
   const sharedDir = path.join(root, 'shared');
   const sharedTimeDir = path.join(sharedDir, 'time');
   const serverPath = path.join(runnerMcpDir, 'stdio.ts');
@@ -85,6 +86,7 @@ function createMcpFixture(): {
   fs.mkdirSync(runnerDir, { recursive: true });
   fs.mkdirSync(runnerMcpDir, { recursive: true });
   fs.mkdirSync(jobsDir, { recursive: true });
+  fs.mkdirSync(channelsDir, { recursive: true });
   fs.mkdirSync(sharedDir, { recursive: true });
   fs.mkdirSync(sharedTimeDir, { recursive: true });
   fs.mkdirSync(sdkServerDir, { recursive: true });
@@ -148,6 +150,10 @@ function createMcpFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/job-setup-labels.ts'),
     path.join(sharedDir, 'job-setup-labels.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/channels/provider-delivery-labels.ts'),
+    path.join(channelsDir, 'provider-delivery-labels.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/user-visible-messages.ts'),

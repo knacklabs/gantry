@@ -99,7 +99,7 @@ export class PostgresCanonicalGraphRepository {
       .values({
         id: CANONICAL_APP_ID,
         slug: 'personal',
-        name: 'Default Personal App',
+        name: 'Default Local App',
       })
       .onConflictDoNothing();
     await executor

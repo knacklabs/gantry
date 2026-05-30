@@ -13,6 +13,7 @@ import {
   RUN_COMMAND_TOOL_NAME,
 } from '../shared/agent-tool-references.js';
 import { formatPersistentPermissionRulesForUser } from '../shared/persistent-permission-rules.js';
+import { deliveryLabel } from './provider-delivery-labels.js';
 import {
   redactSensitiveText,
   sanitizeOutboundLlmText,
@@ -238,10 +239,10 @@ export function formatPermissionReceiptText(
   }
   if (decision.mode === 'allow_persistent_rule') {
     const rules = request ? persistentRules(request) : [];
-    const scope = requestHasThreadRoute(request)
-      ? ' in parent conversation'
-      : '';
-    const lines = [`Always allowed${scope}: ${label}`];
+    const agent = request
+      ? formatAgentDisplayName(request.sourceAgentFolder)
+      : 'this agent';
+    const lines = [`Always allowed for ${agent}: ${label}`];
     if (rules.length > 0) {
       lines.push(
         `Details: ${formatPersistentPermissionRulesForUser(rules, {
@@ -253,7 +254,7 @@ export function formatPermissionReceiptText(
     lines.push(...formatPermissionOriginLines(request));
     lines.push(...formatPermissionRoutingLines(request));
     lines.push(`By: ${sanitizePermissionText(actor, 120, 40)}`);
-    lines.push('Revoke: /permissions remove <rule>');
+    lines.push('Revoke from Agent Access.');
     return limitPermissionMessage(lines.join('\n'));
   }
   return limitPermissionMessage(
@@ -309,19 +310,38 @@ function formatPermissionOriginLines(
     ? `scheduled job${request.jobName ? `: ${sanitizePermissionText(request.jobName, 120, 40)}` : ''}`
     : 'agent chat';
   return [
+    `Agent: ${formatAgentDisplayName(request.sourceAgentFolder)}`,
     `From: ${source}`,
-    `Agent: ${sanitizePermissionText(request.sourceAgentFolder, 120, 40)}`,
   ];
+}
+
+function formatAgentDisplayName(sourceAgentFolder: string): string {
+  const sanitized = sanitizePermissionText(sourceAgentFolder, 120, 40).trim();
+  if (!sanitized) return 'this agent';
+  const withoutPrefix = sanitized.replace(/^agent:/i, '');
+  const words = withoutPrefix
+    .replaceAll(/[_-]+/g, ' ')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
+  if (!words) return 'this agent';
+  return words
+    .split(' ')
+    .map((word) =>
+      /^[A-Z0-9]+$/.test(word)
+        ? word
+        : `${word.charAt(0).toUpperCase()}${word.slice(1)}`,
+    )
+    .join(' ');
 }
 
 function formatPermissionRoutingLines(
   request: PermissionApprovalRequest | undefined,
 ): string[] {
-  return requestHasThreadRoute(request)
-    ? [
-        'Route: shown in this topic/thread; approval applies to the parent conversation.',
-      ]
-    : [];
+  if (!requestHasThreadRoute(request)) return [];
+  const label = deliveryLabel(request?.targetJid ?? '', request?.threadId);
+  return [
+    `Route: shown in this ${label}; approval applies to the parent conversation.`,
+  ];
 }
 
 function formatInteractionPermissionPrompt(
@@ -370,6 +390,7 @@ function formatSemanticPermissionPrompt(
     `Allow ${capabilityName}?`,
     ...formatPermissionOriginLines(request),
     ...formatPermissionRoutingLines(request),
+    `Access: ${sanitizePermissionText(capabilityName, 120, 40)}`,
   ];
   const capabilityId =
     definition?.capabilityId ?? semanticCapabilityId(request, rule);

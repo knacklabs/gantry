@@ -1,5 +1,11 @@
-export const REQUEST_TOOL_ENABLE_SCOPE_GUIDANCE =
-  'Access decision ladder: Source = what exists; Capability = reviewed action; Grant = agent allowed capability; Job = requirement only. Use capability_search first. If a reviewed capability exists, use propose_capability. If the source is missing, request the source install/connect/attach path. If the source exists but the action is unreviewed, refresh source inventory and request review. Use request_permission only for exact one-off access, Browser, exact Gantry admin tools, provider/channel permissions, or scoped RunCommand fallback when no reviewed capability fits.';
+export const REQUEST_TOOL_ENABLE_SCOPE_GUIDANCE = [
+  'Access decision ladder:',
+  'Source = what exists.',
+  'Capability = reviewed action.',
+  'Grant = agent allowed capability.',
+  'Job = requirement only.',
+  'Use capability_search first. If a reviewed capability exists, use propose_capability. If the source is missing, request the source install/connect/attach path. If the source exists but the action is unreviewed, refresh source inventory and request review. Use request_permission only for exact one-off access, Browser, exact Gantry admin tools, provider/channel permissions, or scoped RunCommand fallback when no reviewed capability fits.',
+].join(' ');
 
 export const SOURCE_INVENTORY_AUTHORITY_GUIDANCE =
   'Source install/connect/attach only records source inventory. It never creates durable authority by itself; durable authority is an agent allowed capability selected from a reviewed definition.';

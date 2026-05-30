@@ -472,10 +472,28 @@ const signature = signIngressRequest({
 ```
 
 `conversation_message` is asynchronous. `/invoke` returns durable acceptance
-with `invocationId`, `messageId`, `conversationId`, and optional `threadId`.
-The assistant response is delivered through the configured conversation
-adapter, and runtime events can be observed through outbound webhook delivery
-where your webhook routing is configured.
+with `invocationId`, `duplicate`, `targetKind`, `conversationId`, optional
+`threadId`, `messageId`, and `acceptedEventId`. It never exposes internal queue
+or transport details (`enqueue`, `queueKey`, raw provider chat ids).
+
+Ingress is **inbound invocation** (an external system addressing a Gantry
+conversation); outbound webhooks are **outbound observation** of the resulting
+runtime events. The same logical message applies to every provider — a client
+can present acceptance as:
+
+> Message queued to `<conversation label>`/`<delivery label>`. Replies appear in
+> the provider conversation and outbound webhook events.
+
+`<delivery label>` is a provider-neutral rendering term derived from the
+conversation and thread — for example `Telegram group`/`Telegram topic`,
+`Telegram chat`, `Slack channel`/`Slack thread`, `Slack DM`,
+`Teams conversation`/`Teams reply thread`, or `App conversation`/`App session`.
+These labels are display terms only; they carry no routing authority. Gantry
+`conversationId`/`threadId` remain the only addressing the contract accepts.
+
+The agent response is delivered through the configured conversation adapter,
+and the `conversation.message.inbound` and `conversation.message.outbound`
+runtime events can be observed through outbound webhook delivery.
 
 ## Jobs
 
@@ -525,11 +543,12 @@ client.jobs.trigger(jobId)
 client.jobs.wait(triggerId, timeoutMs?)
 ```
 
-Job create, update, list, get, and trigger responses include `toolAccess` so
-callers can show the inherited target-agent projection. The arrays above are
-readiness assertions; they do not create tool access for the job. Use selected agent
-capabilities, attached sources, or the reviewed Gantry MCP request tools to
-change authority.
+Job create, update, list, get, and trigger responses include `toolAccess` plus
+display-only `ownerLabel`, `deliveryLabel`, `setupLabel`, and `nextActionLabel`
+so callers can show the inherited target-agent projection without parsing raw
+runtime ids. The arrays above are readiness assertions; they do not create tool
+access for the job. Use selected agent capabilities, attached sources, or the
+reviewed Gantry MCP request tools to change authority.
 
 Use `client.models.list()` to inspect supported model aliases, response family,
 route metadata, capabilities, context windows, cache policy, and supported

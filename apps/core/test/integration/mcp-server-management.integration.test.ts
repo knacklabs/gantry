@@ -452,8 +452,10 @@ describe('MCP server management integration', () => {
         authThreadId: 'thread-origin',
         payload: {
           name: 'github',
-          transport: 'http',
-          origin: 'https://93.184.216.34/mcp',
+          transport: 'stdio_template',
+          templateId: 'npx-package',
+          args: ['@modelcontextprotocol/server-github'],
+          sandboxProfileId: 'sandbox:mcp-github',
           requestedToolPatterns: ['search_repositories'],
           credentialNeeds: ['GITHUB_TOKEN'],
           reason: 'Need repository search.',
@@ -470,6 +472,8 @@ describe('MCP server management integration', () => {
           title: 'Connect MCP source for this agent',
           toolInput: expect.objectContaining({
             name: 'github',
+            transport: 'stdio_template',
+            sandboxProfileId: 'sandbox:mcp-github',
             activation: 'source_inventory_only',
           }),
         }),
@@ -487,6 +491,12 @@ describe('MCP server management integration', () => {
         name: 'github',
         status: 'active',
         createdSource: 'agent_request',
+        config: expect.objectContaining({
+          transport: 'stdio_template',
+          templateId: 'npx-package',
+          args: ['@modelcontextprotocol/server-github'],
+        }),
+        sandboxProfileId: 'sandbox:mcp-github',
       }),
     ]);
     expect([...state.mcpServers.bindings.values()]).toEqual([

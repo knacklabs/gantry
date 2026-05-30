@@ -76,6 +76,10 @@ export function createConversationOutboundProjection(input: {
               : null,
             direction: 'outbound',
             deliveryStatus: eventInput.deliveryStatus,
+            sender: {
+              id: baseMessage.sender,
+              name: baseMessage.sender_name,
+            },
             ...(eventInput.externalMessageId
               ? { externalMessageId: eventInput.externalMessageId }
               : {}),
