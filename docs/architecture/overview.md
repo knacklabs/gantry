@@ -452,7 +452,7 @@ Cited at:
 ## 8. Scheduler + Job Lifecycle
 
 A Gantry job is a first-party record (`Job` in
-`apps/core/src/domain/types.ts`) scoped by `group_scope` and runtime
+`apps/core/src/domain/types.ts`) scoped by `workspace_key` and runtime
 `execution_context`/`notification_routes` in Postgres. pg-boss provides
 claim/dispatch and restart-safe scheduling, not the job model.
 
@@ -497,7 +497,7 @@ Cited at:
 - Manual job creation binds `execution_context.conversationJid` and
   `notification_routes` for delivery —
   `apps/core/src/application/jobs/job-management-service.ts`.
-- Agent-facing scheduler MCP tools authorize by `group_scope` plus the
+- Agent-facing scheduler MCP tools authorize by `workspace_key` plus the
   originating conversation in `execution_context.conversationJid`; thread ids
   are delivery metadata and spoof-check inputs, not visibility authority.
 - System (dreaming) jobs registered per `group.folder` —
@@ -587,7 +587,7 @@ sequenceDiagram
   App->>SDK: sessions.ensure(conversationId)
   SDK->>Routes: POST /v1/sessions/ensure
   Routes->>Adapter: ensureSessionForControl
-  Adapter->>Module: ensureSession → app: jid + group folder
+  Adapter->>Module: ensureSession → app: jid + workspace folder
   App->>SDK: sessions.sendMessage(text)
   SDK->>Routes: POST /v1/sessions/:id/messages
   Routes->>Adapter: acceptMessageForControl
@@ -619,7 +619,7 @@ Cited at:
 
 ## 11. Dreaming End-to-End
 
-Dreaming is a system job. The scheduler claims it per group folder, the
+Dreaming is a system job. The scheduler claims it per workspace folder, the
 runtime calls `AppMemoryService.triggerDreaming({ phase: 'all' })`, and the
 service writes audit rows to `memory_dream_runs` and `memory_dream_decisions`.
 

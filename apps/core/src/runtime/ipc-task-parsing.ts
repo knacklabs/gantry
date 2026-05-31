@@ -1,5 +1,6 @@
-import { ConversationRoute } from '../domain/types.js';
+import type { ConversationRoute } from '../domain/types.js';
 import { TaskIpcData } from '../jobs/ipc-handler.js';
+import { normalizeAccessRequirementsInput } from '../application/jobs/job-access-requirements.js';
 import { resolveModelSelectionForWorkload } from '../shared/model-catalog.js';
 import { isPlainObject, toTrimmedString } from '../shared/object.js';
 import { validateIpcAuthRequest } from './ipc-auth-validation.js';
@@ -55,7 +56,7 @@ const DISALLOWED_TASK_FIELDS = [
   'context_mode',
   'deliver_to',
   'linked_sessions',
-  'group_scope',
+  'workspace_key',
   'thread_id',
   'session_id',
   'run_at',
@@ -73,7 +74,7 @@ const DISALLOWED_TASK_FIELDS = [
   'serialize',
   'run_id',
   'event_type',
-  'group_folder',
+  'workspace_folder',
   'chat_jid',
   'target_jid',
   'since_id',
@@ -88,7 +89,7 @@ const UNSUPPORTED_SCHEDULER_JOB_TASK_FIELDS = [
   'notificationTarget',
   'thread_id',
   'sessionId',
-  'groupScope',
+  'workspaceKey',
   'capability_requirements',
   'modelProfileId',
   'allowedTools',
@@ -128,7 +129,20 @@ function findUnsupportedSchedulerJobTaskFields(
   return found;
 }
 
+function assertNoRemovedExecutionScopeFields(value: unknown): void {
+  if (!isPlainObject(value)) return;
+  if (Object.prototype.hasOwnProperty.call(value, 'groupScope')) {
+    throw new Error('groupScope is no longer accepted. Use workspaceKey.');
+  }
+  if (Object.prototype.hasOwnProperty.call(value, 'group_scope')) {
+    throw new Error('group_scope is no longer accepted. Use workspace_key.');
+  }
+}
+
 function assertNoDisallowedTaskFields(raw: Record<string, unknown>): void {
+  assertNoRemovedExecutionScopeFields(raw);
+  assertNoRemovedExecutionScopeFields(raw.executionContext);
+  assertNoRemovedExecutionScopeFields(raw.execution_context);
   const fields = findDisallowedTaskFields(raw);
   if (fields.length === 0) return;
   if (fields.includes('required_tools')) {
@@ -170,7 +184,7 @@ function toOptionalExecutionContext(value: unknown):
   | {
       conversationJid: string;
       threadId: string | null;
-      groupScope: string;
+      workspaceKey: string;
       sessionId?: string | null;
     }
   | undefined {
@@ -181,7 +195,7 @@ function toOptionalExecutionContext(value: unknown):
   const conversationJid = toTrimmedString(value.conversationJid, {
     maxLen: 255,
   });
-  const groupScope = toTrimmedString(value.groupScope, { maxLen: 128 });
+  const workspaceKey = toTrimmedString(value.workspaceKey, { maxLen: 128 });
   const hasThreadId = Object.prototype.hasOwnProperty.call(value, 'threadId');
   const threadIdRaw = value.threadId;
   const threadId =
@@ -192,9 +206,9 @@ function toOptionalExecutionContext(value: unknown):
     sessionIdRaw === null
       ? null
       : toTrimmedString(sessionIdRaw, { maxLen: 255 });
-  if (!conversationJid || !groupScope || !hasThreadId) {
+  if (!conversationJid || !workspaceKey || !hasThreadId) {
     throw new Error(
-      'executionContext requires conversationJid, groupScope, and threadId.',
+      'executionContext requires conversationJid, workspaceKey, and threadId.',
     );
   }
   if (threadIdRaw !== null && !threadId) {
@@ -209,7 +223,7 @@ function toOptionalExecutionContext(value: unknown):
     sessionIdRaw === null ? null : (sessionId as string);
   return {
     conversationJid,
-    groupScope,
+    workspaceKey,
     threadId: normalizedThreadId,
     ...(hasSessionId ? { sessionId: normalizedSessionId } : {}),
   };
@@ -259,105 +273,6 @@ function toOptionalNotificationRoutes(value: unknown):
     routes.push({ conversationJid, threadId: normalizedThreadId, label });
   }
   return routes;
-}
-
-function toOptionalAccessRequirements(
-  value: unknown,
-): import('../domain/types.js').JobAccessRequirement[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) return undefined;
-  const out: import('../domain/types.js').JobAccessRequirement[] = [];
-  for (const item of value.slice(0, 100)) {
-    if (!isPlainObject(item)) continue;
-    const record = item as Record<string, unknown>;
-    if (!isPlainObject(record.target)) continue;
-    const target = record.target as Record<string, unknown>;
-    const kind = toTrimmedString(target.kind, { maxLen: 40 });
-    const reason = toTrimmedString(record.reason, { maxLen: 255 });
-    const withReason = <T extends { target: unknown }>(value: T) =>
-      reason ? { ...value, reason } : value;
-    if (kind === 'tool_rule') {
-      const rule = toTrimmedString(target.rule, { maxLen: 255 });
-      if (!rule) continue;
-      out.push(withReason({ target: { kind: 'tool_rule', rule } }));
-    } else if (kind === 'mcp_server') {
-      const server = toTrimmedString(target.server, { maxLen: 255 });
-      if (!server) continue;
-      out.push(withReason({ target: { kind: 'mcp_server', server } }));
-    } else if (kind === 'capability') {
-      const capabilityId = toTrimmedString(target.capabilityId, {
-        maxLen: 120,
-      });
-      if (!capabilityId) continue;
-      const implementation = toOptionalCapabilityImplementation(
-        target.implementation,
-      );
-      out.push(
-        withReason({
-          target: {
-            kind: 'capability',
-            capabilityId,
-            ...(implementation ? { implementation } : {}),
-          },
-        }),
-      );
-    }
-  }
-  return out;
-}
-
-type IpcCapabilityImplementation = {
-  kind: 'configured_access' | 'local_cli' | 'mcp_server' | 'builtin_tool';
-  name?: string;
-  executablePath?: string;
-  executableVersion?: string;
-  executableHash?: string;
-  commandTemplate?: string;
-  authPreflight?: string;
-  protectedPaths?: string[];
-  networkHosts?: string[];
-};
-
-function toOptionalCapabilityImplementation(
-  value: unknown,
-): IpcCapabilityImplementation | undefined {
-  if (!isPlainObject(value)) return undefined;
-  const record = value as Record<string, unknown>;
-  const kind = toTrimmedString(record.kind, { maxLen: 40 });
-  if (
-    kind !== 'configured_access' &&
-    kind !== 'local_cli' &&
-    kind !== 'mcp_server' &&
-    kind !== 'builtin_tool'
-  ) {
-    return undefined;
-  }
-  const implementation: IpcCapabilityImplementation = { kind };
-  const name = toTrimmedString(record.name, { maxLen: 120 });
-  if (name) implementation.name = name;
-  const executablePath = toTrimmedString(record.executablePath, {
-    maxLen: 255,
-  });
-  if (executablePath) implementation.executablePath = executablePath;
-  const executableVersion = toTrimmedString(record.executableVersion, {
-    maxLen: 120,
-  });
-  if (executableVersion) implementation.executableVersion = executableVersion;
-  const executableHash = toTrimmedString(record.executableHash, {
-    maxLen: 200,
-  });
-  if (executableHash) implementation.executableHash = executableHash;
-  const commandTemplate = toTrimmedString(record.commandTemplate, {
-    maxLen: 400,
-  });
-  if (commandTemplate) implementation.commandTemplate = commandTemplate;
-  const authPreflight = toTrimmedString(record.authPreflight, { maxLen: 400 });
-  if (authPreflight) implementation.authPreflight = authPreflight;
-  const protectedPaths = toOptionalStringArray(record.protectedPaths, 50, 255);
-  if (protectedPaths) implementation.protectedPaths = protectedPaths;
-  const networkHosts = toOptionalStringArray(record.networkHosts, 50, 255);
-  if (networkHosts) implementation.networkHosts = networkHosts;
-  return implementation;
 }
 
 function parseAgentConfigPayload(
@@ -419,10 +334,10 @@ export function parseTaskIpcData(
   const notificationRoutes = toOptionalNotificationRoutes(
     raw.notificationRoutes,
   );
-  const accessRequirements = toOptionalAccessRequirements(
+  const accessRequirements = normalizeAccessRequirementsInput(
     raw.accessRequirements,
   );
-  const groupScope = toTrimmedString(raw.groupScope, { maxLen: 128 });
+  const workspaceKey = toTrimmedString(raw.workspaceKey, { maxLen: 128 });
   const silent = toOptionalBoolean(raw.silent);
   const confirm = toOptionalBoolean(raw.confirm);
   const confirmationToken = toTrimmedString(raw.confirmationToken, {
@@ -433,7 +348,7 @@ export function parseTaskIpcData(
   const runId = toTrimmedString(raw.runId, { maxLen: 128 });
   const eventType = toTrimmedString(raw.eventType, { maxLen: 128 });
   const since = toTrimmedString(raw.since, { maxLen: 128 });
-  const groupFolder = toTrimmedString(raw.groupFolder, { maxLen: 128 });
+  const workspaceFolder = toTrimmedString(raw.workspaceFolder, { maxLen: 128 });
   const chatJid = toTrimmedString(raw.chatJid, { maxLen: 255 });
   const targetJid = toTrimmedString(raw.targetJid, { maxLen: 255 });
   const jid = toTrimmedString(raw.jid, { maxLen: 255 });
@@ -489,7 +404,7 @@ export function parseTaskIpcData(
   }
   if (accessRequirements !== undefined)
     parsed.accessRequirements = accessRequirements;
-  if (groupScope) parsed.groupScope = groupScope;
+  if (workspaceKey) parsed.workspaceKey = workspaceKey;
   if (threadBinding.authThreadId) {
     parsed.authThreadId = threadBinding.authThreadId;
   }
@@ -512,7 +427,7 @@ export function parseTaskIpcData(
   if (runId) parsed.runId = runId;
   if (eventType) parsed.eventType = eventType;
   if (since) parsed.since = since;
-  if (groupFolder) parsed.groupFolder = groupFolder;
+  if (workspaceFolder) parsed.workspaceFolder = workspaceFolder;
   if (chatJid) parsed.chatJid = chatJid;
   if (targetJid) parsed.targetJid = targetJid;
   if (jid) parsed.jid = jid;

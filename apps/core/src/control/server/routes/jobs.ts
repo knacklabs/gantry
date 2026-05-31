@@ -93,15 +93,17 @@ function sendApplicationError(res: ServerResponse, error: unknown): boolean {
 
 function formatJobRequestIssue(issue: ZodIssue): string {
   if (issue.code === 'unrecognized_keys' && issue.keys.length > 0) {
+    if (issue.keys.includes('groupScope')) {
+      return 'groupScope is no longer accepted. Use workspaceKey.';
+    }
+    if (issue.keys.includes('group_scope')) {
+      return 'group_scope is no longer accepted. Use workspace_key.';
+    }
     const oldToolField = issue.keys.find(
       (key) => key === 'requiredTools' || key === 'required_tools',
     );
     if (oldToolField) {
       return `${oldToolField} is no longer accepted. Use accessRequirements for access preflight checks.`;
-    }
-    const oldWorkspaceField = issue.keys.find((key) => key === 'groupScope');
-    if (oldWorkspaceField) {
-      return `${oldWorkspaceField} is no longer accepted. Use workspaceKey.`;
     }
     return `Unsupported job request field "${issue.keys[0]}".`;
   }
@@ -273,7 +275,7 @@ function requestExecutionContextToInternal(input: {
   return {
     conversationJid: input.conversationJid,
     threadId: input.threadId,
-    groupScope: input.workspaceKey,
+    workspaceKey: input.workspaceKey,
     sessionId: input.sessionId,
   };
 }
@@ -323,7 +325,7 @@ export async function handleJobRoutes(
       const runtimePreviewExecutionContext = {
         conversationJid: created.runtimeContext.conversationJid,
         threadId: created.runtimeContext.threadId,
-        workspaceKey: created.runtimeContext.groupScope,
+        workspaceKey: created.runtimeContext.workspaceKey,
         sessionId: created.runtimeContext.sessionId,
       };
       const runtimePreviewNotificationRoutes =
@@ -367,7 +369,7 @@ export async function handleJobRoutes(
             : undefined,
           kind,
           getDefaultModelConfig: ctx.getDefaultModelConfig,
-          agentFolder: created.runtimeContext.groupScope,
+          agentFolder: created.runtimeContext.workspaceKey,
         }),
         modelSelection: {
           alias: resolvedModel.modelAlias,
@@ -389,7 +391,7 @@ export async function handleJobRoutes(
     const { jobs: visibleJobs } = await service.listJobs({
       appId: auth.appId,
       statuses: url.searchParams.getAll('status'),
-      groupScope: url.searchParams.get('workspaceKey') || undefined,
+      workspaceKey: url.searchParams.get('workspaceKey') || undefined,
       agentId: url.searchParams.get('agentId') || undefined,
       kind: parseJobKind(url.searchParams.get('kind')),
       conversationJid: url.searchParams.get('conversationJid') || undefined,

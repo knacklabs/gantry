@@ -176,12 +176,12 @@ export async function startRuntimeServices(
     resolved.startSchedulerLoop({
       conversationRoutes: () => app.getConversationRoutes(),
       queue: app.queue,
-      onProcess: (groupJid, proc, runHandle, groupFolder, stopAliasJids) =>
+      onProcess: (groupJid, proc, runHandle, workspaceFolder, stopAliasJids) =>
         app.queue.registerProcess(
           groupJid,
           proc,
           runHandle,
-          groupFolder,
+          workspaceFolder,
           stopAliasJids,
         ),
       sendMessage: (jid, rawText, options) =>

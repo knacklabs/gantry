@@ -11,7 +11,7 @@ import {
   parseBashCommand,
 } from '../../../../shared/bash-command-parser.js';
 import { permissionUpdateAllowedToolRules } from '../../../../shared/permission-tool-rules.js';
-import { validatePersistentRequestPermissionRule } from '../../../../shared/persistent-permission-rules.js';
+import { validateDurableAccessRule } from '../../../../shared/durable-access-policy.js';
 import {
   expandSemanticCapabilityPermissionRules,
   semanticCapabilityRuntimeRules,
@@ -282,7 +282,7 @@ function skillActionPermissionSuggestion(
   const capability = matches[0];
   const rule = semanticCapabilityRule(capability.capabilityId);
   if (
-    !validatePersistentRequestPermissionRule(rule, {
+    !validateDurableAccessRule(rule, {
       semanticCapabilityDefinitions: {
         [capability.capabilityId]: capability,
       },
@@ -400,5 +400,5 @@ function splitReadableToolRule(rule: string): [string, string | undefined] {
 }
 
 function validatePersistentRule(rule: string): boolean {
-  return validatePersistentRequestPermissionRule(rule).ok;
+  return validateDurableAccessRule(rule).ok;
 }

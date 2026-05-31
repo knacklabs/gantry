@@ -1,4 +1,4 @@
-import { isValidGroupFolder } from '../../platform/group-folder-rules.js';
+import { isValidWorkspaceFolder } from '../../platform/workspace-folder-rules.js';
 
 export interface ChatAllowlistEntry {
   allow: '*' | string[];
@@ -75,7 +75,7 @@ export function parseSenderAllowlistConfig(
   )) {
     const trimmedFolder = folder.trim();
     if (!trimmedFolder) throw new Error(`${pathPrefix}.agents has empty key`);
-    if (!isValidGroupFolder(trimmedFolder)) {
+    if (!isValidWorkspaceFolder(trimmedFolder)) {
       throw new Error(
         `${pathPrefix}.agents.${trimmedFolder} must use a valid agent folder key`,
       );

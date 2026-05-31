@@ -91,7 +91,7 @@ describe('agent capability composition', () => {
       appId: 'app-main',
       agentId: 'agent:telegram_team',
       chatJid: 'tg:team',
-      groupFolder: 'telegram_team',
+      workspaceFolder: 'telegram_team',
       threadId: 'topic-1',
       memoryUserId: '5759865942',
       browserProfileName: 'c-team-abc123abc123',
@@ -145,7 +145,7 @@ describe('agent capability composition', () => {
         GANTRY_APP_ID: 'app-main',
         GANTRY_AGENT_ID: 'agent:telegram_team',
         GANTRY_CHAT_JID: 'tg:team',
-        GANTRY_GROUP_FOLDER: 'telegram_team',
+        GANTRY_WORKSPACE_KEY: 'telegram_team',
         GANTRY_THREAD_ID: 'topic-1',
         GANTRY_MEMORY_USER_ID: '5759865942',
         GANTRY_MEMORY_DEFAULT_SCOPE: 'group',
@@ -180,7 +180,7 @@ describe('agent capability composition', () => {
     const withoutBrowser = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:team',
-      groupFolder: 'telegram_team',
+      workspaceFolder: 'telegram_team',
       browserIpcAuthToken: 'browser-token',
       configuredAllowedTools: ['mcp__gantry__browser'],
     });
@@ -199,7 +199,7 @@ describe('agent capability composition', () => {
     const withBrowser = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:team',
-      groupFolder: 'telegram_team',
+      workspaceFolder: 'telegram_team',
       browserIpcAuthToken: 'browser-token',
       configuredAllowedTools: ['Browser'],
     });
@@ -212,7 +212,7 @@ describe('agent capability composition', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:main',
-      groupFolder: 'main_agent',
+      workspaceFolder: 'main_agent',
       configuredAllowedTools: [
         'mcp__gantry__settings_desired_state',
         'mcp__gantry__request_settings_update',
@@ -253,7 +253,7 @@ describe('agent capability composition', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:main-assistant',
-      groupFolder: 'main_assistant',
+      workspaceFolder: 'main_assistant',
     });
 
     expect(profile.allowedTools).toEqual(DEVELOPER_ALLOWED_TOOLS);
@@ -273,7 +273,7 @@ describe('agent capability composition', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:dev',
-      groupFolder: 'dev',
+      workspaceFolder: 'dev',
     });
 
     expect(profile.allowedTools).toEqual(DEVELOPER_ALLOWED_TOOLS);
@@ -288,7 +288,7 @@ describe('agent capability composition', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:typo',
-      groupFolder: 'typo',
+      workspaceFolder: 'typo',
       persona: 'saless' as never,
     });
 
@@ -310,7 +310,7 @@ describe('agent capability composition', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: `tg:${persona}`,
-      groupFolder: persona,
+      workspaceFolder: persona,
       persona,
     });
 
@@ -333,7 +333,7 @@ describe('agent capability composition', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:sales',
-      groupFolder: 'sales',
+      workspaceFolder: 'sales',
       persona: 'sales',
       configuredAllowedTools: [
         'mcp__gantry__memory_patch',
@@ -368,7 +368,7 @@ describe('agent capability composition', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:sales',
-      groupFolder: 'sales',
+      workspaceFolder: 'sales',
       persona: 'sales',
       memoryReviewerIsControlApprover: true,
     });
@@ -424,7 +424,7 @@ describe('agent capability composition', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:team',
-      groupFolder: 'telegram_team',
+      workspaceFolder: 'telegram_team',
       configuredAllowedTools: [
         'RunCommand(npm test *)',
         'ToolName(scope-pattern)',
@@ -449,7 +449,7 @@ describe('agent capability composition', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:sales',
-      groupFolder: 'sales',
+      workspaceFolder: 'sales',
       persona: 'sales',
       isScheduledJob: true,
       configuredAllowedTools: [
@@ -485,7 +485,7 @@ describe('agent capability composition', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:sales',
-      groupFolder: 'sales',
+      workspaceFolder: 'sales',
       persona: 'sales',
       configuredAllowedTools: [
         'AgentDelegation',
@@ -555,7 +555,7 @@ describe('agent capability composition', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:sales',
-      groupFolder: 'sales',
+      workspaceFolder: 'sales',
       attachedSkillSourceIds: ['skill:release'],
       selectedSkillDisplays: ['release (skill:release)'],
       attachedMcpSourceIds: ['mcp:github'],
@@ -584,7 +584,7 @@ describe('agent capability composition', () => {
       {
         mcpServerPath: '/tmp/ipc-mcp-stdio.js',
         chatJid: 'tg:team',
-        groupFolder: 'telegram_team',
+        workspaceFolder: 'telegram_team',
       },
       [...BUILTIN_AGENT_CAPABILITY_PROVIDERS, extraProvider],
     );
@@ -599,7 +599,7 @@ describe('agent capability composition', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:team',
-      groupFolder: 'telegram_team',
+      workspaceFolder: 'telegram_team',
       externalMcpServers: {
         github: {
           type: 'stdio',
@@ -655,7 +655,7 @@ describe('agent capability composition', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:team',
-      groupFolder: 'telegram_team',
+      workspaceFolder: 'telegram_team',
       externalMcpServers: {
         github: {
           type: 'http',
@@ -680,7 +680,7 @@ describe('agent capability composition', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:team',
-      groupFolder: 'telegram_team',
+      workspaceFolder: 'telegram_team',
       externalMcpServers: {
         [hostPrivateServerName]: {
           type: 'stdio',

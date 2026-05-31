@@ -1,5 +1,5 @@
 import type { Job } from '../../domain/types.js';
-import { agentIdForJobGroupScope } from './job-tool-policy.js';
+import { agentIdForJobWorkspaceKey } from './job-tool-policy.js';
 import { canAccessSchedulerJob } from './job-management-access.js';
 import type { JobKind, SchedulerJobAccess } from './job-management-types.js';
 
@@ -16,7 +16,7 @@ export function isVisibleJob(job: Job, input: JobVisibilityFilter): boolean {
   if (input.access && !canAccessSchedulerJob(job, input.access)) return false;
   if (
     input.agentId &&
-    agentIdForJobGroupScope(job.group_scope) !== input.agentId
+    agentIdForJobWorkspaceKey(job.workspace_key) !== input.agentId
   )
     return false;
   if (input.kind && jobKindFor(job) !== input.kind) return false;

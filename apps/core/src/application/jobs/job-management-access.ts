@@ -12,7 +12,7 @@ export function canAccessSchedulerJob(
 ): boolean {
   const originConversationJid = normalizeOptional(access.originConversationJid);
   if (!originConversationJid) return false;
-  if (job.group_scope !== access.sourceAgentFolder) return false;
+  if (job.workspace_key !== access.sourceAgentFolder) return false;
   const executionConversationJid = normalizeOptional(
     job.execution_context?.conversationJid,
   );
@@ -48,7 +48,10 @@ export function validateSchedulerUpdate(
   updates: Partial<Job>,
   access: SchedulerJobAccess,
 ): void {
-  if (updates.group_scope && updates.group_scope !== access.sourceAgentFolder) {
+  if (
+    updates.workspace_key &&
+    updates.workspace_key !== access.sourceAgentFolder
+  ) {
     throw new ApplicationError(
       'FORBIDDEN',
       'Scheduler jobs cannot move outside the source group.',

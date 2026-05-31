@@ -9,7 +9,7 @@ import {
   resolveConfiguredSkillReferences,
   selectedSkillsFromResolvedSkillReferences,
 } from './desired-state-skill-references.js';
-import { validateReadableAgentToolRule } from '../../shared/agent-tool-references.js';
+import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
 import { isValidSemanticCapabilityId } from '../../shared/semantic-capability-ids.js';
 import {
   formatSkillMaterializationCollision,
@@ -223,8 +223,9 @@ export function settingsCapabilityToToolReference(capability: {
   if (capability.id === 'browser.use') return 'Browser';
   if (
     !isValidSemanticCapabilityId(capability.id) &&
-    validateReadableAgentToolRule(settingsCapabilityIdToToolRule(capability.id))
-      .ok
+    validateDurableAccessRule(settingsCapabilityIdToToolRule(capability.id), {
+      allowUnknownSemanticCapability: true,
+    }).ok
   ) {
     return settingsCapabilityIdToToolRule(capability.id);
   }

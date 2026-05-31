@@ -90,7 +90,7 @@ export type JobStatus =
 export interface JobExecutionContext {
   conversationJid: string;
   threadId: string | null;
-  groupScope: string;
+  workspaceKey: string;
   sessionId?: string | null;
 }
 
@@ -206,7 +206,7 @@ export interface Job {
   status: JobStatus;
   session_id: string | null;
   thread_id: string | null;
-  group_scope: string;
+  workspace_key: string;
   created_by: 'agent' | 'human';
   created_at: string;
   updated_at: string;

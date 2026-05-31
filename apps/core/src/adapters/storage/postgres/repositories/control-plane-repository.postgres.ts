@@ -49,12 +49,12 @@ export class PostgresControlPlaneRepository {
     appId: string;
     conversationId: string;
     chatJid: string;
-    groupFolder: string;
+    workspaceFolder: string;
     title?: string | null;
     defaultResponseMode?: ControlResponseMode;
     defaultWebhookId?: string | null;
   }): Promise<AppSessionRecord> {
-    const workspaceKey = input.groupFolder;
+    const workspaceKey = input.workspaceFolder;
     return this.db.transaction(async (tx) => {
       const graph = await ensureControlGraph(tx, {
         appId: input.appId,
@@ -111,7 +111,7 @@ export class PostgresControlPlaneRepository {
           externalRefJson: jsonb({
             externalConversationId: input.conversationId,
             chatJid: input.chatJid,
-            groupFolder: workspaceKey,
+            workspaceFolder: workspaceKey,
             title: input.title ?? null,
           }),
           createdAt: now,
@@ -130,7 +130,7 @@ export class PostgresControlPlaneRepository {
             externalRefJson: jsonb({
               externalConversationId: input.conversationId,
               chatJid: input.chatJid,
-              groupFolder: workspaceKey,
+              workspaceFolder: workspaceKey,
               title: input.title ?? null,
             }),
             updatedAt: now,

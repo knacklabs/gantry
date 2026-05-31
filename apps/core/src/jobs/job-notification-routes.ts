@@ -73,7 +73,7 @@ export function buildJobNotificationIdempotencyKey(input: {
 export function buildCanonicalJobLifecycleTarget(input: {
   conversationJid: string;
   threadId?: string | null;
-  groupScope: string;
+  workspaceKey: string;
   sessionId?: string | null;
   label?: string;
 }): {
@@ -81,17 +81,17 @@ export function buildCanonicalJobLifecycleTarget(input: {
   notificationRoutes: JobNotificationRoute[];
 } {
   const conversationJid = normalizeOptional(input.conversationJid);
-  const groupScope = normalizeOptional(input.groupScope);
-  if (!conversationJid || !groupScope) {
+  const workspaceKey = normalizeOptional(input.workspaceKey);
+  if (!conversationJid || !workspaceKey) {
     throw new Error(
-      'Canonical job lifecycle target requires conversationJid and groupScope.',
+      'Canonical job lifecycle target requires conversationJid and workspaceKey.',
     );
   }
   const threadId = normalizeOptional(input.threadId) ?? null;
   const executionContext: JobExecutionContext = {
     conversationJid,
     threadId,
-    groupScope,
+    workspaceKey,
     sessionId: normalizeOptional(input.sessionId) ?? null,
   };
   return {

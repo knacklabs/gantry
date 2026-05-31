@@ -12,14 +12,14 @@ import {
 } from '../config/index.js';
 import { nowIso } from '../shared/time/datetime.js';
 import { logger } from '../infrastructure/logging/logger.js';
-import { isValidGroupFolder } from '../platform/group-folder.js';
+import { isValidWorkspaceFolder } from '../platform/workspace-folder.js';
 import { TaskContext, TaskHandler } from './ipc-types.js';
-import { memoryAgentIdForGroupFolder } from '../memory/app-memory-boundaries.js';
+import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 import { createTaskResponder, toTrimmedString } from './ipc-shared.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
 import {
   isPermanentPermissionDecision,
-  formatPersistentPermissionRulesForUser,
+  formatDurableAccessRulesForUser,
   persistRequestPermissionRules,
   requestPermissionDescription,
   requestPermissionQueuedMessage,
@@ -44,12 +44,12 @@ import {
   isBrowserActionMcpToolRule,
   isProjectedBrowserMcpToolRule,
 } from '../shared/agent-tool-references.js';
+import { semanticCapabilityFromToolCatalogItem } from '../shared/semantic-capabilities.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
 import {
   formatApprovalRequestedMessage,
   formatNotApprovedMessage,
 } from '../shared/user-visible-messages.js';
-import { semanticCapabilityDefinitionFromToolInput } from '../shared/semantic-capabilities.js';
 import { jobLocalCliCapabilityConflict } from './ipc-request-permission-local-cli.js';
 import {
   configureSkillInstallHandlers,
@@ -119,12 +119,12 @@ const registerAgentHandler: TaskHandler = async (context) => {
   if (!requestedTargetJid) return;
   if (data.jid !== requestedTargetJid) { reject('Agent registration can only bind the originating conversation.', 'forbidden'); return; }
   if (typeof deps.requestPermissionApproval !== 'function' || typeof deps.sendMessage !== 'function') { reject('Agent registration requests require a configured approval surface.', 'preflight_failed'); return; }
-  if (!isValidGroupFolder(data.folder)) { logger.warn({ sourceAgentFolder, folder: data.folder }, 'Invalid register_agent request - unsafe folder name'); reject(`Invalid agent folder: ${data.folder}`, 'invalid_request'); return; }
+  if (!isValidWorkspaceFolder(data.folder)) { logger.warn({ sourceAgentFolder, folder: data.folder }, 'Invalid register_agent request - unsafe folder name'); reject(`Invalid agent folder: ${data.folder}`, 'invalid_request'); return; }
   const reason = toTrimmedString(data.payload?.reason, { maxLen: 2000 }) || `Register ${data.name} for ${data.jid}.`;
   const decision = await deps.requestPermissionApproval({
     requestId: `register-agent-${globalThis.crypto.randomUUID()}`,
     appId: data.appId as never,
-    agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
+    agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
     sourceAgentFolder,
     targetJid: requestedTargetJid,
     threadId: data.authThreadId,
@@ -224,7 +224,7 @@ const requestMcpServerHandler: TaskHandler = async (context) => {
       responder: { acceptData, reject },
       service,
       appId: data.appId as never,
-      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
+      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
       sourceAgentFolder,
       targetJid: requestedTargetJid,
       threadId: data.authThreadId,
@@ -265,12 +265,12 @@ const mcpListToolsHandler: TaskHandler = async (context) => {
     const serverName = toTrimmedString(payload.serverName, { maxLen: 80 });
     const proxy = await createMcpProxyForSourceGroup({
       appId: data.appId as never,
-      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
+      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
       deps,
     });
     const result = await proxy.listTools({
       appId: data.appId as never,
-      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
+      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
       ...(serverName ? { serverName } : {}),
     });
     acceptData('Connected MCP tools listed for this agent.', result);
@@ -315,12 +315,12 @@ const mcpCallToolHandler: TaskHandler = async (context) => {
         : {};
     const proxy = await createMcpProxyForSourceGroup({
       appId: data.appId as never,
-      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
+      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
       deps,
     });
     const result = await proxy.callTool({
       appId: data.appId as never,
-      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
+      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
       serverName,
       toolName,
       arguments: args,
@@ -357,12 +357,52 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
   if (typeof deps.requestPermissionApproval !== 'function' || typeof deps.sendMessage !== 'function') { reject(`${parsed.review.requestKind} requests require a configured approval surface.`, 'preflight_failed'); return; }
   const jobConflict = await jobLocalCliCapabilityConflict({ deps, jobId: data.jobId, review: parsed.review });
   if (jobConflict) { reject(jobConflict, 'wrong_capability_lane'); return; }
+  const catalogConflict = await missingReviewedCapabilityCatalogEntry({ deps, appId: data.appId as string, review: parsed.review });
+  if (catalogConflict) { reject(catalogConflict, 'invalid_request'); return; }
   const pendingKey = requestOnlyCapabilityPendingKey({ data, sourceAgentFolder, targetJid: requestedTargetJid, review: parsed.review });
   if (pendingRequestOnlyCapabilityReviews.has(pendingKey)) { accept(`${parsed.review.displayName} request is already waiting for approval in this chat.`, 'capability_request_already_pending'); return; }
   pendingRequestOnlyCapabilityReviews.add(pendingKey);
-  startRequestOnlyCapabilityReview({ deps, appId: data.appId as never, agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never, sourceAgentFolder, targetJid: requestedTargetJid, threadId: data.authThreadId, ipcDir: context.ipcBaseDir ? path.join(context.ipcBaseDir, sourceAgentFolder) : undefined, runHandle: data.runHandle, review: parsed.review, pendingKey });
+  startRequestOnlyCapabilityReview({ deps, appId: data.appId as never, agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never, sourceAgentFolder, targetJid: requestedTargetJid, threadId: data.authThreadId, ipcDir: context.ipcBaseDir ? path.join(context.ipcBaseDir, sourceAgentFolder) : undefined, runHandle: data.runHandle, review: parsed.review, pendingKey });
   accept(requestOnlyCapabilityQueuedMessage(parsed.review), 'capability_request_recorded');
 };
+
+async function missingReviewedCapabilityCatalogEntry(input: {
+  deps: TaskContext['deps'];
+  appId: string;
+  review: RequestOnlyCapabilityReview;
+}): Promise<string | undefined> {
+  if (input.review.toolName !== 'request_permission') return undefined;
+  const capabilityId = toTrimmedString(input.review.toolInput.capabilityId, {
+    maxLen: 160,
+  });
+  if (!capabilityId) return undefined;
+  const toolNames = sanitizedStringList([
+    input.review.toolInput.toolName,
+    ...(Array.isArray(input.review.toolInput.toolNames)
+      ? input.review.toolInput.toolNames
+      : []),
+  ]);
+  if (toolNames.length > 0) return undefined;
+  const repository = input.deps.getToolRepository?.();
+  if (!repository || typeof repository.listTools !== 'function') {
+    return 'Capability access requires an active reviewed capability catalog entry. Use capability_search/propose_capability/manage_capability before request_access.';
+  }
+  const activeTools = await repository.listTools({
+    appId: input.appId as never,
+    statuses: ['active'],
+  });
+  const matched = activeTools.some((tool) => {
+    if (tool.status !== 'active' || !tool.selectable) return false;
+    const capability = semanticCapabilityFromToolCatalogItem({
+      name: tool.name,
+      inputSchema: tool.inputSchema,
+    });
+    return capability?.capabilityId === capabilityId;
+  });
+  return matched
+    ? undefined
+    : 'Capability access requires an active reviewed capability catalog entry. Use capability_search/propose_capability/manage_capability before request_access.';
+}
 
 // prettier-ignore
 const adminPermissionRevokeHandler: TaskHandler = async (context) => {
@@ -384,7 +424,7 @@ const adminPermissionRevokeHandler: TaskHandler = async (context) => {
   try {
     const revoked = await new PermissionManagementService().revokePersistentToolRuleGrant({
       appId: data.appId as never,
-      agentId: memoryAgentIdForGroupFolder(sourceAgentFolder) as never,
+      agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder) as never,
       sourceAgentFolder,
       toolRepository,
       mirrorAgentToolRulesToSettings,
@@ -428,6 +468,7 @@ function parseRequestOnlyCapabilityReview(toolName: RequestOnlyCapabilityToolNam
   if (toolName === 'request_permission' && isTemporaryBrowserPermissionRequest(payload)) return { ok: false, error: 'Browser cannot be approved as temporary current-run access through request_permission. Request persistent Browser access with temporaryOnly=false, then use the projected browser_* tools.' };
   if (toolName === 'request_permission' && isBrowserPermissionRequest(payload, isBrowserActionMcpToolRule)) return { ok: false, error: BROWSER_ACTION_MCP_RULE_REJECTION_REASON };
   if (toolName === 'request_permission' && isBrowserPermissionRequest(payload, isProjectedBrowserMcpToolRule)) return { ok: false, error: BROWSER_PROJECTED_MCP_RULE_REJECTION_REASON };
+  if (toolName === 'request_permission' && hasAgentSuppliedCapabilityDefinition(payload)) return { ok: false, error: 'Capability definitions are host-owned catalog metadata and cannot be supplied in request_permission input.' };
   const toolInput = sanitizeCapabilityPayload(payload);
   if (toolName === 'request_permission') {
     const toolNames = sanitizedStringList([
@@ -485,10 +526,7 @@ function sanitizeCapabilityPayload(payload: Record<string, unknown>) {
   const output: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(payload)) {
     if (key === 'reason') continue;
-    if ((key === 'semanticCapabilityDefinition' || key === 'capabilityDefinition') && value && typeof value === 'object' && !Array.isArray(value)) {
-      output[key] = structuredClone(value);
-      continue;
-    }
+    if (key === 'semanticCapabilityDefinition' || key === 'capabilityDefinition') continue;
     if (Array.isArray(value)) {
       const list = sanitizedStringList(value);
       if (list.length > 0) output[key] = list;
@@ -584,7 +622,7 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
       }
       message = decision.approved && decision.decidedBy
         ? persistedRules.length
-          ? `Allowed ${input.review.displayName}. Future matching requests are allowed. Details: ${formatPersistentPermissionRulesForUser(persistedRules)}.`
+          ? `Allowed ${input.review.displayName}. Future matching requests are allowed. Details: ${formatDurableAccessRulesForUser(persistedRules)}.`
           : `Approved ${input.review.displayName}. Admin setup may still be needed before it can be used.`
         : `Not approved: ${input.review.displayName}. Reason: ${reason}.`;
     } catch (err) {
@@ -635,13 +673,8 @@ function semanticCapabilityInteraction(
       : []),
   ]);
   if (toolNames.length > 0) return undefined;
-  const definition = semanticCapabilityDefinitionFromToolInput(
-    review.toolInput,
-    capabilityId,
-  );
   const displayName =
     toTrimmedString(review.toolInput.capabilityDisplayName, { maxLen: 200 }) ||
-    definition?.displayName ||
     capabilityId;
   return {
     id: requestId,
@@ -660,29 +693,25 @@ function semanticCapabilityInteraction(
 function semanticCapabilityInteractionDetails(
   toolInput: Record<string, unknown>,
 ) {
-  const capabilityId = toTrimmedString(toolInput.capabilityId, { maxLen: 160 });
-  const definition = capabilityId
-    ? semanticCapabilityDefinitionFromToolInput(toolInput, capabilityId)
-    : undefined;
-  if (definition) {
-    return [
-      { label: 'Capability', value: `capability:${definition.capabilityId}` },
-      { label: 'Risk', value: definition.risk },
-      {
-        label: 'Account',
-        value: definition.accountLabel ?? 'Configured account',
-      },
-      { label: 'Allows', value: definition.can },
-      { label: 'Does not allow', value: definition.cannot },
-    ];
-  }
   return [
     detailFromToolInput(toolInput, 'Capability', 'capabilityId', 160),
+    detailFromToolInput(toolInput, 'Risk', 'risk', 80),
     detailFromToolInput(toolInput, 'Account', 'accountLabel', 200),
     detailFromToolInput(toolInput, 'Allows', 'can', 1000),
     detailFromToolInput(toolInput, 'Does not allow', 'cannot', 1000),
   ].filter((detail): detail is { label: string; value: string } =>
     Boolean(detail),
+  );
+}
+
+function hasAgentSuppliedCapabilityDefinition(
+  payload: Record<string, unknown>,
+): boolean {
+  return (
+    Object.prototype.hasOwnProperty.call(
+      payload,
+      'semanticCapabilityDefinition',
+    ) || Object.prototype.hasOwnProperty.call(payload, 'capabilityDefinition')
   );
 }
 

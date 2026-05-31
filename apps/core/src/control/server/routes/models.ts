@@ -436,7 +436,7 @@ async function previewResponse(
         modelKind === 'recurringJob' ? 'recurring_job' : 'one_time_job';
       const defaultConfig = ctx.getDefaultModelConfig(
         modelKind,
-        job.group_scope,
+        job.workspace_key,
       );
       const selectedModel = job.model || defaultConfig.model;
       const resolution = selectedModel

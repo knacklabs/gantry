@@ -32,7 +32,7 @@ export async function resolveJobAppSession(input: {
       sessionId: '',
       appId,
       conversationJid: conversationJid ?? '',
-      workspaceKey: job.group_scope,
+      workspaceKey: job.workspace_key,
       defaultResponseMode: 'none',
       defaultWebhookId: null,
     };

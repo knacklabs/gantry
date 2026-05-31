@@ -4,7 +4,7 @@ const previousIpcDir = process.env.GANTRY_IPC_DIR;
 
 beforeEach(() => {
   process.env.GANTRY_IPC_DIR = '/tmp/gantry-file-tool-test';
-  process.env.GANTRY_GROUP_FOLDER = 'test-agent';
+  process.env.GANTRY_WORKSPACE_KEY = 'test-agent';
   process.env.GANTRY_CHAT_JID = 'sl:C123';
 });
 
@@ -13,7 +13,7 @@ afterEach(() => {
   vi.doUnmock('@core/runner/mcp/ipc.js');
   if (previousIpcDir === undefined) delete process.env.GANTRY_IPC_DIR;
   else process.env.GANTRY_IPC_DIR = previousIpcDir;
-  delete process.env.GANTRY_GROUP_FOLDER;
+  delete process.env.GANTRY_WORKSPACE_KEY;
   delete process.env.GANTRY_CHAT_JID;
 });
 

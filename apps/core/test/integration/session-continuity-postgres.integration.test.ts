@@ -39,7 +39,7 @@ function makeContinuityJob(
     execution_context: {
       conversationJid: 'app:shared:conversation',
       threadId: null,
-      groupScope: 'shared_agent',
+      workspaceKey: 'shared_agent',
       sessionId: null,
     },
     notification_routes: [
@@ -49,7 +49,7 @@ function makeContinuityJob(
         label: 'primary',
       },
     ],
-    group_scope: 'shared_agent',
+    workspace_key: 'shared_agent',
     created_by: 'human',
     created_at: now,
     updated_at: now,
@@ -76,17 +76,17 @@ maybeDescribe('Postgres memory continuity', () => {
   });
 
   it('returns canonical Gantry turn context when provider session metadata exists', async () => {
-    const groupFolder = 'group-session-mode';
+    const workspaceFolder = 'group-session-mode';
     const chatJid = 'tg:group-session-mode';
     const sessionId = 'provider-session:test:mode';
 
-    await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
+    await runtime.sessionOps.setSession(workspaceFolder, sessionId, null, {
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
     });
 
     const withoutArtifact = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder,
+      workspaceFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
@@ -97,13 +97,13 @@ maybeDescribe('Postgres memory continuity', () => {
       agentSessionId: expect.any(String),
     });
 
-    await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
+    await runtime.sessionOps.setSession(workspaceFolder, sessionId, null, {
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
     });
 
     const withArtifact = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder,
+      workspaceFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
@@ -127,7 +127,7 @@ maybeDescribe('Postgres memory continuity', () => {
     });
 
     const context = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder: 'runtime_workspace_folder',
+      workspaceFolder: 'runtime_workspace_folder',
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
@@ -163,7 +163,7 @@ maybeDescribe('Postgres memory continuity', () => {
       },
     );
     const agentAContext = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder: routeFolder,
+      workspaceFolder: routeFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
@@ -177,7 +177,7 @@ maybeDescribe('Postgres memory continuity', () => {
       requiresTrigger: false,
     });
     const agentBContext = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder: routeFolder,
+      workspaceFolder: routeFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
@@ -205,7 +205,7 @@ maybeDescribe('Postgres memory continuity', () => {
     );
     await expect(
       runtime.sessionOps.getAgentTurnContext({
-        groupFolder: routeFolder,
+        workspaceFolder: routeFolder,
         executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid,
         threadId: null,
@@ -235,7 +235,7 @@ maybeDescribe('Postgres memory continuity', () => {
       chatJid,
     });
     const agentAContext = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder: routeFolder,
+      workspaceFolder: routeFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
@@ -253,7 +253,7 @@ maybeDescribe('Postgres memory continuity', () => {
       chatJid,
     });
     const agentBContext = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder: routeFolder,
+      workspaceFolder: routeFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
@@ -267,7 +267,7 @@ maybeDescribe('Postgres memory continuity', () => {
 
     await expect(
       runtime.sessionOps.getAgentTurnContext({
-        groupFolder: routeFolder,
+        workspaceFolder: routeFolder,
         executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid,
         threadId: null,
@@ -286,12 +286,12 @@ maybeDescribe('Postgres memory continuity', () => {
   });
 
   it('replaces provider session per scope without clobbering a thread scope', async () => {
-    const groupFolder = 'group-session-replacement';
+    const workspaceFolder = 'group-session-replacement';
     const chatJid = 'tg:group-session-replacement';
     const threadId = 'thread-1';
 
     await runtime.sessionOps.setSession(
-      groupFolder,
+      workspaceFolder,
       'provider-session:test:root:v1',
       null,
       {
@@ -300,7 +300,7 @@ maybeDescribe('Postgres memory continuity', () => {
       },
     );
     await runtime.sessionOps.setSession(
-      groupFolder,
+      workspaceFolder,
       'provider-session:test:thread:v1',
       threadId,
       {
@@ -309,7 +309,7 @@ maybeDescribe('Postgres memory continuity', () => {
       },
     );
     await runtime.sessionOps.setSession(
-      groupFolder,
+      workspaceFolder,
       'provider-session:test:root:v2',
       null,
       {
@@ -319,13 +319,13 @@ maybeDescribe('Postgres memory continuity', () => {
     );
 
     const rootResume = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder,
+      workspaceFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
     });
     const threadResume = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder,
+      workspaceFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId,
@@ -357,11 +357,11 @@ maybeDescribe('Postgres memory continuity', () => {
   });
 
   it('replaces one execution provider session without clobbering another provider', async () => {
-    const groupFolder = 'provider-neutral-session';
+    const workspaceFolder = 'provider-neutral-session';
     const chatJid = 'tg:provider-neutral-session';
 
     await runtime.sessionOps.setSession(
-      groupFolder,
+      workspaceFolder,
       'provider-session:test:anthropic:v1',
       null,
       {
@@ -370,7 +370,7 @@ maybeDescribe('Postgres memory continuity', () => {
       },
     );
     await runtime.sessionOps.setSession(
-      groupFolder,
+      workspaceFolder,
       'provider-session:test:codex:v1',
       null,
       {
@@ -379,7 +379,7 @@ maybeDescribe('Postgres memory continuity', () => {
       },
     );
     await runtime.sessionOps.setSession(
-      groupFolder,
+      workspaceFolder,
       'provider-session:test:anthropic:v2',
       null,
       {
@@ -404,7 +404,7 @@ maybeDescribe('Postgres memory continuity', () => {
 
     await expect(
       runtime.sessionOps.getAgentTurnContext({
-        groupFolder,
+        workspaceFolder,
         executionProviderId: TEST_CODEX_PROVIDER_ID,
         chatJid,
       }),
@@ -414,7 +414,7 @@ maybeDescribe('Postgres memory continuity', () => {
     });
     await expect(
       runtime.sessionOps.getAgentTurnContext({
-        groupFolder,
+        workspaceFolder,
         executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid,
       }),
@@ -452,11 +452,11 @@ maybeDescribe('Postgres memory continuity', () => {
     const sharedSessionId = 'provider-session:test:race-owned';
     const contenders = [
       {
-        groupFolder: 'group-session-race-a',
+        workspaceFolder: 'group-session-race-a',
         chatJid: 'tg:group-session-race-a',
       },
       {
-        groupFolder: 'group-session-race-b',
+        workspaceFolder: 'group-session-race-b',
         chatJid: 'tg:group-session-race-b',
       },
     ] as const;
@@ -464,7 +464,7 @@ maybeDescribe('Postgres memory continuity', () => {
     const results = await Promise.allSettled(
       contenders.map((contender) =>
         runtime.sessionOps.setSession(
-          contender.groupFolder,
+          contender.workspaceFolder,
           sharedSessionId,
           null,
           {
@@ -495,7 +495,7 @@ maybeDescribe('Postgres memory continuity', () => {
     const loser = contenders[rejected[0]!.index]!;
 
     const winnerContext = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder: winner.groupFolder,
+      workspaceFolder: winner.workspaceFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: winner.chatJid,
       threadId: null,
@@ -515,7 +515,7 @@ maybeDescribe('Postgres memory continuity', () => {
     });
 
     const loserContext = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder: loser.groupFolder,
+      workspaceFolder: loser.workspaceFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: loser.chatJid,
       threadId: null,
@@ -534,17 +534,17 @@ maybeDescribe('Postgres memory continuity', () => {
   });
 
   it('keeps canonical turn context stable after expiring provider session metadata', async () => {
-    const groupFolder = 'group-session-expiry';
+    const workspaceFolder = 'group-session-expiry';
     const chatJid = 'tg:group-session-expiry';
     const sessionId = 'provider-session:test:expire';
 
-    await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
+    await runtime.sessionOps.setSession(workspaceFolder, sessionId, null, {
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
     });
 
     const before = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder,
+      workspaceFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
@@ -558,7 +558,7 @@ maybeDescribe('Postgres memory continuity', () => {
     });
 
     const resumed = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder,
+      workspaceFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
@@ -569,17 +569,17 @@ maybeDescribe('Postgres memory continuity', () => {
   });
 
   it('does not expire provider sessions when ownership predicates are incomplete', async () => {
-    const groupFolder = 'group-session-expiry-incomplete';
+    const workspaceFolder = 'group-session-expiry-incomplete';
     const chatJid = 'tg:group-session-expiry-incomplete';
     const sessionId = 'provider-session:test:expire-incomplete';
 
-    await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
+    await runtime.sessionOps.setSession(workspaceFolder, sessionId, null, {
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
     });
 
     const before = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder,
+      workspaceFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
@@ -621,13 +621,13 @@ maybeDescribe('Postgres memory continuity', () => {
     });
 
     const firstContext = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder: firstGroup,
+      workspaceFolder: firstGroup,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: firstChat,
       threadId: null,
     });
     const secondContext = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder: secondGroup,
+      workspaceFolder: secondGroup,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: secondChat,
       threadId: null,
@@ -659,33 +659,33 @@ maybeDescribe('Postgres memory continuity', () => {
   });
 
   it('resets only the targeted scoped conversation state and preserves sibling scopes', async () => {
-    const groupFolder = 'group-session-scope-reset';
+    const workspaceFolder = 'group-session-scope-reset';
     const conversationA = 'tg:group-session-scope-reset:A';
     const conversationB = 'tg:group-session-scope-reset:B';
     const sessionA = 'provider-session:test:scope-reset:a';
     const sessionB = 'provider-session:test:scope-reset:b';
 
-    await runtime.sessionOps.setSession(groupFolder, sessionA, null, {
+    await runtime.sessionOps.setSession(workspaceFolder, sessionA, null, {
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: conversationA,
     });
-    await runtime.sessionOps.setSession(groupFolder, sessionB, null, {
+    await runtime.sessionOps.setSession(workspaceFolder, sessionB, null, {
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: conversationB,
     });
 
-    await runtime.sessionOps.deleteSession(groupFolder, null, {
+    await runtime.sessionOps.deleteSession(workspaceFolder, null, {
       chatJid: conversationA,
     });
 
     const resetContext = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder,
+      workspaceFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: conversationA,
       threadId: null,
     });
     const siblingContext = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder,
+      workspaceFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid: conversationB,
       threadId: null,
@@ -700,17 +700,17 @@ maybeDescribe('Postgres memory continuity', () => {
   });
 
   it('clears scoped session state even when run history references the session', async () => {
-    const groupFolder = 'group-session-delete-with-run';
+    const workspaceFolder = 'group-session-delete-with-run';
     const chatJid = 'tg:group-session-delete-with-run';
     const sessionId = 'provider-session:test:delete-with-run';
     const runId = 'agent-run:test:delete-with-session' as AgentRunId;
 
-    await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
+    await runtime.sessionOps.setSession(workspaceFolder, sessionId, null, {
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
     });
     const resume = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder,
+      workspaceFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
@@ -732,7 +732,7 @@ maybeDescribe('Postgres memory continuity', () => {
       endedAt: '2026-04-28T00:00:02.000Z',
     });
 
-    await runtime.sessionOps.deleteSession(groupFolder, null);
+    await runtime.sessionOps.deleteSession(workspaceFolder, null);
 
     await expect(
       runtime.repositories.providerSessions.getProviderSession(
@@ -744,7 +744,7 @@ maybeDescribe('Postgres memory continuity', () => {
     ).resolves.toMatchObject({ sessionId: resume.agentSessionId });
 
     const restarted = await runtime.sessionOps.getAgentTurnContext({
-      groupFolder,
+      workspaceFolder,
       executionProviderId: TEST_EXECUTION_PROVIDER_ID,
       chatJid,
       threadId: null,
@@ -761,14 +761,14 @@ maybeDescribe('Postgres memory continuity', () => {
       appId: 'app-one',
       conversationId: 'shared-conversation',
       chatJid: conversationJid,
-      groupFolder: 'shared_agent',
+      workspaceFolder: 'shared_agent',
       title: 'Shared App One',
     });
     const appTwoSession = await runtime.control.ensureAppSession({
       appId: 'app-two',
       conversationId: 'shared-conversation',
       chatJid: conversationJid,
-      groupFolder: 'shared_agent',
+      workspaceFolder: 'shared_agent',
       title: 'Shared App Two',
     });
     await runtime.ops.upsertJob(
@@ -779,7 +779,7 @@ maybeDescribe('Postgres memory continuity', () => {
         execution_context: {
           conversationJid,
           threadId,
-          groupScope: 'shared_agent',
+          workspaceKey: 'shared_agent',
           sessionId: appOneSession.sessionId,
         },
         notification_routes: [{ conversationJid, threadId, label: 'primary' }],
@@ -793,7 +793,7 @@ maybeDescribe('Postgres memory continuity', () => {
         execution_context: {
           conversationJid,
           threadId,
-          groupScope: 'shared_agent',
+          workspaceKey: 'shared_agent',
           sessionId: appTwoSession.sessionId,
         },
         notification_routes: [{ conversationJid, threadId, label: 'primary' }],
@@ -846,22 +846,22 @@ maybeDescribe('Postgres memory continuity', () => {
       schemaPrefix: 'session_continuity_isolated',
     });
     try {
-      const groupFolder = 'group-session-isolation';
+      const workspaceFolder = 'group-session-isolation';
       const chatJid = 'tg:group-session-isolation';
       const sessionId = 'provider-session:test:isolation';
 
-      await runtime.sessionOps.setSession(groupFolder, sessionId, null, {
+      await runtime.sessionOps.setSession(workspaceFolder, sessionId, null, {
         executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid,
       });
-      await isolated.sessionOps.setSession(groupFolder, sessionId, null, {
+      await isolated.sessionOps.setSession(workspaceFolder, sessionId, null, {
         executionProviderId: TEST_EXECUTION_PROVIDER_ID,
         chatJid,
       });
 
       await expect(
         runtime.sessionOps.getAgentTurnContext({
-          groupFolder,
+          workspaceFolder,
           executionProviderId: TEST_EXECUTION_PROVIDER_ID,
           chatJid,
           threadId: null,
@@ -871,7 +871,7 @@ maybeDescribe('Postgres memory continuity', () => {
       });
       await expect(
         isolated.sessionOps.getAgentTurnContext({
-          groupFolder,
+          workspaceFolder,
           executionProviderId: TEST_EXECUTION_PROVIDER_ID,
           chatJid,
           threadId: null,

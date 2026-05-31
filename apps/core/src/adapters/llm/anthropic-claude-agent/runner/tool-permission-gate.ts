@@ -8,6 +8,7 @@ import type {
   AgentRunnerToolAttemptOutput,
   RunnerCapabilitiesForPermission,
 } from './types.js';
+import { WORKSPACE_FOLDER_OPTION_KEY } from './types.js';
 import { findModelByRunnerModel } from '../../../../shared/model-catalog.js';
 import { validateAgentToolInput } from './agent-model-selection.js';
 import { readLiveToolRules } from '../../../../shared/live-tool-rules.js';
@@ -46,8 +47,8 @@ import { stableTimedGrantKey } from './stable-timed-grant-key.js';
 
 type PermissionApprovalInput = Parameters<typeof requestPermissionApproval>[0];
 
-const GROUP_FOLDER_KEY =
-  `${'group'}${'Folder'}` as keyof PermissionApprovalInput;
+const WORKSPACE_FOLDER_KEY =
+  WORKSPACE_FOLDER_OPTION_KEY as keyof PermissionApprovalInput;
 const TIMED_GRANT_DURATION_MS = 5 * 60 * 1000;
 const TIMED_GRANT_CLOCK_SKEW_MS = 10_000;
 
@@ -486,7 +487,7 @@ export function createCanUseToolCallback(
           ? ['allow_once', 'allow_persistent_rule', 'cancel']
           : ['allow_once', 'cancel'],
         threadId: input.agentInput.threadId,
-        [GROUP_FOLDER_KEY]: input.workspaceFolder,
+        [WORKSPACE_FOLDER_KEY]: input.workspaceFolder,
       } as unknown as PermissionApprovalInput);
       if (decision.approved) {
         const persistentUpdates = persistentPermissionUpdates(decision);
@@ -626,7 +627,7 @@ export function createCanUseToolCallback(
       semanticCapabilityDefinitions:
         permissionPlan.semanticCapabilityDefinitions,
       threadId: input.agentInput.threadId,
-      [GROUP_FOLDER_KEY]: input.workspaceFolder,
+      [WORKSPACE_FOLDER_KEY]: input.workspaceFolder,
     } as unknown as PermissionApprovalInput);
     if (decision.approved) {
       const persistentUpdates = persistentPermissionUpdates(decision);

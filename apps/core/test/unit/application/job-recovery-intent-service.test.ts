@@ -32,7 +32,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     status: 'paused',
     session_id: null,
     thread_id: null,
-    group_scope: 'main_agent',
+    workspace_key: 'main_agent',
     created_by: 'agent',
     created_at: '2026-05-23T00:00:00.000Z',
     updated_at: '2026-05-23T00:00:00.000Z',

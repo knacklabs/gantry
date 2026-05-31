@@ -1,22 +1,17 @@
 import { ApplicationError } from '../common/application-error.js';
 import {
   isCanonicalBrowserCapabilityRule,
-  isGantryFacadeExactToolRule,
-  isProjectedBrowserMcpToolRule,
   parseReadableScopedToolRule,
   RUN_COMMAND_TOOL_NAME,
-  validateReadableAgentToolRule,
 } from '../../shared/agent-tool-references.js';
-import { isGantryMcpWildcardRule } from '../../shared/admin-mcp-tools.js';
 import { parseSemanticCapabilityRule } from '../../shared/semantic-capability-ids.js';
 import { toolRuleCoversRule } from '../../shared/tool-rule-matcher.js';
+import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
 import {
   bashExecutableName,
   formatBashArgv,
   parseBashCommand,
 } from '../../shared/bash-command-parser.js';
-
-const EXACT_GANTRY_MCP_TOOL_RE = /^mcp__gantry__[A-Za-z0-9_-]+$/;
 
 export interface ToolAccessRequirementPreflightResult {
   toolAccessRequirements: string[];
@@ -51,7 +46,9 @@ export function normalizeToolAccessRequirements(
         `${fieldName} entries must be non-empty strings.`,
       );
     }
-    const validation = validateToolAccessRequirementRule(rule);
+    const validation = validateDurableAccessRule(rule, {
+      allowUnknownSemanticCapability: true,
+    });
     if (!validation.ok) {
       throw new ApplicationError(
         'INVALID_REQUEST',
@@ -100,45 +97,6 @@ export function normalizeRequiredMcpServers(
     }
   }
   return out;
-}
-
-export function validateToolAccessRequirementRule(
-  rule: string,
-): { ok: true } | { ok: false; reason: string } {
-  const trimmed = rule.trim();
-  if (!trimmed) return { ok: false, reason: 'Tool rule cannot be empty.' };
-  if (isGantryMcpWildcardRule(trimmed)) {
-    return {
-      ok: false,
-      reason:
-        'Gantry MCP wildcard grants are not valid tool access requirements.',
-    };
-  }
-  const readable = validateReadableAgentToolRule(trimmed);
-  if (!readable.ok) return readable;
-  if (isGantryFacadeExactToolRule(trimmed)) return { ok: true };
-  const scoped = parseReadableScopedToolRule(trimmed);
-  if (scoped) {
-    return scoped.toolName === RUN_COMMAND_TOOL_NAME
-      ? { ok: true }
-      : {
-          ok: false,
-          reason: 'Only RunCommand supports scoped tool access requirements.',
-        };
-  }
-  if (parseSemanticCapabilityRule(trimmed)) return { ok: true };
-  if (isCanonicalBrowserCapabilityRule(trimmed)) return { ok: true };
-  if (
-    EXACT_GANTRY_MCP_TOOL_RE.test(trimmed) &&
-    !isProjectedBrowserMcpToolRule(trimmed)
-  ) {
-    return { ok: true };
-  }
-  return {
-    ok: false,
-    reason:
-      'Use canonical Browser, exact Gantry file/web tool names, capability:<id>, exact mcp__gantry__ tool names, or scoped RunCommand(...).',
-  };
 }
 
 export function evaluateToolAccessRequirements(input: {

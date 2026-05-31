@@ -20,8 +20,8 @@ vi.mock('@core/config/index.js', async (importOriginal) => {
   };
 });
 
-vi.mock('@core/platform/group-folder.js', () => ({
-  resolveGroupFolderPath: () => '/tmp/gantry-unit-scheduler-agent',
+vi.mock('@core/platform/workspace-folder.js', () => ({
+  resolveWorkspaceFolderPath: () => '/tmp/gantry-unit-scheduler-agent',
 }));
 
 vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
@@ -73,7 +73,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     execution_context: {
       conversationJid: 'tg:scheduler',
       threadId: 'thread-scheduled',
-      groupScope: 'scheduler_agent',
+      workspaceKey: 'scheduler_agent',
     },
     notification_routes: [
       {
@@ -82,7 +82,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
         label: 'primary',
       },
     ],
-    group_scope: 'scheduler_agent',
+    workspace_key: 'scheduler_agent',
     created_by: 'human',
     created_at: '2026-05-08T00:00:00.000Z',
     updated_at: '2026-05-08T00:00:00.000Z',
@@ -206,7 +206,7 @@ describe('jobs/execution', () => {
       execution_context: {
         conversationJid: 'tg:missing',
         threadId: null,
-        groupScope: 'scheduler_agent',
+        workspaceKey: 'scheduler_agent',
       },
     });
     const opsRepository = makeOpsRepository(job);

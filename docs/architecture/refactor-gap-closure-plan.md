@@ -60,9 +60,9 @@ Each phase: **goal**, **scope**, **exit criteria**, **deletion target**, **repro
 **Scope:**
 
 - Delete `DEFAULT_MEMORY_AGENT_ID` at `apps/core/src/memory/app-memory-boundaries.ts:13`. Surface every implicit caller as a TypeScript error.
-- Introduce `resolveSessionSubject(session) → { agentId, scope, groupFolder }` in `apps/core/src/memory/app-memory-subject-resolver.ts`. Single definition.
+- Introduce `resolveSessionSubject(session) → { agentId, scope, workspaceFolder }` in `apps/core/src/memory/app-memory-subject-resolver.ts`. Single definition.
 - Memory MCP handlers (`memory_search`, `memory_save`) read subject from the session context their handler runs in. Caller may _override_ scope (with audit), not invent agent.
-- Migration `0048_memory_subject_backfill.sql`: rewrite rows currently keyed `agent:personal` to the resolved subject by inspecting `groupFolder`. No dual-read path.
+- Migration `0048_memory_subject_backfill.sql`: rewrite rows currently keyed `agent:personal` to the resolved subject by inspecting `workspaceFolder`. No dual-read path.
 - Empty-result responses include the subject used so silent zero-results die.
 
 **Exit criteria:**

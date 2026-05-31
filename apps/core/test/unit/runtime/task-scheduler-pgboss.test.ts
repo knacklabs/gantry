@@ -31,7 +31,7 @@ function createJob(overrides: Partial<Job> = {}): Job {
     status: 'active',
     session_id: null,
     thread_id: null,
-    group_scope: 'tg:team',
+    workspace_key: 'tg:team',
     created_by: 'agent',
     created_at: now,
     updated_at: now,
@@ -176,7 +176,7 @@ describe('PgBossSchedulerEngine', () => {
       execution_context: {
         conversationJid: 'tg:team',
         threadId: 'topic-1',
-        groupScope: 'main_agent',
+        workspaceKey: 'main_agent',
       },
       setup_state: {
         state: 'missing_capability',
@@ -427,7 +427,7 @@ describe('PgBossSchedulerEngine', () => {
       schedule_type: 'cron',
       schedule_value: '0 9 * * *',
       next_run: '2026-04-25T09:00:00.000Z',
-      group_scope: 'sl:team',
+      workspace_key: 'sl:team',
     });
     const boss = {
       send: vi.fn().mockResolvedValue(undefined),
@@ -572,7 +572,7 @@ describe('PgBossSchedulerEngine', () => {
 
   it('dispatches jobs through a job-scoped scheduler queue key and releases the slot', async () => {
     const job = createJob({
-      group_scope: 'tg:team',
+      workspace_key: 'tg:team',
     });
     const callbacks = {
       registerSystemJobs: vi.fn().mockResolvedValue(undefined),

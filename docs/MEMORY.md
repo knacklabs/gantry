@@ -34,8 +34,8 @@ Host-managed personal setup uses the internal runtime default app namespace:
 
 ```text
 appId=default
-agentId=<group folder>
-groupId=<group folder>
+agentId=<workspace folder>
+groupId=<workspace folder>
 channelId=<Telegram/Slack/Teams/app conversation id>
 ```
 
@@ -162,7 +162,7 @@ outcomes in `memory_review_requests`.
 
 ### Dreaming end-to-end
 
-Dreaming is a system job. The scheduler claims it per group folder, the
+Dreaming is a system job. The scheduler claims it per workspace folder, the
 runtime calls `AppMemoryService.triggerDreaming({ phase: 'all' })`, and the
 service writes audit rows to `memory_dream_runs` and `memory_dream_decisions`.
 

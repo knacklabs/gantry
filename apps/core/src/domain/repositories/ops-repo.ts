@@ -19,7 +19,7 @@ export interface JobUpsertInput {
   status?: Job['status'];
   session_id?: string | null;
   thread_id?: string | null;
-  group_scope: string;
+  workspace_key: string;
   created_by?: Job['created_by'];
   created_at?: string;
   updated_at?: string;
@@ -45,7 +45,7 @@ export interface JobUpsertInput {
 export interface JobListFilters {
   appId?: string;
   statuses?: string[];
-  groupScope?: string;
+  workspaceKey?: string;
   threadId?: string | null;
   agentId?: string;
   kind?: 'manual' | 'once' | 'recurring';

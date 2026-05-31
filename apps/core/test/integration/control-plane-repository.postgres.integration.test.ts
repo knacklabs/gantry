@@ -27,7 +27,7 @@ function makeJob(id: string, patch: Partial<JobUpsertInput> = {}) {
     execution_context: {
       conversationJid: 'conversation-control',
       threadId: 'thread-control',
-      groupScope: 'control-agent',
+      workspaceKey: 'control-agent',
       sessionId: null,
     },
     notification_routes: [
@@ -37,7 +37,7 @@ function makeJob(id: string, patch: Partial<JobUpsertInput> = {}) {
         label: 'Primary',
       },
     ],
-    group_scope: 'control-agent',
+    workspace_key: 'control-agent',
     created_by: 'human',
     created_at: now,
     updated_at: now,
@@ -75,7 +75,7 @@ maybeDescribe('PostgresControlPlaneRepository', () => {
       appId: 'default',
       conversationId: 'conversation-control',
       chatJid: 'app:control-repo',
-      groupFolder: 'control-agent',
+      workspaceFolder: 'control-agent',
       title: 'Control Repo',
       defaultResponseMode: 'both',
     });

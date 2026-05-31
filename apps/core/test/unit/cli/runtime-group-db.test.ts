@@ -50,7 +50,7 @@ function configureMockRuntime(): void {
       deleteConversationRoute: async (jid: string) => {
         groupsStore.delete(jid);
       },
-      deleteSessionsByGroupFolder: async () => {},
+      deleteSessionsByAgentFolder: async () => {},
     },
   }));
 }
@@ -123,7 +123,7 @@ describe('runtime-group-db', () => {
         trigger: '@bad',
         added_at: '2026-04-21T00:00:00.000Z',
       }),
-    ).rejects.toThrow(/Invalid group folder/);
+    ).rejects.toThrow(/Invalid workspace folder/);
     await groupDb.close();
   });
 });

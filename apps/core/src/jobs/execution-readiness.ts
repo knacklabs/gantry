@@ -3,7 +3,7 @@ import {
   evaluateJobReadiness,
   SETUP_REQUIRED_PAUSE_REASON,
 } from '../application/jobs/job-readiness-service.js';
-import { agentIdForJobGroupScope } from '../application/jobs/job-tool-policy.js';
+import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.js';
 import type { RuntimeEventPublishInput } from '../domain/events/events.js';
 import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import type { JobRecoveryIntentSource } from '../application/jobs/job-recovery-intent-service.js';
@@ -28,7 +28,7 @@ export async function pauseJobForSetupIfNeeded(input: {
     job: input.currentJob,
     appId: input.appSession?.appId ?? input.runtimeAppId,
     agentId:
-      input.agentId ?? agentIdForJobGroupScope(input.executionAgentFolder),
+      input.agentId ?? agentIdForJobWorkspaceKey(input.executionAgentFolder),
     toolRepository: input.deps.getToolRepository?.(),
     skillRepository: input.deps.getSkillRepository?.(),
     mcpServerRepository: input.deps.getMcpServerRepository?.(),

@@ -136,6 +136,14 @@ function createMcpFixture(): {
     path.join(sharedDir, 'bash-command-parser.ts'),
   );
   fs.copyFileSync(
+    path.resolve('apps/core/src/shared/durable-access-policy.ts'),
+    path.join(sharedDir, 'durable-access-policy.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve('apps/core/src/shared/sensitive-material.ts'),
+    path.join(sharedDir, 'sensitive-material.ts'),
+  );
+  fs.copyFileSync(
     path.resolve('apps/core/src/shared/semantic-capability-ids.ts'),
     path.join(sharedDir, 'semantic-capability-ids.ts'),
   );
@@ -414,7 +422,7 @@ async function runMcpFixture(
         GANTRY_IPC_RESPONSE_KEY_ID: 'mcp-test-response-key-id',
         TEST_IPC_RESPONSE_SIGNING_KEY: fixture.responseSigningKey,
         GANTRY_CHAT_JID: 'tg:team',
-        GANTRY_GROUP_FOLDER: 'team',
+        GANTRY_WORKSPACE_KEY: 'team',
         GANTRY_AGENT_RUN_HANDLE: 'mcp-test-run',
         GANTRY_ADMIN_MCP_TOOLS_JSON: '[]',
         GANTRY_MCP_TOOL_NAMES_JSON: JSON.stringify(ALL_GANTRY_MCP_TOOL_NAMES),
@@ -727,7 +735,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
           executionContext: {
             conversationJid: 'tg:team',
             threadId: 'trusted-thread',
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
           notificationRoutes: [
             {
@@ -759,7 +767,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       expect.objectContaining({
         conversationJid: 'tg:team',
         threadId: 'trusted-thread',
-        groupScope: 'team',
+        workspaceKey: 'team',
       }),
     );
     expect(task.notificationRoutes).toEqual(
@@ -975,6 +983,24 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
     },
   );
 
+  it('rejects broad durable request_access run_command fallbacks before queuing review', async () => {
+    const fixture = createMcpFixture();
+
+    const result = await runMcpFixture(fixture, 'request_access', {
+      target: { kind: 'run_command', argvPattern: 'gh *' },
+      reason: 'Run GitHub commands on schedule.',
+    });
+
+    expect(result.exitCode, result.stderr).toBe(0);
+    const record = JSON.parse(fs.readFileSync(fixture.resultPath, 'utf-8'));
+    expect(record.result.isError).toBe(true);
+    expect(record.result.content[0].text).toContain(
+      'Invalid durable run_command access request',
+    );
+    const taskDir = path.join(fixture.ipcDir, 'tasks');
+    expect(fs.existsSync(taskDir) ? fs.readdirSync(taskDir) : []).toEqual([]);
+  });
+
   it('submits a request_access capability target as a reviewed capability request', async () => {
     const fixture = createMcpFixture();
 
@@ -1103,7 +1129,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
           executionContext: {
             conversationJid: 'tg:team',
             threadId: null,
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
           notificationRoutes: [
             {
@@ -1137,7 +1163,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       },
       {
         TEST_MCP_TASK_RESPONSE_DATA: JSON.stringify({
-          jobs: [{ id: 'job-1', status: 'active', group_scope: 'team' }],
+          jobs: [{ id: 'job-1', status: 'active', workspace_key: 'team' }],
         }),
       },
     );
@@ -1280,7 +1306,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       expect.objectContaining({
         conversationJid: 'tg:team',
         threadId: 'trusted-thread',
-        groupScope: 'team',
+        workspaceKey: 'team',
       }),
     );
     expect(task.notificationRoutes).toEqual(
@@ -1306,7 +1332,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
         execution_context: {
           conversation_jid: 'tg:team',
           thread_id: null,
-          group_scope: 'team',
+          workspace_key: 'team',
         },
         notification_routes: [
           {
@@ -1333,7 +1359,7 @@ describe('agent-runner MCP stdio tools', { timeout: 35_000 }, () => {
       expect.objectContaining({
         conversationJid: 'tg:team',
         threadId: null,
-        groupScope: 'team',
+        workspaceKey: 'team',
       }),
     );
     expect(task.notificationRoutes).toEqual(

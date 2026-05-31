@@ -41,7 +41,7 @@ export interface IpcDeps {
   syncGroups: (force: boolean) => Promise<void>;
   getAvailableGroups: () => Promise<AvailableGroup[]> | AvailableGroup[];
   writeGroupsSnapshot: (
-    groupFolder: string,
+    workspaceFolder: string,
     availableGroups: AvailableGroup[],
     registeredJids: Set<string>,
   ) => Promise<void> | void;

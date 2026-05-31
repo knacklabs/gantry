@@ -1,5 +1,5 @@
 export interface FakeAgentInvocation {
-  groupFolder: string;
+  workspaceFolder: string;
   chatJid: string;
   prompt: string;
   isScheduledJob: boolean;
@@ -38,7 +38,7 @@ export function createFakeAgentRunner(options: FakeAgentRunnerOptions = {}) {
   ) => {
     const runOptions = options.sequence?.[invocations.length] ?? options;
     invocations.push({
-      groupFolder: group.folder,
+      workspaceFolder: group.folder,
       chatJid: input.chatJid,
       prompt: input.prompt,
       isScheduledJob: input.isScheduledJob === true,

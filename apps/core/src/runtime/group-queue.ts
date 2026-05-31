@@ -54,7 +54,7 @@ interface GroupState {
   pendingTasks: QueuedTask[];
   process: ChildProcess | null;
   runHandle: string | null;
-  groupFolder: string | null;
+  workspaceFolder: string | null;
   threadId: string | null;
   requiredContinuationUserId: string | null;
   retryCount: number;
@@ -108,7 +108,7 @@ export class GroupQueue {
         pendingTasks: [],
         process: null,
         runHandle: null,
-        groupFolder: null,
+        workspaceFolder: null,
         threadId: null,
         requiredContinuationUserId: null,
         retryCount: 0,
@@ -313,7 +313,7 @@ export class GroupQueue {
     groupJid: string,
     proc: ChildProcess,
     runHandle: string,
-    groupFolder?: string,
+    workspaceFolder?: string,
     stopAliasJids?: string | string[],
     threadId?: string | null,
     options: RegisterProcessOptions = {},
@@ -321,7 +321,7 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
     state.process = proc;
     state.runHandle = runHandle;
-    if (groupFolder) state.groupFolder = groupFolder;
+    if (workspaceFolder) state.workspaceFolder = workspaceFolder;
     state.threadId = normalizeThreadQueueId(threadId) || null;
     state.requiredContinuationUserId =
       options.requiredContinuationUserId?.trim() || null;
@@ -365,7 +365,8 @@ export class GroupQueue {
     options: ContinuationOptions = {},
   ) {
     const state = this.getGroup(groupJid);
-    if (!state.active || !state.groupFolder || state.isTaskRun) return false;
+    if (!state.active || !state.workspaceFolder || state.isTaskRun)
+      return false;
     const incomingThreadId = normalizeThreadQueueId(options.threadId) || null;
     if (state.threadId !== incomingThreadId) return false;
     if (
@@ -380,7 +381,7 @@ export class GroupQueue {
     state.idleWaiting = false; // Agent is about to receive work, no longer idle
     try {
       writeContinuationInput(
-        state.groupFolder,
+        state.workspaceFolder,
         text,
         this.continuationSequence++,
         incomingThreadId,
@@ -394,9 +395,9 @@ export class GroupQueue {
 
   closeStdin(groupJid: string): void {
     const state = this.getGroup(groupJid);
-    if (!state.active || !state.groupFolder) return;
+    if (!state.active || !state.workspaceFolder) return;
     try {
-      writeCloseSignal(state.groupFolder, state.threadId);
+      writeCloseSignal(state.workspaceFolder, state.threadId);
     } catch {
       // ignore
     }
@@ -475,7 +476,7 @@ export class GroupQueue {
       state.active = false;
       state.process = null;
       state.runHandle = null;
-      state.groupFolder = null;
+      state.workspaceFolder = null;
       state.threadId = null;
       state.requiredContinuationUserId = null;
       state.continuationHandler = null;
@@ -514,7 +515,7 @@ export class GroupQueue {
       state.runningTaskId = null;
       state.process = null;
       state.runHandle = null;
-      state.groupFolder = null;
+      state.workspaceFolder = null;
       state.threadId = null;
       state.requiredContinuationUserId = null;
       this.activeTaskCount--;

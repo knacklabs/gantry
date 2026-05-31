@@ -28,8 +28,8 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
   },
 }));
 
-vi.mock('@core/platform/group-folder.js', () => ({
-  resolveGroupFolderPath: vi.fn(),
+vi.mock('@core/platform/workspace-folder.js', () => ({
+  resolveWorkspaceFolderPath: vi.fn(),
 }));
 
 vi.mock('@core/application/agents/prompt-profile-service.js', () => ({
@@ -43,7 +43,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
 // Vitest hoists vi.mock calls, so these imports resolve to the mocked versions.
 import fs from 'fs';
 import { logger } from '@core/infrastructure/logging/logger.js';
-import { resolveGroupFolderPath } from '@core/platform/group-folder.js';
+import { resolveWorkspaceFolderPath } from '@core/platform/workspace-folder.js';
 import { PromptProfileService } from '@core/application/agents/prompt-profile-service.js';
 import {
   registerGroup,
@@ -56,7 +56,7 @@ type PersistGroupFn = (jid: string, group: ConversationRoute) => void;
 
 // Typed handles for convenience
 const mockFs = vi.mocked(fs);
-const mockResolve = vi.mocked(resolveGroupFolderPath);
+const mockResolve = vi.mocked(resolveWorkspaceFolderPath);
 const mockPromptProfileService = vi.mocked(PromptProfileService);
 const mockEnsureAgentDefaults = vi.fn();
 
@@ -122,7 +122,7 @@ describe('registerGroup', () => {
     );
   });
 
-  it('rejects registration when resolveGroupFolderPath throws', async () => {
+  it('rejects registration when resolveWorkspaceFolderPath throws', async () => {
     mockResolve.mockImplementation(() => {
       throw new Error('invalid folder');
     });

@@ -20,24 +20,24 @@ export function getContinuationInputNamespace(
 }
 
 export function getContinuationInputDir(
-  groupFolder: string,
+  workspaceFolder: string,
   threadId?: string | null,
 ): string {
   return path.join(
     DATA_DIR,
     'ipc',
-    groupFolder,
+    workspaceFolder,
     getContinuationInputNamespace(threadId),
   );
 }
 
 export function writeContinuationInput(
-  groupFolder: string,
+  workspaceFolder: string,
   text: string,
   sequence: number,
   threadId?: string | null,
 ): void {
-  const inputDir = getContinuationInputDir(groupFolder, threadId);
+  const inputDir = getContinuationInputDir(workspaceFolder, threadId);
   fs.mkdirSync(inputDir, { recursive: true });
   const filename = `${currentTimeMs()}-${String(sequence).padStart(12, '0')}.json`;
   const filepath = path.join(inputDir, filename);
@@ -54,10 +54,10 @@ export function writeContinuationInput(
 }
 
 export function writeCloseSignal(
-  groupFolder: string,
+  workspaceFolder: string,
   threadId?: string | null,
 ): void {
-  const inputDir = getContinuationInputDir(groupFolder, threadId);
+  const inputDir = getContinuationInputDir(workspaceFolder, threadId);
   fs.mkdirSync(inputDir, { recursive: true });
   fs.writeFileSync(path.join(inputDir, '_close'), '');
 }

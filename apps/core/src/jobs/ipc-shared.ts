@@ -5,7 +5,7 @@ import { DATA_DIR } from '../config/index.js';
 import { nowIso } from '../shared/time/datetime.js';
 import { writeFileAtomic } from '../infrastructure/filesystem/paths.js';
 import { signIpcResponsePayload } from '../infrastructure/ipc/response-signing.js';
-import { isValidGroupFolder } from '../platform/group-folder.js';
+import { isValidWorkspaceFolder } from '../platform/workspace-folder.js';
 import {
   getServiceStatus,
   startService,
@@ -36,7 +36,7 @@ export function writeTaskIpcResponse(
   responseKeyId?: string,
 ): void {
   if (!taskId || !TASK_IPC_RESPONSE_ID_PATTERN.test(taskId)) return;
-  if (!isValidGroupFolder(sourceAgentFolder)) return;
+  if (!isValidWorkspaceFolder(sourceAgentFolder)) return;
   const responseDir = path.join(
     DATA_DIR,
     'ipc',

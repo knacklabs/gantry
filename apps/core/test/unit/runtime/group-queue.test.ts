@@ -344,7 +344,7 @@ describe('GroupQueue', () => {
     queue.enqueueMessageCheck('group1@g.us');
     await vi.advanceTimersByTimeAsync(10);
 
-    // Register a process so closeStdin has a groupFolder
+    // Register a process so closeStdin has a workspaceFolder
     queue.registerProcess('group1@g.us', {} as any, 'run-1', 'test-group');
 
     // Enqueue a task while agent run is active but NOT idle
@@ -838,7 +838,7 @@ describe('GroupQueue', () => {
     expect(result).toBe(false);
   });
 
-  it('sendMessage returns false when active but no groupFolder registered', async () => {
+  it('sendMessage returns false when active but no workspaceFolder registered', async () => {
     let resolveProcess: () => void;
     const processMessages = vi.fn(async () => {
       await new Promise<void>((resolve) => {
@@ -851,7 +851,7 @@ describe('GroupQueue', () => {
     queue.enqueueMessageCheck('group1@g.us');
     await vi.advanceTimersByTimeAsync(10);
 
-    // Active but no registerProcess called (no groupFolder)
+    // Active but no registerProcess called (no workspaceFolder)
     const result = queue.sendMessage('group1@g.us', 'hello');
     expect(result).toBe(false);
 

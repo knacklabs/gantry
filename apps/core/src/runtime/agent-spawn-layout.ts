@@ -5,7 +5,7 @@ import { ensurePrivateDirSync } from '../shared/private-fs.js';
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
 
 const SOURCE_DIR = path.dirname(fileURLToPath(import.meta.url));
-export const IPC_GROUP_SUBDIRS = [
+export const IPC_WORKSPACE_SUBDIRS = [
   'messages',
   'tasks',
   'input',
@@ -26,9 +26,9 @@ export function getHostAgentRunnerDistDir(): string {
   return path.join(packageRoot, 'dist', 'runner');
 }
 
-export function ensureGroupIpcLayout(groupIpcDir: string): void {
-  ensurePrivateDirSync(groupIpcDir);
-  for (const subdir of IPC_GROUP_SUBDIRS) {
-    ensurePrivateDirSync(path.join(groupIpcDir, subdir));
+export function ensureWorkspaceIpcLayout(workspaceIpcDir: string): void {
+  ensurePrivateDirSync(workspaceIpcDir);
+  for (const subdir of IPC_WORKSPACE_SUBDIRS) {
+    ensurePrivateDirSync(path.join(workspaceIpcDir, subdir));
   }
 }

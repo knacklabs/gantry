@@ -7,7 +7,7 @@ not be written to `settings.yaml`.
 ## Capability Resolution
 
 At execution time, a job resolves its target agent from the runtime target:
-`group_scope` plus `execution_context` (`conversationJid`, optional `threadId`,
+`workspace_key` plus `execution_context` (`conversationJid`, optional `threadId`,
 optional `sessionId`). The job inherits that target agent's currently selected
 capabilities plus attached sources for the run. Job records do not carry
 separate tool, skill, MCP, or capability grants.
@@ -122,13 +122,13 @@ or correct an invalid job requirement. Generic job failures do not create
 recovery turns unless they include structured setup or permission recovery
 metadata.
 
-Job creation can declare `capability_requirements` on `scheduler_upsert_job`
-instead of embedding provider-specific shell commands in the prompt. Each
-requirement names a semantic capability id, a human reason, and optional
-implementation hints such as `configured_access`, `local_cli`, `mcp_server`, or
-`builtin_tool`. Gantry stores those requirements on the canonical job target and
-derives `capability:<id>` tool-access-requirement rules from them. The pre-confirmation
-plan shows the required capabilities in human terms, for example
+Job creation can declare one canonical `access_requirements` list on
+`scheduler_upsert_job` instead of embedding provider-specific shell commands in
+the prompt. Each entry targets either a reviewed semantic capability, a scoped
+tool rule such as `RunCommand(npm test *)`, or a third-party MCP server request.
+Gantry stores those requirements on the canonical job target and derives
+`capability:<id>` runtime rules only from reviewed catalog capabilities. The
+pre-confirmation plan shows the required access in human terms, for example
 `Acme records append using the reviewed CLI binding`.
 
 If a job creation request needs a capability that does not exist yet, the job
@@ -238,7 +238,7 @@ leases move to timed-out runs even when the process is otherwise idle.
 
 Normal agent-facing scheduler MCP tools are not an admin surface. They may list,
 read, mutate, inspect runs/events, inspect dead letters, and manually queue runs
-only for jobs whose `group_scope` equals the calling agent group and whose
+only for jobs whose `workspace_key` equals the calling agent workspace and whose
 `execution_context.conversationJid` matches the originating conversation.
 Threads/topics remain delivery metadata for notifications and spoof checks: a
 thread id may be checked to prevent a caller from retargeting delivery outside

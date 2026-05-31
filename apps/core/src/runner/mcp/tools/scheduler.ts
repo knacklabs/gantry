@@ -68,10 +68,31 @@ const SCHEDULER_UPDATE_ARG_KEYS = new Set([
   'max_consecutive_failures',
 ]);
 
+function removedExecutionScopeFieldError(args: Record<string, unknown>) {
+  const containers: unknown[] = [args, args.execution_context];
+  for (const container of containers) {
+    if (!container || typeof container !== 'object') continue;
+    if ('group_scope' in container || 'groupScope' in container) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: 'group_scope/groupScope is no longer accepted. Use workspace_key.',
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+  return null;
+}
+
 function unsupportedSchedulerArgError(
   args: Record<string, unknown>,
   allowedKeys: ReadonlySet<string>,
 ) {
+  const removedScopeError = removedExecutionScopeFieldError(args);
+  if (removedScopeError) return removedScopeError;
   if (Object.prototype.hasOwnProperty.call(args, 'required_tools')) {
     return {
       content: [
@@ -97,6 +118,28 @@ function unsupportedSchedulerArgError(
     isError: true,
   };
 }
+
+// passthrough() keeps unknown keys alive into superRefine so the MCP SDK's
+// schema parse can reject removed execution-scope inputs deterministically
+// before the handler runs. The normalizer only reads known fields, so extra
+// keys surviving here does not loosen anything downstream.
+const executionContextSchema = z
+  .object({
+    conversation_jid: z.string(),
+    thread_id: z.string().nullable(),
+    workspace_key: z.string(),
+    session_id: z.string().nullable().optional(),
+  })
+  .passthrough()
+  .superRefine((val, ctx) => {
+    if ('group_scope' in val || 'groupScope' in val) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'group_scope/groupScope is no longer accepted. Use workspace_key.',
+      });
+    }
+  });
 
 function validateScheduleInput(args: {
   schedule_type: 'cron' | 'interval' | 'once';
@@ -197,14 +240,7 @@ export function registerSchedulerTools(server: McpServer): void {
       schedule_type: z.enum(['cron', 'interval', 'once']),
       schedule_value: z.string().default(''),
       target: z.enum(['here', 'this_thread', 'this_topic', 'me_dm']).optional(),
-      execution_context: z
-        .object({
-          conversation_jid: z.string(),
-          thread_id: z.string().nullable(),
-          group_scope: z.string(),
-          session_id: z.string().nullable().optional(),
-        })
-        .optional(),
+      execution_context: executionContextSchema.optional(),
       notification_routes: z
         .array(
           z.object({
@@ -399,14 +435,7 @@ export function registerSchedulerTools(server: McpServer): void {
       schedule_type: z.enum(['cron', 'interval', 'once']).optional(),
       schedule_value: z.string().optional(),
       target: z.enum(['here', 'this_thread', 'this_topic', 'me_dm']).optional(),
-      execution_context: z
-        .object({
-          conversation_jid: z.string(),
-          thread_id: z.string().nullable(),
-          group_scope: z.string(),
-          session_id: z.string().nullable().optional(),
-        })
-        .optional(),
+      execution_context: executionContextSchema.optional(),
       notification_routes: z
         .array(
           z.object({

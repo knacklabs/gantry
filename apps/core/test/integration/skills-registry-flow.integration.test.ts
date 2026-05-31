@@ -12,6 +12,7 @@ import {
   type SkillCatalogItemResponse,
 } from '@gantry/contracts';
 import { syncRuntimeSettingsFromProjection } from '@core/config/index.js';
+import { semanticCapabilityInputSchema } from '@core/shared/semantic-capabilities.js';
 import { createClient } from '../../../../packages/sdk/src/index.js';
 
 type StoredSkill = SkillCatalogItemResponse;
@@ -1084,7 +1085,7 @@ describe('skill registry integration flow', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it('persists proposed semantic capability approvals as configured capability rules', async () => {
+  it('persists catalog semantic capability approvals as configured capability rules', async () => {
     const { processTaskIpc } = await import('@core/jobs/ipc-handler.js');
     const {
       deps,
@@ -1112,6 +1113,31 @@ describe('skill registry integration flow', () => {
         ],
       },
     });
+    const capabilityDefinition = {
+      capabilityId: 'acme.records.append',
+      displayName: 'Acme records append',
+      category: 'Acme Records',
+      risk: 'write' as const,
+      accountLabel: 'Configured Google access',
+      can: 'Read and update spreadsheet values.',
+      cannot: 'Change sharing or receive raw OAuth tokens.',
+      credentialSource: 'configured_access' as const,
+      implementationBindings: [
+        { kind: 'adapter' as const, adapterRef: 'adapter:google-records' },
+      ],
+    };
+    toolRepository.listTools.mockResolvedValue([
+      {
+        id: 'tool:capability:acme.records.append',
+        appId: 'app-one',
+        name: 'capability:acme.records.append',
+        displayName: 'Acme records append',
+        adapterRef: 'capability/acme.records.append',
+        status: 'active',
+        selectable: true,
+        inputSchema: semanticCapabilityInputSchema(capabilityDefinition),
+      },
+    ]);
 
     await processTaskIpc(
       {
@@ -1130,19 +1156,6 @@ describe('skill registry integration flow', () => {
           can: 'Read and update spreadsheet values.',
           cannot: 'Change sharing or receive raw OAuth tokens.',
           credentialSource: 'configured_access',
-          semanticCapabilityDefinition: {
-            capabilityId: 'acme.records.append',
-            displayName: 'Acme records append',
-            category: 'Acme Records',
-            risk: 'write',
-            accountLabel: 'Configured Google access',
-            can: 'Read and update spreadsheet values.',
-            cannot: 'Change sharing or receive raw OAuth tokens.',
-            credentialSource: 'configured_access',
-            implementationBindings: [
-              { kind: 'adapter', adapterRef: 'adapter:google-records' },
-            ],
-          },
           temporaryOnly: false,
           reason:
             'Update the status spreadsheet repeatedly during this session.',
@@ -1153,16 +1166,7 @@ describe('skill registry integration flow', () => {
     );
 
     await vi.waitFor(() => {
-      expect(toolRepository.saveTool).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'tool:capability:acme.records.append',
-          appId: 'app-one',
-          name: 'capability:acme.records.append',
-          displayName: 'Acme records append',
-          adapterRef: 'capability/acme.records.append',
-          status: 'active',
-        }),
-      );
+      expect(toolRepository.saveTool).not.toHaveBeenCalled();
     });
     await vi.waitFor(() => {
       expect(toolRepository.saveAgentToolBinding).toHaveBeenCalledWith(
@@ -1214,7 +1218,7 @@ describe('skill registry integration flow', () => {
         ],
       },
     });
-    toolRepository.listTools.mockResolvedValueOnce([
+    toolRepository.listTools.mockResolvedValue([
       {
         id: 'tool:Browser',
         appId: 'app-one',

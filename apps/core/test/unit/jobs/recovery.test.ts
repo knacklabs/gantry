@@ -11,8 +11,8 @@ import {
   rehydratePendingJobRecoveryTurns,
 } from '@core/jobs/recovery.js';
 
-vi.mock('@core/platform/group-folder.js', () => ({
-  resolveGroupFolderPath: () => '/tmp/gantry-unit-job-recovery',
+vi.mock('@core/platform/workspace-folder.js', () => ({
+  resolveWorkspaceFolderPath: () => '/tmp/gantry-unit-job-recovery',
 }));
 
 const setupState: JobSetupState = {
@@ -41,7 +41,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     status: 'paused',
     session_id: null,
     thread_id: 'topic-1',
-    group_scope: 'main_agent',
+    workspace_key: 'main_agent',
     created_by: 'agent',
     created_at: '2026-05-23T00:00:00.000Z',
     updated_at: '2026-05-23T00:00:00.000Z',
@@ -60,7 +60,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     execution_context: {
       conversationJid: 'tg:team',
       threadId: 'topic-1',
-      groupScope: 'main_agent',
+      workspaceKey: 'main_agent',
     },
     setup_state: setupState,
     ...overrides,

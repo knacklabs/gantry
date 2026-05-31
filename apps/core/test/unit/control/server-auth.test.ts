@@ -138,7 +138,7 @@ const controlRepo = {
     appId: input.appId,
     conversationId: input.conversationId,
     chatJid: input.chatJid,
-    groupFolder: input.groupFolder,
+    workspaceKey: input.workspaceFolder,
     title: input.title ?? null,
     defaultResponseMode: input.defaultResponseMode ?? 'sse',
     defaultWebhookId: input.defaultWebhookId ?? null,
@@ -851,7 +851,7 @@ describe('control server auth key parsing', () => {
     );
   });
 
-  it('keeps app group folders collision-resistant for distinct valid ids', () => {
+  it('keeps app workspace folders collision-resistant for distinct valid ids', () => {
     const dashed = _testControlServer.makeAppGroup({
       appId: 'app-one',
       conversationId: 'conv',
@@ -878,7 +878,7 @@ describe('control server auth key parsing', () => {
     expect(dashed.folder).toMatch(/^app_[a-f0-9]{12}_app_one_conv$/);
   });
 
-  it('keeps app group hash suffix non-truncatable for max-length ids', () => {
+  it('keeps app workspace hash suffix non-truncatable for max-length ids', () => {
     const prefix = 'a'.repeat(64);
     const first = _testControlServer.makeAppGroup({
       appId: prefix,
@@ -3402,7 +3402,7 @@ describe('control server runtime hardening', () => {
     }
   });
 
-  it('rejects unsafe session identifiers before registering app groups', async () => {
+  it('rejects unsafe session identifiers before registering app workspaces', async () => {
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
@@ -3590,7 +3590,7 @@ describe('control server runtime hardening', () => {
       appId: 'app-one',
       conversationId: 'conv-1',
       chatJid: 'app:app-one:conv-1',
-      groupFolder: 'app_app_one_conv_1',
+      workspaceKey: 'app_app_one_conv_1',
       title: null,
       defaultResponseMode: 'sse',
       defaultWebhookId: null,
@@ -3643,7 +3643,7 @@ describe('control server runtime hardening', () => {
       appId: 'app-one',
       conversationId: 'conv-1',
       chatJid: 'app:app-one:conv-1',
-      groupFolder: 'app_app_one_conv_1',
+      workspaceKey: 'app_app_one_conv_1',
       title: 'Conversation',
       defaultResponseMode: 'sse',
       defaultWebhookId: null,
@@ -3736,7 +3736,7 @@ describe('control server runtime hardening', () => {
       appId: 'app-one',
       conversationId: 'conv-1',
       chatJid: 'app:app-one:conv-1',
-      groupFolder: 'app_app_one_conv_1',
+      workspaceKey: 'app_app_one_conv_1',
       title: 'Conversation',
       defaultResponseMode: 'sse',
       defaultWebhookId: null,
@@ -3798,7 +3798,7 @@ describe('control server runtime hardening', () => {
       appId: 'app-one',
       conversationId: 'conv-1',
       chatJid: 'app:app-one:conv-1',
-      groupFolder: 'app_app_one_conv_1',
+      workspaceKey: 'app_app_one_conv_1',
       title: 'Conversation',
       defaultResponseMode: 'sse',
       defaultWebhookId: null,
@@ -3881,7 +3881,7 @@ describe('control server runtime hardening', () => {
       appId: 'app-one',
       conversationId: 'conv-1',
       chatJid: 'app:app-one:conv-1',
-      groupFolder: 'app_app_one_conv_1',
+      workspaceKey: 'app_app_one_conv_1',
       title: 'Conversation',
       defaultResponseMode: 'sse',
       defaultWebhookId: null,
@@ -4195,7 +4195,7 @@ describe('control server runtime hardening', () => {
       appId: 'app-one',
       conversationId: 'conv-1',
       chatJid: 'app:app-one:conv-1',
-      groupFolder: 'app_app_one_conv_1',
+      workspaceKey: 'app_app_one_conv_1',
       title: null,
       defaultResponseMode: 'sse',
       defaultWebhookId: null,
@@ -4310,7 +4310,6 @@ describe('control server runtime hardening', () => {
       appId: 'app-one',
       conversationId: 'conv-1',
       chatJid: 'app:app-one:conv-1',
-      groupFolder: 'app_app_one_conv_1',
       workspaceKey: 'app_app_one_conv_1',
       title: null,
       defaultResponseMode: 'sse',
@@ -4328,7 +4327,7 @@ describe('control server runtime hardening', () => {
       status: 'active',
       session_id: 'session-1',
       thread_id: null,
-      group_scope: 'app_app_one_conv_1',
+      workspace_key: 'app_app_one_conv_1',
       created_by: 'human',
       created_at: new Date(0).toISOString(),
       updated_at: new Date(0).toISOString(),
@@ -4419,7 +4418,7 @@ describe('control server runtime hardening', () => {
       status: 'active',
       session_id: 'session-1',
       thread_id: null,
-      group_scope: 'app_app_one_conv_1',
+      workspace_key: 'app_app_one_conv_1',
       created_by: 'human',
       created_at: new Date(0).toISOString(),
       updated_at: new Date(0).toISOString(),
@@ -4438,7 +4437,6 @@ describe('control server runtime hardening', () => {
         appId: 'app-one',
         conversationId: 'conv-1',
         chatJid: 'app:app-one:conv-1',
-        groupFolder: 'app_app_one_conv_1',
         workspaceKey: 'app_app_one_conv_1',
         title: null,
         defaultResponseMode: 'sse',

@@ -134,14 +134,11 @@ export function formatAgentToolAccess(view: AgentToolAccessView): string {
   ].join('\n');
 }
 
-export function formatJobToolAccess(view: JobToolAccessView): string {
-  return [
-    'Tool Access:',
-    `  Source: ${view.source}`,
-    `  Inherited agent tools: ${formatList(view.inheritedAgentTools)}`,
-    `  Effective allowed tools: ${formatList(view.effectiveAllowedTools)}`,
-    `  Projected runtime tools: ${formatList(view.projectedRuntimeTools)}`,
-  ].join('\n');
+export function formatJobToolAccess(
+  view: JobToolAccessView | undefined,
+): string {
+  if (!view) return 'Tool access: (none)';
+  return `Tool access: inherited ${formatList(view.inheritedAgentTools)}; effective ${formatList(view.effectiveAllowedTools)}; projected ${formatList(view.projectedRuntimeTools)}`;
 }
 
 export function compactToolList(

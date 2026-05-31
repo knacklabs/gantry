@@ -48,8 +48,14 @@ export const IPC_RESPONSE_VERIFY_KEY =
   process.env.GANTRY_IPC_RESPONSE_VERIFY_KEY || '';
 export const IPC_RESPONSE_KEY_ID = process.env.GANTRY_IPC_RESPONSE_KEY_ID || '';
 
+if (process.env.GANTRY_GROUP_FOLDER !== undefined) {
+  throw new Error(
+    'GANTRY_GROUP_FOLDER is no longer supported. Use GANTRY_WORKSPACE_KEY.',
+  );
+}
+
 export const chatJid = process.env.GANTRY_CHAT_JID!;
-export const groupFolder = process.env.GANTRY_GROUP_FOLDER!;
+export const workspaceFolder = process.env.GANTRY_WORKSPACE_KEY!;
 export const appId = process.env.GANTRY_APP_ID?.trim() || undefined;
 export const agentId = process.env.GANTRY_AGENT_ID?.trim() || undefined;
 export const jobId = process.env.GANTRY_JOB_ID?.trim() || undefined;

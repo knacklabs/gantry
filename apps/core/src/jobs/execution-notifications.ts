@@ -64,7 +64,7 @@ export function logMemoryDreamJobFailure(input: {
   input.logger.error(
     {
       jobId: input.job.id,
-      groupScope: input.job.group_scope,
+      workspaceKey: input.job.workspace_key,
       runId: input.runId,
       error: input.error,
     },

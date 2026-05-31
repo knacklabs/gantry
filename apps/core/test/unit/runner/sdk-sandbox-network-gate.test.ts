@@ -22,7 +22,7 @@ const runnerInput: AgentRunnerInput = {
   prompt: 'Run tests',
   appId: 'app-1',
   agentId: 'agent-1',
-  groupFolder: 'team',
+  workspaceFolder: 'team',
   chatJid: 'sl:C123',
   runId: 'run-1',
   jobId: 'job-1',

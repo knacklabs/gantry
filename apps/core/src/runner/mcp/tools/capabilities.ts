@@ -10,6 +10,7 @@ import {
   RUN_COMMAND_TOOL_NAME,
   validateReadableAgentToolRule,
 } from '../../../shared/agent-tool-references.js';
+import { validateDurableAccessRule } from '../../../shared/durable-access-policy.js';
 
 type ToolResponse = {
   content: { type: 'text'; text: string }[];
@@ -113,7 +114,6 @@ export function registerAccessRequestTool(
               can: approved.can,
               cannot: approved.cannot,
               credentialSource: approved.credentialSource,
-              semanticCapabilityDefinition: approved,
               risk: approved.risk,
               temporaryOnly: args.temporaryOnly ?? false,
               broadAccess: args.broadAccess,
@@ -135,6 +135,20 @@ export function registerAccessRequestTool(
                 },
               ],
             };
+          }
+          if (args.temporaryOnly !== true) {
+            const durableValidation = validateDurableAccessRule(rule);
+            if (!durableValidation.ok) {
+              return {
+                isError: true,
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: `Invalid durable run_command access request: ${durableValidation.reason}`,
+                  },
+                ],
+              };
+            }
           }
           return submitCapabilityReviewTask(
             'request_permission',

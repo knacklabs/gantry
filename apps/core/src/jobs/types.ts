@@ -33,7 +33,7 @@ export interface SchedulerDependencies {
     groupJid: string,
     proc: ChildProcess,
     runHandle: string,
-    groupFolder: string,
+    workspaceFolder: string,
     stopAliasJids?: string[],
   ) => void;
   sendMessage: SchedulerSendMessage;

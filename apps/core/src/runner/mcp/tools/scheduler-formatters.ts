@@ -62,7 +62,7 @@ export function schedulerJobSummary(job: unknown): string {
       ? (visibility.recovery as Record<string, any>)
       : {};
   const toolAccessLine = toolAccess.present
-    ? `Tool access: inherited ${formatTools(toolAccess.inheritedAgentTools)}, effective ${formatTools(toolAccess.effectiveAllowedTools)}, projected ${formatTools(toolAccess.projectedRuntimeTools)}`
+    ? `Tool access: inherited ${formatTools(toolAccess.inheritedAgentTools)}; effective ${formatTools(toolAccess.effectiveAllowedTools)}; projected ${formatTools(toolAccess.projectedRuntimeTools)}`
     : 'Tool access: missing canonical toolAccess';
   const nextAction =
     typeof health.nextAction === 'string' && health.nextAction.trim()
@@ -104,15 +104,17 @@ export function schedulerJobSummary(job: unknown): string {
     `Next action: ${nextActionLabelText}`,
     `Health: ${String(health.state ?? 'unknown')} | latest ${String(health.latestRunStatus ?? 'none')} | action ${nextAction}`,
     `Recovery: ${recoverySummary(recovery)}`,
-    `Target: ${String(target.agentId ?? record.group_scope ?? 'unknown')} in ${String(target.conversationJids?.[0] ?? 'no conversation')}`,
-    `Execution context: ${String(executionContext.conversationJid ?? 'unknown')} | thread ${String(executionContext.threadId ?? 'none')} | group ${String(executionContext.groupScope ?? record.group_scope ?? 'unknown')}`,
+    `Target: ${String(target.agentId ?? record.workspace_key ?? 'unknown')} in ${String(target.conversationJids?.[0] ?? 'no conversation')}`,
+    `Execution context: ${String(executionContext.conversationJid ?? 'unknown')} | thread ${String(executionContext.threadId ?? 'none')} | workspace ${String(executionContext.workspaceKey ?? record.workspace_key ?? 'unknown')}`,
     `Notification routes: ${notificationRoutes.length}`,
     `Kind/status: ${String(record.schedule_type ?? 'unknown')} / ${String(record.status ?? 'unknown')}`,
     `Next/last run: ${String(record.next_run ?? 'none')} / ${String(record.last_run ?? 'none')}`,
     `Staleness: ${staleness}`,
-    `Capability requirements: ${formatTools(capabilityRequirements)}`,
-    `Tool access requirements: ${formatTools(toolAccessRequirements)}`,
-    `Required MCP servers: ${formatTools(requiredMcpServers)}`,
+    `Access requirements: ${formatAccessRequirementSummary({
+      capabilityRequirements,
+      toolAccessRequirements,
+      requiredMcpServers,
+    })}`,
     toolAccessLine,
     `Recent run errors: ${recentErrors}`,
     '',
@@ -172,21 +174,6 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
       visibility.executionContext !== null
         ? (visibility.executionContext as Record<string, any>)
         : {};
-    const toolAccess = toolAccessRecord(visibility.toolAccess);
-    const recordAccess = Array.isArray(record.access_requirements)
-      ? splitRecordAccessRequirements(record.access_requirements)
-      : undefined;
-    const toolAccessRequirements = stringArray(
-      recordAccess ? recordAccess.toolRules : visibility.toolAccessRequirements,
-    );
-    const capabilityRequirements = capabilityRequirementLabels(
-      recordAccess
-        ? recordAccess.capabilities
-        : visibility.capabilityRequirements,
-    );
-    const requiredMcpServers = stringArray(
-      recordAccess ? recordAccess.mcpServers : visibility.requiredMcpServers,
-    );
     const health =
       typeof visibility.health === 'object' && visibility.health !== null
         ? (visibility.health as Record<string, any>)
@@ -195,20 +182,23 @@ export function schedulerJobsSummary(jobs: unknown[]): string {
       typeof visibility.setup === 'object' && visibility.setup !== null
         ? (visibility.setup as Record<string, any>)
         : {};
-    const recovery =
-      typeof visibility.recovery === 'object' && visibility.recovery !== null
-        ? (visibility.recovery as Record<string, any>)
-        : {};
-    const toolsLabel = toolAccess.present
-      ? formatTools(toolAccess.effectiveAllowedTools)
-      : '(missing toolAccess)';
-    const ownerLabelText = preferredOwnerLabel({
-      visibility,
-      conversationJid: String(
-        executionContext.conversationJid ?? target.conversationJids?.[0] ?? '',
-      ),
-    });
-    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${String(setup.state !== 'ready' ? setup.state : (health.state ?? record.status ?? ''))} | recovery: ${recovery.state ?? 'none'} | ${ownerLabelText} | capabilities: ${formatTools(capabilityRequirements)} | access: ${formatTools(toolAccessRequirements)} | mcp: ${formatTools(requiredMcpServers)} | tools: ${toolsLabel}`;
+    const setupAction = setupActionSummary(setup);
+    const nextAction =
+      typeof visibility.nextActionLabel === 'string' &&
+      visibility.nextActionLabel
+        ? visibility.nextActionLabel
+        : setupAction !== 'none'
+          ? setupAction
+          : setupActionLabelFromNextAction(health.nextAction, 'none');
+    const setupLabel =
+      typeof visibility.setupLabel === 'string' && visibility.setupLabel
+        ? visibility.setupLabel
+        : setupReadinessLabel(String(setup.state ?? 'ready'));
+    const workspaceKey = String(
+      executionContext.workspaceKey ?? record.workspace_key ?? 'unknown',
+    );
+    const agent = String(target.agentId ?? record.agent_id ?? 'unknown');
+    return `- ${String(record.id ?? 'unknown')} | ${String(record.name ?? '')} | ${setupLabel} | Workspace: ${workspaceKey} | Agent: ${agent} | Next: ${nextAction}`;
   });
   return [
     `Scheduler jobs (${jobs.length})`,
@@ -351,6 +341,25 @@ function splitRecordAccessRequirements(value: readonly unknown[]): {
 
 function formatTools(values: readonly string[]): string {
   return values.length > 0 ? values.join(', ') : '(none)';
+}
+
+function formatAccessRequirementSummary(input: {
+  capabilityRequirements: readonly string[];
+  toolAccessRequirements: readonly string[];
+  requiredMcpServers: readonly string[];
+}): string {
+  const parts = [
+    input.capabilityRequirements.length
+      ? `capabilities ${formatTools(input.capabilityRequirements)}`
+      : undefined,
+    input.toolAccessRequirements.length
+      ? `tools ${formatTools(input.toolAccessRequirements)}`
+      : undefined,
+    input.requiredMcpServers.length
+      ? `MCP servers ${formatTools(input.requiredMcpServers)}`
+      : undefined,
+  ].filter((part): part is string => Boolean(part));
+  return parts.length ? parts.join('; ') : '(none)';
 }
 
 function parsePayload(value: unknown): Record<string, unknown> {

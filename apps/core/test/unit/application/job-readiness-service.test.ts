@@ -29,7 +29,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     status: 'active',
     session_id: null,
     thread_id: null,
-    group_scope: 'agent-one',
+    workspace_key: 'agent-one',
     created_by: 'agent',
     created_at: '2026-05-14T00:00:00.000Z',
     updated_at: '2026-05-14T00:00:00.000Z',
@@ -48,7 +48,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     execution_context: {
       conversationJid: 'tg:team',
       threadId: null,
-      groupScope: 'agent-one',
+      workspaceKey: 'agent-one',
     },
     ...overrides,
   };
@@ -368,14 +368,14 @@ describe('job readiness service', () => {
 
     const result = await evaluateJobReadiness({
       job: makeJob({
-        group_scope: 'main_agent',
+        workspace_key: 'main_agent',
         access_requirements: [
           { target: { kind: 'tool_rule', rule: 'Browser' } },
         ],
         execution_context: {
           conversationJid: 'tg:-1003986348737',
           threadId: null,
-          groupScope: 'main_agent',
+          workspaceKey: 'main_agent',
         },
       }),
       agentId: 'agent:main_agent',

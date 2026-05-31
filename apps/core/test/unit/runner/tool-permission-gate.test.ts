@@ -13,6 +13,8 @@ vi.mock(
 
 const { createCanUseToolCallback } =
   await import('@core/adapters/llm/anthropic-claude-agent/runner/tool-permission-gate.js');
+const { WORKSPACE_FOLDER_OPTION_KEY } =
+  await import('@core/adapters/llm/anthropic-claude-agent/runner/types.js');
 
 function makePermissionOptions(overrides: Record<string, unknown> = {}) {
   return {
@@ -637,6 +639,26 @@ describe('createCanUseToolCallback', () => {
       expect.objectContaining({
         targetJid: 'tg:test',
       }),
+    );
+  });
+
+  it('passes the workspace folder under the shared permission-IPC key', async () => {
+    permissionMock.requestPermissionApproval.mockResolvedValueOnce({
+      approved: true,
+      mode: 'allow_once',
+      updatedPermissions: undefined,
+      decidedBy: 'user',
+    });
+
+    const canUseTool = makeCallback({ workspaceFolder: '/repo' });
+    await canUseTool(
+      'Bash',
+      { command: 'npm test' },
+      makePermissionOptions() as never,
+    );
+
+    expect(permissionMock.requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ [WORKSPACE_FOLDER_OPTION_KEY]: '/repo' }),
     );
   });
 

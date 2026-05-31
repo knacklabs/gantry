@@ -8,7 +8,7 @@ describe('tool capability safety', () => {
     const profile = composeAgentCapabilities({
       mcpServerPath: '/tmp/ipc-mcp-stdio.js',
       chatJid: 'tg:team',
-      groupFolder: 'telegram_team',
+      workspaceFolder: 'telegram_team',
     });
 
     expect(profile.allowedTools).toContain(

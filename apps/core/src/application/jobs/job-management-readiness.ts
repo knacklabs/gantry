@@ -75,7 +75,7 @@ export async function pauseJobForSetup(input: {
 
 export async function recordJobSetupRequired(input: {
   deps: JobManagementServiceDeps;
-  job: Pick<Job, 'id' | 'group_scope'> &
+  job: Pick<Job, 'id' | 'workspace_key'> &
     Partial<Pick<Job, 'session_id' | 'execution_context' | 'thread_id'>>;
   readiness: JobReadinessResult;
   appId?: string;

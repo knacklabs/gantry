@@ -3,7 +3,7 @@ import path from 'path';
 import type { FileArtifactId } from '../domain/file-artifacts/file-artifact.js';
 import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
 import type { BrowserBackendAction } from '../shared/browser-backend-actions.js';
-import { memoryAgentIdForGroupFolder } from '../memory/app-memory-boundaries.js';
+import { memoryAgentIdForWorkspaceFolder } from '../memory/app-memory-boundaries.js';
 
 export interface BrowserFileAttachRequest {
   action: BrowserBackendAction;
@@ -44,7 +44,7 @@ export async function resolveBrowserFileAttachPayload(input: {
     appId,
     agentId:
       input.request.agentId ??
-      memoryAgentIdForGroupFolder(input.sourceAgentFolder),
+      memoryAgentIdForWorkspaceFolder(input.sourceAgentFolder),
     ...(artifactId ? { id: artifactId as FileArtifactId } : {}),
     ...(scope ? { virtualScope: scope } : {}),
     ...(virtualPath ? { virtualPath } : {}),

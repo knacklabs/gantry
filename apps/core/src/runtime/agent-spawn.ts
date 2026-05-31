@@ -16,7 +16,7 @@ import { MODEL_RUNTIME_CREDENTIAL_IDENTIFIER } from '../domain/models/credential
 import { LlmProfileResolutionService } from '../application/model-resolution/llm-profile-resolution-service.js';
 import type { LlmProfile } from '../domain/agent/agent.js';
 import { DEFAULT_SETUP_MODEL_ALIAS } from '../shared/model-catalog.js';
-import { resolveGroupFolderPath } from '../platform/group-folder.js';
+import { resolveWorkspaceFolderPath } from '../platform/workspace-folder.js';
 import {
   getHostRuntimeCredentialEnv,
   prepareHostRuntimeContext,
@@ -25,7 +25,7 @@ import {
   McpServerService,
   type MaterializedMcpCapability,
 } from '../application/mcp/mcp-server-service.js';
-import { ensureGroupIpcLayout } from './agent-spawn-layout.js';
+import { ensureWorkspaceIpcLayout } from './agent-spawn-layout.js';
 import { resolvePackageRootFromSourceDir } from '../platform/package-root.js';
 import {
   computeBrowserIpcAuthToken,
@@ -243,7 +243,7 @@ export async function spawnAgent(
 ): Promise<AgentOutput> {
   const startTime = currentTimeMs();
 
-  const groupDir = resolveGroupFolderPath(group.folder);
+  const groupDir = resolveWorkspaceFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
 
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
@@ -339,7 +339,7 @@ export async function spawnAgent(
   };
 
   const hostRuntime = prepareHostRuntimeContext(group);
-  ensureGroupIpcLayout(hostRuntime.groupIpcDir);
+  ensureWorkspaceIpcLayout(hostRuntime.workspaceIpcDir);
   let executionAdapter: NonNullable<RunAgentOptions['executionAdapter']>;
   try {
     executionAdapter = resolveAgentExecutionAdapter({
@@ -509,7 +509,7 @@ export async function spawnAgent(
       GANTRY_MCP_SERVER_PATH: mcpServerPath,
       GANTRY_WORKSPACE_GROUP_DIR: hostRuntime.groupDir,
       GANTRY_WORKSPACE_GLOBAL_DIR: '',
-      GANTRY_GROUP_FOLDER: group.folder,
+      GANTRY_WORKSPACE_KEY: group.folder,
       GANTRY_APP_ID: runnerAppId,
       ...(input.agentId ? { GANTRY_AGENT_ID: input.agentId } : {}),
       GANTRY_AGENT_RUN_HANDLE: processName,
@@ -519,7 +519,7 @@ export async function spawnAgent(
         group.folder,
         'extra',
       ),
-      GANTRY_IPC_DIR: hostRuntime.groupIpcDir,
+      GANTRY_IPC_DIR: hostRuntime.workspaceIpcDir,
       GANTRY_IPC_INPUT_DIR: ipcInputDir,
       GANTRY_IPC_AUTH_TOKEN: ipcAuth.authToken,
       GANTRY_CHAT_JID: input.chatJid,
@@ -612,7 +612,10 @@ export async function spawnAgent(
     Object.assign(env, pickSelectedCapabilityEnv(selectedSkillEnv.env));
     mcpConfigPath =
       allMcpCapabilities.length > 0
-        ? writeRunnerMcpConfigFile(hostRuntime.groupIpcDir, allMcpCapabilities)
+        ? writeRunnerMcpConfigFile(
+            hostRuntime.workspaceIpcDir,
+            allMcpCapabilities,
+          )
         : undefined;
     if (mcpConfigPath) {
       env.GANTRY_MCP_CONFIG_FILE = mcpConfigPath;

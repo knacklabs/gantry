@@ -16,7 +16,7 @@ import {
   agentId,
   appId,
   chatJid,
-  groupFolder,
+  workspaceFolder,
   IPC_AUTH_TOKEN,
   IPC_DIR,
   IPC_RESPONSE_KEY_ID,
@@ -126,7 +126,7 @@ export function registerMessagingTools(server: McpServer): void {
         chatJid,
         text: args.text,
         sender: args.sender || undefined,
-        groupFolder,
+        workspaceFolder,
         timestamp: nowIso(),
       };
 
@@ -196,7 +196,7 @@ export function registerMessagingTools(server: McpServer): void {
 
       const payload = {
         requestId,
-        sourceAgentFolder: groupFolder,
+        sourceAgentFolder: workspaceFolder,
         questions: args.questions,
         context: {
           ...(appId ? { appId } : {}),

@@ -219,7 +219,7 @@ describe('admin IPC handlers', () => {
       ok: false,
       code: 'invalid_request',
       error:
-        'Capability proposals must include a reviewed semantic capability definition.',
+        'Capability access requires an active reviewed capability catalog entry. Use capability_search/propose_capability/manage_capability before request_access.',
     });
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
@@ -430,12 +430,10 @@ describe('admin IPC handlers', () => {
 
     expect(readResponse(runtimeHome, 'request-generic-records')).toMatchObject({
       ok: false,
-      code: 'wrong_capability_lane',
-      error: expect.stringContaining('Acme Records Append using acme'),
+      code: 'invalid_request',
+      error:
+        'Capability definitions are host-owned catalog metadata and cannot be supplied in request_permission input.',
     });
-    expect(
-      readResponse(runtimeHome, 'request-generic-records').error,
-    ).toContain('RunCommand(/usr/local/bin/acme records append *)');
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
 

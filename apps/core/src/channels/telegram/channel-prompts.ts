@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import path from 'path';
 
-import { resolveGroupFolderPath } from '../../platform/group-folder.js';
+import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { logger } from '../../infrastructure/logging/logger.js';
 import { ensurePrivateDirSync } from '../../shared/private-fs.js';
 import {
@@ -410,7 +410,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
    */
   protected async downloadFile(
     fileId: string,
-    groupFolder: string,
+    workspaceFolder: string,
     filename: string,
   ): Promise<TelegramDownloadedFile | null> {
     if (!this.bot) return null;
@@ -430,7 +430,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
         return null;
       }
 
-      const groupDir = resolveGroupFolderPath(groupFolder);
+      const groupDir = resolveWorkspaceFolderPath(workspaceFolder);
       const attachDir = path.join(groupDir, 'attachments');
       ensurePrivateDirSync(attachDir);
 

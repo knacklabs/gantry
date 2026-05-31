@@ -222,7 +222,7 @@ describe('jobs/delivery', () => {
       execution_context: {
         conversationJid: 'tg:team',
         threadId: 'trigger-topic',
-        groupScope: 'team',
+        workspaceKey: 'team',
       },
       notification_routes: [
         {

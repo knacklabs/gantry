@@ -2,7 +2,6 @@ import * as p from '@clack/prompts';
 
 import { controlApiRequest } from './control-api.js';
 import {
-  compactToolList,
   formatJobToolAccess,
   type JobToolAccessView,
 } from '../shared/tool-access-view.js';
@@ -10,7 +9,9 @@ import {
   jobSetupBlockerFromUnknown,
   setupActionLabel,
   setupActionLabelFromNextAction,
+  setupReadinessLabel,
 } from '../shared/job-setup-labels.js';
+import { agentIdForJobWorkspaceKey } from '../application/jobs/job-tool-policy.js';
 
 interface JobRecord {
   jobId: string;
@@ -297,43 +298,44 @@ async function listJobEvents(
 }
 
 function formatJobTable(jobs: JobRecord[]): string {
-  const rows = jobs.map((job) => [
-    job.jobId,
-    job.kind,
-    job.setup?.state && job.setup.state !== 'ready'
-      ? job.setup.state
-      : job.recovery?.state && job.recovery.state !== 'none'
-        ? `recovery:${job.recovery.state}`
-        : (job.health?.state ?? job.status),
-    job.workspaceKey,
-    jobThreadId(job) ?? '',
-    job.nextRun ?? '',
-    compactToolList(formatAccessRequirements(job.accessRequirements)),
-    compactToolList(job.toolAccess.effectiveAllowedTools),
-    job.name,
-  ]);
-  const headers = [
-    'ID',
-    'Kind',
-    'Status',
-    'Workspace',
-    'Thread',
-    'Next run',
-    'Required',
-    'Tools',
-    'Name',
-  ];
-  const widths = headers.map((header, index) =>
-    Math.max(header.length, ...rows.map((row) => row[index].length)),
-  );
-  return [headers, ...rows]
-    .map((row) =>
-      row
-        .map((cell, index) => cell.padEnd(widths[index]))
-        .join('  ')
-        .trimEnd(),
+  return jobs
+    .map((job) =>
+      [
+        job.jobId,
+        job.name,
+        setupReadinessLabel(job.setup?.state),
+        `Workspace: ${job.workspaceKey}`,
+        `Agent: ${jobAgentLabel(job)}`,
+        `Next: ${jobNextActionLabel(job)}`,
+      ].join(' | '),
     )
     .join('\n');
+}
+
+function jobAgentLabel(job: JobRecord): string {
+  return agentIdForJobWorkspaceKey(job.workspaceKey);
+}
+
+function jobConversationLabel(job: JobRecord): string {
+  const route = job.notificationRoutes?.find(
+    (entry) => entry.conversationJid || entry.label,
+  );
+  if (route?.label) return route.label;
+  const conversationJid =
+    job.executionContext?.conversationJid ?? route?.conversationJid;
+  return conversationJid ?? 'none';
+}
+
+function jobAccessRequirementsLabel(job: JobRecord): string {
+  const requirements = formatAccessRequirements(job.accessRequirements);
+  return requirements.length > 0 ? requirements.join(', ') : 'none';
+}
+
+function jobNextActionLabel(job: JobRecord): string {
+  const nextAction =
+    job.setup?.nextAction ?? job.recovery?.nextAction ?? job.health?.nextAction;
+  if (!job.setup?.blockers?.length && !nextAction) return 'none';
+  return formatJobNextAction(job.setup, nextAction);
 }
 
 function formatJobDetail(job: JobRecord): string {
@@ -343,28 +345,22 @@ function formatJobDetail(job: JobRecord): string {
     `Kind: ${job.kind}`,
     `Status: ${job.status}`,
     `Health: ${job.health?.state ?? job.status}`,
-    `Setup: ${job.setup?.state ?? 'ready'}`,
     `Recovery: ${formatJobRecovery(job.recovery)}`,
     `Workspace: ${job.workspaceKey}`,
-    `Thread: ${jobThreadId(job) ?? '(none)'}`,
+    `Agent: ${jobAgentLabel(job)}`,
+    `Conversation: ${jobConversationLabel(job)}`,
+    `Thread: ${jobThreadId(job) ?? 'none'}`,
+    `Setup: ${setupReadinessLabel(job.setup?.state)}`,
+    `Next action: ${jobNextActionLabel(job)}`,
+    `Access requirements: ${jobAccessRequirementsLabel(job)}`,
+    formatJobToolAccess(job.toolAccess),
     `Notifications: ${formatJobRoutes(job)}`,
     `Next Run: ${job.nextRun ?? '(none)'}`,
     `Last Run: ${job.lastRun ?? '(none)'}`,
     `Model: ${job.modelAlias ?? '(default)'}`,
-    `Access Requirements: ${formatAccessRequirementList(formatAccessRequirements(job.accessRequirements))}`,
-    '',
-    formatJobToolAccess(job.toolAccess),
   ];
   if (job.promptPreview || job.prompt) {
     lines.push('', `Prompt: ${job.promptPreview ?? job.prompt}`);
-  }
-  const nextAction =
-    job.setup?.nextAction ?? job.recovery?.nextAction ?? job.health?.nextAction;
-  if (nextAction) {
-    lines.push(
-      '',
-      `Next Action: ${formatJobNextAction(job.setup, nextAction)}`,
-    );
   }
   if (job.setup?.blockers?.length) {
     lines.push(
@@ -496,14 +492,6 @@ function formatEventPayload(
   return singleLine.length > 160
     ? `${singleLine.slice(0, 157)}...`
     : singleLine;
-}
-
-function formatAccessRequirementList(
-  accessRequirements: string[] | undefined,
-): string {
-  return accessRequirements && accessRequirements.length > 0
-    ? accessRequirements.join(', ')
-    : '(none)';
 }
 
 function formatAccessRequirements(

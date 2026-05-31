@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   try {
     const stdinData = await readStdin();
     agentInput = JSON.parse(stdinData) as AgentRunnerInput;
-    log(`Received input for group: ${agentInput.groupFolder}`);
+    log(`Received input for group: ${agentInput.workspaceFolder}`);
   } catch (err) {
     writeOutput({
       status: 'error',

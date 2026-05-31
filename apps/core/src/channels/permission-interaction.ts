@@ -12,7 +12,7 @@ import {
   publicGantryToolNameForSdkTool,
   RUN_COMMAND_TOOL_NAME,
 } from '../shared/agent-tool-references.js';
-import { formatPersistentPermissionRulesForUser } from '../shared/persistent-permission-rules.js';
+import { formatDurableAccessRulesForUser } from '../shared/durable-access-policy.js';
 import { deliveryLabel } from './provider-delivery-labels.js';
 import {
   redactSensitiveText,
@@ -188,7 +188,7 @@ export function formatPermissionPromptText(
   if (rules.length > 0) {
     lines.push(
       '',
-      `Details: ${formatPersistentPermissionRulesForUser(rules, {
+      `Details: ${formatDurableAccessRulesForUser(rules, {
         semanticCapabilityDefinitions: request.semanticCapabilityDefinitions,
       })}`,
     );
@@ -245,7 +245,7 @@ export function formatPermissionReceiptText(
     const lines = [`Always allowed for ${agent}: ${label}`];
     if (rules.length > 0) {
       lines.push(
-        `Details: ${formatPersistentPermissionRulesForUser(rules, {
+        `Details: ${formatDurableAccessRulesForUser(rules, {
           semanticCapabilityDefinitions: request?.semanticCapabilityDefinitions,
         })}`,
       );
@@ -586,7 +586,7 @@ function formatClosestRuleLine(
   request: PermissionApprovalRequest,
 ): string | undefined {
   return request.closestRule
-    ? `Closest existing access: ${formatPersistentPermissionRulesForUser([request.closestRule.rule], { semanticCapabilityDefinitions: request.semanticCapabilityDefinitions })} (did not match: ${formatPermissionReason(request.closestRule.reason)})`
+    ? `Closest existing access: ${formatDurableAccessRulesForUser([request.closestRule.rule], { semanticCapabilityDefinitions: request.semanticCapabilityDefinitions })} (did not match: ${formatPermissionReason(request.closestRule.reason)})`
     : undefined;
 }
 

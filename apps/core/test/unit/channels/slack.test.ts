@@ -32,8 +32,8 @@ vi.mock('@core/infrastructure/logging/logger.js', () => ({
   },
 }));
 
-vi.mock('@core/platform/group-folder.js', () => ({
-  resolveGroupFolderPath: vi.fn(
+vi.mock('@core/platform/workspace-folder.js', () => ({
+  resolveWorkspaceFolderPath: vi.fn(
     (folder: string) => `/tmp/test-groups/${folder}`,
   ),
 }));

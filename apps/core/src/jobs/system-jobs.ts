@@ -29,7 +29,7 @@ import type {
 } from '../memory/memory-types.js';
 import {
   DEFAULT_MEMORY_APP_ID,
-  memoryAgentIdForGroupFolder,
+  memoryAgentIdForWorkspaceFolder,
 } from '../memory/app-memory-boundaries.js';
 import { resolveScopedMemorySubject } from '../memory/app-memory-subject-resolver.js';
 import { AppMemoryService } from '../memory/app-memory-service.js';
@@ -181,7 +181,7 @@ export async function registerSystemJobs(
       const desiredStatus = existing?.status === 'paused' ? 'paused' : 'active';
       const target = buildCanonicalJobLifecycleTarget({
         conversationJid: jid,
-        groupScope: group.folder,
+        workspaceKey: group.folder,
         threadId: null,
         label: 'primary',
       });
@@ -193,7 +193,7 @@ export async function registerSystemJobs(
         schedule_type: 'cron',
         schedule_value: MEMORY_DREAMING_CRON,
         session_id: null,
-        group_scope: group.folder,
+        workspace_key: group.folder,
         created_by: 'agent',
         status: desiredStatus,
         next_run: nextRun,
@@ -227,7 +227,7 @@ export async function registerSystemJobs(
       );
       const target = buildCanonicalJobLifecycleTarget({
         conversationJid: primary.jid,
-        groupScope: primary.group.folder,
+        workspaceKey: primary.group.folder,
         threadId: null,
         label: 'primary',
       });
@@ -238,7 +238,7 @@ export async function registerSystemJobs(
         schedule_type: 'cron',
         schedule_value: MEMORY_BACKFILL_CRON,
         session_id: null,
-        group_scope: primary.group.folder,
+        workspace_key: primary.group.folder,
         created_by: 'agent',
         status: existing?.status === 'paused' ? 'paused' : 'active',
         next_run: existing?.next_run || computedNextRun,
@@ -279,7 +279,7 @@ export async function handleSystemJob(
     const defaultScope = context.conversationKind === 'dm' ? 'user' : 'group';
     const { subject } = resolveScopedMemorySubject({
       appId: DEFAULT_MEMORY_APP_ID,
-      agentId: memoryAgentIdForGroupFolder(context.folder),
+      agentId: memoryAgentIdForWorkspaceFolder(context.folder),
       groupId: context.folder,
       conversationId: context.conversationId,
       userId: context.userId,

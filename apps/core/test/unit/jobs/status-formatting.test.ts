@@ -11,7 +11,7 @@ function job(): Job {
     schedule_type: 'cron',
     schedule_value: '15 3 * * *',
     session_id: null,
-    group_scope: 'main_agent',
+    workspace_key: 'main_agent',
     created_by: 'agent',
     status: 'active',
     next_run: '2026-05-20T21:45:00.000Z',

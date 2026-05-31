@@ -1439,7 +1439,7 @@ describe('handleSessionCommand', () => {
         headless: false,
       }),
       getModelStatus: vi.fn().mockReturnValue({
-        groupFolder: 'test',
+        scopeKey: 'test',
         selectionSource: 'session override',
         modelAlias: 'sonnet',
         contextUsage: {

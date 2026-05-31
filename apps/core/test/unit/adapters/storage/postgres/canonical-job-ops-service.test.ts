@@ -20,7 +20,7 @@ describe('CanonicalJobOpsService', () => {
       execution_context: {
         conversationJid: 'tg:1',
         threadId: null,
-        groupScope: 'agent_one',
+        workspaceKey: 'agent_one',
         sessionId: 'session-1',
       },
       notification_routes: [
@@ -31,7 +31,7 @@ describe('CanonicalJobOpsService', () => {
         },
       ],
       access_requirements: [{ target: { kind: 'tool_rule', rule: 'Browser' } }],
-      group_scope: '',
+      workspace_key: '',
     });
 
     const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
@@ -42,7 +42,7 @@ describe('CanonicalJobOpsService', () => {
     expect(target.executionContext).toEqual({
       conversationJid: 'tg:1',
       threadId: null,
-      groupScope: 'agent_one',
+      workspaceKey: 'agent_one',
       sessionId: 'session-1',
     });
     expect(target.notificationRoutes).toEqual([
@@ -74,7 +74,7 @@ describe('CanonicalJobOpsService', () => {
       execution_context: {
         conversationJid: 'tg:1',
         threadId: null,
-        groupScope: 'agent_one',
+        workspaceKey: 'agent_one',
       },
       notification_routes: [
         {
@@ -83,7 +83,7 @@ describe('CanonicalJobOpsService', () => {
           label: 'Primary',
         },
       ],
-      group_scope: '',
+      workspace_key: '',
     });
 
     const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
@@ -93,7 +93,7 @@ describe('CanonicalJobOpsService', () => {
     expect(target.executionContext).toEqual({
       conversationJid: 'tg:1',
       threadId: null,
-      groupScope: 'agent_one',
+      workspaceKey: 'agent_one',
       sessionId: 'session-canonical',
     });
   });
@@ -112,7 +112,7 @@ describe('CanonicalJobOpsService', () => {
           executionContext: {
             conversationJid: 'tg:1',
             threadId: null,
-            groupScope: 'agent_one',
+            workspaceKey: 'agent_one',
             sessionId: 'session-1',
           },
           notificationRoutes: [
@@ -143,11 +143,11 @@ describe('CanonicalJobOpsService', () => {
     await expect(service.getJobById('job-1')).resolves.toMatchObject({
       session_id: 'session-1',
       thread_id: null,
-      group_scope: 'agent_one',
+      workspace_key: 'agent_one',
       execution_context: {
         conversationJid: 'tg:1',
         threadId: null,
-        groupScope: 'agent_one',
+        workspaceKey: 'agent_one',
         sessionId: 'session-1',
       },
       notification_routes: [
@@ -177,7 +177,7 @@ describe('CanonicalJobOpsService', () => {
       execution_context: {
         conversationJid: 'tg:1',
         threadId: null,
-        groupScope: 'agent_one',
+        workspaceKey: 'agent_one',
       },
       notification_routes: [
         {
@@ -186,7 +186,7 @@ describe('CanonicalJobOpsService', () => {
           label: 'Primary',
         },
       ],
-      group_scope: 'agent_one',
+      workspace_key: 'agent_one',
       recovery_intent: {
         kind: 'permission_denied',
         state: 'pending',
@@ -341,7 +341,7 @@ describe('CanonicalJobOpsService', () => {
       execution_context: {
         conversationJid: 'tg:team',
         threadId: null,
-        groupScope: 'agent_one',
+        workspaceKey: 'agent_one',
       },
       notification_routes: [
         {
@@ -355,7 +355,7 @@ describe('CanonicalJobOpsService', () => {
           label: 'Linked',
         },
       ],
-      group_scope: '',
+      workspace_key: '',
     });
 
     const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
@@ -390,7 +390,7 @@ describe('CanonicalJobOpsService', () => {
           executionContext: {
             conversationJid: 'tg:team',
             threadId: null,
-            groupScope: 'agent_one',
+            workspaceKey: 'agent_one',
             sessionId: 'session-1',
           },
           notificationRoutes: [
@@ -452,7 +452,7 @@ describe('CanonicalJobOpsService', () => {
       execution_context: {
         conversationJid: 'tg:team',
         threadId: null,
-        groupScope: 'agent_one',
+        workspaceKey: 'agent_one',
         sessionId: 'session-1',
       },
       notification_routes: [
@@ -484,7 +484,7 @@ describe('CanonicalJobOpsService', () => {
           reason: 'Write lead rows after each run',
         },
       ],
-      group_scope: '',
+      workspace_key: '',
     });
 
     const stored = vi.mocked(repository.upsertJob).mock.calls[0]?.[0] as {
@@ -529,7 +529,7 @@ describe('CanonicalJobOpsService', () => {
           executionContext: {
             conversationJid: 'tg:team',
             threadId: null,
-            groupScope: 'agent_one',
+            workspaceKey: 'agent_one',
             sessionId: 'session-1',
           },
           notificationRoutes: [

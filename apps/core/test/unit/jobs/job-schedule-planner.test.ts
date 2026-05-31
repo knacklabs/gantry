@@ -18,7 +18,7 @@ describe('runtimeJobSchedulePlanner', () => {
       prompt: 'Review memory',
       scheduleType: 'interval',
       scheduleValue: '60000',
-      groupScope: 'team',
+      workspaceKey: 'team',
     };
 
     expect(runtimeJobSchedulePlanner.createJobId(input)).toBe(

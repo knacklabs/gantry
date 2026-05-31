@@ -39,6 +39,8 @@ export async function ensureAgentToolCatalogItem(input: {
   const requestedCapability = requestedSemanticCapabilityId
     ? input.semanticCapabilityDefinitions?.[requestedSemanticCapabilityId]
     : undefined;
+  const resolved = await resolveAgentToolReference(input);
+  if (resolved.tool) return resolved.tool;
   if (requestedSemanticCapabilityId && requestedCapability) {
     return saveSemanticCapabilityTool({
       repository: input.repository,
@@ -48,8 +50,6 @@ export async function ensureAgentToolCatalogItem(input: {
       now: input.now,
     });
   }
-  const resolved = await resolveAgentToolReference(input);
-  if (resolved.tool) return resolved.tool;
   if (
     resolved.error &&
     !(

@@ -268,7 +268,7 @@ describe('scheduler IPC adapter contracts', () => {
         executionContext: {
           conversationJid: 'tg:team',
           threadId: null,
-          groupScope: 'team',
+          workspaceKey: 'team',
         },
         notificationRoutes: [
           {
@@ -301,7 +301,7 @@ describe('scheduler IPC adapter contracts', () => {
           executionContext: {
             conversationJid: 'tg:team',
             threadId: null,
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
           notificationRoutes: [
             {
@@ -335,7 +335,7 @@ describe('scheduler IPC adapter contracts', () => {
         executionContext: {
           conversationJid: 'tg:team',
           threadId: null,
-          groupScope: 'team',
+          workspaceKey: 'team',
         },
         notificationRoutes: [
           {

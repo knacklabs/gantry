@@ -18,17 +18,17 @@ export function getGantryHome(raw?: string): string {
 }
 
 export function getIpcDir(
-  groupFolder: string,
+  workspaceFolder: string,
   runtimeHome = getGantryHome(),
 ): string {
-  return path.resolve(runtimeHome, 'data', 'ipc', groupFolder);
+  return path.resolve(runtimeHome, 'data', 'ipc', workspaceFolder);
 }
 
 export function getAgentDir(
-  groupFolder: string,
+  workspaceFolder: string,
   runtimeHome = getGantryHome(),
 ): string {
-  return path.resolve(runtimeHome, 'agents', groupFolder);
+  return path.resolve(runtimeHome, 'agents', workspaceFolder);
 }
 
 export function getClaudeProjectDirName(cwd: string): string {

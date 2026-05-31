@@ -52,8 +52,8 @@ function pgBossKey(kind: string, value: string): string {
   return `${PGBOSS_KEY_PREFIX}.${kind}.${Buffer.from(value).toString('base64url')}`;
 }
 
-function pgBossGroupId(groupScope: string): string {
-  return pgBossKey('group', groupScope);
+function pgBossGroupId(workspaceKey: string): string {
+  return pgBossKey('group', workspaceKey);
 }
 
 function pgBossJobKey(jobId: string): string {
@@ -97,8 +97,8 @@ function pgBossStartAfter(value: string): Date {
   return date;
 }
 
-function schedulerQueueJid(groupScope: string, jobId?: string): string {
-  return `__scheduler__:${groupScope}${jobId ? `:${jobId}` : ''}`;
+function schedulerQueueJid(workspaceKey: string, jobId?: string): string {
+  return `__scheduler__:${workspaceKey}${jobId ? `:${jobId}` : ''}`;
 }
 
 export class PgBossSchedulerEngine {
@@ -221,7 +221,7 @@ export class PgBossSchedulerEngine {
       },
       {
         id: pgBossSendId(jobId, `trigger:${triggerId}`),
-        group: { id: pgBossGroupId(job.group_scope) },
+        group: { id: pgBossGroupId(job.workspace_key) },
         retryLimit: 0,
       },
     );
@@ -356,7 +356,7 @@ export class PgBossSchedulerEngine {
         {
           key: pgBossJobKey(job.id),
           tz: TIMEZONE,
-          group: { id: pgBossGroupId(job.group_scope) },
+          group: { id: pgBossGroupId(job.workspace_key) },
           singletonKey: pgBossJobKey(job.id),
           retryLimit: 0,
         },
@@ -382,7 +382,7 @@ export class PgBossSchedulerEngine {
       {
         id: pgBossSendId(job.id, scheduleSlotForJob(job)),
         startAfter: pgBossStartAt,
-        group: { id: pgBossGroupId(job.group_scope) },
+        group: { id: pgBossGroupId(job.workspace_key) },
         retryLimit: 0,
       },
     );
@@ -400,7 +400,7 @@ export class PgBossSchedulerEngine {
         nowMs,
         STALE_ONCE_REENQUEUE_THROTTLE_MS,
       ),
-      groupScope: job.group_scope,
+      workspaceKey: job.workspace_key,
     });
   }
 
@@ -426,8 +426,8 @@ export class PgBossSchedulerEngine {
       if (!payload?.jobId) continue;
       const current = await this.deps.opsRepository.getJobById(payload.jobId);
       if (!current) continue;
-      const queueJid = schedulerQueueJid(current.group_scope, current.id);
-      const releaseSlot = await acquireRunSlot(current.group_scope);
+      const queueJid = schedulerQueueJid(current.workspace_key, current.id);
+      const releaseSlot = await acquireRunSlot(current.workspace_key);
       try {
         await this.callbacks.runJob(current, this.deps, queueJid, payload);
       } catch (err) {

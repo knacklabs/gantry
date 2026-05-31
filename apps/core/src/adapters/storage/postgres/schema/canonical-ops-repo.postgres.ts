@@ -327,7 +327,7 @@ export class PostgresRuntimeRepositoryBundle
     memoryContextBlock?: string;
   }> {
     return this.sessions.getAgentTurnContext({
-      groupFolder: input.agentFolder,
+      workspaceFolder: input.agentFolder,
       executionProviderId: input.executionProviderId,
       chatJid: input.conversationJid,
       threadId: input.threadId,
@@ -465,7 +465,7 @@ export class PostgresRuntimeRepositoryBundle
   }
 
   async deleteSessionsByAgentFolder(agentFolder: string): Promise<void> {
-    await this.sessions.deleteSessionsByGroupFolder(agentFolder);
+    await this.sessions.deleteSessionsByWorkspaceFolder(agentFolder);
   }
 
   async getConversationRoute(

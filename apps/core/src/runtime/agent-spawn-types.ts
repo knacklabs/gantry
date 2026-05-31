@@ -28,7 +28,7 @@ export interface AgentInput {
   agentId?: string;
   model?: string;
   sessionId?: string;
-  groupFolder: string;
+  workspaceFolder: string;
   chatJid: string;
   threadId?: string;
   memoryUserId?: string;
@@ -108,7 +108,7 @@ export interface RunAgentOptions {
 
 export interface HostRuntimeContext {
   groupDir: string;
-  groupIpcDir: string;
+  workspaceIpcDir: string;
   runnerDistDir: string;
 }
 

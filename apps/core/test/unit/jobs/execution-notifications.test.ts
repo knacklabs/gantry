@@ -21,7 +21,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     execution_context: {
       conversationJid: 'tg:scheduler',
       threadId: 'thread-1',
-      groupScope: 'scheduler_agent',
+      workspaceKey: 'scheduler_agent',
     },
     notification_routes: [
       {
@@ -30,7 +30,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
         label: 'primary',
       },
     ],
-    group_scope: 'scheduler_agent',
+    workspace_key: 'scheduler_agent',
     created_by: 'human',
     created_at: '2026-05-08T00:00:00.000Z',
     updated_at: '2026-05-08T00:00:00.000Z',

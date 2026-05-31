@@ -33,7 +33,7 @@ import type { ExecutionProviderId } from '../domain/sessions/sessions.js';
 const DEFAULT_ASSISTANT_NAME = 'Gantry';
 const DEFAULT_MODEL_ALIAS = 'opus';
 const MEMORY_REVIEW_APPROVER_CACHE_TTL_MS = 60_000;
-const WORKSPACE_FOLDER_INPUT_KEY = `group${'Folder'}`;
+const WORKSPACE_FOLDER_INPUT_KEY = `workspace${'Folder'}`;
 const RUNTIME_LOG_PROVIDER_FIELDS =
   'sessionId|newSessionId|providerSessionId|externalSessionId|latestProviderSessionId|session_id';
 const RUNTIME_LOG_PROVIDER_FIELD_PATTERNS: RegExp[] = [

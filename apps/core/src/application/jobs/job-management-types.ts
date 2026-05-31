@@ -29,7 +29,7 @@ export type JobKind = 'manual' | 'once' | 'recurring';
 export interface JobExecutionContextInput {
   conversationJid: string;
   threadId: string | null;
-  groupScope: string;
+  workspaceKey: string;
   sessionId?: string | null;
 }
 
@@ -110,7 +110,7 @@ export interface JobSchedulePlanner {
     prompt: string;
     scheduleType: string;
     scheduleValue: string;
-    groupScope: string;
+    workspaceKey: string;
   }): string;
   planAppSchedule(input: {
     kind: JobKind;
@@ -175,7 +175,7 @@ export interface UpsertJobFromIpcInput {
   maxRetries?: number;
   retryBackoffMs?: number;
   maxConsecutiveFailures?: number;
-  groupScope?: string;
+  workspaceKey?: string;
   createdBy?: 'agent' | 'human';
 }
 
@@ -203,7 +203,7 @@ export type JobUpdatePatch = Partial<{
   notificationRoutes: JobNotificationRouteInput[];
   accessRequirements: JobAccessRequirement[];
   threadId: string | null;
-  groupScope: string;
+  workspaceKey: string;
   silent: boolean;
   cleanupAfterMs: number;
   timeoutMs: number;
@@ -217,7 +217,7 @@ export interface JobListInput {
   appId?: string;
   access?: SchedulerJobAccess;
   statuses?: string[];
-  groupScope?: string;
+  workspaceKey?: string;
   agentId?: string;
   kind?: JobKind;
   conversationJid?: string;

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
-import { resolveGroupIpcPath } from '../platform/group-folder.js';
+import { resolveWorkspaceIpcPath } from '../platform/workspace-folder.js';
 import { AvailableGroup } from './agent-spawn-types.js';
 import { nowIso } from '../shared/time/datetime.js';
 
@@ -64,12 +64,12 @@ export function clearSnapshotWriteCacheForTests(): void {
 }
 
 export async function writeGroupsSnapshot(
-  groupFolder: string,
+  workspaceFolder: string,
   groups: AvailableGroup[],
   _registeredJids: Set<string>,
 ): Promise<void> {
-  const groupIpcDir = resolveGroupIpcPath(groupFolder);
-  const groupsFile = path.join(groupIpcDir, 'available_groups.json');
+  const workspaceIpcDir = resolveWorkspaceIpcPath(workspaceFolder);
+  const groupsFile = path.join(workspaceIpcDir, 'available_groups.json');
   await writeSnapshotJson(groupsFile, {
     groups,
     lastSync: nowIso(),

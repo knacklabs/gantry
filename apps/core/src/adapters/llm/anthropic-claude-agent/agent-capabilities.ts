@@ -36,7 +36,7 @@ export interface AgentCapabilityContext {
   appId?: string;
   agentId?: string;
   chatJid: string;
-  groupFolder: string;
+  workspaceFolder: string;
   threadId?: string;
   memoryUserId?: string;
   memoryDefaultScope?: 'user' | 'group';
@@ -170,7 +170,7 @@ const gantryMcpProvider: AgentCapabilityProvider = {
       ...(ctx.appId ? { GANTRY_APP_ID: ctx.appId } : {}),
       ...(ctx.agentId ? { GANTRY_AGENT_ID: ctx.agentId } : {}),
       GANTRY_CHAT_JID: ctx.chatJid,
-      GANTRY_GROUP_FOLDER: ctx.groupFolder,
+      GANTRY_WORKSPACE_KEY: ctx.workspaceFolder,
       GANTRY_THREAD_ID: ctx.threadId || '',
       GANTRY_MEMORY_USER_ID: ctx.memoryUserId || '',
       GANTRY_MEMORY_DEFAULT_SCOPE: ctx.memoryDefaultScope || 'group',

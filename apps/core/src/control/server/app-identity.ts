@@ -102,7 +102,7 @@ export function mapManualJobToStored(
   const modelUseKind = modelUseKindForJobSchedule(job.schedule_type);
   const defaultConfig = options.getDefaultModelConfig?.(
     modelUseKind,
-    job.group_scope,
+    job.workspace_key,
   ) ?? {
     model: job.model ?? undefined,
     source: job.model ? 'job.model' : 'inherited',
@@ -135,7 +135,7 @@ export function mapManualJobToStored(
     executionContext: {
       conversationJid: metadata.executionContext.conversationJid,
       threadId: metadata.executionContext.threadId,
-      workspaceKey: metadata.executionContext.groupScope,
+      workspaceKey: metadata.executionContext.workspaceKey,
       sessionId: metadata.executionContext.sessionId,
     },
     notificationRoutes: metadata.notificationRoutes,
@@ -169,13 +169,13 @@ export function mapManualJobToStored(
           cachePolicy: resolvedModel.entry.cacheMode,
         }
       : null,
-    workspaceKey: job.group_scope,
+    workspaceKey: job.workspace_key,
     sessionId: job.session_id,
     target: metadata.target
       ? {
           appId: metadata.target.appId,
           agentId: metadata.target.agentId,
-          workspaceKey: metadata.target.groupScope,
+          workspaceKey: metadata.target.workspaceKey,
           conversationJids: metadata.target.conversationJids,
           threadId: metadata.target.threadId,
         }

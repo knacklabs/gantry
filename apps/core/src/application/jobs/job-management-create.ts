@@ -55,7 +55,7 @@ export async function createManagedJob(
   const jobId = deps.schedulePlanner.createManualJobId();
   const sessionBoundContext = {
     conversationJid: session.conversationJid,
-    groupScope: session.workspaceKey,
+    workspaceKey: session.workspaceKey,
   };
   const executionContext =
     input.executionContext !== undefined
@@ -67,7 +67,7 @@ export async function createManagedJob(
         };
   if (
     executionContext.conversationJid !== sessionBoundContext.conversationJid ||
-    executionContext.groupScope !== sessionBoundContext.groupScope
+    executionContext.workspaceKey !== sessionBoundContext.workspaceKey
   ) {
     throw new ApplicationError(
       'FORBIDDEN',
@@ -86,7 +86,7 @@ export async function createManagedJob(
   const runtimeContext = {
     sessionId: session.sessionId,
     conversationJid: session.conversationJid,
-    groupScope: session.workspaceKey,
+    workspaceKey: session.workspaceKey,
     threadId: executionContext.threadId ?? null,
   };
   const notificationRoutes = normalizeNotificationRoutes(
@@ -119,7 +119,7 @@ export async function createManagedJob(
     status: 'active',
     session_id: session.sessionId,
     thread_id: executionContext.threadId ?? null,
-    group_scope: session.workspaceKey,
+    workspace_key: session.workspaceKey,
     created_by: 'human',
     next_run: schedule.nextRun,
     execution_context: executionContext,

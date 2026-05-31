@@ -318,7 +318,7 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
         db.getFileArtifactStore(),
       );
     } catch (err) {
-      p.log.error(`Could not create group folder: ${errorMessage(err)}`);
+      p.log.error(`Could not create workspace folder: ${errorMessage(err)}`);
       return 1;
     }
 

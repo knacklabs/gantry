@@ -55,7 +55,7 @@ describe('permission interaction', () => {
         behavior: 'allow',
         rules: [
           { toolName: 'Bash', ruleContent: 'git status' },
-          { toolName: 'Bash', ruleContent: 'head' },
+          { toolName: 'Bash', ruleContent: 'head -n 20' },
         ],
       },
     ]);
@@ -75,7 +75,7 @@ describe('permission interaction', () => {
         destination: 'session',
         rules: [
           { toolName: 'Bash', ruleContent: 'git status' },
-          { toolName: 'Bash', ruleContent: 'head' },
+          { toolName: 'Bash', ruleContent: 'head -n 20' },
         ],
       },
     ]);
@@ -535,7 +535,9 @@ describe('permission interaction', () => {
     expect(text).toContain(
       'Request: Permission: Acme records append using acme',
     );
-    expect(text).toContain('Details: matching command access');
+    expect(text).toContain(
+      'Details: matching command access (/usr/local/bin/acme records append *)',
+    );
     expect(text).not.toContain('Always allow grants this capability');
     expect(text).not.toContain(
       'RunCommand(/usr/local/bin/acme records append *)',
@@ -627,7 +629,9 @@ describe('permission interaction', () => {
       60_000,
     );
 
-    expect(text).toContain('Closest existing access: matching command access');
+    expect(text).toContain(
+      'Closest existing access: matching command access (npm run build)',
+    );
     expect(text).toContain(
       '(did not match: command npm test did not match any scoped autonomous rule.)',
     );
@@ -669,7 +673,7 @@ describe('permission interaction', () => {
                 toolName: 'Bash',
                 ruleContent: 'curl https://api.example.com/*',
               },
-              { toolName: 'Bash', ruleContent: 'jq *' },
+              { toolName: 'Bash', ruleContent: 'jq -r *' },
             ],
           },
         ],
@@ -689,7 +693,7 @@ describe('permission interaction', () => {
       \`\`\`
       Redirect: > /tmp/leads.json
 
-      Details: matching command access, matching command access
+      Details: matching command access (curl https://api.example.com/*), matching command access (jq -r *)
 
       Scope: this request, a short 5-minute grant, or future matching tool calls.
       Safety: only matching future access is included; unrelated tools, secrets, and settings changes are not included.
@@ -1031,7 +1035,7 @@ describe('permission interaction', () => {
                 toolName: 'Bash',
                 ruleContent: 'curl https://api.example.com/*',
               },
-              { toolName: 'Bash', ruleContent: 'jq *' },
+              { toolName: 'Bash', ruleContent: 'jq -r *' },
               { toolName: 'Browser' },
             ],
           },
@@ -1048,10 +1052,13 @@ describe('permission interaction', () => {
     expect(receipt).toContain(
       'Always allowed for Kai Group: exact command access',
     );
-    expect(receipt).toContain('Details: matching command access');
+    expect(receipt).toContain(
+      'Details: matching command access (curl https://api.example.com/*)',
+    );
+    expect(receipt).toContain('matching command access (jq -r *)');
     expect(receipt).toContain('Browser');
     expect(receipt).not.toContain('RunCommand(curl https://api.example.com/*)');
-    expect(receipt).not.toContain('RunCommand(jq *)');
+    expect(receipt).not.toContain('RunCommand(jq -r *)');
     expect(receipt).toContain('Revoke from Agent Access.');
     expect(receipt).toContain(
       'For: Command (curl https://api.example.com/leads > /tmp/out)',

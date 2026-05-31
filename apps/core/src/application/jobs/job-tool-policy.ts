@@ -16,8 +16,8 @@ export interface JobToolPolicyResolution {
   runtimeAccess: CapabilityRuntimeAccess[];
 }
 
-export function agentIdForJobGroupScope(groupScope: string): string {
-  const trimmed = groupScope.trim();
+export function agentIdForJobWorkspaceKey(workspaceKey: string): string {
+  const trimmed = workspaceKey.trim();
   return trimmed.startsWith('agent:') ? trimmed : `agent:${trimmed}`;
 }
 

@@ -187,11 +187,11 @@ export function resolveMcpServerPath(importMetaUrl: string): string {
   );
 }
 
-export function resolveGroupIpcDir(groupFolder: string): string {
-  if (path.basename(IPC_BASE_DIR) === groupFolder) {
+export function resolveWorkspaceIpcDir(workspaceFolder: string): string {
+  if (path.basename(IPC_BASE_DIR) === workspaceFolder) {
     return IPC_BASE_DIR;
   }
-  return path.join(IPC_BASE_DIR, groupFolder);
+  return path.join(IPC_BASE_DIR, workspaceFolder);
 }
 
 export function discoverAdditionalDirectories(): string[] {

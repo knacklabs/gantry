@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const previousIpcDir = process.env.GANTRY_IPC_DIR;
 const previousChatJid = process.env.GANTRY_CHAT_JID;
-const previousGroupFolder = process.env.GANTRY_GROUP_FOLDER;
+const previousWorkspaceKey = process.env.GANTRY_WORKSPACE_KEY;
 const tempRoots: string[] = [];
 
 afterEach(() => {
@@ -21,10 +21,10 @@ afterEach(() => {
   } else {
     process.env.GANTRY_CHAT_JID = previousChatJid;
   }
-  if (previousGroupFolder === undefined) {
-    delete process.env.GANTRY_GROUP_FOLDER;
+  if (previousWorkspaceKey === undefined) {
+    delete process.env.GANTRY_WORKSPACE_KEY;
   } else {
-    process.env.GANTRY_GROUP_FOLDER = previousGroupFolder;
+    process.env.GANTRY_WORKSPACE_KEY = previousWorkspaceKey;
   }
   for (const root of tempRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
@@ -134,7 +134,7 @@ describe('scheduler MCP tools', () => {
       schemas.get('scheduler_update_job')?.execution_context.safeParse({
         conversation_jid: 'tg:team',
         thread_id: null,
-        group_scope: 'team',
+        workspace_key: 'team',
       }).success,
     ).toBe(true);
     expect(
@@ -149,11 +149,11 @@ describe('scheduler MCP tools', () => {
     expect(
       schemas.get('scheduler_update_job')?.target.safeParse('here').success,
     ).toBe(true);
-    expect(schemas.get('scheduler_update_job')?.group_scope).toBeUndefined();
+    expect(schemas.get('scheduler_update_job')?.workspace_key).toBeUndefined();
     expect(schemas.get('scheduler_update_job')?.thread_id).toBeUndefined();
-    expect(schemas.get('scheduler_upsert_job')?.group_scope).toBeUndefined();
+    expect(schemas.get('scheduler_upsert_job')?.workspace_key).toBeUndefined();
     expect(schemas.get('scheduler_upsert_job')?.thread_id).toBeUndefined();
-    expect(schemas.get('scheduler_list_jobs')?.group_scope).toBeUndefined();
+    expect(schemas.get('scheduler_list_jobs')?.workspace_key).toBeUndefined();
     expect(
       schemas.get('scheduler_list_jobs')?.conversation_jid,
     ).toBeUndefined();
@@ -259,6 +259,64 @@ describe('scheduler MCP tools', () => {
     expect(schemas.get('scheduler_list_notification_targets')).toBeDefined();
   });
 
+  it('rejects removed execution_context group scope fields through the MCP schema parse path', async () => {
+    // Guards the real MCP parse path: the SDK runs the per-tool zod schema and
+    // strips unknown keys before the handler, so the rejection must come from
+    // the execution_context schema (passthrough + superRefine), not the handler.
+    const ipcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-tools-'));
+    tempRoots.push(ipcDir);
+    process.env.GANTRY_IPC_DIR = ipcDir;
+    const { registerSchedulerTools } =
+      await import('../../../../src/runner/mcp/tools/scheduler.js');
+    const schemas = new Map<
+      string,
+      Record<
+        string,
+        {
+          safeParse: (input: unknown) => {
+            success: boolean;
+            error?: { issues: { message: string }[] };
+          };
+        }
+      >
+    >();
+    const server = {
+      tool: (
+        name: string,
+        _description: string,
+        schema: Record<
+          string,
+          {
+            safeParse: (input: unknown) => {
+              success: boolean;
+              error?: { issues: { message: string }[] };
+            };
+          }
+        >,
+      ) => {
+        schemas.set(name, schema);
+      },
+    };
+
+    registerSchedulerTools(server as never);
+
+    for (const removedField of ['group_scope', 'groupScope'] as const) {
+      const result = schemas
+        .get('scheduler_upsert_job')!
+        .execution_context.safeParse({
+          conversation_jid: 'tg:team',
+          thread_id: null,
+          workspace_key: 'team',
+          [removedField]: 'team',
+        });
+
+      expect(result.success).toBe(false);
+      expect(result.error!.issues.map((issue) => issue.message)).toContain(
+        'group_scope/groupScope is no longer accepted. Use workspace_key.',
+      );
+    }
+  });
+
   it('writes scheduler capability requirements for update mutations', async () => {
     const ipcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gantry-tools-'));
     tempRoots.push(ipcDir);
@@ -294,7 +352,7 @@ describe('scheduler MCP tools', () => {
       execution_context: {
         conversation_jid: 'tg:team',
         thread_id: null,
-        group_scope: 'team',
+        workspace_key: 'team',
       },
       access_requirements: [
         {
@@ -324,7 +382,7 @@ describe('scheduler MCP tools', () => {
         executionContext: {
           conversationJid: 'tg:team',
           threadId: null,
-          groupScope: 'team',
+          workspaceKey: 'team',
         },
         accessRequirements: [
           {
@@ -407,7 +465,7 @@ describe('scheduler MCP tools', () => {
     tempRoots.push(ipcDir);
     process.env.GANTRY_IPC_DIR = ipcDir;
     process.env.GANTRY_CHAT_JID = 'tg:team';
-    process.env.GANTRY_GROUP_FOLDER = 'team';
+    process.env.GANTRY_WORKSPACE_KEY = 'team';
     const waitForTaskResponse = vi.fn(async () => ({ ok: true }));
     const writeIpcFile = vi.fn();
     vi.doMock('../../../../src/runner/mcp/ipc.js', () => ({
@@ -464,12 +522,8 @@ describe('scheduler MCP tools', () => {
     expect(response.content[0].text).toContain('Scheduler job plan');
     expect(response.content[0].text).toContain('- Schedule: once');
     expect(response.content[0].text).toContain('- Model: job default');
-    expect(response.content[0].text).toContain('- Tool access:');
     expect(response.content[0].text).toContain(
-      '- Required capabilities: Acme Records Append using acme',
-    );
-    expect(response.content[0].text).toContain(
-      '- Tool access requirements: Browser',
+      '- Access requirements: capabilities Acme Records Append using acme; tools Browser',
     );
     expect(response.content[0].text).toContain(
       'use capability:<id> for reviewed semantic access',
@@ -486,7 +540,7 @@ describe('scheduler MCP tools', () => {
     tempRoots.push(ipcDir);
     process.env.GANTRY_IPC_DIR = ipcDir;
     process.env.GANTRY_CHAT_JID = 'tg:team';
-    process.env.GANTRY_GROUP_FOLDER = 'team';
+    process.env.GANTRY_WORKSPACE_KEY = 'team';
     const waitForTaskResponse = vi.fn(async () => ({ ok: true }));
     const writeIpcFile = vi.fn();
     vi.doMock('../../../../src/runner/mcp/ipc.js', () => ({
@@ -523,7 +577,7 @@ describe('scheduler MCP tools', () => {
       executionContext: {
         conversationJid: 'tg:team',
         threadId: null,
-        groupScope: 'team',
+        workspaceKey: 'team',
       },
       notificationRoutes: [
         {
@@ -556,7 +610,7 @@ describe('scheduler MCP tools', () => {
         executionContext: {
           conversationJid: 'tg:team',
           threadId: null,
-          groupScope: 'team',
+          workspaceKey: 'team',
         },
         notificationRoutes: [
           {
@@ -739,29 +793,75 @@ describe('scheduler MCP tools', () => {
           },
         },
       ]),
-    ).toContain('tools: (missing toolAccess)');
+    ).toContain(
+      '- job-1 | Follow up | Ready | Workspace: unknown | Agent: agent:main | Next: none',
+    );
     expect(
-      schedulerJobsSummary([
-        {
-          id: 'job-2',
-          name: 'Use browser when needed',
-          access_requirements: [
-            { target: { kind: 'tool_rule', rule: 'Browser' } },
-          ],
-          visibility: {
-            executionContext: { conversationJid: 'tg:team' },
-            toolAccess: {
-              effectiveAllowedTools: ['Browser'],
-              inheritedAgentTools: ['Browser'],
-              projectedRuntimeTools: ['Browser'],
-            },
+      schedulerJobSummary({
+        id: 'job-2',
+        name: 'Use browser when needed',
+        access_requirements: [
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ],
+        visibility: {
+          executionContext: { conversationJid: 'tg:team' },
+          toolAccess: {
+            effectiveAllowedTools: ['Browser'],
+            inheritedAgentTools: ['Browser'],
+            projectedRuntimeTools: ['Browser'],
           },
         },
-      ]),
-    ).toContain('access: Browser');
+      }),
+    ).toContain('Access requirements: tools Browser');
   });
 
-  it('renders a provider-neutral owner label in the scheduler list line', async () => {
+  it('renders compact scheduler job list rows in workspace/access language', async () => {
+    const { schedulerJobsSummary } =
+      await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
+
+    const summary = schedulerJobsSummary([
+      {
+        id: 'job-2',
+        name: 'Use browser when needed',
+        workspace_key: 'personal',
+        access_requirements: [
+          { target: { kind: 'tool_rule', rule: 'Browser' } },
+        ],
+        visibility: {
+          executionContext: {
+            conversationJid: 'tg:team',
+            workspaceKey: 'team-space',
+          },
+          target: { agentId: 'agent:main', conversationJids: ['tg:team'] },
+          setup: {
+            state: 'missing_capability',
+            blockers: [
+              {
+                state: 'missing_capability',
+                requirementType: 'browser',
+                requirementId: 'browser.use',
+              },
+            ],
+          },
+          toolAccess: {
+            effectiveAllowedTools: ['Browser'],
+            inheritedAgentTools: ['Browser'],
+            projectedRuntimeTools: ['Browser'],
+          },
+        },
+      },
+    ]);
+
+    expect(summary).toContain(
+      '- job-2 | Use browser when needed | Needs approval | Workspace: team-space | Agent: agent:main | Next: Approve Browser access, then resume the job.',
+    );
+    expect(summary).not.toContain('capabilities:');
+    expect(summary).not.toContain('access:');
+    expect(summary).not.toContain('mcp:');
+    expect(summary).not.toContain('tools:');
+  });
+
+  it('renders provider-neutral workspace and agent labels in the scheduler list line', async () => {
     const { schedulerJobsSummary } =
       await import('../../../../src/runner/mcp/tools/scheduler-formatters.js');
 
@@ -771,7 +871,11 @@ describe('scheduler MCP tools', () => {
         name: 'Topic digest',
         status: 'active',
         visibility: {
-          executionContext: { conversationJid: 'tg:-100team', threadId: '42' },
+          executionContext: {
+            conversationJid: 'tg:-100team',
+            threadId: '42',
+            workspaceKey: 'telegram-team',
+          },
           target: { agentId: 'agent:main', conversationJids: ['tg:-100team'] },
         },
       },
@@ -779,7 +883,8 @@ describe('scheduler MCP tools', () => {
     const listLine = summary
       .split('\n')
       .find((line) => line.startsWith('- job-1'));
-    expect(listLine).toContain('Telegram group');
+    expect(listLine).toContain('Workspace: telegram-team');
+    expect(listLine).toContain('Agent: agent:main');
     expect(listLine).not.toContain('tg:-100team');
   });
 

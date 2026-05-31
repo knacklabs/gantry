@@ -28,7 +28,7 @@ afterEach(async () => {
   vi.doUnmock('@core/runtime/agent-spawn-host.js');
   vi.doUnmock('@core/runtime/agent-spawn-layout.js');
   vi.doUnmock('@core/application/agents/prompt-profile-service.js');
-  vi.doUnmock('@core/platform/group-folder.js');
+  vi.doUnmock('@core/platform/workspace-folder.js');
   vi.resetModules();
 
   for (const root of tempRoots.splice(0)) {
@@ -139,12 +139,12 @@ describe('host child-process runtime smoke', () => {
       }),
       prepareHostRuntimeContext: () => ({
         groupDir,
-        groupIpcDir,
+        workspaceIpcDir: groupIpcDir,
         runnerDistDir,
       }),
     }));
     vi.doMock('@core/runtime/agent-spawn-layout.js', () => ({
-      ensureGroupIpcLayout: (dir: string) => {
+      ensureWorkspaceIpcLayout: (dir: string) => {
         for (const subdir of [
           'messages',
           'tasks',
@@ -173,8 +173,8 @@ describe('host child-process runtime smoke', () => {
         promptProfileAgentIdForFolder: (folder: string) => `agent:${folder}`,
       };
     });
-    vi.doMock('@core/platform/group-folder.js', () => ({
-      resolveGroupFolderPath: () => groupDir,
+    vi.doMock('@core/platform/workspace-folder.js', () => ({
+      resolveWorkspaceFolderPath: () => groupDir,
     }));
 
     const { spawnAgent } = await import('@core/runtime/agent-spawn.js');
@@ -191,7 +191,7 @@ describe('host child-process runtime smoke', () => {
       },
       {
         prompt: 'real child smoke prompt',
-        groupFolder: 'main',
+        workspaceFolder: 'main',
         chatJid: 'tg:main',
         memoryContextBlock: 'host smoke memory context',
       },

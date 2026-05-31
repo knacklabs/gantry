@@ -10,9 +10,9 @@ import { RUNTIME_EVENT_TYPES } from '../domain/events/runtime-event-types.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
 import { recheckSetupPausedJobsAfterCapabilityUpdate } from '../application/jobs/job-permission-recovery.js';
 import {
-  formatPersistentPermissionRuleForEvent,
-  formatPersistentPermissionRulesForUser,
-} from '../shared/persistent-permission-rules.js';
+  formatDurableAccessRuleForEvent,
+  formatDurableAccessRulesForUser,
+} from '../shared/durable-access-policy.js';
 import {
   permissionUpdateAllowedToolRules,
   persistentPermissionUpdates,
@@ -200,7 +200,7 @@ export async function processPermissionInteractionIpc(input: {
           decision: 'persisted',
           persistedRules: permissionUpdateAllowedToolRules(
             decision.updatedPermissions,
-          ).map(formatPersistentPermissionRuleForEvent),
+          ).map(formatDurableAccessRuleForEvent),
         },
       );
       input.logger.info?.(persistedContext, 'Permission persisted');
@@ -353,7 +353,7 @@ function formatPersistentPermissionOutcome(input: {
   >;
 }): string {
   const lines = [
-    `Always allowed: ${formatPersistentPermissionRulesForUser(input.rules, {
+    `Always allowed: ${formatDurableAccessRulesForUser(input.rules, {
       semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
     })}.`,
   ];

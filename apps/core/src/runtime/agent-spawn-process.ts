@@ -502,7 +502,7 @@ export function executeRunnerProcess(
             `SDK session persistence: ${input.isScheduledJob ? 'disabled' : 'enabled'}`,
             `Resume session: ${formatResumeSessionStatus(input.sessionId)}`,
             `Chat JID: ${input.chatJid}`,
-            `Group Folder: ${input.groupFolder}`,
+            `Workspace Folder: ${input.workspaceFolder}`,
             '',
           );
         } else {

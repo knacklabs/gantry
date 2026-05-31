@@ -11,10 +11,12 @@ import type {
 
 export const DEFAULT_MEMORY_APP_ID = 'default';
 
-export function memoryAgentIdForGroupFolder(groupFolder: string): string {
-  return groupFolder.startsWith('agent:')
-    ? groupFolder
-    : `agent:${groupFolder}`;
+export function memoryAgentIdForWorkspaceFolder(
+  workspaceFolder: string,
+): string {
+  return workspaceFolder.startsWith('agent:')
+    ? workspaceFolder
+    : `agent:${workspaceFolder}`;
 }
 
 function hashText(value: string): string {

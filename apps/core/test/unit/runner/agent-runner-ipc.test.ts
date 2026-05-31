@@ -279,8 +279,8 @@ function createRunnerFixture(): {
     path.join(sharedDir, 'permission-tool-rules.ts'),
   );
   fs.copyFileSync(
-    path.resolve('apps/core/src/shared/persistent-permission-rules.ts'),
-    path.join(sharedDir, 'persistent-permission-rules.ts'),
+    path.resolve('apps/core/src/shared/durable-access-policy.ts'),
+    path.join(sharedDir, 'durable-access-policy.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/yolo-mode-policy.ts'),
@@ -723,7 +723,7 @@ function baseInput(
 ): Record<string, unknown> {
   return {
     prompt: 'initial prompt',
-    groupFolder: 'team',
+    workspaceFolder: 'team',
     chatJid: 'tg:team',
     compiledSystemPrompt: 'compiled system profile',
     ...overrides,

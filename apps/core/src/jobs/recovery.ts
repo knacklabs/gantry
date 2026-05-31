@@ -43,7 +43,7 @@ import {
 
 const MAX_RECOVERY_TURN_TIMEOUT_MS = 300_000;
 const DEFAULT_RECOVERY_ASSISTANT_NAME = 'Gantry';
-const WORKSPACE_FOLDER_INPUT_KEY = `group${'Folder'}` as const;
+const WORKSPACE_FOLDER_INPUT_KEY = `workspace${'Folder'}` as const;
 
 export async function queueJobRecoveryTurn(input: {
   currentJob: Job;
@@ -354,7 +354,7 @@ async function runJobRecoveryAgentTurn(input: {
   const executionAppId = turnContext?.appId ?? input.runtimeAppId;
   const executionAgentId =
     turnContext?.agentId ??
-    jobToolPolicy.agentIdForJobGroupScope(input.execution.group.folder);
+    jobToolPolicy.agentIdForJobWorkspaceKey(input.execution.group.folder);
   const [
     toolPolicy,
     selectedSkillContext,

@@ -18,7 +18,7 @@ export interface TaskIpcData {
   executionContext?: {
     conversationJid: string;
     threadId: string | null;
-    groupScope: string;
+    workspaceKey: string;
     sessionId?: string | null;
   };
   notificationRoutes?: Array<{
@@ -27,7 +27,7 @@ export interface TaskIpcData {
     label: string;
   }>;
   accessRequirements?: JobAccessRequirement[];
-  groupScope?: string;
+  workspaceKey?: string;
   threadId?: string | null;
   createdBy?: 'agent' | 'human';
   silent?: boolean;
@@ -45,7 +45,7 @@ export interface TaskIpcData {
   sinceId?: number;
   since?: string;
   limit?: number;
-  groupFolder?: string;
+  workspaceFolder?: string;
   chatJid?: string;
   targetJid?: string;
   jid?: string;

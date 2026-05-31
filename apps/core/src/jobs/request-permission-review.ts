@@ -17,15 +17,10 @@ import {
 } from '../shared/agent-tool-references.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
 import {
-  formatPersistentPermissionRulesForUser,
-  isPersistentRequestPermissionRuleAllowed,
-} from '../shared/persistent-permission-rules.js';
-import {
-  buildLocalCliSemanticCapability,
-  semanticCapabilityDefinitionFromToolInput,
-  type SemanticCapabilityDefinition,
-  validateSemanticCapabilityDefinition,
-} from '../shared/semantic-capabilities.js';
+  formatDurableAccessRulesForUser,
+  isDurableAccessRuleAllowed,
+} from '../shared/durable-access-policy.js';
+import { type SemanticCapabilityDefinition } from '../shared/semantic-capabilities.js';
 import { normalizePersistentBashRuleContent } from '../shared/bash-command-parser.js';
 import {
   isValidSemanticCapabilityId,
@@ -150,16 +145,9 @@ export function requestPermissionReviewSuggestions(
   );
   if (capabilityId && toolNames.length === 0) {
     if (!isValidSemanticCapabilityId(capabilityId)) return undefined;
-    const definitions = semanticCapabilityDefinitionsForToolInput(toolInput);
-    if (!definitions?.[capabilityId]) return undefined;
-    const publicToolRule = semanticCapabilityRule(capabilityId);
-    if (
-      !isPersistentRequestPermissionRuleAllowed(publicToolRule, {
-        semanticCapabilityDefinitions: definitions,
-      })
-    ) {
+    if (toolInput.capabilityRequestSource !== 'request_access')
       return undefined;
-    }
+    const publicToolRule = semanticCapabilityRule(capabilityId);
     const [publicToolName, publicRuleContent] =
       splitReadableToolRule(publicToolRule);
     return [
@@ -197,7 +185,7 @@ export function requestPermissionReviewSuggestions(
   if (!validateReadableAgentToolRule(publicToolRule).ok) {
     return undefined;
   }
-  if (!isPersistentRequestPermissionRuleAllowed(publicToolRule)) {
+  if (!isDurableAccessRuleAllowed(publicToolRule)) {
     return undefined;
   }
   const [suggestedToolName, publicRuleContent] =
@@ -226,7 +214,7 @@ export function requestPermissionSetupDecisionOptions(
     : ['allow_once', 'cancel'];
 }
 
-export { formatPersistentPermissionRulesForUser };
+export { formatDurableAccessRulesForUser };
 
 export function validateRequestPermissionSemanticCapability(
   toolInput: Record<string, unknown>,
@@ -238,84 +226,13 @@ export function validateRequestPermissionSemanticCapability(
   if (!isValidSemanticCapabilityId(capabilityId)) {
     return 'Capability id must use lowercase dot-separated words such as app.resource.action.';
   }
-  const definitions = semanticCapabilityDefinitionsForToolInput(toolInput);
-  const definition = definitions?.[capabilityId];
-  if (!definition) return undefined;
-  const validation = validateSemanticCapabilityDefinition(definition);
-  return validation.ok ? undefined : validation.reason;
+  return undefined;
 }
 
 export function semanticCapabilityDefinitionsForToolInput(
-  toolInput: Record<string, unknown>,
+  _toolInput: Record<string, unknown>,
 ): Record<string, SemanticCapabilityDefinition> | undefined {
-  const capabilityId = toTrimmedString(toolInput.capabilityId, {
-    maxLen: 160,
-  });
-  if (!capabilityId) return undefined;
-  if (capabilityId.startsWith('skill.')) return undefined;
-  const explicitDefinition = semanticCapabilityDefinitionFromToolInput(
-    toolInput,
-    capabilityId,
-  );
-  if (explicitDefinition) {
-    return { [explicitDefinition.capabilityId]: explicitDefinition };
-  }
-  if (toolInput.credentialSource !== 'local_cli') return undefined;
-  const commandTemplates = sanitizedStringList(
-    Array.isArray(toolInput.commandTemplates)
-      ? toolInput.commandTemplates
-      : [toolInput.commandTemplate],
-  );
-  const capability = buildLocalCliSemanticCapability({
-    capabilityId,
-    displayName:
-      toTrimmedString(toolInput.capabilityDisplayName, { maxLen: 200 }) ||
-      toTrimmedString(toolInput.displayName, { maxLen: 200 }) ||
-      capabilityId,
-    category:
-      toTrimmedString(toolInput.category, { maxLen: 120 }) || 'Local CLI',
-    risk:
-      toolInput.risk === 'read' ||
-      toolInput.risk === 'write' ||
-      toolInput.risk === 'admin'
-        ? toolInput.risk
-        : 'read',
-    accountLabel: toTrimmedString(toolInput.accountLabel, { maxLen: 200 }),
-    can:
-      toTrimmedString(toolInput.can, { maxLen: 1000 }) ||
-      'Review the proposed local CLI command templates and account context.',
-    cannot:
-      toTrimmedString(toolInput.cannot, { maxLen: 1000 }) ||
-      'Run commands outside the reviewed templates, receive raw tokens, or write credential stores.',
-    executablePath:
-      toTrimmedString(toolInput.executablePath, { maxLen: 2048 }) || '',
-    executableVersion: toTrimmedString(toolInput.executableVersion, {
-      maxLen: 200,
-    }),
-    executableHash: toTrimmedString(toolInput.executableHash, {
-      maxLen: 200,
-    }),
-    commandTemplates,
-    authPreflightCommand: toTrimmedString(toolInput.authPreflightCommand, {
-      maxLen: 2048,
-    }),
-    protectedPaths: sanitizedStringList(
-      Array.isArray(toolInput.protectedPaths) ? toolInput.protectedPaths : [],
-    ),
-    networkHosts: sanitizedStringList(
-      Array.isArray(toolInput.networkHosts)
-        ? toolInput.networkHosts
-        : Array.isArray(toolInput.network_hosts)
-          ? toolInput.network_hosts
-          : [],
-    ),
-    deniedEnvPatterns: sanitizedStringList(
-      Array.isArray(toolInput.deniedEnvPatterns)
-        ? toolInput.deniedEnvPatterns
-        : [],
-    ),
-  });
-  return { [capability.capabilityId]: capability };
+  return undefined;
 }
 
 export function validateRequestPermissionCapabilityProposal(input: {
@@ -328,11 +245,17 @@ export function validateRequestPermissionCapabilityProposal(input: {
   if (input.capabilityRequestSource !== 'request_access') {
     return 'Capability access must use request_access target.kind=capability, not direct request_permission.';
   }
-  const definitions = semanticCapabilityDefinitionsForToolInput(
-    input.toolInput,
-  );
-  if (!definitions?.[input.capabilityId]) {
-    return 'Capability proposals must include a reviewed semantic capability definition.';
+  if (
+    Object.prototype.hasOwnProperty.call(
+      input.toolInput,
+      'semanticCapabilityDefinition',
+    ) ||
+    Object.prototype.hasOwnProperty.call(
+      input.toolInput,
+      'capabilityDefinition',
+    )
+  ) {
+    return 'Capability definitions are host-owned catalog metadata and cannot be supplied in request_permission input.';
   }
   return undefined;
 }

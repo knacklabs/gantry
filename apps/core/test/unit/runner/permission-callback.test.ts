@@ -63,7 +63,7 @@ describe('requestPermissionApproval', () => {
     const first = requestPermissionApproval({
       appId: 'default',
       agentId: 'agent:main_agent',
-      groupFolder: 'main_agent',
+      workspaceFolder: 'main_agent',
       targetJid: 'tg:test',
       threadId: 'topic-1',
       toolName: 'Bash',
@@ -72,7 +72,7 @@ describe('requestPermissionApproval', () => {
     const second = requestPermissionApproval({
       appId: 'default',
       agentId: 'agent:main_agent',
-      groupFolder: 'main_agent',
+      workspaceFolder: 'main_agent',
       targetJid: 'tg:test',
       threadId: 'topic-2',
       toolName: 'Bash',
@@ -126,7 +126,7 @@ describe('requestPermissionApproval', () => {
     const first = requestPermissionApproval({
       appId: 'default',
       agentId: 'agent:main_agent',
-      groupFolder: 'main_agent',
+      workspaceFolder: 'main_agent',
       targetJid: 'tg:test',
       toolName: 'Bash',
       toolInput: { command: 'find ~/persona -type f' },
@@ -175,7 +175,7 @@ describe('requestPermissionApproval', () => {
     const second = requestPermissionApproval({
       appId: 'default',
       agentId: 'agent:main_agent',
-      groupFolder: 'main_agent',
+      workspaceFolder: 'main_agent',
       targetJid: 'tg:test',
       toolName: 'Browser',
       toolInput: { url: 'https://example.com' },

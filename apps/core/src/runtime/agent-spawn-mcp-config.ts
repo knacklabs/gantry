@@ -4,11 +4,11 @@ import path from 'path';
 import type { MaterializedMcpCapability } from '../application/mcp/mcp-server-service.js';
 
 export function writeRunnerMcpConfigFile(
-  groupIpcDir: string,
+  workspaceIpcDir: string,
   capabilities: MaterializedMcpCapability[],
 ): string {
   const configPath = path.join(
-    groupIpcDir,
+    workspaceIpcDir,
     `mcp-${globalThis.crypto.randomUUID()}.json`,
   );
   fs.mkdirSync(path.dirname(configPath), { recursive: true });

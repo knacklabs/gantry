@@ -36,7 +36,7 @@ export interface SchedulerJobPlanInput {
   executionContext?: {
     conversationJid: string;
     threadId: string | null;
-    groupScope: string;
+    workspaceKey: string;
     sessionId?: string | null;
   };
   notificationRoutes?: Array<{
@@ -99,21 +99,26 @@ export function formatSchedulerJobPlan(
     .map((req) => (req.target.kind === 'mcp_server' ? req.target.server : null))
     .filter((server): server is string => Boolean(server));
   const toolAccessRequirements =
-    toolRules.length > 0 ? toolRules.join(', ') : 'none';
+    toolRules.length > 0 ? `tools ${toolRules.join(', ')}` : undefined;
   const requiredCapabilities =
     capabilities.length > 0
-      ? capabilities.map(formatCapabilityRequirement).join(', ')
-      : 'none';
+      ? `capabilities ${capabilities.map(formatCapabilityRequirement).join(', ')}`
+      : undefined;
   const requiredMcpServers =
-    mcpServers.length > 0 ? mcpServers.join(', ') : 'none';
+    mcpServers.length > 0 ? `MCP servers ${mcpServers.join(', ')}` : undefined;
+  const accessRequirements = [
+    requiredCapabilities,
+    toolAccessRequirements,
+    requiredMcpServers,
+  ]
+    .filter((item): item is string => Boolean(item))
+    .join('; ');
   return [
     'Scheduler job plan. Review before confirming.',
     `- Schedule: ${input.scheduleType} ${input.scheduleValue || '(empty)'}`,
     `- Model: ${model}`,
-    `- Required capabilities: ${requiredCapabilities}`,
-    `- Tool access requirements: ${toolAccessRequirements}`,
-    `- Required MCP servers: ${requiredMcpServers}`,
-    '- Tool access: inherited from the target agent capability selection; use capability:<id> for reviewed semantic access, and reserve scoped RunCommand(...) for one-off exact command preflights.',
+    `- Access requirements: ${accessRequirements || 'none'}`,
+    '- Access: inherited from the target agent capability selection; use capability:<id> for reviewed semantic access, and reserve scoped RunCommand(...) for one-off exact command preflights.',
     '- Network: governed by the same tool permission and sandbox policy as live runs; no standalone scheduler network grant is created.',
     '- Memory: uses the target agent runtime memory settings; no memory schema or store changes are made by this plan.',
     `- Runtime: ${runtime}`,
@@ -126,7 +131,7 @@ function formatExecutionContext(
   context: SchedulerJobPlanInput['executionContext'],
 ): string {
   if (!context) return 'current conversation';
-  return `${context.conversationJid}${context.threadId ? `#${context.threadId}` : ''} (${context.groupScope})`;
+  return `${context.conversationJid}${context.threadId ? `#${context.threadId}` : ''} (${context.workspaceKey})`;
 }
 
 function normalizePlanInput(

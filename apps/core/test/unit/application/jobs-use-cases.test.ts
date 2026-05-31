@@ -24,7 +24,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     status: 'active',
     session_id: 'session-app-one',
     thread_id: null,
-    group_scope: 'app-folder',
+    workspace_key: 'app-folder',
     created_by: 'human',
     created_at: '2026-04-24T00:00:00.000Z',
     updated_at: '2026-04-24T00:00:00.000Z',
@@ -134,7 +134,7 @@ describe('job application use cases', () => {
     expect(upsertJob).toHaveBeenCalledWith(
       expect.objectContaining({
         session_id: 'session-app-one',
-        group_scope: 'app-one-workspace',
+        workspace_key: 'app-one-workspace',
       }),
     );
   });
@@ -202,7 +202,7 @@ describe('job application use cases', () => {
     let job = makeJob({
       id: 'job-browser',
       name: 'Browser job',
-      group_scope: 'team',
+      workspace_key: 'team',
       status: 'paused',
       pause_reason: 'Setup required',
       next_run: null,
@@ -210,7 +210,7 @@ describe('job application use cases', () => {
       execution_context: {
         conversationJid: 'tg:team',
         threadId: null,
-        groupScope: 'team',
+        workspaceKey: 'team',
       },
       setup_state: {
         state: 'missing_capability',
@@ -278,13 +278,13 @@ describe('job application use cases', () => {
     const foreignJob = makeJob({
       id: 'job-foreign',
       name: 'Foreign job',
-      group_scope: 'other-team',
+      workspace_key: 'other-team',
       status: 'paused',
       pause_reason: 'Setup required',
       execution_context: {
         conversationJid: 'tg:other',
         threadId: null,
-        groupScope: 'other-team',
+        workspaceKey: 'other-team',
       },
       setup_state: {
         state: 'missing_capability',
@@ -319,13 +319,13 @@ describe('job application use cases', () => {
     const job = makeJob({
       id: 'job-recovering',
       name: 'Recovering job',
-      group_scope: 'team',
+      workspace_key: 'team',
       status: 'paused',
       pause_reason: 'Setup required',
       execution_context: {
         conversationJid: 'tg:team',
         threadId: null,
-        groupScope: 'team',
+        workspaceKey: 'team',
       },
       setup_state: {
         state: 'missing_capability',
@@ -522,7 +522,7 @@ describe('job application use cases', () => {
       execution_context: {
         conversationJid: 'app:app-one:conversation',
         threadId: null,
-        groupScope: 'app-folder',
+        workspaceKey: 'app-folder',
         sessionId: 'session-app-one',
       },
       notification_routes: [
@@ -693,11 +693,11 @@ describe('job application use cases', () => {
     const ops = makeOps(
       makeJob({
         session_id: null,
-        group_scope: 'main_agent',
+        workspace_key: 'main_agent',
         execution_context: {
           conversationJid: 'tg:-1003986348737',
           threadId: null,
-          groupScope: 'main_agent',
+          workspaceKey: 'main_agent',
           sessionId: null,
         },
         notification_routes: [
@@ -750,11 +750,11 @@ describe('job application use cases', () => {
     const ops = makeOps(
       makeJob({
         session_id: null,
-        group_scope: 'main_agent',
+        workspace_key: 'main_agent',
         execution_context: {
           conversationJid: 'tg:-1003986348737',
           threadId: null,
-          groupScope: 'main_agent',
+          workspaceKey: 'main_agent',
           sessionId: null,
         },
         notification_routes: [
@@ -871,10 +871,10 @@ describe('job application use cases', () => {
       makeJob({
         status: 'paused',
         session_id: 'session-app-one',
-        group_scope: 'app-folder',
+        workspace_key: 'app-folder',
         execution_context: {
           conversationJid: 'app:app-one:conversation',
-          groupScope: 'app-folder',
+          workspaceKey: 'app-folder',
           threadId: null,
           sessionId: 'session-app-one',
         },
@@ -1130,7 +1130,7 @@ describe('job application use cases', () => {
           executionContext: {
             conversationJid: 'app:app-two:conversation',
             threadId: null,
-            groupScope: 'app-two-workspace',
+            workspaceKey: 'app-two-workspace',
             sessionId: 'session-app-two',
           },
         },
@@ -1223,12 +1223,12 @@ describe('job application use cases', () => {
     const hostOwnedJob = makeJob({
       id: 'host-owned-job',
       session_id: null,
-      group_scope: 'main_agent',
+      workspace_key: 'main_agent',
       created_by: 'agent',
       execution_context: {
         conversationJid: 'tg:-1003986348737',
         threadId: null,
-        groupScope: 'main_agent',
+        workspaceKey: 'main_agent',
       },
     });
     const appOwnedJob = makeJob({
@@ -1278,11 +1278,11 @@ describe('job application use cases', () => {
     expect(
       canAccessSchedulerJob(
         makeJob({
-          group_scope: 'team',
+          workspace_key: 'team',
           execution_context: {
             conversationJid: 'tg:team',
             threadId: 'thread-1',
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
         }),
         access,
@@ -1291,11 +1291,11 @@ describe('job application use cases', () => {
     expect(
       canAccessSchedulerJob(
         makeJob({
-          group_scope: 'other',
+          workspace_key: 'other',
           execution_context: {
             conversationJid: 'tg:team',
             threadId: 'thread-1',
-            groupScope: 'other',
+            workspaceKey: 'other',
           },
         }),
         access,
@@ -1304,11 +1304,11 @@ describe('job application use cases', () => {
     expect(
       canAccessSchedulerJob(
         makeJob({
-          group_scope: 'team',
+          workspace_key: 'team',
           execution_context: {
             conversationJid: 'tg:other',
             threadId: 'thread-1',
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
         }),
         access,
@@ -1317,11 +1317,11 @@ describe('job application use cases', () => {
     expect(
       canAccessSchedulerJob(
         makeJob({
-          group_scope: 'team',
+          workspace_key: 'team',
           execution_context: {
             conversationJid: 'tg:team',
             threadId: 'other-thread',
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
         }),
         access,
@@ -1330,12 +1330,12 @@ describe('job application use cases', () => {
     expect(
       canAccessSchedulerJob(
         makeJob({
-          group_scope: 'team',
+          workspace_key: 'team',
           thread_id: 'other-thread',
           execution_context: {
             conversationJid: 'tg:team',
             threadId: null,
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
         }),
         access,
@@ -1344,7 +1344,7 @@ describe('job application use cases', () => {
     expect(
       canAccessSchedulerJob(
         makeJob({
-          group_scope: 'team',
+          workspace_key: 'team',
           notification_routes: [
             {
               conversationJid: 'tg:team',
@@ -1359,7 +1359,7 @@ describe('job application use cases', () => {
     expect(
       canAccessSchedulerJob(
         makeJob({
-          group_scope: 'team',
+          workspace_key: 'team',
           notification_routes: [
             {
               conversationJid: 'tg:sibling',
@@ -1374,7 +1374,7 @@ describe('job application use cases', () => {
     expect(
       canAccessSchedulerJob(
         makeJob({
-          group_scope: 'team',
+          workspace_key: 'team',
           notification_routes: [
             {
               conversationJid: 'tg:sibling',
@@ -1395,11 +1395,11 @@ describe('job application use cases', () => {
       () =>
         assertSchedulerJobAccess(
           makeJob({
-            group_scope: 'other',
+            workspace_key: 'other',
             execution_context: {
               conversationJid: 'tg:team',
               threadId: 'thread-1',
-              groupScope: 'other',
+              workspaceKey: 'other',
             },
           }),
           access,
@@ -1422,11 +1422,11 @@ describe('job application use cases', () => {
     expect(
       canAccessSchedulerJob(
         makeJob({
-          group_scope: 'team',
+          workspace_key: 'team',
           execution_context: {
             conversationJid: 'tg:team',
             threadId: null,
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
         }),
         access,
@@ -1450,7 +1450,7 @@ describe('job application use cases', () => {
     expectThrowsCode(
       () =>
         validateSchedulerUpdate(
-          makeJob({ group_scope: 'team', thread_id: 'thread-1' }),
+          makeJob({ workspace_key: 'team', thread_id: 'thread-1' }),
           { thread_id: 'thread-2' },
           access,
         ),
@@ -1458,7 +1458,7 @@ describe('job application use cases', () => {
     );
     expect(() =>
       validateSchedulerUpdate(
-        makeJob({ group_scope: 'team', thread_id: 'thread-1' }),
+        makeJob({ workspace_key: 'team', thread_id: 'thread-1' }),
         { thread_id: null },
         access,
       ),
@@ -1467,17 +1467,17 @@ describe('job application use cases', () => {
 
   it('filters jobs by normalized agent id for plain and canonical group scopes', () => {
     expect(
-      isVisibleJob(makeJob({ group_scope: 'one' }), {
+      isVisibleJob(makeJob({ workspace_key: 'one' }), {
         agentId: 'agent:one',
       }),
     ).toBe(true);
     expect(
-      isVisibleJob(makeJob({ group_scope: 'agent:one' }), {
+      isVisibleJob(makeJob({ workspace_key: 'agent:one' }), {
         agentId: 'agent:one',
       }),
     ).toBe(true);
     expect(
-      isVisibleJob(makeJob({ group_scope: 'agent:two' }), {
+      isVisibleJob(makeJob({ workspace_key: 'agent:two' }), {
         agentId: 'agent:one',
       }),
     ).toBe(false);
@@ -1508,7 +1508,7 @@ describe('job application use cases', () => {
     expect(ops.listJobs).toHaveBeenCalledWith({
       appId: 'app-one',
       statuses: ['active'],
-      groupScope: undefined,
+      workspaceKey: undefined,
       agentId: 'agent:one',
       kind: 'recurring',
       conversationJid: 'tg:team',
@@ -1541,7 +1541,7 @@ describe('job application use cases', () => {
 
     expect(ops.listJobs).toHaveBeenCalledWith(
       expect.objectContaining({
-        groupScope: 'team',
+        workspaceKey: 'team',
         conversationJid: undefined,
         limit: 100,
       }),
@@ -1561,12 +1561,12 @@ describe('job application use cases', () => {
     };
     const threadedJob = makeJob({
       id: 'lead:knacklabs-controller',
-      group_scope: 'team',
+      workspace_key: 'team',
       thread_id: '2771',
       execution_context: {
         conversationJid: 'tg:team',
         threadId: '2771',
-        groupScope: 'team',
+        workspaceKey: 'team',
       },
     });
     const ops = {
@@ -1597,12 +1597,12 @@ describe('job application use cases', () => {
   it('keeps an existing job route when upserted from another topic in the same conversation', async () => {
     const existingJob = makeJob({
       id: 'lead:knacklabs-controller',
-      group_scope: 'team',
+      workspace_key: 'team',
       thread_id: '2771',
       execution_context: {
         conversationJid: 'tg:team',
         threadId: '2771',
-        groupScope: 'team',
+        workspaceKey: 'team',
       },
       notification_routes: [
         {
@@ -1645,7 +1645,7 @@ describe('job application use cases', () => {
         execution_context: {
           conversationJid: 'tg:team',
           threadId: '2771',
-          groupScope: 'team',
+          workspaceKey: 'team',
         },
         notification_routes: [
           {
@@ -2245,7 +2245,7 @@ describe('job application use cases', () => {
       getJobById: vi.fn(async () =>
         makeJob({
           id: 'other-job',
-          group_scope: 'other',
+          workspace_key: 'other',
         }),
       ),
       listJobRuns: vi.fn(async () => []),
@@ -2283,11 +2283,11 @@ describe('job application use cases', () => {
       getJobById: vi.fn(async () =>
         makeJob({
           id: 'sibling-job',
-          group_scope: 'team',
+          workspace_key: 'team',
           execution_context: {
             conversationJid: 'tg:sibling',
             threadId: null,
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
         }),
       ),
@@ -2342,11 +2342,11 @@ describe('job application use cases', () => {
     };
     const visibleJob = makeJob({
       id: 'job-1',
-      group_scope: 'team',
+      workspace_key: 'team',
       execution_context: {
         conversationJid: 'tg:team',
         threadId: null,
-        groupScope: 'team',
+        workspaceKey: 'team',
       },
     });
     const ops = {
@@ -2377,7 +2377,7 @@ describe('job application use cases', () => {
 
     expect(ops.listJobs).toHaveBeenCalledWith(
       expect.objectContaining({
-        groupScope: 'team',
+        workspaceKey: 'team',
         conversationJid: undefined,
       }),
     );
@@ -2473,7 +2473,7 @@ describe('job application use cases', () => {
       ops: makeOps(
         makeJob({
           id: 'job-1',
-          group_scope: 'team',
+          workspace_key: 'team',
           session_id: 'session-1',
           schedule_type: 'cron',
           schedule_value: '0 9 * * *',
@@ -2552,7 +2552,7 @@ describe('job application use cases', () => {
     const ops = makeOps(
       makeJob({
         id: 'job-1',
-        group_scope: 'team',
+        workspace_key: 'team',
         session_id: 'session-1',
         schedule_type: 'cron',
         schedule_value: '0 9 * * *',
@@ -2645,7 +2645,7 @@ describe('job application use cases', () => {
       ops: makeOps(
         makeJob({
           id: 'job-1',
-          group_scope: 'team',
+          workspace_key: 'team',
           session_id: null,
         }),
       ) as RuntimeJobRepository,
@@ -2695,12 +2695,12 @@ describe('job application use cases', () => {
       ops: makeOps(
         makeJob({
           id: 'job-1',
-          group_scope: 'team',
+          workspace_key: 'team',
           session_id: null,
           execution_context: {
             conversationJid: 'tg:team',
             threadId: 'topic-1',
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
           notification_routes: [
             {
@@ -2758,12 +2758,12 @@ describe('job application use cases', () => {
       ops: makeOps(
         makeJob({
           id: 'job-1',
-          group_scope: 'team',
+          workspace_key: 'team',
           session_id: null,
           execution_context: {
             conversationJid: 'tg:team',
             threadId: 'topic-1',
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
         }),
       ) as RuntimeJobRepository,
@@ -2808,12 +2808,12 @@ describe('job application use cases', () => {
       ops: makeOps(
         makeJob({
           id: 'job-1',
-          group_scope: 'team',
+          workspace_key: 'team',
           session_id: null,
           execution_context: {
             conversationJid: 'tg:team',
             threadId: 'topic-1',
-            groupScope: 'team',
+            workspaceKey: 'team',
           },
         }),
       ) as RuntimeJobRepository,
@@ -2857,7 +2857,7 @@ describe('job application use cases', () => {
       ops: makeOps(
         makeJob({
           status: 'paused',
-          group_scope: 'team',
+          workspace_key: 'team',
         }),
       ) as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },
@@ -2901,7 +2901,7 @@ describe('job application use cases', () => {
     const service = new JobManagementService({
       ops: makeOps(
         makeJob({
-          group_scope: 'team',
+          workspace_key: 'team',
         }),
       ) as RuntimeJobRepository,
       scheduler: { requestSchedulerSync: vi.fn() },

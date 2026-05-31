@@ -16,7 +16,7 @@ function createJob(overrides: Partial<Job> = {}): Job {
     status: 'active',
     session_id: 'session-1',
     thread_id: null,
-    group_scope: 'tg:team',
+    workspace_key: 'tg:team',
     created_by: 'agent',
     created_at: now,
     updated_at: now,

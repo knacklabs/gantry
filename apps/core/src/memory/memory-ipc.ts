@@ -13,10 +13,10 @@ import {
   ensurePrivateDirSync,
   writePrivateFileSync,
 } from '../shared/private-fs.js';
-import { resolveGroupIpcPath } from '../platform/group-folder.js';
+import { resolveWorkspaceIpcPath } from '../platform/workspace-folder.js';
 import {
   DEFAULT_MEMORY_APP_ID,
-  memoryAgentIdForGroupFolder,
+  memoryAgentIdForWorkspaceFolder,
 } from './app-memory-boundaries.js';
 import {
   resolveScopedMemorySubject,
@@ -173,7 +173,7 @@ export function resolveTrustedMemorySubject(
 ) {
   return resolveScopedMemorySubject({
     appId: DEFAULT_MEMORY_APP_ID,
-    agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
+    agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
     groupId: sourceAgentFolder,
     conversationId: canonicalConversationIdForMemory(context?.chatJid),
     userId: context?.userId,
@@ -338,7 +338,7 @@ export async function processMemoryRequest(
             ...subject,
             id: input.id,
             appId: DEFAULT_MEMORY_APP_ID,
-            agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
+            agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
             subjectType: subject.subjectType,
             subjectId: subject.subjectId,
             key: input.key,
@@ -549,7 +549,7 @@ export async function processMemoryRequest(
             ...subject,
             id: input.id,
             appId: DEFAULT_MEMORY_APP_ID,
-            agentId: memoryAgentIdForGroupFolder(sourceAgentFolder),
+            agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder),
             subjectType: subject.subjectType,
             subjectId: subject.subjectId,
             key: input.title ? `procedure:${input.title}` : undefined,
@@ -581,13 +581,13 @@ export async function processMemoryRequest(
 }
 
 export function writeMemoryResponse(
-  groupFolder: string,
+  workspaceFolder: string,
   requestId: string,
   response: MemoryIpcResponse,
   privateKeyPem?: string,
 ): void {
   assertValidRequestId(requestId);
-  const ipcDir = resolveGroupIpcPath(groupFolder);
+  const ipcDir = resolveWorkspaceIpcPath(workspaceFolder);
   const responsesDir = path.join(ipcDir, 'memory-responses');
   ensurePrivateDirSync(responsesDir);
 

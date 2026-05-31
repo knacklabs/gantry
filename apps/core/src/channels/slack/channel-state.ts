@@ -16,7 +16,7 @@ import {
   PermissionApprovalRequest,
   UserQuestionRequest,
 } from '../../domain/types.js';
-import { resolveGroupFolderPath } from '../../platform/group-folder.js';
+import { resolveWorkspaceFolderPath } from '../../platform/workspace-folder.js';
 import { ChannelOpts } from '../channel-provider.js';
 import {
   encodeSlackActionValue,
@@ -551,7 +551,7 @@ export abstract class SlackChannelState {
     const filename = this.sanitizeFilename(
       file.name || file.title || 'attachment.bin',
     );
-    const groupDir = resolveGroupFolderPath(group.folder);
+    const groupDir = resolveWorkspaceFolderPath(group.folder);
     const attachDir = path.join(groupDir, 'attachments');
     ensurePrivateDirSync(attachDir);
     const destPath = path.join(attachDir, filename);

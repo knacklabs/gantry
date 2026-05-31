@@ -41,7 +41,7 @@ export class CanonicalJobOpsService {
         ? existing.status
         : job.status || 'active';
     await this.repository.upsertJob(
-      this.toRecordInput(job.id, agentIdForFolder(job.group_scope), {
+      this.toRecordInput(job.id, agentIdForFolder(job.workspace_key), {
         name: job.name,
         prompt: job.prompt,
         model: job.model,
@@ -50,7 +50,7 @@ export class CanonicalJobOpsService {
         status,
         session_id: job.session_id,
         thread_id: job.thread_id,
-        group_scope: job.group_scope,
+        workspace_key: job.workspace_key,
         created_by: job.created_by,
         cleanup_after_ms: job.cleanup_after_ms,
         timeout_ms: job.timeout_ms,
@@ -97,7 +97,7 @@ export class CanonicalJobOpsService {
     const next = { ...current, ...updates };
     await this.repository.updateJob(
       id,
-      this.toRecordInput(id, agentIdForFolder(next.group_scope), {
+      this.toRecordInput(id, agentIdForFolder(next.workspace_key), {
         ...next,
         updated_at: updates.updated_at ?? currentIso(),
       }),
@@ -295,7 +295,7 @@ export class CanonicalJobOpsService {
     const executionContext = parseExecutionContext(target.executionContext) ?? {
       conversationJid: '',
       threadId: null,
-      groupScope: row.agentId?.replace(/^agent:/, '') || 'system',
+      workspaceKey: row.agentId?.replace(/^agent:/, '') || 'system',
       sessionId: null,
     };
     const notificationRoutes = resolveNotificationRoutesFromTarget({
@@ -317,7 +317,7 @@ export class CanonicalJobOpsService {
       status: row.status as Job['status'],
       session_id: executionContext.sessionId ?? null,
       thread_id: executionContext.threadId ?? null,
-      group_scope: executionContext.groupScope,
+      workspace_key: executionContext.workspaceKey,
       created_by: (target.createdBy as Job['created_by']) || 'agent',
       created_at: row.createdAt,
       updated_at: row.updatedAt,
@@ -433,12 +433,12 @@ function parseExecutionContext(
   if (!input || typeof input !== 'object') return undefined;
   const value = input as Record<string, unknown>;
   const conversationJid = normalizeString(value.conversationJid);
-  const groupScope = normalizeString(value.groupScope);
-  if (!conversationJid || !groupScope) return undefined;
+  const workspaceKey = normalizeString(value.workspaceKey);
+  if (!conversationJid || !workspaceKey) return undefined;
   return {
     conversationJid,
     threadId: normalizeNullableString(value.threadId),
-    groupScope,
+    workspaceKey,
     sessionId: normalizeNullableString(value.sessionId),
   };
 }
@@ -598,8 +598,8 @@ function resolveExecutionContext(
   return {
     conversationJid: fallbackConversation,
     threadId: normalizeNullableString(job.thread_id),
-    groupScope:
-      normalizeString(job.group_scope) ?? agentId.replace(/^agent:/, ''),
+    workspaceKey:
+      normalizeString(job.workspace_key) ?? agentId.replace(/^agent:/, ''),
     sessionId: normalizeNullableString(job.session_id),
   };
 }

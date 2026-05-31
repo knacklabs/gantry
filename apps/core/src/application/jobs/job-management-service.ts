@@ -100,8 +100,10 @@ export class JobManagementService {
         ? 'recurring_job'
         : 'one_time_job',
     );
-    const groupScope = (input.groupScope || access.sourceAgentFolder).trim();
-    if (groupScope !== access.sourceAgentFolder) {
+    const workspaceKey = (
+      input.workspaceKey || access.sourceAgentFolder
+    ).trim();
+    if (workspaceKey !== access.sourceAgentFolder) {
       throw new ApplicationError(
         'FORBIDDEN',
         'Scheduler jobs cannot be created outside the source group.',
@@ -117,7 +119,7 @@ export class JobManagementService {
     }
     const authenticatedContext = authenticatedContextFromAccess(
       access,
-      groupScope,
+      workspaceKey,
     );
     const requestedJobId = normalizeOptional(input.jobId);
     let id = this.deps.schedulePlanner.createJobId({
@@ -125,7 +127,7 @@ export class JobManagementService {
       prompt,
       scheduleType,
       scheduleValue: input.scheduleValue,
-      groupScope,
+      workspaceKey,
     });
     let existingJob: Job | undefined;
     if (requestedJobId) {
@@ -140,7 +142,7 @@ export class JobManagementService {
         input.executionContext === undefined
           ? (existingJob?.execution_context ?? {
               conversationJid: authenticatedContext.conversationJid,
-              groupScope: authenticatedContext.groupScope,
+              workspaceKey: authenticatedContext.workspaceKey,
               threadId: authThreadId ?? null,
             })
           : input.executionContext,
@@ -200,7 +202,7 @@ export class JobManagementService {
       schedule_value: input.scheduleValue.trim(),
       session_id: canonicalSession?.sessionId ?? null,
       thread_id: executionContext.threadId ?? null,
-      group_scope: groupScope,
+      workspace_key: workspaceKey,
       created_by: input.createdBy === 'human' ? 'human' : 'agent',
       status: 'active',
       next_run: schedule.nextRun,
@@ -246,15 +248,15 @@ export class JobManagementService {
   }
 
   async listJobs(input: ManagedJobListInput): Promise<{ jobs: Job[] }> {
-    const queryGroupScope = input.access
+    const queryWorkspaceKey = input.access
       ? input.access.sourceAgentFolder
-      : input.groupScope;
+      : input.workspaceKey;
     const repositoryAppId =
       input.appId === DEFAULT_JOB_RUNTIME_APP_ID ? undefined : input.appId;
     const jobs = await this.deps.ops.listJobs({
       appId: repositoryAppId,
       statuses: input.statuses,
-      groupScope: queryGroupScope,
+      workspaceKey: queryWorkspaceKey,
       agentId: input.agentId,
       kind: input.kind,
       conversationJid: input.conversationJid,

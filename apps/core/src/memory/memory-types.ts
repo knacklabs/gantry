@@ -1,5 +1,5 @@
 export type MemoryScope = 'user' | 'group' | 'global';
-export const MEMORY_GLOBAL_GROUP_FOLDER = '_global';
+export const MEMORY_GLOBAL_WORKSPACE_FOLDER = '_global';
 
 export const DIRECT_SAVE_MEMORY_KINDS = [
   'preference',
@@ -335,7 +335,7 @@ export type MemoryKind =
 export interface MemoryItem {
   id: string;
   scope: MemoryScope;
-  group_folder: string;
+  workspace_folder: string;
   user_id: string | null;
   kind: MemoryKind;
   key: string;
@@ -373,7 +373,7 @@ export interface MemoryItem {
 export interface MemoryProcedure {
   id: string;
   scope: MemoryScope;
-  group_folder: string;
+  workspace_folder: string;
   title: string;
   body: string;
   tags: string[];
@@ -395,7 +395,7 @@ export interface MemoryChunk {
   source_id: string;
   source_path: string;
   scope: MemoryScope;
-  group_folder: string;
+  workspace_folder: string;
   kind: string;
   chunk_hash: string;
   text: string;
@@ -412,7 +412,7 @@ export interface MemorySearchResult {
   source_path: string;
   text: string;
   scope: MemoryScope;
-  group_folder: string;
+  workspace_folder: string;
   created_at: string;
   lexical_score: number;
   vector_score: number;
@@ -425,14 +425,14 @@ export interface SimilarMemoryItemMatch {
 }
 
 export interface MemoryWriteContext {
-  groupFolder: string;
+  workspaceFolder: string;
   actor?: string;
   threadId?: string;
 }
 
 export interface SaveMemoryInput {
   scope?: MemoryScope;
-  group_folder?: string;
+  workspace_folder?: string;
   user_id?: string;
   kind?: MemoryKind;
   key: string;
@@ -457,7 +457,7 @@ export interface PatchMemoryInput {
 
 export interface SaveProcedureInput {
   scope?: MemoryScope;
-  group_folder?: string;
+  workspace_folder?: string;
   user_id?: string;
   title: string;
   body: string;

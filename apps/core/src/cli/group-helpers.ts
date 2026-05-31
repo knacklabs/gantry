@@ -3,7 +3,7 @@ import path from 'path';
 
 import type { ConversationRoute } from '../domain/types.js';
 import type { FileArtifactStore } from '../domain/ports/file-artifact-store.js';
-import { isValidGroupFolder } from '../platform/group-folder.js';
+import { isValidWorkspaceFolder } from '../platform/workspace-folder.js';
 import { PromptProfileService } from '../application/agents/prompt-profile-service.js';
 import { providerFromGroupJid, getProviderIds } from './provider-utils.js';
 import {
@@ -276,7 +276,7 @@ export function allocateGroupFolder(options: {
 }): string {
   if (options.preferredFolder) {
     const explicit = options.preferredFolder.trim();
-    if (!isValidGroupFolder(explicit)) {
+    if (!isValidWorkspaceFolder(explicit)) {
       throw new Error(
         `Invalid folder "${explicit}". Use letters, numbers, _ or - only.`,
       );
@@ -291,7 +291,7 @@ export function allocateGroupFolder(options: {
   );
   for (let i = 0; i < 1000; i += 1) {
     const candidate = i === 0 ? base : `${base}_${i + 1}`;
-    if (!isValidGroupFolder(candidate)) continue;
+    if (!isValidWorkspaceFolder(candidate)) continue;
     if (usedFolders.has(candidate)) continue;
     const candidatePath = path.join(options.runtimeHome, 'agents', candidate);
     if (fs.existsSync(candidatePath)) continue;

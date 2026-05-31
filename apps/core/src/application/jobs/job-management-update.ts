@@ -37,7 +37,7 @@ export async function updateManagedJob(
   const job = await requireJob(deps, input.jobId);
   await assertAccess(deps, job, input);
   const patch = { ...input.patch };
-  const targetGroupScope = patch.groupScope ?? job.group_scope;
+  const targetWorkspaceKey = patch.workspaceKey ?? job.workspace_key;
   const targetScheduleType = patch.scheduleType ?? job.schedule_type;
   if (typeof patch.model === 'string') {
     patch.model = resolveOptionalJobModel(
@@ -52,7 +52,7 @@ export async function updateManagedJob(
     job,
     appId: input.appId,
     access: input.access,
-    groupScope: targetGroupScope,
+    workspaceKey: targetWorkspaceKey,
     patchExecutionContext: patch.executionContext,
   });
   const normalizedExecutionContext =
@@ -70,8 +70,8 @@ export async function updateManagedJob(
     authenticatedContext &&
     (normalizedExecutionContext.conversationJid !==
       authenticatedContext.conversationJid ||
-      normalizedExecutionContext.groupScope !==
-        authenticatedContext.groupScope ||
+      normalizedExecutionContext.workspaceKey !==
+        authenticatedContext.workspaceKey ||
       (input.access &&
         (normalizedExecutionContext.threadId ?? null) !==
           (authenticatedContext.threadId ?? null)))
@@ -183,7 +183,7 @@ function defaultRuntimeSameConversationRouteContext(input: {
 }): {
   conversationJid: string;
   threadId: string | null;
-  groupScope: string;
+  workspaceKey: string;
 } | null {
   if (input.appId !== 'default' || !input.routes?.length) return null;
   const existingConversationJid =
@@ -207,7 +207,7 @@ function defaultRuntimeSameConversationRouteContext(input: {
   return {
     conversationJid: existingConversationJid,
     threadId: targetThreadId,
-    groupScope: input.job.group_scope,
+    workspaceKey: input.job.workspace_key,
   };
 }
 

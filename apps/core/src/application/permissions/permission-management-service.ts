@@ -42,9 +42,9 @@ import {
   removeLiveToolRules,
 } from '../../shared/live-tool-rules.js';
 import {
-  persistentPermissionRuleAuditPreview,
-  validatePersistentRequestPermissionRule,
-} from '../../shared/persistent-permission-rules.js';
+  durableAccessRuleAuditPreview,
+  validateDurableAccessRule,
+} from '../../shared/durable-access-policy.js';
 import { permissionUpdateAllowedToolRules } from '../../shared/permission-tool-rules.js';
 import { canonicalizeDurableSkillActionToolRule } from '../../shared/skill-action-capability-rules.js';
 import { stableSha256Json } from '../../shared/stable-hash.js';
@@ -119,14 +119,20 @@ export class PermissionManagementService {
   async applyPersistentToolRuleGrant(
     input: PersistentPermissionGrantInput,
   ): Promise<string[]> {
+    const activeCatalogTools = await input.toolRepository.listTools({
+      appId: input.appId,
+      statuses: ['active'],
+    });
+    const trustedSemanticCapabilityDefinitions =
+      semanticCapabilityDefinitionsFromToolCatalog(activeCatalogTools);
     const allowedRules = canonicalPersistentPermissionRules(
       permissionUpdateAllowedToolRules(input.updates),
-      input.semanticCapabilityDefinitions,
+      trustedSemanticCapabilityDefinitions,
     );
     if (allowedRules.length === 0) return [];
     for (const allowedRule of allowedRules) {
       this.validatePersistentRule(allowedRule, {
-        semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
+        semanticCapabilityDefinitions: trustedSemanticCapabilityDefinitions,
       });
     }
 
@@ -184,7 +190,7 @@ export class PermissionManagementService {
             description:
               'Persistent permission rule approved from permission management.',
             adapterRef: 'permission/request_permission',
-            semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
+            semanticCapabilityDefinitions: trustedSemanticCapabilityDefinitions,
           });
           toolId = tool.id as AgentToolBinding['toolId'];
         }
@@ -239,7 +245,7 @@ export class PermissionManagementService {
         toolId: grantedToolIds[0],
         auditMetadata: persistentPermissionGrantAuditMetadata({
           rules: allowedRules,
-          semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
+          semanticCapabilityDefinitions: trustedSemanticCapabilityDefinitions,
         }),
       });
       throw err;
@@ -250,7 +256,7 @@ export class PermissionManagementService {
       runHandle: input.runHandle,
       rules: expandSemanticCapabilityPermissionRules({
         rules: allowedRules,
-        definitions: input.semanticCapabilityDefinitions,
+        definitions: trustedSemanticCapabilityDefinitions,
       }),
     });
 
@@ -274,7 +280,7 @@ export class PermissionManagementService {
       toolId: grantedToolIds[0],
       auditMetadata: persistentPermissionGrantAuditMetadata({
         rules: allowedRules,
-        semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
+        semanticCapabilityDefinitions: trustedSemanticCapabilityDefinitions,
       }),
     });
     return allowedRules;
@@ -349,7 +355,7 @@ export class PermissionManagementService {
         agentId: input.agentId,
         requestId:
           input.requestId ?? `revoke-failure:${globalThis.crypto.randomUUID()}`,
-        toolName: `revoke ${persistentPermissionRuleAuditPreview(target.rule)}`,
+        toolName: `revoke ${durableAccessRuleAuditPreview(target.rule)}`,
         decision: {
           approved: false,
           reason:
@@ -370,7 +376,7 @@ export class PermissionManagementService {
       appId: input.appId,
       agentId: input.agentId,
       requestId: input.requestId ?? `revoke:${globalThis.crypto.randomUUID()}`,
-      toolName: `revoke ${persistentPermissionRuleAuditPreview(target.rule)}`,
+      toolName: `revoke ${durableAccessRuleAuditPreview(target.rule)}`,
       decision: {
         approved: false,
         decidedBy: input.actor,
@@ -431,7 +437,7 @@ export class PermissionManagementService {
       >;
     },
   ): void {
-    const validation = validatePersistentRequestPermissionRule(allowedRule, {
+    const validation = validateDurableAccessRule(allowedRule, {
       ...options,
       allowUnknownSemanticCapability: false,
     });
@@ -478,14 +484,30 @@ function canonicalPersistentPermissionRules(
   ];
 }
 
+function semanticCapabilityDefinitionsFromToolCatalog(
+  tools: readonly ToolCatalogItem[],
+): Record<string, SemanticCapabilityDefinition> | undefined {
+  const definitions: Record<string, SemanticCapabilityDefinition> = {};
+  for (const tool of tools) {
+    if (tool.status !== 'active' || !tool.selectable) continue;
+    const capability = semanticCapabilityFromToolCatalogItem({
+      name: tool.name,
+      inputSchema: tool.inputSchema,
+    });
+    if (!capability) continue;
+    definitions[capability.capabilityId] = capability;
+  }
+  return Object.keys(definitions).length > 0 ? definitions : undefined;
+}
+
 function persistentPermissionRuleAuditPreviewForRules(
   rules: readonly string[],
 ): string {
   if (rules.length === 0) return 'unknown';
   if (rules.length === 1 && rules[0]) {
-    return persistentPermissionRuleAuditPreview(rules[0]);
+    return durableAccessRuleAuditPreview(rules[0]);
   }
-  return rules.map(persistentPermissionRuleAuditPreview).join(', ');
+  return rules.map(durableAccessRuleAuditPreview).join(', ');
 }
 
 function persistentPermissionGrantAuditMetadata(input: {

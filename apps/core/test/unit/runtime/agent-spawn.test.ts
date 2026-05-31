@@ -95,7 +95,7 @@ vi.mock('@core/runtime/agent-spawn-host.js', () => ({
   }),
   prepareHostRuntimeContext: vi.fn(() => ({
     groupDir: '/tmp/gantry-test-data/agents/test-group',
-    groupIpcDir: '/tmp/gantry-test-data/ipc/test-group',
+    workspaceIpcDir: '/tmp/gantry-test-data/ipc/test-group',
     runnerDistDir: '/tmp/gantry-home/dist/runner',
   })),
 }));
@@ -126,10 +126,10 @@ vi.mock(
   }),
 );
 
-const mockEnsureGroupIpcLayout = vi.fn();
+const mockEnsureWorkspaceIpcLayout = vi.fn();
 vi.mock('@core/runtime/agent-spawn-layout.js', () => ({
-  ensureGroupIpcLayout: (...args: unknown[]) =>
-    mockEnsureGroupIpcLayout(...args),
+  ensureWorkspaceIpcLayout: (...args: unknown[]) =>
+    mockEnsureWorkspaceIpcLayout(...args),
 }));
 
 // Mock prompt-profile
@@ -148,9 +148,12 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
 }));
 
 // Mock platform
-vi.mock('@core/platform/group-folder.js', () => ({
-  resolveGroupFolderPath: vi.fn(
+vi.mock('@core/platform/workspace-folder.js', () => ({
+  resolveWorkspaceFolderPath: vi.fn(
     (folder: string) => `/tmp/gantry-test-data/agents/${folder}`,
+  ),
+  resolveWorkspaceIpcPath: vi.fn(
+    (folder: string) => `/tmp/gantry-test-data/ipc/${folder}`,
   ),
 }));
 
@@ -239,7 +242,7 @@ const testGroup: ConversationRoute = {
 
 const testInput = {
   prompt: 'Hello',
-  groupFolder: 'test-group',
+  workspaceFolder: 'test-group',
   chatJid: 'test@g.us',
 };
 
@@ -579,7 +582,7 @@ describe('agent-spawn timeout behavior', () => {
       brokerApplied: true,
       brokerProfile: 'gantry',
     });
-    mockEnsureGroupIpcLayout.mockClear();
+    mockEnsureWorkspaceIpcLayout.mockClear();
     mockEnsureEgressGateway.mockClear();
     mockCloseEgressGateway.mockClear();
     mockGetBrowserStatus.mockReset();
@@ -826,7 +829,7 @@ describe('agent-spawn timeout behavior', () => {
     await vi.advanceTimersByTimeAsync(10);
     await resultPromise;
 
-    expect(mockEnsureGroupIpcLayout).toHaveBeenCalledWith(
+    expect(mockEnsureWorkspaceIpcLayout).toHaveBeenCalledWith(
       '/tmp/gantry-test-data/ipc/test-group',
     );
   });
@@ -2166,7 +2169,7 @@ describe('agent-spawn timeout behavior', () => {
     };
     const resultPromise = spawnTestAgent(
       mainGroup,
-      { ...testInput, groupFolder: 'main_agent' },
+      { ...testInput, workspaceFolder: 'main_agent' },
       () => {},
     );
     await vi.advanceTimersByTimeAsync(10);

@@ -834,7 +834,7 @@ The `gantry` MCP server is created dynamically per agent call with the current c
 | `send_message` | Send a message to the configured conversation route |
 
 Scheduler MCP job visibility and mutation are scoped to both the calling
-agent's runtime scope and the current conversation: `group_scope` must match the
+agent's runtime scope and the current conversation: `workspace_key` must match the
 agent, and `executionContext.conversationJid` must match the originating chat.
 Thread/topic ids may be checked to prevent delivery retargeting, but they do
 not create job visibility or run authority.

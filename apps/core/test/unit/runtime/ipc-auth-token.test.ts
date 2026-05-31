@@ -11,12 +11,12 @@ import {
 } from '@core/runtime/ipc-auth.js';
 
 describe('ipc auth token', () => {
-  it('validates tokens for the matching group folder', () => {
+  it('validates tokens for the matching workspace key', () => {
     const token = computeIpcAuthToken('team-alpha');
     expect(validateIpcAuthToken('team-alpha', token)).toBe(true);
   });
 
-  it('rejects tokens for other group folders', () => {
+  it('rejects tokens for other workspace keys', () => {
     const token = computeIpcAuthToken('team-alpha');
     expect(validateIpcAuthToken('team-beta', token)).toBe(false);
   });
