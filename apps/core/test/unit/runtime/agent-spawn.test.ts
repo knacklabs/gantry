@@ -2292,6 +2292,37 @@ describe('agent-spawn timeout behavior', () => {
     },
   );
 
+  it('allows third-party MCP tools projected from reviewed semantic capability runtime access', async () => {
+    const resultPromise = spawnTestAgent(
+      testGroup,
+      {
+        ...testInput,
+        allowedTools: [
+          'capability:mcp.caw-ats.access',
+          'mcp__caw-ats__ats_list_positions',
+        ],
+        runtimeAccess: [
+          {
+            selectedCapabilityId: 'mcp.caw-ats.access',
+            sourceType: 'mcp_server',
+            auditLabel: 'caw-ats MCP access',
+            reviewedServerId: 'caw-ats',
+            allowedTools: ['mcp__caw-ats__ats_list_positions'],
+            credentialRefs: [],
+          },
+        ],
+      },
+      () => {},
+    );
+
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    expect(spawn).toHaveBeenCalled();
+  });
+
   it('keeps browser action backend private when Browser is selected', async () => {
     const originalNoProxy = process.env.NO_PROXY;
     const originalLowerNoProxy = process.env.no_proxy;

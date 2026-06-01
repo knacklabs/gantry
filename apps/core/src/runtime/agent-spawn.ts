@@ -51,7 +51,6 @@ import {
 } from './agent-spawn-types.js';
 import { selectedMemoryIpcActionsFromToolRules } from '../shared/memory-ipc-actions.js';
 import { isCanonicalBrowserCapabilityRule } from '../shared/agent-tool-references.js';
-import { validateAgentToolRuntimeRules } from '../application/agents/agent-tool-runtime-rules.js';
 import { resolveMcpCredentialEnvForAgent } from '../application/capability-secrets/mcp-secret-projection.js';
 import { resolveSelectedSkillEnvForAgent } from '../application/capability-secrets/skill-secret-projection.js';
 import { nowIso, nowMs as currentTimeMs } from '../shared/time/datetime.js';
@@ -60,6 +59,7 @@ import { effectiveYoloModeSettings } from '../shared/yolo-mode-policy.js';
 import { formatGeneratedRuntimePathPermissionError } from './generated-runtime-path-error.js';
 import { resolveAgentExecutionAdapter } from '../application/agent-execution/agent-execution-adapter-registry.js';
 import { writeRunnerMcpConfigFile } from './agent-spawn-mcp-config.js';
+import { validateRunnerAllowedTools } from './agent-spawn-tool-validation.js';
 type RunnerAgentInput = AgentInput & {
   modelCredentialEnv?: Record<string, string>;
 };
@@ -210,18 +210,6 @@ function pickSelectedCapabilityEnv(
   return env;
 }
 
-function validateRunnerAllowedTools(rules: readonly string[]): string | null {
-  try {
-    validateAgentToolRuntimeRules({
-      rules,
-      errorSubject: 'Configured agent tool',
-    });
-    return null;
-  } catch (err) {
-    return err instanceof Error ? err.message : String(err);
-  }
-}
-
 function cleanupRunnerMcpConfigFile(configPath: string | undefined): void {
   if (!configPath) return;
   try {
@@ -286,9 +274,7 @@ export async function spawnAgent(
   }
   const effectiveModel = resolvedModel.value.runnerModel;
   const effectiveModelEntry = resolvedModel.value.modelEntry;
-  const allowedToolValidationError = validateRunnerAllowedTools(
-    input.allowedTools ?? [],
-  );
+  const allowedToolValidationError = validateRunnerAllowedTools(input);
   if (allowedToolValidationError) {
     return {
       status: 'error',

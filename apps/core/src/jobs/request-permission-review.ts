@@ -61,6 +61,7 @@ export async function persistRequestPermissionRules(input: {
   deps: Pick<
     IpcDeps,
     | 'getToolRepository'
+    | 'getMcpServerRepository'
     | 'getPermissionRepository'
     | 'mirrorAgentToolRulesToSettings'
   >;
@@ -105,6 +106,7 @@ export async function persistRequestPermissionRules(input: {
     sourceAgentFolder: input.sourceAgentFolder,
     updates: input.updates,
     toolRepository: repository,
+    mcpServerRepository: input.deps.getMcpServerRepository?.(),
     mirrorAgentToolRulesToSettings,
     permissionRepository: input.deps.getPermissionRepository?.(),
     semanticCapabilityDefinitions: input.toolInput

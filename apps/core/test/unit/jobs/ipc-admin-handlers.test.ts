@@ -150,7 +150,11 @@ describe('admin IPC handlers', () => {
     const servers = new Map<string, Record<string, unknown>>();
     const bindings: Record<string, unknown>[] = [];
     const mcpServers = {
-      getServerByName: vi.fn(async () => null),
+      getServerByName: vi.fn(async ({ name }: { name: string }) => {
+        return (
+          [...servers.values()].find((server) => server.name === name) ?? null
+        );
+      }),
       saveServer: vi.fn(async (server: Record<string, unknown>) => {
         servers.set(String(server.id), server);
       }),
@@ -159,6 +163,8 @@ describe('admin IPC handlers', () => {
       saveAgentBinding: vi.fn(async (binding: Record<string, unknown>) => {
         bindings.push(binding);
       }),
+      disableAgentBinding: vi.fn(async () => null),
+      transitionServerStatus: vi.fn(async () => null),
       appendAuditEvent: vi.fn(async () => undefined),
     };
     const tools = {
@@ -167,6 +173,7 @@ describe('admin IPC handlers', () => {
       getTool: vi.fn(async () => null),
       saveTool: vi.fn(async () => undefined),
       saveAgentToolBinding: vi.fn(async () => undefined),
+      disableAgentToolBinding: vi.fn(async () => null),
     };
     const { adminTaskHandlers, taskData } = await loadAdminHandlers(
       runtimeHome,
@@ -196,6 +203,7 @@ describe('admin IPC handlers', () => {
       deps: depsWithAdminTools([], {
         requestPermissionApproval,
         getToolRepository: () => tools,
+        getMcpServerRepository: () => mcpServers,
         mirrorAgentToolRulesToSettings,
       }) as never,
       conversationBindings: {},
