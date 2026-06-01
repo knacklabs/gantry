@@ -26,6 +26,7 @@ import {
   requestPermissionReviewEffect,
   requestPermissionReviewSuggestions,
   requestPermissionSetupDecisionOptions,
+  requestPermissionTransientLiveRules,
   validateRequestPermissionCapabilityProposal,
   validateRequestPermissionSemanticCapability,
 } from './request-permission-review.js';
@@ -47,6 +48,7 @@ import {
 } from '../shared/agent-tool-references.js';
 import { semanticCapabilityFromToolCatalogItem } from '../shared/semantic-capabilities.js';
 import { PermissionManagementService } from '../application/permissions/permission-management-service.js';
+import { skillActionDefinitionsForAgent } from '../application/agents/agent-capability-skill-actions.js';
 import {
   formatApprovalRequestedMessage,
   formatNotApprovedMessage,
@@ -62,6 +64,7 @@ import {
   headerNameForCredentialNeed,
 } from './ipc-mcp-server-request-credentials.js';
 import { semanticCapabilityInteraction } from './ipc-semantic-capability-interaction.js';
+import { appendLiveToolRules } from '../shared/live-tool-rules.js';
 
 const pendingRequestOnlyCapabilityReviews = new Set<string>();
 configureSkillInstallHandlers({
@@ -358,7 +361,7 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
   if (typeof deps.requestPermissionApproval !== 'function' || typeof deps.sendMessage !== 'function') { reject(`${parsed.review.requestKind} requests require a configured approval surface.`, 'preflight_failed'); return; }
   const jobConflict = await jobLocalCliCapabilityConflict({ deps, jobId: data.jobId, review: parsed.review });
   if (jobConflict) { reject(jobConflict, 'wrong_capability_lane'); return; }
-  const catalogConflict = await missingReviewedCapabilityCatalogEntry({ deps, appId: data.appId as string, review: parsed.review });
+  const catalogConflict = await missingReviewedCapabilityCatalogEntry({ deps, appId: data.appId as string, agentId: memoryAgentIdForWorkspaceFolder(sourceAgentFolder), review: parsed.review });
   if (catalogConflict) { reject(catalogConflict, 'invalid_request'); return; }
   const pendingKey = requestOnlyCapabilityPendingKey({ data, sourceAgentFolder, targetJid: requestedTargetJid, review: parsed.review });
   if (pendingRequestOnlyCapabilityReviews.has(pendingKey)) { accept(`${parsed.review.displayName} request is already waiting for approval in this chat.`, 'capability_request_already_pending'); return; }
@@ -370,6 +373,7 @@ const requestOnlyCapabilityHandler: TaskHandler = async (context) => {
 async function missingReviewedCapabilityCatalogEntry(input: {
   deps: TaskContext['deps'];
   appId: string;
+  agentId: string;
   review: RequestOnlyCapabilityReview;
 }): Promise<string | undefined> {
   if (input.review.toolName !== 'request_permission') return undefined;
@@ -385,24 +389,31 @@ async function missingReviewedCapabilityCatalogEntry(input: {
   ]);
   if (toolNames.length > 0) return undefined;
   const repository = input.deps.getToolRepository?.();
-  if (!repository || typeof repository.listTools !== 'function') {
-    return 'Capability access requires an active reviewed capability catalog entry. Use capability_search/propose_capability/manage_capability before request_access.';
-  }
-  const activeTools = await repository.listTools({
-    appId: input.appId as never,
-    statuses: ['active'],
-  });
-  const matched = activeTools.some((tool) => {
-    if (tool.status !== 'active' || !tool.selectable) return false;
-    const capability = semanticCapabilityFromToolCatalogItem({
-      name: tool.name,
-      inputSchema: tool.inputSchema,
+  if (repository && typeof repository.listTools === 'function') {
+    const activeTools = await repository.listTools({
+      appId: input.appId as never,
+      statuses: ['active'],
     });
-    return capability?.capabilityId === capabilityId;
-  });
-  return matched
-    ? undefined
-    : 'Capability access requires an active reviewed capability catalog entry. Use capability_search/propose_capability/manage_capability before request_access.';
+    const matched = activeTools.some((tool) => {
+      if (tool.status !== 'active' || !tool.selectable) return false;
+      const capability = semanticCapabilityFromToolCatalogItem({
+        name: tool.name,
+        inputSchema: tool.inputSchema,
+      });
+      return capability?.capabilityId === capabilityId;
+    });
+    if (matched) return undefined;
+  }
+  const skillRepository = input.deps.getSkillRepository?.();
+  if (skillRepository) {
+    const skillCapabilities = await skillActionDefinitionsForAgent({
+      appId: input.appId as never,
+      agentId: input.agentId as never,
+      skillRepository,
+    });
+    if (skillCapabilities[capabilityId]) return undefined;
+  }
+  return 'Capability access requires an active reviewed capability catalog entry. Use capability_search/propose_capability/manage_capability before request_access.';
 }
 
 // prettier-ignore
@@ -635,15 +646,17 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
       });
       const reason = decision.approved ? 'missing approving principal' : decision.reason || 'not approved';
       let persistedRules: string[] = [];
+      let liveRules: string[] = [];
       if (input.review.toolName === 'request_permission' && isPermanentPermissionDecision(decision)) {
         persistedRules = await persistRequestPermissionRules({ deps: input.deps, appId: input.appId, agentId: input.agentId, sourceAgentFolder: input.sourceAgentFolder, ipcDir: input.ipcDir, runHandle: input.runHandle, requestId, updates: decision.updatedPermissions ?? [], toolInput: input.review.toolInput, actor: decision.decidedBy, conversationId: input.targetJid, threadId: input.threadId, reason: decision.reason });
       }
+      const transientRules = input.review.toolName === 'request_permission' && decision.approved && decision.decidedBy && decision.mode === 'allow_once' ? requestPermissionTransientLiveRules(input.review.toolInput) : [];
+      if (transientRules.length > 0) liveRules = appendLiveToolRules({ ipcDir: input.ipcDir, runHandle: input.runHandle, rules: transientRules });
       try {
         await getRuntimeStorage().repositories.pendingAccessRequests.markResolved({
           appId: input.appId,
           id: requestId,
-          resolution:
-            decision.approved && decision.decidedBy ? 'approved' : 'denied',
+          resolution: decision.approved && decision.decidedBy ? 'approved' : 'denied',
         });
       } catch (err) {
         logger.warn({ err, requestId }, 'Failed to resolve pending access request');
@@ -651,6 +664,8 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
       message = decision.approved && decision.decidedBy
         ? persistedRules.length
           ? `Allowed ${input.review.displayName}. Future matching requests are allowed. Details: ${formatDurableAccessRulesForUser(persistedRules)}.`
+          : liveRules.length
+            ? `Allowed ${input.review.displayName} for this run. Details: ${formatDurableAccessRulesForUser(liveRules)}.`
           : `Approved ${input.review.displayName}. Admin setup may still be needed before it can be used.`
         : `Not approved: ${input.review.displayName}. Reason: ${reason}.`;
     } catch (err) {

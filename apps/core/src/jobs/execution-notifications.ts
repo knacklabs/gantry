@@ -80,7 +80,7 @@ export async function notifySchedulerRunStart(input: {
   if (input.job.silent) return false;
   return sendJobNotification({
     job: input.job,
-    text: `**▶️ Running · ${input.job.name}**`,
+    text: `**▶️ Running** · ${input.job.name}`,
     phase: 'start',
     runId: input.runId,
     sendMessage: input.sendMessage,
@@ -103,7 +103,7 @@ export async function notifySchedulerSetupRequired(input: {
   return sendJobNotification({
     job: input.job,
     text: [
-      `**🛠️ Setup needed · ${input.job.name}**`,
+      `**🛠️ Setup needed** · ${input.job.name}`,
       reason,
       `Action: ${action}`,
     ].join('\n'),

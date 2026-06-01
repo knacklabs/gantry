@@ -176,6 +176,11 @@ function createOptsWithApproverHook(
   };
 }
 
+async function flushSlackPromptRegistration(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 describe('Slack channel', () => {
   let savedGantryHome: string | undefined;
 
@@ -957,6 +962,7 @@ describe('Slack channel', () => {
         },
       },
     );
+    await flushSlackPromptRegistration();
 
     const postCall = vi
       .mocked(appRef.current.client.chat.postMessage)
@@ -974,7 +980,10 @@ describe('Slack channel', () => {
       ack: vi.fn().mockResolvedValue(undefined),
       body: { user: { id: 'U_APPROVER', name: 'Approver' } },
       action: {
-        value: JSON.stringify({ requestId: 'perm-cmd', decision: 'approve' }),
+        value: JSON.stringify({
+          requestId: 'perm-cmd',
+          decision: 'allow_once',
+        }),
       },
     });
 
@@ -1000,6 +1009,7 @@ describe('Slack channel', () => {
         toolName: 'Bash',
       },
     );
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -1013,7 +1023,7 @@ describe('Slack channel', () => {
       action: {
         value: JSON.stringify({
           requestId: 'perm-no-approver',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       },
     });
@@ -1048,6 +1058,7 @@ describe('Slack channel', () => {
         toolName: 'Bash',
       },
     );
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -1061,7 +1072,7 @@ describe('Slack channel', () => {
       action: {
         value: JSON.stringify({
           requestId: 'perm-origin-feedback',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       },
     });
@@ -1097,6 +1108,7 @@ describe('Slack channel', () => {
         toolName: 'Bash',
       },
     );
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -1110,7 +1122,7 @@ describe('Slack channel', () => {
       action: {
         value: JSON.stringify({
           requestId: 'perm-channel-allowlist',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       },
     });
@@ -1147,6 +1159,7 @@ describe('Slack channel', () => {
         toolName: 'Bash',
       },
     );
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -1160,7 +1173,7 @@ describe('Slack channel', () => {
       action: {
         value: JSON.stringify({
           requestId: 'perm-container-channel',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       },
     });
@@ -1198,6 +1211,7 @@ describe('Slack channel', () => {
         toolName: 'Bash',
       },
     );
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -1210,7 +1224,7 @@ describe('Slack channel', () => {
       action: {
         value: JSON.stringify({
           requestId: 'perm-missing-channel',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       },
     });
@@ -1252,6 +1266,7 @@ describe('Slack channel', () => {
         toolName: 'Bash',
       },
     );
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -1262,7 +1277,7 @@ describe('Slack channel', () => {
       action: {
         value: JSON.stringify({
           requestId: 'perm-agent-scope',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       },
     });
@@ -1299,6 +1314,7 @@ describe('Slack channel', () => {
         toolName: 'Bash',
       },
     );
+    await flushSlackPromptRegistration();
     currentControlAllowlist.current = { default: [], agents: {} };
 
     const actionHandler = appRef.current.actionHandlers.get(
@@ -1310,7 +1326,7 @@ describe('Slack channel', () => {
       action: {
         value: JSON.stringify({
           requestId: 'perm-revoked',
-          decision: 'approve',
+          decision: 'allow_once',
         }),
       },
     });
@@ -1353,6 +1369,7 @@ describe('Slack channel', () => {
         },
       ],
     });
+    await flushSlackPromptRegistration();
 
     const postCall = vi
       .mocked(appRef.current.client.chat.postMessage)
@@ -1413,6 +1430,7 @@ describe('Slack channel', () => {
         },
       ],
     });
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_userq_select',
@@ -1486,6 +1504,7 @@ describe('Slack channel', () => {
         },
       ],
     });
+    await flushSlackPromptRegistration();
 
     const selectHandler = appRef.current.actionHandlers.get(
       'gantry_userq_select',
@@ -1596,7 +1615,7 @@ describe('Slack channel', () => {
       ],
     });
 
-    await Promise.resolve();
+    await flushSlackPromptRegistration();
     await channel.disconnect();
     await expect(answerPromise).resolves.toEqual(
       expect.objectContaining({ answers: {} }),
@@ -2329,6 +2348,7 @@ describe('Slack channel', () => {
         toolName: 'shell',
       },
     );
+    await flushSlackPromptRegistration();
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_perm_decision',
@@ -2338,7 +2358,10 @@ describe('Slack channel', () => {
       ack: vi.fn().mockResolvedValue(undefined),
       body: { user: { id: 'U_APPROVER', name: 'Approver' } },
       action: {
-        value: JSON.stringify({ requestId: 'req-1', decision: 'approve' }),
+        value: JSON.stringify({
+          requestId: 'req-1',
+          decision: 'allow_once',
+        }),
       },
     });
 

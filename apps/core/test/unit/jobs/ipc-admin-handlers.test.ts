@@ -232,6 +232,97 @@ describe('admin IPC handlers', () => {
     expect(requestPermissionApproval).not.toHaveBeenCalled();
   });
 
+  it('accepts request_access skill action capabilities from selected skill definitions', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: false,
+      reason: 'not now',
+    }));
+    const now = '2026-06-02T00:00:00.000Z';
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('selected-skill-capability-request', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        payload: {
+          permissionKind: 'tool',
+          capabilityRequestSource: 'request_access',
+          capabilityId: 'skill.publisher.publish',
+          capabilityDisplayName: 'Publisher publish',
+          temporaryOnly: false,
+          reason: 'publish prepared content',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: depsWithAdminTools([], {
+        requestPermissionApproval,
+        getToolRepository: () => ({
+          listTools: vi.fn(async () => []),
+        }),
+        getSkillRepository: () => ({
+          listAgentSkillBindings: vi.fn(async () => [
+            {
+              id: 'binding:publisher',
+              appId: 'app:test',
+              agentId: 'agent:main_agent',
+              skillId: 'skill:publisher',
+              status: 'active',
+              createdAt: now,
+              updatedAt: now,
+            },
+          ]),
+          getSkill: vi.fn(async () => ({
+            id: 'skill:publisher',
+            appId: 'app:test',
+            name: 'publisher',
+            source: 'admin_uploaded',
+            status: 'installed',
+            promptRefs: [],
+            toolIds: [],
+            workflowRefs: [],
+            actionPermissions: [
+              {
+                id: 'publish',
+                capabilityId: 'skill.publisher.publish',
+                displayName: 'Publisher publish',
+                risk: 'write',
+                can: 'Publish prepared content through the selected skill.',
+                cannot: 'Use unrelated skills or credentials.',
+                requiredEnvVars: [],
+                commandTemplates: ['skills/publisher/publish.py *'],
+              },
+            ],
+            createdAt: now,
+            updatedAt: now,
+          })),
+        }),
+      }) as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      readResponse(runtimeHome, 'selected-skill-capability-request'),
+    ).toMatchObject({
+      ok: true,
+      code: 'capability_request_recorded',
+    });
+    expect(requestPermissionApproval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: 'request_permission',
+        toolInput: expect.objectContaining({
+          capabilityId: 'skill.publisher.publish',
+        }),
+      }),
+    );
+  });
+
   it('requires same-channel approval and syncs settings after register_agent', async () => {
     const runtimeHome = fs.mkdtempSync(
       path.join(os.tmpdir(), 'gantry-admin-ipc-'),
@@ -727,6 +818,64 @@ describe('admin IPC handlers', () => {
         appId: 'app:test',
         resolution: 'denied',
       }),
+    );
+  });
+
+  it('applies temporary request_access run_command approvals to current-run live rules', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({
+      approved: true,
+      mode: 'allow_once',
+      decidedBy: 'U_APPROVER',
+      decisionClassification: 'user_temporary',
+    }));
+    const deps = depsWithAdminTools([], { requestPermissionApproval });
+    const ipcBaseDir = path.join(runtimeHome, 'data', 'ipc');
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('temp-run-command', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        runHandle: 'agent-run-temp',
+        payload: {
+          permissionKind: 'tool',
+          capabilityRequestSource: 'request_access',
+          toolName: 'RunCommand',
+          rule: 'npm test *',
+          temporaryOnly: true,
+          reason: 'run the focused test once',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: deps as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+      ipcBaseDir,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(
+            ipcBaseDir,
+            'main_agent',
+            'live-tool-rules',
+            'agent-run-temp.json',
+          ),
+          'utf-8',
+        ),
+      ),
+    ).toEqual(['RunCommand(npm test *)']);
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.stringContaining('for this run'),
+      undefined,
     );
   });
 

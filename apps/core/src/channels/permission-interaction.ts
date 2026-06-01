@@ -58,18 +58,15 @@ const USER_FACING_TOOL_LABELS: Record<string, string> = {
   Task: 'agent delegation',
 };
 
-export type PermissionActionToken =
-  | PermissionApprovalDecisionMode
-  | 'approve'
-  | 'deny';
+export type PermissionActionToken = PermissionApprovalDecisionMode;
 
 export function normalizePermissionAction(
   action: string,
 ): PermissionApprovalDecisionMode | null {
-  if (action === 'allow_once' || action === 'approve') return 'allow_once';
+  if (action === 'allow_once') return 'allow_once';
   if (action === 'allow_persistent_rule') return 'allow_persistent_rule';
   if (action === 'allow_timed_grant') return 'allow_timed_grant';
-  if (action === 'cancel' || action === 'deny') return 'cancel';
+  if (action === 'cancel') return 'cancel';
   return null;
 }
 

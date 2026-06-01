@@ -4,7 +4,9 @@ const SLACK_LIMITS = { buttonText: 75, actionValue: 2000 } as const;
 
 export function truncateSlackText(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
-  return `${text.slice(0, maxLen)}...`;
+  // Reserve room for the ellipsis so the result never exceeds maxLen — Slack
+  // rejects the whole message when a header (150) or button (75) runs over.
+  return `${text.slice(0, Math.max(0, maxLen - 3))}...`;
 }
 
 export function truncateSlackButtonText(text: string): string {

@@ -136,10 +136,16 @@ export function normalizeAccessRequirements(
  * tool access rules include the capability-derived `capability:<id>` rules so
  * preflight sees a single canonical allowlist requirement set.
  *
- * This is a pure structural split — it never re-validates. Strict validation
- * (e.g. local_cli executable pinning) happens at create/update via
- * normalizeAccessRequirements; readiness must tolerate incomplete stored
- * requirements and surface them as setup blockers rather than throwing.
+ * NOT pure: this re-normalizes mcp_server targets and rejects unknown target
+ * kinds, so it THROWS `ApplicationError('INVALID_REQUEST')` on malformed stored
+ * requirements. The readiness service deliberately relies on that throw to emit
+ * a "malformed requirement" setup blocker (see job-readiness-service). Callers
+ * therefore MUST run inside the readiness preflight, or wrap this in a try/catch
+ * that pauses for setup — never let the throw become a hard run failure. The
+ * job execution path is safe only because the readiness preflight validates the
+ * same requirements (via this function) before the run proceeds; preserve that
+ * ordering. (Strict create/update validation still happens in
+ * normalizeAccessRequirements.)
  */
 export function splitAccessRequirements(
   requirements: readonly JobAccessRequirement[] | undefined,

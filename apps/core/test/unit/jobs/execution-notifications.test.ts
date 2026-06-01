@@ -62,7 +62,7 @@ describe('jobs/execution-notifications', () => {
     expect(delivered).toBe(true);
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:scheduler',
-      expect.stringContaining('▶️ Running · Daily summary'),
+      expect.stringContaining('**▶️ Running** · Daily summary'),
       { threadId: 'thread-1' },
     );
   });
@@ -118,7 +118,7 @@ describe('jobs/execution-notifications', () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:scheduler',
-      expect.stringContaining('❌ Failed · Daily summary'),
+      expect.stringContaining('**❌ Failed** · Daily summary'),
       expect.objectContaining({ threadId: 'thread-1' }),
     );
   });
@@ -141,9 +141,8 @@ describe('jobs/execution-notifications', () => {
     });
 
     const message = String(sendMessage.mock.calls[0]?.[1]);
-    expect(message).toContain(
-      '✅ Completed · KnackLabs Lead Maintenance · 6m 22s',
-    );
+    expect(message).toContain('**✅ Completed**');
+    expect(message).toContain('· KnackLabs Lead Maintenance · 6m 22s');
     expect(message).toContain(
       'Final Job Report Mode: B (KnackLabs lead finder)',
     );
@@ -170,8 +169,9 @@ describe('jobs/execution-notifications', () => {
     });
 
     const message = String(sendMessage.mock.calls[0]?.[1]);
+    expect(message).toContain('**✅ Completed**');
     expect(message).toContain(
-      '✅ Completed · Memory Dreaming (main_agent tg:5759865942) · 13s',
+      '· Memory Dreaming (main_agent tg:5759865942) · 13s',
     );
     expect(message).toContain('Memory maintenance completed.');
     expect(message).not.toContain('"queued"');
@@ -198,7 +198,7 @@ describe('jobs/execution-notifications', () => {
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:scheduler',
       expect.stringContaining(
-        '📝 Needs memory review · Memory Dreaming (main_agent tg:5759865942)',
+        '**📝 Needs memory review** · Memory Dreaming (main_agent tg:5759865942)',
       ),
       { threadId: 'thread-1' },
     );
@@ -237,7 +237,7 @@ describe('jobs/execution-notifications', () => {
       expect.objectContaining({
         runStatus: 'completed',
         summaryMessage: expect.stringContaining(
-          '📝 Needs memory review · Memory Dreaming (main_agent tg:5759865942)',
+          '**📝 Needs memory review** · Memory Dreaming (main_agent tg:5759865942)',
         ),
       }),
     );
@@ -339,7 +339,8 @@ describe('jobs/execution-notifications', () => {
 
     const message = String(sendMessage.mock.calls[0]?.[1]);
     const options = sendMessage.mock.calls[0]?.[2];
-    expect(message).toContain('🔐 Needs permission · Daily summary');
+    expect(message).toContain('**🔐 Needs permission**');
+    expect(message).toContain('· Daily summary');
     expect(message).toContain('Could not use the browser');
     expect(message).toContain('Action: Browser access needs approval.');
     expect(message).not.toContain('request_permission');
@@ -404,7 +405,8 @@ describe('jobs/execution-notifications', () => {
 
     expect(delivered).toBe(true);
     const message = String(sendMessage.mock.calls[0]?.[1]);
-    expect(message).toContain('🛠️ Setup needed · Lead maintenance');
+    expect(message).toContain('**🛠️ Setup needed**');
+    expect(message).toContain('· Lead maintenance');
     expect(message).toContain('Acme Records Append');
     expect(message).toContain(
       'Action: Approve Acme Records Append, then resume the job.',
@@ -429,7 +431,8 @@ describe('jobs/execution-notifications', () => {
     });
 
     const message = String(sendMessage.mock.calls[0]?.[1]);
-    expect(message).toContain('⏱️ Timed out · Daily summary');
+    expect(message).toContain('**⏱️ Timed out**');
+    expect(message).toContain('· Daily summary');
     expect(message).toContain('Scheduler run lease expired before completion.');
     expect(message).toContain(
       'Action: Rerun with a longer job timeout if this work is expected to take more time.',
@@ -466,7 +469,8 @@ describe('jobs/execution-notifications', () => {
     });
 
     const message = String(sendMessage.mock.calls[0]?.[1]);
-    expect(message).toContain('✅ Completed · KnackLabs Lead Maintenance');
+    expect(message).toContain('**✅ Completed**');
+    expect(message).toContain('· KnackLabs Lead Maintenance');
     expect(message).toContain('Final Job Report Mode: B');
     expect(message).toContain('Added: 0 leads');
     expect(message).not.toContain('Let me load tools');

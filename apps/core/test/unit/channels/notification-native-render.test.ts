@@ -14,6 +14,7 @@ import {
   buildPermissionPromptContentBlocks,
   buildPermissionReceiptBlocks,
 } from '@core/channels/slack/permission-blocks.js';
+import { truncateSlackText } from '@core/channels/slack/channel-user-question-utils.js';
 import type { PermissionApprovalRequest } from '@core/domain/types.js';
 
 const commandRequest: PermissionApprovalRequest = {
@@ -143,6 +144,22 @@ describe('Telegram HTML rendering', () => {
     expect(html).toContain('Which DB &lt;prod&gt;?');
     expect(html).toContain('<b>Postgres</b> — a &amp; b');
     expect(html).toContain('Select one or more, then tap Done.');
+  });
+});
+
+describe('truncateSlackText', () => {
+  it('never exceeds maxLen including the ellipsis (Slack header/button hard limit)', () => {
+    const out = truncateSlackText('x'.repeat(200), 150);
+    expect(out.length).toBe(150);
+    expect(out.endsWith('...')).toBe(true);
+  });
+
+  it('returns short text unchanged', () => {
+    expect(truncateSlackText('hi', 150)).toBe('hi');
+  });
+
+  it('does not throw or go negative when maxLen is smaller than the ellipsis', () => {
+    expect(truncateSlackText('hello', 2)).toBe('...');
   });
 });
 

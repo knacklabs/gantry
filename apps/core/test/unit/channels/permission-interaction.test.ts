@@ -5,6 +5,7 @@ import {
   firstPersistentRule,
   formatPermissionPromptText,
   formatPermissionReceiptText,
+  normalizePermissionAction,
   persistentRules,
   permissionDecisionOptions,
   permissionButtonLabel,
@@ -23,6 +24,19 @@ function requestWithSuggestions(
 }
 
 describe('permission interaction', () => {
+  it('accepts only current permission action tokens', () => {
+    expect(normalizePermissionAction('allow_once')).toBe('allow_once');
+    expect(normalizePermissionAction('allow_persistent_rule')).toBe(
+      'allow_persistent_rule',
+    );
+    expect(normalizePermissionAction('allow_timed_grant')).toBe(
+      'allow_timed_grant',
+    );
+    expect(normalizePermissionAction('cancel')).toBe('cancel');
+    expect(normalizePermissionAction('approve')).toBeNull();
+    expect(normalizePermissionAction('deny')).toBeNull();
+  });
+
   it('allows persistent approval only when one displayed rule maps to one update', () => {
     const request = requestWithSuggestions([
       {

@@ -227,26 +227,9 @@ export class AgentCapabilityAdministrationService {
       agentId: input.agentId,
       skillRepository: this.repositories.skills,
     });
-    const selectedToolReferences = unique(
-      input.capabilities.flatMap((capability) => {
-        const reference = capabilitySelectionToToolReference(capability.id);
-        const validation = validateDurableAccessRule(reference, {
-          semanticCapabilityDefinitions,
-        });
-        if (!validation.ok) {
-          throw new ApplicationError('INVALID_REQUEST', validation.reason);
-        }
-        const canonical = canonicalToolReferenceForView(reference, {
-          semanticCapabilityDefinitions,
-        });
-        if (canonical.length === 0) {
-          throw new ApplicationError(
-            'INVALID_REQUEST',
-            `Capability selection ${capability.id} is not a durable access rule.`,
-          );
-        }
-        return canonical;
-      }),
+    const selectedToolReferences = resolveSelectedToolReferences(
+      input.capabilities,
+      semanticCapabilityDefinitions,
     );
 
     const capabilityToolIds = await Promise.all(
@@ -381,6 +364,28 @@ export class AgentCapabilityAdministrationService {
       sources: view.sources,
       updatedAt: view.updatedAt,
     };
+  }
+
+  /**
+   * Structurally validate capability selections without writing anything.
+   * Lets a full-document replace (PUT /access) reject malformed selections
+   * before sources are persisted, so a bad selection can't leave the agent
+   * with new sources but stale selections.
+   */
+  async validateAccessSelections(input: {
+    appId: AppId;
+    agentId: AgentId;
+    capabilities: Array<{ id: string; version: string }>;
+  }): Promise<void> {
+    const semanticCapabilityDefinitions = await skillActionDefinitionsForAgent({
+      appId: input.appId,
+      agentId: input.agentId,
+      skillRepository: this.repositories.skills,
+    });
+    resolveSelectedToolReferences(
+      input.capabilities,
+      semanticCapabilityDefinitions,
+    );
   }
 
   async replaceSources(input: {
@@ -620,6 +625,40 @@ function capabilitySelectionToToolReference(capabilityId: string): string {
   if (id.startsWith('RunCommand(')) return id;
   if (isAdminMcpToolFullName(id) || isGantryFacadeExactToolRule(id)) return id;
   return `capability:${id}`;
+}
+
+/**
+ * Validate selections structurally and resolve them to canonical tool
+ * references. Throws ApplicationError('INVALID_REQUEST') on any malformed
+ * selection. Source-independent — safe to call before persisting sources.
+ */
+function resolveSelectedToolReferences(
+  capabilities: ReadonlyArray<{ id: string; version: string }>,
+  semanticCapabilityDefinitions: Awaited<
+    ReturnType<typeof skillActionDefinitionsForAgent>
+  >,
+): string[] {
+  return unique(
+    capabilities.flatMap((capability) => {
+      const reference = capabilitySelectionToToolReference(capability.id);
+      const validation = validateDurableAccessRule(reference, {
+        semanticCapabilityDefinitions,
+      });
+      if (!validation.ok) {
+        throw new ApplicationError('INVALID_REQUEST', validation.reason);
+      }
+      const canonical = canonicalToolReferenceForView(reference, {
+        semanticCapabilityDefinitions,
+      });
+      if (canonical.length === 0) {
+        throw new ApplicationError(
+          'INVALID_REQUEST',
+          `Capability selection ${capability.id} is not a durable access rule.`,
+        );
+      }
+      return canonical;
+    }),
+  );
 }
 
 function selectedAdminToolNames(tools: readonly string[]): Set<string> {

@@ -205,6 +205,30 @@ export function requestPermissionReviewSuggestions(
   ];
 }
 
+export function requestPermissionTransientLiveRules(
+  toolInput: Record<string, unknown>,
+): string[] {
+  if (toolInput.temporaryOnly !== true) return [];
+  if (toolInput.permissionKind && toolInput.permissionKind !== 'tool')
+    return [];
+  const capabilityId = toTrimmedString(toolInput.capabilityId, {
+    maxLen: 160,
+  });
+  if (capabilityId) return [];
+  const toolNames = sanitizedStringList(
+    Array.isArray(toolInput.toolNames)
+      ? toolInput.toolNames
+      : [toolInput.toolName],
+  );
+  if (toolNames.length !== 1) return [];
+  const publicToolName = publicGantryToolNameForSdkTool(toolNames[0]);
+  if (publicToolName !== RUN_COMMAND_TOOL_NAME) return [];
+  const ruleContent = strictRuleContent(toolInput.rule);
+  if (!ruleContent) return [];
+  const rule = `${RUN_COMMAND_TOOL_NAME}(${ruleContent})`;
+  return validateReadableAgentToolRule(rule).ok ? [rule] : [];
+}
+
 export function requestPermissionSetupDecisionOptions(
   toolInput: Record<string, unknown>,
 ): PermissionApprovalDecisionMode[] {

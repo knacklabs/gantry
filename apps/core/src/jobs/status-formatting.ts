@@ -26,7 +26,7 @@ export function formatRunStatusMessage(args: {
       : ` · ${formatDuration(args.durationMs)}`;
   const summary = notificationOutcome(displaySummary, args.runStatus, denial);
   const lines = [
-    `**${statusEmoji(statusText)} ${statusText} · ${args.job.name}${duration}**`,
+    `**${statusEmoji(statusText)} ${statusText}** · ${args.job.name}${duration}`,
     summary,
   ];
   const action = notificationAction(

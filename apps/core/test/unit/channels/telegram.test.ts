@@ -2488,13 +2488,53 @@ describe('TelegramChannel', () => {
       );
 
       const callbackCtx = {
-        callbackQuery: { data: 'perm:approve:perm-command' },
+        callbackQuery: { data: 'perm:allow_once:perm-command' },
         chat: { id: 100200300 },
         from: { id: 12345, first_name: 'Ravi' },
         answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
       };
       await triggerCallbackQuery(callbackCtx);
       await decisionPromise;
+    });
+
+    it('falls back to a plain-text permission prompt when the HTML send is rejected', async () => {
+      const opts = createTestOpts();
+      const channel = new TelegramChannel('test-token', opts);
+      await channel.connect();
+      // First (HTML) send is rejected; the fallback resends as plain text.
+      currentBot().api.sendMessage.mockRejectedValueOnce(
+        new Error("Bad Request: can't parse entities"),
+      );
+
+      const decisionPromise = channel.requestPermissionApproval(
+        'tg:100200300',
+        {
+          requestId: 'perm-fb',
+          sourceAgentFolder: 'whatsapp_main',
+          toolName: 'Bash',
+          toolInput: { command: 'npm test' },
+        },
+      );
+      await flushPromises();
+
+      const calls = currentBot().api.sendMessage.mock.calls;
+      expect(calls[0][2]).toMatchObject({ parse_mode: 'HTML' });
+      // The plain-text retry must NOT set parse_mode, and must still carry the
+      // decision buttons + the readable prompt so the approval stays actionable.
+      expect(calls[1][2]).not.toHaveProperty('parse_mode');
+      expect(calls[1][2].reply_markup.inline_keyboard.length).toBeGreaterThan(
+        0,
+      );
+      expect(calls[1][1]).toContain('🔐 Allow exact command access?');
+
+      await triggerCallbackQuery({
+        callbackQuery: { data: 'perm:allow_once:perm-fb' },
+        chat: { id: 100200300 },
+        from: { id: 12345, first_name: 'Ravi' },
+        answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
+      });
+      const decision = await decisionPromise;
+      expect(decision.approved).toBe(true);
     });
 
     it('sends approval prompt and resolves when an admin approves', async () => {
@@ -2574,7 +2614,7 @@ describe('TelegramChannel', () => {
       await flushPromises();
 
       const deniedCtx = {
-        callbackQuery: { data: 'perm:deny:perm-2' },
+        callbackQuery: { data: 'perm:allow_once:perm-2' },
         chat: { id: 100200300 },
         from: { id: 111, first_name: 'Visitor' },
         answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
@@ -2586,7 +2626,7 @@ describe('TelegramChannel', () => {
       });
 
       const approvedCtx = {
-        callbackQuery: { data: 'perm:approve:perm-2' },
+        callbackQuery: { data: 'perm:allow_once:perm-2' },
         chat: { id: 100200300 },
         from: { id: 444, first_name: 'Admin' },
         answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
@@ -2614,7 +2654,7 @@ describe('TelegramChannel', () => {
       await flushPromises();
 
       const deniedCtx = {
-        callbackQuery: { data: 'perm:approve:perm-settings' },
+        callbackQuery: { data: 'perm:allow_once:perm-settings' },
         chat: { id: 100200300 },
         from: { id: 12345, first_name: 'EnvOnly' },
         answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
@@ -2926,7 +2966,7 @@ describe('TelegramChannel', () => {
 
       const approvedCtx = {
         callbackQuery: {
-          data: 'perm:approve:perm-channel-allowlist',
+          data: 'perm:allow_once:perm-channel-allowlist',
           from: { id: 777, first_name: 'ChannelAdmin' },
           message: { chat: { id: 777 } },
         },

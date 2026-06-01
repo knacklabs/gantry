@@ -340,6 +340,10 @@ export async function runJob(
             toolPolicy.effectiveAllowedTools,
           );
           const toolAccessRequirementPreflight =
+            // splitAccessRequirements throws on malformed stored requirements;
+            // this is safe only because the readiness preflight (which pauses
+            // malformed jobs for setup) already validated the same requirements
+            // earlier in this run. Do not move/remove that preflight.
             await assertToolAccessRequirementsReadyForRun({
               toolAccessRequirements: splitAccessRequirements(
                 currentJob.access_requirements,

@@ -265,6 +265,21 @@ function normalizeSkillActionCommandTemplate(
       `Skill action command template must run under ${skillDir}.`,
     );
   }
+  // Skill action templates become durable capability grants whose command is
+  // never re-validated at grant time (the capability:<id> path only checks
+  // definition existence). Reject destructive redirection here so a skill
+  // author cannot smuggle e.g. `${skillRoot}/run.sh > /etc/passwd` into a
+  // durable grant. (Wildcard args are intentionally allowed — these templates
+  // are already pinned under the skill directory above, so the broader
+  // durable-RunCommand rules don't apply.)
+  const destructiveRedirect = parsed.leaves
+    .flatMap((leaf) => leaf.redirects)
+    .find((redirect) => redirect.destructive);
+  if (destructiveRedirect) {
+    throw new Error(
+      'Skill action command templates cannot include destructive redirection.',
+    );
+  }
   const readableRule = `${RUN_COMMAND_TOOL_NAME}(${stableNormalized})`;
   const readable = validateReadableAgentToolRule(readableRule);
   if (!readable.ok) {

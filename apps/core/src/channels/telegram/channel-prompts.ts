@@ -10,8 +10,18 @@ import {
   UserQuestionRequest,
 } from '../../domain/types.js';
 import { writeTelegramFetchResponseToFile } from '../telegram-file-download.js';
-import { formatPermissionReceiptText } from '../permission-interaction.js';
-import { escapeTelegramHtml } from './html-render.js';
+import {
+  buildPermissionPromptParts,
+  formatPermissionPromptText,
+  formatPermissionReceiptText,
+  permissionButtonLabel,
+  permissionDecisionOptions,
+} from '../permission-interaction.js';
+import {
+  escapeTelegramHtml,
+  renderPermissionPromptHtml,
+  renderUserQuestionPromptHtml,
+} from './html-render.js';
 
 import { TelegramChannelState } from './channel-state.js';
 
@@ -87,6 +97,96 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
       ]);
     }
     return { inline_keyboard };
+  }
+
+  protected async sendPermissionPromptMessage(input: {
+    chatId: string;
+    request: PermissionApprovalRequest;
+    callbackId: string;
+    timeoutMs: number;
+    threadOpts: { message_thread_id?: number };
+  }): Promise<{ message_id: number }> {
+    if (!this.bot) throw new Error('Telegram bot is not connected');
+    const promptHtml = renderPermissionPromptHtml(
+      buildPermissionPromptParts(input.request, input.timeoutMs),
+    );
+    const replyMarkup = {
+      inline_keyboard: permissionDecisionOptions(input.request).map((mode) => [
+        {
+          text: permissionButtonLabel(mode, input.request),
+          callback_data: `perm:${mode}:${input.callbackId}`,
+        },
+      ]),
+    };
+    return this.bot.api
+      .sendMessage(input.chatId, promptHtml, {
+        ...input.threadOpts,
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+        reply_markup: replyMarkup,
+      })
+      .catch((htmlErr) => {
+        logger.warn(
+          {
+            requestId: input.request.requestId,
+            error: this.sanitizeErrorMessage(htmlErr),
+          },
+          'Telegram HTML permission prompt failed; retrying as plain text',
+        );
+        return this.bot!.api.sendMessage(
+          input.chatId,
+          formatPermissionPromptText(input.request, input.timeoutMs),
+          { ...input.threadOpts, reply_markup: replyMarkup },
+        );
+      });
+  }
+
+  protected async sendUserQuestionPromptMessage(input: {
+    chatId: string;
+    requestId: string;
+    questionIndex: number;
+    question: UserQuestionRequest['questions'][number];
+    threadOpts: { message_thread_id?: number };
+  }): Promise<{
+    messageId: number;
+    promptText: string;
+    promptIsHtml: boolean;
+  }> {
+    if (!this.bot) throw new Error('Telegram bot is not connected');
+    const htmlPrompt = renderUserQuestionPromptHtml(input.question);
+    const plainPrompt = formatTelegramUserQuestionPlainText(input.question);
+    const replyMarkup = this.buildUserQuestionKeyboard(
+      input.requestId,
+      input.questionIndex,
+      input.question,
+      new Set<number>(),
+    );
+    let promptText = htmlPrompt;
+    let promptIsHtml = true;
+    const sent = await this.bot.api
+      .sendMessage(input.chatId, htmlPrompt, {
+        ...input.threadOpts,
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+        reply_markup: replyMarkup,
+      })
+      .catch((htmlErr) => {
+        logger.warn(
+          {
+            requestId: input.requestId,
+            questionIndex: input.questionIndex,
+            error: this.sanitizeErrorMessage(htmlErr),
+          },
+          'Telegram HTML user question failed; retrying as plain text',
+        );
+        promptText = plainPrompt;
+        promptIsHtml = false;
+        return this.bot!.api.sendMessage(input.chatId, plainPrompt, {
+          ...input.threadOpts,
+          reply_markup: replyMarkup,
+        });
+      });
+    return { messageId: sent.message_id, promptText, promptIsHtml };
   }
 
   protected async isTelegramApproverAuthorized(
@@ -175,7 +275,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
         pending.messageId,
         pending.promptText,
         {
-          parse_mode: 'HTML',
+          ...(pending.promptIsHtml ? { parse_mode: 'HTML' as const } : {}),
           reply_markup: this.buildUserQuestionKeyboard(
             pending.requestId,
             pending.questionIndex,
@@ -430,4 +530,18 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
       return null;
     }
   }
+}
+
+function formatTelegramUserQuestionPlainText(
+  question: UserQuestionRequest['questions'][number],
+): string {
+  return [
+    `❓ ${question.header}`,
+    question.question,
+    '',
+    ...question.options.map(
+      (option, optionIndex) =>
+        `${optionIndex + 1}. ${option.label}${option.description ? ` — ${option.description}` : ''}`,
+    ),
+  ].join('\n');
 }
