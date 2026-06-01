@@ -12,9 +12,9 @@ import {
   applyModelPreset,
   applyPresetManagedMemoryDefaults,
   loadRuntimeSettings,
-  saveRuntimeSettings,
   type RuntimeSettings,
 } from './runtime-settings.js';
+import { writeDesiredRuntimeSettings } from './desired-settings-writer.js';
 
 export type RuntimeModelDefaultConfig = {
   model?: string;
@@ -198,10 +198,10 @@ function resetMemoryDefaults(
   applyPresetManagedMemoryDefaults(settings, preset);
 }
 
-export function updateRuntimeModelDefaults(input: {
+export async function updateRuntimeModelDefaults(input: {
   runtimeHome: string;
   body: Record<string, unknown>;
-}): RuntimeModelDefaultsPatchResult {
+}): Promise<RuntimeModelDefaultsPatchResult> {
   const supportedFields = new Set([
     'preset',
     'chat',
@@ -219,6 +219,7 @@ export function updateRuntimeModelDefaults(input: {
     }
   }
   const settings = loadRuntimeSettings(input.runtimeHome);
+  const previousSettings = structuredClone(settings);
   let preset = presetFromSettings(settings);
   if ('preset' in input.body) {
     const nextPreset = input.body.preset;
@@ -293,6 +294,10 @@ export function updateRuntimeModelDefaults(input: {
     });
     if (message) return { ok: false, message };
   }
-  saveRuntimeSettings(input.runtimeHome, settings);
+  await writeDesiredRuntimeSettings({
+    runtimeHome: input.runtimeHome,
+    settings,
+    previousSettings,
+  });
   return { ok: true };
 }

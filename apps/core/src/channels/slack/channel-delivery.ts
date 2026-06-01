@@ -20,9 +20,11 @@ import {
   stripInternalTagsPreserveWhitespace,
 } from '../../messaging/router.js';
 import {
+  buildPermissionPromptParts,
   permissionButtonLabel,
   permissionDecisionOptions,
 } from '../permission-interaction.js';
+import { buildPermissionPromptContentBlocks } from './permission-blocks.js';
 import {
   disconnectSlackDelivery,
   loadPersistedSlackProgress,
@@ -445,6 +447,9 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
 
     const timeoutMs = PERMISSION_APPROVAL_TIMEOUT_MS;
     const promptText = this.formatPermissionPromptText(request, timeoutMs);
+    const contentBlocks = buildPermissionPromptContentBlocks(
+      buildPermissionPromptParts(request, timeoutMs),
+    );
 
     try {
       const response = (await this.app.client.chat.postMessage({
@@ -452,13 +457,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
         text: promptText,
         ...(request.threadId ? { thread_ts: request.threadId } : {}),
         blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: promptText,
-            },
-          },
+          ...contentBlocks,
           {
             type: 'actions',
             elements: permissionDecisionOptions(request).map((mode) => ({
@@ -477,7 +476,7 @@ export abstract class SlackChannelDelivery extends SlackChannelInteractions {
               }),
             })),
           },
-        ],
+        ] as any,
       })) as { ts?: string };
 
       const messageTs = response.ts;

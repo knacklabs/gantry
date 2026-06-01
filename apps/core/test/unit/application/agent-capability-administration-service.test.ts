@@ -301,6 +301,35 @@ describe('AgentCapabilityAdministrationService', () => {
       ]),
     );
   });
+
+  it('rejects broad and secret-bearing RunCommand selections', async () => {
+    for (const capabilityId of [
+      'RunCommand(npm *)',
+      'RunCommand(curl *)',
+      'RunCommand(git *)',
+      'RunCommand(skills/poster/post.py --token sk-abcdefghij0123456789abcd)',
+      'RunCommand(/tmp/run/.llm-runtime/claude/skills/poster/post.py *)',
+    ]) {
+      const state = createState();
+      const service = new AgentCapabilityAdministrationService(
+        state.repositories,
+        { now: () => '2026-05-01T00:00:00.000Z' },
+      );
+      const initialToolCount = state.tools.size;
+      const initialBindingCount = state.toolBindings.length;
+
+      await expect(
+        service.replaceCapabilities({
+          appId: 'app:one' as never,
+          agentId: 'agent:one' as never,
+          capabilities: [{ id: capabilityId, version: 'builtin' }],
+        }),
+      ).rejects.toThrow();
+
+      expect(state.tools.size).toBe(initialToolCount);
+      expect(state.toolBindings).toHaveLength(initialBindingCount);
+    }
+  });
 });
 
 function createState() {

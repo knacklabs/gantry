@@ -35,6 +35,7 @@ vi.mock('@core/config/index.js', () => ({
   })),
   getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
   patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
+  configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({
@@ -216,6 +217,11 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', async () => {
           listConversationApproversForConversations: vi.fn(async () => []),
         },
         capabilitySecrets: capabilitySecretsRepo,
+        pendingAccessRequests: {
+          insertPending: vi.fn(async () => undefined),
+          markResolved: vi.fn(async () => undefined),
+          countPendingAccessRequests: vi.fn(async () => 0),
+        },
       },
       skillArtifacts: new LocalSkillArtifactStore(state.artifactRoot),
     }),

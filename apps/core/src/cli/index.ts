@@ -25,7 +25,36 @@ import {
   startService,
   stopService,
 } from '../infrastructure/service/manager.js';
-import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
+import {
+  configureDesiredSettingsStorageProvider,
+  ensureRuntimeSettings,
+} from '../config/settings/runtime-settings.js';
+
+configureDesiredSettingsStorageProvider(async () => {
+  const {
+    closeRuntimeStorage,
+    getRuntimeStorage,
+    initializeRuntimeStorage,
+    isStorageUnavailableError,
+  } = await import('../adapters/storage/postgres/runtime-store.js');
+  try {
+    const storage = getRuntimeStorage();
+    return { ops: storage.ops, repositories: storage.repositories };
+  } catch {
+    // CLI invocations usually run outside the runtime process.
+  }
+  try {
+    const storage = await initializeRuntimeStorage();
+    return {
+      ops: storage.ops,
+      repositories: storage.repositories,
+      close: closeRuntimeStorage,
+    };
+  } catch (err) {
+    if (!isStorageUnavailableError(err)) throw err;
+    return undefined;
+  }
+});
 
 interface ParsedArgs {
   command: string[];
@@ -42,6 +71,7 @@ function usage(): string {
     '  gantry setup',
     '  gantry doctor',
     '  gantry status',
+    '  gantry next [--preview|--run]',
     '  gantry start',
     '  gantry stop',
     '  gantry restart',
@@ -385,6 +415,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   const runtimeHome = resolveRuntimeHome(parsed.runtimeHomeArg);
+  process.env.GANTRY_HOME = runtimeHome;
   const [command, ...rest] = parsed.command;
   const subcommand = rest[0];
 
@@ -415,6 +446,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   if (command === 'status') {
     return runStatusCommand(import.meta.url, runtimeHome);
+  }
+
+  if (command === 'next') {
+    const { runNextCommand } = await import('./next.js');
+    return runNextCommand(
+      import.meta.url,
+      runtimeHome,
+      rest,
+      ensureRuntimeSettings(runtimeHome),
+      () => restartService(runtimeHome),
+    );
   }
 
   if (command === 'local') {

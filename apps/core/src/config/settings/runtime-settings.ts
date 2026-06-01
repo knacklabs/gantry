@@ -43,6 +43,11 @@ import {
 } from './configured-capability-normalization.js';
 import { nowIso, nowMs as currentTimeMs } from '../../shared/time/datetime.js';
 
+export {
+  configureDesiredSettingsStorageProvider,
+  writeDesiredRuntimeSettings,
+} from './desired-settings-writer.js';
+
 const DEFAULT_PROVIDER_CONNECTION_IDS: Record<string, string> = {
   app: 'app_default',
   slack: 'slack_default',

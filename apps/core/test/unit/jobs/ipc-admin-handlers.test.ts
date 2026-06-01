@@ -10,6 +10,11 @@ async function loadAdminHandlers(runtimeHome: string) {
   vi.resetModules();
   vi.stubEnv('GANTRY_HOME', runtimeHome);
   const syncRuntimeSettingsFromProjection = vi.fn(async () => undefined);
+  const pendingAccessRequests = {
+    insertPending: vi.fn(async () => undefined),
+    markResolved: vi.fn(async () => undefined),
+    countPendingAccessRequests: vi.fn(async () => 0),
+  };
   vi.doMock('@core/config/index.js', async (importOriginal) => {
     const actual =
       await importOriginal<typeof import('@core/config/index.js')>();
@@ -17,12 +22,15 @@ async function loadAdminHandlers(runtimeHome: string) {
   });
   vi.doMock('@core/adapters/storage/postgres/runtime-store.js', () => ({
     getRuntimeRepositories: vi.fn(() => ({})),
-    getRuntimeStorage: vi.fn(() => ({ repositories: {} })),
+    getRuntimeStorage: vi.fn(() => ({
+      repositories: { pendingAccessRequests },
+    })),
   }));
   const ipcAuth = await import('@core/runtime/ipc-auth.js');
   const handlers = await import('@core/jobs/ipc-admin-handlers.js');
   return {
     ...handlers,
+    pendingAccessRequests,
     syncRuntimeSettingsFromProjection,
     taskData: (
       taskId: string,
@@ -647,7 +655,7 @@ describe('admin IPC handlers', () => {
       path.join(os.tmpdir(), 'gantry-admin-ipc-'),
     );
     runtimeHomes.push(runtimeHome);
-    const { adminTaskHandlers, taskData } =
+    const { adminTaskHandlers, pendingAccessRequests, taskData } =
       await loadAdminHandlers(runtimeHome);
     let resolveApproval:
       | ((value: { approved: false; reason: string }) => void)
@@ -686,6 +694,23 @@ describe('admin IPC handlers', () => {
     });
 
     expect(requestPermissionApproval).toHaveBeenCalledTimes(1);
+    expect(pendingAccessRequests.insertPending).toHaveBeenCalledTimes(1);
+    expect(pendingAccessRequests.insertPending).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: {
+          activation: 'future_config_version',
+          effect: 'persistent_rule_when_always_allowed',
+          requestKind: 'Permission',
+          requestTool: 'request_permission',
+        },
+      }),
+    );
+    const insertedRequest = pendingAccessRequests.insertPending.mock
+      .calls[0]?.[0] as { target?: unknown; reason?: unknown } | undefined;
+    expect(JSON.stringify(insertedRequest)).not.toContain(
+      '/usr/local/bin/acme records append',
+    );
+    expect(insertedRequest).not.toHaveProperty('reason');
     expect(readResponse(runtimeHome, 'request-acme-1')).toMatchObject({
       ok: true,
       code: 'capability_request_recorded',
@@ -697,6 +722,54 @@ describe('admin IPC handlers', () => {
 
     resolveApproval?.({ approved: false, reason: 'test complete' });
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(pendingAccessRequests.markResolved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'app:test',
+        resolution: 'denied',
+      }),
+    );
+  });
+
+  it('does not resolve pending access as approved without an approving principal', async () => {
+    const runtimeHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'gantry-admin-ipc-'),
+    );
+    runtimeHomes.push(runtimeHome);
+    const { adminTaskHandlers, pendingAccessRequests, taskData } =
+      await loadAdminHandlers(runtimeHome);
+    const requestPermissionApproval = vi.fn(async () => ({ approved: true }));
+    const deps = depsWithAdminTools([], { requestPermissionApproval });
+
+    await adminTaskHandlers.request_permission({
+      data: taskData('request-acme-missing-approver', {
+        type: 'request_permission',
+        chatJid: 'sl:C123',
+        payload: {
+          permissionKind: 'tool',
+          toolName: 'Bash',
+          rule: '/usr/local/bin/acme records append *',
+          temporaryOnly: false,
+          reason: 'write leads with acme',
+        },
+      }) as never,
+      sourceAgentFolder: 'main_agent',
+      deps: deps as never,
+      conversationBindings: {},
+      sourceAgentFolderJids: ['sl:C123'],
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(pendingAccessRequests.markResolved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: 'app:test',
+        resolution: 'denied',
+      }),
+    );
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      'sl:C123',
+      expect.stringContaining('missing approving principal'),
+      undefined,
+    );
   });
 
   it('coalesces duplicate pending skill install command reviews', async () => {

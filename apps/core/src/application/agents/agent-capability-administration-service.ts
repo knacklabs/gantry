@@ -34,6 +34,7 @@ import {
   isGantryFacadeExactToolRule,
   validateReadableAgentToolRule,
 } from '../../shared/agent-tool-references.js';
+import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
 import { ensureAgentToolCatalogItem } from '../../domain/tools/agent-tool-catalog-references.js';
 import {
   buildAgentToolAccessView,
@@ -227,12 +228,25 @@ export class AgentCapabilityAdministrationService {
       skillRepository: this.repositories.skills,
     });
     const selectedToolReferences = unique(
-      input.capabilities.flatMap((capability) =>
-        canonicalToolReferenceForView(
-          capabilitySelectionToToolReference(capability.id),
-          { semanticCapabilityDefinitions },
-        ),
-      ),
+      input.capabilities.flatMap((capability) => {
+        const reference = capabilitySelectionToToolReference(capability.id);
+        const validation = validateDurableAccessRule(reference, {
+          semanticCapabilityDefinitions,
+        });
+        if (!validation.ok) {
+          throw new ApplicationError('INVALID_REQUEST', validation.reason);
+        }
+        const canonical = canonicalToolReferenceForView(reference, {
+          semanticCapabilityDefinitions,
+        });
+        if (canonical.length === 0) {
+          throw new ApplicationError(
+            'INVALID_REQUEST',
+            `Capability selection ${capability.id} is not a durable access rule.`,
+          );
+        }
+        return canonical;
+      }),
     );
 
     const capabilityToolIds = await Promise.all(

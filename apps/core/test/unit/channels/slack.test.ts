@@ -963,7 +963,7 @@ describe('Slack channel', () => {
       .mock.calls.at(-1)?.[0];
     expect(postCall?.thread_ts).toBe('1711111111.000100');
     expect(postCall?.text).toContain(
-      'Route: shown in this Slack thread; approval applies to the parent conversation.',
+      'Approval applies to the parent conversation.',
     );
     expect(postCall?.text).toContain('Command:\n```\ngit status --short\n```');
 
@@ -1358,8 +1358,10 @@ describe('Slack channel', () => {
       .mocked(appRef.current.client.chat.postMessage)
       .mock.calls.at(-1)?.[0];
     expect(postCall?.thread_ts).toBe('1711111111.000200');
-    expect(postCall?.text).toContain('Source: slack_main');
-    expect(postCall?.text).toContain('Thread: 1711111111.000200');
+    expect(postCall?.text).toContain('*Pick one*');
+    expect(postCall?.text).toContain('Preferred option?');
+    expect(postCall?.text).not.toContain('Source: slack_main');
+    expect(postCall?.text).not.toContain('Thread: 1711111111.000200');
 
     const actionHandler = appRef.current.actionHandlers.get(
       'gantry_userq_select',

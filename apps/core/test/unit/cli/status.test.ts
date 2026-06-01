@@ -45,6 +45,10 @@ describe('status command formatting', () => {
         blockingFailures: 0,
         checks: [],
       },
+      service: {
+        kind: 'background',
+        status: 'running(pid:12345)',
+      },
       channels: [
         {
           id: 'telegram',
@@ -63,6 +67,7 @@ describe('status command formatting', () => {
       "Gantry
 
       Runtime: Ready
+      Service (background): running(pid:12345)
       Workspace: default
       Agents: 1/1
       Conversations: 1/1
@@ -102,6 +107,10 @@ describe('status command formatting', () => {
         blockingFailures: 0,
         checks: [],
       },
+      service: {
+        kind: 'background',
+        status: 'running(pid:12345)',
+      },
       channels: [
         {
           id: 'telegram',
@@ -117,6 +126,8 @@ describe('status command formatting', () => {
     } satisfies RuntimeStatusSummary);
 
     expect(output).toContain('Providers: 1/0/0');
-    expect(output).toContain('Next action: Bind an agent to a conversation.');
+    expect(output).toContain(
+      'Next action: Run `gantry agent add <chat-jid>` to bind an agent to a conversation.',
+    );
   });
 });

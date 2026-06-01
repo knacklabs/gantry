@@ -3,17 +3,24 @@ import { listConnectableChannelProviders } from '../channels/provider-registry.j
 
 import { readEnvFile } from '../config/env/file.js';
 import { DoctorReport, runDoctorWithNetwork } from './doctor.js';
+import { getServiceStatus } from '../infrastructure/service/manager.js';
 import { envFilePath } from '../config/settings/runtime-home.js';
 import { ensureRuntimeSettings } from '../config/settings/runtime-settings.js';
 import { inspectMemoryHealth } from './memory-health.js';
+import { isStorageUnavailableError } from '../adapters/storage/postgres/runtime-store.js';
 import {
   buildControlPlaneReadModelFromSettings,
   formatControlPlaneStatus,
   type ControlPlaneMemoryStatus,
 } from '../application/control-plane/control-plane-read-model.js';
+import type { AppId } from '../domain/app/app.js';
 
 export interface RuntimeStatusSummary {
   doctor: DoctorReport;
+  service: {
+    kind: string;
+    status: string;
+  };
   channels: Array<{
     id: string;
     label: string;
@@ -32,10 +39,14 @@ export async function collectRuntimeStatus(
 ): Promise<RuntimeStatusSummary> {
   const env = readEnvFile(envFilePath(runtimeHome));
   const settings = ensureRuntimeSettings(runtimeHome);
+  const service = getServiceStatus(runtimeHome);
   const doctor = await runDoctorWithNetwork(importMetaUrl, runtimeHome, {
     validateTelegramToken: false,
   });
   const memoryHealth = inspectMemoryHealth(runtimeHome, settings, env);
+  const accessNeedsApprovalCount = storageUnavailable(doctor)
+    ? 0
+    : await countPendingAccessApprovals(runtimeHome);
   const brokerCheck = doctor.checks.find(
     (check) => check.id === 'claude-broker',
   );
@@ -69,8 +80,9 @@ export async function collectRuntimeStatus(
 
   return {
     doctor,
+    service,
     channels,
-    accessNeedsApprovalCount: 0,
+    accessNeedsApprovalCount,
     modelCredentialReady: brokerCheck?.status === 'pass',
     memoryStatus: toControlPlaneMemoryStatus(
       memoryHealth.memoryEnabled,
@@ -78,6 +90,40 @@ export async function collectRuntimeStatus(
     ),
     settings,
   };
+}
+
+function storageUnavailable(doctor: DoctorReport): boolean {
+  return doctor.checks.some(
+    (check) =>
+      (check.id === 'runtime-storage' || check.id === 'storage-capabilities') &&
+      check.status === 'fail',
+  );
+}
+
+async function countPendingAccessApprovals(
+  runtimeHome: string,
+): Promise<number> {
+  process.env.GANTRY_HOME = runtimeHome;
+  try {
+    const { createStorageRuntime } =
+      await import('../adapters/storage/postgres/factory.js');
+    const storage = createStorageRuntime();
+    try {
+      return await storage.repositories.pendingAccessRequests.countPendingAccessRequests(
+        { appId: 'default' as AppId },
+      );
+    } finally {
+      await storage.runtimeEventNotifier.close().catch(() => undefined);
+      await storage.service.close().catch(() => undefined);
+    }
+  } catch (err) {
+    if (!isStorageUnavailableError(err)) {
+      console.warn(
+        `Storage degraded: ${err instanceof Error ? err.message : String(err)}. Pending access approvals may be undercounted.`,
+      );
+    }
+    return 0;
+  }
 }
 
 export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
@@ -95,6 +141,7 @@ export function formatRuntimeStatus(summary: RuntimeStatusSummary): string {
       accessNeedsApprovalCount: summary.accessNeedsApprovalCount,
       memoryStatus: summary.memoryStatus,
     }),
+    summary.service,
   );
 }
 

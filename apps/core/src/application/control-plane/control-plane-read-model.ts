@@ -70,14 +70,34 @@ export interface ControlPlaneSettingsReadModelInput {
 }
 
 export type ControlPlaneNextAction =
-  | { kind: 'runtime_blocked'; label: string }
-  | { kind: 'missing_model_credential'; label: string }
-  | { kind: 'missing_provider_connection'; label: string }
-  | { kind: 'missing_conversation_binding'; label: string }
-  | { kind: 'missing_access_approval'; label: string }
-  | { kind: 'blocked_job'; label: string }
-  | { kind: 'memory_review_setup'; label: string }
-  | { kind: 'none'; label: 'none' };
+  | { kind: 'runtime_blocked'; label: string; params?: Record<string, string> }
+  | {
+      kind: 'missing_model_credential';
+      label: string;
+      params?: Record<string, string>;
+    }
+  | {
+      kind: 'missing_provider_connection';
+      label: string;
+      params?: Record<string, string>;
+    }
+  | {
+      kind: 'missing_conversation_binding';
+      label: string;
+      params?: Record<string, string>;
+    }
+  | {
+      kind: 'missing_access_approval';
+      label: string;
+      params?: Record<string, string>;
+    }
+  | { kind: 'blocked_job'; label: string; params?: Record<string, string> }
+  | {
+      kind: 'memory_review_setup';
+      label: string;
+      params?: Record<string, string>;
+    }
+  | { kind: 'none'; label: 'none'; params?: Record<string, string> };
 
 export interface ControlPlaneReadModel {
   title: 'Gantry';
@@ -129,6 +149,10 @@ export function buildControlPlaneReadModel(
     },
     { ready: 0, needsAction: 0, blocked: 0 },
   );
+  const blockedJobId = input.jobs.find((job) => job.status === 'blocked')?.id;
+  const needsActionJobId = input.jobs.find(
+    (job) => job.status === 'needs_action',
+  )?.id;
   const nextAction = selectControlPlaneNextAction({
     runtimeBlocked: input.runtimeBlocked === true,
     modelCredentialReady: input.modelCredentialReady,
@@ -137,6 +161,9 @@ export function buildControlPlaneReadModel(
     conversationsTotal: input.conversations.length,
     accessNeedsApprovalCount: input.accessNeedsApprovalCount,
     blockedJobs: jobCounts.blocked,
+    blockedJobId,
+    needsActionJobs: jobCounts.needsAction,
+    needsActionJobId,
     memoryStatus: input.memoryStatus,
   });
   const agentDetails = input.agents.map((agent) => {
@@ -161,10 +188,19 @@ export function buildControlPlaneReadModel(
         providerCounts,
         conversationsReady: agentConversations,
         conversationsTotal: agentConversations,
-        accessNeedsApprovalCount: 0,
+        accessNeedsApprovalCount: input.accessNeedsApprovalCount,
         blockedJobs: input.jobs.filter(
           (job) => job.agentId === agent.id && job.status === 'blocked',
         ).length,
+        blockedJobId: input.jobs.find(
+          (job) => job.agentId === agent.id && job.status === 'blocked',
+        )?.id,
+        needsActionJobs: input.jobs.filter(
+          (job) => job.agentId === agent.id && job.status === 'needs_action',
+        ).length,
+        needsActionJobId: input.jobs.find(
+          (job) => job.agentId === agent.id && job.status === 'needs_action',
+        )?.id,
         memoryStatus: input.memoryStatus,
       }),
     };
@@ -241,24 +277,32 @@ export function selectControlPlaneNextAction(input: {
   conversationsTotal: number;
   accessNeedsApprovalCount: number;
   blockedJobs: number;
+  blockedJobId?: string;
+  needsActionJobs?: number;
+  needsActionJobId?: string;
   memoryStatus: ControlPlaneMemoryStatus;
 }): ControlPlaneNextAction {
+  // Labels are copy-pasteable commands so the guided-action manual receipt is
+  // actionable on every surface (CLI/API/MCP), even when an action can't be
+  // executed automatically.
   if (input.runtimeBlocked) {
     return {
       kind: 'runtime_blocked',
-      label: 'Run gantry doctor and fix blocking runtime checks.',
+      label: 'Run `gantry doctor` to fix blocking runtime checks.',
     };
   }
   if (!input.modelCredentialReady) {
     return {
       kind: 'missing_model_credential',
-      label: 'Connect Model Access credentials.',
+      label:
+        'Run `gantry credentials model set <provider>` to connect model access.',
     };
   }
   if (input.providerCounts.blocked > 0) {
     return {
       kind: 'missing_provider_connection',
-      label: 'Fix the blocked provider connection.',
+      label:
+        'Run `gantry provider connect <provider>` to fix the blocked provider.',
     };
   }
   if (
@@ -267,47 +311,65 @@ export function selectControlPlaneNextAction(input: {
   ) {
     return {
       kind: 'missing_provider_connection',
-      label: 'Connect a provider.',
+      label: 'Run `gantry provider connect <provider>` to connect a provider.',
     };
   }
   if (input.conversationsTotal === 0 || input.conversationsReady === 0) {
     return {
       kind: 'missing_conversation_binding',
-      label: 'Bind an agent to a conversation.',
+      label:
+        'Run `gantry agent add <chat-jid>` to bind an agent to a conversation.',
     };
   }
   if (input.accessNeedsApprovalCount > 0) {
     return {
       kind: 'missing_access_approval',
-      label: 'Approve pending access requests.',
+      label:
+        'Approve or deny the pending access prompt in its source conversation.',
     };
   }
-  if (input.blockedJobs > 0) {
-    return {
-      kind: 'blocked_job',
-      label: 'Review blocked jobs.',
-    };
+  const jobActionCount = input.blockedJobs + (input.needsActionJobs ?? 0);
+  const jobActionId = input.blockedJobId ?? input.needsActionJobId;
+  if (jobActionCount > 0) {
+    // Emit the concrete job id when known so the action is executable;
+    // otherwise point at `gantry jobs list` to find it.
+    return jobActionId
+      ? {
+          kind: 'blocked_job',
+          label: `Run \`gantry jobs resume ${jobActionId}\` to resume the job that needs action.`,
+          params: { jobId: jobActionId },
+        }
+      : {
+          kind: 'blocked_job',
+          label:
+            'Run `gantry jobs list` to find the job that needs action, then `gantry jobs resume <job-id>`.',
+        };
   }
   if (input.memoryStatus === 'Needs review') {
     return {
       kind: 'memory_review_setup',
-      label: 'Review pending memory items.',
+      label: 'Run `gantry memory status` to review pending memory items.',
     };
   }
   if (input.memoryStatus === 'Needs setup') {
     return {
       kind: 'memory_review_setup',
-      label: 'Finish memory setup.',
+      label:
+        'Run `gantry memory embeddings <provider>` to finish memory setup.',
     };
   }
   return { kind: 'none', label: 'none' };
 }
 
-export function formatControlPlaneStatus(model: ControlPlaneReadModel): string {
+export function formatControlPlaneStatus(
+  model: ControlPlaneReadModel,
+  service?: { kind: string; status: string },
+): string {
   return [
     model.title,
     '',
     `Runtime: ${model.runtime}`,
+    ...(service ? [`Service (${service.kind}): ${service.status}`] : []),
     `Workspace: ${model.workspaceKey}`,
     `Agents: ${model.agents.ready}/${model.agents.total}`,
     `Conversations: ${model.conversations.ready}/${model.conversations.total}`,

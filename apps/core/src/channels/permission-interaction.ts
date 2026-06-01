@@ -10,10 +10,7 @@ import {
   isThirdPartyMcpToolRule,
   parseReadableScopedToolRule,
   publicGantryToolNameForSdkTool,
-  RUN_COMMAND_TOOL_NAME,
 } from '../shared/agent-tool-references.js';
-import { formatDurableAccessRulesForUser } from '../shared/durable-access-policy.js';
-import { deliveryLabel } from './provider-delivery-labels.js';
 import {
   redactSensitiveText,
   sanitizeOutboundLlmText,
@@ -27,7 +24,6 @@ import { parseSemanticCapabilityRule } from '../shared/semantic-capability-ids.j
 import {
   firstPersistentRule,
   PERSISTENT_RULE_APPROVAL_MAX_RULES,
-  persistentRules,
 } from './permission-decision.js';
 import { formatPermissionToolInputLines } from './permission-tool-input-format.js';
 
@@ -151,21 +147,7 @@ export function formatPermissionPromptText(
     );
   }
   const label = permissionAccessLabel(request);
-  const requestLabel = request.displayName || request.title;
-  const lines = [
-    `Allow ${label}?`,
-    '',
-    ...formatPermissionOriginLines(request),
-    ...formatPermissionRoutingLines(request),
-  ];
-  if (requestLabel) {
-    lines.push(`Request: ${formatPermissionRequestLabel(requestLabel)}`);
-  }
-  if (request.agentID || request.subagentType) {
-    lines.push(
-      `Delegated Agent: ${request.subagentType || 'generic'}${request.agentID ? ` (${request.agentID})` : ''}`,
-    );
-  }
+  const lines = [`🔐 Allow ${label}?`];
   const inputLines = formatPermissionToolInputLines(
     request,
     sanitizePermissionText,
@@ -176,25 +158,8 @@ export function formatPermissionPromptText(
     lines.push(
       `Path: ${sanitizePermissionText(request.blockedPath, 250, 100)}`,
     );
-  if (request.decisionReason)
-    lines.push(`Reason: ${formatPermissionReason(request.decisionReason)}`);
-  const closestRule = formatClosestRuleLine(request);
-  if (closestRule) lines.push(closestRule);
-  if (request.description)
-    lines.push(
-      `Details: ${sanitizePermissionText(request.description, 260, 100)}`,
-    );
-  const rules = persistentRules(request);
-  if (rules.length > 0) {
-    lines.push(
-      '',
-      `Details: ${formatDurableAccessRulesForUser(rules, {
-        semanticCapabilityDefinitions: request.semanticCapabilityDefinitions,
-      })}`,
-    );
-  }
-  lines.push('', ...formatPermissionBoundaryLines(request));
-  lines.push('', `Reply within ${timeoutMinutes} minute(s).`);
+  lines.push('', ...formatPermissionContextLines(request));
+  lines.push(`Reply in ${timeoutMinutes}m`);
   return limitPermissionMessage(lines.join('\n'));
 }
 
@@ -203,69 +168,112 @@ export function formatPermissionReceiptText(
   request: PermissionApprovalRequest | undefined,
   decision: PermissionApprovalDecision,
 ): string {
-  const actor = decision.decidedBy || 'unknown';
-  const label = permissionAccessLabel(request);
+  const summary = formatPermissionReceiptActionSummary(request);
   if (!decision.approved || decision.mode === 'cancel') {
-    return limitPermissionMessage(
-      [
-        `Canceled: ${label}. No permission changed.`,
-        ...formatPermissionOriginLines(request),
-        ...formatPermissionRoutingLines(request),
-        `By: ${sanitizePermissionText(actor, 120, 40)}`,
-      ].join('\n'),
-    );
+    return limitPermissionMessage(`🚫 Canceled · ${summary}`);
   }
+  const actor = decision.decidedBy
+    ? ` (by ${sanitizePermissionText(decision.decidedBy, 60, 20)})`
+    : '';
   if (decision.mode === 'allow_timed_grant') {
     const expiresAt = decision.timedGrantExpiresAtMs;
-    const expiresLabel = expiresAt
+    const until = expiresAt
       ? new Date(expiresAt).toLocaleTimeString([], {
           hour: '2-digit',
           minute: '2-digit',
         })
       : 'soon';
-    const scope = requestHasThreadRoute(request)
-      ? ' in parent conversation'
-      : '';
     return limitPermissionMessage(
-      [
-        `Allowed for 5 minutes${scope}: ${label}`,
-        `Until: ${expiresLabel}`,
-        `For: ${formatPermissionReceiptActionSummary(request)}`,
-        ...formatPermissionOriginLines(request),
-        ...formatPermissionRoutingLines(request),
-        `By: ${sanitizePermissionText(actor, 120, 40)}`,
-      ].join('\n'),
+      `✅ Allowed 5 min · ${summary} · until ${until}${actor}`,
     );
   }
   if (decision.mode === 'allow_persistent_rule') {
-    const rules = request ? persistentRules(request) : [];
-    const agent = request
-      ? formatAgentDisplayName(request.sourceAgentFolder)
-      : 'this agent';
-    const lines = [`Always allowed for ${agent}: ${label}`];
-    if (rules.length > 0) {
-      lines.push(
-        `Details: ${formatDurableAccessRulesForUser(rules, {
-          semanticCapabilityDefinitions: request?.semanticCapabilityDefinitions,
-        })}`,
+    return limitPermissionMessage(`✅ Always allowed · ${summary}${actor}`);
+  }
+  return limitPermissionMessage(`✅ Allowed once · ${summary}${actor}`);
+}
+
+export const PERMISSION_GLYPH = '🔐';
+
+/**
+ * Structured view of a permission prompt for provider-native renderers
+ * (Slack blocks, Telegram HTML). The plain-text `formatPermissionPromptText`
+ * above remains the canonical fallback; keep both in sync when fields change.
+ */
+export interface PermissionPromptParts {
+  /** Title without the glyph, e.g. "Allow exact command access?" */
+  title: string;
+  /** Tool-input / field lines. May contain ``` fenced code regions. */
+  bodyLines: string[];
+  /** Dim metadata lines (agent · source, routing note). */
+  contextLines: string[];
+  replyInMinutes: number;
+}
+
+export function buildPermissionPromptParts(
+  request: PermissionApprovalRequest,
+  timeoutMs: number,
+): PermissionPromptParts {
+  const replyInMinutes = Math.max(1, Math.round(timeoutMs / 60000));
+  const contextLines = formatPermissionContextLines(request);
+  if (request.interaction) {
+    const interaction = request.interaction;
+    const rule = firstPersistentRule(request);
+    const capabilityName = semanticCapabilityName(request, rule);
+    const title = `Allow ${capabilityName ?? permissionAccessLabel(request)}?`;
+    const bodyLines: string[] = [];
+    const accountLabel = request.toolInput?.accountLabel;
+    if (typeof accountLabel === 'string' && accountLabel.trim()) {
+      bodyLines.push(
+        `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
       );
     }
-    lines.push(`For: ${formatPermissionReceiptActionSummary(request)}`);
-    lines.push(...formatPermissionOriginLines(request));
-    lines.push(...formatPermissionRoutingLines(request));
-    lines.push(`By: ${sanitizePermissionText(actor, 120, 40)}`);
-    lines.push('Revoke from Agent Access.');
-    return limitPermissionMessage(lines.join('\n'));
+    if (interaction.body) {
+      bodyLines.push(sanitizePermissionText(interaction.body, 500, 160));
+    }
+    if (interaction.details?.length) {
+      bodyLines.push(
+        ...interaction.details.map((detail) =>
+          formatInteractionDetailLine(detail.label, detail.value, detail.mono),
+        ),
+      );
+    }
+    return { title, bodyLines, contextLines, replyInMinutes };
   }
-  return limitPermissionMessage(
-    [
-      `Allowed once: ${label}`,
-      `For: ${formatPermissionReceiptActionSummary(request)}`,
-      ...formatPermissionOriginLines(request),
-      ...formatPermissionRoutingLines(request),
-      `By: ${sanitizePermissionText(actor, 120, 40)}`,
-    ].join('\n'),
+  const rule = firstPersistentRule(request);
+  const capabilityName = semanticCapabilityName(request, rule);
+  if (capabilityName) {
+    const definition = semanticCapabilityDefinition(request, rule);
+    const bodyLines: string[] = [];
+    const accountLabel =
+      definition?.accountLabel ?? request.toolInput?.accountLabel;
+    if (typeof accountLabel === 'string' && accountLabel.trim()) {
+      bodyLines.push(
+        `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
+      );
+    }
+    if (definition?.risk) {
+      bodyLines.push(`Risk: ${humanizeIdentifier(definition.risk)}`);
+    }
+    return {
+      title: `Allow ${capabilityName}?`,
+      bodyLines,
+      contextLines,
+      replyInMinutes,
+    };
+  }
+  const label = permissionAccessLabel(request);
+  const bodyLines = formatPermissionToolInputLines(
+    request,
+    sanitizePermissionText,
+    { sanitizeCommandText: sanitizePermissionCommandText },
   );
+  if (request.blockedPath) {
+    bodyLines.push(
+      `Path: ${sanitizePermissionText(request.blockedPath, 250, 100)}`,
+    );
+  }
+  return { title: `Allow ${label}?`, bodyLines, contextLines, replyInMinutes };
 }
 
 function headTailTruncate(input: string, head: number, tail: number): string {
@@ -302,17 +310,20 @@ function limitPermissionMessage(input: string): string {
   return `${input.slice(0, PERMISSION_MESSAGE_BUDGET - 44)}\n\n[additional permission details omitted]`;
 }
 
-function formatPermissionOriginLines(
+function formatPermissionContextLines(
   request: PermissionApprovalRequest | undefined,
 ): string[] {
   if (!request) return [];
   const source = request.jobId
     ? `scheduled job${request.jobName ? `: ${sanitizePermissionText(request.jobName, 120, 40)}` : ''}`
     : 'agent chat';
-  return [
-    `Agent: ${formatAgentDisplayName(request.sourceAgentFolder)}`,
-    `From: ${source}`,
+  const lines = [
+    `${formatAgentDisplayName(request.sourceAgentFolder)} · ${source}`,
   ];
+  if (requestHasThreadRoute(request)) {
+    lines.push('Approval applies to the parent conversation.');
+  }
+  return lines;
 }
 
 function formatAgentDisplayName(sourceAgentFolder: string): string {
@@ -334,16 +345,6 @@ function formatAgentDisplayName(sourceAgentFolder: string): string {
     .join(' ');
 }
 
-function formatPermissionRoutingLines(
-  request: PermissionApprovalRequest | undefined,
-): string[] {
-  if (!requestHasThreadRoute(request)) return [];
-  const label = deliveryLabel(request?.targetJid ?? '', request?.threadId);
-  return [
-    `Route: shown in this ${label}; approval applies to the parent conversation.`,
-  ];
-}
-
 function formatInteractionPermissionPrompt(
   request: PermissionApprovalRequest,
   timeoutMinutes: number,
@@ -351,12 +352,8 @@ function formatInteractionPermissionPrompt(
   const interaction = request.interaction!;
   const rule = firstPersistentRule(request);
   const capabilityName = semanticCapabilityName(request, rule);
-  const title = `Allow ${capabilityName ?? permissionAccessLabel(request)}?`;
-  const lines = [
-    title,
-    ...formatPermissionOriginLines(request),
-    ...formatPermissionRoutingLines(request),
-  ];
+  const title = `🔐 Allow ${capabilityName ?? permissionAccessLabel(request)}?`;
+  const lines = [title];
   const accountLabel = request.toolInput?.accountLabel;
   if (typeof accountLabel === 'string' && accountLabel.trim()) {
     lines.push(
@@ -365,17 +362,16 @@ function formatInteractionPermissionPrompt(
   }
   if (interaction.body)
     lines.push('', sanitizePermissionText(interaction.body, 500, 160));
-  lines.push('', ...formatPermissionBoundaryLines(request));
   if (interaction.details?.length) {
     lines.push(
       '',
-      'Details:',
       ...interaction.details.map((detail) =>
         formatInteractionDetailLine(detail.label, detail.value, detail.mono),
       ),
     );
   }
-  lines.push(`Reply within ${timeoutMinutes} minute(s).`);
+  lines.push('', ...formatPermissionContextLines(request));
+  lines.push(`Reply in ${timeoutMinutes}m`);
   return limitPermissionMessage(lines.join('\n'));
 }
 
@@ -386,14 +382,7 @@ function formatSemanticPermissionPrompt(
   rule: string | undefined,
 ): string {
   const definition = semanticCapabilityDefinition(request, rule);
-  const lines = [
-    `Allow ${capabilityName}?`,
-    ...formatPermissionOriginLines(request),
-    ...formatPermissionRoutingLines(request),
-    `Access: ${sanitizePermissionText(capabilityName, 120, 40)}`,
-  ];
-  const capabilityId =
-    definition?.capabilityId ?? semanticCapabilityId(request, rule);
+  const lines = [`🔐 Allow ${capabilityName}?`];
   const accountLabel =
     definition?.accountLabel ?? request.toolInput?.accountLabel;
   if (typeof accountLabel === 'string' && accountLabel.trim()) {
@@ -401,23 +390,11 @@ function formatSemanticPermissionPrompt(
       `Account: ${sanitizePermissionText(accountLabel.trim(), 100, 40)}`,
     );
   }
-  const can = definition?.can ?? request.toolInput?.can;
-  if (typeof can === 'string' && can.trim()) {
-    lines.push('', `Allows: ${sanitizePermissionText(can.trim(), 300, 100)}`);
-  }
-  const cannot = definition?.cannot ?? request.toolInput?.cannot;
-  if (typeof cannot === 'string' && cannot.trim()) {
-    lines.push(
-      `Does not allow: ${sanitizePermissionText(cannot.trim(), 300, 100)}`,
-    );
-  }
   if (definition?.risk) {
-    lines.push('', `Risk: ${humanizeIdentifier(definition.risk)}`);
-  } else if (capabilityId) {
-    lines.push('', `Capability: ${humanizeIdentifier(capabilityId)}`);
+    lines.push(`Risk: ${humanizeIdentifier(definition.risk)}`);
   }
-  lines.push('', ...formatPermissionBoundaryLines(request));
-  lines.push(`Reply within ${timeoutMinutes} minute(s).`);
+  lines.push('', ...formatPermissionContextLines(request));
+  lines.push(`Reply in ${timeoutMinutes}m`);
   return limitPermissionMessage(lines.join('\n'));
 }
 
@@ -428,48 +405,6 @@ function formatInteractionDetailLine(
 ): string {
   const text = sanitizePermissionText(value, 200, 100);
   return `${label}: ${mono ? '`' : ''}${text}${mono ? '`' : ''}`;
-}
-
-function formatPermissionBoundaryLines(
-  request: PermissionApprovalRequest,
-): string[] {
-  const rule = firstPersistentRule(request);
-  const capabilityName = semanticCapabilityName(request, rule);
-  const hasThreadRoute = requestHasThreadRoute(request);
-  if (!rule) {
-    if (hasThreadRoute) {
-      return [
-        'Scope: this request or a short 5-minute grant in the parent conversation.',
-        'Safety: unrelated tools, secrets, settings changes, and protected paths are not included.',
-      ];
-    }
-    return [
-      'Scope: this request or a short 5-minute grant.',
-      'Safety: unrelated tools, secrets, settings changes, and protected paths are not included.',
-    ];
-  }
-  if (capabilityName) {
-    if (hasThreadRoute) {
-      return [
-        'Scope: this request, a short 5-minute grant, or always allow future matching runs in the parent conversation.',
-        'Safety: unrelated apps, credentials, settings changes, and broader access are not included.',
-      ];
-    }
-    return [
-      'Scope: this request, a short 5-minute grant, or future matching runs.',
-      'Safety: unrelated apps, credentials, settings changes, and broader access are not included.',
-    ];
-  }
-  if (hasThreadRoute) {
-    return [
-      'Scope: this request, a short 5-minute grant, or always allow future matching tool calls in the parent conversation.',
-      'Safety: only matching future access is included; unrelated tools, secrets, and settings changes are not included.',
-    ];
-  }
-  return [
-    'Scope: this request, a short 5-minute grant, or future matching tool calls.',
-    'Safety: only matching future access is included; unrelated tools, secrets, and settings changes are not included.',
-  ];
 }
 
 function requestHasThreadRoute(
@@ -580,20 +515,6 @@ function semanticCapabilityId(
   return typeof fromInput === 'string' && fromInput.trim()
     ? fromInput.trim()
     : undefined;
-}
-
-function formatClosestRuleLine(
-  request: PermissionApprovalRequest,
-): string | undefined {
-  return request.closestRule
-    ? `Closest existing access: ${formatDurableAccessRulesForUser([request.closestRule.rule], { semanticCapabilityDefinitions: request.semanticCapabilityDefinitions })} (did not match: ${formatPermissionReason(request.closestRule.reason)})`
-    : undefined;
-}
-
-function formatPermissionReason(reason: string): string {
-  return neutralizeImplementationTerms(
-    sanitizePermissionText(reason, 260, 100),
-  );
 }
 
 function formatPermissionRequestLabel(label: string): string {

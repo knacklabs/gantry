@@ -41,8 +41,7 @@ const unsupportedSchedulerRoutingAliases = [
 ] as const;
 
 // Group->workspace rename: legacy execution-scope tokens that must not
-// reappear in active docs. Historical/ADR records keep the old model on
-// purpose and are listed in `workspaceRenameDocAllowlist`.
+// reappear in active docs.
 const workspaceRenameLegacyTokens = [
   'groupScope',
   'group_scope',
@@ -54,13 +53,6 @@ const workspaceRenameLegacyTokens = [
   'idx_jobs_target_group_scope',
   'executionContext.groupScope',
 ] as const;
-
-// Historical decision records intentionally describe the rejected old
-// "personal group folder" model and must keep that wording verbatim.
-const workspaceRenameDocAllowlist = new Set([
-  'docs/decisions/0001-agent-runtime-platform.md',
-  'docs/architecture/canonical-domain-model.md',
-]);
 
 const allowedLegacyReferenceFiles = new Set([
   'apps/core/src/jobs/ipc-scheduler-create-handlers.ts',
@@ -204,7 +196,6 @@ describe('job notification cleanup', () => {
     for (const absolutePath of collectFiles(docsRoot)) {
       if (!/\.md$/.test(absolutePath)) continue;
       const relativePath = path.relative(repoRoot, absolutePath);
-      if (workspaceRenameDocAllowlist.has(relativePath)) continue;
       const source = fs.readFileSync(absolutePath, 'utf8');
       const hit = workspaceRenameLegacyTokens.find((token) =>
         source.includes(token),

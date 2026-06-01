@@ -6,12 +6,13 @@ import {
   getRuntimeStorage,
   initializeRuntimeStorage,
 } from '../adapters/storage/postgres/runtime-store.js';
-import { SettingsDesiredStateService } from '../config/settings/desired-state-service.js';
 import {
+  applyRuntimeSettingsDesiredState,
   loadRuntimeSettings,
   loadRuntimeSettingsFromPath,
-  saveRuntimeSettings,
-} from '../config/settings/runtime-settings.js';
+  SettingsDesiredStateService,
+} from '../config/index.js';
+import type { AppId } from '../domain/app/app.js';
 
 function usage(): string {
   return [
@@ -60,7 +61,14 @@ export async function runSettingsCommand(
 
     if (subcommand === 'export-current') {
       const exported = await service.exportCurrent(settings);
-      saveRuntimeSettings(runtimeHome, exported);
+      await applyRuntimeSettingsDesiredState({
+        runtimeHome,
+        settings: exported,
+        ops: storage.ops,
+        repositories: storage.repositories,
+        appId: 'default' as AppId,
+        previousSettings: settings,
+      });
       const agentCount = Object.keys(exported.agents).length;
       p.log.success(
         `Exported ${agentCount} agent desired-state record(s) to settings.yaml.`,

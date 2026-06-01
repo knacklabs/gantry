@@ -243,7 +243,7 @@ describe('jobs/execution', () => {
     );
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:scheduler',
-      expect.stringContaining('Paused after failures: Daily summary'),
+      expect.stringContaining('⏸️ Paused after failures · Daily summary'),
       expect.objectContaining({ threadId: 'thread-scheduled' }),
     );
     expect(runtimeStoreMock.publish).toHaveBeenCalledWith(
@@ -290,7 +290,7 @@ describe('jobs/execution', () => {
     expect(completionSummary).not.toContain('json-result');
 
     const completionMessage = sendMessage.mock.calls.at(-1)?.[1] as string;
-    expect(completionMessage).toContain('Completed: Daily summary');
+    expect(completionMessage).toContain('✅ Completed · Daily summary');
     expect(completionMessage).toContain('[REDACTED]');
     expect(completionMessage).not.toContain('provider-session:raw-result');
     expect(completionMessage).not.toContain('claude-session-result');
@@ -483,10 +483,12 @@ describe('jobs/execution', () => {
       }),
     );
     const messages = sendMessage.mock.calls.map((call) => String(call[1]));
-    expect(messages).toContainEqual(expect.stringContaining('Running:'));
-    expect(messages).toContainEqual(expect.stringContaining('Setup needed:'));
+    expect(messages).toContainEqual(expect.stringContaining('▶️ Running ·'));
+    expect(messages).toContainEqual(
+      expect.stringContaining('🛠️ Setup needed ·'),
+    );
     expect(messages).not.toContainEqual(
-      expect.stringContaining('Needs permission:'),
+      expect.stringContaining('🔐 Needs permission ·'),
     );
   });
 
@@ -718,8 +720,9 @@ describe('jobs/execution', () => {
     expect(deadLetterUpdate?.pause_reason).not.toContain('json-error');
 
     const failureMessage = sendMessage.mock.calls.at(-1)?.[1] as string;
-    expect(failureMessage).toContain('Paused after failures: Daily summary');
-    expect(failureMessage).toContain('Outcome:');
+    expect(failureMessage).toContain(
+      '⏸️ Paused after failures · Daily summary',
+    );
     expect(failureMessage).toContain('Action:');
     expect(failureMessage).toContain('[REDACTED]');
     expect(failureMessage).not.toContain('provider-session:raw-error');
@@ -805,13 +808,13 @@ describe('jobs/execution', () => {
     expect(sendMessage).toHaveBeenNthCalledWith(
       1,
       'tg:scheduler',
-      expect.stringContaining('Running: Daily summary'),
+      expect.stringContaining('▶️ Running · Daily summary'),
       { threadId: 'thread-scheduled' },
     );
     expect(sendMessage).toHaveBeenNthCalledWith(
       2,
       'tg:scheduler',
-      expect.stringContaining('Completed: Daily summary'),
+      expect.stringContaining('✅ Completed · Daily summary'),
       { threadId: 'thread-scheduled' },
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(
@@ -1255,12 +1258,12 @@ describe('jobs/execution', () => {
       expect.arrayContaining([
         [
           'tg:scheduler',
-          expect.stringContaining('Running: Daily summary'),
+          expect.stringContaining('▶️ Running · Daily summary'),
           { threadId: 'thread-scheduled' },
         ],
         [
           'tg:scheduler',
-          expect.stringContaining('Completed: Daily summary'),
+          expect.stringContaining('✅ Completed · Daily summary'),
           { threadId: 'thread-scheduled' },
         ],
       ]),
@@ -1368,9 +1371,7 @@ describe('jobs/execution', () => {
     );
     expect(sendMessage).toHaveBeenCalledWith(
       'tg:scheduler',
-      expect.stringContaining(
-        'Outcome: first visible chunk second visible chunk',
-      ),
+      expect.stringContaining('first visible chunk second visible chunk'),
       { threadId: 'thread-scheduled' },
     );
     expect(opsRepository.completeJobRun).toHaveBeenCalledWith(

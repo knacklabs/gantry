@@ -10,10 +10,8 @@ import {
   UserQuestionRequest,
 } from '../../domain/types.js';
 import { writeTelegramFetchResponseToFile } from '../telegram-file-download.js';
-import {
-  formatPermissionPromptText as formatSharedPermissionPromptText,
-  formatPermissionReceiptText,
-} from '../permission-interaction.js';
+import { formatPermissionReceiptText } from '../permission-interaction.js';
+import { escapeTelegramHtml } from './html-render.js';
 
 import { TelegramChannelState } from './channel-state.js';
 
@@ -21,7 +19,6 @@ const TELEGRAM_POLL_LEASE_HASH_CHARS = 24;
 import {
   PendingUserQuestionState,
   TELEGRAM_INLINE_BUTTON_TEXT_MAX_BYTES,
-  truncateText,
   truncateUtf8ToByteLimit,
 } from './channel-shared.js';
 
@@ -31,51 +28,11 @@ export interface TelegramDownloadedFile {
 }
 
 export abstract class TelegramChannelPrompts extends TelegramChannelState {
-  protected formatPermissionPromptText(
-    request: PermissionApprovalRequest,
-    timeoutMs: number,
-  ): string {
-    return formatSharedPermissionPromptText(request, timeoutMs);
-  }
-
   protected pendingUserQuestionKey(
     requestId: string,
     questionIndex: number,
   ): string {
     return `${requestId}:${questionIndex}`;
-  }
-
-  protected formatUserQuestionPromptText(
-    request: UserQuestionRequest,
-    question: UserQuestionRequest['questions'][number],
-    timeoutMs: number,
-  ): string {
-    const timeoutMinutes = Math.max(1, Math.round(timeoutMs / 60000));
-    const lines = [
-      `❓ ${question.header}`,
-      `Source: ${truncateText(request.sourceAgentFolder, 80)}`,
-    ];
-    if (request.threadId) {
-      lines.push(`Thread: ${truncateText(request.threadId, 80)}`);
-    }
-    lines.push(question.question, '');
-    question.options.forEach((option, optionIndex) => {
-      const description = option.description
-        ? ` — ${truncateText(option.description, 180)}`
-        : '';
-      lines.push(`${optionIndex + 1}. ${option.label}${description}`);
-      if (option.preview) {
-        lines.push(`  Preview: ${truncateText(option.preview, 180)}`);
-      }
-    });
-    lines.push('');
-    if (question.multiSelect) {
-      lines.push('Select one or more options, then tap Done.');
-    } else {
-      lines.push('Select one option.');
-    }
-    lines.push(`Reply timeout: ${timeoutMinutes} minute(s)`);
-    return lines.join('\n');
   }
 
   protected formatUserQuestionButtonLabel(
@@ -187,10 +144,8 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
     clearTimeout(pending.timer);
     pending.resolve(decision);
 
-    const text = formatPermissionReceiptText(
-      requestId,
-      pending.request,
-      decision,
+    const text = escapeTelegramHtml(
+      formatPermissionReceiptText(requestId, pending.request, decision),
     );
     try {
       await this.bot.api.editMessageText(
@@ -198,6 +153,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
         pending.messageId,
         text,
         {
+          parse_mode: 'HTML',
           reply_markup: { inline_keyboard: [] },
         },
       );
@@ -219,6 +175,7 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
         pending.messageId,
         pending.promptText,
         {
+          parse_mode: 'HTML',
           reply_markup: this.buildUserQuestionKeyboard(
             pending.requestId,
             pending.questionIndex,
@@ -263,15 +220,19 @@ export abstract class TelegramChannelPrompts extends TelegramChannelState {
     const selectionText = Array.isArray(selection)
       ? selection.join(', ')
       : selection;
-    const status = reason || 'answered';
-    const actor = answeredBy ? ` by ${answeredBy}` : '';
-    const text = `❓ ${pending.questionHeader}\n${pending.questionText}\n\nAnswer: ${selectionText || '[none]'}\nStatus: ${status}${actor}`;
+    const actor = answeredBy ? ` (by ${answeredBy})` : '';
+    const text = escapeTelegramHtml(
+      selectionText
+        ? `✅ ${pending.questionHeader} · ${selectionText}${actor}`
+        : `⌛ ${pending.questionHeader} · ${reason || 'no answer'}`,
+    );
     try {
       await this.bot.api.editMessageText(
         pending.chatId,
         pending.messageId,
         text,
         {
+          parse_mode: 'HTML',
           reply_markup: { inline_keyboard: [] },
         },
       );

@@ -627,7 +627,7 @@ export async function handleModelRoutes(
           return true;
         }
       }
-      const result = ctx.patchModelDefaults(body);
+      const result = await ctx.patchModelDefaults(body);
       if (!result.ok) {
         sendError(res, 400, 'INVALID_REQUEST', result.message);
         return true;

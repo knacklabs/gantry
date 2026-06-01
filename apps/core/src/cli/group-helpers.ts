@@ -10,7 +10,7 @@ import {
   addControlSenderForAgent,
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
-  saveRuntimeSettings,
+  writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import { ensureRuntimeLayout } from '../config/settings/runtime-home.js';
 import { RuntimeGroupDb, openRuntimeGroupDb } from './runtime-group-db.js';
@@ -39,15 +39,45 @@ export function usage(): string {
   ].join('\n');
 }
 
-export function pruneAgentSenderPolicyOverride(
+export function findConversationIdForAgent(
+  settings: ReturnType<typeof loadRuntimeSettings>,
+  agentId: string,
+  providerId: string,
+): string | null {
+  for (const binding of Object.values(settings.bindings)) {
+    if (binding.agent !== agentId) continue;
+    const conversation = settings.conversations[binding.conversation];
+    if (!conversation) continue;
+    const connection =
+      settings.providerConnections[conversation.providerConnection];
+    if (connection?.provider === providerId) return binding.conversation;
+  }
+  return null;
+}
+
+export function conversationIdsForProvider(
+  settings: ReturnType<typeof loadRuntimeSettings>,
+  providerId: string,
+): string[] {
+  return Object.entries(settings.conversations)
+    .filter(
+      ([, conversation]) =>
+        settings.providerConnections[conversation.providerConnection]
+          ?.provider === providerId,
+    )
+    .map(([conversationId]) => conversationId);
+}
+
+export async function pruneAgentSenderPolicyOverride(
   runtimeHome: string,
   jid: string,
   folder: string,
-): { pruned: boolean; error?: string } {
+): Promise<{ pruned: boolean; error?: string }> {
   const channel = providerFromGroupJid(jid);
   if (!channel) return { pruned: false };
   try {
     const settings = loadRuntimeSettings(runtimeHome);
+    const previousSettings = structuredClone(settings);
     const provider = providerForJid(jid);
     const externalId =
       provider && jid.startsWith(provider.jidPrefix)
@@ -77,7 +107,11 @@ export function pruneAgentSenderPolicyOverride(
       pruned = true;
     }
     if (!pruned) return { pruned: false };
-    saveRuntimeSettings(runtimeHome, settings);
+    await writeDesiredRuntimeSettings({
+      runtimeHome,
+      settings,
+      previousSettings,
+    });
     return { pruned: true };
   } catch (err) {
     return {
@@ -87,7 +121,7 @@ export function pruneAgentSenderPolicyOverride(
   }
 }
 
-export function syncConfiguredConversationBinding(input: {
+export async function syncConfiguredConversationBinding(input: {
   runtimeHome: string;
   agentId: string;
   agentName: string;
@@ -96,8 +130,9 @@ export function syncConfiguredConversationBinding(input: {
   displayName: string;
   trigger: string;
   requiresTrigger: boolean;
-}): void {
+}): Promise<void> {
   const settings = loadRuntimeSettings(input.runtimeHome);
+  const previousSettings = structuredClone(settings);
   ensureConfiguredConversationBinding(settings, {
     agentId: input.agentId,
     agentName: input.agentName,
@@ -107,7 +142,11 @@ export function syncConfiguredConversationBinding(input: {
     trigger: input.trigger,
     requiresTrigger: input.requiresTrigger,
   });
-  saveRuntimeSettings(input.runtimeHome, settings);
+  await writeDesiredRuntimeSettings({
+    runtimeHome: input.runtimeHome,
+    settings,
+    previousSettings,
+  });
 }
 
 function inferTelegramPrivateChatApprover(chatJid: string): string | undefined {
@@ -127,13 +166,20 @@ export async function seedTelegramControlApproverForAgent(input: {
   if (!approver) return undefined;
 
   const settings = loadRuntimeSettings(input.runtimeHome);
+  const previousSettings = structuredClone(settings);
   const added = addControlSenderForAgent(
     settings,
     'telegram',
     input.agentFolder,
     approver,
   );
-  if (added) saveRuntimeSettings(input.runtimeHome, settings);
+  if (added) {
+    await writeDesiredRuntimeSettings({
+      runtimeHome: input.runtimeHome,
+      settings,
+      previousSettings,
+    });
+  }
   return approver;
 }
 

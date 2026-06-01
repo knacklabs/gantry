@@ -536,6 +536,24 @@ export interface PermissionRepository {
   getDecision(id: PermissionDecisionId): Promise<PermissionDecision | null>;
 }
 
+export interface PendingAccessRequestsRepository {
+  insertPending(input: {
+    id: string;
+    appId: AppId;
+    agentId: string;
+    requestedBy: string;
+    target: unknown;
+    now?: string;
+  }): Promise<void>;
+  markResolved(input: {
+    appId: AppId;
+    id: string;
+    resolution: 'approved' | 'denied';
+    now?: string;
+  }): Promise<void>;
+  countPendingAccessRequests(input: { appId: AppId }): Promise<number>;
+}
+
 export interface SandboxRepository {
   getSandboxProfile(id: SandboxProfileId): Promise<SandboxProfile | null>;
   saveSandboxProfile(profile: SandboxProfile): Promise<void>;

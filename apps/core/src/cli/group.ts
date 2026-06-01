@@ -11,7 +11,7 @@ import {
   capabilityToToolRule,
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
-  saveRuntimeSettings,
+  writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import {
   defaultTriggerForAgentName,
@@ -32,7 +32,9 @@ import {
 } from './group-args.js';
 import {
   allocateGroupFolder,
+  conversationIdsForProvider,
   ensureGroupFiles,
+  findConversationIdForAgent,
   isInteractiveTerminal,
   listGroupsWithJid,
   loadDatabase,
@@ -54,37 +56,6 @@ import { nowIso } from '../shared/time/datetime.js';
 
 const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
-
-function findConversationIdForAgent(
-  settings: ReturnType<typeof loadRuntimeSettings>,
-  agentId: string,
-  providerId: string,
-): string | null {
-  for (const binding of Object.values(settings.bindings)) {
-    if (binding.agent !== agentId) continue;
-    const conversation = settings.conversations[binding.conversation];
-    if (!conversation) continue;
-    const connection =
-      settings.providerConnections[conversation.providerConnection];
-    if (connection?.provider === providerId) {
-      return binding.conversation;
-    }
-  }
-  return null;
-}
-
-function conversationIdsForProvider(
-  settings: ReturnType<typeof loadRuntimeSettings>,
-  providerId: string,
-): string[] {
-  return Object.entries(settings.conversations)
-    .filter(
-      ([, conversation]) =>
-        settings.providerConnections[conversation.providerConnection]
-          ?.provider === providerId,
-    )
-    .map(([conversationId]) => conversationId);
-}
 
 async function runList(runtimeHome: string): Promise<number> {
   let db: RuntimeGroupDb | null = null;
@@ -323,6 +294,7 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
     }
 
     const settings = loadRuntimeSettings(runtimeHome);
+    const previousSettings = structuredClone(settings);
     const requiresTrigger = parsed.requiresTrigger ?? true;
     const defaultTrigger = defaultTriggerForAgentName(
       defaultAgentNameFromSettings(settings),
@@ -348,7 +320,11 @@ async function runAdd(runtimeHome: string, args: string[]): Promise<number> {
           trigger: record.trigger,
           requiresTrigger: record.requiresTrigger !== false,
         });
-        saveRuntimeSettings(runtimeHome, settings);
+        await writeDesiredRuntimeSettings({
+          runtimeHome,
+          settings,
+          previousSettings,
+        });
       } catch {
         // Generic local JIDs are still allowed for file-backed agents; only
         // known provider JIDs participate in conversation desired state.
@@ -401,9 +377,14 @@ async function runName(runtimeHome: string, args: string[]): Promise<number> {
   }
   try {
     const settings = loadRuntimeSettings(runtimeHome);
+    const previousSettings = structuredClone(settings);
     const previous = defaultAgentNameFromSettings(settings);
     settings.agent.name = nextName;
-    saveRuntimeSettings(runtimeHome, settings);
+    await writeDesiredRuntimeSettings({
+      runtimeHome,
+      settings,
+      previousSettings,
+    });
     p.log.success(
       `Default agent name updated from "${previous}" to "${nextName}".`,
     );
@@ -490,7 +471,7 @@ async function runRemove(runtimeHome: string, args: string[]): Promise<number> {
       return 1;
     }
 
-    const policyPrune = pruneAgentSenderPolicyOverride(
+    const policyPrune = await pruneAgentSenderPolicyOverride(
       runtimeHome,
       found.jid,
       found.group.folder,
@@ -587,6 +568,7 @@ async function runTrigger(
       await db.setConversationRoute(found.jid, nextGroup);
       try {
         const settings = loadRuntimeSettings(runtimeHome);
+        const previousSettings = structuredClone(settings);
         ensureConfiguredConversationBinding(settings, {
           agentId: found.group.folder,
           agentName: found.group.name,
@@ -596,7 +578,11 @@ async function runTrigger(
           trigger: nextGroup.trigger,
           requiresTrigger: nextGroup.requiresTrigger !== false,
         });
-        saveRuntimeSettings(runtimeHome, settings);
+        await writeDesiredRuntimeSettings({
+          runtimeHome,
+          settings,
+          previousSettings,
+        });
       } catch {
         // Generic local JIDs are still allowed for file-backed agents; only
         // known provider JIDs participate in conversation desired state.
@@ -660,6 +646,7 @@ async function runPolicy(runtimeHome: string, args: string[]): Promise<number> {
     }
 
     const settings = loadRuntimeSettings(runtimeHome);
+    const previousSettings = structuredClone(settings);
     const ensured = ensureConfiguredConversationBinding(settings, {
       agentId: found.group.folder,
       agentName: found.group.name,
@@ -683,7 +670,11 @@ async function runPolicy(runtimeHome: string, args: string[]): Promise<number> {
 
     if (parsed.clear) {
       conversation.senderPolicy = { allow: '*', mode: 'trigger' };
-      saveRuntimeSettings(runtimeHome, settings);
+      await writeDesiredRuntimeSettings({
+        runtimeHome,
+        settings,
+        previousSettings,
+      });
       p.log.success(
         `Cleared sender policy for ${found.group.name} (${found.group.folder}) in ${channel}.`,
       );
@@ -694,7 +685,11 @@ async function runPolicy(runtimeHome: string, args: string[]): Promise<number> {
       allow: parsed.allow!,
       mode: parsed.mode ?? conversation.senderPolicy.mode,
     };
-    saveRuntimeSettings(runtimeHome, settings);
+    await writeDesiredRuntimeSettings({
+      runtimeHome,
+      settings,
+      previousSettings,
+    });
     p.log.success(
       `Updated ${channel} sender policy for ${found.group.name} (${found.group.folder}).`,
     );
@@ -719,6 +714,7 @@ async function runPolicyDefault(
 
   try {
     const settings = loadRuntimeSettings(runtimeHome);
+    const previousSettings = structuredClone(settings);
     const channel = parsed.channel;
     const allow = parsed.allow;
     if (!channel || allow === undefined) {
@@ -740,7 +736,11 @@ async function runPolicyDefault(
         mode: parsed.mode ?? conversation.senderPolicy.mode,
       };
     }
-    saveRuntimeSettings(runtimeHome, settings);
+    await writeDesiredRuntimeSettings({
+      runtimeHome,
+      settings,
+      previousSettings,
+    });
     p.log.success(
       `Updated sender policy for ${conversationIds.length} ${channel} conversation${conversationIds.length === 1 ? '' : 's'}.`,
     );

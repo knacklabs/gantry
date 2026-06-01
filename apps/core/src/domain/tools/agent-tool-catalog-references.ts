@@ -15,6 +15,7 @@ import {
   containsGeneratedRuntimeSkillPath,
   GENERATED_RUNTIME_SKILL_PATH_DURABLE_REJECTION_REASON,
 } from '../../shared/generated-runtime-paths.js';
+import { validateDurableAccessRule } from '../../shared/durable-access-policy.js';
 import {
   semanticCapabilityInputSchema,
   semanticCapabilityFromToolCatalogItem,
@@ -37,6 +38,10 @@ export async function ensureAgentToolCatalogItem(input: {
   semanticCapabilityDefinitions?: Record<string, SemanticCapabilityDefinition>;
 }): Promise<ToolCatalogItem> {
   const reference = input.reference.trim();
+  const durableValidation = validateDurableAccessRule(reference, {
+    semanticCapabilityDefinitions: input.semanticCapabilityDefinitions,
+  });
+  if (!durableValidation.ok) throw new Error(durableValidation.reason);
   const requestedSemanticCapabilityId = parseSemanticCapabilityRule(reference);
   const requestedCapability = requestedSemanticCapabilityId
     ? input.semanticCapabilityDefinitions?.[requestedSemanticCapabilityId]

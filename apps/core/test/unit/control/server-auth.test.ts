@@ -104,6 +104,7 @@ vi.mock('@core/config/index.js', async () => {
       settingsModule.loadRuntimeSettings(runtimeHome),
     ),
     getPublicRuntimeSettings: toPublic,
+    configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
   };
 });
 
@@ -341,6 +342,7 @@ vi.mock('@core/adapters/storage/postgres/runtime-store.js', () => ({
   getRuntimeEventExchange: () => runtimeEvents,
   getRuntimeRepositories: () => opsRepo,
   getRuntimeStorage: () => ({
+    ops: opsRepo,
     repositories: domainRepositories,
   }),
 }));
@@ -1050,6 +1052,11 @@ describe('control server runtime hardening', () => {
   it('updates model defaults through settings-backed Control API routes', async () => {
     const runtimeHome = '/tmp/gantry-control-test-home';
     fs.rmSync(runtimeHome, { recursive: true, force: true });
+    const originalDatabaseUrl = process.env.GANTRY_DATABASE_URL;
+    const originalSecretEncryptionKey = process.env.SECRET_ENCRYPTION_KEY;
+    process.env.GANTRY_DATABASE_URL =
+      'postgres://gantry:gantry@localhost:5432/gantry_test';
+    process.env.SECRET_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
     const port = await reservePort();
     process.env.GANTRY_CONTROL_PORT = String(port);
     process.env.GANTRY_CONTROL_API_KEYS_JSON = JSON.stringify([
@@ -1134,6 +1141,16 @@ describe('control server runtime hardening', () => {
         },
       });
     } finally {
+      if (originalDatabaseUrl === undefined) {
+        delete process.env.GANTRY_DATABASE_URL;
+      } else {
+        process.env.GANTRY_DATABASE_URL = originalDatabaseUrl;
+      }
+      if (originalSecretEncryptionKey === undefined) {
+        delete process.env.SECRET_ENCRYPTION_KEY;
+      } else {
+        process.env.SECRET_ENCRYPTION_KEY = originalSecretEncryptionKey;
+      }
       await handle.close();
     }
   });

@@ -149,11 +149,9 @@ describe('notifyReleasedStaleJobLeases', () => {
 
     const message = String(sendMessage.mock.calls[0]?.[1]);
     expect(message).toContain(
-      'Interrupted: KnackLabs Lead Maintenance Controller',
+      '⏸️ Interrupted · KnackLabs Lead Maintenance Controller',
     );
-    expect(message).toContain(
-      'Outcome: Gantry restarted while this job was running',
-    );
+    expect(message).toContain('Gantry restarted while this job was running');
     expect(message).toContain('Action: Rerun the job when ready.');
     expect(message).not.toContain('Narrow the job scope');
     expect(publishRuntimeEvent).toHaveBeenCalledWith(

@@ -20,7 +20,7 @@ import {
 import {
   ensureConfiguredConversationBinding,
   loadRuntimeSettings,
-  saveRuntimeSettings,
+  writeDesiredRuntimeSettings,
 } from '../config/settings/runtime-settings.js';
 import { chooseSlackChatForConnect } from './slack-connect-chat-picker.js';
 import { nowIso } from '../shared/time/datetime.js';
@@ -388,6 +388,7 @@ export async function registerSlackMainGroup(options: {
     };
     await db.setConversationRoute(options.chatJid, route);
     const settings = loadRuntimeSettings(options.runtimeHome);
+    const previousSettings = structuredClone(settings);
     ensureConfiguredConversationBinding(settings, {
       agentId: folder,
       agentName: groupName,
@@ -397,7 +398,11 @@ export async function registerSlackMainGroup(options: {
       trigger: route.trigger,
       requiresTrigger: false,
     });
-    saveRuntimeSettings(options.runtimeHome, settings);
+    await writeDesiredRuntimeSettings({
+      runtimeHome: options.runtimeHome,
+      settings,
+      previousSettings,
+    });
 
     return { folder, groupName };
   } finally {
@@ -534,6 +539,7 @@ export async function runSlackConnectCommand(
     SLACK_APP_TOKEN: appTokenInput,
   });
   const settings = loadRuntimeSettings(runtimeHome);
+  const previousSettings = structuredClone(settings);
   settings.providers.slack.enabled = true;
   if (registeredFolder) {
     ensureConfiguredConversationBinding(settings, {
@@ -547,7 +553,11 @@ export async function runSlackConnectCommand(
       approverIds,
     });
   }
-  saveRuntimeSettings(runtimeHome, settings);
+  await writeDesiredRuntimeSettings({
+    runtimeHome,
+    settings,
+    previousSettings,
+  });
 
   if (normalizedChatJid) {
     p.outro('Slack conversation is configured and ready.');

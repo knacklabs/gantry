@@ -1,13 +1,20 @@
 import { randomUUID } from 'node:crypto';
 
-import { GANTRY_HOME } from '../config/index.js';
+import { GANTRY_HOME, getRuntimeSettingsForConfig } from '../config/index.js';
 import {
   getRuntimeSettingsRevision,
   readRuntimeSettingsYaml,
 } from '../config/settings/runtime-settings.js';
+import { buildControlPlaneReadModelFromRepositories } from '../application/control-plane/control-plane-storage-model.js';
+import { GuidedActionService } from '../application/guided-actions/guided-action-service.js';
+import { resolveControlPlaneGuidedAction } from '../application/guided-actions/guided-action-model.js';
+import type { AppId } from '../domain/app/app.js';
 import { parseRuntimeSettings } from '../config/settings/runtime-settings-parser.js';
 import { validateLoadedRuntimeSettings } from '../config/settings/runtime-settings-validation.js';
-import { getRuntimeStorage } from '../adapters/storage/postgres/runtime-store.js';
+import {
+  getRuntimeRepositories,
+  getRuntimeStorage,
+} from '../adapters/storage/postgres/runtime-store.js';
 import { SettingsDesiredStateService } from '../config/settings/desired-state-service.js';
 import { applyRuntimeSettingsDesiredState } from '../config/settings/restart-sync.js';
 import { logger } from '../infrastructure/logging/logger.js';
@@ -198,6 +205,49 @@ export const settingsDesiredStateHandler: TaskHandler = async (context) => {
     reject(
       err instanceof Error ? err.message : 'Failed to read settings.yaml.',
       'invalid_settings',
+    );
+  }
+};
+
+export const guidedActionPreviewHandler: TaskHandler = async (context) => {
+  const { data, sourceAgentFolder } = context;
+  const { acceptData, reject } = createTaskResponder(
+    sourceAgentFolder,
+    data.taskId,
+    data.authThreadId,
+    data.responseKeyId,
+  );
+  if (
+    !(await sourceAgentHasAdminToolCapability(context, 'guided_action_preview'))
+  ) {
+    reject(
+      adminCapabilityRequiredMessage('guided_action_preview'),
+      'missing_capability',
+    );
+    return;
+  }
+  try {
+    const appId = (data.appId || 'default') as AppId;
+    const model = await buildControlPlaneReadModelFromRepositories({
+      appId,
+      settings: getRuntimeSettingsForConfig(),
+      jobsRepository: getRuntimeRepositories(),
+      modelCredentialsRepository:
+        getRuntimeStorage().repositories.modelCredentials,
+      pendingAccessRequestsRepository:
+        getRuntimeStorage().repositories.pendingAccessRequests,
+    });
+    const ref = resolveControlPlaneGuidedAction(model.nextAction);
+    acceptData(
+      'Guided action preview ready.',
+      new GuidedActionService().preview(ref),
+    );
+  } catch (err) {
+    reject(
+      err instanceof Error
+        ? err.message
+        : 'Failed to build guided action preview.',
+      'internal_error',
     );
   }
 };

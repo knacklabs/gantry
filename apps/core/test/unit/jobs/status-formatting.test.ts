@@ -36,7 +36,7 @@ describe('job status formatting', () => {
       durationMs: 311_000,
     });
 
-    expect(message).toContain('Needs memory review: Memory Dreaming');
+    expect(message).toContain('📝 Needs memory review · Memory Dreaming');
     expect(message).toContain(
       'Action: Ask the agent to show pending memory reviews, then approve, reject, or edit by number.',
     );
@@ -56,7 +56,7 @@ describe('job status formatting', () => {
       durationMs: 311_000,
     });
 
-    expect(message).toContain('Timed out: Memory Dreaming');
+    expect(message).toContain('⏱️ Timed out · Memory Dreaming');
     expect(message).toContain(
       'Action: Ask the agent to show pending memory reviews, then approve, reject, or edit by number.',
     );

@@ -322,7 +322,7 @@ CLI, control HTTP, Web UI, SDK, and ACP/ACPX adapters:
 
 Future implementation phases should remove or replace:
 
-- old personal group folder model as domain identity
+- old chat-folder model as domain identity
 - hard-coded privileged conversation behavior
 - provider-specific session as the only resume mechanism
 - direct tool execution on host

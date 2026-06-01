@@ -28,9 +28,14 @@ import {
 import { telegramActionReplyMarkup } from './message-action-affordances.js';
 import { sendTelegramPlannedChunk } from './send-planned-chunk.js';
 import {
+  buildPermissionPromptParts,
   permissionButtonLabel,
   permissionDecisionOptions,
 } from '../permission-interaction.js';
+import {
+  renderPermissionPromptHtml,
+  renderUserQuestionPromptHtml,
+} from './html-render.js';
 
 const TELEGRAM_ESCAPED_MARKDOWN_V2_CHAR_PATTERN =
   /\\([_*~[\]()`>#+\-=|{}.!\\])/g;
@@ -529,10 +534,14 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
 
     const callbackId = this.nextPermissionCallbackId();
     const timeoutMs = TELEGRAM_USER_QUESTION_TIMEOUT_MS;
-    const promptText = this.formatPermissionPromptText(request, timeoutMs);
+    const promptHtml = renderPermissionPromptHtml(
+      buildPermissionPromptParts(request, timeoutMs),
+    );
     try {
-      const sent = await this.bot.api.sendMessage(chatId, promptText, {
+      const sent = await this.bot.api.sendMessage(chatId, promptHtml, {
         ...telegramThreadOptionsFromString(request.threadId),
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
         reply_markup: {
           inline_keyboard: permissionDecisionOptions(request).map((mode) => [
             {
@@ -606,14 +615,12 @@ export abstract class TelegramChannelDelivery extends TelegramChannelConnect {
         continue;
       }
 
-      const promptText = this.formatUserQuestionPromptText(
-        request,
-        question,
-        timeoutMs,
-      );
+      const promptText = renderUserQuestionPromptHtml(question);
       try {
         const sent = await this.bot.api.sendMessage(chatId, promptText, {
           ...telegramThreadOptionsFromString(request.threadId),
+          parse_mode: 'HTML',
+          link_preview_options: { is_disabled: true },
           reply_markup: this.buildUserQuestionKeyboard(
             request.requestId,
             i,

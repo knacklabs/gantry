@@ -16,6 +16,7 @@ vi.mock('@core/config/index.js', () => ({
   getDefaultModelConfig: configMocks.getDefaultModelConfig,
   getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
   patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
+  configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
 }));
 
 const schedulerMocks = vi.hoisted(() => ({

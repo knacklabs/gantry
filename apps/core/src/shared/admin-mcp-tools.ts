@@ -1,6 +1,7 @@
 export const ADMIN_MCP_TOOL_NAMES = [
   'settings_desired_state',
   'request_settings_update',
+  'guided_action_preview',
   'admin_permission_list',
   'admin_permission_revoke',
   'service_restart',

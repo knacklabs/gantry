@@ -2476,17 +2476,15 @@ describe('TelegramChannel', () => {
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '100200300',
-        expect.stringContaining(
-          'Route: shown in this Telegram topic; approval applies to the parent conversation.',
-        ),
+        expect.stringContaining('Approval applies to the parent conversation.'),
         expect.objectContaining({ message_thread_id: 42 }),
       );
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '100200300',
         expect.stringContaining(
-          'Command:\n```\nrm -rf /tmp/old-cache && npm install\n```',
+          'Command:\n<pre>rm -rf /tmp/old-cache &amp;&amp; npm install</pre>',
         ),
-        expect.objectContaining({ message_thread_id: 42 }),
+        expect.objectContaining({ message_thread_id: 42, parse_mode: 'HTML' }),
       );
 
       const callbackCtx = {
@@ -2518,7 +2516,7 @@ describe('TelegramChannel', () => {
 
       expect(currentBot().api.sendMessage).toHaveBeenCalledWith(
         '100200300',
-        expect.stringContaining('Allow command'),
+        expect.stringContaining('🔐 Allow exact command access?'),
         expect.objectContaining({
           reply_markup: expect.objectContaining({
             inline_keyboard: expect.any(Array),
@@ -2553,9 +2551,7 @@ describe('TelegramChannel', () => {
       expect(currentBot().api.editMessageText).toHaveBeenCalledWith(
         '100200300',
         987,
-        expect.stringContaining(
-          'Allowed once: exact command access\nFor: Allow command',
-        ),
+        expect.stringContaining('✅ Allowed once · Allow command (by Ravi)'),
         expect.objectContaining({
           reply_markup: { inline_keyboard: [] },
         }),
@@ -2700,8 +2696,10 @@ describe('TelegramChannel', () => {
       await flushPromises();
 
       const firstCall = currentBot().api.sendMessage.mock.calls[0];
-      expect(firstCall[1]).toContain('Source: whatsapp_main');
-      expect(firstCall[1]).toContain('Thread: 99abc');
+      expect(firstCall[1]).toContain('❓ Deploy');
+      expect(firstCall[1]).toContain('Where should we deploy?');
+      expect(firstCall[1]).not.toContain('Source: whatsapp_main');
+      expect(firstCall[1]).not.toContain('Thread: 99abc');
       expect(firstCall[2]).not.toHaveProperty('message_thread_id');
       const replyMarkup = firstCall[2].reply_markup;
       const keyboard = replyMarkup.inline_keyboard as Array<

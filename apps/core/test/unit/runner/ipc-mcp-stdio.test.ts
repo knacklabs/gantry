@@ -72,6 +72,7 @@ function createMcpFixture(): {
   const channelsDir = path.join(root, 'channels');
   const sharedDir = path.join(root, 'shared');
   const sharedTimeDir = path.join(sharedDir, 'time');
+  const guidedActionsDir = path.join(root, 'application', 'guided-actions');
   const serverPath = path.join(runnerMcpDir, 'stdio.ts');
   const ipcDir = path.join(root, 'ipc', 'team');
   const resultPath = path.join(root, 'mcp-result.json');
@@ -87,6 +88,7 @@ function createMcpFixture(): {
   fs.mkdirSync(runnerMcpDir, { recursive: true });
   fs.mkdirSync(jobsDir, { recursive: true });
   fs.mkdirSync(channelsDir, { recursive: true });
+  fs.mkdirSync(guidedActionsDir, { recursive: true });
   fs.mkdirSync(sharedDir, { recursive: true });
   fs.mkdirSync(sharedTimeDir, { recursive: true });
   fs.mkdirSync(sdkServerDir, { recursive: true });
@@ -122,6 +124,18 @@ function createMcpFixture(): {
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/operator-error.ts'),
     path.join(sharedDir, 'operator-error.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve(
+      'apps/core/src/application/guided-actions/guided-action-model.ts',
+    ),
+    path.join(guidedActionsDir, 'guided-action-model.ts'),
+  );
+  fs.copyFileSync(
+    path.resolve(
+      'apps/core/src/application/guided-actions/guided-action-service.ts',
+    ),
+    path.join(guidedActionsDir, 'guided-action-service.ts'),
   );
   fs.copyFileSync(
     path.resolve('apps/core/src/shared/admin-mcp-tools.ts'),

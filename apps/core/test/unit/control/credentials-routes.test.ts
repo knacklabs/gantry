@@ -381,6 +381,8 @@ function mockContext(
     triggerRateLimiter: { consume: () => true },
     getRuntimeSettings: () =>
       ({}) as ReturnType<ControlRouteContext['getRuntimeSettings']>,
+    getInternalRuntimeSettings: () =>
+      ({}) as ReturnType<ControlRouteContext['getInternalRuntimeSettings']>,
     getDefaultModelConfig: () => ({ source: 'test' }),
     getModelDefaults: () =>
       ({ defaults: {} }) as ReturnType<ControlRouteContext['getModelDefaults']>,
@@ -390,7 +392,8 @@ function mockContext(
       status: 'pass',
       message: 'ok',
     }),
-    hasActiveModelCredential: async () => true,
+    getActiveModelCredentialProviderIds: async () => [],
+    countPendingAccessRequests: async () => 0,
     listControlPlaneJobs: async () => [],
     syncSettingsFromProjection: async () => undefined,
   };

@@ -13,6 +13,7 @@ import {
   permissionDecisionOptions,
 } from '../permission-interaction.js';
 import { SlackChannelState, SlackMessageLike } from './channel-state.js';
+import { buildPermissionReceiptBlocks } from './permission-blocks.js';
 import {
   SLACK_NATIVE_APPEND_MAX_LENGTH,
   splitSlackTextByCodeUnits,
@@ -290,7 +291,7 @@ export abstract class SlackChannelInteractions extends SlackChannelState {
         channel: pending.channelId,
         ts: pending.messageTs,
         text,
-        blocks: [],
+        blocks: buildPermissionReceiptBlocks(text) as any,
       });
     } catch (err) {
       logger.debug(

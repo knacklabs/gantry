@@ -18,6 +18,7 @@ vi.mock('@core/config/index.js', () => ({
   })),
   getRuntimeModelDefaults: vi.fn(() => ({ defaults: {} })),
   patchRuntimeModelDefaults: vi.fn(() => ({ ok: true })),
+  configureDesiredSettingsStorageProvider: vi.fn(() => undefined),
 }));
 
 vi.mock('@core/jobs/scheduler.js', () => ({

@@ -30,6 +30,7 @@ import {
   validateRequestPermissionSemanticCapability,
 } from './request-permission-review.js';
 import {
+  guidedActionPreviewHandler,
   requestSettingsUpdateHandler,
   serviceRestartHandler,
   settingsDesiredStateHandler,
@@ -60,6 +61,7 @@ import {
   credentialRefsForRequestedMcp,
   headerNameForCredentialNeed,
 } from './ipc-mcp-server-request-credentials.js';
+import { semanticCapabilityInteraction } from './ipc-semantic-capability-interaction.js';
 
 const pendingRequestOnlyCapabilityReviews = new Set<string>();
 configureSkillInstallHandlers({
@@ -445,7 +447,7 @@ const adminPermissionRevokeHandler: TaskHandler = async (context) => {
 };
 
 // prettier-ignore
-export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, request_settings_update: requestSettingsUpdateHandler, admin_permission_revoke: adminPermissionRevokeHandler, request_skill_install: requestSkillInstallHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_permission: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillProposalHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_call_tool: mcpCallToolHandler };
+export const adminTaskHandlers: Record<string, TaskHandler> = { refresh_groups: refreshGroupsHandler, register_agent: registerAgentHandler, service_restart: serviceRestartHandler, settings_desired_state: settingsDesiredStateHandler, guided_action_preview: guidedActionPreviewHandler, request_settings_update: requestSettingsUpdateHandler, admin_permission_revoke: adminPermissionRevokeHandler, request_skill_install: requestSkillInstallHandler, request_skill_dependency_install: requestOnlyCapabilityHandler, request_permission: requestOnlyCapabilityHandler, request_skill_proposal: requestSkillProposalHandler, request_mcp_server: requestMcpServerHandler, mcp_list_tools: mcpListToolsHandler, mcp_call_tool: mcpCallToolHandler };
 
 // prettier-ignore
 function validateSameChannelApprovalTarget(input: { data: Parameters<TaskHandler>[0]['data']; sourceAgentFolderJids: string[]; requestKind: string; reject: (error: string, code?: string, details?: string[]) => void }): string | null {
@@ -577,11 +579,32 @@ function capabilityDisplayValue(payload: Record<string, unknown>, spec: (typeof 
 }
 
 // prettier-ignore
+function pendingAccessTargetSummary(review: RequestOnlyCapabilityReview): Record<string, string> {
+  const summary: Record<string, string> = { requestTool: review.toolName, requestKind: review.requestKind };
+  const effect = toTrimmedString(review.toolInput.effect, { maxLen: 120 });
+  if (effect) summary.effect = effect;
+  const activation = toTrimmedString(review.toolInput.activation, { maxLen: 120 });
+  if (activation) summary.activation = activation;
+  return summary;
+}
+
+// prettier-ignore
 function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>[0]['deps']; appId: import('../domain/app/app.js').AppId; agentId: import('../domain/agent/agent.js').AgentId; sourceAgentFolder: string; targetJid: string; threadId?: string; ipcDir?: string; runHandle?: string; review: RequestOnlyCapabilityReview; pendingKey?: string }): void {
   void (async () => {
     let message: string;
+    const requestId = `capability-${input.review.toolName}-${globalThis.crypto.randomUUID()}`;
     try {
-      const requestId = `capability-${input.review.toolName}-${globalThis.crypto.randomUUID()}`;
+      try {
+        await getRuntimeStorage().repositories.pendingAccessRequests.insertPending({
+          id: requestId,
+          appId: input.appId,
+          agentId: input.agentId,
+          requestedBy: input.sourceAgentFolder,
+          target: pendingAccessTargetSummary(input.review),
+        });
+      } catch (err) {
+        logger.warn({ err, requestId }, 'Failed to record pending access request');
+      }
       const decision = await input.deps.requestPermissionApproval({
         requestId,
         appId: input.appId,
@@ -615,6 +638,16 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
       if (input.review.toolName === 'request_permission' && isPermanentPermissionDecision(decision)) {
         persistedRules = await persistRequestPermissionRules({ deps: input.deps, appId: input.appId, agentId: input.agentId, sourceAgentFolder: input.sourceAgentFolder, ipcDir: input.ipcDir, runHandle: input.runHandle, requestId, updates: decision.updatedPermissions ?? [], toolInput: input.review.toolInput, actor: decision.decidedBy, conversationId: input.targetJid, threadId: input.threadId, reason: decision.reason });
       }
+      try {
+        await getRuntimeStorage().repositories.pendingAccessRequests.markResolved({
+          appId: input.appId,
+          id: requestId,
+          resolution:
+            decision.approved && decision.decidedBy ? 'approved' : 'denied',
+        });
+      } catch (err) {
+        logger.warn({ err, requestId }, 'Failed to resolve pending access request');
+      }
       message = decision.approved && decision.decidedBy
         ? persistedRules.length
           ? `Allowed ${input.review.displayName}. Future matching requests are allowed. Details: ${formatDurableAccessRulesForUser(persistedRules)}.`
@@ -626,6 +659,15 @@ function startRequestOnlyCapabilityReview(input: { deps: Parameters<TaskHandler>
         'Capability permission review failed',
       );
       message = `Not approved: ${input.review.displayName}. Reason: ${err instanceof Error ? err.message : 'permission review failed'}.`;
+      try {
+        await getRuntimeStorage().repositories.pendingAccessRequests.markResolved({
+          appId: input.appId,
+          id: requestId,
+          resolution: 'denied',
+        });
+      } catch (markErr) {
+        logger.warn({ err: markErr, requestId }, 'Failed to resolve pending access request');
+      }
     }
     await input.deps.sendMessage(input.targetJid, message, input.threadId ? { threadId: input.threadId } : undefined);
   })()
@@ -652,53 +694,6 @@ function requestOnlyCapabilityPendingKey(input: {
   });
 }
 
-function semanticCapabilityInteraction(
-  review: RequestOnlyCapabilityReview,
-  requestId: string,
-) {
-  if (review.toolName !== 'request_permission') return undefined;
-  const capabilityId = toTrimmedString(review.toolInput.capabilityId, {
-    maxLen: 160,
-  });
-  if (!capabilityId) return undefined;
-  const toolNames = sanitizedStringList([
-    review.toolInput.toolName,
-    ...(Array.isArray(review.toolInput.toolNames)
-      ? review.toolInput.toolNames
-      : []),
-  ]);
-  if (toolNames.length > 0) return undefined;
-  const displayName =
-    toTrimmedString(review.toolInput.capabilityDisplayName, { maxLen: 200 }) ||
-    capabilityId;
-  return {
-    id: requestId,
-    title: `Allow ${displayName}?`,
-    details: semanticCapabilityInteractionDetails(review.toolInput),
-    requestContext: {
-      requestId,
-      capabilityId,
-      capabilityDisplayName: displayName,
-      toolName: review.toolName,
-      capabilityType: String(review.toolInput.credentialSource || 'semantic'),
-    },
-  };
-}
-
-function semanticCapabilityInteractionDetails(
-  toolInput: Record<string, unknown>,
-) {
-  return [
-    detailFromToolInput(toolInput, 'Capability', 'capabilityId', 160),
-    detailFromToolInput(toolInput, 'Risk', 'risk', 80),
-    detailFromToolInput(toolInput, 'Account', 'accountLabel', 200),
-    detailFromToolInput(toolInput, 'Allows', 'can', 1000),
-    detailFromToolInput(toolInput, 'Does not allow', 'cannot', 1000),
-  ].filter((detail): detail is { label: string; value: string } =>
-    Boolean(detail),
-  );
-}
-
 function hasAgentSuppliedCapabilityDefinition(
   payload: Record<string, unknown>,
 ): boolean {
@@ -708,16 +703,6 @@ function hasAgentSuppliedCapabilityDefinition(
       'semanticCapabilityDefinition',
     ) || Object.prototype.hasOwnProperty.call(payload, 'capabilityDefinition')
   );
-}
-
-function detailFromToolInput(
-  toolInput: Record<string, unknown>,
-  label: string,
-  key: string,
-  maxLen: number,
-): { label: string; value: string } | undefined {
-  const value = toTrimmedString(toolInput[key], { maxLen });
-  return value ? { label, value } : undefined;
 }
 
 // prettier-ignore

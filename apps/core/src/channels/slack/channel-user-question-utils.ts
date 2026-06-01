@@ -58,20 +58,11 @@ export function parseSlackUserQuestionActionValue(
   }
 }
 
-export function formatSlackUserQuestionPromptText(
-  request: UserQuestionRequest,
+/** Question + options, without the header (the header gets its own block). */
+export function formatSlackUserQuestionBody(
   question: UserQuestionRequest['questions'][number],
-  timeoutMs: number,
 ): string {
-  const timeoutMinutes = Math.max(1, Math.round(timeoutMs / 60000));
-  const lines = [
-    `*${question.header}*`,
-    `Source: ${truncateSlackText(request.sourceAgentFolder, 80)}`,
-  ];
-  if (request.threadId) {
-    lines.push(`Thread: ${truncateSlackText(request.threadId, 80)}`);
-  }
-  lines.push(question.question, '');
+  const lines = [question.question, ''];
   question.options.forEach((option, optionIndex) => {
     const description = option.description
       ? ` — ${truncateSlackText(option.description, 180)}`
@@ -81,12 +72,16 @@ export function formatSlackUserQuestionPromptText(
       lines.push(`Preview: ${truncateSlackText(option.preview, 180)}`);
     }
   });
-  lines.push('');
   if (question.multiSelect) {
-    lines.push('Select one or more options, then click Done.');
-  } else {
-    lines.push('Select one option.');
+    lines.push('', 'Select one or more, then tap Done.');
   }
-  lines.push(`Reply timeout: ${timeoutMinutes} minute(s)`);
   return lines.join('\n');
+}
+
+export function formatSlackUserQuestionPromptText(
+  _request: UserQuestionRequest,
+  question: UserQuestionRequest['questions'][number],
+  _timeoutMs: number,
+): string {
+  return `*${question.header}*\n${formatSlackUserQuestionBody(question)}`;
 }

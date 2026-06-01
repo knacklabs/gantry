@@ -148,6 +148,61 @@ describe('control plane read model', () => {
     );
   });
 
+  it('surfaces a blocked job as a copy-pasteable resume command with jobId params', () => {
+    const model = buildControlPlaneReadModel({
+      workspaceKey: 'default',
+      modelCredentialReady: true,
+      providers: [{ id: 'telegram', label: 'Telegram', ready: true }],
+      conversations: [{ id: 'main_dm', agentId: 'main_agent', ready: true }],
+      agents: [
+        {
+          id: 'main_agent',
+          name: 'Default Agent',
+          modelAlias: 'opus',
+          approvedCapabilities: 1,
+        },
+      ],
+      jobs: [{ id: 'job_7', agentId: 'main_agent', status: 'blocked' }],
+      approvedAccessCount: 1,
+      accessNeedsApprovalCount: 0,
+      memoryStatus: 'Ready',
+    });
+
+    expect(model.nextAction.kind).toBe('blocked_job');
+    expect(model.nextAction.label).toContain('gantry jobs resume job_7');
+    expect(model.nextAction.params?.jobId).toBe('job_7');
+  });
+
+  it('surfaces a job needing action instead of reporting ready', () => {
+    const model = buildControlPlaneReadModel({
+      workspaceKey: 'default',
+      modelCredentialReady: true,
+      providers: [{ id: 'telegram', label: 'Telegram', ready: true }],
+      conversations: [{ id: 'main_dm', agentId: 'main_agent', ready: true }],
+      agents: [
+        {
+          id: 'main_agent',
+          name: 'Default Agent',
+          modelAlias: 'opus',
+          approvedCapabilities: 1,
+        },
+      ],
+      jobs: [
+        { id: 'job_paused', agentId: 'main_agent', status: 'needs_action' },
+      ],
+      approvedAccessCount: 1,
+      accessNeedsApprovalCount: 0,
+      memoryStatus: 'Ready',
+    });
+
+    expect(model.jobs).toEqual({ ready: 0, needsAction: 1, blocked: 0 });
+    expect(model.runtime).toBe('Blocked');
+    expect(model.nextAction).toMatchObject({
+      kind: 'blocked_job',
+      params: { jobId: 'job_paused' },
+    });
+  });
+
   it('uses model credential readiness for agent detail next action', () => {
     const model = buildControlPlaneReadModel({
       workspaceKey: 'default',
@@ -171,7 +226,35 @@ describe('control plane read model', () => {
     expect(model.agents).toEqual({ ready: 0, total: 1 });
     expect(model.agentDetails[0]?.nextAction).toMatchObject({
       kind: 'missing_model_credential',
-      label: 'Connect Model Access credentials.',
+      label:
+        'Run `gantry credentials model set <provider>` to connect model access.',
+    });
+  });
+
+  it('uses pending access approvals for agent detail next action', () => {
+    const model = buildControlPlaneReadModel({
+      workspaceKey: 'default',
+      modelCredentialReady: true,
+      providers: [{ id: 'telegram', label: 'Telegram', ready: true }],
+      conversations: [{ id: 'main_dm', agentId: 'main_agent', ready: true }],
+      agents: [
+        {
+          id: 'main_agent',
+          name: 'Default Agent',
+          modelAlias: 'opus',
+          approvedCapabilities: 1,
+        },
+      ],
+      jobs: [],
+      approvedAccessCount: 1,
+      accessNeedsApprovalCount: 2,
+      memoryStatus: 'Ready',
+    });
+
+    expect(model.agentDetails[0]?.nextAction).toMatchObject({
+      kind: 'missing_access_approval',
+      label:
+        'Approve or deny the pending access prompt in its source conversation.',
     });
   });
 });

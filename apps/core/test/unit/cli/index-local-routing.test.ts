@@ -125,6 +125,7 @@ describe('CLI local routing', () => {
       })),
     }));
     vi.doMock('@core/config/settings/runtime-settings.js', () => ({
+      configureDesiredSettingsStorageProvider: vi.fn(),
       ensureRuntimeSettings: vi.fn(),
       readRuntimeMemorySettingsSnapshot: vi.fn(() => ({
         memoryEnabled: false,
@@ -168,5 +169,46 @@ describe('CLI local routing', () => {
       runtimeHome,
       ['connect', 'telegram'],
     );
+  });
+
+  it('sets GANTRY_HOME from --runtime-home before lazy command imports', async () => {
+    const runtimeHome = makeRuntimeHome();
+    const originalGantryHome = process.env.GANTRY_HOME;
+    delete process.env.GANTRY_HOME;
+    const runModelCommand = vi.fn(async () => {
+      expect(process.env.GANTRY_HOME).toBe(runtimeHome);
+      return 0;
+    });
+    vi.doMock('@clack/prompts', () => ({
+      isCancel: () => false,
+      note: vi.fn(),
+      log: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), success: vi.fn() },
+      select: vi.fn(),
+      text: vi.fn(),
+      spinner: vi.fn(() => ({
+        start: vi.fn(),
+        stop: vi.fn(),
+        message: vi.fn(),
+      })),
+    }));
+    vi.doMock('@core/config/settings/runtime-settings.js', () => ({
+      configureDesiredSettingsStorageProvider: vi.fn(),
+      ensureRuntimeSettings: vi.fn(),
+    }));
+    vi.doMock('@core/cli/model.js', () => ({ runModelCommand }));
+
+    try {
+      const { main } = await import('@core/cli/index.js');
+      const code = await main(['--runtime-home', runtimeHome, 'model', 'list']);
+
+      expect(code).toBe(0);
+      expect(runModelCommand).toHaveBeenCalledWith(runtimeHome, ['list']);
+    } finally {
+      if (originalGantryHome === undefined) {
+        delete process.env.GANTRY_HOME;
+      } else {
+        process.env.GANTRY_HOME = originalGantryHome;
+      }
+    }
   });
 });

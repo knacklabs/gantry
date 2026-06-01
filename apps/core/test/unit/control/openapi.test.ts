@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
 
+import { requiredModelCredentialProviders } from '@core/application/model-resolution/required-model-credential-providers.js';
 import { createDefaultRuntimeSettings } from '@core/config/settings/runtime-settings.js';
 import type { ControlRouteContext } from '@core/control/server/handler-context.js';
 import { getGantryOpenApiDocument } from '@core/control/server/openapi.js';
@@ -10,6 +11,7 @@ import { handleAgentRoutes } from '@core/control/server/routes/agents.js';
 import { handleCapabilityCatalogRoutes } from '@core/control/server/routes/capability-catalog.js';
 import { handleCredentialRoutes } from '@core/control/server/routes/credentials.js';
 import { handleExternalIngressRoutes } from '@core/control/server/routes/external-ingress.js';
+import { handleGuidedActionRoutes } from '@core/control/server/routes/guided-actions.js';
 import { handleJobRoutes } from '@core/control/server/routes/jobs.js';
 import { handleMemoryRoutes } from '@core/control/server/routes/memory.js';
 import { handleMcpServerRoutes } from '@core/control/server/routes/mcp-servers.js';
@@ -55,6 +57,8 @@ const expectedControlRoutes = [
   'PATCH /v1/credentials/models/{providerId}',
   'PUT /v1/credentials/models/{providerId}',
   'GET /v1/doctor',
+  'POST /v1/guided-actions/preview',
+  'POST /v1/guided-actions/execute',
   'GET /v1/health',
   'GET /v1/status',
   'GET /v1/inventory',
@@ -188,6 +192,8 @@ function mockContext(): ControlRouteContext {
     },
     getRuntimeSettings: () =>
       ({}) as ReturnType<ControlRouteContext['getRuntimeSettings']>,
+    getInternalRuntimeSettings: () =>
+      ({}) as ReturnType<ControlRouteContext['getInternalRuntimeSettings']>,
     getDefaultModelConfig: () => ({ source: 'test' }),
     getModelDefaults: () => ({
       defaults: {
@@ -236,7 +242,8 @@ function mockContext(): ControlRouteContext {
       },
     }),
     patchModelDefaults: () => ({ ok: true }),
-    hasActiveModelCredential: async () => true,
+    getActiveModelCredentialProviderIds: async () => [],
+    countPendingAccessRequests: async () => 0,
     listControlPlaneJobs: async () => [],
     syncSettingsFromProjection: async () => undefined,
   };
@@ -250,6 +257,7 @@ async function isRecognizedByRuntime(method: string, pathname: string) {
   const handlers = [
     () => handleOpenApiRoutes(req, res, pathname),
     () => handleSystemRoutes(req, res, ctx, pathname),
+    () => handleGuidedActionRoutes(req, res, ctx, pathname),
     () => handleAgentRoutes(req, res, ctx, pathname),
     () => handleCapabilityCatalogRoutes(req, res, ctx, pathname),
     () => handleSessionRoutes(req, res, ctx, url, pathname),
@@ -319,6 +327,9 @@ describe('control OpenAPI documentation', () => {
         },
       ],
       getRuntimeSettings: () => settings,
+      getInternalRuntimeSettings: () => settings,
+      getActiveModelCredentialProviderIds: async () =>
+        requiredModelCredentialProviders(settings),
     };
     const req = request('GET', { authorization: 'Bearer test-token' });
     const res = responseRecorder();
@@ -338,6 +349,63 @@ describe('control OpenAPI documentation', () => {
       memory: 'Ready',
       providers: { ready: 1, needsConnection: 0, blocked: 0 },
       nextAction: { kind: 'none', label: 'none' },
+    });
+  });
+
+  it('computes status model readiness from internal settings, not redacted settings', async () => {
+    const settings = createDefaultRuntimeSettings();
+    settings.providers.telegram = { enabled: true };
+    settings.providerConnections.telegram_default = {
+      provider: 'telegram',
+      label: 'Telegram',
+      runtimeSecretRefs: { bot_token: 'TELEGRAM_BOT_TOKEN' },
+    };
+    settings.conversations.main_dm = {
+      providerConnection: 'telegram_default',
+      externalId: '123',
+      kind: 'dm',
+      displayName: 'Main DM',
+      senderPolicy: { allow: '*', mode: 'trigger' },
+      controlApprovers: ['123'],
+    };
+    settings.bindings.main_binding = {
+      agent: 'main_agent',
+      conversation: 'main_dm',
+      trigger: '@Gantry',
+      addedAt: '2026-01-01T00:00:00.000Z',
+      requiresTrigger: false,
+      memoryScope: 'conversation',
+    };
+    settings.memory.embeddings.enabled = true;
+    settings.memory.embeddings.provider = 'openai';
+    const publicSettings = structuredClone(settings) as ReturnType<
+      ControlRouteContext['getRuntimeSettings']
+    >;
+    delete (publicSettings.memory as { llm?: unknown }).llm;
+    delete (publicSettings.memory as { embeddings?: unknown }).embeddings;
+    const ctx = {
+      ...mockContext(),
+      keys: [
+        {
+          kid: 'test',
+          tokenHash: createHash('sha256').update('test-token').digest(),
+          scopes: new Set(['agents:admin' as const]),
+          appId: 'default',
+        },
+      ],
+      getRuntimeSettings: () => publicSettings,
+      getInternalRuntimeSettings: () => settings,
+      getActiveModelCredentialProviderIds: async () => ['anthropic'],
+    };
+    const req = request('GET', { authorization: 'Bearer test-token' });
+    const res = responseRecorder();
+
+    await expect(handleSystemRoutes(req, res, ctx, '/v1/status')).resolves.toBe(
+      true,
+    );
+
+    expect(JSON.parse(res.body)).toMatchObject({
+      nextAction: { kind: 'missing_model_credential' },
     });
   });
 
@@ -495,6 +563,9 @@ describe('control OpenAPI documentation', () => {
       'x-gantry-required-scopes': ['sessions:read', 'jobs:read'],
     });
     expect(
+      spec.paths['/v1/guided-actions/execute']?.post.description,
+    ).toContain('resume_job execution also requires jobs:write');
+    expect(
       spec.paths['/v1/capabilities']?.get.responses['200'].content[
         'application/json'
       ].schema,
@@ -538,6 +609,16 @@ describe('control OpenAPI documentation', () => {
       spec.components.schemas.ExternalIngressConversationMessageTarget
         .properties.kind.enum,
     ).toEqual(['conversation_message']);
+
+    expect(spec.components.schemas.GuidedActionType.enum).toContain(
+      'resume_job',
+    );
+    expect(spec.components.schemas.GuidedActionType.enum).not.toContain(
+      'fix_blocked_job',
+    );
+    expect(
+      spec.components.schemas.GuidedActionRequest.properties,
+    ).toHaveProperty('params');
 
     const operationIds = Object.values(spec.paths).flatMap((pathItem) =>
       Object.values(pathItem).map((operation) => operation.operationId),

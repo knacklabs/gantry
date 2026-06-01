@@ -164,4 +164,91 @@ export const adminOpenApiSchemas: Record<string, JsonSchema> = {
       binding: { $ref: '#/components/schemas/AgentConversationBinding' },
     },
   },
+  GuidedActionType: {
+    type: 'string',
+    enum: [
+      'connect_provider',
+      'add_conversation_binding',
+      'grant_access',
+      'resume_job',
+      'review_memory',
+      'change_agent_model',
+      'restart_runtime',
+      'run_verification',
+      'none',
+    ],
+  },
+  GuidedActionRequest: {
+    type: 'object',
+    properties: {
+      action: { $ref: '#/components/schemas/GuidedActionType' },
+      label: { type: 'string' },
+      params: {
+        type: 'object',
+        description:
+          'Target identifiers for execution (e.g. { "jobId": "job_1" } for resume_job). String values only.',
+        additionalProperties: { type: 'string' },
+      },
+    },
+  },
+  GuidedActionPreview: {
+    type: 'object',
+    required: [
+      'action',
+      'label',
+      'effect',
+      'requiresApproval',
+      'writesSettings',
+      'restartsRuntime',
+    ],
+    properties: {
+      action: { $ref: '#/components/schemas/GuidedActionType' },
+      label: { type: 'string' },
+      effect: { type: 'string' },
+      requiresApproval: { type: 'boolean' },
+      writesSettings: { type: 'boolean' },
+      restartsRuntime: { type: 'boolean' },
+    },
+  },
+  GuidedActionResult: {
+    oneOf: [
+      {
+        type: 'object',
+        required: [
+          'status',
+          'changed',
+          'savedTo',
+          'restartRequired',
+          'nextAction',
+        ],
+        properties: {
+          status: { type: 'string', enum: ['done'] },
+          changed: { type: 'string' },
+          savedTo: {
+            type: 'string',
+            enum: ['settings.yaml', 'runtime state', 'access policy', 'none'],
+          },
+          restartRequired: { type: 'boolean' },
+          nextAction: { type: 'string' },
+        },
+      },
+      {
+        type: 'object',
+        required: ['status', 'cause', 'recover'],
+        properties: {
+          status: { type: 'string', enum: ['failed'] },
+          cause: { type: 'string' },
+          recover: { type: 'string' },
+        },
+      },
+      {
+        type: 'object',
+        required: ['status', 'instruction'],
+        properties: {
+          status: { type: 'string', enum: ['manual'] },
+          instruction: { type: 'string' },
+        },
+      },
+    ],
+  },
 };
