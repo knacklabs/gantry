@@ -305,7 +305,10 @@ describe('runtime admin IPC handlers', () => {
         ops: { getAllConversationRoutes: vi.fn(async () => ({})) },
         repositories: {
           agents: {},
-          tools: { getTool: vi.fn(async () => null) },
+          tools: {
+            getTool: vi.fn(async () => null),
+            listTools: vi.fn(async () => []),
+          },
           skills: {
             getSkill: vi.fn(async () => null),
             listSkills: vi.fn(async () => []),

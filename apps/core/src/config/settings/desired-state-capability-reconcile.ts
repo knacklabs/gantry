@@ -18,6 +18,7 @@ import {
 import {
   normalizeConfiguredCapabilities,
   semanticCapabilityDefinitionsById,
+  semanticCapabilityDefinitionsFromCatalogTools,
   settingsCapabilityIdToToolRule,
   skillActionDefinitionsForSkills,
 } from './configured-capability-normalization.js';
@@ -169,9 +170,10 @@ async function toolIdsForReplacement(input: {
   const normalized = normalizeConfiguredCapabilities({
     capabilities: input.agent.capabilities,
   });
-  const semanticCapabilityDefinitions = semanticCapabilityDefinitionsById(
-    input.skillActionDefinitions ?? [],
-  );
+  const semanticCapabilityDefinitions = {
+    ...(await catalogSemanticCapabilityDefinitions(input)),
+    ...semanticCapabilityDefinitionsById(input.skillActionDefinitions ?? []),
+  };
   const ids = await Promise.all(
     [
       ...new Set(
@@ -189,6 +191,17 @@ async function toolIdsForReplacement(input: {
     }),
   );
   return ids;
+}
+
+async function catalogSemanticCapabilityDefinitions(input: {
+  appId: AppId;
+  repositories: SettingsDesiredStateRepositories;
+}): Promise<Record<string, SemanticCapabilityDefinition>> {
+  const tools = await input.repositories.tools.listTools({
+    appId: input.appId,
+    statuses: ['active'],
+  });
+  return semanticCapabilityDefinitionsFromCatalogTools(tools);
 }
 
 async function assertConfiguredMcpSources(input: {
