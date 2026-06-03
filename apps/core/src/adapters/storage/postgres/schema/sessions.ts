@@ -199,3 +199,29 @@ export const agentSessionDigestsPostgres = pgTable(
     ),
   }),
 );
+
+export const memoryExtractionCursorPostgres = pgTable(
+  'memory_extraction_cursor',
+  {
+    id: text('id').primaryKey(),
+    appId: text('app_id').notNull(),
+    agentId: text('agent_id').notNull(),
+    conversationId: text('conversation_id').notNull(),
+    threadId: text('thread_id'),
+    coveredThroughAt: timestamp('covered_through_at', {
+      withTimezone: true,
+      mode: 'string',
+    }).notNull(),
+    coveredThroughMessageId: text('covered_through_message_id').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    lookupIdx: index('idx_memory_extraction_cursor_lookup').on(
+      table.conversationId,
+      table.threadId,
+      table.agentId,
+    ),
+  }),
+);
