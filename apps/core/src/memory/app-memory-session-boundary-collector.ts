@@ -31,6 +31,7 @@ export async function collectDurableMemoryAtBoundary(
         },
       },
       sessionDigests: deps.repositories.agentSessionDigests,
+      extractionCursor: deps.repositories.memoryExtractionCursor,
     },
     extractFacts: (extractInput) =>
       extractor.extractFactsWithOutcome

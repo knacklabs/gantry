@@ -61,6 +61,20 @@ interface BoundaryMemoryRepositories {
       threadId: AgentSession['threadId'];
       limit: number;
     }) => Promise<Message[]>;
+    getMessagesSince: (input: {
+      conversationId: NonNullable<AgentSession['conversationId']>;
+      threadId: AgentSession['threadId'];
+      since: string;
+      sinceId: string;
+      limit: number;
+    }) => Promise<Message[]>;
+    getMessagesBefore: (input: {
+      conversationId: NonNullable<AgentSession['conversationId']>;
+      threadId: AgentSession['threadId'];
+      before: string;
+      beforeId: string;
+      limit: number;
+    }) => Promise<Message[]>;
   };
   memory: {
     listPriorMemoryItems: (input: {
@@ -85,6 +99,25 @@ interface BoundaryMemoryRepositories {
   };
   sessionDigests: {
     saveAgentSessionDigest: (digest: AgentSessionDigest) => Promise<void>;
+  };
+  extractionCursor: {
+    getCursor: (input: {
+      appId: AgentSession['appId'];
+      agentId: AgentSession['agentId'];
+      conversationId: NonNullable<AgentSession['conversationId']>;
+      threadId: AgentSession['threadId'];
+    }) => Promise<{
+      coveredThroughAt: string;
+      coveredThroughMessageId: string;
+    } | null>;
+    upsertCursor: (input: {
+      appId: AgentSession['appId'];
+      agentId: AgentSession['agentId'];
+      conversationId: NonNullable<AgentSession['conversationId']>;
+      threadId: AgentSession['threadId'];
+      coveredThroughAt: string;
+      coveredThroughMessageId: string;
+    }) => Promise<void>;
   };
 }
 
@@ -112,11 +145,52 @@ export async function collectDurableMemoryFromRepositories(input: {
   if (!session?.conversationId) return { saved: 0 };
 
   input.signal?.throwIfAborted();
-  const messages = await input.repositories.messages.listRecentMessages({
+  // Read-watermark: only extract messages NEWER than the cursor so each turn is
+  // digested at most once. A few CONTEXT turns at/before the cursor are read for
+  // grounding only (never extracted). On first run (no cursor) we bootstrap from
+  // the recent tail. The cursor is advanced AFTER a successful digest write.
+  const NEW_LIMIT = 80;
+  const CONTEXT_TURNS = 5;
+  const cursor = await input.repositories.extractionCursor.getCursor({
+    appId: session.appId,
+    agentId: session.agentId,
     conversationId: session.conversationId,
     threadId: session.threadId,
-    limit: 80,
   });
+  let messages: Message[];
+  let contextSource: Message[] = [];
+  if (cursor) {
+    messages = await input.repositories.messages.getMessagesSince({
+      conversationId: session.conversationId,
+      threadId: session.threadId,
+      since: cursor.coveredThroughAt,
+      sinceId: cursor.coveredThroughMessageId,
+      limit: NEW_LIMIT,
+    });
+    // Nothing new since the cursor: skip digest/LLM and leave the cursor put.
+    if (messages.length === 0) return { saved: 0 };
+    contextSource = await input.repositories.messages.getMessagesBefore({
+      conversationId: session.conversationId,
+      threadId: session.threadId,
+      before: cursor.coveredThroughAt,
+      beforeId: cursor.coveredThroughMessageId,
+      limit: CONTEXT_TURNS,
+    });
+  } else {
+    messages = await input.repositories.messages.listRecentMessages({
+      conversationId: session.conversationId,
+      threadId: session.threadId,
+      limit: NEW_LIMIT,
+    });
+    if (messages.length === 0) return { saved: 0 };
+  }
+  // Both getMessagesSince and listRecentMessages return oldest->newest, so the
+  // last element is the newest covered message: that becomes the new watermark.
+  const newest = messages[messages.length - 1]!;
+  const newWatermark = {
+    coveredThroughAt: newest.createdAt,
+    coveredThroughMessageId: newest.id,
+  };
   const candidateTurns: Array<{ role: 'user' | 'assistant'; text: string }> =
     [];
   for (const message of messages) {
@@ -133,6 +207,16 @@ export async function collectDurableMemoryFromRepositories(input: {
     if (!text) continue;
     candidateTurns.push({ role: turn.role, text });
   }
+  // Read-only grounding context: turns at/before the cursor. NEVER extracted —
+  // passed to the LLM only so brand-new turns can be understood against what came
+  // just before. messageText() applies the same sanitize/bound as the corpus.
+  const contextTurns = contextSource
+    .map((m) => ({
+      role:
+        m.direction === 'inbound' ? ('user' as const) : ('assistant' as const),
+      text: messageText(m),
+    }))
+    .filter((t) => t.text.length > 0);
   const rawRetrievedItems = (
     await input.repositories.memory.listPriorMemoryItems({
       session,
@@ -148,7 +232,22 @@ export async function collectDurableMemoryFromRepositories(input: {
     trigger: input.trigger,
   });
   const turns = promptPayload.turns;
-  if (turns.length === 0) return { saved: 0 };
+  if (turns.length === 0) {
+    // We DID read new messages (reaching here means messages.length > 0), they
+    // just yielded no extractable turns (content-less/budgeted-out). Advance the
+    // cursor anyway so the idle sweep does not keep re-selecting this same
+    // conversation forever (busy-loop). Only a THROWN error below leaves the
+    // cursor unmoved so the work is retried next sweep.
+    await input.repositories.extractionCursor.upsertCursor({
+      appId: session.appId,
+      agentId: session.agentId,
+      conversationId: session.conversationId,
+      threadId: session.threadId,
+      coveredThroughAt: newWatermark.coveredThroughAt,
+      coveredThroughMessageId: newWatermark.coveredThroughMessageId,
+    });
+    return { saved: 0 };
+  }
 
   // Agent-owned extraction prompt: used ONLY when the agent's settings.yaml
   // declares it (`agents.<folder>.plugins.memory_extraction: <file>`). The named
@@ -183,6 +282,7 @@ export async function collectDurableMemoryFromRepositories(input: {
             signal,
             timeoutMs: extractionTimeoutMs,
             ...(extractionSystemPrompt ? { extractionSystemPrompt } : {}),
+            ...(contextTurns.length > 0 ? { contextTurns } : {}),
           }),
         ),
       {
@@ -260,6 +360,17 @@ export async function collectDurableMemoryFromRepositories(input: {
     });
     saved += 1;
   }
+  // Advance the watermark LAST: only after the digest and all evidence have been
+  // written. If anything above threw, the cursor stays put and this batch is
+  // re-attempted on the next sweep.
+  await input.repositories.extractionCursor.upsertCursor({
+    appId: session.appId,
+    agentId: session.agentId,
+    conversationId: session.conversationId,
+    threadId: session.threadId,
+    coveredThroughAt: newWatermark.coveredThroughAt,
+    coveredThroughMessageId: newWatermark.coveredThroughMessageId,
+  });
   return { saved };
 }
 

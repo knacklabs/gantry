@@ -286,7 +286,12 @@ function buildPromptParts(input: ArcExtractionInput): {
     ].join('\n');
   }).join('\n\n');
 
+  const contextTurns = input.contextTurns || [];
+  // `earlier_context` is grounding-only background. It is rendered BEFORE
+  // `session_arc` so the model reads it first, but facts MUST come from
+  // `session_arc`. Omitted entirely when there is no context to avoid noise.
   const payload = {
+    ...(contextTurns.length > 0 ? { earlier_context: contextTurns } : {}),
     session_arc: input.turns,
     trigger: input.trigger,
     retrieved_items: (input.retrievedItems || []).slice(
@@ -299,8 +304,13 @@ function buildPromptParts(input: ArcExtractionInput): {
     'Reference examples (high precision, strict filtering):',
     examples,
   ].join('\n\n');
+  const contextInstruction =
+    contextTurns.length > 0
+      ? '`earlier_context` is read-only background from before this arc — use it ONLY to interpret `session_arc`; NEVER extract facts from it.'
+      : null;
   const dynamicUserBlock = [
     'Now extract from this session arc and return strict JSON array only:',
+    ...(contextInstruction ? [contextInstruction] : []),
     JSON.stringify(payload, null, 2),
   ].join('\n');
   // Agent-supplied prompt (runtime MEMORY_EXTRACTION.md) wins; else the generic
@@ -360,6 +370,20 @@ export class LlmMemoryExtractionProvider implements MemoryExtractionProvider {
       return extractionResult([], 'sensitive_blocked', 'sensitive_blocked');
     }
 
+    // Read-only grounding context. Sanitized symmetrically with `turns`, but a
+    // blocked/empty context turn is simply DROPPED (not fatal): it is background,
+    // never extracted, so it must not block extraction of the session arc.
+    const contextTurns = Array.isArray(input.contextTurns)
+      ? input.contextTurns
+      : [];
+    const sanitizedContextTurns = contextTurns.flatMap((turn) => {
+      const sanitized = sanitizeOutboundLlmText(turn.text);
+      if (sanitized.blocked) return [];
+      const text = sanitized.text.trim();
+      if (!text) return [];
+      return [{ role: turn.role, text }];
+    });
+
     const sanitizedRetrievedItems = (input.retrievedItems || [])
       .slice(0, PROMPT_RETRIEVED_ITEM_LIMIT)
       .flatMap((item) => {
@@ -404,6 +428,7 @@ export class LlmMemoryExtractionProvider implements MemoryExtractionProvider {
         role: turn.role,
         text: turn.text,
       })),
+      contextTurns: sanitizedContextTurns,
       retrievedItems: sanitizedRetrievedItems,
     });
     let usage: MemoryLlmUsage | undefined;

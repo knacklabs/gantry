@@ -14,6 +14,8 @@ export interface ArcExtractionInput {
    * (`MEMORY_EXTRACTION_SYSTEM_PROMPT`) is used.
    */
   extractionSystemPrompt?: string;
+  /** Earlier turns provided for grounding ONLY — never extract facts from these. */
+  contextTurns?: Array<{ role: 'user' | 'assistant'; text: string }>;
 }
 
 export interface MemoryExtractorUsage {

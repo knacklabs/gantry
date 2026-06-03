@@ -59,6 +59,8 @@ describe('collectDurableMemoryFromRepositories', () => {
               updatedAt: '2026-01-01T00:00:00.000Z',
             },
           ]),
+          getMessagesSince: vi.fn().mockResolvedValue([]),
+          getMessagesBefore: vi.fn().mockResolvedValue([]),
         },
         memory: {
           listPriorMemoryItems: vi.fn().mockResolvedValue([]),
@@ -66,6 +68,13 @@ describe('collectDurableMemoryFromRepositories', () => {
         },
         sessionDigests: {
           saveAgentSessionDigest,
+        },
+        // No cursor: these legacy cases exercise the first-run bootstrap path
+        // (listRecentMessages). The watermark only adds a terminal upsert, which
+        // these assertions intentionally ignore.
+        extractionCursor: {
+          getCursor: vi.fn().mockResolvedValue(null),
+          upsertCursor: vi.fn().mockResolvedValue(undefined),
         },
       },
     };
